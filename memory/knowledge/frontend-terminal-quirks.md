@@ -32,5 +32,23 @@ build, 2026-07-18):
   projects drawer resizes panes for real (fit → ws resize) instead of
   overlaying them, so merely opening a drawer exercises the whole resize
   chain.
+- **xterm's internal z-indexes ESCAPE a non-isolated host** (found
+  2026-07-18, first user bug): `.term-host` had `z-index: auto`, so xterm's
+  link-layer canvas (z:2) stacked above the launcher form — visually
+  perfect, but an invisible canvas ate every click in the pane area. Fix:
+  `z-index: 0` on the host creates a stacking context. Lesson: any overlay
+  sharing a pane with an xterm mount needs the mount isolated. Diagnostic
+  that found it: `document.elementFromPoint()` at the target's center — a
+  Playwright click timing out on "hit target" is this bug's signature.
+- **Headless UI testing works in this WSL without sudo**: Playwright
+  chromium + missing system libs obtained via `apt-get download` +
+  `dpkg -x` + `LD_LIBRARY_PATH`. A probe script (goto page, capture
+  console/pageerror, elementFromPoint, real click, screenshot) catches
+  whole bug classes that typecheck/build/protocol tests cannot. Worth
+  promoting into the test-engineer's toolkit as a proper smoke suite.
+- **WebGL context-loss fallback is imperfect under SwiftShader**: after
+  onContextLoss→dispose, an infinite INVALID_OPERATION delete-spam loop
+  appeared in headless Chromium (rendering still worked via DOM renderer).
+  Harmless on real GPUs so far; hardening candidate.
 
 Related: [[vanilla-ts-vite-frontend]], [[anti-slop-design-direction]]
