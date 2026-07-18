@@ -9,3 +9,7 @@ npm-debug.log*
 *.log
 .env
 .env.*
+
+# Build output
+web/dist/
+*.tsbuildinfo

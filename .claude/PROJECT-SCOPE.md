@@ -83,7 +83,9 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-- Exact projects.json location and schema details.
+- None currently.
 
-(Port strategy and frontend framework were settled 2026-07-18 — rationale in
-`memory/decisions/`.)
+(Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
+frontend; app data — projects.json, runtime.json, server.log — lives in
+`~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
+`shared/protocol.ts`. Rationale in `memory/decisions/`.)

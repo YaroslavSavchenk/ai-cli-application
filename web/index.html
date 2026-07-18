@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Session Manager</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!--
+      The AUTH_TOKEN placeholder below is replaced with the real auth token by
+      the backend when it serves / from web/dist. It must survive the Vite
+      build verbatim and appear exactly once in this file.
+    -->
+    <script>
+      window.__AUTH__ = '__AUTH_TOKEN__';
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

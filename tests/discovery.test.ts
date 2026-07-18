@@ -1,0 +1,93 @@
+/**
+ * Discovery file (runtime.json) lifecycle + data dir + loopback-only bind.
+ *
+ * Contract: data dir created 0700 (AI_SM_DATA_DIR override); runtime.json
+ * written atomically with mode 0600 containing {port, token, pid, startedAt};
+ * removed on clean SIGTERM; server binds 127.0.0.1 only; /health returns
+ * exactly {"ok":true}; logging goes to server.log, never stdout.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { startTestServer, waitUntil } from './helpers.ts';
+
+test('startup: runtime.json 0600 with correct shape, data dir 0700, health, server.log', async () => {
+  const server = await startTestServer();
+  try {
+    const rtStat = await stat(server.runtimeFile);
+    assert.equal(rtStat.mode & 0o777, 0o600, 'runtime.json must be mode 0600');
+
+    const dirStat = await stat(server.dataDir);
+    assert.ok(dirStat.isDirectory(), 'AI_SM_DATA_DIR must be created by the server');
+    assert.equal(dirStat.mode & 0o777, 0o700, 'data dir must be mode 0700');
+
+    const rt = server.runtime;
+    assert.ok(Number.isInteger(rt.port) && rt.port > 0, `port must be a positive integer, got ${rt.port}`);
+    assert.match(rt.token, /^[0-9a-f]{64,}$/, 'token must be hex with >= 32 bytes of entropy');
+    assert.equal(rt.pid, server.child.pid, 'runtime.json pid must be the server process pid');
+    assert.equal(new Date(rt.startedAt).toISOString(), rt.startedAt, 'startedAt must be ISO-8601');
+
+    const res = await fetch(`${server.baseUrl}/health`);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), '{"ok":true}', '/health body must be exactly {"ok":true}');
+
+    // Logging goes to server.log in the data dir.
+    const logFile = join(server.dataDir, 'server.log');
+    await waitUntil(
+      async () => {
+        try {
+          const content = await readFile(logFile, 'utf8');
+          return content.includes('listening') ? true : undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      'server.log to contain the "listening" line',
+      5_000,
+    );
+
+    // Loopback-only bind: the port must NOT be reachable via any external interface.
+    const externalIps = Object.values(networkInterfaces())
+      .flatMap((infos) => infos ?? [])
+      .filter((info) => info.family === 'IPv4' && !info.internal)
+      .map((info) => info.address);
+    for (const ip of externalIps) {
+      await assert.rejects(
+        fetch(`http://${ip}:${server.port}/health`, { signal: AbortSignal.timeout(2_000) }),
+        `server must not be reachable on ${ip}:${server.port} — it must bind 127.0.0.1 only`,
+      );
+    }
+    // IPv6 loopback must not be bound either (contract: 127.0.0.1 ONLY — this
+    // is why the launcher must open 127.0.0.1, never a ::1-resolving localhost).
+    await assert.rejects(
+      fetch(`http://[::1]:${server.port}/health`, { signal: AbortSignal.timeout(2_000) }),
+      'server must not listen on ::1',
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
+test('SIGTERM: removes runtime.json and exits with code 0', async () => {
+  const server = await startTestServer();
+  try {
+    assert.ok(existsSync(server.runtimeFile), 'runtime.json must exist while running');
+
+    server.child.kill('SIGTERM');
+    const exit = await Promise.race([server.exit, delay(10_000).then(() => undefined)]);
+    assert.ok(exit !== undefined, 'server did not exit within 10s of SIGTERM');
+    assert.equal(exit.code, 0, `clean shutdown must exit 0 (got code=${exit.code} signal=${exit.signal})`);
+    assert.equal(exit.signal, null);
+
+    assert.ok(!existsSync(server.runtimeFile), 'runtime.json must be removed on SIGTERM');
+
+    const log = await readFile(join(server.dataDir, 'server.log'), 'utf8');
+    assert.ok(log.includes('SIGTERM'), 'server.log must record the SIGTERM shutdown');
+  } finally {
+    await server.stop();
+  }
+});
