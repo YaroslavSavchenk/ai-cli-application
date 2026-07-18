@@ -27,4 +27,10 @@ tmux, vim statuslines, DAWs, mission control. Dense, precise, keyboard-first;
 xterm color scheme and app palette designed as one token system; structural
 (not glowy) focus states; thin information-bearing chrome.
 
+Realized direction (2026-07-18 MVP): **"phosphor instrument panel"** — warm
+graphite surfaces, mono-only type, radius 0, 1px structure lines, no
+shadows/gradients/blur, two single-meaning accents (green = focus/running,
+amber = attention ONLY). Full brief + slop-filter pass in `web/DESIGN.md`;
+tokens in `web/src/styles/tokens.css` (xterm theme fed from the same file).
+
 Related: [[agent-team-and-dev-flow]], [[pty-requirements]]

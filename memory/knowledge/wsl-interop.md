@@ -21,10 +21,27 @@ Facts this project's Windows integration relies on:
   entries). These always end up as a manual checklist for the user.
 - **Cold boot**: if the WSL VM is down, the first `wsl.exe` call pays a
   multi-second startup cost — launcher must show progress, not time out.
-- **Process lifetime**: a process started via `wsl.exe` dies when that
-  `wsl.exe` parent is killed — detachment (`setsid`/systemd) inside WSL is
-  what breaks the chain ([[detached-backend]]). WSL supports systemd user
-  services on current versions.
+- **Process lifetime — verified the hard way (2026-07-18, kernel
+  6.6.87.2)**: the textbook `setsid nohup cmd &` pattern DIES ~3s after the
+  spawning `wsl.exe` exits — backgrounded jobs are reaped with the interop
+  session. What survives: FOREGROUND `setsid --fork nohup cmd` (bash waits
+  for the intermediate parent, so the daemon is reparented into its own
+  session before wsl.exe exits). Proven across repeated launches; the
+  daemon ends up session leader under `/init` ([[detached-backend]],
+  implemented in launcher/start-backend.sh).
+- **nvm node is invisible to `wsl.exe`-spawned login shells**: they resolve
+  `/usr/bin/node` (v18 here) because the bashrc interactive guard precedes
+  nvm init. Any script run via `wsl.exe -- bash -lc` must source
+  `$NVM_DIR/nvm.sh` explicitly and enforce the required version.
+- **Edge on this machine uses the new EdgeCore layout**
+  (`C:\Program Files (x86)\Microsoft\EdgeCore\<ver>\msedge.exe`); the
+  classic `Edge\Application` path holds no real binary. Launchers must
+  probe both. Also: a pinned Edge `--app` tile bakes in the port — with
+  auto-picked ports it goes stale after a backend restart; pin the launcher
+  shortcut instead.
+- **The distro here is `Ubuntu-24.04`, not `Ubuntu`** — never hardcode a
+  distro name; the launcher does unique-prefix auto-resolution with a
+  guided error listing installed distros.
 - **Dev environment**: repo at `/home/sava/projects/ai-cli-application`;
   Obsidian/Explorer reach it via `\\wsl$\Ubuntu\...`.
 

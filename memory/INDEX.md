@@ -19,7 +19,9 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 - [[pty-requirements]] — why every session needs a real PTY and what breaks without resize propagation
 - [[wsl-interop]] — localhost forwarding, calling Windows binaries from WSL, cold-boot delay
 - [[localhost-security-model]] — the drive-by-web-page threat; token auth, Origin/Host checks, argv spawning
+- [[frontend-terminal-quirks]] — AltGr vs Ctrl+Alt chords, xterm detached-mount trap, attention poll latency, token rotation
 
 ## Log
 
+- [[2026-07-18-mvp-build]] — backend + frontend + launcher landed via dev-flow workflows; backlog and manual-pass list
 - [[2026-07-18-project-setup]] — scope agreed, agent team + dev-flow built, memory vault created

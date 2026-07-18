@@ -1,7 +1,8 @@
 /**
- * Skeleton smoke test: proves `node --test` runs TypeScript on Node 24 type
+ * Smoke test: proves `node --test` runs TypeScript on Node 24 type
  * stripping and that the shared protocol shapes round-trip through JSON.
- * Real behavioural tests land with the real backend.
+ * Behavioural coverage lives in the sibling test files (auth, discovery,
+ * projects, sessions).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

@@ -10,6 +10,9 @@ npm-debug.log*
 .env
 .env.*
 
+# Machine-local Claude Code config
+.claude/settings.local.json
+
 # Build output
 web/dist/
 *.tsbuildinfo

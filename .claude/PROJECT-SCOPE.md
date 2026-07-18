@@ -27,8 +27,8 @@ and multi-pane layouts on top.
   sessions; reopening reattaches.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
-  (`~/.ai-session-manager/runtime.json`: port, auth token, pid; user-only
-  readable) that the launcher and tools read — from Windows via
+  (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
+  user-only readable) that the launcher and tools read — from Windows via
   `wsl.exe cat`. No fixed port anywhere.
 - **Windows-side launcher** (thin): reads the discovery file and
   health-checks the discovered port; if the file is absent or stale, starts
@@ -40,8 +40,8 @@ and multi-pane layouts on top.
 
 ## Features (decided)
 
-- **Projects**: stored in a `projects.json` — `{ name, path, defaultModel,
-  defaultMode }`. UI shows the project *name* everywhere; the raw path
+- **Projects**: stored in a `projects.json` — `{ id, name, path,
+  defaultModel, defaultMode, createdAt }` (full schema: `shared/protocol.ts`). UI shows the project *name* everywhere; the raw path
   appears only as secondary metadata inside the manage-projects view (needed
   to disambiguate add/delete). "Add project" = browse to a directory + give
   it a name.
@@ -51,8 +51,9 @@ and multi-pane layouts on top.
   command + args, which is what makes multi-CLI support free.
 - **Tabs and layouts**: each tab is a grid of 1–4 panes; a layout maps
   sessions to pane slots. Sessions exist independently of tabs/panes.
-- **Attention badges**: surface when a hidden session is waiting for input
-  (terminal bell / OSC sequences, or Claude Code hooks).
+- **Attention badges**: surface when a hidden session is waiting for input.
+  Implemented: BEL (0x07) detection in output. Possible later: OSC
+  sequences, Claude Code hooks.
 
 ## Hard technical constraints
 
