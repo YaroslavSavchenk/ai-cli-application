@@ -1,0 +1,1019 @@
+/*
+ * App styles — dense-industrial "phosphor instrument panel" per web/DESIGN.md.
+ * Every value comes from tokens.css. Structure is 1px lines and solid inverse
+ * blocks; radius 0; no shadows, no gradients, no blur. The terminal pane
+ * dominates; both bars are readouts.
+ */
+
+/* ---- base ---------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--bg-deep);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge);
+  padding: var(--s-2) var(--s-3);
+  width: 100%;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--edge-strong);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--line) solid var(--focus);
+  outline-offset: -1px;
+}
+
+button,
+.pane {
+  transition:
+    color var(--t-fast),
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    opacity var(--t-fast);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge-strong) transparent;
+}
+
+/* micro-label: letterspaced small caps, hierarchy without a second family */
+.drawer-label,
+.field-lb,
+.launcher-hd,
+.brand {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-micro);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+/* ---- attention badge: inverse amber block, readable across the room ------ */
+
+.badge-attn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  padding: 0 var(--s-2);
+  background: var(--attn);
+  color: var(--attn-ink);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  line-height: 14px;
+  animation: badge-in var(--t-move) ease-out;
+}
+
+@keyframes badge-in {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* ---- topbar --------------------------------------------------------------- */
+
+.topbar {
+  height: var(--bar-h);
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-raise);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s-4);
+  border-right: var(--line) solid var(--edge);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.tabstrip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  border-right: var(--line) solid var(--edge);
+  white-space: nowrap;
+}
+
+.tab-sel {
+  height: 100%;
+  padding: 0 var(--s-3);
+  color: var(--ink-mute);
+}
+
+.tab-sel:hover {
+  color: var(--ink);
+  background: var(--bg-hover);
+}
+
+.tab.is-active .tab-sel {
+  color: var(--ink);
+  box-shadow: inset 0 2px 0 var(--focus); /* active-tab tick */
+}
+
+.tab .badge-attn {
+  margin: 0 var(--s-1);
+}
+
+.tab-x {
+  height: 100%;
+  padding: 0 var(--s-2);
+  color: var(--ink-faint);
+}
+
+.tab-x:hover {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+
+.tab-new {
+  padding: 0 var(--s-4);
+  color: var(--ink-mute);
+}
+
+.tab-new:hover {
+  color: var(--ink);
+  background: var(--bg-hover);
+}
+
+/* layout switcher: 1px-line miniature diagrams */
+
+.layswitch {
+  display: flex;
+  align-items: stretch;
+  border-left: var(--line) solid var(--edge);
+}
+
+.laybtn {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s-3);
+  color: var(--ink-faint);
+}
+
+.laybtn:hover {
+  color: var(--ink-mute);
+  background: var(--bg-hover);
+}
+
+.laybtn.is-active {
+  color: var(--focus);
+  background: var(--bg-hover);
+}
+
+.mini {
+  display: grid;
+  width: 16px;
+  height: 12px;
+  gap: 1px;
+  background: currentColor; /* the 1px gaps ARE the diagram lines */
+  border: 1px solid currentColor;
+}
+
+.mini i {
+  background: var(--bg-raise);
+}
+
+.mini-1 {
+  grid-template: 1fr / 1fr;
+}
+
+.mini-2 {
+  grid-template: 1fr / 1fr 1fr;
+}
+
+.mini-3 {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
+
+.mini-3 i:first-child {
+  grid-row: 1 / 3;
+}
+
+.mini-4 {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: stretch;
+  border-left: var(--line) solid var(--edge);
+}
+
+.tb-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-4);
+  color: var(--ink-mute);
+  border-left: var(--line) solid var(--edge);
+}
+
+.tb-btn:first-child {
+  border-left: none;
+}
+
+.tb-btn:hover {
+  color: var(--ink);
+  background: var(--bg-hover);
+}
+
+.tb-btn.is-on {
+  color: var(--ink);
+  background: var(--bg-hover);
+  box-shadow: inset 0 2px 0 var(--focus);
+}
+
+.tb-help {
+  min-width: var(--bar-h);
+  justify-content: center;
+}
+
+/* ---- main row: pane grid + drawer ---------------------------------------- */
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.grid {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--line);
+  background: var(--edge); /* 1px gutters: structure lines, not decoration */
+}
+
+.grid[data-layout='1'] {
+  grid-template: 1fr / 1fr;
+}
+
+.grid[data-layout='2'] {
+  grid-template: 1fr / 1fr 1fr;
+}
+
+.grid[data-layout='3'] {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
+
+.grid[data-layout='3'] .pane[data-slot='0'] {
+  grid-row: 1 / 3;
+}
+
+.grid[data-layout='4'] {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
+
+/* ---- pane ------------------------------------------------------------------ */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-term);
+  outline: none;
+}
+
+/* focus is structural: crisp 1px accent edge; unfocused panes dim slightly */
+.pane.focused {
+  outline: var(--line) solid var(--focus);
+  outline-offset: -1px;
+}
+
+.grid:not([data-layout='1']) .pane:not(.focused) {
+  opacity: 0.85;
+}
+
+.pane-hd {
+  height: var(--paneheader-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-3);
+  background: var(--bg-raise);
+  border-bottom: var(--line) solid var(--edge);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.focus-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--edge-strong); /* record light: green only when focused */
+}
+
+.pane.focused .focus-mark {
+  background: var(--focus);
+}
+
+.pane-proj {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-title {
+  color: var(--ink-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane-title.is-empty {
+  color: var(--ink-faint);
+}
+
+.pane-status,
+.pane-conn {
+  font-size: var(--fs-micro);
+  color: var(--ink-mute);
+}
+
+.is-ok {
+  color: var(--ok);
+}
+
+.is-danger {
+  color: var(--danger);
+}
+
+/* degraded-but-recovering conn: muted readout — amber is attention-only */
+.is-warn {
+  color: var(--ink-mute);
+}
+
+.pane-gap {
+  flex: 1;
+}
+
+.pane-btn {
+  padding: 0 var(--s-2);
+  font-size: var(--fs-micro);
+  color: var(--ink-mute);
+  border: var(--line) solid transparent;
+}
+
+.pane-btn:hover {
+  color: var(--ink);
+  border-color: var(--edge-strong);
+}
+
+.pane-btn.is-danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.pane-btn[data-armed='1'],
+.row-btn[data-armed='1'] {
+  background: var(--danger);
+  color: var(--bg-deep);
+  border-color: var(--danger);
+}
+
+/* exited / dead banner: full-width structural strip, buffer stays readable */
+
+.pane-note {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-1) var(--s-3);
+  background: var(--bg-raise);
+  border-bottom: var(--line) solid var(--edge);
+  font-size: var(--fs-micro);
+}
+
+.pane-note.is-exit .pane-note-text {
+  color: var(--ink-mute);
+}
+
+.pane-note.is-exit-err .pane-note-text {
+  color: var(--danger);
+}
+
+.pane-note.is-dead {
+  background: var(--danger);
+}
+
+.pane-note.is-dead .pane-note-text {
+  color: var(--bg-deep);
+  font-weight: 700;
+}
+
+.pane-note-btn {
+  padding: 0 var(--s-2);
+  border: var(--line) solid var(--edge-strong);
+  color: var(--ink-mute);
+}
+
+.pane-note-btn:hover {
+  color: var(--ink);
+  border-color: var(--ink-mute);
+}
+
+.pane-note.is-dead .pane-note-btn {
+  border-color: var(--bg-deep);
+  color: var(--bg-deep);
+}
+
+.pane-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.term-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* FitAddon subtracts .xterm's own padding from the host size */
+.term-host .xterm {
+  padding: var(--s-2);
+}
+
+/* ---- launcher: empty pane = top-left config block, not a friendly void ---- */
+
+.launcher {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-term);
+  padding: var(--s-6);
+  overflow: auto;
+}
+
+.launcher > * {
+  max-width: 360px;
+}
+
+.launcher-hd {
+  margin-bottom: var(--s-5);
+  padding-bottom: var(--s-2);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.field {
+  display: block;
+  margin-bottom: var(--s-4);
+}
+
+.field-lb {
+  display: block;
+  margin-bottom: var(--s-1);
+}
+
+.field-hint {
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-faint);
+}
+
+.field.is-disabled {
+  opacity: 0.45;
+}
+
+.preset-set {
+  border: var(--line) solid var(--edge);
+  padding: var(--s-3) var(--s-4) var(--s-4);
+  margin-bottom: var(--s-4);
+}
+
+.preset-set legend {
+  padding: 0 var(--s-2);
+}
+
+.preset-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-1) 0;
+  cursor: pointer;
+}
+
+.preset-opt input {
+  width: auto;
+  accent-color: var(--focus);
+}
+
+.launcher-actions {
+  display: flex;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+}
+
+.btn {
+  padding: var(--s-2) var(--s-4);
+  border: var(--line) solid var(--edge-strong);
+  background: var(--bg-raise);
+  color: var(--ink);
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  color: var(--ink-faint);
+  border-color: var(--edge);
+  cursor: default;
+}
+
+.btn.is-primary {
+  background: var(--focus);
+  color: var(--focus-ink);
+  border-color: var(--focus);
+  font-weight: 700;
+}
+
+.btn.is-primary:hover {
+  background: var(--focus);
+  opacity: 0.9;
+}
+
+.btn.is-primary:disabled {
+  background: var(--bg-raise);
+  color: var(--ink-faint);
+  border-color: var(--edge);
+  opacity: 1;
+}
+
+.btn-link {
+  color: var(--focus);
+  text-decoration: underline;
+  padding: 0;
+}
+
+.launcher-err {
+  margin-top: var(--s-4);
+  padding: var(--s-2) var(--s-3);
+  border: var(--line) solid var(--danger);
+  color: var(--danger);
+  font-size: var(--fs-micro);
+  overflow-wrap: anywhere;
+}
+
+.launcher-none {
+  margin-top: var(--s-4);
+  color: var(--ink-mute);
+}
+
+/* ---- drawer: structural sibling of the grid (panes resize, not covered) --- */
+
+.drawer {
+  flex: none;
+  width: var(--drawer-w);
+  background: var(--bg-raise);
+  border-left: var(--line) solid var(--edge);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-hd {
+  height: var(--bar-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-left: var(--s-4);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.drawer-count {
+  color: var(--ink-faint);
+  font-size: var(--fs-micro);
+}
+
+.drawer-gap {
+  flex: 1;
+}
+
+.drawer-x {
+  height: 100%;
+  min-width: var(--bar-h);
+  color: var(--ink-mute);
+  border-left: var(--line) solid var(--edge);
+}
+
+.drawer-x:hover {
+  color: var(--ink);
+  background: var(--bg-hover);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.drawer-empty {
+  padding: var(--s-4);
+  color: var(--ink-faint);
+}
+
+/* sessions rows */
+
+.sess-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.sess-row .badge-attn {
+  margin-top: var(--s-1);
+}
+
+.sess-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.sess-name {
+  display: flex;
+  gap: var(--s-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sess-proj {
+  font-weight: 700;
+}
+
+.sess-sep {
+  color: var(--ink-faint);
+}
+
+.sess-title {
+  color: var(--ink-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sess-meta {
+  display: flex;
+  gap: var(--s-3);
+  font-size: var(--fs-micro);
+  color: var(--ink-mute);
+}
+
+.sess-here {
+  color: var(--focus);
+}
+
+.sess-actions {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.row-btn {
+  padding: 0 var(--s-2);
+  font-size: var(--fs-micro);
+  border: var(--line) solid var(--edge-strong);
+  color: var(--ink-mute);
+}
+
+.row-btn:hover {
+  color: var(--ink);
+  border-color: var(--ink-mute);
+}
+
+.row-btn.is-danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* projects rows + add form */
+
+.proj-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.proj-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.proj-name {
+  font-weight: 700;
+}
+
+.proj-path,
+.proj-meta {
+  font-size: var(--fs-micro);
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.proj-add {
+  padding: var(--s-4);
+  border-top: var(--line) solid var(--edge-strong);
+  margin-top: var(--s-6);
+}
+
+.dir-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.dir-chosen {
+  font-size: var(--fs-micro);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.dir-chosen.is-unset {
+  color: var(--ink-faint);
+}
+
+/* ---- modal (directory browser) + overlay (shortcuts) ---------------------- */
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--scrim); /* flat scrim — no blur, ever */
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+}
+
+.modal {
+  width: min(560px, 92vw);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raise);
+  border: var(--line) solid var(--edge-strong);
+}
+
+.modal-hd {
+  height: var(--bar-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-left: var(--s-4);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.dirnav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.dirpath {
+  font-size: var(--fs-micro);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.dirlist {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+}
+
+.dir-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--s-2) var(--s-4);
+  color: var(--ink);
+}
+
+.dir-btn:hover {
+  background: var(--bg-hover);
+}
+
+.modal .launcher-err {
+  margin: var(--s-3) var(--s-4);
+}
+
+.modal-ft {
+  flex: none;
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-top: var(--line) solid var(--edge);
+}
+
+/* shortcuts table */
+
+.modal-shortcuts {
+  width: min(640px, 92vw);
+}
+
+.sc-table {
+  padding: var(--s-4) 0;
+}
+
+.sc-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 1fr;
+  gap: var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  align-items: baseline;
+}
+
+.sc-keys {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 0 var(--s-2);
+  border: var(--line) solid var(--edge-strong);
+  background: var(--bg-deep);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.sc-or {
+  color: var(--ink-faint);
+  font-size: var(--fs-micro);
+}
+
+.sc-what {
+  color: var(--ink);
+}
+
+.sc-ui {
+  color: var(--ink-mute);
+  font-size: var(--fs-micro);
+}
+
+.sc-note {
+  padding: var(--s-4);
+  border-top: var(--line) solid var(--edge);
+  color: var(--ink-mute);
+  font-size: var(--fs-micro);
+}
+
+/* ---- statusline: pure readout --------------------------------------------- */
+
+.statusline {
+  height: var(--status-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--s-4);
+  background: var(--bg-raise);
+  border-top: var(--line) solid var(--edge);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-left,
+.status-right {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  min-width: 0;
+}
+
+.status-seg {
+  color: var(--ink-mute);
+}
+
+.status-strong {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-warn {
+  color: var(--ink-mute);
+}
+
+.status-danger {
+  color: var(--danger);
+}
+
+/* inverse ink block, NOT amber: amber means attention, flashes are notices */
+.status-flash {
+  background: var(--ink);
+  color: var(--bg-deep);
+  padding: 0 var(--s-2);
+  font-weight: 700;
+}
+
+/* ---- boot error ------------------------------------------------------------ */
+
+.boot-err {
+  margin: 20vh auto 0;
+  max-width: 460px;
+  padding: var(--s-6);
+  background: var(--bg-raise);
+  border: var(--line) solid var(--danger);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  align-items: flex-start;
+}
+
+.boot-err-hd {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-micro);
+  text-transform: uppercase;
+}
+
+.boot-err-msg {
+  color: var(--ink-mute);
+  overflow-wrap: anywhere;
+}

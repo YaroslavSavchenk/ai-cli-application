@@ -3,7 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>AI Session Manager</title>
+    <!-- Inline (= --bg-deep in tokens.css) so there is no white flash before
+         the bundle's CSS lands; the one sanctioned color outside tokens. -->
+    <style>
+      html {
+        background: #0b0d0c;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

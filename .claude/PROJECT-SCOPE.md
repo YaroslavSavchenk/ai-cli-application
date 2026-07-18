@@ -32,16 +32,19 @@ and multi-pane layouts on top.
   `wsl.exe cat`. No fixed port anywhere.
 - **Windows-side launcher** (thin): reads the discovery file and
   health-checks the discovered port; if the file is absent or stale, starts
-  the backend via `wsl.exe -d Ubuntu -- ...`, waits for file + health, then
-  opens the UI. MVP launcher is a script + Edge `--app` chromeless window; a
+  the backend via `wsl.exe -d <distro> -- ...` (distro configurable with
+  unique-prefix auto-resolution, default `Ubuntu`), waits for file + health,
+  then opens the UI. MVP launcher is a script + Edge `--app` chromeless window; a
   Tauri shell (icon, tray, native folder picker) is the later upgrade.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
 
 - **Projects**: stored in a `projects.json` — `{ name, path, defaultModel,
-  defaultMode }`. UI shows the project *name*, never the raw path. "Add
-  project" = browse to a directory + give it a name.
+  defaultMode }`. UI shows the project *name* everywhere; the raw path
+  appears only as secondary metadata inside the manage-projects view (needed
+  to disambiguate add/delete). "Add project" = browse to a directory + give
+  it a name.
 - **Launch presets per session**: permission mode (standard vs
   `--dangerously-skip-permissions`), model selection, resume
   (`claude --resume` / `-c`). The launched "agent" is a configurable

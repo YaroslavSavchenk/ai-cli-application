@@ -1,0 +1,89 @@
+/*
+ * Design tokens — the single source of truth for every color, size and
+ * timing in the UI. See web/DESIGN.md for the rationale.
+ *
+ * The xterm.js theme is built at runtime from the --xt-* properties below
+ * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
+ * and the app palette are ONE system by construction. Never hardcode a color
+ * outside this file.
+ */
+:root {
+  /* ---- palette: warm graphite ramp (phosphor lineage) ------------------- */
+  --bg-deep: #0b0d0c;   /* app root, inputs, scrim base                      */
+  --bg-term: #101312;   /* terminal + pane floor — the visual ground         */
+  --bg-raise: #161a18;  /* bars, headers, drawer                             */
+  --bg-hover: #1f2521;  /* hover/active surfaces                             */
+  --edge: #262d28;      /* 1px structure lines                               */
+  --edge-strong: #3a443d;
+  --scrim: rgba(11, 13, 12, 0.78); /* modal scrim: --bg-deep at 78%, flat    */
+
+  --ink: #d6d3c2;       /* primary text (= terminal foreground)              */
+  --ink-mute: #8f9384;
+  --ink-faint: #5a5f54;
+
+  /* Two accents, one meaning each (see DESIGN.md). */
+  --focus: #7edc93;     /* phosphor green: focus / alive / primary action    */
+  --focus-ink: #0b0d0c; /* text on green                                     */
+  --attn: #ffab2e;      /* signal amber: attention only                      */
+  --attn-ink: #140e02;  /* text on amber                                     */
+  --danger: #e5654f;    /* kill / nonzero exit                               */
+  --ok: var(--focus);
+
+  /* ---- xterm palette (same system) -------------------------------------- */
+  --xt-bg: var(--bg-term);
+  --xt-fg: var(--ink);
+  --xt-cursor: var(--attn);
+  --xt-cursor-accent: var(--attn-ink);
+  --xt-selection: rgba(126, 220, 147, 0.24);
+  --xt-black: #202622;
+  --xt-red: #e5654f;
+  --xt-green: #83c975;
+  --xt-yellow: #d9b661;
+  --xt-blue: #7aa5c9;
+  --xt-magenta: #bd8bc0;
+  --xt-cyan: #6fbfb2;
+  --xt-white: #d6d3c2;
+  --xt-bright-black: #5a5f54;
+  --xt-bright-red: #f2846f;
+  --xt-bright-green: #9ee88f;
+  --xt-bright-yellow: #f0cf7a;
+  --xt-bright-blue: #9cc3e6;
+  --xt-bright-magenta: #d8a3d3;
+  --xt-bright-cyan: #8fd8cc;
+  --xt-bright-white: #f2efe2;
+
+  /* ---- type: monospace only, no webfont fetch (offline localhost tool) -- */
+  --font-mono: "Berkeley Mono", "JetBrains Mono", "Cascadia Mono",
+    "IBM Plex Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
+  --fs-term: 13px;
+  --fs-ui: 12px;
+  --fs-micro: 10px;
+  --ls-micro: 0.08em; /* letterspacing for SMALL-CAPS micro-labels */
+
+  /* ---- strict spacing scale --------------------------------------------- */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 24px;
+
+  /* ---- structure --------------------------------------------------------- */
+  --bar-h: 30px;
+  --status-h: 24px;
+  --paneheader-h: 26px;
+  --drawer-w: 320px;
+  --radius: 0px; /* sharp corners are the panel language */
+  --line: 1px;
+
+  /* ---- motion: functional only, <=150ms ---------------------------------- */
+  --t-fast: 80ms;
+  --t-move: 120ms;
+
+  /* ---- z ----------------------------------------------------------------- */
+  --z-drawer: 30;
+  --z-modal: 50;
+  --z-overlay: 60;
+}
