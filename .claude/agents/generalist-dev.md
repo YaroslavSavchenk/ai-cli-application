@@ -19,8 +19,10 @@ The facts your work hinges on:
   `claude`-specific assumptions in shared code.
 - Projects are `{ name, path, defaultModel, defaultMode }` and the UI shows
   the name, never the path.
-- Open decisions (port strategy, frontend framework) belong to the user —
-  build around them with a single configurable point, don't settle them.
+- Open decisions listed in the scope doc belong to the user — build around
+  them, don't settle them. Already settled: the port is auto-picked and
+  published via the runtime discovery file; the frontend is vanilla
+  TypeScript + Vite.
 
 Boundaries:
 

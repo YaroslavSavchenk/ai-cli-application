@@ -35,8 +35,9 @@ Boundaries:
 - Do not modify backend session semantics or server code; if the task needs a
   WebSocket protocol change, flag it prominently in your report instead of
   hacking around it client-side.
-- Do not introduce a framework or heavy dependency — the frontend framework
-  choice is an open decision reserved for the user.
+- The frontend is **vanilla TypeScript + Vite** (decided 2026-07-18). Do not
+  introduce a UI framework or heavy dependency; if you believe one is
+  genuinely needed, flag it in your report instead of adding it.
 - Do not commit or push.
 
 Verify before reporting: load the UI against a running backend and exercise

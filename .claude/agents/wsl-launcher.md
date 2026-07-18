@@ -11,16 +11,19 @@ Before doing anything else, Read `.claude/PROJECT-SCOPE.md`.
 
 The facts your work hinges on:
 
-- Launch flow: launcher health-checks `http://localhost:<PORT>/health`; if
-  nothing answers, start the backend via
+- Launch flow: launcher reads the runtime discovery file
+  (`~/.ai-session-manager/runtime.json` — port, auth token, pid; from
+  Windows via `wsl.exe cat`) and health-checks the discovered port; if the
+  file is absent/stale or health fails, start the backend via
   `wsl.exe -d Ubuntu -- ...` **detached** (setsid MVP, systemd user service
-  later), poll health until up, then open the UI (Edge `--app` window MVP;
+  later), wait for file + health, then open the UI (Edge `--app` window MVP;
   Tauri shell later). WSL2 localhost forwarding carries the traffic.
 - The backend must NEVER be a child that dies with the launcher or window —
   session survival across window close is a core promise of this app.
 - Cold WSL boot adds seconds; the launcher must handle the wait gracefully.
-- Port is an open decision (working default 3777) — keep it configurable in
-  one place.
+- The port is auto-picked by the backend (decided 2026-07-18) — never
+  hardcode one; always resolve it through the discovery file. A stale file
+  (dead pid / failed health) means start fresh, not error out.
 
 Environment reality — you run INSIDE WSL:
 

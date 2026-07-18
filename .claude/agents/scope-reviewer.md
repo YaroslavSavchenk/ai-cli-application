@@ -30,7 +30,8 @@ Check specifically for these failure classes:
    is required.
 8. **Unbounded growth** — scrollback buffers or logs with no cap.
 9. **Silent decisions** — code that settles an open decision from the scope
-   doc (port strategy, frontend framework) without flagging it.
+   doc's "Open decisions" section without flagging it; also hardcoded ports
+   (the port is auto-picked and read from the discovery file).
 10. **Scope drift** — code contradicting the scope doc, OR revealing the
     scope doc is outdated. Either way, report it; never edit the doc.
 

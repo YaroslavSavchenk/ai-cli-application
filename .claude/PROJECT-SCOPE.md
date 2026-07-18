@@ -16,16 +16,23 @@ and multi-pane layouts on top.
 - **Web app running inside WSL.** A Node.js backend runs in WSL2 (Ubuntu). It
   spawns each session in a real pseudo-terminal via **node-pty**, streams I/O
   over **WebSocket**, and serves the frontend over HTTP.
-- **Frontend: xterm.js**, one instance per visible pane. WebGL renderer, fit
-  addon for sizing, bounded scrollback.
+- **Frontend: vanilla TypeScript + Vite** — no UI framework (decided
+  2026-07-18). Terminal rendering via **xterm.js**, one instance per visible
+  pane. WebGL renderer, fit addon for sizing, bounded scrollback.
 - **Sessions are first-class server-side objects.** The PTY and its state live
   in the backend; the browser is only a view. Sessions keep running when their
   pane is hidden or the window is closed.
 - **Backend runs detached** from any window (setsid for MVP, systemd user
   service inside WSL later), started on demand. Closing the GUI never kills
   sessions; reopening reattaches.
-- **Windows-side launcher** (thin): health-checks `http://localhost:<PORT>/health`;
-  if nothing answers, starts the backend via `wsl.exe -d Ubuntu -- ...`, then
+- **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
+  on an OS-assigned free port and publishes a runtime discovery file
+  (`~/.ai-session-manager/runtime.json`: port, auth token, pid; user-only
+  readable) that the launcher and tools read — from Windows via
+  `wsl.exe cat`. No fixed port anywhere.
+- **Windows-side launcher** (thin): reads the discovery file and
+  health-checks the discovered port; if the file is absent or stale, starts
+  the backend via `wsl.exe -d Ubuntu -- ...`, waits for file + health, then
   opens the UI. MVP launcher is a script + Edge `--app` chromeless window; a
   Tauri shell (icon, tray, native folder picker) is the later upgrade.
 - WSL2 localhost forwarding is how Windows reaches the backend.
@@ -76,6 +83,7 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-- Fixed port (working default: 3777) vs auto-pick with discovery.
-- Frontend framework (vanilla/lightweight vs React) — undecided.
 - Exact projects.json location and schema details.
+
+(Port strategy and frontend framework were settled 2026-07-18 — rationale in
+`memory/decisions/`.)

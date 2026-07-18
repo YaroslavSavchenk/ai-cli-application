@@ -25,8 +25,11 @@ What happened:
   `.claude/skills/memory/SKILL.md`; `/dev-flow` now recalls from and writes
   back to memory.
 
-Open decisions (also in scope doc): port strategy (working default 3777),
-frontend framework choice.
+Later the same day: environment verified ready (Node 24.14, npm 11.9,
+native build toolchain for node-pty, claude CLI 2.1.214), `CLAUDE.md`
+created, everything committed (repo-local git identity configured). The two
+blocking decisions were settled by the user: [[auto-port-discovery]] and
+[[vanilla-ts-vite-frontend]]. Remaining open decision: projects.json
+location/schema details.
 
-Next: implementation plan, then MVP build through `/dev-flow`. Nothing is
-committed to git yet as of this entry.
+Next: implementation plan, then MVP build through `/dev-flow`.
