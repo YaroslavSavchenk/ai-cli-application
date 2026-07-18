@@ -1,0 +1,81 @@
+# Project Scope — AI CLI Session Manager
+
+Single source of truth for what this project is and the decisions already made.
+Skills and agents reference this file instead of duplicating it. Update it when
+a decision changes; never let it silently drift from reality.
+
+## What we are building
+
+A GUI to run and manage multiple AI CLI sessions (Claude Code first; Codex CLI,
+Gemini CLI and others later) side by side. Each session is a real interactive
+terminal running inside WSL; the GUI adds project management, launch presets,
+and multi-pane layouts on top.
+
+## Architecture (decided)
+
+- **Web app running inside WSL.** A Node.js backend runs in WSL2 (Ubuntu). It
+  spawns each session in a real pseudo-terminal via **node-pty**, streams I/O
+  over **WebSocket**, and serves the frontend over HTTP.
+- **Frontend: xterm.js**, one instance per visible pane. WebGL renderer, fit
+  addon for sizing, bounded scrollback.
+- **Sessions are first-class server-side objects.** The PTY and its state live
+  in the backend; the browser is only a view. Sessions keep running when their
+  pane is hidden or the window is closed.
+- **Backend runs detached** from any window (setsid for MVP, systemd user
+  service inside WSL later), started on demand. Closing the GUI never kills
+  sessions; reopening reattaches.
+- **Windows-side launcher** (thin): health-checks `http://localhost:<PORT>/health`;
+  if nothing answers, starts the backend via `wsl.exe -d Ubuntu -- ...`, then
+  opens the UI. MVP launcher is a script + Edge `--app` chromeless window; a
+  Tauri shell (icon, tray, native folder picker) is the later upgrade.
+- WSL2 localhost forwarding is how Windows reaches the backend.
+
+## Features (decided)
+
+- **Projects**: stored in a `projects.json` — `{ name, path, defaultModel,
+  defaultMode }`. UI shows the project *name*, never the raw path. "Add
+  project" = browse to a directory + give it a name.
+- **Launch presets per session**: permission mode (standard vs
+  `--dangerously-skip-permissions`), model selection, resume
+  (`claude --resume` / `-c`). The launched "agent" is a configurable
+  command + args, which is what makes multi-CLI support free.
+- **Tabs and layouts**: each tab is a grid of 1–4 panes; a layout maps
+  sessions to pane slots. Sessions exist independently of tabs/panes.
+- **Attention badges**: surface when a hidden session is waiting for input
+  (terminal bell / OSC sequences, or Claude Code hooks).
+
+## Hard technical constraints
+
+- Every session needs a **real PTY** — the hosted CLIs are full TUIs (raw
+  mode, alt screen, cursor control). Capturing stdout is not an option.
+- **Resize must propagate**: pane resize → xterm.js fit addon → `pty.resize()`,
+  or TUIs render garbage.
+- Keyboard input goes **to the terminal** (Ctrl+C etc. must reach the PTY);
+  app-level shortcuts must not collide with TUI keybindings.
+- Focused pane must be clearly indicated when multiple panes are visible.
+
+## Environment
+
+- Development happens inside WSL2 Ubuntu at `/home/sava/projects/ai-cli-application`.
+- The user runs Windows + WSL2; the app must work in that setup first.
+
+## Process
+
+Nontrivial changes follow the development loop in
+`.claude/skills/dev-flow/SKILL.md`: a developer agent implements, reviewers
+(`scope-reviewer`, `security-auditor`, `test-engineer`) gate the change, the
+`fixer` resolves findings, and the loop repeats until clean, then a final
+verification gate. Reviewers never edit code; the fixer never adds features;
+the `janitor` keeps the repo tidy between features.
+
+Project memory is an Obsidian-style vault at `memory/` (conventions in
+`.claude/skills/memory/SKILL.md`): this file holds the current truth; the
+vault holds the *why*, rejected alternatives, learnings, and the work log.
+Recall from it before nontrivial work; write back after decisions and
+landed features.
+
+## Open decisions (do not treat as settled)
+
+- Fixed port (working default: 3777) vs auto-pick with discovery.
+- Frontend framework (vanilla/lightweight vs React) — undecided.
+- Exact projects.json location and schema details.

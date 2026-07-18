@@ -1,0 +1,11 @@
+# Obsidian workspace config (memory/ vault) — machine-local, never shared
+.obsidian/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Local runtime data
+*.log
+.env
+.env.*
