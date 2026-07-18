@@ -491,6 +491,10 @@ button,
   position: absolute;
   inset: 0;
   overflow: hidden;
+  /* Own stacking context: xterm's internal z-indexed layers (link-layer
+     canvas z:2 etc.) must never escape and sit above pane chrome — an
+     invisible canvas over the launcher eats every click. */
+  z-index: 0;
 }
 
 /* FitAddon subtracts .xterm's own padding from the host size */
