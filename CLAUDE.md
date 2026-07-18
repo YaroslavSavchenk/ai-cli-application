@@ -18,3 +18,7 @@ Ground rules for every session:
   work.
 - UI work must follow `/frontend-designer` (hard anti-generic-design filter).
   Terminal-related changes aren't done until `/verify-terminal` passes.
+- **Standing authorization (2026-07-18): commit AND push to origin after every
+  significant landed change** (completed dev-flow phase, feature land,
+  milestone) without asking. Only the orchestrator commits — never subagents,
+  never unreviewed mid-flight work.

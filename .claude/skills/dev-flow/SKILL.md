@@ -70,7 +70,10 @@ refactors. Keep these lanes strict — they are what makes re-review meaningful.
    checks. Then update memory per `/memory`: new/changed decisions get a
    decision note, non-obvious lessons (especially bugs whose cause surprised
    you) get knowledge notes, and feature-sized work gets a `log/` entry.
-   Do not commit unless asked.
+   Finally, **commit and push** the landed change to origin — standing user
+   authorization (2026-07-18) for milestone commits: each completed dev-flow
+   phase or comparable significant change. The orchestrator commits;
+   subagents still never do. Never commit unreviewed/mid-flight work.
 
 ## Proportionality
 
