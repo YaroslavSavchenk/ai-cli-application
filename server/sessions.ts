@@ -62,6 +62,8 @@ interface Session {
   pty: pty.IPty | null;
   buffer: RingBuffer;
   clients: Set<WebSocket>;
+  /** OSC-string parser state for bell detection, carried across data chunks. */
+  inOsc: boolean;
 }
 
 export interface CreateSessionOptions {
@@ -74,7 +76,33 @@ export interface CreateSessionOptions {
   rows: number;
 }
 
-const BEL_CHAR = '\u0007';
+/**
+ * True when the chunk contains a REAL bell — not the 0x07 that terminates an
+ * OSC string. Shells repaint window titles ("\x1b]0;user@host: dir\x07") on
+ * every prompt, so counting those BELs raises spurious attention on
+ * background sessions after any repaint (e.g. a resize). OSC state carries
+ * across chunk boundaries via the session's `inOsc` flag; OSC ends at BEL or
+ * ST (ESC backslash).
+ */
+function scanForBell(data: string, session: { inOsc: boolean }): boolean {
+  let bell = false;
+  for (let i = 0; i < data.length; i++) {
+    const c = data.charCodeAt(i);
+    if (session.inOsc) {
+      if (c === 0x07) session.inOsc = false;
+      else if (c === 0x1b && data.charCodeAt(i + 1) === 0x5c) {
+        session.inOsc = false;
+        i++;
+      }
+    } else if (c === 0x1b && data.charCodeAt(i + 1) === 0x5d) {
+      session.inOsc = true;
+      i++;
+    } else if (c === 0x07) {
+      bell = true;
+    }
+  }
+  return bell;
+}
 
 export class SessionManager {
   #sessions = new Map<string, Session>();
@@ -128,14 +156,14 @@ export class SessionManager {
       attention: false,
     };
 
-    const session: Session = { info, pty: proc, buffer: new RingBuffer(), clients: new Set() };
+    const session: Session = { info, pty: proc, buffer: new RingBuffer(), clients: new Set(), inOsc: false };
     this.#sessions.set(id, session);
     this.#journal.recordCreate(info);
 
     proc.onData((data) => {
       session.buffer.append(data);
       this.#broadcast(session, { type: 'data', data });
-      if (data.includes(BEL_CHAR)) {
+      if (scanForBell(data, session)) {
         session.info.attention = true;
         this.#broadcast(session, { type: 'attention' });
       }

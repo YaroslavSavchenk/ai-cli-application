@@ -362,3 +362,46 @@ test('POST /api/sessions input validation: bad bodies get 400 and create nothing
     'rejected bodies must not create sessions',
   );
 });
+
+test('BEL terminating an OSC title sequence does not raise attention; a real bell after it still does', async () => {
+  const info = await createSession(server, {
+    command: 'bash',
+    args: [],
+    cwd: workDir,
+    cols: 80,
+    rows: 24,
+  });
+  const c = await WsClient.connect(wsUrl(server, info.id));
+  await c.waitForMessage('replay');
+
+  // Window-title update (bash PS1 emits these on every prompt): the 0x07 here
+  // terminates the OSC string and must NOT count as a bell. The marker after
+  // it proves the chunk was fully processed before we assert.
+  c.send({
+    type: 'input',
+    data: "printf '\\033]0;SOME-TITLE\\007'; printf 'OSC-DONE-%s\\n' \"$(printf MARK)\"\r",
+  });
+  await waitUntil(
+    () =>
+      c.messages.some((m) => m.type === 'data' && m.data.includes('OSC-DONE-MARK'))
+        ? true
+        : undefined,
+    'OSC marker echoed back',
+  );
+  assert.equal(
+    c.messages.some((m) => m.type === 'attention'),
+    false,
+    'OSC-terminating BEL must not broadcast attention',
+  );
+  const afterOsc = await getSession(server, info.id);
+  assert.equal(afterOsc?.attention, false);
+
+  // Parser state recovered: a plain bell still raises attention.
+  c.send({ type: 'input', data: "printf '\\a'\r" });
+  await c.waitForMessage('attention');
+  const afterBell = await getSession(server, info.id);
+  assert.equal(afterBell?.attention, true);
+
+  await c.close();
+  await api(server, 'DELETE', `/api/sessions/${info.id}`);
+});
