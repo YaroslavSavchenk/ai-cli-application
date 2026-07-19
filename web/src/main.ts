@@ -25,6 +25,7 @@ import { initStatusline, setBackendReachable } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
+import { startPresence } from './ws.ts';
 import { el, button } from './ui/util.ts';
 
 const POLL_MS = 3000;
@@ -35,6 +36,10 @@ if (app === null) throw new Error('#app missing');
 void boot(app);
 
 async function boot(root: HTMLDivElement): Promise<void> {
+  // Presence FIRST: the backend's lifetime is bound to open windows, so the
+  // socket must be up even when the REST boot below fails (an open window
+  // must hold the backend); presence failures never block the UI.
+  startPresence();
   // Server state first: loadUi() prunes pane assignments against it.
   let projects;
   let sessions;
@@ -47,6 +52,12 @@ async function boot(root: HTMLDivElement): Promise<void> {
   st.initServer(projects, sessions);
   st.loadUi();
   buildShell(root);
+  // Previous-run relaunch offers (crash/shutdown recovery). Fire-and-forget:
+  // the offer list is a bonus, never a boot blocker.
+  void api
+    .getPrevious()
+    .then((list) => st.setPrevious(list))
+    .catch(() => {});
 }
 
 function renderBootError(root: HTMLDivElement, err: unknown): void {

@@ -804,6 +804,34 @@ button,
   color: var(--ink-faint);
 }
 
+/* previous-run section: crash/shutdown relaunch offers above the live list */
+
+.drawer-sect {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  background: var(--bg-deep);
+  border-bottom: var(--line) solid var(--edge);
+}
+
+.drawer-sect-lb {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-micro);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+/* offer rows share the section's floor: one recessed dead-run block beneath
+   the live rows on --bg-raise (dead material sits on the app floor) */
+.sess-row.is-prev {
+  background: var(--bg-deep);
+}
+
+.sess-row.is-prev:hover {
+  background: var(--bg-hover);
+}
+
 /* sessions rows */
 
 .sess-row {
@@ -881,6 +909,17 @@ button,
 .row-btn.is-danger:hover {
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* green = primary action (accent contract), as on the exited-banner relaunch */
+.row-btn.is-primary {
+  color: var(--focus);
+  border-color: var(--focus);
+}
+
+.row-btn.is-primary:hover {
+  background: var(--focus);
+  color: var(--focus-ink);
 }
 
 /* projects rows + add form */

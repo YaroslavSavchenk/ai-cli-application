@@ -17,6 +17,7 @@ import type { CreateProjectRequest, CreateSessionRequest } from '../shared/proto
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { ProjectStore, isExistingDirectory } from './projects.ts';
 import { SessionManager } from './sessions.ts';
+import { SessionJournal } from './journal.ts';
 import { listDirs, FsBrowseError } from './fsbrowse.ts';
 import type { Logger } from './config.ts';
 
@@ -46,6 +47,7 @@ export interface ApiDeps {
   getPort: () => number;
   projects: ProjectStore;
   sessions: SessionManager;
+  journal: SessionJournal;
   webDistDir: string;
   log: Logger;
 }
@@ -84,7 +86,7 @@ function isValidDim(v: unknown): v is number {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, sessions, webDistDir, log } = deps;
+  const { token, projects, sessions, journal, webDistDir, log } = deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -278,6 +280,36 @@ export function createRequestHandler(
           log('error', `session spawn failed: ${String(err)}`);
           sendError(res, 500, `failed to spawn session: ${String(err)}`);
         }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Previous sessions (journal of the previous run) --------------------
+    if (pathname === '/api/previous') {
+      if (method === 'GET') {
+        sendJson(res, 200, journal.listPrevious());
+        return;
+      }
+      if (method === 'DELETE') {
+        journal.dismissAllPrevious();
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    const previousMatch = /^\/api\/previous\/([^/]+)$/.exec(pathname);
+    if (previousMatch !== null) {
+      const id = decodeURIComponent(previousMatch[1] as string);
+      if (method === 'DELETE') {
+        if (!journal.dismissPrevious(id)) {
+          sendError(res, 404, 'previous session not found');
+          return;
+        }
+        sendJson(res, 200, { ok: true });
         return;
       }
       sendError(res, 405, 'method not allowed');

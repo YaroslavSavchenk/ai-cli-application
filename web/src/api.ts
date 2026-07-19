@@ -11,6 +11,7 @@ import type {
   CreateSessionRequest,
   FsListResponse,
   OkResponse,
+  PreviousSession,
   Project,
   SessionInfo,
 } from '../../shared/protocol.ts';
@@ -97,6 +98,19 @@ export function deleteSession(id: string): Promise<OkResponse> {
 
 export function markSeen(id: string): Promise<OkResponse> {
   return request<OkResponse>(`/api/sessions/${encodeURIComponent(id)}/seen`, { method: 'POST' });
+}
+
+/** Previous-run sessions offered for relaunch ('shutdown'/'crash' only). */
+export function getPrevious(): Promise<PreviousSession[]> {
+  return request<PreviousSession[]>('/api/previous');
+}
+
+export function dismissPrevious(id: string): Promise<OkResponse> {
+  return request<OkResponse>(`/api/previous/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function dismissAllPrevious(): Promise<OkResponse> {
+  return request<OkResponse>('/api/previous', { method: 'DELETE' });
 }
 
 export function fsList(path?: string): Promise<FsListResponse> {

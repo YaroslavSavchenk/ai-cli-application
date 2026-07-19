@@ -24,8 +24,13 @@ The facts your work hinges on:
   open windows; when the last closes, a ~30 s grace timer runs, then the
   backend ends all sessions, removes runtime.json, and exits — plus a
   crash-safe session journal for `--continue` relaunch after unclean
-  shutdown. Not yet implemented; until it lands, the shipped behavior is
-  indefinite survival with manual `-Stop` as the shutdown path.
+  shutdown. Implemented 2026-07-19 (`server/lifecycle.ts`): presence channel
+  `/ws/presence`; the shutdown timer runs only while presence AND attached
+  counts are both zero — grace 30 s (env `AI_SM_GRACE_MS`) plus a 120 s
+  startup grace until the first-ever presence (env `AI_SM_STARTUP_GRACE_MS`);
+  the journal (`journal.json`, rotated to `previous.json` on boot) backs
+  `GET/DELETE /api/previous`. This idle shutdown is decided behavior, not a
+  bug. Manual `-Stop` remains as an override.
 - Resize messages from clients must reach `pty.resize(cols, rows)`; PTY exit
   must be pushed to clients. The launched agent is a configurable
   command + args (multi-CLI support depends on this staying generic).

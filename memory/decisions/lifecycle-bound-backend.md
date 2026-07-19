@@ -13,7 +13,7 @@ After a day of real use the user reversed the core lifetime decision: "when
 I close the app the sessions must close on their own, so they don't run in
 the background." No orphaned Claude sessions, no invisible resource use.
 
-Mechanism (to implement):
+Mechanism (implemented 2026-07-19):
 
 - The UI holds a **presence WebSocket** (control channel) to the backend;
   the backend counts connected windows.

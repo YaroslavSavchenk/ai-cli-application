@@ -1,12 +1,19 @@
 /**
- * WebSocket upgrade handling and the per-session attach protocol.
+ * WebSocket upgrade handling: the per-session attach protocol and the
+ * presence channel.
  *
- * Path: /ws/sessions/:id?token=<token>. The token, Host and Origin are all
- * validated BEFORE the upgrade completes — a rejected client never receives
- * any session data. Multiple concurrent clients per session are allowed.
+ * Paths: /ws/sessions/:id?token=<token> and /ws/presence?token=<token>.
+ * On both, the token, Host and Origin are all validated BEFORE the upgrade
+ * completes — a rejected client never receives any data. Multiple
+ * concurrent clients per session are allowed.
  *
- * client->server frames: {type:'input',data} | {type:'resize',cols,rows} | {type:'seen'}
+ * Session frames, client->server: {type:'input',data} | {type:'resize',cols,rows} | {type:'seen'}
  * server->client frames are produced by SessionManager (replay/info/data/exit/attention).
+ *
+ * Presence: a connection IS the signal — no messages required, inbound
+ * frames are ignored. Both WS paths feed the LifecycleController counters
+ * (presenceCount / attachedCount) that gate the idle-shutdown timer; close
+ * and error each decrement exactly once.
  */
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -14,6 +21,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage } from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { SessionManager } from './sessions.ts';
+import { LifecycleController } from './lifecycle.ts';
 import { MAX_TERM_DIM } from './api.ts';
 import type { Logger } from './config.ts';
 
@@ -21,6 +29,7 @@ export interface WsDeps {
   token: string;
   getPort: () => number;
   sessions: SessionManager;
+  lifecycle: LifecycleController;
   log: Logger;
 }
 
@@ -32,7 +41,7 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
 export function createUpgradeHandler(
   deps: WsDeps,
 ): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
-  const { token, sessions, log } = deps;
+  const { token, sessions, lifecycle, log } = deps;
   const wss = new WebSocketServer({ noServer: true });
 
   return (req, socket, head) => {
@@ -48,6 +57,18 @@ export function createUpgradeHandler(
     }
 
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+
+    if (url.pathname === '/ws/presence') {
+      if (!tokenMatches(token, url.searchParams.get('token') ?? undefined)) {
+        rejectUpgrade(socket, 401, 'Unauthorized');
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        attachPresence(ws);
+      });
+      return;
+    }
+
     const match = /^\/ws\/sessions\/([^/]+)$/.exec(url.pathname);
     if (match === null) {
       rejectUpgrade(socket, 404, 'Not Found');
@@ -68,12 +89,36 @@ export function createUpgradeHandler(
     });
   };
 
+  /** Presence: the open socket is the whole protocol. Inbound frames are ignored. */
+  function attachPresence(ws: WebSocket): void {
+    lifecycle.presenceConnected();
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      lifecycle.presenceDisconnected();
+    };
+    ws.on('close', release);
+    ws.on('error', (err) => {
+      log('warn', `presence ws error: ${String(err)}`);
+      release();
+    });
+  }
+
   function attachClient(ws: WebSocket, sessionId: string): void {
     if (!sessions.attach(sessionId, ws)) {
       // Session vanished between the check and the upgrade completing.
       ws.close(1011, 'session not found');
       return;
     }
+    lifecycle.sessionAttached();
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      lifecycle.sessionDetached();
+    };
+    ws.on('close', release);
 
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return; // Protocol is JSON text frames only.
@@ -103,6 +148,7 @@ export function createUpgradeHandler(
 
     ws.on('error', (err) => {
       log('warn', `session ${sessionId}: ws error: ${String(err)}`);
+      release();
     });
   }
 }

@@ -13,8 +13,10 @@
 #     PATH node is missing or too old, source nvm.sh explicitly;
 #   - start the server in a NEW SESSION (setsid) with stdin/stdout/stderr
 #     on /dev/null so it survives wsl.exe (and this shell) exiting - the
-#     backend must never die with the launcher or window. The server logs
-#     to $AI_SM_DATA_DIR/server.log itself.
+#     backend must never die with the launcher console. (Its lifetime is
+#     bound to UI presence instead: it shuts itself down after the last
+#     window closes; see memory/decisions/lifecycle-bound-backend.md.)
+#     The server logs to $AI_SM_DATA_DIR/server.log itself.
 #
 # Exit codes (mapped to messages in launch.ps1):
 #   0  started (detached; launcher polls runtime.json + /health for truth)

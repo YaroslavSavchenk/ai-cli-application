@@ -18,8 +18,14 @@ The facts your work hinges on:
   `wsl.exe -d Ubuntu -- ...` **detached** (setsid MVP, systemd user service
   later), wait for file + health, then open the UI (Edge `--app` window MVP;
   Tauri shell later). WSL2 localhost forwarding carries the traffic.
-- The backend must NEVER be a child that dies with the launcher or window —
-  session survival across window close is a core promise of this app.
+- The backend must NEVER be a child that dies with the launcher console —
+  detached startup stays mandatory. But its lifetime is bound to UI presence
+  (decided 2026-07-19, implemented same day; reverses the earlier
+  window-close survival promise — see
+  `memory/decisions/lifecycle-bound-backend.md`): when the last window
+  closes, the backend shuts itself down after a ~30 s grace, and a 120 s
+  startup grace covers a launcher that never opens a window. Do not re-add
+  window-close survival guarantees.
 - Cold WSL boot adds seconds; the launcher must handle the wait gracefully.
 - The port is auto-picked by the backend (decided 2026-07-18) — never
   hardcode one; always resolve it through the discovery file. A stale file

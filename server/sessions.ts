@@ -8,11 +8,15 @@
  *
  * command + args are spawned as an argv array — client-supplied values never
  * enter a shell string. This is what keeps multi-CLI support generic.
+ *
+ * Every create/exit/kill is mirrored into the crash-safe SessionJournal so an
+ * unclean end can be offered for relaunch on the next run (journal.ts).
  */
 import { randomUUID } from 'node:crypto';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage } from '../shared/protocol.ts';
+import type { SessionJournal } from './journal.ts';
 import type { Logger } from './config.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
@@ -75,9 +79,11 @@ const BEL_CHAR = '\u0007';
 export class SessionManager {
   #sessions = new Map<string, Session>();
   readonly #log: Logger;
+  readonly #journal: SessionJournal;
 
-  constructor(log: Logger) {
+  constructor(log: Logger, journal: SessionJournal) {
     this.#log = log;
+    this.#journal = journal;
   }
 
   list(): SessionInfo[] {
@@ -124,6 +130,7 @@ export class SessionManager {
 
     const session: Session = { info, pty: proc, buffer: new RingBuffer(), clients: new Set() };
     this.#sessions.set(id, session);
+    this.#journal.recordCreate(info);
 
     proc.onData((data) => {
       session.buffer.append(data);
@@ -138,6 +145,8 @@ export class SessionManager {
       session.info.status = 'exited';
       session.info.exitCode = exitCode;
       session.pty = null;
+      // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
+      this.#journal.markEnded(id, 'exit', exitCode);
       this.#broadcast(session, { type: 'exit', exitCode });
       this.#log('info', `session ${id} exited with code ${exitCode}`);
     });
@@ -196,6 +205,9 @@ export class SessionManager {
     if (session === undefined) return false;
     this.#sessions.delete(id);
     if (session.pty !== null) {
+      // Stamp BEFORE kill so the async onExit's 'exit' stamp is the no-op.
+      // At server shutdown endAllLive() ran first, so THIS is the no-op.
+      this.#journal.markEnded(id, 'user-kill');
       try {
         session.pty.kill();
       } catch (err) {

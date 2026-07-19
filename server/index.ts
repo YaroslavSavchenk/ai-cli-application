@@ -8,8 +8,14 @@
  *
  * The process runs detached (setsid for MVP): nothing depends on stdout;
  * all logging appends to server.log in the data dir. Sessions are
- * server-side objects — closing every browser window never kills a session;
- * only server shutdown or DELETE does.
+ * server-side objects — a page reload or a brief window close never kills
+ * a session; clients reattach with scrollback replayed.
+ *
+ * Lifetime is bound to UI presence (decided 2026-07-19): the frontend holds
+ * a presence WebSocket; when no presence and no session clients remain, a
+ * grace timer (LifecycleController) expires into the same clean shutdown as
+ * SIGTERM — journal 'shutdown', kill PTYs, remove runtime.json, exit 0. The
+ * crash-safe session journal (journal.ts) lets the next run offer relaunch.
  *
  * Runs directly on Node 24 native type stripping: erasable syntax only,
  * relative imports carry explicit .ts extensions.
@@ -23,6 +29,8 @@ import { resolveDataPaths, createLogger, atomicWriteFile } from './config.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { SessionManager } from './sessions.ts';
+import { SessionJournal } from './journal.ts';
+import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
 
@@ -32,15 +40,21 @@ const token = generateToken();
 const webDistDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
 const projects = new ProjectStore(paths.projectsFile, log);
-const sessions = new SessionManager(log);
+const journal = new SessionJournal(paths.journalFile, paths.previousFile, log);
+journal.rotate(); // A previous run's journal becomes previous.json ('crash'-stamped).
+const sessions = new SessionManager(log, journal);
+const lifecycle = new LifecycleController({
+  onIdleShutdown: () => shutdown('idle grace expiry'),
+  log,
+});
 
 let port = 0;
 const getPort = (): number => port;
 
 const server = createServer(
-  createRequestHandler({ token, getPort, projects, sessions, webDistDir, log }),
+  createRequestHandler({ token, getPort, projects, sessions, journal, webDistDir, log }),
 );
-server.on('upgrade', createUpgradeHandler({ token, getPort, sessions, log }));
+server.on('upgrade', createUpgradeHandler({ token, getPort, sessions, lifecycle, log }));
 
 server.listen(0, '127.0.0.1', () => {
   const addr = server.address();
@@ -62,6 +76,7 @@ server.listen(0, '127.0.0.1', () => {
     process.exit(1);
   }
   log('info', `listening on 127.0.0.1:${port} (pid ${process.pid}, data dir ${paths.dataDir})`);
+  lifecycle.start(); // Startup grace: no window ever connecting must not leave a zombie.
 });
 
 server.on('error', (err) => {
@@ -70,16 +85,20 @@ server.on('error', (err) => {
 });
 
 let shuttingDown = false;
-function shutdown(signal: string): void {
+function shutdown(cause: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
-  log('info', `received ${signal}, shutting down`);
+  log('info', `received ${cause}, shutting down`);
+  lifecycle.stop();
+  // Journal first (crash safety), then kill: destroy()'s 'user-kill' and the
+  // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
+  journal.endAllLive('shutdown');
+  sessions.destroyAll();
   try {
     unlinkSync(paths.runtimeFile);
   } catch {
     // Already gone.
   }
-  sessions.destroyAll();
   server.close();
   // Force exit even if some socket lingers.
   setTimeout(() => process.exit(0), 500).unref();

@@ -168,3 +168,40 @@ export class SessionSocket {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Presence channel (/ws/presence)
+// ---------------------------------------------------------------------------
+
+const PRESENCE_MIN_MS = 1000;
+const PRESENCE_MAX_MS = 15000;
+
+/**
+ * Presence client — the backend's lifetime is bound to UI presence: one open
+ * /ws/presence socket per window IS the whole protocol (no frames either
+ * way). Opened once at boot; on ANY close it reconnects on capped
+ * exponential backoff INDEFINITELY. Failures are deliberately silent —
+ * presence must never block the UI: the statusline's unreachable readout
+ * already covers a gone backend, and a stale token (backend restarted) gets
+ * the REST layer's reload takeover.
+ */
+export function startPresence(): void {
+  let delay = PRESENCE_MIN_MS;
+  const open = (): void => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(
+      `${proto}//${location.host}/ws/presence?token=${encodeURIComponent(authToken())}`,
+    );
+    ws.onopen = () => {
+      delay = PRESENCE_MIN_MS;
+    };
+    ws.onclose = () => {
+      window.setTimeout(open, delay);
+      delay = Math.min(delay * 2, PRESENCE_MAX_MS);
+    };
+    ws.onerror = () => {
+      // A close event always follows; the retry is scheduled there.
+    };
+  };
+  open();
+}

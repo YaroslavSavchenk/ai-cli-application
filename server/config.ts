@@ -17,6 +17,10 @@ export interface DataPaths {
   dataDir: string;
   runtimeFile: string;
   projectsFile: string;
+  /** Crash-safe session journal for the CURRENT run. */
+  journalFile: string;
+  /** Rotated journal of the PREVIOUS run (feeds GET /api/previous). */
+  previousFile: string;
   logFile: string;
 }
 
@@ -37,6 +41,8 @@ export function resolveDataPaths(): DataPaths {
     dataDir,
     runtimeFile: join(dataDir, 'runtime.json'),
     projectsFile: join(dataDir, 'projects.json'),
+    journalFile: join(dataDir, 'journal.json'),
+    previousFile: join(dataDir, 'previous.json'),
     logFile: join(dataDir, 'server.log'),
   };
 }

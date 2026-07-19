@@ -102,6 +102,12 @@ export function requestTerminalFocus(): void {
   if (s !== undefined && s.view !== null && s.sessionId !== null) s.view.focus();
 }
 
+/** Measured cols/rows of the focused pane (sizes the previous-run relaunch POST). */
+export function focusedPaneDims(): { cols: number; rows: number } {
+  const s = slots[st.activeTab().focused];
+  return s !== undefined && s.view !== null ? s.view.proposeDims() : { cols: 80, rows: 24 };
+}
+
 /** Ctrl+Alt+Enter: open the launcher of the focused pane (visible UI equivalent: the form itself). */
 export function openLauncher(): void {
   const s = slots[st.activeTab().focused];

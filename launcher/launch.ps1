@@ -7,7 +7,8 @@ Usage:
                           (Edge --app window; default browser as fallback)
   launch.ps1 -NoBrowser   attach-or-start, but do not open any UI
   launch.ps1 -Status      report backend state (runtime.json + health)
-  launch.ps1 -Stop        graceful stop (SIGTERM to the pid in runtime.json)
+  launch.ps1 -Stop        immediate stop, skipping the presence grace
+                          (SIGTERM to the pid in runtime.json)
   launch.ps1 -Silent      windowless mode (used by launch-silent.vbs): on any
                           failure, surface the error as a native message box
                           instead of relying on a console nobody can see.
@@ -22,8 +23,11 @@ How it works:
     `localhost` may resolve to ::1 and fail.
   - Healthy -> open the UI. File absent or stale (dead pid / failed health)
     -> start fresh. The backend is started DETACHED (setsid, see
-    start-backend.sh) so it survives this launcher, its wsl.exe calls, and
-    the browser window: closing the window never kills sessions.
+    start-backend.sh) so it never dies with this launcher or its wsl.exe
+    calls. Its lifetime is bound to UI presence, not to any process here:
+    ~30 s after the last app window closes (or ~120 s if no window ever
+    connects) the backend ends all sessions, removes runtime.json, and
+    exits on its own. See memory/decisions/lifecycle-bound-backend.md.
   - Cold WSL boot adds seconds; after starting we poll file + health for up
     to $StartTimeoutSec seconds with progress output.
   - runtime.json remains on SIGKILL/crash by design - the health check, not

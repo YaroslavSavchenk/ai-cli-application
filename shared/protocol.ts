@@ -45,7 +45,10 @@ export type SessionStatus = 'running' | 'exited';
 /**
  * A session is a server-side object with its own lifetime; the browser is
  * only a view. The PTY keeps running with no client attached, and an exited
- * session stays listed (with its scrollback) until DELETEd.
+ * session stays listed (with its scrollback) until DELETEd — but only while
+ * the backend itself lives: with zero presence connections AND zero attached
+ * session sockets past the grace timer, the backend ends all sessions and
+ * exits (see the presence-channel docs below).
  */
 export interface SessionInfo {
   id: string;
@@ -66,6 +69,57 @@ export interface SessionInfo {
   /** True when a BEL (0x07) was seen in output and not yet acknowledged via 'seen'. */
   attention: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Session journal (journal.json / previous.json in the data dir)
+// ---------------------------------------------------------------------------
+//
+// The backend's lifetime is bound to UI presence (decided 2026-07-19): when
+// the last window closes, a grace timer runs out and the backend kills all
+// PTYs and exits. The journal is the crash/shutdown safety net: journal.json
+// mirrors live sessions (atomic rewrite on every create/exit/delete and at
+// shutdown). On boot, a leftover journal from the previous run is rotated to
+// previous.json — entries still ended:null are stamped reason 'crash' — and
+// a fresh journal begins.
+
+/**
+ * Why a session ended. 'crash' is never written to the live journal; it is
+ * stamped only during boot rotation for entries the previous run left open.
+ */
+export type SessionEndReason = 'user-kill' | 'exit' | 'shutdown' | 'crash';
+
+export interface SessionEnd {
+  /** ISO-8601 timestamp. */
+  at: string;
+  reason: SessionEndReason;
+}
+
+/** One entry in journal.json / previous.json. */
+export interface SessionJournalEntry {
+  id: string;
+  projectId?: string;
+  /** Absolute working directory the PTY was spawned in. */
+  cwd: string;
+  command: string;
+  args: string[];
+  title: string;
+  /** ISO-8601 timestamp. */
+  createdAt: string;
+  /** null while the session is live. */
+  ended: SessionEnd | null;
+  /** Present when the PTY exited on its own (reason 'exit'). */
+  exitCode?: number;
+}
+
+/**
+ * GET  /api/previous      -> PreviousSession[] — entries from previous.json
+ *   whose ended.reason is 'shutdown' or 'crash' (user-kill and natural exit
+ *   are NOT offered for relaunch).
+ * DELETE /api/previous/:id -> OkResponse (dismiss one; 404 if unknown)
+ * DELETE /api/previous     -> OkResponse (dismiss all)
+ * Auth like every other /api route.
+ */
+export type PreviousSession = SessionJournalEntry;
 
 // ---------------------------------------------------------------------------
 // Runtime discovery file (runtime.json in the data dir)
@@ -204,3 +258,20 @@ export interface SeenMessage {
 }
 
 export type ClientMessage = InputMessage | ResizeMessage | SeenMessage;
+
+// ---------------------------------------------------------------------------
+// Presence channel (/ws/presence?token=<token>)
+// ---------------------------------------------------------------------------
+//
+// Same auth/Host/Origin rules as the session WS. A connection IS the signal;
+// no messages are required and inbound frames are ignored. The backend
+// tracks presenceCount (open presence sockets) and attachedCount (open
+// session sockets); a shutdown grace timer runs ONLY while both are zero:
+//
+//   - grace after the last client disconnects: 30000 ms default,
+//     env override AI_SM_GRACE_MS (integer ms);
+//   - startup grace from listen until the FIRST presence connection ever:
+//     120000 ms default, env override AI_SM_STARTUP_GRACE_MS.
+//
+// On expiry the backend marks live journal entries ended {reason:'shutdown'},
+// kills all PTYs, removes runtime.json, and exits 0.

@@ -5,11 +5,15 @@ first; the launched agent is a configurable command + args, so other CLIs
 work too) side by side. A Node.js backend inside WSL2 spawns each session in
 a real pseudo-terminal (node-pty), streams I/O over WebSocket, and serves a
 vanilla-TypeScript frontend (xterm.js) with projects, launch presets, and
-multi-pane tab layouts. Sessions are server-side objects: as implemented
-today, closing the browser window never kills them; reattaching replays the
-full scrollback. (Decided 2026-07-19, not yet implemented: backend lifetime
-will instead be bound to UI presence — sessions end after a ~30 s grace once
-the last window closes; see `memory/decisions/lifecycle-bound-backend.md`.)
+multi-pane tab layouts. Sessions are server-side objects: hiding a pane,
+switching tabs, or reloading the page never ends them, and reattaching
+replays the full scrollback. The backend's lifetime is bound to UI presence
+(decided and implemented 2026-07-19; see
+`memory/decisions/lifecycle-bound-backend.md`): closing the last app window
+starts a ~30 s grace timer, after which the backend ends all sessions and
+exits — nothing keeps running in the background. A crash-safe session
+journal means the next start offers the previous run's sessions for
+one-click relaunch (Claude sessions resume via `--continue`).
 
 ## Run it (Windows + WSL2)
 
@@ -46,6 +50,11 @@ path):
 - `projects.json` — saved projects
 - `runtime.json` — runtime discovery (port, auth token, pid, startedAt);
   removed on clean shutdown
+- `journal.json` — crash-safe journal of the current run's sessions
+  (atomically rewritten on every session create/exit/delete and at shutdown)
+- `previous.json` — the previous run's journal, rotated here on boot
+  (entries left open by a crash are stamped `crash`); feeds the "previous
+  run" relaunch offers (`GET /api/previous`)
 - `server.log` — backend log (rotated to `server.log.1` at 5 MiB)
 
 ## More

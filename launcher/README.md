@@ -11,12 +11,17 @@ health-checks the discovered port on `http://127.0.0.1:<port>/health`, and:
   **detached** (`setsid`, via `start-backend.sh`), waits for
   runtime.json + health, then opens the UI.
 
-The backend is never a child of the launcher or the browser window — as
-implemented today, closing the window (or the launcher) never kills
-sessions; stop explicitly with `-Stop`. (Decided 2026-07-19, not yet
-implemented: backend lifetime will instead be bound to UI presence —
-sessions end after a ~30 s grace once the last window closes; see
-`memory/decisions/lifecycle-bound-backend.md`.)
+The backend is never a child of the launcher or the browser window — it
+starts in its own session and outlives the launcher console. Its lifetime
+is instead bound to UI presence (decided and implemented 2026-07-19; see
+`memory/decisions/lifecycle-bound-backend.md`): every app window holds a
+presence WebSocket, and when the last one closes the backend waits a ~30 s
+grace period (so reloads and accidental closes reattach harmlessly), then
+ends all sessions, removes runtime.json, and exits. **Closing the window
+ends your sessions** — nothing keeps running in the background. `-Stop`
+shuts down immediately, skipping the grace. On the next start the sessions
+drawer offers the previous run's sessions for one-click relaunch (Claude
+sessions resume with `--continue`).
 
 The port is auto-picked by the backend; nothing is ever hardcoded. Always
 `127.0.0.1`, never `localhost` (the server binds IPv4 only; `::1` fails).
@@ -84,9 +89,10 @@ Icon-click = `wscript.exe launch-silent.vbs` = hidden
   - `-Status` — print backend state from runtime.json (port, pid,
     startedAt; the auth token is never printed) and the health-check
     result. Exit code 0 = running and healthy, 1 = not running or stale.
-  - `-Stop` — graceful shutdown: SIGTERM to the pid from runtime.json,
-    then confirm the server removed runtime.json. Running sessions die
-    with the server — stop deliberately.
+  - `-Stop` — immediate shutdown, no grace period: SIGTERM to the pid from
+    runtime.json, then confirm the server removed runtime.json. Running
+    sessions end right away; the next start offers them for relaunch as a
+    previous run.
   - `-NoBrowser` — do everything except opening the UI (scripts/tests).
 
 ## Cold boot expectations
@@ -95,8 +101,18 @@ The first click after a Windows reboot has to boot the WSL VM **and** the
 backend: expect **~10–30 s where nothing visible happens** — that is normal
 for the silent path; the window appears when the backend is healthy. The
 launcher polls for up to 90 s before declaring failure (as a message box
-when silent). Warm launches — backend already running — attach and open the
-window in about a second.
+when silent).
+
+Because the backend exits when the last window closes, most launches are
+cold starts of the backend (a few seconds once the WSL VM is up). A warm
+attach — window open in about a second — only happens while the backend is
+still alive: another app window is open, or you relaunch within the ~30 s
+grace after closing the last one. After a fresh start, the sessions drawer
+offers the previous run's sessions for relaunch instead.
+
+A started backend never lingers unused: if the launcher fails to open a
+window (or you close it before it connects), the backend exits on its own
+after a ~120 s startup grace with no window ever connected.
 
 ## Pinning
 
@@ -122,7 +138,8 @@ language (warm-graphite square, 1px border, green `>_`).
   full console story; the box text names the same cause.
 - Backend log: `~/.ai-session-manager/server.log` inside the distro.
 - `launch.cmd -Status` says stale → the backend crashed or was SIGKILLed;
-  the next plain launch starts a fresh one automatically.
+  the next plain launch starts a fresh one automatically and offers the
+  crashed run's sessions for relaunch.
 - Nothing at all happens on double-click and no error box → check that
   `\\wsl.localhost\Ubuntu-24.04\...\launcher` is reachable in Explorer
   (WSL may need `wsl.exe --update` if the share is broken), then re-run

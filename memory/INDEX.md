@@ -10,7 +10,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 - [[auto-port-discovery]] — backend auto-picks its port; runtime.json discovery file carries port + auth token
 - [[vanilla-ts-vite-frontend]] — no UI framework; vanilla TS + Vite around imperative xterm.js
 - [[web-app-inside-wsl]] — why the app is a web app served from WSL, not a Windows-native Electron app
-- [[detached-backend]] — backend outlives every window; setsid MVP, systemd user service later
+- [[detached-backend]] — partially superseded by [[lifecycle-bound-backend]]: setsid detachment from the launcher stands; window-close survival (and the systemd user service plan) reversed
 - [[thin-windows-launcher]] — health-check → start via wsl.exe → Edge --app window; Tauri is the upgrade path
 - [[agent-team-and-dev-flow]] — the subagent roster, strict lanes, and the develop→review→fix loop
 - [[anti-slop-design-direction]] — terminal-derived visual identity; hard reject list for generic AI aesthetics

@@ -50,8 +50,8 @@ export interface ExitInfo {
 
 export interface TestServer {
   child: ChildProcess;
-  /** mkdtemp root; removed by stop(). */
-  tmpRoot: string;
+  /** mkdtemp root removed by stop(); null when the caller owns the data dir. */
+  tmpRoot: string | null;
   /** The AI_SM_DATA_DIR value. The server itself must create it (mode 0700). */
   dataDir: string;
   runtimeFile: string;
@@ -68,14 +68,32 @@ export interface TestServer {
 /**
  * Spawn `node server/index.ts` with a fresh data dir, wait until runtime.json
  * exists AND /health answers 200, and return a handle with port + token.
+ *
+ * Lifecycle note: the backend is presence-bound — with no presence/session
+ * WS connected it shuts itself down after the startup grace. Tests hold no
+ * presence socket, so both graces default to a generous 10 minutes here;
+ * lifecycle-specific tests override via `opts.env`
+ * (AI_SM_STARTUP_GRACE_MS / AI_SM_GRACE_MS).
+ *
+ * `opts.dataDir` reuses an existing data dir (journal rotation / restart
+ * tests). The caller owns its cleanup: stop() will NOT remove it.
  */
-export async function startTestServer(): Promise<TestServer> {
-  const tmpRoot = await mkdtemp(join(tmpdir(), 'ai-sm-test-'));
+export async function startTestServer(
+  opts: { env?: Record<string, string>; dataDir?: string } = {},
+): Promise<TestServer> {
+  const tmpRoot =
+    opts.dataDir === undefined ? await mkdtemp(join(tmpdir(), 'ai-sm-test-')) : null;
   // Deliberately a not-yet-existing subdir: the server must create it (0700).
-  const dataDir = join(tmpRoot, 'data');
+  const dataDir = opts.dataDir ?? join(tmpRoot as string, 'data');
   const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {
     cwd: projectRoot,
-    env: { ...process.env, AI_SM_DATA_DIR: dataDir },
+    env: {
+      ...process.env,
+      AI_SM_DATA_DIR: dataDir,
+      AI_SM_STARTUP_GRACE_MS: '600000',
+      AI_SM_GRACE_MS: '600000',
+      ...opts.env,
+    },
     stdio: 'ignore', // The server must not depend on stdout in any way.
   });
   let exited = false;
@@ -114,7 +132,7 @@ export async function startTestServer(): Promise<TestServer> {
     }, 'server startup (runtime.json + /health)');
   } catch (err) {
     child.kill('SIGKILL');
-    await rm(tmpRoot, { recursive: true, force: true });
+    if (tmpRoot !== null) await rm(tmpRoot, { recursive: true, force: true });
     throw err;
   }
 
@@ -137,9 +155,40 @@ export async function startTestServer(): Promise<TestServer> {
           await exit;
         }
       }
-      await rm(tmpRoot, { recursive: true, force: true });
+      if (tmpRoot !== null) await rm(tmpRoot, { recursive: true, force: true });
     },
   };
+}
+
+/** Read server.log from the test server's data dir ('' if absent). */
+export async function readServerLog(server: TestServer): Promise<string> {
+  try {
+    return await readFile(join(server.dataDir, 'server.log'), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Wait until server.log contains at least `count` occurrences of `needle`.
+ * Lifecycle tests key off the controller's log lines (timer armed/cancelled/
+ * expired) — that is the deterministic signal, never a bare sleep.
+ */
+export async function waitForLog(
+  server: TestServer,
+  needle: string,
+  opts: { count?: number; timeoutMs?: number } = {},
+): Promise<string> {
+  const count = opts.count ?? 1;
+  return waitUntil(
+    async () => {
+      const log = await readServerLog(server);
+      return log.split(needle).length - 1 >= count ? log : undefined;
+    },
+    `server.log to contain ${JSON.stringify(needle)} x${count}`,
+    opts.timeoutMs ?? 10_000,
+    25,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +296,12 @@ export async function getSession(
 
 export function wsUrl(server: TestServer, sessionId: string, token?: string): string {
   return `ws://127.0.0.1:${server.port}/ws/sessions/${sessionId}?token=${token ?? server.token}`;
+}
+
+/** URL of the presence channel; pass '' as token to omit the query entirely. */
+export function presenceUrl(server: TestServer, token?: string): string {
+  const t = token ?? server.token;
+  return `ws://127.0.0.1:${server.port}/ws/presence${t === '' ? '' : `?token=${t}`}`;
 }
 
 /** A connected WS client that records every server frame in arrival order. */

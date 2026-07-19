@@ -30,10 +30,13 @@ and multi-pane layouts on top.
   open windows; when the last closes, a grace timer (~30 s) lets reloads
   reattach harmlessly, then the backend ends all sessions, removes
   runtime.json, and exits — plus a crash-safe session journal for one-click
-  relaunch (`--continue`) after unclean shutdown. **Not yet implemented** —
-  backend work deferred to a later phase; until it lands, the implemented
-  (and tested) behavior remains indefinite survival after window close, with
-  manual `-Stop` as the shutdown path.
+  relaunch (`--continue`) after unclean shutdown. **Implemented 2026-07-19**:
+  presence channel `/ws/presence`; grace 30 s (env `AI_SM_GRACE_MS`) plus a
+  120 s startup grace until the first-ever presence (env
+  `AI_SM_STARTUP_GRACE_MS`); the journal lives in `journal.json`, rotated to
+  `previous.json` on boot (open entries stamped 'crash'), served as relaunch
+  offers via `GET/DELETE /api/previous` and surfaced in the sessions drawer.
+  Manual `-Stop` remains as an override.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
@@ -105,13 +108,15 @@ landed features.
 - None currently.
 
 (Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
-frontend; app data — projects.json, runtime.json, server.log — lives in
-`~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
-`shared/protocol.ts`. Rationale in `memory/decisions/`.)
+frontend; app data — projects.json, runtime.json, journal.json,
+previous.json, server.log — lives in `~/.ai-session-manager/` (override:
+`AI_SM_DATA_DIR`), schema in `shared/protocol.ts`. Rationale in
+`memory/decisions/`.)
 
 (Settled 2026-07-19: backend lifetime bound to UI presence — see the
-Architecture bullet; decided but not yet implemented, backend work deferred
-to a later phase.)
+Architecture bullet; implemented the same day: presence WS + grace timers,
+session journal with boot rotation, previous-sessions relaunch API and
+drawer UI.)
 
 (Settled 2026-07-19: full GUI redesign, user's call after real use — the
 anti-slop rule stands unchanged, but the phosphor skin is being replaced by
