@@ -47,30 +47,35 @@ export function initStatusline(container: HTMLElement, d: Deps): { render(): voi
 
 export function render(): void {
   if (root === null || deps === null) return;
-  const tab = st.activeTab();
-  const tabIdx = st.state.tabs.indexOf(tab) + 1;
+  const v = st.activeView();
+  const tabIdx = st.state.views.indexOf(v) + 1;
   const left = el('div', 'status-left');
-  left.append(el('span', 'status-seg', `tab ${tabIdx}/${st.state.tabs.length}`));
-  left.append(el('span', 'status-seg', `pane ${tab.focused + 1}/${tab.layout}`));
+  left.append(el('span', 'status-seg', `tab ${tabIdx}/${st.state.views.length}`));
 
-  const sessionId = tab.panes[tab.focused] ?? null;
-  const info = sessionId !== null ? st.state.sessions.get(sessionId) : undefined;
-  if (info !== undefined) {
-    const pname = st.projectName(info.projectId);
-    left.append(
-      el('span', 'status-seg status-strong', pname !== null ? `${pname} · ${info.title}` : info.title),
-    );
-    left.append(el('span', 'status-seg', `${info.cols}×${info.rows}`));
-    if (info.status === 'exited') {
-      left.append(el('span', 'status-seg status-danger', `exit ${info.exitCode ?? 0}`));
-    } else {
-      const conn = deps.getFocusedConn();
-      const cls =
-        conn === 'live' ? 'status-ok' : conn === 'dead' ? 'status-danger' : 'status-warn';
-      left.append(el('span', `status-seg ${cls}`, conn ?? 'connecting'));
-    }
+  if (v.kind === 'launcher') {
+    left.append(el('span', 'status-seg', 'new session — pick a project and launch'));
   } else {
-    left.append(el('span', 'status-seg', 'empty pane — ctrl+alt+enter launches'));
+    left.append(el('span', 'status-seg', `pane ${v.focused + 1}/${st.viewLayout(v)}`));
+    const sessionId = v.sessions[v.focused] ?? null;
+    const info = sessionId !== null ? st.state.sessions.get(sessionId) : undefined;
+    if (info !== undefined) {
+      const pname = st.projectName(info.projectId);
+      left.append(
+        el('span', 'status-seg status-strong', pname !== null ? `${pname} · ${info.title}` : info.title),
+      );
+      left.append(el('span', 'status-seg', `${info.cols}×${info.rows}`));
+      if (info.status === 'exited') {
+        const code = info.exitCode ?? 0;
+        left.append(
+          el('span', 'status-seg status-danger', code === 0 ? 'exited' : `exited · ${code}`),
+        );
+      } else {
+        const conn = deps.getFocusedConn();
+        const cls =
+          conn === 'live' ? 'status-ok' : conn === 'dead' ? 'status-danger' : 'status-warn';
+        left.append(el('span', `status-seg ${cls}`, conn ?? 'connecting'));
+      }
+    }
   }
 
   const right = el('div', 'status-right');
@@ -80,7 +85,9 @@ export function render(): void {
   if (flashMsg !== null) {
     right.append(el('span', 'status-flash', flashMsg));
   }
-  right.append(el('span', 'status-seg', '? shortcuts'));
+  const hint = el('span', 'status-hint');
+  hint.append(el('kbd', '', '?'), el('span', '', 'shortcuts'));
+  right.append(hint);
 
   root.replaceChildren(left, right);
 }

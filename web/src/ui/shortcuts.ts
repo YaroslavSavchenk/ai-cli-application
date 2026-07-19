@@ -1,26 +1,32 @@
 /**
  * Shortcuts overlay — a keyboard reference, opened by `?` (outside inputs),
  * Ctrl+Alt+/ or the topbar `?` button. Every chord listed here has a visible
- * UI control; plain keys are never intercepted (they belong to the TUI).
+ * UI control (and every drag has a keyboard/button path); plain keys are
+ * never intercepted (they belong to the TUI).
  */
 import { el, button, trapTab } from './util.ts';
 
 interface Row {
   keys: string[];
+  /** Mouse-gesture sentence, not a chord: rendered as plain wrapping text, not a nowrap <kbd> chip. */
+  gesture?: boolean;
   what: string;
   ui: string;
 }
 
 const ROWS: Row[] = [
-  { keys: ['ctrl+alt+←↑↓→'], what: 'move pane focus', ui: 'click a pane' },
-  { keys: ['ctrl+alt+shift+←↑↓→'], what: 'move session to neighbor pane (swap)', ui: 'drag the ⠿ grip onto a pane' },
+  { keys: ['ctrl+alt+←↑↓→'], what: 'move pane focus in the active tab', ui: 'click a pane' },
+  { keys: ['ctrl+alt+shift+←↑↓→'], what: 'move session between panes of its view (swap)', ui: 'drag a pane header onto a pane' },
   { keys: ['ctrl+alt+1…9'], what: 'switch tab', ui: 'tab strip' },
-  { keys: ['ctrl+alt+t'], what: 'new tab', ui: '+ in the tab strip' },
-  { keys: ['ctrl+alt+enter'], what: 'new session in focused pane', ui: 'launch form in an empty pane' },
+  { keys: ['ctrl+alt+shift+pgup/pgdn'], what: 'move the active tab left / right (reorder)', ui: 'drag a tab along the strip' },
+  { keys: ['ctrl+alt+t'], what: 'new-session tab', ui: '+ in the tab strip' },
+  { keys: ['ctrl+alt+enter'], what: 'focus the launcher form (on a new-session tab)', ui: 'the form itself' },
+  { keys: ['drag a tab onto a pane or tab'], gesture: true, what: 'merge its sessions into that view (split)', ui: 'split in the sessions panel' },
+  { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'extract in the pane header' },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split · enter resets', ui: 'drag the divider · double-click resets' },
-  { keys: ['double-click a session row'], what: 'attach it to the focused pane', ui: 'attach in the sessions panel' },
+  { keys: ['double-click a session row'], what: 'go to its tab', ui: 'show in the sessions panel' },
   { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the top bar' },
-  { keys: ['esc'], what: 'close panel / dialog', ui: '× buttons' },
+  { keys: ['esc'], what: 'close panel / dialog · cancel a drag', ui: '× buttons' },
 ];
 
 export interface ShortcutsOverlay {
@@ -48,7 +54,7 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
     const keys = el('span', 'sc-keys');
     r.keys.forEach((k, i) => {
       if (i > 0) keys.append(el('span', 'sc-or', 'or'));
-      keys.append(el('kbd', '', k));
+      keys.append(r.gesture === true ? el('span', 'sc-gesture', k) : el('kbd', '', k));
     });
     row.append(keys, el('span', 'sc-what', r.what), el('span', 'sc-ui', r.ui));
     table.append(row);

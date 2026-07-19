@@ -1,0 +1,25 @@
+/*
+ * Self-hosted chrome typeface: Barlow (SIL Open Font License 1.1 — license
+ * committed at ../assets/fonts/OFL.txt). Latin-subset woff2, weights 400 and
+ * 600, from the Google Fonts pipeline (upstream: github.com/jpt/barlow via
+ * github.com/google/fonts/tree/main/ofl/barlow).
+ *
+ * Referenced as --font-sans in tokens.css — the "steam blend" chrome face.
+ * Only 400/600 are bundled; sans rules must not ask for other weights
+ * (mono keeps 700 for emphasis — system monos carry a real bold).
+ */
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/barlow-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/fonts/barlow-600.woff2") format("woff2");
+}

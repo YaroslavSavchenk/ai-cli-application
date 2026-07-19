@@ -75,6 +75,8 @@ export class TerminalView {
   #webgl: WebglAddon | null = null;
   #socket: SessionSocket | null = null;
   #events: TerminalEvents | null = null;
+  /** True while a replay frame is being written into the terminal. */
+  #replaying = false;
   readonly #container: HTMLElement;
   readonly #observer: ResizeObserver;
   #debounce: number | null = null;
@@ -109,6 +111,7 @@ export class TerminalView {
           k === 't' ||
           k === 'T' ||
           k === '/' ||
+          (e.shiftKey && (k === 'PageUp' || k === 'PageDown')) ||
           (k.length === 1 && k >= '1' && k <= '9')
         ) {
           return false;
@@ -152,12 +155,25 @@ export class TerminalView {
   connect(sessionId: string, events: TerminalEvents): void {
     if (this.#socket !== null) return;
     this.#events = events;
-    this.term.onData((data: string) => this.#socket?.sendInput(data));
+    this.term.onData((data: string) => {
+      // While a replay is being processed, xterm re-answers any terminal
+      // queries embedded in the buffer (vim/claude emit DA/DSR/OSC 10-11);
+      // the live session already answered those the first time, so replay
+      // responses must never reach the PTY as input — they'd land at the
+      // shell prompt as garbage on every reattach. Keystrokes during the
+      // few-ms replay window are dropped with them, deliberately.
+      if (!this.#replaying) this.#socket?.sendInput(data);
+    });
     const handlers: SocketHandlers = {
       onReplay: (data) => {
         // Full-buffer replay on every (re)attach: reset first, then write.
         this.term.reset();
-        if (data !== '') this.term.write(data);
+        if (data !== '') {
+          this.#replaying = true;
+          this.term.write(data, () => {
+            this.#replaying = false;
+          });
+        }
       },
       onData: (data) => this.term.write(data),
       onInfo: (session) => {

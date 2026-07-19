@@ -1,14 +1,18 @@
 /**
- * Pane grid for the ACTIVE tab. Each tab is a grid of 1-4 pane slots; a
- * slot is either empty (session launcher) or a view onto a server-side
- * session (thin header + xterm). Sessions exist independently of panes —
- * this module only attaches/detaches views.
+ * Pane grid for the ACTIVE view (= tab). A view holds 1..4 sessions in a
+ * fixed split shape (see state.ts for the slot maps); a 'launcher' view
+ * holds none and renders the new-session form instead. Sessions exist
+ * independently of views — this module only attaches/detaches xterm views.
  *
- * Terminals exist only for visible slots of the active tab; switching tabs
- * or layouts disposes and re-attaches (the server replays the full buffer).
- * An xterm instance is mounted in EVERY visible slot — for empty slots it
- * sits under the launcher and provides the cols/rows measurement
- * (FitAddon.proposeDimensions) used when creating the session.
+ * Terminals exist only for the active view's slots; switching tabs or
+ * changing the split shape disposes and re-attaches (the server replays the
+ * full buffer). A launcher slot still mounts an xterm under the form — it
+ * provides the cols/rows measurement (FitAddon.proposeDimensions) used when
+ * creating the session.
+ *
+ * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while a
+ * tab is dragged over it (drag-to-split). Pane headers are drag sources:
+ * onto another pane = swap, onto the tab strip = extract to its own tab.
  */
 import type { CreateSessionRequest, SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
@@ -16,6 +20,7 @@ import * as st from '../state.ts';
 import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
 import { el, button, armButton } from './util.ts';
+import { armDrag } from './dnd.ts';
 import { flash } from './statusline.ts';
 
 type Preset = 'claude' | 'claude-skip' | 'custom';
@@ -39,31 +44,32 @@ interface LauncherRefs {
 interface Slot {
   index: number;
   root: HTMLElement;
-  grip: HTMLElement;
-  attn: HTMLElement;
-  proj: HTMLElement;
-  title: HTMLElement;
-  status: HTMLElement;
-  connChip: HTMLElement;
-  detachBtn: HTMLButtonElement;
-  killBtn: HTMLButtonElement;
-  note: HTMLElement;
   termHost: HTMLElement;
-  launcher: LauncherRefs;
   view: TerminalView | null;
   sessionId: string | null;
   conn: ConnState | null;
   exitCode: number | null;
   dead: boolean;
+  /* Session chrome — null on the launcher slot. */
+  dot: HTMLElement | null;
+  attn: HTMLElement | null;
+  proj: HTMLElement | null;
+  title: HTMLElement | null;
+  status: HTMLElement | null;
+  connChip: HTMLElement | null;
+  extractBtn: HTMLButtonElement | null;
+  killBtn: HTMLButtonElement | null;
+  note: HTMLElement | null;
+  /* Launcher form — null on session slots. */
+  launcher: LauncherRefs | null;
 }
 
 let grid: HTMLElement;
 let slots: Slot[] = [];
-let renderedTabId = '';
-let renderedLayout = 0;
+let renderedViewId = '';
+let renderedCount = -1;
+let renderedL3: st.L3 = 'L';
 let lastFocusKey = '';
-/** Slot index a pane-header grip drag started from; null when no drag. */
-let dragFrom: number | null = null;
 
 // --------------------------------------------------------------------------
 // Public API
@@ -79,12 +85,12 @@ export function initPanes(gridEl: HTMLElement): void {
         updateNote(s);
       }
     } else if (kind === 'projects') {
-      for (const s of slots) populateProjects(s.launcher);
+      for (const s of slots) if (s.launcher !== null) populateProjects(s.launcher);
     }
   });
   // Regaining window focus while a pane with attention is focused clears it.
   window.addEventListener('focus', () => {
-    const s = slots[st.activeTab().focused];
+    const s = slots[st.activeView().focused];
     if (s !== undefined) clearAttentionIfPending(s);
   });
   render();
@@ -92,31 +98,30 @@ export function initPanes(gridEl: HTMLElement): void {
 
 /** Connection state of the focused pane's session view (for the statusline). */
 export function focusedConn(): ConnState | null {
-  const s = slots[st.activeTab().focused];
+  const s = slots[st.activeView().focused];
   return s !== undefined && s.sessionId !== null ? s.conn : null;
 }
 
-/** Focus the terminal of the focused slot (used after drawer attach). */
+/** Focus the terminal of the focused slot (used after drawer/tab focus moves). */
 export function requestTerminalFocus(): void {
-  const s = slots[st.activeTab().focused];
+  const s = slots[st.activeView().focused];
   if (s !== undefined && s.view !== null && s.sessionId !== null) s.view.focus();
 }
 
 /** Measured cols/rows of the focused pane (sizes the previous-run relaunch POST). */
 export function focusedPaneDims(): { cols: number; rows: number } {
-  const s = slots[st.activeTab().focused];
+  const s = slots[st.activeView().focused];
   return s !== undefined && s.view !== null ? s.view.proposeDims() : { cols: 80, rows: 24 };
 }
 
-/** Ctrl+Alt+Enter: open the launcher of the focused pane (visible UI equivalent: the form itself). */
+/** Ctrl+Alt+Enter: put the keyboard into the launcher form of a launcher view. */
 export function openLauncher(): void {
-  const s = slots[st.activeTab().focused];
-  if (s === undefined) return;
-  if (s.sessionId !== null) {
-    flash('pane occupied — detach it first');
-    return;
+  const s = slots[0];
+  if (st.activeView().kind === 'launcher' && s !== undefined && s.launcher !== null) {
+    s.launcher.project.focus();
+  } else {
+    flash('no launcher here — ctrl+alt+t opens a new-session tab');
   }
-  s.launcher.project.focus();
 }
 
 // --------------------------------------------------------------------------
@@ -124,36 +129,41 @@ export function openLauncher(): void {
 // --------------------------------------------------------------------------
 
 function render(): void {
-  const tab = st.activeTab();
-  if (tab.id !== renderedTabId || tab.layout !== renderedLayout) {
-    rebuild(tab);
+  const v = st.activeView();
+  const count = v.kind === 'launcher' ? 0 : v.sessions.length;
+  if (v.id !== renderedViewId || count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
+    rebuild(v, count);
   } else {
-    for (let i = 0; i < slots.length; i++) reconcileSlot(i, tab.panes[i] ?? null);
+    for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
   }
   applyFocus();
 }
 
-function rebuild(tab: st.TabState): void {
+function rebuild(v: st.ViewState, count: number): void {
   for (const s of slots) s.view?.dispose();
   slots = [];
-  renderedTabId = tab.id;
-  renderedLayout = tab.layout;
+  renderedViewId = v.id;
+  renderedCount = count;
+  renderedL3 = v.l3;
   lastFocusKey = '';
-  dragFrom = null;
-  grid.dataset.layout = String(tab.layout);
+  grid.dataset.layout = String(st.viewLayout(v));
+  if (count === 3) grid.dataset.l3 = v.l3;
+  else delete grid.dataset.l3;
   grid.replaceChildren();
-  applySplit(tab);
-  for (let i = 0; i < tab.layout; i++) {
+  applySplit(v);
+  if (count === 0) {
     // createSlot appends its root to the grid BEFORE constructing the
     // TerminalView — xterm must open on an attached, measurable node.
-    slots.push(createSlot(i));
+    slots.push(createLauncherSlot(v.id));
+  } else {
+    for (let i = 0; i < count; i++) slots.push(createSessionSlot(i));
   }
-  buildDividers(tab);
-  for (let i = 0; i < slots.length; i++) reconcileSlot(i, tab.panes[i] ?? null);
+  buildDividers(v);
+  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
 }
 
 // --------------------------------------------------------------------------
-// Split dividers (layouts 2/3/4)
+// Split dividers (2..4 panes)
 // --------------------------------------------------------------------------
 //
 // The grid templates read --split-col/--split-row; every ratio change goes
@@ -161,14 +171,16 @@ function rebuild(tab: st.TabState): void {
 // ResizeObserver fires, and the existing debounced fit -> ws resize chain
 // propagates cols/rows to the PTY.
 
-function applySplit(tab: st.TabState): void {
-  grid.style.setProperty('--split-col', String(tab.split.col));
-  grid.style.setProperty('--split-row', String(tab.split.row));
+function applySplit(v: st.ViewState): void {
+  grid.style.setProperty('--split-col', String(v.split.col));
+  grid.style.setProperty('--split-row', String(v.split.row));
 }
 
-function buildDividers(tab: st.TabState): void {
-  if (tab.layout >= 2) grid.append(makeDivider('col', tab));
-  if (tab.layout >= 3) grid.append(makeDivider('row', tab));
+function buildDividers(v: st.ViewState): void {
+  const n = v.sessions.length;
+  if (n >= 2) grid.append(makeDivider('col', v, null));
+  // 3 panes: the row divider only spans the stacked column (L = right, R = left).
+  if (n >= 3) grid.append(makeDivider('row', v, n === 3 ? v.l3 : null));
 }
 
 /**
@@ -177,11 +189,10 @@ function buildDividers(tab: st.TabState): void {
  * fraction (min pane 15%), double-click or Enter resets to equal, arrow
  * keys nudge 2% — keyboard-reachable like every control.
  */
-function makeDivider(axis: 'col' | 'row', tab: st.TabState): HTMLElement {
-  // Layout 3: slot 0 spans both rows, so the row divider only exists in the
-  // right column (is-partial keeps it off the tall left pane).
-  const partial = axis === 'row' && tab.layout === 3;
-  const d = el('div', `divider divider-${axis}${partial ? ' is-partial' : ''}`);
+function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | null): HTMLElement {
+  const partial =
+    partialSide === null ? '' : partialSide === 'L' ? ' is-partial-r' : ' is-partial-l';
+  const d = el('div', `divider divider-${axis}${partial}`);
   d.tabIndex = 0;
   d.setAttribute('role', 'separator');
   d.setAttribute('aria-orientation', axis === 'col' ? 'vertical' : 'horizontal');
@@ -192,7 +203,7 @@ function makeDivider(axis: 'col' | 'row', tab: st.TabState): HTMLElement {
   const setNow = (f: number): void => {
     d.setAttribute('aria-valuenow', String(Math.round(f * 100)));
   };
-  setNow(tab.split[axis]);
+  setNow(v.split[axis]);
 
   d.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -206,22 +217,22 @@ function makeDivider(axis: 'col' | 'row', tab: st.TabState): HTMLElement {
     const f = axis === 'col' ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height;
     // Live: style only, no persist/notify — the ResizeObservers do the rest.
     setNow(st.setSplit(axis, f, false));
-    applySplit(st.activeTab());
+    applySplit(st.activeView());
   });
   const endDrag = (e: PointerEvent): void => {
     if (!d.hasPointerCapture(e.pointerId)) return;
     d.releasePointerCapture(e.pointerId);
     d.classList.remove('is-dragging');
-    st.setSplit(axis, st.activeTab().split[axis], true); // Persist + notify.
+    st.setSplit(axis, st.activeView().split[axis], true); // Persist + notify.
   };
   d.addEventListener('pointerup', endDrag);
   d.addEventListener('pointercancel', endDrag);
   d.addEventListener('dblclick', () => {
     setNow(st.setSplit(axis, 0.5, true));
-    applySplit(st.activeTab());
+    applySplit(st.activeView());
   });
   d.addEventListener('keydown', (e) => {
-    const cur = st.activeTab().split[axis];
+    const cur = st.activeView().split[axis];
     let f: number | null = null;
     if (axis === 'col' && e.key === 'ArrowLeft') f = cur - 0.02;
     else if (axis === 'col' && e.key === 'ArrowRight') f = cur + 0.02;
@@ -231,7 +242,7 @@ function makeDivider(axis: 'col' | 'row', tab: st.TabState): HTMLElement {
     if (f !== null) {
       e.preventDefault();
       setNow(st.setSplit(axis, f, true));
-      applySplit(st.activeTab());
+      applySplit(st.activeView());
     }
   });
   return d;
@@ -239,11 +250,10 @@ function makeDivider(axis: 'col' | 'row', tab: st.TabState): HTMLElement {
 
 function reconcileSlot(index: number, sessionId: string | null): void {
   const s = slots[index];
-  if (s === undefined || s.sessionId === sessionId) {
-    if (s !== undefined) {
-      updateHeader(s);
-      updateNote(s);
-    }
+  if (s === undefined || s.launcher !== null) return; // Launcher slots have no session.
+  if (s.sessionId === sessionId) {
+    updateHeader(s);
+    updateNote(s);
     return;
   }
   s.sessionId = sessionId;
@@ -258,14 +268,7 @@ function reconcileSlot(index: number, sessionId: string | null): void {
       s.termHost.replaceChildren();
       s.view = new TerminalView(s.termHost);
     }
-    s.launcher.form.hidden = true;
     s.view.connect(sessionId, slotEvents(s, sessionId));
-  } else {
-    s.view?.dispose();
-    s.termHost.replaceChildren();
-    s.view = new TerminalView(s.termHost);
-    s.launcher.form.hidden = false;
-    resetLauncher(s.launcher);
   }
   updateHeader(s);
   updateNote(s);
@@ -273,15 +276,29 @@ function reconcileSlot(index: number, sessionId: string | null): void {
 
 function slotEvents(s: Slot, sessionId: string): TerminalEvents {
   return {
-    onInfo: (info: SessionInfo) => st.upsertSession(info),
+    onInfo: (info: SessionInfo) => {
+      st.upsertSession(info);
+      // Attention may predate the attach (BEL while the session had no view
+      // on screen): the FOCUSED pane acks it the moment it learns of it —
+      // applyFocus ran before this frame arrived and could not know.
+      const v = st.activeView();
+      if (
+        info.attention &&
+        v.id === renderedViewId &&
+        v.focused === s.index &&
+        document.hasFocus()
+      ) {
+        clearAttentionIfPending(s);
+      }
+    },
     onExit: (exitCode) => {
       s.exitCode = exitCode;
       st.markExited(sessionId, exitCode);
       updateNote(s);
     },
     onAttention: () => {
-      const tab = st.activeTab();
-      if (tab.id === renderedTabId && tab.focused === s.index && document.hasFocus()) {
+      const v = st.activeView();
+      if (v.id === renderedViewId && v.focused === s.index && document.hasFocus()) {
         // Attention arrived on the focused pane: acknowledge immediately.
         ackSeen(s, sessionId);
       } else {
@@ -300,15 +317,16 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
 }
 
 function applyFocus(): void {
-  const tab = st.activeTab();
-  for (const s of slots) s.root.classList.toggle('focused', s.index === tab.focused);
-  const key = `${tab.id}:${tab.focused}`;
+  const v = st.activeView();
+  for (const s of slots) s.root.classList.toggle('focused', s.index === v.focused);
+  const key = `${v.id}:${v.focused}:${v.kind}`;
   if (key === lastFocusKey) return;
   lastFocusKey = key;
-  const s = slots[tab.focused];
+  const s = slots[v.focused];
   if (s === undefined) return;
   if (s.view !== null && s.sessionId !== null) s.view.focus();
-  else s.root.focus(); // Empty pane: keyboard must not keep typing into the previous terminal.
+  else if (s.launcher !== null) s.launcher.project.focus();
+  else s.root.focus();
   clearAttentionIfPending(s);
 }
 
@@ -329,18 +347,29 @@ function ackSeen(s: Slot, sessionId: string): void {
 // Slot DOM
 // --------------------------------------------------------------------------
 
-function createSlot(index: number): Slot {
+/** Drop-zone overlay revealed by ui/dnd.ts while a tab is dragged over the pane. */
+function buildDropOverlay(): HTMLElement {
+  const drop = el('div', 'pane-drop');
+  drop.hidden = true;
+  const box = el('div', 'pane-drop-box');
+  box.append(el('span', 'pane-drop-lb'));
+  drop.append(box);
+  return drop;
+}
+
+function createSessionSlot(index: number): Slot {
   const root = el('section', 'pane');
   root.tabIndex = -1;
   root.dataset.slot = String(index);
 
   const hd = el('header', 'pane-hd');
-  const mark = el('span', 'focus-mark');
-  mark.title = 'focused pane';
-  // Visible move affordance; the keyboard path is ctrl+alt+shift+arrows.
+  // Status dot (green running / amber attention / hollow exited) — focus is
+  // shown structurally by the pane's accent border + lifted header instead.
+  const dot = el('span', 'pane-dot');
+  dot.setAttribute('aria-hidden', 'true');
+  // Visible drag affordance; the whole header drags. Keyboard paths: the
+  // move chord (ctrl+alt+shift+arrows) and the extract button.
   const grip = el('span', 'pane-grip', '⠿');
-  grip.draggable = true;
-  grip.title = 'drag onto another pane to move / swap (ctrl+alt+shift+arrows)';
   grip.setAttribute('aria-hidden', 'true');
   const attn = el('span', 'badge-attn', '!');
   attn.hidden = true;
@@ -351,93 +380,109 @@ function createSlot(index: number): Slot {
   const connChip = el('span', 'pane-conn');
   connChip.hidden = true;
   const gap = el('span', 'pane-gap');
-  const detachBtn = button('pane-btn', 'detach');
-  detachBtn.title = 'detach view (session keeps running)';
+  const extractBtn = button('pane-btn', 'extract');
+  extractBtn.title = 'move to its own tab (or drag the header onto the tab strip)';
   const killBtn = button('pane-btn is-danger', 'kill');
   killBtn.title = 'kill session (asks to confirm)';
-  hd.append(mark, grip, attn, proj, title, status, connChip, gap, detachBtn, killBtn);
+  hd.append(dot, grip, attn, proj, title, status, connChip, gap, extractBtn, killBtn);
+  hd.title = 'drag onto a pane to swap · onto the tab strip to extract';
 
   const note = el('div', 'pane-note');
   note.hidden = true;
 
   const body = el('div', 'pane-body');
   const termHost = el('div', 'term-host');
-  const launcher = buildLauncher(index);
-  body.append(termHost, launcher.form);
+  body.append(termHost);
 
-  root.append(hd, note, body);
+  root.append(hd, note, body, buildDropOverlay());
   root.addEventListener('mousedown', () => st.focusPane(index), true);
   grid.append(root); // Attach before TerminalView so xterm opens on a live node.
 
   const slot: Slot = {
     index,
     root,
-    grip,
-    attn,
-    proj,
-    title,
-    status,
-    connChip,
-    detachBtn,
-    killBtn,
-    note,
     termHost,
-    launcher,
     view: new TerminalView(termHost),
     sessionId: null,
     conn: null,
     exitCode: null,
     dead: false,
+    dot,
+    attn,
+    proj,
+    title,
+    status,
+    connChip,
+    extractBtn,
+    killBtn,
+    note,
+    launcher: null,
   };
 
-  detachBtn.addEventListener('click', () => {
-    if (slot.sessionId !== null) st.assignPane(renderedTabId, index, null);
+  extractBtn.addEventListener('click', () => {
+    if (slot.sessionId !== null) st.extractSession(slot.sessionId);
   });
   armButton(killBtn, 'sure?', () => {
     if (slot.sessionId !== null) void killSession(slot.sessionId);
   });
 
-  // Grip drag -> drop on another pane = move/swap (mirror of the chord).
-  grip.addEventListener('dragstart', (e) => {
-    if (slot.sessionId === null) {
-      e.preventDefault();
-      return;
-    }
-    dragFrom = index;
-    root.classList.add('is-dragging');
-    if (e.dataTransfer !== null) {
-      e.dataTransfer.setData('text/plain', String(index));
-      e.dataTransfer.effectAllowed = 'move';
-    }
-  });
-  grip.addEventListener('dragend', () => {
-    dragFrom = null;
-    for (const s of slots) s.root.classList.remove('is-dragging', 'is-drop-target');
-  });
-  root.addEventListener('dragover', (e) => {
-    if (dragFrom === null || dragFrom === index) return;
-    e.preventDefault();
-    if (e.dataTransfer !== null) e.dataTransfer.dropEffect = 'move';
-    for (const s of slots) s.root.classList.toggle('is-drop-target', s.index === index);
-  });
-  root.addEventListener('dragleave', (e) => {
-    if (e.relatedTarget instanceof Node && root.contains(e.relatedTarget)) return;
-    root.classList.remove('is-drop-target');
-  });
-  root.addEventListener('drop', (e) => {
-    if (dragFrom === null || dragFrom === index) return;
-    e.preventDefault();
-    const from = dragFrom;
-    dragFrom = null;
-    for (const s of slots) s.root.classList.remove('is-dragging', 'is-drop-target');
-    st.swapPanes(renderedTabId, from, index);
+  // Header drag: onto another pane = swap; onto the tab strip = extract.
+  armDrag(hd, 'button', () => {
+    if (slot.sessionId === null) return null;
+    const info = st.state.sessions.get(slot.sessionId);
+    const pname = st.projectName(info?.projectId);
+    return {
+      kind: 'pane',
+      viewId: renderedViewId,
+      slot: index,
+      sessionId: slot.sessionId,
+      label: pname !== null ? `${pname} · ${info?.command ?? ''}` : (info?.command ?? '…'),
+    };
   });
 
-  populateProjects(launcher);
   return slot;
 }
 
-/** DELETE a session and clear every pane referencing it (also used by the sessions drawer). */
+function createLauncherSlot(viewId: string): Slot {
+  const root = el('section', 'pane is-launcher');
+  root.tabIndex = -1;
+  root.dataset.slot = '0';
+
+  const body = el('div', 'pane-body');
+  const termHost = el('div', 'term-host');
+  const launcher = buildLauncher(viewId);
+  body.append(termHost, launcher.form);
+  root.append(body, buildDropOverlay());
+  root.addEventListener('mousedown', () => st.focusPane(0), true);
+  grid.append(root);
+
+  const slot: Slot = {
+    index: 0,
+    root,
+    termHost,
+    view: new TerminalView(termHost),
+    sessionId: null,
+    conn: null,
+    exitCode: null,
+    dead: false,
+    dot: null,
+    attn: null,
+    proj: null,
+    title: null,
+    status: null,
+    connChip: null,
+    extractBtn: null,
+    killBtn: null,
+    note: null,
+    launcher,
+  };
+
+  populateProjects(launcher);
+  resetLauncher(launcher);
+  return slot;
+}
+
+/** DELETE a session; its view slot closes everywhere (drawer + tab close reuse this). */
 export async function killSession(id: string): Promise<void> {
   try {
     await api.deleteSession(id);
@@ -452,46 +497,44 @@ export async function killSession(id: string): Promise<void> {
 }
 
 function updateHeader(s: Slot): void {
-  const info = s.sessionId !== null ? st.state.sessions.get(s.sessionId) : undefined;
-  if (s.sessionId === null) {
-    s.proj.textContent = '';
-    s.title.textContent = 'empty';
-    s.title.classList.add('is-empty');
-    s.status.textContent = '';
-    s.status.className = 'pane-status';
-    s.grip.hidden = true;
-    s.attn.hidden = true;
-    s.connChip.hidden = true;
-    s.detachBtn.hidden = true;
-    s.killBtn.hidden = true;
-    return;
-  }
-  s.grip.hidden = false;
-  s.title.classList.remove('is-empty');
+  if (s.sessionId === null || s.proj === null) return; // Launcher slot: no header.
+  const info = st.state.sessions.get(s.sessionId);
   const pname = st.projectName(info?.projectId);
   s.proj.textContent = pname ?? '·';
-  s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
-  if (info === undefined || info.status === 'running') {
-    s.status.textContent = 'running';
-    s.status.className = 'pane-status is-ok';
-  } else {
-    const code = info.exitCode ?? 0;
-    s.status.textContent = `exit ${code}`;
-    s.status.className = `pane-status ${code === 0 ? '' : 'is-danger'}`;
+  if (s.title !== null) s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
+  const attention = info !== undefined && info.attention;
+  if (s.status !== null) {
+    if (info === undefined || info.status === 'running') {
+      // Human status language; amber text only while attention is pending.
+      s.status.textContent = attention ? 'needs input' : 'running';
+      s.status.className = `pane-status ${attention ? 'is-attn' : 'is-ok'}`;
+    } else {
+      const code = info.exitCode ?? 0;
+      s.status.textContent = code === 0 ? 'exited' : `exited · ${code}`;
+      s.status.className = `pane-status ${code === 0 ? '' : 'is-danger'}`;
+    }
   }
-  s.attn.hidden = info === undefined || !info.attention;
-  if (s.conn === null || s.conn === 'live') {
-    s.connChip.hidden = true;
-  } else {
-    s.connChip.hidden = false;
-    s.connChip.textContent = s.conn === 'dead' ? 'lost' : `${s.conn}…`;
-    s.connChip.className = `pane-conn ${s.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
+  if (s.dot !== null) {
+    const running = info === undefined || info.status === 'running';
+    s.dot.className = `pane-dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+    s.dot.title = attention ? 'needs input' : running ? 'running' : 'exited';
   }
-  s.detachBtn.hidden = false;
-  s.killBtn.hidden = false;
+  if (s.attn !== null) s.attn.hidden = !attention;
+  if (s.connChip !== null) {
+    if (s.conn === null || s.conn === 'live') {
+      s.connChip.hidden = true;
+    } else {
+      s.connChip.hidden = false;
+      s.connChip.textContent = s.conn === 'dead' ? 'lost' : `${s.conn}…`;
+      s.connChip.className = `pane-conn ${s.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
+    }
+  }
+  // Alone in its view, a session already IS its own tab.
+  if (s.extractBtn !== null) s.extractBtn.hidden = renderedCount <= 1;
 }
 
 function updateNote(s: Slot): void {
+  if (s.note === null) return;
   if (s.sessionId === null) {
     s.note.hidden = true;
     return;
@@ -502,7 +545,9 @@ function updateNote(s: Slot): void {
     s.note.className = 'pane-note is-dead';
     s.note.replaceChildren(
       el('span', 'pane-note-text', 'session gone from server'),
-      button('pane-note-btn', 'clear pane', () => st.assignPane(renderedTabId, s.index, null)),
+      button('pane-note-btn', 'close pane', () => {
+        if (s.sessionId !== null) st.removeSessionEverywhere(s.sessionId);
+      }),
     );
     return;
   }
@@ -519,7 +564,6 @@ function updateNote(s: Slot): void {
     s.note.replaceChildren(
       el('span', 'pane-note-text', `exited · code ${s.exitCode}`),
       relaunchBtn,
-      button('pane-note-btn', 'detach', () => st.assignPane(renderedTabId, s.index, null)),
       delBtn,
     );
     return;
@@ -529,7 +573,7 @@ function updateNote(s: Slot): void {
 
 /**
  * Exited-banner relaunch: POST a new session with the exited one's
- * project/cwd/command/args/title/cols/rows, attach it to this pane, then
+ * project/cwd/command/args/title/cols/rows, swap it into this slot, then
  * DELETE the exited session. The attach flow reconciles the PTY size with
  * the pane's actual dimensions, so stale cols/rows self-correct.
  */
@@ -538,7 +582,7 @@ async function relaunch(s: Slot): Promise<void> {
   if (oldId === null) return;
   const info = st.state.sessions.get(oldId);
   if (info === undefined) return;
-  const tabId = renderedTabId; // Captured: the user may switch tabs mid-await.
+  const viewId = renderedViewId; // Captured: the user may switch tabs mid-await.
   const index = s.index;
   const req: CreateSessionRequest = {
     ...(info.projectId !== undefined ? { projectId: info.projectId } : {}),
@@ -552,8 +596,8 @@ async function relaunch(s: Slot): Promise<void> {
   try {
     const created = await api.createSession(req);
     st.upsertSession(created);
-    st.assignPane(tabId, index, created.id);
-    if (st.state.activeTabId === tabId) {
+    st.replaceSessionInView(viewId, index, created.id);
+    if (st.state.activeViewId === viewId) {
       st.focusPane(index);
       requestTerminalFocus();
     }
@@ -572,10 +616,10 @@ async function relaunch(s: Slot): Promise<void> {
 }
 
 // --------------------------------------------------------------------------
-// Launcher (empty-pane new-session form)
+// Launcher (new-session tab form)
 // --------------------------------------------------------------------------
 
-function buildLauncher(index: number): LauncherRefs {
+function buildLauncher(viewId: string): LauncherRefs {
   const form = el('form', 'launcher') as HTMLFormElement;
 
   const hd = el('div', 'launcher-hd', 'new session');
@@ -598,7 +642,7 @@ function buildLauncher(index: number): LauncherRefs {
     const lb = el('label', 'preset-opt');
     const input = el('input') as HTMLInputElement;
     input.type = 'radio';
-    input.name = `preset-${index}`;
+    input.name = `preset-${viewId}`;
     input.value = def.value;
     if (def.value === 'claude') input.checked = true;
     lb.append(input, el('span', '', def.label));
@@ -653,8 +697,8 @@ function buildLauncher(index: number): LauncherRefs {
   const actions = el('div', 'launcher-actions');
   const submit = el('button', 'btn is-primary', 'launch') as HTMLButtonElement;
   submit.type = 'submit';
-  const attach = button('btn', 'attach existing…', () => st.toggleDrawer('sessions'));
-  attach.title = 'open the sessions panel';
+  const attach = button('btn', 'sessions…', () => st.toggleDrawer('sessions'));
+  attach.title = 'open the sessions panel — every session already has a tab';
   actions.append(submit, attach);
 
   const err = el('div', 'launcher-err');
@@ -703,7 +747,7 @@ function buildLauncher(index: number): LauncherRefs {
   project.addEventListener('change', () => applyProjectDefaults(refs));
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    void launch(index, refs);
+    void launch(viewId, refs);
   });
   return refs;
 }
@@ -758,11 +802,10 @@ function resetLauncher(refs: LauncherRefs): void {
   applyPresetVisibility(refs);
 }
 
-async function launch(index: number, refs: LauncherRefs): Promise<void> {
+async function launch(viewId: string, refs: LauncherRefs): Promise<void> {
   refs.err.hidden = true;
-  const tabId = renderedTabId; // Captured: the user may switch tabs mid-await.
-  const slot = slots[index];
-  if (slot === undefined) return;
+  const slot = slots[0];
+  if (slot === undefined || slot.launcher !== refs) return;
 
   const projectId = refs.project.value;
   if (projectId === '') {
@@ -806,11 +849,10 @@ async function launch(index: number, refs: LauncherRefs): Promise<void> {
   try {
     const info = await api.createSession(req);
     st.upsertSession(info);
-    st.assignPane(tabId, index, info.id);
-    if (st.state.activeTabId === tabId) {
-      st.focusPane(index);
-      requestTerminalFocus();
-    }
+    // The launcher tab becomes this session's tab (if it was closed
+    // mid-await, upsertSession already gave the session its own tab).
+    st.launcherBecameSession(viewId, info.id);
+    if (st.state.activeViewId === viewId) requestTerminalFocus();
   } catch (err) {
     showErr(refs, err instanceof Error ? err.message : String(err));
   } finally {

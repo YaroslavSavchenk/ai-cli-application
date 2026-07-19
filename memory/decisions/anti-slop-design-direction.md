@@ -27,11 +27,18 @@ tmux, vim statuslines, DAWs, mission control. Dense, precise, keyboard-first;
 xterm color scheme and app palette designed as one token system; structural
 (not glowy) focus states; thin information-bearing chrome.
 
-Realized direction (2026-07-18 MVP): **"phosphor instrument panel"** — warm
-graphite surfaces, mono-only type, radius 0, 1px structure lines, no
-shadows/gradients/blur, two single-meaning accents (green = focus/running,
-amber = attention ONLY). Full brief + slop-filter pass in `web/DESIGN.md`;
-tokens in `web/src/styles/tokens.css` (xterm theme fed from the same file).
+Realized direction v1 (2026-07-18 MVP): **"phosphor instrument panel"** —
+warm graphite, mono-only, radius 0, 1px lines, no shadows/gradients, green
+focus + amber attention accents. Replaced 2026-07-19.
+
+Realized direction v2 (2026-07-19, SHIPPED): **"steam blend"** implemented —
+Steam charcoal-blue surface ramp (#0b0e13 terminals → #28323e raised),
+light blue (#66c0f4/#1a9fff) as the ONLY interactive accent, green/amber/
+gray status semantics kept, bundled Barlow (OFL) for chrome + mono for all
+data, radius ~3px, elevation only on the drag ghost. Full brief +
+slop-filter pass in `web/DESIGN.md`; tokens in `web/src/styles/tokens.css`;
+reference mockups in `design-mocks/`. Shipped together with the
+sessions-as-tabs / drag-to-split interaction model.
 
 **UPDATE 2026-07-19 — aesthetic under revision by user feedback**: after
 first real use the user asked for a full GUI redesign — "it needs to feel

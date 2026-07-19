@@ -1,8 +1,9 @@
 /*
- * App styles — dense-industrial "phosphor instrument panel" per web/DESIGN.md.
- * Every value comes from tokens.css. Structure is 1px lines and solid inverse
- * blocks; radius 0; no shadows, no gradients, no blur. The terminal pane
- * dominates; both bars are readouts.
+ * App styles — "steam blend" per web/DESIGN.md. Layered charcoal-blue
+ * surfaces, flat chrome, radius capped at 3px; light blue is the ONLY
+ * interactive accent; green/amber/gray keep their exclusive status meanings.
+ * Sans (bundled Barlow) for chrome, mono for everything that is data.
+ * Every value comes from tokens.css. One real shadow exists: the drag ghost.
  */
 
 /* ---- base ---------------------------------------------------------------- */
@@ -24,12 +25,13 @@ body,
 }
 
 body {
-  background: var(--bg-deep);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--fs-ui);
+  background: var(--surface-1);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chrome);
   line-height: 1.45;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -41,6 +43,10 @@ body {
   display: none !important;
 }
 
+::selection {
+  background: var(--acc-sel);
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -49,31 +55,59 @@ button {
   cursor: pointer;
 }
 
+/* Everything typed or listed as data is mono: tab labels, session rows,
+   the statusline, paths, directory lists, input values. */
+input,
+select,
+.tabstrip,
+.drag-ghost,
+.pane-hd,
+.statusline,
+.sess-name,
+.sess-meta,
+.drawer-count,
+.proj-path,
+.proj-meta,
+.dirpath,
+.dirlist,
+.dir-chosen,
+.pane-drop-lb,
+.sc-gesture,
+kbd {
+  font-family: var(--font-mono);
+}
+
 input,
 select {
-  font: inherit;
-  color: var(--ink);
-  background: var(--bg-deep);
+  font-size: var(--fs-data);
+  color: var(--text);
+  background: var(--well);
   border: var(--line) solid var(--edge);
+  border-radius: var(--radius);
   padding: var(--s-2) var(--s-3);
   width: 100%;
 }
 
+input::placeholder {
+  color: var(--text-faint);
+}
+
 input:focus,
 select:focus {
-  border-color: var(--edge-strong);
+  border-color: var(--acc-dim);
 }
 
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: var(--line) solid var(--focus);
-  outline-offset: -1px;
+  outline: var(--line) solid var(--acc);
+  outline-offset: calc(-1 * var(--line));
 }
 
 button,
-.pane {
+.pane,
+.sess-row {
   transition:
     color var(--t-fast),
     background-color var(--t-fast),
@@ -86,15 +120,48 @@ button,
   scrollbar-color: var(--edge-strong) transparent;
 }
 
-/* micro-label: letterspaced small caps, hierarchy without a second family */
+/* micro-label: letterspaced small caps in the chrome sans */
 .drawer-label,
+.drawer-sect-lb,
 .field-lb,
 .launcher-hd,
-.brand {
+.boot-err-hd {
   font-size: var(--fs-micro);
-  letter-spacing: var(--ls-micro);
+  font-weight: 600;
+  letter-spacing: var(--ls-caps);
   text-transform: uppercase;
-  color: var(--ink-mute);
+  color: var(--text-mute);
+}
+
+/* ---- status dots: green running / amber attention / hollow gray exited ---- */
+
+.tab-dot,
+.pane-dot {
+  flex: none;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+}
+
+.tab-dot.is-run,
+.pane-dot.is-run {
+  background: var(--ok);
+}
+
+.tab-dot.is-attn,
+.pane-dot.is-attn {
+  background: var(--attn);
+}
+
+.tab-dot.is-exit,
+.pane-dot.is-exit {
+  background: transparent;
+  border: var(--line) solid var(--exit);
+}
+
+.tab-dot.is-new {
+  background: transparent;
+  border: var(--line) dashed var(--text-faint); /* hollow dashes: launcher tab */
 }
 
 /* ---- attention badge: inverse amber block, readable across the room ------ */
@@ -107,9 +174,11 @@ button,
   padding: 0 var(--s-2);
   background: var(--attn);
   color: var(--attn-ink);
+  font-family: var(--font-mono);
   font-weight: 700;
   font-size: var(--fs-micro);
   line-height: var(--badge-block);
+  border-radius: var(--radius-sm);
   animation: badge-in var(--t-move) ease-out;
 }
 
@@ -122,59 +191,102 @@ button,
   }
 }
 
-/* ---- topbar --------------------------------------------------------------- */
+/* ---- topbar: shell band with Steam tabs ----------------------------------- */
 
 .topbar {
   height: var(--bar-h);
   flex: none;
   display: flex;
   align-items: stretch;
-  background: var(--bg-raise);
-  border-bottom: var(--line) solid var(--edge);
+  background: var(--surface-0);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  padding: 0 var(--s-4);
-  border-right: var(--line) solid var(--edge);
-  color: var(--ink);
-  font-weight: 700;
+  padding: 0 var(--s-5);
+  color: var(--text);
+  font-size: var(--fs-data);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
 }
 
 .tabstrip {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
+  gap: var(--s-1);
+  padding: 0 var(--s-2);
   overflow-x: auto;
+  font-size: var(--fs-data);
 }
 
 .tab {
+  flex: none;
   display: flex;
   align-items: center;
-  border-right: var(--line) solid var(--edge);
+  height: var(--tab-h);
+  position: relative; /* anchors the active accent bar */
+  border-radius: var(--radius) var(--radius) 0 0;
+  /* Insertion caret slot: lit while a dragged tab would land before this one. */
+  border-left: var(--tick) solid transparent;
   white-space: nowrap;
+  user-select: none;
+  touch-action: none; /* tabs are pointer-drag sources */
+}
+
+.tab:hover {
+  background: var(--surface-2);
+}
+
+.tab.is-active {
+  background: var(--surface-2);
+}
+
+.tab.is-active::after {
+  /* the accent bar: blue = selected, the one interactive color */
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--tick);
+  background: var(--acc-hot);
+  border-radius: var(--radius) var(--radius) 0 0;
+  pointer-events: none;
 }
 
 .tab-sel {
   height: 100%;
-  padding: 0 var(--s-3);
-  color: var(--ink-mute);
-  /* The active tick is a border, never a shadow; both edges are reserved so
-     the label stays optically centered in every state. */
-  border-top: var(--tick) solid transparent;
-  border-bottom: var(--tick) solid transparent;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-2) 0 var(--s-4);
+  color: var(--text-mute);
 }
 
-.tab-sel:hover {
-  color: var(--ink);
-  background: var(--bg-hover);
-}
-
+.tab:hover .tab-sel,
 .tab.is-active .tab-sel {
-  color: var(--ink);
-  border-top-color: var(--focus); /* active-tab tick */
+  color: var(--text);
+}
+
+.tab-idx {
+  color: var(--text-faint);
+  font-size: var(--fs-micro);
+}
+
+/* the view holds a split: sessions beyond the first (blue = its mock chip) */
+.tab-count {
+  color: var(--acc);
+  background: var(--acc-wash);
+  border: var(--line) solid var(--acc-dim);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--s-2);
+  font-size: var(--fs-micro);
+  line-height: var(--badge-block);
 }
 
 .tab .badge-attn {
@@ -183,113 +295,117 @@ button,
 
 .tab-x {
   height: 100%;
-  padding: 0 var(--s-2);
-  color: var(--ink-faint);
+  padding: 0 var(--s-3);
+  border-radius: 0 var(--radius) 0 0;
+  color: var(--text-faint);
 }
 
 .tab-x:hover {
-  color: var(--danger);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.tab-x[data-armed='1'] {
+  background: var(--danger-hot);
+  color: var(--danger-ink);
+  font-weight: 600;
 }
 
 .tab-new {
+  flex: none;
+  height: var(--tab-h);
   padding: 0 var(--s-4);
-  color: var(--ink-mute);
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-left: var(--tick) solid transparent; /* caret slot, as on tabs */
+  color: var(--text-mute);
+  font-size: var(--fs-chrome);
 }
 
 .tab-new:hover {
-  color: var(--ink);
-  background: var(--bg-hover);
+  color: var(--acc);
+  background: var(--surface-2);
 }
 
-/* layout switcher: 1px-line miniature diagrams */
+/* ---- drag & drop: strip states ------------------------------------------- */
 
-.layswitch {
-  display: flex;
-  align-items: stretch;
-  border-left: var(--line) solid var(--edge);
+.tab.is-dragging {
+  opacity: 0.45;
 }
 
-.laybtn {
+/* dashed = prospective (same contract as the pane drop target) */
+.tab.is-drop {
+  background: var(--surface-2);
+  outline: var(--line) dashed var(--acc);
+  outline-offset: calc(-1 * var(--line));
+}
+
+.tab.is-insert-before,
+.tab-new.is-insert-before {
+  border-left-color: var(--acc-hot); /* insertion caret */
+}
+
+.tabstrip.is-drop {
+  outline: var(--line) dashed var(--acc);
+  outline-offset: calc(-2 * var(--line));
+}
+
+/* cursor-following chip — the ONE elevated element in the whole UI */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-ghost);
+  pointer-events: none;
   display: flex;
   align-items: center;
-  padding: 0 var(--s-3);
-  color: var(--ink-faint);
+  height: var(--ghost-h);
+  padding: 0 var(--s-5);
+  font-size: var(--fs-data);
+  background: var(--surface-3);
+  border: var(--line) solid var(--acc);
+  border-radius: var(--radius);
+  box-shadow: var(--elev-ghost);
+  color: var(--text);
+  white-space: nowrap;
 }
 
-.laybtn:hover {
-  color: var(--ink-mute);
-  background: var(--bg-hover);
+.drag-ghost.is-invalid {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
-.laybtn.is-active {
-  color: var(--focus);
-  background: var(--bg-hover);
+body.is-dnd {
+  user-select: none;
 }
 
-.mini {
-  display: grid;
-  width: var(--mini-w);
-  height: var(--mini-h);
-  gap: var(--line);
-  background: currentColor; /* the 1px gaps ARE the diagram lines */
-  border: var(--line) solid currentColor;
-}
-
-.mini i {
-  background: var(--bg-raise);
-}
-
-.mini-1 {
-  grid-template: 1fr / 1fr;
-}
-
-.mini-2 {
-  grid-template: 1fr / 1fr 1fr;
-}
-
-.mini-3 {
-  grid-template: 1fr 1fr / 1fr 1fr;
-}
-
-.mini-3 i:first-child {
-  grid-row: 1 / 3;
-}
-
-.mini-4 {
-  grid-template: 1fr 1fr / 1fr 1fr;
+body.is-dnd * {
+  cursor: grabbing !important;
 }
 
 .topbar-actions {
   display: flex;
   align-items: stretch;
-  border-left: var(--line) solid var(--edge);
 }
 
 .tb-btn {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 0 var(--s-4);
-  color: var(--ink-mute);
-  border-left: var(--line) solid var(--edge);
-  border-top: var(--tick) solid transparent;
+  padding: 0 var(--s-5);
+  color: var(--text-mute);
+  font-size: var(--fs-data);
   border-bottom: var(--tick) solid transparent;
 }
 
-.tb-btn:first-child {
-  border-left: none;
-}
-
 .tb-btn:hover {
-  color: var(--ink);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 .tb-btn.is-on {
-  color: var(--ink);
-  background: var(--bg-hover);
-  border-top-color: var(--focus); /* toggled tick: border, never shadow */
+  color: var(--text);
+  background: var(--surface-2);
+  border-bottom-color: var(--acc-hot); /* toggled: accent tick toward the drawer */
 }
 
 .tb-help {
@@ -333,14 +449,33 @@ button,
     / calc((100% - var(--line)) * var(--split-col, 0.5)) minmax(0, 1fr);
 }
 
-.grid[data-layout='3'] .pane[data-slot='0'] {
+/* 3-pane variants: L = tall pane left (stacked pair right), R = mirrored.
+   Slot order is state.ts's contract: L [tall, top, bottom], R [top, bottom, tall]. */
+
+.grid[data-layout='3'][data-l3='L'] .pane[data-slot='0'] {
   grid-row: 1 / 3;
+}
+
+.grid[data-layout='3'][data-l3='R'] .pane[data-slot='0'] {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.grid[data-layout='3'][data-l3='R'] .pane[data-slot='1'] {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+.grid[data-layout='3'][data-l3='R'] .pane[data-slot='2'] {
+  grid-row: 1 / 3;
+  grid-column: 2;
 }
 
 /* ---- split dividers -------------------------------------------------------
    Visible-but-quiet: the 1px gutter stays the only line at rest; the divider
    is a wider invisible grab strip centered on it whose 1px core surfaces on
-   hover (edge-strong) and turns phosphor while focused or dragging. */
+   hover (edge-strong) and turns accent blue while focused or dragging
+   (blue = being interacted with). */
 
 .divider {
   position: absolute;
@@ -365,7 +500,7 @@ button,
 
 .divider:focus-visible::after,
 .divider.is-dragging::after {
-  background: var(--focus);
+  background: var(--acc-hot);
 }
 
 .divider-col {
@@ -401,42 +536,114 @@ button,
   top: calc((var(--divider-hit) - var(--line)) / 2);
 }
 
-/* layout 3: slot 0 spans both rows, so the row divider lives only over the
-   right column (its left edge tracks the column split) */
-.divider-row.is-partial {
+/* 3 panes: the tall pane spans both rows, so the row divider lives only over
+   the stacked column — right column for variant L, left column for variant R
+   (both edges track the column split). */
+.divider-row.is-partial-r {
   left: calc((100% - var(--line)) * var(--split-col, 0.5) + var(--line));
+}
+
+.divider-row.is-partial-l {
+  right: calc(100% - (100% - var(--line)) * var(--split-col, 0.5));
 }
 
 /* ---- pane ------------------------------------------------------------------ */
 
 .pane {
+  position: relative; /* anchors the .pane-drop overlay */
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-term);
+  background: var(--term-bg);
   outline: none;
 }
 
-/* focus is structural: crisp 1px accent edge; unfocused panes dim slightly */
-.pane.focused {
-  outline: var(--line) solid var(--focus);
-  outline-offset: -1px;
+/* Focus is structural: in a split, the focused pane gets the accent edge and
+   a lifted header; unfocused panes dim slightly. A lone pane needs no frame —
+   the terminal dominates undecorated. */
+.grid:not([data-layout='1']) .pane.focused {
+  outline: var(--tick) solid var(--acc-dim); /* 2px, per the mock's ring */
+  outline-offset: calc(-1 * var(--tick));
 }
 
 .grid:not([data-layout='1']) .pane:not(.focused) {
-  opacity: 0.85;
+  opacity: 0.88;
 }
 
-/* grip drag: source dims further; the candidate target gets a dashed
-   phosphor edge (dashed = prospective, solid = focused) */
+/* header drag: source dims; a swap candidate gets a dashed accent edge
+   (dashed = prospective, solid = focused) */
 .pane.is-dragging {
   opacity: 0.6;
 }
 
 .pane.is-drop-target {
-  outline: var(--line) dashed var(--focus);
-  outline-offset: -1px;
+  outline: var(--line) dashed var(--acc);
+  outline-offset: calc(-1 * var(--line));
+}
+
+/* drop-zone overlay: revealed by dnd while a tab hovers this pane; the box
+   marks the half (or whole pane) the merged session would take */
+.pane-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 7; /* above term-host and dividers, under nothing interactive */
+  pointer-events: none; /* hit-testing must see the pane beneath */
+}
+
+.pane-drop-box {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--acc-wash);
+  border: var(--line) dashed var(--acc);
+  border-radius: var(--radius);
+}
+
+.pane-drop[data-zone='left'] .pane-drop-box {
+  right: 50%;
+}
+
+.pane-drop[data-zone='right'] .pane-drop-box {
+  left: 50%;
+}
+
+.pane-drop[data-zone='top'] .pane-drop-box {
+  bottom: 50%;
+}
+
+.pane-drop[data-zone='bottom'] .pane-drop-box {
+  top: 50%;
+}
+
+.pane-drop-lb {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--acc);
+  background: var(--well);
+  border: var(--line) solid var(--acc-dim);
+  border-radius: var(--radius);
+  padding: var(--s-2) var(--s-4);
+}
+
+/* rejected drop (view already holds 4): one danger pulse, <=150ms motion */
+@keyframes grid-reject {
+  0%,
+  100% {
+    outline-color: transparent;
+  }
+  50% {
+    outline-color: var(--danger);
+  }
+}
+
+.grid.is-reject {
+  outline: var(--tick) solid transparent;
+  outline-offset: calc(-1 * var(--tick));
+  animation: grid-reject var(--t-pulse) ease-out;
 }
 
 .pane-hd {
@@ -444,36 +651,36 @@ button,
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: 0 var(--s-3);
-  background: var(--bg-raise);
-  border-bottom: var(--line) solid var(--edge);
+  gap: var(--s-4);
+  padding: 0 var(--s-3) 0 var(--s-4);
+  font-size: var(--fs-data);
+  background: var(--surface-2);
+  border-bottom: var(--line) solid var(--edge-soft);
   white-space: nowrap;
   overflow: hidden;
+  user-select: none;
+  touch-action: none; /* headers are pointer-drag sources */
+  cursor: grab;
 }
 
-.focus-mark {
-  flex: none;
-  width: var(--mark-size);
-  height: var(--mark-size);
-  background: var(--edge-strong); /* record light: green only when focused */
+.grid:not([data-layout='1']) .pane.focused .pane-hd {
+  background: var(--surface-3); /* focused header lifts one step */
 }
 
-.pane.focused .focus-mark {
-  background: var(--focus);
+.pane-hd button {
+  cursor: pointer;
 }
 
-/* move affordance: monospace-native braille grip, pointer twin of the
-   ctrl+alt+shift+arrow chord */
+/* move affordance: braille grip, pointer twin of ctrl+alt+shift+arrows */
 .pane-grip {
   flex: none;
-  color: var(--ink-faint);
+  color: var(--text-faint);
   cursor: grab;
   user-select: none;
 }
 
 .pane-grip:hover {
-  color: var(--ink);
+  color: var(--text);
 }
 
 .pane-proj {
@@ -483,23 +690,24 @@ button,
 }
 
 .pane-title {
-  color: var(--ink-mute);
+  color: var(--text-mute);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.pane-title.is-empty {
-  color: var(--ink-faint);
 }
 
 .pane-status,
 .pane-conn {
   font-size: var(--fs-micro);
-  color: var(--ink-mute);
+  letter-spacing: 0.03em;
+  color: var(--text-mute);
 }
 
 .is-ok {
   color: var(--ok);
+}
+
+.is-attn {
+  color: var(--attn);
 }
 
 .is-danger {
@@ -508,7 +716,7 @@ button,
 
 /* degraded-but-recovering conn: muted readout — amber is attention-only */
 .is-warn {
-  color: var(--ink-mute);
+  color: var(--text-mute);
 }
 
 .pane-gap {
@@ -516,27 +724,29 @@ button,
 }
 
 .pane-btn {
-  padding: 0 var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  font-family: var(--font-sans);
   font-size: var(--fs-micro);
-  color: var(--ink-mute);
-  border: var(--line) solid transparent;
+  font-weight: 600;
+  color: var(--text-mute);
+  border-radius: var(--radius-sm);
 }
 
 .pane-btn:hover {
-  color: var(--ink);
-  border-color: var(--edge-strong);
+  color: var(--text);
+  background: var(--surface-3);
 }
 
 .pane-btn.is-danger:hover {
-  color: var(--danger);
-  border-color: var(--danger);
+  color: var(--danger-ink);
+  background: var(--danger-hot);
 }
 
 .pane-btn[data-armed='1'],
 .row-btn[data-armed='1'] {
-  background: var(--danger);
-  color: var(--bg-deep);
-  border-color: var(--danger);
+  background: var(--danger-hot);
+  color: var(--danger-ink);
+  border-color: var(--danger-hot);
 }
 
 /* exited / dead banner: full-width structural strip, buffer stays readable */
@@ -546,14 +756,18 @@ button,
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-1) var(--s-3);
-  background: var(--bg-raise);
-  border-bottom: var(--line) solid var(--edge);
+  padding: var(--s-2) var(--s-4);
+  background: var(--surface-2);
+  border-bottom: var(--line) solid var(--edge-soft);
   font-size: var(--fs-micro);
 }
 
+.pane-note-text {
+  font-family: var(--font-mono);
+}
+
 .pane-note.is-exit .pane-note-text {
-  color: var(--ink-mute);
+  color: var(--text-mute);
 }
 
 .pane-note.is-exit-err .pane-note-text {
@@ -561,39 +775,43 @@ button,
 }
 
 .pane-note.is-dead {
-  background: var(--danger);
+  background: var(--danger-hot);
 }
 
 .pane-note.is-dead .pane-note-text {
-  color: var(--bg-deep);
+  color: var(--danger-ink);
   font-weight: 700;
 }
 
 .pane-note-btn {
-  padding: 0 var(--s-2);
+  padding: 0 var(--s-3);
+  font-family: var(--font-sans);
+  font-weight: 600;
   border: var(--line) solid var(--edge-strong);
-  color: var(--ink-mute);
+  border-radius: var(--radius-sm);
+  color: var(--text-mute);
 }
 
 .pane-note-btn:hover {
-  color: var(--ink);
-  border-color: var(--ink-mute);
+  color: var(--text);
+  border-color: var(--text-mute);
 }
 
-/* relaunch: the banner's primary action — phosphor, like every primary */
+/* relaunch: the banner's primary action — green, like every primary */
 .pane-note-btn.is-primary {
-  color: var(--focus);
-  border-color: var(--focus);
+  color: var(--ok);
+  border-color: var(--primary);
 }
 
 .pane-note-btn.is-primary:hover {
-  background: var(--focus);
-  color: var(--focus-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
 }
 
 .pane-note.is-dead .pane-note-btn {
-  border-color: var(--bg-deep);
-  color: var(--bg-deep);
+  border-color: var(--danger-ink);
+  color: var(--danger-ink);
 }
 
 .pane-body {
@@ -614,7 +832,7 @@ button,
 
 /* FitAddon subtracts .xterm's own padding from the host size */
 .term-host .xterm {
-  padding: var(--s-2);
+  padding: var(--s-3);
 }
 
 /* ---- launcher: empty pane = top-left config block, not a friendly void ---- */
@@ -622,8 +840,8 @@ button,
 .launcher {
   position: absolute;
   inset: 0;
-  background: var(--bg-term);
-  padding: var(--s-6);
+  background: var(--term-bg);
+  padding: var(--s-7);
   overflow: auto;
 }
 
@@ -634,12 +852,12 @@ button,
 .launcher-hd {
   margin-bottom: var(--s-5);
   padding-bottom: var(--s-2);
-  border-bottom: var(--line) solid var(--edge);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
 .field {
   display: block;
-  margin-bottom: var(--s-4);
+  margin-bottom: var(--s-5);
 }
 
 .field-lb {
@@ -649,9 +867,10 @@ button,
 
 .field-hint {
   font-style: normal;
+  font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .field.is-disabled {
@@ -660,8 +879,9 @@ button,
 
 .preset-set {
   border: var(--line) solid var(--edge);
+  border-radius: var(--radius);
   padding: var(--s-3) var(--s-4) var(--s-4);
-  margin-bottom: var(--s-4);
+  margin-bottom: var(--s-5);
 }
 
 .preset-set legend {
@@ -678,7 +898,7 @@ button,
 
 .preset-opt input {
   width: auto;
-  accent-color: var(--focus);
+  accent-color: var(--acc);
 }
 
 .launcher-actions {
@@ -688,51 +908,58 @@ button,
 }
 
 .btn {
-  padding: var(--s-2) var(--s-4);
-  border: var(--line) solid var(--edge-strong);
-  background: var(--bg-raise);
-  color: var(--ink);
+  padding: var(--s-2) var(--s-5);
+  font-weight: 600;
+  border: var(--line) solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .btn:hover {
-  background: var(--bg-hover);
+  background: var(--surface-3);
 }
 
 .btn:disabled {
-  color: var(--ink-faint);
-  border-color: var(--edge);
+  color: var(--text-faint);
+  border-color: var(--edge-soft);
+  background: var(--surface-2);
   cursor: default;
 }
 
+/* green primary: new session / relaunch / reload — the "go" family */
 .btn.is-primary {
-  background: var(--focus);
-  color: var(--focus-ink);
-  border-color: var(--focus);
-  font-weight: 700;
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: var(--primary);
 }
 
 .btn.is-primary:hover {
-  background: var(--focus);
-  opacity: 0.9;
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .btn.is-primary:disabled {
-  background: var(--bg-raise);
-  color: var(--ink-faint);
-  border-color: var(--edge);
-  opacity: 1;
+  background: var(--surface-2);
+  color: var(--text-faint);
+  border-color: var(--edge-soft);
 }
 
 .btn-link {
-  color: var(--focus);
+  color: var(--acc);
   text-decoration: underline;
   padding: 0;
+}
+
+.btn-link:hover {
+  color: var(--acc-hot);
 }
 
 .launcher-err {
   margin-top: var(--s-4);
   padding: var(--s-2) var(--s-3);
   border: var(--line) solid var(--danger);
+  border-radius: var(--radius);
   color: var(--danger);
   font-size: var(--fs-micro);
   overflow-wrap: anywhere;
@@ -740,7 +967,7 @@ button,
 
 .launcher-none {
   margin-top: var(--s-4);
-  color: var(--ink-mute);
+  color: var(--text-mute);
 }
 
 /* ---- drawer: structural sibling of the grid (panes resize, not covered) --- */
@@ -748,8 +975,8 @@ button,
 .drawer {
   flex: none;
   width: var(--drawer-w);
-  background: var(--bg-raise);
-  border-left: var(--line) solid var(--edge);
+  background: var(--surface-1);
+  border-left: var(--line) solid var(--edge-soft);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -768,12 +995,12 @@ button,
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding-left: var(--s-4);
-  border-bottom: var(--line) solid var(--edge);
+  padding-left: var(--s-5);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
 .drawer-count {
-  color: var(--ink-faint);
+  color: var(--text-faint);
   font-size: var(--fs-micro);
 }
 
@@ -784,13 +1011,12 @@ button,
 .drawer-x {
   height: 100%;
   min-width: var(--bar-h);
-  color: var(--ink-mute);
-  border-left: var(--line) solid var(--edge);
+  color: var(--text-mute);
 }
 
 .drawer-x:hover {
-  color: var(--ink);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 .drawer-body {
@@ -800,52 +1026,43 @@ button,
 }
 
 .drawer-empty {
-  padding: var(--s-4);
-  color: var(--ink-faint);
+  padding: var(--s-5);
+  color: var(--text-faint);
 }
 
-/* previous-run section: crash/shutdown relaunch offers above the live list */
+/* previous-run section: crash/shutdown relaunch offers above the live list —
+   dead material sits recessed on the well floor */
 
 .drawer-sect {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: var(--s-2) var(--s-4);
-  background: var(--bg-deep);
-  border-bottom: var(--line) solid var(--edge);
+  padding: var(--s-2) var(--s-5);
+  background: var(--well);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
-.drawer-sect-lb {
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-micro);
-  text-transform: uppercase;
-  color: var(--ink-mute);
-}
-
-/* offer rows share the section's floor: one recessed dead-run block beneath
-   the live rows on --bg-raise (dead material sits on the app floor) */
 .sess-row.is-prev {
-  background: var(--bg-deep);
+  background: var(--well);
 }
 
 .sess-row.is-prev:hover {
-  background: var(--bg-hover);
+  background: var(--surface-2);
 }
 
-/* sessions rows */
+/* sessions rows: dense mono data, comfortable padding */
 
 .sess-row {
   display: flex;
   align-items: flex-start;
   gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  border-bottom: var(--line) solid var(--edge);
-  transition: background-color var(--t-fast);
+  padding: var(--s-3) var(--s-5);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
 /* rows are double-click targets (attach); hover marks them interactive */
 .sess-row:hover {
-  background: var(--bg-hover);
+  background: var(--surface-2);
 }
 
 .sess-row .badge-attn {
@@ -860,6 +1077,7 @@ button,
 .sess-name {
   display: flex;
   gap: var(--s-2);
+  font-size: var(--fs-data);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -869,24 +1087,30 @@ button,
 }
 
 .sess-sep {
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 .sess-title {
-  color: var(--ink-mute);
+  color: var(--text-mute);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .sess-meta {
   display: flex;
-  gap: var(--s-3);
+  flex-wrap: wrap; /* items wrap as whole units, never mid-phrase */
+  gap: var(--s-1) var(--s-3);
   font-size: var(--fs-micro);
-  color: var(--ink-mute);
+  color: var(--text-mute);
 }
 
+.sess-meta > * {
+  white-space: nowrap;
+}
+
+/* where the session lives (tab n · pane n): selection info = accent */
 .sess-here {
-  color: var(--focus);
+  color: var(--acc);
 }
 
 .sess-actions {
@@ -895,31 +1119,37 @@ button,
 }
 
 .row-btn {
-  padding: 0 var(--s-2);
+  padding: 0 var(--s-3);
   font-size: var(--fs-micro);
-  border: var(--line) solid var(--edge-strong);
-  color: var(--ink-mute);
+  font-weight: 600;
+  border: var(--line) solid var(--edge);
+  border-radius: var(--radius-sm);
+  color: var(--text-mute);
+  line-height: 1.7;
 }
 
 .row-btn:hover {
-  color: var(--ink);
-  border-color: var(--ink-mute);
+  color: var(--text);
+  border-color: var(--edge-strong);
+  background: var(--surface-3);
 }
 
 .row-btn.is-danger:hover {
-  color: var(--danger);
-  border-color: var(--danger);
+  color: var(--danger-ink);
+  background: var(--danger-hot);
+  border-color: var(--danger-hot);
 }
 
 /* green = primary action (accent contract), as on the exited-banner relaunch */
 .row-btn.is-primary {
-  color: var(--focus);
-  border-color: var(--focus);
+  color: var(--ok);
+  border-color: var(--primary);
 }
 
 .row-btn.is-primary:hover {
-  background: var(--focus);
-  color: var(--focus-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
 }
 
 /* projects rows + add form */
@@ -928,8 +1158,12 @@ button,
   display: flex;
   align-items: flex-start;
   gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  border-bottom: var(--line) solid var(--edge);
+  padding: var(--s-3) var(--s-5);
+  border-bottom: var(--line) solid var(--edge-soft);
+}
+
+.proj-row:hover {
+  background: var(--surface-2);
 }
 
 .proj-main {
@@ -938,19 +1172,19 @@ button,
 }
 
 .proj-name {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .proj-path,
 .proj-meta {
   font-size: var(--fs-micro);
-  color: var(--ink-faint);
+  color: var(--text-faint);
   overflow-wrap: anywhere;
 }
 
 .proj-add {
-  padding: var(--s-4);
-  border-top: var(--line) solid var(--edge-strong);
+  padding: var(--s-5);
+  border-top: var(--line) solid var(--edge);
   margin-top: var(--s-6);
 }
 
@@ -967,7 +1201,7 @@ button,
 }
 
 .dir-chosen.is-unset {
-  color: var(--ink-faint);
+  color: var(--text-faint);
 }
 
 /* ---- modal (directory browser) + overlay (shortcuts) ---------------------- */
@@ -988,8 +1222,10 @@ button,
   max-height: 76vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-raise);
-  border: var(--line) solid var(--edge-strong);
+  background: var(--surface-2);
+  border: var(--line) solid var(--edge);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .modal-hd {
@@ -998,8 +1234,9 @@ button,
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding-left: var(--s-4);
-  border-bottom: var(--line) solid var(--edge);
+  padding-left: var(--s-5);
+  background: var(--surface-0);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
 .dirnav {
@@ -1007,8 +1244,8 @@ button,
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  border-bottom: var(--line) solid var(--edge);
+  padding: var(--s-3) var(--s-5);
+  border-bottom: var(--line) solid var(--edge-soft);
 }
 
 .dirpath {
@@ -1021,30 +1258,31 @@ button,
   flex: 1;
   min-height: var(--dirlist-min-h);
   overflow-y: auto;
+  font-size: var(--fs-data);
 }
 
 .dir-btn {
   display: block;
   width: 100%;
   text-align: left;
-  padding: var(--s-2) var(--s-4);
-  color: var(--ink);
+  padding: var(--s-2) var(--s-5);
+  color: var(--text);
 }
 
 .dir-btn:hover {
-  background: var(--bg-hover);
+  background: var(--surface-3);
 }
 
 .modal .launcher-err {
-  margin: var(--s-3) var(--s-4);
+  margin: var(--s-3) var(--s-5);
 }
 
 .modal-ft {
   flex: none;
   display: flex;
   gap: var(--s-3);
-  padding: var(--s-4);
-  border-top: var(--line) solid var(--edge);
+  padding: var(--s-5);
+  border-top: var(--line) solid var(--edge-soft);
 }
 
 /* shortcuts table */
@@ -1055,58 +1293,65 @@ button,
 
 .sc-table {
   padding: var(--s-4) 0;
+  overflow-y: auto;
 }
 
 .sc-row {
   display: grid;
   grid-template-columns: var(--sc-keys-w) 1fr 1fr;
   gap: var(--s-4);
-  padding: var(--s-2) var(--s-4);
+  padding: var(--s-2) var(--s-5);
   align-items: baseline;
 }
 
 .sc-keys {
-  flex-wrap: wrap;
-}
-
-.sc-keys {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-2);
   align-items: baseline;
 }
 
 kbd {
-  font-family: var(--font-mono);
   font-size: var(--fs-micro);
   padding: 0 var(--s-2);
-  border: var(--line) solid var(--edge-strong);
-  background: var(--bg-deep);
-  color: var(--ink);
+  border: var(--line) solid var(--edge);
+  border-bottom-width: var(--tick); /* tactile key face, not a shadow */
+  border-radius: var(--radius-sm);
+  background: var(--well);
+  color: var(--text);
   white-space: nowrap;
 }
 
+/* mouse-gesture sentences in the keys column: plain text that wraps inside
+   --sc-keys-w — the nowrap <kbd> chip is for short chords only. */
+.sc-gesture {
+  min-width: 0;
+  font-size: var(--fs-micro);
+  color: var(--text);
+}
+
 .sc-or {
-  color: var(--ink-faint);
+  color: var(--text-faint);
   font-size: var(--fs-micro);
 }
 
 .sc-what {
-  color: var(--ink);
+  color: var(--text);
 }
 
 .sc-ui {
-  color: var(--ink-mute);
+  color: var(--text-mute);
   font-size: var(--fs-micro);
 }
 
 .sc-note {
-  padding: var(--s-4);
-  border-top: var(--line) solid var(--edge);
-  color: var(--ink-mute);
+  padding: var(--s-5);
+  border-top: var(--line) solid var(--edge-soft);
+  color: var(--text-mute);
   font-size: var(--fs-micro);
 }
 
-/* ---- statusline: pure readout --------------------------------------------- */
+/* ---- statusline: quiet mono readout on the shell band ---------------------- */
 
 .statusline {
   height: var(--status-h);
@@ -1114,9 +1359,10 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--s-4);
-  background: var(--bg-raise);
-  border-top: var(--line) solid var(--edge);
+  padding: 0 var(--s-5);
+  font-size: var(--fs-micro);
+  background: var(--surface-0);
+  border-top: var(--line) solid var(--edge-soft);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -1130,11 +1376,11 @@ kbd {
 }
 
 .status-seg {
-  color: var(--ink-mute);
+  color: var(--text-mute);
 }
 
 .status-strong {
-  color: var(--ink);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1144,7 +1390,7 @@ kbd {
 }
 
 .status-warn {
-  color: var(--ink-mute);
+  color: var(--text-mute);
 }
 
 .status-danger {
@@ -1153,20 +1399,30 @@ kbd {
 
 /* inverse ink block, NOT amber: amber means attention, flashes are notices */
 .status-flash {
-  background: var(--ink);
-  color: var(--bg-deep);
+  background: var(--text);
+  color: var(--surface-0);
   padding: 0 var(--s-2);
+  border-radius: var(--radius-sm);
   font-weight: 700;
 }
 
-/* ---- boot error ------------------------------------------------------------ */
+.status-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-faint);
+}
+
+/* ---- boot / restart takeover panels ---------------------------------------- */
 
 .boot-err {
   margin: 20vh auto 0;
   max-width: var(--panel-w);
-  padding: var(--s-6);
-  background: var(--bg-raise);
-  border: var(--line) solid var(--danger);
+  padding: var(--s-7);
+  background: var(--surface-2);
+  border: var(--line) solid var(--edge);
+  border-top: var(--tick) solid var(--danger);
+  border-radius: var(--radius);
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
@@ -1175,13 +1431,9 @@ kbd {
 
 .boot-err-hd {
   color: var(--danger);
-  font-weight: 700;
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-micro);
-  text-transform: uppercase;
 }
 
 .boot-err-msg {
-  color: var(--ink-mute);
+  color: var(--text-mute);
   overflow-wrap: anywhere;
 }

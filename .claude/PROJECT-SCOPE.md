@@ -65,10 +65,14 @@ and multi-pane layouts on top.
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
-  and dragging one tab onto another forms a split view. **Not yet
-  implemented** — the shipped UI still uses the previous model (each tab is
-  a grid of 1–4 panes; a layout maps sessions to pane slots). Either way,
-  sessions exist independently of tabs/panes/splits.
+  and dragging one tab onto another forms a split view. **Implemented
+  2026-07-19**: every session lives in exactly one view (= tab) holding 1–4
+  panes; drag a tab onto a tab/pane to merge into a split, drag a pane
+  header to the strip to extract, drag along the strip to reorder — every
+  drag has a keyboard/button equivalent (see the shortcuts overlay). The
+  arrangement is client-local, persisted as localStorage schema v2 with
+  migration from v1. Either way, sessions exist independently of
+  tabs/panes/splits.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
@@ -122,6 +126,9 @@ drawer UI.)
 anti-slop rule stands unchanged, but the phosphor skin is being replaced by
 the **"steam blend"** direction chosen from rendered mockups committed under
 `design-mocks/`; and the interaction model becomes sessions-as-tabs with
-drag-to-split — see the Tabs-and-layouts bullet. Both decided, not yet
-implemented; blend definition and rationale in
+drag-to-split — see the Tabs-and-layouts bullet. Both shipped 2026-07-19:
+the tab model, then the steam-blend skin (brief + slop-filter pass in
+`web/DESIGN.md`; tokens in `web/src/styles/tokens.css`; chrome typeface is
+self-hosted Barlow, OFL license committed beside the woff2 assets). Blend
+definition and rationale in
 `memory/decisions/anti-slop-design-direction.md`.)

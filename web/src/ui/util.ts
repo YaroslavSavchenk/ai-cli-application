@@ -103,9 +103,16 @@ export function trapTab(container: HTMLElement): void {
   });
 }
 
-/** hh:mm from an ISO timestamp, for dense list metadata. */
-export function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '--:--';
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+/** Compact age from an ISO timestamp ("45s", "12m", "2h 14m", "3d") — human
+ *  list metadata in the mono data voice. */
+export function fmtAge(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d`;
 }

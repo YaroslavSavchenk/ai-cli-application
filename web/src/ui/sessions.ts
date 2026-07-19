@@ -1,38 +1,49 @@
 /**
  * Sessions drawer: ALL server-side sessions, whoever created them — sessions
- * are global, panes are only views. Each row: attention badge, project NAME
- * (never the path), title, status (running / exit code), created time, and a
- * marker when the session is visible in the active tab.
+ * are global; every one of them has a tab. Each row: attention badge,
+ * project NAME (never the path), title, status (running / exit code),
+ * created time, and its tab (+ pane when it sits in the active view).
  *
- * Actions: attach-to-focused-pane, kill (armed two-step confirm; rows are
- * rebuilt on every poll so the armed state lives in an ArmedSet keyed by id).
+ * Actions: show (go to the session's tab), split (append it into the active
+ * view — the keyboard path for drag-to-split), kill (armed two-step confirm;
+ * rows are rebuilt on every poll so the armed state lives in an ArmedSet
+ * keyed by id).
  *
  * When the previous run left crash/shutdown offers (GET /api/previous), a
  * "previous run" section sits above the live list: rows show project name /
  * title / command with relaunch + dismiss actions and a dismiss-all.
+ * Relaunch opens the new session as its own tab.
  */
 import type { CreateSessionRequest, PreviousSession } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
-import { el, button, ArmedSet, fmtTime } from './util.ts';
+import { el, button, ArmedSet, fmtAge } from './util.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
 
-/** Attach a session to the focused pane and put the keyboard in its terminal. */
-function attachToFocused(sessionId: string): void {
-  const t = st.activeTab();
-  st.assignPane(t.id, t.focused, sessionId);
+/** Go to the session's tab and put the keyboard in its terminal. */
+function showSession(sessionId: string): void {
+  st.focusSession(sessionId);
   requestTerminalFocus();
+}
+
+/** Keyboard path for drag-to-split: append the session into the active view. */
+function splitIntoActive(sessionId: string): void {
+  const result = st.moveSessionToView(sessionId, st.state.activeViewId);
+  if (result === 'full') flash('view is full — 4 panes max');
+  else if (result === 'no') flash('already in the active view');
+  else requestTerminalFocus();
 }
 
 /**
  * Previous-run relaunch: POST a new session with the entry's cwd/command/
- * args/title and the focused pane's measured dims, attach it to the focused
- * pane, THEN dismiss the offer. Claude continuity: a `claude` entry that
- * carries neither '--continue' nor '--resume' gets '--continue' prepended so
- * the conversation resumes (Claude Code persists its own history).
+ * args/title (sized to the focused pane; the attach flow reconciles), then
+ * focus the tab it gets and dismiss the offer. Claude continuity: a `claude`
+ * entry that carries neither '--continue' nor '--resume' gets '--continue'
+ * prepended so the conversation resumes (Claude Code persists its own
+ * history).
  */
 /** Claude flags that already resume a conversation ('-c'/'-r' are the short
  *  aliases; our own launcher preset emits '-c'). Prepending '--continue' on
@@ -62,8 +73,8 @@ async function relaunchPrevious(p: PreviousSession): Promise<void> {
     flash(`relaunch failed: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  st.upsertSession(created);
-  attachToFocused(created.id);
+  st.upsertSession(created); // Gives the session its own tab.
+  showSession(created.id);
   // Dismiss AFTER the successful relaunch; a lost DELETE only means the
   // offer reappears on the next reload (its dismiss button still works).
   try {
@@ -115,21 +126,29 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
 
   let lastSig = '';
 
+  /** The session's place in the strip: tab index (+ pane when in the active view). */
+  function placeOf(id: string): string {
+    const v = st.viewOfSession(id);
+    if (v === undefined) return '';
+    const tabIdx = st.state.views.indexOf(v) + 1;
+    return v.id === st.state.activeViewId
+      ? `tab ${tabIdx} · pane ${v.sessions.indexOf(id) + 1}`
+      : `tab ${tabIdx}`;
+  }
+
   function sig(): string {
     if (st.state.drawer !== 'sessions') return 'hidden';
-    const tab = st.activeTab();
     // Count prefix so the empty list still differs from the initial ''.
-    // Layout is in the prefix: the "pane n" marker depends on slot < tab.layout,
-    // and a layout switch changes no per-session field. Previous-run offers
-    // are immutable per id, so their id list captures every change.
-    return `n${st.state.sessions.size}L${tab.layout}` +
+    // Previous-run offers are immutable per id, so their id list captures
+    // every change; placeOf covers tab moves/merges.
+    return `n${st.state.sessions.size}` +
       `P${armed.isArmed('prev-all') ? 'a' : ''}${st.state.previous.map((p) => p.id).join(',')}|` +
       Array.from(st.state.sessions.values())
       .map(
         (s) =>
           `${s.id}:${st.projectName(s.projectId) ?? ''}:${s.title}:${s.status}:${s.exitCode ?? ''}:` +
-          `${s.cols}x${s.rows}:${s.attention ? '!' : ''}:${tab.panes.indexOf(s.id)}:` +
-          `${armed.isArmed(s.id) ? 'a' : ''}`,
+          `${s.cols}x${s.rows}:${s.attention ? '!' : ''}:${placeOf(s.id)}:` +
+          `${fmtAge(s.createdAt)}:${armed.isArmed(s.id) ? 'a' : ''}`,
       )
       .join('|');
   }
@@ -148,7 +167,6 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   }
 
   function rebuild(): void {
-    const tab = st.activeTab();
     const sessions = Array.from(st.state.sessions.values());
     count.textContent = String(sessions.length);
 
@@ -164,16 +182,16 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       for (const p of st.state.previous) rows.push(prevRow(p));
     }
     if (sessions.length === 0) {
-      rows.push(el('div', 'drawer-empty', 'no sessions — launch one from an empty pane'));
+      rows.push(el('div', 'drawer-empty', 'no sessions — launch one from a new-session tab (+)'));
     }
     for (const info of sessions) {
       const row = el('div', 'sess-row');
-      // Double-click anywhere on the row = the attach button (documented in
+      // Double-click anywhere on the row = the show button (documented in
       // the shortcuts overlay; the button stays the keyboard path).
-      row.title = 'double-click: attach to the focused pane';
+      row.title = 'double-click: go to this session’s tab';
       row.addEventListener('dblclick', (e) => {
         if (e.target instanceof HTMLElement && e.target.closest('button') !== null) return;
-        attachToFocused(info.id);
+        showSession(info.id);
       });
 
       const badge = el('span', 'badge-attn', '!');
@@ -190,23 +208,26 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       );
       const meta = el('div', 'sess-meta');
       if (info.status === 'running') {
-        meta.append(el('span', 'is-ok', 'running'));
+        // Human status; amber text = attention (matches the inverse badge).
+        if (info.attention) meta.append(el('span', 'is-attn', 'needs input'));
+        else meta.append(el('span', 'is-ok', 'running'));
       } else {
         const code = info.exitCode ?? 0;
-        meta.append(el('span', code === 0 ? '' : 'is-danger', `exit ${code}`));
+        meta.append(el('span', code === 0 ? '' : 'is-danger', code === 0 ? 'exited' : `exited · ${code}`));
       }
       meta.append(el('span', '', `${info.cols}×${info.rows}`));
-      meta.append(el('span', '', fmtTime(info.createdAt)));
-      const slot = tab.panes.indexOf(info.id);
-      if (slot !== -1 && slot < tab.layout) {
-        meta.append(el('span', 'sess-here', `pane ${slot + 1}`));
-      }
+      meta.append(el('span', '', fmtAge(info.createdAt)));
+      const place = placeOf(info.id);
+      if (place !== '') meta.append(el('span', 'sess-here', place));
       main.append(name, meta);
 
       const actions = el('div', 'sess-actions');
-      const attach = button('row-btn', 'attach', () => attachToFocused(info.id));
-      attach.setAttribute('data-k', `attach:${info.id}`);
-      attach.title = 'attach to the focused pane';
+      const show = button('row-btn', 'show', () => showSession(info.id));
+      show.setAttribute('data-k', `show:${info.id}`);
+      show.title = 'go to this session’s tab';
+      const split = button('row-btn', 'split', () => splitIntoActive(info.id));
+      split.setAttribute('data-k', `split:${info.id}`);
+      split.title = 'append this session into the active view (drag its tab for placement)';
       const kill = button('row-btn is-danger', armed.isArmed(info.id) ? 'sure?' : 'kill', () => {
         if (armed.trigger(info.id, () => {
           lastSig = '';
@@ -218,7 +239,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       if (armed.isArmed(info.id)) kill.dataset.armed = '1';
       kill.setAttribute('data-k', `kill:${info.id}`);
       kill.title = 'kill session (asks to confirm)';
-      actions.append(attach, kill);
+      actions.append(show, split, kill);
 
       row.append(badge, main, actions);
       rows.push(row);
@@ -276,8 +297,8 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     re.setAttribute('data-k', `prev-relaunch:${p.id}`);
     re.title =
       p.command === 'claude'
-        ? 'relaunch in the focused pane — claude resumes with --continue'
-        : 'relaunch in the focused pane';
+        ? 'relaunch as a new tab — claude resumes with --continue'
+        : 'relaunch as a new tab';
     const dis = button('row-btn', 'dismiss', () => void dismissPrevious(p));
     dis.setAttribute('data-k', `prev-dismiss:${p.id}`);
     dis.title = 'dismiss this offer';

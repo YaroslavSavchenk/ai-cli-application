@@ -3,11 +3,11 @@
  * wires the modules together, owns the global keyboard chords and the
  * session poll.
  *
- * Shell anatomy (see web/DESIGN.md): 30px topbar (brand block, tmux-style
- * tab strip, layout switcher with 1px miniature diagrams, panel toggles, ?),
- * the pane grid filling everything, 24px statusline readout. The drawer is a
- * structural sibling of the grid — opening it resizes the panes properly
- * (fit -> ws resize) instead of covering the terminal.
+ * Shell anatomy: topbar shell band (brand, Steam-style session-tab strip,
+ * panel toggles, ?), the pane grid filling everything, quiet statusline
+ * readout (heights in tokens.css). The drawer is a structural sibling of the
+ * grid — opening it resizes the panes properly (fit -> ws resize) instead of
+ * covering the terminal.
  *
  * Keyboard: app chords live EXCLUSIVELY on Ctrl+Alt (AltGr excluded via
  * getModifierState so European layouts still reach the TUI). Plain keys are
@@ -16,6 +16,7 @@
  */
 import '@xterm/xterm/css/xterm.css';
 import './styles/tokens.css';
+import './styles/fonts.css';
 import './styles/app.css';
 import * as st from './state.ts';
 import * as api from './api.ts';
@@ -40,7 +41,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // socket must be up even when the REST boot below fails (an open window
   // must hold the backend); presence failures never block the UI.
   startPresence();
-  // Server state first: loadUi() prunes pane assignments against it.
+  // Server state first: loadUi() prunes view assignments against it.
   let projects;
   let sessions;
   try {
@@ -78,31 +79,9 @@ function renderBootError(root: HTMLDivElement, err: unknown): void {
 function buildShell(root: HTMLDivElement): void {
   // ---- topbar --------------------------------------------------------------
   const topbar = el('header', 'topbar');
-  const brand = el('div', 'brand', 'ai·sm');
+  const brand = el('div', 'brand', 'AI Sessions');
   const strip = el('nav', 'tabstrip');
   strip.setAttribute('aria-label', 'tabs');
-
-  const laySwitch = el('div', 'layswitch');
-  laySwitch.setAttribute('role', 'group');
-  laySwitch.setAttribute('aria-label', 'pane layout');
-  const layBtns = new Map<st.Layout, HTMLButtonElement>();
-  const layDefs: { layout: st.Layout; label: string }[] = [
-    { layout: 1, label: '1 pane' },
-    { layout: 2, label: '2 panes side by side' },
-    { layout: 3, label: '3 panes — one large, two stacked' },
-    { layout: 4, label: '4 panes in a 2×2 grid' },
-  ];
-  for (const d of layDefs) {
-    const b = button('laybtn', '', () => st.setLayout(d.layout));
-    b.setAttribute('aria-label', `layout: ${d.label}`);
-    b.title = `layout: ${d.label}`;
-    const mini = el('span', `mini mini-${d.layout}`);
-    const cells = d.layout === 3 ? 3 : d.layout;
-    for (let i = 0; i < cells; i++) mini.append(el('i'));
-    b.append(mini);
-    layBtns.set(d.layout, b);
-    laySwitch.append(b);
-  }
 
   const actions = el('div', 'topbar-actions');
   const sessionsBtn = button('tb-btn', 'sessions', () => st.toggleDrawer('sessions'));
@@ -117,7 +96,7 @@ function buildShell(root: HTMLDivElement): void {
   helpBtn.setAttribute('aria-label', 'keyboard shortcuts');
   actions.append(sessionsBtn, projectsBtn, helpBtn);
 
-  topbar.append(brand, strip, laySwitch, actions);
+  topbar.append(brand, strip, actions);
 
   // ---- main row: grid + drawer --------------------------------------------
   const main = el('div', 'main');
@@ -141,11 +120,6 @@ function buildShell(root: HTMLDivElement): void {
   initPanes(grid); // Last: its first render needs the grid mounted and sized.
 
   function updateChrome(): void {
-    const t = st.activeTab();
-    for (const [layout, b] of layBtns) {
-      b.classList.toggle('is-active', t.layout === layout);
-      b.setAttribute('aria-pressed', t.layout === layout ? 'true' : 'false');
-    }
     const n = st.attentionCount();
     sessionsBadge.hidden = n === 0;
     sessionsBadge.textContent = String(n);
@@ -178,19 +152,24 @@ function buildShell(root: HTMLDivElement): void {
         e.preventDefault();
         const dir =
           k === 'ArrowLeft' ? 'left' : k === 'ArrowRight' ? 'right' : k === 'ArrowUp' ? 'up' : 'down';
-        // +shift moves the focused pane's SESSION (swap with the neighbor);
-        // without shift only focus moves.
+        // +shift moves the focused SESSION to the neighbor pane of its view
+        // (swap); without shift only focus moves.
         if (e.shiftKey) st.moveSession(dir);
         else st.moveFocus(dir);
       } else if (k.length === 1 && k >= '1' && k <= '9') {
         e.preventDefault();
-        st.setActiveTabIndex(Number(k) - 1);
+        st.setActiveViewIndex(Number(k) - 1);
+      } else if ((k === 'PageUp' || k === 'PageDown') && e.shiftKey) {
+        // Keyboard twin of the tab-reorder drag (shift = "move", like the
+        // arrow chords). Unshifted ctrl+alt+pgup/pgdn stays untouched.
+        e.preventDefault();
+        st.moveActiveViewBy(k === 'PageUp' ? -1 : 1);
       } else if (k === 't' || k === 'T') {
         e.preventDefault();
-        st.addTab();
+        st.addLauncherTab();
       } else if (k === 'Enter') {
         e.preventDefault();
-        openLauncher();
+        openLauncher(); // Focuses the form when the active view is a launcher.
       } else if (k === '/') {
         e.preventDefault();
         shortcuts.toggle();

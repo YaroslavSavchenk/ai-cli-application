@@ -1,6 +1,6 @@
 /*
  * Design tokens — the single source of truth for every color, size and
- * timing in the UI. See web/DESIGN.md for the rationale.
+ * timing in the UI. See web/DESIGN.md for the rationale ("steam blend").
  *
  * The xterm.js theme is built at runtime from the --xt-* properties below
  * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
@@ -8,60 +8,86 @@
  * outside this file.
  */
 :root {
-  /* ---- palette: warm graphite ramp (phosphor lineage) ------------------- */
-  --bg-deep: #0b0d0c;   /* app root, inputs, scrim base                      */
-  --bg-term: #101312;   /* terminal + pane floor — the visual ground         */
-  --bg-raise: #161a18;  /* bars, headers, drawer                             */
-  --bg-hover: #1f2521;  /* hover/active surfaces                             */
-  --edge: #262d28;      /* 1px structure lines                               */
-  --edge-strong: #3a443d;
-  --scrim: rgba(11, 13, 12, 0.78); /* modal scrim: --bg-deep at 78%, flat    */
+  /* ---- surfaces: Steam charcoal-blue ramp, flat --------------------------
+     shell band (bars) -> base window -> raised chrome -> hover/pressed.
+     Terminals stay near-black regardless of chrome. */
+  --surface-0: #10151c; /* shell band: topbar, tab gutter, statusline        */
+  --surface-1: #171d25; /* base window: workspace floor, drawer              */
+  --surface-2: #1f2731; /* raised: pane headers, active tab, modals, rows    */
+  --surface-3: #28323e; /* hover / pressed raised                            */
+  --well: #0e1319;      /* inset: inputs, kbd chips, previous-run floor      */
+  --term-bg: #0b0e13;   /* terminal floor — the hero surface                 */
+  --scrim: rgba(8, 11, 15, 0.72); /* modal scrim: flat, never blurred        */
 
-  --ink: #d6d3c2;       /* primary text (= terminal foreground)              */
-  --ink-mute: #8f9384;
-  --ink-faint: #5a5f54;
+  --edge: #2a333f;        /* structural 1px lines                            */
+  --edge-soft: #202832;   /* quiet 1px lines                                 */
+  --edge-strong: #3a4654; /* hover-lit lines, scrollbar thumb                */
 
-  /* Two accents, one meaning each (see DESIGN.md). */
-  --focus: #7edc93;     /* phosphor green: focus / alive / primary action    */
-  --focus-ink: #0b0d0c; /* text on green                                     */
-  --attn: #ffab2e;      /* signal amber: attention only                      */
-  --attn-ink: #140e02;  /* text on amber                                     */
-  --danger: #e5654f;    /* kill / nonzero exit                               */
-  --ok: var(--focus);
+  --text: #dde4ec;
+  --text-mute: #94a0ac;
+  --text-faint: #5d6976;
 
-  /* ---- xterm palette (same system) -------------------------------------- */
-  --xt-bg: var(--bg-term);
-  --xt-fg: var(--ink);
-  --xt-cursor: var(--attn);
-  --xt-cursor-accent: var(--attn-ink);
-  --xt-selection: rgba(126, 220, 147, 0.24);
-  --xt-black: #202622;
-  --xt-red: #e5654f;
-  --xt-green: #83c975;
-  --xt-yellow: #d9b661;
-  --xt-blue: #7aa5c9;
-  --xt-magenta: #bd8bc0;
-  --xt-cyan: #6fbfb2;
-  --xt-white: #d6d3c2;
-  --xt-bright-black: #5a5f54;
-  --xt-bright-red: #f2846f;
-  --xt-bright-green: #9ee88f;
-  --xt-bright-yellow: #f0cf7a;
-  --xt-bright-blue: #9cc3e6;
-  --xt-bright-magenta: #d8a3d3;
-  --xt-bright-cyan: #8fd8cc;
-  --xt-bright-white: #f2efe2;
+  /* ---- the ONE interactive accent: Steam light blue ----------------------
+     Active tab, focused pane border, selection, drop zones, links, focus
+     rings. Nothing else is ever blue; blue never means status. */
+  --acc: #66c0f4;
+  --acc-hot: #1a9fff;
+  --acc-dim: #3d7ba6;
+  --acc-wash: rgba(102, 192, 244, 0.12); /* drop-zone tint                   */
+  --acc-sel: rgba(102, 192, 244, 0.3);   /* text selection (app + xterm)     */
 
-  /* ---- type: monospace only, no webfont fetch (offline localhost tool) -- */
-  --font-mono: "Berkeley Mono", "JetBrains Mono", "Cascadia Mono",
-    "IBM Plex Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas,
-    monospace;
+  /* ---- status: exclusive meanings, never interaction --------------------- */
+  --ok: #5fc74f;        /* running                                           */
+  --attn: #e6a838;      /* attention ONLY (inverse badge, needs-input text)  */
+  --attn-ink: #1a1204;  /* text on amber                                     */
+  --exit: #5c6672;      /* exited (hollow dots, muted rows)                  */
+  --danger: #e0655a;    /* kill / nonzero exit / rejected drop               */
+  --danger-hot: #c22e2e; /* armed-confirm background                         */
+  --danger-ink: #ffffff; /* text on danger-hot                               */
+
+  /* green primary action (same "go" family as --ok): new session, relaunch,
+     reload — the one place the faithful mock's warmth carries an action */
+  --primary: #4e9e2f;
+  --primary-hover: #5cb238;
+  --primary-ink: #f0fae8;
+
+  /* ---- xterm palette (same system, near-black floor) --------------------- */
+  --xt-bg: var(--term-bg);
+  --xt-fg: #c7cfd6;
+  --xt-cursor: #c7cfd6;
+  --xt-cursor-accent: #0b0e13;
+  --xt-selection: var(--acc-sel);
+  --xt-black: #1c232c;
+  --xt-red: #de756e;
+  --xt-green: #7ec97e;
+  --xt-yellow: #d8bc74;
+  --xt-blue: #7ca7dd;
+  --xt-magenta: #b58cc9;
+  --xt-cyan: #6cc0cd;
+  --xt-white: #c7cfd6;
+  --xt-bright-black: #5d6976;
+  --xt-bright-red: #ef938c;
+  --xt-bright-green: #99dc99;
+  --xt-bright-yellow: #ead28e;
+  --xt-bright-blue: #9dc0ea;
+  --xt-bright-magenta: #cfaade;
+  --xt-bright-cyan: #8bd8e2;
+  --xt-bright-white: #e9eef4;
+
+  /* ---- type: bundled sans for chrome, mono for DATA ----------------------
+     Barlow (self-hosted woff2, fonts.css) carries buttons, labels, copy.
+     Mono carries everything that is data: session names, tab labels,
+     statuses, paths, dimensions, shortcuts, the statusline. */
+  --font-sans: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "JetBrains Mono", "Berkeley Mono",
+    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-chrome: 13px;  /* sans chrome                                         */
+  --fs-data: 12px;    /* mono data rows, tabs, statusline                    */
+  --fs-micro: 10.5px; /* micro labels, statuses, chips                       */
   --fs-term: 13px;
-  --fs-ui: 12px;
-  --fs-micro: 10px;
-  --ls-micro: 0.08em; /* letterspacing for SMALL-CAPS micro-labels */
+  --ls-caps: 0.09em;  /* letterspacing for small-caps micro-labels           */
 
-  /* ---- strict spacing scale --------------------------------------------- */
+  /* ---- strict spacing scale ---------------------------------------------- */
   --s-1: 2px;
   --s-2: 4px;
   --s-3: 6px;
@@ -70,34 +96,40 @@
   --s-6: 16px;
   --s-7: 24px;
 
-  /* ---- structure --------------------------------------------------------- */
-  --bar-h: 30px;
-  --status-h: 24px;
-  --paneheader-h: 26px;
-  --drawer-w: 320px;
-  --radius: 0px; /* sharp corners are the panel language */
+  /* ---- structure ---------------------------------------------------------- */
+  --bar-h: 36px;        /* topbar (brand + tab strip + toggles)              */
+  --tab-h: 29px;        /* tab block, bottom-aligned in the strip            */
+  --status-h: 26px;
+  --paneheader-h: 30px;
+  --drawer-w: 340px;
+  --radius: 3px;        /* Steam cap — nothing rounder                       */
+  --radius-sm: 2px;     /* chips, kbd, tiny buttons                          */
   --line: 1px;
-  --tick: 2px;         /* active-state edge line (tabs, toggled bar buttons)  */
-  --divider-hit: 9px;  /* invisible grab strip centered on a 1px gutter       */
+  --tick: 2px;          /* active-tab / insertion-caret accent bar           */
+  --divider-hit: 9px;   /* invisible grab strip centered on a 1px gutter     */
 
-  /* ---- component metrics (no one-off px in app.css) ---------------------- */
-  --badge-block: 14px; /* attention badge min block                           */
-  --mark-size: 7px;    /* pane focus "record light"                           */
-  --mini-w: 16px;      /* layout-switcher miniature diagrams                  */
-  --mini-h: 12px;
-  --form-w: 360px;     /* in-pane form column (launcher)                      */
-  --modal-w: 560px;    /* dialogs; wide variant for the shortcuts table       */
-  --modal-w-wide: 640px;
-  --panel-w: 460px;    /* boot / restart takeover panel                       */
+  /* ---- component metrics (no one-off px in app.css) ----------------------- */
+  --dot: 7px;           /* status dots (tabs, pane headers)                  */
+  --badge-block: 14px;  /* attention badge min block                         */
+  --ghost-h: 30px;      /* drag ghost chip height                            */
+  --form-w: 380px;      /* in-pane form column (launcher)                    */
+  --modal-w: 560px;
+  --modal-w-wide: 680px;
+  --panel-w: 460px;     /* boot / restart takeover panel                     */
   --dirlist-min-h: 160px;
-  --sc-keys-w: 200px;  /* shortcuts overlay keys column                       */
+  --sc-keys-w: 210px;   /* shortcuts overlay keys column                     */
 
-  /* ---- motion: functional only, <=150ms ---------------------------------- */
+  /* ---- elevation: exactly one real shadow — the drag ghost ---------------- */
+  --elev-ghost: 0 10px 26px rgba(0, 0, 0, 0.55);
+
+  /* ---- motion: functional only, <=150ms ----------------------------------- */
   --t-fast: 80ms;
   --t-move: 120ms;
+  --t-pulse: 150ms; /* single-shot feedback pulses (reject) — the motion ceiling */
 
-  /* ---- z ----------------------------------------------------------------- */
+  /* ---- z ------------------------------------------------------------------- */
   --z-drawer: 30;
   --z-modal: 50;
   --z-overlay: 60;
+  --z-ghost: 70; /* drag ghost rides above everything */
 }
