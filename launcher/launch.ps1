@@ -8,6 +8,10 @@ Usage:
   launch.ps1 -NoBrowser   attach-or-start, but do not open any UI
   launch.ps1 -Status      report backend state (runtime.json + health)
   launch.ps1 -Stop        graceful stop (SIGTERM to the pid in runtime.json)
+  launch.ps1 -Silent      windowless mode (used by launch-silent.vbs): on any
+                          failure, surface the error as a native message box
+                          instead of relying on a console nobody can see.
+                          Success shows nothing until the app window opens.
 
 How it works:
   - The backend auto-picks its port (never hardcode one) and publishes a
@@ -37,14 +41,19 @@ that terminates the distro or WSL processes it did not start.
 param(
     [switch]$Status,
     [switch]$Stop,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$Silent
 )
 
 # =============================== Config ====================================
 # Edit the defaults here, or override per-invocation via environment
 # variables (handy for testing). These are the ONLY strings that ever reach
 # a WSL command line, and they are validated below before first use.
-$Distro   = if ($env:AI_SM_DISTRO)    { $env:AI_SM_DISTRO }    else { 'Ubuntu' }
+# Default distro is this machine's actual install (Ubuntu-24.04). On other
+# setups the unique-prefix auto-resolution below still kicks in (e.g. a
+# configured 'Ubuntu' finds a lone 'Ubuntu-22.04'), and a wrong/ambiguous
+# name still gets the guided error listing what is installed.
+$Distro   = if ($env:AI_SM_DISTRO)    { $env:AI_SM_DISTRO }    else { 'Ubuntu-24.04' }
 $RepoPath = if ($env:AI_SM_REPO_PATH) { $env:AI_SM_REPO_PATH } else { '/home/sava/projects/ai-cli-application' }
 $DataDir  = if ($env:AI_SM_DATA_DIR)  { $env:AI_SM_DATA_DIR }  else { '~/.ai-session-manager' }
 # Seconds to wait for runtime.json + health after starting the backend
@@ -52,8 +61,37 @@ $DataDir  = if ($env:AI_SM_DATA_DIR)  { $env:AI_SM_DATA_DIR }  else { '~/.ai-ses
 $StartTimeoutSec = 90
 # ===========================================================================
 
+function Show-ErrorBox([string]$Message) {
+    # -Silent runs with no visible console (wscript.exe > hidden powershell),
+    # so failures must surface as a native message box. Primary: the
+    # WScript.Shell COM Popup - one call, no assembly load, and the
+    # system-modal flag (0x1000) keeps the box on top even though our hidden
+    # process has no foreground rights. Fallback: WinForms MessageBox.
+    $text = "$Message`n`nFor console details, run launcher\launch.cmd from the repo."
+    if ($env:AI_SM_MSGBOX_TEST -eq '1') {
+        # Test hook for WSL-side verification: prove this code path runs
+        # without popping a blocking dialog no automation can dismiss.
+        Write-Host "MSGBOX-SUPPRESSED: $text"
+        return
+    }
+    try {
+        $sh = New-Object -ComObject WScript.Shell
+        # 0 = wait forever, 16 = vbCritical, 4096 = vbSystemModal (topmost).
+        [void]$sh.Popup($text, 0, 'AI Session Manager - launch failed', 16 + 4096)
+    } catch {
+        try {
+            Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+            [void][System.Windows.Forms.MessageBox]::Show(
+                $text, 'AI Session Manager - launch failed',
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error)
+        } catch { }
+    }
+}
+
 function Fail([string]$Message) {
     Write-Host "ERROR: $Message" -ForegroundColor Red
+    if ($Silent) { Show-ErrorBox $Message }
     exit 1
 }
 
@@ -87,10 +125,12 @@ function Get-DistroList {
 
 $installedDistros = Get-DistroList
 if ($installedDistros -notcontains $Distro) {
-    # The generic default ('Ubuntu') rarely matches a real install
-    # ('Ubuntu-24.04'). If exactly ONE installed distro starts with the
-    # configured name, use it (with a notice). No match or an ambiguous
-    # match (e.g. Ubuntu-22.04 + Ubuntu-24.04) is still a hard error.
+    # An exact match is silent (the baked-in default matches this machine
+    # exactly, so day-to-day launches print nothing here). A generic name
+    # ('Ubuntu') that is not installed as such still auto-resolves: if
+    # exactly ONE installed distro starts with the configured name, use it
+    # (with a notice). No match or an ambiguous match (e.g. Ubuntu-22.04 +
+    # Ubuntu-24.04) is still a hard error.
     $candidates = @($installedDistros | Where-Object { $_ -like "$Distro*" -and $_ -match '^[A-Za-z0-9._-]+$' })
     if ($candidates.Count -eq 1) {
         Write-Host "Distro '$Distro' is not installed; using the unique match '$($candidates[0])'."
@@ -152,15 +192,16 @@ function Start-Backend {
     # $DataDir/server.log.
     Write-Host "Starting backend in '$Distro' (repo: $RepoPath)..."
     & wsl.exe -d $Distro -- bash -lc "$RepoPath/launcher/start-backend.sh $DataDir"
+    # Every failure goes through Fail so -Silent surfaces it as a message
+    # box instead of dying invisibly.
     switch ($LASTEXITCODE) {
-        0 { return $true }
-        10 { Write-Host "ERROR: repo not found / cd failed at $RepoPath inside $Distro." -ForegroundColor Red }
-        11 { Write-Host "ERROR: no usable node found inside $Distro (login PATH and nvm both checked)." -ForegroundColor Red }
-        12 { Write-Host "ERROR: Node >= 24 required inside $Distro (an older version was found; try 'nvm install 24')." -ForegroundColor Red }
-        13 { Write-Host "ERROR: data dir did not expand to an absolute path inside ${Distro}: $DataDir" -ForegroundColor Red }
-        default { Write-Host "ERROR: start-backend.sh failed (exit $LASTEXITCODE)." -ForegroundColor Red }
+        0 { return }
+        10 { Fail "repo not found / cd failed at $RepoPath inside $Distro." }
+        11 { Fail "no usable node found inside $Distro (login PATH and nvm both checked)." }
+        12 { Fail "Node >= 24 required inside $Distro (an older version was found; try 'nvm install 24')." }
+        13 { Fail "data dir did not expand to an absolute path inside ${Distro}: $DataDir" }
+        default { Fail "start-backend.sh failed (exit $LASTEXITCODE)." }
     }
-    return $false
 }
 
 function Wait-ForHealthy([int]$TimeoutSec) {
@@ -283,7 +324,7 @@ if ($info -and (Test-Health -Port $info.Port)) {
     } else {
         Write-Host 'Backend is not running - starting it.'
     }
-    if (-not (Start-Backend)) { exit 1 }
+    Start-Backend
     Write-Host -NoNewline "Waiting for backend (up to $StartTimeoutSec s; the first start after a Windows boot is the slowest)"
     $info = Wait-ForHealthy -TimeoutSec $StartTimeoutSec
     if (-not $info) {

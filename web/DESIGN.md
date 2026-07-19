@@ -3,6 +3,13 @@
 Written before implementation, per `.claude/skills/frontend-designer/SKILL.md`.
 This is the binding reference for every visual decision in `web/src/`.
 
+> **Status (2026-07-19):** the phosphor skin documented below is scheduled
+> for replacement by the "steam blend" direction (mockups in
+> `design-mocks/`, decision in
+> `memory/decisions/anti-slop-design-direction.md`), along with a
+> sessions-as-tabs interaction model. Until that redesign lands, this file
+> remains binding for the shipped UI. The anti-slop rule stands regardless.
+
 ## Direction (one sentence)
 
 **Phosphor instrument panel**: a warm-graphite, monospace-only control surface
@@ -89,6 +96,65 @@ SMALL-CAPS micro-labels — never from a second family.
   `<button>/<input>` (tab-reachable, `:focus-visible` ring in focus green).
   Plain keys (Ctrl+C, Esc, arrows) are never intercepted; app chords live
   exclusively on Ctrl+Alt.
+
+## Phase-2 additions (2026-07-19) — extending the direction, not replacing it
+
+### Split dividers (layouts 2/3/4)
+
+- The 1px gutter stays the ONLY visible line at rest. Each divider is an
+  invisible `--divider-hit` (9px) strip centered on the gutter; its 1px core
+  surfaces only on interaction: `--edge-strong` on hover, `--focus` on
+  keyboard focus and while dragging (green = alive/being manipulated).
+- Pointer-drag adjusts the fraction; min pane 15% (`SPLIT_MIN/MAX` in
+  state.ts). Double-click resets to equal. Keyboard: dividers are tabbable
+  (`role=separator`), arrows nudge 2%, Enter resets. No focus ring box — the
+  lit 1px core IS the focus indicator.
+- Ratios persist per tab (`split: {col,row}`) in the existing localStorage
+  blob, validated/clamped on rehydrate like every other UI field.
+- Layout 3's row divider spans only the right column; at crossings the
+  column divider wins the 9px overlap square (deterministic, z-index 6 vs 5).
+- Every ratio change flows through grid CSS vars -> pane resize ->
+  ResizeObserver -> debounced fit -> ws resize. Nothing bypasses the chain.
+
+### Move / swap sessions between panes
+
+- `ctrl+alt+shift+←↑↓→` moves the focused pane's session to the neighbor
+  (swap when occupied); focus follows the moved session.
+- Pointer twin: a braille grip `⠿` at the left of every occupied pane header
+  (`--ink-faint`, ink on hover, cursor grab) — drag it onto another pane.
+  The drop candidate shows a 1px DASHED `--focus` outline: dashed =
+  prospective, solid = focused. Source pane dims to 0.6 while dragging.
+
+### Relaunch (exited banner)
+
+- First action in the exited strip: `relaunch` in `--focus` (green = primary
+  action, per the accent contract). POSTs a new session with the same
+  project/cwd/command/args/title/cols/rows, attaches it to the pane, then
+  DELETEs the exited one. Detach and armed delete stay as quiet actions.
+
+### Reliability readouts
+
+- Statusline right gains `backend: unreachable` in `--danger` after two
+  consecutive session-poll network failures; the first success clears it.
+- Any REST 401/403 after boot = the backend restarted (token rotated): the
+  page is replaced by the boot-err panel pattern — danger-bordered box,
+  small-caps `backend restarted — reload` heading, phosphor reload button.
+  Full takeover on purpose: everything behind it holds a dead token.
+
+### Attach polish
+
+- Double-click a sessions-drawer row = the attach button (which remains the
+  keyboard path); rows get a `--bg-hover` hover as the interactivity cue.
+  Attaching and launching both put the keyboard straight into the terminal.
+
+### Debt paid
+
+- The active-tab/toggled-button tick is now a `--tick` (2px) top border
+  (transparent in every other state to keep labels optically centered) —
+  the inset box-shadow is gone; "no shadows" now holds everywhere.
+- One-off px values moved to tokens: `--badge-block`, `--mark-size`,
+  `--mini-w/h`, `--form-w`, `--modal-w`, `--modal-w-wide`, `--panel-w`,
+  `--dirlist-min-h`, `--sc-keys-w`, `--divider-hit`, `--tick`.
 
 ## Slop-filter pass (against the hard reject list)
 

@@ -33,4 +33,22 @@ shadows/gradients/blur, two single-meaning accents (green = focus/running,
 amber = attention ONLY). Full brief + slop-filter pass in `web/DESIGN.md`;
 tokens in `web/src/styles/tokens.css` (xterm theme fed from the same file).
 
+**UPDATE 2026-07-19 — aesthetic under revision by user feedback**: after
+first real use the user asked for a full GUI redesign — "it needs to feel
+like a proper application or look like a good website." The ANTI-SLOP RULE
+STANDS unchanged (that's the decision this note records); the *phosphor
+skin* is what's being replaced. Phosphor's hard bans on radius/shadow were
+skin commitments, not project law — a polished app direction may use
+restrained radius/elevation if it stays distinctive. Direction chosen 2026-07-19 from rendered mockups (user: "mix of both",
+blend defined by orchestrator): **"steam blend"** — Steam charcoal-blue
+surface family with light-blue as the only interactive accent; from the
+faithful mock: warmth, softer layering, green primary New-session button,
+human status labels; from the terminal mock: mono-for-data typography,
+dense rows, flat chrome (radius ~3px, elevation only on the drag ghost),
+amber inverse attention badges; status semantics unchanged (green running /
+amber attention / gray exited). Reference mockups committed under
+`design-mocks/`. Also requested the same day: a new interaction model —
+sessions as tabs, drag a tab onto another to form split views
+([[frontend-terminal-quirks]] plumbing still applies).
+
 Related: [[agent-team-and-dev-flow]], [[pty-requirements]]

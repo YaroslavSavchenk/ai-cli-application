@@ -9,9 +9,16 @@
  */
 import * as st from '../state.ts';
 import { el, button, ArmedSet, fmtTime } from './util.ts';
-import { killSession } from './panes.ts';
+import { killSession, requestTerminalFocus } from './panes.ts';
 
 const armed = new ArmedSet();
+
+/** Attach a session to the focused pane and put the keyboard in its terminal. */
+function attachToFocused(sessionId: string): void {
+  const t = st.activeTab();
+  st.assignPane(t.id, t.focused, sessionId);
+  requestTerminalFocus();
+}
 
 export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   const root = el('section', 'drawer-view');
@@ -78,6 +85,13 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     }
     for (const info of sessions) {
       const row = el('div', 'sess-row');
+      // Double-click anywhere on the row = the attach button (documented in
+      // the shortcuts overlay; the button stays the keyboard path).
+      row.title = 'double-click: attach to the focused pane';
+      row.addEventListener('dblclick', (e) => {
+        if (e.target instanceof HTMLElement && e.target.closest('button') !== null) return;
+        attachToFocused(info.id);
+      });
 
       const badge = el('span', 'badge-attn', '!');
       badge.title = 'session wants attention';
@@ -107,10 +121,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       main.append(name, meta);
 
       const actions = el('div', 'sess-actions');
-      const attach = button('row-btn', 'attach', () => {
-        const t = st.activeTab();
-        st.assignPane(t.id, t.focused, info.id);
-      });
+      const attach = button('row-btn', 'attach', () => attachToFocused(info.id));
       attach.setAttribute('data-k', `attach:${info.id}`);
       attach.title = 'attach to the focused pane';
       const kill = button('row-btn is-danger', armed.isArmed(info.id) ? 'sure?' : 'kill', () => {

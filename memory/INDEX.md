@@ -6,6 +6,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[lifecycle-bound-backend]] — sessions die with the app (presence WS + grace timer); crash-safe session journal with relaunch
 - [[auto-port-discovery]] — backend auto-picks its port; runtime.json discovery file carries port + auth token
 - [[vanilla-ts-vite-frontend]] — no UI framework; vanilla TS + Vite around imperative xterm.js
 - [[web-app-inside-wsl]] — why the app is a web app served from WSL, not a Windows-native Electron app

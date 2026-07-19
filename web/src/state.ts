@@ -27,6 +27,8 @@ export interface TabState {
   panes: (string | null)[];
   /** Focused pane index within this tab (< layout). */
   focused: number;
+  /** Divider fractions (first column / first row share of the grid), SPLIT_MIN..SPLIT_MAX. */
+  split: { col: number; row: number };
 }
 
 interface AppState {
@@ -64,8 +66,24 @@ export function notify(kind: ChangeKind): void {
 // Persistence (client-local UI state only)
 // --------------------------------------------------------------------------
 
+/** Divider bounds: no pane may shrink below 15% of the grid. */
+export const SPLIT_MIN = 0.15;
+export const SPLIT_MAX = 0.85;
+
+function clampSplit(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v)
+    ? Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, v))
+    : 0.5;
+}
+
 function newTab(): TabState {
-  return { id: crypto.randomUUID(), layout: 1, panes: [null, null, null, null], focused: 0 };
+  return {
+    id: crypto.randomUUID(),
+    layout: 1,
+    panes: [null, null, null, null],
+    focused: 0,
+    split: { col: 0.5, row: 0.5 },
+  };
 }
 
 export function saveUi(): void {
@@ -103,7 +121,12 @@ function validateTab(raw: unknown): TabState | null {
   const focusedRaw = typeof o.focused === 'number' ? Math.trunc(o.focused) : 0;
   const focused = Math.min(Math.max(0, focusedRaw), layout - 1);
   const id = typeof o.id === 'string' && o.id !== '' ? o.id : crypto.randomUUID();
-  return { id, layout, panes, focused };
+  const splitRaw = (o.split ?? null) as Record<string, unknown> | null;
+  const split = {
+    col: clampSplit(splitRaw?.col),
+    row: clampSplit(splitRaw?.row),
+  };
+  return { id, layout, panes, focused, split };
 }
 
 /** Rehydrate tabs/layouts/assignments; prune session ids the server no longer has. */
@@ -318,6 +341,49 @@ export function moveFocus(dir: Dir): void {
   const t = activeTab();
   const target = NEIGHBORS[t.layout][t.focused]?.[dir];
   if (target !== undefined) focusPane(target);
+}
+
+/**
+ * Ctrl+Alt+Shift+Arrow: move the focused pane's session to the neighbor pane
+ * in that direction (swap when occupied). Focus follows the moved session.
+ */
+export function moveSession(dir: Dir): void {
+  const t = activeTab();
+  if ((t.panes[t.focused] ?? null) === null) return; // Nothing to move.
+  const target = NEIGHBORS[t.layout][t.focused]?.[dir];
+  if (target !== undefined) swapPanes(t.id, t.focused, target);
+}
+
+/** Swap two visible pane slots' sessions (chord move + header-grip drag). */
+export function swapPanes(tabId: string, from: number, to: number): void {
+  const t = state.tabs.find((t) => t.id === tabId);
+  if (t === undefined || from === to) return;
+  if (from < 0 || to < 0 || from >= t.layout || to >= t.layout) return;
+  const a = t.panes[from] ?? null;
+  const b = t.panes[to] ?? null;
+  if (a === null && b === null) return;
+  t.panes[from] = b;
+  t.panes[to] = a;
+  if (t.id === state.activeTabId) t.focused = to;
+  saveUi();
+  notify('ui');
+}
+
+/**
+ * Adjust a divider fraction of the active tab. During a pointer drag the
+ * caller applies grid styles directly and passes commit=false (no persist,
+ * no notify); commit=true persists and notifies (drag end / keyboard nudge).
+ * Returns the clamped value.
+ */
+export function setSplit(axis: 'col' | 'row', f: number, commit: boolean): number {
+  const t = activeTab();
+  const v = clampSplit(f);
+  t.split[axis] = v;
+  if (commit) {
+    saveUi();
+    notify('ui');
+  }
+  return v;
 }
 
 export function tabAttention(t: TabState): boolean {

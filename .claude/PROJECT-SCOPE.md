@@ -21,10 +21,19 @@ and multi-pane layouts on top.
   pane. WebGL renderer, fit addon for sizing, bounded scrollback.
 - **Sessions are first-class server-side objects.** The PTY and its state live
   in the backend; the browser is only a view. Sessions keep running when their
-  pane is hidden or the window is closed.
-- **Backend runs detached** from any window (setsid for MVP, systemd user
-  service inside WSL later), started on demand. Closing the GUI never kills
-  sessions; reopening reattaches.
+  pane is hidden; reopening a window reattaches with scrollback replayed.
+- **Backend starts detached** from the launcher process (setsid), started on
+  demand — it must never die with the launcher console. **Lifetime: bound to
+  UI presence** (decided 2026-07-19, user's call, reversing the earlier
+  indefinite-survival promise; rationale in
+  `memory/decisions/lifecycle-bound-backend.md`): a presence WebSocket counts
+  open windows; when the last closes, a grace timer (~30 s) lets reloads
+  reattach harmlessly, then the backend ends all sessions, removes
+  runtime.json, and exits — plus a crash-safe session journal for one-click
+  relaunch (`--continue`) after unclean shutdown. **Not yet implemented** —
+  backend work deferred to a later phase; until it lands, the implemented
+  (and tested) behavior remains indefinite survival after window close, with
+  manual `-Stop` as the shutdown path.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
@@ -33,7 +42,8 @@ and multi-pane layouts on top.
 - **Windows-side launcher** (thin): reads the discovery file and
   health-checks the discovered port; if the file is absent or stale, starts
   the backend via `wsl.exe -d <distro> -- ...` (distro configurable with
-  unique-prefix auto-resolution, default `Ubuntu`), waits for file + health,
+  unique-prefix auto-resolution, default `Ubuntu-24.04`), waits for file +
+  health,
   then opens the UI. MVP launcher is a script + Edge `--app` chromeless window; a
   Tauri shell (icon, tray, native folder picker) is the later upgrade.
 - WSL2 localhost forwarding is how Windows reaches the backend.
@@ -49,8 +59,13 @@ and multi-pane layouts on top.
   `--dangerously-skip-permissions`), model selection, resume
   (`claude --resume` / `-c`). The launched "agent" is a configurable
   command + args, which is what makes multi-CLI support free.
-- **Tabs and layouts**: each tab is a grid of 1–4 panes; a layout maps
-  sessions to pane slots. Sessions exist independently of tabs/panes.
+- **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
+  user request; recorded in
+  `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
+  and dragging one tab onto another forms a split view. **Not yet
+  implemented** — the shipped UI still uses the previous model (each tab is
+  a grid of 1–4 panes; a layout maps sessions to pane slots). Either way,
+  sessions exist independently of tabs/panes/splits.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
@@ -93,3 +108,15 @@ landed features.
 frontend; app data — projects.json, runtime.json, server.log — lives in
 `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
 `shared/protocol.ts`. Rationale in `memory/decisions/`.)
+
+(Settled 2026-07-19: backend lifetime bound to UI presence — see the
+Architecture bullet; decided but not yet implemented, backend work deferred
+to a later phase.)
+
+(Settled 2026-07-19: full GUI redesign, user's call after real use — the
+anti-slop rule stands unchanged, but the phosphor skin is being replaced by
+the **"steam blend"** direction chosen from rendered mockups committed under
+`design-mocks/`; and the interaction model becomes sessions-as-tabs with
+drag-to-split — see the Tabs-and-layouts bullet. Both decided, not yet
+implemented; blend definition and rationale in
+`memory/decisions/anti-slop-design-direction.md`.)

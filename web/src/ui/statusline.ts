@@ -15,6 +15,18 @@ let root: HTMLElement | null = null;
 let deps: Deps | null = null;
 let flashMsg: string | null = null;
 let flashTimer: number | null = null;
+let unreachable = false;
+
+/**
+ * Poll-driven backend health readout. Repeated network failures show
+ * "backend: unreachable"; the first successful poll clears it. 401/403
+ * escalates to the full-page reload panel instead (main.ts).
+ */
+export function setBackendReachable(ok: boolean): void {
+  if (unreachable === !ok) return;
+  unreachable = !ok;
+  render();
+}
 
 export function flash(msg: string): void {
   flashMsg = msg;
@@ -62,6 +74,9 @@ export function render(): void {
   }
 
   const right = el('div', 'status-right');
+  if (unreachable) {
+    right.append(el('span', 'status-seg status-danger', 'backend: unreachable'));
+  }
   if (flashMsg !== null) {
     right.append(el('span', 'status-flash', flashMsg));
   }

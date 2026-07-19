@@ -13,9 +13,12 @@ interface Row {
 
 const ROWS: Row[] = [
   { keys: ['ctrl+alt+←↑↓→'], what: 'move pane focus', ui: 'click a pane' },
+  { keys: ['ctrl+alt+shift+←↑↓→'], what: 'move session to neighbor pane (swap)', ui: 'drag the ⠿ grip onto a pane' },
   { keys: ['ctrl+alt+1…9'], what: 'switch tab', ui: 'tab strip' },
   { keys: ['ctrl+alt+t'], what: 'new tab', ui: '+ in the tab strip' },
   { keys: ['ctrl+alt+enter'], what: 'new session in focused pane', ui: 'launch form in an empty pane' },
+  { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split · enter resets', ui: 'drag the divider · double-click resets' },
+  { keys: ['double-click a session row'], what: 'attach it to the focused pane', ui: 'attach in the sessions panel' },
   { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the top bar' },
   { keys: ['esc'], what: 'close panel / dialog', ui: '× buttons' },
 ];

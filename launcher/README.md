@@ -11,22 +11,50 @@ health-checks the discovered port on `http://127.0.0.1:<port>/health`, and:
   **detached** (`setsid`, via `start-backend.sh`), waits for
   runtime.json + health, then opens the UI.
 
-The backend is never a child of the launcher or the browser window —
-closing the window (or the launcher) never kills sessions. Stop it
-explicitly with `-Stop`.
+The backend is never a child of the launcher or the browser window — as
+implemented today, closing the window (or the launcher) never kills
+sessions; stop explicitly with `-Stop`. (Decided 2026-07-19, not yet
+implemented: backend lifetime will instead be bound to UI presence —
+sessions end after a ~30 s grace once the last window closes; see
+`memory/decisions/lifecycle-bound-backend.md`.)
 
 The port is auto-picked by the backend; nothing is ever hardcoded. Always
 `127.0.0.1`, never `localhost` (the server binds IPv4 only; `::1` fails).
 
+## Files
+
+| File | Role |
+| --- | --- |
+| `make-shortcut.ps1` | run once: creates the "AI Session Manager" shortcuts |
+| `launch-silent.vbs` | what the shortcuts run — fully hidden launch, no console ever |
+| `launch.ps1` | the actual launcher logic (all switches live here) |
+| `launch.cmd` | visible/debug path: same launcher with a console you can read |
+| `start-backend.sh` | Linux side: detached (`setsid`) backend start |
+| `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
+
 ## Setup (once)
 
-Open `launch.ps1` and check the config block at the top:
+From Windows (Run dialog, Explorer address bar, or any terminal):
 
-- `$Distro` — your WSL distro name (default `Ubuntu`). If the exact name is
-  not installed but exactly one installed distro starts with it (e.g. only
-  `Ubuntu-24.04`), the launcher uses that one and says so. No match, or an
-  ambiguous match (`Ubuntu-22.04` **and** `Ubuntu-24.04`), is an error that
-  lists what `wsl.exe -l -q` reports — then set the exact name here.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\make-shortcut.ps1"
+
+(or from inside WSL, in the repo:
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/make-shortcut.ps1`)
+
+This creates **"AI Session Manager"** on the Desktop and in the Start Menu
+(user scope, no admin), pointing at `wscript.exe launch-silent.vbs` with
+`app.ico`. Re-running it just overwrites the shortcuts — safe any time the
+repo moves.
+
+Config lives at the top of `launch.ps1` (make-shortcut.ps1 shares the same
+defaults):
+
+- `$Distro` — default `Ubuntu-24.04` (this machine's install). An exact
+  match is used silently. If the configured name is not installed but
+  exactly one installed distro starts with it (e.g. `Ubuntu` → a lone
+  `Ubuntu-22.04`), the launcher uses that one and prints a notice. No
+  match, or an ambiguous match (`Ubuntu-22.04` **and** `Ubuntu-24.04`), is
+  an error that lists what `wsl.exe -l -q` reports — set the exact name.
 - `$RepoPath` — Linux path of the repo (default
   `/home/sava/projects/ai-cli-application`).
 - `$DataDir` — backend data dir (default `~/.ai-session-manager`).
@@ -37,51 +65,71 @@ automated tests; normally leave them unset).
 
 ## Run
 
-From Windows (Explorer double-click, Run dialog, or a terminal):
+**Double-click the "AI Session Manager" icon.** Nothing flashes, no console
+appears; the Edge app window opens when the backend is ready. If the launch
+fails, a native error box tells you what went wrong and points you at
+`launch.cmd` for the full console output.
 
-    \\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\launch.cmd
+Icon-click = `wscript.exe launch-silent.vbs` = hidden
+`powershell launch.ps1 -Silent`. Same logic, three entry points:
 
-or directly:
+- `launch.cmd` — the **visible/debug path**: run it from Explorer or a
+  terminal whenever you want to watch the launcher work (progress dots,
+  distro resolution, error details). Takes the same switches.
+- `launch.ps1` switches:
+  - `-Silent` — no console assumed: any failure surfaces as a native
+    message box (with a hint to run `launch.cmd`) instead of console text.
+    Success shows nothing until the Edge app window opens. This is what
+    the shortcut/VBS path uses; rarely typed by hand.
+  - `-Status` — print backend state from runtime.json (port, pid,
+    startedAt; the auth token is never printed) and the health-check
+    result. Exit code 0 = running and healthy, 1 = not running or stale.
+  - `-Stop` — graceful shutdown: SIGTERM to the pid from runtime.json,
+    then confirm the server removed runtime.json. Running sessions die
+    with the server — stop deliberately.
+  - `-NoBrowser` — do everything except opening the UI (scripts/tests).
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\launch.ps1"
+## Cold boot expectations
 
-Switches:
+The first click after a Windows reboot has to boot the WSL VM **and** the
+backend: expect **~10–30 s where nothing visible happens** — that is normal
+for the silent path; the window appears when the backend is healthy. The
+launcher polls for up to 90 s before declaring failure (as a message box
+when silent). Warm launches — backend already running — attach and open the
+window in about a second.
 
-- `-Status` — print backend state from runtime.json (port, pid, startedAt;
-  the auth token is never printed) and the health-check result.
-  Exit code 0 = running and healthy, 1 = not running or stale.
-- `-Stop` — graceful shutdown: SIGTERM to the pid from runtime.json, then
-  confirm the server removed runtime.json. Running sessions die with the
-  server — stop deliberately.
-- `-NoBrowser` — do everything except opening the UI (for scripts/tests).
+## Pinning
 
-## Cold boot note
+- Start Menu: the shortcut makes "AI Session Manager" findable in Start
+  search — right-click it there → Pin to Start / Pin to taskbar.
+- Desktop: right-click the desktop icon → Pin to taskbar.
+- Do **not** pin the Edge app window itself: an Edge `--app` pin bakes in
+  the URL, and with auto-picked ports it goes stale after a backend
+  restart. Pin the launcher shortcut; it always resolves the current port.
 
-The first launch after a Windows boot has to boot the WSL VM: expect several
-extra seconds. The launcher polls for up to 90 s with progress dots — let it
-finish. Warm launches attach in about a second.
+## Icon
 
-## Pin to taskbar
+`app.ico` is generated — never hand-edited — by `make-icon.mjs` (plain
+Node, no deps): 16/32/48/256 px, 32bpp BMP entries, phosphor design
+language (warm-graphite square, 1px border, green `>_`).
 
-You cannot pin a `.cmd` directly. Create a shortcut instead:
-
-1. Right-click the desktop → New → Shortcut.
-2. Target:
-
-       powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\launch.ps1"
-
-3. Name it (e.g. "AI Sessions"), then right-click the shortcut →
-   Pin to taskbar. (Optionally set "Run: Minimized" in the shortcut
-   properties so the console flash is less visible.)
-
-Alternatively: once the Edge app window is open, right-click its taskbar
-icon → Pin — that pins the web app itself; the launcher is then only needed
-after a reboot or `-Stop`.
+    node launcher/make-icon.mjs           # regenerate + self-verify
+    node launcher/make-icon.mjs --check   # verify committed bytes match a fresh render
 
 ## Troubleshooting
 
+- **Error box appeared** (silent launch failed) → run `launch.cmd` for the
+  full console story; the box text names the same cause.
 - Backend log: `~/.ai-session-manager/server.log` inside the distro.
-- `-Status` says stale → the backend crashed or was SIGKILLed; the next
-  plain launch starts a fresh one automatically.
+- `launch.cmd -Status` says stale → the backend crashed or was SIGKILLed;
+  the next plain launch starts a fresh one automatically.
+- Nothing at all happens on double-click and no error box → check that
+  `\\wsl.localhost\Ubuntu-24.04\...\launcher` is reachable in Explorer
+  (WSL may need `wsl.exe --update` if the share is broken), then re-run
+  `make-shortcut.ps1`.
+- Blank/generic icon on the shortcut right after a reboot → Explorer could
+  not read `app.ico` over `\\wsl.localhost` before WSL was up; it fixes
+  itself once WSL has booted (first launch). The icon cache usually keeps
+  it correct after that.
 - The launcher requires Node ≥ 24 inside WSL (nvm installs are detected
   explicitly by `start-backend.sh`).

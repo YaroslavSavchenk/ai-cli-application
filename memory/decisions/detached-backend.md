@@ -6,7 +6,10 @@ tags: [architecture, lifecycle]
 ---
 # Detached backend — sessions survive the window
 
-**Status:** decided (2026-07-18)
+**Status:** partially superseded by [[lifecycle-bound-backend]] (2026-07-19).
+Detachment from the *launcher process* stands; indefinite session survival
+after window close was reversed by the user after real use — sessions now
+end (with a grace period) when the last window closes.
 
 The backend process is never a child of the launcher or any window. It starts
 detached (setsid for MVP; systemd *user* service inside WSL as the polished

@@ -35,10 +35,24 @@ export function authToken(): string {
   return window.__AUTH__;
 }
 
+/**
+ * Called on ANY 401/403 REST response. The token is injected at page-serve
+ * time and rotates on every backend restart, so an auth failure after boot
+ * means this page can never talk to the server again — main.ts registers a
+ * handler that takes over the page with a reload panel. Registered after
+ * boot succeeds; boot-time failures keep their own error path.
+ */
+let authErrorHandler: (() => void) | null = null;
+
+export function onAuthError(fn: () => void): void {
+  authErrorHandler = fn;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { 'x-auth-token': authToken() };
   if (init.body !== undefined) headers['content-type'] = 'application/json';
   const res = await fetch(path, { ...init, headers });
+  if (res.status === 401 || res.status === 403) authErrorHandler?.();
   let body: unknown = null;
   try {
     body = await res.json();

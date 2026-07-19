@@ -39,6 +39,7 @@ interface LauncherRefs {
 interface Slot {
   index: number;
   root: HTMLElement;
+  grip: HTMLElement;
   attn: HTMLElement;
   proj: HTMLElement;
   title: HTMLElement;
@@ -61,6 +62,8 @@ let slots: Slot[] = [];
 let renderedTabId = '';
 let renderedLayout = 0;
 let lastFocusKey = '';
+/** Slot index a pane-header grip drag started from; null when no drag. */
+let dragFrom: number | null = null;
 
 // --------------------------------------------------------------------------
 // Public API
@@ -130,14 +133,102 @@ function rebuild(tab: st.TabState): void {
   renderedTabId = tab.id;
   renderedLayout = tab.layout;
   lastFocusKey = '';
+  dragFrom = null;
   grid.dataset.layout = String(tab.layout);
   grid.replaceChildren();
+  applySplit(tab);
   for (let i = 0; i < tab.layout; i++) {
     // createSlot appends its root to the grid BEFORE constructing the
     // TerminalView — xterm must open on an attached, measurable node.
     slots.push(createSlot(i));
   }
+  buildDividers(tab);
   for (let i = 0; i < slots.length; i++) reconcileSlot(i, tab.panes[i] ?? null);
+}
+
+// --------------------------------------------------------------------------
+// Split dividers (layouts 2/3/4)
+// --------------------------------------------------------------------------
+//
+// The grid templates read --split-col/--split-row; every ratio change goes
+// through applySplit and nothing else — the panes resize, each TerminalView's
+// ResizeObserver fires, and the existing debounced fit -> ws resize chain
+// propagates cols/rows to the PTY.
+
+function applySplit(tab: st.TabState): void {
+  grid.style.setProperty('--split-col', String(tab.split.col));
+  grid.style.setProperty('--split-row', String(tab.split.row));
+}
+
+function buildDividers(tab: st.TabState): void {
+  if (tab.layout >= 2) grid.append(makeDivider('col', tab));
+  if (tab.layout >= 3) grid.append(makeDivider('row', tab));
+}
+
+/**
+ * A divider is a wide invisible hit strip centered on the 1px gutter; its
+ * 1px line surfaces only on hover/focus/drag. Pointer-drag adjusts the
+ * fraction (min pane 15%), double-click or Enter resets to equal, arrow
+ * keys nudge 2% — keyboard-reachable like every control.
+ */
+function makeDivider(axis: 'col' | 'row', tab: st.TabState): HTMLElement {
+  // Layout 3: slot 0 spans both rows, so the row divider only exists in the
+  // right column (is-partial keeps it off the tall left pane).
+  const partial = axis === 'row' && tab.layout === 3;
+  const d = el('div', `divider divider-${axis}${partial ? ' is-partial' : ''}`);
+  d.tabIndex = 0;
+  d.setAttribute('role', 'separator');
+  d.setAttribute('aria-orientation', axis === 'col' ? 'vertical' : 'horizontal');
+  d.setAttribute('aria-label', axis === 'col' ? 'column split' : 'row split');
+  d.setAttribute('aria-valuemin', String(Math.round(st.SPLIT_MIN * 100)));
+  d.setAttribute('aria-valuemax', String(Math.round(st.SPLIT_MAX * 100)));
+  d.title = 'drag to resize · arrow keys nudge · double-click or enter resets';
+  const setNow = (f: number): void => {
+    d.setAttribute('aria-valuenow', String(Math.round(f * 100)));
+  };
+  setNow(tab.split[axis]);
+
+  d.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    d.setPointerCapture(e.pointerId);
+    d.classList.add('is-dragging');
+  });
+  d.addEventListener('pointermove', (e) => {
+    if (!d.hasPointerCapture(e.pointerId)) return;
+    const r = grid.getBoundingClientRect();
+    const f = axis === 'col' ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height;
+    // Live: style only, no persist/notify — the ResizeObservers do the rest.
+    setNow(st.setSplit(axis, f, false));
+    applySplit(st.activeTab());
+  });
+  const endDrag = (e: PointerEvent): void => {
+    if (!d.hasPointerCapture(e.pointerId)) return;
+    d.releasePointerCapture(e.pointerId);
+    d.classList.remove('is-dragging');
+    st.setSplit(axis, st.activeTab().split[axis], true); // Persist + notify.
+  };
+  d.addEventListener('pointerup', endDrag);
+  d.addEventListener('pointercancel', endDrag);
+  d.addEventListener('dblclick', () => {
+    setNow(st.setSplit(axis, 0.5, true));
+    applySplit(st.activeTab());
+  });
+  d.addEventListener('keydown', (e) => {
+    const cur = st.activeTab().split[axis];
+    let f: number | null = null;
+    if (axis === 'col' && e.key === 'ArrowLeft') f = cur - 0.02;
+    else if (axis === 'col' && e.key === 'ArrowRight') f = cur + 0.02;
+    else if (axis === 'row' && e.key === 'ArrowUp') f = cur - 0.02;
+    else if (axis === 'row' && e.key === 'ArrowDown') f = cur + 0.02;
+    else if (e.key === 'Enter') f = 0.5;
+    if (f !== null) {
+      e.preventDefault();
+      setNow(st.setSplit(axis, f, true));
+      applySplit(st.activeTab());
+    }
+  });
+  return d;
 }
 
 function reconcileSlot(index: number, sessionId: string | null): void {
@@ -240,6 +331,11 @@ function createSlot(index: number): Slot {
   const hd = el('header', 'pane-hd');
   const mark = el('span', 'focus-mark');
   mark.title = 'focused pane';
+  // Visible move affordance; the keyboard path is ctrl+alt+shift+arrows.
+  const grip = el('span', 'pane-grip', '⠿');
+  grip.draggable = true;
+  grip.title = 'drag onto another pane to move / swap (ctrl+alt+shift+arrows)';
+  grip.setAttribute('aria-hidden', 'true');
   const attn = el('span', 'badge-attn', '!');
   attn.hidden = true;
   attn.title = 'session wants attention';
@@ -253,7 +349,7 @@ function createSlot(index: number): Slot {
   detachBtn.title = 'detach view (session keeps running)';
   const killBtn = button('pane-btn is-danger', 'kill');
   killBtn.title = 'kill session (asks to confirm)';
-  hd.append(mark, attn, proj, title, status, connChip, gap, detachBtn, killBtn);
+  hd.append(mark, grip, attn, proj, title, status, connChip, gap, detachBtn, killBtn);
 
   const note = el('div', 'pane-note');
   note.hidden = true;
@@ -270,6 +366,7 @@ function createSlot(index: number): Slot {
   const slot: Slot = {
     index,
     root,
+    grip,
     attn,
     proj,
     title,
@@ -292,6 +389,42 @@ function createSlot(index: number): Slot {
   });
   armButton(killBtn, 'sure?', () => {
     if (slot.sessionId !== null) void killSession(slot.sessionId);
+  });
+
+  // Grip drag -> drop on another pane = move/swap (mirror of the chord).
+  grip.addEventListener('dragstart', (e) => {
+    if (slot.sessionId === null) {
+      e.preventDefault();
+      return;
+    }
+    dragFrom = index;
+    root.classList.add('is-dragging');
+    if (e.dataTransfer !== null) {
+      e.dataTransfer.setData('text/plain', String(index));
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  });
+  grip.addEventListener('dragend', () => {
+    dragFrom = null;
+    for (const s of slots) s.root.classList.remove('is-dragging', 'is-drop-target');
+  });
+  root.addEventListener('dragover', (e) => {
+    if (dragFrom === null || dragFrom === index) return;
+    e.preventDefault();
+    if (e.dataTransfer !== null) e.dataTransfer.dropEffect = 'move';
+    for (const s of slots) s.root.classList.toggle('is-drop-target', s.index === index);
+  });
+  root.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget instanceof Node && root.contains(e.relatedTarget)) return;
+    root.classList.remove('is-drop-target');
+  });
+  root.addEventListener('drop', (e) => {
+    if (dragFrom === null || dragFrom === index) return;
+    e.preventDefault();
+    const from = dragFrom;
+    dragFrom = null;
+    for (const s of slots) s.root.classList.remove('is-dragging', 'is-drop-target');
+    st.swapPanes(renderedTabId, from, index);
   });
 
   populateProjects(launcher);
@@ -320,12 +453,14 @@ function updateHeader(s: Slot): void {
     s.title.classList.add('is-empty');
     s.status.textContent = '';
     s.status.className = 'pane-status';
+    s.grip.hidden = true;
     s.attn.hidden = true;
     s.connChip.hidden = true;
     s.detachBtn.hidden = true;
     s.killBtn.hidden = true;
     return;
   }
+  s.grip.hidden = false;
   s.title.classList.remove('is-empty');
   const pname = st.projectName(info?.projectId);
   s.proj.textContent = pname ?? '·';
@@ -369,18 +504,65 @@ function updateNote(s: Slot): void {
     // Structural exited banner; the buffer below stays readable.
     s.note.hidden = false;
     s.note.className = `pane-note ${s.exitCode === 0 ? 'is-exit' : 'is-exit-err'}`;
+    const relaunchBtn = button('pane-note-btn is-primary', 'relaunch', () => void relaunch(s));
+    relaunchBtn.title = 'start a new session with the same command; the exited one is deleted';
     const delBtn = button('pane-note-btn', 'delete session');
     armButton(delBtn, 'sure?', () => {
       if (s.sessionId !== null) void killSession(s.sessionId);
     });
     s.note.replaceChildren(
       el('span', 'pane-note-text', `exited · code ${s.exitCode}`),
+      relaunchBtn,
       button('pane-note-btn', 'detach', () => st.assignPane(renderedTabId, s.index, null)),
       delBtn,
     );
     return;
   }
   s.note.hidden = true;
+}
+
+/**
+ * Exited-banner relaunch: POST a new session with the exited one's
+ * project/cwd/command/args/title/cols/rows, attach it to this pane, then
+ * DELETE the exited session. The attach flow reconciles the PTY size with
+ * the pane's actual dimensions, so stale cols/rows self-correct.
+ */
+async function relaunch(s: Slot): Promise<void> {
+  const oldId = s.sessionId;
+  if (oldId === null) return;
+  const info = st.state.sessions.get(oldId);
+  if (info === undefined) return;
+  const tabId = renderedTabId; // Captured: the user may switch tabs mid-await.
+  const index = s.index;
+  const req: CreateSessionRequest = {
+    ...(info.projectId !== undefined ? { projectId: info.projectId } : {}),
+    cwd: info.cwd, // Explicit, so relaunch survives a deleted project.
+    command: info.command,
+    args: info.args,
+    title: info.title,
+    cols: info.cols,
+    rows: info.rows,
+  };
+  try {
+    const created = await api.createSession(req);
+    st.upsertSession(created);
+    st.assignPane(tabId, index, created.id);
+    if (st.state.activeTabId === tabId) {
+      st.focusPane(index);
+      requestTerminalFocus();
+    }
+  } catch (err) {
+    flash(`relaunch failed: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  // The new session is live; losing the DELETE only leaves the exited one
+  // listed in the drawer (its kill button still works).
+  try {
+    await api.deleteSession(oldId);
+    st.removeSessionEverywhere(oldId);
+  } catch (err) {
+    if (err instanceof api.ApiError && err.status === 404) st.removeSessionEverywhere(oldId);
+  }
 }
 
 // --------------------------------------------------------------------------

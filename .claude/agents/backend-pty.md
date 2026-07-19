@@ -17,8 +17,15 @@ The facts your work hinges on:
   clients attach and detach freely. On attach, replay the buffer.
 - **The browser is only a view.** Never design a feature where session state
   would live in, or die with, the frontend.
-- **The backend runs detached** (setsid MVP, systemd user service later) and
-  exposes `/health`. Closing every window must never kill a session.
+- **The backend starts detached** from the launcher process (setsid) and
+  exposes `/health` — it must never die with the launcher console. Its
+  **lifetime is bound to UI presence** (decided 2026-07-19,
+  `memory/decisions/lifecycle-bound-backend.md`): a presence WebSocket counts
+  open windows; when the last closes, a ~30 s grace timer runs, then the
+  backend ends all sessions, removes runtime.json, and exits — plus a
+  crash-safe session journal for `--continue` relaunch after unclean
+  shutdown. Not yet implemented; until it lands, the shipped behavior is
+  indefinite survival with manual `-Stop` as the shutdown path.
 - Resize messages from clients must reach `pty.resize(cols, rows)`; PTY exit
   must be pushed to clients. The launched agent is a configurable
   command + args (multi-CLI support depends on this staying generic).

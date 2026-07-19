@@ -5,16 +5,22 @@ first; the launched agent is a configurable command + args, so other CLIs
 work too) side by side. A Node.js backend inside WSL2 spawns each session in
 a real pseudo-terminal (node-pty), streams I/O over WebSocket, and serves a
 vanilla-TypeScript frontend (xterm.js) with projects, launch presets, and
-multi-pane tab layouts. Sessions are server-side objects: closing the
-browser window never kills them; reattaching replays the full scrollback.
+multi-pane tab layouts. Sessions are server-side objects: as implemented
+today, closing the browser window never kills them; reattaching replays the
+full scrollback. (Decided 2026-07-19, not yet implemented: backend lifetime
+will instead be bound to UI presence — sessions end after a ~30 s grace once
+the last window closes; see `memory/decisions/lifecycle-bound-backend.md`.)
 
 ## Run it (Windows + WSL2)
 
-Run `launcher/launch.cmd` from Windows. It attaches to a running backend (or
+Once: run `launcher/make-shortcut.ps1` — it creates an "AI Session Manager"
+icon on the Desktop and in the Start Menu. From then on, double-click the
+icon: no console appears; the launcher attaches to a running backend (or
 starts one detached inside WSL), waits for it to become healthy, and opens
-the UI in an Edge app window. Configuration, switches (`-Status`, `-Stop`,
-`-NoBrowser`), pinning, and troubleshooting: see
-[launcher/README.md](launcher/README.md).
+the UI in an Edge app window. `launcher/launch.cmd` is the visible/debug
+path with the same logic. Configuration, switches (`-Silent`, `-Status`,
+`-Stop`, `-NoBrowser`), pinning, cold-boot expectations, and
+troubleshooting: see [launcher/README.md](launcher/README.md).
 
 ## Develop (inside WSL)
 

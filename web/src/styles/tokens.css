@@ -77,6 +77,20 @@
   --drawer-w: 320px;
   --radius: 0px; /* sharp corners are the panel language */
   --line: 1px;
+  --tick: 2px;         /* active-state edge line (tabs, toggled bar buttons)  */
+  --divider-hit: 9px;  /* invisible grab strip centered on a 1px gutter       */
+
+  /* ---- component metrics (no one-off px in app.css) ---------------------- */
+  --badge-block: 14px; /* attention badge min block                           */
+  --mark-size: 7px;    /* pane focus "record light"                           */
+  --mini-w: 16px;      /* layout-switcher miniature diagrams                  */
+  --mini-h: 12px;
+  --form-w: 360px;     /* in-pane form column (launcher)                      */
+  --modal-w: 560px;    /* dialogs; wide variant for the shortcuts table       */
+  --modal-w-wide: 640px;
+  --panel-w: 460px;    /* boot / restart takeover panel                       */
+  --dirlist-min-h: 160px;
+  --sc-keys-w: 200px;  /* shortcuts overlay keys column                       */
 
   /* ---- motion: functional only, <=150ms ---------------------------------- */
   --t-fast: 80ms;

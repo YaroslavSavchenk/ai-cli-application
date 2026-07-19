@@ -21,7 +21,7 @@ import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initPanes, focusedConn, openLauncher } from './ui/panes.ts';
-import { initStatusline } from './ui/statusline.ts';
+import { initStatusline, setBackendReachable } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
@@ -165,9 +165,12 @@ function buildShell(root: HTMLDivElement): void {
       const k = e.key;
       if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
         e.preventDefault();
-        st.moveFocus(
-          k === 'ArrowLeft' ? 'left' : k === 'ArrowRight' ? 'right' : k === 'ArrowUp' ? 'up' : 'down',
-        );
+        const dir =
+          k === 'ArrowLeft' ? 'left' : k === 'ArrowRight' ? 'right' : k === 'ArrowUp' ? 'up' : 'down';
+        // +shift moves the focused pane's SESSION (swap with the neighbor);
+        // without shift only focus moves.
+        if (e.shiftKey) st.moveSession(dir);
+        else st.moveFocus(dir);
       } else if (k.length === 1 && k >= '1' && k <= '9') {
         e.preventDefault();
         st.setActiveTabIndex(Number(k) - 1);
@@ -204,21 +207,61 @@ function buildShell(root: HTMLDivElement): void {
     }
   });
 
+  // ---- reliability: token rotation is fatal, network loss is a readout ----
+  // Any REST 401/403 after boot means the backend restarted (token rotated;
+  // this page can never re-auth) — full-page takeover, reload is the cure.
+  let fatal = false;
+  api.onAuthError(() => {
+    if (fatal) return;
+    fatal = true;
+    renderRestartPanel(root);
+  });
+
   // ---- session poll --------------------------------------------------------
   // WS events only reach attached panes; badges for sessions hidden in other
-  // tabs (and attention cleared elsewhere) reconcile through this poll.
+  // tabs (and attention cleared elsewhere) reconcile through this poll. The
+  // poll doubles as the backend health probe: repeated network failures show
+  // the statusline readout, the first success clears it.
+  let pollFailures = 0;
   const poll = (): void => {
+    if (fatal) return;
     void api
       .getSessions()
-      .then(st.setSessions)
+      .then((list) => {
+        pollFailures = 0;
+        setBackendReachable(true);
+        st.setSessions(list);
+      })
       .catch(() => {
-        // Transient: per-pane sockets own their dead/reconnect states.
+        // 401/403 already took the page over via onAuthError; anything else
+        // is the backend gone/unreachable. Two misses to skip one-off blips.
+        pollFailures++;
+        if (pollFailures >= 2) setBackendReachable(false);
       });
   };
   window.setInterval(poll, POLL_MS);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') poll();
   });
+}
+
+/**
+ * Full-page takeover after a REST 401/403 post-boot: same panel pattern as
+ * the boot error. The app is torn down deliberately — every socket and pane
+ * of this page holds a dead token, so nothing behind the panel could work.
+ */
+function renderRestartPanel(root: HTMLDivElement): void {
+  const box = el('div', 'boot-err');
+  box.append(el('div', 'boot-err-hd', 'backend restarted — reload'));
+  box.append(
+    el(
+      'div',
+      'boot-err-msg',
+      'the auth token rotated with the restart, so this page can no longer reach the server. reload to reattach.',
+    ),
+  );
+  box.append(button('btn is-primary', 'reload', () => location.reload()));
+  root.replaceChildren(box);
 }
 
 function isEditable(t: EventTarget | null): boolean {
