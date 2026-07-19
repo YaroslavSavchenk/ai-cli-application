@@ -418,8 +418,113 @@ test('presence WS auth: bad/missing token 401 and evil origin 403 pre-upgrade; v
     const res = await fetch(`${server.baseUrl}/health`);
     assert.equal(res.status, 200);
     assert.equal(presence.closed, false, 'presence socket must survive garbage frames');
-    assert.equal(presence.messages.length, 0, 'presence must never send frames');
+    assert.equal(presence.messages.length, 0, 'non-ping frames must never be answered');
     await presence.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+test('presence ping/pong: well-formed ping echoes pong with the same t; bad pings silent; oversized frame closes 1009; lifecycle untouched', async () => {
+  const server = await startTestServer();
+  try {
+    const presence = await WsClient.connect(presenceUrl(server));
+    await waitForLog(server, 'shutdown timer cancelled (presence=1, attached=0)');
+
+    // Bad pings first — WS frames are processed in order, so the pong for
+    // the valid ping arriving proves none of these produced a reply.
+    presence.ws.send(JSON.stringify({ type: 'ping' })); // t missing
+    presence.ws.send(JSON.stringify({ type: 'ping', t: 'soon' })); // t not a number
+    presence.ws.send(JSON.stringify({ type: 'ping', t: null }));
+    presence.ws.send(JSON.stringify({ type: 'pong', t: 7 })); // wrong direction
+    presence.ws.send(Buffer.from(JSON.stringify({ type: 'ping', t: 7 }))); // binary frame
+
+    const t = 1752903000123.5; // Non-integer on purpose: echoed verbatim, not rounded.
+    presence.ws.send(JSON.stringify({ type: 'ping', t }));
+    const frames = presence.messages as unknown as { type: string; t?: unknown }[];
+    const pong = await waitUntil(
+      () => frames.find((m) => m.type === 'pong'),
+      'a pong frame from the presence channel',
+    );
+    assert.equal(pong.t, t, 'pong must echo the ping t verbatim');
+    assert.equal(presence.messages.length, 1, 'only the well-formed ping may be answered');
+
+    // Ping traffic must not touch the lifecycle counters: still exactly one
+    // cancel (from the connect) and no re-arm while the socket lives.
+    const log = await readServerLog(server);
+    assert.equal(
+      log.split('shutdown timer cancelled').length - 1,
+      1,
+      'ping/pong must not change presence accounting',
+    );
+
+    // Oversized frame (> 1024 bytes): connection closed 1009, server healthy.
+    const big = await WsClient.connect(presenceUrl(server));
+    big.ws.send(JSON.stringify({ type: 'ping', t: 1, pad: 'x'.repeat(2048) }));
+    await waitUntil(() => (big.closed ? true : undefined), 'oversized frame to close the socket');
+    assert.equal(big.closeInfo?.code, 1009, 'oversized presence frames must close with 1009');
+    assert.equal((await fetch(`${server.baseUrl}/health`)).status, 200);
+
+    await presence.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+test('presence ping: a numeric but non-finite t (JSON 1e400 -> Infinity) is silent, same as a non-numeric t', async () => {
+  const server = await startTestServer();
+  try {
+    const presence = await WsClient.connect(presenceUrl(server));
+
+    // 1e400 is valid JSON syntax; JSON.parse coerces the overflowing literal
+    // to the double Infinity. typeof is 'number', so only Number.isFinite
+    // (not a bare typeof/isNaN check) catches this. JSON.stringify(Infinity)
+    // itself would silently become "null", so the raw string is hand-built.
+    presence.ws.send('{"type":"ping","t":1e400}');
+    presence.ws.send('{"type":"ping","t":-1e400}'); // -Infinity, same guard
+
+    const t = 42;
+    presence.ws.send(JSON.stringify({ type: 'ping', t }));
+    const frames = presence.messages as unknown as { type: string; t?: unknown }[];
+    const pong = await waitUntil(
+      () => frames.find((m) => m.type === 'pong'),
+      'a pong frame for the trailing well-formed ping',
+    );
+    assert.equal(pong.t, t, 'pong must echo the well-formed ping, proving the Infinity pings were skipped');
+    assert.equal(
+      presence.messages.length,
+      1,
+      'non-finite t (Infinity/-Infinity) must never be echoed back as a pong',
+    );
+
+    await presence.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+test('presence ping/pong is per-connection: only the pinging client gets the pong, other presence sockets get nothing', async () => {
+  const server = await startTestServer();
+  try {
+    const a = await WsClient.connect(presenceUrl(server));
+    const b = await WsClient.connect(presenceUrl(server));
+
+    const t = 99;
+    a.ws.send(JSON.stringify({ type: 'ping', t }));
+
+    const aFrames = a.messages as unknown as { type: string; t?: unknown }[];
+    const pong = await waitUntil(
+      () => aFrames.find((m) => m.type === 'pong'),
+      'a pong frame on the pinging connection',
+    );
+    assert.equal(pong.t, t);
+
+    // Round-trip through HTTP to let any (incorrect) broadcast to `b` land.
+    assert.equal((await fetch(`${server.baseUrl}/health`)).status, 200);
+    assert.equal(b.messages.length, 0, 'a pong must never be broadcast to other presence sockets');
+
+    await a.close();
+    await b.close();
   } finally {
     await server.stop();
   }

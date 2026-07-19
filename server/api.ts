@@ -13,7 +13,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
-import type { CreateProjectRequest, CreateSessionRequest } from '../shared/protocol.ts';
+import type {
+  CreateProjectRequest,
+  CreateSessionRequest,
+  RuntimeStatusResponse,
+} from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { ProjectStore, isExistingDirectory } from './projects.ts';
 import { SessionManager } from './sessions.ts';
@@ -45,6 +49,8 @@ const CONTENT_TYPES: Record<string, string> = {
 export interface ApiDeps {
   token: string;
   getPort: () => number;
+  /** The startedAt the backend wrote to runtime.json at boot (ISO-8601). */
+  getStartedAt: () => string;
   projects: ProjectStore;
   sessions: SessionManager;
   journal: SessionJournal;
@@ -137,6 +143,18 @@ export function createRequestHandler(
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
+    // --- Runtime status -----------------------------------------------------
+    if (pathname === '/api/runtime') {
+      if (method === 'GET') {
+        // startedAt ONLY — port/token/pid stay out of the browser-facing API.
+        const body: RuntimeStatusResponse = { startedAt: deps.getStartedAt() };
+        sendJson(res, 200, body);
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
     // --- Projects -----------------------------------------------------------
     if (pathname === '/api/projects') {
       if (method === 'GET') {

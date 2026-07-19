@@ -151,6 +151,17 @@ export interface HealthResponse {
   ok: true;
 }
 
+/**
+ * GET /api/runtime response — runtime status for the UI (statusline uptime).
+ * `startedAt` is the very same ISO-8601 timestamp the backend wrote to
+ * runtime.json at boot. Deliberately excludes port/token/pid: the browser
+ * must never need them, so they are not exposed here.
+ */
+export interface RuntimeStatusResponse {
+  /** ISO-8601 timestamp. */
+  startedAt: string;
+}
+
 /** Generic success response (DELETE /api/projects/:id, DELETE /api/sessions/:id, POST /api/sessions/:id/seen). */
 export interface OkResponse {
   ok: true;
@@ -264,7 +275,15 @@ export type ClientMessage = InputMessage | ResizeMessage | SeenMessage;
 // ---------------------------------------------------------------------------
 //
 // Same auth/Host/Origin rules as the session WS. A connection IS the signal;
-// no messages are required and inbound frames are ignored. The backend
+// no messages are required and inbound frames are ignored — EXCEPT a
+// well-formed ping (below), which the server echoes back as a pong so each
+// window can measure round-trip latency. Frames larger than 1024 bytes close
+// the socket (1009 Message Too Big); malformed JSON, binary frames, non-ping
+// types, and pings whose `t` is not a finite number are silently ignored
+// (no reply, socket stays open).
+//
+// Ping/pong traffic has ZERO lifecycle effect: it never touches the
+// counters or timers below — only the socket's existence does. The backend
 // tracks presenceCount (open presence sockets) and attachedCount (open
 // session sockets); a shutdown grace timer runs ONLY while both are zero:
 //
@@ -275,3 +294,16 @@ export type ClientMessage = InputMessage | ResizeMessage | SeenMessage;
 //
 // On expiry the backend marks live journal entries ended {reason:'shutdown'},
 // kills all PTYs, removes runtime.json, and exits 0.
+
+/** Client -> server on /ws/presence: latency probe. */
+export interface PingMessage {
+  type: 'ping';
+  /** Client-chosen finite number (e.g. performance.now()); echoed verbatim. */
+  t: number;
+}
+
+/** Server -> client: reply to a well-formed ping; `t` is the ping's `t`, unchanged. */
+export interface PongMessage {
+  type: 'pong';
+  t: number;
+}

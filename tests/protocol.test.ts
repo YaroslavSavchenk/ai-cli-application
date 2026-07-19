@@ -6,7 +6,13 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Project, ServerMessage, ClientMessage } from '../shared/protocol.ts';
+import type {
+  Project,
+  ServerMessage,
+  ClientMessage,
+  PingMessage,
+  PongMessage,
+} from '../shared/protocol.ts';
 
 test('protocol shapes survive a JSON round-trip', () => {
   const project: Project = {
@@ -18,8 +24,12 @@ test('protocol shapes survive a JSON round-trip', () => {
   };
   const server: ServerMessage = { type: 'data', data: 'hello' };
   const client: ClientMessage = { type: 'resize', cols: 120, rows: 40 };
+  const ping: PingMessage = { type: 'ping', t: 1234.5 };
+  const pong: PongMessage = { type: 'pong', t: 1234.5 };
 
   assert.deepEqual(JSON.parse(JSON.stringify(project)), project);
   assert.deepEqual(JSON.parse(JSON.stringify(server)), server);
   assert.deepEqual(JSON.parse(JSON.stringify(client)), client);
+  assert.deepEqual(JSON.parse(JSON.stringify(ping)), ping);
+  assert.deepEqual(JSON.parse(JSON.stringify(pong)), pong);
 });

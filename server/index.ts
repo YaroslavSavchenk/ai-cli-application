@@ -50,9 +50,21 @@ const lifecycle = new LifecycleController({
 
 let port = 0;
 const getPort = (): number => port;
+/** Set once at listen; the exact value written to runtime.json (GET /api/runtime). */
+let startedAt = '';
+const getStartedAt = (): string => startedAt;
 
 const server = createServer(
-  createRequestHandler({ token, getPort, projects, sessions, journal, webDistDir, log }),
+  createRequestHandler({
+    token,
+    getPort,
+    getStartedAt,
+    projects,
+    sessions,
+    journal,
+    webDistDir,
+    log,
+  }),
 );
 server.on('upgrade', createUpgradeHandler({ token, getPort, sessions, lifecycle, log }));
 
@@ -63,11 +75,12 @@ server.listen(0, '127.0.0.1', () => {
     process.exit(1);
   }
   port = addr.port;
+  startedAt = new Date().toISOString();
   const runtime: RuntimeInfo = {
     port,
     token,
     pid: process.pid,
-    startedAt: new Date().toISOString(),
+    startedAt,
   };
   try {
     atomicWriteFile(paths.runtimeFile, JSON.stringify(runtime, null, 2) + '\n');

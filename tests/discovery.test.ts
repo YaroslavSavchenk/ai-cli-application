@@ -13,7 +13,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { startTestServer, waitUntil } from './helpers.ts';
+import { api, rawRequest, startTestServer, waitUntil } from './helpers.ts';
 
 test('startup: runtime.json 0600 with correct shape, data dir 0700, health, server.log', async () => {
   const server = await startTestServer();
@@ -67,6 +67,27 @@ test('startup: runtime.json 0600 with correct shape, data dir 0700, health, serv
       fetch(`http://[::1]:${server.port}/health`, { signal: AbortSignal.timeout(2_000) }),
       'server must not listen on ::1',
     );
+  } finally {
+    await server.stop();
+  }
+});
+
+test('GET /api/runtime: token-gated, body is exactly the startedAt from runtime.json — never port/token/pid', async () => {
+  const server = await startTestServer();
+  try {
+    const noToken = await rawRequest(server.port, { path: '/api/runtime' });
+    assert.equal(noToken.status, 401, 'GET /api/runtime without token must be 401');
+
+    const res = await api(server, 'GET', '/api/runtime');
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      res.body,
+      { startedAt: server.runtime.startedAt },
+      'body must be { startedAt } with the exact runtime.json value and NO other keys',
+    );
+
+    const post = await api(server, 'POST', '/api/runtime');
+    assert.equal(post.status, 405, 'non-GET on /api/runtime must be 405');
   } finally {
     await server.stop();
   }

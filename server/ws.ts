@@ -10,15 +10,18 @@
  * Session frames, client->server: {type:'input',data} | {type:'resize',cols,rows} | {type:'seen'}
  * server->client frames are produced by SessionManager (replay/info/data/exit/attention).
  *
- * Presence: a connection IS the signal — no messages required, inbound
- * frames are ignored. Both WS paths feed the LifecycleController counters
- * (presenceCount / attachedCount) that gate the idle-shutdown timer; close
- * and error each decrement exactly once.
+ * Presence: a connection IS the signal — no messages required. Inbound
+ * frames are ignored EXCEPT a well-formed {type:'ping',t:<finite number>},
+ * which is echoed back as {type:'pong',t} for latency measurement; frames
+ * over MAX_PRESENCE_FRAME_BYTES close the socket (1009). Ping traffic never
+ * touches the lifecycle counters. Both WS paths feed the LifecycleController
+ * counters (presenceCount / attachedCount) that gate the idle-shutdown
+ * timer; close and error each decrement exactly once.
  */
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ClientMessage } from '../shared/protocol.ts';
+import type { ClientMessage, PongMessage } from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { SessionManager } from './sessions.ts';
 import { LifecycleController } from './lifecycle.ts';
@@ -33,6 +36,13 @@ export interface WsDeps {
   log: Logger;
 }
 
+/**
+ * Presence frames are tiny (ping/pong only). Enforced as the ws maxPayload
+ * of the presence WebSocketServer, so an oversized frame is cut off during
+ * receive (1009 close) instead of being buffered in full.
+ */
+const MAX_PRESENCE_FRAME_BYTES = 1024;
+
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
   socket.destroy();
@@ -43,6 +53,10 @@ export function createUpgradeHandler(
 ): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
   const { token, sessions, lifecycle, log } = deps;
   const wss = new WebSocketServer({ noServer: true });
+  const presenceWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_PRESENCE_FRAME_BYTES,
+  });
 
   return (req, socket, head) => {
     const port = deps.getPort();
@@ -63,7 +77,7 @@ export function createUpgradeHandler(
         rejectUpgrade(socket, 401, 'Unauthorized');
         return;
       }
-      wss.handleUpgrade(req, socket, head, (ws) => {
+      presenceWss.handleUpgrade(req, socket, head, (ws) => {
         attachPresence(ws);
       });
       return;
@@ -89,7 +103,12 @@ export function createUpgradeHandler(
     });
   };
 
-  /** Presence: the open socket is the whole protocol. Inbound frames are ignored. */
+  /**
+   * Presence: the open socket is the signal. Inbound frames are ignored,
+   * except a well-formed ping which is echoed as a pong (latency probe).
+   * Ping traffic MUST NOT touch the lifecycle counters/timers — only the
+   * socket's existence does.
+   */
   function attachPresence(ws: WebSocket): void {
     lifecycle.presenceConnected();
     let released = false;
@@ -99,6 +118,23 @@ export function createUpgradeHandler(
       lifecycle.presenceDisconnected();
     };
     ws.on('close', release);
+
+    ws.on('message', (raw, isBinary) => {
+      if (isBinary) return; // Protocol is JSON text frames only.
+      let msg: unknown;
+      try {
+        msg = JSON.parse(raw.toString()) as unknown;
+      } catch {
+        return; // Malformed JSON: ignore, never reply.
+      }
+      if (typeof msg !== 'object' || msg === null) return;
+      const { type, t } = msg as { type?: unknown; t?: unknown };
+      // Echo `t` only when it is a finite number — never arbitrary payloads.
+      if (type !== 'ping' || typeof t !== 'number' || !Number.isFinite(t)) return;
+      const pong: PongMessage = { type: 'pong', t };
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(pong));
+    });
+
     ws.on('error', (err) => {
       log('warn', `presence ws error: ${String(err)}`);
       release();

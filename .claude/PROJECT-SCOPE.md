@@ -36,7 +36,10 @@ and multi-pane layouts on top.
   `AI_SM_STARTUP_GRACE_MS`); the journal lives in `journal.json`, rotated to
   `previous.json` on boot (open entries stamped 'crash'), served as relaunch
   offers via `GET/DELETE /api/previous` and surfaced in the sessions drawer.
-  Manual `-Stop` remains as an override.
+  Manual `-Stop` remains as an override. Added 2026-07-19: the presence
+  channel answers `ping`/`pong` (latency; inbound frames capped 1 KiB,
+  zero lifecycle effect) and authed `GET /api/runtime` exposes
+  `startedAt` (uptime) — both feeding the statusline.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
@@ -109,7 +112,16 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-- None currently.
+Raised 2026-07-19 by the user's hi-fi design handoff (`design/` — gap
+analysis and full plan in `design/GAP-ANALYSIS.md`), which conflicts with
+decided `web/DESIGN.md` on two structural points:
+
+- **Tab strip position** — handoff: dedicated bottom strip above the
+  statusline; shipped: tabs in the topbar. Recommendation on file: keep
+  topbar.
+- **Launch UI shape** — handoff: modal dialog; decided: launcher-as-tab.
+  Recommendation on file: keep in-tab, adopt the dialog's field-level
+  features.
 
 (Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
 frontend; app data — projects.json, runtime.json, journal.json,
