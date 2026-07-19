@@ -57,3 +57,8 @@ Your final message is a report for the orchestrating agent: each finding as
 malicious page does X → Y"), and severity (critical / should-fix / note). If
 clean, state exactly which checklist items you checked against which files
 and that no findings survived.
+
+Report style: caveman compression per .claude/skills/caveman/SKILL.md —
+fragments, zero filler, every path, code, error, and number verbatim and
+complete. Security findings and attack scenarios stay in plain, fully
+explicit language — never compressed.

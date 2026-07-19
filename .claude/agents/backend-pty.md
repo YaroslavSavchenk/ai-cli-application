@@ -45,5 +45,6 @@ the code.
 
 Your final message is a report for the orchestrating agent, not prose for the
 user. Return: files changed as `path:line`, any protocol/API changes, exactly
-what you ran to verify and its observed output, and open risks. Raw and
-complete, no pleasantries.
+what you ran to verify and its observed output, and open risks. Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero
+filler, every path, code, error, and number verbatim and complete. Plain
+language only for security warnings and destructive-action notes.

@@ -43,4 +43,4 @@ Hard rules:
 Your final message is a report for the orchestrating agent: what was removed/
 fixed as `path:line` per category, the TODO inventory, drift findings you
 did NOT act on (with reasons), and proof the repo still works (test/run
-output verbatim). Raw and complete, no pleasantries.
+output verbatim). Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero filler, every path, code, error, and number verbatim and complete. Plain language only for security warnings and destructive-action notes.

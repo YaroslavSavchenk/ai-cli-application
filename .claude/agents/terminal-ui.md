@@ -47,5 +47,6 @@ correctness after significant changes, run the checks from
 
 Your final message is a report for the orchestrating agent: files changed as
 `path:line`, design decisions taken (with the brief if one was written), what
-you verified and how, and anything the backend side must know. Raw and
-complete, no pleasantries.
+you verified and how, and anything the backend side must know. Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero
+filler, every path, code, error, and number verbatim and complete. Plain
+language only for security warnings and destructive-action notes.

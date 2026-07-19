@@ -50,5 +50,6 @@ running and a stopped backend.
 
 Your final message is a report for the orchestrating agent: files changed as
 `path:line`, what you verified from WSL (with observed output), and a precise
-manual checklist of what the user must confirm on the Windows side. Raw and
-complete, no pleasantries.
+manual checklist of what the user must confirm on the Windows side. Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero
+filler, every path, code, error, and number verbatim and complete. Plain
+language only for security warnings and destructive-action notes.

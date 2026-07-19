@@ -38,4 +38,4 @@ per-finding, in the order received:
 - `DISPUTED` — why, with evidence.
 - `BLOCKED` — what stopped you (conflict, missing decision), what's needed.
 
-End with the full-suite result verbatim. Raw and complete, no pleasantries.
+End with the full-suite result verbatim. Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero filler, every path, code, error, and number verbatim and complete. Plain language only for security warnings and destructive-action notes.

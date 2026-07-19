@@ -22,3 +22,10 @@ Ground rules for every session:
   significant landed change** (completed dev-flow phase, feature land,
   milestone) without asking. Only the orchestrator commits — never subagents,
   never unreviewed mid-flight work.
+- **Caveman mode standing (2026-07-19, user request)**: conversation replies
+  and agent reports use the token-compressed style in
+  `.claude/skills/caveman/SKILL.md` — fragments, zero filler, technical
+  content byte-exact. Exceptions (normal prose): security warnings,
+  destructive-action confirmations, decisions needing user input. Code,
+  commits, docs, UI copy, and agent briefs stay normal/precise. "stop
+  caveman" reverts.

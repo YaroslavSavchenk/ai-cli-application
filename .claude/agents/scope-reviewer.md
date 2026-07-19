@@ -43,3 +43,8 @@ Your final message is a report for the orchestrating agent: each finding as
 failure scenario, and severity (blocker / should-fix / note). If everything
 passes, say exactly which failure classes you checked and against which
 files, then state clearly that no violations were found.
+
+Report style: caveman compression per .claude/skills/caveman/SKILL.md —
+fragments, zero filler, every path, code, error, and number verbatim and
+complete. Findings themselves never compressed below full precision; plain
+language for anything the user must act on.

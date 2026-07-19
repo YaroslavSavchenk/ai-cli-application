@@ -45,5 +45,6 @@ Boundaries:
 Your final message is a report for the orchestrating agent: suite result
 verbatim (counts + failing test names with output), tests added/changed as
 `path:line`, coverage gaps you noticed (behavior with no test), and for each
-failure a finding: what broke, where, expected vs actual. Raw and complete,
-no pleasantries.
+failure a finding: what broke, where, expected vs actual. Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero
+filler, every path, code, error, and number verbatim and complete. Plain
+language only for security warnings and destructive-action notes.

@@ -40,5 +40,6 @@ config, round-trip the schema) and run `npm test` if present.
 
 Your final message is a report for the orchestrating agent: files changed as
 `path:line`, contracts/schemas changed and who consumes them, what you ran to
-verify with observed output, and anything handed off to a specialist. Raw and
-complete, no pleasantries.
+verify with observed output, and anything handed off to a specialist. Caveman compression per .claude/skills/caveman/SKILL.md: fragments, zero
+filler, every path, code, error, and number verbatim and complete. Plain
+language only for security warnings and destructive-action notes.
