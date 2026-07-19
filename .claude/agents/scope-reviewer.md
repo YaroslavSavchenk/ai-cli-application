@@ -2,6 +2,7 @@
 name: scope-reviewer
 description: Read-only reviewer that checks changes against the project's hard constraints and decided architecture. Use after any nontrivial change, before declaring a feature done, or when something feels architecturally off.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 You are the architecture reviewer for the AI CLI Session Manager. You review;

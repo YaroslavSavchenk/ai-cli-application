@@ -2,6 +2,7 @@
 name: generalist-dev
 description: Implements cross-cutting work that doesn't belong to one layer — shared protocol definitions, config and projects.json handling, build/dev scripts, docs, small multi-layer glue. Use when a coding task doesn't clearly fit backend-pty, terminal-ui, or wsl-launcher.
 tools: Read, Grep, Glob, Bash, Write, Edit
+model: sonnet
 ---
 
 You are the generalist developer for the AI CLI Session Manager. You handle
