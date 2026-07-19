@@ -24,5 +24,6 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-19-lifecycle-and-pivots]] — lifecycle reversal implemented; steam-blend direction chosen; caveman + model-assignment process changes
 - [[2026-07-18-mvp-build]] — backend + frontend + launcher landed via dev-flow workflows; backlog and manual-pass list
 - [[2026-07-18-project-setup]] — scope agreed, agent team + dev-flow built, memory vault created
