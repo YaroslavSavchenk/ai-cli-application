@@ -40,5 +40,17 @@ Backlog added this phase: previous.json rotation drops un-dismissed offers
 from run N-2; relaunch tooltip wording when entry already carries a resume
 flag; .sess-row.is-prev hover cue on non-interactive rows.
 
-Next: **steam-blend redesign phase** (sessions-as-tabs, drag-to-split),
-then Tauri shell.
+**Later same day — redesign SHIPPED** (e901cf8, 88c716e): sessions-as-tabs
++ drag-to-split (custom pointer DnD, keyboard equivalents for every drag,
+localStorage v2 + v1 migration) and the steam-blend reskin (full token
+rewrite, Barlow OFL bundled, DESIGN.md v2). 39/39 + 8/8 + 37/37 probe
+checks. Drive-by fixes: replay no longer re-answers terminal queries from
+scrollback; BEL-in-OSC no longer raises phantom attention (regression
+test, 31/31). Intentional UX change confirmed: tab close ×  kills that
+view's sessions (armed confirm) — consistent with no-background-sessions.
+Backlog: MAX_VIEWS not enforced at runtime (pre-existing); tab-reorder
+keyboard path is chord-only; .sess-here blue on non-interactive metadata.
+Sonnet-writes/fable-reviews pilot proposed to user, awaiting answer.
+
+Next: **Tauri shell** (last queued phase). User still needs one
+`-Stop` + relaunch to activate lifecycle + new UI on the live backend.
