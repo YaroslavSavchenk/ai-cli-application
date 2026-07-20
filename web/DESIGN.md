@@ -84,7 +84,11 @@ plum `#150f1c`, graphite `#141414`, espresso `#161010`) × 10 ramps (default,
 phosphor, amber, ice, paper, cyan, violet, ember, steel, mint — exact values
 in `design/README.md`). Ground drives both the xterm background and the pane
 card background. Persisted in localStorage under its own key (`ai-sm:theme:v1`,
-independent of the UI-arrangement schema). Scanline overlay (1px dark lines
+independent of the UI-arrangement schema), but the durable copy lives
+server-side in `prefs.json` (an opaque `UiPrefs` bag, fetched once at boot and
+reconciled server-wins); localStorage is only a same-run cache, since the
+backend's per-run port change gives each restart a fresh origin and bucket.
+Scanline overlay (1px dark lines
 every 3px, `mix-blend-mode:multiply`, terminal bodies only) is a popover
 toggle, default OFF.
 

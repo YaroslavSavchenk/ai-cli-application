@@ -13,60 +13,40 @@
  *
  * Persisted under its own localStorage key — deliberately separate from the
  * UI-arrangement schema (no version bump there).
+ *
+ * Server persistence: localStorage is a same-run CACHE only — the backend
+ * binds a new OS-assigned port every run, so the page origin changes on
+ * every restart and a fresh origin means a fresh localStorage bucket. The
+ * durable copy lives server-side in prefs.json (an opaque `UiPrefs` bag —
+ * see shared/protocol.ts), fetched once at boot by main.ts and handed to
+ * initTheme() below. Boot order: apply the local cache immediately (no
+ * flash of default), then reconcile against the server value (server wins
+ * if different) — both happen synchronously before any terminal exists, so
+ * in practice there is no visible repaint, just a correct first paint. Every
+ * theme change writes localStorage AND fire-and-forgets a merged PUT
+ * /api/prefs (read-modify-write: only the `theme` member is replaced, so
+ * unknown keys — future settings — survive). Two windows changing the theme
+ * concurrently is last-write-wins on the server; acceptable, not solved here.
  */
 import { el, button } from './util.ts';
 import { refreshAllTerminalThemes } from './terminal.ts';
+import type { UiPrefs, UiTheme } from '../../../shared/protocol.ts';
+import { putPrefs } from '../api.ts';
+import {
+  GROUNDS,
+  RAMPS,
+  clampTheme,
+  isUiTheme,
+  themeEquals,
+  type Ground,
+  type Ramp,
+  type ThemeState,
+} from './theme-model.ts';
 
 const STORAGE_KEY = 'ai-sm:theme:v1';
 
-interface Ground {
-  name: string;
-  hex: string;
-}
-
-interface Ramp {
-  name: string;
-  cmd: string;
-  out: string;
-  dim: string;
-}
-
-/** Handoff "Terminal backgrounds" — exact values. */
-const GROUNDS: Ground[] = [
-  { name: 'charcoal', hex: '#0e1116' },
-  { name: 'void', hex: '#07090c' },
-  { name: 'deep blue', hex: '#0a1220' },
-  { name: 'navy', hex: '#0d1526' },
-  { name: 'ocean', hex: '#081a1f' },
-  { name: 'forest', hex: '#0a1510' },
-  { name: 'moss', hex: '#10160e' },
-  { name: 'plum', hex: '#150f1c' },
-  { name: 'graphite', hex: '#141414' },
-  { name: 'espresso', hex: '#161010' },
-];
-
-/** Handoff "Terminal text ramps" — exact values (cmd / out / dim). */
-const RAMPS: Ramp[] = [
-  { name: 'default', cmd: '#e6edf3', out: '#b7c2cd', dim: '#66788a' },
-  { name: 'phosphor', cmd: '#d8ffd8', out: '#7ee787', dim: '#3f7a4a' },
-  { name: 'amber', cmd: '#ffe9c4', out: '#e8b24a', dim: '#8a6a2f' },
-  { name: 'ice', cmd: '#e8f4ff', out: '#8fc7f2', dim: '#4a6f8a' },
-  { name: 'paper', cmd: '#ffffff', out: '#e2e6ea', dim: '#8a9099' },
-  { name: 'cyan', cmd: '#dafcff', out: '#66d9e8', dim: '#3a7a83' },
-  { name: 'violet', cmd: '#efe6ff', out: '#b39df2', dim: '#6a5a8f' },
-  { name: 'ember', cmd: '#ffe3d6', out: '#f0956a', dim: '#8f5a44' },
-  { name: 'steel', cmd: '#e6e9ec', out: '#9aa7b4', dim: '#5a6570' },
-  { name: 'mint', cmd: '#e2fff4', out: '#7fe0bb', dim: '#468a72' },
-];
-
 /** The "Aa" text-ramp swatches always render over the charcoal ground. */
 const SWATCH_GROUND = '#0e1116';
-
-interface ThemeState {
-  bg: number;
-  fg: number;
-  scan: boolean;
-}
 
 function loadState(): ThemeState {
   let parsed: unknown = null;
@@ -75,14 +55,7 @@ function loadState(): ThemeState {
   } catch {
     parsed = null;
   }
-  const o = (parsed ?? {}) as Record<string, unknown>;
-  const idx = (v: unknown, max: number): number =>
-    typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < max ? v : 0;
-  return {
-    bg: idx(o.bg, GROUNDS.length),
-    fg: idx(o.fg, RAMPS.length),
-    scan: o.scan === true,
-  };
+  return clampTheme((parsed ?? {}) as Record<string, unknown>);
 }
 
 function saveState(s: ThemeState): void {
@@ -117,10 +90,53 @@ export interface ThemePopover {
 /**
  * Build the popover (hidden) and apply the persisted theme immediately —
  * main.ts calls this BEFORE initPanes so terminals are born themed.
+ *
+ * `serverPrefs` is the prefs bag main.ts already fetched (as part of its
+ * boot hydrate, GET /api/prefs — undefined if that fetch failed, which is
+ * non-fatal here too: the local cache just stands uncorrected). Kept as
+ * `prefsBag` for the lifetime of the popover so later writes merge onto it
+ * rather than clobbering unknown keys a future settings panel might add.
  */
-export function initTheme(host: HTMLElement, anchor: HTMLElement): ThemePopover {
+export function initTheme(
+  host: HTMLElement,
+  anchor: HTMLElement,
+  serverPrefs?: UiPrefs,
+): ThemePopover {
   const state = loadState();
-  apply(state);
+  apply(state); // Local cache first — no flash of default.
+
+  // serverPrefs crossed a JSON boundary: treat a null/non-object value as
+  // absent rather than trusting the static type (a null bag would throw on
+  // the `.theme` read below).
+  const bag: UiPrefs | undefined =
+    typeof serverPrefs === 'object' && serverPrefs !== null ? serverPrefs : undefined;
+  let prefsBag: UiPrefs = bag !== undefined ? { ...bag } : {};
+  if (bag !== undefined && isUiTheme(bag.theme)) {
+    const fromServer = clampTheme(bag.theme as unknown as Record<string, unknown>);
+    if (!themeEquals(fromServer, state)) {
+      // Server wins: correct the cache and repaint via the same apply() path
+      // used for every live theme change. This runs before any terminal is
+      // constructed (see the ordering note in main.ts), so there is no
+      // visible flash — just a correct first paint.
+      state.bg = fromServer.bg;
+      state.fg = fromServer.fg;
+      state.scan = fromServer.scan;
+      saveState(state);
+      apply(state);
+    }
+  }
+
+  /** Save locally AND fire-and-forget a merged PUT (unknown keys survive). */
+  function persist(): void {
+    saveState(state);
+    const theme: UiTheme = { bg: state.bg, fg: state.fg, scan: state.scan };
+    prefsBag = { ...prefsBag, theme };
+    void putPrefs(prefsBag).catch(() => {
+      // Non-fatal: localStorage already holds the value; the server copy
+      // just falls behind until the next successful write (e.g. next boot's
+      // hydrate corrects nothing since the client is source of truth here).
+    });
+  }
 
   const pop = el('div', 'theme-pop');
   pop.hidden = true;
@@ -144,7 +160,7 @@ export function initTheme(host: HTMLElement, anchor: HTMLElement): ThemePopover 
   function pick(kind: 'bg' | 'fg', i: number): void {
     if (kind === 'bg') state.bg = i;
     else state.fg = i;
-    saveState(state);
+    persist();
     apply(state);
     markSelected();
   }
@@ -181,7 +197,7 @@ export function initTheme(host: HTMLElement, anchor: HTMLElement): ThemePopover 
   scanRow.append(scanCb, el('span', '', 'scanlines'));
   scanCb.addEventListener('change', () => {
     state.scan = scanCb.checked;
-    saveState(state);
+    persist();
     apply(state);
   });
   pop.append(scanRow);

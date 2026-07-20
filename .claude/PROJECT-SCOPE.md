@@ -82,13 +82,18 @@ and multi-pane layouts on top.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
-- **QUEUED, user-gated (2026-07-20) — app settings panel.** User request,
-  verbatim intent: a settings surface inside the terminal UI ("the final
-  terminal settings") to check/adjust things like usage limit, model, and
-  other options — "a usual setting that would apply for the rest of the
-  sessions" (persistent defaults for future sessions, not per-launch).
-  Shape and exact option list unspecified — clarify with the user first.
-  **Do NOT implement until the user explicitly says go.**
+- **App settings panel — GO given 2026-07-20, shape decided with the user.**
+  A checklist-style settings surface in the UI; set once, survives app
+  relaunch (persisted server-side in `prefs.json` via `/api/prefs`).
+  Decided option list (each an explicit user answer, 2026-07-20):
+  **default model** and **default permission mode** (all four modes incl.
+  `plan`; pre-select the launch dialog, per-launch override stays);
+  **auto-run startup command** (a configurable line, e.g. a skill/slash
+  command, typed into every new claude session once it is ready);
+  **usage display, read-only** (approximate Claude Code usage from its
+  local session logs — informational only; the app cannot change
+  account-side limits). Not in v1: enforcing usage limits, subscription
+  plan display.
 
 ## Hard technical constraints
 
@@ -140,9 +145,10 @@ cut — they are lifecycle impossibilities, not looks. Rationale in
 
 (Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
 frontend; app data — projects.json, runtime.json, journal.json,
-previous.json, server.log — lives in `~/.ai-session-manager/` (override:
-`AI_SM_DATA_DIR`), schema in `shared/protocol.ts`. Rationale in
-`memory/decisions/`.)
+previous.json, prefs.json (added 2026-07-20: server-side UI prefs, since
+localStorage dies with every auto-picked-port origin change), server.log —
+lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
+`shared/protocol.ts`. Rationale in `memory/decisions/`.)
 
 (Settled 2026-07-19: backend lifetime bound to UI presence — see the
 Architecture bullet; implemented the same day: presence WS + grace timers,

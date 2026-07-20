@@ -19,6 +19,7 @@ import '@xterm/xterm/css/xterm.css';
 import './styles/tokens.css';
 import './styles/fonts.css';
 import './styles/app.css';
+import type { UiPrefs } from '../../shared/protocol.ts';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
@@ -191,11 +192,19 @@ async function boot(root: HTMLDivElement): Promise<void> {
     (err: unknown) => stepToken.fail(err instanceof Error ? err.message : String(err)),
   );
 
-  // Server state first: loadUi() prunes view assignments against it.
+  // Server state first: loadUi() prunes view assignments against it. Prefs
+  // (theme) is joined into the SAME hydrate wait — no extra boot-panel step,
+  // no reordering — but wrapped in its own .catch so a prefs-fetch failure
+  // never fails hydrate or blocks the UI: the cached/default theme stands.
   let projects;
   let sessions;
+  let prefs: UiPrefs | undefined;
   try {
-    [projects, sessions] = await Promise.all([api.getProjects(), api.getSessions()]);
+    [projects, sessions, prefs] = await Promise.all([
+      api.getProjects(),
+      api.getSessions(),
+      api.getPrefs().catch(() => undefined),
+    ]);
   } catch (err) {
     panel.fatal(
       'backend unreachable — the server may have restarted (tokens rotate per run); relaunch from the launcher, then reload.',
@@ -206,7 +215,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
   stepHydrate.ok();
   st.initServer(projects, sessions);
   st.loadUi();
-  buildShell(root);
+  buildShell(root, prefs);
   // Fire-and-forget extra — never a boot blocker: previous-run relaunch
   // offers (crash/shutdown recovery).
   void api
@@ -215,7 +224,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
     .catch(() => {});
 }
 
-function buildShell(root: HTMLDivElement): void {
+function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // ---- topbar (handoff §2) -------------------------------------------------
   const topbar = el('header', 'topbar');
   const logo = el('div', 'logo-tile');
@@ -277,7 +286,7 @@ function buildShell(root: HTMLDivElement): void {
   // ---- modules ---------------------------------------------------------------
   // Theme FIRST: it applies the persisted ground/ramp onto :root before any
   // terminal is constructed, so terminals are born themed.
-  const themePop = initTheme(modalHost, themeBtn);
+  const themePop = initTheme(modalHost, themeBtn, prefs);
   themeBtn.addEventListener('click', () => themePop.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   const tabs = initTabs(strip);

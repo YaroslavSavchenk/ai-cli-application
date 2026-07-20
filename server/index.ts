@@ -28,6 +28,7 @@ import type { RuntimeInfo } from '../shared/protocol.ts';
 import { resolveDataPaths, createLogger, atomicWriteFile } from './config.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
+import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { LifecycleController } from './lifecycle.ts';
@@ -40,6 +41,7 @@ const token = generateToken();
 const webDistDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
 const projects = new ProjectStore(paths.projectsFile, log);
+const prefs = new PrefsStore(paths.prefsFile, log);
 const journal = new SessionJournal(paths.journalFile, paths.previousFile, log);
 journal.rotate(); // A previous run's journal becomes previous.json ('crash'-stamped).
 const sessions = new SessionManager(log, journal);
@@ -60,6 +62,7 @@ const server = createServer(
     getPort,
     getStartedAt,
     projects,
+    prefs,
     sessions,
     journal,
     webDistDir,

@@ -3,7 +3,7 @@
  *
  * Data dir: ~/.ai-session-manager/ (created 0700), overridable via the
  * AI_SM_DATA_DIR env var (must be an absolute path). Holds runtime.json,
- * projects.json and server.log.
+ * projects.json, prefs.json and server.log.
  *
  * The process runs detached — nothing may depend on stdout. All logging
  * appends to server.log in the data dir.
@@ -17,6 +17,8 @@ export interface DataPaths {
   dataDir: string;
   runtimeFile: string;
   projectsFile: string;
+  /** Opaque UI preferences bag (theme today; future settings later). */
+  prefsFile: string;
   /** Crash-safe session journal for the CURRENT run. */
   journalFile: string;
   /** Rotated journal of the PREVIOUS run (feeds GET /api/previous). */
@@ -41,6 +43,7 @@ export function resolveDataPaths(): DataPaths {
     dataDir,
     runtimeFile: join(dataDir, 'runtime.json'),
     projectsFile: join(dataDir, 'projects.json'),
+    prefsFile: join(dataDir, 'prefs.json'),
     journalFile: join(dataDir, 'journal.json'),
     previousFile: join(dataDir, 'previous.json'),
     logFile: join(dataDir, 'server.log'),

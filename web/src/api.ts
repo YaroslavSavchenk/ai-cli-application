@@ -15,6 +15,7 @@ import type {
   Project,
   RuntimeStatusResponse,
   SessionInfo,
+  UiPrefs,
 } from '../../shared/protocol.ts';
 
 declare global {
@@ -117,6 +118,16 @@ export function dismissAllPrevious(): Promise<OkResponse> {
 /** Backend boot time (statusline uptime). */
 export function getRuntime(): Promise<RuntimeStatusResponse> {
   return request<RuntimeStatusResponse>('/api/runtime');
+}
+
+/** Stored UI prefs bag ({} if none stored yet) — server never interprets it. */
+export function getPrefs(): Promise<UiPrefs> {
+  return request<UiPrefs>('/api/prefs');
+}
+
+/** Replace-whole-object; server responds 200 OkResponse on success. */
+export function putPrefs(body: UiPrefs): Promise<OkResponse> {
+  return request<OkResponse>('/api/prefs', { method: 'PUT', body: JSON.stringify(body) });
 }
 
 export function fsList(path?: string): Promise<FsListResponse> {

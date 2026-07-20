@@ -33,11 +33,13 @@ brief → DEVELOP → REVIEW ─(findings)→ FIX → RE-REVIEW ─┐
 Reviewers never fix; the fixer never adds features; the janitor never
 refactors. Keep these lanes strict — they are what makes re-review meaningful.
 
-Models (decided 2026-07-19): `scope-reviewer`, `test-engineer`, `janitor`,
-`generalist-dev` run on sonnet (frontmatter-pinned); developers,
-`security-auditor`, and `fixer` inherit the session model. Ad-hoc `claude`
-agents in workflows (e.g. design reviewer): pass `model: 'sonnet'` unless
-the task needs the big model.
+Models (decided 2026-07-20, user's call, superseding 2026-07-19): ALL
+subagents — developers, reviewers, fixer, janitor, ad-hoc — run on **opus**
+(frontmatter now pins the former sonnet agents to opus; pass
+`model: 'opus'` explicitly on every Agent spawn so overrides beat any stale
+pin). The session model (Fable 5) is reserved for the orchestrator itself:
+thinking, briefing, consolidation/arbitration, and the final review of
+finished work.
 
 ## Steps
 

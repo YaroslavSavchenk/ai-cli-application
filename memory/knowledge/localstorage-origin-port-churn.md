@@ -24,8 +24,11 @@ close the app and reopen it."
 **Rule going forward:** anything that must survive a backend restart
 belongs server-side in `~/.ai-session-manager/` (the prefs.json /
 `/api/prefs` substrate), never in localStorage. localStorage is a same-run
-cache at best. This is also the substrate the user-gated settings panel
-will need.
+cache at best. This is also the substrate the settings panel needs.
+
+**Fix implemented same day** (see [[2026-07-20-theme-persistence-launcher]]):
+`prefs.json` + authed `GET/PUT /api/prefs`, theme as first consumer;
+persistence proven live across a port/token change with no default flash.
 
 Related: [[auto-port-discovery]], [[lifecycle-bound-backend]],
 [[frontend-terminal-quirks]]

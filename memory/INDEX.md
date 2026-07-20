@@ -27,6 +27,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-20-theme-persistence-launcher]] — prefs.json + /api/prefs fix the theme reset; launcher finished with desktop shortcut; suite 120/120; agents-on-opus policy; settings panel un-gated
 - [[2026-07-20-r3-launch-dialog]] — R3 shipped: modal launch dialog + custom chip + honest boot panel, launcher-as-tab retired; 92/92 tests, 9/9 verify-terminal; theme-persistence phase queued
 - [[2026-07-20-r2-handoff-reskin]] — precedence flip + R2 shipped: handoff reskin, bottom tab strip, theme system; 9/9 verify-terminal; settings panel queued user-gated
 - [[2026-07-19-design-handoff-and-r1]] — user's hi-fi handoff triaged (gap analysis, fiction cuts, 2 open decisions); presence ping/pong + /api/runtime landed

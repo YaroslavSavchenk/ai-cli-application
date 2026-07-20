@@ -122,6 +122,41 @@ export interface SessionJournalEntry {
 export type PreviousSession = SessionJournalEntry;
 
 // ---------------------------------------------------------------------------
+// UI preferences (prefs.json in the data dir)
+// ---------------------------------------------------------------------------
+//
+// GET  /api/prefs -> UiPrefs ({} if none stored yet).
+// PUT  /api/prefs body: UiPrefs (REPLACES the whole stored object) ->
+//   OkResponse. Body must be a JSON object (arrays/null/scalars are 400) and
+//   <= 64 KiB (PREFS_MAX_BYTES in server/api.ts); the server stores it
+//   VERBATIM and never interprets its contents — deliberately an opaque
+//   bag, so a future user-gated settings panel can add keys without a
+//   server-side schema change. Auth like every other /api route.
+
+/**
+ * The one UiPrefs member the client currently reads/writes — mirrors the
+ * persisted shape in web/src/ui/theme-model.ts exactly: `bg`/`fg` are
+ * indices into that module's GROUNDS/RAMPS tables, `scan` is the scanline
+ * toggle.
+ */
+export interface UiTheme {
+  bg: number;
+  fg: number;
+  scan: boolean;
+}
+
+/**
+ * Open preferences bag stored in prefs.json. `theme` is typed because the
+ * client uses it today; any other key is opaque to the server and preserved
+ * verbatim on PUT — merge-on-write (read the bag, replace only `theme`,
+ * PUT the whole thing back) happens client-side, see web/src/ui/theme.ts.
+ */
+export interface UiPrefs {
+  theme?: UiTheme;
+  [key: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
 // Runtime discovery file (runtime.json in the data dir)
 // ---------------------------------------------------------------------------
 
@@ -162,7 +197,12 @@ export interface RuntimeStatusResponse {
   startedAt: string;
 }
 
-/** Generic success response (DELETE /api/projects/:id, DELETE /api/sessions/:id, POST /api/sessions/:id/seen). */
+/**
+ * Generic success response, returned 200 by every mutating route that has no
+ * richer body: PUT /api/prefs, DELETE /api/projects/:id, DELETE
+ * /api/sessions/:id, POST /api/sessions/:id/seen, DELETE /api/previous,
+ * DELETE /api/previous/:id.
+ */
 export interface OkResponse {
   ok: true;
 }

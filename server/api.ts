@@ -17,9 +17,11 @@ import type {
   CreateProjectRequest,
   CreateSessionRequest,
   RuntimeStatusResponse,
+  UiPrefs,
 } from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { ProjectStore, isExistingDirectory } from './projects.ts';
+import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { listDirs, FsBrowseError } from './fsbrowse.ts';
@@ -27,6 +29,8 @@ import type { Logger } from './config.ts';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_TERM_DIM = 1000;
+/** Prefs is a small opaque bag (theme today) — well under the generic cap. */
+export const PREFS_MAX_BYTES = 64 * 1024;
 
 /** Anti-framing headers: the authenticated UI must never be embeddable cross-origin. */
 const FRAME_PROTECTION_HEADERS = {
@@ -52,6 +56,7 @@ export interface ApiDeps {
   /** The startedAt the backend wrote to runtime.json at boot (ISO-8601). */
   getStartedAt: () => string;
   projects: ProjectStore;
+  prefs: PrefsStore;
   sessions: SessionManager;
   journal: SessionJournal;
   webDistDir: string;
@@ -67,13 +72,13 @@ function sendError(res: ServerResponse, status: number, message: string): void {
   sendJson(res, status, { error: message });
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of req) {
     const buf = chunk as Buffer;
     bytes += buf.byteLength;
-    if (bytes > MAX_BODY_BYTES) throw new Error('body too large');
+    if (bytes > maxBytes) throw new Error('body too large');
     chunks.push(buf);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
@@ -92,7 +97,7 @@ function isValidDim(v: unknown): v is number {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, sessions, journal, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, journal, webDistDir, log } = deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -149,6 +154,26 @@ export function createRequestHandler(
         // startedAt ONLY — port/token/pid stay out of the browser-facing API.
         const body: RuntimeStatusResponse = { startedAt: deps.getStartedAt() };
         sendJson(res, 200, body);
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- UI prefs (opaque bag; server never interprets contents) -----------
+    if (pathname === '/api/prefs') {
+      if (method === 'GET') {
+        sendJson(res, 200, prefs.get());
+        return;
+      }
+      if (method === 'PUT') {
+        const body = await readJsonBody(req, PREFS_MAX_BYTES);
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+          sendError(res, 400, 'prefs body must be a JSON object');
+          return;
+        }
+        prefs.replace(body as UiPrefs);
+        sendJson(res, 200, { ok: true });
         return;
       }
       sendError(res, 405, 'method not allowed');
