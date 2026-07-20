@@ -134,12 +134,31 @@ after a ~120 s startup grace with no window ever connected.
 Node, no deps): 16/32/48/256 px, 32bpp BMP entries, phosphor design
 language (warm-graphite square, 1px border, green `>_`).
 
-    node launcher/make-icon.mjs           # regenerate + self-verify
-    node launcher/make-icon.mjs --check   # verify committed bytes match a fresh render
+The same script also emits the **web icon set** into `web/public/` (copied to
+the dist root by Vite and served by the backend), so the Edge `--app`
+chromeless window gets a real window/taskbar icon instead of the Edge logo:
+
+| Output | What |
+| --- | --- |
+| `web/public/favicon.ico` | byte-identical to `app.ico` |
+| `web/public/icon-192.png` | 192 px, PNG RGBA (node:zlib only, no deps) |
+| `web/public/icon-512.png` | 512 px, PNG RGBA |
+| `web/public/manifest.json` | names the icon set; **not** installable — no `display`/`start_url`, so no PWA pins the auto-picked port |
+
+`web/index.html` declares them (`<link rel="icon">` × 3, `<link
+rel="manifest">`, `<meta name="theme-color" content="#1b222c">`). All five
+outputs are committed artifacts.
+
+    node launcher/make-icon.mjs           # regenerate all 5 outputs + self-verify
+    node launcher/make-icon.mjs --check   # verify committed outputs match a fresh render
+
+`--check` compares ICO/JSON bytes exactly and PNG *pixels* (decoded), so a
+differing zlib build never trips a false failure.
 
 After regenerating, re-run `make-shortcut.ps1` so the Windows-local copy at
 `%LOCALAPPDATA%\ai-session-manager\app.ico` (what the shortcuts actually
-display) picks up the new bytes.
+display) picks up the new bytes. Web icon changes need a `npm run build` to
+reach the dist root.
 
 ## Troubleshooting
 

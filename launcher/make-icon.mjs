@@ -1,28 +1,47 @@
 #!/usr/bin/env node
-// make-icon.mjs - deterministically generate launcher/app.ico. No deps.
+// make-icon.mjs - deterministically generate the app icon set. No deps.
 //
-//   node make-icon.mjs           regenerate app.ico, then re-read and verify
-//   node make-icon.mjs --check   verify only: app.ico on disk must be
-//                                byte-identical to a fresh render AND parse
-//                                as a well-formed ICO (exit 1 otherwise)
+//   node make-icon.mjs           regenerate every output, then re-read + verify
+//   node make-icon.mjs --check   verify only: every committed output must
+//                                still match a fresh render (exit 1 otherwise)
+//
+// Outputs (all committed artifacts, regenerated only by this script):
+//   launcher/app.ico          Windows shortcut icon (ICO, 16/32/48/256 px)
+//   web/public/favicon.ico    web favicon — byte-identical to app.ico
+//   web/public/icon-192.png   web icon, 192 px, PNG RGBA (manifest + <link>)
+//   web/public/icon-512.png   web icon, 512 px, PNG RGBA (manifest + <link>)
+//   web/public/manifest.json  minimal web manifest naming the icon set
+//
+// The web assets exist to give the Edge `--app` chromeless window a real
+// window/taskbar icon; a Chromium app window takes its icon from the page's
+// <link rel="icon"> / manifest, so with none it falls back to the Edge logo.
+// The manifest intentionally omits `display` and `start_url` so the site is
+// NOT installable — this is only about the window icon, never a pinned PWA
+// (a pinned PWA would bake in the auto-picked port, which is forbidden).
+// PNGs are encoded with node:zlib only (hand-built PNG chunks + CRC-32); no
+// npm dependency is introduced.
 //
 // Design (phosphor instrument panel, see web/DESIGN.md + tokens.css):
 //   - near-black warm-graphite square  #101312 (--bg-term), sharp corners
 //   - 1px structural border            #3a443d (--edge-strong)
 //   - phosphor-green '>_' prompt glyph #7edc93 (--focus)
 //
-// Format: classic ICO with 4 BMP-format entries (16/32/48/256), 32bpp BGRA
-// bottom-up XOR data + all-zero 1bpp AND mask (alpha carries transparency;
-// the square is fully opaque anyway). The 256 entry is deliberately BMP,
-// not PNG-compressed, for maximum consumer compatibility.
+// ICO format: classic ICO with 4 BMP-format entries (16/32/48/256), 32bpp
+// BGRA bottom-up XOR data + all-zero 1bpp AND mask (alpha carries
+// transparency; the square is fully opaque anyway). The 256 entry is
+// deliberately BMP, not PNG-compressed, for maximum consumer compatibility.
 // The 16px art is a hand-placed pixel map (AA mush is unacceptable at that
 // size); 32/48/256 are the same geometry rendered with 4x4 supersampling.
 
-import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deflateSync, inflateSync } from 'node:zlib';
 
-const OUT = join(dirname(fileURLToPath(import.meta.url)), 'app.ico');
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = dirname(SCRIPT_DIR);
+const APP_ICO = join(SCRIPT_DIR, 'app.ico');
+const WEB_PUBLIC = join(REPO_ROOT, 'web', 'public');
 const SIZES = [16, 32, 48, 256];
 
 const BG = [0x10, 0x13, 0x12]; // --bg-term
@@ -168,7 +187,121 @@ function buildIco() {
   return Buffer.concat([dir, ...images]);
 }
 
-// --- Structural checker (parses the bytes back, throws on any lie) ---------
+// --- PNG encoding (node:zlib only) -----------------------------------------
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const typeBuf = Buffer.from(type, 'latin1');
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const body = Buffer.concat([typeBuf, data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body), 0);
+  return Buffer.concat([len, body, crc]);
+}
+
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+// Encode top-down RGBA to a PNG (8-bit, color type 6, filter None on every
+// row). deflate at fixed level 9 for stable output on a given zlib.
+function encodePng(size, rgba) {
+  const stride = size * 4;
+  const raw = Buffer.alloc(size * (1 + stride));
+  for (let y = 0; y < size; y++) {
+    const ro = y * (1 + stride);
+    raw[ro] = 0; // filter type 0 = None
+    for (let x = 0; x < stride; x++) raw[ro + 1 + x] = rgba[y * stride + x];
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0); // width
+  ihdr.writeUInt32BE(size, 4); // height
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type: truecolor + alpha
+  ihdr[10] = 0; // compression: deflate
+  ihdr[11] = 0; // filter method: adaptive
+  ihdr[12] = 0; // interlace: none
+  return Buffer.concat([
+    PNG_SIG,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw, { level: 9 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+// Parse a PNG this script would emit back into { width, height, rgba }.
+// Verifies the signature, every chunk CRC, the IHDR pixel format, and that
+// each scanline uses filter None. Throws on any deviation.
+function decodePng(buf) {
+  const fail = (m) => { throw new Error(`PNG decode failed: ${m}`); };
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIG)) fail('bad signature');
+  let off = 8;
+  let width = 0, height = 0, sawIhdr = false, sawIend = false;
+  const idat = [];
+  while (off + 12 <= buf.length) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.toString('latin1', off + 4, off + 8);
+    const body = buf.subarray(off + 4, off + 8 + len);
+    const stored = buf.readUInt32BE(off + 8 + len);
+    if (crc32(body) !== stored) fail(`chunk ${type} CRC mismatch`);
+    if (type === 'IHDR') {
+      sawIhdr = true;
+      width = body.readUInt32BE(4);
+      height = body.readUInt32BE(8);
+      if (body[12] !== 8) fail(`bit depth ${body[12]} != 8`);
+      if (body[13] !== 6) fail(`color type ${body[13]} != 6 (RGBA)`);
+      if (body[16] !== 0) fail('interlaced');
+    } else if (type === 'IDAT') {
+      idat.push(buf.subarray(off + 8, off + 8 + len));
+    } else if (type === 'IEND') {
+      sawIend = true;
+    }
+    off += 12 + len;
+  }
+  if (!sawIhdr) fail('no IHDR');
+  if (!sawIend) fail('no IEND');
+  if (off !== buf.length) fail(`trailing bytes after IEND (${buf.length - off})`);
+  const rawInflated = inflateSync(Buffer.concat(idat));
+  const stride = width * 4;
+  if (rawInflated.length !== height * (1 + stride)) fail('inflated size mismatch');
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const ro = y * (1 + stride);
+    if (rawInflated[ro] !== 0) fail(`row ${y} filter ${rawInflated[ro]} != None`);
+    rawInflated.copy(rgba, y * stride, ro + 1, ro + 1 + stride);
+  }
+  return { width, height, rgba };
+}
+
+// --- Web manifest ----------------------------------------------------------
+// No `display`/`start_url` => site is not installable => no PWA prompt.
+
+const MANIFEST = `{
+  "name": "AI Session Manager",
+  "background_color": "#12161d",
+  "theme_color": "#1b222c",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}
+`;
+
+// --- Structural checker for ICO (parses the bytes back, throws on any lie) --
 
 function checkIco(buf) {
   const fail = (m) => { throw new Error(`ICO check failed: ${m}`); };
@@ -208,32 +341,81 @@ function checkIco(buf) {
   if (expectedOffset !== buf.length) fail(`file length ${buf.length}, expected ${expectedOffset}`);
 }
 
+// PNG structural check: decode on disk and assert it is our logo at `size`.
+// Compares DECODED pixels (not raw bytes) so a differing zlib build — which
+// can shift the compressed stream — does not produce a false failure while
+// still guaranteeing the committed image is correct.
+function checkPng(buf, size) {
+  const fail = (m) => { throw new Error(`PNG check failed: ${m}`); };
+  const { width, height, rgba } = decodePng(buf);
+  if (width !== size || height !== size) fail(`dims ${width}x${height}, expected ${size}x${size}`);
+  const fresh = render(size);
+  for (let i = 0; i < rgba.length; i++) {
+    if (rgba[i] !== fresh[i]) fail(`pixel byte ${i}: ${rgba[i]} != ${fresh[i]}`);
+  }
+}
+
+// --- Output manifest -------------------------------------------------------
+
+function buildOutputs() {
+  const ico = buildIco();
+  return [
+    { path: APP_ICO, bytes: ico, kind: 'ico' },
+    { path: join(WEB_PUBLIC, 'favicon.ico'), bytes: ico, kind: 'ico' },
+    { path: join(WEB_PUBLIC, 'icon-192.png'), bytes: encodePng(192, render(192)), kind: 'png', size: 192 },
+    { path: join(WEB_PUBLIC, 'icon-512.png'), bytes: encodePng(512, render(512)), kind: 'png', size: 512 },
+    { path: join(WEB_PUBLIC, 'manifest.json'), bytes: Buffer.from(MANIFEST, 'utf8'), kind: 'json' },
+  ];
+}
+
+// Structural validation + a same-image assertion against a fresh render.
+function validate(out, bytes) {
+  if (out.kind === 'ico') {
+    checkIco(bytes);
+    if (!bytes.equals(out.bytes)) throw new Error('ICO bytes differ from a fresh render');
+  } else if (out.kind === 'png') {
+    checkPng(bytes, out.size);
+  } else if (out.kind === 'json') {
+    JSON.parse(bytes.toString('utf8')); // must parse
+    if (!bytes.equals(out.bytes)) throw new Error('JSON bytes differ from a fresh render');
+  }
+}
+
 // --- Main ------------------------------------------------------------------
 
 const checkOnly = process.argv.includes('--check');
-const fresh = buildIco();
+const outputs = buildOutputs();
+const rel = (p) => relative(REPO_ROOT, p);
 
 if (checkOnly) {
-  let onDisk;
-  try {
-    onDisk = readFileSync(OUT);
-  } catch {
-    console.error(`--check: ${OUT} does not exist`);
-    process.exit(1);
+  for (const out of outputs) {
+    let onDisk;
+    try {
+      onDisk = readFileSync(out.path);
+    } catch {
+      console.error(`--check: ${rel(out.path)} does not exist`);
+      process.exit(1);
+    }
+    try {
+      validate(out, onDisk);
+    } catch (err) {
+      console.error(`--check: ${rel(out.path)}: ${err.message}`);
+      process.exit(1);
+    }
+    console.log(`OK  ${rel(out.path)}  (${out.kind}, ${onDisk.length} bytes)`);
   }
-  checkIco(onDisk);
-  if (!onDisk.equals(fresh)) {
-    console.error('--check: app.ico on disk differs from a fresh render');
-    process.exit(1);
-  }
-  console.log(`OK: ${OUT} parses (${SIZES.join('/')} px, 32bpp BMP entries) and is byte-identical to a fresh render (${onDisk.length} bytes).`);
+  console.log(`All ${outputs.length} icon outputs match a fresh render.`);
 } else {
-  writeFileSync(OUT, fresh);
-  const readBack = readFileSync(OUT);
-  checkIco(readBack);
-  if (!readBack.equals(fresh)) {
-    console.error('write/read-back mismatch');
-    process.exit(1);
+  mkdirSync(WEB_PUBLIC, { recursive: true });
+  for (const out of outputs) {
+    writeFileSync(out.path, out.bytes);
+    const readBack = readFileSync(out.path);
+    validate(out, readBack);
+    if (!readBack.equals(out.bytes)) {
+      console.error(`write/read-back mismatch: ${rel(out.path)}`);
+      process.exit(1);
+    }
+    console.log(`wrote ${rel(out.path)}  (${out.kind}, ${readBack.length} bytes)`);
   }
-  console.log(`Wrote ${OUT}: ${readBack.length} bytes, ${SIZES.length} entries (${SIZES.join('/')} px, 32bpp BMP), checker passed.`);
+  console.log(`Wrote ${outputs.length} icon outputs; all self-verified.`);
 }

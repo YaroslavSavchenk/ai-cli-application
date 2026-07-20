@@ -1,0 +1,9 @@
+{
+  "name": "AI Session Manager",
+  "background_color": "#12161d",
+  "theme_color": "#1b222c",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}
