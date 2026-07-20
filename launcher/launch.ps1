@@ -99,6 +99,21 @@ function Fail([string]$Message) {
     exit 1
 }
 
+function Show-WarningBox([string]$Message) {
+    # Non-fatal counterpart of Show-ErrorBox for the silent path: the launch
+    # continues, so the popup auto-dismisses after 15 s instead of waiting
+    # forever. Same test hook as Show-ErrorBox.
+    if ($env:AI_SM_MSGBOX_TEST -eq '1') {
+        Write-Host "MSGBOX-SUPPRESSED-WARN: $Message"
+        return
+    }
+    try {
+        $sh = New-Object -ComObject WScript.Shell
+        # 15 = auto-dismiss seconds, 48 = vbExclamation, 4096 = vbSystemModal.
+        [void]$sh.Popup($Message, 15, 'AI Session Manager', 48 + 4096)
+    } catch { }
+}
+
 # --- Config validation (allow-lists; also the injection-safety gate) -------
 
 if ($RepoPath -notmatch '^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') {
@@ -256,11 +271,20 @@ function Open-UI([string]$Url) {
     }
     try {
         # Last Edge attempt via the App Paths registration, if any.
-        Start-Process -FilePath 'msedge.exe' -ArgumentList "--app=$Url"
+        # -ErrorAction Stop: Start-Process failures are non-terminating on
+        # some PowerShell builds, which would silently skip this catch.
+        Start-Process -FilePath 'msedge.exe' -ArgumentList "--app=$Url" -ErrorAction Stop
         return
     } catch {
         Write-Host 'Edge not found - opening in the default browser instead.'
         Start-Process $Url
+        if ($Silent) {
+            # Browser first, then the (auto-dismissing) explanation - the
+            # popup must never delay the actual launch.
+            Show-WarningBox ('Microsoft Edge was not found, so the app opened as a ' +
+                'regular tab in your default browser instead of its own window. ' +
+                'Everything works; install Edge to get the dedicated app window back.')
+        }
     }
 }
 

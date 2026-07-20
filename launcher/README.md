@@ -5,8 +5,10 @@ inside WSL2. It reads the backend's discovery file
 (`~/.ai-session-manager/runtime.json` inside the distro, via `wsl.exe cat`),
 health-checks the discovered port on `http://127.0.0.1:<port>/health`, and:
 
-- **healthy** → opens the UI (Edge `--app` chromeless window; default
-  browser as fallback);
+- **healthy** → opens the UI (Edge `--app` chromeless window; if Edge is
+  missing at both known install layouts and a last attempt via its
+  `msedge.exe` App-Paths registration also fails, falls back to the default
+  browser — with an auto-dismissing warning popup on the silent path);
 - **absent or stale** (dead pid / failed health) → starts the backend
   **detached** (`setsid`, via `start-backend.sh`), waits for
   runtime.json + health, then opens the UI.
@@ -47,9 +49,12 @@ From Windows (Run dialog, Explorer address bar, or any terminal):
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/make-shortcut.ps1`)
 
 This creates **"AI Session Manager"** on the Desktop and in the Start Menu
-(user scope, no admin), pointing at `wscript.exe launch-silent.vbs` with
-`app.ico`. Re-running it just overwrites the shortcuts — safe any time the
-repo moves.
+(user scope, no admin), pointing at `wscript.exe launch-silent.vbs`. The
+icon is copied to `%LOCALAPPDATA%\ai-session-manager\app.ico` so it renders
+even while WSL is down (the `\\wsl.localhost` share is unreachable until
+the VM boots). Re-running the script just overwrites the shortcuts and
+refreshes the icon copy — safe any time the repo moves or the icon
+changes.
 
 Config lives at the top of `launch.ps1` (make-shortcut.ps1 shares the same
 defaults):
@@ -132,6 +137,10 @@ language (warm-graphite square, 1px border, green `>_`).
     node launcher/make-icon.mjs           # regenerate + self-verify
     node launcher/make-icon.mjs --check   # verify committed bytes match a fresh render
 
+After regenerating, re-run `make-shortcut.ps1` so the Windows-local copy at
+`%LOCALAPPDATA%\ai-session-manager\app.ico` (what the shortcuts actually
+display) picks up the new bytes.
+
 ## Troubleshooting
 
 - **Error box appeared** (silent launch failed) → run `launch.cmd` for the
@@ -144,9 +153,10 @@ language (warm-graphite square, 1px border, green `>_`).
   `\\wsl.localhost\Ubuntu-24.04\...\launcher` is reachable in Explorer
   (WSL may need `wsl.exe --update` if the share is broken), then re-run
   `make-shortcut.ps1`.
-- Blank/generic icon on the shortcut right after a reboot → Explorer could
-  not read `app.ico` over `\\wsl.localhost` before WSL was up; it fixes
-  itself once WSL has booted (first launch). The icon cache usually keeps
-  it correct after that.
+- Blank/generic icon on the shortcut → the local icon copy at
+  `%LOCALAPPDATA%\ai-session-manager\app.ico` is missing (the shortcut
+  normally reads the local copy; it falls back to the WSL share only if
+  that copy failed — see the warning printed by `make-shortcut.ps1`).
+  Re-run `make-shortcut.ps1` to restore it.
 - The launcher requires Node ≥ 24 inside WSL (nvm installs are detected
   explicitly by `start-backend.sh`).

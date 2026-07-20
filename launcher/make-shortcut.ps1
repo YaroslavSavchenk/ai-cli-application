@@ -8,7 +8,11 @@ Creates/overwrites (idempotent, re-run any time, no admin needed):
 
 Each shortcut targets:  wscript.exe "<launcher>\launch-silent.vbs"
 so a double-click launches with no console window at all (see
-launch-silent.vbs / launch.ps1 -Silent). Icon: launcher\app.ico.
+launch-silent.vbs / launch.ps1 -Silent). Icon: launcher\app.ico, copied to
+%LOCALAPPDATA%\ai-session-manager\app.ico so Explorer can render it even
+while WSL is down (\\wsl.localhost is unreachable until the VM boots, which
+otherwise leaves the shortcut icon blank after every Windows reboot).
+Re-run this script to refresh the copy after regenerating the icon.
 
 The launcher directory is resolved to its \\wsl.localhost UNC form
 automatically:
@@ -65,6 +69,26 @@ foreach ($required in @($vbsPath, $icoPath)) {
 $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
 if (-not (Test-Path -LiteralPath $wscript)) { Fail "wscript.exe not found at $wscript" }
 
+# --- Copy the icon to a Windows-local path ---------------------------------
+# The shortcut itself must keep pointing at the WSL share (that is where the
+# launcher lives), but the ICON can and should be local: Explorer draws it
+# long before WSL is running.
+
+$iconDir   = Join-Path $env:LocalAppData 'ai-session-manager'
+$iconLocal = Join-Path $iconDir 'app.ico'
+try {
+    if (-not (Test-Path -LiteralPath $iconDir)) {
+        [void](New-Item -ItemType Directory -Path $iconDir -Force)
+    }
+    Copy-Item -LiteralPath $icoPath -Destination $iconLocal -Force
+    Write-Host "Icon copied to $iconLocal (renders even while WSL is down)."
+} catch {
+    Write-Host ("Warning: could not copy app.ico to '$iconLocal' " +
+        "($($_.Exception.Message)) - using the WSL share path instead " +
+        '(the icon may render blank until WSL has booted).')
+    $iconLocal = $icoPath
+}
+
 # --- Create/overwrite the shortcuts ----------------------------------------
 
 # 'Programs' = the per-user Start Menu\Programs folder: no admin, and Start
@@ -85,7 +109,7 @@ foreach ($dir in $destinations) {
     $lnk.TargetPath       = $wscript
     $lnk.Arguments        = '"' + $vbsPath + '"'
     $lnk.WorkingDirectory = $launcherUnc
-    $lnk.IconLocation     = "$icoPath,0"
+    $lnk.IconLocation     = "$iconLocal,0"
     $lnk.Description      = 'AI CLI Session Manager - launch (silent)'
     $lnk.Save()
     Write-Host "Shortcut written: $lnkPath"
