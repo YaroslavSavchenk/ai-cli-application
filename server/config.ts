@@ -50,6 +50,25 @@ export function resolveDataPaths(): DataPaths {
   };
 }
 
+/**
+ * Resolve Claude Code's home directory — ~/.claude by default, overridable
+ * via AI_SM_CLAUDE_DIR (must be absolute) so tests point it at a fixture.
+ *
+ * This directory is FOREIGN, READ-ONLY territory. The server only ever reads
+ * usage aggregates from <claudeDir>/projects/**\/*.jsonl and must never
+ * write, modify, or delete anything under it.
+ */
+export function resolveClaudeDir(): string {
+  const override = process.env['AI_SM_CLAUDE_DIR'];
+  if (override !== undefined && override !== '') {
+    if (!isAbsolute(override)) {
+      throw new Error(`AI_SM_CLAUDE_DIR must be an absolute path, got: ${override}`);
+    }
+    return override;
+  }
+  return join(homedir(), '.claude');
+}
+
 export type Logger = (level: 'info' | 'warn' | 'error', message: string) => void;
 
 /** Cap on server.log before rotation to server.log.1 (total on disk <= 2x this). */

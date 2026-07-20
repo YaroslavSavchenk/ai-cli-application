@@ -146,13 +146,35 @@ export interface UiTheme {
 }
 
 /**
- * Open preferences bag stored in prefs.json. `theme` is typed because the
- * client uses it today; any other key is opaque to the server and preserved
- * verbatim on PUT — merge-on-write (read the bag, replace only `theme`,
- * PUT the whole thing back) happens client-side, see web/src/ui/theme.ts.
+ * Launch defaults the settings panel persists (every member optional). The
+ * launch dialog pre-selects from these; a per-launch override ALWAYS wins.
+ * Like the rest of the prefs bag these are opaque to the server — it stores
+ * them verbatim and never reads or validates them beyond the object/size
+ * gate on PUT /api/prefs. Mirrors the panel's persisted shape.
+ */
+export interface UiLaunchDefaults {
+  /** Pre-selected model for the launch dialog (e.g. a Claude model id). */
+  model?: string;
+  /** Pre-selected permission mode for the launch dialog. */
+  permissionMode?: PermissionMode;
+  /**
+   * A line auto-typed into every new session once it is ready — e.g. a skill
+   * or slash command. Empty/absent means no auto-run.
+   */
+  startupCommand?: string;
+}
+
+/**
+ * Open preferences bag stored in prefs.json. `theme` and `defaults` are typed
+ * because the client uses them; any other key is opaque to the server and
+ * preserved verbatim on PUT — merge-on-write (read the bag, replace only the
+ * touched key, PUT the whole thing back) happens client-side, see
+ * web/src/ui/theme.ts. The server never interprets `defaults`; it is part of
+ * the opaque bag and only typed here so the UI and this contract agree.
  */
 export interface UiPrefs {
   theme?: UiTheme;
+  defaults?: UiLaunchDefaults;
   [key: string]: unknown;
 }
 
@@ -195,6 +217,81 @@ export interface HealthResponse {
 export interface RuntimeStatusResponse {
   /** ISO-8601 timestamp. */
   startedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Usage aggregates (GET /api/usage) — read-only Claude Code usage
+// ---------------------------------------------------------------------------
+//
+// GET /api/usage -> UsageResponse. Authed like every /api route; GET only
+// (405 otherwise). Read-only, informational: the backend streams Claude
+// Code's OWN local session logs (<claudeDir>/projects/**/*.jsonl, where
+// claudeDir is ~/.claude, override AI_SM_CLAUDE_DIR) and aggregates the
+// per-message `usage` blocks. NEVER returns message content — token counts
+// only. Absent/empty logs dir -> a valid zero response, never an error.
+//
+// Aggregation rules mirrored from the ccusage ecosystem:
+//   - Only assistant records carrying a `usage` block are counted.
+//   - Deduped by (message.id, requestId): the same message is copied across
+//     JSONL files on session resume/fork; each unique pair counts once.
+//   - Records whose model is '<synthetic>' (all-zero placeholder turns) are
+//     dropped.
+//   - Bucketed by LOCAL calendar day; the window is `today` plus the
+//     preceding `windowDays - 1` days.
+//   - Malformed JSONL lines are skipped and counted, never fatal.
+
+/** Token counts, split by type; `total` is the sum of the other four. */
+export interface UsageTokens {
+  input: number;
+  output: number;
+  cacheCreation: number;
+  cacheRead: number;
+  total: number;
+}
+
+/** Aggregate for one local calendar day. */
+export interface UsageDay {
+  /** Local calendar day, YYYY-MM-DD. */
+  date: string;
+  tokens: UsageTokens;
+  /** Deduped assistant/usage records on this day. */
+  entryCount: number;
+  /** Distinct Claude Code sessionIds seen on this day. */
+  sessionCount: number;
+  /** Distinct model ids seen on this day, sorted ascending. */
+  models: string[];
+}
+
+/** Per-model totals across the whole window. */
+export interface UsageModelTotal {
+  model: string;
+  tokens: UsageTokens;
+  entryCount: number;
+}
+
+/**
+ * GET /api/usage response. All figures are scoped to the window (`today`
+ * plus the preceding `windowDays - 1` local days). `days` holds only days
+ * that have data, ascending by date. Approximate/informational — the app
+ * cannot see or change account-side limits.
+ */
+export interface UsageResponse {
+  /** ISO-8601 timestamp when these aggregates were computed. */
+  updatedAt: string;
+  /** Number of local calendar days the window spans (incl. today). */
+  windowDays: number;
+  /** Days with data, ascending by `date`. */
+  days: UsageDay[];
+  /** Token totals across the window. */
+  totals: UsageTokens;
+  /** Per-model totals across the window, descending by total tokens. */
+  models: UsageModelTotal[];
+  /** Deduped entries across the window. */
+  entryCount: number;
+  /** Distinct sessionIds across the window. */
+  sessionCount: number;
+  /** JSONL lines skipped because they were not valid JSON. */
+  malformedLines: number;
 }
 
 /**

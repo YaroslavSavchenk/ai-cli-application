@@ -24,6 +24,7 @@ import { ProjectStore, isExistingDirectory } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
+import { UsageReader } from './usage.ts';
 import { listDirs, FsBrowseError } from './fsbrowse.ts';
 import type { Logger } from './config.ts';
 
@@ -59,6 +60,7 @@ export interface ApiDeps {
   prefs: PrefsStore;
   sessions: SessionManager;
   journal: SessionJournal;
+  usage: UsageReader;
   webDistDir: string;
   log: Logger;
 }
@@ -97,7 +99,7 @@ function isValidDim(v: unknown): v is number {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, journal, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, journal, usage, webDistDir, log } = deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -174,6 +176,16 @@ export function createRequestHandler(
         }
         prefs.replace(body as UiPrefs);
         sendJson(res, 200, { ok: true });
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Usage (read-only Claude Code usage aggregates) --------------------
+    if (pathname === '/api/usage') {
+      if (method === 'GET') {
+        sendJson(res, 200, await usage.read());
         return;
       }
       sendError(res, 405, 'method not allowed');

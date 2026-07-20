@@ -25,12 +25,13 @@ import { unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeInfo } from '../shared/protocol.ts';
-import { resolveDataPaths, createLogger, atomicWriteFile } from './config.ts';
+import { resolveDataPaths, resolveClaudeDir, createLogger, atomicWriteFile } from './config.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
+import { UsageReader } from './usage.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
@@ -45,6 +46,7 @@ const prefs = new PrefsStore(paths.prefsFile, log);
 const journal = new SessionJournal(paths.journalFile, paths.previousFile, log);
 journal.rotate(); // A previous run's journal becomes previous.json ('crash'-stamped).
 const sessions = new SessionManager(log, journal);
+const usage = new UsageReader(resolveClaudeDir(), log);
 const lifecycle = new LifecycleController({
   onIdleShutdown: () => shutdown('idle grace expiry'),
   log,
@@ -65,6 +67,7 @@ const server = createServer(
     prefs,
     sessions,
     journal,
+    usage,
     webDistDir,
     log,
   }),
