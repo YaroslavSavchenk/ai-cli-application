@@ -39,7 +39,7 @@ What survives the flip (not looks, and therefore not overridden):
   from `SessionInfo.args`; attention counts, previous-run list, health are
   already exposed.
 
-## To build — R2: handoff reskin + shell restructure + theme system (terminal-ui)
+## LANDED 2026-07-20 — R2: handoff reskin + shell restructure + theme system (terminal-ui)
 
 Scope grew 2026-07-20: the reskin is no longer "map handoff onto steam
 tokens" but "retoken the app to the handoff".
@@ -80,21 +80,33 @@ tokens" but "retoken the app to the handoff".
   existing `--continue` relaunch + forget).
 - **Empty state**: centered logo tile + "No active sessions" + `+ New
   session` + `Relaunch previous run (N)` — WITHOUT the grace countdown line
-  (fiction cut). Replaces launcher-tab-as-empty-state once R3 lands the
-  dialog; until then the buttons open the existing launcher tab.
+  (fiction cut). Replaced launcher-tab-as-empty-state once R3 landed the
+  dialog (below); the buttons now open the launch dialog.
 
-## To build — R3: modal launch dialog + honest boot steps (terminal-ui)
+## LANDED 2026-07-20 — R3: modal launch dialog + honest boot steps (terminal-ui)
 
 - **Launch dialog** (modal — settled user decision 2026-07-20, replaces
   launcher-as-tab): 560px card per handoff §8 — preset chips (`deep work ·
   opus · acceptEdits · continue`, `quick fix · sonnet · default`, `yolo ·
   opus · bypass` red-tinted); 2×2 fields (name, project, model select
-  opus/sonnet/haiku/fable, resume select `start fresh` / `--continue` —
-  NO per-id resume options, fiction cut); 4-mode permission cards with
-  plain-language descriptions (`bypassPermissions` red); live command
-  preview + `cwd:` line. Client composes argv exactly as today (server
-  spawns argv, never shell). Entry points: topbar `+ New session`, tabstrip
-  ghost `+`, projects-drawer `+` (pre-set project), empty state.
+  opus/sonnet/haiku/fable, resume select `start fresh` / `--continue`);
+  4-mode permission cards with plain-language descriptions
+  (`bypassPermissions` red); live command preview + `cwd:` line. Client
+  composes argv exactly as today (server spawns argv, never shell). Entry
+  points: topbar `+ New session`, tabstrip ghost `+`, projects-drawer `+`
+  (pre-set project), empty state, Ctrl+Alt+T.
+- **The per-id-resume fiction cut held**: resume is exactly `start fresh` /
+  `--continue` — NO per-id `--resume <id>` option (the journal stores our
+  session ids, not Claude conversation ids; see "Cut as fiction" below).
+- **Custom-command chip extension** (user decision 2026-07-20, added mid-R3,
+  not in the original handoff mock): a fourth chip, `custom · any command`,
+  is a MODE toggle rather than a one-shot preset — it restores the retired
+  launcher tab's configurable command + args as a full-width mono Command
+  field (whitespace-split argv, no shell), disabling the claude-specific
+  fields while active. `currentSpawn()` in `web/src/ui/launch.ts` (over the
+  pure composers in `web/src/ui/launch-args.ts`) is the one composition path
+  for both modes, so the preview can never diverge from the POST body.
+  Recorded in `web/DESIGN.md` ("Custom escape hatch").
 - **Boot sequence panel**: real in-app steps only (token check → hydrate
   sessions → attach WS), styled per the handoff boot card's visual language.
   No fake timers, no launcher-lifecycle steps (fiction cut).

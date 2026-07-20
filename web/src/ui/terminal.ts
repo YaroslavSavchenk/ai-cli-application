@@ -121,7 +121,6 @@ export class TerminalView {
         const k = e.key;
         if (
           k.startsWith('Arrow') ||
-          k === 'Enter' ||
           k === 't' ||
           k === 'T' ||
           k === '/' ||

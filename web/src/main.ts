@@ -22,69 +22,197 @@ import './styles/app.css';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initPanes, focusedConn, openLauncher } from './ui/panes.ts';
+import { initPanes, focusedConn } from './ui/panes.ts';
 import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initTheme } from './ui/theme.ts';
+import {
+  initLaunchDialog,
+  openLaunchDialog,
+  closeLaunchDialog,
+  isLaunchDialogOpen,
+} from './ui/launch.ts';
 import { startPresence } from './ws.ts';
 import { el, button } from './ui/util.ts';
 
 const POLL_MS = 3000;
+/** Boot faster than this and the boot panel never mounts — no chrome flash. */
+const BOOT_PANEL_DELAY_MS = 150;
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (app === null) throw new Error('#app missing');
 
 void boot(app);
 
+// ---------------------------------------------------------------------------
+// Boot panel (handoff §10 visual language, honest steps only)
+// ---------------------------------------------------------------------------
+
+interface BootStep {
+  ok(): void;
+  fail(msg: string): void;
+}
+
+interface BootPanel {
+  step(label: string): BootStep;
+  /** Keep the overlay up with a reload action — boot cannot continue. */
+  fatal(msg: string): void;
+}
+
+/**
+ * Each row resolves when its REAL async work settles — no timers, no staged
+ * theater, no launcher-lifecycle fiction (the app can never witness those
+ * steps). The overlay mounts only if boot is still pending after ~150ms, so
+ * a warm localhost boot shows nothing; it removes itself the moment every
+ * step has settled. Failures render a red × plus the message; fatal
+ * failures (hydrate/auth) pin the overlay with a reload action, because a
+ * rotated token means this page can never talk to the server again.
+ */
+function createBootPanel(): BootPanel {
+  const overlay = el('div', 'boot-overlay');
+  const panel = el('div', 'boot-panel');
+  const brand = el('div', 'boot-brand');
+  const tile = el('div', 'logo-tile');
+  tile.setAttribute('aria-hidden', 'true');
+  tile.append(el('span', 'logo-glyph', '>_'));
+  brand.append(tile, el('div', 'boot-brand-name', 'AI SESSION MANAGER'));
+  const card = el('div', 'boot-card');
+  panel.append(brand, card);
+  overlay.append(panel);
+
+  let pending = 0;
+  let fatalized = false;
+  let mounted = false;
+  let done = false;
+  const timer = window.setTimeout(mount, BOOT_PANEL_DELAY_MS);
+
+  function mount(): void {
+    if (!mounted && !done) {
+      mounted = true;
+      document.body.append(overlay);
+    }
+  }
+
+  function maybeFinish(): void {
+    if (pending === 0 && !fatalized && !done) {
+      done = true;
+      clearTimeout(timer);
+      overlay.remove();
+    }
+  }
+
+  return {
+    step(label: string): BootStep {
+      pending++;
+      const row = el('div', 'boot-step');
+      const mark = el('span', 'boot-mark is-spin');
+      mark.setAttribute('aria-hidden', 'true');
+      const msg = el('span', 'boot-msg');
+      msg.hidden = true;
+      row.append(mark, el('span', 'boot-lb', label), msg);
+      card.append(row);
+      let settled = false;
+      const settle = (): boolean => {
+        if (settled) return false;
+        settled = true;
+        pending--;
+        return true;
+      };
+      return {
+        ok() {
+          if (!settle()) return;
+          mark.className = 'boot-mark is-ok';
+          mark.textContent = '✓';
+          row.classList.add('is-done');
+          maybeFinish();
+        },
+        fail(m: string) {
+          if (!settle()) return;
+          mark.className = 'boot-mark is-err';
+          mark.textContent = '×';
+          msg.textContent = m;
+          msg.hidden = false;
+          maybeFinish();
+        },
+      };
+    },
+    fatal(m: string): void {
+      // Callers fatal() BEFORE failing the gating step, so the overlay can
+      // not have self-dismissed yet (that step is still pending).
+      fatalized = true;
+      mount();
+      const zone = el('div', 'boot-fatal');
+      zone.append(
+        el('div', 'boot-fatal-msg', m),
+        button('btn is-primary', 'reload', () => location.reload()),
+      );
+      panel.append(zone);
+    },
+  };
+}
+
 async function boot(root: HTMLDivElement): Promise<void> {
+  const panel = createBootPanel();
+  // Steps registered up front; each resolves on its own real event. They run
+  // concurrently — serializing them would stretch real time for chrome.
+  const stepToken = panel.step('token check');
+  const stepHydrate = panel.step('hydrate sessions');
+  const stepWs = panel.step('attach ws');
+
   // Presence FIRST: the backend's lifetime is bound to open windows, so the
   // socket must be up even when the REST boot below fails (an open window
   // must hold the backend); presence failures never block the UI. The same
   // channel measures ws latency for the statusline; a pong doubles as a
-  // liveness signal.
+  // liveness signal. The FIRST latency event settles the ws boot step: a
+  // pong = attached, a close before any pong = failed (it keeps reconnecting
+  // in the background either way).
+  let wsFirst = true;
   startPresence((ms) => {
+    if (wsFirst) {
+      wsFirst = false;
+      if (ms !== null) stepWs.ok();
+      else stepWs.fail('presence socket closed — reconnecting in background');
+    }
     st.setWsLatency(ms);
     if (ms !== null) st.setBackendReachable(true);
   });
+
+  // Token check doubles as the uptime fetch — GET /api/runtime is authed, so
+  // its success proves the served token is current. Failure here alone is
+  // non-fatal (uptime shows "—"); the hydrate step is the boot gate, and a
+  // rotated token fails both.
+  void api.getRuntime().then(
+    (r) => {
+      st.setServerStartedAt(r.startedAt);
+      stepToken.ok();
+    },
+    (err: unknown) => stepToken.fail(err instanceof Error ? err.message : String(err)),
+  );
+
   // Server state first: loadUi() prunes view assignments against it.
   let projects;
   let sessions;
   try {
     [projects, sessions] = await Promise.all([api.getProjects(), api.getSessions()]);
   } catch (err) {
-    renderBootError(root, err);
+    panel.fatal(
+      'backend unreachable — the server may have restarted (tokens rotate per run); relaunch from the launcher, then reload.',
+    );
+    stepHydrate.fail(err instanceof Error ? err.message : String(err));
     return;
   }
+  stepHydrate.ok();
   st.initServer(projects, sessions);
   st.loadUi();
   buildShell(root);
-  // Fire-and-forget extras — never boot blockers: previous-run relaunch
-  // offers (crash/shutdown recovery) and the backend boot time (uptime).
+  // Fire-and-forget extra — never a boot blocker: previous-run relaunch
+  // offers (crash/shutdown recovery).
   void api
     .getPrevious()
     .then((list) => st.setPrevious(list))
     .catch(() => {});
-  void api
-    .getRuntime()
-    .then((r) => st.setServerStartedAt(r.startedAt))
-    .catch(() => {});
-}
-
-function renderBootError(root: HTMLDivElement, err: unknown): void {
-  const box = el('div', 'boot-err');
-  box.append(el('div', 'boot-err-hd', 'backend unreachable'));
-  box.append(el('div', 'boot-err-msg', err instanceof Error ? err.message : String(err)));
-  box.append(
-    el(
-      'div',
-      'boot-err-msg',
-      'the server may have restarted (tokens rotate per run) — relaunch from the launcher, then reload.',
-    ),
-  );
-  box.append(button('btn is-primary', 'reload', () => location.reload()));
-  root.replaceChildren(box);
 }
 
 function buildShell(root: HTMLDivElement): void {
@@ -124,9 +252,8 @@ function buildShell(root: HTMLDivElement): void {
   const connTxt = el('span', '', 'connected');
   conn.append(connDot, connTxt);
 
-  // Opens the launcher tab until R3 lands the launch dialog.
-  const newBtn = button('btn-go', '+ New session', () => st.addLauncherTab());
-  newBtn.title = 'new-session tab (ctrl+alt+t)';
+  const newBtn = button('btn-go', '+ New session', () => openLaunchDialog());
+  newBtn.title = 'launch a session (ctrl+alt+t)';
 
   topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, projectsBtn, sessionsBtn, divider, conn, newBtn);
 
@@ -152,6 +279,7 @@ function buildShell(root: HTMLDivElement): void {
   // terminal is constructed, so terminals are born themed.
   const themePop = initTheme(modalHost, themeBtn);
   themeBtn.addEventListener('click', () => themePop.toggle());
+  initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   const tabs = initTabs(strip);
   const shortcuts = initShortcuts(modalHost);
   const status = initStatusline(statusline, {
@@ -160,7 +288,9 @@ function buildShell(root: HTMLDivElement): void {
   });
   const sessionsDrawer = initSessionsDrawer(sessAside);
   const projectsDrawer = initProjectsDrawer(projAside, modalHost);
-  initPanes(grid); // Last: its first render needs the grid mounted and sized.
+  // Last: its first render needs the grid mounted and sized. The dialog
+  // opener is injected to avoid a panes ↔ launch import cycle.
+  initPanes(grid, () => openLaunchDialog());
 
   function updateChrome(): void {
     const n = st.attentionCount();
@@ -213,10 +343,7 @@ function buildShell(root: HTMLDivElement): void {
         st.moveActiveViewBy(k === 'PageUp' ? -1 : 1);
       } else if (k === 't' || k === 'T') {
         e.preventDefault();
-        st.addLauncherTab();
-      } else if (k === 'Enter') {
-        e.preventDefault();
-        openLauncher(); // Focuses the form when the active view is a launcher.
+        openLaunchDialog();
       } else if (k === '/') {
         e.preventDefault();
         shortcuts.toggle();
@@ -229,9 +356,9 @@ function buildShell(root: HTMLDivElement): void {
       return;
     }
     if (e.key === 'Escape' && !fromTerminal(e.target)) {
-      // Priority: overlay, then popover, then dialog, then drawer (only when
-      // the drawer actually holds focus — Esc elsewhere belongs to whatever
-      // has it).
+      // Priority: overlay, then popover, then dialogs, then drawer (only
+      // when the drawer actually holds focus — Esc elsewhere belongs to
+      // whatever has it).
       if (shortcuts.isOpen()) {
         e.preventDefault();
         shortcuts.close();
@@ -241,6 +368,9 @@ function buildShell(root: HTMLDivElement): void {
       } else if (projectsDrawer.modalOpen()) {
         e.preventDefault();
         projectsDrawer.closeModal();
+      } else if (isLaunchDialogOpen()) {
+        e.preventDefault();
+        closeLaunchDialog();
       } else if (st.state.drawer !== null && focusInOrFree(projAside, sessAside)) {
         e.preventDefault();
         st.closeDrawer();

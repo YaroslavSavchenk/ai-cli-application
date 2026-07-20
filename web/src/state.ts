@@ -8,9 +8,10 @@
  *
  * Interaction model (decided 2026-07-19): EVERY SESSION LIVES IN EXACTLY ONE
  * VIEW, and every view is a tab. A view holds 1..4 sessions in a split; a
- * fresh session is a single-pane view. A 'launcher' view holds none — it is
- * the new-session tab (and the empty state). Views dissolve when their last
- * session leaves; sessions unknown to any view get a tab created for them.
+ * fresh session is a single-pane view. Views dissolve when their last
+ * session leaves (zero views = the empty state); sessions unknown to any
+ * view get a tab created for them. New sessions come from the launch dialog
+ * (R3) — there is no launcher view kind anymore.
  *
  * Change notification is a flat pub/sub of coarse ChangeKinds; views decide
  * what to re-render.
@@ -19,7 +20,7 @@ import type { PreviousSession, Project, SessionInfo } from '../../shared/protoco
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
-/** Drop-zone position inside a pane; 'fill' = whole pane (launcher / multi-session merge). */
+/** Drop-zone position inside a pane; 'fill' = whole pane (multi-session merge). */
 export type Zone = 'left' | 'right' | 'top' | 'bottom' | 'fill';
 /** Which column holds the tall pane in a 3-split. */
 export type L3 = 'L' | 'R';
@@ -41,10 +42,9 @@ const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
  */
 export interface ViewState {
   id: string;
-  kind: 'sessions' | 'launcher';
-  /** Session ids by slot. Empty iff kind === 'launcher'. */
+  /** Session ids by slot — always 1..4 entries (empty views dissolve). */
   sessions: string[];
-  /** Focused slot index (< max(1, sessions.length)). */
+  /** Focused slot index (< sessions.length). */
   focused: number;
   /** Tall-pane side for count 3; kept (harmless) at other counts. */
   l3: L3;
@@ -109,21 +109,9 @@ function clampSplit(v: unknown): number {
     : 0.5;
 }
 
-function newLauncherView(): ViewState {
-  return {
-    id: crypto.randomUUID(),
-    kind: 'launcher',
-    sessions: [],
-    focused: 0,
-    l3: 'L',
-    split: { col: 0.5, row: 0.5 },
-  };
-}
-
 function newSessionView(sessionId: string): ViewState {
   return {
     id: crypto.randomUUID(),
-    kind: 'sessions',
     sessions: [sessionId],
     focused: 0,
     l3: 'L',
@@ -144,7 +132,10 @@ export function saveUi(): void {
 
 /**
  * Validate one stored v2 view. `seen` enforces the global invariant that a
- * session id appears in at most one view (first occurrence wins).
+ * session id appears in at most one view (first occurrence wins). Views
+ * without sessions are dropped — this is also the migration for pre-R3 v2
+ * blobs, whose launcher views (kind: 'launcher', zero sessions) simply
+ * vanish; the schema key stays v2.
  */
 function validateView(raw: unknown, seen: Set<string>): ViewState | null {
   if (raw === null || typeof raw !== 'object') return null;
@@ -158,15 +149,13 @@ function validateView(raw: unknown, seen: Set<string>): ViewState | null {
       }
     }
   }
-  const kind: ViewState['kind'] = sessions.length > 0 ? 'sessions' : 'launcher';
-  if (kind === 'launcher' && o.kind !== 'launcher') return null; // sessions view without sessions = malformed
+  if (sessions.length === 0) return null; // empty (incl. old launcher views): drop
   const focusedRaw = typeof o.focused === 'number' ? Math.trunc(o.focused) : 0;
-  const focused = Math.min(Math.max(0, focusedRaw), Math.max(0, sessions.length - 1));
+  const focused = Math.min(Math.max(0, focusedRaw), sessions.length - 1);
   const id = typeof o.id === 'string' && o.id !== '' ? o.id : crypto.randomUUID();
   const splitRaw = (o.split ?? null) as Record<string, unknown> | null;
   return {
     id,
-    kind,
     sessions,
     focused,
     l3: o.l3 === 'R' ? 'R' : 'L',
@@ -177,7 +166,8 @@ function validateView(raw: unknown, seen: Set<string>): ViewState | null {
 /**
  * v1 -> v2 migration: each v1 tab (fixed layout, 4 pane slots) becomes a
  * view whose sessions are the tab's visible occupied slots in order; empty
- * tabs become launcher views. Ids are kept so `active` maps across.
+ * v1 tabs are dropped (there is no launcher view kind anymore). Ids are
+ * kept so `active` maps across.
  */
 function migrateV1(parsed: unknown, seen: Set<string>): { views: ViewState[]; active: unknown } {
   const views: ViewState[] = [];
@@ -204,10 +194,10 @@ function migrateV1(parsed: unknown, seen: Set<string>): { views: ViewState[]; ac
             }
           }
         }
+        if (sessions.length === 0) continue;
         const splitRaw = (tab.split ?? null) as Record<string, unknown> | null;
         views.push({
           id: typeof tab.id === 'string' && tab.id !== '' ? tab.id : crypto.randomUUID(),
-          kind: sessions.length > 0 ? 'sessions' : 'launcher',
           sessions,
           focused: Math.max(0, focusedSession !== null ? sessions.indexOf(focusedSession) : 0),
           l3: 'L',
@@ -270,8 +260,8 @@ export function loadUi(): void {
       ? active
       : (views[0]?.id ?? '');
   reconcileViews();
-  // Zero views is a legal state (the handoff's empty state): the launcher
-  // tab opens on demand instead of being ever-present.
+  // Zero views is a legal state (the handoff's empty state): the launch
+  // dialog opens on demand instead of a launcher tab being ever-present.
   normalizeActive();
   saveUi();
 }
@@ -298,12 +288,6 @@ function normalizeActive(): void {
 function insertSessions(v: ViewState, slot: number, zone: Zone, ids: string[]): void {
   const first = ids[0];
   if (first === undefined) return;
-  if (v.kind === 'launcher' || v.sessions.length === 0) {
-    v.kind = 'sessions';
-    v.sessions = [...ids];
-    v.focused = 0;
-    return;
-  }
   const s = v.sessions;
   const n = s.length;
   if (ids.length > 1 || zone === 'fill' || n + ids.length > MAX_PANES) {
@@ -365,9 +349,12 @@ function removeAtSlot(v: ViewState, slot: number): void {
 
 /** Drop-zone kinds available on a slot of a view for a drag of `count` sessions. */
 export function dropZonesFor(v: ViewState, slot: number, count: number): Zone[] {
-  const n = v.kind === 'launcher' ? 0 : v.sessions.length;
+  const n = v.sessions.length;
+  // Views always hold ≥1 session (validateView/reconcileViews dissolve
+  // empties) — defensive guard only: no sessions, nothing to anchor zones to.
+  if (n === 0) return [];
   if (n + count > MAX_PANES) return [];
-  if (n === 0 || count > 1) return ['fill'];
+  if (count > 1) return ['fill'];
   if (n === 1) return ['left', 'right'];
   if (n === 2) return ['top', 'bottom'];
   // n === 3: only the tall pane has room left in the 2x2.
@@ -399,7 +386,7 @@ function detachFromViews(sessionId: string): void {
   const v = viewOfSession(sessionId);
   if (v === undefined) return;
   removeAtSlot(v, v.sessions.indexOf(sessionId));
-  if (v.kind === 'sessions' && v.sessions.length === 0) dissolveView(v.id);
+  if (v.sessions.length === 0) dissolveView(v.id);
 }
 
 /**
@@ -420,7 +407,7 @@ export function reconcileViews(skipViewId?: string): boolean {
         changed = true;
       }
     }
-    if (v.kind === 'sessions' && v.sessions.length === 0) {
+    if (v.sessions.length === 0) {
       dissolveView(v.id);
       changed = true;
     }
@@ -546,18 +533,9 @@ export function activeView(): ViewState | null {
   return v ?? state.views[0] ?? null;
 }
 
-/** Visible pane count of a view (a launcher view renders one pane). */
+/** Visible pane count of a view (1..4). */
 export function viewLayout(v: ViewState): Layout {
   return Math.min(MAX_PANES, Math.max(1, v.sessions.length)) as Layout;
-}
-
-/** '+' / Ctrl+Alt+T: open a new-session (launcher) tab and activate it. */
-export function addLauncherTab(): void {
-  const v = newLauncherView();
-  state.views.push(v);
-  state.activeViewId = v.id;
-  saveUi();
-  notify('ui');
 }
 
 /** Structural tab close (no killing — callers kill sessions first if asked to). */
@@ -624,9 +602,7 @@ export function mergeViews(targetId: string, sourceId: string, slot: number, zon
   const target = state.views.find((v) => v.id === targetId);
   const source = state.views.find((v) => v.id === sourceId);
   if (target === undefined || source === undefined || targetId === sourceId) return 'no';
-  if (source.kind === 'launcher') return 'no';
-  const targetCount = target.kind === 'launcher' ? 0 : target.sessions.length;
-  if (targetCount + source.sessions.length > MAX_PANES) return 'full';
+  if (target.sessions.length + source.sessions.length > MAX_PANES) return 'full';
   const ids = [...source.sessions];
   source.sessions = [];
   dissolveView(source.id);
@@ -646,8 +622,7 @@ export function moveSessionToView(sessionId: string, targetId: string): MergeRes
   const source = viewOfSession(sessionId);
   if (target === undefined || !state.sessions.has(sessionId)) return 'no';
   if (source !== undefined && source.id === targetId) return 'no';
-  const targetCount = target.kind === 'launcher' ? 0 : target.sessions.length;
-  if (targetCount + 1 > MAX_PANES) return 'full';
+  if (target.sessions.length + 1 > MAX_PANES) return 'full';
   const sourceWasActive = source !== undefined && source.id === state.activeViewId;
   detachFromViews(sessionId);
   insertSessions(target, 0, 'fill', [sessionId]);
@@ -672,22 +647,6 @@ export function extractSession(sessionId: string, atIndex?: number): void {
   const nv = newSessionView(sessionId);
   const idx = atIndex ?? state.views.findIndex((x) => x.id === v.id) + 1;
   state.views.splice(Math.min(Math.max(0, idx), state.views.length), 0, nv);
-  saveUi();
-  notify('ui');
-}
-
-/**
- * A launcher view's form created a session: the view becomes that session's
- * single-pane view. If the view vanished mid-await, the session keeps the
- * tab upsertSession gave it.
- */
-export function launcherBecameSession(viewId: string, sessionId: string): void {
-  const v = state.views.find((x) => x.id === viewId);
-  if (v === undefined || v.kind !== 'launcher') return;
-  detachFromViews(sessionId); // upsertSession may have auto-tabbed it already
-  v.kind = 'sessions';
-  v.sessions = [sessionId];
-  v.focused = 0;
   saveUi();
   notify('ui');
 }
@@ -797,9 +756,8 @@ export function viewAttention(v: ViewState): boolean {
   return v.sessions.some((id) => state.sessions.get(id)?.attention === true);
 }
 
-/** Tab status accent: amber attention > green running > gray exited; 'new' = launcher. */
-export function viewStatus(v: ViewState): 'attn' | 'run' | 'exit' | 'new' {
-  if (v.kind === 'launcher') return 'new';
+/** Tab status accent: amber attention > green running > gray exited. */
+export function viewStatus(v: ViewState): 'attn' | 'run' | 'exit' {
   if (viewAttention(v)) return 'attn';
   const infos = v.sessions.map((id) => state.sessions.get(id));
   if (infos.some((s) => s?.status === 'running')) return 'run';

@@ -31,7 +31,8 @@ its specific choices are sanctioned and REQUIRED:
 - glow accents: active-tab bar `box-shadow:0 0 14px 2px rgba(92,184,240,.45)`,
   connected-dot glow, green "go"-button hover glow `0 0 18px rgba(100,194,90,.3)`;
 - radii up to 12–13px by role (see tokens);
-- the launch-dialog backdrop blur (`backdrop-filter:blur(4px)`) — R3.
+- the launch-dialog backdrop blur (`backdrop-filter:blur(4px)`) and its
+  header gradient `linear-gradient(180deg,#202935,#1b222c)`.
 
 Everything NOT specified by the handoff stays under the reject list: no new
 gradients, no additional shadows, no decorative inventions.
@@ -112,12 +113,13 @@ padding 5px 8px 0, gap 3px) · statusline 23px · pane header 30px · pane grid
 gap/padding 10px · projects drawer 272px · sessions drawer 296px · control
 gaps 6–10px.
 
-### Motion (handoff set, ≤.2s + sanctioned pulses)
+### Motion (handoff set, ≤.2s + sanctioned pulses/spin)
 
 `fadeUp` .2s (dialogs, popover, add-form) · `slideL`/`slideR` .18s (drawers)
 · `pulse` 1.6s infinite (attention dots/pills/badges — the sanctioned
-attention animation) · button transitions .15s · cursor blink is xterm's own.
-Nothing else animates.
+attention animation) · `spin` .7s (boot-step spinner, handoff §10 — a
+progress indicator, not decoration) · button transitions .15s · cursor
+blink is xterm's own. Nothing else animates.
 
 ## Shell anatomy (handoff §1–§5)
 
@@ -143,8 +145,8 @@ Vertical flex, 100vh, no page scroll:
    member awaits input, per-tab `×` (armed two-step for session views).
    Active tab: bg `#0e1116` (terminal ground), 1px `#262f3b` border, glowing
    2px `#5cb8f0` top bar inset 12px. After the tabs: ghost `+` (opens the
-   launcher tab — the launch dialog replaces this in R3), then right-aligned
-   faint hint `drag a tab onto a tab or pane to merge · ⇱ splits it back out`.
+   launch dialog), then right-aligned faint hint
+   `drag a tab onto a tab or pane to merge · ⇱ splits it back out`.
 4. **Statusline 23px** — bg `#10141a`, mono 10.5px `#5c6b7c`. Left: `ws
    <n> ms` (presence ping round-trip), `<n> sessions · <n> panes`, amber
    `<n> awaiting input` when >0, then the focused-session readout
@@ -178,7 +180,7 @@ Vertical flex, 100vh, no page scroll:
 - Exited/dead banners stay structural strips under the header (relaunch /
   delete, armed confirms); the buffer below stays readable.
 - Drop overlay during drags: dashed `#5cb8f0` box + accent tint over the
-  target half/whole, mono label (`split here` / `merge here` / `open here`).
+  target half/whole, mono label (`split here` / `merge here`).
 
 ## Drawers (handoff §6–§7)
 
@@ -188,10 +190,10 @@ Vertical flex, 100vh, no page scroll:
   border — the directory browser is kept deliberately (real backend fs, no
   free-text path field, no add-project regression; the handoff's
   `~/projects/<name>` autofill applies to a text path input we don't have).
-  Rows: name 13px/500, spacer, `+` (opens the launcher tab pre-set to the
+  Rows: name 13px/500, spacer, `+` (opens the launch dialog pre-set to the
   project), `×` (armed remove), faint mono path (the ONE place a path is
-  shown), meta line `N active sessions` in green when >0 else
-  `no active sessions` in `#3d4b5d`.
+  shown as project metadata), meta line `N active sessions` in green when
+  >0 else `no active sessions` in `#3d4b5d`.
 - **Sessions (right, 296px)**: `ACTIVE · N` rows — dot, mono name, model
   tag, `split` (append into the current view, max 4 — the button twin of
   drag-to-merge), `×` (armed kill); the row body is a real button: click
@@ -201,15 +203,92 @@ Vertical flex, 100vh, no page scroll:
   exactly; footer note `relaunch resumes claude with --continue`. NO per-id
   `--resume <id>` (fiction cut). Slide-in .18s.
 
+## Launch dialog (handoff §8 — R3, replaces launcher-as-tab)
+
+THE way to create a session (`web/src/ui/launch.ts`). Modal over the ONE
+sanctioned blurred backdrop (`rgba(8,10,14,.55)` + `blur(4px)`, centered):
+560px card, radius 12, dialog shadow, fadeUp. Header on the sanctioned
+`#202935→#1b222c` gradient: 30px logo tile (radius 9) · `Launch session`
+14px/600/ls .8px · mono subtitle `spawns a real pty on the backend ·
+survives hidden panes` · bordered `×` (danger on hover). Body (18px 20px,
+16px stack):
+
+- **Preset chips** (pill 13px, mono 10.5): `deep work · opus · acceptEdits ·
+  continue` / `quick fix · sonnet · default` / `yolo · opus · bypass`
+  (red-tinted `#a05252`/`#4a2f33`). A chip sets model + permission + resume.
+  A fourth chip — `custom · any command` — is a MODE toggle, not a one-shot
+  preset (see the custom escape hatch below): neutral steel like its
+  siblings (not red = not danger, not green = not go), toggled state
+  borrows the topbar toggle pattern (`#232b36` fill + full ink).
+- **2×2 fields** (labels 10.5px/600/ls 1.2px uppercase; inputs mono 32px on
+  `#12161d`, radius 8): Session name (placeholder `auto from project`, maps
+  to `title`) · Project (select, names only) · Model (select: opus, sonnet,
+  haiku, fable) · Resume (select: `start fresh`, `continue last conversation
+  (--continue)` — EXACTLY two options, per-id `--resume <id>` is fiction).
+- **Permission cards** (2×2, radius 9, `#12161d`): mono mode name + plain
+  description — `default` "ask before every tool call", `acceptEdits`
+  "auto-approve file edits", `plan` "read-only planning mode",
+  `bypassPermissions` "never ask · dangerous". Selected: `#5cb8f0` text,
+  `rgba(92,184,240,.08)` bg, `#3d5a75` border. The bypass description stays
+  `#d95c5c` even when selected — the warning never disappears.
+- **Command preview** (`#0e1116` ink well, radius 9, mono 11):
+  `$ <command> <args>` + `  cwd: <project path>`. `currentSpawn()` (over
+  the pure composers in `launch-args.ts`) is the single spawn source for
+  BOTH modes — the preview and the POST body cannot diverge. A blank
+  custom command previews as `$ —` (the app's empty-value glyph).
+- **Custom escape hatch** (user decision 2026-07-20, restoring the
+  launcher tab's configurable command + args): toggling the `custom` chip
+  reveals a full-width mono Command field (placeholder `htop --tree`, hint
+  `whitespace split — no quoting, no shell`) and dims Model, Resume and
+  the permission cards to the old launcher's is-disabled pattern (opacity
+  .45 + real `disabled` attrs — visible, not hidden). First token =
+  command, rest = args; the server spawns argv, never a shell. Exits: any
+  preset chip, or toggling the chip off. Project-preset opens
+  (projects-drawer row `+`) also exit custom mode; other opens remember
+  it (the command text is kept either way). Session name and project still
+  apply (title / cwd). Blank command on Launch → the `.form-err` inline
+  error `command is required for the custom preset`.
+
+Footer (`#171d25`, top seam): faint mono `opens in a new tab` · Cancel
+(ghost, 30px) · `Launch ▸` (green go, 30px). Launch POSTs
+`{ projectId, command, args, title?, cols, rows }` (`command` is `'claude'`
+in preset modes, the user's argv[0] in custom mode; argv only — never a
+shell string), the new session gets its own tab and becomes active,
+keyboard lands in its terminal.
+
+Behavior: Escape and backdrop-click close; Tab is trapped inside; focus
+enters the name field on open and returns to the invoking control on close
+(when the invoker was the terminal — ctrl+alt+t — that IS the terminal).
+Entry points: topbar `+ New session`, tab-strip ghost `+`, projects-drawer
+row `+` (project pre-set, defaults applied), empty-state button, Ctrl+Alt+T.
+Project defaults: `defaultModel` (when in the model list) and
+`defaultMode: skip-permissions` → bypassPermissions card.
+
+## Boot panel (handoff §10 visual language, minus fiction — R3)
+
+Honest in-app steps ONLY (`createBootPanel` in `web/src/main.ts`): `token
+check` (GET /api/runtime — authed, doubles as the uptime fetch), `hydrate
+sessions` (projects + sessions), `attach ws` (first presence pong; a close
+before any pong fails the step while reconnect continues). Steps run
+concurrently and each row's mark is real state: spinner (`spin` .7s) while
+its promise pends → green `✓` → red `×` + message on failure. Full-screen
+`#12161d` overlay (`--z-overlay`), brand row (26px logo tile + wordmark),
+`#0e1116` card radius 10, mono 11.5. The overlay mounts only if boot
+outlives ~150ms (a warm localhost boot shows nothing) and removes itself
+when every step settles. NO launcher-lifecycle steps (`reading
+runtime.json` / `starting backend` / `waiting for health` — the app can
+never witness them), NO fake timers, NO click-to-skip. Fatal failures
+(hydrate error / rotated token) pin the overlay with the failed step, a
+guidance line and a reload button; the post-boot 401 takeover panel
+(`renderRestartPanel`) is unchanged.
+
 ## Empty state (handoff §11 minus fiction)
 
-Zero views (⇔ zero sessions and no launcher tab open): centered 64px logo
-tile, `No active sessions`, buttons `+ New session` (opens the launcher tab)
-and `Relaunch previous run (N)` (opens the sessions drawer's previous-run
-section; shown only when offers exist). NO grace countdown line. The empty
-state became reachable by letting the view list be empty: closing the last
-tab no longer auto-spawns a launcher view — the launcher opens on demand
-(topbar / ghost `+` / ctrl+alt+t / empty-state button).
+Zero views (⇔ zero sessions): centered 64px logo tile, `No active
+sessions`, buttons `+ New session` (opens the launch dialog) and `Relaunch
+previous run (N)` (opens the sessions drawer's previous-run section; shown
+only when offers exist). NO grace countdown line. Closing the last tab
+leaves the empty state — nothing auto-spawns.
 
 ## Cut as fiction (unchanged by the precedence flip)
 
@@ -223,9 +302,23 @@ tab no longer auto-spawns a launcher view — the launcher opens on demand
 
 ## Recorded deviations from the handoff (with reasons)
 
-- **Launch dialog is R3**: `+ New session`, ghost `+`, projects-drawer `+`
-  and the empty-state button open the existing launcher TAB until the modal
-  lands.
+- **The `custom · any command` chip + command field** exist in no handoff
+  screen — added by user decision 2026-07-20 (the claude-only dialog
+  contradicted the decided "configurable command + args" feature; the
+  first R3 cut dropped the capability). Designed inside the dialog's own
+  language: fourth pill in the chip row, mode-toggle state, old launcher's
+  field copy and disabled-field pattern. See "Custom escape hatch" above.
+- **Bypass emits `--permission-mode bypassPermissions`** (the handoff's
+  preview form) instead of the old preset's
+  `--dangerously-skip-permissions`; tags recognize both forms as danger.
+- **Preview `cwd:` shows the project's real absolute path** — the
+  prototype's `~/projects/<name>` was mock data; the real cwd is honest.
+  This is the second sanctioned place a path appears (with the projects
+  drawer), both inside launch/manage contexts.
+- **Focus restore on close goes to the invoking control**, not always the
+  terminal: yanking a keyboard user from the `+` button to a terminal would
+  strand them. Opened via ctrl+alt+t from a terminal, the invoker IS the
+  terminal; after a launch, focus goes to the new session's terminal.
 - **No Phosphor icons** (no new dependencies): the prototype's text glyphs
   are the icon set — `>_ × + ▦ ⇱ ▸ ⠿`.
 - **Terminal line-height**: xterm keeps its native cell metrics (lineHeight
@@ -257,10 +350,13 @@ tab no longer auto-spawns a launcher view — the launcher opens on demand
   resets. The theme popover changes no geometry.
 - Plain keys (Ctrl+C, Esc, arrows) never intercepted; app chords exclusively
   Ctrl+Alt with the `getModifierState('AltGraph')` guard in BOTH the window
-  handler and xterm's custom key handler (European layouts).
-- localStorage UI schema stays **v2** (with the v1 migration): the strip
-  move and the empty-state change alter no stored shape. Theme state lives
-  under a separate key.
+  handler and xterm's custom key handler (European layouts). Ctrl+Alt+Enter
+  was retired with the launcher tab (no longer intercepted anywhere).
+- localStorage UI schema stays **v2** (with the v1 migration). R3 removed
+  the launcher view kind WITHOUT a schema bump: views are stored without
+  `kind`, and the loader drops zero-session views — which is exactly how
+  pre-R3 blobs containing launcher views migrate (active remaps, zero
+  views stays legal). Theme state lives under a separate key.
 - Sessions are server-side; the UI attaches views. xterm opens only on
   attached, measurable nodes; `.term-host` keeps `z-index:0` isolation (the
   scanline overlay sits OUTSIDE the host, `pointer-events:none`).
@@ -272,9 +368,9 @@ tab no longer auto-spawns a launcher view — the launcher opens on demand
 ## Slop-filter pass (against the frontend-designer reject list)
 
 - Gradients / blur / shadows / glow: present ONLY where the handoff specs
-  them (topbar + pane-area + R3 dialog header gradients; four shadows; tab/
-  dot/go-button glows; R3 backdrop blur) — **user-sanctioned by decision
-  2026-07-20**, not template residue. Nothing beyond that list.
+  them (topbar + pane-area + dialog-header gradients; four shadows; tab/
+  dot/go-button glows; the launch-dialog backdrop blur) — **user-sanctioned
+  by decision 2026-07-20**, not template residue. Nothing beyond that list.
 - Default-Tailwind look: no Inter/system font (bundled Barlow + JetBrains
   Mono), no rounded-2xl-card-grid shell, no gray-50.
 - Generic SaaS dashboard: the shell is topbar / terminal cards / Steam tab

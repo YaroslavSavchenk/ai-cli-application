@@ -63,6 +63,7 @@
   /* ---- sanctioned gradients (handoff) -------------------------------------- */
   --grad-topbar: linear-gradient(180deg, #1f2833, #1b222c);
   --grad-panearea: radial-gradient(1100px 520px at 32% -10%, #1b232f, #12161d);
+  --grad-dialoghd: linear-gradient(180deg, #202935, #1b222c); /* launch dialog header */
 
   /* ---- the four sanctioned shadows (handoff) -------------------------------- */
   --sh-pane: 0 12px 32px rgba(0, 0, 0, 0.32);
@@ -112,17 +113,21 @@
   --fs-tag: 9.5px;      /* model/permission tags, split badge (mono)          */
   --fs-micro: 10px;     /* drawer section labels (mono, ls 1px)               */
   --fs-term: 12.5px;    /* terminal body (handoff)                            */
+  --fs-title: 14px;     /* dialog title                                       */
   --ls-wordmark: 1.6px;
   --ls-label: 1.4px;
+  --ls-field: 1.2px;    /* launch-dialog field labels                         */
+  --ls-title: 0.8px;    /* dialog title                                       */
 
   /* ---- radius by role (handoff) ----------------------------------------------- */
   --r-tab: 9px;         /* tabs: 9px 9px 0 0                                  */
   --r-card: 12px;       /* pane cards, dialogs                                */
   --r-card-sm: 10px;    /* popover, boot cards, empty-state tile              */
-  --r-box: 9px;         /* command preview, permission cards (R3)             */
+  --r-box: 9px;         /* command preview, permission cards, dialog tile     */
   --r-btn: 7px;         /* buttons, tags, logo tile                           */
   --r-input: 6px;       /* drawer inputs, small buttons                       */
-  --r-pill: 13px;       /* preset chips (R3)                                  */
+  --r-field: 8px;       /* launch-dialog inputs/selects/footer buttons        */
+  --r-pill: 13px;       /* preset chips                                       */
 
   /* ---- spacing scale ------------------------------------------------------- */
   --s-1: 2px;
@@ -148,6 +153,8 @@
   --divider-hit: 10px;  /* grab strip centered in the pane gap                */
   --dot: 7px;           /* status dots                                        */
   --ctl-h: 26px;        /* topbar buttons                                     */
+  --ctl-h-lg: 30px;     /* dialog footer buttons, empty-state buttons         */
+  --field-h: 32px;      /* launch-dialog inputs/selects                       */
   --chip-h: 20px;       /* row buttons (+ × split ⇱)                          */
   --popover-w: 268px;
   --modal-w: 560px;
@@ -155,17 +162,19 @@
   --panel-w: 460px;     /* boot / restart takeover panel                      */
   --dirlist-min-h: 160px;
   --sc-keys-w: 210px;   /* shortcuts overlay keys column                      */
-  --form-w: 380px;      /* launcher-tab form column                           */
+  --dlg-pad-x: 20px;    /* launch-dialog horizontal padding (handoff §8)      */
+  --dlg-gap: 16px;      /* launch-dialog body stack gap + header padding      */
 
-  /* ---- motion (handoff set, <=.2s + sanctioned pulses) ------------------------ */
+  /* ---- motion (handoff set, <=.2s + sanctioned pulses/spin) ------------------- */
   --t-btn: 0.15s;       /* control color/border transitions                   */
   --t-fade: 0.2s;       /* fadeUp: dialogs, popover, new content              */
   --t-slide: 0.18s;     /* drawer slide-in                                    */
   --t-pulse: 1.6s;      /* attention pulse (sanctioned, infinite)             */
+  --t-spin: 0.7s;       /* boot-step spinner (sanctioned, handoff §10)        */
 
   /* ---- z ---------------------------------------------------------------------- */
   --z-popover: 45;
-  --z-modal: 50;
-  --z-overlay: 60;
-  --z-ghost: 70; /* drag ghost rides above everything */
+  --z-modal: 50;   /* modal scrims: launch dialog, dir browser, shortcuts */
+  --z-overlay: 60; /* boot overlay covers even open modals                */
+  --z-ghost: 70;   /* drag ghost rides above everything                   */
 }

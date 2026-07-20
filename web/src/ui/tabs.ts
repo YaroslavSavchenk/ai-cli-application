@@ -3,13 +3,12 @@
  * session lives in a view.
  *
  * A tab: status dot (green running / pulsing amber attention / hollow gray
- * exited / dashed hollow launcher), mono name (a split view joins member
- * names with " · "), a blue `▦ N` split badge when the view holds >1
- * session, a pulsing amber `input` pill when a member awaits input, and `×`
- * = KILL the view's sessions (armed two-step confirm; a launcher tab just
- * closes). The active tab drops to the terminal ground and carries the
- * glowing accent bar. After the tabs: a ghost `+` (opens the launcher tab)
- * and the right-aligned drag hint.
+ * exited), mono name (a split view joins member names with " · "), a blue
+ * `▦ N` split badge when the view holds >1 session, a pulsing amber
+ * `input` pill when a member awaits input, and `×` = KILL the view's
+ * sessions (armed two-step confirm). The active tab drops to the terminal
+ * ground and carries the glowing accent bar. After the tabs: a ghost `+`
+ * (opens the launch dialog) and the right-aligned drag hint.
  *
  * Tabs are pointer-drag sources (see ui/dnd.ts): drag onto a pane or another
  * tab to merge into a split, onto strip space to reorder. Every drag has a
@@ -19,11 +18,11 @@ import * as st from '../state.ts';
 import { el, button, ArmedSet } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { killSession } from './panes.ts';
+import { openLaunchDialog } from './launch.ts';
 
 const armed = new ArmedSet();
 
 export function tabLabel(v: st.ViewState): string {
-  if (v.kind === 'launcher') return 'new session';
   const names = v.sessions.map((id) => st.state.sessions.get(id)?.title ?? '…');
   return names.join(' · ');
 }
@@ -62,7 +61,7 @@ export function initTabs(strip: HTMLElement): { render(): void } {
       sel.setAttribute('data-k', `tab:${v.id}`);
       sel.title =
         `switch to tab ${i + 1} (ctrl+alt+${i + 1})` +
-        (v.kind === 'launcher' ? '' : ' · drag onto a pane or tab to merge into a split');
+        ' · drag onto a pane or tab to merge into a split';
       if (v.id === st.state.activeViewId) sel.setAttribute('aria-current', 'true');
       const status = st.viewStatus(v);
       const dot = el('span', `dot is-${status}`);
@@ -80,12 +79,7 @@ export function initTabs(strip: HTMLElement): { render(): void } {
       }
       wrap.append(sel);
 
-      const isLauncher = v.kind === 'launcher';
       const close = button('tab-x', armed.isArmed(v.id) ? 'sure?' : '×', () => {
-        if (isLauncher) {
-          st.closeView(v.id);
-          return;
-        }
         if (
           armed.trigger(v.id, () => {
             lastSig = '';
@@ -98,17 +92,17 @@ export function initTabs(strip: HTMLElement): { render(): void } {
       if (armed.isArmed(v.id)) close.dataset.armed = '1';
       close.setAttribute('data-k', `tabx:${v.id}`);
       close.setAttribute('aria-label', `close tab ${i + 1}`);
-      close.title = isLauncher ? 'close tab' : 'kill the sessions in this tab (asks to confirm)';
+      close.title = 'kill the sessions in this tab (asks to confirm)';
       wrap.append(close);
 
       armDrag(wrap, '.tab-x', () => ({ kind: 'tab', viewId: v.id, label: tabLabel(v) }));
       nodes.push(wrap);
     });
 
-    const add = button('tab-new', '+', () => st.addLauncherTab());
+    const add = button('tab-new', '+', () => openLaunchDialog());
     add.setAttribute('data-k', 'tab-new');
-    add.title = 'new-session tab (ctrl+alt+t)';
-    add.setAttribute('aria-label', 'new-session tab');
+    add.title = 'launch a session (ctrl+alt+t)';
+    add.setAttribute('aria-label', 'launch a session');
     nodes.push(add);
 
     const gap = el('span', 'strip-gap');

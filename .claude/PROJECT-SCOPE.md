@@ -61,10 +61,13 @@ and multi-pane layouts on top.
   appears only as secondary metadata inside the manage-projects view (needed
   to disambiguate add/delete). "Add project" = browse to a directory + give
   it a name.
-- **Launch presets per session**: permission mode (standard vs
-  `--dangerously-skip-permissions`), model selection, resume
-  (`claude --resume` / `-c`). The launched "agent" is a configurable
-  command + args, which is what makes multi-CLI support free.
+- **Launch presets per session**: permission mode (the four
+  `--permission-mode` values; bypass rendered as danger), model selection,
+  resume (`--continue`; per-id `--resume` is a fiction cut — journal ids
+  aren't conversation ids). The launched "agent" is a configurable
+  command + args, which is what makes multi-CLI support free — in the GUI
+  via the launch dialog's `custom · any command` chip (R3, user decision
+  2026-07-20).
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -126,7 +129,9 @@ recommendations: the hi-fi handoff in `design/` is now the **primary design
 source**; `web/DESIGN.md` is rewritten to transcribe it rather than override
 it. Both structural conflicts went the handoff's way: the **tab strip moves
 to a dedicated bottom strip** above the statusline, and the **launch UI
-becomes a modal dialog** (replaces launcher-as-tab; lands with R3).
+becomes a modal dialog** (replaced launcher-as-tab; landed with R3,
+2026-07-20, including a user-decided `custom · any command` escape-hatch
+chip preserving arbitrary command + args launches).
 Unaffected by the flip: architecture (vanilla TS + Vite stands — the handoff
 prompt itself defers to the existing stack; no new npm dependencies, fonts
 self-hosted), and the three fiction cuts in `design/GAP-ANALYSIS.md` stay

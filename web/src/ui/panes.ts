@@ -1,14 +1,13 @@
 /**
  * Pane grid for the ACTIVE view (= tab). A view holds 1..4 sessions in a
- * fixed split shape (see state.ts for the slot maps); a 'launcher' view
- * holds none and renders the new-session form instead. Sessions exist
+ * fixed split shape (see state.ts for the slot maps). Sessions exist
  * independently of views — this module only attaches/detaches xterm views.
+ * Zero views renders the centered empty state; new sessions come from the
+ * launch dialog (ui/launch.ts).
  *
  * Terminals exist only for the active view's slots; switching tabs or
  * changing the split shape disposes and re-attaches (the server replays the
- * full buffer). A launcher slot still mounts an xterm under the form — it
- * provides the cols/rows measurement (FitAddon.proposeDimensions) used when
- * creating the session.
+ * full buffer).
  *
  * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while a
  * tab is dragged over it (drag-to-split). Pane headers are drag sources:
@@ -23,24 +22,6 @@ import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { flash } from './statusline.ts';
 
-type Preset = 'claude' | 'claude-skip' | 'custom';
-
-interface LauncherRefs {
-  form: HTMLFormElement;
-  project: HTMLSelectElement;
-  presets: HTMLInputElement[];
-  commandField: HTMLElement;
-  command: HTMLInputElement;
-  modelField: HTMLElement;
-  model: HTMLInputElement;
-  resumeField: HTMLElement;
-  resume: HTMLSelectElement;
-  title: HTMLInputElement;
-  submit: HTMLButtonElement;
-  err: HTMLElement;
-  none: HTMLElement;
-}
-
 interface Slot {
   index: number;
   root: HTMLElement;
@@ -50,21 +31,20 @@ interface Slot {
   conn: ConnState | null;
   exitCode: number | null;
   dead: boolean;
-  /* Session chrome — null on the launcher slot. */
-  dot: HTMLElement | null;
-  proj: HTMLElement | null;
-  title: HTMLElement | null;
-  tagModel: HTMLElement | null;
-  tagPerm: HTMLElement | null;
-  connChip: HTMLElement | null;
-  extractBtn: HTMLButtonElement | null;
-  note: HTMLElement | null;
-  /* Launcher form — null on session slots. */
-  launcher: LauncherRefs | null;
+  dot: HTMLElement;
+  proj: HTMLElement;
+  title: HTMLElement;
+  tagModel: HTMLElement;
+  tagPerm: HTMLElement;
+  connChip: HTMLElement;
+  extractBtn: HTMLButtonElement;
+  note: HTMLElement;
 }
 
 let grid: HTMLElement;
 let slots: Slot[] = [];
+/** Injected by main.ts (avoids a panes ↔ launch import cycle). */
+let openLaunch: () => void = () => {};
 /** Rendered view id, or the empty-state sentinel `__empty:<prevCount>`. */
 let renderedViewId = '';
 let renderedCount = -1;
@@ -75,8 +55,9 @@ let lastFocusKey = '';
 // Public API
 // --------------------------------------------------------------------------
 
-export function initPanes(gridEl: HTMLElement): void {
+export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): void {
   grid = gridEl;
+  openLaunch = openLaunchDialog;
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
@@ -89,8 +70,6 @@ export function initPanes(gridEl: HTMLElement): void {
         updateHeader(s);
         updateNote(s);
       }
-    } else if (kind === 'projects') {
-      for (const s of slots) if (s.launcher !== null) populateProjects(s.launcher);
     }
   });
   // Regaining window focus while a pane with attention is focused clears it.
@@ -121,36 +100,10 @@ export function requestTerminalFocus(): void {
   if (s !== undefined && s.view !== null && s.sessionId !== null) s.view.focus();
 }
 
-/** Measured cols/rows of the focused pane (sizes the previous-run relaunch POST). */
+/** Measured cols/rows of the focused pane (sizes launch + relaunch POSTs). */
 export function focusedPaneDims(): { cols: number; rows: number } {
   const s = focusedSlot();
   return s !== undefined && s.view !== null ? s.view.proposeDims() : { cols: 80, rows: 24 };
-}
-
-/** Ctrl+Alt+Enter: put the keyboard into the launcher form of a launcher view. */
-export function openLauncher(): void {
-  const s = slots[0];
-  if (st.activeView()?.kind === 'launcher' && s !== undefined && s.launcher !== null) {
-    s.launcher.project.focus();
-  } else {
-    flash('no launcher here — ctrl+alt+t opens a new-session tab');
-  }
-}
-
-/**
- * Projects-drawer `+`: open a launcher tab pre-set to the project. The
- * launcher becomes the launch dialog in R3; the entry point stays.
- */
-export function openLauncherForProject(projectId: string): void {
-  st.addLauncherTab(); // notifies synchronously — the launcher slot exists now
-  const s = slots[0];
-  if (s !== undefined && s.launcher !== null) {
-    if (st.state.projects.some((p) => p.id === projectId)) {
-      s.launcher.project.value = projectId;
-      applyProjectDefaults(s.launcher);
-    }
-    s.launcher.project.focus();
-  }
 }
 
 // --------------------------------------------------------------------------
@@ -163,7 +116,7 @@ function render(): void {
     renderEmpty();
     return;
   }
-  const count = v.kind === 'launcher' ? 0 : v.sessions.length;
+  const count = v.sessions.length;
   if (v.id !== renderedViewId || count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
     rebuild(v, count);
   } else {
@@ -174,7 +127,7 @@ function render(): void {
 
 /**
  * Handoff §11 empty state (zero views ⇔ zero sessions): centered logo tile,
- * "No active sessions", + New session (opens the launcher tab) and, when
+ * "No active sessions", + New session (opens the launch dialog) and, when
  * crash/shutdown offers exist, "Relaunch previous run (N)" opening the
  * sessions drawer. NO grace countdown — a page able to display one would
  * itself be keeping the backend alive.
@@ -196,7 +149,7 @@ function renderEmpty(): void {
   tile.setAttribute('aria-hidden', 'true');
   const hd = el('div', 'empty-hd', 'No active sessions');
   const row = el('div', 'empty-actions');
-  const launch = button('btn-go', '+ New session', () => st.addLauncherTab());
+  const launch = button('btn-go', '+ New session', () => openLaunch());
   row.append(launch);
   if (st.state.previous.length > 0) {
     row.append(
@@ -221,13 +174,9 @@ function rebuild(v: st.ViewState, count: number): void {
   else delete grid.dataset.l3;
   grid.replaceChildren();
   applySplit(v);
-  if (count === 0) {
-    // createSlot appends its root to the grid BEFORE constructing the
-    // TerminalView — xterm must open on an attached, measurable node.
-    slots.push(createLauncherSlot(v.id));
-  } else {
-    for (let i = 0; i < count; i++) slots.push(createSessionSlot(i));
-  }
+  // createSessionSlot appends its root to the grid BEFORE constructing the
+  // TerminalView — xterm must open on an attached, measurable node.
+  for (let i = 0; i < count; i++) slots.push(createSessionSlot(i));
   buildDividers(v);
   for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
 }
@@ -335,7 +284,7 @@ function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | 
 
 function reconcileSlot(index: number, sessionId: string | null): void {
   const s = slots[index];
-  if (s === undefined || s.launcher !== null) return; // Launcher slots have no session.
+  if (s === undefined) return;
   if (s.sessionId === sessionId) {
     updateHeader(s);
     updateNote(s);
@@ -406,13 +355,12 @@ function applyFocus(): void {
   const v = st.activeView();
   if (v === null) return;
   for (const s of slots) s.root.classList.toggle('focused', s.index === v.focused);
-  const key = `${v.id}:${v.focused}:${v.kind}`;
+  const key = `${v.id}:${v.focused}`;
   if (key === lastFocusKey) return;
   lastFocusKey = key;
   const s = slots[v.focused];
   if (s === undefined) return;
   if (s.view !== null && s.sessionId !== null) s.view.focus();
-  else if (s.launcher !== null) s.launcher.project.focus();
   else s.root.focus();
   clearAttentionIfPending(s);
 }
@@ -503,7 +451,6 @@ function createSessionSlot(index: number): Slot {
     connChip,
     extractBtn,
     note,
-    launcher: null,
   };
 
   extractBtn.addEventListener('click', () => {
@@ -526,44 +473,6 @@ function createSessionSlot(index: number): Slot {
   return slot;
 }
 
-function createLauncherSlot(viewId: string): Slot {
-  const root = el('section', 'pane is-launcher');
-  root.tabIndex = -1;
-  root.dataset.slot = '0';
-
-  const body = el('div', 'pane-body');
-  const termHost = el('div', 'term-host');
-  const launcher = buildLauncher(viewId);
-  body.append(termHost, launcher.form);
-  root.append(body, buildDropOverlay());
-  root.addEventListener('mousedown', () => st.focusPane(0), true);
-  grid.append(root);
-
-  const slot: Slot = {
-    index: 0,
-    root,
-    termHost,
-    view: new TerminalView(termHost),
-    sessionId: null,
-    conn: null,
-    exitCode: null,
-    dead: false,
-    dot: null,
-    proj: null,
-    title: null,
-    tagModel: null,
-    tagPerm: null,
-    connChip: null,
-    extractBtn: null,
-    note: null,
-    launcher,
-  };
-
-  populateProjects(launcher);
-  resetLauncher(launcher);
-  return slot;
-}
-
 /** DELETE a session; its view slot closes everywhere (drawer + tab close reuse this). */
 export async function killSession(id: string): Promise<void> {
   try {
@@ -579,49 +488,40 @@ export async function killSession(id: string): Promise<void> {
 }
 
 function updateHeader(s: Slot): void {
-  if (s.sessionId === null || s.proj === null) return; // Launcher slot: no header.
+  if (s.sessionId === null) return;
   const info = st.state.sessions.get(s.sessionId);
   const pname = st.projectName(info?.projectId);
   s.proj.textContent = pname ?? '·';
-  if (s.title !== null) s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
+  s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
   const attention = info !== undefined && info.attention;
   const running = info === undefined || info.status === 'running';
-  if (s.dot !== null) {
-    // The dot IS the status readout: green running / pulsing amber
-    // attention / hollow gray exited (exit code lives on the banner).
-    s.dot.className = `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
-    s.dot.title = attention ? 'needs input' : running ? 'running' : 'exited';
-  }
+  // The dot IS the status readout: green running / pulsing amber
+  // attention / hollow gray exited (exit code lives on the banner).
+  s.dot.className = `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+  s.dot.title = attention ? 'needs input' : running ? 'running' : 'exited';
   // Model/permission tags derive from argv client-side (no protocol fields).
-  if (s.tagModel !== null) {
-    const m = info !== undefined ? modelFromArgs(info.args) : null;
-    s.tagModel.hidden = m === null;
-    if (m !== null) s.tagModel.textContent = m;
+  const m = info !== undefined ? modelFromArgs(info.args) : null;
+  s.tagModel.hidden = m === null;
+  if (m !== null) s.tagModel.textContent = m;
+  const p = info !== undefined ? permFromArgs(info.args) : null;
+  s.tagPerm.hidden = p === null;
+  if (p !== null) {
+    s.tagPerm.textContent = p.label;
+    s.tagPerm.classList.toggle('is-danger', p.danger);
+    s.tagPerm.title = p.danger ? 'permissions bypassed — dangerous' : 'permission mode';
   }
-  if (s.tagPerm !== null) {
-    const p = info !== undefined ? permFromArgs(info.args) : null;
-    s.tagPerm.hidden = p === null;
-    if (p !== null) {
-      s.tagPerm.textContent = p.label;
-      s.tagPerm.classList.toggle('is-danger', p.danger);
-      s.tagPerm.title = p.danger ? 'permissions bypassed — dangerous' : 'permission mode';
-    }
-  }
-  if (s.connChip !== null) {
-    if (s.conn === null || s.conn === 'live') {
-      s.connChip.hidden = true;
-    } else {
-      s.connChip.hidden = false;
-      s.connChip.textContent = s.conn === 'dead' ? 'lost' : `${s.conn}…`;
-      s.connChip.className = `pane-conn ${s.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
-    }
+  if (s.conn === null || s.conn === 'live') {
+    s.connChip.hidden = true;
+  } else {
+    s.connChip.hidden = false;
+    s.connChip.textContent = s.conn === 'dead' ? 'lost' : `${s.conn}…`;
+    s.connChip.className = `pane-conn ${s.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
   }
   // Alone in its view, a session already IS its own tab.
-  if (s.extractBtn !== null) s.extractBtn.hidden = renderedCount <= 1;
+  s.extractBtn.hidden = renderedCount <= 1;
 }
 
 function updateNote(s: Slot): void {
-  if (s.note === null) return;
   if (s.sessionId === null) {
     s.note.hidden = true;
     return;
@@ -702,252 +602,3 @@ async function relaunch(s: Slot): Promise<void> {
   }
 }
 
-// --------------------------------------------------------------------------
-// Launcher (new-session tab form)
-// --------------------------------------------------------------------------
-
-function buildLauncher(viewId: string): LauncherRefs {
-  const form = el('form', 'launcher') as HTMLFormElement;
-
-  const hd = el('div', 'launcher-hd', 'new session');
-
-  const projField = el('label', 'field');
-  projField.append(el('span', 'field-lb', 'project'));
-  const project = el('select') as HTMLSelectElement;
-  project.name = 'project';
-  projField.append(project);
-
-  const presetSet = el('fieldset', 'preset-set');
-  presetSet.append(el('legend', 'field-lb', 'preset'));
-  const presets: HTMLInputElement[] = [];
-  const presetDefs: { value: Preset; label: string }[] = [
-    { value: 'claude', label: 'claude' },
-    { value: 'claude-skip', label: 'claude · skip-permissions' },
-    { value: 'custom', label: 'custom' },
-  ];
-  for (const def of presetDefs) {
-    const lb = el('label', 'preset-opt');
-    const input = el('input') as HTMLInputElement;
-    input.type = 'radio';
-    input.name = `preset-${viewId}`;
-    input.value = def.value;
-    if (def.value === 'claude') input.checked = true;
-    lb.append(input, el('span', '', def.label));
-    presets.push(input);
-    presetSet.append(lb);
-  }
-
-  const commandField = el('label', 'field');
-  commandField.hidden = true;
-  const cmdLb = el('span', 'field-lb', 'command ');
-  cmdLb.append(el('em', 'field-hint', 'whitespace split — no quoting, no shell'));
-  const command = el('input') as HTMLInputElement;
-  command.name = 'command';
-  command.placeholder = 'htop --tree';
-  command.spellcheck = false;
-  commandField.append(cmdLb, command);
-
-  const modelField = el('label', 'field');
-  const modelLb = el('span', 'field-lb', 'model ');
-  modelLb.append(el('em', 'field-hint', 'optional — sent as --model'));
-  const model = el('input') as HTMLInputElement;
-  model.name = 'model';
-  model.placeholder = 'opus';
-  model.spellcheck = false;
-  modelField.append(modelLb, model);
-
-  const resumeField = el('label', 'field');
-  const resumeLb = el('span', 'field-lb', 'resume ');
-  resumeLb.append(el('em', 'field-hint', 'continue a previous conversation'));
-  const resume = el('select') as HTMLSelectElement;
-  resume.name = 'resume';
-  const resumeDefs: { value: string; label: string }[] = [
-    { value: '', label: 'off — new conversation' },
-    { value: '-c', label: 'continue last · -c' },
-    { value: '--resume', label: 'pick conversation · --resume' },
-  ];
-  for (const def of resumeDefs) {
-    const opt = el('option', '', def.label) as HTMLOptionElement;
-    opt.value = def.value;
-    resume.append(opt);
-  }
-  resumeField.append(resumeLb, resume);
-
-  const titleField = el('label', 'field');
-  const titleLb = el('span', 'field-lb', 'title ');
-  titleLb.append(el('em', 'field-hint', 'optional'));
-  const title = el('input') as HTMLInputElement;
-  title.name = 'title';
-  title.spellcheck = false;
-  titleField.append(titleLb, title);
-
-  const actions = el('div', 'launcher-actions');
-  const submit = el('button', 'btn is-primary', 'launch') as HTMLButtonElement;
-  submit.type = 'submit';
-  const attach = button('btn', 'sessions…', () => st.toggleDrawer('sessions'));
-  attach.title = 'open the sessions panel — every session already has a tab';
-  actions.append(submit, attach);
-
-  const err = el('div', 'launcher-err');
-  err.setAttribute('role', 'alert');
-  err.hidden = true;
-
-  const none = el('div', 'launcher-none');
-  none.hidden = true;
-  none.append(
-    el('span', '', 'no projects yet — '),
-    button('btn-link', 'add one', () => st.toggleDrawer('projects')),
-  );
-
-  form.append(
-    hd,
-    projField,
-    presetSet,
-    commandField,
-    modelField,
-    resumeField,
-    titleField,
-    actions,
-    err,
-    none,
-  );
-
-  const refs: LauncherRefs = {
-    form,
-    project,
-    presets,
-    commandField,
-    command,
-    modelField,
-    model,
-    resumeField,
-    resume,
-    title,
-    submit,
-    err,
-    none,
-  };
-
-  for (const p of presets) {
-    p.addEventListener('change', () => applyPresetVisibility(refs));
-  }
-  project.addEventListener('change', () => applyProjectDefaults(refs));
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    void launch(viewId, refs);
-  });
-  return refs;
-}
-
-function currentPreset(refs: LauncherRefs): Preset {
-  const checked = refs.presets.find((p) => p.checked);
-  return (checked?.value as Preset | undefined) ?? 'claude';
-}
-
-function applyPresetVisibility(refs: LauncherRefs): void {
-  const preset = currentPreset(refs);
-  refs.commandField.hidden = preset !== 'custom';
-  refs.model.disabled = preset === 'custom';
-  refs.modelField.classList.toggle('is-disabled', preset === 'custom');
-  refs.resume.disabled = preset === 'custom';
-  refs.resumeField.classList.toggle('is-disabled', preset === 'custom');
-}
-
-function applyProjectDefaults(refs: LauncherRefs): void {
-  const p = st.state.projects.find((p) => p.id === refs.project.value);
-  if (p === undefined) return;
-  if (p.defaultModel !== undefined && refs.model.value === '') refs.model.value = p.defaultModel;
-  if (p.defaultMode === 'skip-permissions') {
-    const skip = refs.presets.find((r) => r.value === 'claude-skip');
-    if (skip !== undefined && currentPreset(refs) === 'claude') {
-      skip.checked = true;
-      applyPresetVisibility(refs);
-    }
-  }
-}
-
-function populateProjects(refs: LauncherRefs): void {
-  const prev = refs.project.value;
-  refs.project.replaceChildren();
-  for (const p of st.state.projects) {
-    const opt = el('option', '', p.name) as HTMLOptionElement; // names only, never paths
-    opt.value = p.id;
-    refs.project.append(opt);
-  }
-  if (st.state.projects.some((p) => p.id === prev)) refs.project.value = prev;
-  const empty = st.state.projects.length === 0;
-  refs.submit.disabled = empty;
-  refs.none.hidden = !empty;
-}
-
-function resetLauncher(refs: LauncherRefs): void {
-  refs.err.hidden = true;
-  refs.command.value = '';
-  refs.resume.value = '';
-  refs.title.value = '';
-  populateProjects(refs);
-  applyPresetVisibility(refs);
-}
-
-async function launch(viewId: string, refs: LauncherRefs): Promise<void> {
-  refs.err.hidden = true;
-  const slot = slots[0];
-  if (slot === undefined || slot.launcher !== refs) return;
-
-  const projectId = refs.project.value;
-  if (projectId === '') {
-    showErr(refs, 'pick a project (add one in the projects panel)');
-    return;
-  }
-  const preset = currentPreset(refs);
-  let command: string;
-  let args: string[];
-  if (preset === 'custom') {
-    // Plain whitespace split by design: no quoting, no escaping, no shell
-    // parsing — the backend spawns argv directly. Documented in the field.
-    const parts = refs.command.value.trim().split(/\s+/).filter((p) => p !== '');
-    if (parts.length === 0) {
-      showErr(refs, 'command is required for the custom preset');
-      return;
-    }
-    command = parts[0] as string;
-    args = parts.slice(1);
-  } else {
-    command = 'claude';
-    args = preset === 'claude-skip' ? ['--dangerously-skip-permissions'] : [];
-    if (refs.resume.value !== '') args.push(refs.resume.value); // '-c' | '--resume'
-    const model = refs.model.value.trim();
-    if (model !== '') args.push('--model', model);
-  }
-
-  // Measure the pane the session will live in, before creating it.
-  const dims = slot.view !== null ? slot.view.proposeDims() : { cols: 80, rows: 24 };
-  const titleValue = refs.title.value.trim();
-  const req: CreateSessionRequest = {
-    projectId,
-    command,
-    args,
-    ...(titleValue !== '' ? { title: titleValue } : {}),
-    cols: dims.cols,
-    rows: dims.rows,
-  };
-
-  refs.submit.disabled = true;
-  try {
-    const info = await api.createSession(req);
-    st.upsertSession(info);
-    // The launcher tab becomes this session's tab (if it was closed
-    // mid-await, upsertSession already gave the session its own tab).
-    st.launcherBecameSession(viewId, info.id);
-    if (st.state.activeViewId === viewId) requestTerminalFocus();
-  } catch (err) {
-    showErr(refs, err instanceof Error ? err.message : String(err));
-  } finally {
-    refs.submit.disabled = st.state.projects.length === 0;
-  }
-}
-
-function showErr(refs: LauncherRefs, msg: string): void {
-  refs.err.textContent = msg;
-  refs.err.hidden = false;
-}

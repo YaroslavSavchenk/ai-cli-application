@@ -128,7 +128,6 @@ select:focus-visible,
 /* section label: letterspaced caps */
 .drawer-label,
 .field-lb,
-.launcher-hd,
 .theme-lb,
 .boot-err-hd {
   font-size: var(--fs-label);
@@ -159,11 +158,6 @@ select:focus-visible,
 .dot.is-exit {
   background: transparent;
   border: var(--line) solid var(--exit);
-}
-
-.dot.is-new {
-  background: transparent;
-  border: var(--line) dashed var(--text-faint); /* hollow dashes: launcher tab */
 }
 
 /* ---- keyframes (handoff motion set) ---------------------------------------- */
@@ -208,6 +202,13 @@ select:focus-visible,
   }
   50% {
     opacity: 0.3;
+  }
+}
+
+/* boot-step spinner (sanctioned: handoff §10) */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -813,8 +814,9 @@ select:focus-visible,
   inset: 0;
   overflow: hidden;
   /* Own stacking context: xterm's internal z-indexed layers (link-layer
-     canvas z:2 etc.) must never escape and sit above pane chrome — an
-     invisible canvas over the launcher eats every click. */
+     canvas z:2 etc.) must never escape and sit above pane chrome or an
+     overlay sharing the pane's space — an invisible canvas eats every
+     click (real bug, 2026-07-18). */
   z-index: 0;
 }
 
@@ -886,35 +888,12 @@ html.scanlines-on .pane-scan {
 }
 
 .empty-actions .btn-go {
-  height: 30px;
+  height: var(--ctl-h-lg);
   padding: 0 var(--s-8);
   font-size: var(--fs-row);
 }
 
-/* ---- launcher (new-session tab; the launch dialog replaces it in R3) -------- */
-
-.pane.is-launcher {
-  background: var(--bg-deep);
-}
-
-.launcher {
-  position: absolute;
-  inset: 0;
-  background: var(--bg-deep);
-  padding: var(--s-8);
-  overflow: auto;
-  animation: fadeUp var(--t-fade) ease;
-}
-
-.launcher > * {
-  max-width: var(--form-w);
-}
-
-.launcher-hd {
-  margin-bottom: var(--s-6);
-  padding-bottom: var(--s-2);
-  border-bottom: var(--line) solid var(--edge-mid);
-}
+/* ---- shared form bits (projects drawer add-form, dir modal) ----------------- */
 
 .field {
   display: block;
@@ -932,45 +911,6 @@ html.scanlines-on .pane-scan {
   text-transform: none;
   letter-spacing: 0;
   color: var(--text-faint);
-}
-
-.field.is-disabled {
-  opacity: 0.45;
-}
-
-.preset-set {
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  padding: var(--s-3) var(--s-5) var(--s-4);
-  margin-bottom: var(--s-6);
-}
-
-.preset-set legend {
-  padding: 0 var(--s-2);
-}
-
-.preset-opt {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-1) 0;
-  cursor: pointer;
-  color: var(--text-2);
-}
-
-.preset-opt:hover {
-  color: var(--text);
-}
-
-.preset-opt input {
-  width: auto;
-  accent-color: var(--acc);
-}
-
-.launcher-actions {
-  display: flex;
-  gap: var(--s-4);
-  margin-top: var(--s-6);
 }
 
 /* ghost button (dialog cancel, browse, modal actions) */
@@ -1027,7 +967,7 @@ html.scanlines-on .pane-scan {
   color: var(--text);
 }
 
-.launcher-err {
+.form-err {
   margin-top: var(--s-4);
   padding: var(--s-2) var(--s-4);
   border: var(--line) solid var(--danger);
@@ -1035,11 +975,6 @@ html.scanlines-on .pane-scan {
   color: var(--danger);
   font-size: var(--fs-label);
   overflow-wrap: anywhere;
-}
-
-.launcher-none {
-  margin-top: var(--s-4);
-  color: var(--text-mute);
 }
 
 /* ---- drawers (handoff §6–§7): flex siblings, slide-in .18s ------------------ */
@@ -1464,7 +1399,7 @@ html.scanlines-on .pane-scan {
   background: var(--surface-active);
 }
 
-/* ghost + after the tabs (opens the launcher tab; the dialog in R3) */
+/* ghost + after the tabs (opens the launch dialog) */
 .tab-new {
   flex: none;
   height: var(--tab-h);
@@ -1755,7 +1690,7 @@ body.is-dnd * {
   background: var(--surface-hover);
 }
 
-.modal .launcher-err {
+.modal .form-err {
   margin: var(--s-3) var(--s-7);
 }
 
@@ -1832,6 +1767,390 @@ kbd {
   border-top: var(--line) solid var(--edge-mid);
   color: var(--text-mute);
   font-size: var(--fs-label);
+}
+
+/* ---- launch dialog (handoff §8) ---------------------------------------------
+   The modal that creates sessions. Centered over the ONE sanctioned blurred
+   backdrop; header rides its own sanctioned gradient. Every data surface —
+   chips, fields, permission cards, command preview — is mono. */
+
+.launch-scrim {
+  align-items: center;
+  padding-top: 0;
+  backdrop-filter: blur(4px); /* sanctioned: handoff launch-dialog backdrop */
+}
+
+.launch-gap {
+  flex: 1;
+}
+
+.launch-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  padding: var(--dlg-gap) var(--dlg-pad-x);
+  background: var(--grad-dialoghd); /* sanctioned: handoff dialog header */
+  border-bottom: var(--line) solid var(--edge-mid);
+}
+
+.launch-tile {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-box);
+}
+
+.launch-tile .logo-glyph {
+  font-size: var(--fs-label);
+}
+
+.launch-titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.launch-title {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: var(--ls-title);
+  color: var(--text);
+}
+
+.launch-sub {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+.launch-x {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text-dim);
+  font-size: var(--fs-row);
+  line-height: 1;
+}
+
+.launch-x:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.launch-body {
+  padding: var(--s-8) var(--dlg-pad-x);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dlg-gap);
+  overflow-y: auto;
+}
+
+/* preset chips: one click sets model + permission + resume */
+.launch-chips {
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+.chip-pill {
+  height: var(--ctl-h);
+  padding: 0 var(--s-6);
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.chip-pill:hover {
+  background: var(--surface-hover);
+  border-color: var(--edge-hover);
+}
+
+.chip-pill.is-danger {
+  color: var(--danger-mut);
+  border-color: var(--danger-edge);
+}
+
+/* the custom chip is a MODE, not a one-shot preset: toggled state follows
+   the topbar toggle pattern (surface-active + full ink) */
+.chip-pill.is-on {
+  background: var(--surface-active);
+  border-color: var(--edge-hover);
+  color: var(--text);
+}
+
+/* 2×2 fields: session name · project · model · resume */
+.launch-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-7);
+}
+
+.launch-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.launch-lb {
+  font-size: var(--fs-status);
+  font-weight: 600;
+  letter-spacing: var(--ls-field);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.launch-field input,
+.launch-field select {
+  height: var(--field-h);
+  padding: 0 var(--s-5);
+  background: var(--bg-deep);
+  border-radius: var(--r-field);
+  font-size: var(--fs-name);
+}
+
+/* custom-mode command field: command text is code/data → mono (size stays
+   the shared field size, --fs-name — itself a mono data size) */
+.launch-custom input {
+  font-family: var(--font-mono);
+}
+
+/* custom mode: claude-specific fields go visually AND functionally disabled
+   (the old launcher's is-disabled pattern — dimmed, still visible) */
+.launch-field.is-disabled,
+.perm-grid.is-disabled {
+  opacity: 0.45;
+}
+
+.perm-card:disabled {
+  cursor: default;
+}
+
+.perm-card:disabled:hover {
+  border-color: var(--edge-mid);
+}
+
+/* permission mode: 2×2 selectable cards, selection carries the accent */
+.perm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+}
+
+.perm-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+  padding: var(--s-5) var(--s-6);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-box);
+  text-align: left;
+}
+
+.perm-card:hover {
+  border-color: var(--edge-accent);
+}
+
+.perm-card.is-sel {
+  background: var(--acc-tint);
+  border-color: var(--edge-accent);
+}
+
+.perm-mode {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+  color: var(--text-2);
+}
+
+.perm-card.is-sel .perm-mode {
+  color: var(--acc);
+}
+
+.perm-card.is-danger:not(.is-sel) .perm-mode {
+  color: var(--danger-mut);
+}
+
+.perm-desc {
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+}
+
+/* the danger card's description stays red even when selected — the warning
+   must never disappear */
+.perm-card.is-danger .perm-desc {
+  color: var(--danger);
+}
+
+/* command preview: ink well echoing the EXACT argv launch() will send */
+.launch-cmd {
+  padding: var(--s-5) var(--s-6);
+  background: var(--well);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-box);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  color: var(--text-mute);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.launch-none {
+  color: var(--text-mute);
+}
+
+.launch-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-7) var(--dlg-pad-x);
+  border-top: var(--line) solid var(--edge-mid);
+  background: var(--bg-app);
+}
+
+.launch-note {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+}
+
+.launch-ft .btn,
+.launch-ft .btn-go {
+  height: var(--ctl-h-lg);
+  border-radius: var(--r-field);
+}
+
+.launch-ft .btn {
+  padding: 0 var(--s-8);
+}
+
+.launch-ft .btn-go {
+  padding: 0 var(--dlg-pad-x);
+}
+
+/* ---- boot overlay (honest steps; handoff §10 visual language) ---------------
+   Mounts only when boot outlives ~150ms; each row's mark is REAL state:
+   spinner while its promise is pending, green ✓ resolved, red × failed. */
+
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-deep);
+}
+
+.boot-panel {
+  width: min(var(--panel-w), 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+.boot-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+}
+
+.boot-brand .logo-tile {
+  width: 26px;
+  height: 26px;
+}
+
+.boot-brand .logo-glyph {
+  font-size: var(--fs-label);
+}
+
+.boot-brand-name {
+  font-size: var(--fs-row);
+  font-weight: 600;
+  letter-spacing: var(--ls-wordmark);
+  color: var(--text-hd);
+}
+
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-7) var(--s-8);
+  background: var(--well);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-card-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+}
+
+.boot-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  color: var(--text);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+.boot-step.is-done {
+  color: var(--text-mute);
+}
+
+.boot-mark {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  line-height: 1;
+}
+
+.boot-mark.is-spin {
+  width: 10px;
+  height: 10px;
+  border: var(--line) solid var(--edge-strong);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  animation: spin var(--t-spin) linear infinite;
+}
+
+.boot-mark.is-ok {
+  color: var(--ok);
+}
+
+.boot-mark.is-err {
+  color: var(--danger);
+}
+
+.boot-msg {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.boot-fatal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-5);
+}
+
+.boot-fatal-msg {
+  color: var(--text-mute);
+  font-size: var(--fs-ui);
 }
 
 /* ---- boot / restart takeover panels ---------------------------------------- */

@@ -1,14 +1,14 @@
 /**
  * Projects drawer (handoff §6, left, 272px). Rows list projects by NAME —
  * the path shows only here, as faint mono metadata (everywhere else in the
- * UI a project is its name). Each row: name, `+` (opens the launcher tab
+ * UI a project is its name). Each row: name, `+` (opens the launch dialog
  * pre-set to this project), `×` (armed two-step remove), the path, and a
  * meta line (`N active sessions` in green, else `no active sessions`).
  *
  * `+ add` in the header reveals the existing inline add flow: name +
  * directory picked in a browser modal over GET /api/fs/list (kept
  * deliberately — real server-side directories, no free-text path field) +
- * optional default model/mode feeding the launcher prefill.
+ * optional default model/mode feeding the launch-dialog prefill.
  *
  * The directory modal's Escape handling is dispatched centrally from
  * main.ts (via modalOpen()/closeModal()) so Esc priority over the drawer is
@@ -18,7 +18,7 @@ import * as st from '../state.ts';
 import * as api from '../api.ts';
 import type { PermissionMode } from '../../../shared/protocol.ts';
 import { el, button, ArmedSet, trapTab } from './util.ts';
-import { openLauncherForProject } from './panes.ts';
+import { openLaunchDialog } from './launch.ts';
 import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
@@ -94,7 +94,7 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
   const submit = el('button', 'btn is-primary', 'add');
   submit.type = 'submit';
   formActions.append(cancelBtn, submit);
-  const err = el('div', 'launcher-err');
+  const err = el('div', 'form-err');
   err.setAttribute('role', 'alert');
   err.hidden = true;
 
@@ -230,7 +230,7 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
       const row = el('div', 'proj-row');
       const line = el('div', 'proj-line');
       line.append(el('span', 'proj-name', p.name), el('span', 'drawer-gap'));
-      const add = button('chip-btn is-go', '+', () => openLauncherForProject(p.id));
+      const add = button('chip-btn is-go', '+', () => openLaunchDialog({ projectId: p.id }));
       add.setAttribute('data-k', `pnew:${p.id}`);
       add.setAttribute('aria-label', `new session in ${p.name}`);
       add.title = 'new session in this project';
@@ -301,7 +301,7 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
 
     const list = el('div', 'dirlist');
     list.setAttribute('aria-label', 'subdirectories');
-    const merr = el('div', 'launcher-err');
+    const merr = el('div', 'form-err');
     merr.setAttribute('role', 'alert');
     merr.hidden = true;
 

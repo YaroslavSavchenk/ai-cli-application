@@ -116,8 +116,8 @@ test('loadUi: prunes views for sessions the server no longer has, keeps valid on
     STORAGE_KEY,
     JSON.stringify({
       views: [
-        { id: 'v-keep', kind: 'sessions', sessions: ['s1'], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
-        { id: 'v-gone', kind: 'sessions', sessions: ['ghost'], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+        { id: 'v-keep', sessions: ['s1'], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+        { id: 'v-gone', sessions: ['ghost'], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
       ],
       active: 'does-not-exist',
     }),
@@ -131,6 +131,54 @@ test('loadUi: prunes views for sessions the server no longer has, keeps valid on
     'the view referencing an unknown session must be pruned to empty and dissolved',
   );
   assert.equal(st.state.activeViewId, 'v-keep', 'normalizeActive must fall back to the first surviving view');
+});
+
+// ---------------------------------------------------------------------------
+// Pre-R3 v2 blobs (launcher views) load without error — same schema key
+// ---------------------------------------------------------------------------
+
+test('loadUi: a pre-R3 v2 blob with a launcher view loads without error, drops the launcher view, and keeps the active mapping sane', () => {
+  st.initServer([], [mkSession('s1')]);
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        { id: 'v-launcher', kind: 'launcher', sessions: [], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+        { id: 'v-sess', kind: 'sessions', sessions: ['s1'], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+      ],
+      active: 'v-launcher', // the launcher tab was active before the upgrade
+    }),
+  );
+
+  assert.doesNotThrow(() => st.loadUi());
+
+  assert.deepEqual(
+    st.state.views.map((v) => v.id),
+    ['v-sess'],
+    'the launcher view must be dropped (the launch dialog replaced it), the session view kept',
+  );
+  assert.equal(
+    st.state.activeViewId,
+    'v-sess',
+    'active must fall back to a surviving view when it pointed at a dropped launcher view',
+  );
+});
+
+test('loadUi: a pre-R3 v2 blob holding ONLY launcher views degrades to the legal zero-view empty state', () => {
+  st.initServer([], []);
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        { id: 'v-launcher', kind: 'launcher', sessions: [], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+      ],
+      active: 'v-launcher',
+    }),
+  );
+
+  assert.doesNotThrow(() => st.loadUi());
+  assert.equal(st.state.views.length, 0);
+  assert.equal(st.state.activeViewId, '');
 });
 
 // ---------------------------------------------------------------------------
@@ -154,15 +202,12 @@ test('loadUi: migrates a v1 blob to v2 views, drops the v1 key, and keeps a vali
 
   st.loadUi();
 
-  assert.deepEqual(st.state.views.map((v) => v.id), ['tabA', 'tabB', 'tabC']);
-  const [tabA, tabB, tabC] = st.state.views;
-  assert.equal(tabA?.kind, 'sessions');
+  // tabC (empty) is dropped: there is no launcher view kind anymore.
+  assert.deepEqual(st.state.views.map((v) => v.id), ['tabA', 'tabB']);
+  const [tabA, tabB] = st.state.views;
   assert.deepEqual(tabA?.sessions, ['s1', 's2']);
   assert.equal(tabA?.focused, 1, 'v1 focused pane index must map to the migrated slot index');
-  assert.equal(tabB?.kind, 'sessions');
   assert.deepEqual(tabB?.sessions, ['s3']);
-  assert.equal(tabC?.kind, 'launcher', 'an empty v1 tab must become a launcher view, not vanish');
-  assert.deepEqual(tabC?.sessions, []);
 
   assert.equal(st.state.activeViewId, 'tabB', 'activeTabId must carry over when it maps to a migrated view');
   assert.equal(memoryStorage.getItem(STORAGE_KEY_V1), null, 'the v1 key must be dropped after migration');
@@ -176,6 +221,42 @@ test('loadUi: a malformed v1 blob degrades to a clean (empty) start instead of t
   assert.doesNotThrow(() => st.loadUi());
   assert.equal(st.state.views.length, 0);
   assert.equal(st.state.activeViewId, '');
+});
+
+// ---------------------------------------------------------------------------
+// viewStatus (R3: kind field removed from ViewState — 'new'/launcher status
+// is no longer a reachable return value; only 'attn' | 'run' | 'exit' exist)
+// ---------------------------------------------------------------------------
+
+function mkView(sessions: string[]): { id: string; sessions: string[]; focused: number; l3: 'L' | 'R'; split: { col: number; row: number } } {
+  return { id: crypto.randomUUID(), sessions, focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } };
+}
+
+test("viewStatus: attention beats a running session -> 'attn'", () => {
+  const running = mkSession('s1');
+  const attn = mkSession('s2');
+  attn.attention = true;
+  st.state.sessions.set(running.id, running);
+  st.state.sessions.set(attn.id, attn);
+  assert.equal(st.viewStatus(mkView([running.id, attn.id])), 'attn');
+});
+
+test("viewStatus: no attention, at least one running -> 'run'", () => {
+  const running = mkSession('s1');
+  const exited = mkSession('s2');
+  exited.status = 'exited';
+  st.state.sessions.set(running.id, running);
+  st.state.sessions.set(exited.id, exited);
+  assert.equal(st.viewStatus(mkView([exited.id, running.id])), 'run');
+});
+
+test("viewStatus: no attention, none running -> 'exit' (never 'new' — no launcher-view kind left to produce it)", () => {
+  const exited = mkSession('s1');
+  exited.status = 'exited';
+  st.state.sessions.set(exited.id, exited);
+  const status = st.viewStatus(mkView([exited.id]));
+  assert.equal(status, 'exit');
+  assert.notEqual(status, 'new', "'new' must be structurally unreachable post-R3");
 });
 
 // ---------------------------------------------------------------------------

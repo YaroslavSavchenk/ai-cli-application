@@ -59,39 +59,35 @@ export function render(): void {
   left.append(el('span', 'status-seg', lat !== null ? `ws ${lat} ms` : 'ws —'));
 
   const v = st.activeView();
-  const paneCount = v === null || v.kind === 'launcher' ? 0 : v.sessions.length;
+  const paneCount = v === null ? 0 : v.sessions.length;
   left.append(el('span', 'status-seg', `${st.state.sessions.size} sessions · ${paneCount} panes`));
 
   const attn = st.attentionCount();
   if (attn > 0) left.append(el('span', 'status-seg status-attn', `${attn} awaiting input`));
 
   if (v !== null) {
-    if (v.kind === 'launcher') {
-      left.append(el('span', 'status-seg', 'new session — pick a project and launch'));
-    } else {
-      const sessionId = v.sessions[v.focused] ?? null;
-      const info = sessionId !== null ? st.state.sessions.get(sessionId) : undefined;
-      if (info !== undefined) {
-        const pname = st.projectName(info.projectId);
+    const sessionId = v.sessions[v.focused] ?? null;
+    const info = sessionId !== null ? st.state.sessions.get(sessionId) : undefined;
+    if (info !== undefined) {
+      const pname = st.projectName(info.projectId);
+      left.append(
+        el(
+          'span',
+          'status-seg status-strong',
+          pname !== null ? `${pname} · ${info.title}` : info.title,
+        ),
+      );
+      left.append(el('span', 'status-seg', `${info.cols}×${info.rows}`));
+      if (info.status === 'exited') {
+        const code = info.exitCode ?? 0;
         left.append(
-          el(
-            'span',
-            'status-seg status-strong',
-            pname !== null ? `${pname} · ${info.title}` : info.title,
-          ),
+          el('span', 'status-seg status-danger', code === 0 ? 'exited' : `exited · ${code}`),
         );
-        left.append(el('span', 'status-seg', `${info.cols}×${info.rows}`));
-        if (info.status === 'exited') {
-          const code = info.exitCode ?? 0;
-          left.append(
-            el('span', 'status-seg status-danger', code === 0 ? 'exited' : `exited · ${code}`),
-          );
-        } else {
-          const conn = deps.getFocusedConn();
-          const cls =
-            conn === 'live' ? 'status-ok' : conn === 'dead' ? 'status-danger' : 'status-warn';
-          left.append(el('span', `status-seg ${cls}`, conn ?? 'connecting'));
-        }
+      } else {
+        const conn = deps.getFocusedConn();
+        const cls =
+          conn === 'live' ? 'status-ok' : conn === 'dead' ? 'status-danger' : 'status-warn';
+        left.append(el('span', `status-seg ${cls}`, conn ?? 'connecting'));
       }
     }
   }

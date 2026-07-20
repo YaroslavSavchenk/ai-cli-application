@@ -45,8 +45,8 @@ function splitIntoActive(sessionId: string): void {
  * history).
  */
 /** Claude flags that already resume a conversation ('-c'/'-r' are the short
- *  aliases; our own launcher preset emits '-c'). Prepending '--continue' on
- *  top of any of these would double the flag. */
+ *  aliases; the launch dialog emits '--continue'). Prepending '--continue'
+ *  on top of any of these would double the flag. */
 const RESUME_FLAGS = ['--continue', '-c', '--resume', '-r'];
 
 async function relaunchPrevious(p: PreviousSession): Promise<void> {

@@ -194,18 +194,19 @@ function resolve(x: number, y: number): Target {
       if (targetId === spec.viewId) return { t: 'reorder', index: idx };
       if (x < r.left + edge) return { t: 'reorder', index: idx };
       if (x > r.right - edge) return { t: 'reorder', index: idx + 1 };
-      if (source.kind === 'launcher') return { t: 'reorder', index: idx };
       const target = viewById(targetId);
       if (target === undefined) return null;
-      const tCount = target.kind === 'launcher' ? 0 : target.sessions.length;
-      return { t: 'tab-merge', viewId: targetId, ok: tCount + srcCount <= st.MAX_PANES };
+      return {
+        t: 'tab-merge',
+        viewId: targetId,
+        ok: target.sessions.length + srcCount <= st.MAX_PANES,
+      };
     }
     if (strip !== null) return { t: 'reorder', index: stripInsertIndex(strip, x) };
-    if (paneEl !== null && source.kind !== 'launcher') {
+    if (paneEl !== null) {
       const active = st.activeView();
       if (active === null || active.id === spec.viewId) return null; // own panes
-      const aCount = active.kind === 'launcher' ? 0 : active.sessions.length;
-      if (aCount + srcCount > st.MAX_PANES) return { t: 'reject-full' };
+      if (active.sessions.length + srcCount > st.MAX_PANES) return { t: 'reject-full' };
       const slot = Number(paneEl.dataset.slot);
       const zones = st.dropZonesFor(active, slot, srcCount);
       if (zones.length === 0) return null; // dead area (e.g. short pane of a 3-split)
@@ -230,8 +231,7 @@ function resolve(x: number, y: number): Target {
     if (targetId === spec.viewId) return null;
     const target = viewById(targetId);
     if (target === undefined) return null;
-    const tCount = target.kind === 'launcher' ? 0 : target.sessions.length;
-    return { t: 'move-to-view', viewId: targetId, ok: tCount + 1 <= st.MAX_PANES };
+    return { t: 'move-to-view', viewId: targetId, ok: target.sessions.length + 1 <= st.MAX_PANES };
   }
   if (paneEl !== null) {
     const slot = Number(paneEl.dataset.slot);
@@ -275,14 +275,8 @@ function setTarget(target: Target, x: number): void {
       if (host !== undefined && host !== null) {
         host.dataset.zone = target.zone;
         const lb = host.querySelector('.pane-drop-lb');
-        if (lb !== null) {
-          lb.textContent =
-            target.zone === 'fill'
-              ? drag.spec.kind === 'tab' && (viewById(drag.spec.viewId)?.sessions.length ?? 0) > 1
-                ? 'merge here'
-                : 'open here'
-              : 'split here';
-        }
+        // 'fill' only arises for multi-session merges now (dropZonesFor).
+        if (lb !== null) lb.textContent = target.zone === 'fill' ? 'merge here' : 'split here';
         host.hidden = false;
       }
       break;
