@@ -1,12 +1,17 @@
 /*
- * Self-hosted chrome typeface: Barlow (SIL Open Font License 1.1 — license
- * committed at ../assets/fonts/OFL.txt). Latin-subset woff2, weights 400 and
- * 600, from the Google Fonts pipeline (upstream: github.com/jpt/barlow via
+ * Self-hosted typefaces — no runtime network font fetch (offline localhost
+ * tool). Referenced from tokens.css as --font-sans / --font-mono.
+ *
+ * Barlow (chrome face) — SIL Open Font License 1.1, license committed at
+ * ../assets/fonts/OFL.txt. Latin-subset woff2, weights 400/500/600/700,
+ * from the Google Fonts pipeline (upstream: github.com/jpt/barlow via
  * github.com/google/fonts/tree/main/ofl/barlow).
  *
- * Referenced as --font-sans in tokens.css — the "steam blend" chrome face.
- * Only 400/600 are bundled; sans rules must not ask for other weights
- * (mono keeps 700 for emphasis — system monos carry a real bold).
+ * JetBrains Mono (terminal + all data) — SIL Open Font License 1.1, license
+ * committed at ../assets/fonts/OFL-JetBrainsMono.txt. Full-glyph woff2 from
+ * the official release (github.com/JetBrains/JetBrainsMono, webfonts build)
+ * — full coverage on purpose: terminal output is not latin-only. Weights
+ * 400/500/700 per the handoff.
  */
 @font-face {
   font-family: "Barlow";
@@ -19,7 +24,47 @@
 @font-face {
   font-family: "Barlow";
   font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/barlow-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
   font-weight: 600;
   font-display: swap;
   src: url("../assets/fonts/barlow-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/barlow-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/jetbrains-mono-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/jetbrains-mono-700.woff2") format("woff2");
 }

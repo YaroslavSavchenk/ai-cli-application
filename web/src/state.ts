@@ -60,6 +60,12 @@ interface AppState {
   views: ViewState[];
   activeViewId: string;
   drawer: DrawerView;
+  /** Presence ping round-trip in ms; null until measured / while disconnected. */
+  wsLatencyMs: number | null;
+  /** Backend boot time (GET /api/runtime startedAt); null until fetched. */
+  serverStartedAt: string | null;
+  /** Poll/pong-derived backend reachability (topbar dot + statusline pty item). */
+  backendReachable: boolean;
 }
 
 export const state: AppState = {
@@ -69,6 +75,9 @@ export const state: AppState = {
   views: [],
   activeViewId: '',
   drawer: null,
+  wsLatencyMs: null,
+  serverStartedAt: null,
+  backendReachable: true,
 };
 
 // --------------------------------------------------------------------------
@@ -261,13 +270,19 @@ export function loadUi(): void {
       ? active
       : (views[0]?.id ?? '');
   reconcileViews();
-  // Only a truly empty strip gets the default launcher tab — a fresh client
-  // on a session-bearing backend starts on the sessions, not on a blank form.
-  if (state.views.length === 0) state.views.push(newLauncherView());
-  if (!state.views.some((v) => v.id === state.activeViewId)) {
+  // Zero views is a legal state (the handoff's empty state): the launcher
+  // tab opens on demand instead of being ever-present.
+  normalizeActive();
+  saveUi();
+}
+
+/** Keep activeViewId pointing at a real view ('' when none exist). */
+function normalizeActive(): void {
+  if (state.views.length === 0) {
+    state.activeViewId = '';
+  } else if (!state.views.some((v) => v.id === state.activeViewId)) {
     state.activeViewId = (state.views[0] as ViewState).id;
   }
-  saveUi();
 }
 
 // --------------------------------------------------------------------------
@@ -367,13 +382,14 @@ export function viewOfSession(sessionId: string): ViewState | undefined {
   return state.views.find((v) => v.sessions.includes(sessionId));
 }
 
-/** Remove a view; keep at least one view and a valid active id. */
+/** Remove a view; views may reach zero (the empty state). Keeps active valid. */
 function dissolveView(id: string): void {
   const idx = state.views.findIndex((v) => v.id === id);
   if (idx === -1) return;
   state.views.splice(idx, 1);
-  if (state.views.length === 0) state.views.push(newLauncherView());
-  if (!state.views.some((v) => v.id === state.activeViewId)) {
+  if (state.views.length === 0) {
+    state.activeViewId = '';
+  } else if (!state.views.some((v) => v.id === state.activeViewId)) {
     state.activeViewId = (state.views[Math.min(idx, state.views.length - 1)] as ViewState).id;
   }
 }
@@ -415,7 +431,10 @@ export function reconcileViews(skipViewId?: string): boolean {
       changed = true;
     }
   }
-  if (changed) saveUi();
+  if (changed) {
+    normalizeActive();
+    saveUi();
+  }
   return changed;
 }
 
@@ -521,9 +540,10 @@ export function projectName(projectId: string | undefined): string | null {
 // UI state: tabs (views)
 // --------------------------------------------------------------------------
 
-export function activeView(): ViewState {
+/** The active view — null when no views exist (the empty state). */
+export function activeView(): ViewState | null {
   const v = state.views.find((v) => v.id === state.activeViewId);
-  return v ?? (state.views[0] as ViewState);
+  return v ?? state.views[0] ?? null;
 }
 
 /** Visible pane count of a view (a launcher view renders one pane). */
@@ -688,6 +708,7 @@ export function replaceSessionInView(viewId: string, slot: number, newId: string
 
 export function focusPane(i: number): void {
   const v = activeView();
+  if (v === null) return;
   if (i >= 0 && i < viewLayout(v) && v.focused !== i) {
     v.focused = i;
     saveUi();
@@ -720,6 +741,7 @@ function neighbors(v: ViewState): Partial<Record<Dir, number>>[] {
 
 export function moveFocus(dir: Dir): void {
   const v = activeView();
+  if (v === null) return;
   const target = neighbors(v)[v.focused]?.[dir];
   if (target !== undefined) focusPane(target);
 }
@@ -730,7 +752,7 @@ export function moveFocus(dir: Dir): void {
  */
 export function moveSession(dir: Dir): void {
   const v = activeView();
-  if (v.sessions[v.focused] === undefined) return;
+  if (v === null || v.sessions[v.focused] === undefined) return;
   const target = neighbors(v)[v.focused]?.[dir];
   if (target !== undefined) swapPanes(v.id, v.focused, target);
 }
@@ -758,6 +780,7 @@ export function swapPanes(viewId: string, from: number, to: number): void {
 export function setSplit(axis: 'col' | 'row', f: number, commit: boolean): number {
   const v = activeView();
   const clamped = clampSplit(f);
+  if (v === null) return clamped;
   v.split[axis] = clamped;
   if (commit) {
     saveUi();
@@ -794,9 +817,49 @@ export function toggleDrawer(view: Exclude<DrawerView, null>): void {
   notify('drawer');
 }
 
+/** Open (never close) a drawer — the empty state's "Relaunch previous run". */
+export function openDrawer(view: Exclude<DrawerView, null>): void {
+  if (state.drawer !== view) {
+    state.drawer = view;
+    notify('drawer');
+  }
+}
+
 export function closeDrawer(): void {
   if (state.drawer !== null) {
     state.drawer = null;
     notify('drawer');
+  }
+}
+
+// --------------------------------------------------------------------------
+// Connection readouts (statusline + topbar dot)
+// --------------------------------------------------------------------------
+
+/** Presence pong round-trip; null on presence-socket loss. */
+export function setWsLatency(ms: number | null): void {
+  if (state.wsLatencyMs !== ms) {
+    state.wsLatencyMs = ms;
+    notify('conn');
+  }
+}
+
+/** Backend boot time from GET /api/runtime (statusline uptime). */
+export function setServerStartedAt(iso: string): void {
+  if (state.serverStartedAt !== iso) {
+    state.serverStartedAt = iso;
+    notify('conn');
+  }
+}
+
+/**
+ * Poll-driven backend health: repeated poll failures flip it false, the
+ * first success (or presence pong) flips it back. 401/403 escalates to the
+ * full-page reload panel instead (main.ts).
+ */
+export function setBackendReachable(ok: boolean): void {
+  if (state.backendReachable !== ok) {
+    state.backendReachable = ok;
+    notify('conn');
   }
 }

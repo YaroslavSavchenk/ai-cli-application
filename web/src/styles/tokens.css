@@ -1,134 +1,170 @@
 /*
  * Design tokens — the single source of truth for every color, size and
- * timing in the UI. See web/DESIGN.md for the rationale ("steam blend").
+ * timing in the UI, remapped 2026-07-20 to the hi-fi handoff
+ * (design/README.md "Design tokens"; transcription in web/DESIGN.md).
  *
  * The xterm.js theme is built at runtime from the --xt-* properties below
  * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
- * and the app palette are ONE system by construction. Never hardcode a color
+ * and the app palette are ONE system. The theme popover (ui/theme.ts)
+ * overrides --term-bg and the neutral --xt-* text slots inline on :root;
+ * ANSI status hues are semantic and never themed. Never hardcode a color
  * outside this file.
  */
 :root {
-  /* ---- surfaces: Steam charcoal-blue ramp, flat --------------------------
-     shell band (bars) -> base window -> raised chrome -> hover/pressed.
-     Terminals stay near-black regardless of chrome. */
-  --surface-0: #10151c; /* shell band: topbar, tab gutter, statusline        */
-  --surface-1: #171d25; /* base window: workspace floor, drawer              */
-  --surface-2: #1f2731; /* raised: pane headers, active tab, modals, rows    */
-  --surface-3: #28323e; /* hover / pressed raised                            */
-  --well: #0e1319;      /* inset: inputs, kbd chips, previous-run floor      */
-  --term-bg: #0b0e13;   /* terminal floor — the hero surface                 */
-  --scrim: rgba(8, 11, 15, 0.72); /* modal scrim: flat, never blurred        */
+  /* ---- surfaces (handoff core palette) ----------------------------------- */
+  --bg-app: #171d25;      /* app background                                   */
+  --bg-deep: #12161d;     /* deep bg: logo tiles, inset inputs, add-form floor */
+  --term-bg: #0e1116;     /* terminal ground — themable (ui/theme.ts)         */
+  --well: #0e1116;        /* static ink well: inputs, kbd, command previews —
+                             same hex as the DEFAULT ground but NOT themed    */
+  --surface: #1b222c;     /* bars / drawers / cards                           */
+  --surface-panehd: #141920;
+  --surface-status: #10141a;
+  --surface-hover: #212a35;
+  --surface-active: #232b36; /* pressed / toggled-on controls                 */
+  --scrim: rgba(8, 10, 14, 0.55); /* dialog backdrop (R3 adds blur per spec)  */
 
-  --edge: #2a333f;        /* structural 1px lines                            */
-  --edge-soft: #202832;   /* quiet 1px lines                                 */
-  --edge-strong: #3a4654; /* hover-lit lines, scrollbar thumb                */
+  /* ---- borders ------------------------------------------------------------ */
+  --edge: #262f3b;        /* structural: bars, pane cards, dividers           */
+  --edge-strong: #2e3846; /* controls: buttons, inputs, tags                  */
+  --edge-mid: #232b36;    /* quiet: drawer header underline, dialog seams     */
+  --edge-soft: #1d242e;   /* pane-header underline, statusline top            */
+  --edge-accent: #3d5a75; /* focused-pane outline, split badge, selected card */
+  --edge-hover: #3d4b5d;  /* hover-lit control borders                        */
 
-  --text: #dde4ec;
-  --text-mute: #94a0ac;
-  --text-faint: #5d6976;
+  /* ---- text ramp ----------------------------------------------------------- */
+  --text: #dbe2ea;
+  --text-hd: #aab7c4;     /* wordmark, headings                               */
+  --text-2: #8e9cab;      /* secondary (inactive tab names)                   */
+  --text-mute: #7d8b9c;   /* muted controls                                   */
+  --text-dim: #5c6b7c;    /* dim: statusline, labels, paths                   */
+  --text-faint: #3d4b5d;  /* faint: hints, section labels, empty meta         */
 
-  /* ---- the ONE interactive accent: Steam light blue ----------------------
-     Active tab, focused pane border, selection, drop zones, links, focus
-     rings. Nothing else is ever blue; blue never means status. */
-  --acc: #66c0f4;
-  --acc-hot: #1a9fff;
-  --acc-dim: #3d7ba6;
-  --acc-wash: rgba(102, 192, 244, 0.12); /* drop-zone tint                   */
-  --acc-sel: rgba(102, 192, 244, 0.3);   /* text selection (app + xterm)     */
+  /* ---- interactive accent (Steam light-blue) ------------------------------ */
+  --acc: #5cb8f0;
+  --acc-glow: rgba(92, 184, 240, 0.45);
+  --acc-tint: rgba(92, 184, 240, 0.08);
+  --acc-sel: rgba(92, 184, 240, 0.28); /* text selection (app + xterm)        */
 
-  /* ---- status: exclusive meanings, never interaction --------------------- */
-  --ok: #5fc74f;        /* running                                           */
-  --attn: #e6a838;      /* attention ONLY (inverse badge, needs-input text)  */
-  --attn-ink: #1a1204;  /* text on amber                                     */
-  --exit: #5c6672;      /* exited (hollow dots, muted rows)                  */
-  --danger: #e0655a;    /* kill / nonzero exit / rejected drop               */
-  --danger-hot: #c22e2e; /* armed-confirm background                         */
-  --danger-ink: #ffffff; /* text on danger-hot                               */
+  /* ---- status: exclusive meanings ------------------------------------------ */
+  --ok: #64c25a;          /* running / connected / "go"                       */
+  --ok-text: #7ed673;     /* text on green-tinted "go" buttons                */
+  --ok-tint: rgba(100, 194, 90, 0.08);
+  --ok-tint-hover: rgba(100, 194, 90, 0.18);
+  --ok-glow: rgba(100, 194, 90, 0.3);
+  --attn: #e0a53c;        /* needs-attention ONLY                             */
+  --attn-tint: rgba(224, 165, 60, 0.15);
+  --danger: #d95c5c;      /* kill / nonzero exit / bypass tag                 */
+  --danger-mut: #a05252;  /* muted danger (yolo chip, R3)                     */
+  --danger-edge: #4a2f33; /* danger-tinted borders                            */
+  --danger-ink: #ffffff;  /* text on armed-confirm fill                       */
+  --exit: #3d4b5d;        /* exited / idle dot                                */
 
-  /* green primary action (same "go" family as --ok): new session, relaunch,
-     reload — the one place the faithful mock's warmth carries an action */
-  --primary: #4e9e2f;
-  --primary-hover: #5cb238;
-  --primary-ink: #f0fae8;
+  /* ---- sanctioned gradients (handoff) -------------------------------------- */
+  --grad-topbar: linear-gradient(180deg, #1f2833, #1b222c);
+  --grad-panearea: radial-gradient(1100px 520px at 32% -10%, #1b232f, #12161d);
 
-  /* ---- xterm palette (same system, near-black floor) --------------------- */
+  /* ---- the four sanctioned shadows (handoff) -------------------------------- */
+  --sh-pane: 0 12px 32px rgba(0, 0, 0, 0.32);
+  --sh-dialog: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --sh-popover: 0 14px 36px rgba(0, 0, 0, 0.45);
+  --sh-ghost: 0 10px 28px rgba(0, 0, 0, 0.55);
+
+  /* ---- xterm palette --------------------------------------------------------
+     Neutral slots follow the "default" text ramp (out/cmd/dim); the theme
+     popover overrides exactly these on :root. ANSI status hues below the
+     line are semantic (green/amber/red + accent blue) and NEVER themed. */
   --xt-bg: var(--term-bg);
-  --xt-fg: #c7cfd6;
-  --xt-cursor: #c7cfd6;
-  --xt-cursor-accent: #0b0e13;
+  --xt-fg: #b7c2cd;             /* ramp.out                                   */
+  --xt-cursor: #e6edf3;         /* ramp.cmd                                   */
+  --xt-cursor-accent: var(--term-bg);
   --xt-selection: var(--acc-sel);
+  --xt-white: #b7c2cd;          /* ramp.out                                   */
+  --xt-bright-white: #e6edf3;   /* ramp.cmd (bold/bright)                     */
+  --xt-bright-black: #66788a;   /* ramp.dim (faint)                           */
   --xt-black: #1c232c;
-  --xt-red: #de756e;
-  --xt-green: #7ec97e;
-  --xt-yellow: #d8bc74;
-  --xt-blue: #7ca7dd;
-  --xt-magenta: #b58cc9;
-  --xt-cyan: #6cc0cd;
-  --xt-white: #c7cfd6;
-  --xt-bright-black: #5d6976;
+  --xt-red: #d95c5c;
+  --xt-green: #64c25a;
+  --xt-yellow: #e0a53c;
+  --xt-blue: #5cb8f0;
+  --xt-magenta: #b39df2;
+  --xt-cyan: #66d9e8;
   --xt-bright-red: #ef938c;
-  --xt-bright-green: #99dc99;
-  --xt-bright-yellow: #ead28e;
-  --xt-bright-blue: #9dc0ea;
-  --xt-bright-magenta: #cfaade;
-  --xt-bright-cyan: #8bd8e2;
-  --xt-bright-white: #e9eef4;
+  --xt-bright-green: #7ed673;
+  --xt-bright-yellow: #ecc06d;
+  --xt-bright-blue: #8fd0f8;
+  --xt-bright-magenta: #cdbbf7;
+  --xt-bright-cyan: #8ce7f2;
 
-  /* ---- type: bundled sans for chrome, mono for DATA ----------------------
-     Barlow (self-hosted woff2, fonts.css) carries buttons, labels, copy.
-     Mono carries everything that is data: session names, tab labels,
-     statuses, paths, dimensions, shortcuts, the statusline. */
+  /* ---- type ------------------------------------------------------------------
+     Barlow (bundled woff2 400/500/600/700) carries chrome; JetBrains Mono
+     (bundled woff2 400/500/700, official release) leads the mono stack and
+     carries the terminal and everything that is data. */
   --font-sans: "Barlow", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", "JetBrains Mono", "Berkeley Mono",
-    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs-chrome: 13px;  /* sans chrome                                         */
-  --fs-data: 12px;    /* mono data rows, tabs, statusline                    */
-  --fs-micro: 10.5px; /* micro labels, statuses, chips                       */
-  --fs-term: 13px;
-  --ls-caps: 0.09em;  /* letterspacing for small-caps micro-labels           */
+  --font-mono: "JetBrains Mono", "Cascadia Mono", "IBM Plex Mono",
+    ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-ui: 12px;        /* topbar buttons, dialog copy                        */
+  --fs-row: 13px;       /* drawer row names, empty-state buttons              */
+  --fs-label: 11px;     /* section headers (600, ls 1.4px), pane project      */
+  --fs-tab: 11.5px;     /* tab names (mono)                                   */
+  --fs-name: 12px;      /* session names (mono)                               */
+  --fs-status: 10.5px;  /* statusline, hints, paths (mono)                    */
+  --fs-tag: 9.5px;      /* model/permission tags, split badge (mono)          */
+  --fs-micro: 10px;     /* drawer section labels (mono, ls 1px)               */
+  --fs-term: 12.5px;    /* terminal body (handoff)                            */
+  --ls-wordmark: 1.6px;
+  --ls-label: 1.4px;
 
-  /* ---- strict spacing scale ---------------------------------------------- */
+  /* ---- radius by role (handoff) ----------------------------------------------- */
+  --r-tab: 9px;         /* tabs: 9px 9px 0 0                                  */
+  --r-card: 12px;       /* pane cards, dialogs                                */
+  --r-card-sm: 10px;    /* popover, boot cards, empty-state tile              */
+  --r-box: 9px;         /* command preview, permission cards (R3)             */
+  --r-btn: 7px;         /* buttons, tags, logo tile                           */
+  --r-input: 6px;       /* drawer inputs, small buttons                       */
+  --r-pill: 13px;       /* preset chips (R3)                                  */
+
+  /* ---- spacing scale ------------------------------------------------------- */
   --s-1: 2px;
   --s-2: 4px;
   --s-3: 6px;
   --s-4: 8px;
-  --s-5: 12px;
-  --s-6: 16px;
-  --s-7: 24px;
+  --s-5: 10px;
+  --s-6: 12px;
+  --s-7: 14px;
+  --s-8: 18px;
 
-  /* ---- structure ---------------------------------------------------------- */
-  --bar-h: 36px;        /* topbar (brand + tab strip + toggles)              */
-  --tab-h: 29px;        /* tab block, bottom-aligned in the strip            */
-  --status-h: 26px;
-  --paneheader-h: 30px;
-  --drawer-w: 340px;
-  --radius: 3px;        /* Steam cap — nothing rounder                       */
-  --radius-sm: 2px;     /* chips, kbd, tiny buttons                          */
+  /* ---- structure ------------------------------------------------------------ */
+  --topbar-h: 44px;
+  --tab-h: 30px;        /* tab block, bottom-aligned in the ~35px strip       */
+  --status-h: 23px;
+  --panehd-h: 30px;
+  --drawerhd-h: 34px;
+  --drawer-proj-w: 272px;
+  --drawer-sess-w: 296px;
+  --pane-gap: 10px;     /* pane grid gap AND padding                          */
   --line: 1px;
-  --tick: 2px;          /* active-tab / insertion-caret accent bar           */
-  --divider-hit: 9px;   /* invisible grab strip centered on a 1px gutter     */
-
-  /* ---- component metrics (no one-off px in app.css) ----------------------- */
-  --dot: 7px;           /* status dots (tabs, pane headers)                  */
-  --badge-block: 14px;  /* attention badge min block                         */
-  --ghost-h: 30px;      /* drag ghost chip height                            */
-  --form-w: 380px;      /* in-pane form column (launcher)                    */
+  --tick: 2px;          /* active-tab glow bar, insertion caret               */
+  --divider-hit: 10px;  /* grab strip centered in the pane gap                */
+  --dot: 7px;           /* status dots                                        */
+  --ctl-h: 26px;        /* topbar buttons                                     */
+  --chip-h: 20px;       /* row buttons (+ × split ⇱)                          */
+  --popover-w: 268px;
   --modal-w: 560px;
   --modal-w-wide: 680px;
-  --panel-w: 460px;     /* boot / restart takeover panel                     */
+  --panel-w: 460px;     /* boot / restart takeover panel                      */
   --dirlist-min-h: 160px;
-  --sc-keys-w: 210px;   /* shortcuts overlay keys column                     */
+  --sc-keys-w: 210px;   /* shortcuts overlay keys column                      */
+  --form-w: 380px;      /* launcher-tab form column                           */
 
-  /* ---- elevation: exactly one real shadow — the drag ghost ---------------- */
-  --elev-ghost: 0 10px 26px rgba(0, 0, 0, 0.55);
+  /* ---- motion (handoff set, <=.2s + sanctioned pulses) ------------------------ */
+  --t-btn: 0.15s;       /* control color/border transitions                   */
+  --t-fade: 0.2s;       /* fadeUp: dialogs, popover, new content              */
+  --t-slide: 0.18s;     /* drawer slide-in                                    */
+  --t-pulse: 1.6s;      /* attention pulse (sanctioned, infinite)             */
 
-  /* ---- motion: functional only, <=150ms ----------------------------------- */
-  --t-fast: 80ms;
-  --t-move: 120ms;
-  --t-pulse: 150ms; /* single-shot feedback pulses (reject) — the motion ceiling */
-
-  /* ---- z ------------------------------------------------------------------- */
-  --z-drawer: 30;
+  /* ---- z ---------------------------------------------------------------------- */
+  --z-popover: 45;
   --z-modal: 50;
   --z-overlay: 60;
   --z-ghost: 70; /* drag ghost rides above everything */

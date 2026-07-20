@@ -1,10 +1,14 @@
 /**
- * Projects drawer: manage view. Rows list projects by NAME — the path shows
- * only here, as secondary metadata (everywhere else in the UI a project is
- * its name). Add = name + directory picked in a browser modal over
- * GET /api/fs/list (navigate up/down, choose the current dir); optional
- * default model/mode feed the launcher's prefill. Delete is an armed
- * two-step confirm.
+ * Projects drawer (handoff §6, left, 272px). Rows list projects by NAME —
+ * the path shows only here, as faint mono metadata (everywhere else in the
+ * UI a project is its name). Each row: name, `+` (opens the launcher tab
+ * pre-set to this project), `×` (armed two-step remove), the path, and a
+ * meta line (`N active sessions` in green, else `no active sessions`).
+ *
+ * `+ add` in the header reveals the existing inline add flow: name +
+ * directory picked in a browser modal over GET /api/fs/list (kept
+ * deliberately — real server-side directories, no free-text path field) +
+ * optional default model/mode feeding the launcher prefill.
  *
  * The directory modal's Escape handling is dispatched centrally from
  * main.ts (via modalOpen()/closeModal()) so Esc priority over the drawer is
@@ -14,6 +18,7 @@ import * as st from '../state.ts';
 import * as api from '../api.ts';
 import type { PermissionMode } from '../../../shared/protocol.ts';
 import { el, button, ArmedSet, trapTab } from './util.ts';
+import { openLauncherForProject } from './panes.ts';
 import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
@@ -26,26 +31,29 @@ export interface ProjectsDrawer {
 
 export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): ProjectsDrawer {
   const root = el('section', 'drawer-view');
-  root.hidden = true;
 
   const hd = el('header', 'drawer-hd');
-  const gap = el('span', 'drawer-gap');
+  hd.append(el('span', 'drawer-label', 'PROJECTS'), el('span', 'drawer-gap'));
+  const addBtn = button('chip-btn is-go', '+ add', () => toggleForm());
+  addBtn.title = 'add project';
+  addBtn.setAttribute('aria-expanded', 'false');
   const close = button('drawer-x', '×', () => st.closeDrawer());
   close.setAttribute('aria-label', 'close projects panel');
   close.title = 'close panel (esc)';
-  hd.append(el('span', 'drawer-label', 'projects'), gap, close);
+  hd.append(addBtn, close);
 
   const body = el('div', 'drawer-body');
   const listHost = el('div', 'proj-list');
 
   // ---- add form (static DOM — never rebuilt, typing survives polls) -------
   const form = el('form', 'proj-add');
-  form.append(el('div', 'launcher-hd', 'add project'));
+  form.hidden = true;
 
   const nameField = el('label', 'field');
   nameField.append(el('span', 'field-lb', 'name'));
   const nameInput = el('input');
   nameInput.name = 'name';
+  nameInput.placeholder = 'project name';
   nameInput.spellcheck = false;
   nameField.append(nameInput);
 
@@ -81,20 +89,32 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
   }
   modeField.append(modeSelect);
 
-  const submit = el('button', 'btn is-primary', 'add project');
+  const formActions = el('div', 'proj-add-actions');
+  const cancelBtn = button('btn', 'cancel', () => toggleForm(false));
+  const submit = el('button', 'btn is-primary', 'add');
   submit.type = 'submit';
+  formActions.append(cancelBtn, submit);
   const err = el('div', 'launcher-err');
   err.setAttribute('role', 'alert');
   err.hidden = true;
 
-  form.append(nameField, dirField, modelField, modeField, submit, err);
-  body.append(listHost, form);
+  form.append(nameField, dirField, modelField, modeField, formActions, err);
+  body.append(form, listHost);
   root.append(hd, body);
   host.append(root);
 
   let chosenPath: string | undefined;
   let lastVisible = false;
   let lastSig = '';
+
+  function toggleForm(show?: boolean): void {
+    const next = show ?? form.hidden === true;
+    form.hidden = !next;
+    addBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+    addBtn.classList.toggle('is-on', next);
+    if (next) nameInput.focus();
+    else err.hidden = true;
+  }
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -128,6 +148,7 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
       chosenPath = undefined;
       dirShown.textContent = 'none chosen';
       dirShown.classList.add('is-unset');
+      toggleForm(false);
     } catch (e2) {
       showErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
@@ -152,19 +173,30 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
     st.setProjects(st.state.projects.filter((p) => p.id !== id));
   }
 
+  /** Running sessions in this project (drives the green meta line). */
+  function activeCount(projectId: string): number {
+    let n = 0;
+    for (const s of st.state.sessions.values()) {
+      if (s.projectId === projectId && s.status === 'running') n++;
+    }
+    return n;
+  }
+
   function sig(): string {
     // Count prefix so the empty list still differs from the initial ''.
     return (
       `n${st.state.projects.length}|` +
       st.state.projects
-        .map((p) => `${p.id}:${p.name}:${p.path}:${armed.isArmed(p.id) ? 'a' : ''}`)
+        .map(
+          (p) =>
+            `${p.id}:${p.name}:${p.path}:${activeCount(p.id)}:${armed.isArmed(p.id) ? 'a' : ''}`,
+        )
         .join('|')
     );
   }
 
   function render(): void {
     const visible = st.state.drawer === 'projects';
-    root.hidden = !visible;
     if (!visible) {
       lastVisible = false;
       lastSig = '';
@@ -192,29 +224,41 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
         : null;
     const rows: HTMLElement[] = [];
     if (st.state.projects.length === 0) {
-      rows.push(el('div', 'drawer-empty', 'no projects — add one below'));
+      rows.push(el('div', 'drawer-empty', 'no projects — + add one'));
     }
     for (const p of st.state.projects) {
       const row = el('div', 'proj-row');
-      const main = el('div', 'proj-main');
-      main.append(el('div', 'proj-name', p.name));
-      main.append(el('div', 'proj-path', p.path)); // secondary metadata: allowed here only
-      const meta: string[] = [];
-      if (p.defaultModel !== undefined && p.defaultModel !== '') meta.push(p.defaultModel);
-      if (p.defaultMode === 'skip-permissions') meta.push('skip-permissions');
-      if (meta.length > 0) main.append(el('div', 'proj-meta', meta.join(' · ')));
-      const del = button('row-btn is-danger', armed.isArmed(p.id) ? 'sure?' : 'delete', () => {
-        if (armed.trigger(p.id, () => {
-          lastSig = '';
-          render();
-        })) {
+      const line = el('div', 'proj-line');
+      line.append(el('span', 'proj-name', p.name), el('span', 'drawer-gap'));
+      const add = button('chip-btn is-go', '+', () => openLauncherForProject(p.id));
+      add.setAttribute('data-k', `pnew:${p.id}`);
+      add.setAttribute('aria-label', `new session in ${p.name}`);
+      add.title = 'new session in this project';
+      const del = button('chip-btn is-x', armed.isArmed(p.id) ? 'sure?' : '×', () => {
+        if (
+          armed.trigger(p.id, () => {
+            lastSig = '';
+            render();
+          })
+        ) {
           void deleteProject(p.id);
         }
       });
       if (armed.isArmed(p.id)) del.dataset.armed = '1';
       del.setAttribute('data-k', `pdel:${p.id}`);
-      del.title = 'delete project (asks to confirm; sessions keep running)';
-      row.append(main, del);
+      del.setAttribute('aria-label', `remove project ${p.name}`);
+      del.title = 'remove project (asks to confirm; sessions keep running)';
+      line.append(add, del);
+      row.append(line);
+      row.append(el('div', 'proj-path', p.path)); // secondary metadata: allowed here only
+      const n = activeCount(p.id);
+      row.append(
+        el(
+          'div',
+          `proj-meta${n > 0 ? ' is-on' : ''}`,
+          n > 0 ? `${n} active session${n > 1 ? 's' : ''}` : 'no active sessions',
+        ),
+      );
       rows.push(row);
     }
     listHost.replaceChildren(...rows);
@@ -247,7 +291,7 @@ export function initProjectsDrawer(host: HTMLElement, modalHost: HTMLElement): P
     const mhd = el('header', 'modal-hd');
     const mx = button('drawer-x', '×', closeModal);
     mx.setAttribute('aria-label', 'cancel');
-    mhd.append(el('span', 'drawer-label', 'choose directory'), el('span', 'drawer-gap'), mx);
+    mhd.append(el('span', 'drawer-label', 'CHOOSE DIRECTORY'), el('span', 'drawer-gap'), mx);
 
     const nav = el('div', 'dirnav');
     const up = button('btn', 'up', () => void load(parentOf(curPath)));

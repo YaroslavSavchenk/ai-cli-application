@@ -1,16 +1,19 @@
 /**
- * Tab strip — every view is a tab, every session lives in a view.
+ * Bottom tab strip (handoff §4, Steam-style) — every view is a tab, every
+ * session lives in a view.
  *
- * A tab row: status dot (green running / amber attention / hollow gray
- * exited / dashed hollow for a launcher tab), faint `n` index (the
- * ctrl+alt+n chord), mono label `project · command` (name from the FIRST
- * session of the view), a blue `+N` chip when the view holds a split,
- * inverse amber `!` badge on attention, and `×` = KILL the view's sessions
- * (armed two-step confirm; a launcher tab just closes). `+` opens a
- * new-session (launcher) tab.
+ * A tab: status dot (green running / pulsing amber attention / hollow gray
+ * exited / dashed hollow launcher), mono name (a split view joins member
+ * names with " · "), a blue `▦ N` split badge when the view holds >1
+ * session, a pulsing amber `input` pill when a member awaits input, and `×`
+ * = KILL the view's sessions (armed two-step confirm; a launcher tab just
+ * closes). The active tab drops to the terminal ground and carries the
+ * glowing accent bar. After the tabs: a ghost `+` (opens the launcher tab)
+ * and the right-aligned drag hint.
  *
  * Tabs are pointer-drag sources (see ui/dnd.ts): drag onto a pane or another
- * tab to merge into a split, onto strip space to reorder.
+ * tab to merge into a split, onto strip space to reorder. Every drag has a
+ * keyboard/button equivalent (shortcuts overlay).
  */
 import * as st from '../state.ts';
 import { el, button, ArmedSet } from './util.ts';
@@ -21,11 +24,8 @@ const armed = new ArmedSet();
 
 export function tabLabel(v: st.ViewState): string {
   if (v.kind === 'launcher') return 'new session';
-  const first = v.sessions[0];
-  const info = first !== undefined ? st.state.sessions.get(first) : undefined;
-  if (info === undefined) return '…';
-  const pname = st.projectName(info.projectId);
-  return pname !== null ? `${pname} · ${info.command}` : info.command;
+  const names = v.sessions.map((id) => st.state.sessions.get(id)?.title ?? '…');
+  return names.join(' · ');
 }
 
 /** Kill every session of the view; the view dissolves when the last one goes. */
@@ -49,8 +49,7 @@ export function initTabs(strip: HTMLElement): { render(): void } {
     lastSig = sig;
 
     const focusKey =
-      document.activeElement instanceof HTMLElement &&
-      strip.contains(document.activeElement)
+      document.activeElement instanceof HTMLElement && strip.contains(document.activeElement)
         ? document.activeElement.getAttribute('data-k')
         : null;
 
@@ -66,21 +65,20 @@ export function initTabs(strip: HTMLElement): { render(): void } {
         (v.kind === 'launcher' ? '' : ' · drag onto a pane or tab to merge into a split');
       if (v.id === st.state.activeViewId) sel.setAttribute('aria-current', 'true');
       const status = st.viewStatus(v);
-      const dot = el('span', `tab-dot is-${status}`);
+      const dot = el('span', `dot is-${status}`);
       dot.setAttribute('aria-hidden', 'true');
-      sel.append(dot, el('span', 'tab-idx', String(i + 1)), el('span', 'tab-label', tabLabel(v)));
+      sel.append(dot, el('span', 'tab-label', tabLabel(v)));
       if (v.sessions.length > 1) {
-        const count = el('span', 'tab-count', `+${v.sessions.length - 1}`);
-        count.title = `${v.sessions.length} sessions in this view`;
-        sel.append(count);
+        const split = el('span', 'tab-split', `▦ ${v.sessions.length}`);
+        split.title = `${v.sessions.length} sessions in this view`;
+        sel.append(split);
+      }
+      if (st.viewAttention(v)) {
+        const pill = el('span', 'tab-input', 'input');
+        pill.title = 'a session in this tab wants attention';
+        sel.append(pill);
       }
       wrap.append(sel);
-
-      if (st.viewAttention(v)) {
-        const b = el('span', 'badge-attn', '!');
-        b.title = 'a session in this tab wants attention';
-        wrap.append(b);
-      }
 
       const isLauncher = v.kind === 'launcher';
       const close = button('tab-x', armed.isArmed(v.id) ? 'sure?' : '×', () => {
@@ -112,6 +110,11 @@ export function initTabs(strip: HTMLElement): { render(): void } {
     add.title = 'new-session tab (ctrl+alt+t)';
     add.setAttribute('aria-label', 'new-session tab');
     nodes.push(add);
+
+    const gap = el('span', 'strip-gap');
+    const hint = el('span', 'strip-hint', 'drag a tab onto a tab or pane to merge · ⇱ splits it back out');
+    nodes.push(gap, hint);
+
     strip.replaceChildren(...nodes);
 
     if (focusKey !== null) {

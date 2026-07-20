@@ -24,8 +24,8 @@ const ROWS: Row[] = [
   { keys: ['drag a tab onto a pane or tab'], gesture: true, what: 'merge its sessions into that view (split)', ui: 'split in the sessions panel' },
   { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'extract in the pane header' },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split · enter resets', ui: 'drag the divider · double-click resets' },
-  { keys: ['double-click a session row'], what: 'go to its tab', ui: 'show in the sessions panel' },
-  { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the top bar' },
+  { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
+  { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the statusline' },
   { keys: ['esc'], what: 'close panel / dialog · cancel a drag', ui: '× buttons' },
 ];
 
@@ -46,7 +46,7 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
   const hd = el('header', 'modal-hd');
   const x = button('drawer-x', '×', close);
   x.setAttribute('aria-label', 'close shortcuts');
-  hd.append(el('span', 'drawer-label', 'shortcuts'), el('span', 'drawer-gap'), x);
+  hd.append(el('span', 'drawer-label', 'SHORTCUTS'), el('span', 'drawer-gap'), x);
 
   const table = el('div', 'sc-table');
   for (const r of ROWS) {

@@ -2,19 +2,33 @@
 
 Status doc for the hi-fi handoff the user dropped in `design/` on 2026-07-19
 (`README.md` spec + `session-manager-prototype.html`, instructions in
-`CLAUDE_CODE_PROMPT.md`). Read together with `web/DESIGN.md` (steam blend,
-binding) and `.claude/PROJECT-SCOPE.md`. Written after a full feature audit
-of `web/src` against the handoff spec.
+`CLAUDE_CODE_PROMPT.md`). Read together with `web/DESIGN.md` and
+`.claude/PROJECT-SCOPE.md`. Written after a full feature audit of `web/src`
+against the handoff spec; revised 2026-07-20 after the user settled the open
+decisions and flipped precedence.
 
-## Precedence rule (from CLAUDE_CODE_PROMPT.md)
+## Precedence rule (REVERSED 2026-07-20, user's call)
 
-Where the handoff and the repo's decided design differ, **the repo wins**:
-`web/DESIGN.md` + `web/src/styles/tokens.css` are the real steam-blend
-source; the handoff's hex values map onto existing tokens, never hard-coded.
-The handoff supplies **features and behavior** the repo doesn't have yet.
+**The handoff is the primary design source.** `design/README.md` (spec,
+tokens, screens) and `session-manager-prototype.html` (reference behavior)
+define the look and layout; `web/DESIGN.md` is rewritten to transcribe the
+handoff (plus the recorded deviations below) and `web/src/styles/tokens.css`
+is remapped to the handoff's values. The original 2026-07-19 rule
+("repo wins on look") is dead — kept in git history only.
 
-Applied consistently: handoff contradicts an explicit DESIGN.md decision or
-token → repo wins. Handoff adds something DESIGN.md doesn't decide → build it.
+What survives the flip (not looks, and therefore not overridden):
+
+- **Architecture**: vanilla TS + Vite, xterm.js, sessions server-side. The
+  handoff prompt itself defers to the established stack; no React rebuild.
+- **No new npm dependencies** (handoff prompt: ask before adding any beyond
+  the terminal renderer). Fonts are self-hosted assets (Barlow already
+  bundled; JetBrains Mono to be bundled the same way, OFL). Phosphor icons
+  NOT adopted for now — the prototype's text glyphs (`>_ × + ▦ ⇱ ▸`) are
+  what we implement; revisit only if the user asks.
+- **The three fiction cuts** (below) — lifecycle impossibilities.
+- **Real-terminal guarantees**: resize chain, keyboard non-interception,
+  AltGr guard, localStorage schema v2 (a v3 migration is fine if the screen
+  model needs it, with v2→v3 migration).
 
 ## Backend prerequisites — LANDED 2026-07-19 (R1, reviewed clean)
 
@@ -25,80 +39,91 @@ token → repo wins. Handoff adds something DESIGN.md doesn't decide → build i
   from `SessionInfo.args`; attention counts, previous-run list, health are
   already exposed.
 
-## To build — R2: theme system + chrome richness (terminal-ui)
+## To build — R2: handoff reskin + shell restructure + theme system (terminal-ui)
 
-- **Theme system** (the big one; entirely absent today): topbar Theme button
-  → anchored popover with two independent 5-col swatch grids — 10 terminal
-  backgrounds × 10 text ramps (values in `design/README.md` "Design tokens").
-  Implementation constraint: overrides flow through the existing `--xt-*`
-  CSS vars so `themeFromTokens()` (web/src/ui/terminal.ts) stays the single
-  ITheme source; live terminals refresh in place. Ramp mapping: `out` →
-  xterm foreground, `cmd` → bold/bright, `dim` → brightBlack/faint. Status
-  colors (green/amber/red) are semantic and NEVER themed. Persist choice in
-  localStorage (separate key, no v2 schema bump).
-- **Statusline additions** (keep all current items): `ws <n> ms` (presence
-  ping), global `<n> sessions · <n> panes`, amber `<n> awaiting input`,
-  `up HH:MM:SS` (from /api/runtime), `pty ok` (health-derived).
-- **Topbar additions**: connected indicator (green dot, backend
-  reachability), green flat `+ new session` primary button (opens launcher
-  tab — same action as tabstrip `+`), Theme button.
-- **Pane headers**: model tag + permission tag derived from session args;
-  permission tag red for `--dangerously-skip-permissions`.
-- **Tabs**: split tabs join member names with " · " (ellipsis at max-width);
-  existing blue `+N` chip stays (repo token, replaces handoff's `▦ N`).
-- **Drawers**: sessions rows gain model tag; projects rows gain a `+`
-  (launcher preset to that project) and an active-session count (green when
-  >0, faint "no active sessions" otherwise).
+Scope grew 2026-07-20: the reskin is no longer "map handoff onto steam
+tokens" but "retoken the app to the handoff".
 
-## To build — R3: launcher upgrade + honest boot steps (terminal-ui)
+- **Tokens + type**: remap `tokens.css` to the handoff palette (README
+  "Design tokens" — surfaces, borders, text ramp, `#5cb8f0` accent, status
+  hues, radii 6–13px by role, the four sanctioned shadows, gradient topbar,
+  radial pane-area lift). Bundle JetBrains Mono (woff2 + OFL beside Barlow);
+  mono stack leads with it.
+- **Shell restructure**: 44px topbar (logo tile + wordmark; Theme / Projects
+  / Sessions toggles with amber attention badge; divider; green connected
+  dot; green `+ New session`) · middle row (drawers + pane grid) · **bottom
+  tab strip** (~35px, Steam-style, radius 9 9 0 0, active glow bar, `▦ N`
+  split badge, amber input pill, ghost `+`, right-aligned drag hint) · 23px
+  statusline. Tab strip position = settled user decision.
+- **Theme system**: Theme button → anchored popover, two independent 5-col
+  swatch grids — 10 terminal backgrounds × 10 text ramps (exact values in
+  README). Overrides flow through the existing `--xt-*` vars so
+  `themeFromTokens()` (web/src/ui/terminal.ts) stays the single ITheme
+  source; live terminals refresh in place. Ramp mapping: `out` → xterm
+  foreground, `cmd` → bold/bright, `dim` → brightBlack/faint. Status colors
+  (green/amber/red) are semantic and NEVER themed. Persist in localStorage
+  (separate key, no UI-schema bump). Scanline overlay: toggleable in the
+  popover, default OFF (README: "off is fine").
+- **Statusline** (per handoff — 23px, mono 10.5px): left `ws <n> ms`
+  (presence ping) · `<n> sessions · <n> panes` · amber `<n> awaiting input`;
+  right `up HH:MM:SS` (from /api/runtime) · `pty ok` (health-derived). No
+  separate "healthy" text item (README removed it; topbar dot covers it).
+  No grace countdown (fiction cut).
+- **Pane cards**: terminal-bg card, radius 12px, pane shadow, 30px header —
+  status dot, mono session name, faint project name, model tag + permission
+  tag (red for `bypassPermissions`), `⇱ own tab` only when in a split.
+  Focused-in-split inner outline `#3d5a75`. Grid gap/padding 10px.
+- **Drawers**: projects 272px (header `+ add` inline form with `~/projects/
+  <name>` path autofill; rows: name, `+` launch-into-project, `×`, faint
+  path, green active-session count) · sessions 296px (ACTIVE rows: dot,
+  name, model tag, split button max-4, `×`; PREVIOUS RUN rows keep the
+  existing `--continue` relaunch + forget).
+- **Empty state**: centered logo tile + "No active sessions" + `+ New
+  session` + `Relaunch previous run (N)` — WITHOUT the grace countdown line
+  (fiction cut). Replaces launcher-tab-as-empty-state once R3 lands the
+  dialog; until then the buttons open the existing launcher tab.
 
-- **Launcher form** (stays in-tab per DESIGN.md — see open decisions):
-  combo preset chips when command=claude — `deep work · opus · acceptEdits ·
-  continue`, `quick fix · sonnet · default`, `yolo · opus · bypass`
-  (danger-tinted) — setting model+permission+resume together; named model
-  select (opus / sonnet / haiku / fable / custom→text input); permission-mode
-  picker with 4 modes + plain-language descriptions (`default`,
-  `acceptEdits`, `plan`, `bypassPermissions` — red); live command preview
-  (`$ claude --model … --permission-mode … --continue`) + `cwd:` line.
-  Client composes argv exactly as today (server spawns argv, never shell).
+## To build — R3: modal launch dialog + honest boot steps (terminal-ui)
+
+- **Launch dialog** (modal — settled user decision 2026-07-20, replaces
+  launcher-as-tab): 560px card per handoff §8 — preset chips (`deep work ·
+  opus · acceptEdits · continue`, `quick fix · sonnet · default`, `yolo ·
+  opus · bypass` red-tinted); 2×2 fields (name, project, model select
+  opus/sonnet/haiku/fable, resume select `start fresh` / `--continue` —
+  NO per-id resume options, fiction cut); 4-mode permission cards with
+  plain-language descriptions (`bypassPermissions` red); live command
+  preview + `cwd:` line. Client composes argv exactly as today (server
+  spawns argv, never shell). Entry points: topbar `+ New session`, tabstrip
+  ghost `+`, projects-drawer `+` (pre-set project), empty state.
 - **Boot sequence panel**: real in-app steps only (token check → hydrate
-  sessions → attach WS), same visual language as the restart panel. No fake
-  timers.
-
-## Skipped — repo wins (decided by precedence, not lost)
-
-- React rebuild (vanilla TS + Vite is decided architecture; prompt itself
-  defers to existing stack).
-- Handoff's visual values: 12px radii, pane/dialog shadows, gradient topbar,
-  backdrop blur, `#5cb8f0` accent → steam tokens (≤3px radius, 1px lines,
-  one shadow on drag ghost, opaque scrim, `#66c0f4`).
-- Scanline/CRT overlay — pure decoration (handoff itself: "off is fine");
-  violates "every colored element encodes information".
-- Phosphor icon set (new dependency; DESIGN.md decided text glyphs) and
-  JetBrains Mono bundling (DESIGN.md decided the system mono stack).
-- Centered friendly empty state (DESIGN.md slop filter rejects; launcher tab
-  IS the empty state).
+  sessions → attach WS), styled per the handoff boot card's visual language.
+  No fake timers, no launcher-lifecycle steps (fiction cut).
 
 ## Cut as fiction — prototype features the real system cannot honestly show
 
-- **Grace countdown** ("backend exits in N s"): grace runs only when zero
-  windows hold a presence socket — any UI able to display the countdown is
-  itself keeping the backend alive. Prototype-only fiction.
+Unchanged by the precedence flip — these are lifecycle facts:
+
+- **Grace countdown** ("backend exits in N s", empty state + statusline):
+  grace runs only when zero windows hold a presence socket — any UI able to
+  display the countdown is itself keeping the backend alive.
 - **Boot overlay with launcher lifecycle steps** (runtime.json → start
   backend → wait health): the launcher opens the browser only after health
   passes; the app can never witness those steps. Downscoped to the honest
-  in-app steps above.
-- **Per-session `--resume <id>`** in the launch form: the journal stores our
-  session ids, not Claude Code conversation ids. The existing
-  `pick conversation · --resume` (claude's own interactive picker) stays.
+  in-app steps (R3).
+- **Per-session `--resume <id>`**: the journal stores our session ids, not
+  Claude Code conversation ids. `--continue` relaunch and claude's own
+  interactive picker stay.
 
-## Open decisions — user call, do not settle silently
+## Superseded 2026-07-20 — the old "Skipped — repo wins" list
 
-1. **Tab strip position**: handoff puts a dedicated Steam-style strip at the
-   bottom (above the statusline); shipped app has tabs in the topbar
-   (DESIGN.md: "36px topbar, 29px bottom-aligned tabs"). Recommendation:
-   keep topbar (decided + shipped); cheap to revisit after R2.
-2. **Launch UI shape**: handoff uses a modal dialog; DESIGN.md explicitly
-   decided launcher-as-tab ("not a centered friendly empty state").
-   Recommendation: keep in-tab, adopt all the dialog's field-level features
-   (R3 list above).
+The precedence flip un-skips the handoff's visual values (12px radii, pane/
+dialog/popover shadows, gradient topbar, backdrop blur, `#5cb8f0` accent,
+JetBrains Mono bundling, centered empty state, scanline toggle). Still
+skipped: React rebuild (architecture), Phosphor icon dependency (text
+glyphs per prototype; no new deps without asking).
+
+## Open decisions
+
+None. Settled 2026-07-20 (user): bottom tab strip; modal launch dialog;
+handoff = primary design source. Recorded in `.claude/PROJECT-SCOPE.md` and
+`memory/decisions/handoff-design-primary.md`.

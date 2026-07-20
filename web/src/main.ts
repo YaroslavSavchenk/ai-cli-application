@@ -1,13 +1,14 @@
 /**
- * App entry: builds the shell (topbar / pane grid + drawer / statusline),
- * wires the modules together, owns the global keyboard chords and the
- * session poll.
+ * App entry: builds the shell (handoff §1 — topbar / drawers + pane grid /
+ * bottom tab strip / statusline), wires the modules together, owns the
+ * global keyboard chords and the session poll.
  *
- * Shell anatomy: topbar shell band (brand, Steam-style session-tab strip,
- * panel toggles, ?), the pane grid filling everything, quiet statusline
- * readout (heights in tokens.css). The drawer is a structural sibling of the
- * grid — opening it resizes the panes properly (fit -> ws resize) instead of
- * covering the terminal.
+ * Shell anatomy, top to bottom: 44px gradient topbar (logo tile + wordmark,
+ * Theme / Projects / Sessions toggles, connected dot, + New session), the
+ * middle row (projects drawer · pane grid · sessions drawer — drawers are
+ * structural flex siblings, so toggling one resizes panes through the real
+ * fit -> ws-resize chain), the Steam-style BOTTOM tab strip, and the 23px
+ * statusline. Heights and colors live in tokens.css.
  *
  * Keyboard: app chords live EXCLUSIVELY on Ctrl+Alt (AltGr excluded via
  * getModifierState so European layouts still reach the TUI). Plain keys are
@@ -22,10 +23,11 @@ import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initPanes, focusedConn, openLauncher } from './ui/panes.ts';
-import { initStatusline, setBackendReachable } from './ui/statusline.ts';
+import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
+import { initTheme } from './ui/theme.ts';
 import { startPresence } from './ws.ts';
 import { el, button } from './ui/util.ts';
 
@@ -39,8 +41,13 @@ void boot(app);
 async function boot(root: HTMLDivElement): Promise<void> {
   // Presence FIRST: the backend's lifetime is bound to open windows, so the
   // socket must be up even when the REST boot below fails (an open window
-  // must hold the backend); presence failures never block the UI.
-  startPresence();
+  // must hold the backend); presence failures never block the UI. The same
+  // channel measures ws latency for the statusline; a pong doubles as a
+  // liveness signal.
+  startPresence((ms) => {
+    st.setWsLatency(ms);
+    if (ms !== null) st.setBackendReachable(true);
+  });
   // Server state first: loadUi() prunes view assignments against it.
   let projects;
   let sessions;
@@ -53,11 +60,15 @@ async function boot(root: HTMLDivElement): Promise<void> {
   st.initServer(projects, sessions);
   st.loadUi();
   buildShell(root);
-  // Previous-run relaunch offers (crash/shutdown recovery). Fire-and-forget:
-  // the offer list is a bonus, never a boot blocker.
+  // Fire-and-forget extras — never boot blockers: previous-run relaunch
+  // offers (crash/shutdown recovery) and the backend boot time (uptime).
   void api
     .getPrevious()
     .then((list) => st.setPrevious(list))
+    .catch(() => {});
+  void api
+    .getRuntime()
+    .then((r) => st.setServerStartedAt(r.startedAt))
     .catch(() => {});
 }
 
@@ -77,57 +88,93 @@ function renderBootError(root: HTMLDivElement, err: unknown): void {
 }
 
 function buildShell(root: HTMLDivElement): void {
-  // ---- topbar --------------------------------------------------------------
+  // ---- topbar (handoff §2) -------------------------------------------------
   const topbar = el('header', 'topbar');
-  const brand = el('div', 'brand', 'AI Sessions');
+  const logo = el('div', 'logo-tile');
+  logo.setAttribute('aria-hidden', 'true');
+  logo.append(el('span', 'logo-glyph', '>_'));
+  const wordmark = el('div', 'wordmark', 'AI SESSION MANAGER');
+
+  const themeBtn = button('tb-btn', '');
+  themeBtn.title = 'terminal themes';
+  themeBtn.setAttribute('aria-haspopup', 'dialog');
+  const swatch = el('span', 'tb-swatch');
+  swatch.setAttribute('aria-hidden', 'true');
+  swatch.append(
+    el('span', 'tb-sw is-a'),
+    el('span', 'tb-sw is-b'),
+    el('span', 'tb-sw is-c'),
+    el('span', 'tb-sw is-d'),
+  );
+  themeBtn.append(swatch, el('span', '', 'Theme'));
+
+  const projectsBtn = button('tb-btn', 'Projects', () => st.toggleDrawer('projects'));
+  projectsBtn.title = 'manage projects';
+  const sessionsBtn = button('tb-btn', 'Sessions', () => st.toggleDrawer('sessions'));
+  sessionsBtn.title = 'sessions panel — all server sessions';
+  const sessionsBadge = el('span', 'tb-attn');
+  sessionsBadge.hidden = true;
+  sessionsBadge.title = 'sessions awaiting input';
+  sessionsBtn.append(sessionsBadge);
+
+  const divider = el('span', 'tb-divider');
+  const conn = el('div', 'tb-conn');
+  const connDot = el('span', 'tb-conn-dot is-ok');
+  connDot.setAttribute('aria-hidden', 'true');
+  const connTxt = el('span', '', 'connected');
+  conn.append(connDot, connTxt);
+
+  // Opens the launcher tab until R3 lands the launch dialog.
+  const newBtn = button('btn-go', '+ New session', () => st.addLauncherTab());
+  newBtn.title = 'new-session tab (ctrl+alt+t)';
+
+  topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, projectsBtn, sessionsBtn, divider, conn, newBtn);
+
+  // ---- middle row: drawers are flex siblings of the grid --------------------
+  const main = el('div', 'main');
+  const projAside = el('aside', 'drawer drawer-proj');
+  projAside.hidden = true;
+  const grid = el('div', 'grid');
+  const sessAside = el('aside', 'drawer drawer-sess');
+  sessAside.hidden = true;
+  main.append(projAside, grid, sessAside);
+
+  // ---- bottom strip + statusline + modal host --------------------------------
   const strip = el('nav', 'tabstrip');
   strip.setAttribute('aria-label', 'tabs');
-
-  const actions = el('div', 'topbar-actions');
-  const sessionsBtn = button('tb-btn', 'sessions', () => st.toggleDrawer('sessions'));
-  sessionsBtn.title = 'sessions panel — all server sessions';
-  const sessionsBadge = el('span', 'badge-attn tb-badge');
-  sessionsBadge.hidden = true;
-  sessionsBtn.append(sessionsBadge);
-  const projectsBtn = button('tb-btn', 'projects', () => st.toggleDrawer('projects'));
-  projectsBtn.title = 'manage projects';
-  const helpBtn = button('tb-btn tb-help', '?', () => shortcuts.toggle());
-  helpBtn.title = 'keyboard shortcuts (? or ctrl+alt+/)';
-  helpBtn.setAttribute('aria-label', 'keyboard shortcuts');
-  actions.append(sessionsBtn, projectsBtn, helpBtn);
-
-  topbar.append(brand, strip, actions);
-
-  // ---- main row: grid + drawer --------------------------------------------
-  const main = el('div', 'main');
-  const grid = el('div', 'grid');
-  const drawer = el('aside', 'drawer');
-  drawer.hidden = true;
-  main.append(grid, drawer);
-
-  // ---- statusline + modal host --------------------------------------------
   const statusline = el('footer', 'statusline');
   const modalHost = el('div', 'modal-host');
 
-  root.replaceChildren(topbar, main, statusline, modalHost);
+  root.replaceChildren(topbar, main, strip, statusline, modalHost);
 
-  // ---- modules -------------------------------------------------------------
+  // ---- modules ---------------------------------------------------------------
+  // Theme FIRST: it applies the persisted ground/ramp onto :root before any
+  // terminal is constructed, so terminals are born themed.
+  const themePop = initTheme(modalHost, themeBtn);
+  themeBtn.addEventListener('click', () => themePop.toggle());
   const tabs = initTabs(strip);
-  const status = initStatusline(statusline, { getFocusedConn: focusedConn });
-  const sessionsDrawer = initSessionsDrawer(drawer);
-  const projectsDrawer = initProjectsDrawer(drawer, modalHost);
   const shortcuts = initShortcuts(modalHost);
+  const status = initStatusline(statusline, {
+    getFocusedConn: focusedConn,
+    openShortcuts: () => shortcuts.toggle(),
+  });
+  const sessionsDrawer = initSessionsDrawer(sessAside);
+  const projectsDrawer = initProjectsDrawer(projAside, modalHost);
   initPanes(grid); // Last: its first render needs the grid mounted and sized.
 
   function updateChrome(): void {
     const n = st.attentionCount();
     sessionsBadge.hidden = n === 0;
     sessionsBadge.textContent = String(n);
-    drawer.hidden = st.state.drawer === null;
+    projAside.hidden = st.state.drawer !== 'projects';
+    sessAside.hidden = st.state.drawer !== 'sessions';
     sessionsBtn.classList.toggle('is-on', st.state.drawer === 'sessions');
     sessionsBtn.setAttribute('aria-pressed', st.state.drawer === 'sessions' ? 'true' : 'false');
     projectsBtn.classList.toggle('is-on', st.state.drawer === 'projects');
     projectsBtn.setAttribute('aria-pressed', st.state.drawer === 'projects' ? 'true' : 'false');
+    const ok = st.state.backendReachable;
+    connDot.className = `tb-conn-dot ${ok ? 'is-ok' : 'is-down'}`;
+    connTxt.textContent = ok ? 'connected' : 'offline';
   }
 
   st.subscribe(() => {
@@ -182,15 +229,19 @@ function buildShell(root: HTMLDivElement): void {
       return;
     }
     if (e.key === 'Escape' && !fromTerminal(e.target)) {
-      // Priority: overlay, then dialog, then drawer (only when the drawer
-      // actually holds focus — Esc elsewhere belongs to whatever has it).
+      // Priority: overlay, then popover, then dialog, then drawer (only when
+      // the drawer actually holds focus — Esc elsewhere belongs to whatever
+      // has it).
       if (shortcuts.isOpen()) {
         e.preventDefault();
         shortcuts.close();
+      } else if (themePop.isOpen()) {
+        e.preventDefault();
+        themePop.close();
       } else if (projectsDrawer.modalOpen()) {
         e.preventDefault();
         projectsDrawer.closeModal();
-      } else if (st.state.drawer !== null && focusInOrFree(drawer)) {
+      } else if (st.state.drawer !== null && focusInOrFree(projAside, sessAside)) {
         e.preventDefault();
         st.closeDrawer();
       }
@@ -210,8 +261,9 @@ function buildShell(root: HTMLDivElement): void {
   // ---- session poll --------------------------------------------------------
   // WS events only reach attached panes; badges for sessions hidden in other
   // tabs (and attention cleared elsewhere) reconcile through this poll. The
-  // poll doubles as the backend health probe: repeated network failures show
-  // the statusline readout, the first success clears it.
+  // poll doubles as the backend health probe: repeated network failures flip
+  // the topbar dot to offline (and the statusline item to unreachable), the
+  // first success clears it.
   let pollFailures = 0;
   const poll = (): void => {
     if (fatal) return;
@@ -219,14 +271,14 @@ function buildShell(root: HTMLDivElement): void {
       .getSessions()
       .then((list) => {
         pollFailures = 0;
-        setBackendReachable(true);
+        st.setBackendReachable(true);
         st.setSessions(list);
       })
       .catch(() => {
         // 401/403 already took the page over via onAuthError; anything else
         // is the backend gone/unreachable. Two misses to skip one-off blips.
         pollFailures++;
-        if (pollFailures >= 2) setBackendReachable(false);
+        if (pollFailures >= 2) st.setBackendReachable(false);
       });
   };
   window.setInterval(poll, POLL_MS);
@@ -269,8 +321,8 @@ function fromTerminal(t: EventTarget | null): boolean {
   return t instanceof HTMLElement && t.closest('.term-host') !== null;
 }
 
-/** Focus is inside `container`, or nowhere interesting (body/null). */
-function focusInOrFree(container: HTMLElement): boolean {
+/** Focus is inside one of the containers, or nowhere interesting (body/null). */
+function focusInOrFree(...containers: HTMLElement[]): boolean {
   const a = document.activeElement;
-  return a === null || a === document.body || container.contains(a);
+  return a === null || a === document.body || containers.some((c) => c.contains(a));
 }

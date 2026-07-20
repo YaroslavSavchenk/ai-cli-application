@@ -103,16 +103,41 @@ export function trapTab(container: HTMLElement): void {
   });
 }
 
-/** Compact age from an ISO timestamp ("45s", "12m", "2h 14m", "3d") — human
- *  list metadata in the mono data voice. */
-export function fmtAge(iso: string): string {
+/**
+ * Model tag from a session's argv (`--model x` / `--model=x`) — tags derive
+ * client-side from SessionInfo.args; the protocol carries no tag fields.
+ */
+export function modelFromArgs(args: string[]): string | null {
+  const i = args.indexOf('--model');
+  const next = args[i + 1];
+  if (i !== -1 && typeof next === 'string' && next !== '') return next;
+  const eq = args.find((a) => a.startsWith('--model='));
+  const v = eq?.slice('--model='.length);
+  return v !== undefined && v !== '' ? v : null;
+}
+
+/**
+ * Permission tag from argv. `--dangerously-skip-permissions` reads "bypass";
+ * `--permission-mode <mode>` reads the mode. Danger (red tag) for both
+ * bypass forms; null for default/absent (no tag shown).
+ */
+export function permFromArgs(args: string[]): { label: string; danger: boolean } | null {
+  if (args.includes('--dangerously-skip-permissions')) return { label: 'bypass', danger: true };
+  const i = args.indexOf('--permission-mode');
+  const next = i !== -1 ? args[i + 1] : undefined;
+  const v =
+    typeof next === 'string' && next !== ''
+      ? next
+      : args.find((a) => a.startsWith('--permission-mode='))?.slice('--permission-mode='.length);
+  if (typeof v !== 'string' || v === '' || v === 'default') return null;
+  return { label: v, danger: v === 'bypassPermissions' };
+}
+
+/** `HH:MM:SS` since an ISO timestamp (statusline `up …`; hours don't wrap). */
+export function fmtUptime(iso: string): string {
   const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
+  if (Number.isNaN(t)) return '—';
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  return `${Math.floor(h / 24)}d`;
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }

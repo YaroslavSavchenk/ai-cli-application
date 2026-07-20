@@ -1,162 +1,292 @@
-# AI CLI Session Manager — frontend design brief ("steam blend")
+# AI CLI Session Manager — frontend design (handoff transcription)
 
-Binding reference for every visual decision in `web/src/`. Direction chosen
-by the user 2026-07-19 from rendered mockups (`design-mocks/steam-faithful.html`
-+ `steam-terminal.html`); blend definition and history in
-`memory/decisions/anti-slop-design-direction.md`. This replaces the phosphor
-skin wholesale — the anti-slop rule it enforced stands unchanged.
+Binding reference for every visual decision in `web/src/`. Since 2026-07-20
+the **hi-fi handoff in `design/` is the primary design source** (user's call,
+reversing the 2026-07-19 "repo tokens win" rule; rationale in
+`memory/decisions/handoff-design-primary.md`). This file transcribes the
+handoff — `design/README.md` (spec) + `design/session-manager-prototype.html`
+(reference behavior) — plus the recorded deviations below. Where this file
+and the handoff disagree, the handoff wins; where the handoff is silent, the
+anti-slop rules in `.claude/skills/frontend-designer/SKILL.md` still apply.
 
 ## Direction (one sentence)
 
-**Steam blend**: the modern Steam client's charcoal-blue surface language —
-layered flat panels, one light-blue interactive accent, a green "go" button —
-tuned into a dense terminal power tool: mono for every piece of data, quiet
-1px structure, near-black terminals as the hero surface.
+**Steam blend, hi-fi**: a Steam-client-lineage shell — gradient topbar,
+bottom-aligned tab strip, charcoal-blue surface stack, one light-blue
+interactive accent — around floating terminal cards on a radial-lit deep
+ground, with a user-themable terminal palette (10 grounds × 10 text ramps)
+and mono type carrying every piece of data.
 
-What each mock contributed:
+## Precedence and user-sanctioned exceptions
 
-- from **steam-faithful**: warmth — softer surface layering, comfortable
-  drawer/list spacing, the green primary new-session action, human status
-  language ("needs input", "exited · 1").
-- from **steam-terminal**: density — compact rows, flat chrome (radius capped
-  at 3px, elevation only on the drag ghost), mono-for-data typography, quiet
-  mono statusbar, amber inverse attention badges.
+The frontend-designer skill's hard reject list normally bans gradients,
+backdrop blur, shadows and glow. The handoff is the **user's own design**;
+its specific choices are sanctioned and REQUIRED:
 
-Deliberately NOT taken from the mocks: the File/View menu bar and window
-buttons (mock furniture — this runs in a chromeless browser window), the
-green gradient on the primary button (gradients are banned; ours is flat),
-glow box-shadows on dots.
+- the topbar gradient `linear-gradient(180deg,#1f2833,#1b222c)` and the
+  pane-area radial lift `radial-gradient(1100px 520px at 32% -10%,#1b232f,#12161d)`;
+- exactly four shadows — pane `0 12px 32px rgba(0,0,0,.32)`, dialog
+  `0 24px 60px rgba(0,0,0,.5)`, popover `0 14px 36px rgba(0,0,0,.45)`,
+  drag ghost `0 10px 28px rgba(0,0,0,.55)`;
+- glow accents: active-tab bar `box-shadow:0 0 14px 2px rgba(92,184,240,.45)`,
+  connected-dot glow, green "go"-button hover glow `0 0 18px rgba(100,194,90,.3)`;
+- radii up to 12–13px by role (see tokens);
+- the launch-dialog backdrop blur (`backdrop-filter:blur(4px)`) — R3.
 
-## Tokens rationale (single system in `src/styles/tokens.css`)
+Everything NOT specified by the handoff stays under the reject list: no new
+gradients, no additional shadows, no decorative inventions.
 
-### Surfaces — a cool charcoal-blue ramp, flat
+## Tokens (single system in `src/styles/tokens.css`)
 
-`--well #0e1319 → --term-bg #0b0e13` sit below
-`--surface-0 #10151c → --surface-1 #171d25 → --surface-2 #1f2731 →
---surface-3 #28323e`. The shell bands (topbar, tab gutter, statusline) are
-the darkest chrome (`surface-0`); the workspace and drawer sit on the Steam
-base (`surface-1`); raised chrome (pane headers, active tab, modals, hover
-rows) is `surface-2`, pressed/hover one step up. Terminals stay near-black
-regardless of chrome — the panes read as openings onto the real surface.
-Structure is 1px lines (`--edge` / `--edge-soft`), never shadow: the ONE
-box-shadow in the app is `--elev-ghost` on the drag ghost, which is genuinely
-floating. Radius caps at 3px (`--radius`), 2px for chips.
+### Surfaces
 
-### Color — one interactive accent, exclusive status hues
+- App bg `#171d25`; deep bg `#12161d` (logo tiles, inset inputs, add-form
+  floor); terminal ground `#0e1116` (themable, see Theme system).
+- `#1b222c` bars/drawers/cards · `#141920` pane header · `#10141a`
+  statusline · `#212a35` hover · `#232b36` active/pressed.
+- Borders: `#262f3b` (structural), `#2e3846` (controls), `#232b36` (quiet),
+  `#1d242e` (pane-header underline), `#3d5a75` (focus/split accent border).
 
-- **Light blue `#66c0f4` / `#1a9fff`** (`--acc`/`--acc-hot`) is the ONLY
-  interactive accent: active-tab bar, focused-pane border, selection
-  (app + xterm), drop zones and insertion carets, dragged dividers, links,
-  focus rings, the split-count chip. Blue never encodes status.
-- **Green** = running / primary "go" action only: status dots, "running"
-  text, and the flat `--primary` green on new-session/relaunch/reload
-  buttons (the faithful mock's warmth, minus its gradient).
-- **Amber `#e6a838`** = attention ONLY: the inverse `!` badge and
-  "needs input" text. Nothing else is ever amber.
-- **Gray** = exited (hollow dots, muted rows); **red** only on
-  kill/nonzero-exit/rejected-drop, with `--danger-hot` as the armed-confirm
-  fill.
+### Text ramp
 
-### Type — bundled sans for chrome, mono for data
+`#dbe2ea` primary · `#aab7c4` headings/wordmark · `#8e9cab` secondary ·
+`#7d8b9c` muted controls · `#5c6b7c` dim/statusline · `#3d4b5d` faint/hints.
 
-- **Barlow** (self-hosted woff2, 400/600, OFL — `src/styles/fonts.css`,
-  license at `src/assets/fonts/OFL.txt`) carries chrome: buttons, field
-  labels, small-caps micro-headings, copy. No Inter/Roboto/Arial/Space
-  Grotesk anywhere; no network font fetch (offline localhost tool).
-- **Mono** (`Cascadia Mono → JetBrains Mono → …`, the same stack the
-  terminal uses) carries everything that is data: tab labels, session
-  names/rows, statuses, paths, directory lists, dimensions, input values,
-  `kbd` chips, the entire statusline. Mono is information, not decoration.
-- Sizes: 13px chrome / 12px data / 10.5px micro; hierarchy via weight
-  (sans 600, mono 700) and letterspaced small caps, never a third family.
+### Color roles (exclusive meanings)
 
-### xterm — same token file, near-black floor
+- **Interactive accent `#5cb8f0`** (glow `rgba(92,184,240,.45)`, tint
+  `rgba(92,184,240,.08)`): active-tab bar, split badge, pop-out/split
+  buttons, drop hints, focus rings, selection. Never status.
+- **Green `#64c25a`** (text `#7ed673`, tints `.08–.3`): running dots, the
+  "go" family (+ New session, Add, relaunch), active-session counts, the
+  logo glyph, connected dot.
+- **Amber `#e0a53c`**: needs-attention ONLY — pulsing dots, `input` tab
+  pill, Sessions-button count badge, `awaiting input` statusline item.
+- **Red `#d95c5c`** (muted `#a05252`, border tint `#4a2f33`): danger —
+  kill/remove hovers, armed confirms, nonzero exits, permission-bypass tags.
+- Exited/idle dot `#3d4b5d`.
 
-The `ITheme` is built at runtime from `--xt-*` (ui/terminal.ts reads
-computed styles), so the ANSI 16 and the chrome are one system by
-construction. The ramp is tuned to the charcoal-blue chrome: cool
-`#c7cfd6` foreground on `#0b0e13`, desaturated primaries in the same value
-band, selection = the app's blue selection wash. Cursor is the foreground
-color (block cursor, terminal-native); amber stays reserved for attention.
+### Terminal theming (the ONE palette with the chrome)
 
-### Spacing, structure, motion
+The xterm `ITheme` is built at runtime from the `--xt-*` custom properties
+(`themeFromTokens()` in `ui/terminal.ts`) — the terminal palette and the app
+palette remain one system by construction. Defaults: ground `#0e1116`, text
+ramp "default" (`cmd #e6edf3 / out #b7c2cd / dim #66788a`) mapped as
+out → foreground/white, cmd → brightWhite/cursor, dim → brightBlack. ANSI
+status hues are semantic and never themed: red `#d95c5c`, green `#64c25a`,
+yellow `#e0a53c`, blue `#5cb8f0`, magenta `#b39df2`, cyan `#66d9e8`.
 
-- Strict scale `2/4/6/8/12/16/24` (`--s-1..7`); density reads as order.
-- Bars: 36px topbar (29px bottom-aligned tabs), 30px pane headers, 26px
-  statusline, 340px drawer. All metrics are tokens — no one-off px.
-- The pane grid's 1px gutters are the app structure showing through;
-  dividers are invisible 9px grab strips whose 1px core lights up
-  (edge-strong on hover, accent blue on focus/drag).
-- Motion: color/opacity transitions at 80–120ms; one 120ms badge scale-in;
-  one 150ms reject pulse. Nothing else animates, nothing exceeds 150ms.
+The **theme popover** (handoff §9) writes user selections onto the same
+variables: 10 grounds (charcoal `#0e1116`, void `#07090c`, deep blue
+`#0a1220`, navy `#0d1526`, ocean `#081a1f`, forest `#0a1510`, moss `#10160e`,
+plum `#150f1c`, graphite `#141414`, espresso `#161010`) × 10 ramps (default,
+phosphor, amber, ice, paper, cyan, violet, ember, steel, mint — exact values
+in `design/README.md`). Ground drives both the xterm background and the pane
+card background. Persisted in localStorage under its own key (`ai-sm:theme:v1`,
+independent of the UI-arrangement schema). Scanline overlay (1px dark lines
+every 3px, `mix-blend-mode:multiply`, terminal bodies only) is a popover
+toggle, default OFF.
 
-## Component decisions
+### Typography
 
-- **Tab strip** (sessions-as-tabs): Steam tabs bottom-aligned on the shell
-  band — round status dot, faint chord index `n`, mono `project · command`,
-  blue `+N` chip when the view holds a split, inverse amber `!`, hover/active
-  raise to `surface-2`, active adds the 2px blue top bar. Insertion caret
-  during drags is a lit 2px left border; merge targets get a dashed blue
-  outline (dashed = prospective, everywhere).
-- **Panes**: header = raised strip with status dot, grip, mono name, human
-  status ("running" green, "needs input" amber, "exited · code" gray/red).
-  Focus is structural: in splits the focused pane gets a 2px (--tick) dimmed-blue outline and
-  its header lifts one surface step; unfocused panes dim to 0.88. A lone
-  pane gets no frame — the terminal dominates undecorated.
-- **Drag ghost**: the one elevated element — raised chip, blue border, real
-  shadow, static −2° tilt. Invalid target = red border.
-- **Drop zones**: blue wash + dashed blue border over the target half, with
-  a mono small-caps label chip ("split here" / "merge here" / "open here").
-- **Statusline**: quiet mono readout on the shell band — tab/pane index,
-  focused session (project · title · cols×rows · conn), backend health,
-  transient inverse-ink flashes, `kbd`-chip help hint.
-- **Drawers** (sessions/projects): structural siblings of the grid (panes
-  resize, never covered). Dense two-line mono rows, hover raise; the
-  previous-run section sits recessed on the well floor above the live list
-  with green relaunch chips. Projects show NAME first; the path appears only
-  here, as faint mono metadata.
-- **Launcher** (new-session tab): top-left config block on the terminal
-  floor — sans labels, mono well inputs, green primary launch button. Not a
-  centered friendly empty state.
-- **Modals** (directory browser, shortcuts): flat raised panel, shell-band
-  header, opaque scrim — no blur. `kbd` chips use a 2px bottom border as the
-  key face (a border, not a shadow).
-- **Destructive actions** stay armed two-step buttons (`kill` → `sure?` for
-  3s), now filled `--danger-hot` when armed. No native confirm() anywhere.
-- **Boot/restart panels**: raised panel with a 2px danger top edge, green
-  primary reload — same language as everything else.
-- Every drag has a keyboard/button path; every control is a real
-  `<button>/<input>` with a visible blue `:focus-visible` ring. Plain keys
-  (Ctrl+C, Esc, arrows) are never intercepted; app chords live exclusively
-  on Ctrl+Alt. No literal File/View menu bar.
+- **Chrome: Barlow** 400/500/600/700 — self-hosted woff2 (latin subset,
+  Google Fonts pipeline), OFL at `src/assets/fonts/OFL.txt`.
+- **Data + terminal: JetBrains Mono** 400/500/700 — self-hosted woff2
+  (official JetBrains release, full glyph set for terminal coverage), OFL at
+  `src/assets/fonts/OFL-JetBrainsMono.txt`. First in the mono stack;
+  fallbacks Cascadia Mono → IBM Plex Mono → ui-monospace → Menlo/Consolas.
+- No runtime network font fetch — offline localhost tool.
+- Sizes: wordmark 12px/600/ls 1.6px; UI controls 12px; section headers 11px
+  600 ls 1.4px; tab names mono 11.5px; session names mono 12px; row names
+  13px; statusline + hints mono 10.5px; tags mono 9.5px; terminal 12.5px.
+
+### Radius by role
+
+Tabs `9px 9px 0 0` · pane cards/dialogs 12px · popover/small cards 10px ·
+buttons/inputs/tags 6–8px (7px default) · preset pills 13px · dots 50%.
+
+### Spacing & structure
+
+Dense: topbar 44px (padding 0 14px) · tab strip ~35px (30px tabs,
+padding 5px 8px 0, gap 3px) · statusline 23px · pane header 30px · pane grid
+gap/padding 10px · projects drawer 272px · sessions drawer 296px · control
+gaps 6–10px.
+
+### Motion (handoff set, ≤.2s + sanctioned pulses)
+
+`fadeUp` .2s (dialogs, popover, add-form) · `slideL`/`slideR` .18s (drawers)
+· `pulse` 1.6s infinite (attention dots/pills/badges — the sanctioned
+attention animation) · button transitions .15s · cursor blink is xterm's own.
+Nothing else animates.
+
+## Shell anatomy (handoff §1–§5)
+
+Vertical flex, 100vh, no page scroll:
+
+1. **Topbar 44px** — gradient band. Left: 18px logo tile (border `#2e3846`,
+   radius 7px, bg `#12161d`, green mono `>_` 8px/700) + `AI SESSION MANAGER`
+   wordmark. Right: Theme button (CSS 2×2 swatch icon: green/blue/amber/
+   violet), Projects toggle, Sessions toggle (amber count badge when any
+   session awaits input), 1px divider, connection indicator (green glowing
+   dot + `connected`, derived from real reachability: poll ok / presence
+   pong; red `offline` when the backend is unreachable), and the primary
+   green `+ New session`. Toggled buttons: bg `#232b36`, text `#dbe2ea`.
+2. **Middle row** — optional projects drawer (left) · pane area (radial
+   lift) · optional sessions drawer (right). Drawers are structural flex
+   siblings: opening one resizes panes through the real fit → ws-resize
+   chain, never covers them.
+3. **Tab strip ~35px, BOTTOM** (Steam-style; settled user decision
+   2026-07-20) — bg `#1b222c`, top border `#262f3b`, tabs bottom-aligned.
+   Tab = one view (1–4 sessions): status dot, mono 11.5px name (split views
+   join member names with " · "), `▦ N` split badge (mono 9.5px, border
+   `#3d5a75`, `#5cb8f0`) when >1 session, pulsing amber `input` pill when a
+   member awaits input, per-tab `×` (armed two-step for session views).
+   Active tab: bg `#0e1116` (terminal ground), 1px `#262f3b` border, glowing
+   2px `#5cb8f0` top bar inset 12px. After the tabs: ghost `+` (opens the
+   launcher tab — the launch dialog replaces this in R3), then right-aligned
+   faint hint `drag a tab onto a tab or pane to merge · ⇱ splits it back out`.
+4. **Statusline 23px** — bg `#10141a`, mono 10.5px `#5c6b7c`. Left: `ws
+   <n> ms` (presence ping round-trip), `<n> sessions · <n> panes`, amber
+   `<n> awaiting input` when >0, then the focused-session readout
+   (project · title · cols×rows · conn state — carried over, it is
+   information). Right: transient flash notices, `up HH:MM:SS` (from
+   `GET /api/runtime` startedAt), `pty ok` (health-derived; replaced by red
+   `backend unreachable` on repeated poll failure), `?` shortcuts hint
+   (a real button). Intentionally NO separate "healthy" item (handoff
+   removed it — the topbar dot covers connection) and NO grace countdown
+   (fiction cut, see below).
+
+## Pane cards (handoff §3)
+
+- Card: bg = themed terminal ground, radius 12px, border `#262f3b`,
+  `overflow:hidden`, pane shadow. Grid templates by count (1/2/3/4) with
+  10px gap/padding; split fractions are draggable dividers in the gap
+  (invisible ~10px grab strips, keyboard-nudgeable, `role=separator` —
+  carried over unchanged).
+- Header 30px (`#141920`, underline `#1d242e`): status dot (green running /
+  pulsing amber attention / hollow gray exited), mono 12px/500 session name,
+  11px `#5c6b7c` project name, spacer, model tag + permission tag (mono
+  9.5px chips, border `#2e3846`; permission tag `#d95c5c` when the session's
+  args contain `--dangerously-skip-permissions` or `--permission-mode
+  bypassPermissions`), connection chip only while degraded (`reconnecting…`
+  / red `lost`), and `⇱ own tab` (accent-blue chip) ONLY when the view holds
+  more than one pane. Tags derive from `SessionInfo.args` client-side — no
+  protocol fields. The whole header is a drag source (swap panes / extract
+  to strip); keyboard equivalents: ctrl+alt+shift+arrows, the ⇱ button.
+- Focused pane in a split: inner `outline:1px solid #3d5a75;
+  outline-offset:-1px`. A lone pane carries no focus frame.
+- Exited/dead banners stay structural strips under the header (relaunch /
+  delete, armed confirms); the buffer below stays readable.
+- Drop overlay during drags: dashed `#5cb8f0` box + accent tint over the
+  target half/whole, mono label (`split here` / `merge here` / `open here`).
+
+## Drawers (handoff §6–§7)
+
+- **Projects (left, 272px)**: header `PROJECTS` + `+ add`. `+ add` reveals
+  the existing inline add flow (name, directory via the server-side browser
+  modal, optional default model/mode) on a `#12161d` card with `#3d5a75`
+  border — the directory browser is kept deliberately (real backend fs, no
+  free-text path field, no add-project regression; the handoff's
+  `~/projects/<name>` autofill applies to a text path input we don't have).
+  Rows: name 13px/500, spacer, `+` (opens the launcher tab pre-set to the
+  project), `×` (armed remove), faint mono path (the ONE place a path is
+  shown), meta line `N active sessions` in green when >0 else
+  `no active sessions` in `#3d4b5d`.
+- **Sessions (right, 296px)**: `ACTIVE · N` rows — dot, mono name, model
+  tag, `split` (append into the current view, max 4 — the button twin of
+  drag-to-merge), `×` (armed kill); the row body is a real button: click
+  activates that session's view and focuses it. Meta: project · status
+  (· tab place when assigned). `PREVIOUS RUN · N` rows keep the existing
+  crash/shutdown relaunch (`--continue` for claude) + forget + dismiss-all
+  exactly; footer note `relaunch resumes claude with --continue`. NO per-id
+  `--resume <id>` (fiction cut). Slide-in .18s.
+
+## Empty state (handoff §11 minus fiction)
+
+Zero views (⇔ zero sessions and no launcher tab open): centered 64px logo
+tile, `No active sessions`, buttons `+ New session` (opens the launcher tab)
+and `Relaunch previous run (N)` (opens the sessions drawer's previous-run
+section; shown only when offers exist). NO grace countdown line. The empty
+state became reachable by letting the view list be empty: closing the last
+tab no longer auto-spawns a launcher view — the launcher opens on demand
+(topbar / ghost `+` / ctrl+alt+t / empty-state button).
+
+## Cut as fiction (unchanged by the precedence flip)
+
+- **Grace countdown** (empty state + statusline): any UI able to show it is
+  itself keeping the backend alive.
+- **Boot overlay with launcher lifecycle steps**: the browser opens after
+  health passes; the app can never witness those steps (honest in-app boot
+  panel lands with R3).
+- **Per-session `--resume <id>`**: the journal stores our ids, not Claude
+  conversation ids; `--continue` relaunch stays.
+
+## Recorded deviations from the handoff (with reasons)
+
+- **Launch dialog is R3**: `+ New session`, ghost `+`, projects-drawer `+`
+  and the empty-state button open the existing launcher TAB until the modal
+  lands.
+- **No Phosphor icons** (no new dependencies): the prototype's text glyphs
+  are the icon set — `>_ × + ▦ ⇱ ▸ ⠿`.
+- **Terminal line-height**: xterm keeps its native cell metrics (lineHeight
+  1) instead of the prototype's 1.6 — the prototype faked terminal lines
+  with divs; real TUIs need real cell geometry. Font size 12.5px per spec.
+- **Armed two-step confirms** (kill → `sure?`) are kept on every destructive
+  control — repo interaction contract, no native confirm(); the prototype
+  killed without asking.
+- **Tab strip hint** doubles as drag documentation; every drag interaction
+  keeps a keyboard/button path (shortcuts overlay lists them all).
+- **Connection indicator** shows red `offline` when unreachable — the
+  prototype only ever showed `connected` (mock had no failure mode).
+- **Shortcuts entry point moved to the statusline**: the handoff has no `?`
+  control anywhere; the topbar `?` button was dropped in the restructure, so
+  the statusline's kbd help hint became a real `?` button (the shortcuts
+  overlay needs one non-drag, non-chord entry point).
+- **Drawer row meta** trimmed to the handoff's project · status shape; age
+  and cols×rows moved out of the drawer (dims live in the statusline
+  readout).
+- **JetBrains Mono** bundled from the official JetBrains release (full
+  glyph coverage for terminal content) instead of the latin-subset Google
+  pipeline used for Barlow chrome.
 
 ## Guarantees carried over unchanged
 
 - Resize chain: every geometry change (divider drag, drawer toggle, tab
   switch, split change) flows container-resize → FitAddon → ws `resize` →
-  `pty.resize`. Divider clamps 15%–85%; dividers are tabbable
-  (`role=separator`, arrows nudge, Enter resets).
-- localStorage UI schema v2 with v1 migration (state.ts) — untouched by the
-  reskin.
+  `pty.resize`. Divider clamps 15%–85%, tabbable, arrows nudge, Enter/dblclick
+  resets. The theme popover changes no geometry.
+- Plain keys (Ctrl+C, Esc, arrows) never intercepted; app chords exclusively
+  Ctrl+Alt with the `getModifierState('AltGraph')` guard in BOTH the window
+  handler and xterm's custom key handler (European layouts).
+- localStorage UI schema stays **v2** (with the v1 migration): the strip
+  move and the empty-state change alter no stored shape. Theme state lives
+  under a separate key.
+- Sessions are server-side; the UI attaches views. xterm opens only on
+  attached, measurable nodes; `.term-host` keeps `z-index:0` isolation (the
+  scanline overlay sits OUTSIDE the host, `pointer-events:none`).
+- Every control is a real `<button>/<input>` with a visible blue
+  `:focus-visible` ring; hover-only affordances forbidden.
+- Projects display their NAME everywhere; the path appears only as drawer
+  row metadata.
 
-## Slop-filter pass (against the hard reject list)
+## Slop-filter pass (against the frontend-designer reject list)
 
-- Purple/violet gradients, hero gradients: none — flat surfaces only; the
-  mock's green button gradient was deliberately flattened.
-- Glassmorphism/backdrop-filter: none — opaque scrim, flat panels.
-- Default-Tailwind combo: no Inter (bundled Barlow + mono), radius ≤3px,
-  the single shadow is functional (drag ghost), no gray-50 anything.
-- Generic SaaS shell: no icon sidebar, no card grid — shell band / tabbed
-  workspace / statusline, drawers are working panels, terminals dominate.
-- Emoji/sparkle iconography: none — text labels, `×`, `!`, `⠿`, dots that
-  encode state.
-- Centered friendly empty states: none — the empty tab is a launch form.
-- Evenly-distributed timid palette: intentionally lopsided — a charcoal-blue
-  field with one loud interactive blue and three exclusive status hues.
-- Decoration carrying no information: every colored element encodes
-  interaction or status; the only "brand" is a 10-character wordmark.
-- *"Next to 100 AI dashboards, distinguishable?"* — Steam-library surface
-  ramp, mono data voice, hollow exited dots, inverse amber badges, armed
-  confirms: yes. *"Would a tmux power user feel at home?"* — keyboard
-  chords for everything, dense mono rows, statusline readout, terminals
-  that stay near-black: yes.
+- Gradients / blur / shadows / glow: present ONLY where the handoff specs
+  them (topbar + pane-area + R3 dialog header gradients; four shadows; tab/
+  dot/go-button glows; R3 backdrop blur) — **user-sanctioned by decision
+  2026-07-20**, not template residue. Nothing beyond that list.
+- Default-Tailwind look: no Inter/system font (bundled Barlow + JetBrains
+  Mono), no rounded-2xl-card-grid shell, no gray-50.
+- Generic SaaS dashboard: the shell is topbar / terminal cards / Steam tab
+  strip / statusline — no icon sidebar, no card grid, no KPI tiles.
+- Emoji/sparkle iconography: none — text glyphs and state-encoding dots.
+- Centered friendly empty state: the handoff's empty state is a logo tile +
+  two working actions, no illustration, no copywriting fluff.
+- Decoration vs information: every colored element encodes interaction
+  (blue), go/running (green), attention (amber), danger (red) or death
+  (gray); the glows mark the active tab, the live connection, the go action.
+- *"Next to 100 AI dashboards, distinguishable?"* — bottom Steam tab strip
+  with glow bar, terminal cards floating on a radial-lit ground, themable
+  terminal palettes, mono data voice, armed confirms: yes. *"Would a tmux
+  power user feel at home?"* — chords for everything, dense mono rows,
+  statusline readout, 10 terminal color ramps: yes.

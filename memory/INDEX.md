@@ -6,6 +6,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[handoff-design-primary]] — 2026-07-20 flip: the user's hi-fi handoff is the primary design source; bottom tab strip; modal launch dialog
 - [[lifecycle-bound-backend]] — sessions die with the app (presence WS + grace timer); crash-safe session journal with relaunch
 - [[auto-port-discovery]] — backend auto-picks its port; runtime.json discovery file carries port + auth token
 - [[vanilla-ts-vite-frontend]] — no UI framework; vanilla TS + Vite around imperative xterm.js
@@ -24,6 +25,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-20-r2-handoff-reskin]] — precedence flip + R2 shipped: handoff reskin, bottom tab strip, theme system; 9/9 verify-terminal; settings panel queued user-gated
 - [[2026-07-19-design-handoff-and-r1]] — user's hi-fi handoff triaged (gap analysis, fiction cuts, 2 open decisions); presence ping/pong + /api/runtime landed
 - [[2026-07-19-lifecycle-and-pivots]] — lifecycle reversal implemented; steam-blend direction chosen; caveman + model-assignment process changes
 - [[2026-07-18-mvp-build]] — backend + frontend + launcher landed via dev-flow workflows; backlog and manual-pass list

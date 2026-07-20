@@ -79,6 +79,13 @@ and multi-pane layouts on top.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
+- **QUEUED, user-gated (2026-07-20) — app settings panel.** User request,
+  verbatim intent: a settings surface inside the terminal UI ("the final
+  terminal settings") to check/adjust things like usage limit, model, and
+  other options — "a usual setting that would apply for the rest of the
+  sessions" (persistent defaults for future sessions, not per-launch).
+  Shape and exact option list unspecified — clarify with the user first.
+  **Do NOT implement until the user explicitly says go.**
 
 ## Hard technical constraints
 
@@ -112,16 +119,19 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-Raised 2026-07-19 by the user's hi-fi design handoff (`design/` — gap
-analysis and full plan in `design/GAP-ANALYSIS.md`), which conflicts with
-decided `web/DESIGN.md` on two structural points:
+None currently.
 
-- **Tab strip position** — handoff: dedicated bottom strip above the
-  statusline; shipped: tabs in the topbar. Recommendation on file: keep
-  topbar.
-- **Launch UI shape** — handoff: modal dialog; decided: launcher-as-tab.
-  Recommendation on file: keep in-tab, adopt the dialog's field-level
-  features.
+(Settled 2026-07-20, user's call — reversing the 2026-07-19 triage
+recommendations: the hi-fi handoff in `design/` is now the **primary design
+source**; `web/DESIGN.md` is rewritten to transcribe it rather than override
+it. Both structural conflicts went the handoff's way: the **tab strip moves
+to a dedicated bottom strip** above the statusline, and the **launch UI
+becomes a modal dialog** (replaces launcher-as-tab; lands with R3).
+Unaffected by the flip: architecture (vanilla TS + Vite stands — the handoff
+prompt itself defers to the existing stack; no new npm dependencies, fonts
+self-hosted), and the three fiction cuts in `design/GAP-ANALYSIS.md` stay
+cut — they are lifecycle impossibilities, not looks. Rationale in
+`memory/decisions/handoff-design-primary.md`.)
 
 (Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
 frontend; app data — projects.json, runtime.json, journal.json,

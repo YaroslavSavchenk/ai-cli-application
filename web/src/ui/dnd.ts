@@ -203,7 +203,7 @@ function resolve(x: number, y: number): Target {
     if (strip !== null) return { t: 'reorder', index: stripInsertIndex(strip, x) };
     if (paneEl !== null && source.kind !== 'launcher') {
       const active = st.activeView();
-      if (active.id === spec.viewId) return null; // own panes
+      if (active === null || active.id === spec.viewId) return null; // own panes
       const aCount = active.kind === 'launcher' ? 0 : active.sessions.length;
       if (aCount + srcCount > st.MAX_PANES) return { t: 'reject-full' };
       const slot = Number(paneEl.dataset.slot);
@@ -348,6 +348,7 @@ function drop(d: Drag): void {
     case 'zone': {
       if (spec.kind !== 'tab') return;
       const active = st.activeView();
+      if (active === null) return;
       if (st.mergeViews(active.id, spec.viewId, target.slot, target.zone) === 'full') rejectFull();
       break;
     }

@@ -19,7 +19,7 @@ import * as api from '../api.ts';
 import * as st from '../state.ts';
 import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
-import { el, button, armButton } from './util.ts';
+import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { flash } from './statusline.ts';
 
@@ -52,13 +52,12 @@ interface Slot {
   dead: boolean;
   /* Session chrome — null on the launcher slot. */
   dot: HTMLElement | null;
-  attn: HTMLElement | null;
   proj: HTMLElement | null;
   title: HTMLElement | null;
-  status: HTMLElement | null;
+  tagModel: HTMLElement | null;
+  tagPerm: HTMLElement | null;
   connChip: HTMLElement | null;
   extractBtn: HTMLButtonElement | null;
-  killBtn: HTMLButtonElement | null;
   note: HTMLElement | null;
   /* Launcher form — null on session slots. */
   launcher: LauncherRefs | null;
@@ -66,6 +65,7 @@ interface Slot {
 
 let grid: HTMLElement;
 let slots: Slot[] = [];
+/** Rendered view id, or the empty-state sentinel `__empty:<prevCount>`. */
 let renderedViewId = '';
 let renderedCount = -1;
 let renderedL3: st.L3 = 'L';
@@ -80,6 +80,11 @@ export function initPanes(gridEl: HTMLElement): void {
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
+      // The empty state depends on the previous-run offer count; re-render it.
+      if (st.activeView() === null) {
+        render();
+        return;
+      }
       for (const s of slots) {
         updateHeader(s);
         updateNote(s);
@@ -90,37 +95,61 @@ export function initPanes(gridEl: HTMLElement): void {
   });
   // Regaining window focus while a pane with attention is focused clears it.
   window.addEventListener('focus', () => {
-    const s = slots[st.activeView().focused];
+    const v = st.activeView();
+    if (v === null) return;
+    const s = slots[v.focused];
     if (s !== undefined) clearAttentionIfPending(s);
   });
   render();
 }
 
+/** The focused slot of the active view, if any. */
+function focusedSlot(): Slot | undefined {
+  const v = st.activeView();
+  return v !== null ? slots[v.focused] : undefined;
+}
+
 /** Connection state of the focused pane's session view (for the statusline). */
 export function focusedConn(): ConnState | null {
-  const s = slots[st.activeView().focused];
+  const s = focusedSlot();
   return s !== undefined && s.sessionId !== null ? s.conn : null;
 }
 
 /** Focus the terminal of the focused slot (used after drawer/tab focus moves). */
 export function requestTerminalFocus(): void {
-  const s = slots[st.activeView().focused];
+  const s = focusedSlot();
   if (s !== undefined && s.view !== null && s.sessionId !== null) s.view.focus();
 }
 
 /** Measured cols/rows of the focused pane (sizes the previous-run relaunch POST). */
 export function focusedPaneDims(): { cols: number; rows: number } {
-  const s = slots[st.activeView().focused];
+  const s = focusedSlot();
   return s !== undefined && s.view !== null ? s.view.proposeDims() : { cols: 80, rows: 24 };
 }
 
 /** Ctrl+Alt+Enter: put the keyboard into the launcher form of a launcher view. */
 export function openLauncher(): void {
   const s = slots[0];
-  if (st.activeView().kind === 'launcher' && s !== undefined && s.launcher !== null) {
+  if (st.activeView()?.kind === 'launcher' && s !== undefined && s.launcher !== null) {
     s.launcher.project.focus();
   } else {
     flash('no launcher here — ctrl+alt+t opens a new-session tab');
+  }
+}
+
+/**
+ * Projects-drawer `+`: open a launcher tab pre-set to the project. The
+ * launcher becomes the launch dialog in R3; the entry point stays.
+ */
+export function openLauncherForProject(projectId: string): void {
+  st.addLauncherTab(); // notifies synchronously — the launcher slot exists now
+  const s = slots[0];
+  if (s !== undefined && s.launcher !== null) {
+    if (st.state.projects.some((p) => p.id === projectId)) {
+      s.launcher.project.value = projectId;
+      applyProjectDefaults(s.launcher);
+    }
+    s.launcher.project.focus();
   }
 }
 
@@ -130,6 +159,10 @@ export function openLauncher(): void {
 
 function render(): void {
   const v = st.activeView();
+  if (v === null) {
+    renderEmpty();
+    return;
+  }
   const count = v.kind === 'launcher' ? 0 : v.sessions.length;
   if (v.id !== renderedViewId || count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
     rebuild(v, count);
@@ -137,6 +170,43 @@ function render(): void {
     for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
   }
   applyFocus();
+}
+
+/**
+ * Handoff §11 empty state (zero views ⇔ zero sessions): centered logo tile,
+ * "No active sessions", + New session (opens the launcher tab) and, when
+ * crash/shutdown offers exist, "Relaunch previous run (N)" opening the
+ * sessions drawer. NO grace countdown — a page able to display one would
+ * itself be keeping the backend alive.
+ */
+function renderEmpty(): void {
+  const sig = `__empty:${st.state.previous.length}`;
+  if (renderedViewId === sig) return;
+  for (const s of slots) s.view?.dispose();
+  slots = [];
+  renderedViewId = sig;
+  renderedCount = -1;
+  lastFocusKey = '';
+  delete grid.dataset.layout;
+  delete grid.dataset.l3;
+
+  const box = el('div', 'empty-state');
+  const tile = el('div', 'empty-tile');
+  tile.append(el('span', 'empty-glyph', '>_'));
+  tile.setAttribute('aria-hidden', 'true');
+  const hd = el('div', 'empty-hd', 'No active sessions');
+  const row = el('div', 'empty-actions');
+  const launch = button('btn-go', '+ New session', () => st.addLauncherTab());
+  row.append(launch);
+  if (st.state.previous.length > 0) {
+    row.append(
+      button('btn-ghost', `Relaunch previous run (${st.state.previous.length})`, () =>
+        st.openDrawer('sessions'),
+      ),
+    );
+  }
+  box.append(tile, hd, row);
+  grid.replaceChildren(box);
 }
 
 function rebuild(v: st.ViewState, count: number): void {
@@ -174,6 +244,12 @@ function rebuild(v: st.ViewState, count: number): void {
 function applySplit(v: st.ViewState): void {
   grid.style.setProperty('--split-col', String(v.split.col));
   grid.style.setProperty('--split-row', String(v.split.row));
+}
+
+/** applySplit for the current active view (divider handlers). */
+function applySplitNow(): void {
+  const v = st.activeView();
+  if (v !== null) applySplit(v);
 }
 
 function buildDividers(v: st.ViewState): void {
@@ -214,25 +290,34 @@ function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | 
   d.addEventListener('pointermove', (e) => {
     if (!d.hasPointerCapture(e.pointerId)) return;
     const r = grid.getBoundingClientRect();
-    const f = axis === 'col' ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height;
+    // The grid carries 10px padding and a 10px gap (handoff); the split
+    // fraction covers only the usable track space between them.
+    const cs = getComputedStyle(grid);
+    const pad = parseFloat(cs.paddingLeft) || 0;
+    const gap = parseFloat(axis === 'col' ? cs.columnGap : cs.rowGap) || 0;
+    const size = axis === 'col' ? r.width : r.height;
+    const pos = axis === 'col' ? e.clientX - r.left : e.clientY - r.top;
+    const usable = size - 2 * pad - gap;
+    const f = usable > 0 ? (pos - pad - gap / 2) / usable : 0.5;
     // Live: style only, no persist/notify — the ResizeObservers do the rest.
     setNow(st.setSplit(axis, f, false));
-    applySplit(st.activeView());
+    applySplitNow();
   });
   const endDrag = (e: PointerEvent): void => {
     if (!d.hasPointerCapture(e.pointerId)) return;
     d.releasePointerCapture(e.pointerId);
     d.classList.remove('is-dragging');
-    st.setSplit(axis, st.activeView().split[axis], true); // Persist + notify.
+    const cur = st.activeView()?.split[axis] ?? 0.5;
+    st.setSplit(axis, cur, true); // Persist + notify.
   };
   d.addEventListener('pointerup', endDrag);
   d.addEventListener('pointercancel', endDrag);
   d.addEventListener('dblclick', () => {
     setNow(st.setSplit(axis, 0.5, true));
-    applySplit(st.activeView());
+    applySplitNow();
   });
   d.addEventListener('keydown', (e) => {
-    const cur = st.activeView().split[axis];
+    const cur = st.activeView()?.split[axis] ?? 0.5;
     let f: number | null = null;
     if (axis === 'col' && e.key === 'ArrowLeft') f = cur - 0.02;
     else if (axis === 'col' && e.key === 'ArrowRight') f = cur + 0.02;
@@ -242,7 +327,7 @@ function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | 
     if (f !== null) {
       e.preventDefault();
       setNow(st.setSplit(axis, f, true));
-      applySplit(st.activeView());
+      applySplitNow();
     }
   });
   return d;
@@ -284,6 +369,7 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       const v = st.activeView();
       if (
         info.attention &&
+        v !== null &&
         v.id === renderedViewId &&
         v.focused === s.index &&
         document.hasFocus()
@@ -298,7 +384,7 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
     },
     onAttention: () => {
       const v = st.activeView();
-      if (v.id === renderedViewId && v.focused === s.index && document.hasFocus()) {
+      if (v !== null && v.id === renderedViewId && v.focused === s.index && document.hasFocus()) {
         // Attention arrived on the focused pane: acknowledge immediately.
         ackSeen(s, sessionId);
       } else {
@@ -318,6 +404,7 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
 
 function applyFocus(): void {
   const v = st.activeView();
+  if (v === null) return;
   for (const s of slots) s.root.classList.toggle('focused', s.index === v.focused);
   const key = `${v.id}:${v.focused}:${v.kind}`;
   if (key === lastFocusKey) return;
@@ -362,29 +449,26 @@ function createSessionSlot(index: number): Slot {
   root.tabIndex = -1;
   root.dataset.slot = String(index);
 
+  // Handoff §3 header: dot · session name · project name · spacer · model
+  // tag · permission tag · (conn chip while degraded) · ⇱ own tab. Status is
+  // the dot (pulsing amber = attention); killing lives on the tab × and the
+  // sessions drawer. The whole header is the drag source — keyboard twins:
+  // ctrl+alt+shift+arrows (swap) and the ⇱ button (extract).
   const hd = el('header', 'pane-hd');
-  // Status dot (green running / amber attention / hollow exited) — focus is
-  // shown structurally by the pane's accent border + lifted header instead.
-  const dot = el('span', 'pane-dot');
+  const dot = el('span', 'dot');
   dot.setAttribute('aria-hidden', 'true');
-  // Visible drag affordance; the whole header drags. Keyboard paths: the
-  // move chord (ctrl+alt+shift+arrows) and the extract button.
-  const grip = el('span', 'pane-grip', '⠿');
-  grip.setAttribute('aria-hidden', 'true');
-  const attn = el('span', 'badge-attn', '!');
-  attn.hidden = true;
-  attn.title = 'session wants attention';
-  const proj = el('span', 'pane-proj');
   const title = el('span', 'pane-title');
-  const status = el('span', 'pane-status');
+  const proj = el('span', 'pane-proj');
+  const gap = el('span', 'pane-gap');
+  const tagModel = el('span', 'pane-tag');
+  tagModel.hidden = true;
+  const tagPerm = el('span', 'pane-tag');
+  tagPerm.hidden = true;
   const connChip = el('span', 'pane-conn');
   connChip.hidden = true;
-  const gap = el('span', 'pane-gap');
-  const extractBtn = button('pane-btn', 'extract');
+  const extractBtn = button('pane-pop', '⇱ own tab');
   extractBtn.title = 'move to its own tab (or drag the header onto the tab strip)';
-  const killBtn = button('pane-btn is-danger', 'kill');
-  killBtn.title = 'kill session (asks to confirm)';
-  hd.append(dot, grip, attn, proj, title, status, connChip, gap, extractBtn, killBtn);
+  hd.append(dot, title, proj, gap, tagModel, tagPerm, connChip, extractBtn);
   hd.title = 'drag onto a pane to swap · onto the tab strip to extract';
 
   const note = el('div', 'pane-note');
@@ -392,7 +476,11 @@ function createSessionSlot(index: number): Slot {
 
   const body = el('div', 'pane-body');
   const termHost = el('div', 'term-host');
-  body.append(termHost);
+  // Scanline overlay (theme popover toggle): OUTSIDE the isolated term-host,
+  // pointer-events:none, revealed by html.scanlines-on. Terminal body only.
+  const scan = el('div', 'pane-scan');
+  scan.setAttribute('aria-hidden', 'true');
+  body.append(termHost, scan);
 
   root.append(hd, note, body, buildDropOverlay());
   root.addEventListener('mousedown', () => st.focusPane(index), true);
@@ -408,13 +496,12 @@ function createSessionSlot(index: number): Slot {
     exitCode: null,
     dead: false,
     dot,
-    attn,
     proj,
     title,
-    status,
+    tagModel,
+    tagPerm,
     connChip,
     extractBtn,
-    killBtn,
     note,
     launcher: null,
   };
@@ -422,21 +509,17 @@ function createSessionSlot(index: number): Slot {
   extractBtn.addEventListener('click', () => {
     if (slot.sessionId !== null) st.extractSession(slot.sessionId);
   });
-  armButton(killBtn, 'sure?', () => {
-    if (slot.sessionId !== null) void killSession(slot.sessionId);
-  });
 
   // Header drag: onto another pane = swap; onto the tab strip = extract.
   armDrag(hd, 'button', () => {
     if (slot.sessionId === null) return null;
     const info = st.state.sessions.get(slot.sessionId);
-    const pname = st.projectName(info?.projectId);
     return {
       kind: 'pane',
       viewId: renderedViewId,
       slot: index,
       sessionId: slot.sessionId,
-      label: pname !== null ? `${pname} · ${info?.command ?? ''}` : (info?.command ?? '…'),
+      label: info?.title ?? '…',
     };
   });
 
@@ -466,13 +549,12 @@ function createLauncherSlot(viewId: string): Slot {
     exitCode: null,
     dead: false,
     dot: null,
-    attn: null,
     proj: null,
     title: null,
-    status: null,
+    tagModel: null,
+    tagPerm: null,
     connChip: null,
     extractBtn: null,
-    killBtn: null,
     note: null,
     launcher,
   };
@@ -503,23 +585,28 @@ function updateHeader(s: Slot): void {
   s.proj.textContent = pname ?? '·';
   if (s.title !== null) s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
   const attention = info !== undefined && info.attention;
-  if (s.status !== null) {
-    if (info === undefined || info.status === 'running') {
-      // Human status language; amber text only while attention is pending.
-      s.status.textContent = attention ? 'needs input' : 'running';
-      s.status.className = `pane-status ${attention ? 'is-attn' : 'is-ok'}`;
-    } else {
-      const code = info.exitCode ?? 0;
-      s.status.textContent = code === 0 ? 'exited' : `exited · ${code}`;
-      s.status.className = `pane-status ${code === 0 ? '' : 'is-danger'}`;
-    }
-  }
+  const running = info === undefined || info.status === 'running';
   if (s.dot !== null) {
-    const running = info === undefined || info.status === 'running';
-    s.dot.className = `pane-dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+    // The dot IS the status readout: green running / pulsing amber
+    // attention / hollow gray exited (exit code lives on the banner).
+    s.dot.className = `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
     s.dot.title = attention ? 'needs input' : running ? 'running' : 'exited';
   }
-  if (s.attn !== null) s.attn.hidden = !attention;
+  // Model/permission tags derive from argv client-side (no protocol fields).
+  if (s.tagModel !== null) {
+    const m = info !== undefined ? modelFromArgs(info.args) : null;
+    s.tagModel.hidden = m === null;
+    if (m !== null) s.tagModel.textContent = m;
+  }
+  if (s.tagPerm !== null) {
+    const p = info !== undefined ? permFromArgs(info.args) : null;
+    s.tagPerm.hidden = p === null;
+    if (p !== null) {
+      s.tagPerm.textContent = p.label;
+      s.tagPerm.classList.toggle('is-danger', p.danger);
+      s.tagPerm.title = p.danger ? 'permissions bypassed — dangerous' : 'permission mode';
+    }
+  }
   if (s.connChip !== null) {
     if (s.conn === null || s.conn === 'live') {
       s.connChip.hidden = true;

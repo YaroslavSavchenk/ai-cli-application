@@ -60,6 +60,19 @@ function clampDim(v: number | undefined, fallback: number): number {
   return Math.min(DIM_MAX, Math.max(DIM_MIN, Math.trunc(v)));
 }
 
+/** Every mounted TerminalView — the theme popover refreshes them in place. */
+const liveViews = new Set<TerminalView>();
+
+/**
+ * Re-read the --xt-* tokens and apply to ALL live terminals. Called by
+ * ui/theme.ts after it writes ground/ramp overrides onto :root — the tokens
+ * file stays the single ITheme source; nothing else may hand xterm a theme.
+ */
+export function refreshAllTerminalThemes(): void {
+  const theme = themeFromTokens();
+  for (const view of liveViews) view.term.options.theme = theme;
+}
+
 export interface TerminalEvents {
   onInfo(session: SessionInfo): void;
   onExit(exitCode: number): void;
@@ -83,7 +96,7 @@ export class TerminalView {
 
   constructor(container: HTMLElement) {
     this.#container = container;
-    const fsTerm = parseInt(cssVar('--fs-term'), 10);
+    const fsTerm = parseFloat(cssVar('--fs-term')); // 12.5px per the handoff
     this.term = new Terminal({
       scrollback: SCROLLBACK_LINES,
       fontFamily: cssVar('--font-mono') || 'monospace',
@@ -91,6 +104,7 @@ export class TerminalView {
       cursorBlink: false,
       theme: themeFromTokens(),
     });
+    liveViews.add(this);
     // App shortcuts live exclusively on Ctrl+Alt; keep xterm from also
     // feeding those chords to the PTY. EVERYTHING else (plain Ctrl+C/V,
     // arrows, Esc, ...) goes to the terminal untouched. AltGr on Windows
@@ -228,6 +242,7 @@ export class TerminalView {
   }
 
   dispose(): void {
+    liveViews.delete(this);
     this.#observer.disconnect();
     if (this.#debounce !== null) clearTimeout(this.#debounce);
     this.#socket?.close();

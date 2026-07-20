@@ -175,27 +175,60 @@ export class SessionSocket {
 
 const PRESENCE_MIN_MS = 1000;
 const PRESENCE_MAX_MS = 15000;
+/** Latency probe interval — pings are tiny and lifecycle-inert server-side. */
+const PRESENCE_PING_MS = 5000;
 
 /**
  * Presence client — the backend's lifetime is bound to UI presence: one open
- * /ws/presence socket per window IS the whole protocol (no frames either
- * way). Opened once at boot; on ANY close it reconnects on capped
- * exponential backoff INDEFINITELY. Failures are deliberately silent —
- * presence must never block the UI: the statusline's unreachable readout
- * already covers a gone backend, and a stale token (backend restarted) gets
- * the REST layer's reload takeover.
+ * /ws/presence socket per window IS the lifecycle protocol. Opened once at
+ * boot; on ANY close it reconnects on capped exponential backoff
+ * INDEFINITELY. Failures are deliberately silent — presence must never block
+ * the UI: the statusline's unreachable readout already covers a gone
+ * backend, and a stale token (backend restarted) gets the REST layer's
+ * reload takeover.
+ *
+ * On top of the bare socket, the channel answers `{"type":"ping","t":n}`
+ * with a matching `pong` — used here to measure round-trip latency for the
+ * statusline (`ws <n> ms`). `onLatency` gets the rounded ms per pong and
+ * null when the socket drops.
  */
-export function startPresence(): void {
+export function startPresence(onLatency?: (ms: number | null) => void): void {
   let delay = PRESENCE_MIN_MS;
   const open = (): void => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(
       `${proto}//${location.host}/ws/presence?token=${encodeURIComponent(authToken())}`,
     );
+    let pinger: number | null = null;
     ws.onopen = () => {
       delay = PRESENCE_MIN_MS;
+      const ping = (): void => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
+        }
+      };
+      ping();
+      pinger = window.setInterval(ping, PRESENCE_PING_MS);
+    };
+    ws.onmessage = (ev: MessageEvent) => {
+      if (typeof ev.data !== 'string') return;
+      let msg: unknown;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      const m = msg as { type?: unknown; t?: unknown };
+      if (m.type === 'pong' && typeof m.t === 'number' && Number.isFinite(m.t)) {
+        onLatency?.(Math.max(0, Math.round(performance.now() - m.t)));
+      }
     };
     ws.onclose = () => {
+      if (pinger !== null) {
+        clearInterval(pinger);
+        pinger = null;
+      }
+      onLatency?.(null);
       window.setTimeout(open, delay);
       delay = Math.min(delay * 2, PRESENCE_MAX_MS);
     };

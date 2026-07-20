@@ -13,6 +13,7 @@ import type {
   OkResponse,
   PreviousSession,
   Project,
+  RuntimeStatusResponse,
   SessionInfo,
 } from '../../shared/protocol.ts';
 
@@ -111,6 +112,11 @@ export function dismissPrevious(id: string): Promise<OkResponse> {
 
 export function dismissAllPrevious(): Promise<OkResponse> {
   return request<OkResponse>('/api/previous', { method: 'DELETE' });
+}
+
+/** Backend boot time (statusline uptime). */
+export function getRuntime(): Promise<RuntimeStatusResponse> {
+  return request<RuntimeStatusResponse>('/api/runtime');
 }
 
 export function fsList(path?: string): Promise<FsListResponse> {

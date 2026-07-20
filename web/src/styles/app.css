@@ -1,9 +1,11 @@
 /*
- * App styles — "steam blend" per web/DESIGN.md. Layered charcoal-blue
- * surfaces, flat chrome, radius capped at 3px; light blue is the ONLY
- * interactive accent; green/amber/gray keep their exclusive status meanings.
- * Sans (bundled Barlow) for chrome, mono for everything that is data.
- * Every value comes from tokens.css. One real shadow exists: the drag ghost.
+ * App styles — hi-fi handoff skin (design/README.md; transcription in
+ * web/DESIGN.md). Steam-lineage shell: gradient topbar, radial-lit pane
+ * area with floating terminal cards, BOTTOM tab strip with a glowing accent
+ * bar, 23px mono statusline. Barlow for chrome, JetBrains Mono for data and
+ * the terminal. Every color comes from tokens.css — no hex here; the
+ * gradients, four shadows and glow accents are the handoff's own
+ * (user-sanctioned, see DESIGN.md).
  */
 
 /* ---- base ---------------------------------------------------------------- */
@@ -25,10 +27,10 @@ body,
 }
 
 body {
-  background: var(--surface-1);
+  background: var(--bg-app);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: var(--fs-chrome);
+  font-size: var(--fs-row);
   line-height: 1.45;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -53,19 +55,28 @@ button {
   background: none;
   border: none;
   cursor: pointer;
+  transition:
+    color var(--t-btn),
+    background-color var(--t-btn),
+    border-color var(--t-btn),
+    box-shadow var(--t-slide);
 }
 
 /* Everything typed or listed as data is mono: tab labels, session rows,
-   the statusline, paths, directory lists, input values. */
+   the statusline, paths, tags, directory lists, input values. */
 input,
 select,
 .tabstrip,
 .drag-ghost,
-.pane-hd,
+.pane-title,
+.pane-tag,
+.pane-conn,
 .statusline,
 .sess-name,
 .sess-meta,
-.drawer-count,
+.sess-model,
+.drawer-sect,
+.drawer-note,
 .proj-path,
 .proj-meta,
 .dirpath,
@@ -73,18 +84,22 @@ select,
 .dir-chosen,
 .pane-drop-lb,
 .sc-gesture,
+.theme-note,
+.logo-glyph,
+.empty-glyph,
+.tb-conn,
 kbd {
   font-family: var(--font-mono);
 }
 
 input,
 select {
-  font-size: var(--fs-data);
+  font-size: var(--fs-name);
   color: var(--text);
   background: var(--well);
-  border: var(--line) solid var(--edge);
-  border-radius: var(--radius);
-  padding: var(--s-2) var(--s-3);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-input);
+  padding: var(--s-2) var(--s-4);
   width: 100%;
 }
 
@@ -94,326 +109,288 @@ input::placeholder {
 
 input:focus,
 select:focus {
-  border-color: var(--acc-dim);
+  border-color: var(--edge-accent);
 }
 
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: var(--line) solid var(--acc);
-  outline-offset: calc(-1 * var(--line));
-}
-
-button,
-.pane,
-.sess-row {
-  transition:
-    color var(--t-fast),
-    background-color var(--t-fast),
-    border-color var(--t-fast),
-    opacity var(--t-fast);
+  outline: var(--tick) solid var(--acc);
+  outline-offset: 1px;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--edge-strong) transparent;
+  scrollbar-color: var(--edge-hover) transparent;
 }
 
-/* micro-label: letterspaced small caps in the chrome sans */
+/* section label: letterspaced caps */
 .drawer-label,
-.drawer-sect-lb,
 .field-lb,
 .launcher-hd,
+.theme-lb,
 .boot-err-hd {
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   font-weight: 600;
-  letter-spacing: var(--ls-caps);
+  letter-spacing: var(--ls-label);
   text-transform: uppercase;
-  color: var(--text-mute);
+  color: var(--text-dim);
 }
 
-/* ---- status dots: green running / amber attention / hollow gray exited ---- */
+/* ---- status dots: green running / pulsing amber attention / hollow exited -- */
 
-.tab-dot,
-.pane-dot {
+.dot {
   flex: none;
   width: var(--dot);
   height: var(--dot);
   border-radius: 50%;
 }
 
-.tab-dot.is-run,
-.pane-dot.is-run {
+.dot.is-run {
   background: var(--ok);
 }
 
-.tab-dot.is-attn,
-.pane-dot.is-attn {
+.dot.is-attn {
   background: var(--attn);
+  animation: pulse var(--t-pulse) infinite;
 }
 
-.tab-dot.is-exit,
-.pane-dot.is-exit {
+.dot.is-exit {
   background: transparent;
   border: var(--line) solid var(--exit);
 }
 
-.tab-dot.is-new {
+.dot.is-new {
   background: transparent;
   border: var(--line) dashed var(--text-faint); /* hollow dashes: launcher tab */
 }
 
-/* ---- attention badge: inverse amber block, readable across the room ------ */
+/* ---- keyframes (handoff motion set) ---------------------------------------- */
 
-.badge-attn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--badge-block);
-  padding: 0 var(--s-2);
-  background: var(--attn);
-  color: var(--attn-ink);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: var(--fs-micro);
-  line-height: var(--badge-block);
-  border-radius: var(--radius-sm);
-  animation: badge-in var(--t-move) ease-out;
-}
-
-@keyframes badge-in {
+@keyframes fadeUp {
   from {
-    transform: scale(0.6);
+    opacity: 0;
+    transform: translateY(8px);
   }
   to {
-    transform: scale(1);
+    opacity: 1;
+    transform: none;
   }
 }
 
-/* ---- topbar: shell band with Steam tabs ----------------------------------- */
+@keyframes slideL {
+  from {
+    transform: translateX(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes slideR {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ---- topbar (handoff §2): gradient band ------------------------------------ */
 
 .topbar {
-  height: var(--bar-h);
+  height: var(--topbar-h);
   flex: none;
   display: flex;
-  align-items: stretch;
-  background: var(--surface-0);
-  border-bottom: var(--line) solid var(--edge-soft);
+  align-items: center;
+  gap: var(--s-5);
+  padding: 0 var(--s-7);
+  background: var(--grad-topbar);
+  border-bottom: var(--line) solid var(--edge);
 }
 
-.brand {
+.logo-tile {
+  width: 18px;
+  height: 18px;
+  flex: none;
   display: flex;
   align-items: center;
-  padding: 0 var(--s-5);
-  color: var(--text);
-  font-size: var(--fs-data);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  user-select: none;
+  justify-content: center;
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
 }
 
-.tabstrip {
+.logo-glyph {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.wordmark {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  letter-spacing: var(--ls-wordmark);
+  color: var(--text-hd);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tb-gap {
   flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: flex-end;
-  gap: var(--s-1);
-  padding: 0 var(--s-2);
-  overflow-x: auto;
-  font-size: var(--fs-data);
-}
-
-.tab {
-  flex: none;
-  display: flex;
-  align-items: center;
-  height: var(--tab-h);
-  position: relative; /* anchors the active accent bar */
-  border-radius: var(--radius) var(--radius) 0 0;
-  /* Insertion caret slot: lit while a dragged tab would land before this one. */
-  border-left: var(--tick) solid transparent;
-  white-space: nowrap;
-  user-select: none;
-  touch-action: none; /* tabs are pointer-drag sources */
-}
-
-.tab:hover {
-  background: var(--surface-2);
-}
-
-.tab.is-active {
-  background: var(--surface-2);
-}
-
-.tab.is-active::after {
-  /* the accent bar: blue = selected, the one interactive color */
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--tick);
-  background: var(--acc-hot);
-  border-radius: var(--radius) var(--radius) 0 0;
-  pointer-events: none;
-}
-
-.tab-sel {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: 0 var(--s-2) 0 var(--s-4);
-  color: var(--text-mute);
-}
-
-.tab:hover .tab-sel,
-.tab.is-active .tab-sel {
-  color: var(--text);
-}
-
-.tab-idx {
-  color: var(--text-faint);
-  font-size: var(--fs-micro);
-}
-
-/* the view holds a split: sessions beyond the first (blue = its mock chip) */
-.tab-count {
-  color: var(--acc);
-  background: var(--acc-wash);
-  border: var(--line) solid var(--acc-dim);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--s-2);
-  font-size: var(--fs-micro);
-  line-height: var(--badge-block);
-}
-
-.tab .badge-attn {
-  margin: 0 var(--s-1);
-}
-
-.tab-x {
-  height: 100%;
-  padding: 0 var(--s-3);
-  border-radius: 0 var(--radius) 0 0;
-  color: var(--text-faint);
-}
-
-.tab-x:hover {
-  color: var(--text);
-  background: var(--surface-3);
-}
-
-.tab-x[data-armed='1'] {
-  background: var(--danger-hot);
-  color: var(--danger-ink);
-  font-weight: 600;
-}
-
-.tab-new {
-  flex: none;
-  height: var(--tab-h);
-  padding: 0 var(--s-4);
-  border-radius: var(--radius) var(--radius) 0 0;
-  border-left: var(--tick) solid transparent; /* caret slot, as on tabs */
-  color: var(--text-mute);
-  font-size: var(--fs-chrome);
-}
-
-.tab-new:hover {
-  color: var(--acc);
-  background: var(--surface-2);
-}
-
-/* ---- drag & drop: strip states ------------------------------------------- */
-
-.tab.is-dragging {
-  opacity: 0.45;
-}
-
-/* dashed = prospective (same contract as the pane drop target) */
-.tab.is-drop {
-  background: var(--surface-2);
-  outline: var(--line) dashed var(--acc);
-  outline-offset: calc(-1 * var(--line));
-}
-
-.tab.is-insert-before,
-.tab-new.is-insert-before {
-  border-left-color: var(--acc-hot); /* insertion caret */
-}
-
-.tabstrip.is-drop {
-  outline: var(--line) dashed var(--acc);
-  outline-offset: calc(-2 * var(--line));
-}
-
-/* cursor-following chip — the ONE elevated element in the whole UI */
-.drag-ghost {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: var(--z-ghost);
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  height: var(--ghost-h);
-  padding: 0 var(--s-5);
-  font-size: var(--fs-data);
-  background: var(--surface-3);
-  border: var(--line) solid var(--acc);
-  border-radius: var(--radius);
-  box-shadow: var(--elev-ghost);
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.drag-ghost.is-invalid {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-body.is-dnd {
-  user-select: none;
-}
-
-body.is-dnd * {
-  cursor: grabbing !important;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: stretch;
 }
 
 .tb-btn {
+  height: var(--ctl-h);
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  padding: 0 var(--s-5);
+  gap: var(--s-3);
+  padding: 0 var(--s-6);
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
   color: var(--text-mute);
-  font-size: var(--fs-data);
-  border-bottom: var(--tick) solid transparent;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .tb-btn:hover {
+  border-color: var(--edge-hover);
   color: var(--text);
-  background: var(--surface-2);
 }
 
 .tb-btn.is-on {
+  background: var(--surface-active);
   color: var(--text);
-  background: var(--surface-2);
-  border-bottom-color: var(--acc-hot); /* toggled: accent tick toward the drawer */
 }
 
-.tb-help {
-  min-width: var(--bar-h);
+/* CSS-drawn 2x2 swatch icon on the Theme button (prototype: no icon deps) */
+.tb-swatch {
+  display: grid;
+  grid-template-columns: 6px 6px;
+  grid-template-rows: 6px 6px;
+  gap: var(--s-1);
+}
+
+.tb-sw {
+  border-radius: var(--line);
+}
+
+.tb-sw.is-a {
+  background: var(--ok);
+}
+
+.tb-sw.is-b {
+  background: var(--acc);
+}
+
+.tb-sw.is-c {
+  background: var(--attn);
+}
+
+.tb-sw.is-d {
+  background: var(--xt-magenta);
+}
+
+/* amber count badge on the Sessions toggle — attention only */
+.tb-attn {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 var(--s-2);
+  display: flex;
+  align-items: center;
   justify-content: center;
+  background: var(--attn-tint);
+  border: var(--line) solid var(--attn);
+  border-radius: var(--r-btn);
+  color: var(--attn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  animation: pulse var(--t-pulse) infinite;
 }
 
-/* ---- main row: pane grid + drawer ---------------------------------------- */
+.tb-divider {
+  width: var(--line);
+  height: 18px;
+  background: var(--edge);
+}
+
+.tb-conn {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--fs-label);
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+
+.tb-conn-dot {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+}
+
+.tb-conn-dot.is-ok {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok-glow); /* sanctioned: handoff connected glow */
+}
+
+.tb-conn-dot.is-down {
+  background: var(--danger);
+}
+
+/* the primary green "go" button: + New session, empty state, launch */
+.btn-go {
+  height: var(--ctl-h);
+  padding: 0 var(--s-7);
+  background: var(--ok-tint);
+  border: var(--line) solid var(--ok);
+  border-radius: var(--r-btn);
+  color: var(--ok-text);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn-go:hover {
+  background: var(--ok-tint-hover);
+  box-shadow: 0 0 18px var(--ok-glow); /* sanctioned: handoff "go" glow */
+}
+
+/* ghost secondary (empty-state relaunch) */
+.btn-ghost {
+  height: 30px;
+  padding: 0 var(--s-8);
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text-mute);
+  font-size: var(--fs-row);
+  font-weight: 500;
+}
+
+.btn-ghost:hover {
+  border-color: var(--acc);
+  color: var(--acc);
+}
+
+/* ---- middle row: drawers + pane area ---------------------------------------- */
 
 .main {
   flex: 1;
@@ -421,32 +398,35 @@ body.is-dnd * {
   display: flex;
 }
 
+/* ---- pane area: radial lift, 10px grid of floating terminal cards ----------- */
+
 .grid {
   position: relative; /* anchors the absolutely-positioned split dividers */
   flex: 1;
   min-width: 0;
   display: grid;
-  gap: var(--line);
-  background: var(--edge); /* 1px gutters: structure lines, not decoration */
+  gap: var(--pane-gap);
+  padding: var(--pane-gap);
+  background: var(--grad-panearea); /* sanctioned: handoff radial lift */
 }
 
 /* Split fractions come from --split-col/--split-row (set per tab by
    ui/panes.ts, persisted in localStorage); the first track takes its share
-   of the space left after the 1px gutter, the second takes the rest. */
+   of the space left after the 10px gap, the second takes the rest. */
 
 .grid[data-layout='1'] {
   grid-template: 1fr / 1fr;
 }
 
 .grid[data-layout='2'] {
-  grid-template: 1fr / calc((100% - var(--line)) * var(--split-col, 0.5)) minmax(0, 1fr);
+  grid-template: 1fr / calc((100% - var(--pane-gap)) * var(--split-col, 0.5)) minmax(0, 1fr);
 }
 
 .grid[data-layout='3'],
 .grid[data-layout='4'] {
   grid-template:
-    calc((100% - var(--line)) * var(--split-row, 0.5)) minmax(0, 1fr)
-    / calc((100% - var(--line)) * var(--split-col, 0.5)) minmax(0, 1fr);
+    calc((100% - var(--pane-gap)) * var(--split-row, 0.5)) minmax(0, 1fr)
+    / calc((100% - var(--pane-gap)) * var(--split-col, 0.5)) minmax(0, 1fr);
 }
 
 /* 3-pane variants: L = tall pane left (stacked pair right), R = mirrored.
@@ -471,11 +451,12 @@ body.is-dnd * {
   grid-column: 2;
 }
 
-/* ---- split dividers -------------------------------------------------------
-   Visible-but-quiet: the 1px gutter stays the only line at rest; the divider
-   is a wider invisible grab strip centered on it whose 1px core surfaces on
-   hover (edge-strong) and turns accent blue while focused or dragging
-   (blue = being interacted with). */
+/* ---- split dividers ----------------------------------------------------------
+   Invisible grab strips centered in the 10px gap; a 1px core line surfaces
+   on hover (edge-hover) and turns accent blue while focused or dragging.
+   Position math: the grid has --pane-gap padding AND gap, so the usable
+   track space is (100% - 3 * gap); % offsets resolve against the grid's
+   padding box. */
 
 .divider {
   position: absolute;
@@ -487,11 +468,11 @@ body.is-dnd * {
   content: '';
   position: absolute;
   background: transparent;
-  transition: background-color var(--t-fast);
+  transition: background-color var(--t-btn);
 }
 
 .divider:hover::after {
-  background: var(--edge-strong);
+  background: var(--edge-hover);
 }
 
 .divider:focus-visible {
@@ -500,17 +481,19 @@ body.is-dnd * {
 
 .divider:focus-visible::after,
 .divider.is-dragging::after {
-  background: var(--acc-hot);
+  background: var(--acc);
 }
 
 .divider-col {
-  top: 0;
-  bottom: 0;
+  top: var(--pane-gap);
+  bottom: var(--pane-gap);
   width: var(--divider-hit);
-  left: calc((100% - var(--line)) * var(--split-col, 0.5) + var(--line) / 2);
+  left: calc(
+    var(--pane-gap) + (100% - 3 * var(--pane-gap)) * var(--split-col, 0.5) + var(--pane-gap) / 2
+  );
   transform: translateX(-50%);
   cursor: col-resize;
-  z-index: 6; /* columns win the 9px crossing square over row dividers */
+  z-index: 6; /* columns win the crossing square over row dividers */
 }
 
 .divider-col::after {
@@ -521,10 +504,12 @@ body.is-dnd * {
 }
 
 .divider-row {
-  left: 0;
-  right: 0;
+  left: var(--pane-gap);
+  right: var(--pane-gap);
   height: var(--divider-hit);
-  top: calc((100% - var(--line)) * var(--split-row, 0.5) + var(--line) / 2);
+  top: calc(
+    var(--pane-gap) + (100% - 3 * var(--pane-gap)) * var(--split-row, 0.5) + var(--pane-gap) / 2
+  );
   transform: translateY(-50%);
   cursor: row-resize;
 }
@@ -540,14 +525,18 @@ body.is-dnd * {
    the stacked column — right column for variant L, left column for variant R
    (both edges track the column split). */
 .divider-row.is-partial-r {
-  left: calc((100% - var(--line)) * var(--split-col, 0.5) + var(--line));
+  left: calc(
+    var(--pane-gap) + (100% - 3 * var(--pane-gap)) * var(--split-col, 0.5) + var(--pane-gap)
+  );
 }
 
 .divider-row.is-partial-l {
-  right: calc(100% - (100% - var(--line)) * var(--split-col, 0.5));
+  right: calc(
+    100% - var(--pane-gap) - (100% - 3 * var(--pane-gap)) * var(--split-col, 0.5)
+  );
 }
 
-/* ---- pane ------------------------------------------------------------------ */
+/* ---- pane card (handoff §3) --------------------------------------------------- */
 
 .pane {
   position: relative; /* anchors the .pane-drop overlay */
@@ -555,20 +544,19 @@ body.is-dnd * {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--term-bg);
+  background: var(--term-bg); /* follows the theme popover's ground */
+  border: var(--line) solid var(--edge);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  box-shadow: var(--sh-pane); /* sanctioned: handoff pane elevation */
   outline: none;
 }
 
-/* Focus is structural: in a split, the focused pane gets the accent edge and
-   a lifted header; unfocused panes dim slightly. A lone pane needs no frame —
-   the terminal dominates undecorated. */
+/* Focused pane in a split: the handoff's inner accent outline. A lone pane
+   carries no frame — the terminal dominates undecorated. */
 .grid:not([data-layout='1']) .pane.focused {
-  outline: var(--tick) solid var(--acc-dim); /* 2px, per the mock's ring */
-  outline-offset: calc(-1 * var(--tick));
-}
-
-.grid:not([data-layout='1']) .pane:not(.focused) {
-  opacity: 0.88;
+  outline: var(--line) solid var(--edge-accent);
+  outline-offset: calc(-1 * var(--line));
 }
 
 /* header drag: source dims; a swap candidate gets a dashed accent edge
@@ -593,13 +581,13 @@ body.is-dnd * {
 
 .pane-drop-box {
   position: absolute;
-  inset: 0;
+  inset: var(--s-2);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--acc-wash);
+  background: var(--acc-tint);
   border: var(--line) dashed var(--acc);
-  border-radius: var(--radius);
+  border-radius: var(--r-card-sm);
 }
 
 .pane-drop[data-zone='left'] .pane-drop-box {
@@ -619,17 +607,18 @@ body.is-dnd * {
 }
 
 .pane-drop-lb {
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-caps);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  letter-spacing: var(--ls-label);
   text-transform: uppercase;
   color: var(--acc);
-  background: var(--well);
-  border: var(--line) solid var(--acc-dim);
-  border-radius: var(--radius);
-  padding: var(--s-2) var(--s-4);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  padding: var(--s-2) var(--s-6);
 }
 
-/* rejected drop (view already holds 4): one danger pulse, <=150ms motion */
+/* rejected drop (view already holds 4): one danger pulse */
 @keyframes grid-reject {
   0%,
   100% {
@@ -643,18 +632,19 @@ body.is-dnd * {
 .grid.is-reject {
   outline: var(--tick) solid transparent;
   outline-offset: calc(-1 * var(--tick));
-  animation: grid-reject var(--t-pulse) ease-out;
+  animation: grid-reject var(--t-btn) ease-out;
 }
 
+/* ---- pane header (30px) --------------------------------------------------- */
+
 .pane-hd {
-  height: var(--paneheader-h);
+  height: var(--panehd-h);
   flex: none;
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: 0 var(--s-3) 0 var(--s-4);
-  font-size: var(--fs-data);
-  background: var(--surface-2);
+  padding: 0 var(--s-5);
+  background: var(--surface-panehd);
   border-bottom: var(--line) solid var(--edge-soft);
   white-space: nowrap;
   overflow: hidden;
@@ -663,42 +653,60 @@ body.is-dnd * {
   cursor: grab;
 }
 
-.grid:not([data-layout='1']) .pane.focused .pane-hd {
-  background: var(--surface-3); /* focused header lifts one step */
-}
-
 .pane-hd button {
   cursor: pointer;
 }
 
-/* move affordance: braille grip, pointer twin of ctrl+alt+shift+arrows */
-.pane-grip {
-  flex: none;
-  color: var(--text-faint);
-  cursor: grab;
-  user-select: none;
-}
-
-.pane-grip:hover {
+.pane-title {
+  font-size: var(--fs-name);
+  font-weight: 500;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .pane-proj {
-  font-weight: 700;
+  font-size: var(--fs-label);
+  color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.pane-title {
+.pane-gap {
+  flex: 1;
+}
+
+/* model / permission chips — mono 9.5px, argv-derived */
+.pane-tag {
+  flex: none;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  padding: var(--line) var(--s-3);
   color: var(--text-mute);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: var(--fs-tag);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.pane-status,
+.pane-tag.is-danger {
+  color: var(--danger);
+  border-color: var(--danger-edge);
+  text-transform: none; /* the mode value is case-sensitive information */
+}
+
 .pane-conn {
-  font-size: var(--fs-micro);
-  letter-spacing: 0.03em;
+  flex: none;
+  font-size: var(--fs-tag);
+  color: var(--text-mute);
+}
+
+.pane-conn.is-danger {
+  color: var(--danger);
+}
+
+.is-warn {
   color: var(--text-mute);
 }
 
@@ -714,39 +722,21 @@ body.is-dnd * {
   color: var(--danger);
 }
 
-/* degraded-but-recovering conn: muted readout — amber is attention-only */
-.is-warn {
-  color: var(--text-mute);
-}
-
-.pane-gap {
-  flex: 1;
-}
-
-.pane-btn {
-  padding: var(--s-1) var(--s-3);
-  font-family: var(--font-sans);
+/* ⇱ own tab — pop the session back out of a split (blue = interaction) */
+.pane-pop {
+  flex: none;
+  height: var(--chip-h);
+  padding: 0 var(--s-4);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--acc);
+  font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  font-weight: 600;
-  color: var(--text-mute);
-  border-radius: var(--radius-sm);
 }
 
-.pane-btn:hover {
-  color: var(--text);
-  background: var(--surface-3);
-}
-
-.pane-btn.is-danger:hover {
-  color: var(--danger-ink);
-  background: var(--danger-hot);
-}
-
-.pane-btn[data-armed='1'],
-.row-btn[data-armed='1'] {
-  background: var(--danger-hot);
-  color: var(--danger-ink);
-  border-color: var(--danger-hot);
+.pane-pop:hover {
+  border-color: var(--acc);
+  background: var(--acc-tint);
 }
 
 /* exited / dead banner: full-width structural strip, buffer stays readable */
@@ -756,10 +746,10 @@ body.is-dnd * {
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-2) var(--s-4);
-  background: var(--surface-2);
+  padding: var(--s-2) var(--s-5);
+  background: var(--surface-panehd);
   border-bottom: var(--line) solid var(--edge-soft);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
 }
 
 .pane-note-text {
@@ -775,7 +765,7 @@ body.is-dnd * {
 }
 
 .pane-note.is-dead {
-  background: var(--danger-hot);
+  background: var(--danger);
 }
 
 .pane-note.is-dead .pane-note-text {
@@ -784,29 +774,27 @@ body.is-dnd * {
 }
 
 .pane-note-btn {
-  padding: 0 var(--s-3);
-  font-family: var(--font-sans);
+  padding: 0 var(--s-4);
   font-weight: 600;
   border: var(--line) solid var(--edge-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-input);
   color: var(--text-mute);
 }
 
 .pane-note-btn:hover {
   color: var(--text);
-  border-color: var(--text-mute);
+  border-color: var(--edge-hover);
 }
 
-/* relaunch: the banner's primary action — green, like every primary */
+/* relaunch: the banner's primary action — green "go" family */
 .pane-note-btn.is-primary {
-  color: var(--ok);
-  border-color: var(--primary);
+  color: var(--ok-text);
+  border-color: var(--ok);
+  background: var(--ok-tint);
 }
 
 .pane-note-btn.is-primary:hover {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-ink);
+  background: var(--ok-tint-hover);
 }
 
 .pane-note.is-dead .pane-note-btn {
@@ -832,17 +820,90 @@ body.is-dnd * {
 
 /* FitAddon subtracts .xterm's own padding from the host size */
 .term-host .xterm {
-  padding: var(--s-3);
+  padding: var(--s-5) var(--s-7);
 }
 
-/* ---- launcher: empty pane = top-left config block, not a friendly void ---- */
+/* scanline overlay (theme popover toggle, default OFF): terminal body only,
+   OUTSIDE the isolated term-host, never interactive */
+.pane-scan {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.16) 0 var(--line),
+    transparent var(--line) 3px
+  );
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+}
+
+html.scanlines-on .pane-scan {
+  display: block;
+}
+
+/* ---- empty state (handoff §11 minus fiction) ------------------------------- */
+
+.empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-7);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+.empty-tile {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: var(--line) solid var(--edge);
+  border-radius: var(--r-card-sm);
+}
+
+.empty-glyph {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.empty-hd {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-hd);
+}
+
+.empty-actions {
+  display: flex;
+  gap: var(--s-5);
+  margin-top: var(--s-3);
+}
+
+.empty-actions .btn-go {
+  height: 30px;
+  padding: 0 var(--s-8);
+  font-size: var(--fs-row);
+}
+
+/* ---- launcher (new-session tab; the launch dialog replaces it in R3) -------- */
+
+.pane.is-launcher {
+  background: var(--bg-deep);
+}
 
 .launcher {
   position: absolute;
   inset: 0;
-  background: var(--term-bg);
-  padding: var(--s-7);
+  background: var(--bg-deep);
+  padding: var(--s-8);
   overflow: auto;
+  animation: fadeUp var(--t-fade) ease;
 }
 
 .launcher > * {
@@ -850,14 +911,14 @@ body.is-dnd * {
 }
 
 .launcher-hd {
-  margin-bottom: var(--s-5);
+  margin-bottom: var(--s-6);
   padding-bottom: var(--s-2);
-  border-bottom: var(--line) solid var(--edge-soft);
+  border-bottom: var(--line) solid var(--edge-mid);
 }
 
 .field {
   display: block;
-  margin-bottom: var(--s-5);
+  margin-bottom: var(--s-6);
 }
 
 .field-lb {
@@ -878,10 +939,10 @@ body.is-dnd * {
 }
 
 .preset-set {
-  border: var(--line) solid var(--edge);
-  border-radius: var(--radius);
-  padding: var(--s-3) var(--s-4) var(--s-4);
-  margin-bottom: var(--s-5);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  margin-bottom: var(--s-6);
 }
 
 .preset-set legend {
@@ -894,6 +955,11 @@ body.is-dnd * {
   gap: var(--s-3);
   padding: var(--s-1) 0;
   cursor: pointer;
+  color: var(--text-2);
+}
+
+.preset-opt:hover {
+  color: var(--text);
 }
 
 .preset-opt input {
@@ -903,46 +969,52 @@ body.is-dnd * {
 
 .launcher-actions {
   display: flex;
-  gap: var(--s-3);
-  margin-top: var(--s-5);
+  gap: var(--s-4);
+  margin-top: var(--s-6);
 }
 
+/* ghost button (dialog cancel, browse, modal actions) */
 .btn {
-  padding: var(--s-2) var(--s-5);
-  font-weight: 600;
-  border: var(--line) solid var(--edge);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  color: var(--text);
+  height: var(--ctl-h);
+  padding: 0 var(--s-6);
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text-mute);
+  white-space: nowrap;
 }
 
 .btn:hover {
-  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--edge-hover);
 }
 
 .btn:disabled {
   color: var(--text-faint);
-  border-color: var(--edge-soft);
-  background: var(--surface-2);
+  border-color: var(--edge-mid);
   cursor: default;
 }
 
-/* green primary: new session / relaunch / reload — the "go" family */
+/* green "go" variant of .btn (launch, add, reload, choose directory) */
 .btn.is-primary {
-  background: var(--primary);
-  color: var(--primary-ink);
-  border-color: var(--primary);
+  background: var(--ok-tint);
+  border-color: var(--ok);
+  color: var(--ok-text);
+  font-weight: 600;
 }
 
 .btn.is-primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
+  background: var(--ok-tint-hover);
+  box-shadow: 0 0 18px var(--ok-glow); /* sanctioned "go" glow */
 }
 
 .btn.is-primary:disabled {
-  background: var(--surface-2);
+  background: transparent;
   color: var(--text-faint);
-  border-color: var(--edge-soft);
+  border-color: var(--edge-mid);
+  box-shadow: none;
 }
 
 .btn-link {
@@ -952,16 +1024,16 @@ body.is-dnd * {
 }
 
 .btn-link:hover {
-  color: var(--acc-hot);
+  color: var(--text);
 }
 
 .launcher-err {
   margin-top: var(--s-4);
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-4);
   border: var(--line) solid var(--danger);
-  border-radius: var(--radius);
+  border-radius: var(--r-input);
   color: var(--danger);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   overflow-wrap: anywhere;
 }
 
@@ -970,16 +1042,24 @@ body.is-dnd * {
   color: var(--text-mute);
 }
 
-/* ---- drawer: structural sibling of the grid (panes resize, not covered) --- */
+/* ---- drawers (handoff §6–§7): flex siblings, slide-in .18s ------------------ */
 
 .drawer {
   flex: none;
-  width: var(--drawer-w);
-  background: var(--surface-1);
-  border-left: var(--line) solid var(--edge-soft);
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--surface);
+}
+
+.drawer-proj {
+  width: var(--drawer-proj-w);
+  border-right: var(--line) solid var(--edge);
+}
+
+.drawer-sess {
+  width: var(--drawer-sess-w);
+  border-left: var(--line) solid var(--edge);
 }
 
 .drawer-view {
@@ -989,19 +1069,22 @@ body.is-dnd * {
   flex-direction: column;
 }
 
+.drawer-proj .drawer-view {
+  animation: slideL var(--t-slide) ease;
+}
+
+.drawer-sess .drawer-view {
+  animation: slideR var(--t-slide) ease;
+}
+
 .drawer-hd {
-  height: var(--bar-h);
+  height: var(--drawerhd-h);
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding-left: var(--s-5);
-  border-bottom: var(--line) solid var(--edge-soft);
-}
-
-.drawer-count {
-  color: var(--text-faint);
-  font-size: var(--fs-micro);
+  gap: var(--s-4);
+  padding: 0 var(--s-4) 0 var(--s-7);
+  border-bottom: var(--line) solid var(--edge-mid);
 }
 
 .drawer-gap {
@@ -1010,182 +1093,245 @@ body.is-dnd * {
 
 .drawer-x {
   height: 100%;
-  min-width: var(--bar-h);
-  color: var(--text-mute);
+  min-width: var(--drawerhd-h);
+  color: var(--text-dim);
+  font-size: var(--fs-row);
 }
 
 .drawer-x:hover {
-  color: var(--text);
-  background: var(--surface-2);
+  color: var(--danger);
 }
 
 .drawer-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--s-3);
 }
 
 .drawer-empty {
   padding: var(--s-5);
   color: var(--text-faint);
+  font-size: var(--fs-ui);
 }
 
-/* previous-run section: crash/shutdown relaunch offers above the live list —
-   dead material sits recessed on the well floor */
-
+/* mono micro section labels: ACTIVE · N / PREVIOUS RUN · N */
 .drawer-sect {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: var(--s-2) var(--s-5);
-  background: var(--well);
-  border-bottom: var(--line) solid var(--edge-soft);
+  padding: var(--s-3) var(--s-5);
+  font-size: var(--fs-micro);
+  letter-spacing: 1px;
+  color: var(--text-faint);
 }
 
-.sess-row.is-prev {
-  background: var(--well);
+.drawer-note {
+  flex: none;
+  padding: var(--s-5) var(--s-7);
+  border-top: var(--line) solid var(--edge-mid);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
 }
 
-.sess-row.is-prev:hover {
-  background: var(--surface-2);
+/* small chip buttons in drawer rows and headers (+, ×, split, relaunch) */
+.chip-btn {
+  flex: none;
+  height: var(--chip-h);
+  min-width: var(--chip-h);
+  padding: 0 var(--s-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: 1;
 }
 
-/* sessions rows: dense mono data, comfortable padding */
+.chip-btn:hover {
+  border-color: var(--edge-hover);
+  color: var(--text);
+}
+
+.chip-btn.is-go {
+  color: var(--ok-text);
+}
+
+.chip-btn.is-go:hover,
+.chip-btn.is-go.is-on {
+  border-color: var(--ok);
+  background: var(--ok-tint);
+}
+
+.chip-btn.is-acc {
+  color: var(--acc);
+}
+
+.chip-btn.is-acc:hover {
+  border-color: var(--acc);
+  background: var(--acc-tint);
+}
+
+.chip-btn.is-x {
+  color: var(--text-dim);
+}
+
+.chip-btn.is-x:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* armed two-step confirm: red fill, unmistakable */
+.chip-btn[data-armed='1'],
+.tab-x[data-armed='1'] {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-ink);
+  font-weight: 600;
+}
+
+/* sessions drawer rows */
 
 .sess-row {
   display: flex;
   align-items: flex-start;
   gap: var(--s-3);
-  padding: var(--s-3) var(--s-5);
-  border-bottom: var(--line) solid var(--edge-soft);
+  padding: var(--s-4) var(--s-5);
+  border: var(--line) solid transparent;
+  border-radius: var(--r-btn);
 }
 
-/* rows are double-click targets (attach); hover marks them interactive */
 .sess-row:hover {
-  background: var(--surface-2);
-}
-
-.sess-row .badge-attn {
-  margin-top: var(--s-1);
+  background: var(--surface-hover);
+  border-color: var(--edge);
 }
 
 .sess-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  text-align: left;
+  padding: 0;
+}
+
+.sess-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-width: 0;
 }
 
 .sess-name {
-  display: flex;
-  gap: var(--s-2);
-  font-size: var(--fs-data);
+  font-size: var(--fs-name);
+  color: var(--text);
   white-space: nowrap;
-  overflow: hidden;
-}
-
-.sess-proj {
-  font-weight: 700;
-}
-
-.sess-sep {
-  color: var(--text-faint);
-}
-
-.sess-title {
-  color: var(--text-mute);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.sess-name.is-prev {
+  color: var(--text-hd);
+}
+
 .sess-meta {
-  display: flex;
-  flex-wrap: wrap; /* items wrap as whole units, never mid-phrase */
-  gap: var(--s-1) var(--s-3);
-  font-size: var(--fs-micro);
-  color: var(--text-mute);
-}
-
-.sess-meta > * {
+  padding-left: calc(var(--dot) + var(--s-4));
+  font-size: var(--fs-label);
+  color: var(--text-dim);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* where the session lives (tab n · pane n): selection info = accent */
-.sess-here {
-  color: var(--acc);
+.sess-meta.is-attn {
+  color: var(--attn);
+}
+
+.sess-model {
+  align-self: center;
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .sess-actions {
   display: flex;
+  align-items: center;
   gap: var(--s-2);
 }
 
-.row-btn {
-  padding: 0 var(--s-3);
-  font-size: var(--fs-micro);
-  font-weight: 600;
-  border: var(--line) solid var(--edge);
-  border-radius: var(--radius-sm);
-  color: var(--text-mute);
-  line-height: 1.7;
-}
-
-.row-btn:hover {
-  color: var(--text);
-  border-color: var(--edge-strong);
-  background: var(--surface-3);
-}
-
-.row-btn.is-danger:hover {
-  color: var(--danger-ink);
-  background: var(--danger-hot);
-  border-color: var(--danger-hot);
-}
-
-/* green = primary action (accent contract), as on the exited-banner relaunch */
-.row-btn.is-primary {
-  color: var(--ok);
-  border-color: var(--primary);
-}
-
-.row-btn.is-primary:hover {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-ink);
-}
-
-/* projects rows + add form */
+/* projects drawer rows + inline add form */
 
 .proj-row {
   display: flex;
-  align-items: flex-start;
-  gap: var(--s-3);
-  padding: var(--s-3) var(--s-5);
-  border-bottom: var(--line) solid var(--edge-soft);
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-4) var(--s-5);
+  border: var(--line) solid transparent;
+  border-radius: var(--r-btn);
 }
 
 .proj-row:hover {
-  background: var(--surface-2);
+  background: var(--surface-hover);
+  border-color: var(--edge);
 }
 
-.proj-main {
-  flex: 1;
-  min-width: 0;
+.proj-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
 }
 
 .proj-name {
-  font-weight: 600;
+  font-size: var(--fs-row);
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.proj-path,
+.proj-path {
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .proj-meta {
-  font-size: var(--fs-micro);
+  font-size: var(--fs-status);
   color: var(--text-faint);
-  overflow-wrap: anywhere;
+}
+
+.proj-meta.is-on {
+  color: var(--ok);
 }
 
 .proj-add {
+  margin: var(--s-3) var(--s-3) var(--s-4);
   padding: var(--s-5);
-  border-top: var(--line) solid var(--edge);
-  margin-top: var(--s-6);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-accent);
+  border-radius: var(--r-btn);
+  animation: fadeUp var(--t-btn) ease;
+}
+
+.proj-add .field {
+  margin-bottom: var(--s-4);
+}
+
+.proj-add-actions {
+  display: flex;
+  gap: var(--s-3);
+  justify-content: flex-end;
 }
 
 .dir-row {
@@ -1195,12 +1341,347 @@ body.is-dnd * {
 }
 
 .dir-chosen {
-  font-size: var(--fs-micro);
+  font-size: var(--fs-status);
   overflow-wrap: anywhere;
   min-width: 0;
 }
 
 .dir-chosen.is-unset {
+  color: var(--text-faint);
+}
+
+/* ---- bottom tab strip (handoff §4, Steam-style) ------------------------------ */
+
+.tabstrip {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 5px var(--s-4) 0;
+  background: var(--surface);
+  border-top: var(--line) solid var(--edge);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tab {
+  flex: none;
+  position: relative; /* anchors the active glow bar */
+  display: flex;
+  align-items: center;
+  height: var(--tab-h);
+  max-width: 240px;
+  background: transparent;
+  border: var(--line) solid transparent;
+  border-bottom: none;
+  border-radius: var(--r-tab) var(--r-tab) 0 0;
+  /* Insertion caret slot: lit while a dragged tab would land before this one. */
+  border-left-width: var(--tick);
+  white-space: nowrap;
+  user-select: none;
+  touch-action: none; /* tabs are pointer-drag sources */
+}
+
+.tab:hover {
+  background: var(--surface-hover);
+}
+
+.tab.is-active {
+  background: var(--term-bg);
+  border-color: var(--edge);
+  border-left-color: var(--edge);
+}
+
+/* the glowing accent bar across the active tab's top, inset 12px */
+.tab.is-active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: var(--tick);
+  border-radius: var(--tick);
+  background: var(--acc);
+  box-shadow: 0 0 14px 2px var(--acc-glow); /* sanctioned: handoff tab glow */
+  pointer-events: none;
+}
+
+.tab-sel {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: 0 var(--s-2) 0 var(--s-6);
+  color: var(--text-2);
+}
+
+.tab:hover .tab-sel,
+.tab.is-active .tab-sel {
+  color: var(--text);
+}
+
+.tab-label {
+  font-size: var(--fs-tab);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ▦ N split badge: the view holds a split (blue = interaction/selection) */
+.tab-split {
+  flex: none;
+  font-size: var(--fs-tag);
+  color: var(--acc);
+  border: var(--line) solid var(--edge-accent);
+  border-radius: var(--r-btn);
+  padding: 0 var(--s-3);
+}
+
+/* pulsing amber input pill: a member session awaits input */
+.tab-input {
+  flex: none;
+  font-size: var(--fs-tag);
+  color: var(--attn);
+  border: var(--line) solid var(--attn);
+  border-radius: var(--r-btn);
+  padding: 0 var(--s-2);
+  animation: pulse var(--t-pulse) infinite;
+}
+
+.tab-x {
+  flex: none;
+  height: 100%;
+  padding: 0 var(--s-4);
+  border-radius: 0 var(--r-tab) 0 0;
+  color: var(--text-dim);
+  font-size: var(--fs-ui);
+}
+
+.tab-x:hover {
+  color: var(--danger);
+  background: var(--surface-active);
+}
+
+/* ghost + after the tabs (opens the launcher tab; the dialog in R3) */
+.tab-new {
+  flex: none;
+  height: var(--tab-h);
+  width: 32px;
+  border-radius: var(--r-tab) var(--r-tab) 0 0;
+  border-left: var(--tick) solid transparent; /* caret slot, as on tabs */
+  color: var(--text-dim);
+  font-size: 15px;
+}
+
+.tab-new:hover {
+  background: var(--surface-hover);
+  color: var(--ok-text);
+}
+
+.strip-gap {
+  flex: 1;
+}
+
+.strip-hint {
+  flex: none;
+  align-self: center;
+  padding: 0 var(--s-4);
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* ---- drag & drop: strip states ------------------------------------------- */
+
+.tab.is-dragging {
+  opacity: 0.45;
+}
+
+/* dashed = prospective (same contract as the pane drop target) */
+.tab.is-drop {
+  background: var(--surface-hover);
+  outline: var(--line) dashed var(--acc);
+  outline-offset: calc(-1 * var(--line));
+}
+
+.tab.is-insert-before,
+.tab-new.is-insert-before {
+  border-left-color: var(--acc); /* insertion caret */
+}
+
+.tabstrip.is-drop {
+  outline: var(--line) dashed var(--acc);
+  outline-offset: calc(-2 * var(--line));
+}
+
+/* cursor-following chip — real shadow sanctioned (handoff drag ghost) */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-ghost);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  padding: var(--s-3) var(--s-7);
+  font-size: var(--fs-tab);
+  background: var(--surface);
+  border: var(--line) solid var(--acc);
+  border-radius: var(--r-btn);
+  box-shadow: var(--sh-ghost);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.drag-ghost.is-invalid {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+body.is-dnd {
+  user-select: none;
+}
+
+body.is-dnd * {
+  cursor: grabbing !important;
+}
+
+/* ---- statusline (handoff §5): 23px mono readout ------------------------------ */
+
+.statusline {
+  height: var(--status-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-6);
+  padding: 0 var(--s-6);
+  font-size: var(--fs-status);
+  background: var(--surface-status);
+  border-top: var(--line) solid var(--edge-soft);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-left,
+.status-right {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  min-width: 0;
+}
+
+.status-seg {
+  color: var(--text-dim);
+}
+
+.status-strong {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-warn {
+  color: var(--text-mute);
+}
+
+.status-attn {
+  color: var(--attn);
+  animation: pulse var(--t-pulse) infinite;
+}
+
+.status-danger {
+  color: var(--danger);
+}
+
+/* inverse ink block, NOT amber: amber means attention, flashes are notices */
+.status-flash {
+  background: var(--text);
+  color: var(--surface-status);
+  padding: 0 var(--s-2);
+  border-radius: var(--line);
+  font-weight: 700;
+}
+
+.status-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.status-hint:hover {
+  color: var(--text-mute);
+}
+
+/* ---- theme popover (handoff §9) ---------------------------------------------- */
+
+.theme-pop {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: var(--popover-w);
+  padding: var(--s-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  background: var(--surface);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-card-sm);
+  box-shadow: var(--sh-popover); /* sanctioned: handoff popover shadow */
+  animation: fadeUp var(--t-btn) ease;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--s-4);
+}
+
+.theme-sw {
+  height: 30px;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+}
+
+.theme-sw:hover {
+  border-color: var(--acc);
+}
+
+.theme-sw.is-sel {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 var(--line) var(--acc); /* selected ring, 1px */
+}
+
+.theme-sw-fg {
+  font-family: var(--font-mono);
+  font-size: var(--fs-name);
+}
+
+.theme-scan {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--fs-ui);
+  color: var(--text-mute);
+  cursor: pointer;
+}
+
+.theme-scan input {
+  width: auto;
+  accent-color: var(--acc);
+}
+
+.theme-note {
+  font-size: var(--fs-micro);
   color: var(--text-faint);
 }
 
@@ -1210,7 +1691,7 @@ body.is-dnd * {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  background: var(--scrim); /* flat scrim — no blur, ever */
+  background: var(--scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1222,21 +1703,22 @@ body.is-dnd * {
   max-height: 76vh;
   display: flex;
   flex-direction: column;
-  background: var(--surface-2);
-  border: var(--line) solid var(--edge);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-card);
   overflow: hidden;
+  box-shadow: var(--sh-dialog); /* sanctioned: handoff dialog shadow */
+  animation: fadeUp var(--t-slide) ease;
 }
 
 .modal-hd {
-  height: var(--bar-h);
+  height: var(--drawerhd-h);
   flex: none;
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding-left: var(--s-5);
-  background: var(--surface-0);
-  border-bottom: var(--line) solid var(--edge-soft);
+  padding-left: var(--s-7);
+  border-bottom: var(--line) solid var(--edge-mid);
 }
 
 .dirnav {
@@ -1244,12 +1726,12 @@ body.is-dnd * {
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: var(--s-3) var(--s-5);
-  border-bottom: var(--line) solid var(--edge-soft);
+  padding: var(--s-3) var(--s-7);
+  border-bottom: var(--line) solid var(--edge-mid);
 }
 
 .dirpath {
-  font-size: var(--fs-micro);
+  font-size: var(--fs-status);
   overflow-wrap: anywhere;
   min-width: 0;
 }
@@ -1258,31 +1740,31 @@ body.is-dnd * {
   flex: 1;
   min-height: var(--dirlist-min-h);
   overflow-y: auto;
-  font-size: var(--fs-data);
+  font-size: var(--fs-name);
 }
 
 .dir-btn {
   display: block;
   width: 100%;
   text-align: left;
-  padding: var(--s-2) var(--s-5);
+  padding: var(--s-2) var(--s-7);
   color: var(--text);
 }
 
 .dir-btn:hover {
-  background: var(--surface-3);
+  background: var(--surface-hover);
 }
 
 .modal .launcher-err {
-  margin: var(--s-3) var(--s-5);
+  margin: var(--s-3) var(--s-7);
 }
 
 .modal-ft {
   flex: none;
   display: flex;
   gap: var(--s-3);
-  padding: var(--s-5);
-  border-top: var(--line) solid var(--edge-soft);
+  padding: var(--s-6) var(--s-7);
+  border-top: var(--line) solid var(--edge-mid);
 }
 
 /* shortcuts table */
@@ -1300,7 +1782,7 @@ body.is-dnd * {
   display: grid;
   grid-template-columns: var(--sc-keys-w) 1fr 1fr;
   gap: var(--s-4);
-  padding: var(--s-2) var(--s-5);
+  padding: var(--s-2) var(--s-7);
   align-items: baseline;
 }
 
@@ -1312,11 +1794,11 @@ body.is-dnd * {
 }
 
 kbd {
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   padding: 0 var(--s-2);
-  border: var(--line) solid var(--edge);
+  border: var(--line) solid var(--edge-strong);
   border-bottom-width: var(--tick); /* tactile key face, not a shadow */
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-input);
   background: var(--well);
   color: var(--text);
   white-space: nowrap;
@@ -1326,91 +1808,30 @@ kbd {
    --sc-keys-w — the nowrap <kbd> chip is for short chords only. */
 .sc-gesture {
   min-width: 0;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   color: var(--text);
 }
 
 .sc-or {
   color: var(--text-faint);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
 }
 
 .sc-what {
   color: var(--text);
+  font-size: var(--fs-ui);
 }
 
 .sc-ui {
   color: var(--text-mute);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
 }
 
 .sc-note {
-  padding: var(--s-5);
-  border-top: var(--line) solid var(--edge-soft);
+  padding: var(--s-6) var(--s-7);
+  border-top: var(--line) solid var(--edge-mid);
   color: var(--text-mute);
-  font-size: var(--fs-micro);
-}
-
-/* ---- statusline: quiet mono readout on the shell band ---------------------- */
-
-.statusline {
-  height: var(--status-h);
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--s-5);
-  font-size: var(--fs-micro);
-  background: var(--surface-0);
-  border-top: var(--line) solid var(--edge-soft);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.status-left,
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: var(--s-5);
-  min-width: 0;
-}
-
-.status-seg {
-  color: var(--text-mute);
-}
-
-.status-strong {
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.status-ok {
-  color: var(--ok);
-}
-
-.status-warn {
-  color: var(--text-mute);
-}
-
-.status-danger {
-  color: var(--danger);
-}
-
-/* inverse ink block, NOT amber: amber means attention, flashes are notices */
-.status-flash {
-  background: var(--text);
-  color: var(--surface-0);
-  padding: 0 var(--s-2);
-  border-radius: var(--radius-sm);
-  font-weight: 700;
-}
-
-.status-hint {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  color: var(--text-faint);
+  font-size: var(--fs-label);
 }
 
 /* ---- boot / restart takeover panels ---------------------------------------- */
@@ -1418,15 +1839,16 @@ kbd {
 .boot-err {
   margin: 20vh auto 0;
   max-width: var(--panel-w);
-  padding: var(--s-7);
-  background: var(--surface-2);
-  border: var(--line) solid var(--edge);
+  padding: var(--s-8);
+  background: var(--surface);
+  border: var(--line) solid var(--edge-strong);
   border-top: var(--tick) solid var(--danger);
-  border-radius: var(--radius);
+  border-radius: var(--r-card-sm);
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
   align-items: flex-start;
+  animation: fadeUp var(--t-fade) ease;
 }
 
 .boot-err-hd {
