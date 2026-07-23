@@ -16,3 +16,7 @@ npm-debug.log*
 # Build output
 web/dist/
 *.tsbuildinfo
+
+# Native WebView2 host build output (compiled exe + fetched WebView2 DLLs).
+# Never commit binaries; rebuild with launcher/build-host.ps1.
+launcher/host/build/

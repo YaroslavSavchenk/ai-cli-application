@@ -5,13 +5,22 @@ inside WSL2. It reads the backend's discovery file
 (`~/.ai-session-manager/runtime.json` inside the distro, via `wsl.exe cat`),
 health-checks the discovered port on `http://127.0.0.1:<port>/health`, and:
 
-- **healthy** → opens the UI (Edge `--app` chromeless window; if Edge is
-  missing at both known install layouts and a last attempt via its
-  `msedge.exe` App-Paths registration also fails, falls back to the default
-  browser — with an auto-dismissing warning popup on the silent path);
+- **healthy** → opens the UI through a three-tier fallback:
+  - **Tier 1 — native WebView2 host** (`host/build/AiSessionManagerHost.exe`,
+    built by `build-host.ps1`): a real window that owns its own
+    AppUserModelID (`AiSessionManager`, matched on the launching shortcut), so
+    the Windows **taskbar** button shows `app.ico` instead of the Edge logo.
+    Used only when the exe is built **and** the WebView2 Evergreen runtime is
+    present; any real failure (missing runtime, init throw, no ready signal in
+    ~8 s) falls through.
+  - **Tier 2 — Edge `--app`** chromeless window (the original MVP shell), if
+    Edge is found at either install layout or via its `msedge.exe` App-Paths
+    registration;
+  - **Tier 3 — default browser** (regular tab) with an auto-dismissing warning
+    popup on the silent path.
 - **absent or stale** (dead pid / failed health) → starts the backend
   **detached** (`setsid`, via `start-backend.sh`), waits for
-  runtime.json + health, then opens the UI.
+  runtime.json + health, then opens the UI (same three tiers).
 
 The backend is never a child of the launcher or the browser window — it
 starts in its own session and outlives the launcher console. Its lifetime
@@ -32,11 +41,14 @@ The port is auto-picked by the backend; nothing is ever hardcoded. Always
 
 | File | Role |
 | --- | --- |
-| `make-shortcut.ps1` | run once: creates the "AI Session Manager" shortcuts |
+| `make-shortcut.ps1` | run once: creates the "AI Session Manager" shortcuts (and stamps their `System.AppUserModel.ID`) |
 | `launch-silent.vbs` | what the shortcuts run — fully hidden launch, no console ever |
-| `launch.ps1` | the actual launcher logic (all switches live here) |
+| `launch.ps1` | the actual launcher logic (all switches + the three UI tiers) |
 | `launch.cmd` | visible/debug path: same launcher with a console you can read |
 | `start-backend.sh` | Linux side: detached (`setsid`) backend start |
+| `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
+| `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1) |
+| `host/build/` | build output (exe + WebView2 DLLs) — **git-ignored, never committed** |
 | `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
 
 ## Setup (once)
@@ -72,6 +84,48 @@ defaults):
 Each value can also be overridden per-invocation via the environment
 variables `AI_SM_DISTRO`, `AI_SM_REPO_PATH`, `AI_SM_DATA_DIR` (used by
 automated tests; normally leave them unset).
+
+## Native host (taskbar icon)
+
+Tier 1 is a tiny native **WebView2** window whose only job is Windows taskbar
+identity: the process sets its AppUserModelID to `AiSessionManager` (before any
+window is created), and `make-shortcut.ps1` stamps the **same** string on the
+Desktop/Start-Menu `.lnk` via `System.AppUserModel.ID`. Because the two match
+byte-for-byte and the process owns both, Windows groups the window under the
+shortcut and draws `app.ico`. The Edge `--app` window cannot do this (Chromium
+stamps its own per-URL AUMID that carries the churning auto-picked port).
+
+Build it once (needs network the first time, for the WebView2 NuGet package):
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\build-host.ps1"
+
+(or from inside WSL: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/build-host.ps1`)
+
+What it does:
+
+- Compiles `host/AiSessionManagerHost.cs` with the **in-box** Framework C#
+  compiler (`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`) — no
+  .NET SDK required — into `host/build/AiSessionManagerHost.exe`, a tiny
+  framework-dependent x64 exe with `app.ico` embedded as its Win32 icon.
+- Downloads the pinned `Microsoft.Web.WebView2` NuGet package (`1.0.3405.78`)
+  over HTTPS, **verifies its size + SHA-256**, and extracts the three DLLs it
+  needs beside the exe (`Microsoft.Web.WebView2.Core.dll`,
+  `...WinForms.dll`, `WebView2Loader.dll`). Nothing from the package is
+  committed; the whole `host/build/` folder is git-ignored.
+
+The host navigates only to the resolved `http://127.0.0.1:<port>/` and is
+**navigation-locked** to that origin (127.0.0.1/localhost); it monitors nothing
+and kills nothing — backend lifetime stays presence-bound exactly as with the
+browser window. Requirement: the **WebView2 Evergreen runtime** (ships with
+Edge). If it is absent, the launcher silently uses the Edge `--app` window
+instead. If the exe is not built, the launcher uses Edge too — building the
+host is optional, it only upgrades the taskbar icon.
+
+The host writes two files under `%LOCALAPPDATA%\ai-session-manager\`:
+`host-ready` (its pid, once the window is coming up — the launcher waits for
+this to confirm Tier 1 succeeded) and `host.log` (UTC-stamped fatal/init
+diagnostics). Its WebView2 profile lives in
+`%LOCALAPPDATA%\ai-session-manager\webview2\`.
 
 ## Run
 
@@ -124,9 +178,15 @@ after a ~120 s startup grace with no window ever connected.
 - Start Menu: the shortcut makes "AI Session Manager" findable in Start
   search — right-click it there → Pin to Start / Pin to taskbar.
 - Desktop: right-click the desktop icon → Pin to taskbar.
-- Do **not** pin the Edge app window itself: an Edge `--app` pin bakes in
-  the URL, and with auto-picked ports it goes stale after a backend
-  restart. Pin the launcher shortcut; it always resolves the current port.
+- Pin the **launcher shortcut**, never the app window: the shortcut always
+  resolves the current auto-picked port, and it carries the
+  `AiSessionManager` AppUserModelID that matches the native host window (Tier
+  1), so a pinned shortcut and the live window share one taskbar button
+  showing `app.ico`. Re-run `make-shortcut.ps1` after building the host so the
+  shortcut carries that AUMID.
+- With Tier 2 (Edge fallback) do **not** pin the Edge app window itself: an
+  Edge `--app` pin bakes in the URL, goes stale after a backend restart, and
+  shows the Edge logo.
 
 ## Icon
 

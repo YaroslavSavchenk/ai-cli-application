@@ -4,7 +4,8 @@ launch.ps1 - Windows-side launcher for the AI CLI Session Manager
 
 Usage:
   launch.ps1              attach-or-start the backend, then open the UI
-                          (Edge --app window; default browser as fallback)
+                          (native WebView2 host if built + runtime present;
+                          Edge --app window, then default browser, as fallbacks)
   launch.ps1 -NoBrowser   attach-or-start, but do not open any UI
   launch.ps1 -Status      report backend state (runtime.json + health)
   launch.ps1 -Stop        immediate stop, skipping the presence grace
@@ -238,6 +239,87 @@ function Wait-ForHealthy([int]$TimeoutSec) {
     return $null
 }
 
+function Test-WebView2Runtime {
+    # True when the WebView2 Evergreen runtime is installed. Its EdgeUpdate
+    # client GUID is {F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}; the runtime writes
+    # a version string 'pv' under the machine (system-wide) or per-user hive.
+    # A pv of 0.0.0.0 means "registered but not actually installed" - reject it.
+    $guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+    $keys = @(
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$guid",
+        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid",
+        "HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$guid"
+    )
+    foreach ($key in $keys) {
+        try {
+            $pv = (Get-ItemProperty -LiteralPath $key -Name pv -ErrorAction Stop).pv
+        } catch {
+            continue
+        }
+        if ($pv -and $pv -match '^[0-9]+(\.[0-9]+)+$' -and $pv -ne '0.0.0.0') {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Open-NativeHost([string]$Url) {
+    # Tier 1: the native WebView2 host (launcher\host\build\AiSessionManagerHost.exe,
+    # built by build-host.ps1). It owns its window's AppUserModelID
+    # ('AiSessionManager', matched by make-shortcut.ps1) so the taskbar button
+    # shows app.ico instead of the Edge logo. Returns $true on a confirmed-ready
+    # window; $false means "unavailable or failed - fall through to Edge".
+    $hostExe = Join-Path $PSScriptRoot 'host\build\AiSessionManagerHost.exe'
+    if (-not (Test-Path -LiteralPath $hostExe)) { return $false }
+    if (-not (Test-WebView2Runtime)) {
+        Write-Host 'WebView2 runtime not detected - using the Edge --app fallback.'
+        return $false
+    }
+
+    $localAppData  = [Environment]::GetFolderPath('LocalApplicationData')
+    $readySentinel = Join-Path $localAppData 'ai-session-manager\host-ready'
+    # Delete any stale sentinel so we only ever trust one written by THIS launch.
+    Remove-Item -LiteralPath $readySentinel -Force -ErrorAction SilentlyContinue
+
+    try {
+        # $Url is the only string on the command line (validated by the caller
+        # as http://127.0.0.1:<port>/), passed as a single argument.
+        $p = Start-Process -FilePath $hostExe -ArgumentList $Url -PassThru -ErrorAction Stop
+    } catch {
+        Write-Host "Native host failed to start ($($_.Exception.Message)) - using the Edge --app fallback."
+        return $false
+    }
+
+    # Probe up to ~8 s for the fresh ready-sentinel (pid must match), the host
+    # exiting (init failure -> non-zero), or timeout.
+    $ready = $false
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 8) {
+        if (Test-Path -LiteralPath $readySentinel) {
+            $raw = (Get-Content -LiteralPath $readySentinel -ErrorAction SilentlyContinue | Select-Object -First 1)
+            $sentPid = 0
+            if ([int]::TryParse(([string]$raw).Trim(), [ref]$sentPid) -and $sentPid -eq $p.Id) {
+                $ready = $true
+                break
+            }
+        }
+        if ($p.HasExited) { break }
+        Start-Sleep -Milliseconds 200
+    }
+
+    if ($ready) {
+        Write-Host "Native host window ready (pid $($p.Id))."
+        return $true
+    }
+    if ($p.HasExited) {
+        Write-Host "Native host exited (code $($p.ExitCode)) without signaling ready - using the Edge --app fallback."
+    } else {
+        Write-Host 'Native host did not signal ready within 8 s - stopping it and using the Edge --app fallback.'
+        try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { }
+    }
+    return $false
+}
+
 function Find-Edge {
     $bases = @(${env:ProgramFiles(x86)}, $env:ProgramFiles, $env:LocalAppData) | Where-Object { $_ }
     # Classic layout.
@@ -263,7 +345,12 @@ function Find-Edge {
 }
 
 function Open-UI([string]$Url) {
-    # Edge --app = chromeless app window (MVP shell; Tauri comes later).
+    # Tier 1: the native WebView2 host (owns its taskbar identity). Only used
+    # when the built exe + the WebView2 runtime are both present, with real
+    # failure detection; any failure falls through to the Edge tiers below.
+    if (Open-NativeHost $Url) { return }
+
+    # Tier 2: Edge --app = chromeless app window (MVP shell; Tauri comes later).
     $edge = Find-Edge
     if ($edge) {
         Start-Process -FilePath $edge -ArgumentList "--app=$Url"

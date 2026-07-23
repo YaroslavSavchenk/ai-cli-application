@@ -32,7 +32,7 @@ structural reasons — either fatal alone:
 2. **Edge stamps its own per-URL AUMID on the `--app` window** (since
    Chromium v88), derived from profile path + app URL. The URL carries the
    churning `127.0.0.1:<port>`, so a static shortcut AUMID
-   (`Anthropic.AiSessionManager`) can never match it. A dedicated
+   (`AiSessionManager`) can never match it. A dedicated
    `--user-data-dir` only splits it into a *separate Edge-logo* button — no
    icon benefit, at the cost of an isolated profile.
 
@@ -50,7 +50,7 @@ window** — NOT full Tauri:
 - One process owns **both** the window AUMID and its shortcut AUMID, so they
   match and Windows draws `app.ico` for the taskbar group. This is the only
   reliable non-PWA path.
-- Calls `SetCurrentProcessExplicitAppUserModelID("Anthropic.AiSessionManager")`
+- Calls `SetCurrentProcessExplicitAppUserModelID("AiSessionManager")`
   before creating any window; window icon = `app.ico`; hosts a **WebView2**
   control pointed at the resolved `http://127.0.0.1:<port>/` (the host runs
   the same attach-or-start + port-resolution logic `launch.ps1` has today).
@@ -63,10 +63,15 @@ window** — NOT full Tauri:
   Tauri would add Rust + a cross-compile pipeline. WebView2's **Evergreen
   runtime already ships with Edge** (present on the user's Edge 150 box), so
   nothing to install at runtime.
-- **Secure:** loads only `127.0.0.1:<port>`; navigation locked to that
-  origin; no devtools; no new stored secret (auth token flows via the URL
-  the launcher already builds); no new network surface. As locked-down or
-  more than today's Edge `--app` window.
+- **Secure:** loads only `127.0.0.1:<port>`; navigation locked to that exact
+  origin (in-frame AND new-window requests); devtools disabled; no new stored
+  secret — the auth token is injected server-side into the served HTML
+  (`window.__AUTH__`), never the URL, so the host handles no credential; no
+  new network surface. As locked-down or more than today's Edge `--app`
+  window. (Retention: the WebView2 profile under
+  `%LOCALAPPDATA%\ai-session-manager\webview2` can cache that HTML like any
+  browser profile — user-only dir, token is ephemeral per backend start; same
+  posture as the Edge `--app` profile it replaces, no regression.)
 - Full **Tauri** (tray, native folder picker) stays the later upgrade; this
   host is the minimum that fixes the taskbar identity.
 

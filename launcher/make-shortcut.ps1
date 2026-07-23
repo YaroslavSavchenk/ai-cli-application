@@ -35,9 +35,121 @@ $Distro   = if ($env:AI_SM_DISTRO)    { $env:AI_SM_DISTRO }    else { 'Ubuntu-24
 $RepoPath = if ($env:AI_SM_REPO_PATH) { $env:AI_SM_REPO_PATH } else { '/home/sava/projects/ai-cli-application' }
 $ShortcutName = 'AI Session Manager'
 
+# Must be byte-identical to the AppUserModelId the native host sets via
+# SetCurrentProcessExplicitAppUserModelID (launcher\host\AiSessionManagerHost.cs).
+# That match is the entire taskbar-identity mechanism: window AUMID == shortcut
+# AUMID => Windows draws app.ico for the group. No vendor prefix.
+$AppUserModelId = 'AiSessionManager'
+
 function Fail([string]$Message) {
     Write-Host "ERROR: $Message" -ForegroundColor Red
     exit 1
+}
+
+# WScript.Shell cannot set a shortcut's System.AppUserModel.ID. Stamp it via
+# the shell link's IPropertyStore (PKEY_AppUserModel_ID). This inline helper is
+# the only way to reach that property key from PowerShell.
+$aumidHelper = @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace AiSm {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PropertyKey {
+        public Guid fmtid;
+        public uint pid;
+    }
+
+    // Minimal PROPVARIANT: for VT_LPWSTR only vt + the pointer field matter.
+    // Sized with IntPtr so the layout is correct on x86 and x64.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PropVariant {
+        public ushort vt;
+        public ushort r1;
+        public ushort r2;
+        public ushort r3;
+        public IntPtr p;
+        public IntPtr p2;
+    }
+
+    [ComImport, Guid("0000010b-0000-0000-C000-000000000046"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IPersistFile {
+        void GetClassID(out Guid pClassID);
+        [PreserveSig] int IsDirty();
+        void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, int dwMode);
+        void Save([MarshalAs(UnmanagedType.LPWStr)] string pszFileName,
+                  [MarshalAs(UnmanagedType.Bool)] bool fRemember);
+        void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);
+        void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string ppszFileName);
+    }
+
+    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IPropertyStore {
+        void GetCount(out uint cProps);
+        void GetAt(uint iProp, out PropertyKey pkey);
+        void GetValue(ref PropertyKey key, out PropVariant pv);
+        void SetValue(ref PropertyKey key, ref PropVariant pv);
+        void Commit();
+    }
+
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    public class CShellLink { }
+
+    public static class ShortcutAumid {
+        private const ushort VT_LPWSTR = 31;
+
+        // ole32 export is reliable; propsys's InitPropVariantFromString is an
+        // inline SDK helper that is not exported everywhere, so build the
+        // VT_LPWSTR PROPVARIANT by hand instead.
+        [DllImport("ole32.dll")]
+        private static extern int PropVariantClear(ref PropVariant pvar);
+
+        public static void Set(string lnkPath, string aumid, string relaunchIcon) {
+            IPersistFile file = (IPersistFile)new CShellLink();
+            file.Load(lnkPath, 2); // STGM_READWRITE
+            IPropertyStore store = (IPropertyStore)file;
+
+            PropertyKey idKey = new PropertyKey();
+            idKey.fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"); // PKEY_AppUserModel_ID
+            idKey.pid = 5;
+            SetString(store, idKey, aumid);
+
+            // PKEY_AppUserModel_RelaunchIconResource: same fmtid, pid 3. The
+            // "<icon>,0" resource string makes a taskbar-pinned relaunch keep
+            // app.ico (native-webview2-host.md:57-58).
+            PropertyKey iconKey = new PropertyKey();
+            iconKey.fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
+            iconKey.pid = 3;
+            SetString(store, iconKey, relaunchIcon);
+
+            store.Commit();
+            file.Save(lnkPath, true);
+        }
+
+        private static void SetString(IPropertyStore store, PropertyKey key, string value) {
+            PropVariant pv = new PropVariant();
+            pv.vt = VT_LPWSTR;
+            // CoTaskMemAlloc'd copy; PropVariantClear (CoTaskMemFree) frees it.
+            pv.p = Marshal.StringToCoTaskMemUni(value);
+            try {
+                store.SetValue(ref key, ref pv);
+            } finally {
+                PropVariantClear(ref pv);
+            }
+        }
+    }
+}
+'@
+try {
+    Add-Type -TypeDefinition $aumidHelper -ErrorAction Stop
+    $canStampAumid = $true
+} catch {
+    Write-Host ("Warning: could not compile the AppUserModelID helper " +
+        "($($_.Exception.Message)) - shortcuts will be created without a " +
+        'System.AppUserModel.ID (the native host taskbar icon needs it).')
+    $canStampAumid = $false
 }
 
 # --- Resolve the launcher directory as a \\wsl.localhost UNC path ----------
@@ -112,7 +224,22 @@ foreach ($dir in $destinations) {
     $lnk.IconLocation     = "$iconLocal,0"
     $lnk.Description      = 'AI CLI Session Manager - launch (silent)'
     $lnk.Save()
-    Write-Host "Shortcut written: $lnkPath"
+
+    # Stamp System.AppUserModel.ID so a taskbar-pinned shortcut shares the
+    # native host window's AUMID (== app.ico on the taskbar group). Done after
+    # the WScript.Shell Save, which writes the target/icon/args but cannot set
+    # this property.
+    if ($canStampAumid) {
+        try {
+            [AiSm.ShortcutAumid]::Set($lnkPath, $AppUserModelId, "$iconLocal,0")
+            Write-Host "Shortcut written: $lnkPath  (AppUserModelID: $AppUserModelId)"
+        } catch {
+            Write-Host ("Shortcut written: $lnkPath  (WARNING: could not set " +
+                "AppUserModelID: $($_.Exception.Message))")
+        }
+    } else {
+        Write-Host "Shortcut written: $lnkPath  (no AppUserModelID - helper unavailable)"
+    }
 }
 
 Write-Host ''
