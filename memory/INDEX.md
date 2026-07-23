@@ -6,6 +6,8 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[native-webview2-host]] — 2026-07-23: fix the Edge-logo taskbar icon by bringing a lightweight WebView2 host forward (not Tauri); cheap AUMID/shortcut fix proven structurally impossible here
+- [[github-integration]] — 2026-07-23: app can create projects + connect to GitHub (OAuth device flow, user's call); v1 = full create-local / clone / create-repo; token stays server-side
 - [[launch-dialog-custom-escape-hatch]] — 2026-07-20: launch dialog gains a `custom · any command` chip (user's call over claude-only), preserving configurable command + args in the GUI
 - [[handoff-design-primary]] — 2026-07-20 flip: the user's hi-fi handoff is the primary design source; bottom tab strip; modal launch dialog
 - [[lifecycle-bound-backend]] — sessions die with the app (presence WS + grace timer); crash-safe session journal with relaunch

@@ -50,8 +50,16 @@ and multi-pane layouts on top.
   the backend via `wsl.exe -d <distro> -- ...` (distro configurable with
   unique-prefix auto-resolution, default `Ubuntu-24.04`), waits for file +
   health,
-  then opens the UI. MVP launcher is a script + Edge `--app` chromeless window; a
-  Tauri shell (icon, tray, native folder picker) is the later upgrade.
+  then opens the UI. MVP launcher is a script + Edge `--app` chromeless window.
+  **Native host brought forward (decided 2026-07-23):** a lightweight
+  **WebView2** host window (uses the Evergreen runtime already present with
+  Edge; no Rust toolchain) replaces the Edge `--app` window so the app owns
+  its process → its own AppUserModelID + `app.ico` on the Windows taskbar
+  (the Edge `--app` window cannot — see the icon note under Open decisions).
+  It navigates only to `127.0.0.1:<port>`, navigation locked to that origin,
+  and falls back to the Edge `--app` window if the WebView2 runtime is
+  absent. A full **Tauri** shell (tray, native folder picker) remains the
+  later upgrade; this host is the minimum that fixes the taskbar identity.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
@@ -94,6 +102,28 @@ and multi-pane layouts on top.
   local session logs — informational only; the app cannot change
   account-side limits). Not in v1: enforcing usage limits, subscription
   plan display.
+- **Project creation + GitHub integration — GO given 2026-07-23, user's
+  call; shape decided the same day.** The app stops being a passive
+  registrar of existing directories and can *create* projects itself, and
+  it grows a first-class GitHub connection. Decided pieces:
+  - **GitHub auth = OAuth device flow** (user's choice 2026-07-23 over a
+    pasted PAT or reusing the local `gh` CLI): the app registers as a
+    GitHub OAuth app, the user approves a device code, and a scoped,
+    revocable token is stored **server-side** in the data dir beside
+    `prefs.json` (never in localStorage, never returned to the browser).
+  - **v1 is the full shape** (user's call over a local-only first slice):
+    (1) **create a local project** — new directory + `git init` + register
+    in `projects.json`; (2) **clone from GitHub** — list the user's repos
+    in-app and clone a chosen one into a new project; (3) **create a new
+    GitHub repo** from the app (local + create/push the remote).
+  - **Security gate (non-negotiable):** the OAuth token is a new stored
+    credential on a localhost service that already spawns shells. Every
+    GitHub-touching endpoint stays behind the same token-auth +
+    Origin/Host parity as the rest of `/api`; the GitHub token itself is
+    never exposed to the page. `git clone`/`git init`/repo-create run via
+    argv spawning (no shell string interpolation), into user-chosen paths
+    validated the same way project paths already are. Threat-model detail
+    in `memory/decisions/github-integration.md`.
 
 ## Hard technical constraints
 
@@ -128,6 +158,25 @@ landed features.
 ## Open decisions (do not treat as settled)
 
 None currently.
+
+(Settled 2026-07-23, user's call: project creation + GitHub integration
+added to scope — see the Features bullet. GitHub auth = OAuth device flow;
+v1 = the full clone + create shape. Rationale in
+`memory/decisions/github-integration.md`.)
+
+(Settled 2026-07-23: the Edge `--app` taskbar showing the Edge logo instead
+of `app.ico` is fixed by bringing the native host forward as a lightweight
+WebView2 window — see the launcher Architecture bullet. Root cause: Chromium
+(Edge 150 here) stamps a non-installed `--app` window with its own per-URL
+AppUserModelID that includes the churning auto-picked port, and our launch
+chain runs Edge as a grandchild of the shortcut (wscript→powershell→edge),
+so a shortcut's AUMID never reaches the window. The lightweight
+profile+shortcut attempt was proven structurally impossible for this
+architecture (no code shipped); PWA-install stays closed (non-installable
+manifest + churning port). Only a process that owns BOTH its window and its
+shortcut can make the two AUMIDs match — hence the WebView2 host. The
+favicon itself is valid and already correct for the in-window icon.
+Rationale in `memory/decisions/native-webview2-host.md`.)
 
 (Settled 2026-07-20, user's call — reversing the 2026-07-19 triage
 recommendations: the hi-fi handoff in `design/` is now the **primary design
