@@ -29,6 +29,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-23-webview2-host-shipped]] — WebView2 host shipped + Edge taskbar icon FIXED (user-confirmed); \\wsl.localhost exe-launch regression found & fixed; **guidelines for tomorrow: design reconciliation → GitHub build**
 - [[2026-07-23-settings-panel-and-scope]] — settings panel landed via dev-flow (162/162, 2 LOW fixed); Edge-icon cheap fix proven impossible → WebView2-host decision; GitHub scope added; design handoff refreshed (delta reconciliation queued)
 - [[2026-07-20-theme-persistence-launcher]] — prefs.json + /api/prefs fix the theme reset; launcher finished with desktop shortcut; suite 120/120; agents-on-opus policy; settings panel un-gated
 - [[2026-07-20-r3-launch-dialog]] — R3 shipped: modal launch dialog + custom chip + honest boot panel, launcher-as-tab retired; 92/92 tests, 9/9 verify-terminal; theme-persistence phase queued
