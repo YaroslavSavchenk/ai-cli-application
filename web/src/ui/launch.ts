@@ -37,9 +37,12 @@ import {
   composeArgs,
   parseCustomCommand,
   previewLine,
-  permFromDefaultMode,
+  resolveModel,
+  resolvePerm,
 } from './launch-args.ts';
 import type { Perm, Resume, SpawnSpec } from './launch-args.ts';
+import { getDefaults } from './defaults.ts';
+import { armStartupCommand } from './startup.ts';
 
 export interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
@@ -272,15 +275,22 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     none.hidden = !empty;
   }
 
-  /** Project defaults feed the form: defaultModel + skip-permissions → bypass. */
-  function applyProjectDefaults(): void {
+  /**
+   * Resolve the pre-selected model + permission ONCE per open through the
+   * unit-tested precedence chain (`resolveModel`/`resolvePerm` in
+   * launch-args.ts, documented in web/DESIGN.md): explicit project default >
+   * global settings default > hardcoded fallback. The selected project is
+   * whatever `projectSel.value` currently points at — a project-intent open
+   * force-selects its project before this runs; a plain open uses
+   * populateProjects()'s auto-selected first project. Called from open() only:
+   * a mid-dialog project switch deliberately does NOT re-resolve, leaving
+   * per-launch control with the user once the dialog is open.
+   */
+  function applyDefaults(): void {
+    const g = getDefaults();
     const p = st.state.projects.find((p) => p.id === projectSel.value);
-    if (p === undefined) return;
-    if (p.defaultModel !== undefined && (MODELS as readonly string[]).includes(p.defaultModel)) {
-      modelSel.value = p.defaultModel;
-    }
-    const mapped = permFromDefaultMode(p.defaultMode);
-    if (mapped !== null) setPerm(mapped);
+    modelSel.value = resolveModel(g, p?.defaultModel);
+    setPerm(resolvePerm(g, p?.defaultMode));
   }
 
   /**
@@ -301,7 +311,9 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   projectSel.addEventListener('change', () => {
-    applyProjectDefaults();
+    // A mid-dialog project switch does NOT re-resolve model/permission —
+    // defaults settle once per open (applyDefaults); per-launch control stays
+    // with the user. Only the cwd line + preview follow the new project.
     updatePreview();
   });
   modelSel.addEventListener('change', updatePreview);
@@ -347,6 +359,10 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       });
       st.upsertSession(info); // gives the session its own (new) tab
       st.focusSession(info.id); // ... and makes that tab active + focused
+      // Auto-run startup command: claude-mode launches ONLY (a custom bash
+      // session auto-typing a slash command is nonsense). This window armed
+      // it, so only it types the line — once, on the session's first output.
+      if (!customMode) armStartupCommand(info.id, getDefaults().startupCommand ?? '');
       close();
       requestTerminalFocus();
     } catch (e) {
@@ -372,14 +388,18 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     populateProjects();
     if (opts?.projectId !== undefined && st.state.projects.some((p) => p.id === opts.projectId)) {
       // Explicit project intent (projects-drawer row `+`) means "a claude
-      // session for that project" — exit custom mode so a stale custom
-      // command can't hijack the launch. Plain opens keep the previous
-      // mode (consistent with model/perm/resume persistence), and the
-      // command text itself is never cleared.
+      // session for that project" — exit custom mode so a stale custom command
+      // can't hijack the launch, and force-select that project BEFORE defaults
+      // resolve so its defaultModel/defaultMode are layered on.
       setCustomMode(false);
       projectSel.value = opts.projectId;
-      applyProjectDefaults();
     }
+    // Resolve model + permission once against the now-settled selected project
+    // (the forced project above, or populateProjects()'s auto-selected first
+    // project on a plain open). A plain open otherwise leaves the previous mode,
+    // custom command text, and resume choice as the user left them — only those
+    // persist across opens; model + permission are re-resolved every time.
+    applyDefaults();
     updatePreview();
     scrim.hidden = false;
     nameInput.focus();

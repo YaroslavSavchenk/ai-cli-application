@@ -16,6 +16,7 @@ import type {
   RuntimeStatusResponse,
   SessionInfo,
   UiPrefs,
+  UsageResponse,
 } from '../../shared/protocol.ts';
 
 declare global {
@@ -128,6 +129,31 @@ export function getPrefs(): Promise<UiPrefs> {
 /** Replace-whole-object; server responds 200 OkResponse on success. */
 export function putPrefs(body: UiPrefs): Promise<OkResponse> {
   return request<OkResponse>('/api/prefs', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+/**
+ * Merge-on-write for the shared prefs bag. `/api/prefs` PUT replaces the WHOLE
+ * object, so two writers (the theme popover writing `theme`, the settings
+ * panel writing `defaults`) must never PUT a stale bag or they drop each
+ * other's keys. This reads the current bag, shallow-merges `patch` at the top
+ * level, and PUTs the result. Last-write-wins per top-level key (documented,
+ * not solved) if two windows race; a failed GET degrades to patch-only rather
+ * than clobbering (best effort — a subsequent successful write reconciles).
+ */
+export async function updatePrefs(patch: UiPrefs): Promise<void> {
+  let current: UiPrefs = {};
+  try {
+    const bag = await getPrefs();
+    if (bag !== null && typeof bag === 'object' && !Array.isArray(bag)) current = bag;
+  } catch {
+    // GET failed — write the patch alone rather than nothing.
+  }
+  await putPrefs({ ...current, ...patch });
+}
+
+/** Read-only Claude Code usage aggregates (settings panel usage section). */
+export function getUsage(): Promise<UsageResponse> {
+  return request<UsageResponse>('/api/usage');
 }
 
 export function fsList(path?: string): Promise<FsListResponse> {

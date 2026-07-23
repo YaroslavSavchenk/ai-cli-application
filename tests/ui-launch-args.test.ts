@@ -14,10 +14,16 @@ import {
   parseCustomCommand,
   previewLine,
   permFromDefaultMode,
+  clampLaunchDefaults,
+  resolveModel,
+  resolvePerm,
+  isPerm,
+  isModelId,
   MODELS,
   PERMS,
   CHIPS,
 } from '../web/src/ui/launch-args.ts';
+import type { UiLaunchDefaults } from '../shared/protocol.ts';
 
 // ---------------------------------------------------------------------------
 // composeArgs (claude mode)
@@ -159,6 +165,106 @@ test('CHIPS mapping: yolo = opus+bypassPermissions (fresh), the one danger chip'
     resume: 'fresh',
     danger: true,
   });
+});
+
+// ---------------------------------------------------------------------------
+// Global launch defaults — guards + precedence chain (settings panel)
+// ---------------------------------------------------------------------------
+
+test('isPerm / isModelId: only the fixed vocabularies pass', () => {
+  for (const p of ['default', 'acceptEdits', 'plan', 'bypassPermissions']) assert.ok(isPerm(p));
+  for (const bad of ['skip-permissions', 'standard', '', 'DEFAULT', 42, null, undefined]) {
+    assert.equal(isPerm(bad), false);
+  }
+  for (const m of ['opus', 'sonnet', 'haiku', 'fable']) assert.ok(isModelId(m));
+  for (const bad of ['gpt-4', 'Opus', '', 3, null]) assert.equal(isModelId(bad), false);
+});
+
+test('clampLaunchDefaults: keeps valid members, drops unknown model/mode, coerces non-string command away', () => {
+  assert.deepEqual(
+    clampLaunchDefaults({ model: 'sonnet', permissionMode: 'plan', startupCommand: '/caveman' }),
+    { model: 'sonnet', permissionMode: 'plan', startupCommand: '/caveman' },
+  );
+  // Unknown model + unknown mode dropped; note skip-permissions is NOT a valid
+  // ClaudePermissionMode, so it is dropped too.
+  assert.deepEqual(clampLaunchDefaults({ model: 'gpt-4', permissionMode: 'skip-permissions' }), {});
+  assert.deepEqual(clampLaunchDefaults({ startupCommand: 5 }), {});
+  // An empty / whitespace-only command means "off": it strips to empty, so the
+  // member is dropped (absent === off).
+  assert.deepEqual(clampLaunchDefaults({ startupCommand: '' }), {});
+  assert.deepEqual(clampLaunchDefaults({ startupCommand: '   ' }), {});
+});
+
+test('clampLaunchDefaults: garbage / non-object input degrades to {}', () => {
+  for (const bad of [null, undefined, 'x', 42, [], true]) {
+    assert.deepEqual(clampLaunchDefaults(bad), {});
+  }
+});
+
+test('resolveModel: explicit project model > global default > hardcoded MODELS[0]', () => {
+  const g: UiLaunchDefaults = { model: 'sonnet' };
+  assert.equal(resolveModel(g, 'haiku'), 'haiku'); // project wins
+  assert.equal(resolveModel(g, undefined), 'sonnet'); // global stands
+  assert.equal(resolveModel({}, undefined), 'opus'); // hardcoded fallback
+  assert.equal(resolveModel(undefined, undefined), 'opus');
+  assert.equal(resolveModel(g, 'gpt-4'), 'sonnet'); // invalid project falls through
+  assert.equal(resolveModel({ model: 'gpt-4' }, undefined), 'opus'); // invalid global falls through
+});
+
+test('resolvePerm: project skip-permissions > global default > hardcoded default', () => {
+  const g: UiLaunchDefaults = { permissionMode: 'acceptEdits' };
+  assert.equal(resolvePerm(g, 'skip-permissions'), 'bypassPermissions'); // project wins
+  assert.equal(resolvePerm(g, 'standard'), 'acceptEdits'); // project standard defers to global
+  assert.equal(resolvePerm(g, undefined), 'acceptEdits'); // absent project defers to global
+  assert.equal(resolvePerm({ permissionMode: 'plan' }, undefined), 'plan');
+  assert.equal(resolvePerm({}, undefined), 'default'); // hardcoded fallback
+  assert.equal(resolvePerm(undefined, undefined), 'default');
+  assert.equal(
+    resolvePerm({ permissionMode: 'nonsense' } as unknown as UiLaunchDefaults, undefined),
+    'default',
+  ); // invalid global falls through
+});
+
+test('resolvePerm: legacy project mode `standard` never asserts a preference — the full chain falls through to the global default, then to hardcoded `default`', () => {
+  // `standard` maps to NO override (permFromDefaultMode returns null), so with
+  // no global default it must land on the hardcoded 'default', NOT bypass.
+  assert.equal(resolvePerm(undefined, 'standard'), 'default');
+  assert.equal(resolvePerm({}, 'standard'), 'default');
+  assert.equal(resolvePerm({ permissionMode: 'plan' }, 'standard'), 'plan'); // standard defers to global
+});
+
+test('clampLaunchDefaults: startupCommand keeps its meaningful content — leading slash + args, inner spaces, and unicode survive; surrounding whitespace is trimmed and control chars stripped', () => {
+  const cases: [string, string][] = [
+    ['/model opus', '/model opus'], // plain line, unchanged
+    ['  /caveman  ', '/caveman'], // surrounding whitespace trimmed
+    ['/模型 café ✓', '/模型 café ✓'], // unicode + inner spaces survive
+    ['/a\tb', '/ab'], // inner control char (\t) stripped
+  ];
+  for (const [cmd, want] of cases) {
+    assert.deepEqual(
+      clampLaunchDefaults({ startupCommand: cmd }),
+      { startupCommand: want },
+      `startupCommand sanitization: ${JSON.stringify(cmd)} -> ${JSON.stringify(want)}`,
+    );
+  }
+});
+
+test('clampLaunchDefaults strips control chars from a persisted startupCommand — embedded \\r / \\n cannot reach the PTY-injection path', () => {
+  const injected = '/foo\rrm -rf ~\n/bar';
+  // \r and \n (and every other \x00-\x1f / \x7f) are removed so one configured
+  // line submits as exactly one line; the surviving text concatenates.
+  assert.deepEqual(clampLaunchDefaults({ startupCommand: injected }), {
+    startupCommand: '/foorm -rf ~/bar',
+  });
+  // A line that is only control chars / whitespace strips to empty -> off (absent).
+  assert.deepEqual(clampLaunchDefaults({ startupCommand: '\r\n\t\x00\x1b\x7f' }), {});
+});
+
+test('vocabulary alignment: isPerm accepts EXACTLY the PERMS modes (and PERMS is the 4 ClaudePermissionMode literals) — guards PERMS/isPerm drift', () => {
+  assert.deepEqual(PERMS.map((p) => p.mode), ['default', 'acceptEdits', 'plan', 'bypassPermissions']);
+  for (const p of PERMS) assert.ok(isPerm(p.mode), `PERMS mode ${p.mode} must pass isPerm`);
+  assert.equal(PERMS.filter((p) => p.danger).length, 1, 'exactly one danger mode (bypassPermissions)');
+  assert.equal(PERMS.find((p) => p.danger)?.mode, 'bypassPermissions');
 });
 
 // ---------------------------------------------------------------------------

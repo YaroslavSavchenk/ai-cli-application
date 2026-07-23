@@ -265,8 +265,71 @@ enters the name field on open and returns to the invoking control on close
 (when the invoker was the terminal — ctrl+alt+t — that IS the terminal).
 Entry points: topbar `+ New session`, tab-strip ghost `+`, projects-drawer
 row `+` (project pre-set, defaults applied), empty-state button, Ctrl+Alt+T.
-Project defaults: `defaultModel` (when in the model list) and
-`defaultMode: skip-permissions` → bypassPermissions card.
+
+**Pre-selection precedence** (model + permission, `resolveModel`/`resolvePerm`
+in `launch-args.ts`, unit-tested): **explicit project default > global
+settings default > hardcoded fallback**. On every open the dialog resolves
+model + permission ONCE against the selected project through those two
+`resolve*` functions (`applyDefaults`): a project-intent open force-selects
+its project first (`defaultModel` when in the model list; `defaultMode:
+skip-permissions` → bypassPermissions card), a plain open uses the
+auto-selected first project — either way the same precedence runs, so a
+project default is layered on every open, not only project-intent opens. A
+per-launch edit always wins (the dialog stays fully editable) and is not
+persisted, and a mid-dialog project switch does NOT re-resolve — per-launch
+control stays with the user once the dialog is open. The global defaults are
+read live via `getDefaults()`, so a change in the settings panel pre-selects
+the NEXT open with no reload.
+
+## App settings panel (`web/src/ui/settings.ts`) — the decided four
+
+A modal card opened by the topbar **Settings** button (text-only `tb-btn`,
+sibling of Projects/Sessions), in the established modal language: the plain
+label header of the shortcuts/dir-browser modals (NOT the launch gradient),
+Escape / backdrop / × / Close all dismiss, Tab-trapped, focus restores to the
+invoker. It holds exactly the user-decided four (PROJECT-SCOPE) and nothing
+more — no usage-limit enforcement, no plan display:
+
+- **LAUNCH DEFAULTS** — reuses the dialog's own idioms: a **model** `<select>`
+  (the four models + an explicit `no default` that falls back to the dialog's
+  hardcoded first), the dialog's **2×2 permission cards** (`perm-grid`/
+  `perm-card`, all four modes incl. `plan`; danger card keeps its red desc),
+  and a full-width mono **auto-run startup command** input (`/caveman`
+  placeholder, `empty = off`). Each control commits on change; `close()`
+  flushes an un-blurred edit. Persisted as the prefs bag's `defaults`
+  (`UiLaunchDefaults`) via `api.updatePrefs({defaults})` — omitting off/none
+  values (no `model` when "none", no `permissionMode` when `default`, no
+  `startupCommand` when blank) so the bag stays minimal and `resolve*` treats
+  absent === fallback.
+- **USAGE** (read-only, from `GET /api/usage`) — a dense JetBrains-Mono ledger
+  in the statusline voice, NOT KPI stat-cards: a totals block (headline total
+  + `in/out/cache+/read` breakdown + `N-day window · S sessions · E entries
+  [· M malformed skipped]`), then `BY DAY` (most-recent-first, `date →
+  grouped-total`) and `BY MODEL` (`model → total · N×`). Fetched on open and
+  on an explicit `refresh` only — never polled (the 30s server cache makes
+  opens cheap); an in-flight fetch is superseded/cancelled by token. Numbers
+  are grouped via `fmtCount` with `tabular-nums`. Model strings are Claude-
+  Code-log-derived → rendered via `textContent` (untrusted display text; the
+  repo's zero-`innerHTML` rule holds). A plain caveat states it is
+  approximate, local, and cannot change account-side limits.
+
+**Auto-run startup command mechanics** (`ui/startup.ts` + `terminal.ts`
+`onFirstData`/`typeStartup`): claude-mode launches ONLY (never a custom-command
+session). The launching window `armStartupCommand(sessionId, line)` at spawn;
+the session's TerminalView fires `onFirstData` on its FIRST live output frame
+after attach (replay frames never trigger it) and `consumeStartupCommand`
+returns the line ONCE, then the pane types `line + CR` over the socket.
+"Ready" is defined honestly and simply as that first output — no prompt-
+detection heuristics. The guard is client-side once-per-spawn: a reattach's
+first-output finds the entry already consumed, and only the arming window
+ever held it, so a session adopted from elsewhere never retro-runs it.
+
+**Prefs write discipline** — two writers now share the bag (`theme` from the
+popover, `defaults` from the panel). `PUT /api/prefs` replaces the WHOLE
+object, so both go through `api.updatePrefs(patch)` = GET current bag →
+shallow-merge patch at the top level → PUT. Last-write-wins per top-level key
+across concurrent windows (documented, not solved); fire-and-forget failure
+tolerance stays (localStorage/in-memory hold the value for the run).
 
 ## Boot panel (handoff §10 visual language, minus fiction — R3)
 
@@ -306,6 +369,13 @@ leaves the empty state — nothing auto-spawns.
 
 ## Recorded deviations from the handoff (with reasons)
 
+- **The app settings panel + topbar `Settings` button** exist in no handoff
+  screen — the handoff is silent on settings. Built by user decision
+  2026-07-20 (PROJECT-SCOPE "App settings panel"), designed entirely inside
+  the established modal/dialog language (see "App settings panel" above), no
+  new colors/tokens. The frontend-designer anti-slop rules governed what was
+  added: a mono usage ledger (not KPI stat-cards), the dialog's own select +
+  permission-card idioms for the defaults, plain label header.
 - **The `custom · any command` chip + command field** exist in no handoff
   screen — added by user decision 2026-07-20 (the claude-only dialog
   contradicted the decided "configurable command + args" feature; the

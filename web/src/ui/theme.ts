@@ -31,7 +31,7 @@
 import { el, button } from './util.ts';
 import { refreshAllTerminalThemes } from './terminal.ts';
 import type { UiPrefs, UiTheme } from '../../../shared/protocol.ts';
-import { putPrefs } from '../api.ts';
+import { updatePrefs } from '../api.ts';
 import {
   GROUNDS,
   RAMPS,
@@ -93,9 +93,11 @@ export interface ThemePopover {
  *
  * `serverPrefs` is the prefs bag main.ts already fetched (as part of its
  * boot hydrate, GET /api/prefs — undefined if that fetch failed, which is
- * non-fatal here too: the local cache just stands uncorrected). Kept as
- * `prefsBag` for the lifetime of the popover so later writes merge onto it
- * rather than clobbering unknown keys a future settings panel might add.
+ * non-fatal here too: the local cache just stands uncorrected). It is
+ * consumed once, here at init, to correct the local cache; it is NOT retained.
+ * Later theme writes preserve other bag keys (e.g. the settings panel's
+ * `defaults`) via api.updatePrefs's merge-on-write (GET current bag →
+ * shallow-merge only `theme` → PUT), not by holding this bag.
  */
 export function initTheme(
   host: HTMLElement,
@@ -110,7 +112,6 @@ export function initTheme(
   // the `.theme` read below).
   const bag: UiPrefs | undefined =
     typeof serverPrefs === 'object' && serverPrefs !== null ? serverPrefs : undefined;
-  let prefsBag: UiPrefs = bag !== undefined ? { ...bag } : {};
   if (bag !== undefined && isUiTheme(bag.theme)) {
     const fromServer = clampTheme(bag.theme as unknown as Record<string, unknown>);
     if (!themeEquals(fromServer, state)) {
@@ -126,15 +127,17 @@ export function initTheme(
     }
   }
 
-  /** Save locally AND fire-and-forget a merged PUT (unknown keys survive). */
+  /**
+   * Save locally AND fire-and-forget a merged PUT via api.updatePrefs
+   * (GET current bag → shallow-merge only `theme` → PUT), so the settings
+   * panel's `defaults` key and any other bag key survive a theme write.
+   */
   function persist(): void {
     saveState(state);
     const theme: UiTheme = { bg: state.bg, fg: state.fg, scan: state.scan };
-    prefsBag = { ...prefsBag, theme };
-    void putPrefs(prefsBag).catch(() => {
-      // Non-fatal: localStorage already holds the value; the server copy
-      // just falls behind until the next successful write (e.g. next boot's
-      // hydrate corrects nothing since the client is source of truth here).
+    void updatePrefs({ theme }).catch(() => {
+      // Non-fatal: localStorage already holds the value; the server copy just
+      // falls behind until the next successful write.
     });
   }
 

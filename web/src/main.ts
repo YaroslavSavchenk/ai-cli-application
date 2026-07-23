@@ -29,6 +29,8 @@ import { initSessionsDrawer } from './ui/sessions.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initTheme } from './ui/theme.ts';
+import { initSettings } from './ui/settings.ts';
+import { initDefaults } from './ui/defaults.ts';
 import {
   initLaunchDialog,
   openLaunchDialog,
@@ -245,6 +247,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   );
   themeBtn.append(swatch, el('span', '', 'Theme'));
 
+  const settingsBtn = button('tb-btn', 'Settings');
+  settingsBtn.title = 'app settings — launch defaults, startup command, usage';
+  settingsBtn.setAttribute('aria-haspopup', 'dialog');
+
   const projectsBtn = button('tb-btn', 'Projects', () => st.toggleDrawer('projects'));
   projectsBtn.title = 'manage projects';
   const sessionsBtn = button('tb-btn', 'Sessions', () => st.toggleDrawer('sessions'));
@@ -264,7 +270,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const newBtn = button('btn-go', '+ New session', () => openLaunchDialog());
   newBtn.title = 'launch a session (ctrl+alt+t)';
 
-  topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, projectsBtn, sessionsBtn, divider, conn, newBtn);
+  topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, settingsBtn, projectsBtn, sessionsBtn, divider, conn, newBtn);
 
   // ---- middle row: drawers are flex siblings of the grid --------------------
   const main = el('div', 'main');
@@ -284,10 +290,16 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   root.replaceChildren(topbar, main, strip, statusline, modalHost);
 
   // ---- modules ---------------------------------------------------------------
-  // Theme FIRST: it applies the persisted ground/ramp onto :root before any
+  // Launch defaults FIRST: seed the shared store from the boot prefs bag so the
+  // launch dialog and settings panel read the same `defaults` (live-updated by
+  // the panel, applied on the next dialog open — no reload).
+  initDefaults(prefs?.defaults);
+  // Theme next: it applies the persisted ground/ramp onto :root before any
   // terminal is constructed, so terminals are born themed.
   const themePop = initTheme(modalHost, themeBtn, prefs);
   themeBtn.addEventListener('click', () => themePop.toggle());
+  const settings = initSettings(modalHost, settingsBtn);
+  settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   const tabs = initTabs(strip);
   const shortcuts = initShortcuts(modalHost);
@@ -374,6 +386,9 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       } else if (themePop.isOpen()) {
         e.preventDefault();
         themePop.close();
+      } else if (settings.isOpen()) {
+        e.preventDefault();
+        settings.close();
       } else if (projectsDrawer.modalOpen()) {
         e.preventDefault();
         projectsDrawer.closeModal();

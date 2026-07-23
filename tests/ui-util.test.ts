@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelFromArgs, permFromArgs, fmtUptime } from '../web/src/ui/util.ts';
+import { modelFromArgs, permFromArgs, fmtUptime, fmtCount } from '../web/src/ui/util.ts';
 
 // ---------------------------------------------------------------------------
 // modelFromArgs
@@ -131,4 +131,25 @@ test('fmtUptime: a timestamp in the future clamps to 00:00:00, never negative', 
 
 test('fmtUptime: an unparsable timestamp renders as an em dash', () => {
   assert.equal(fmtUptime('not-a-date'), '—');
+});
+
+// ---------------------------------------------------------------------------
+// fmtCount (settings usage ledger — grouped integers)
+// ---------------------------------------------------------------------------
+
+test('fmtCount: groups thousands with commas', () => {
+  assert.equal(fmtCount(0), '0');
+  assert.equal(fmtCount(360), '360');
+  assert.equal(fmtCount(3000), '3,000');
+  assert.equal(fmtCount(1234567), '1,234,567');
+});
+
+test('fmtCount: truncates toward zero (never prints a fraction)', () => {
+  assert.equal(fmtCount(1000.7), '1,000');
+});
+
+test('fmtCount: non-finite or negative renders as the em-dash glyph, never NaN', () => {
+  assert.equal(fmtCount(Number.NaN), '—');
+  assert.equal(fmtCount(-1), '—');
+  assert.equal(fmtCount(Number.POSITIVE_INFINITY), '—');
 });

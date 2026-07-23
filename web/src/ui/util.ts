@@ -133,6 +133,16 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
   return { label: v, danger: v === 'bypassPermissions' };
 }
 
+/**
+ * Group a non-negative integer with thin thousands separators for the usage
+ * ledger (`1234567` -> `1,234,567`). Non-finite/negative inputs render as the
+ * app's empty-value glyph so a malformed count never prints `NaN`.
+ */
+export function fmtCount(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '—';
+  return Math.trunc(n).toLocaleString('en-US');
+}
+
 /** `HH:MM:SS` since an ISO timestamp (statusline `up …`; hours don't wrap). */
 export function fmtUptime(iso: string): string {
   const t = new Date(iso).getTime();

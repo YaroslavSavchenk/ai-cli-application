@@ -2045,6 +2045,185 @@ kbd {
   padding: 0 var(--dlg-pad-x);
 }
 
+/* ---- settings panel (app defaults + read-only usage) ------------------------
+   A modal card in the dialog/popover language: plain label header (the
+   shortcuts-overlay sibling), the launch dialog's own select + permission-card
+   idioms for the defaults, and a dense mono ledger for usage. No new tokens. */
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+  padding: var(--s-8) var(--dlg-pad-x);
+}
+
+.settings-sect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+/* seam between the two sections */
+.settings-sect + .settings-sect {
+  border-top: var(--line) solid var(--edge-mid);
+  padding-top: var(--s-8);
+}
+
+.settings-note {
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+.settings-field select,
+.settings-field input {
+  height: var(--field-h);
+  padding: 0 var(--s-5);
+  background: var(--bg-deep);
+  border-radius: var(--r-field);
+  font-size: var(--fs-name);
+}
+
+/* usage section head: label · spacer · updated-at · refresh */
+.settings-usage-hd {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.settings-usage-updated {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+}
+
+.settings-refresh {
+  height: var(--chip-h);
+  padding: 0 var(--s-4);
+  font-size: var(--fs-status);
+}
+
+.settings-usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.settings-usage-msg {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+.settings-usage-msg.is-err {
+  color: var(--danger);
+}
+
+.settings-usage-msg.is-empty {
+  color: var(--text-faint);
+}
+
+/* totals: headline number + token-type breakdown + window meta */
+.settings-usage-totals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-5) var(--s-6);
+  background: var(--well);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-box);
+}
+
+.settings-usage-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+}
+
+.settings-usage-total-n {
+  font-family: var(--font-mono);
+  font-size: var(--fs-title);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.settings-usage-total-lb {
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+.settings-usage-break {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-mute);
+}
+
+.settings-usage-meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tag);
+  color: var(--text-faint);
+}
+
+/* mono ledger: BY DAY / BY MODEL — name (+ optional count) → right-aligned value */
+.settings-led-lb {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tag);
+  letter-spacing: 1px;
+  color: var(--text-faint);
+}
+
+.settings-led {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-led-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--s-4);
+  align-items: baseline;
+  padding: var(--s-2) 0;
+  border-bottom: var(--line) solid var(--edge-soft);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.settings-led-row:last-child {
+  border-bottom: none;
+}
+
+.settings-led-name {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-led-sub {
+  color: var(--text-faint);
+  font-size: var(--fs-tag);
+}
+
+.settings-led-val {
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-ft {
+  background: var(--bg-app);
+}
+
 /* ---- boot overlay (honest steps; handoff §10 visual language) ---------------
    Mounts only when boot outlives ~150ms; each row's mark is REAL state:
    spinner while its promise is pending, green ✓ resolved, red × failed. */

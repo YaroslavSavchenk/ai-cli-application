@@ -80,6 +80,13 @@ export interface TerminalEvents {
   onConn(state: ConnState): void;
   /** Fired when a fit changed the local terminal dimensions. */
   onDims(cols: number, rows: number): void;
+  /**
+   * Fired ONCE per (re)connect, on the first LIVE data frame after attach —
+   * the honest "session is ready" signal for the auto-run startup command
+   * (replay frames never trigger it). Fires again on reattach; the once-only
+   * guard is the caller's consume-once registry (ui/startup.ts).
+   */
+  onFirstData(): void;
 }
 
 export class TerminalView {
@@ -90,6 +97,8 @@ export class TerminalView {
   #events: TerminalEvents | null = null;
   /** True while a replay frame is being written into the terminal. */
   #replaying = false;
+  /** False until the first live data frame of the current connect (onFirstData gate). */
+  #firstData = false;
   readonly #container: HTMLElement;
   readonly #observer: ResizeObserver;
   #debounce: number | null = null;
@@ -168,6 +177,7 @@ export class TerminalView {
   connect(sessionId: string, events: TerminalEvents): void {
     if (this.#socket !== null) return;
     this.#events = events;
+    this.#firstData = false;
     this.term.onData((data: string) => {
       // While a replay is being processed, xterm re-answers any terminal
       // queries embedded in the buffer (vim/claude emit DA/DSR/OSC 10-11);
@@ -188,7 +198,16 @@ export class TerminalView {
           });
         }
       },
-      onData: (data) => this.term.write(data),
+      onData: (data) => {
+        this.term.write(data);
+        // First LIVE frame after attach = the honest "ready" signal. Replay
+        // frames arrive via onReplay (never here), so a fresh spawn's first
+        // real output triggers this exactly once per connect.
+        if (!this.#firstData) {
+          this.#firstData = true;
+          this.#events?.onFirstData();
+        }
+      },
       onInfo: (session) => {
         events.onInfo(session);
         // Another client may have resized the PTY while we were away —
@@ -238,6 +257,16 @@ export class TerminalView {
 
   sendSeen(): void {
     this.#socket?.sendSeen();
+  }
+
+  /**
+   * Type the auto-run startup command into the PTY: the line + a carriage
+   * return, sent straight over the socket (not through xterm's key path, so
+   * the replay input-guard does not apply). Called once, from the first-output
+   * hook, for sessions the launch dialog armed (ui/startup.ts).
+   */
+  typeStartup(line: string): void {
+    this.#socket?.sendInput(line + '\r');
   }
 
   dispose(): void {

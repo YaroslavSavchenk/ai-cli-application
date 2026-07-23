@@ -25,6 +25,14 @@
 export type PermissionMode = 'standard' | 'skip-permissions';
 
 /**
+ * The four Claude Code `--permission-mode` values, in launch-dialog vocabulary.
+ * Distinct from the legacy 2-value `PermissionMode` above (which projects still
+ * use): this is what the launch dialog's permission cards and the settings
+ * panel's default speak. launch-args.ts's `Perm` aliases this.
+ */
+export type ClaudePermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+
+/**
  * A project as stored in projects.json in the data dir
  * (~/.ai-session-manager/ by default, overridable via AI_SM_DATA_DIR).
  * The UI shows `name`, never `path`.
@@ -155,8 +163,8 @@ export interface UiTheme {
 export interface UiLaunchDefaults {
   /** Pre-selected model for the launch dialog (e.g. a Claude model id). */
   model?: string;
-  /** Pre-selected permission mode for the launch dialog. */
-  permissionMode?: PermissionMode;
+  /** Pre-selected permission mode for the launch dialog (all four CLI modes). */
+  permissionMode?: ClaudePermissionMode;
   /**
    * A line auto-typed into every new session once it is ready — e.g. a skill
    * or slash command. Empty/absent means no auto-run.

@@ -21,6 +21,7 @@ import { TerminalView, type TerminalEvents } from './terminal.ts';
 import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { flash } from './statusline.ts';
+import { consumeStartupCommand } from './startup.ts';
 
 interface Slot {
   index: number;
@@ -348,6 +349,13 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       st.notify('conn');
     },
     onDims: (cols, rows) => st.setSessionDims(sessionId, cols, rows),
+    onFirstData: () => {
+      // Auto-run startup command: first live output = ready. consume() is
+      // once-per-spawn, so a reattach's first-output never re-types it, and
+      // only the launching window ever armed this session id.
+      const line = consumeStartupCommand(sessionId);
+      if (line !== null) s.view?.typeStartup(line);
+    },
   };
 }
 
