@@ -44,5 +44,14 @@ Facts this project's Windows integration relies on:
   guided error listing installed distros.
 - **Dev environment**: repo at `/home/sava/projects/ai-cli-application`;
   Obsidian/Explorer reach it via `\\wsl$\Ubuntu\...`.
+- **Never launch a Windows `.exe` straight from a `\\wsl.localhost` (or
+  `\\wsl$`) UNC path**: it runs in the network zone, so `Start-Process` /
+  ShellExecute pops a modal "Open File - Security Warning" that blocks
+  *invisibly* under the silent (`wscript` hidden) launcher — the launch just
+  hangs and no window appears. The same UNC path also makes .NET's
+  `ExtractAssociatedIcon` throw. Fix: stage the exe (+ its DLLs) into a local
+  `%LOCALAPPDATA%` dir, `Unblock-File` to strip any Mark-of-the-Web, and run
+  the local copy (MyComputer zone, no prompt). Bit us with the WebView2 host
+  ([[native-webview2-host]], launcher/launch.ps1 `Open-NativeHost`).
 
 Related: [[thin-windows-launcher]], [[web-app-inside-wsl]]
