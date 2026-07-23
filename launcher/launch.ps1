@@ -269,8 +269,8 @@ function Open-NativeHost([string]$Url) {
     # ('AiSessionManager', matched by make-shortcut.ps1) so the taskbar button
     # shows app.ico instead of the Edge logo. Returns $true on a confirmed-ready
     # window; $false means "unavailable or failed - fall through to Edge".
-    $hostExe = Join-Path $PSScriptRoot 'host\build\AiSessionManagerHost.exe'
-    if (-not (Test-Path -LiteralPath $hostExe)) { return $false }
+    $srcExe = Join-Path $PSScriptRoot 'host\build\AiSessionManagerHost.exe'
+    if (-not (Test-Path -LiteralPath $srcExe)) { return $false }
     if (-not (Test-WebView2Runtime)) {
         Write-Host 'WebView2 runtime not detected - using the Edge --app fallback.'
         return $false
@@ -278,6 +278,35 @@ function Open-NativeHost([string]$Url) {
 
     $localAppData  = [Environment]::GetFolderPath('LocalApplicationData')
     $readySentinel = Join-Path $localAppData 'ai-session-manager\host-ready'
+
+    # Run from a LOCAL copy, never the \\wsl.localhost source. Launching an exe
+    # off that UNC path puts it in the network zone: ShellExecute pops a modal
+    # "Open File - Security Warning" that blocks invisibly under the silent
+    # launcher (so nothing ever opens), and .NET's ExtractAssociatedIcon
+    # rejects UNC paths. Stage exe + DLLs into %LOCALAPPDATA% and run there.
+    $srcDir   = Join-Path $PSScriptRoot 'host\build'
+    $localDir = Join-Path $localAppData 'ai-session-manager\host'
+    $hostExe  = Join-Path $localDir 'AiSessionManagerHost.exe'
+    try {
+        if (-not (Test-Path -LiteralPath $localDir)) {
+            New-Item -ItemType Directory -Force -Path $localDir -ErrorAction Stop | Out-Null
+        }
+        # Copy each build artifact when missing or older than the source, then
+        # Unblock-File to strip any network Mark-of-the-Web that would re-warn.
+        Get-ChildItem -LiteralPath $srcDir -File -ErrorAction Stop | ForEach-Object {
+            $target = Join-Path $localDir $_.Name
+            if (-not (Test-Path -LiteralPath $target) -or
+                $_.LastWriteTimeUtc -gt (Get-Item -LiteralPath $target).LastWriteTimeUtc) {
+                Copy-Item -LiteralPath $_.FullName -Destination $target -Force -ErrorAction Stop
+            }
+            Unblock-File -LiteralPath $target -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Write-Host "Native host: could not stage a local copy ($($_.Exception.Message)) - using the Edge --app fallback."
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $hostExe)) { return $false }
+
     # Delete any stale sentinel so we only ever trust one written by THIS launch.
     Remove-Item -LiteralPath $readySentinel -Force -ErrorAction SilentlyContinue
 
