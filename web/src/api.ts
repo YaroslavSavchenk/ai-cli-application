@@ -7,9 +7,11 @@
  * Creates return 201: always check res.ok, never === 200.
  */
 import type {
+  CloneProjectRequest,
   CreateProjectRequest,
   CreateSessionRequest,
   FsListResponse,
+  FsMkdirResponse,
   OkResponse,
   PreviousSession,
   Project,
@@ -82,6 +84,40 @@ export function getProjects(): Promise<Project[]> {
 
 export function createProject(body: CreateProjectRequest): Promise<Project> {
   return request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/**
+ * Create a NEW local project: POSTs with `create: true` so the backend makes
+ * the directory (mkdir recursive), optionally `git init`s it (`gitInit`), and
+ * registers it. 201 Project on success; the backend refuses a non-empty/
+ * non-directory path (409) and surfaces meaningful errors we render inline.
+ */
+export function createLocalProject(body: Omit<CreateProjectRequest, 'create'>): Promise<Project> {
+  return request<Project>('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify({ ...body, create: true }),
+  });
+}
+
+/**
+ * Clone a repo into a NEW project: `git clone -- <url> <dest>` (argv, no
+ * shell), then register `dest`. A SLOW synchronous call — the caller shows an
+ * honest indeterminate "cloning…" state while awaiting. 201 Project on
+ * success; invalid url / non-empty dest / git failure come back as errors.
+ */
+export function cloneProject(body: CloneProjectRequest): Promise<Project> {
+  return request<Project>('/api/projects/clone', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Create a single new subdirectory `name` inside existing `parent`; 201 with its abs path. */
+export function fsMkdir(parent: string, name: string): Promise<FsMkdirResponse> {
+  return request<FsMkdirResponse>('/api/fs/mkdir', {
+    method: 'POST',
+    body: JSON.stringify({ parent, name }),
+  });
 }
 
 export function deleteProject(id: string): Promise<OkResponse> {

@@ -393,14 +393,51 @@ export interface OkResponse {
 }
 
 /**
- * POST /api/projects request body. Responds with the created Project.
- * Rejected if `path` is not an existing directory.
+ * POST /api/projects request body. Responds 201 with the created Project.
+ *
+ * Two modes, selected by `create`:
+ *   - REGISTER an existing directory (default; `create` absent or false):
+ *     `path` must already be an absolute path to an existing directory —
+ *     today's behavior, unchanged (400 otherwise).
+ *   - CREATE a new local project (`create: true`): the server first makes the
+ *     directory at `path` (mkdir recursive), then registers it. It refuses to
+ *     clobber a path that already exists as a NON-EMPTY directory or as a
+ *     non-directory (409). `gitInit` (default true) runs `git init` in the new
+ *     directory; it is meaningful ONLY with `create: true` and ignored
+ *     otherwise.
  */
 export interface CreateProjectRequest {
   name: string;
   path: string;
   defaultModel?: string;
   defaultMode?: PermissionMode;
+  /**
+   * When true, create the directory at `path` before registering it. Absent or
+   * false = today's behavior: `path` must already be an existing directory.
+   */
+  create?: boolean;
+  /**
+   * Only meaningful with `create: true`: run `git init` in the freshly created
+   * directory. Defaults to true when omitted. Ignored when `create` is not set.
+   */
+  gitInit?: boolean;
+}
+
+/**
+ * POST /api/projects/clone request body. Responds 201 with the created Project.
+ * `git clone`s `url` into `dest` (argv, `{shell:false}`, `git clone -- url dest`),
+ * then registers `dest` as a project named `name` (or the repo basename derived
+ * from `url` when `name` is omitted/blank).
+ *
+ * `url` must be an http(s)://, git://, ssh://, or user@host: (scp-like) url;
+ * file://, local paths, `-`-leading (option injection) and control-char urls
+ * are rejected (400). `dest` must be an absolute path whose parent directory
+ * exists and that does not already exist as a non-empty directory (400/409).
+ */
+export interface CloneProjectRequest {
+  url: string;
+  dest: string;
+  name?: string;
 }
 
 /**
@@ -410,6 +447,25 @@ export interface CreateProjectRequest {
 export interface FsListResponse {
   path: string;
   dirs: string[];
+}
+
+/**
+ * POST /api/fs/mkdir request body. Creates a single new subdirectory `name`
+ * inside the existing directory `parent`, returning its absolute path.
+ *
+ * `parent` must be an absolute path to an existing directory. `name` must be a
+ * SINGLE safe path segment: no `/` or `\`, not `.`/`..` (nor an all-dots name),
+ * no NUL/control chars, 1..255 chars. The target must not already exist.
+ * Responds 201 with FsMkdirResponse.
+ */
+export interface FsMkdirRequest {
+  parent: string;
+  name: string;
+}
+
+/** POST /api/fs/mkdir response: the created directory's absolute path. */
+export interface FsMkdirResponse {
+  path: string;
 }
 
 /**

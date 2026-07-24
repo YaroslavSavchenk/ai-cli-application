@@ -133,9 +133,13 @@ and multi-pane layouts on top.
     `projects.json`, with an **"Initialize git repo" toggle (default on)**
     controlling the `git init` (decided 2026-07-24, reconciling the
     prototype's "no git init" caption with the earlier always-init: user
-    chose a per-create toggle); (2) **clone from GitHub** — list the user's
-    repos in-app and clone a chosen one into a new project; (3) **create a
+    chose a per-create toggle); (2) **clone** — from a pasted git URL
+    (the Phase 2a foundation, no GitHub account needed) and, once connected,
+    by picking from the user's in-app repo list (Phase 2c); (3) **create a
     new GitHub repo** from the app (local + create/push the remote).
+    Phasing (implementation, 2026-07-24): **2a** = local create + URL clone +
+    folder picker (landed); **2b** = GitHub OAuth device-flow connection +
+    repo listing; **2c** = clone-by-picking + create-repo.
   - **OAuth scope = `repo` (write) up front** (decided 2026-07-24, over a
     read-only-then-escalate flow): a single device-flow grant covers list +
     clone + create-repo + push with no re-auth, matching the full v1 shape.

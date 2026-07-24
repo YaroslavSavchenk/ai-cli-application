@@ -12,10 +12,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, sep } from 'node:path';
+import { basename, extname, isAbsolute, join, normalize, sep } from 'node:path';
 import type {
+  CloneProjectRequest,
   CreateProjectRequest,
   CreateSessionRequest,
+  FsMkdirRequest,
   RuntimeStatusResponse,
   UiPrefs,
 } from '../shared/protocol.ts';
@@ -26,7 +28,8 @@ import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { UsageReader } from './usage.ts';
 import { TelemetryReader } from './telemetry.ts';
-import { listDirs, FsBrowseError } from './fsbrowse.ts';
+import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
+import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { Logger } from './config.ts';
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -96,6 +99,19 @@ function isStringArray(v: unknown): v is string[] {
 
 function isValidDim(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_TERM_DIM;
+}
+
+/**
+ * Derive a display name from a clone url — the last path/host segment with a
+ * trailing `.git` stripped (e.g. https://github.com/owner/repo.git -> "repo",
+ * git@github.com:owner/repo.git -> "repo"). Purely a display string stored in
+ * projects.json; never used as a path. Length-capped. Undefined if empty.
+ */
+function repoNameFromUrl(url: string): string | undefined {
+  const trimmed = url.replace(/[/]+$/, '');
+  const segment = trimmed.split(/[/:]/).pop() ?? '';
+  const name = segment.replace(/\.git$/i, '').trim();
+  return name === '' ? undefined : name.slice(0, 128);
 }
 
 export function createRequestHandler(
@@ -216,10 +232,12 @@ export function createRequestHandler(
           sendError(res, 400, 'name is required');
           return;
         }
-        if (typeof body.path !== 'string' || !isExistingDirectory(body.path)) {
+        if (typeof body.path !== 'string') {
           sendError(res, 400, 'path must be an absolute path to an existing directory');
           return;
         }
+        // Validate the cheap fields BEFORE any filesystem side effect, so a bad
+        // defaultMode never leaves a freshly created directory behind.
         if (body.defaultModel !== undefined && typeof body.defaultModel !== 'string') {
           sendError(res, 400, 'defaultModel must be a string');
           return;
@@ -232,12 +250,80 @@ export function createRequestHandler(
           sendError(res, 400, "defaultMode must be 'standard' or 'skip-permissions'");
           return;
         }
+        if (body.create !== undefined && typeof body.create !== 'boolean') {
+          sendError(res, 400, 'create must be a boolean');
+          return;
+        }
+        if (body.gitInit !== undefined && typeof body.gitInit !== 'boolean') {
+          sendError(res, 400, 'gitInit must be a boolean');
+          return;
+        }
+        if (body.create === true) {
+          // CREATE mode: make the directory (mkdir recursive, no clobber), then
+          // register it. gitInit defaults to true.
+          try {
+            await createLocalDir(body.path, body.gitInit ?? true);
+          } catch (err) {
+            if (err instanceof ScaffoldError) {
+              sendError(res, err.status, err.message);
+            } else {
+              log('error', `createLocalDir failed: ${String(err)}`);
+              sendError(res, 500, 'failed to create project directory');
+            }
+            return;
+          }
+        } else if (!isExistingDirectory(body.path)) {
+          // REGISTER mode (default): path must already be an existing directory.
+          sendError(res, 400, 'path must be an absolute path to an existing directory');
+          return;
+        }
         const project = projects.create({
           name: body.name.trim(),
           path: body.path,
           ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
           ...(body.defaultMode !== undefined ? { defaultMode: body.defaultMode } : {}),
         });
+        sendJson(res, 201, project);
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Clone a repo into a new project directory --------------------------
+    // MUST precede the /api/projects/:id matcher below, else "clone" is read as
+    // a project id.
+    if (pathname === '/api/projects/clone') {
+      if (method === 'POST') {
+        const body = (await readJsonBody(req)) as Partial<CloneProjectRequest>;
+        if (typeof body.url !== 'string' || body.url === '') {
+          sendError(res, 400, 'url is required');
+          return;
+        }
+        if (typeof body.dest !== 'string' || !isAbsolute(body.dest)) {
+          sendError(res, 400, 'dest must be an absolute path');
+          return;
+        }
+        if (body.name !== undefined && typeof body.name !== 'string') {
+          sendError(res, 400, 'name must be a string');
+          return;
+        }
+        try {
+          await cloneRepo(body.url, body.dest);
+        } catch (err) {
+          if (err instanceof ScaffoldError) {
+            sendError(res, err.status, err.message);
+          } else {
+            log('error', 'clone failed');
+            sendError(res, 500, 'failed to clone repository');
+          }
+          return;
+        }
+        const name =
+          body.name !== undefined && body.name.trim() !== ''
+            ? body.name.trim()
+            : (repoNameFromUrl(body.url) ?? basename(body.dest));
+        const project = projects.create({ name, path: body.dest });
         sendJson(res, 201, project);
         return;
       }
@@ -271,6 +357,34 @@ export function createRequestHandler(
             sendError(res, err.status, err.message);
           } else {
             sendError(res, 500, 'failed to list directory');
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Filesystem: make a single subdirectory (folder-picker mkdir) -------
+    if (pathname === '/api/fs/mkdir') {
+      if (method === 'POST') {
+        const body = (await readJsonBody(req)) as Partial<FsMkdirRequest>;
+        if (typeof body.parent !== 'string') {
+          sendError(res, 400, 'parent must be an absolute path to an existing directory');
+          return;
+        }
+        if (typeof body.name !== 'string') {
+          sendError(res, 400, 'name must be a single safe path segment');
+          return;
+        }
+        try {
+          sendJson(res, 201, mkdirIn(body.parent, body.name));
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            sendError(res, err.status, err.message);
+          } else {
+            log('error', `mkdir failed: ${String(err)}`);
+            sendError(res, 500, 'failed to create directory');
           }
         }
         return;

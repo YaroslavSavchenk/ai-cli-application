@@ -37,6 +37,12 @@ import {
   closeLaunchDialog,
   isLaunchDialogOpen,
 } from './ui/launch.ts';
+import {
+  initNewProjectDialog,
+  isNewProjectDialogOpen,
+  closeNewProjectDialog,
+} from './ui/newproject.ts';
+import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import { startPresence } from './ws.ts';
 import { el, button } from './ui/util.ts';
 
@@ -304,6 +310,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const settings = initSettings(modalHost, settingsBtn);
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
+  initNewProjectDialog(modalHost); // Projects-drawer `+ add` opens it.
   const tabs = initTabs(strip);
   const shortcuts = initShortcuts(modalHost);
   const status = initStatusline(statusline, {
@@ -311,7 +318,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     openShortcuts: () => shortcuts.toggle(),
   });
   const sessionsDrawer = initSessionsDrawer(sessAside);
-  const projectsDrawer = initProjectsDrawer(projAside, modalHost);
+  const projectsDrawer = initProjectsDrawer(projAside);
   // Last: its first render needs the grid mounted and sized. The dialog
   // opener is injected to avoid a panes ↔ launch import cycle.
   initPanes(grid, () => openLaunchDialog());
@@ -392,9 +399,13 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       } else if (settings.isOpen()) {
         e.preventDefault();
         settings.close();
-      } else if (projectsDrawer.modalOpen()) {
+      } else if (isFolderPickerOpen()) {
+        // Topmost: the folder picker can open OVER the New Project dialog.
         e.preventDefault();
-        projectsDrawer.closeModal();
+        closeFolderPicker();
+      } else if (isNewProjectDialogOpen()) {
+        e.preventDefault();
+        closeNewProjectDialog();
       } else if (isLaunchDialogOpen()) {
         e.preventDefault();
         closeLaunchDialog();

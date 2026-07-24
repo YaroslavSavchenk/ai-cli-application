@@ -2343,6 +2343,276 @@ kbd {
   color: var(--text-faint);
 }
 
+/* ---- new project dialog (Phase 2a) ------------------------------------------
+   Reuses the launch-dialog gradient header + scroll body + ink-well preview.
+   Adds only the two-mode tab row, the browse-path row, and a mono caption; the
+   GitHub tab is deferred to 2b (the .np-tabs list takes a third entry). No new
+   design tokens — every value maps to an existing token. */
+
+/* tile glyph (◧ / ▤): sans (system) so the geometric glyph never tofus in mono */
+.np-glyph {
+  color: var(--acc);
+  font-size: var(--fs-title);
+  line-height: 1;
+}
+
+.np-tabs {
+  flex: none;
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-7) var(--dlg-pad-x) 0;
+}
+
+.np-tab {
+  flex: 1;
+  height: var(--field-h);
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-field);
+  color: var(--text-2);
+  font-size: var(--fs-ui);
+  font-weight: 500;
+}
+
+.np-tab:hover {
+  border-color: var(--edge-accent);
+}
+
+/* selected mode: the topbar/chip-pill toggle idiom (surface-active + full ink) */
+.np-tab.is-on {
+  background: var(--surface-active);
+  border-color: var(--edge-hover);
+  color: var(--text);
+}
+
+.np-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dlg-gap);
+}
+
+/* browse-path row: a readonly path display that opens the folder picker */
+.np-pathrow {
+  height: var(--field-h);
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: 0 var(--s-5);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-field);
+  text-align: left;
+}
+
+.np-pathrow:hover:not(:disabled) {
+  border-color: var(--edge-accent);
+}
+
+.np-pathrow:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.np-pathrow-glyph {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.np-pathrow-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-name);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a still-suggested (not yet browsed) path reads dimmer than a chosen one */
+.np-pathrow-path.is-suggested {
+  color: var(--text-dim);
+}
+
+.np-pathrow-browse {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--acc);
+}
+
+/* "(optional)" tail on a field label: not caps, not letterspaced */
+.np-optional {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+
+.np-caption {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+/* the git-init checkbox reuses .status-row / .status-box; tighten the vertical
+   padding so it sits flush in the field stack (hover feedback is kept) */
+.np-gitrow {
+  padding: var(--s-3) var(--s-4);
+}
+
+/* clone in-flight: an HONEST indeterminate spinner (never a fake percentage) */
+.np-busy {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+.np-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: var(--tick) solid var(--edge-strong);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  animation: spin var(--t-spin) linear infinite;
+}
+
+/* ---- folder picker (Phase 2a) — real /api/fs/list + /api/fs/mkdir -----------
+   Gradient header (reused), breadcrumb + up nav, quick zones, the existing
+   .dirlist/.dir-btn folder list, a new-folder row, and a Select-folder footer.
+   All paths + dir names are untrusted → rendered via textContent. */
+
+.pk-nav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-7);
+  border-bottom: var(--line) solid var(--edge-mid);
+}
+
+.pk-up {
+  flex: none;
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text-hd);
+}
+
+.pk-up:hover:not(:disabled) {
+  border-color: var(--edge-accent);
+  color: var(--text);
+}
+
+.pk-up:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.pk-crumbs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.pk-crumb {
+  flex: none;
+  padding: var(--s-1);
+  background: transparent;
+  border: none;
+  color: var(--acc);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+}
+
+.pk-crumb:hover {
+  color: var(--text);
+}
+
+.pk-sep {
+  flex: none;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+}
+
+.pk-quick {
+  flex: none;
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-5) var(--s-7) var(--s-2);
+}
+
+.pk-zone {
+  height: var(--chip-h);
+  padding: 0 var(--s-5);
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.pk-zone:hover {
+  border-color: var(--edge-accent);
+}
+
+.pk-zone.is-on {
+  background: var(--acc-tint);
+  border-color: var(--edge-accent);
+  color: var(--acc);
+}
+
+.pk-newfolder {
+  flex: none;
+  display: flex;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-7);
+  border-top: var(--line) solid var(--edge-mid);
+}
+
+.pk-newfolder input {
+  flex: 1;
+  height: var(--ctl-h);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+}
+
+/* the "+ folder" button reads green — it CREATES (the app's add/go role) */
+.pk-newfolder .btn {
+  flex: none;
+  color: var(--ok-text);
+}
+
+.pk-newfolder .btn:hover {
+  border-color: var(--ok);
+  background: var(--ok-tint);
+}
+
+.pk-cwd {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- boot overlay (honest steps; handoff §10 visual language) ---------------
    Mounts only when boot outlives ~150ms; each row's mark is REAL state:
    spinner while its promise is pending, green ✓ resolved, red × failed. */
