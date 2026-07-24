@@ -21,7 +21,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
-- [[pty-exit-data-race]] — a session's LAST output can vanish between `onData` and `onExit` (node-pty closes the master on exit); replay after reattach loses the tail under load. Size assertions still pass while the tail marker is gone — never relax that test to get green
+- [[pty-exit-data-race]] — **FIXED 2026-07-25**: a session's LAST output vanished at exit — libuv fabricates an EOF on POLLHUP and never re-reads, so the kernel's remaining bytes are dropped (NOT node-pty ordering, my first guess was wrong). Tell: stream emits `'end'` instead of `'error' EIO`. Reproduce by stalling the READER, not by CPU load
 - [[localstorage-origin-port-churn]] — auto-picked port = new origin per backend run = localStorage resets; durable prefs belong server-side
 - [[pty-requirements]] — why every session needs a real PTY and what breaks without resize propagation
 - [[wsl-interop]] — localhost forwarding, calling Windows binaries from WSL, cold-boot delay
@@ -30,6 +30,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-25-pty-tail-rescue]] — the lost PTY tail FIXED via dev-flow (suite 391→396); root cause was libuv, not node-pty. Reviewers caught a comment asserting an invariant the code didn't implement, and twice turned an inherited guarantee into a local one. node-pty pinned exactly; `/verify-terminal` live pass still open
 - [[2026-07-24-github-hardening]] — test-hardening via full dev-flow, suite 288→391: `github-model.ts` extraction (clock injected), `AI_SM_GITHUB_API_BASE` loopback-only test seam, `redirect: 'error'` on token-bearing calls. Lessons: an in-process seam can't reach an out-of-process server; "unavoidable coverage gap" was refuted by a `git` double on PATH; a runtime-inherited guarantee isn't one. Found (not caused) [[pty-exit-data-race]]
 - [[2026-07-24-dark-window-chrome]] — white native title bar FIXED: DWM caption/text/border colors from the CSS tokens on the WebView2 host (user picked this over frameless); verified by compiling on Windows + a `PrintWindow` capture reading `#171D25`; gotcha: use `PrintWindow`, not a screen grab, when the foreground lock blocks activation
 - [[2026-07-24-github-build]] — **Phase 2 COMPLETE**: project creation (blank + URL clone + picker) → GitHub OAuth device-flow connection + repo listing → token-auth clone-by-pick + create-repo. Token server-side 0600, never leaked (host-locked clone resisted every exfil bypass); config-driven/dormant until `AI_SM_GITHUB_CLIENT_ID`; security CLEAN every phase; suite→288. **Blocked-on-user: register the OAuth App + set the client_id; live verify-terminal pass**

@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.server.json && tsc -p web/tsconfig.json"
   },
   "dependencies": {
-    "node-pty": "^1.1.0",
+    "node-pty": "1.1.0",
     "ws": "^8.21.1"
   },
   "devDependencies": {

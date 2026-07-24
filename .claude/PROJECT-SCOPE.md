@@ -222,18 +222,22 @@ landed features.
   `<home>/projects/<owner>/<repo>`, which also removes the 409; (c) accept
   it. Currently pinned honestly as a `KNOWN LIMIT` test, not silently
   "fixed". Do not settle this in passing.
-- **Lost final PTY output after session exit under load** (found
-  2026-07-24 by the test gate; a real product bug, not a decision — listed
-  here so it is not lost). `server/sessions.ts:163-180`: `proc.onData`
-  appends to the scrollback ring while `proc.onExit` immediately stamps
-  `exited` and broadcasts `exit`, with no flush/ordering guarantee that
-  the last data chunk lands first (node-pty closes the master on child
-  exit). Under CPU contention the newest output is missing from replay
-  after reattach — the crown-jewel path. Reproduces as a ~3-in-26 flake of
-  `tests/sessions.test.ts:301` when the suite runs alongside other node
-  processes; passes 10/10 alone. Pre-existing, untouched by the GitHub
-  work. Needs its own `/dev-flow` pass with `/verify-terminal`, and the
-  assertion must NOT be relaxed to make it green.
+
+(Settled 2026-07-25: **lost final PTY output after session exit — FIXED.**
+Root cause was not node-pty event ordering but **libuv**: on POLLHUP
+`uv__stream_io` short-circuits to a synthetic EOF without re-reading, so
+bytes still held by the kernel are discarded. `server/sessions.ts` now
+wraps `destroy` on node-pty's internal master read stream and
+synchronously drains the fd there, feeding bytes into the same handler
+`onData` uses — one ingress, no clock, loop ends on EIO/EAGAIN/0. This
+depends on two undeclared node-pty internals (`fd`, `_socket`) and on
+node-pty's own `pty_nonblock(master)` for the non-blocking guarantee that
+makes a synchronous read safe, so **`node-pty` is pinned exactly to
+1.1.0** (user's decision) and a version bump means re-running
+`tests/sessions-tail.test.ts`. Accepted limit: a multi-byte character
+split across the fabricated-EOF boundary can render as one replacement
+character — rare, bounded, pinned by a test (user's decision not to close
+it). Detail in `memory/knowledge/pty-exit-data-race.md`.)
 
 (Settled 2026-07-23, user's call: project creation + GitHub integration
 added to scope — see the Features bullet. GitHub auth = OAuth device flow;
