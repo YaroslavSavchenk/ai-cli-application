@@ -846,6 +846,49 @@ html.scanlines-on .pane-scan {
   display: block;
 }
 
+/* ---- per-pane terminal status strip ---------------------------------------
+   A thin vim-statusline descendant under the terminal (the hero). LAST child
+   of the pane; hidden (no empty bar) until ≥1 enabled item has a real value.
+   Colors are SEMANTIC and drawn from the themable xterm palette so the strip
+   stays harmonized with the active terminal theme. 22px is the spec height
+   (no token — a fixed one-off, like the pane header's own measures). */
+.pane-status {
+  flex: none;
+  height: 22px;
+  padding: 0 var(--s-6);
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  background: var(--surface-panestatus);
+  border-top: var(--line) solid var(--edge-soft);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* .pane-status sets display:flex, which would override the [hidden] UA rule */
+.pane-status[hidden] {
+  display: none;
+}
+
+.pane-status-item {
+  flex: none;
+  color: var(--xt-bright-black); /* terminal's themable dim = neutral telemetry */
+}
+
+.pane-status-item.is-skill {
+  color: var(--acc); /* the one live-activity highlight */
+}
+
+.pane-status-item.is-danger {
+  color: var(--danger); /* bypassPermissions mode */
+}
+
+.pane-status-item.is-hint {
+  color: var(--text-faint); /* settings preview "status bar hidden" */
+}
+
 /* ---- empty state (handoff §11 minus fiction) ------------------------------- */
 
 .empty-state {
@@ -2222,6 +2265,82 @@ kbd {
 
 .settings-ft {
   background: var(--bg-app);
+}
+
+/* ---- settings: terminal status bar section --------------------------------
+   The live preview reuses the .pane-status strip, boxed. The toggle rows use
+   the app's existing checkbox-square idiom; each is a real keyboard-reachable
+   <button> reflecting state via aria-pressed (no hover-only affordance). */
+.settings-sb-preview {
+  height: 24px;
+  border: var(--line) solid var(--edge-soft);
+  border-radius: var(--r-field);
+}
+
+.status-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-field);
+  background: transparent;
+  text-align: left;
+  transition: background var(--t-btn);
+}
+
+.status-row:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.status-row:disabled {
+  cursor: default;
+}
+
+.status-box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: 5px;
+  background: transparent;
+  font-size: var(--fs-tag);
+  line-height: 1;
+  color: var(--term-bg);
+}
+
+.status-row[aria-pressed='true'] .status-box {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+.status-lb {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-sample {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+.status-row:disabled .status-lb,
+.status-row:disabled .status-sample {
+  color: var(--text-faint);
 }
 
 /* ---- boot overlay (honest steps; handoff §10 visual language) ---------------

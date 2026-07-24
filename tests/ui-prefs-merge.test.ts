@@ -100,3 +100,31 @@ test('a null GET body is guarded too (no crash, no spread of null)', async () =>
   await updatePrefs({ defaults: {} } as UiPrefs);
   assert.deepEqual(putBody(), { defaults: {} });
 });
+
+test('writing `statusBar` merges: the settings panel preserves the stored `theme` and `defaults` (and any foreign key)', async () => {
+  getBody = {
+    theme: { bg: 1, fg: 2, scan: true },
+    defaults: { model: 'opus' },
+    futureSetting: 'keep',
+  };
+  await updatePrefs({ statusBar: { model: true, time: false, skill: true } });
+  assert.deepEqual(calls.map((c) => c.method), ['GET', 'PUT'], 'exactly one GET then one PUT');
+  assert.deepEqual(putBody(), {
+    theme: { bg: 1, fg: 2, scan: true },
+    defaults: { model: 'opus' },
+    futureSetting: 'keep',
+    statusBar: { model: true, time: false, skill: true },
+  });
+});
+
+test('writing `statusBar` overwrites only the stored `statusBar` verbatim (last-write-wins per top-level key)', async () => {
+  getBody = {
+    theme: { bg: 0, fg: 0, scan: false },
+    statusBar: { model: false, diff: true },
+  };
+  await updatePrefs({ statusBar: { model: true } });
+  assert.deepEqual(putBody(), {
+    theme: { bg: 0, fg: 0, scan: false },
+    statusBar: { model: true },
+  });
+});

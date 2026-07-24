@@ -173,16 +173,44 @@ export interface UiLaunchDefaults {
 }
 
 /**
- * Open preferences bag stored in prefs.json. `theme` and `defaults` are typed
- * because the client uses them; any other key is opaque to the server and
- * preserved verbatim on PUT — merge-on-write (read the bag, replace only the
- * touched key, PUT the whole thing back) happens client-side, see
- * web/src/ui/theme.ts. The server never interprets `defaults`; it is part of
- * the opaque bag and only typed here so the UI and this contract agree.
+ * Which per-pane terminal status-bar items the user wants shown. Persisted in
+ * the prefs bag under `statusBar`; every member optional so the UI can add
+ * items without a contract break. Opaque to the server (stored verbatim). The
+ * account rate-limit `usage %` is deliberately ABSENT — it lives in live API
+ * response headers, not the local logs, so there is no honest source for it.
+ */
+export interface UiStatusBar {
+  /** Model id (from launch args / the session's Claude log). */
+  model?: boolean;
+  /** Permission mode (from launch args). */
+  mode?: boolean;
+  /** Git branch of the session cwd. */
+  branch?: boolean;
+  /** Elapsed session time (client-side, from createdAt). */
+  time?: boolean;
+  /** Approximate cumulative cost (Claude log × model pricing). */
+  cost?: boolean;
+  /** Context window used vs the model's max (latest Claude turn). */
+  context?: boolean;
+  /** Working-tree diff (+added / -deleted / untracked) of the session cwd. */
+  diff?: boolean;
+  /** Most-recent Skill tool_use in the session's Claude log (best-effort). */
+  skill?: boolean;
+}
+
+/**
+ * Open preferences bag stored in prefs.json. `theme`, `defaults` and
+ * `statusBar` are typed because the client uses them; any other key is opaque
+ * to the server and preserved verbatim on PUT — merge-on-write (read the bag,
+ * replace only the touched key, PUT the whole thing back) happens client-side,
+ * see web/src/ui/theme.ts. The server never interprets `defaults`/`statusBar`;
+ * they are part of the opaque bag and only typed here so the UI and this
+ * contract agree.
  */
 export interface UiPrefs {
   theme?: UiTheme;
   defaults?: UiLaunchDefaults;
+  statusBar?: UiStatusBar;
   [key: string]: unknown;
 }
 
@@ -300,6 +328,58 @@ export interface UsageResponse {
   sessionCount: number;
   /** JSONL lines skipped because they were not valid JSON. */
   malformedLines: number;
+}
+
+// ---------------------------------------------------------------------------
+// Per-session telemetry (GET /api/telemetry) — read-only status-bar feed
+// ---------------------------------------------------------------------------
+//
+// GET /api/telemetry -> TelemetryResponse. Authed like every /api route; GET
+// only (405 otherwise). Feeds the per-pane terminal status bar. Every field is
+// derived from a REAL source or OMITTED — the server never fabricates a value:
+//   - branch/add/del/untracked: `git` probes (argv, no shell) in session.cwd.
+//   - model/costUsd/contextTokens/contextMax/skill: the session's OWN Claude
+//     Code JSONL log (only for claude-kind sessions), mapped by cwd-slug +
+//     newest-after-spawn. costUsd is APPROXIMATE (log tokens × baked-in model
+//     pricing) and cumulative for the session. Unknown model -> costUsd and
+//     contextMax omitted (never guessed).
+// Message CONTENT never leaves the server — only these numeric/string fields.
+// Git/log failures omit the affected field; the endpoint is 200 with partial
+// data, NEVER 500 (mirrors GET /api/usage "absent -> valid response").
+
+/**
+ * Telemetry for one running session. Every field is optional and present ONLY
+ * when a real value was sourced; an absent field means "no honest value",
+ * never zero-as-unknown.
+ */
+export interface TelemetryItem {
+  /** Git branch of the session cwd (detached HEAD shows "HEAD"). */
+  branch?: string;
+  /** Lines added in the working-tree diff (git diff --numstat sum). */
+  add?: number;
+  /** Lines deleted in the working-tree diff (git diff --numstat sum). */
+  del?: number;
+  /** Untracked file count (git ls-files --others --exclude-standard). */
+  untracked?: number;
+  /** Model id from the latest assistant turn in the session's Claude log. */
+  model?: string;
+  /** Approximate cumulative session cost in USD (rounded to cents). */
+  costUsd?: number;
+  /** Context tokens sent on the latest assistant turn (input + cache read + cache creation). */
+  contextTokens?: number;
+  /** The model's context-window size (from the pricing table). */
+  contextMax?: number;
+  /** Most-recent Skill tool_use name in the session's Claude log (best-effort). */
+  skill?: string;
+}
+
+/**
+ * GET /api/telemetry response. Keyed by SessionInfo.id; contains an entry for
+ * every RUNNING session (exited sessions are omitted — the client keeps their
+ * last-known value). A session with no sourceable data maps to an empty {}.
+ */
+export interface TelemetryResponse {
+  sessions: Record<string, TelemetryItem>;
 }
 
 /**

@@ -331,6 +331,65 @@ shallow-merge patch at the top level → PUT. Last-write-wins per top-level key
 across concurrent windows (documented, not solved); fire-and-forget failure
 tolerance stays (localStorage/in-memory hold the value for the run).
 
+## Terminal status bar (per-pane telemetry strip)
+
+Added 2026-07-24. A thin vim-statusline descendant under each terminal (the
+hero recedes; the strip is chrome). One new token: `--surface-panestatus:
+#0b0e13` (darker than `--term-bg #0e1116`; sits below the terminal); border-top
+reuses `--edge-soft`. Everything else reuses existing tokens.
+
+**Strip** (`.pane-status`, LAST child of the pane, after `term-host`):
+`flex:none; height:22px; padding:0 12px; gap:12px;
+background:var(--surface-panestatus); border-top:1px solid var(--edge-soft);
+font-family:var(--font-mono); font-size:var(--fs-micro) (10px); overflow:hidden;
+white-space:nowrap`. Items are `<span class="pane-status-item">` colored by
+SEMANTIC role: neutral → `var(--xt-bright-black)` (the terminal's themable dim,
+so the strip harmonizes with the active xterm theme), `skill` → `var(--acc)`,
+`bypassPermissions` mode → `var(--danger)`. The strip is HIDDEN (no empty 22px
+bar) until ≥1 enabled item has a real value; its show/hide changes pane
+geometry → the existing ResizeObserver→FitAddon→ws-resize chain re-sizes the
+PTY.
+
+**Honesty rule** (as everywhere): an item renders only when its toggle is ON
+*and* a real value exists — never fabricated. Item table:
+
+| item    | source (client-side vs poll)                        | format          |
+|---------|-----------------------------------------------------|-----------------|
+| model   | launch argv (`modelFromArgs`) — client, no poll     | `opus`          |
+| mode    | launch argv (`permFromArgs`) — client, no poll      | `acceptEdits`   |
+| skill   | telemetry `skill` — poll                            | `skill: edit`   |
+| cost    | telemetry `costUsd` — poll                          | `$0.42`         |
+| context | telemetry `contextTokens`/`contextMax` — poll       | `ctx 62k/1000k` |
+| time    | `SessionInfo.createdAt`, ticked 1s — client         | `08:42` (mm:ss) |
+| branch  | telemetry `branch` — poll                           | `⎇ feat/auth`   |
+| diff    | telemetry `add`/`del` — poll (omit if both 0)       | `+128 −41`      |
+
+`model`/`mode`/`time` are derived CLIENT-SIDE (always available, no poll);
+`branch`/`cost`/`context`/`diff`/`skill` come from `GET /api/telemetry`, polled
+~3s while ≥1 pane is visible (paused when hidden / no panes; refreshed once on
+focus/visibility change). Last-known telemetry is cached per session id so an
+EXITED pane keeps its final values (the endpoint omits exited sessions);
+`time` drops off at exit (session no longer running). Untrusted strings
+(branch, skill, model — git/Claude-log derived) render via `textContent`.
+
+Defaults ON: model, mode, branch, cost, context. OFF: time, diff, skill.
+Persisted in the prefs bag under `statusBar` (server-side, NOT localStorage —
+the port-churn lesson), via the same `api.updatePrefs` merge as `defaults`.
+`usage %` is deliberately absent — an account rate-limit percent lives in live
+API headers, not the local logs, so there is no honest source (shown only as a
+DISABLED settings row labeled "not available from local logs").
+
+**Settings section** — a third `settings-sect` "TERMINAL STATUS BAR" after
+USAGE: a live preview (the `.pane-status` strip, boxed:
+`height:24px; border:1px solid var(--edge-soft); border-radius:var(--r-field)`)
+of the focused/first running session's live telemetry (representative samples
+when none runs; "status bar hidden" when nothing enabled); eight keyboard-
+reachable `<button class="status-row">` toggles (16px checkbox square, `✓` in
+`--term-bg` on `--acc` when on; `aria-pressed` reflects state) matching
+`UiStatusBar`; a ninth DISABLED "Usage limit" row (honest deferral). A footer
+"Reset to defaults" button (left of Close) restores the ON/OFF defaults. Each
+toggle persists immediately and re-renders open panes live (no reload).
+
 ## Boot panel (handoff §10 visual language, minus fiction — R3)
 
 Honest in-app steps ONLY (`createBootPanel` in `web/src/main.ts`): `token

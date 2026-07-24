@@ -15,6 +15,7 @@ import type {
   Project,
   RuntimeStatusResponse,
   SessionInfo,
+  TelemetryResponse,
   UiPrefs,
   UsageResponse,
 } from '../../shared/protocol.ts';
@@ -154,6 +155,15 @@ export async function updatePrefs(patch: UiPrefs): Promise<void> {
 /** Read-only Claude Code usage aggregates (settings panel usage section). */
 export function getUsage(): Promise<UsageResponse> {
   return request<UsageResponse>('/api/usage');
+}
+
+/**
+ * Per-session telemetry for the terminal status bars (running sessions only;
+ * exited omitted → the client keeps last-known). Same token+Origin gate as
+ * every /api route; the endpoint is 200 with partial data, never 500.
+ */
+export function getTelemetry(): Promise<TelemetryResponse> {
+  return request<TelemetryResponse>('/api/telemetry');
 }
 
 export function fsList(path?: string): Promise<FsListResponse> {

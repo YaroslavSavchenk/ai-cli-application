@@ -30,7 +30,7 @@ import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initTheme } from './ui/theme.ts';
 import { initSettings } from './ui/settings.ts';
-import { initDefaults } from './ui/defaults.ts';
+import { initDefaults, initStatusBar } from './ui/defaults.ts';
 import {
   initLaunchDialog,
   openLaunchDialog,
@@ -294,6 +294,9 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // launch dialog and settings panel read the same `defaults` (live-updated by
   // the panel, applied on the next dialog open — no reload).
   initDefaults(prefs?.defaults);
+  // Status-bar toggles: same store-seeded-from-prefs pattern; the pane strips
+  // and the settings preview read getStatusBar() live.
+  initStatusBar(prefs?.statusBar);
   // Theme next: it applies the persisted ground/ramp onto :root before any
   // terminal is constructed, so terminals are born themed.
   const themePop = initTheme(modalHost, themeBtn, prefs);

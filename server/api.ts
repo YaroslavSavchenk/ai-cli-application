@@ -25,6 +25,7 @@ import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { UsageReader } from './usage.ts';
+import { TelemetryReader } from './telemetry.ts';
 import { listDirs, FsBrowseError } from './fsbrowse.ts';
 import type { Logger } from './config.ts';
 
@@ -61,6 +62,7 @@ export interface ApiDeps {
   sessions: SessionManager;
   journal: SessionJournal;
   usage: UsageReader;
+  telemetry: TelemetryReader;
   webDistDir: string;
   log: Logger;
 }
@@ -99,7 +101,7 @@ function isValidDim(v: unknown): v is number {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, journal, usage, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, journal, usage, telemetry, webDistDir, log } = deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -186,6 +188,16 @@ export function createRequestHandler(
     if (pathname === '/api/usage') {
       if (method === 'GET') {
         sendJson(res, 200, await usage.read());
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Telemetry (read-only per-session status-bar feed) -----------------
+    if (pathname === '/api/telemetry') {
+      if (method === 'GET') {
+        sendJson(res, 200, await telemetry.read(sessions.list()));
         return;
       }
       sendError(res, 405, 'method not allowed');

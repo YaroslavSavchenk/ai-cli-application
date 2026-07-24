@@ -109,11 +109,14 @@ and multi-pane layouts on top.
   localStorage — the prototype's localStorage is overridden by our
   port-churn lesson). Items and honest data sources: **model** and
   **permission mode** (launch config); **git branch** and **lines changed**
-  (git probe / `--numstat` in the session cwd); **session time** (our
-  `startedAt`); **cost** and **context window** (derived from the session's
+  (git probe / `--numstat` in the session cwd); **session time** (per-session
+  `createdAt`); **cost** and **context window** (derived from the session's
   own Claude Code JSONL log, mapped by cwd-slug + newest-after-spawn →
-  `sessionId`, latest assistant `usage` block × model pricing). **Deferred /
-  not faked: `usage %`** — that is an account rate-limit percentage that
+  `sessionId`, latest assistant `usage` block × model pricing); **active
+  skill** (best-effort: the most-recent `Skill` tool_use in that log;
+  default off). Defaults on: model, mode, branch, cost, context; off: time,
+  diff, skill. **Deferred / not faked: `usage %`** — that is an account
+  rate-limit percentage that
   lives in live API response headers, not the local logs; shown only if a
   real source appears. An item renders only when its real value exists.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's

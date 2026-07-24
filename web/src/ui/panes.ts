@@ -22,6 +22,12 @@ import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { flash } from './statusline.ts';
 import { consumeStartupCommand } from './startup.ts';
+import {
+  initTelemetry,
+  onStatusUpdate,
+  setVisiblePanes,
+  renderPaneStatus,
+} from './statusbar.ts';
 
 interface Slot {
   index: number;
@@ -40,6 +46,7 @@ interface Slot {
   connChip: HTMLElement;
   extractBtn: HTMLButtonElement;
   note: HTMLElement;
+  status: HTMLElement;
 }
 
 let grid: HTMLElement;
@@ -59,6 +66,12 @@ let lastFocusKey = '';
 export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): void {
   grid = gridEl;
   openLaunch = openLaunchDialog;
+  // Telemetry poll + status-strip re-render pulses (poll result / 1s time
+  // tick / config change): re-render every mounted strip in place.
+  initTelemetry();
+  onStatusUpdate(() => {
+    for (const s of slots) updateStatus(s);
+  });
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
@@ -70,6 +83,7 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
       for (const s of slots) {
         updateHeader(s);
         updateNote(s);
+        updateStatus(s);
       }
     }
   });
@@ -124,6 +138,14 @@ function render(): void {
     for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
   }
   applyFocus();
+  syncStatusVisibility();
+}
+
+/** Feed the telemetry poll the active view's mounted session ids (drives poll on/off). */
+function syncStatusVisibility(): void {
+  const ids: string[] = [];
+  for (const s of slots) if (s.sessionId !== null) ids.push(s.sessionId);
+  setVisiblePanes(ids);
 }
 
 /**
@@ -161,6 +183,7 @@ function renderEmpty(): void {
   }
   box.append(tile, hd, row);
   grid.replaceChildren(box);
+  syncStatusVisibility(); // no panes → pause the poll
 }
 
 function rebuild(v: st.ViewState, count: number): void {
@@ -289,6 +312,7 @@ function reconcileSlot(index: number, sessionId: string | null): void {
   if (s.sessionId === sessionId) {
     updateHeader(s);
     updateNote(s);
+    updateStatus(s);
     return;
   }
   s.sessionId = sessionId;
@@ -307,6 +331,7 @@ function reconcileSlot(index: number, sessionId: string | null): void {
   }
   updateHeader(s);
   updateNote(s);
+  updateStatus(s);
 }
 
 function slotEvents(s: Slot, sessionId: string): TerminalEvents {
@@ -331,6 +356,7 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       s.exitCode = exitCode;
       st.markExited(sessionId, exitCode);
       updateNote(s);
+      updateStatus(s); // time drops off (session no longer running); cached values stay
     },
     onAttention: () => {
       const v = st.activeView();
@@ -438,7 +464,12 @@ function createSessionSlot(index: number): Slot {
   scan.setAttribute('aria-hidden', 'true');
   body.append(termHost, scan);
 
-  root.append(hd, note, body, buildDropOverlay());
+  // Per-pane telemetry strip: LAST child, a thin row under the terminal.
+  // Hidden until ≥1 enabled item has a real value (no empty 22px bar).
+  const status = el('div', 'pane-status');
+  status.hidden = true;
+
+  root.append(hd, note, body, buildDropOverlay(), status);
   root.addEventListener('mousedown', () => st.focusPane(index), true);
   grid.append(root); // Attach before TerminalView so xterm opens on a live node.
 
@@ -459,6 +490,7 @@ function createSessionSlot(index: number): Slot {
     connChip,
     extractBtn,
     note,
+    status,
   };
 
   extractBtn.addEventListener('click', () => {
@@ -527,6 +559,12 @@ function updateHeader(s: Slot): void {
   }
   // Alone in its view, a session already IS its own tab.
   s.extractBtn.hidden = renderedCount <= 1;
+}
+
+/** Recompute the pane's telemetry strip from launch argv + createdAt + the poll cache. */
+function updateStatus(s: Slot): void {
+  const info = s.sessionId !== null ? st.state.sessions.get(s.sessionId) : undefined;
+  renderPaneStatus(s.status, info, s.sessionId);
 }
 
 function updateNote(s: Slot): void {

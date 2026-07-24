@@ -23,12 +23,20 @@
  * 30s server cache makes opens cheap). Model strings are Claude-Code-log
  * derived: rendered via textContent, treated as untrusted display text.
  */
-import type { UiLaunchDefaults, UsageResponse } from '../../../shared/protocol.ts';
+import type { SessionInfo, UiLaunchDefaults, UsageResponse } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
+import * as st from '../state.ts';
 import { el, button, trapTab, fmtCount } from './util.ts';
 import { PERMS, MODELS, isModelId } from './launch-args.ts';
 import type { Perm } from './launch-args.ts';
-import { getDefaults, setDefaults } from './defaults.ts';
+import { getDefaults, setDefaults, getStatusBar, setStatusBar, statusBarDefaults } from './defaults.ts';
+import type { StatusBarCfg } from './defaults.ts';
+import {
+  onStatusUpdate,
+  renderPreviewStrip,
+  statusBarConfigChanged,
+  refreshTelemetryNow,
+} from './statusbar.ts';
 
 export interface SettingsPanel {
   open(): void;
@@ -153,12 +161,80 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   usageBody.setAttribute('aria-live', 'polite');
   useSect.append(usageBody);
 
-  bodyEl.append(defSect, useSect);
+  // ======================================================================
+  // Section 3 — TERMINAL STATUS BAR (per-pane telemetry toggles)
+  // ======================================================================
+  const sbSect = el('section', 'settings-sect');
+  sbSect.append(el('div', 'drawer-label', 'TERMINAL STATUS BAR'));
+  sbSect.append(
+    el(
+      'div',
+      'settings-note',
+      'pick what each session shows in the status bar at the bottom of its terminal · cost and context are approximate, read from Claude Code’s local session logs',
+    ),
+  );
+
+  // Live preview: the real .pane-status strip, boxed. Shows the focused/first
+  // running session's LIVE telemetry, or representative samples when none runs.
+  const sbPreview = el('div', 'pane-status settings-sb-preview');
+  sbPreview.setAttribute('aria-hidden', 'true'); // the toggle rows are the accessible controls
+  sbSect.append(sbPreview);
+
+  // Eight real toggles (UiStatusBar order) + a ninth DISABLED "Usage limit"
+  // row (deferred — no honest local source; keeps the prototype's 9-row shape).
+  interface SbRow {
+    key: keyof StatusBarCfg;
+    label: string;
+    sample: string;
+  }
+  const SB_ROWS: SbRow[] = [
+    { key: 'model', label: 'Model', sample: 'opus' },
+    { key: 'mode', label: 'Permission mode', sample: 'acceptEdits' },
+    { key: 'branch', label: 'Git branch', sample: '⎇ main' },
+    { key: 'time', label: 'Session time', sample: '08:42' },
+    { key: 'cost', label: 'Cost spent', sample: '$0.42' },
+    { key: 'context', label: 'Context window', sample: 'ctx 62k/200k' },
+    { key: 'diff', label: 'Lines changed', sample: '+128 −41' },
+    { key: 'skill', label: 'Active skill', sample: 'skill: edit' },
+  ];
+  const sbRows = el('div', 'status-rows');
+  sbRows.setAttribute('role', 'group');
+  sbRows.setAttribute('aria-label', 'terminal status bar items');
+  const sbRowEls = new Map<keyof StatusBarCfg, HTMLButtonElement>();
+  const sbBoxes = new Map<keyof StatusBarCfg, HTMLElement>();
+  for (const r of SB_ROWS) {
+    const row = button('status-row', '', () => toggleStatusRow(r.key));
+    const box = el('span', 'status-box');
+    box.setAttribute('aria-hidden', 'true');
+    row.append(box, el('span', 'status-lb', r.label), el('span', 'status-sample', r.sample));
+    sbRowEls.set(r.key, row);
+    sbBoxes.set(r.key, box);
+    sbRows.append(row);
+  }
+  // Disabled usage row — honest about the deferral, not toggleable.
+  const usageDisRow = el('button', 'status-row');
+  usageDisRow.type = 'button';
+  usageDisRow.disabled = true;
+  usageDisRow.setAttribute('aria-disabled', 'true');
+  const usageDisBox = el('span', 'status-box');
+  usageDisBox.setAttribute('aria-hidden', 'true');
+  usageDisRow.append(
+    usageDisBox,
+    el('span', 'status-lb', 'Usage limit'),
+    el('span', 'status-sample', 'not available from local logs'),
+  );
+  usageDisRow.title = 'account rate-limit % lives in live API headers, not the local logs';
+  sbRows.append(usageDisRow);
+  sbSect.append(sbRows);
+
+  bodyEl.append(defSect, useSect, sbSect);
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'modal-ft settings-ft');
+  const resetBtn = button('btn', 'Reset to defaults', () => resetStatusBar());
+  resetBtn.title = 'restore the status-bar items to their default on/off state';
   const doneBtn = button('btn', 'Close', () => close());
-  ft.append(el('span', 'drawer-gap'), doneBtn);
+  ft.append(resetBtn, el('span', 'drawer-gap'), doneBtn);
 
   modal.append(hd, bodyEl, ft);
   scrim.append(modal);
@@ -311,6 +387,67 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
     usageBody.replaceChildren(frag);
   }
 
+  // ---- status bar toggles + live preview -----------------------------------
+
+  /** Reflect one toggle's stored state onto its row (checkbox fill + aria-pressed). */
+  function syncStatusRow(key: keyof StatusBarCfg): void {
+    const on = getStatusBar()[key];
+    const row = sbRowEls.get(key);
+    const box = sbBoxes.get(key);
+    if (row === undefined || box === undefined) return;
+    row.setAttribute('aria-pressed', on ? 'true' : 'false');
+    box.textContent = on ? '✓' : '';
+  }
+
+  function seedStatusRows(): void {
+    for (const r of SB_ROWS) syncStatusRow(r.key);
+  }
+
+  /** The focused (else first) RUNNING session, for the live preview; null if none. */
+  function focusedRunningSession(): SessionInfo | null {
+    const v = st.activeView();
+    if (v !== null) {
+      const fid = v.sessions[v.focused];
+      const f = fid !== undefined ? st.state.sessions.get(fid) : undefined;
+      if (f !== undefined && f.status === 'running') return f;
+    }
+    for (const s of st.state.sessions.values()) if (s.status === 'running') return s;
+    return null;
+  }
+
+  function renderSbPreview(): void {
+    renderPreviewStrip(sbPreview, focusedRunningSession());
+  }
+
+  /** Persist the current toggles (merged PUT preserves defaults + theme). */
+  function persistStatusBar(): void {
+    void api.updatePrefs({ statusBar: getStatusBar() }).catch(() => {
+      // Non-fatal: the in-memory store still holds it for this run.
+    });
+  }
+
+  function toggleStatusRow(key: keyof StatusBarCfg): void {
+    const cur = getStatusBar();
+    setStatusBar({ ...cur, [key]: !cur[key] });
+    persistStatusBar();
+    syncStatusRow(key);
+    renderSbPreview();
+    statusBarConfigChanged(); // live re-render of open panes (+ the 1s tick on/off)
+  }
+
+  function resetStatusBar(): void {
+    setStatusBar(statusBarDefaults());
+    persistStatusBar();
+    seedStatusRows();
+    renderSbPreview();
+    statusBarConfigChanged();
+  }
+
+  // Keep the preview live while the panel is open (telemetry poll / time tick).
+  onStatusUpdate(() => {
+    if (!scrim.hidden) renderSbPreview();
+  });
+
   // ---- open / close --------------------------------------------------------
   let restoreTo: HTMLElement | null = null;
 
@@ -318,6 +455,9 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
     if (!scrim.hidden) return;
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     seedForm();
+    seedStatusRows();
+    renderSbPreview();
+    refreshTelemetryNow(); // freshen the preview against live sessions
     scrim.hidden = false;
     anchor.setAttribute('aria-expanded', 'true');
     void loadUsage();

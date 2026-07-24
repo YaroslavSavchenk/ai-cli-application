@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelFromArgs, permFromArgs, fmtUptime, fmtCount } from '../web/src/ui/util.ts';
+import { modelFromArgs, permFromArgs, fmtUptime, fmtCount, fmtDur } from '../web/src/ui/util.ts';
 
 // ---------------------------------------------------------------------------
 // modelFromArgs
@@ -152,4 +152,36 @@ test('fmtCount: non-finite or negative renders as the em-dash glyph, never NaN',
   assert.equal(fmtCount(Number.NaN), '—');
   assert.equal(fmtCount(-1), '—');
   assert.equal(fmtCount(Number.POSITIVE_INFINITY), '—');
+});
+
+// ---------------------------------------------------------------------------
+// fmtDur (status-bar session time — MM:SS, minutes DON'T wrap at 60)
+// ---------------------------------------------------------------------------
+
+test('fmtDur: zero and sub-second spans render 00:00', () => {
+  assert.equal(fmtDur(0), '00:00');
+  assert.equal(fmtDur(999), '00:00');
+});
+
+test('fmtDur: floors to whole seconds', () => {
+  assert.equal(fmtDur(1000), '00:01');
+  assert.equal(fmtDur(1500), '00:01');
+  assert.equal(fmtDur(59_000), '00:59');
+});
+
+test('fmtDur: minute rollover at 60s', () => {
+  assert.equal(fmtDur(60_000), '01:00');
+  assert.equal(fmtDur(90_000), '01:30');
+});
+
+test('fmtDur: minutes DO NOT wrap at 60 — an hour is 60:00, two hours 120:00', () => {
+  assert.equal(fmtDur(3_600_000), '60:00');
+  assert.equal(fmtDur(2 * 3_600_000), '120:00');
+  assert.equal(fmtDur(2 * 3_600_000 + 5_000), '120:05');
+});
+
+test('fmtDur: negative / non-finite spans clamp to 00:00, never negative or NaN', () => {
+  assert.equal(fmtDur(-5000), '00:00');
+  assert.equal(fmtDur(Number.NaN), '00:00');
+  assert.equal(fmtDur(Number.POSITIVE_INFINITY), '00:00');
 });

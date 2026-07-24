@@ -32,6 +32,7 @@ import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { UsageReader } from './usage.ts';
+import { TelemetryReader } from './telemetry.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
@@ -46,7 +47,9 @@ const prefs = new PrefsStore(paths.prefsFile, log);
 const journal = new SessionJournal(paths.journalFile, paths.previousFile, log);
 journal.rotate(); // A previous run's journal becomes previous.json ('crash'-stamped).
 const sessions = new SessionManager(log, journal);
-const usage = new UsageReader(resolveClaudeDir(), log);
+const claudeDir = resolveClaudeDir();
+const usage = new UsageReader(claudeDir, log);
+const telemetry = new TelemetryReader(claudeDir, log);
 const lifecycle = new LifecycleController({
   onIdleShutdown: () => shutdown('idle grace expiry'),
   log,
@@ -68,6 +71,7 @@ const server = createServer(
     sessions,
     journal,
     usage,
+    telemetry,
     webDistDir,
     log,
   }),
