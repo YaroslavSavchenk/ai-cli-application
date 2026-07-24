@@ -17,7 +17,13 @@ session) arbitrated.
   prototype's omission). `4c7915e`.
 - **2b** = GitHub OAuth device-flow connection + repo listing (view). Backend
   `4d858ad`, frontend `7ec01ee`.
-- **2c** = clone-by-picking (token-auth clone) + create-repo + push. NOT built.
+- **2c** = clone-by-picking (token-auth clone) + create-repo. **LANDED**
+  (`ecbc07f`). Token-safe clone via GIT_ASKPASS-through-env (token never in
+  argv/URL/`.git/config`/log); cloneUrl rebuilt + host-locked to exactly
+  github.com — security resisted every exfil bypass tried
+  (`github.com.evil.com`, backslash, trailing-dot, port, IDNA). createRepo =
+  create-remote-then-clone-then-register. Push-of-local-commits deferred.
+  Suite → 288. **Phase 2 (project creation + full GitHub integration) COMPLETE.**
 
 ## Key user decisions (this session)
 - Sequencing: status bar first, then GitHub (done in [[2026-07-24-status-bar]]).

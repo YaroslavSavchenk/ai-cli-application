@@ -29,7 +29,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
-- [[2026-07-24-github-build]] — Phase 2a+2b LANDED: local project creation (blank + URL clone) + folder picker, then GitHub OAuth device-flow connection + repo listing (token server-side 0600, config-driven/dormant until `AI_SM_GITHUB_CLIENT_ID`); security CLEAN each phase; suite→270; **2c (clone-by-pick + create-repo) remains; blocked-on-user: register the OAuth App**
+- [[2026-07-24-github-build]] — **Phase 2 COMPLETE**: project creation (blank + URL clone + picker) → GitHub OAuth device-flow connection + repo listing → token-auth clone-by-pick + create-repo. Token server-side 0600, never leaked (host-locked clone resisted every exfil bypass); config-driven/dormant until `AI_SM_GITHUB_CLIENT_ID`; security CLEAN every phase; suite→288. **Blocked-on-user: register the OAuth App + set the client_id; live verify-terminal pass**
 - [[2026-07-24-status-bar]] — design intake committed; per-pane terminal status bar SHIPPED (real-or-omit telemetry from git + Claude logs; usage% deferred not faked); suite 162→222; 3 user decisions recorded (status-bar-first, git-init toggle, `repo` OAuth scope); **verify-terminal live pass pending; Phase 2 GitHub build started**
 - [[2026-07-23-webview2-host-shipped]] — WebView2 host shipped + Edge taskbar icon FIXED (user-confirmed); \\wsl.localhost exe-launch regression found & fixed; **guidelines for tomorrow: design reconciliation → GitHub build**
 - [[2026-07-23-settings-panel-and-scope]] — settings panel landed via dev-flow (162/162, 2 LOW fixed); Edge-icon cheap fix proven impossible → WebView2-host decision; GitHub scope added; design handoff refreshed (delta reconciliation queued)
