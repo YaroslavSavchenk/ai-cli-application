@@ -87,5 +87,63 @@ janitor n/a. 2b: dev(backend)→review→fixer(1: log leak)→commit; dev(fronte
 - **Backlog (user-reported):** white native title bar in fullscreen — native
   WebView2 host fix (DWM caption color OR frameless + custom title strip).
 
+## Guidelines for next session (START HERE)
+
+**Read first:** `.claude/PROJECT-SCOPE.md`, `memory/INDEX.md`, this note +
+[[2026-07-24-status-bar]]. Recall [[github-integration]],
+[[localhost-security-model]], [[native-webview2-host]], [[thin-windows-launcher]].
+
+**State:** Phase 1 (status bar) + Phase 2 (project creation + full GitHub
+integration: connect / clone-by-pick / create-repo) are LANDED, reviewed
+(security CLEAN throughout), and pushed to origin/main. Suite 288 green. Tree
+clean. The GitHub feature is **built but dormant** until a client_id is set.
+
+**Queue — suggested order:**
+
+1. **User actions to unblock live use** (the user does these; then a live
+   smoke test): register a **GitHub OAuth App** with **device flow enabled**,
+   set env **`AI_SM_GITHUB_CLIENT_ID`** (non-secret; no client_secret needed).
+   Then smoke-test the real device flow: chip → connect → user_code at
+   github.com/login/device → connected → repo list → clone one → create one.
+   Nothing GitHub has had a live round-trip yet (only fetch-seam + not-
+   configured paths).
+
+2. **White native title bar** (user-requested backlog; native host / launcher).
+   `/dev-flow`, agent `wsl-launcher`. The bar is the WebView2 host's standard
+   Windows caption (white + "AI Session Manager"), from the C# host (`113533e`).
+   Two routes: (a) QUICK — DWM `DwmSetWindowAttribute` `DWMWA_CAPTION_COLOR` +
+   `DWMWA_TEXT_COLOR` + `DWMWA_USE_IMMERSIVE_DARK_MODE`, match `--bg-app`
+   #171d25; (b) user's preferred INTEGRATED — frameless host (extend client
+   area over caption) + a custom draggable title strip in the web UI
+   (host-assisted min/max/close; WebView2 has no Electron `-webkit-app-region`).
+   Confirm with the user which route (quick color vs full frameless) before
+   building the bigger one.
+
+3. **verify-terminal live pass** (Windows UI; not drivable from WSL) — the
+   status-bar resize (#4) + the create/clone flows. Checklist was handed to the
+   user; fold the result back.
+
+4. **Test-hardening (batched, non-blocking):**
+   - Extract `web/src/ui/github-model.ts` (chipView, fmtExpiry(now-injected),
+     langColor, relTime(now-injected), GH_POLL_MS/debounce) + unit tests —
+     repo's `newproject-model`/`theme-model` pattern.
+   - `GithubConnection` DI seam into `createRequestHandler` (like the fetch/
+     spawn seams) so the CONNECTED `/api/github/clone` + `/api/github/repos`
+     HTTP success paths are offline-testable.
+   - `AI_SM_GITHUB_API_BASE` override so connected `/api/github/repos` is
+     offline-testable.
+
+**Deferred features (not bugs):** push-of-local-commits beyond create+clone;
+GitHub-search API for `q` when a user has >500 repos (2b uses a 500-cap +
+client-side filter); an editable dest picker for pick-clone (fixed
+`<home>/projects/<name>` today — falls back to the 2a URL-clone tab on collision).
+
+**Process reminders:** all subagents on opus; orchestrator only orchestrates/
+arbitrates. Commit+push after every landed dev-flow phase (standing auth).
+Caveman replies. UI → /frontend-designer then /dev-flow. Honesty rule held all
+session: real value or omit, never fake (usage% deferred; clone spinners
+indeterminate; corrected the prototype's wrong GitHub copy).
+
 Related: [[2026-07-24-status-bar]], [[github-integration]],
-[[localhost-security-model]], [[handoff-design-primary]], [[thin-windows-launcher]]
+[[localhost-security-model]], [[handoff-design-primary]], [[thin-windows-launcher]],
+[[native-webview2-host]]
