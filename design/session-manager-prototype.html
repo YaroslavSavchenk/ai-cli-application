@@ -41,6 +41,7 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     </div>
     <div style="font-size:12px;font-weight:600;letter-spacing:1.6px;color:#aab7c4">AI SESSION MANAGER</div>
     <div style="flex:1"></div>
+    <button onClick="{{ openSettings }}" title="Settings" style="width:28px;height:26px;display:flex;align-items:center;justify-content:center;background:{{ settingsBtnBg }};border:1px solid #2e3846;border-radius:7px;color:{{ settingsBtnFg }};font-size:14px;cursor:pointer" style-hover="border-color:#3d4b5d;color:#dbe2ea">⚙</button>
     <button onClick="{{ toggleTheme }}" title="Terminal themes" style="height:26px;padding:0 10px;display:flex;align-items:center;gap:7px;background:{{ themeBtnBg }};border:1px solid #2e3846;border-radius:7px;color:{{ themeBtnFg }};font-size:12px;font-weight:500;cursor:pointer" style-hover="border-color:#3d4b5d;color:#dbe2ea"><span style="display:grid;grid-template-columns:6px 6px;grid-template-rows:6px 6px;gap:1px"><span style="background:#64c25a;border-radius:1px"></span><span style="background:#5cb8f0;border-radius:1px"></span><span style="background:#e0a53c;border-radius:1px"></span><span style="background:#b39df2;border-radius:1px"></span></span><span>Theme</span></button>
     <button onClick="{{ toggleProjects }}" style="height:26px;padding:0 12px;background:{{ projBtnBg }};border:1px solid #2e3846;border-radius:7px;color:{{ projBtnFg }};font-size:12px;font-weight:500;cursor:pointer" style-hover="border-color:#3d4b5d;color:#dbe2ea">Projects</button>
     <button onClick="{{ toggleSessions }}" style="height:26px;padding:0 12px;background:{{ sessBtnBg }};border:1px solid #2e3846;border-radius:7px;color:{{ sessBtnFg }};font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:7px" style-hover="border-color:#3d4b5d;color:#dbe2ea">
@@ -52,6 +53,10 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
       <span style="width:7px;height:7px;border-radius:50%;background:#64c25a;box-shadow:0 0 6px rgba(100,194,90,.5)"></span>
       <span>connected</span>
     </div>
+    <button onClick="{{ openGithub }}" title="GitHub connection" style="height:26px;padding:0 11px;display:flex;align-items:center;gap:7px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#aab7c4;font-size:12px;font-weight:500;cursor:pointer" style-hover="border-color:#3d4b5d;color:#dbe2ea">
+      <span style="width:7px;height:7px;border-radius:50%;background:{{ ghChipDot }};flex:none"></span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px">{{ ghChipText }}</span>
+    </button>
     <button onClick="{{ openDialog }}" style="height:26px;padding:0 14px;background:rgba(100,194,90,.08);border:1px solid #64c25a;border-radius:7px;color:#7ed673;font-size:12px;font-weight:600;cursor:pointer" style-hover="background:rgba(100,194,90,.18);box-shadow:0 0 18px rgba(100,194,90,.3)" style-active="background:rgba(100,194,90,.28)">+ New session</button>
   </div>
 
@@ -67,16 +72,6 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
           <button onClick="{{ startAddProject }}" title="Add project" style="height:22px;padding:0 9px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#7ed673;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer" style-hover="border-color:#64c25a;background:rgba(100,194,90,.08)">+ add</button>
         </div>
         <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:6px">
-          <sc-if value="{{ addingProject }}" hint-placeholder-val="{{ false }}">
-            <div style="padding:9px 10px;border-radius:7px;display:flex;flex-direction:column;gap:7px;border:1px solid #3d5a75;background:#12161d;animation:fadeUp .15s ease">
-              <input value="{{ newProjName }}" onChange="{{ onNewProjName }}" placeholder="project name" style="height:26px;padding:0 9px;background:#0e1116;border:1px solid #2e3846;border-radius:6px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:11.5px" />
-              <input value="{{ newProjPath }}" onChange="{{ onNewProjPath }}" placeholder="~/projects/name" style="height:26px;padding:0 9px;background:#0e1116;border:1px solid #2e3846;border-radius:6px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:11px" />
-              <div style="display:flex;gap:7px;justify-content:flex-end">
-                <button onClick="{{ cancelAddProject }}" style="height:24px;padding:0 11px;background:transparent;border:1px solid #2e3846;border-radius:6px;color:#7d8b9c;font-size:11.5px;cursor:pointer" style-hover="color:#dbe2ea;border-color:#3d4b5d">Cancel</button>
-                <button onClick="{{ confirmAddProject }}" style="height:24px;padding:0 13px;background:rgba(100,194,90,.1);border:1px solid #64c25a;border-radius:6px;color:#7ed673;font-size:11.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(100,194,90,.2)">Add</button>
-              </div>
-            </div>
-          </sc-if>
           <sc-for list="{{ projects }}" as="p" hint-placeholder-count="3">
             <div style="padding:9px 10px;border-radius:7px;cursor:default;display:flex;flex-direction:column;gap:3px;border:1px solid transparent" style-hover="background:#212a35;border-color:#2a3340">
               <div style="display:flex;align-items:center;gap:8px">
@@ -136,6 +131,13 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
                   <div style="color:{{ ln.c }};white-space:pre-wrap;word-break:break-word;animation:fadeUp .2s ease">{{ ln.t }}</div>
                 </sc-for>
               </div>
+              <sc-if value="{{ pane.hasStatus }}" hint-placeholder-val="{{ false }}">
+                <div style="flex:none;position:relative;z-index:1;display:flex;align-items:center;gap:12px;height:22px;padding:0 12px;background:#0b0e13;border-top:1px solid #1d242e;font-family:'JetBrains Mono',monospace;font-size:10px;overflow:hidden;white-space:nowrap">
+                  <sc-for list="{{ pane.statusItems }}" as="si" hint-placeholder-count="4">
+                    <span style="color:{{ si.c }};flex:none">{{ si.t }}</span>
+                  </sc-for>
+                </div>
+              </sc-if>
               <sc-if value="{{ scanlinesOn }}" hint-placeholder-val="{{ false }}">
                 <div style="position:absolute;inset:30px 0 0 0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);opacity:.5;mix-blend-mode:multiply"></div>
               </sc-if>
@@ -286,6 +288,239 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     </div>
   </sc-if>
 
+  <!-- ===== new project dialog ===== -->
+  <sc-if value="{{ showProjectDialog }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeProjectDialog }}" style="position:absolute;inset:0;background:rgba(8,10,14,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:42;animation:fadeIn .15s ease">
+      <div onClick="{{ swallow }}" style="width:600px;max-height:86vh;display:flex;flex-direction:column;background:#1b222c;border:1px solid #2e3846;border-radius:12px;animation:fadeUp .18s ease;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid #232b36;background:linear-gradient(180deg,#202935,#1b222c);flex:none">
+          <div style="width:30px;height:30px;border:1px solid #2e3846;border-radius:9px;display:flex;align-items:center;justify-content:center;background:#12161d;flex:none;color:#5cb8f0;font-size:14px">◧</div>
+          <div style="display:flex;flex-direction:column;gap:1px">
+            <span style="font-size:14px;font-weight:600;letter-spacing:.8px;color:#dbe2ea">New project</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5c6b7c">create locally · clone a repo · pull from GitHub</span>
+          </div>
+          <span style="flex:1"></span>
+          <button onClick="{{ closeProjectDialog }}" style="width:24px;height:24px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#5c6b7c;font-size:13px;line-height:1;cursor:pointer" style-hover="border-color:#d95c5c;color:#d95c5c">×</button>
+        </div>
+        <div style="display:flex;gap:6px;padding:14px 20px 4px;flex:none">
+          <sc-for list="{{ projModeOpts }}" as="m" hint-placeholder-count="3">
+            <button onClick="{{ m.onPick }}" style="flex:1;height:34px;background:{{ m.bg }};border:1px solid {{ m.border }};border-radius:8px;color:{{ m.fg }};font-size:12.5px;font-weight:500;cursor:pointer" style-hover="border-color:#3d5a75">{{ m.label }}</button>
+          </sc-for>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 20px;display:flex;flex-direction:column;gap:14px">
+          <sc-if value="{{ isBlank }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="font-size:10.5px;font-weight:600;letter-spacing:1.2px;color:#5c6b7c">PROJECT NAME</label>
+              <input value="{{ newProjName }}" onChange="{{ onNewProjName }}" placeholder="my-project" style="height:32px;padding:0 11px;background:#12161d;border:1px solid #2e3846;border-radius:8px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:12px" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="font-size:10.5px;font-weight:600;letter-spacing:1.2px;color:#5c6b7c">LOCAL PATH</label>
+              <div onClick="{{ openPickerBlank }}" style="height:32px;display:flex;align-items:center;gap:8px;padding:0 11px;background:#12161d;border:1px solid #2e3846;border-radius:8px;cursor:pointer" style-hover="border-color:#3d5a75">
+                <span style="color:#5c6b7c;font-size:12px">⌕</span>
+                <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;color:{{ blankPathColor }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ blankPathText }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5cb8f0">Browse</span>
+              </div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5c6b7c">creates the folder and registers it under Projects · no git init</div>
+          </sc-if>
+          <sc-if value="{{ isClone }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="font-size:10.5px;font-weight:600;letter-spacing:1.2px;color:#5c6b7c">GIT URL</label>
+              <input value="{{ cloneUrl }}" onChange="{{ onCloneUrl }}" placeholder="https://github.com/owner/repo.git" style="height:32px;padding:0 11px;background:#12161d;border:1px solid #2e3846;border-radius:8px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:12px" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="font-size:10.5px;font-weight:600;letter-spacing:1.2px;color:#5c6b7c">DESTINATION <span style="color:#3d4b5d">(optional)</span></label>
+              <div onClick="{{ openPickerClone }}" style="height:32px;display:flex;align-items:center;gap:8px;padding:0 11px;background:#12161d;border:1px solid #2e3846;border-radius:8px;cursor:pointer" style-hover="border-color:#3d5a75">
+                <span style="color:#5c6b7c;font-size:12px">⌕</span>
+                <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;color:{{ cloneDestColor }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ cloneDestText }}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5cb8f0">Browse</span>
+              </div>
+            </div>
+            <div style="background:#0e1116;border:1px solid #232b36;border-radius:9px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7d8b9c;white-space:pre-wrap">{{ clonePreview }}</div>
+          </sc-if>
+          <sc-if value="{{ isGithub }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ ghDisconnected }}" hint-placeholder-val="{{ true }}">
+              <div style="border:1px solid #232b36;border-radius:10px;background:#12161d;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+                <div style="width:44px;height:44px;border-radius:50%;border:1px solid #2e3846;background:#0e1116;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:#aab7c4">GH</div>
+                <div style="font-size:14px;font-weight:600;color:#dbe2ea">Connect your GitHub account</div>
+                <div style="font-size:12px;color:#7d8b9c;max-width:380px;line-height:1.55">Inspect your repositories, clone them into <span style="font-family:'JetBrains Mono',monospace;color:#8fd0f8">~/projects</span>, and create new ones — without leaving the manager.</div>
+                <button onClick="{{ connectGithub }}" style="height:34px;padding:0 18px;background:rgba(92,184,240,.1);border:1px solid #5cb8f0;border-radius:8px;color:#5cb8f0;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(92,184,240,.2)">Connect with GitHub</button>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#3d4b5d;line-height:1.5;max-width:360px">secure device-flow OAuth · token stored in your OS keychain · read-only scope by default</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ghConnecting }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px solid #232b36;border-radius:10px;background:#12161d;padding:22px;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="width:14px;height:14px;border:2px solid #2e3846;border-top-color:#5cb8f0;border-radius:50%;animation:spin .7s linear infinite"></span>
+                  <span style="font-size:13px;color:#dbe2ea">Waiting for authorization…</span>
+                </div>
+                <div style="font-size:12px;color:#7d8b9c;line-height:1.5">Open <span style="font-family:'JetBrains Mono',monospace;color:#8fd0f8">github.com/login/device</span> and enter this code:</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:22px;letter-spacing:6px;color:#dbe2ea;background:#0e1116;border:1px solid #2e3846;border-radius:8px;padding:12px 20px">{{ ghCode }}</div>
+                <button onClick="{{ disconnectGithub }}" style="height:28px;padding:0 14px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#7d8b9c;font-size:12px;cursor:pointer" style-hover="color:#dbe2ea;border-color:#3d4b5d">Cancel</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ghConnected }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #232b36;border-radius:9px;background:#12161d">
+                <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#3d5a75,#5cb8f0);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:#0e1116">S</div>
+                <div style="display:flex;flex-direction:column">
+                  <span style="font-size:12.5px;color:#dbe2ea;font-weight:500">{{ ghUser }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#64c25a">connected · read-only</span>
+                </div>
+                <span style="flex:1"></span>
+                <button onClick="{{ disconnectGithub }}" style="height:26px;padding:0 11px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#7d8b9c;font-family:'JetBrains Mono',monospace;font-size:10.5px;cursor:pointer" style-hover="border-color:#d95c5c;color:#d95c5c">disconnect</button>
+              </div>
+              <div style="display:flex;gap:8px">
+                <input value="{{ ghSearch }}" onChange="{{ onGhSearch }}" placeholder="search repositories…" style="flex:1;height:30px;padding:0 11px;background:#12161d;border:1px solid #2e3846;border-radius:8px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:11.5px" />
+                <button onClick="{{ startNewRepo }}" style="height:30px;padding:0 12px;background:rgba(100,194,90,.08);border:1px solid #64c25a;border-radius:8px;color:#7ed673;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap" style-hover="background:rgba(100,194,90,.18)">+ New repo</button>
+              </div>
+              <sc-if value="{{ ghCreating }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid #3d5a75;border-radius:9px;background:#12161d;padding:12px;display:flex;flex-direction:column;gap:10px;animation:fadeUp .15s ease">
+                  <input value="{{ ghNewName }}" onChange="{{ onGhNewName }}" placeholder="new-repo-name" style="height:28px;padding:0 10px;background:#0e1116;border:1px solid #2e3846;border-radius:7px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:11.5px" />
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <button onClick="{{ toggleGhNewPrivate }}" style="height:26px;padding:0 12px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#aab7c4;font-family:'JetBrains Mono',monospace;font-size:10.5px;cursor:pointer" style-hover="border-color:#3d5a75">{{ ghNewPrivLabel }}</button>
+                    <span style="font-size:11px;color:#5c6b7c">creates it on GitHub and clones it locally</span>
+                    <span style="flex:1"></span>
+                    <button onClick="{{ cancelNewRepo }}" style="height:26px;padding:0 11px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#7d8b9c;font-size:11.5px;cursor:pointer" style-hover="color:#dbe2ea;border-color:#3d4b5d">Cancel</button>
+                    <button onClick="{{ confirmNewRepo }}" style="height:26px;padding:0 13px;background:rgba(100,194,90,.1);border:1px solid #64c25a;border-radius:7px;color:#7ed673;font-size:11.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(100,194,90,.2)">Create</button>
+                  </div>
+                </div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <sc-for list="{{ ghList }}" as="r" hint-placeholder-count="4">
+                  <div style="border:1px solid #232b36;border-radius:9px;padding:10px 12px;background:#12161d;display:flex;flex-direction:column;gap:7px" style-hover="border-color:#2a3340">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#dbe2ea;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.full }}</span>
+                      <span style="border:1px solid #2e3846;border-radius:7px;padding:0 6px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:{{ r.visColor }};flex:none">{{ r.vis }}</span>
+                      <span style="flex:1"></span>
+                      <sc-if value="{{ r.showClone }}" hint-placeholder-val="{{ true }}">
+                        <button onClick="{{ r.onClone }}" style="height:24px;padding:0 12px;background:rgba(92,184,240,.08);border:1px solid #5cb8f0;border-radius:7px;color:#5cb8f0;font-family:'JetBrains Mono',monospace;font-size:10.5px;cursor:pointer" style-hover="background:rgba(92,184,240,.2)">clone</button>
+                      </sc-if>
+                      <sc-if value="{{ r.showOpen }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ r.onOpen }}" style="height:24px;padding:0 12px;background:rgba(100,194,90,.08);border:1px solid #64c25a;border-radius:7px;color:#7ed673;font-family:'JetBrains Mono',monospace;font-size:10.5px;cursor:pointer" style-hover="background:rgba(100,194,90,.18)">open</button>
+                      </sc-if>
+                    </div>
+                    <div style="font-size:11px;color:#7d8b9c">{{ r.desc }}</div>
+                    <div style="display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#5c6b7c">
+                      <span style="width:8px;height:8px;border-radius:50%;background:{{ r.langColor }};flex:none"></span>
+                      <span>{{ r.lang }}</span>
+                      <span>· pushed {{ r.pushed }}</span>
+                    </div>
+                    <sc-if value="{{ r.cloning }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;flex-direction:column;gap:4px">
+                        <div style="height:4px;background:#0e1116;border-radius:2px;overflow:hidden"><div style="height:100%;width:{{ r.progressW }};background:#5cb8f0;border-radius:2px;transition:width .2s ease"></div></div>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#5cb8f0">cloning… {{ r.progress }}%</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ ghEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="text-align:center;padding:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#5c6b7c">no repositories match</div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </sc-if>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid #232b36;background:#171d25;flex:none">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#3d4b5d">registers under Projects</span>
+          <span style="flex:1"></span>
+          <button onClick="{{ closeProjectDialog }}" style="height:30px;padding:0 16px;background:transparent;border:1px solid #2e3846;border-radius:8px;color:#7d8b9c;font-size:12px;cursor:pointer" style-hover="color:#dbe2ea;border-color:#3d4b5d">Cancel</button>
+          <sc-if value="{{ projPrimaryShow }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ projPrimaryAction }}" style="height:30px;padding:0 20px;background:rgba(100,194,90,.1);border:1px solid #64c25a;border-radius:8px;color:#7ed673;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(100,194,90,.2);box-shadow:0 0 18px rgba(100,194,90,.32)">{{ projPrimaryLabel }}</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== settings dialog ===== -->
+  <sc-if value="{{ showSettings }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSettings }}" style="position:absolute;inset:0;background:rgba(8,10,14,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:43;animation:fadeIn .15s ease">
+      <div onClick="{{ swallow }}" style="width:500px;max-height:86vh;display:flex;flex-direction:column;background:#1b222c;border:1px solid #2e3846;border-radius:12px;animation:fadeUp .18s ease;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid #232b36;background:linear-gradient(180deg,#202935,#1b222c);flex:none">
+          <div style="width:30px;height:30px;border:1px solid #2e3846;border-radius:9px;display:flex;align-items:center;justify-content:center;background:#12161d;flex:none;color:#5cb8f0;font-size:15px">⚙</div>
+          <div style="display:flex;flex-direction:column;gap:1px">
+            <span style="font-size:14px;font-weight:600;letter-spacing:.8px;color:#dbe2ea">Settings</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5c6b7c">terminal status bar · saved on this machine</span>
+          </div>
+          <span style="flex:1"></span>
+          <button onClick="{{ closeSettings }}" style="width:24px;height:24px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#5c6b7c;font-size:13px;line-height:1;cursor:pointer" style-hover="border-color:#d95c5c;color:#d95c5c">×</button>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:#5c6b7c">TERMINAL STATUS BAR</div>
+          <div style="font-size:12px;color:#7d8b9c;line-height:1.5">Pick what each session shows in the status bar at the bottom of its terminal.</div>
+          <div style="display:flex;align-items:center;gap:12px;height:24px;padding:0 12px;background:#0b0e13;border:1px solid #1d242e;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;overflow:hidden;white-space:nowrap">
+            <sc-for list="{{ statusPreview }}" as="si" hint-placeholder-count="5"><span style="color:{{ si.c }};flex:none">{{ si.t }}</span></sc-for>
+            <sc-if value="{{ statusPreviewEmpty }}" hint-placeholder-val="{{ false }}"><span style="color:#3d4b5d">status bar hidden</span></sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px;margin-top:2px">
+            <sc-for list="{{ statusRows }}" as="row" hint-placeholder-count="9">
+              <div onClick="{{ row.onToggle }}" style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;cursor:pointer" style-hover="background:#212a35">
+                <span style="width:16px;height:16px;border-radius:5px;border:1px solid {{ row.boxBorder }};background:{{ row.boxBg }};display:flex;align-items:center;justify-content:center;color:#0e1116;font-size:11px;font-weight:700;flex:none">{{ row.check }}</span>
+                <span style="font-size:12.5px;color:#dbe2ea">{{ row.label }}</span>
+                <span style="flex:1"></span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5c6b7c">{{ row.sample }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid #232b36;background:#171d25;flex:none">
+          <button onClick="{{ resetStatus }}" style="height:30px;padding:0 14px;background:transparent;border:1px solid #2e3846;border-radius:8px;color:#7d8b9c;font-size:12px;cursor:pointer" style-hover="color:#dbe2ea;border-color:#3d4b5d">Reset to defaults</button>
+          <span style="flex:1"></span>
+          <button onClick="{{ closeSettings }}" style="height:30px;padding:0 20px;background:rgba(92,184,240,.1);border:1px solid #5cb8f0;border-radius:8px;color:#5cb8f0;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="background:rgba(92,184,240,.2)">Done</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== folder picker ===== -->
+  <sc-if value="{{ pickerOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closePicker }}" style="position:absolute;inset:0;background:rgba(8,10,14,.62);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:46;animation:fadeIn .12s ease">
+      <div onClick="{{ swallow }}" style="width:560px;height:70vh;max-height:560px;display:flex;flex-direction:column;background:#1b222c;border:1px solid #2e3846;border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.55);animation:fadeUp .16s ease;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #232b36;background:linear-gradient(180deg,#202935,#1b222c);flex:none">
+          <div style="width:28px;height:28px;border:1px solid #2e3846;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#12161d;color:#5cb8f0;font-size:14px">▤</div>
+          <span style="font-size:13.5px;font-weight:600;letter-spacing:.6px;color:#dbe2ea">Select destination folder</span>
+          <span style="flex:1"></span>
+          <button onClick="{{ closePicker }}" style="width:24px;height:24px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#5c6b7c;font-size:13px;line-height:1;cursor:pointer" style-hover="border-color:#d95c5c;color:#d95c5c">×</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #232b36;flex:none">
+          <button onClick="{{ pickerUp }}" title="Up one level" style="width:28px;height:28px;flex:none;background:#12161d;border:1px solid #2e3846;border-radius:7px;color:#aab7c4;font-size:13px;cursor:pointer" style-hover="border-color:#3d5a75;color:#dbe2ea">↑</button>
+          <div style="flex:1;min-width:0;display:flex;align-items:center;gap:2px;overflow-x:auto;white-space:nowrap">
+            <sc-for list="{{ pkCrumbs }}" as="c" hint-placeholder-count="3">
+              <button onClick="{{ c.onGo }}" style="background:transparent;border:none;color:#8fd0f8;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:2px 3px;flex:none" style-hover="color:#dbe2ea">{{ c.label }}</button>
+              <span style="color:#3d4b5d;font-family:'JetBrains Mono',monospace;font-size:11.5px;flex:none">/</span>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;padding:10px 14px 4px;flex:none">
+          <sc-for list="{{ pkQuick }}" as="z" hint-placeholder-count="3">
+            <button onClick="{{ z.onGo }}" style="height:24px;padding:0 12px;background:{{ z.bg }};border:1px solid {{ z.border }};border-radius:12px;color:{{ z.fg }};font-family:'JetBrains Mono',monospace;font-size:10.5px;cursor:pointer" style-hover="border-color:#3d5a75">{{ z.label }}</button>
+          </sc-for>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 10px;display:flex;flex-direction:column;gap:2px">
+          <sc-for list="{{ pkFolders }}" as="f" hint-placeholder-count="5">
+            <button onClick="{{ f.onEnter }}" style="display:flex;align-items:center;gap:10px;padding:9px 10px;background:transparent;border:1px solid transparent;border-radius:8px;cursor:pointer;text-align:left;width:100%" style-hover="background:#212a35;border-color:#2a3340">
+              <span style="color:#e0a53c;font-size:13px;flex:none">▤</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#dbe2ea;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.name }}</span>
+              <span style="color:#3d4b5d;font-size:14px;flex:none">›</span>
+            </button>
+          </sc-for>
+          <sc-if value="{{ pkEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="text-align:center;padding:28px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#5c6b7c">empty folder</div>
+          </sc-if>
+        </div>
+        <div style="display:flex;gap:8px;padding:10px 14px;border-top:1px solid #232b36;flex:none">
+          <input value="{{ pickerNewFolder }}" onChange="{{ onPickerNewFolder }}" placeholder="new folder name" style="flex:1;height:28px;padding:0 10px;background:#12161d;border:1px solid #2e3846;border-radius:7px;color:#dbe2ea;font-family:'JetBrains Mono',monospace;font-size:11.5px" />
+          <button onClick="{{ pickerCreateFolder }}" style="height:28px;padding:0 12px;background:transparent;border:1px solid #2e3846;border-radius:7px;color:#7ed673;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;white-space:nowrap" style-hover="border-color:#64c25a;background:rgba(100,194,90,.08)">+ folder</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid #232b36;background:#171d25;flex:none">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7d8b9c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">{{ pickerCwd }}</span>
+          <span style="flex:1"></span>
+          <button onClick="{{ closePicker }}" style="height:30px;padding:0 16px;background:transparent;border:1px solid #2e3846;border-radius:8px;color:#7d8b9c;font-size:12px;cursor:pointer;flex:none" style-hover="color:#dbe2ea;border-color:#3d4b5d">Cancel</button>
+          <button onClick="{{ pickerSelect }}" style="height:30px;padding:0 18px;background:rgba(92,184,240,.1);border:1px solid #5cb8f0;border-radius:8px;color:#5cb8f0;font-size:12.5px;font-weight:600;cursor:pointer;flex:none" style-hover="background:rgba(92,184,240,.2)">Select folder</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <!-- ===== theme popover ===== -->
   <sc-if value="{{ themeOpen }}" hint-placeholder-val="{{ false }}">
     <div onClick="{{ closeTheme }}" style="position:absolute;inset:0;z-index:45"></div>
@@ -351,13 +586,13 @@ class Component extends DCLogic {
     this.state = {
       view: 'boot', bootStep: 0,
       sessions: [
-        { id:'s1', name:'auth-refactor', project:'web-ui', model:'opus', perm:'acceptEdits', kind:'claude', status:'running', pi:0, hidden:0, attended:false,
+        { id:'s1', name:'auth-refactor', project:'web-ui', model:'opus', perm:'acceptEdits', kind:'claude', status:'running', pi:0, hidden:0, attended:false, cost:0.42, usagePct:38, ctx:62, branch:'feat/auth', skill:'edit', add:128, del:41, dur:842,
           lines: [ L('cmd','❯ claude --model opus --permission-mode acceptEdits --continue'), L('dim','Claude Code v2.1.4 · resuming 8f3a21c · ~/projects/web-ui'), L('ac','● Picking up where we left off: extracting token refresh from session.ts'), L('dim','  ⎿ Read src/auth/session.ts (214 lines)'), L('ok','  ⎿ Wrote src/auth/refresh.ts (+82 −0)') ] },
-        { id:'s2', name:'api-tests', project:'api-server', model:'sonnet', perm:'default', kind:'claude', status:'running', pi:0, hidden:0, attended:false,
+        { id:'s2', name:'api-tests', project:'api-server', model:'sonnet', perm:'default', kind:'claude', status:'running', pi:0, hidden:0, attended:false, cost:0.19, usagePct:22, ctx:44, branch:'main', skill:'bash', add:12, del:3, dur:305,
           lines: [ L('cmd','❯ claude --model sonnet -p "run the ws test suite and fix flakes"'), L('dim','Claude Code v2.1.4 · new session · ~/projects/api-server'), L('ac','● Running: npm test -- --grep ws'), L('ok','✓ ws handshake upgrades with auth token') ] },
-        { id:'s3', name:'shell', project:'web-ui', model:'', perm:'', kind:'shell', status:'running', pi:0, hidden:0, attended:false,
+        { id:'s3', name:'shell', project:'web-ui', model:'', perm:'', kind:'shell', status:'running', pi:0, hidden:0, attended:false, cost:0, usagePct:0, ctx:0, branch:'main', skill:'—', add:0, del:0, dur:1204,
           lines: [ L('cmd','❯ tail -f server.log'), L('dim','[09:14:02] pty s1 spawned (pid 4907, 120x38)'), L('dim','[09:14:11] ws client attached · replaying 18 KiB scrollback') ] },
-        { id:'s4', name:'icon-build', project:'web-ui', model:'haiku', perm:'default', kind:'claude', status:'exited', pi:0, hidden:0, attended:true,
+        { id:'s4', name:'icon-build', project:'web-ui', model:'haiku', perm:'default', kind:'claude', status:'exited', pi:0, hidden:0, attended:true, cost:0.06, usagePct:12, ctx:18, branch:'main', skill:'—', add:9, del:0, dur:0,
           lines: [ L('cmd','❯ claude --model haiku -p "regenerate icons and verify"'), L('ac','● Running: npm run build:icons'), L('ok','  ⎿ icons written · all sizes verified') ] }
       ],
       screens: [ { id:'g1', members:['s1'] }, { id:'g2', members:['s2'] }, { id:'g3', members:['s3'] }, { id:'g4', members:['s4'] } ],
@@ -377,7 +612,13 @@ class Component extends DCLogic {
         { name:'cli-tools', path:'~/projects/cli-tools' },
         { name:'sandbox', path:'~/projects/sandbox' }
       ],
-      addingProject: false, newProjName: '', newProjPath: ''
+      newProjName: '', newProjPath: '',
+      showProjectDialog: false, projMode: 'blank',
+      cloneUrl: '', cloneDest: '',
+      gh: { status: 'disconnected', user: '', code: '' },
+      ghRepos: [], ghSearch: '', ghCloning: {}, ghCreating: false, ghNewName: '', ghNewPrivate: true,
+      showSettings: false, statusCfg: { model:true, mode:true, usage:true, skill:true, cost:true, context:false, time:false, branch:true, diff:false },
+      picker: { open:false, target:'blank', cwd:'~/projects', newFolder:'' }, fsExtra: {}
     };
     this.models = ['opus', 'sonnet', 'haiku', 'fable'];
     this.bootTexts = [ 'reading runtime.json', 'runtime.json absent · starting backend (detached)', 'waiting for backend health', 'backend healthy', 'opening app window' ];
@@ -403,6 +644,34 @@ class Component extends DCLogic {
       { v:'plan', d:'read-only planning mode' },
       { v:'bypassPermissions', d:'never ask · dangerous' }
     ];
+    this.ghSeed = [
+      { id:'r1', name:'web-ui', owner:'sava', private:true, lang:'TypeScript', langColor:'#5cb8f0', pushed:'2h ago', desc:'session manager front-end' },
+      { id:'r2', name:'api-server', owner:'sava', private:true, lang:'Go', langColor:'#66d9e8', pushed:'yesterday', desc:'websocket + pty backend' },
+      { id:'r3', name:'ledger-import', owner:'sava', private:false, lang:'Python', langColor:'#7ed673', pushed:'3d ago', desc:'csv → ledger importer' },
+      { id:'r4', name:'dotfiles', owner:'sava', private:false, lang:'Shell', langColor:'#e0a53c', pushed:'2w ago', desc:'zsh + nvim config' },
+      { id:'r5', name:'notes-sync', owner:'sava', private:true, lang:'Rust', langColor:'#f0956a', pushed:'1mo ago', desc:'crdt note sync daemon' },
+      { id:'r6', name:'portfolio', owner:'sava', private:false, lang:'Astro', langColor:'#b39df2', pushed:'2mo ago', desc:'personal site' }
+    ];
+    this.ghTimer = null;
+    this.cloneTimers = {};
+    this.defaultStatus = { model:true, mode:true, usage:true, skill:true, cost:true, context:false, time:false, branch:true, diff:false };
+    this.statusDefs = [
+      { k:'model', label:'Model' }, { k:'mode', label:'Permission mode' }, { k:'usage', label:'Usage limit' },
+      { k:'skill', label:'Active skill' }, { k:'cost', label:'Cost spent' }, { k:'context', label:'Context window' },
+      { k:'time', label:'Session time' }, { k:'branch', label:'Git branch' }, { k:'diff', label:'Lines changed' }
+    ];
+    this.fsTree = {
+      '~': ['projects', 'work', 'downloads', 'dotfiles', 'go', 'tmp'],
+      '~/projects': ['web-ui', 'api-server', 'cli-tools', 'sandbox', 'archive'],
+      '~/projects/archive': ['2023', '2024'],
+      '~/work': ['client-a', 'client-b'],
+      '~/dotfiles': ['nvim', 'zsh'],
+      '~/go': ['src', 'bin'],
+      '~/downloads': [], '~/tmp': [],
+      '/': ['home', 'etc', 'usr', 'var', 'tmp', 'opt'],
+      '/home': ['sava'], '/home/sava': ['projects', 'work'],
+      '/usr': ['local', 'bin'], '/var': ['log'], '/etc': [], '/opt': [], '/tmp': []
+    };
   }
   visible(s) { const g = s.screens.find(g => g.id === s.active); return g ? g.members : []; }
   componentDidMount() {
@@ -426,27 +695,99 @@ class Component extends DCLogic {
     this.onUp = () => { if (this.state.pending) this.setState({ pending: null }); };
     window.addEventListener('mousemove', this.onMove);
     window.addEventListener('mouseup', this.onUp);
+    try { const raw = window.localStorage.getItem('asm.statusCfg'); if (raw) this.setState({ statusCfg: { ...this.defaultStatus, ...JSON.parse(raw) } }); } catch (e) {}
     this.tick = setInterval(() => this.doTick(), 1000);
     this.streamTick = setInterval(() => this.doStream(), 2400);
   }
   componentWillUnmount() {
     clearInterval(this.bootTimer); clearInterval(this.tick); clearInterval(this.streamTick);
+    clearTimeout(this.ghTimer);
+    Object.values(this.cloneTimers).forEach(clearInterval);
     window.removeEventListener('mousemove', this.onMove);
     window.removeEventListener('mouseup', this.onUp);
+  }
+  connectGithub() {
+    const rnd = () => Math.random().toString(36).slice(2, 6).toUpperCase();
+    this.setState({ gh: { status: 'connecting', user: '', code: rnd() + '-' + rnd() } });
+    clearTimeout(this.ghTimer);
+    this.ghTimer = setTimeout(() => this.setState(() => ({ gh: { status: 'connected', user: 'sava', code: '' }, ghRepos: this.ghSeed.slice() })), 3200);
+  }
+  disconnectGithub() { clearTimeout(this.ghTimer); this.setState({ gh: { status: 'disconnected', user: '', code: '' }, ghRepos: [], ghSearch: '', ghCreating: false }); }
+  cloneRepo(repo) {
+    if (this.cloneTimers[repo.id]) return;
+    this.setState(q => ({ ghCloning: { ...q.ghCloning, [repo.id]: 2 } }));
+    this.cloneTimers[repo.id] = setInterval(() => {
+      this.setState(q => {
+        const cur = (q.ghCloning[repo.id] ?? 0) + Math.round(9 + Math.random() * 15);
+        if (cur >= 100) {
+          clearInterval(this.cloneTimers[repo.id]); delete this.cloneTimers[repo.id];
+          const ghCloning = { ...q.ghCloning }; delete ghCloning[repo.id];
+          const exists = q.projectDefs.some(p => p.name === repo.name);
+          const projectDefs = exists ? q.projectDefs : [...q.projectDefs, { name: repo.name, path: '~/projects/' + repo.name }];
+          return { ghCloning, projectDefs, removedProjects: q.removedProjects.filter(r => r !== repo.name) };
+        }
+        return { ghCloning: { ...q.ghCloning, [repo.id]: cur } };
+      });
+    }, 240);
+  }
+  openRepoProject() { this.setState({ showProjectDialog: false, drawer: 'projects' }); }
+  persistStatus(cfg) { try { window.localStorage.setItem('asm.statusCfg', JSON.stringify(cfg)); } catch (e) {} }
+  toggleStatus(k) { this.setState(q => { const cfg = { ...q.statusCfg, [k]: !q.statusCfg[k] }; this.persistStatus(cfg); return { statusCfg: cfg }; }); }
+  resetStatus() { const cfg = { ...this.defaultStatus }; this.persistStatus(cfg); this.setState({ statusCfg: cfg }); }
+  join(cwd, name) { return cwd === '/' ? '/' + name : cwd + '/' + name; }
+  parent(cwd) { if (cwd === '/' || cwd === '~') return cwd; const i = cwd.lastIndexOf('/'); return i <= 0 ? (cwd.charAt(0) === '/' ? '/' : '~') : cwd.slice(0, i); }
+  startDir(val) { if (val && val.indexOf('/') > 0) { const d = val.slice(0, val.lastIndexOf('/')); return d || '~'; } return '~/projects'; }
+  confirmNewRepo() {
+    this.setState(q => {
+      const name = q.ghNewName.trim();
+      if (!name || q.ghRepos.some(r => r.name === name)) return { ghCreating: false, ghNewName: '' };
+      const repo = { id: 'rn' + q.n + Date.now(), name, owner: q.gh.user || 'sava', private: q.ghNewPrivate, lang: '—', langColor: '#5c6b7c', pushed: 'just now', desc: 'created from session manager' };
+      const exists = q.projectDefs.some(p => p.name === name);
+      const projectDefs = exists ? q.projectDefs : [...q.projectDefs, { name, path: '~/projects/' + name }];
+      return { ghRepos: [repo, ...q.ghRepos], projectDefs, removedProjects: q.removedProjects.filter(r => r !== name), ghCreating: false, ghNewName: '' };
+    });
+  }
+  confirmClone() {
+    this.setState(q => {
+      const url = q.cloneUrl.trim();
+      if (!url) return null;
+      const base = (url.split('/').pop() || 'repo').replace(/\.git$/, '');
+      const path = q.cloneDest.trim() || '~/projects/' + base;
+      const exists = q.projectDefs.some(p => p.name === base);
+      const projectDefs = exists ? q.projectDefs : [...q.projectDefs, { name: base, path }];
+      return { projectDefs, removedProjects: q.removedProjects.filter(r => r !== base), showProjectDialog: false, cloneUrl: '', cloneDest: '' };
+    });
+  }
+  createBlank() {
+    this.setState(q => {
+      const name = q.newProjName.trim();
+      if (!name || q.projectDefs.some(p => p.name === name)) return { showProjectDialog: false };
+      const path = q.newProjPath.trim() || '~/projects/' + name;
+      return { projectDefs: [...q.projectDefs, { name, path }], removedProjects: q.removedProjects.filter(r => r !== name), showProjectDialog: false, newProjName: '', newProjPath: '' };
+    });
   }
   doTick() {
     this.setState(s => {
       const vis = this.visible(s);
       const attnDemo = this.props.attentionDemo ?? true;
       const sessions = s.sessions.map(x => {
-        if (x.status !== 'running' || x.kind !== 'claude') return x;
-        if (vis.includes(x.id)) return x.hidden ? { ...x, hidden: 0 } : x;
-        const hidden = x.hidden + 1;
-        if (attnDemo && !x.attended && hidden > 7) {
-          return { ...x, hidden, status: 'attention', attended: true,
-            lines: [...x.lines, { c: this.C.warn, t: '[!] approval needed · Bash(npm run migrate) · press y/n' }] };
+        if (x.status === 'exited') return x;
+        let nx = x;
+        if (x.status === 'running') {
+          nx = { ...x, dur: (x.dur || 0) + 1 };
+          if (x.kind === 'claude') {
+            nx.cost = Math.round(((x.cost || 0) + 0.004 + Math.random() * 0.007) * 100) / 100;
+            if (Math.random() < 0.4) nx.ctx = Math.min(200, (x.ctx || 0) + 1);
+          }
         }
-        return { ...x, hidden };
+        if (nx.kind !== 'claude') return nx;
+        if (vis.includes(nx.id)) return nx.hidden ? { ...nx, hidden: 0 } : nx;
+        const hidden = nx.hidden + 1;
+        if (attnDemo && !nx.attended && nx.status === 'running' && hidden > 7) {
+          return { ...nx, hidden, status: 'attention', attended: true,
+            lines: [...nx.lines, { c: this.C.warn, t: '[!] approval needed · Bash(npm run migrate) · press y/n' }] };
+        }
+        return { ...nx, hidden };
       });
       const active = sessions.filter(x => x.status !== 'exited').length;
       return { sessions, upSec: s.upSec + 1,
@@ -532,7 +873,7 @@ class Component extends DCLogic {
     const resumed = cfg.resume === 'continue' ? 'resuming last conversation' : (cfg.resume && cfg.resume.startsWith('r:')) ? 'resuming ' + cfg.resume.slice(2) : 'new session';
     const sess = {
       id, name: cfg.name || (cfg.project.split('-')[0] + '-' + this.state.n), project: cfg.project,
-      model: cfg.model, perm: cfg.perm, kind: 'claude', status: 'running', pi: 0, hidden: 0, attended: false,
+      model: cfg.model, perm: cfg.perm, kind: 'claude', status: 'running', pi: 0, hidden: 0, attended: false, cost: 0, usagePct: Math.round(5 + Math.random() * 15), ctx: 4, branch: 'main', skill: '—', add: 0, del: 0, dur: 0,
       lines: [
         { c: C.cmd, t: '❯ claude' + flags },
         { c: C.dim, t: 'Claude Code v2.1.4 · ' + resumed + ' · ~/projects/' + cfg.project },
@@ -549,6 +890,21 @@ class Component extends DCLogic {
     const statusAnim = st => st === 'attention' ? 'pulse 1.2s infinite' : 'none';
     const fg = this.fgThemes[s.termFg] || this.fgThemes[0];
     const remap = c => c === C.cmd ? fg.cmd : c === C.out ? fg.out : c === C.dim ? fg.dim : c;
+    const cfg = s.statusCfg;
+    const fmtDur = sec => { const m = Math.floor(sec / 60); const ss = sec % 60; return (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss; };
+    const statusFor = x => {
+      const it = [];
+      if (cfg.model && x.model) it.push({ t: x.model, c: fg.dim });
+      if (cfg.mode && x.perm) it.push({ t: x.perm, c: x.perm === 'bypassPermissions' ? C.err : fg.dim });
+      if (cfg.usage && x.usagePct > 0) it.push({ t: 'usage ' + x.usagePct + '%', c: x.usagePct >= 80 ? C.warn : fg.dim });
+      if (cfg.skill && x.skill && x.skill !== '—') it.push({ t: 'skill: ' + x.skill, c: C.ac });
+      if (cfg.cost) it.push({ t: '$' + (x.cost || 0).toFixed(2), c: fg.dim });
+      if (cfg.context && x.ctx > 0) it.push({ t: 'ctx ' + x.ctx + 'k/200k', c: fg.dim });
+      if (cfg.time) it.push({ t: fmtDur(x.dur || 0), c: fg.dim });
+      if (cfg.branch && x.branch) it.push({ t: '⎇ ' + x.branch, c: fg.dim });
+      if (cfg.diff && (x.add || x.del)) it.push({ t: '+' + x.add + ' −' + x.del, c: fg.dim });
+      return it;
+    };
     const areas = ['a', 'b', 'c', 'd'];
     const grids = { 1: '"a" 1fr / 1fr', 2: '"a b" 1fr / 1fr 1fr', 3: '"a b" 1fr "a c" 1fr / 1fr 1fr', 4: '"a b" 1fr "c d" 1fr / 1fr 1fr' };
     const vis = this.visible(s);
@@ -559,6 +915,7 @@ class Component extends DCLogic {
       const x = s.sessions.find(q => q.id === pid);
       if (!x) return null;
       const focused = s.focus === pid && vis.length > 1;
+      const si = statusFor(x);
       return {
         area: areas[i], name: x.name, project: x.project, model: x.model, perm: x.perm,
         hasModel: !!x.model, hasPerm: !!x.perm && x.perm !== 'default',
@@ -570,6 +927,7 @@ class Component extends DCLogic {
         showCursor: x.status !== 'exited',
         promptColor: x.status === 'exited' ? C.dim : (x.status === 'attention' ? C.warn : C.ok),
         promptText: x.status === 'exited' ? 'process exited · code 0' : '❯',
+        statusItems: si, hasStatus: si.length > 0,
         canPop: vis.length > 1,
         showDropHint: canDropOnActive,
         onPop: (e) => { e.stopPropagation(); this.popOut(pid); },
@@ -659,6 +1017,59 @@ class Component extends DCLogic {
       text: t, done: i < s.bootStep, spinning: i === s.bootStep,
       color: i < s.bootStep ? '#7d8b9c' : '#dbe2ea'
     }));
+    const ghq = s.ghSearch.trim().toLowerCase();
+    const ghList = s.ghRepos.filter(r => !ghq || (r.name + ' ' + r.owner + ' ' + r.desc).toLowerCase().includes(ghq)).map(r => {
+      const cloned = s.projectDefs.some(p => p.name === r.name) && !s.removedProjects.includes(r.name);
+      const cloning = Object.prototype.hasOwnProperty.call(s.ghCloning, r.id);
+      const progress = s.ghCloning[r.id] ?? 0;
+      return { full: r.owner + '/' + r.name, desc: r.desc, lang: r.lang, langColor: r.langColor, pushed: r.pushed,
+        vis: r.private ? 'private' : 'public', visColor: r.private ? '#7d8b9c' : '#64c25a',
+        cloning, progress, progressW: progress + '%', showClone: !cloned && !cloning, showOpen: cloned && !cloning,
+        onClone: () => this.cloneRepo(r), onOpen: () => this.openRepoProject() };
+    });
+    const projModeOpts = [ { k: 'blank', label: 'Blank local' }, { k: 'clone', label: 'Clone repo' }, { k: 'github', label: 'GitHub' } ].map(m => ({
+      label: m.label,
+      bg: s.projMode === m.k ? 'rgba(92,184,240,.1)' : 'transparent',
+      border: s.projMode === m.k ? '#3d5a75' : '#2e3846',
+      fg: s.projMode === m.k ? '#5cb8f0' : '#8e9cab',
+      onPick: () => this.setState({ projMode: m.k })
+    }));
+    const repSess = s.sessions.find(x => x.id === s.focus) || s.sessions[0] || { model:'opus', perm:'acceptEdits', usagePct:38, skill:'edit', cost:0.42, ctx:62, dur:842, branch:'main', add:128, del:41 };
+    const sampleFor = k => {
+      if (k === 'model') return repSess.model || 'opus';
+      if (k === 'mode') return repSess.perm || 'default';
+      if (k === 'usage') return 'usage ' + (repSess.usagePct || 38) + '%';
+      if (k === 'skill') return 'skill: ' + (repSess.skill && repSess.skill !== '—' ? repSess.skill : 'edit');
+      if (k === 'cost') return '$' + (repSess.cost || 0).toFixed(2);
+      if (k === 'context') return 'ctx ' + (repSess.ctx || 62) + 'k/200k';
+      if (k === 'time') return fmtDur(repSess.dur || 0);
+      if (k === 'branch') return '⎇ ' + (repSess.branch || 'main');
+      if (k === 'diff') return '+' + (repSess.add || 0) + ' −' + (repSess.del || 0);
+      return '';
+    };
+    const statusRows = this.statusDefs.map(d => ({
+      label: d.label, sample: sampleFor(d.k),
+      check: cfg[d.k] ? '✓' : '',
+      boxBg: cfg[d.k] ? '#5cb8f0' : 'transparent',
+      boxBorder: cfg[d.k] ? '#5cb8f0' : '#2e3846',
+      onToggle: () => this.toggleStatus(d.k)
+    }));
+    const statusPreview = statusFor(repSess);
+    const crumbsOf = cwd => {
+      if (cwd === '/') return [{ label: '/', path: '/' }];
+      if (cwd.charAt(0) === '/') { const parts = cwd.split('/').filter(Boolean); let acc = ''; const out = [{ label: '/', path: '/' }]; parts.forEach(p => { acc += '/' + p; out.push({ label: p, path: acc }); }); return out; }
+      const parts = cwd.split('/'); let acc = ''; const out = []; parts.forEach((p, i) => { acc = i === 0 ? p : acc + '/' + p; out.push({ label: p, path: acc }); }); return out;
+    };
+    const pk = s.picker;
+    const pkFolders = [ ...(this.fsTree[pk.cwd] || []), ...(s.fsExtra[pk.cwd] || []) ].map(n => ({ name: n, onEnter: () => this.setState(q => ({ picker: { ...q.picker, cwd: this.join(q.picker.cwd, n) } })) }));
+    const pkCrumbs = crumbsOf(pk.cwd).map(c => ({ label: c.label, onGo: () => this.setState(q => ({ picker: { ...q.picker, cwd: c.path } })) }));
+    const pkQuick = [ { label: 'Home', path: '~' }, { label: 'Projects', path: '~/projects' }, { label: 'Root', path: '/' } ].map(z => ({
+      label: z.label,
+      bg: pk.cwd === z.path ? 'rgba(92,184,240,.1)' : 'transparent',
+      border: pk.cwd === z.path ? '#3d5a75' : '#2e3846',
+      fg: pk.cwd === z.path ? '#5cb8f0' : '#8e9cab',
+      onGo: () => this.setState(q => ({ picker: { ...q.picker, cwd: z.path } }))
+    }));
     return {
       booting: s.view === 'boot', bootSteps, skipBoot: () => { clearInterval(this.bootTimer); this.setState({ view: 'app' }); },
       isEmpty: alive.length === 0 && s.view === 'app', hasPanes: panes.length > 0,
@@ -675,17 +1086,53 @@ class Component extends DCLogic {
       toggleSessions: () => this.setState(q => ({ drawer: q.drawer === 'sessions' ? null : 'sessions' })),
       openSessionsDrawer: () => this.setState({ drawer: 'sessions' }),
       projects, drawerSessions, prevRun,
-      addingProject: s.addingProject, newProjName: s.newProjName, newProjPath: s.newProjPath,
-      startAddProject: () => this.setState({ addingProject: true, newProjName: '', newProjPath: '' }),
-      cancelAddProject: () => this.setState({ addingProject: false }),
+      showProjectDialog: s.showProjectDialog, projModeOpts,
+      isBlank: s.projMode === 'blank', isClone: s.projMode === 'clone', isGithub: s.projMode === 'github',
+      startAddProject: () => this.setState({ showProjectDialog: true, projMode: 'blank', newProjName: '', newProjPath: '' }),
+      openGithub: () => this.setState({ showProjectDialog: true, projMode: 'github' }),
+      closeProjectDialog: () => this.setState({ showProjectDialog: false, ghCreating: false }),
+      newProjName: s.newProjName, newProjPath: s.newProjPath,
       onNewProjName: (e) => { const v = e.target.value; this.setState(q => ({ newProjName: v, newProjPath: (!q.newProjPath || q.newProjPath === '~/projects/' + q.newProjName) ? '~/projects/' + v : q.newProjPath })); },
       onNewProjPath: (e) => this.setState({ newProjPath: e.target.value }),
-      confirmAddProject: () => this.setState(q => {
-        const name = q.newProjName.trim();
-        if (!name || q.projectDefs.some(p => p.name === name)) return { addingProject: false };
-        const path = q.newProjPath.trim() || '~/projects/' + name;
-        return { projectDefs: [...q.projectDefs, { name, path }], removedProjects: q.removedProjects.filter(r => r !== name), addingProject: false, newProjName: '', newProjPath: '' };
-      }),
+      cloneUrl: s.cloneUrl, cloneDest: s.cloneDest,
+      onCloneUrl: (e) => { const v = e.target.value; this.setState({ cloneUrl: v }); },
+      onCloneDest: (e) => this.setState({ cloneDest: e.target.value }),
+      clonePreview: s.cloneUrl.trim() ? '$ git clone ' + s.cloneUrl.trim() + (s.cloneDest.trim() ? ' ' + s.cloneDest.trim() : '') : '$ git clone <url>',
+      ghDisconnected: s.gh.status === 'disconnected', ghConnecting: s.gh.status === 'connecting', ghConnected: s.gh.status === 'connected',
+      ghCode: s.gh.code, ghUser: '@' + (s.gh.user || ''),
+      connectGithub: () => this.connectGithub(), disconnectGithub: () => this.disconnectGithub(),
+      ghSearch: s.ghSearch, onGhSearch: (e) => this.setState({ ghSearch: e.target.value }),
+      ghList, ghEmpty: ghList.length === 0,
+      ghCreating: s.ghCreating,
+      startNewRepo: () => this.setState({ ghCreating: true, ghNewName: '' }),
+      cancelNewRepo: () => this.setState({ ghCreating: false }),
+      ghNewName: s.ghNewName, onGhNewName: (e) => this.setState({ ghNewName: e.target.value }),
+      toggleGhNewPrivate: () => this.setState(q => ({ ghNewPrivate: !q.ghNewPrivate })),
+      ghNewPrivLabel: s.ghNewPrivate ? 'private' : 'public',
+      confirmNewRepo: () => this.confirmNewRepo(),
+      projPrimaryShow: s.projMode !== 'github',
+      projPrimaryLabel: s.projMode === 'clone' ? 'Clone ▸' : 'Create project',
+      projPrimaryAction: s.projMode === 'clone' ? (() => this.confirmClone()) : (() => this.createBlank()),
+      ghChipDot: s.gh.status === 'connected' ? '#64c25a' : s.gh.status === 'connecting' ? '#e0a53c' : '#5c6b7c',
+      ghChipText: s.gh.status === 'connected' ? '@' + s.gh.user : s.gh.status === 'connecting' ? 'connecting…' : 'Connect GitHub',
+      showSettings: s.showSettings,
+      openSettings: () => this.setState({ showSettings: true }),
+      closeSettings: () => this.setState({ showSettings: false }),
+      settingsBtnBg: s.showSettings ? '#232b36' : 'transparent',
+      settingsBtnFg: s.showSettings ? '#dbe2ea' : '#7d8b9c',
+      statusRows, statusPreview, statusPreviewEmpty: statusPreview.length === 0,
+      resetStatus: () => this.resetStatus(),
+      pickerOpen: pk.open, pickerCwd: pk.cwd, pkFolders, pkCrumbs, pkQuick, pkEmpty: pkFolders.length === 0,
+      pickerNewFolder: pk.newFolder,
+      onPickerNewFolder: (e) => this.setState(q => ({ picker: { ...q.picker, newFolder: e.target.value } })),
+      pickerCreateFolder: () => this.setState(q => { const n = q.picker.newFolder.trim(); if (!n) return null; const cwd = q.picker.cwd; const fsExtra = { ...q.fsExtra, [cwd]: [ ...(q.fsExtra[cwd] || []), n ] }; return { fsExtra, picker: { ...q.picker, cwd: this.join(cwd, n), newFolder: '' } }; }),
+      pickerUp: () => this.setState(q => ({ picker: { ...q.picker, cwd: this.parent(q.picker.cwd) } })),
+      pickerSelect: () => this.setState(q => q.picker.target === 'blank' ? { newProjPath: q.picker.cwd, picker: { ...q.picker, open: false } } : { cloneDest: q.picker.cwd, picker: { ...q.picker, open: false } }),
+      closePicker: () => this.setState(q => ({ picker: { ...q.picker, open: false } })),
+      openPickerBlank: () => this.setState(q => ({ picker: { open: true, target: 'blank', cwd: this.startDir(q.newProjPath), newFolder: '' } })),
+      openPickerClone: () => this.setState(q => ({ picker: { open: true, target: 'clone', cwd: this.startDir(q.cloneDest), newFolder: '' } })),
+      blankPathText: s.newProjPath || '~/projects/my-project', blankPathColor: s.newProjPath ? '#dbe2ea' : '#5c6b7c',
+      cloneDestText: s.cloneDest || '~/projects/repo', cloneDestColor: s.cloneDest ? '#dbe2ea' : '#5c6b7c',
       showDialog: s.showDialog,
       openDialog: () => this.setState({ showDialog: true }),
       closeDialog: () => this.setState({ showDialog: false }),

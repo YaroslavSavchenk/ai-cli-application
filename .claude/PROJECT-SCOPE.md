@@ -188,8 +188,9 @@ becomes a modal dialog** (replaced launcher-as-tab; landed with R3,
 chip preserving arbitrary command + args launches).
 Unaffected by the flip: architecture (vanilla TS + Vite stands — the handoff
 prompt itself defers to the existing stack; no new npm dependencies, fonts
-self-hosted), and the three fiction cuts in `design/GAP-ANALYSIS.md` stay
-cut — they are lifecycle impossibilities, not looks. Rationale in
+self-hosted), and the three fiction cuts stay cut — they are lifecycle
+impossibilities, not looks. Rationale, and the cuts themselves (formerly
+enumerated in the now-removed `design/GAP-ANALYSIS.md`), in
 `memory/decisions/handoff-design-primary.md`.)
 
 (Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
