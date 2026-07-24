@@ -33,6 +33,7 @@ import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { UsageReader } from './usage.ts';
 import { TelemetryReader } from './telemetry.ts';
+import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
@@ -50,6 +51,13 @@ const sessions = new SessionManager(log, journal);
 const claudeDir = resolveClaudeDir();
 const usage = new UsageReader(claudeDir, log);
 const telemetry = new TelemetryReader(claudeDir, log);
+// GitHub OAuth device flow. client_id from env; absent/empty => "not configured"
+// (the feature stays dormant, endpoints answer a clean not-configured signal).
+const github = new GithubConnection({
+  file: paths.githubFile,
+  log,
+  clientId: process.env['AI_SM_GITHUB_CLIENT_ID'],
+});
 const lifecycle = new LifecycleController({
   onIdleShutdown: () => shutdown('idle grace expiry'),
   log,
@@ -72,6 +80,7 @@ const server = createServer(
     journal,
     usage,
     telemetry,
+    github,
     webDistDir,
     log,
   }),

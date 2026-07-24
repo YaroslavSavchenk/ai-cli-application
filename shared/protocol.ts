@@ -382,6 +382,78 @@ export interface TelemetryResponse {
   sessions: Record<string, TelemetryItem>;
 }
 
+// ---------------------------------------------------------------------------
+// GitHub connection (github.json in the data dir) — OAuth device flow
+// ---------------------------------------------------------------------------
+//
+// Phase 2b: a first-class GitHub connection via OAuth DEVICE FLOW. The server
+// owns the WHOLE OAuth exchange; the browser only ever sees status + the
+// user_code + repo metadata. The device_code and the access_token stay 100%
+// server-side (github.json in the data dir, mode 0600) and are NEVER returned
+// to the browser, embedded in a response, or written to server.log.
+//
+// Config: the OAuth App client_id comes from env AI_SM_GITHUB_CLIENT_ID. When
+// it is absent/empty the feature is "not configured" — every endpoint answers
+// a clean not-configured signal (status.configured=false, POST device -> 409
+// { configured:false }, repos -> 409) and never crashes. No client_secret is
+// used or stored (a public OAuth app's device flow needs none). Scope = `repo`.
+//
+// Endpoints (ALL behind the same X-Auth-Token + Origin/Host gate as every /api
+// route):
+//   POST /api/github/device     -> 200 { userCode, verificationUri, expiresAt }
+//                                  or 409 { configured:false } when unconfigured.
+//                                  Starts the device flow + server-side polling.
+//   GET  /api/github/status     -> 200 GithubStatus.
+//   POST /api/github/disconnect -> 200 OkResponse. Drops the token locally
+//                                  (deletes github.json); no token is ever
+//                                  echoed back.
+//   GET  /api/github/repos?q=   -> 200 GithubReposResponse, or 409 when not
+//                                  connected/configured. `q` filters
+//                                  client-side on name/owner/fullName/description.
+
+/**
+ * GET /api/github/status response. `configured` reflects whether an OAuth App
+ * client_id is present; `state` is the connection state. `login` is present
+ * ONLY when connected; `userCode`/`verificationUri`/`expiresAt` are present
+ * ONLY while connecting (the user enters `userCode` at `verificationUri`).
+ * The access token is NEVER present in this shape — it stays server-side.
+ */
+export interface GithubStatus {
+  configured: boolean;
+  state: 'disconnected' | 'connecting' | 'connected';
+  /** GitHub login of the connected account (present only when connected). */
+  login?: string;
+  /** Device-flow user code to enter at `verificationUri` (present only while connecting). */
+  userCode?: string;
+  /** Where the user enters `userCode` (present only while connecting). */
+  verificationUri?: string;
+  /** ISO-8601 expiry of the current device code (present only while connecting). */
+  expiresAt?: string;
+}
+
+/**
+ * One repository in GET /api/github/repos, mapped down from the GitHub API to
+ * exactly these fields — no token, no raw payload leaks through.
+ */
+export interface GithubRepo {
+  /** "owner/name". */
+  fullName: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  description?: string;
+  language?: string;
+  /** ISO-8601 last-push timestamp. */
+  pushedAt?: string;
+  /** https clone url (used by Phase 2c clone-by-picking). */
+  cloneUrl: string;
+}
+
+/** GET /api/github/repos response. */
+export interface GithubReposResponse {
+  repos: GithubRepo[];
+}
+
 /**
  * Generic success response, returned 200 by every mutating route that has no
  * richer body: PUT /api/prefs, DELETE /api/projects/:id, DELETE

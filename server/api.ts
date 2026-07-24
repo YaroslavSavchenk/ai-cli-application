@@ -18,6 +18,7 @@ import type {
   CreateProjectRequest,
   CreateSessionRequest,
   FsMkdirRequest,
+  GithubReposResponse,
   RuntimeStatusResponse,
   UiPrefs,
 } from '../shared/protocol.ts';
@@ -28,6 +29,7 @@ import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { UsageReader } from './usage.ts';
 import { TelemetryReader } from './telemetry.ts';
+import { GithubConnection, GithubError } from './github.ts';
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { Logger } from './config.ts';
@@ -66,6 +68,7 @@ export interface ApiDeps {
   journal: SessionJournal;
   usage: UsageReader;
   telemetry: TelemetryReader;
+  github: GithubConnection;
   webDistDir: string;
   log: Logger;
 }
@@ -117,7 +120,8 @@ function repoNameFromUrl(url: string): string | undefined {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, journal, usage, telemetry, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, journal, usage, telemetry, github, webDistDir, log } =
+    deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -214,6 +218,70 @@ export function createRequestHandler(
     if (pathname === '/api/telemetry') {
       if (method === 'GET') {
         sendJson(res, 200, await telemetry.read(sessions.list()));
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- GitHub connection (OAuth device flow) -----------------------------
+    // The token stays 100% server-side (github.ts / github.json, 0600). These
+    // handlers only ever surface status, the user_code, and repo metadata.
+    if (pathname === '/api/github/status') {
+      if (method === 'GET') {
+        sendJson(res, 200, github.status());
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    if (pathname === '/api/github/device') {
+      if (method === 'POST') {
+        const result = await github.startDeviceFlow();
+        if (result.ok) {
+          sendJson(res, 200, {
+            userCode: result.userCode,
+            verificationUri: result.verificationUri,
+            expiresAt: result.expiresAt,
+          });
+          return;
+        }
+        if (result.reason === 'not-configured') {
+          sendJson(res, 409, { configured: false });
+          return;
+        }
+        sendError(res, 502, 'failed to start github device flow');
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    if (pathname === '/api/github/disconnect') {
+      if (method === 'POST') {
+        await github.disconnect();
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    if (pathname === '/api/github/repos') {
+      if (method === 'GET') {
+        const q = url.searchParams.get('q') ?? undefined;
+        try {
+          const body: GithubReposResponse = { repos: await github.listRepos(q) };
+          sendJson(res, 200, body);
+        } catch (err) {
+          if (err instanceof GithubError) {
+            sendError(res, err.status, err.message);
+          } else {
+            log('error', 'github repos request failed');
+            sendError(res, 502, 'failed to list github repositories');
+          }
+        }
         return;
       }
       sendError(res, 405, 'method not allowed');

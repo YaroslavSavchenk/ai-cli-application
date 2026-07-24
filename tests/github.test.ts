@@ -1,0 +1,630 @@
+/**
+ * GitHub OAuth device-flow connection (Phase 2b).
+ *
+ * Two layers:
+ *   1. HTTP boundary against the REAL server with NO client_id configured
+ *      (AI_SM_GITHUB_CLIENT_ID=''): the not-configured path end-to-end, plus
+ *      auth (401 w/o token), method (405), and Host/Origin parity (403) for all
+ *      four /api/github/* endpoints. Deterministic + offline — the
+ *      not-configured guard short-circuits before any network call.
+ *   2. GithubConnection unit tests via the fetch SEAM (no network): the pure
+ *      repo mapping + query filter, and the full device-flow state machine
+ *      (connecting -> connected), proving the access token is persisted 0600 to
+ *      github.json and NEVER surfaces in status()/listRepos(), plus disconnect
+ *      (drops github.json) and the 401 -> disconnected invalidation.
+ */
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { GithubConnection, GithubError, mapRepo, filterRepos, type FetchLike } from '../server/github.ts';
+import type { Logger } from '../server/config.ts';
+import type { GithubRepo } from '../shared/protocol.ts';
+import { api, rawRequest, startTestServer, waitUntil, type TestServer } from './helpers.ts';
+
+const noop: Logger = () => {};
+const SECRET = 'gho_SUPER_SECRET_TOKEN_do_not_leak';
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 1. HTTP boundary — NOT configured (no client_id)
+// ---------------------------------------------------------------------------
+
+let server: TestServer;
+
+before(async () => {
+  server = await startTestServer({ env: { AI_SM_GITHUB_CLIENT_ID: '' } });
+});
+
+after(async () => {
+  if (server !== undefined) await server.stop();
+});
+
+test('not configured: GET /api/github/status -> { configured:false, state:"disconnected" }', async () => {
+  const res = await api(server, 'GET', '/api/github/status');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { configured: false, state: 'disconnected' });
+});
+
+test('not configured: POST /api/github/device -> 409 { configured:false } (never crashes, no network)', async () => {
+  const res = await api(server, 'POST', '/api/github/device');
+  assert.equal(res.status, 409);
+  assert.deepEqual(res.body, { configured: false });
+});
+
+test('not configured: GET /api/github/repos -> 409 (not connected)', async () => {
+  const res = await api(server, 'GET', '/api/github/repos');
+  assert.equal(res.status, 409);
+});
+
+test('not configured: POST /api/github/disconnect -> 200 { ok:true } (idempotent no-op)', async () => {
+  const res = await api(server, 'POST', '/api/github/disconnect');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ok: true });
+});
+
+test('all four /api/github/* endpoints require the auth token (401 without it)', async () => {
+  const cases: { method: string; path: string }[] = [
+    { method: 'GET', path: '/api/github/status' },
+    { method: 'POST', path: '/api/github/device' },
+    { method: 'POST', path: '/api/github/disconnect' },
+    { method: 'GET', path: '/api/github/repos' },
+  ];
+  for (const c of cases) {
+    const noToken = await rawRequest(server.port, { method: c.method, path: c.path });
+    assert.equal(noToken.status, 401, `${c.method} ${c.path} without a token must be 401`);
+    const wrongToken = await rawRequest(server.port, {
+      method: c.method,
+      path: c.path,
+      headers: { 'x-auth-token': '0'.repeat(64) },
+    });
+    assert.equal(wrongToken.status, 401, `${c.method} ${c.path} with a wrong token must be 401`);
+  }
+});
+
+test('/api/github/* keeps the same Host/Origin parity as every other /api route (403)', async () => {
+  const evilHost = await rawRequest(server.port, {
+    path: '/api/github/status',
+    headers: { host: `evil.example.com:${server.port}`, 'x-auth-token': server.token },
+  });
+  assert.equal(evilHost.status, 403, 'forbidden Host must be 403 even with a valid token');
+
+  const evilOrigin = await rawRequest(server.port, {
+    path: '/api/github/status',
+    headers: { origin: 'http://evil.example.com', 'x-auth-token': server.token },
+  });
+  assert.equal(evilOrigin.status, 403, 'cross-origin request must be 403');
+});
+
+test('wrong method on each /api/github/* endpoint -> 405', async () => {
+  assert.equal((await api(server, 'POST', '/api/github/status')).status, 405);
+  assert.equal((await api(server, 'GET', '/api/github/device')).status, 405);
+  assert.equal((await api(server, 'GET', '/api/github/disconnect')).status, 405);
+  assert.equal((await api(server, 'POST', '/api/github/repos')).status, 405);
+});
+
+// ---------------------------------------------------------------------------
+// 2a. Pure repo mapping + query filter (no network, no state)
+// ---------------------------------------------------------------------------
+
+const RAW_REPO = {
+  id: 42,
+  full_name: 'octocat/hello',
+  name: 'hello',
+  owner: { login: 'octocat', id: 1, extra: 'ignored' },
+  private: true,
+  description: 'a greeting',
+  language: 'TypeScript',
+  pushed_at: '2026-07-20T10:00:00Z',
+  clone_url: 'https://github.com/octocat/hello.git',
+  // fields that MUST be dropped:
+  ssh_url: 'git@github.com:octocat/hello.git',
+  default_branch: 'main',
+  permissions: { admin: true },
+};
+
+test('mapRepo keeps only the listed fields and drops everything else (no payload leak)', () => {
+  const repo = mapRepo(RAW_REPO);
+  assert.deepEqual(repo, {
+    fullName: 'octocat/hello',
+    name: 'hello',
+    owner: 'octocat',
+    private: true,
+    description: 'a greeting',
+    language: 'TypeScript',
+    pushedAt: '2026-07-20T10:00:00Z',
+    cloneUrl: 'https://github.com/octocat/hello.git',
+  });
+  assert.equal(Object.keys(repo as object).length, 8, 'exactly the 8 mapped keys, nothing else');
+});
+
+test('mapRepo: optional fields omitted when absent/empty; private defaults false', () => {
+  const repo = mapRepo({
+    full_name: 'me/bare',
+    name: 'bare',
+    owner: { login: 'me' },
+    clone_url: 'https://github.com/me/bare.git',
+    description: '',
+    // private absent, language/pushed_at absent
+  });
+  assert.deepEqual(repo, {
+    fullName: 'me/bare',
+    name: 'bare',
+    owner: 'me',
+    private: false,
+    cloneUrl: 'https://github.com/me/bare.git',
+  });
+});
+
+test('mapRepo returns undefined when a required field is missing', () => {
+  assert.equal(mapRepo(null), undefined);
+  assert.equal(mapRepo('not-an-object'), undefined);
+  assert.equal(mapRepo({ name: 'x', owner: { login: 'o' }, clone_url: 'u' }), undefined, 'no full_name');
+  assert.equal(mapRepo({ full_name: 'o/x', name: 'x', clone_url: 'u' }), undefined, 'no owner.login');
+  assert.equal(mapRepo({ full_name: 'o/x', name: 'x', owner: { login: 'o' } }), undefined, 'no clone_url');
+});
+
+test('filterRepos: case-insensitive substring over name/owner/fullName/description', () => {
+  const repos: GithubRepo[] = [
+    { fullName: 'octocat/hello', name: 'hello', owner: 'octocat', private: false, cloneUrl: 'u1', description: 'a greeting' },
+    { fullName: 'acme/rocket', name: 'rocket', owner: 'acme', private: false, cloneUrl: 'u2' },
+    { fullName: 'acme/widget', name: 'widget', owner: 'acme', private: false, cloneUrl: 'u3', description: 'HELLO world' },
+  ];
+  assert.deepEqual(filterRepos(repos, 'hello').map((r) => r.name), ['hello', 'widget'], 'name + description hits');
+  assert.deepEqual(filterRepos(repos, 'ACME').map((r) => r.name), ['rocket', 'widget'], 'owner hit, case-insensitive');
+  assert.deepEqual(filterRepos(repos, 'octocat/he').map((r) => r.name), ['hello'], 'fullName hit');
+  assert.equal(filterRepos(repos, undefined).length, 3, 'undefined query -> unchanged');
+  assert.equal(filterRepos(repos, '   ').length, 3, 'blank query -> unchanged');
+  assert.equal(filterRepos(repos, 'zzz').length, 0, 'no match -> empty');
+});
+
+// ---------------------------------------------------------------------------
+// 2b. Full device flow via the fetch seam (no network)
+// ---------------------------------------------------------------------------
+
+test('device flow: connecting -> connected; token persisted 0600, NEVER in status; then disconnect drops github.json', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-'));
+  const file = join(root, 'github.json');
+  try {
+    let tokenPolls = 0;
+    const calls: string[] = [];
+    const stub: FetchLike = (url) => {
+      calls.push(url);
+      if (url === 'https://github.com/login/device/code') {
+        return Promise.resolve(
+          jsonResponse({
+            device_code: 'DEV-CODE-SECRET',
+            user_code: 'WDJB-MJHT',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900,
+            interval: 0.02, // 20ms poll cadence for a fast, deterministic test
+          }),
+        );
+      }
+      if (url === 'https://github.com/login/oauth/access_token') {
+        tokenPolls += 1;
+        if (tokenPolls === 1) {
+          return Promise.resolve(jsonResponse({ error: 'authorization_pending' }));
+        }
+        return Promise.resolve(jsonResponse({ access_token: SECRET, token_type: 'bearer', scope: 'repo' }));
+      }
+      if (url === 'https://api.github.com/user') {
+        return Promise.resolve(jsonResponse({ login: 'octocat', id: 1 }));
+      }
+      if (url.startsWith('https://api.github.com/user/repos')) {
+        return Promise.resolve(jsonResponse([RAW_REPO]));
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.testclientid', fetchImpl: stub });
+
+    // Start: returns the user_code, state connecting, no token anywhere.
+    const started = await conn.startDeviceFlow();
+    assert.ok(started.ok, 'device flow starts when configured');
+    if (started.ok) {
+      assert.equal(started.userCode, 'WDJB-MJHT');
+      assert.equal(started.verificationUri, 'https://github.com/login/device');
+      assert.ok(typeof started.expiresAt === 'string' && started.expiresAt.length > 0);
+    }
+    const connecting = conn.status();
+    assert.equal(connecting.state, 'connecting');
+    assert.equal(connecting.userCode, 'WDJB-MJHT');
+    assert.ok(!JSON.stringify(connecting).includes(SECRET), 'no token while connecting');
+
+    // The background poll authorizes and connects.
+    await waitUntil(() => (conn.status().state === 'connected' ? true : undefined), 'github connected', 5000, 10);
+    assert.ok(tokenPolls >= 2, 'authorization_pending must have been polled through');
+
+    const connected = conn.status();
+    assert.deepEqual(connected, { configured: true, state: 'connected', login: 'octocat' });
+    assert.ok(!JSON.stringify(connected).includes(SECRET), 'status() must NEVER contain the access token');
+
+    // github.json: mode 0600, holds the token, but the token never left via status().
+    const st = await stat(file);
+    assert.equal(st.mode & 0o777, 0o600, 'github.json must be mode 0600');
+    const stored = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    assert.equal(stored['accessToken'], SECRET, 'token IS persisted server-side');
+    assert.equal(stored['login'], 'octocat');
+    assert.equal(stored['scope'], 'repo');
+
+    // listRepos maps + filters; the token is used as a Bearer but never returned.
+    const repos = await conn.listRepos();
+    assert.equal(repos.length, 1);
+    assert.equal(repos[0]!.fullName, 'octocat/hello');
+    assert.ok(!JSON.stringify(repos).includes(SECRET), 'repo list must never contain the token');
+    assert.equal((await conn.listRepos('nope')).length, 0, 'query filter applies server-side');
+
+    // Disconnect drops github.json and returns to disconnected.
+    await conn.disconnect();
+    assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' });
+    await assert.rejects(stat(file), 'github.json must be deleted on disconnect');
+    await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('load-on-construction: a github.json with a token boots connected; a 401 on repos invalidates it (-> disconnected, file deleted)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh401-'));
+  const file = join(root, 'github.json');
+  try {
+    await writeFile(
+      file,
+      JSON.stringify({ accessToken: SECRET, login: 'octocat', scope: 'repo', connectedAt: '2026-07-24T00:00:00Z' }),
+      { mode: 0o600 },
+    );
+    const stub: FetchLike = (url) => {
+      if (url.startsWith('https://api.github.com/user/repos')) {
+        return Promise.resolve(jsonResponse({ message: 'Bad credentials' }, 401));
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.testclientid', fetchImpl: stub });
+    assert.equal(conn.status().state, 'connected', 'stored token -> connected on boot');
+
+    await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409, '401 surfaces as 409 not-connected');
+    assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' }, '401 invalidated the token');
+    await assert.rejects(stat(file), 'github.json removed after 401 invalidation');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('not-configured GithubConnection (no clientId): startDeviceFlow -> not-configured; listRepos -> 409; status configured:false', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-unconf-'));
+  try {
+    const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: '' });
+    assert.deepEqual(conn.status(), { configured: false, state: 'disconnected' });
+    const started = await conn.startDeviceFlow();
+    assert.deepEqual(started, { ok: false, reason: 'not-configured' });
+    await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 2c. Poll edges, boundedness, storage & no-leak safety (added: test-engineer)
+//     Every case drives the state machine through the fetch SEAM — no network.
+//     Positive transitions wait on conditions (waitUntil); the two NON-event
+//     proofs (no re-poll happened) use a bounded delay with a large safety
+//     margin — the only sound way to assert "X did not occur".
+// ---------------------------------------------------------------------------
+
+test('status() while connecting exposes userCode/verificationUri/expiresAt but NO login, NO token, NO device_code', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-connecting-'));
+  const file = join(root, 'github.json');
+  try {
+    const stub: FetchLike = (url) => {
+      if (url === 'https://github.com/login/device/code') {
+        return Promise.resolve(
+          jsonResponse({
+            device_code: 'DEV-CODE-SECRET',
+            user_code: 'ABCD-1234',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900,
+            interval: 0.02,
+          }),
+        );
+      }
+      // Hold the flow in 'connecting' forever so the status shape is stable.
+      return Promise.resolve(jsonResponse({ error: 'authorization_pending' }));
+    };
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.testclientid', fetchImpl: stub });
+    const started = await conn.startDeviceFlow();
+    assert.ok(started.ok, 'flow starts when configured');
+
+    const s = conn.status();
+    assert.equal(s.configured, true);
+    assert.equal(s.state, 'connecting');
+    assert.equal(s.userCode, 'ABCD-1234');
+    assert.equal(s.verificationUri, 'https://github.com/login/device');
+    assert.equal(typeof s.expiresAt, 'string');
+    assert.ok(!('login' in s), 'no login key while connecting');
+    const serialized = JSON.stringify(s);
+    assert.ok(!serialized.includes('DEV-CODE-SECRET'), 'the device_code must NEVER surface in status');
+    assert.ok(!serialized.includes(SECRET), 'no access token while connecting');
+    await assert.rejects(stat(file), 'no github.json is written while merely connecting');
+
+    await conn.disconnect(); // clear the pending poll timer before teardown
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('poll edge: slow_down grows the interval (no re-poll within the original cadence) and keeps connecting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-slow-'));
+  const file = join(root, 'github.json');
+  try {
+    let tokenPolls = 0;
+    const stub: FetchLike = (url) => {
+      if (url === 'https://github.com/login/device/code') {
+        return Promise.resolve(
+          jsonResponse({
+            device_code: 'DC',
+            user_code: 'SLOW-0001',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900,
+            interval: 0.02, // 20ms original cadence
+          }),
+        );
+      }
+      if (url === 'https://github.com/login/oauth/access_token') {
+        tokenPolls += 1;
+        return Promise.resolve(jsonResponse({ error: 'slow_down' }));
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    await conn.startDeviceFlow();
+
+    // Wait for the FIRST token poll (the slow_down) to land.
+    await waitUntil(() => (tokenPolls >= 1 ? true : undefined), 'first token poll', 5000, 5);
+    const afterFirst = tokenPolls;
+    assert.equal(afterFirst, 1);
+
+    // Original cadence was 20ms; slow_down adds +5000ms. Well past 10x the
+    // original interval there is NO second poll (proves the interval grew), and
+    // the flow is still connecting (slow_down is not a failure).
+    await delay(300);
+    assert.equal(tokenPolls, afterFirst, 'slow_down pushed the next poll out past the original 20ms cadence');
+    assert.equal(conn.status().state, 'connecting', 'slow_down keeps polling, does not disconnect');
+
+    await conn.disconnect();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const errCode of ['expired_token', 'access_denied'] as const) {
+  test(`poll edge: ${errCode} -> disconnected, token never stored, polling stops`, async () => {
+    const root = await mkdtemp(join(tmpdir(), `ai-sm-gh-${errCode}-`));
+    const file = join(root, 'github.json');
+    try {
+      let tokenPolls = 0;
+      const stub: FetchLike = (url) => {
+        if (url === 'https://github.com/login/device/code') {
+          return Promise.resolve(
+            jsonResponse({
+              device_code: 'DC',
+              user_code: 'X-CODE',
+              verification_uri: 'https://github.com/login/device',
+              expires_in: 900,
+              interval: 0.02,
+            }),
+          );
+        }
+        if (url === 'https://github.com/login/oauth/access_token') {
+          tokenPolls += 1;
+          return Promise.resolve(jsonResponse({ error: errCode }));
+        }
+        return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+      };
+      const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+      await conn.startDeviceFlow();
+
+      await waitUntil(
+        () => (conn.status().state === 'disconnected' ? true : undefined),
+        `${errCode} disconnect`,
+        5000,
+        5,
+      );
+      assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' });
+      await assert.rejects(stat(file), 'no github.json after a terminal poll error');
+
+      // Polling truly stopped — no further token polls after the terminal error.
+      const settled = tokenPolls;
+      await delay(150);
+      assert.equal(tokenPolls, settled, 'polling stopped after the terminal error');
+
+      await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('bounded: the device-code expiry stops polling and returns to disconnected (never connects, no token)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-expiry-'));
+  const file = join(root, 'github.json');
+  try {
+    let tokenPolls = 0;
+    const stub: FetchLike = (url) => {
+      if (url === 'https://github.com/login/device/code') {
+        return Promise.resolve(
+          jsonResponse({
+            device_code: 'DC',
+            user_code: 'X-CODE',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 0.05, // 50ms lifetime — expires almost immediately
+            interval: 0.02,
+          }),
+        );
+      }
+      if (url === 'https://github.com/login/oauth/access_token') {
+        tokenPolls += 1;
+        return Promise.resolve(jsonResponse({ error: 'authorization_pending' }));
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    await conn.startDeviceFlow();
+
+    await waitUntil(
+      () => (conn.status().state === 'disconnected' ? true : undefined),
+      'expiry disconnect',
+      5000,
+      5,
+    );
+    await assert.rejects(stat(file), 'expiry must never write a token');
+
+    const settled = tokenPolls;
+    await delay(200);
+    assert.equal(tokenPolls, settled, 'polling stopped at expiry — it does not poll forever');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('bounded: polling is hard-capped at MAX_POLLS (exactly 300 token polls) then disconnects', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-maxpolls-'));
+  const file = join(root, 'github.json');
+  try {
+    let tokenPolls = 0;
+    const stub: FetchLike = (url) => {
+      if (url === 'https://github.com/login/device/code') {
+        return Promise.resolve(
+          jsonResponse({
+            device_code: 'DC',
+            user_code: 'X-CODE',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900, // long enough that ONLY MAX_POLLS ends the flow
+            interval: 0.002, // 2ms — drives the cap fast; still bounded
+          }),
+        );
+      }
+      if (url === 'https://github.com/login/oauth/access_token') {
+        tokenPolls += 1;
+        return Promise.resolve(jsonResponse({ error: 'authorization_pending' }));
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    await conn.startDeviceFlow();
+
+    await waitUntil(
+      () => (conn.status().state === 'disconnected' ? true : undefined),
+      'MAX_POLLS disconnect',
+      15000,
+      10,
+    );
+    // pollCount reaches 301, then disconnects WITHOUT a fetch, so EXACTLY 300
+    // token requests are made — never a 301st, never unbounded.
+    assert.equal(tokenPolls, 300, 'exactly MAX_POLLS token polls, then a hard stop');
+    await assert.rejects(stat(file), 'the poll cap must never write a token');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('not configured (empty clientId): status/device/repos/disconnect make ZERO network calls', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-noconf-nofetch-'));
+  try {
+    let fetchCalls = 0;
+    const stub: FetchLike = () => {
+      fetchCalls += 1;
+      return Promise.resolve(jsonResponse({ error: 'should-never-be-called' }, 500));
+    };
+    const conn = new GithubConnection({
+      file: join(root, 'github.json'),
+      log: noop,
+      clientId: '',
+      fetchImpl: stub,
+    });
+    assert.deepEqual(conn.status(), { configured: false, state: 'disconnected' });
+    assert.deepEqual(await conn.startDeviceFlow(), { ok: false, reason: 'not-configured' });
+    await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
+    await conn.disconnect();
+    assert.equal(fetchCalls, 0, 'the not-configured guard short-circuits before any fetch');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('storage: malformed / missing-token / absent github.json on construction -> disconnected, no crash, no fetch', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-storage-'));
+  try {
+    let fetchCalls = 0;
+    const stub: FetchLike = () => {
+      fetchCalls += 1;
+      return Promise.resolve(jsonResponse({}, 500));
+    };
+
+    // (1) invalid JSON on disk
+    const badFile = join(root, 'bad.json');
+    await writeFile(badFile, '{ this is not json', { mode: 0o600 });
+    const c1 = new GithubConnection({ file: badFile, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    assert.deepEqual(c1.status(), { configured: true, state: 'disconnected' }, 'malformed json -> disconnected');
+
+    // (2) valid JSON object but no accessToken field
+    const noTokFile = join(root, 'notoken.json');
+    await writeFile(noTokFile, JSON.stringify({ login: 'octocat', scope: 'repo' }), { mode: 0o600 });
+    const c2 = new GithubConnection({ file: noTokFile, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    assert.deepEqual(c2.status(), { configured: true, state: 'disconnected' }, 'missing accessToken -> disconnected');
+
+    // (3) absent file entirely
+    const c3 = new GithubConnection({ file: join(root, 'absent.json'), log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    assert.deepEqual(c3.status(), { configured: true, state: 'disconnected' }, 'absent file -> disconnected');
+
+    assert.equal(fetchCalls, 0, 'construction + status never touch the network');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('listRepos: sends the stored token as a Bearer, drops unmappable entries, stops after a short page', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-repos-'));
+  const file = join(root, 'github.json');
+  try {
+    await writeFile(
+      file,
+      JSON.stringify({ accessToken: SECRET, login: 'octocat', scope: 'repo', connectedAt: '2026-07-24T00:00:00Z' }),
+      { mode: 0o600 },
+    );
+    let repoFetches = 0;
+    let authHeader: string | undefined;
+    const stub: FetchLike = (url, init) => {
+      if (url.startsWith('https://api.github.com/user/repos')) {
+        repoFetches += 1;
+        const h = (init?.headers ?? {}) as Record<string, string>;
+        authHeader = h['Authorization'];
+        // One valid repo + one unmappable (no clone_url): the bad one is dropped;
+        // length 2 < REPOS_PER_PAGE(100) signals the last page -> no 2nd fetch.
+        return Promise.resolve(
+          jsonResponse([RAW_REPO, { full_name: 'o/x', name: 'x', owner: { login: 'o' } }]),
+        );
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
+    assert.equal(conn.status().state, 'connected', 'stored token -> connected on boot');
+
+    const repos = await conn.listRepos();
+    assert.equal(repos.length, 1, 'unmappable entries are dropped');
+    assert.equal(repos[0]!.fullName, 'octocat/hello');
+    assert.equal(repoFetches, 1, 'a short page (<100) stops pagination after one request');
+    assert.equal(authHeader, `Bearer ${SECRET}`, 'the stored token is sent as a Bearer (server-side only)');
+    assert.ok(!JSON.stringify(repos).includes(SECRET), 'the mapped repo list never contains the token');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
