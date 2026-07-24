@@ -1,8 +1,8 @@
 ---
 type: decision
 created: 2026-07-23
-updated: 2026-07-23
-tags: [launcher, windows, webview2, native-host, icon]
+updated: 2026-07-24
+tags: [launcher, windows, webview2, native-host, icon, chrome]
 ---
 # Native WebView2 host to own the Windows taskbar icon
 
@@ -86,11 +86,36 @@ window** — NOT full Tauri:
 - Backend lifetime stays presence-bound: the host holds the presence WS like
   the browser window does today (see [[lifecycle-bound-backend]]).
 
+## Follow-up decision (2026-07-24): dark window chrome, DWM route
+
+Owning the window brought its **caption bar** with it — DWM draws it, the page
+cannot, so a maximized host showed a white Windows caption + "AI Session
+Manager" above the dark UI. User reported it; **user chose the DWM-coloring
+route** (2026-07-24).
+
+Shipped: on `HandleCreated`, `DwmSetWindowAttribute` sets immersive dark mode
+(attribute `20`, legacy fallback `19`) plus `DWMWA_CAPTION_COLOR` (35),
+`DWMWA_TEXT_COLOR` (36) and `DWMWA_BORDER_COLOR` (34) from the CSS tokens
+(`--bg-app` `#171D25`, `--text-hd` `#AAB7C4`, `--edge` `#262F3B`). The color
+attributes are **Windows 11 22000+ only**; on Windows 10 they fail and the
+caption degrades to plain dark mode — acceptable, not worked around.
+
+**Rejected (for now): frameless window + custom in-page title strip.** The
+user's stated aesthetic preference, and the fully integrated result — but it
+means removing the caption via `WM_NCCALCSIZE` while preserving resize edges,
+Aero Snap and double-click-maximize, plus a host↔page message bridge for drag
+and min/max/close (WebView2 has no Electron `-webkit-app-region`). Traded away
+for ~20 lines with no window-interaction risk. Still available as a later
+upgrade if the separate bar grates; revisit alongside the Tauri shell.
+
 ## Notes
 
 - Lands through `/dev-flow`; it reworks the launch chain, so it wants a
-  design pass first. Not a quick edit.
+  design pass first. Not a quick edit. (The 2026-07-24 chrome follow-up was
+  one file / ~20 lines and went direct, per the trivial-edit carve-out.)
 - The `wsl-launcher` agent's full structural proof is in this session's log.
+- Keep the token constants in `AiSessionManagerHost.cs` in sync with
+  `web/src/styles/tokens.css` — nothing enforces it (no C# in the test suite).
 
 Related: [[thin-windows-launcher]], [[lifecycle-bound-backend]],
 [[auto-port-discovery]], [[localhost-security-model]]

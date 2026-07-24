@@ -6,7 +6,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
-- [[native-webview2-host]] — 2026-07-23: fix the Edge-logo taskbar icon by bringing a lightweight WebView2 host forward (not Tauri); cheap AUMID/shortcut fix proven structurally impossible here
+- [[native-webview2-host]] — 2026-07-23: fix the Edge-logo taskbar icon by bringing a lightweight WebView2 host forward (not Tauri); cheap AUMID/shortcut fix proven structurally impossible here. **+2026-07-24: dark window chrome via DWM caption/text/border colors — user chose this over a frameless window with a custom title strip (still available later)**
 - [[github-integration]] — 2026-07-23: app can create projects + connect to GitHub (OAuth device flow, user's call); v1 = full create-local / clone / create-repo; token stays server-side
 - [[launch-dialog-custom-escape-hatch]] — 2026-07-20: launch dialog gains a `custom · any command` chip (user's call over claude-only), preserving configurable command + args in the GUI
 - [[handoff-design-primary]] — 2026-07-20 flip: the user's hi-fi handoff is the primary design source; bottom tab strip; modal launch dialog
@@ -29,6 +29,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-24-dark-window-chrome]] — white native title bar FIXED: DWM caption/text/border colors from the CSS tokens on the WebView2 host (user picked this over frameless); verified by compiling on Windows + a `PrintWindow` capture reading `#171D25`; gotcha: use `PrintWindow`, not a screen grab, when the foreground lock blocks activation
 - [[2026-07-24-github-build]] — **Phase 2 COMPLETE**: project creation (blank + URL clone + picker) → GitHub OAuth device-flow connection + repo listing → token-auth clone-by-pick + create-repo. Token server-side 0600, never leaked (host-locked clone resisted every exfil bypass); config-driven/dormant until `AI_SM_GITHUB_CLIENT_ID`; security CLEAN every phase; suite→288. **Blocked-on-user: register the OAuth App + set the client_id; live verify-terminal pass**
 - [[2026-07-24-status-bar]] — design intake committed; per-pane terminal status bar SHIPPED (real-or-omit telemetry from git + Claude logs; usage% deferred not faked); suite 162→222; 3 user decisions recorded (status-bar-first, git-init toggle, `repo` OAuth scope); **verify-terminal live pass pending; Phase 2 GitHub build started**
 - [[2026-07-23-webview2-host-shipped]] — WebView2 host shipped + Edge taskbar icon FIXED (user-confirmed); \\wsl.localhost exe-launch regression found & fixed; **guidelines for tomorrow: design reconciliation → GitHub build**
