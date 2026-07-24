@@ -102,6 +102,20 @@ and multi-pane layouts on top.
   local session logs — informational only; the app cannot change
   account-side limits). Not in v1: enforcing usage limits, subscription
   plan display.
+- **Per-pane terminal status bar — added 2026-07-24 (user's design intake).**
+  A thin status strip at the bottom of each terminal pane showing configurable
+  per-session telemetry, toggled in a "Terminal status bar" section of the
+  settings panel (config persisted server-side in `prefs.json`, NOT
+  localStorage — the prototype's localStorage is overridden by our
+  port-churn lesson). Items and honest data sources: **model** and
+  **permission mode** (launch config); **git branch** and **lines changed**
+  (git probe / `--numstat` in the session cwd); **session time** (our
+  `startedAt`); **cost** and **context window** (derived from the session's
+  own Claude Code JSONL log, mapped by cwd-slug + newest-after-spawn →
+  `sessionId`, latest assistant `usage` block × model pricing). **Deferred /
+  not faked: `usage %`** — that is an account rate-limit percentage that
+  lives in live API response headers, not the local logs; shown only if a
+  real source appears. An item renders only when its real value exists.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's
   call; shape decided the same day.** The app stops being a passive
   registrar of existing directories and can *create* projects itself, and
@@ -112,10 +126,17 @@ and multi-pane layouts on top.
     revocable token is stored **server-side** in the data dir beside
     `prefs.json` (never in localStorage, never returned to the browser).
   - **v1 is the full shape** (user's call over a local-only first slice):
-    (1) **create a local project** — new directory + `git init` + register
-    in `projects.json`; (2) **clone from GitHub** — list the user's repos
-    in-app and clone a chosen one into a new project; (3) **create a new
-    GitHub repo** from the app (local + create/push the remote).
+    (1) **create a local project** — new directory + register in
+    `projects.json`, with an **"Initialize git repo" toggle (default on)**
+    controlling the `git init` (decided 2026-07-24, reconciling the
+    prototype's "no git init" caption with the earlier always-init: user
+    chose a per-create toggle); (2) **clone from GitHub** — list the user's
+    repos in-app and clone a chosen one into a new project; (3) **create a
+    new GitHub repo** from the app (local + create/push the remote).
+  - **OAuth scope = `repo` (write) up front** (decided 2026-07-24, over a
+    read-only-then-escalate flow): a single device-flow grant covers list +
+    clone + create-repo + push with no re-auth, matching the full v1 shape.
+    The prototype's "read-only by default" caption is superseded.
   - **Security gate (non-negotiable):** the OAuth token is a new stored
     credential on a localhost service that already spawns shells. Every
     GitHub-touching endpoint stays behind the same token-auth +
