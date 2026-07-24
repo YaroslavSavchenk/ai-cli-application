@@ -23,10 +23,12 @@
  * Untrusted display: every path (fs-derived) and url basename renders via
  * textContent — never innerHTML.
  */
+import type { CreateProjectRequest, PermissionMode } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { openFolderPicker } from './picker.ts';
+import { MODELS } from './launch-args.ts';
 import {
   parentDir,
   suggestProjectPath,
@@ -145,13 +147,54 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     gitBox.textContent = gitInit ? '✓' : '';
   }
 
+  // Optional per-project launch defaults — mirror the settings panel's
+  // "no default" select idiom (blank → the field is OMITTED from the request).
+  // The dialog's own .launch-field / .launch-lb styling; PermissionMode here is
+  // the TWO-value PROJECT default ('standard' | 'skip-permissions'), not the
+  // four CLI launch modes.
+  const modelField = el('label', 'launch-field');
+  const modelLb = el('span', 'launch-lb', 'Default model ');
+  modelLb.append(el('span', 'np-optional', '(optional)'));
+  modelField.append(modelLb);
+  const modelSel = el('select');
+  modelSel.name = 'defaultModel';
+  const modelNone = el('option', '', 'no default');
+  modelNone.value = '';
+  modelSel.append(modelNone);
+  for (const m of MODELS) {
+    const opt = el('option', '', m);
+    opt.value = m;
+    modelSel.append(opt);
+  }
+  modelField.append(modelSel);
+
+  const modeField = el('label', 'launch-field');
+  const modeLb = el('span', 'launch-lb', 'Default permission mode ');
+  modeLb.append(el('span', 'np-optional', '(optional)'));
+  modeField.append(modeLb);
+  const modeSel = el('select');
+  modeSel.name = 'defaultMode';
+  const modeNone = el('option', '', 'no default');
+  modeNone.value = '';
+  modeSel.append(modeNone);
+  const modeOpts: { value: PermissionMode; label: string }[] = [
+    { value: 'standard', label: 'standard' },
+    { value: 'skip-permissions', label: 'skip permissions (danger)' },
+  ];
+  for (const o of modeOpts) {
+    const opt = el('option', '', o.label);
+    opt.value = o.value;
+    modeSel.append(opt);
+  }
+  modeField.append(modeSel);
+
   const blankCaption = el(
     'div',
     'np-caption',
     'creates the folder and registers it under Projects',
   );
 
-  blankPanel.append(nameField, blankPathField, gitRow, blankCaption);
+  blankPanel.append(nameField, blankPathField, gitRow, modelField, modeField, blankCaption);
 
   // Clone panel -------------------------------------------------------------
   const clonePanel = el('div', 'np-panel');
@@ -342,9 +385,15 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
       showErr('choose a location with Browse');
       return;
     }
+    // Optional per-project defaults: blank/"no default" → omit the field.
+    const body: Omit<CreateProjectRequest, 'create'> = { name, path, gitInit };
+    const modelVal = modelSel.value;
+    if (modelVal !== '') body.defaultModel = modelVal;
+    const modeVal = modeSel.value;
+    if (modeVal === 'standard' || modeVal === 'skip-permissions') body.defaultMode = modeVal;
     primary.disabled = true;
     try {
-      const p = await api.createLocalProject({ name, path, gitInit });
+      const p = await api.createLocalProject(body);
       st.setProjects([...st.state.projects, p]);
       close();
     } catch (e) {
@@ -406,6 +455,8 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     cloneChosen = '';
     gitInit = true;
     syncGit();
+    modelSel.value = '';
+    modeSel.value = '';
     err.hidden = true;
     setMode('blank');
     renderBlankPath();
