@@ -29,24 +29,26 @@ import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { openFolderPicker } from './picker.ts';
 import { MODELS } from './launch-args.ts';
+import { createGithubPanel } from './github.ts';
 import {
   parentDir,
   suggestProjectPath,
   suggestDestPath,
 } from './newproject-model.ts';
 
-type Mode = 'blank' | 'clone';
+type Mode = 'blank' | 'clone' | 'github';
 
 interface NewProjectCtl {
-  open(): void;
+  open(mode?: Mode): void;
   close(): void;
   isOpen(): boolean;
 }
 
 let ctl: NewProjectCtl | null = null;
 
-export function openNewProjectDialog(): void {
-  ctl?.open();
+/** Open the dialog, optionally straight onto a given tab (the GitHub chip uses 'github'). */
+export function openNewProjectDialog(mode?: Mode): void {
+  ctl?.open(mode);
 }
 
 export function closeNewProjectDialog(): void {
@@ -93,6 +95,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   const tabDefs: { mode: Mode; label: string }[] = [
     { mode: 'blank', label: 'Blank local' },
     { mode: 'clone', label: 'Clone repo' },
+    { mode: 'github', label: 'GitHub' },
   ];
   const tabBtns = new Map<Mode, HTMLButtonElement>();
   for (const t of tabDefs) {
@@ -225,11 +228,17 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
 
   clonePanel.append(urlField, destField, clonePreview);
 
+  // GitHub panel (Phase 2b) — the third tab. All GitHub UI + the status
+  // controller live in ui/github.ts; this dialog only mounts the panel and
+  // tells it when its tab is active (which drives the poll cadence).
+  const githubPanel = createGithubPanel();
+  githubPanel.el.hidden = true;
+
   const err = el('div', 'form-err');
   err.setAttribute('role', 'alert');
   err.hidden = true;
 
-  body.append(blankPanel, clonePanel, err);
+  body.append(blankPanel, clonePanel, githubPanel.el, err);
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'launch-ft');
@@ -310,9 +319,22 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     }
     blankPanel.hidden = next !== 'blank';
     clonePanel.hidden = next !== 'clone';
+    githubPanel.el.hidden = next !== 'github';
+    githubPanel.setActive(next === 'github');
+    // GitHub is VIEW-ONLY here (no create action) — the footer primary is
+    // hidden; the panel carries its own Connect/Disconnect controls.
+    primary.hidden = next === 'github';
     primary.textContent = next === 'clone' ? 'Clone ▸' : 'Create project';
+    note.textContent =
+      next === 'clone'
+        ? 'clones, then registers under Projects'
+        : next === 'github'
+          ? 'browse your GitHub repositories'
+          : 'registers under Projects';
     err.hidden = true;
-    (next === 'blank' ? nameInput : urlInput).focus();
+    // github: the panel handles its own focus (Connect / search / Cancel).
+    if (next === 'blank') nameInput.focus();
+    else if (next === 'clone') urlInput.focus();
   }
 
   nameInput.addEventListener('input', renderBlankPath);
@@ -443,10 +465,13 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   // ---- open / close --------------------------------------------------------
   let restoreTo: HTMLElement | null = null;
 
-  function open(): void {
-    if (!scrim.hidden) return;
+  function open(initialMode: Mode = 'blank'): void {
+    if (!scrim.hidden) {
+      setMode(initialMode); // already open (e.g. GitHub chip) → just switch tabs
+      return;
+    }
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Reset to a clean blank-mode form each open.
+    // Reset to a clean form each open.
     nameInput.value = '';
     urlInput.value = '';
     blankTouched = false;
@@ -458,12 +483,11 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     modelSel.value = '';
     modeSel.value = '';
     err.hidden = true;
-    setMode('blank');
     renderBlankPath();
     renderClonePath();
     renderClonePreview();
     scrim.hidden = false;
-    nameInput.focus();
+    setMode(initialMode); // unhidden first so the per-mode focus lands
     // Resolve home (+ whether ~/projects exists) once, then refresh suggestions.
     void ensureHome().then(() => {
       if (scrim.hidden) return;
@@ -475,6 +499,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
 
   function close(): void {
     if (scrim.hidden || cloning) return; // never close mid-clone
+    githubPanel.setActive(false); // pause the GitHub poll cadence
     scrim.hidden = true;
     if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();
     restoreTo = null;

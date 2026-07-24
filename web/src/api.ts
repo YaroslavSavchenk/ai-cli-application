@@ -12,6 +12,8 @@ import type {
   CreateSessionRequest,
   FsListResponse,
   FsMkdirResponse,
+  GithubReposResponse,
+  GithubStatus,
   OkResponse,
   PreviousSession,
   Project,
@@ -40,6 +42,18 @@ export class ApiError extends Error {
 
 export function authToken(): string {
   return window.__AUTH__;
+}
+
+/**
+ * POST /api/github/device success body. The protocol has no named type for it
+ * (it mirrors the connecting-only fields of GithubStatus); typed here for the
+ * client. NEVER carries a token — the device_code stays 100% server-side.
+ */
+export interface GithubDeviceResponse {
+  userCode: string;
+  verificationUri: string;
+  /** ISO-8601 expiry of the device code. */
+  expiresAt: string;
 }
 
 /**
@@ -205,4 +219,34 @@ export function getTelemetry(): Promise<TelemetryResponse> {
 export function fsList(path?: string): Promise<FsListResponse> {
   const suffix = path !== undefined && path !== '' ? `?path=${encodeURIComponent(path)}` : '';
   return request<FsListResponse>(`/api/fs/list${suffix}`);
+}
+
+// ---------------------------------------------------------------------------
+// GitHub connection (Phase 2b) — OAuth device flow. The token is 100%
+// server-side; these calls never send or receive it. Behind the same
+// X-Auth-Token + Origin/Host gate request() already applies.
+// ---------------------------------------------------------------------------
+
+/** Current connection status (configured? · disconnected|connecting|connected). */
+export function githubStatus(): Promise<GithubStatus> {
+  return request<GithubStatus>('/api/github/status');
+}
+
+/**
+ * Start the device flow: 200 { userCode, verificationUri, expiresAt }, or a 409
+ * ApiError when the server has no OAuth client id configured (not-configured).
+ */
+export function githubDevice(): Promise<GithubDeviceResponse> {
+  return request<GithubDeviceResponse>('/api/github/device', { method: 'POST' });
+}
+
+/** Drop the LOCAL token (deletes github.json server-side); never revokes the grant. */
+export function githubDisconnect(): Promise<OkResponse> {
+  return request<OkResponse>('/api/github/disconnect', { method: 'POST' });
+}
+
+/** List the connected account's repos (filtered by `q`); 409 when not connected. */
+export function githubRepos(q?: string): Promise<GithubReposResponse> {
+  const suffix = q !== undefined && q !== '' ? `?q=${encodeURIComponent(q)}` : '';
+  return request<GithubReposResponse>(`/api/github/repos${suffix}`);
 }

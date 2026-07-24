@@ -2480,6 +2480,332 @@ kbd {
   animation: spin var(--t-spin) linear infinite;
 }
 
+/* ---- GitHub connection (Phase 2b) -------------------------------------------
+   The top-bar chip + the New Project dialog's GitHub tab. Reuses the launch /
+   newproject idioms and the .np-spinner (spin keyframe); the ONLY off-scale
+   literals are the oversized device-code readout (22px / 6px ls — a deliberate
+   display-size one-off, no mono token for it) and the 8px language dot / 30px
+   compact search (matching the prototype). Repo language colors are
+   GitHub-Linguist DATA set inline in ui/github.ts, NOT app tokens. */
+
+/* top-bar chip: a .tb-btn with a status dot + mono label */
+.tb-gh-lb {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+}
+
+.tb-gh-dot {
+  flex: none;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.tb-gh-dot.is-off {
+  background: var(--text-faint);
+}
+
+.tb-gh-dot.is-disconnected {
+  background: var(--text-dim);
+}
+
+.tb-gh-dot.is-connecting {
+  background: var(--attn);
+}
+
+.tb-gh-dot.is-connected {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok-glow); /* sanctioned: handoff connected glow */
+}
+
+/* centered state card: checking / not-set-up / disconnected / connecting */
+.gh-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-6);
+  padding: var(--dlg-pad-x);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-card-sm);
+  text-align: center;
+}
+
+.gh-avatar {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--well);
+  border: var(--line) solid var(--edge-strong);
+  font-family: var(--font-mono);
+  font-size: var(--fs-name);
+  font-weight: 700;
+  color: var(--text-hd);
+}
+
+.gh-avatar.is-sm {
+  width: 26px;
+  height: 26px;
+  font-size: var(--fs-status);
+}
+
+.gh-avatar.is-me {
+  background: var(--acc-tint);
+  border-color: var(--acc);
+  color: var(--acc);
+}
+
+.gh-title {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.gh-body {
+  max-width: 380px;
+  font-size: var(--fs-name);
+  color: var(--text-mute);
+  line-height: 1.55;
+}
+
+.gh-fine {
+  max-width: 360px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* a code token (repo / env var) inside sans OR mono copy: mono + accent */
+.gh-mono-acc {
+  font-family: var(--font-mono);
+  color: var(--acc);
+}
+
+/* accent "Connect with GitHub" — the accent twin of .btn-go's glow-on-hover */
+.gh-connect {
+  height: var(--ctl-h-lg);
+  padding: 0 var(--s-8);
+  background: var(--acc-tint);
+  border: var(--line) solid var(--acc);
+  border-radius: var(--r-field);
+  color: var(--acc);
+  font-size: var(--fs-name);
+  font-weight: 600;
+}
+
+.gh-connect:hover {
+  box-shadow: 0 0 18px var(--acc-glow); /* sanctioned: accent "go" glow */
+}
+
+.gh-connect:disabled {
+  opacity: 0.55;
+}
+
+/* connecting */
+.gh-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  font-size: var(--fs-row);
+  color: var(--text);
+}
+
+.gh-instruct {
+  font-size: var(--fs-name);
+  color: var(--text-mute);
+  line-height: 1.5;
+}
+
+.gh-uri {
+  font-family: var(--font-mono);
+  color: var(--acc);
+}
+
+.gh-code {
+  font-family: var(--font-mono);
+  font-size: 22px; /* off-scale one-off: oversized device-code readout */
+  letter-spacing: 6px;
+  color: var(--text);
+  background: var(--well);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-field);
+  padding: var(--s-6) var(--dlg-pad-x);
+}
+
+.gh-expiry {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+/* small mono action (Cancel / disconnect) — hover + armed go danger */
+.gh-mini {
+  height: var(--ctl-h);
+  padding: 0 var(--s-5);
+  background: transparent;
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.gh-mini:hover,
+.gh-mini[data-armed='1'] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* connected */
+.gh-connected {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dlg-gap);
+}
+
+.gh-me {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-5) var(--s-6);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-box);
+}
+
+.gh-me-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.gh-me-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-name);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.gh-me-sub {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ok);
+}
+
+.gh-revoke-note {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.gh-search {
+  height: 30px; /* compact search field (prototype) */
+  padding: 0 var(--s-5);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-field);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+}
+
+.gh-search:focus {
+  border-color: var(--edge-accent);
+}
+
+.gh-repos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+/* VIEW-ONLY repo card (2b): NO per-repo action — the clone/open button is 2c */
+.gh-repo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-5) var(--s-6);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-box);
+}
+
+.gh-repo-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.gh-repo-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-name);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gh-badge {
+  flex: none;
+  padding: 0 var(--s-3);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tag);
+  color: var(--text-dim);
+}
+
+.gh-badge.is-private {
+  color: var(--attn);
+  border-color: var(--attn);
+}
+
+.gh-repo-desc {
+  font-size: var(--fs-label);
+  color: var(--text-mute);
+}
+
+.gh-repo-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+}
+
+.gh-lang-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.gh-meta-sep {
+  color: var(--text-faint);
+}
+
+.gh-msg {
+  padding: var(--s-7);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+}
+
+.gh-msg.is-err {
+  color: var(--danger);
+}
+
 /* ---- folder picker (Phase 2a) — real /api/fs/list + /api/fs/mkdir -----------
    Gradient header (reused), breadcrumb + up nav, quick zones, the existing
    .dirlist/.dir-btn folder list, a new-folder row, and a Select-folder footer.

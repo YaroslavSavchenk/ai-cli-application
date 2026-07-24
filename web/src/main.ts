@@ -41,7 +41,9 @@ import {
   initNewProjectDialog,
   isNewProjectDialogOpen,
   closeNewProjectDialog,
+  openNewProjectDialog,
 } from './ui/newproject.ts';
+import { createGithubChip, initGithub } from './ui/github.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import { startPresence } from './ws.ts';
 import { el, button } from './ui/util.ts';
@@ -273,10 +275,14 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const connTxt = el('span', '', 'connected');
   conn.append(connDot, connTxt);
 
+  // GitHub chip: live status dot + label; opens the New Project dialog on its
+  // GitHub tab (honest setup panel when the feature is dormant).
+  const ghChip = createGithubChip(() => openNewProjectDialog('github'));
+
   const newBtn = button('btn-go', '+ New session', () => openLaunchDialog());
   newBtn.title = 'launch a session (ctrl+alt+t)';
 
-  topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, settingsBtn, projectsBtn, sessionsBtn, divider, conn, newBtn);
+  topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, settingsBtn, projectsBtn, sessionsBtn, divider, conn, ghChip, newBtn);
 
   // ---- middle row: drawers are flex siblings of the grid --------------------
   const main = el('div', 'main');
@@ -310,7 +316,8 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const settings = initSettings(modalHost, settingsBtn);
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
-  initNewProjectDialog(modalHost); // Projects-drawer `+ add` opens it.
+  initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.
+  initGithub(); // one status fetch → the GitHub chip is honest from first paint.
   const tabs = initTabs(strip);
   const shortcuts = initShortcuts(modalHost);
   const status = initStatusline(statusline, {
