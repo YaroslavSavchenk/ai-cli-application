@@ -27,14 +27,28 @@
  * GitHub tab is open; otherwise PAUSED. A single status fetch on chip mount
  * (initGithub) and on tab open keeps the chip honest without hammering a
  * disconnected/closed app.
+ *
+ * This module owns the DOM, the timers, and the api/state calls ONLY. The pure
+ * presentation decisions it renders — chip view, expiry/relative-time formats,
+ * language colors, cadence intervals, clone-error copy — live in
+ * ./github-model.ts, which is DOM-free and unit-tested.
  */
 import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, armButton } from './util.ts';
-import { joinPath } from './newproject-model.ts';
-
-const GH_POLL_MS = 2500;
+import {
+  GH_SEARCH_DEBOUNCE_MS,
+  chipView,
+  clonedProject,
+  cloneErrText,
+  defaultDest,
+  expiryTickMs,
+  fmtExpiry,
+  langColor,
+  pollIntervalMs,
+  relTime,
+} from './github-model.ts';
 
 // ---------------------------------------------------------------------------
 // Shared controller state
@@ -63,7 +77,8 @@ function emit(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2c helpers: home resolution, already-cloned detection, error mapping.
+// Phase 2c helpers: home resolution + ApiError narrowing (the destination path,
+// already-cloned detection, and the error copy itself live in github-model.ts).
 // ---------------------------------------------------------------------------
 
 /**
@@ -85,37 +100,13 @@ async function ensureHome(): Promise<string | null> {
   return homeDir;
 }
 
-/** Default clone destination for a repo: `<home>/projects/<repo.name>`. */
-function defaultDest(home: string, name: string): string {
-  return joinPath(joinPath(home, 'projects'), name);
-}
-
-/**
- * The local Project a repo already maps to, or null. Matches by NAME or by the
- * default clone path (`<home>/projects/<repo.name>`) — path-match needs `home`,
- * name-match works without it (so detection is live before home resolves).
- */
-function clonedProject(r: GithubRepo, home: string | null): Project | null {
-  const dest = home !== null ? defaultDest(home, r.name) : null;
-  for (const p of st.state.projects) {
-    if (p.name === r.name) return p;
-    if (dest !== null && p.path === dest) return p;
-  }
-  return null;
-}
-
 /**
  * Honest clone-error copy: prefer the server's real `{error}` message; fall
- * back to friendly text only for a bare `HTTP <status>` (no body). 409 =
- * a non-empty destination already exists; 502 = the git clone itself failed.
+ * back to friendly text only for a bare `HTTP <status>` (no body) — that
+ * status→copy mapping lives in github-model.cloneErrText.
  */
 function cloneErr(e: unknown): string {
-  if (e instanceof api.ApiError) {
-    if (e.message !== `HTTP ${e.status}`) return e.message;
-    if (e.status === 409) return 'a folder already exists there';
-    if (e.status === 502) return 'clone failed';
-    return e.message;
-  }
+  if (e instanceof api.ApiError) return cloneErrText(e.status, e.message);
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -123,14 +114,11 @@ function onGithubUpdate(cb: () => void): void {
   listeners.add(cb);
 }
 
-/** Fast poll while connecting or while the dialog's GitHub tab is open. */
-function fast(): boolean {
-  return tabOpen || status?.state === 'connecting';
-}
-
+/** Fast poll while connecting or while the dialog's GitHub tab is open (paused otherwise). */
 function syncTimer(): void {
-  if (fast()) {
-    if (timer === null) timer = window.setInterval(() => void poll(), GH_POLL_MS);
+  const ms = pollIntervalMs(tabOpen, status);
+  if (ms !== null) {
+    if (timer === null) timer = window.setInterval(() => void poll(), ms);
   } else if (timer !== null) {
     clearInterval(timer);
     timer = null;
@@ -200,61 +188,6 @@ function setTabOpen(open: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
-// GitHub Linguist language colors — EXTERNAL DATA (a language's canonical
-// color), deliberately NOT app-palette tokens and NOT in tokens.css. Set inline
-// on the language dot so it carries real information; an unknown language shows
-// NO dot (never an arbitrary hue).
-// ---------------------------------------------------------------------------
-const LANG_COLOR: Record<string, string> = {
-  TypeScript: '#3178c6',
-  JavaScript: '#f1e05a',
-  Python: '#3572A5',
-  Go: '#00ADD8',
-  Rust: '#dea584',
-  Java: '#b07219',
-  'C++': '#f34b7d',
-  C: '#555555',
-  'C#': '#178600',
-  Ruby: '#701516',
-  PHP: '#4F5D95',
-  Shell: '#89e051',
-  HTML: '#e34c26',
-  CSS: '#563d7c',
-  Vue: '#41b883',
-  Swift: '#F05138',
-  Kotlin: '#A97BFF',
-  Dart: '#00B4AB',
-  Scala: '#c22d40',
-  Elixir: '#6e4a7e',
-  Lua: '#000080',
-  'Objective-C': '#438eff',
-  Haskell: '#5e5086',
-  Clojure: '#db5855',
-  R: '#198CE7',
-  Perl: '#0298c3',
-  Zig: '#ec915c',
-  Nix: '#7e7eff',
-};
-
-/** Compact relative time for the repo "pushed …" line; '' for absent/bad input. */
-function relTime(iso?: string): string {
-  if (iso === undefined || iso === '') return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const sec = Math.floor((Date.now() - t) / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
-}
-
-// ---------------------------------------------------------------------------
 // Top-bar chip
 // ---------------------------------------------------------------------------
 
@@ -276,31 +209,11 @@ export function createGithubChip(openTab: () => void): HTMLButtonElement {
   chip.append(dot, lb);
 
   function render(): void {
-    const s = status;
-    let cls = 'is-off';
-    let label = 'GitHub';
-    let aria = 'GitHub';
-    if (s !== null && s.configured) {
-      if (s.state === 'connected') {
-        cls = 'is-connected';
-        label = `@${s.login ?? ''}`;
-        aria = `GitHub — connected as ${s.login ?? ''}`;
-      } else if (s.state === 'connecting') {
-        cls = 'is-connecting';
-        label = 'connecting…';
-        aria = 'GitHub — connecting';
-      } else {
-        cls = 'is-disconnected';
-        label = 'Connect GitHub';
-        aria = 'GitHub — connect your account';
-      }
-    } else if (s !== null && !s.configured) {
-      aria = 'GitHub — not set up on this server';
-    }
-    dot.className = `tb-gh-dot ${cls}`;
-    lb.textContent = label; // untrusted login → textContent
-    chip.setAttribute('aria-label', aria);
-    chip.title = aria;
+    const v = chipView(status);
+    dot.className = `tb-gh-dot is-${v.state}`;
+    lb.textContent = v.label; // untrusted login → textContent
+    chip.setAttribute('aria-label', v.aria);
+    chip.title = v.aria;
   }
 
   render();
@@ -654,20 +567,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   let lastReposVersion = -1;
 
   function renderExpiry(): void {
-    const iso = status?.expiresAt;
-    if (iso === undefined) {
-      expiryEl.textContent = '';
-      return;
-    }
-    const ms = new Date(iso).getTime() - Date.now();
-    if (Number.isNaN(ms) || ms <= 0) {
-      expiryEl.textContent = 'code expired — cancel and retry';
-      return;
-    }
-    const s = Math.floor(ms / 1000);
-    const mm = String(Math.floor(s / 60)).padStart(2, '0');
-    const ss = String(s % 60).padStart(2, '0');
-    expiryEl.textContent = `expires in ${mm}:${ss}`;
+    expiryEl.textContent = fmtExpiry(status?.expiresAt, Date.now());
   }
 
   function render(): void {
@@ -735,7 +635,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     const meta = el('div', 'gh-repo-meta');
     let hasLang = false;
     if (r.language !== undefined && r.language !== '') {
-      const color = LANG_COLOR[r.language];
+      const color = langColor(r.language);
       if (color !== undefined) {
         const d = el('span', 'gh-lang-dot');
         d.style.background = color; // Linguist DATA color, not a palette token
@@ -745,7 +645,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       meta.append(el('span', 'gh-meta-t', r.language)); // untrusted → textContent
       hasLang = true;
     }
-    const pushed = relTime(r.pushedAt);
+    const pushed = relTime(r.pushedAt, Date.now());
     if (pushed !== '') {
       if (hasLang) meta.append(el('span', 'gh-meta-sep', '·'));
       meta.append(el('span', 'gh-meta-t', `pushed ${pushed}`));
@@ -761,7 +661,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     /** Repaint the action + status area from current state (cloning set + projects). */
     function paint(): void {
       const inFlightClone = cloning.has(r.fullName);
-      const project = clonedProject(r, homeDir);
+      const project = clonedProject(r, homeDir, st.state.projects);
       actionSlot.replaceChildren();
       statusSlot.replaceChildren();
       statusSlot.hidden = true;
@@ -832,9 +732,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   // ---- expiry ticker (1 s while active + connecting) ------------------------
   let expTimer: number | null = null;
   function syncExpiryTimer(): void {
-    const want = active && status?.configured === true && status.state === 'connecting';
-    if (want) {
-      if (expTimer === null) expTimer = window.setInterval(renderExpiry, 1000);
+    const ms = expiryTickMs(active, status);
+    if (ms !== null) {
+      if (expTimer === null) expTimer = window.setInterval(renderExpiry, ms);
     } else if (expTimer !== null) {
       clearInterval(expTimer);
       expTimer = null;
@@ -845,7 +745,10 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   let searchTimer: number | null = null;
   searchInput.addEventListener('input', () => {
     if (searchTimer !== null) clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(() => void loadRepos(searchInput.value.trim()), 300);
+    searchTimer = window.setTimeout(
+      () => void loadRepos(searchInput.value.trim()),
+      GH_SEARCH_DEBOUNCE_MS,
+    );
   });
 
   function focusFirst(): void {

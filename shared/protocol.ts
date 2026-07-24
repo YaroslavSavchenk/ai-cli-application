@@ -398,6 +398,15 @@ export interface TelemetryResponse {
 // { configured:false }, repos -> 409) and never crashes. No client_secret is
 // used or stored (a public OAuth app's device flow needs none). Scope = `repo`.
 //
+// Config: env AI_SM_GITHUB_API_BASE re-points the REST API base
+// (https://api.github.com by default). UNSET IN NORMAL USE — it exists only as a
+// test seam, so the offline suite can stand a local stub in for GitHub. It is
+// the variable that decides WHERE THE OAUTH BEARER TOKEN IS SENT, so it accepts
+// LOOPBACK ORIGINS ONLY (127.0.0.1 / [::1] / localhost, bare origin, no
+// credentials); any other value makes the server refuse to start. It moves
+// nothing else: the device-flow urls (github.com/login/...) and the clone
+// host-lock (exactly github.com) stay hardcoded.
+//
 // Endpoints (ALL behind the same X-Auth-Token + Origin/Host gate as every /api
 // route):
 //   POST /api/github/device     -> 200 { userCode, verificationUri, expiresAt }

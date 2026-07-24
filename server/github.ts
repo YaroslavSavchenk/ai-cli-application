@@ -16,6 +16,11 @@
  * in by index.ts). Absent/empty -> "not configured": every method answers a
  * clean not-configured signal and never crashes. No client_secret is used or
  * stored — a public OAuth app's device flow does not need one. Scope = `repo`.
+ * The REST API base (api.github.com) is overridable via AI_SM_GITHUB_API_BASE
+ * for offline tests, but ONLY with a loopback origin (config.ts
+ * assertLoopbackApiBase; anything else makes the server refuse to start) — the
+ * token must never be sendable to a remote host. The device-flow urls and the
+ * clone host-lock (exactly github.com) are NOT affected by that knob.
  *
  * Device-flow state machine (see status()):
  *   disconnected --startDeviceFlow()--> connecting --(poll: access_token)--> connected
@@ -36,14 +41,24 @@ import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import type { GithubRepo, GithubStatus } from '../shared/protocol.ts';
-import { atomicWriteFile, type Logger } from './config.ts';
+import {
+  assertLoopbackApiBase,
+  atomicWriteFile,
+  DEFAULT_GITHUB_API_BASE,
+  type Logger,
+} from './config.ts';
 import { assertVacant, ScaffoldError, CLONE_TIMEOUT_MS } from './scaffold.ts';
 
-/** GitHub endpoints (device flow lives on github.com; the REST API on api.github.com). */
+/**
+ * GitHub endpoints. The device flow lives on github.com and is NEVER
+ * overridable; only the REST API base (api.github.com by default) can be
+ * re-pointed, and only at a loopback origin — see assertLoopbackApiBase.
+ */
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const TOKEN_URL = 'https://github.com/login/oauth/access_token';
-const USER_URL = 'https://api.github.com/user';
-const REPOS_URL = 'https://api.github.com/user/repos';
+/** REST paths appended to the API base. */
+const USER_PATH = '/user';
+const REPOS_PATH = '/user/repos';
 
 /** OAuth scope requested up front (list + clone + create-repo + push, no re-auth). */
 const SCOPE = 'repo';
@@ -100,6 +115,13 @@ export interface GithubConnectionOptions {
   log: Logger;
   /** OAuth App client_id (env AI_SM_GITHUB_CLIENT_ID); absent/empty => not configured. */
   clientId?: string | undefined;
+  /**
+   * REST API base (env AI_SM_GITHUB_API_BASE via resolveGithubApiBase); absent
+   * => https://api.github.com. Re-validated here (assertLoopbackApiBase) so no
+   * caller can aim the Bearer token at a non-loopback host. Does NOT affect the
+   * device-flow urls or the clone host-lock.
+   */
+  apiBase?: string | undefined;
   /** Fetch seam for tests; defaults to the Node global fetch. */
   fetchImpl?: FetchLike;
   /** Spawn seam for tests; defaults to the Node global spawn (authenticated clone). */
@@ -184,6 +206,8 @@ export function filterRepos(repos: GithubRepo[], query?: string): GithubRepo[] {
 export class GithubConnection {
   readonly #file: string;
   readonly #log: Logger;
+  /** Normalized REST API origin (no trailing slash). Loopback or api.github.com. */
+  readonly #apiBase: string;
   readonly #fetch: FetchLike;
   readonly #spawn: SpawnLike;
   readonly #clientId: string | undefined;
@@ -204,6 +228,13 @@ export class GithubConnection {
   constructor(options: GithubConnectionOptions) {
     this.#file = options.file;
     this.#log = options.log;
+    // Defense in depth: even though index.ts already validated the env value,
+    // re-validate here so no in-process caller can point the token elsewhere.
+    const base = (options.apiBase ?? '').trim();
+    this.#apiBase =
+      base === '' || base === DEFAULT_GITHUB_API_BASE
+        ? DEFAULT_GITHUB_API_BASE
+        : assertLoopbackApiBase(base);
     this.#fetch = options.fetchImpl ?? ((url, init) => fetch(url, init));
     this.#spawn = options.spawnImpl ?? ((command, args, opts) => spawn(command, args, opts));
     const cid = (options.clientId ?? '').trim();
@@ -354,7 +385,7 @@ export class GithubConnection {
       let res: Response;
       try {
         res = await this.#http(
-          `${REPOS_URL}?per_page=${REPOS_PER_PAGE}&sort=pushed&page=${page}`,
+          `${this.#apiBase}${REPOS_PATH}?per_page=${REPOS_PER_PAGE}&sort=pushed&page=${page}`,
           { headers: this.#authHeaders(token) },
         );
       } catch {
@@ -508,7 +539,7 @@ export class GithubConnection {
 
     let res: Response;
     try {
-      res = await this.#http(REPOS_URL, {
+      res = await this.#http(`${this.#apiBase}${REPOS_PATH}`, {
         method: 'POST',
         headers: { ...this.#authHeaders(token), 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -732,7 +763,9 @@ export class GithubConnection {
   async #onToken(token: string, scope: string | undefined, gen: number): Promise<void> {
     let login: string | undefined;
     try {
-      const res = await this.#http(USER_URL, { headers: this.#authHeaders(token) });
+      const res = await this.#http(`${this.#apiBase}${USER_PATH}`, {
+        headers: this.#authHeaders(token),
+      });
       if (res.ok) {
         const u = asRecord(await res.json());
         if (u !== undefined) login = readString(u, 'login');
@@ -816,11 +849,23 @@ export class GithubConnection {
     }
   }
 
+  /**
+   * SECURITY: `redirect: 'error'` — a 3xx is a failure here, never a hop.
+   * These requests carry the OAuth Bearer token (and the device_code), so
+   * following a redirect would let a redirecting upstream steer a
+   * token-bearing GET/POST at a target of its choosing and have the reply
+   * parsed as a repo list. The Fetch spec makes undici strip Authorization
+   * across origins, but that guarantee is inherited, not ours; refusing the
+   * redirect outright pins it locally. No GitHub REST endpoint we call
+   * (/user, /user/repos) or device-flow endpoint redirects in normal
+   * operation — the redirect-following endpoints are the repo-scoped ones
+   * (renamed repositories), which this client never calls.
+   */
   #http(url: string, init: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
     if (typeof timer.unref === 'function') timer.unref();
-    return this.#fetch(url, { ...init, signal: controller.signal }).finally(() => {
+    return this.#fetch(url, { ...init, redirect: 'error', signal: controller.signal }).finally(() => {
       clearTimeout(timer);
     });
   }

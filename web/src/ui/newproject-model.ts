@@ -36,6 +36,18 @@ export function repoBasename(url: string): string {
 }
 
 /**
+ * THE `<home>/projects/<name>` CONVENTION — the one place that segment lives.
+ * Every default project/clone destination goes through here (new blank project,
+ * url clone, and github-model's defaultDest for a picked repo), so the path a
+ * clone lands in and the path already-cloned detection compares against can
+ * never drift apart. Both inputs are used verbatim (no trimming, no validation
+ * — the callers own that).
+ */
+export function projectsPath(home: string, name: string): string {
+  return joinPath(joinPath(home, 'projects'), name);
+}
+
+/**
  * Suggested absolute path for a NEW blank project: `<home>/projects/<name>`.
  * Empty when home is unknown or the name is blank (the caller shows a
  * placeholder + blocks Create until both exist).
@@ -43,7 +55,7 @@ export function repoBasename(url: string): string {
 export function suggestProjectPath(home: string | null, name: string): string {
   const n = name.trim();
   if (home === null || home === '' || n === '') return '';
-  return joinPath(joinPath(home, 'projects'), n);
+  return projectsPath(home, n);
 }
 
 /**
@@ -52,7 +64,7 @@ export function suggestProjectPath(home: string | null, name: string): string {
  */
 export function suggestDestPath(home: string | null, url: string): string {
   if (home === null || home === '' || url.trim() === '') return '';
-  return joinPath(joinPath(home, 'projects'), repoBasename(url));
+  return projectsPath(home, repoBasename(url));
 }
 
 export interface Crumb {

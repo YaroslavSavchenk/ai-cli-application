@@ -157,8 +157,23 @@ and multi-pane layouts on top.
     Origin/Host parity as the rest of `/api`; the GitHub token itself is
     never exposed to the page. `git clone`/`git init`/repo-create run via
     argv spawning (no shell string interpolation), into user-chosen paths
-    validated the same way project paths already are. Threat-model detail
-    in `memory/decisions/github-integration.md`.
+    validated the same way project paths already are. Token-bearing
+    requests set `redirect: 'error'` (added 2026-07-24) so the guarantee
+    that a credential never follows a redirect is enforced here rather
+    than inherited from the runtime's fetch implementation. Threat-model
+    detail in `memory/decisions/github-integration.md`.
+  - **`AI_SM_GITHUB_API_BASE` is a test-only seam** (decided 2026-07-24,
+    user's call, over gating it behind a build/run mode). It overrides the
+    `api.github.com` REST base so the *connected* HTTP paths can be tested
+    offline — the server spawns as a child process in tests, so no
+    in-process seam can reach it. It is **loopback-only** (`127.0.0.1`,
+    `localhost`, `[::1]`, no userinfo, no path/query/fragment) and any
+    other value makes the server **refuse to start** (exit 1 before
+    `listen`, no `runtime.json`), so it can never be a legitimate
+    production or GHES setting. It moves neither the device-flow URLs nor
+    the clone host-lock to `github.com`. Unlike the other `AI_SM_*` knobs
+    this one has no production use by construction; that is deliberate and
+    recorded rather than hidden.
 
 ## Hard technical constraints
 
@@ -192,7 +207,33 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-None currently.
+- **How a cloned project is tied back to its remote** (surfaced 2026-07-24
+  by the GitHub test-hardening review; needs a user decision). `Project` is
+  `{id, name, path, defaultModel, defaultMode, createdAt}` — it carries no
+  remote. The clone flows register a repo under its **bare basename**, so
+  `clonedProject()` in the GitHub repo list cannot tell `acme/api` from
+  `myorg/api`: the second one renders as already-cloned and its button
+  opens the wrong local project. Underneath sits a real limit — two
+  same-basename repos cannot both live in the default `<home>/projects/`
+  folder, so the second clone 409s regardless of this UI. Options: (a) add
+  an optional `remote`/`fullName` to `Project`, stamped by the clone
+  endpoints and matched first (schema change to `projects.json` +
+  `shared/protocol.ts`); (b) place app clones owner-qualified at
+  `<home>/projects/<owner>/<repo>`, which also removes the 409; (c) accept
+  it. Currently pinned honestly as a `KNOWN LIMIT` test, not silently
+  "fixed". Do not settle this in passing.
+- **Lost final PTY output after session exit under load** (found
+  2026-07-24 by the test gate; a real product bug, not a decision — listed
+  here so it is not lost). `server/sessions.ts:163-180`: `proc.onData`
+  appends to the scrollback ring while `proc.onExit` immediately stamps
+  `exited` and broadcasts `exit`, with no flush/ordering guarantee that
+  the last data chunk lands first (node-pty closes the master on child
+  exit). Under CPU contention the newest output is missing from replay
+  after reattach — the crown-jewel path. Reproduces as a ~3-in-26 flake of
+  `tests/sessions.test.ts:301` when the suite runs alongside other node
+  processes; passes 10/10 alone. Pre-existing, untouched by the GitHub
+  work. Needs its own `/dev-flow` pass with `/verify-terminal`, and the
+  assertion must NOT be relaxed to make it green.
 
 (Settled 2026-07-23, user's call: project creation + GitHub integration
 added to scope — see the Features bullet. GitHub auth = OAuth device flow;

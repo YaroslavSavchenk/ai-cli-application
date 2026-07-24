@@ -25,7 +25,14 @@ import { unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeInfo } from '../shared/protocol.ts';
-import { resolveDataPaths, resolveClaudeDir, createLogger, atomicWriteFile } from './config.ts';
+import {
+  resolveDataPaths,
+  resolveClaudeDir,
+  resolveGithubApiBase,
+  createLogger,
+  atomicWriteFile,
+  DEFAULT_GITHUB_API_BASE,
+} from './config.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
@@ -53,10 +60,30 @@ const usage = new UsageReader(claudeDir, log);
 const telemetry = new TelemetryReader(claudeDir, log);
 // GitHub OAuth device flow. client_id from env; absent/empty => "not configured"
 // (the feature stays dormant, endpoints answer a clean not-configured signal).
+// AI_SM_GITHUB_API_BASE re-points the REST API for offline tests — loopback
+// only; a non-loopback value throws here and the server refuses to start
+// (before listen, so no runtime.json is ever written).
+let githubApiBase: string;
+try {
+  githubApiBase = resolveGithubApiBase();
+} catch (err) {
+  // The reason must reach server.log: in production this process is started as
+  // `setsid --fork nohup node server/index.ts </dev/null >/dev/null 2>&1`
+  // (launcher/start-backend.sh), so stderr goes to /dev/null and the user would
+  // otherwise see only the launcher's "did not become healthy" timeout. The
+  // message never carries a credential (the embedded-credential branch of
+  // assertLoopbackApiBase refuses without echoing the value).
+  log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
+  throw err; // unchanged otherwise: uncaught at module eval -> stderr + exit 1.
+}
+if (githubApiBase !== DEFAULT_GITHUB_API_BASE) {
+  log('warn', `github REST api base overridden via AI_SM_GITHUB_API_BASE: ${githubApiBase}`);
+}
 const github = new GithubConnection({
   file: paths.githubFile,
   log,
   clientId: process.env['AI_SM_GITHUB_CLIENT_ID'],
+  apiBase: githubApiBase,
 });
 const lifecycle = new LifecycleController({
   onIdleShutdown: () => shutdown('idle grace expiry'),

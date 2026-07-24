@@ -75,6 +75,78 @@ export function resolveClaudeDir(): string {
   return join(homedir(), '.claude');
 }
 
+/**
+ * GitHub REST API base. The DEVICE-FLOW endpoints (github.com/login/...) and the
+ * clone host-lock (host must be exactly github.com) are deliberately NOT part of
+ * this and stay hardcoded in github.ts.
+ */
+export const DEFAULT_GITHUB_API_BASE = 'https://api.github.com';
+
+/**
+ * Hostnames accepted for an AI_SM_GITHUB_API_BASE override. Exact allowlist —
+ * NOT a 127.0.0.0/8 range check — so 127.0.0.2, 0.0.0.0, or any routable host is
+ * refused. `localhost` is included for ergonomics; pointing it elsewhere needs
+ * root-level /etc/hosts control, which is already outside this trust boundary.
+ */
+const LOOPBACK_API_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Validate an AI_SM_GITHUB_API_BASE value and return its normalized origin.
+ *
+ * SECURITY: this knob decides where the stored OAuth access token is sent as a
+ * Bearer header. It is therefore restricted to LOOPBACK origins only, so a
+ * careless or hostile value can never exfiltrate the token OFF THE MACHINE.
+ * Anything else is refused LOUDLY (throws -> the server refuses to start,
+ * exactly like a relative AI_SM_CLAUDE_DIR).
+ *
+ * The residual risk is NOT limited to "another process running as this same
+ * user": on Linux ANY local user may bind a loopback port. Since the backend
+ * inherits the login shell's environment (launcher/start-backend.sh runs it via
+ * `wsl.exe -- bash -lc`), an override left in a shell profile means whichever
+ * local account bound that port first receives a `repo`-scope Bearer token — a
+ * principal that could never read github.json (0600). Loopback bounds the blast
+ * radius to this machine; it does not bound it to this user. Hence: a test seam,
+ * unset in normal use.
+ *
+ * Also refused: non-http(s) schemes, embedded credentials, and any path/query/
+ * fragment (the base is an origin, never a prefix that could be re-pointed).
+ */
+export function assertLoopbackApiBase(value: string): string {
+  const fail = (why: string): never => {
+    throw new Error(`AI_SM_GITHUB_API_BASE ${why} (expected e.g. http://127.0.0.1:8787), got: ${value}`);
+  };
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return fail('must be an absolute URL');
+  }
+  if (parsed.username !== '' || parsed.password !== '') {
+    // Never echo the value here — it carries the embedded credential.
+    throw new Error('AI_SM_GITHUB_API_BASE must not embed credentials');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return fail('must use http:// or https://');
+  }
+  if (!LOOPBACK_API_HOSTS.has(parsed.hostname)) {
+    return fail('must point at a loopback host (127.0.0.1, [::1] or localhost)');
+  }
+  if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.search !== '' || parsed.hash !== '') {
+    return fail('must be a bare origin with no path, query or fragment');
+  }
+  return `${parsed.protocol}//${parsed.host}`;
+}
+
+/**
+ * Resolve the GitHub REST API base: api.github.com unless AI_SM_GITHUB_API_BASE
+ * overrides it with a loopback origin (offline tests). Throws on anything else.
+ */
+export function resolveGithubApiBase(): string {
+  const override = (process.env['AI_SM_GITHUB_API_BASE'] ?? '').trim();
+  if (override === '') return DEFAULT_GITHUB_API_BASE;
+  return assertLoopbackApiBase(override);
+}
+
 export type Logger = (level: 'info' | 'warn' | 'error', message: string) => void;
 
 /** Cap on server.log before rotation to server.log.1 (total on disk <= 2x this). */
