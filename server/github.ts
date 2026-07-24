@@ -31,9 +31,13 @@
  *
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
-import { readFileSync, unlinkSync } from 'node:fs';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { GithubRepo, GithubStatus } from '../shared/protocol.ts';
 import { atomicWriteFile, type Logger } from './config.ts';
+import { assertVacant, ScaffoldError, CLONE_TIMEOUT_MS } from './scaffold.ts';
 
 /** GitHub endpoints (device flow lives on github.com; the REST API on api.github.com). */
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
@@ -58,9 +62,26 @@ const MAX_POLLS = 300;
 /** Repo pagination cap: up to 5 * 100 = 500 repos. */
 const MAX_REPO_PAGES = 5;
 const REPOS_PER_PAGE = 100;
+/** Reject absurdly long clone urls before parsing them. */
+const MAX_CLONE_URL_LEN = 2048;
+/**
+ * Username embedded in the authenticated clone url. NOT a secret — the actual
+ * password (the OAuth token) is fed to git via GIT_ASKPASS-through-env, never
+ * the url. git uses this username and asks GIT_ASKPASS for the matching password.
+ */
+const CLONE_USERNAME = 'x-access-token';
+/** Env var the throwaway askpass script reads the token from (never on argv/url). */
+const ASKPASS_TOKEN_ENV = 'AI_SM_GH_TOKEN';
 
 /** Injectable fetch seam — defaults to the Node global `fetch`. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Injectable spawn seam — defaults to the Node global `spawn`. Lets tests
+ * assert the exact argv + env of an authenticated clone (proving the token is
+ * ONLY in the env, never in argv or the url) without running git.
+ */
+export type SpawnLike = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
 /** Carries an HTTP status so the API layer can map it directly (like ScaffoldError). */
 export class GithubError extends Error {
@@ -81,6 +102,8 @@ export interface GithubConnectionOptions {
   clientId?: string | undefined;
   /** Fetch seam for tests; defaults to the Node global fetch. */
   fetchImpl?: FetchLike;
+  /** Spawn seam for tests; defaults to the Node global spawn (authenticated clone). */
+  spawnImpl?: SpawnLike;
 }
 
 /** Shape persisted to github.json. The accessToken never leaves the server. */
@@ -162,6 +185,7 @@ export class GithubConnection {
   readonly #file: string;
   readonly #log: Logger;
   readonly #fetch: FetchLike;
+  readonly #spawn: SpawnLike;
   readonly #clientId: string | undefined;
   readonly #configured: boolean;
 
@@ -181,6 +205,7 @@ export class GithubConnection {
     this.#file = options.file;
     this.#log = options.log;
     this.#fetch = options.fetchImpl ?? ((url, init) => fetch(url, init));
+    this.#spawn = options.spawnImpl ?? ((command, args, opts) => spawn(command, args, opts));
     const cid = (options.clientId ?? '').trim();
     this.#clientId = cid === '' ? undefined : cid;
     this.#configured = this.#clientId !== undefined;
@@ -356,7 +381,261 @@ export class GithubConnection {
     return filterRepos(collected, query);
   }
 
+  /**
+   * Clone a (possibly PRIVATE) repo of the connected account into `destAbs`
+   * using the stored OAuth token — WITHOUT the token ever touching argv, the
+   * clone url, `.git/config`, or a log.
+   *
+   * Token-safety mechanism (the security crux):
+   *   1. `cloneUrl` is validated FIRST (buildAuthenticatedGithubUrl): it MUST be
+   *      https:// with host EXACTLY github.com — a hard guard so the token can
+   *      never be aimed at another host (SSRF/exfil). The returned url embeds
+   *      only the NON-secret username `x-access-token@` (never the token).
+   *   2. A throwaway askpass script (mode 0700, in a mkdtemp under the OS tmpdir)
+   *      reads the token from the env var AI_SM_GH_TOKEN and prints it. git is
+   *      spawned with GIT_ASKPASS=<script> and AI_SM_GH_TOKEN=<token> in its env
+   *      (argv is `git ... clone -- <username-in-url> <dest>` — NO token). git
+   *      calls GIT_ASKPASS for the password, gets the token from env, and does
+   *      NOT persist an askpass password into `.git/config`. `credential.helper`
+   *      is cleared (`-c credential.helper=`) so no configured helper can cache
+   *      the token to disk. `stdio:'ignore'` — git output is never buffered or
+   *      logged (an error line could otherwise echo a credential).
+   *   3. `finally`: the askpass script + its dir are deleted. On success the
+   *      cloned `.git/config` is verified to NOT contain the token.
+   * The env token is visible only via /proc to the SAME user (same trust
+   * boundary as github.json 0600) — acceptable; argv/url/config are not, and
+   * are avoided.
+   *
+   * Reuses scaffold's assertVacant (409 non-empty, no clobber) and its partial-
+   * cleanup discipline (a dest WE created is removed on failure). Throws
+   * GithubError: 400 bad url/dest, 409 not connected / non-empty dest, 502 on
+   * clone failure.
+   */
+  async cloneAuthenticated(cloneUrl: string, destAbs: string): Promise<void> {
+    // 1. Validate the url FIRST — the token must only ever be sent to github.com.
+    const authUrl = this.#buildAuthenticatedGithubUrl(cloneUrl);
+
+    // 2. There must be a connected token to send.
+    if (!this.#configured) throw new GithubError(409, 'github not configured');
+    if (this.#state !== 'connected' || this.#token === undefined) {
+      throw new GithubError(409, 'github not connected');
+    }
+    const token = this.#token;
+
+    // 3. Dest no-clobber rules (reused from scaffold): absolute, parent exists,
+    //    not an existing non-empty dir / non-directory.
+    if (!isAbsolute(destAbs)) throw new GithubError(400, 'dest must be absolute');
+    let parentOk = false;
+    try {
+      parentOk = statSync(dirname(destAbs)).isDirectory();
+    } catch {
+      parentOk = false;
+    }
+    if (!parentOk) throw new GithubError(400, 'destination parent directory does not exist');
+    let existedBefore = true;
+    try {
+      statSync(destAbs);
+    } catch {
+      existedBefore = false;
+    }
+    try {
+      assertVacant(destAbs);
+    } catch (err) {
+      if (err instanceof ScaffoldError) throw new GithubError(err.status, err.message);
+      throw new GithubError(500, 'failed to inspect destination');
+    }
+
+    // 4. Clone via GIT_ASKPASS-through-env (token never on argv/url).
+    const askDir = mkdtempSync(join(tmpdir(), 'ai-sm-gh-ask-'));
+    const askScript = join(askDir, 'askpass.sh');
+    try {
+      // The script ignores its prompt arg and prints the token from the env.
+      writeFileSync(askScript, `#!/bin/sh\nprintf '%s' "$${ASKPASS_TOKEN_ENV}"\n`, { mode: 0o700 });
+      await this.#runGitClone(authUrl, destAbs, askScript, token);
+    } catch (err) {
+      if (!existedBefore) {
+        try {
+          rmSync(destAbs, { recursive: true, force: true });
+        } catch {
+          // Best-effort cleanup.
+        }
+      }
+      throw err instanceof GithubError ? err : new GithubError(502, 'failed to clone repository');
+    } finally {
+      try {
+        rmSync(askDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
+
+    // 5. Belt-and-suspenders: git stores only the username in .git/config, never
+    //    the askpass password. Prove the token did not leak onto disk.
+    try {
+      const cfg = readFileSync(join(destAbs, '.git', 'config'), 'utf8');
+      if (cfg.includes(token)) {
+        if (!existedBefore) {
+          try {
+            rmSync(destAbs, { recursive: true, force: true });
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
+        throw new GithubError(500, 'aborted: credential leaked into git config');
+      }
+    } catch (err) {
+      if (err instanceof GithubError) throw err;
+      // Config unreadable (unexpected) — that is not a leak; leave the clone.
+    }
+  }
+
+  /**
+   * Create a new repository for the connected account:
+   * `POST https://api.github.com/user/repos` with the token in the
+   * Authorization header ONLY (#authHeaders). Maps the response down to
+   * GithubRepo (drops everything else — no token, no raw payload). GitHub
+   * validation errors (e.g. 422 name-taken) surface as a clean GithubError with
+   * NO token and NO raw body dump. Requires connected state (409 otherwise).
+   */
+  async createRepo(input: { name: string; private: boolean; description?: string }): Promise<GithubRepo> {
+    if (!this.#configured) throw new GithubError(409, 'github not configured');
+    if (this.#state !== 'connected' || this.#token === undefined) {
+      throw new GithubError(409, 'github not connected');
+    }
+    const token = this.#token;
+    const body: Record<string, unknown> = { name: input.name, private: input.private };
+    if (input.description !== undefined) body.description = input.description;
+
+    let res: Response;
+    try {
+      res = await this.#http(REPOS_URL, {
+        method: 'POST',
+        headers: { ...this.#authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new GithubError(502, 'failed to reach github');
+    }
+    if (res.status === 401) {
+      this.#invalidateToken();
+      throw new GithubError(409, 'github not connected');
+    }
+    if (res.status === 422) {
+      // Validation failure (name already exists, invalid name, etc.). Clean
+      // message only — the raw GitHub body is never surfaced or logged.
+      throw new GithubError(422, 'github rejected the repository (the name may already be taken)');
+    }
+    if (!res.ok) throw new GithubError(502, 'github request failed');
+
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      throw new GithubError(502, 'github request failed');
+    }
+    const repo = mapRepo(payload);
+    if (repo === undefined) throw new GithubError(502, 'github returned an unexpected repository payload');
+    return repo;
+  }
+
   // --- Internals ------------------------------------------------------------
+
+  /**
+   * Validate a clone url and return the authenticated form. Hard guard: MUST be
+   * https:// with host EXACTLY github.com (no port), no embedded credentials —
+   * so the token (fed separately via GIT_ASKPASS) can never be aimed elsewhere.
+   * Rejects `-`-leading, control chars, and over-length up front. The returned
+   * url carries only the NON-secret `x-access-token` username, never the token.
+   */
+  #buildAuthenticatedGithubUrl(cloneUrl: string): string {
+    if (typeof cloneUrl !== 'string' || cloneUrl === '') {
+      throw new GithubError(400, 'cloneUrl is required');
+    }
+    if (cloneUrl.length > MAX_CLONE_URL_LEN) throw new GithubError(400, 'cloneUrl is too long');
+    if (cloneUrl.startsWith('-')) throw new GithubError(400, 'invalid clone url');
+    for (let i = 0; i < cloneUrl.length; i += 1) {
+      const c = cloneUrl.charCodeAt(i);
+      if (c <= 0x20 || c === 0x7f) throw new GithubError(400, 'clone url contains invalid characters');
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(cloneUrl);
+    } catch {
+      throw new GithubError(400, 'invalid clone url');
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new GithubError(400, 'clone url must be https://github.com/...');
+    }
+    if (parsed.hostname !== 'github.com' || parsed.port !== '') {
+      throw new GithubError(400, 'clone url host must be exactly github.com');
+    }
+    if (parsed.username !== '' || parsed.password !== '') {
+      throw new GithubError(400, 'clone url must not embed credentials');
+    }
+    // Rebuild from validated parts only: guarantees the target is github.com and
+    // the token is NOT in the url (git gets it via GIT_ASKPASS instead).
+    return `https://${CLONE_USERNAME}@github.com${parsed.pathname}`;
+  }
+
+  /**
+   * Spawn `git -c credential.helper= clone -- <authUrl> <destAbs>` with the
+   * token supplied ONLY through the env (GIT_ASKPASS + AI_SM_GH_TOKEN). No
+   * shell, stdio fully ignored (no output buffered/logged), bounded by
+   * CLONE_TIMEOUT_MS, GIT_TERMINAL_PROMPT=0 so a credential-needing clone fails
+   * fast instead of hanging. Resolves on exit 0, else rejects GithubError(502).
+   */
+  #runGitClone(authUrl: string, destAbs: string, askScript: string, token: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (err?: GithubError): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        if (err !== undefined) reject(err);
+        else resolve();
+      };
+      let child: ChildProcess;
+      try {
+        child = this.#spawn(
+          'git',
+          // `-c credential.helper=` clears any configured helper so the token is
+          // never cached to disk. `--` stops the url/dest being read as options.
+          ['-c', 'credential.helper=', 'clone', '--', authUrl, destAbs],
+          {
+            shell: false,
+            stdio: 'ignore',
+            windowsHide: true,
+            env: {
+              ...process.env,
+              GIT_ASKPASS: askScript,
+              [ASKPASS_TOKEN_ENV]: token,
+              GIT_TERMINAL_PROMPT: '0',
+            },
+          },
+        );
+      } catch {
+        finish(new GithubError(502, 'failed to clone repository'));
+        return;
+      }
+      timer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // Already gone.
+        }
+        finish(new GithubError(502, 'clone timed out'));
+      }, CLONE_TIMEOUT_MS);
+      if (typeof timer.unref === 'function') timer.unref();
+
+      child.on('error', () => {
+        finish(new GithubError(502, 'failed to clone repository'));
+      });
+      child.on('close', (code) => {
+        finish(code === 0 ? undefined : new GithubError(502, 'failed to clone repository'));
+      });
+    });
+  }
 
   #authHeaders(token: string): Record<string, string> {
     return {

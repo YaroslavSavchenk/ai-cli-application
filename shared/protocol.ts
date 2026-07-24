@@ -455,6 +455,41 @@ export interface GithubReposResponse {
 }
 
 /**
+ * POST /api/github/clone request body (Phase 2c: clone-by-picking). Responds
+ * 201 with the created Project. Clones a (possibly PRIVATE) repo of the
+ * CONNECTED account into `dest` using the server-side OAuth token — supplied to
+ * git via GIT_ASKPASS-through-env so it NEVER touches argv, the clone url, or
+ * `.git/config`. `cloneUrl` MUST be `https://` with host EXACTLY `github.com`
+ * (hard SSRF/token-exfil guard: the token can only ever be sent to GitHub); any
+ * other host, non-https, `-`-leading, control-char, or credential-embedding url
+ * is rejected (400). `dest` must be an absolute path whose parent exists and
+ * that is not already a non-empty directory (400/409). 409 when GitHub is not
+ * connected/configured; 502 on clone failure. After cloning, `dest` is
+ * registered as a project named `name` (or the repo basename from `cloneUrl`).
+ */
+export interface GithubCloneRequest {
+  cloneUrl: string;
+  dest: string;
+  name?: string;
+}
+
+/**
+ * POST /api/github/repos request body (Phase 2c: create-repo). Responds 201
+ * with the created GithubRepo. Calls `POST https://api.github.com/user/repos`
+ * with the server-side token in the Authorization header only (never echoed
+ * back). `name` is required and bounded; `private` is required. GitHub
+ * validation failures (e.g. 422 name-already-taken) surface as a clean 4xx with
+ * NO token and NO raw body dump. 409 when not connected/configured. This is a
+ * SEPARATE endpoint from POST /api/github/clone: the frontend chains
+ * create -> clone; the server never auto-clones here.
+ */
+export interface GithubCreateRepoRequest {
+  name: string;
+  private: boolean;
+  description?: string;
+}
+
+/**
  * Generic success response, returned 200 by every mutating route that has no
  * richer body: PUT /api/prefs, DELETE /api/projects/:id, DELETE
  * /api/sessions/:id, POST /api/sessions/:id/seen, DELETE /api/previous,

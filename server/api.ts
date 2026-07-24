@@ -18,6 +18,8 @@ import type {
   CreateProjectRequest,
   CreateSessionRequest,
   FsMkdirRequest,
+  GithubCloneRequest,
+  GithubCreateRepoRequest,
   GithubReposResponse,
   RuntimeStatusResponse,
   UiPrefs,
@@ -38,6 +40,8 @@ const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_TERM_DIM = 1000;
 /** Prefs is a small opaque bag (theme today) — well under the generic cap. */
 export const PREFS_MAX_BYTES = 64 * 1024;
+/** Bound on a new GitHub repo name (GitHub itself caps at 100; be generous). */
+export const GITHUB_REPO_NAME_MAX = 200;
 
 /** Anti-framing headers: the authenticated UI must never be embeddable cross-origin. */
 const FRAME_PROTECTION_HEADERS = {
@@ -282,6 +286,85 @@ export function createRequestHandler(
             sendError(res, 502, 'failed to list github repositories');
           }
         }
+        return;
+      }
+      // Create a new GitHub repo. Token stays server-side (Authorization header
+      // only, inside github.ts). The frontend chains create -> clone; this does
+      // NOT auto-clone.
+      if (method === 'POST') {
+        const body = (await readJsonBody(req)) as Partial<GithubCreateRepoRequest>;
+        if (typeof body.name !== 'string' || body.name.trim() === '') {
+          sendError(res, 400, 'name is required');
+          return;
+        }
+        if (body.name.length > GITHUB_REPO_NAME_MAX) {
+          sendError(res, 400, `name must be at most ${GITHUB_REPO_NAME_MAX} characters`);
+          return;
+        }
+        if (typeof body.private !== 'boolean') {
+          sendError(res, 400, 'private must be a boolean');
+          return;
+        }
+        if (body.description !== undefined && typeof body.description !== 'string') {
+          sendError(res, 400, 'description must be a string');
+          return;
+        }
+        try {
+          const repo = await github.createRepo({
+            name: body.name.trim(),
+            private: body.private,
+            ...(body.description !== undefined ? { description: body.description } : {}),
+          });
+          sendJson(res, 201, repo);
+        } catch (err) {
+          if (err instanceof GithubError) {
+            sendError(res, err.status, err.message);
+          } else {
+            log('error', 'github create repo request failed');
+            sendError(res, 502, 'failed to create github repository');
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Clone a connected user's repo (token-authenticated) into a project --
+    // The stored OAuth token is used server-side via GIT_ASKPASS-through-env; it
+    // never reaches argv, the clone url, .git/config, a response, or the log.
+    if (pathname === '/api/github/clone') {
+      if (method === 'POST') {
+        const body = (await readJsonBody(req)) as Partial<GithubCloneRequest>;
+        if (typeof body.cloneUrl !== 'string' || body.cloneUrl === '') {
+          sendError(res, 400, 'cloneUrl is required');
+          return;
+        }
+        if (typeof body.dest !== 'string' || !isAbsolute(body.dest)) {
+          sendError(res, 400, 'dest must be an absolute path');
+          return;
+        }
+        if (body.name !== undefined && typeof body.name !== 'string') {
+          sendError(res, 400, 'name must be a string');
+          return;
+        }
+        try {
+          await github.cloneAuthenticated(body.cloneUrl, body.dest);
+        } catch (err) {
+          if (err instanceof GithubError) {
+            sendError(res, err.status, err.message);
+          } else {
+            log('error', 'github clone failed');
+            sendError(res, 502, 'failed to clone repository');
+          }
+          return;
+        }
+        const name =
+          body.name !== undefined && body.name.trim() !== ''
+            ? body.name.trim()
+            : (repoNameFromUrl(body.cloneUrl) ?? basename(body.dest));
+        const project = projects.create({ name, path: body.dest });
+        sendJson(res, 201, project);
         return;
       }
       sendError(res, 405, 'method not allowed');

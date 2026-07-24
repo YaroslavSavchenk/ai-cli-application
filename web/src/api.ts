@@ -12,6 +12,9 @@ import type {
   CreateSessionRequest,
   FsListResponse,
   FsMkdirResponse,
+  GithubCloneRequest,
+  GithubCreateRepoRequest,
+  GithubRepo,
   GithubReposResponse,
   GithubStatus,
   OkResponse,
@@ -249,4 +252,27 @@ export function githubDisconnect(): Promise<OkResponse> {
 export function githubRepos(q?: string): Promise<GithubReposResponse> {
   const suffix = q !== undefined && q !== '' ? `?q=${encodeURIComponent(q)}` : '';
   return request<GithubReposResponse>(`/api/github/repos${suffix}`);
+}
+
+/**
+ * Clone a repo of the CONNECTED account into a NEW project (Phase 2c). The
+ * server-side OAuth token authenticates the clone (supplied via GIT_ASKPASS,
+ * never sent to the client, never in argv/url); `cloneUrl` MUST be an https
+ * github.com url. A SLOW synchronous call — the caller shows an HONEST
+ * indeterminate "cloning…" state while awaiting (NEVER a fake percentage). 201
+ * Project on success; 400 bad cloneUrl/dest, 409 not connected OR non-empty
+ * dest, 502 clone failure surface as ApiError.
+ */
+export function githubClone(body: GithubCloneRequest): Promise<Project> {
+  return request<Project>('/api/github/clone', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/**
+ * Create a NEW repo on the connected account (Phase 2c). 201 GithubRepo on
+ * success; 400 bad name, 409 not connected, 422 name already taken, 502 surface
+ * as ApiError (the 422 message is rendered inline on the name field). SEPARATE
+ * from githubClone — the "+ New repo" flow chains create -> clone client-side.
+ */
+export function githubCreateRepo(body: GithubCreateRepoRequest): Promise<GithubRepo> {
+  return request<GithubRepo>('/api/github/repos', { method: 'POST', body: JSON.stringify(body) });
 }

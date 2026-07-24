@@ -15,11 +15,21 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { GithubConnection, GithubError, mapRepo, filterRepos, type FetchLike } from '../server/github.ts';
+import {
+  GithubConnection,
+  GithubError,
+  mapRepo,
+  filterRepos,
+  type FetchLike,
+  type SpawnLike,
+} from '../server/github.ts';
 import type { Logger } from '../server/config.ts';
 import type { GithubRepo } from '../shared/protocol.ts';
 import { api, rawRequest, startTestServer, waitUntil, type TestServer } from './helpers.ts';
@@ -108,7 +118,60 @@ test('wrong method on each /api/github/* endpoint -> 405', async () => {
   assert.equal((await api(server, 'POST', '/api/github/status')).status, 405);
   assert.equal((await api(server, 'GET', '/api/github/device')).status, 405);
   assert.equal((await api(server, 'GET', '/api/github/disconnect')).status, 405);
-  assert.equal((await api(server, 'POST', '/api/github/repos')).status, 405);
+  // /api/github/repos now accepts POST (create-repo), so DELETE is the 405 case.
+  assert.equal((await api(server, 'DELETE', '/api/github/repos')).status, 405);
+  // /api/github/clone accepts POST only.
+  assert.equal((await api(server, 'GET', '/api/github/clone')).status, 405);
+});
+
+test('Phase 2c endpoints: 401 w/o token, 405 wrong method, 409 not-connected (server unconfigured)', async () => {
+  // 401 without the auth token.
+  for (const path of ['/api/github/clone', '/api/github/repos']) {
+    const noTok = await rawRequest(server.port, { method: 'POST', path });
+    assert.equal(noTok.status, 401, `POST ${path} without a token must be 401`);
+    const wrongTok = await rawRequest(server.port, {
+      method: 'POST',
+      path,
+      headers: { 'x-auth-token': '0'.repeat(64) },
+    });
+    assert.equal(wrongTok.status, 401, `POST ${path} with a wrong token must be 401`);
+  }
+  // Host/Origin parity (403) even with a valid token.
+  const evilHost = await rawRequest(server.port, {
+    method: 'POST',
+    path: '/api/github/clone',
+    headers: { host: `evil.example.com:${server.port}`, 'x-auth-token': server.token },
+  });
+  assert.equal(evilHost.status, 403, 'forbidden Host must be 403');
+
+  // 409 not-connected (the test server has AI_SM_GITHUB_CLIENT_ID='').
+  const clone = await api(server, 'POST', '/api/github/clone', {
+    cloneUrl: 'https://github.com/octocat/hello.git',
+    dest: join(tmpdir(), 'ai-sm-clone-unreachable-xyz'),
+  });
+  assert.equal(clone.status, 409, 'clone when not connected -> 409');
+  const create = await api(server, 'POST', '/api/github/repos', { name: 'new-repo', private: false });
+  assert.equal(create.status, 409, 'create-repo when not connected -> 409');
+});
+
+test('POST /api/github/clone: malformed body -> 400 (bad cloneUrl / non-absolute dest / bad name type)', async () => {
+  const abs = join(tmpdir(), 'ai-sm-clone-400');
+  assert.equal((await api(server, 'POST', '/api/github/clone', { dest: abs })).status, 400, 'missing cloneUrl');
+  assert.equal(
+    (await api(server, 'POST', '/api/github/clone', { cloneUrl: 'https://github.com/o/r.git', dest: 'rel/dir' })).status,
+    400,
+    'relative dest',
+  );
+  assert.equal(
+    (await api(server, 'POST', '/api/github/repos', { name: '', private: false })).status,
+    400,
+    'blank repo name',
+  );
+  assert.equal(
+    (await api(server, 'POST', '/api/github/repos', { name: 'ok', private: 'yes' })).status,
+    400,
+    'private must be boolean',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -626,5 +689,525 @@ test('listRepos: sends the stored token as a Bearer, drops unmappable entries, s
     assert.ok(!JSON.stringify(repos).includes(SECRET), 'the mapped repo list never contains the token');
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 3. Phase 2c: createRepo (fetch seam) + cloneAuthenticated (spawn seam)
+// ---------------------------------------------------------------------------
+
+/** A connected connection loaded straight from a github.json holding SECRET. */
+async function connectedConn(
+  root: string,
+  opts: { fetchImpl?: FetchLike; spawnImpl?: SpawnLike } = {},
+): Promise<GithubConnection> {
+  const file = join(root, 'github.json');
+  await writeFile(
+    file,
+    JSON.stringify({ accessToken: SECRET, login: 'octocat', scope: 'repo', connectedAt: '2026-07-24T00:00:00Z' }),
+    { mode: 0o600 },
+  );
+  return new GithubConnection({ file, log: noop, clientId: 'Iv1.x', ...opts });
+}
+
+test('createRepo: POSTs /user/repos with Bearer header + JSON body; maps to GithubRepo; token never in the result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create-'));
+  try {
+    let calledMethod: string | undefined;
+    let authHeader: string | undefined;
+    let sentBody: unknown;
+    const stub: FetchLike = (url, init) => {
+      if (url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST') {
+        calledMethod = init?.method;
+        const h = (init?.headers ?? {}) as Record<string, string>;
+        authHeader = h['Authorization'];
+        sentBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          jsonResponse(
+            {
+              id: 999,
+              node_id: 'R_x',
+              full_name: 'octocat/newrepo',
+              name: 'newrepo',
+              owner: { login: 'octocat', id: 1 },
+              private: true,
+              description: 'made in app',
+              clone_url: 'https://github.com/octocat/newrepo.git',
+              ssh_url: 'git@github.com:octocat/newrepo.git',
+            },
+            201,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = await connectedConn(root, { fetchImpl: stub });
+    const repo = await conn.createRepo({ name: 'newrepo', private: true, description: 'made in app' });
+    assert.deepEqual(repo, {
+      fullName: 'octocat/newrepo',
+      name: 'newrepo',
+      owner: 'octocat',
+      private: true,
+      description: 'made in app',
+      cloneUrl: 'https://github.com/octocat/newrepo.git',
+    });
+    assert.equal(calledMethod, 'POST');
+    assert.equal(authHeader, `Bearer ${SECRET}`, 'token is a Bearer header, server-side only');
+    assert.deepEqual(sentBody, { name: 'newrepo', private: true, description: 'made in app' });
+    assert.ok(!JSON.stringify(repo).includes(SECRET), 'the created repo shape never contains the token');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('createRepo: 422 from GitHub -> clean GithubError(422), no raw body / no token surfaced', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create422-'));
+  try {
+    const stub: FetchLike = (url, init) => {
+      if (url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST') {
+        return Promise.resolve(
+          jsonResponse({ message: 'Repository creation failed.', errors: [{ message: 'name already exists' }] }, 422),
+        );
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = await connectedConn(root, { fetchImpl: stub });
+    await assert.rejects(
+      conn.createRepo({ name: 'taken', private: false }),
+      (e) => e instanceof GithubError && e.status === 422 && !e.message.includes('already exists'),
+      '422 surfaces a clean message, never the raw GitHub body',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('createRepo: requires connected state (409 when disconnected)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create409-'));
+  try {
+    const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: 'Iv1.x' });
+    await assert.rejects(
+      conn.createRepo({ name: 'x', private: false }),
+      (e) => e instanceof GithubError && e.status === 409,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: cloneUrl is validated FIRST — non-github host / non-https / -leading / creds / port -> 400', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-cloneval-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-clonework-')));
+  try {
+    // Not connected: cloneUrl is rejected BEFORE the connection/token is touched,
+    // proving the token can never be aimed at a non-github host.
+    const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: 'Iv1.x' });
+    const dest = join(work, 'dest');
+    const bad = [
+      'https://evil.example.com/o/r.git',
+      'https://github.com.evil.com/o/r.git',
+      'http://github.com/o/r.git',
+      'ssh://git@github.com/o/r.git',
+      'git@github.com:o/r.git',
+      'file:///etc/passwd',
+      '-oProxyCommand=evil',
+      'ext::sh -c whoami',
+      'https://user:pass@github.com/o/r.git',
+      'https://github.com:8443/o/r.git',
+      'not a url',
+    ];
+    for (const url of bad) {
+      await assert.rejects(
+        conn.cloneAuthenticated(url, dest),
+        (e) => e instanceof GithubError && e.status === 400,
+        `cloneUrl ${JSON.stringify(url)} must be rejected 400`,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: a valid github url passes validation, then requires a connection (409 when disconnected)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-clone409-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-clone409w-')));
+  try {
+    const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: 'Iv1.x' });
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/octocat/hello.git', join(work, 'd2')),
+      (e) => e instanceof GithubError && e.status === 409,
+      'valid url + not connected -> 409 (validation passed)',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: the token goes ONLY via GIT_ASKPASS env — NEVER into argv or the clone url', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-cloneargv-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-cloneargvw-')));
+  try {
+    let capturedCmd: string | undefined;
+    let capturedArgs: string[] | undefined;
+    let capturedEnv: NodeJS.ProcessEnv | undefined;
+    let capturedStdio: unknown;
+    let capturedShell: unknown;
+    const spawnStub: SpawnLike = (cmd, args, opts) => {
+      capturedCmd = cmd;
+      capturedArgs = args;
+      capturedEnv = opts.env;
+      capturedStdio = opts.stdio;
+      capturedShell = opts.shell;
+      const child = new EventEmitter();
+      // Simulate a successful clone; no real .git/config is written (the leak
+      // check reads it best-effort and ignores an absent file).
+      setTimeout(() => child.emit('close', 0), 0);
+      return child as unknown as ChildProcess;
+    };
+    const neverFetch: FetchLike = () => Promise.reject(new Error('no network in this test'));
+    const conn = await connectedConn(root, { fetchImpl: neverFetch, spawnImpl: spawnStub });
+
+    const dest = join(work, 'cloned');
+    await conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest);
+
+    assert.equal(capturedCmd, 'git');
+    const argv = capturedArgs ?? [];
+    assert.ok(argv.includes('clone'), 'git clone');
+    assert.ok(argv.includes('--'), '-- guard present');
+    assert.ok(
+      argv.includes('https://x-access-token@github.com/octocat/hello.git'),
+      'url carries only the non-secret x-access-token username',
+    );
+    assert.ok(argv.includes(dest), 'dest is an argv element');
+    // credential.helper cleared so no helper caches the token to disk.
+    const credIdx = argv.indexOf('credential.helper=');
+    assert.ok(credIdx > 0 && argv[credIdx - 1] === '-c', 'credential.helper is cleared via -c');
+
+    // The crux: the token is NOWHERE in argv, and NOWHERE in the url.
+    assert.ok(!JSON.stringify(argv).includes(SECRET), 'the token is NEVER in argv');
+    const urlArg = argv.find((a) => a.startsWith('https://'));
+    assert.ok(urlArg !== undefined && !urlArg.includes(SECRET), 'the token is NEVER in the clone url');
+
+    // The token is supplied ONLY through the env, for GIT_ASKPASS to read.
+    assert.equal(capturedEnv?.['AI_SM_GH_TOKEN'], SECRET, 'token supplied via AI_SM_GH_TOKEN env only');
+    assert.ok(
+      typeof capturedEnv?.['GIT_ASKPASS'] === 'string' && (capturedEnv['GIT_ASKPASS'] as string).length > 0,
+      'GIT_ASKPASS script path wired into the env',
+    );
+    assert.equal(capturedEnv?.['GIT_TERMINAL_PROMPT'], '0', 'git prompts are disabled (fail fast, no hang)');
+    assert.equal(capturedStdio, 'ignore', 'git output is never buffered/logged (could echo a credential)');
+    assert.equal(capturedShell, false, 'no shell — argv only');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: reuses the no-clobber rule — a non-empty dest -> 409 (never runs git)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-clobber-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-clobberw-')));
+  try {
+    let spawned = false;
+    const spawnStub: SpawnLike = () => {
+      spawned = true;
+      const child = new EventEmitter();
+      setTimeout(() => child.emit('close', 0), 0);
+      return child as unknown as ChildProcess;
+    };
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: spawnStub,
+    });
+    const dest = join(work, 'nonempty');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(dest);
+    await writeFile(join(dest, 'keep.txt'), 'precious\n');
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest),
+      (e) => e instanceof GithubError && e.status === 409,
+      'non-empty dest -> 409',
+    );
+    assert.equal(spawned, false, 'git is never spawned when the dest is non-empty');
+    assert.equal(await readFile(join(dest, 'keep.txt'), 'utf8'), 'precious\n', 'existing file untouched');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 3b. Phase 2c gap-closure (test-engineer): extends the dev's 2c tests with
+//     the token-safety corners they did not assert — the askpass script's own
+//     content/cleanup, the .git/config leak guard (both directions), the git-
+//     failure cleanup, the never-spawn refusal guards, the two url rejections
+//     the dev list omitted (control char, over-length), and createRepo's
+//     description-omission / 401-invalidation / clean-502 branches. Every case
+//     drives the fetch/spawn SEAMS — NO real network, NO real clone.
+// ---------------------------------------------------------------------------
+
+/** A fake ChildProcess that runs `onSpawn` then emits `close(code)` next tick. */
+function fakeChild(code: number, onSpawn?: () => void): ChildProcess {
+  if (onSpawn !== undefined) onSpawn();
+  const child = new EventEmitter();
+  setTimeout(() => child.emit('close', code), 0);
+  return child as unknown as ChildProcess;
+}
+
+test('cloneAuthenticated: #buildAuthenticatedGithubUrl also rejects a control char and an over-length url (400, before any spawn)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-urlextra-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-urlextraw-')));
+  try {
+    let spawned = false;
+    const conn = new GithubConnection({
+      file: join(root, 'github.json'),
+      log: noop,
+      clientId: 'Iv1.x',
+      spawnImpl: () => fakeChild(0, () => { spawned = true; }),
+    });
+    const dest = join(work, 'dest');
+    const controlChar = 'https://github.com/o/r.git'; // 0x01 fails the char scan
+    const overLong = 'https://github.com/' + 'a'.repeat(2100) + '.git'; // > MAX_CLONE_URL_LEN(2048)
+    for (const url of [controlChar, overLong]) {
+      await assert.rejects(
+        conn.cloneAuthenticated(url, dest),
+        (e) => e instanceof GithubError && e.status === 400,
+        `url ${JSON.stringify(url.slice(0, 40))} must be rejected 400`,
+      );
+    }
+    assert.equal(spawned, false, 'a url rejected by validation never reaches git');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: the throwaway askpass script prints the token from env, NEVER embeds it, is mode 0700, and is deleted afterward', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-askpass-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-askpassw-')));
+  try {
+    let askPath: string | undefined;
+    let askBody: string | undefined;
+    let askMode: number | undefined;
+    const spawnStub: SpawnLike = (_cmd, _args, opts) => {
+      askPath = opts.env?.['GIT_ASKPASS'] as string | undefined;
+      if (askPath !== undefined) {
+        askBody = readFileSync(askPath, 'utf8'); // the script exists at spawn time
+        askMode = statSync(askPath).mode & 0o777;
+      }
+      return fakeChild(0);
+    };
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network in this test')),
+      spawnImpl: spawnStub,
+    });
+    const dest = join(work, 'cloned');
+    await conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest);
+
+    // The script reads the token from the env var — it does NOT contain the token.
+    assert.equal(askBody, '#!/bin/sh\nprintf \'%s\' "$AI_SM_GH_TOKEN"\n', 'askpass reads AI_SM_GH_TOKEN from env');
+    assert.ok(askBody !== undefined && !askBody.includes(SECRET), 'the askpass script NEVER embeds the token');
+    assert.equal(askMode, 0o700, 'the askpass script is mode 0700 (owner-only)');
+    assert.ok(askPath !== undefined && !existsSync(askPath), 'the throwaway askpass script is deleted after the clone');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: a .git/config that leaked the token aborts 500 (clean message) and removes the freshly-created dest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-leak-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-leakw-')));
+  try {
+    const dest = join(work, 'cloned');
+    const spawnStub: SpawnLike = () =>
+      fakeChild(0, () => {
+        // Simulate a clone whose config accidentally embedded the token on disk.
+        mkdirSync(join(dest, '.git'), { recursive: true });
+        writeFileSync(
+          join(dest, '.git', 'config'),
+          `[remote "origin"]\n  url = https://x-access-token:${SECRET}@github.com/o/r.git\n`,
+        );
+      });
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: spawnStub,
+    });
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest),
+      (e) => e instanceof GithubError && e.status === 500 && !e.message.includes(SECRET),
+      'a token in .git/config aborts 500 with a message that never echoes the token',
+    );
+    assert.ok(!existsSync(dest), 'the poisoned clone is removed — no token is left on disk');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: a clean .git/config (no token) is accepted and the clone is kept (leak guard does not false-positive)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-clean-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-cleanw-')));
+  try {
+    const dest = join(work, 'cloned');
+    const spawnStub: SpawnLike = () =>
+      fakeChild(0, () => {
+        mkdirSync(join(dest, '.git'), { recursive: true });
+        writeFileSync(
+          join(dest, '.git', 'config'),
+          `[remote "origin"]\n  url = https://x-access-token@github.com/o/r.git\n`,
+        );
+      });
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: spawnStub,
+    });
+    await conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest);
+    assert.ok(existsSync(join(dest, '.git', 'config')), 'a clean clone is kept');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: a non-zero git exit -> 502 and the partial dest WE created is removed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-fail-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-failw-')));
+  try {
+    const dest = join(work, 'cloned');
+    const spawnStub: SpawnLike = () =>
+      fakeChild(1, () => {
+        mkdirSync(dest, { recursive: true }); // git makes the leaf dir before failing
+      });
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: spawnStub,
+    });
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest),
+      (e) => e instanceof GithubError && e.status === 502,
+      'git exit != 0 -> 502',
+    );
+    assert.ok(!existsSync(dest), 'a dest WE created is removed on clone failure (no partial left behind)');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: never spawns git when it will refuse — not-connected (409) and a missing parent (400)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-nospawn-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-nospawnw-')));
+  try {
+    let spawned = false;
+    const spy: SpawnLike = () => fakeChild(0, () => { spawned = true; });
+
+    // (1) valid url, but NOT connected -> 409 before any spawn (constructed while
+    //     github.json is still absent).
+    const disc = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: 'Iv1.x', spawnImpl: spy });
+    await assert.rejects(
+      disc.cloneAuthenticated('https://github.com/octocat/hello.git', join(work, 'd1')),
+      (e) => e instanceof GithubError && e.status === 409,
+      'valid url + not connected -> 409',
+    );
+
+    // (2) connected, but the dest PARENT does not exist -> 400 before any spawn.
+    const conn = await connectedConn(root, { fetchImpl: () => Promise.reject(new Error('no network')), spawnImpl: spy });
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/octocat/hello.git', join(work, 'missing-parent', 'child')),
+      (e) => e instanceof GithubError && e.status === 400,
+      'connected + missing parent -> 400',
+    );
+
+    assert.equal(spawned, false, 'git is never spawned on a refused clone');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('createRepo: omits `description` from the request body when not provided (body is exactly { name, private })', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-nodesc-'));
+  try {
+    let sentBody: unknown;
+    const stub: FetchLike = (url, init) => {
+      if (url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST') {
+        sentBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          jsonResponse(
+            { full_name: 'octocat/np', name: 'np', owner: { login: 'octocat' }, private: false, clone_url: 'https://github.com/octocat/np.git' },
+            201,
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    };
+    const conn = await connectedConn(root, { fetchImpl: stub });
+    await conn.createRepo({ name: 'np', private: false });
+    assert.deepEqual(sentBody, { name: 'np', private: false }, 'no description sent when omitted');
+    assert.ok(
+      sentBody !== null && typeof sentBody === 'object' && !('description' in (sentBody as object)),
+      'the description key is absent, not sent as undefined/null',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('createRepo: a 401 from GitHub invalidates the token (-> disconnected, github.json deleted) and throws 409', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create401-'));
+  const file = join(root, 'github.json');
+  try {
+    const stub: FetchLike = (url, init) =>
+      url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST'
+        ? Promise.resolve(jsonResponse({ message: 'Bad credentials' }, 401))
+        : Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
+    const conn = await connectedConn(root, { fetchImpl: stub });
+    assert.equal(conn.status().state, 'connected', 'stored token -> connected on boot');
+    await assert.rejects(
+      conn.createRepo({ name: 'x', private: false }),
+      (e) => e instanceof GithubError && e.status === 409,
+      '401 on create surfaces as 409 not-connected',
+    );
+    assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' }, '401 invalidated the token');
+    await assert.rejects(stat(file), 'github.json is removed after the 401 invalidation');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('createRepo: an unmappable 201 payload -> 502; a 5xx -> clean 502 (never the raw github body)', async () => {
+  const rootA = await mkdtemp(join(tmpdir(), 'ai-sm-gh-c502a-'));
+  const rootB = await mkdtemp(join(tmpdir(), 'ai-sm-gh-c502b-'));
+  try {
+    // (1) 201 but the payload cannot be mapped (no full_name / owner / clone_url).
+    const unmappable = await connectedConn(rootA, {
+      fetchImpl: (url, init) =>
+        url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST'
+          ? Promise.resolve(jsonResponse({ id: 1, name: 'x' }, 201))
+          : Promise.resolve(jsonResponse({ error: 'unexpected' }, 404)),
+    });
+    await assert.rejects(
+      unmappable.createRepo({ name: 'x', private: false }),
+      (e) => e instanceof GithubError && e.status === 502,
+      'an unmappable 201 payload -> 502',
+    );
+
+    // (2) a 5xx from GitHub -> a clean 502 that never echoes the raw body.
+    const errored = await connectedConn(rootB, {
+      fetchImpl: (url, init) =>
+        url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST'
+          ? Promise.resolve(jsonResponse({ message: 'boom-internal' }, 500))
+          : Promise.resolve(jsonResponse({ error: 'unexpected' }, 404)),
+    });
+    await assert.rejects(
+      errored.createRepo({ name: 'x', private: false }),
+      (e) => e instanceof GithubError && e.status === 502 && !e.message.includes('boom-internal'),
+      'a 5xx -> clean 502, never the raw github body',
+    );
+  } finally {
+    await rm(rootA, { recursive: true, force: true });
+    await rm(rootB, { recursive: true, force: true });
   }
 });

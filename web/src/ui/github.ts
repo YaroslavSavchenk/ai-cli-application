@@ -12,20 +12,27 @@
  *     or expected here — no shape below carries it.
  *   - Disconnect only drops the LOCAL token; the public device-flow grant can
  *     only be fully revoked from GitHub settings (surfaced in copy).
- *   - 2b is VIEW-ONLY: repos are listed, with NO per-repo clone/open button —
- *     clone-by-picking is Phase 2c, and its seam is left clean.
+ *   - Phase 2c wires the per-repo clone/open action + the "+ New repo" form:
+ *     a real POST /api/github/clone and a create->clone chain over POST
+ *     /api/github/repos. Clone is a SLOW synchronous call — an HONEST
+ *     indeterminate "cloning…" spinner shows while awaiting (NEVER a fake
+ *     percentage; the prototype's faked % bar is deliberately dropped). Errors
+ *     (409 folder exists / 422 name taken / 502) render inline.
  *
- * Untrusted display: login, repo fullName/description/language, userCode and
- * verificationUri all render via textContent — never innerHTML.
+ * Untrusted display: login, repo fullName/description/language, userCode,
+ * verificationUri, and the created repo's name all render via textContent —
+ * never innerHTML.
  *
  * Poll cadence: FAST (~2.5 s) ONLY while connecting OR while the dialog's
  * GitHub tab is open; otherwise PAUSED. A single status fetch on chip mount
  * (initGithub) and on tab open keeps the chip honest without hammering a
  * disconnected/closed app.
  */
-import type { GithubRepo, GithubStatus } from '../../../shared/protocol.ts';
+import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
+import * as st from '../state.ts';
 import { el, button, armButton } from './util.ts';
+import { joinPath } from './newproject-model.ts';
 
 const GH_POLL_MS = 2500;
 
@@ -46,8 +53,70 @@ let tabOpen = false;
 let inFlight = false;
 let repoToken = 0;
 
+// Phase 2c: repos with a clone in flight, keyed by fullName. Lives OUTSIDE the
+// row DOM (like util.ArmedSet) so a per-row "cloning…" state survives a list
+// rebuild (search / repo-list reload) instead of being wiped by replaceChildren.
+const cloning = new Set<string>();
+
 function emit(): void {
   for (const cb of listeners) cb();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2c helpers: home resolution, already-cloned detection, error mapping.
+// ---------------------------------------------------------------------------
+
+/**
+ * Real $HOME, resolved ONCE from GET /api/fs/list (the same source
+ * newproject.ts uses — NEVER hardcoded `/home/...`) and cached. Retried on
+ * every call until it succeeds; null until then (clone/create surface a
+ * "couldn't resolve your home directory" error rather than guessing a path).
+ */
+let homeDir: string | null = null;
+
+async function ensureHome(): Promise<string | null> {
+  if (homeDir !== null) return homeDir;
+  try {
+    const res = await api.fsList(); // no path → backend's $HOME
+    if (res.path !== '') homeDir = res.path;
+  } catch {
+    // Leave null — the caller reports it; a later call retries.
+  }
+  return homeDir;
+}
+
+/** Default clone destination for a repo: `<home>/projects/<repo.name>`. */
+function defaultDest(home: string, name: string): string {
+  return joinPath(joinPath(home, 'projects'), name);
+}
+
+/**
+ * The local Project a repo already maps to, or null. Matches by NAME or by the
+ * default clone path (`<home>/projects/<repo.name>`) — path-match needs `home`,
+ * name-match works without it (so detection is live before home resolves).
+ */
+function clonedProject(r: GithubRepo, home: string | null): Project | null {
+  const dest = home !== null ? defaultDest(home, r.name) : null;
+  for (const p of st.state.projects) {
+    if (p.name === r.name) return p;
+    if (dest !== null && p.path === dest) return p;
+  }
+  return null;
+}
+
+/**
+ * Honest clone-error copy: prefer the server's real `{error}` message; fall
+ * back to friendly text only for a bare `HTTP <status>` (no body). 409 =
+ * a non-empty destination already exists; 502 = the git clone itself failed.
+ */
+function cloneErr(e: unknown): string {
+  if (e instanceof api.ApiError) {
+    if (e.message !== `HTTP ${e.status}`) return e.message;
+    if (e.status === 409) return 'a folder already exists there';
+    if (e.status === 502) return 'clone failed';
+    return e.message;
+  }
+  return e instanceof Error ? e.message : String(e);
 }
 
 function onGithubUpdate(cb: () => void): void {
@@ -250,13 +319,22 @@ export interface GithubPanel {
   setActive(active: boolean): void;
 }
 
+export interface GithubPanelOptions {
+  /**
+   * A repo row's "open" action fired: the repo is already a local project.
+   * The host (newproject.ts) closes the dialog and reveals it in the Projects
+   * drawer. Absent → "open" is inert (still shown, just no navigation).
+   */
+  onOpenProject?: (project: Project) => void;
+}
+
 function ghAvatar(text: string): HTMLElement {
   const a = el('div', 'gh-avatar', text);
   a.setAttribute('aria-hidden', 'true');
   return a;
 }
 
-export function createGithubPanel(): GithubPanel {
+export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   const root = el('div', 'np-panel');
   root.hidden = true;
   let active = false;
@@ -347,17 +425,188 @@ export function createGithubPanel(): GithubPanel {
       'Disconnect removes the local token. To fully revoke access, remove the app in your GitHub settings → Applications.',
     ),
   );
+  // search + "+ New repo" (Phase 2c) share one row
+  const actionsRow = el('div', 'gh-actions');
   const searchInput = el('input', 'gh-search');
   searchInput.placeholder = 'search repositories…';
   searchInput.spellcheck = false;
   searchInput.autocomplete = 'off';
   searchInput.setAttribute('aria-label', 'search repositories');
-  connectedWrap.append(searchInput);
+  const newRepoBtn = button('gh-newrepo', '+ New repo', () => toggleNewForm());
+  newRepoBtn.setAttribute('aria-expanded', 'false');
+  newRepoBtn.setAttribute('aria-controls', 'gh-newform');
+  newRepoBtn.title = 'create a new repository on GitHub and clone it locally';
+  actionsRow.append(searchInput, newRepoBtn);
+  connectedWrap.append(actionsRow);
+
+  // --- "+ New repo" inline form (create -> clone chain) ----------------------
+  const newForm = el('div', 'gh-newform');
+  newForm.id = 'gh-newform';
+  newForm.hidden = true;
+  newForm.setAttribute('role', 'group');
+  newForm.setAttribute('aria-label', 'create a new GitHub repository');
+  const newNameInput = el('input', 'gh-newinput');
+  newNameInput.placeholder = 'new-repo-name';
+  newNameInput.spellcheck = false;
+  newNameInput.autocomplete = 'off';
+  newNameInput.setAttribute('aria-label', 'new repository name');
+  const newDescInput = el('input', 'gh-newinput');
+  newDescInput.placeholder = 'description (optional)';
+  newDescInput.spellcheck = false;
+  newDescInput.autocomplete = 'off';
+  newDescInput.setAttribute('aria-label', 'new repository description (optional)');
+  const newRow = el('div', 'gh-newrow');
+  const privBtn = button('gh-newbtn is-toggle', 'private', () => togglePrivate());
+  const newNote = el('span', 'gh-newnote', 'creates it on GitHub and clones it locally');
+  const newCancel = button('gh-newbtn is-cancel', 'Cancel', () => closeNewForm());
+  const newCreate = button('gh-newbtn is-create', 'Create', () => void submitNewRepo());
+  newRow.append(privBtn, newNote, el('span', 'launch-gap'), newCancel, newCreate);
+  const newErr = el('div', 'gh-newerr');
+  newErr.setAttribute('role', 'alert');
+  newErr.hidden = true;
+  const newBusy = el('div', 'np-busy');
+  newBusy.hidden = true;
+  const newBusySpin = el('span', 'np-spinner');
+  newBusySpin.setAttribute('aria-hidden', 'true');
+  const newBusyLabel = el('span', '', '');
+  newBusy.append(newBusySpin, newBusyLabel);
+  newForm.append(newNameInput, newDescInput, newRow, newErr, newBusy);
+  newNameInput.addEventListener('input', () => {
+    newNameInput.classList.remove('is-err');
+    newErr.hidden = true;
+  });
+  connectedWrap.append(newForm);
+
   const reposEl = el('div', 'gh-repos');
   reposEl.setAttribute('aria-live', 'polite');
   connectedWrap.append(reposEl);
 
   root.append(checkingCard, setupCard, disconnectedCard, connectingCard, connectedWrap);
+
+  // ---- "+ New repo" form state + handlers -----------------------------------
+  let newOpen = false;
+  let newPrivate = true;
+  let creating = false;
+
+  function syncPrivate(): void {
+    privBtn.textContent = newPrivate ? 'private' : 'public';
+    privBtn.setAttribute('aria-pressed', newPrivate ? 'true' : 'false');
+    privBtn.setAttribute(
+      'aria-label',
+      `repository visibility: ${newPrivate ? 'private' : 'public'} — activate to make it ${
+        newPrivate ? 'public' : 'private'
+      }`,
+    );
+  }
+
+  function togglePrivate(): void {
+    if (creating) return;
+    newPrivate = !newPrivate;
+    syncPrivate();
+  }
+
+  function toggleNewForm(): void {
+    if (newOpen) closeNewForm();
+    else openNewForm();
+  }
+
+  function openNewForm(): void {
+    newOpen = true;
+    newForm.hidden = false;
+    newRepoBtn.setAttribute('aria-expanded', 'true');
+    newNameInput.value = '';
+    newDescInput.value = '';
+    newNameInput.classList.remove('is-err');
+    newPrivate = true;
+    syncPrivate();
+    newErr.hidden = true;
+    newNameInput.focus();
+  }
+
+  function closeNewForm(): void {
+    if (creating) return; // never collapse mid create/clone
+    newOpen = false;
+    newForm.hidden = true;
+    newRepoBtn.setAttribute('aria-expanded', 'false');
+    newErr.hidden = true;
+    newRepoBtn.focus();
+  }
+
+  /** Honest indeterminate busy across the create->clone chain (no fake %). */
+  function setCreating(on: boolean, label = ''): void {
+    creating = on;
+    newBusy.hidden = !on;
+    newBusyLabel.textContent = label;
+    newNameInput.disabled = on;
+    newDescInput.disabled = on;
+    privBtn.disabled = on;
+    newCancel.disabled = on;
+    newCreate.disabled = on;
+    newRepoBtn.disabled = on;
+    searchInput.disabled = on;
+  }
+
+  async function submitNewRepo(): Promise<void> {
+    if (creating) return;
+    const name = newNameInput.value.trim();
+    newErr.hidden = true;
+    newNameInput.classList.remove('is-err');
+    if (name === '') {
+      newErr.textContent = 'a repository name is required';
+      newErr.hidden = false;
+      newNameInput.classList.add('is-err');
+      newNameInput.focus();
+      return;
+    }
+    const home = await ensureHome();
+    if (home === null) {
+      newErr.textContent = 'couldn’t resolve your home directory — try again';
+      newErr.hidden = false;
+      return;
+    }
+    const description = newDescInput.value.trim();
+    setCreating(true, 'creating…');
+    let created: GithubRepo;
+    try {
+      created = await api.githubCreateRepo({
+        name,
+        private: newPrivate,
+        ...(description !== '' ? { description } : {}),
+      });
+    } catch (e) {
+      setCreating(false);
+      if (e instanceof api.ApiError && e.status === 422) {
+        newErr.textContent = e.message; // "…the name may already be taken"
+        newErr.hidden = false;
+        newNameInput.classList.add('is-err');
+        newNameInput.focus();
+      } else {
+        newErr.textContent = e instanceof Error ? e.message : String(e);
+        newErr.hidden = false;
+      }
+      return;
+    }
+    // CHAIN: create succeeded → clone the fresh repo into <home>/projects/<name>.
+    newBusyLabel.textContent = 'cloning…';
+    try {
+      const project = await api.githubClone({
+        cloneUrl: created.cloneUrl,
+        dest: defaultDest(home, name),
+        name,
+      });
+      st.setProjects([...st.state.projects, project]);
+      setCreating(false);
+      closeNewForm();
+    } catch (e) {
+      // The repo WAS created on GitHub; only the local clone failed — say so.
+      setCreating(false);
+      newErr.textContent = `repo created on GitHub, but the clone failed: ${cloneErr(e)}`;
+      newErr.hidden = false;
+    }
+    // Refresh the list either way so the new repo appears (open if cloned,
+    // clone-able if the clone half failed).
+    void loadRepos(searchInput.value.trim());
+  }
 
   // ---- handlers -------------------------------------------------------------
   async function onConnect(): Promise<void> {
@@ -473,7 +722,10 @@ export function createGithubPanel(): GithubPanel {
     top.append(
       el('span', `gh-badge ${r.private ? 'is-private' : 'is-public'}`, r.private ? 'private' : 'public'),
     );
-    // 2c SEAM: no per-repo clone/open button here — clone-by-picking is Phase 2c.
+    // Phase 2c: per-repo clone/open action, pinned right. `actionSlot` holds the
+    // clone|open button; `statusSlot` holds the "cloning…" indicator or an error.
+    const actionSlot = el('span', 'gh-repo-actslot');
+    top.append(actionSlot);
     card.append(top);
 
     if (r.description !== undefined && r.description !== '') {
@@ -499,6 +751,81 @@ export function createGithubPanel(): GithubPanel {
       meta.append(el('span', 'gh-meta-t', `pushed ${pushed}`));
     }
     if (meta.childElementCount > 0) card.append(meta);
+
+    const statusSlot = el('div', 'gh-repo-status');
+    statusSlot.hidden = true;
+    card.append(statusSlot);
+
+    let rowErr = '';
+
+    /** Repaint the action + status area from current state (cloning set + projects). */
+    function paint(): void {
+      const inFlightClone = cloning.has(r.fullName);
+      const project = clonedProject(r, homeDir);
+      actionSlot.replaceChildren();
+      statusSlot.replaceChildren();
+      statusSlot.hidden = true;
+
+      if (inFlightClone) {
+        const b = button('gh-repo-act is-clone', 'clone');
+        b.disabled = true;
+        actionSlot.append(b);
+        const busy = el('div', 'np-busy');
+        const spin = el('span', 'np-spinner');
+        spin.setAttribute('aria-hidden', 'true');
+        busy.append(spin, el('span', '', 'cloning…'));
+        statusSlot.append(busy);
+        statusSlot.hidden = false;
+        return;
+      }
+
+      if (project !== null) {
+        const b = button('gh-repo-act is-open', 'open', () => opts.onOpenProject?.(project));
+        b.setAttribute('aria-label', `open ${r.name} — reveal it in the Projects drawer`);
+        b.title = 'already cloned — open in the Projects drawer';
+        actionSlot.append(b);
+      } else {
+        const b = button('gh-repo-act is-clone', 'clone', () => void startClone());
+        b.setAttribute('aria-label', `clone ${r.fullName} into your projects folder`);
+        b.title = 'clone into <home>/projects and register as a project';
+        actionSlot.append(b);
+      }
+
+      if (rowErr !== '') {
+        statusSlot.append(el('div', 'gh-repo-err', rowErr));
+        statusSlot.hidden = false;
+      }
+    }
+
+    async function startClone(): Promise<void> {
+      if (cloning.has(r.fullName)) return;
+      rowErr = '';
+      const home = await ensureHome();
+      if (home === null) {
+        rowErr = 'couldn’t resolve your home directory — try again';
+        paint();
+        return;
+      }
+      cloning.add(r.fullName);
+      paint();
+      try {
+        const project = await api.githubClone({
+          cloneUrl: r.cloneUrl,
+          dest: defaultDest(home, r.name),
+          name: r.name,
+        });
+        st.setProjects([...st.state.projects, project]); // drawer + open-state update
+        cloning.delete(r.fullName);
+        paint(); // flips this row to "open"
+        actionSlot.querySelector('button')?.focus(); // keep focus reachable
+      } catch (e) {
+        cloning.delete(r.fullName);
+        rowErr = cloneErr(e);
+        paint();
+      }
+    }
+
+    paint();
     return card;
   }
 
@@ -535,7 +862,20 @@ export function createGithubPanel(): GithubPanel {
     active = a;
     setTabOpen(a);
     if (a) {
-      if (status?.state === 'connected' && repoState === 'idle') void loadRepos('');
+      if (status?.state === 'connected') {
+        if (repoState === 'idle') void loadRepos('');
+        // Resolve $HOME so path-based already-cloned detection + the clone
+        // destination are ready; rebuild the list once it lands (name-based
+        // detection already works without it).
+        if (homeDir === null) {
+          void ensureHome().then(() => {
+            if (active && status?.state === 'connected' && homeDir !== null) {
+              reposVersion++;
+              emit();
+            }
+          });
+        }
+      }
       render();
       focusFirst();
     } else {

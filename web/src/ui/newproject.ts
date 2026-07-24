@@ -228,10 +228,17 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
 
   clonePanel.append(urlField, destField, clonePreview);
 
-  // GitHub panel (Phase 2b) — the third tab. All GitHub UI + the status
+  // GitHub panel (Phase 2b + 2c) — the third tab. All GitHub UI + the status
   // controller live in ui/github.ts; this dialog only mounts the panel and
-  // tells it when its tab is active (which drives the poll cadence).
-  const githubPanel = createGithubPanel();
+  // tells it when its tab is active (which drives the poll cadence). The 2c
+  // "open" action on an already-cloned repo hands back its Project: close the
+  // dialog and reveal it in the Projects drawer.
+  const githubPanel = createGithubPanel({
+    onOpenProject: () => {
+      close();
+      st.openDrawer('projects');
+    },
+  });
   githubPanel.el.hidden = true;
 
   const err = el('div', 'form-err');

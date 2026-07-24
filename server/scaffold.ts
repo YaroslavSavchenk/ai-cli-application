@@ -52,9 +52,10 @@ function hasBadUrlChar(url: string): boolean {
 /**
  * A target path is free to create into only when it is ABSENT or an EMPTY
  * directory. An existing non-empty directory or any non-directory throws —
- * we never clobber the user's data.
+ * we never clobber the user's data. Exported so github.ts reuses the exact
+ * same no-clobber rule for its authenticated-clone dest.
  */
-function assertVacant(absPath: string): void {
+export function assertVacant(absPath: string): void {
   let st;
   try {
     st = statSync(absPath);

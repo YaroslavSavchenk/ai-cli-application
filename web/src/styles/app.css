@@ -2806,6 +2806,193 @@ kbd {
   color: var(--danger);
 }
 
+/* ---- GitHub clone-by-picking + create-repo (Phase 2c) -----------------------
+   Per-repo clone/open action, the "+ New repo" inline form, and honest
+   indeterminate clone/create states (reusing .np-busy + .np-spinner — NEVER a
+   fake percentage; the prototype's faked % progress bar is deliberately
+   dropped). The ONLY off-scale literal is the 24px compact row-action height
+   (prototype), consistent with the documented 30px-search / 8px-dot one-offs
+   above. All repo/created-repo fields render via textContent in ui/github.ts. */
+
+/* search + "+ New repo" share one row; search grows */
+.gh-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.gh-actions .gh-search {
+  flex: 1;
+  min-width: 0;
+}
+
+/* accent-green "+ New repo" — the create twin of .gh-connect's accent */
+.gh-newrepo {
+  flex: none;
+  height: 30px; /* matches the compact .gh-search height (prototype) */
+  padding: 0 var(--s-6);
+  background: var(--ok-tint);
+  border: var(--line) solid var(--ok);
+  border-radius: var(--r-field);
+  color: var(--ok-text);
+  font-size: var(--fs-tab);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gh-newrepo:hover {
+  background: var(--ok-tint-hover);
+}
+
+.gh-newrepo:disabled {
+  opacity: 0.55;
+}
+
+/* the create form: a bordered inset card that reveals below the actions row */
+.gh-newform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-6);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-accent);
+  border-radius: var(--r-box);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+.gh-newinput {
+  height: 28px; /* compact form input (prototype) */
+  padding: 0 var(--s-5);
+  background: var(--well);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tab);
+}
+
+.gh-newinput:focus {
+  border-color: var(--edge-accent);
+}
+
+.gh-newinput.is-err {
+  border-color: var(--danger);
+}
+
+.gh-newrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.gh-newnote {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+/* small form buttons: private/public toggle, Cancel, Create */
+.gh-newbtn {
+  flex: none;
+  height: var(--ctl-h);
+  padding: 0 var(--s-5);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  font-size: var(--fs-status);
+}
+
+.gh-newbtn:disabled {
+  opacity: 0.55;
+}
+
+.gh-newbtn.is-toggle {
+  background: transparent;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+}
+
+.gh-newbtn.is-toggle:hover,
+.gh-newbtn.is-cancel:hover {
+  border-color: var(--edge-hover);
+  color: var(--text);
+}
+
+.gh-newbtn.is-cancel {
+  background: transparent;
+  color: var(--text-mute);
+}
+
+.gh-newbtn.is-create {
+  background: var(--ok-tint);
+  border-color: var(--ok);
+  color: var(--ok-text);
+  font-weight: 600;
+}
+
+.gh-newbtn.is-create:hover {
+  background: var(--ok-tint-hover);
+}
+
+.gh-newerr {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--danger);
+  line-height: 1.4;
+}
+
+/* per-repo action: clone (accent) flips to open (green) once cloned locally */
+.gh-repo-actslot {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.gh-repo-act {
+  height: 24px; /* off-scale one-off: compact row action (prototype) */
+  padding: 0 var(--s-6);
+  border-radius: var(--r-btn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.gh-repo-act:disabled {
+  opacity: 0.55;
+}
+
+.gh-repo-act.is-clone {
+  background: var(--acc-tint);
+  border: var(--line) solid var(--acc);
+  color: var(--acc);
+}
+
+.gh-repo-act.is-clone:hover:not(:disabled) {
+  background: var(--acc-sel);
+}
+
+.gh-repo-act.is-open {
+  background: var(--ok-tint);
+  border: var(--line) solid var(--ok);
+  color: var(--ok-text);
+}
+
+.gh-repo-act.is-open:hover {
+  background: var(--ok-tint-hover);
+}
+
+/* row status: the "cloning…" indicator (.np-busy) or an inline clone error */
+.gh-repo-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.gh-repo-err {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--danger);
+  line-height: 1.4;
+}
+
 /* ---- folder picker (Phase 2a) — real /api/fs/list + /api/fs/mkdir -----------
    Gradient header (reused), breadcrumb + up nav, quick zones, the existing
    .dirlist/.dir-btn folder list, a new-folder row, and a Select-folder footer.
