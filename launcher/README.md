@@ -113,6 +113,18 @@ What it does:
   `...WinForms.dll`, `WebView2Loader.dll`). Nothing from the package is
   committed; the whole `host/build/` folder is git-ignored.
 
+**Dark window chrome.** The caption bar and border are drawn by DWM, not by
+the page, so a maximized window used to show the default light Windows caption
+above the dark UI. On every handle creation the host applies
+`DwmSetWindowAttribute`: immersive dark mode (attribute `20`, falling back to
+the legacy `19`) plus caption / text / border colors taken straight from
+`web/src/styles/tokens.css` — `--bg-app` `#171D25`, `--text-hd` `#AAB7C4`,
+`--edge` `#262F3B`. The three color attributes need **Windows 11 build
+22000+**; on Windows 10 they fail harmlessly and the caption stays in plain
+dark mode. Every failure path is non-fatal and logged — this is cosmetic and
+must never break the window. Keep the constants in sync if those tokens change.
+The Edge `--app` fallback window is unaffected and still shows a light caption.
+
 The host navigates only to the resolved `http://127.0.0.1:<port>/` and is
 **navigation-locked** to that origin (127.0.0.1/localhost); it monitors nothing
 and kills nothing — backend lifetime stays presence-bound exactly as with the

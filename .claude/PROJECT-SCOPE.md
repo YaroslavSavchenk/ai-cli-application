@@ -58,8 +58,15 @@ and multi-pane layouts on top.
   (the Edge `--app` window cannot — see the icon note under Open decisions).
   It navigates only to `127.0.0.1:<port>`, navigation locked to that origin,
   and falls back to the Edge `--app` window if the WebView2 runtime is
-  absent. A full **Tauri** shell (tray, native folder picker) remains the
-  later upgrade; this host is the minimum that fixes the taskbar identity.
+  absent. Its **window chrome is dark** (added 2026-07-24): DWM caption /
+  text / border colors + immersive dark mode, matching the `--bg-app`,
+  `--text-hd` and `--edge` tokens, because the DWM-drawn caption is outside
+  the page and showed a white bar above the dark UI when maximized. The
+  user chose this **DWM-coloring route over a frameless window with a
+  custom in-page title strip**; frameless stays available as a later
+  upgrade if the separate bar starts to grate. A full **Tauri** shell (tray,
+  native folder picker) remains the later upgrade; this host is the minimum
+  that fixes the taskbar identity.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)

@@ -52,6 +52,32 @@ namespace AiSessionManager
         [DllImport("user32.dll")]
         private static extern bool DestroyIcon(IntPtr hIcon);
 
+        // Both the BOOL (immersive dark mode) and the COLORREF attributes are
+        // 4-byte values, so one `ref int` overload covers every call below.
+        // Declared with an int return (not PreserveSig=false) so an unsupported
+        // attribute on an older Windows returns a failing HRESULT instead of
+        // throwing: dark chrome is cosmetic and must never break the window.
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(
+            IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+        // DWMWINDOWATTRIBUTE members. 20 is Windows 10 2004+ (build 19041);
+        // on the 18985-19041 insider range the same flag lived at 19, which is
+        // why both are tried. 34/35/36 are Windows 11 22000+ only — on Windows
+        // 10 they fail harmlessly and the caption just stays light-with-dark-
+        // mode, which is the documented ceiling there, not a bug to work around.
+        private const int DwmwaUseImmersiveDarkMode = 20;
+        private const int DwmwaUseImmersiveDarkModeLegacy = 19;
+        private const int DwmwaBorderColor = 34;
+        private const int DwmwaCaptionColor = 35;
+        private const int DwmwaTextColor = 36;
+
+        // Design tokens, written exactly as in web/src/styles/tokens.css so the
+        // two stay diffable: --bg-app, --text-hd, --edge. ToColorRef converts.
+        private const int TokenBgApp = 0x171D25;
+        private const int TokenTextHd = 0xAAB7C4;
+        private const int TokenEdge = 0x262F3B;
+
         private static string _dataDir;
         private static string _readySentinel;
         private static string _logFile;
@@ -148,6 +174,10 @@ namespace AiSessionManager
         private static Form BuildForm(string userDataFolder, Uri uri)
         {
             Form form = new Form();
+            // Subscribed before anything can create the handle (adding the
+            // WebView2 child can force it), so the event is never missed; it
+            // fires again if WinForms ever recreates the handle.
+            form.HandleCreated += Form_HandleCreated;
             form.Text = "AI Session Manager";
             form.Width = 1280;
             form.Height = 860;
@@ -179,6 +209,69 @@ namespace AiSessionManager
             // handle), then navigates to the target URL.
             webView.Source = uri;
             return form;
+        }
+
+        private static void Form_HandleCreated(object sender, EventArgs e)
+        {
+            Form form = sender as Form;
+            if (form != null)
+            {
+                ApplyDarkChrome(form.Handle);
+            }
+        }
+
+        // The window's non-client area (caption bar + border) is drawn by DWM,
+        // not by us and not by the page, so a maximized window showed the
+        // default light Windows caption above the dark UI. These attributes
+        // recolor it to the app's own tokens. Entirely cosmetic: every failure
+        // path leaves a working, correctly-sized window.
+        private static void ApplyDarkChrome(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+            try
+            {
+                // Dark mode first: it also darkens the system context menu and
+                // is what Windows 10 can honour at all. Attribute 20 is the
+                // current index; fall back to the legacy 19 only if 20 fails.
+                int on = 1;
+                int hr = DwmSetWindowAttribute(
+                    hwnd, DwmwaUseImmersiveDarkMode, ref on, sizeof(int));
+                if (hr != 0)
+                {
+                    DwmSetWindowAttribute(
+                        hwnd, DwmwaUseImmersiveDarkModeLegacy, ref on, sizeof(int));
+                }
+
+                int caption = ToColorRef(TokenBgApp);
+                DwmSetWindowAttribute(
+                    hwnd, DwmwaCaptionColor, ref caption, sizeof(int));
+
+                int text = ToColorRef(TokenTextHd);
+                DwmSetWindowAttribute(
+                    hwnd, DwmwaTextColor, ref text, sizeof(int));
+
+                int border = ToColorRef(TokenEdge);
+                DwmSetWindowAttribute(
+                    hwnd, DwmwaBorderColor, ref border, sizeof(int));
+            }
+            catch (Exception ex)
+            {
+                // DllNotFound/EntryPointNotFound on an ancient Windows, or any
+                // other surprise: log once and keep the light caption.
+                Log("dark window chrome could not be applied (" + ex.Message + "); non-fatal.");
+            }
+        }
+
+        // 0xRRGGBB (how the CSS token is written) -> Win32 COLORREF 0x00BBGGRR.
+        private static int ToColorRef(int rgb)
+        {
+            int r = (rgb >> 16) & 0xFF;
+            int g = (rgb >> 8) & 0xFF;
+            int b = rgb & 0xFF;
+            return (b << 16) | (g << 8) | r;
         }
 
         private static Icon LoadAppIcon()
