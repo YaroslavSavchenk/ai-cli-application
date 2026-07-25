@@ -5,9 +5,11 @@
  *
  * HONESTY (load-bearing):
  *   - Every state is driven by GET /api/github/status. The feature is DORMANT
- *     until the server has an OAuth client id (AI_SM_GITHUB_CLIENT_ID):
- *     status.configured === false renders an honest one-time-setup panel, never
- *     a dead Connect button that would 409 confusingly.
+ *     until the server has an OAuth client id (env AI_SM_GITHUB_CLIENT_ID —
+ *     documented in the README, never NAMED in the UI per the 2026-07-25 copy
+ *     rule): status.configured === false renders an honest one-time-setup panel
+ *     pointing at the README, never a dead Connect button that would 409
+ *     confusingly.
  *   - The access token is 100% server-side. It is NEVER requested, displayed,
  *     or expected here — no shape below carries it.
  *   - Disconnect only drops the LOCAL token; the public device-flow grant can
@@ -42,10 +44,10 @@ import {
   chipView,
   clonedProject,
   cloneErrText,
-  defaultDest,
   expiryTickMs,
   fmtExpiry,
   langColor,
+  ownerDest,
   pollIntervalMs,
   relTime,
 } from './github-model.ts';
@@ -261,16 +263,18 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   checkingCard.append(checkRow);
 
   // --- not configured (dormant) ---------------------------------------------
+  // COPY RULE (scope doc, 2026-07-25): no config-variable names in the UI. The
+  // setting's actual name lives in the README, where acting on it belongs.
   const setupCard = el('div', 'gh-card');
   setupCard.append(ghAvatar('GH'));
-  setupCard.append(el('div', 'gh-title', 'GitHub connection isn’t set up'));
-  const setupBody = el('div', 'gh-body');
-  setupBody.append(
-    document.createTextNode('Connecting needs the app’s OAuth client id. Whoever runs the manager sets '),
-    el('span', 'gh-mono-acc', 'AI_SM_GITHUB_CLIENT_ID'),
-    document.createTextNode(' once on the server, then this tab can connect.'),
+  setupCard.append(el('div', 'gh-title', 'GitHub isn’t set up on this server'));
+  setupCard.append(
+    el(
+      'div',
+      'gh-body',
+      'The server needs a GitHub connection setting before this can be used · see the project README.',
+    ),
   );
-  setupCard.append(setupBody);
   setupCard.append(el('div', 'gh-fine', 'one-time server setup · nothing to do in the browser'));
 
   // --- disconnected ----------------------------------------------------------
@@ -290,15 +294,17 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   connectErr.setAttribute('role', 'alert');
   connectErr.hidden = true;
   disconnectedCard.append(connectErr);
-  // CORRECTED copy: `repo` scope (NOT "read-only") · server-side token (NOT
-  // "OS keychain").
-  const fine = el('div', 'gh-fine');
-  fine.append(
-    document.createTextNode('secure device-flow OAuth · token stored server-side, never in the browser · '),
-    el('span', 'gh-mono-acc', 'repo'),
-    document.createTextNode(' scope'),
+  // Honest about the grant's reach WITHOUT naming the OAuth scope (copy rule,
+  // 2026-07-25): "full access to your repositories" is what `repo` means to a
+  // person. Also still corrects the prototype's two lies: it is not read-only,
+  // and the token is not in an OS keychain.
+  disconnectedCard.append(
+    el(
+      'div',
+      'gh-fine',
+      'secure device-flow sign-in · token stored server-side, never in the browser · full access to your repositories',
+    ),
   );
-  disconnectedCard.append(fine);
 
   // --- connecting ------------------------------------------------------------
   const connectingCard = el('div', 'gh-card');
@@ -325,7 +331,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   meAvatar.classList.add('is-me', 'is-sm');
   const meCol = el('div', 'gh-me-col');
   const meName = el('span', 'gh-me-name', '');
-  meCol.append(meName, el('span', 'gh-me-sub', 'connected · repo scope'));
+  meCol.append(meName, el('span', 'gh-me-sub', 'connected · full access to your repositories'));
   const disconnectBtn = button('gh-mini', 'disconnect');
   armButton(disconnectBtn, 'confirm disconnect', () => void drop());
   meRow.append(meAvatar, meCol, el('span', 'launch-gap'), disconnectBtn);
@@ -499,13 +505,20 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       }
       return;
     }
-    // CHAIN: create succeeded → clone the fresh repo into <home>/projects/<name>.
+    // CHAIN: create succeeded → clone the fresh repo into
+    // <home>/projects/<owner>/<repo>. Owner-qualified like every other clone
+    // this panel starts (settled 2026-07-25): the owner is known for certain
+    // here — it comes back in the create response — and the destination is
+    // ours, not user-chosen, which is exactly the pair of conditions that keeps
+    // the URL-clone tab out of this rule. `created.name` (not the typed `name`)
+    // is authoritative: GitHub may normalize what it accepted, and the path has
+    // to match what the repo list will compare against.
     newBusyLabel.textContent = 'cloning…';
     try {
       const project = await api.githubClone({
         cloneUrl: created.cloneUrl,
-        dest: defaultDest(home, name),
-        name,
+        dest: ownerDest(home, created.owner, created.name),
+        name: created.name,
       });
       st.setProjects([...st.state.projects, project]);
       setCreating(false);
@@ -540,7 +553,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     } catch (e) {
       if (e instanceof api.ApiError && e.status === 409) {
         void poll(); // reveals configured:false → the setup panel
-        connectErr.textContent = 'GitHub isn’t set up on this server (AI_SM_GITHUB_CLIENT_ID is unset).';
+        connectErr.textContent = 'GitHub isn’t set up on this server — see the project README.';
       } else {
         connectErr.textContent = e instanceof Error ? e.message : String(e);
       }
@@ -687,7 +700,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       } else {
         const b = button('gh-repo-act is-clone', 'clone', () => void startClone());
         b.setAttribute('aria-label', `clone ${r.fullName} into your projects folder`);
-        b.title = 'clone into <home>/projects and register as a project';
+        b.title = 'clone into your projects folder, grouped by owner, and register it as a project';
         actionSlot.append(b);
       }
 
@@ -711,7 +724,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       try {
         const project = await api.githubClone({
           cloneUrl: r.cloneUrl,
-          dest: defaultDest(home, r.name),
+          // OWNER-QUALIFIED (settled 2026-07-25): <home>/projects/<owner>/<repo>,
+          // so two same-basename repos from different owners can both be cloned.
+          dest: ownerDest(home, r.owner, r.name),
           name: r.name,
         });
         st.setProjects([...st.state.projects, project]); // drawer + open-state update

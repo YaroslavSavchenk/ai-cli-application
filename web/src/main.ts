@@ -4,7 +4,9 @@
  * global keyboard chords and the session poll.
  *
  * Shell anatomy, top to bottom: 44px gradient topbar (logo tile + wordmark,
- * Theme / Projects / Sessions toggles, connected dot, + New session), the
+ * then the right-hand cluster in the refreshed prototype's order — ⚙ Settings
+ * icon, Theme / Projects / Sessions toggles, divider, connected dot, GitHub
+ * chip, + New session), the
  * middle row (projects drawer · pane grid · sessions drawer — drawers are
  * structural flex siblings, so toggling one resizes panes through the real
  * fit -> ws-resize chain), the Steam-style BOTTOM tab strip, and the 23px
@@ -242,6 +244,17 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   logo.append(el('span', 'logo-glyph', '>_'));
   const wordmark = el('div', 'wordmark', 'AI SESSION MANAGER');
 
+  // Settings: icon-only 28px gear, FIRST of the right-hand controls (refreshed
+  // prototype, 2026-07-24 — superseding the earlier text button). The glyph is
+  // decorative; `aria-label` carries the accessible name.
+  const settingsBtn = button('tb-btn is-icon', '');
+  const gear = el('span', '', '⚙');
+  gear.setAttribute('aria-hidden', 'true');
+  settingsBtn.append(gear);
+  settingsBtn.setAttribute('aria-label', 'Settings');
+  settingsBtn.title = 'settings — launch defaults, usage, terminal status bar';
+  settingsBtn.setAttribute('aria-haspopup', 'dialog');
+
   const themeBtn = button('tb-btn', '');
   themeBtn.title = 'terminal themes';
   themeBtn.setAttribute('aria-haspopup', 'dialog');
@@ -254,10 +267,6 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     el('span', 'tb-sw is-d'),
   );
   themeBtn.append(swatch, el('span', '', 'Theme'));
-
-  const settingsBtn = button('tb-btn', 'Settings');
-  settingsBtn.title = 'app settings — launch defaults, startup command, usage';
-  settingsBtn.setAttribute('aria-haspopup', 'dialog');
 
   const projectsBtn = button('tb-btn', 'Projects', () => st.toggleDrawer('projects'));
   projectsBtn.title = 'manage projects';
@@ -282,7 +291,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const newBtn = button('btn-go', '+ New session', () => openLaunchDialog());
   newBtn.title = 'launch a session (ctrl+alt+t)';
 
-  topbar.append(logo, wordmark, el('span', 'tb-gap'), themeBtn, settingsBtn, projectsBtn, sessionsBtn, divider, conn, ghChip, newBtn);
+  topbar.append(logo, wordmark, el('span', 'tb-gap'), settingsBtn, themeBtn, projectsBtn, sessionsBtn, divider, conn, ghChip, newBtn);
 
   // ---- middle row: drawers are flex siblings of the grid --------------------
   const main = el('div', 'main');

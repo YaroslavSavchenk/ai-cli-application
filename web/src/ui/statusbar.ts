@@ -9,8 +9,9 @@
  *
  * Two data provenances, deliberately kept apart:
  *   - model & mode & time are CLIENT-SIDE — model/mode from the session's own
- *     launch argv (modelFromArgs/permFromArgs; always known, no poll), time
- *     computed from SessionInfo.createdAt and ticked each second.
+ *     launch argv (modelFromArgs/permFromArgs; always known, no poll — the mode
+ *     renders in the UI's plain words via PERM_SHORT, never the CLI value),
+ *     time computed from SessionInfo.createdAt and ticked each second.
  *   - branch/cost/context/diff/skill come from GET /api/telemetry, polled ~3s
  *     while ≥1 pane is visible (paused when hidden / no panes). Last-known is
  *     cached per session id so an EXITED pane keeps its final values (the
@@ -23,6 +24,7 @@
 import type { SessionInfo, TelemetryItem } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import { el, modelFromArgs, permFromArgs, fmtDur } from './util.ts';
+import { PERM_SHORT } from './launch-args.ts';
 import { getStatusBar, type StatusBarCfg } from './defaults.ts';
 
 const POLL_MS = 3000;
@@ -161,7 +163,7 @@ export function renderPaneStatus(
 function sampleInputs(): StatusInputs {
   return {
     model: 'opus',
-    perm: { label: 'acceptEdits', danger: false },
+    perm: { label: PERM_SHORT.acceptEdits, danger: false },
     running: true,
     createdAtMs: Date.now() - 522_000, // → 08:42
     tel: {

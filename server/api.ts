@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute, join, normalize, sep } from 'node:path';
+import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type {
   CloneProjectRequest,
   CreateProjectRequest,
@@ -31,7 +31,7 @@ import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
 import { UsageReader } from './usage.ts';
 import { TelemetryReader } from './telemetry.ts';
-import { GithubConnection, GithubError } from './github.ts';
+import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { Logger } from './config.ts';
@@ -340,7 +340,22 @@ export function createRequestHandler(
           sendError(res, 400, 'cloneUrl is required');
           return;
         }
-        if (typeof body.dest !== 'string' || !isAbsolute(body.dest)) {
+        // Absolute AND already normalized. A dest carrying a `..`/`.` component
+        // (or a trailing slash) READS as one directory and RESOLVES to another,
+        // which is exactly what would let the clone's own failure cleanup act on
+        // a directory this request never created. Refused at the boundary, in
+        // the existing 400 vocabulary; github.ts normalizes again so in-process
+        // callers get the same guarantee. REJECTING is right HERE and only
+        // here: this dest is app-generated (`<projects>/<owner>/<repo>` from
+        // the repo list), so no legitimate value ever carries a `..`. The two
+        // /api/projects routes below take user-typed destinations that are
+        // already stored in projects.json, so they NORMALIZE instead of
+        // refusing — see PATH NORMALIZATION in server/scaffold.ts.
+        if (
+          typeof body.dest !== 'string' ||
+          !isAbsolute(body.dest) ||
+          resolve(body.dest) !== body.dest
+        ) {
           sendError(res, 400, 'dest must be an absolute path');
           return;
         }
@@ -359,10 +374,23 @@ export function createRequestHandler(
           }
           return;
         }
-        const name =
+        // OWNER-QUALIFIED NAMES (settled 2026-07-25). The UI shows project NAMES
+        // everywhere, so `acme/api` and `myorg/api` must not both register as
+        // "api". The repo basename is kept while it is free; the moment a project
+        // already carries that name, THIS clone registers as `<owner>/<repo>`,
+        // derived from the (already host-locked) clone url. Deterministic — no
+        // counters, no timestamps, no reordering of the existing name precedence
+        // (explicit name → url-derived → dest basename). If `<owner>/<repo>` is
+        // itself taken (same repo registered twice at different paths) that name
+        // is still used rather than inventing a suffix.
+        const preferred =
           body.name !== undefined && body.name.trim() !== ''
             ? body.name.trim()
             : (repoNameFromUrl(body.cloneUrl) ?? basename(body.dest));
+        const qualified = parseGithubRepoPath(body.cloneUrl);
+        const taken = projects.list().some((p) => p.name === preferred);
+        const name =
+          taken && qualified !== undefined ? `${qualified.owner}/${qualified.repo}` : preferred;
         const project = projects.create({ name, path: body.dest });
         sendJson(res, 201, project);
         return;
@@ -409,11 +437,21 @@ export function createRequestHandler(
           sendError(res, 400, 'gitInit must be a boolean');
           return;
         }
+        let createdPath = body.path;
         if (body.create === true) {
           // CREATE mode: make the directory (mkdir recursive, no clobber), then
           // register it. gitInit defaults to true.
+          //
+          // NORMALIZE, DON'T REJECT (deliberate; the mirror of the
+          // /api/github/clone dest guard above, which 400s an un-normalized
+          // dest). createLocalDir resolves the path before any filesystem
+          // decision and RETURNS what it created, and that resolved value is
+          // what gets registered — so the directory git ran in, the one a
+          // failed `git init` may clean up, and the one in projects.json can
+          // never be three different places. Rationale for the split: see
+          // PATH NORMALIZATION in server/scaffold.ts.
           try {
-            await createLocalDir(body.path, body.gitInit ?? true);
+            createdPath = await createLocalDir(body.path, body.gitInit ?? true);
           } catch (err) {
             if (err instanceof ScaffoldError) {
               sendError(res, err.status, err.message);
@@ -430,7 +468,7 @@ export function createRequestHandler(
         }
         const project = projects.create({
           name: body.name.trim(),
-          path: body.path,
+          path: createdPath,
           ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
           ...(body.defaultMode !== undefined ? { defaultMode: body.defaultMode } : {}),
         });
@@ -459,8 +497,15 @@ export function createRequestHandler(
           sendError(res, 400, 'name must be a string');
           return;
         }
+        // NORMALIZE, DON'T REJECT (deliberate; /api/github/clone above 400s an
+        // un-normalized dest instead). cloneRepo resolves the dest before any
+        // filesystem decision and RETURNS it, and every value derived below —
+        // the fallback name and the registered path — comes from that resolved
+        // dest, never from the raw string. Rationale for the split: see PATH
+        // NORMALIZATION in server/scaffold.ts.
+        let destAbs: string;
         try {
-          await cloneRepo(body.url, body.dest);
+          destAbs = await cloneRepo(body.url, body.dest);
         } catch (err) {
           if (err instanceof ScaffoldError) {
             sendError(res, err.status, err.message);
@@ -473,8 +518,8 @@ export function createRequestHandler(
         const name =
           body.name !== undefined && body.name.trim() !== ''
             ? body.name.trim()
-            : (repoNameFromUrl(body.url) ?? basename(body.dest));
-        const project = projects.create({ name, path: body.dest });
+            : (repoNameFromUrl(body.url) ?? basename(destAbs));
+        const project = projects.create({ name, path: destAbs });
         sendJson(res, 201, project);
         return;
       }

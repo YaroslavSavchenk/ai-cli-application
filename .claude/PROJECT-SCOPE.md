@@ -175,6 +175,33 @@ and multi-pane layouts on top.
     this one has no production use by construction; that is deliberate and
     recorded rather than hidden.
 
+- **No commands, flags, or code in the UI — decided 2026-07-25, user's call.**
+  The GUI speaks plain human language; CLI syntax belongs in the terminal, not
+  in the chrome around it. Concretely: permission modes render as **Always
+  ask** / **Auto-approve edits** / **Read-only planning** / **Never ask ·
+  dangerous** (never `acceptEdits`, `plan`, `bypassPermissions`), resume reads
+  **Continue last conversation** (never `--continue`), and the launch dialog's
+  argv **command preview is replaced by a readable summary** (agent · model ·
+  what the mode does · target folder) — the honest "what will run" statement
+  now reads as a sentence instead of a shell line. Also out of the UI: the
+  `git init` sample, the `/caveman` placeholder, `relaunch resumes claude with
+  --continue`, `AI_SM_GITHUB_CLIENT_ID` in the GitHub setup card (that card
+  says the server is missing a GitHub setting; the variable name lives in the
+  README/docs, where acting on it belongs), the clone tab's `$ git clone <url>
+  <dest>` preview (same treatment: `copies` / the pasted URL / `into folder:
+  <dest>` — the URL stays, it is the user's own input), and the literal command
+  name `claude` in the sessions drawer (the known agent renders as its product
+  name; any other command still echoes verbatim). The new-project dialog's
+  **`standard` default-permission option was dropped** rather than renamed —
+  it behaved identically to "no default", so a plain-language label would have
+  promised enforcement it never delivered; a `standard` already stored in
+  `projects.json` is still accepted. **UI language stays English** with
+  plain words (user's call over a Dutch or mixed-language UI). Exempt by
+  construction: the **custom-command field** (its content IS a command the user
+  types — user's call to leave it unchanged) and terminal content itself.
+  Docs, code, commit messages and agent briefs are unaffected — this is a UI
+  copy rule.
+
 ## Hard technical constraints
 
 - Every session needs a **real PTY** — the hosted CLIs are full TUIs (raw
@@ -207,21 +234,21 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-- **How a cloned project is tied back to its remote** (surfaced 2026-07-24
-  by the GitHub test-hardening review; needs a user decision). `Project` is
-  `{id, name, path, defaultModel, defaultMode, createdAt}` — it carries no
-  remote. The clone flows register a repo under its **bare basename**, so
-  `clonedProject()` in the GitHub repo list cannot tell `acme/api` from
-  `myorg/api`: the second one renders as already-cloned and its button
-  opens the wrong local project. Underneath sits a real limit — two
-  same-basename repos cannot both live in the default `<home>/projects/`
-  folder, so the second clone 409s regardless of this UI. Options: (a) add
-  an optional `remote`/`fullName` to `Project`, stamped by the clone
-  endpoints and matched first (schema change to `projects.json` +
-  `shared/protocol.ts`); (b) place app clones owner-qualified at
-  `<home>/projects/<owner>/<repo>`, which also removes the 409; (c) accept
-  it. Currently pinned honestly as a `KNOWN LIMIT` test, not silently
-  "fixed". Do not settle this in passing.
+(none open right now)
+
+(Settled 2026-07-25, user's call: **how a cloned project ties back to its
+remote — option (b), owner-qualified clone paths.** App clones from the
+GitHub repo list land at **`<home>/projects/<owner>/<repo>`** instead of
+`<home>/projects/<repo>`, so `acme/api` and `myorg/api` can both exist
+locally — which removes the 409 *and* the mis-identification underneath it:
+`clonedProject()` matches on the `<owner>/<repo>` path tail first and only
+falls back to the bare basename for projects registered before this change.
+Rejected: (a) adding an optional `remote`/`fullName` to `Project` — more
+explicit, but it leaves the two-repos-one-folder 409 in place and changes
+the `projects.json` schema; (c) accepting the limit. The URL-clone tab keeps
+its user-chosen destination (default unchanged) — the owner is only known
+for sure on the GitHub-list path. The `KNOWN LIMIT` test that pinned this
+becomes a real behavioral test.)
 
 (Settled 2026-07-25: **lost final PTY output after session exit — FIXED.**
 Root cause was not node-pty event ordering but **libuv**: on POLLHUP

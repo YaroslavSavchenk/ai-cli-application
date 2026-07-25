@@ -9,6 +9,79 @@ handoff — `design/README.md` (spec) + `design/session-manager-prototype.html`
 and the handoff disagree, the handoff wins; where the handoff is silent, the
 anti-slop rules in `.claude/skills/frontend-designer/SKILL.md` still apply.
 
+## UI copy rule — no commands, flags, or code (decided 2026-07-25)
+
+The GUI speaks plain English; CLI syntax belongs in the terminal, not in the
+chrome around it (PROJECT-SCOPE "No commands, flags, or code in the UI"). This
+is **display-only**: `Perm`/`Mode` values, `shared/protocol.ts`, prefs keys and
+the emitted argv are untouched — `claude --permission-mode acceptEdits
+--continue` is still exactly what runs. The label sets below are BINDING
+reference; the single source is `web/src/ui/launch-args.ts` (`PERMS`,
+`PERM_SHORT`, `CHIPS`, `RESUME_OPTIONS`, `launchSummary`), pinned by
+`tests/ui-launch-args.test.ts` + `tests/ui-util.test.ts`.
+
+**Permission cards** (launch dialog + settings panel; mono title, sans desc):
+
+| value               | title              | description                            |
+|---------------------|--------------------|----------------------------------------|
+| `default`           | Always ask         | before tools that need approval        |
+| `acceptEdits`       | Auto-approve edits | file changes go through without asking |
+| `plan`              | Read-only planning | looks and plans, changes nothing       |
+| `bypassPermissions` | Never ask          | no prompts at all · dangerous          |
+
+The bypass description keeps `--danger` red selected or not — the warning never
+disappears.
+
+**Short forms** for narrow chips (`PERM_SHORT` — pane-header permission tag via
+`permFromArgs`, the per-pane status bar `mode` item, the settings status-bar row
+sample): `default` → `always ask` · `acceptEdits` → `auto edits` · `plan` →
+`read-only` · `bypassPermissions` → `no prompts` · `--dangerously-skip-permissions`
+→ `no prompts`. Danger detection is unchanged (both bypass forms are danger);
+`default` still renders NO tag at all, so its short form never appears. A mode
+outside the known four (only reachable from a typed custom command) is shown
+verbatim rather than mistranslated.
+
+**Resume select**: `Start fresh` / `Continue last conversation` (values
+`fresh`/`continue`; `continue` still emits `--continue`).
+
+**Preset chips**: `deep work · opus · auto edits · continue` / `quick fix ·
+sonnet · always ask` / `yolo · opus · no prompts` / `custom · any command`
+(unchanged).
+
+**Launch summary** (replaces the argv command preview in preset modes) — three
+mono lines in the same ink well, composed by `launchSummary()` from
+`currentSpawn()`'s own argv array — the one the POST body carries — so summary
+and POST body still cannot diverge:
+
+```
+Claude Code · opus
+auto-approves file edits · continues your last conversation
+folder: /home/sava/projects/web-ui
+```
+
+Mode clauses: `asks before tools that need approval` / `auto-approves file edits` /
+`read-only planning, changes nothing` / `never asks · dangerous`. Resume
+clauses: `starts a fresh conversation` / `continues your last conversation`. The
+danger clause renders red (`.launch-cmd .is-danger`) — colour carries the
+warning the flag name used to.
+
+**Exempt by construction**: the custom-command field (label, placeholder `htop
+--tree`, hint `whitespace split — no quoting, no shell`) and its preview line —
+its content IS a command the user typed, so custom mode still shows `$ <cmd>
+<args>` (blank → `$ —`) plus the `folder:` line. Terminal content is obviously
+exempt. Statusline items (`ws <n> ms`, `pty ok`, `up HH:MM:SS`) and model ids
+(`opus`/`sonnet`/`haiku`/`fable` — product names) stay as they are.
+
+Other copy this rule changed: sessions drawer footer note → `relaunch continues
+the previous conversation`, relaunch button title → `relaunch as a new tab —
+continues where the session stopped`; new-project git toggle sample `git init` →
+`starts version history` (title `start tracking changes in the new project
+folder`); new-project clone tab `$ git clone <url> <dest>` preview → the
+three-line `copies` / url / `into folder: <dest>` summary (exact lines and `—`
+empty state in the New Project dialog section below); settings startup-command
+placeholder → `a line to run in every new session`, hint → `typed into each new
+session once it's ready · empty = off`.
+
 ## Direction (one sentence)
 
 **Steam blend, hi-fi**: a Steam-client-lineage shell — gradient topbar,
@@ -131,12 +204,14 @@ Vertical flex, 100vh, no page scroll:
 
 1. **Topbar 44px** — gradient band. Left: 18px logo tile (border `#2e3846`,
    radius 7px, bg `#12161d`, green mono `>_` 8px/700) + `AI SESSION MANAGER`
-   wordmark. Right: Theme button (CSS 2×2 swatch icon: green/blue/amber/
-   violet), Projects toggle, Sessions toggle (amber count badge when any
-   session awaits input), 1px divider, connection indicator (green glowing
-   dot + `connected`, derived from real reachability: poll ok / presence
-   pong; red `offline` when the backend is unreachable), and the primary
-   green `+ New session`. Toggled buttons: bg `#232b36`, text `#dbe2ea`.
+   wordmark. Right, in the refreshed prototype's order (2026-07-24): 28px
+   icon-only `⚙` Settings button, Theme button (CSS 2×2 swatch icon:
+   green/blue/amber/violet), Projects toggle, Sessions toggle (amber count
+   badge when any session awaits input), 1px divider, connection indicator
+   (green glowing dot + `connected`, derived from real reachability: poll ok /
+   presence pong; red `offline` when the backend is unreachable), GitHub chip,
+   and the primary green `+ New session`. Toggled buttons: bg `#232b36`, text
+   `#dbe2ea`.
 2. **Middle row** — optional projects drawer (left) · pane area (radial
    lift) · optional sessions drawer (right). Drawers are structural flex
    siblings: opening one resizes panes through the real fit → ws-resize
@@ -188,12 +263,13 @@ Vertical flex, 100vh, no page scroll:
 
 ## Drawers (handoff §6–§7)
 
-- **Projects (left, 272px)**: header `PROJECTS` + `+ add`. `+ add` reveals
-  the existing inline add flow (name, directory via the server-side browser
-  modal, optional default model/mode) on a `#12161d` card with `#3d5a75`
-  border — the directory browser is kept deliberately (real backend fs, no
-  free-text path field, no add-project regression; the handoff's
-  `~/projects/<name>` autofill applies to a text path input we don't have).
+- **Projects (left, 272px)**: header `PROJECTS` + `+ add`. `+ add` opens the
+  New Project dialog (Phase 2a — its own section below); the older inline add
+  flow and its directory-browser modal were REPLACED by that dialog, which
+  keeps the same rule that made them worth keeping — the path comes from a
+  real backend-fs picker, never a free-text-only field (so the handoff's
+  `~/projects/<name>` autofill applies to a text path input we still do not
+  have; the dialog SUGGESTS that path in its pathrow instead).
   Rows: name 13px/500, spacer, `+` (opens the launch dialog pre-set to the
   project), `×` (armed remove), faint mono path (the ONE place a path is
   shown as project metadata), meta line `N active sessions` in green when
@@ -204,8 +280,9 @@ Vertical flex, 100vh, no page scroll:
   activates that session's view and focuses it. Meta: project · status
   (· tab place when assigned). `PREVIOUS RUN · N` rows keep the existing
   crash/shutdown relaunch (`--continue` for claude) + forget + dismiss-all
-  exactly; footer note `relaunch resumes claude with --continue`. NO per-id
-  `--resume <id>` (fiction cut). Slide-in .18s.
+  exactly; footer note `relaunch continues the previous conversation` (the
+  emitted flag is unchanged — see the copy rule). NO per-id `--resume <id>`
+  (fiction cut). Slide-in .18s.
 
 ## Launch dialog (handoff §8 — R3, replaces launcher-as-tab)
 
@@ -217,8 +294,8 @@ sanctioned blurred backdrop (`rgba(8,10,14,.55)` + `blur(4px)`, centered):
 survives hidden panes` · bordered `×` (danger on hover). Body (18px 20px,
 16px stack):
 
-- **Preset chips** (pill 13px, mono 10.5): `deep work · opus · acceptEdits ·
-  continue` / `quick fix · sonnet · default` / `yolo · opus · bypass`
+- **Preset chips** (pill 13px, mono 10.5): `deep work · opus · auto edits ·
+  continue` / `quick fix · sonnet · always ask` / `yolo · opus · no prompts`
   (red-tinted `#a05252`/`#4a2f33`). A chip sets model + permission + resume.
   A fourth chip — `custom · any command` — is a MODE toggle, not a one-shot
   preset (see the custom escape hatch below): neutral steel like its
@@ -227,19 +304,21 @@ survives hidden panes` · bordered `×` (danger on hover). Body (18px 20px,
 - **2×2 fields** (labels 10.5px/600/ls 1.2px uppercase; inputs mono 32px on
   `#12161d`, radius 8): Session name (placeholder `auto from project`, maps
   to `title`) · Project (select, names only) · Model (select: opus, sonnet,
-  haiku, fable) · Resume (select: `start fresh`, `continue last conversation
-  (--continue)` — EXACTLY two options, per-id `--resume <id>` is fiction).
-- **Permission cards** (2×2, radius 9, `#12161d`): mono mode name + plain
-  description — `default` "ask before every tool call", `acceptEdits`
-  "auto-approve file edits", `plan` "read-only planning mode",
-  `bypassPermissions` "never ask · dangerous". Selected: `#5cb8f0` text,
-  `rgba(92,184,240,.08)` bg, `#3d5a75` border. The bypass description stays
-  `#d95c5c` even when selected — the warning never disappears.
-- **Command preview** (`#0e1116` ink well, radius 9, mono 11):
-  `$ <command> <args>` + `  cwd: <project path>`. `currentSpawn()` (over
-  the pure composers in `launch-args.ts`) is the single spawn source for
-  BOTH modes — the preview and the POST body cannot diverge. A blank
-  custom command previews as `$ —` (the app's empty-value glyph).
+  haiku, fable) · Resume (select: `Start fresh`, `Continue last conversation`
+  — EXACTLY two options, per-id `--resume <id>` is fiction).
+- **Permission cards** (2×2, radius 9, `#12161d`): mono plain-language title +
+  sans description, per the copy rule's label table above ("Always ask" /
+  "Auto-approve edits" / "Read-only planning" / "Never ask"). Selected:
+  `#5cb8f0` text, `rgba(92,184,240,.08)` bg, `#3d5a75` border. The bypass
+  description stays `#d95c5c` even when selected — the warning never
+  disappears.
+- **Launch summary** (`#0e1116` ink well, radius 9, mono 11): three plain
+  lines (agent · model / mode clause · resume clause / `folder: <project
+  path>`), exact copy in the rule above. `currentSpawn()` (over the pure
+  composers in `launch-args.ts`) remains the single spawn source for BOTH
+  modes, and `launchSummary()` derives every clause from that spawn's ARGV —
+  summary and POST body cannot diverge. Custom mode keeps the literal `$ <command> <args>` line
+  (blank → `$ —`, the app's empty-value glyph) plus the `folder:` line.
 - **Custom escape hatch** (user decision 2026-07-20, restoring the
   launcher tab's configurable command + args): toggling the `custom` chip
   reveals a full-width mono Command field (placeholder `htop --tree`, hint
@@ -281,21 +360,70 @@ control stays with the user once the dialog is open. The global defaults are
 read live via `getDefaults()`, so a change in the settings panel pre-selects
 the NEXT open with no reload.
 
+## New Project dialog (`web/src/ui/newproject.ts`)
+
+Same modal language as the launch dialog (gradient header, `launch-body`
+stack, ink well, `.form-err`), opened from the projects drawer `+ add` and —
+straight onto the GitHub tab — from the topbar GitHub chip. Header: `◧`
+tile · `New project` · mono subtitle `create locally · clone a repo`. Three
+tabs (`np-tabs`, `role=group`, aria-label `project source`): `Blank local` /
+`Clone repo` / `GitHub`.
+
+**Blank local**: `Project name` (placeholder `my-project`) · `Local path`
+(pathrow + `Browse`; suggests `<home>/projects/<name>` live as the name is
+typed) · checkbox row `Initialize git repo` with sample `starts version
+history` (title `start tracking changes in the new project folder`) · two
+OPTIONAL selects in the settings-panel idiom, `Default model (optional)` and
+`Default permission mode (optional)`, both with the lowercase empty option `no
+default`; the permission select's only other entry is `never ask · dangerous`
+(lowercase to match its sibling — the four permission CARD titles above keep
+their sentence case, and `standard` is not offered at all: it is behaviourally
+identical to "no default"). Caption: `creates the folder and registers it under
+Projects`.
+
+**Clone repo**: `Git URL` (placeholder `https://github.com/owner/repo.git`) ·
+`Destination (optional)` (pathrow + `Browse`; suggests
+`<home>/projects/<repo>`, or `Browse to choose a location` before home is
+known) · and the ink well (`.launch-cmd`, same `launch-sum-line` structure as
+the launch summary), which since the copy rule holds THREE plain lines instead
+of the old `$ git clone <url> <dest>`:
+
+```
+copies
+https://github.com/owner/repo.git
+into folder: /home/sava/projects/repo
+```
+
+Line 1 is fixed. Line 2 is the pasted URL verbatim (the user's own input, not
+code) and line 3 the effective destination; each falls back to `—`, the app's
+empty-value glyph, so an empty dialog reads `copies` / `—` / `into folder: —`
+and never shows a half-real command.
+
+Footer note + primary follow the tab: `registers under Projects` + `Create
+project` (blank) · `clones, then registers under Projects` + `Clone ▸` (clone)
+· `browse your GitHub repositories` + NO primary (GitHub is view-only here).
+Clone is slow and synchronous, so the footer swaps in an honest indeterminate
+spinner `cloning… this can take a while` — never a fake percentage.
+
 ## App settings panel (`web/src/ui/settings.ts`) — the decided four
 
-A modal card opened by the topbar **Settings** button (text-only `tb-btn`,
-sibling of Projects/Sessions), in the established modal language: the plain
-label header of the shortcuts/dir-browser modals (NOT the launch gradient),
-Escape / backdrop / × / Close all dismiss, Tab-trapped, focus restores to the
-invoker. It holds exactly the user-decided four (PROJECT-SCOPE) and nothing
-more — no usage-limit enforcement, no plan display:
+A modal card opened by the topbar **Settings** button — an icon-only 28px `⚙`
+(`tb-btn is-icon`), FIRST of the right-hand controls (see the topbar order in
+Shell anatomy) — in the established modal language: the **shared gradient
+dialog header** (`launch-hd` + 30px `launch-tile` holding the `⚙` glyph +
+`Settings` + mono subtitle `launch defaults · usage · terminal status bar`),
+Escape / backdrop / × / **Done** all dismiss, Tab-trapped, focus restores to the
+invoker. Footer: `Reset to defaults` left, accent-blue primary `Done`
+(`btn is-acc`) right. It holds exactly the user-decided four (PROJECT-SCOPE) and
+nothing more — no usage-limit enforcement, no plan display:
 
 - **LAUNCH DEFAULTS** — reuses the dialog's own idioms: a **model** `<select>`
   (the four models + an explicit `no default` that falls back to the dialog's
   hardcoded first), the dialog's **2×2 permission cards** (`perm-grid`/
   `perm-card`, all four modes incl. `plan`; danger card keeps its red desc),
-  and a full-width mono **auto-run startup command** input (`/caveman`
-  placeholder, `empty = off`). Each control commits on change; `close()`
+  and a full-width mono **auto-run startup command** input (placeholder `a line
+  to run in every new session`, hint `typed into each new session once it's
+  ready · empty = off`). Each control commits on change; `close()`
   flushes an un-blurred edit. Persisted as the prefs bag's `defaults`
   (`UiLaunchDefaults`) via `api.updatePrefs({defaults})` — omitting off/none
   values (no `model` when "none", no `permissionMode` when `default`, no
@@ -356,7 +484,7 @@ PTY.
 | item    | source (client-side vs poll)                        | format          |
 |---------|-----------------------------------------------------|-----------------|
 | model   | launch argv (`modelFromArgs`) — client, no poll     | `opus`          |
-| mode    | launch argv (`permFromArgs`) — client, no poll      | `acceptEdits`   |
+| mode    | launch argv (`permFromArgs`) — client, no poll      | `auto edits`    |
 | skill   | telemetry `skill` — poll                            | `skill: edit`   |
 | cost    | telemetry `costUsd` — poll                          | `$0.42`         |
 | context | telemetry `contextTokens`/`contextMax` — poll       | `ctx 62k/1000k` |
@@ -387,7 +515,7 @@ when none runs; "status bar hidden" when nothing enabled); eight keyboard-
 reachable `<button class="status-row">` toggles (16px checkbox square, `✓` in
 `--term-bg` on `--acc` when on; `aria-pressed` reflects state) matching
 `UiStatusBar`; a ninth DISABLED "Usage limit" row (honest deferral). A footer
-"Reset to defaults" button (left of Close) restores the ON/OFF defaults. Each
+"Reset to defaults" button (left of `Done`) restores the ON/OFF defaults. Each
 toggle persists immediately and re-renders open panes live (no reload).
 
 ## Boot panel (handoff §10 visual language, minus fiction — R3)
@@ -429,12 +557,34 @@ leaves the empty state — nothing auto-spawns.
 ## Recorded deviations from the handoff (with reasons)
 
 - **The app settings panel + topbar `Settings` button** exist in no handoff
-  screen — the handoff is silent on settings. Built by user decision
+  screen — the ORIGINAL handoff was silent on settings. Built by user decision
   2026-07-20 (PROJECT-SCOPE "App settings panel"), designed entirely inside
   the established modal/dialog language (see "App settings panel" above), no
   new colors/tokens. The frontend-designer anti-slop rules governed what was
   added: a mono usage ledger (not KPI stat-cards), the dialog's own select +
-  permission-card idioms for the defaults, plain label header.
+  permission-card idioms for the defaults. **Superseded 2026-07-25** — the
+  user's refreshed `design/session-manager-prototype.html` (2026-07-24) DOES
+  contain a settings dialog and an icon-only gear, so the two 2026-07-20 guesses
+  below were replaced by the primary source (primary-source rule:
+  `memory/decisions/handoff-design-primary.md`):
+  - the panel's **plain label header → the shared gradient dialog header**
+    (prototype lines 435–472: `launch-hd` + 30px `launch-tile` + `⚙` +
+    `Settings` + mono subtitle). Our subtitle reads `launch defaults · usage ·
+    terminal status bar` rather than the prototype's `terminal status bar ·
+    saved on this machine`, because the prototype's caption predates
+    launch-defaults + usage and "saved on this machine" is wrong for us (prefs
+    live server-side in `prefs.json`) — honesty beats transcription.
+  - the footer's neutral **`Close` → the prototype's accent-blue primary
+    `Done`** (`btn is-acc`: `--acc-tint` fill, `--acc` border/ink, hover
+    `--acc-sel`; the same recipe as `.gh-repo-act.is-clone`, so no new token).
+    Blue = confirm/interactive; green stays the "go" family that spends
+    something (spawn, clone, add).
+  - the topbar's **text `Settings` button → an icon-only 28px `⚙`**
+    (prototype line 44), moved to be FIRST of the right-hand controls. It keeps
+    an accessible name (`aria-label="Settings"`), its `title`,
+    `aria-haspopup="dialog"`, keyboard reachability and the standard 2px
+    `--acc` focus ring; the glyph span is `aria-hidden`. It is the ONLY
+    icon-only control — Theme, Projects and Sessions keep their labels.
 - **The `custom · any command` chip + command field** exist in no handoff
   screen — added by user decision 2026-07-20 (the claude-only dialog
   contradicted the decided "configurable command + args" feature; the
@@ -444,16 +594,17 @@ leaves the empty state — nothing auto-spawns.
 - **Bypass emits `--permission-mode bypassPermissions`** (the handoff's
   preview form) instead of the old preset's
   `--dangerously-skip-permissions`; tags recognize both forms as danger.
-- **Preview `cwd:` shows the project's real absolute path** — the
-  prototype's `~/projects/<name>` was mock data; the real cwd is honest.
-  This is the second sanctioned place a path appears (with the projects
-  drawer), both inside launch/manage contexts.
+- **The summary's `folder:` line shows the project's real absolute path** — the
+  prototype's `~/projects/<name>` was mock data; the real cwd is honest. This is
+  the second sanctioned place a path appears (with the projects drawer), both
+  inside launch/manage contexts. (Was `  cwd: <path>` under the argv preview
+  until the 2026-07-25 copy rule replaced the preview with the summary.)
 - **Focus restore on close goes to the invoking control**, not always the
   terminal: yanking a keyboard user from the `+` button to a terminal would
   strand them. Opened via ctrl+alt+t from a terminal, the invoker IS the
   terminal; after a launch, focus goes to the new session's terminal.
 - **No Phosphor icons** (no new dependencies): the prototype's text glyphs
-  are the icon set — `>_ × + ▦ ⇱ ▸ ⠿`.
+  are the icon set — `>_ × + ▦ ⇱ ▸ ⠿ ◧ ▤ ⌕ ⚙`.
 - **Terminal line-height**: xterm keeps its native cell metrics (lineHeight
   1) instead of the prototype's 1.6 — the prototype faked terminal lines
   with divs; real TUIs need real cell geometry. Font size 12.5px per spec.
@@ -494,9 +645,12 @@ leaves the empty state — nothing auto-spawns.
   attached, measurable nodes; `.term-host` keeps `z-index:0` isolation (the
   scanline overlay sits OUTSIDE the host, `pointer-events:none`).
 - Every control is a real `<button>/<input>` with a visible blue
-  `:focus-visible` ring; hover-only affordances forbidden.
+  `:focus-visible` ring; hover-only affordances forbidden. An icon-only control
+  (the topbar `⚙`) carries its name in `aria-label`, never in the glyph alone.
 - Projects display their NAME everywhere; the path appears only as drawer
   row metadata.
+- The 2026-07-25 copy rule is DISPLAY-ONLY: labels changed, emitted argv did
+  not (`composeArgs` tests are the guard).
 
 ## Slop-filter pass (against the frontend-designer reject list)
 
@@ -508,7 +662,9 @@ leaves the empty state — nothing auto-spawns.
   Mono), no rounded-2xl-card-grid shell, no gray-50.
 - Generic SaaS dashboard: the shell is topbar / terminal cards / Steam tab
   strip / statusline — no icon sidebar, no card grid, no KPI tiles.
-- Emoji/sparkle iconography: none — text glyphs and state-encoding dots.
+- Emoji/sparkle iconography: none — text glyphs and state-encoding dots. The
+  `⚙` Settings button is the prototype's own text glyph in text presentation
+  (no variation selector, no emoji font), inked with the button's own color.
 - Centered friendly empty state: the handoff's empty state is a logo tile +
   two working actions, no illustration, no copywriting fluff.
 - Decoration vs information: every colored element encodes interaction
@@ -519,3 +675,9 @@ leaves the empty state — nothing auto-spawns.
   terminal palettes, mono data voice, armed confirms: yes. *"Would a tmux
   power user feel at home?"* — chords for everything, dense mono rows,
   statusline readout, 10 terminal color ramps: yes.
+- 2026-07-25 delta re-check: the plain-language copy is carried by the SAME mono
+  voice (values stay mono, chrome stays Barlow), so the terminal lineage is
+  intact — it reads like a tmux status readout in words, not like a friendly
+  SaaS wizard. No new gradient/shadow/glow/blur, no new token, no new color; the
+  one added button variant reuses the accent tints already in the file, and the
+  one added glyph is the prototype's own.

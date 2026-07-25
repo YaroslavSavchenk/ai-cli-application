@@ -16,7 +16,7 @@
  * renders credential material.
  */
 import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
-import { projectsPath } from './newproject-model.ts';
+import { joinPath, projectsPath } from './newproject-model.ts';
 
 // ---------------------------------------------------------------------------
 // Cadence — the "which interval applies for this state" decisions. The actual
@@ -192,54 +192,141 @@ export function langColor(language: string | undefined): string | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Default clone destination for a repo: `<home>/projects/<repo.name>`. The
- * convention itself lives in newproject-model's projectsPath — the same one the
- * New Project dialog suggests — so a clone destination and the path matched by
- * clonedProject below can never drift apart.
+ * LEGACY clone destination — `<home>/projects/<name>` — kept for two jobs only:
+ * the already-cloned fallback below (projects registered before owner-qualified
+ * paths existed) and the New Project dialog's own URL-clone suggestion, which
+ * the user decided stays unchanged. The convention itself lives in
+ * newproject-model's projectsPath, so the two can never drift apart.
+ *
+ * NEW app clones from the GitHub list go through ownerDest instead.
  */
 export function defaultDest(home: string, name: string): string {
   return projectsPath(home, name);
 }
 
 /**
+ * OWNER-QUALIFIED clone destination: `<home>/projects/<owner>/<repo>` (settled
+ * 2026-07-25). Every clone the GitHub panel starts lands here, which is what
+ * lets `acme/api` and `myorg/api` coexist locally — the collision that used to
+ * make the second clone 409 and mis-resolve to the first one's folder. The
+ * server creates the missing `<owner>` segment (one level, owner-checked
+ * against the clone url).
+ */
+export function ownerDest(home: string, owner: string, name: string): string {
+  return joinPath(projectsPath(home, owner), name);
+}
+
+/**
+ * True when the absolute `path` ends with the `/<owner>/<name>` segment pair
+ * (trailing slashes ignored). Segment-exact: `/…/myorg/api` never matches
+ * `/…/acme/api`, and `/…/notacme/api` never matches `/…/acme/api` either,
+ * because the comparison is per SEGMENT, and the pair must have something
+ * before it.
+ *
+ * The OWNER segment compares case-insensitively, matching the server, which
+ * accepts an owner directory that differs from the url's owner only in case
+ * (server/github.ts step 3b). Without that parity a folder the server would
+ * refuse to clone into again (409) could still be shown as `clone` here. The
+ * repo segment stays exact — it is a filesystem name on a case-sensitive fs,
+ * and the server's own vacancy check is exact too.
+ */
+function endsWithOwnerRepo(path: string, owner: string, name: string): boolean {
+  if (owner === '' || name === '') return false;
+  const parts = path.replace(/\/+$/, '').split('/');
+  if (parts.length < 3) return false;
+  const ownerSeg = parts[parts.length - 2] as string;
+  return parts[parts.length - 1] === name && ownerSeg.toLowerCase() === owner.toLowerCase();
+}
+
+/**
+ * The owner segment when `path` is one of OUR OWN owner-qualified clone
+ * destinations for repo `name` — i.e. exactly `<home>/projects/<owner>/<name>`
+ * (ownerDest, nothing deeper, nothing shallower) — else null.
+ *
+ * This is positive, self-created evidence of which owner a local folder belongs
+ * to, and it is what stops the owner-blind fallback tier from handing
+ * `<home>/projects/acme/api` to the `myorg/api` row: without this check, the
+ * FIRST of two same-basename clones (registered under the bare name `api`, which
+ * was free) would still be returned for the SECOND row by name alone — the exact
+ * mis-identification the owner-qualified paths exist to remove.
+ */
+function ourCloneOwner(path: string, home: string, name: string): string | null {
+  const prefix = `${joinPath(home, 'projects')}/`;
+  const trimmed = path.replace(/\/+$/, '');
+  if (!trimmed.startsWith(prefix)) return null;
+  const parts = trimmed.slice(prefix.length).split('/');
+  if (parts.length !== 2) return null;
+  const owner = parts[0] as string;
+  if (owner === '' || parts[1] !== name) return null;
+  return owner;
+}
+
+/**
  * The local Project a repo already maps to, or null.
  *
- * OWNER-QUALIFIED FIRST: `GET /user/repos` also returns repos you merely
- * collaborate on, so one list legitimately holds `acme/api` AND `myorg/api`. A
- * project explicitly named `<owner>/<name>` (repo.fullName) is therefore matched
- * before anything else, so a user who disambiguates that way gets the right
- * project per row instead of both rows resolving to the same folder.
+ * `GET /user/repos` also returns repos you merely collaborate on, so one list
+ * legitimately holds `acme/api` AND `myorg/api`. Matching therefore runs
+ * owner-aware first and only then falls back to owner-blind evidence:
  *
- * Only when no owner-qualified project exists does the loose fallback apply:
- * bare NAME, or the default clone path (`<home>/projects/<repo.name>`) — the
- * exact pair our own clone flow creates (name = repo.name, path = defaultDest).
- * Path-match needs `home`; name-match works without it, so detection is live
- * before home resolves.
+ *   1. PATH TAIL `<owner>/<repo>` — where every app clone lands since
+ *      2026-07-25 (ownerDest). Also matches a hand-placed checkout that follows
+ *      the same convention (e.g. `/srv/src/acme/api`). Owner-exact, so the two
+ *      `api` rows above resolve to different projects. Needs no `home`.
+ *   2. NAME === `<owner>/<repo>` (repo.fullName) — a project the user named that
+ *      way by hand, or one our own clone registered that way because the bare
+ *      basename was already taken (server/api.ts). Also needs no `home`.
+ *   3. LEGACY, owner-blind: bare NAME, or the legacy clone path
+ *      `<home>/projects/<repo.name>` (defaultDest) — the pair our clone flow
+ *      created BEFORE owner-qualified paths, plus what the URL-clone tab still
+ *      creates today. Path-match needs `home`; name-match does not. Projects
+ *      that ARE one of our owner-qualified clones under a DIFFERENT owner
+ *      (ourCloneOwner) are excluded from this tier — they carry their owner in
+ *      their path, so they belong to that owner's row only.
  *
- * KNOWN LIMIT, not an oversight: a Project records no remote (id/name/path only
- * — shared/protocol.ts), so a bare-named local folder cannot be attributed to an
- * owner. Two same-basename repos with no owner-qualified project both fall back
- * to the same local project.
+ * RESIDUAL LIMITS, pinned by tests rather than hidden:
+ *   - step 3 cannot attribute a bare-named legacy project to an owner (a Project
+ *     records no remote — shared/protocol.ts holds id/name/path only). So a
+ *     foreign repo whose basename collides with a PRE-EXISTING bare-named
+ *     project still resolves to it. New clones no longer add to that set: they
+ *     carry the owner in their path.
+ *   - the ourCloneOwner exclusion needs `home`, so in the brief window before
+ *     $HOME resolves a bare-named clone of ANOTHER owner can still satisfy a row
+ *     by name. github.ts resolves home on tab open and rebuilds the list when it
+ *     lands, and the server-side dest/409 rules are owner-qualified regardless,
+ *     so the worst case is a stale `open` button for one repaint.
  */
 export function clonedProject(r: GithubRepo, home: string | null, projects: Project[]): Project | null {
   for (const p of projects) {
+    if (endsWithOwnerRepo(p.path, r.owner, r.name)) return p;
+  }
+  for (const p of projects) {
     if (p.name === r.fullName) return p;
   }
-  const dest = home !== null ? defaultDest(home, r.name) : null;
+  const legacyDest = home !== null ? defaultDest(home, r.name) : null;
   for (const p of projects) {
+    // Another owner's app clone is NOT this repo, whatever it is named.
+    if (home !== null) {
+      const owner = ourCloneOwner(p.path, home, r.name);
+      // Case-insensitive, like the server's owner comparison (step 3b).
+      if (owner !== null && owner.toLowerCase() !== r.owner.toLowerCase()) continue;
+    }
     if (p.name === r.name) return p;
-    if (dest !== null && p.path === dest) return p;
+    if (legacyDest !== null && p.path === legacyDest) return p;
   }
   return null;
 }
 
 /**
  * Honest clone-error copy for an API failure: prefer the server's real message;
- * fall back to friendly text only for a bare `HTTP <status>` (no body). 409 =
- * a non-empty destination already exists; 502 = the git clone itself failed.
+ * fall back to friendly text only for a bare `HTTP <status>` (no body). 403 =
+ * the folder could not be created there (the server hit EACCES/EPERM making the
+ * owner directory); 409 = a non-empty destination already exists; 502 = the git
+ * clone itself failed. Plain language, no paths, no error codes — the copy rule
+ * applies here too.
  */
 export function cloneErrText(status: number, message: string): string {
   if (message !== `HTTP ${status}`) return message;
+  if (status === 403) return 'no permission to create that folder';
   if (status === 409) return 'a folder already exists there';
   if (status === 502) return 'clone failed';
   return message;

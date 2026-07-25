@@ -281,6 +281,17 @@ select:focus-visible,
   color: var(--text);
 }
 
+/* icon-only topbar control (the 28px ⚙ Settings button, prototype line 44).
+   The ONLY icon-only control in the bar — its accessible name comes from
+   aria-label, the glyph itself is aria-hidden. */
+.tb-btn.is-icon {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+  font-size: var(--fs-title);
+  line-height: 1;
+}
+
 /* CSS-drawn 2x2 swatch icon on the Theme button (prototype: no icon deps) */
 .tb-swatch {
   display: grid;
@@ -998,6 +1009,21 @@ html.scanlines-on .pane-scan {
   color: var(--text-faint);
   border-color: var(--edge-mid);
   box-shadow: none;
+}
+
+/* accent-blue primary variant of .btn — a CONFIRM (settings "Done"), not a
+   "go": green stays reserved for actions that spend something (spawn, clone,
+   add). Same token recipe as the accent chip / .gh-repo-act.is-clone; no new
+   tokens, no glow (glow is the green go-family's). */
+.btn.is-acc {
+  background: var(--acc-tint);
+  border-color: var(--acc);
+  color: var(--acc);
+  font-weight: 600;
+}
+
+.btn.is-acc:hover {
+  background: var(--acc-sel);
 }
 
 .btn-link {
@@ -2041,7 +2067,9 @@ kbd {
   color: var(--danger);
 }
 
-/* command preview: ink well echoing the EXACT argv launch() will send */
+/* ink well: the readable launch summary (preset modes) / the literal command
+   line (custom mode + the clone preview). Mono, because it states the launch
+   VALUES — the words changed, the voice did not. */
 .launch-cmd {
   padding: var(--s-5) var(--s-6);
   background: var(--well);
@@ -2052,6 +2080,16 @@ kbd {
   color: var(--text-mute);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* one summary fact per line; the danger clause keeps the red warning that the
+   flag name used to carry */
+.launch-sum-line {
+  line-height: 1.55;
+}
+
+.launch-cmd .is-danger {
+  color: var(--danger);
 }
 
 .launch-none {
@@ -2089,9 +2127,11 @@ kbd {
 }
 
 /* ---- settings panel (app defaults + read-only usage) ------------------------
-   A modal card in the dialog/popover language: plain label header (the
-   shortcuts-overlay sibling), the launch dialog's own select + permission-card
-   idioms for the defaults, and a dense mono ledger for usage. No new tokens. */
+   A modal card in the dialog/popover language: the shared gradient dialog
+   header (.launch-hd, as the folder picker uses — refreshed prototype
+   2026-07-24, superseding the earlier plain-label header), the launch dialog's
+   own select + permission-card idioms for the defaults, and a dense mono ledger
+   for usage. No new tokens. */
 
 .settings-body {
   flex: 1;
@@ -2263,8 +2303,12 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+/* footer shares the dialog's 20px gutter, so header / body / footer line up on
+   one left edge now that the header is the gradient dialog header */
 .settings-ft {
   background: var(--bg-app);
+  padding-left: var(--dlg-pad-x);
+  padding-right: var(--dlg-pad-x);
 }
 
 /* ---- settings: terminal status bar section --------------------------------
@@ -2349,7 +2393,8 @@ kbd {
    GitHub tab is deferred to 2b (the .np-tabs list takes a third entry). No new
    design tokens — every value maps to an existing token. */
 
-/* tile glyph (◧ / ▤): sans (system) so the geometric glyph never tofus in mono */
+/* dialog-tile glyph (◧ new project / ▤ folder picker / ⚙ settings): sans
+   (system) so the geometric glyph never tofus in mono */
 .np-glyph {
   color: var(--acc);
   font-size: var(--fs-title);
@@ -2579,12 +2624,6 @@ kbd {
   font-size: var(--fs-micro);
   color: var(--text-faint);
   line-height: 1.5;
-}
-
-/* a code token (repo / env var) inside sans OR mono copy: mono + accent */
-.gh-mono-acc {
-  font-family: var(--font-mono);
-  color: var(--acc);
 }
 
 /* accent "Connect with GitHub" — the accent twin of .btn-go's glow-on-hover */

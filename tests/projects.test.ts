@@ -35,6 +35,37 @@ after(async () => {
   if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
 });
 
+test('defaultMode `standard` is still ACCEPTED and round-trips — the UI dropped the option, the schema did not', async () => {
+  // BACKWARD-COMPAT PIN. The New Project dialog stopped OFFERING `standard`
+  // (2026-07-25: it is behaviourally identical to "no default", so showing it
+  // promised a choice it does not make), with the explicit promise that the
+  // stored value is untouched. Nothing enforced that promise: projects.json
+  // files written before the change carry `standard`, and shared/protocol.ts
+  // still declares PermissionMode = 'standard' | 'skip-permissions'.
+  const created = await api(server, 'POST', '/api/projects', {
+    name: 'Legacy standard',
+    path: workDir,
+    defaultMode: 'standard',
+  });
+  assert.equal(created.status, 201, `create failed: ${JSON.stringify(created.body)}`);
+  const project = created.body as Project;
+  assert.equal(project.defaultMode, 'standard', 'stored verbatim, not coerced or dropped');
+
+  const listed = (await api(server, 'GET', '/api/projects')).body as Project[];
+  assert.equal(listed.find((p) => p.id === project.id)?.defaultMode, 'standard', 'and read back');
+
+  // Still exactly two accepted values — this pin must not become "anything goes".
+  const bogus = await api(server, 'POST', '/api/projects', {
+    name: 'Bogus mode',
+    path: workDir,
+    defaultMode: 'always-ask',
+  });
+  assert.equal(bogus.status, 400, 'an unknown mode is still refused');
+
+  // 200, matching the CRUD test below — this fixture must not leak into it.
+  assert.equal((await api(server, 'DELETE', `/api/projects/${project.id}`)).status, 200);
+});
+
 test('projects CRUD: create, list, persist to projects.json (0600), delete', async () => {
   const empty = await api(server, 'GET', '/api/projects');
   assert.equal(empty.status, 200);

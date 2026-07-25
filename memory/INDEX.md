@@ -6,6 +6,8 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[no-code-in-ui-copy]] — 2026-07-25: no commands/flags/config names in the GUI; modes read "Always ask / Auto-approve edits / Read-only planning / Never ask", argv preview → readable summary; UI stays English; custom-command field exempt
+- [[owner-qualified-clone-paths]] — 2026-07-25: GitHub-list clones land at `<home>/projects/<owner>/<repo>` (settles the open decision); kills the same-basename 409 *and* the wrong-project button; rejected adding `remote` to `Project`
 - [[native-webview2-host]] — 2026-07-23: fix the Edge-logo taskbar icon by bringing a lightweight WebView2 host forward (not Tauri); cheap AUMID/shortcut fix proven structurally impossible here. **+2026-07-24: dark window chrome via DWM caption/text/border colors — user chose this over a frameless window with a custom title strip (still available later)**
 - [[github-integration]] — 2026-07-23: app can create projects + connect to GitHub (OAuth device flow, user's call); v1 = full create-local / clone / create-repo; token stays server-side
 - [[launch-dialog-custom-escape-hatch]] — 2026-07-20: launch dialog gains a `custom · any command` chip (user's call over claude-only), preserving configurable command + args in the GUI
@@ -21,6 +23,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
+- [[path-normalization-delete-primitive]] — 2026-07-25: a cleanup that "removes only what we created" wipes a pre-existing directory when the path carries `..` — `resolve()` is lexical, the kernel is not; one normalization is worthless if one consumer still reads the raw string
 - [[pty-exit-data-race]] — **FIXED 2026-07-25**: a session's LAST output vanished at exit — libuv fabricates an EOF on POLLHUP and never re-reads, so the kernel's remaining bytes are dropped (NOT node-pty ordering, my first guess was wrong). Tell: stream emits `'end'` instead of `'error' EIO`. Reproduce by stalling the READER, not by CPU load
 - [[localstorage-origin-port-churn]] — auto-picked port = new origin per backend run = localStorage resets; durable prefs belong server-side
 - [[pty-requirements]] — why every session needs a real PTY and what breaks without resize propagation
@@ -30,6 +33,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-25-ui-copy-and-clone-paths]] — plain-language UI copy pass (no commands/flags in the GUI, user's call) + owner-qualified clone paths; the design-delta turned out to be 2 cosmetic items; gate caught a summary that could drift from the spawn, a proven directory-wipe primitive (+ a pre-existing twin), and a test vacuous for 4 of 6 consumers; suite 396→462
 - [[2026-07-25-pty-tail-rescue]] — the lost PTY tail FIXED via dev-flow (suite 391→396); root cause was libuv, not node-pty. Reviewers caught a comment asserting an invariant the code didn't implement, and twice turned an inherited guarantee into a local one. node-pty pinned exactly; `/verify-terminal` live pass still open
 - [[2026-07-24-github-hardening]] — test-hardening via full dev-flow, suite 288→391: `github-model.ts` extraction (clock injected), `AI_SM_GITHUB_API_BASE` loopback-only test seam, `redirect: 'error'` on token-bearing calls. Lessons: an in-process seam can't reach an out-of-process server; "unavoidable coverage gap" was refuted by a `git` double on PATH; a runtime-inherited guarantee isn't one. Found (not caused) [[pty-exit-data-race]]
 - [[2026-07-24-dark-window-chrome]] — white native title bar FIXED: DWM caption/text/border colors from the CSS tokens on the WebView2 host (user picked this over frameless); verified by compiling on Windows + a `PrintWindow` capture reading `#171D25`; gotcha: use `PrintWindow`, not a screen grab, when the foreground lock blocks activation

@@ -16,11 +16,23 @@
  *   - errors are PLAIN messages — git stdout/stderr is never captured
  *     (stdio:'ignore') and never leaked into server.log or a response.
  *
+ * PATH NORMALIZATION — a DELIBERATE asymmetry between the routes, not an
+ * oversight. `/api/github/clone` REFUSES an un-normalized dest with a 400 at
+ * the route (server/api.ts): that path is app-generated
+ * (`<projects>/<owner>/<repo>`), so nothing legitimate ever carries a `..`.
+ * `/api/projects` (create:true) and `/api/projects/clone` — the two routes
+ * below — NORMALIZE instead: their destinations are user-typed and already
+ * stored in projects.json, so tightening acceptance would break callers and
+ * existing data, while `resolve()` closes the same primitive without losing a
+ * single path that is legitimate today. Both functions therefore resolve once
+ * and RETURN the resolved path, so the value registered in projects.json is
+ * the directory that was actually created.
+ *
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { dirname, isAbsolute } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 /** Carries an HTTP status so the API layer can map it directly (like FsBrowseError). */
 export class ScaffoldError extends Error {
@@ -79,21 +91,35 @@ export function assertVacant(absPath: string): void {
 /**
  * Create a new local project directory at `absPath` (mkdir recursive), then —
  * when `gitInit` — run `git init` inside it. Refuses to clobber an existing
- * non-empty directory or a non-directory. `absPath` must be absolute.
+ * non-empty directory or a non-directory. `absPath` must be absolute. Returns
+ * the RESOLVED path that was actually created, so the caller registers in
+ * projects.json exactly the directory that exists on disk.
+ *
+ * NORMALIZE, DON'T REJECT — a deliberate asymmetry, see PATH NORMALIZATION at
+ * the top of this file. An un-normalized path is two-faced: `<victim>/acme/..`
+ * STATS as missing (so `existedBefore` would be false) while mkdir materialises
+ * the leading `<victim>/acme`, and both the `git init` cwd and the failure
+ * cleanup's recursive rmSync land on the pre-existing `<victim>`. Resolving
+ * first collapses that into ONE path — `abs` is what is stat'ed, what may be
+ * created, what git runs in, the only thing cleanup may remove, and what the
+ * caller stores. (The isAbsolute check stays BEFORE resolve: resolve() would
+ * otherwise silently anchor a relative path to the server's cwd instead of
+ * 400-ing.)
  */
-export async function createLocalDir(absPath: string, gitInit: boolean): Promise<void> {
+export async function createLocalDir(absPath: string, gitInit: boolean): Promise<string> {
   if (!isAbsolute(absPath)) throw new ScaffoldError(400, 'path must be absolute');
+  const abs = resolve(absPath);
 
   let existedBefore = true;
   try {
-    statSync(absPath);
+    statSync(abs);
   } catch {
     existedBefore = false;
   }
-  assertVacant(absPath);
+  assertVacant(abs);
 
   try {
-    mkdirSync(absPath, { recursive: true });
+    mkdirSync(abs, { recursive: true });
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'EACCES' || code === 'EPERM') throw new ScaffoldError(403, 'permission denied');
@@ -101,13 +127,13 @@ export async function createLocalDir(absPath: string, gitInit: boolean): Promise
   }
   if (gitInit) {
     try {
-      await runGit(['init'], { cwd: absPath, timeoutMs: GIT_INIT_TIMEOUT_MS });
+      await runGit(['init'], { cwd: abs, timeoutMs: GIT_INIT_TIMEOUT_MS });
     } catch (err) {
       // Clean up a dir WE created (mkdir made the leaf); never remove a
       // pre-existing user directory.
       if (!existedBefore) {
         try {
-          rmSync(absPath, { recursive: true, force: true });
+          rmSync(abs, { recursive: true, force: true });
         } catch {
           // Best-effort cleanup.
         }
@@ -115,22 +141,36 @@ export async function createLocalDir(absPath: string, gitInit: boolean): Promise
       throw err;
     }
   }
+  return abs;
 }
 
 /**
  * Clone `url` into `destAbs` via `git clone -- <url> <dest>` (argv, no shell).
  * `url` must pass validateCloneUrl; `destAbs` must be absolute, its parent must
  * exist, and it must not already exist as a non-empty directory. If the clone
- * fails and we created the dest, the partial dest is removed.
+ * fails and we created the dest, the partial dest is removed. Returns the
+ * RESOLVED dest, so the caller registers the directory that exists on disk.
+ *
+ * NORMALIZE, DON'T REJECT — same asymmetry and same reason as createLocalDir
+ * (see PATH NORMALIZATION at the top of this file). `dest` is resolved BEFORE
+ * any filesystem decision, so the parent check, `existedBefore`, assertVacant,
+ * the git argv and the failure cleanup all reason about one and the same
+ * directory. (isAbsolute stays before resolve for the same reason as there.)
  */
-export async function cloneRepo(url: string, destAbs: string): Promise<void> {
+export async function cloneRepo(url: string, destAbs: string): Promise<string> {
   validateCloneUrl(url);
   if (!isAbsolute(destAbs)) throw new ScaffoldError(400, 'dest must be absolute');
+  const abs = resolve(destAbs);
 
-  // git clone creates the LEAF directory but not intermediate parents.
+  // DELIBERATE GUARD, not a git limitation: real `git clone` does create leading
+  // directories (verified against git 2.43), so this refusal exists so a typo'd
+  // dest can never materialise a directory tree. The GitHub panel's
+  // owner-qualified destinations get ONE narrow exception — server/github.ts
+  // step 3b — and this URL-clone path keeps the strict rule (user's call: the
+  // URL tab's destination is user-chosen and stays unchanged).
   let parentOk = false;
   try {
-    parentOk = statSync(dirname(destAbs)).isDirectory();
+    parentOk = statSync(dirname(abs)).isDirectory();
   } catch {
     parentOk = false;
   }
@@ -138,27 +178,28 @@ export async function cloneRepo(url: string, destAbs: string): Promise<void> {
 
   let existedBefore = true;
   try {
-    statSync(destAbs);
+    statSync(abs);
   } catch {
     existedBefore = false;
   }
-  assertVacant(destAbs);
+  assertVacant(abs);
 
   try {
     // `--` stops `url`/`dest` from being read as options even if validation missed something.
-    await runGit(['clone', '--', url, destAbs], { timeoutMs: CLONE_TIMEOUT_MS });
+    await runGit(['clone', '--', url, abs], { timeoutMs: CLONE_TIMEOUT_MS });
   } catch (err) {
     // Clean up a dest WE created (git makes the leaf dir); never remove a
     // pre-existing user directory.
     if (!existedBefore) {
       try {
-        rmSync(destAbs, { recursive: true, force: true });
+        rmSync(abs, { recursive: true, force: true });
       } catch {
         // Best-effort cleanup.
       }
     }
     throw err instanceof ScaffoldError ? err : new ScaffoldError(500, 'failed to clone repository');
   }
+  return abs;
 }
 
 /**

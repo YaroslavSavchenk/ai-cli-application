@@ -8,11 +8,13 @@
  *     `<home>/projects/<name>` as the name is typed (home resolved live from
  *     GET /api/fs/list — never hardcoded); Browse overrides it.
  *   - Clone repo: GIT URL + DESTINATION (optional; Browse → folder picker;
- *     default `<home>/projects/<repoBasename>`) + a live `$ git clone <url>
- *     <dest>` preview. POSTs cloneProject. Clone is a SLOW synchronous call —
- *     an honest indeterminate "cloning…" spinner shows while awaiting (NOT a
- *     fake percentage); success adds the project + closes, failure renders the
- *     backend error inline.
+ *     default `<home>/projects/<repoBasename>`) + a live three-line summary in
+ *     the ink well — `copies` / the pasted url / `into folder: <dest>`, each
+ *     unfilled value falling back to `—` (the argv-shaped command preview was
+ *     dropped by the UI copy rule, 2026-07-25). POSTs cloneProject. Clone is a
+ *     SLOW synchronous call — an honest indeterminate "cloning…" spinner shows
+ *     while awaiting (NOT a fake percentage); success adds the project +
+ *     closes, failure renders the backend error inline.
  *
  * Built entirely in the established dialog language: the sanctioned gradient
  * header (launch-dialog idioms), the ink-well command preview (`.launch-cmd`),
@@ -141,9 +143,9 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   gitRow.append(
     gitBox,
     el('span', 'status-lb', 'Initialize git repo'),
-    el('span', 'status-sample', 'git init'),
+    el('span', 'status-sample', 'starts version history'),
   );
-  gitRow.title = 'run git init in the new project directory';
+  gitRow.title = 'start tracking changes in the new project folder';
 
   function syncGit(): void {
     gitRow.setAttribute('aria-pressed', gitInit ? 'true' : 'false');
@@ -180,9 +182,17 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   const modeNone = el('option', '', 'no default');
   modeNone.value = '';
   modeSel.append(modeNone);
+  // Only the danger value is offered (user's call, 2026-07-25): `standard` is
+  // behaviourally identical to "no default" (permFromDefaultMode returns null
+  // for it), so showing it promised a choice it does not make — and relabelling
+  // it "Always ask" would promise enforcement the value does not deliver. The
+  // stored value is untouched: a project.json that already carries `standard`
+  // keeps being accepted (see submitBlank), no schema/server change.
+  // Lowercase to match this select's own `no default` and the sibling
+  // Default-model select — the settings-panel select idiom. The four permission
+  // CARD titles are unaffected (they keep their sentence case).
   const modeOpts: { value: PermissionMode; label: string }[] = [
-    { value: 'standard', label: 'standard' },
-    { value: 'skip-permissions', label: 'skip permissions (danger)' },
+    { value: 'skip-permissions', label: 'never ask · dangerous' },
   ];
   for (const o of modeOpts) {
     const opt = el('option', '', o.label);
@@ -307,14 +317,22 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     }
   }
 
+  /**
+   * The ink well, in the launch summary's own line structure (PROJECT-SCOPE
+   * "No commands, flags, or code in the UI", 2026-07-25): what this will do,
+   * the pasted URL, and where it lands. The URL stays verbatim — it is the
+   * user's own input, not code — and both values fall back to '—', the app's
+   * empty-value glyph, so an unfilled field never reads as a real value.
+   * Untrusted text via textContent (el), never innerHTML.
+   */
   function renderClonePreview(): void {
     const url = urlInput.value.trim();
-    if (url === '') {
-      clonePreview.textContent = '$ git clone <url>';
-      return;
-    }
     const dest = effectiveClonePath();
-    clonePreview.textContent = `$ git clone ${url}${dest !== '' ? ` ${dest}` : ''}`;
+    clonePreview.replaceChildren(
+      el('div', 'launch-sum-line', 'copies'),
+      el('div', 'launch-sum-line', url !== '' ? url : '—'),
+      el('div', 'launch-sum-line', `into folder: ${dest !== '' ? dest : '—'}`),
+    );
   }
 
   function setMode(next: Mode): void {

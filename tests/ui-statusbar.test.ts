@@ -15,7 +15,9 @@
  *   2. FORMAT + SEMANTIC ROLE — cost `~$0.42` (leading approximate tilde),
  *      context `ctx Nk/Mk` (k-rounded), diff `+A −D` (U+2212 minus), branch
  *      `⎇ <b>` (U+2387), skill `skill: <n>` in the ACCENT role, mode danger for
- *      bypass. `.role` (neutral | skill | danger) is the semantic color the
+ *      bypass. Mode labels arrive already in the UI's plain words (permFromArgs
+ *      maps the CLI value through PERM_SHORT) — buildItems passes them through
+ *      untouched, which is what the fixtures below assert. `.role` (neutral | skill | danger) is the semantic color the
  *      render maps 1:1, so asserting `.role` locks color-is-semantic.
  *
  * `buildItems` is pure — no module-level DOM runs on import, so `node --test`
@@ -60,7 +62,7 @@ function fullInputs(telOverride: TelemetryItem = {}): {
 } {
   return {
     model: 'opus',
-    perm: { label: 'acceptEdits', danger: false },
+    perm: { label: 'auto edits', danger: false },
     running: true,
     createdAtMs: Date.now() - 125_000,
     tel: {
@@ -145,7 +147,7 @@ test('model: sourced from inp.model (client argv), NOT from tel.model (the Claud
 
 test('mode: a non-dangerous mode renders its label in the NEUTRAL role', () => {
   assert.deepEqual(one(buildItems(cfgOnly('mode'), fullInputs())), {
-    text: 'acceptEdits',
+    text: 'auto edits',
     role: 'neutral',
   });
 });
@@ -153,9 +155,9 @@ test('mode: a non-dangerous mode renders its label in the NEUTRAL role', () => {
 test('mode: a danger perm (bypass) renders in the DANGER role — color is semantic', () => {
   const items = buildItems(cfgOnly('mode'), {
     ...fullInputs(),
-    perm: { label: 'bypass', danger: true },
+    perm: { label: 'no prompts', danger: true },
   });
-  assert.deepEqual(one(items), { text: 'bypass', role: 'danger' });
+  assert.deepEqual(one(items), { text: 'no prompts', role: 'danger' });
 });
 
 test('mode: omitted when perm is null (default / absent permission mode)', () => {
@@ -335,7 +337,7 @@ test('order: everything on → model · mode · skill · cost · context · time
   const created = Date.now() - 125_000;
   const items = buildItems(cfg, {
     model: 'opus',
-    perm: { label: 'bypass', danger: true },
+    perm: { label: 'no prompts', danger: true },
     running: true,
     createdAtMs: created,
     tel: {
@@ -355,7 +357,7 @@ test('order: everything on → model · mode · skill · cost · context · time
     items.map((i) => ({ text: i.text, role: i.role })).filter((_, idx) => idx !== 5),
     [
       { text: 'opus', role: 'neutral' },
-      { text: 'bypass', role: 'danger' },
+      { text: 'no prompts', role: 'danger' },
       { text: 'skill: edit', role: 'skill' },
       { text: '~$0.42', role: 'neutral' },
       { text: 'ctx 62k/200k', role: 'neutral' },

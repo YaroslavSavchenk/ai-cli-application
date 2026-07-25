@@ -1,4 +1,5 @@
 /** Tiny DOM helpers shared by the UI modules. No framework — by decision. */
+import { PERM_SHORT, isPerm } from './launch-args.ts';
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -117,12 +118,17 @@ export function modelFromArgs(args: string[]): string | null {
 }
 
 /**
- * Permission tag from argv. `--dangerously-skip-permissions` reads "bypass";
- * `--permission-mode <mode>` reads the mode. Danger (red tag) for both
- * bypass forms; null for default/absent (no tag shown).
+ * Permission tag from argv, in the UI's plain words (`PERM_SHORT`, the narrow-
+ * chip forms): both bypass forms read "no prompts", `acceptEdits` reads
+ * "auto edits", `plan` reads "read-only". Danger (red tag) for both bypass
+ * forms; null for default/absent (no tag shown at all — unchanged). A mode
+ * outside the known four (only reachable from a custom command the user typed)
+ * is shown verbatim: inventing a translation for it would be dishonest.
  */
 export function permFromArgs(args: string[]): { label: string; danger: boolean } | null {
-  if (args.includes('--dangerously-skip-permissions')) return { label: 'bypass', danger: true };
+  if (args.includes('--dangerously-skip-permissions')) {
+    return { label: PERM_SHORT.bypassPermissions, danger: true };
+  }
   const i = args.indexOf('--permission-mode');
   const next = i !== -1 ? args[i + 1] : undefined;
   const v =
@@ -130,7 +136,7 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
       ? next
       : args.find((a) => a.startsWith('--permission-mode='))?.slice('--permission-mode='.length);
   if (typeof v !== 'string' || v === '' || v === 'default') return null;
-  return { label: v, danger: v === 'bypassPermissions' };
+  return { label: isPerm(v) ? PERM_SHORT[v] : v, danger: v === 'bypassPermissions' };
 }
 
 /**

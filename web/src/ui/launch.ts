@@ -5,13 +5,21 @@
  * Structure: gradient header (logo tile · "Launch session" · subtitle · ×),
  * preset chips (deep work / quick fix / yolo — each sets model + permission
  * + resume), a 2×2 field grid (session name, project, model, resume), four
- * permission-mode cards with plain-language descriptions, and a live
- * command preview. `composeArgs()` is the ONE argv composer: the preview
- * renders exactly what launch() sends — never two code paths.
+ * permission-mode cards with plain-language titles + descriptions, and a live
+ * readable summary of what will run. `composeArgs()` is the ONE argv composer:
+ * the summary is rendered from the SAME state it composes from — never two
+ * code paths.
  *
- * Resume has exactly two options: start fresh, or `--continue`. There is
- * deliberately NO per-id `--resume <id>` (fiction cut: the journal stores
- * our session ids, not Claude conversation ids).
+ * No flags or CLI syntax are shown in preset mode (PROJECT-SCOPE "No commands,
+ * flags, or code in the UI", 2026-07-25): the ink well reads "Claude Code ·
+ * opus / auto-approves file edits · continues your last conversation / folder:
+ * <path>". Custom mode is the one exemption — its field's content IS a command,
+ * so it keeps echoing the exact argv line.
+ *
+ * Resume has exactly two options: start fresh, or continue the last
+ * conversation (which emits `--continue`). There is deliberately NO per-id
+ * `--resume <id>` (fiction cut: the journal stores our session ids, not Claude
+ * conversation ids).
  *
  * A fourth chip — `custom · any command` — is a MODE, not a one-shot
  * preset (user decision 2026-07-20, restoring the launcher tab's
@@ -34,9 +42,11 @@ import {
   MODELS,
   PERMS,
   CHIPS,
+  RESUME_OPTIONS,
   composeArgs,
   parseCustomCommand,
   previewLine,
+  launchSummary,
   resolveModel,
   resolvePerm,
 } from './launch-args.ts';
@@ -114,7 +124,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     setCustomMode(!customMode);
     updatePreview();
   });
-  customChip.title = 'launch any command instead of claude';
+  customChip.title = 'launch any command instead of Claude Code';
   customChip.setAttribute('aria-pressed', 'false');
   chipRow.append(customChip);
 
@@ -150,12 +160,9 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   resumeField.append(el('span', 'launch-lb', 'Resume'));
   const resumeSel = el('select');
   resumeSel.name = 'resume';
-  for (const [v, label] of [
-    ['fresh', 'start fresh'],
-    ['continue', 'continue last conversation (--continue)'],
-  ] as const) {
-    const opt = el('option', '', label);
-    opt.value = v;
+  for (const r of RESUME_OPTIONS) {
+    const opt = el('option', '', r.label);
+    opt.value = r.value; // values unchanged — `continue` still emits --continue
     resumeSel.append(opt);
   }
   resumeField.append(resumeSel);
@@ -187,8 +194,8 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       setPerm(p.mode);
       updatePreview();
     });
-    card.append(el('span', 'perm-mode', p.mode), el('span', 'perm-desc', p.desc));
-    if (p.danger) card.title = 'runs claude with all permission prompts disabled';
+    card.append(el('span', 'perm-mode', p.title), el('span', 'perm-desc', p.desc));
+    if (p.danger) card.title = 'runs with every permission prompt disabled';
     permButtons.set(p.mode, card);
     permGrid.append(card);
   }
@@ -225,7 +232,8 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     if (on) cmdInput.focus();
   }
 
-  // Command preview: always equals the argv launch() will send.
+  // Readable summary of the launch (custom mode: the literal command line).
+  // Either way it is rendered from the state currentSpawn() composes from.
   const preview = el('div', 'launch-cmd');
 
   const err = el('div', 'form-err');
@@ -302,12 +310,37 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     return { command: 'claude', args: composeArgs(modelSel.value, perm, resumeSel.value as Resume) };
   }
 
+  /**
+   * The ink well: a plain-language summary in preset mode, the literal command
+   * line in custom mode (its content IS a command — the one exemption from the
+   * no-syntax rule). Both end with the real absolute folder; '—' is the app's
+   * empty-value glyph (uptime/cwd use it too).
+   *
+   * BOTH branches render `currentSpawn()`'s OUTPUT — the custom line from the
+   * spec, the summary from the very argv array the POST body carries — so the
+   * ink well cannot describe a different launch than the one it starts.
+   */
   function updatePreview(): void {
     const spawn = currentSpawn();
     const project = st.state.projects.find((p) => p.id === projectSel.value);
     const cwd = project !== undefined ? project.path : '—';
-    // '—' is the app's empty-value glyph (cwd/uptime use it too).
-    preview.textContent = `${spawn !== null ? previewLine(spawn) : '$ —'}\n  cwd: ${cwd}`;
+    if (customMode) {
+      preview.replaceChildren(
+        el('div', 'launch-sum-line', spawn !== null ? previewLine(spawn) : '$ —'),
+        el('div', 'launch-sum-line', `folder: ${cwd}`),
+      );
+      return;
+    }
+    // Preset mode always composes a spec (only a blank CUSTOM command is null).
+    const s = launchSummary(spawn?.args ?? [], cwd);
+    const what = el('div', 'launch-sum-line');
+    // The danger clause stays red — the warning survives the wording change.
+    what.append(el('span', s.danger ? 'is-danger' : '', s.mode), ' · ', s.resume);
+    preview.replaceChildren(
+      el('div', 'launch-sum-line', s.head),
+      what,
+      el('div', 'launch-sum-line', s.folder),
+    );
   }
 
   projectSel.addEventListener('change', () => {

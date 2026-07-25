@@ -11,16 +11,29 @@
  * PREVIOUS RUN · N (crash/shutdown offers from GET /api/previous): rows keep
  * the existing `--continue` relaunch + forget + dismiss-all EXACTLY — there
  * is deliberately NO per-id `--resume <id>` (the journal stores our session
- * ids, not Claude conversation ids). Footer note states the contract.
+ * ids, not Claude conversation ids). The footer note states the contract in
+ * plain words ("relaunch continues the previous conversation"); the emitted
+ * flag is unchanged.
  */
 import type { CreateSessionRequest, PreviousSession } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, ArmedSet, modelFromArgs } from './util.ts';
+import { AGENT_LABEL } from './launch-args.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
+
+/**
+ * A session's command as the UI says it: the ONE known agent reads as its
+ * product name (the launch dialog's own `Claude Code`), anything else is echoed
+ * exactly as the user typed it in the custom-command field. Inventing a display
+ * name for an arbitrary command would be a lie about what is running.
+ */
+function commandLabel(command: string): string {
+  return command === 'claude' ? AGENT_LABEL : command;
+}
 
 /** Go to the session's tab and put the keyboard in its terminal. */
 function showSession(sessionId: string): void {
@@ -117,7 +130,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   hd.append(close);
 
   const body = el('div', 'drawer-body');
-  const note = el('div', 'drawer-note', 'relaunch resumes claude with --continue');
+  const note = el('div', 'drawer-note', 'relaunch continues the previous conversation');
   note.hidden = true;
   root.append(hd, body, note);
   host.append(root);
@@ -191,7 +204,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       dot.setAttribute('aria-hidden', 'true');
       line.append(dot, el('span', 'sess-name', info.title));
       const meta = el('div', 'sess-meta');
-      const pname = st.projectName(info.projectId) ?? info.command;
+      const pname = st.projectName(info.projectId) ?? commandLabel(info.command);
       let statusTxt: string;
       if (attention) statusTxt = 'waiting for input';
       else if (running) statusTxt = 'running';
@@ -202,7 +215,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       main.append(line, meta);
 
       const actions = el('div', 'sess-actions');
-      const model = el('span', 'sess-model', modelFromArgs(info.args) ?? info.command);
+      const model = el('span', 'sess-model', modelFromArgs(info.args) ?? commandLabel(info.command));
       const split = button('chip-btn is-acc', 'split', () => splitIntoActive(info.id));
       split.setAttribute('data-k', `split:${info.id}`);
       split.title = 'add to the current view, max 4 (drag its tab for placement)';
@@ -275,7 +288,8 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     line.append(dot, el('span', 'sess-name is-prev', p.title));
     const meta = el('div', 'sess-meta');
     const pname = st.projectName(p.projectId);
-    meta.textContent = pname !== null ? `${pname} · ${p.command}` : p.command;
+    const cmd = commandLabel(p.command);
+    meta.textContent = pname !== null ? `${pname} · ${cmd}` : cmd;
     main.append(line, meta);
 
     const actions = el('div', 'sess-actions');
@@ -283,7 +297,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     re.setAttribute('data-k', `prev-relaunch:${p.id}`);
     re.title =
       p.command === 'claude'
-        ? 'relaunch as a new tab — claude resumes with --continue'
+        ? 'relaunch as a new tab — continues where the session stopped'
         : 'relaunch as a new tab';
     const dis = button('chip-btn is-x', '×', () => void dismissPrevious(p));
     dis.setAttribute('data-k', `prev-dismiss:${p.id}`);

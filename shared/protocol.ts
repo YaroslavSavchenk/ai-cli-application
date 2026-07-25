@@ -471,10 +471,21 @@ export interface GithubReposResponse {
  * `.git/config`. `cloneUrl` MUST be `https://` with host EXACTLY `github.com`
  * (hard SSRF/token-exfil guard: the token can only ever be sent to GitHub); any
  * other host, non-https, `-`-leading, control-char, or credential-embedding url
- * is rejected (400). `dest` must be an absolute path whose parent exists and
- * that is not already a non-empty directory (400/409). 409 when GitHub is not
+ * is rejected (400). `dest` must be an absolute path that is not already a
+ * non-empty directory (409) and whose parent exists (400) — with ONE exception,
+ * for the owner-qualified destinations the GitHub panel now uses (settled
+ * 2026-07-25): a single missing `<owner>` directory is created when `dest`'s
+ * direct parent is named exactly after the owner segment of `cloneUrl` and that
+ * parent's own parent already exists (one level, never `mkdir -p`; removed again
+ * if the clone fails and it is still empty) — 403 when creating that directory
+ * is denied by the filesystem. `dest` must also already be NORMALIZED: a `.`/
+ * `..` component or a trailing slash is rejected (400), because such a path
+ * reads as one directory and resolves to another. 409 when GitHub is not
  * connected/configured; 502 on clone failure. After cloning, `dest` is
- * registered as a project named `name` (or the repo basename from `cloneUrl`).
+ * registered as a project named `name` (or the repo basename from `cloneUrl`) —
+ * except when a project ALREADY carries that name, in which case the clone is
+ * registered as `<owner>/<repo>` so the UI, which shows names only, can tell the
+ * two apart. THE SHAPE BELOW IS UNCHANGED by any of this.
  */
 export interface GithubCloneRequest {
   cloneUrl: string;

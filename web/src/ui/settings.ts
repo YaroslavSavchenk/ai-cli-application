@@ -15,9 +15,11 @@
  * merge-on-write helper (api.updatePrefs), so the theme key and any other bag
  * key survive; changes take effect on the NEXT launch-dialog open with no
  * reload (the dialog reads getDefaults() live). The panel is a modal card in
- * the established dialog/popover language — plain label header (the shortcuts
- * overlay sibling), the dialog's own select + permission-card idioms for the
- * defaults, and a dense mono ledger for usage. NO new colors/tokens.
+ * the established dialog/popover language — the shared gradient dialog header
+ * (⚙ tile · "Settings" · mono subtitle, aligned with the refreshed prototype
+ * 2026-07-24, superseding the earlier plain-label header), the dialog's own
+ * select + permission-card idioms for the defaults, and a dense mono ledger for
+ * usage. NO new colors/tokens.
  *
  * Usage is fetched on open and on an explicit refresh only — never polled (the
  * 30s server cache makes opens cheap). Model strings are Claude-Code-log
@@ -27,7 +29,7 @@ import type { SessionInfo, UiLaunchDefaults, UsageResponse } from '../../../shar
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab, fmtCount } from './util.ts';
-import { PERMS, MODELS, isModelId } from './launch-args.ts';
+import { PERMS, MODELS, PERM_SHORT, isModelId } from './launch-args.ts';
 import type { Perm } from './launch-args.ts';
 import { getDefaults, setDefaults, getStatusBar, setStatusBar, statusBarDefaults } from './defaults.ts';
 import type { StatusBarCfg } from './defaults.ts';
@@ -54,12 +56,21 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', 'app settings');
 
-  // ---- header (plain label, the shortcuts/dir-browser modal sibling) -------
-  const hd = el('header', 'modal-hd');
-  const closeX = button('drawer-x', '×', () => close());
+  // ---- header (the shared gradient dialog header: launch dialog / picker) --
+  const hd = el('header', 'launch-hd');
+  const tile = el('div', 'launch-tile');
+  tile.setAttribute('aria-hidden', 'true');
+  tile.append(el('span', 'np-glyph', '⚙'));
+  const titles = el('div', 'launch-titles');
+  titles.append(
+    el('div', 'launch-title', 'Settings'),
+    // Honest about the three sections this panel actually holds.
+    el('div', 'launch-sub', 'launch defaults · usage · terminal status bar'),
+  );
+  const closeX = button('launch-x', '×', () => close());
   closeX.setAttribute('aria-label', 'close settings');
   closeX.title = 'close (esc)';
-  hd.append(el('span', 'drawer-label', 'SETTINGS'), el('span', 'drawer-gap'), closeX);
+  hd.append(tile, titles, el('span', 'launch-gap'), closeX);
 
   const bodyEl = el('div', 'settings-body');
 
@@ -105,8 +116,8 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
       setPerm(p.mode);
       commit();
     });
-    card.append(el('span', 'perm-mode', p.mode), el('span', 'perm-desc', p.desc));
-    if (p.danger) card.title = 'new sessions default to all permission prompts disabled';
+    card.append(el('span', 'perm-mode', p.title), el('span', 'perm-desc', p.desc));
+    if (p.danger) card.title = 'new sessions default to no permission prompts at all';
     permButtons.set(p.mode, card);
     permGrid.append(card);
   }
@@ -124,11 +135,11 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   // claude session once it is ready (empty = off; claude-mode launches only).
   const startField = el('label', 'settings-field');
   const startLb = el('span', 'launch-lb', 'Auto-run startup command ');
-  startLb.append(el('em', 'field-hint', 'typed into new claude sessions · empty = off'));
+  startLb.append(el('em', 'field-hint', "typed into each new session once it's ready · empty = off"));
   startField.append(startLb);
   const startInput = el('input');
   startInput.name = 'startupCommand';
-  startInput.placeholder = '/caveman';
+  startInput.placeholder = 'a line to run in every new session';
   startInput.spellcheck = false;
   startInput.autocomplete = 'off';
   startField.append(startInput);
@@ -189,7 +200,7 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   }
   const SB_ROWS: SbRow[] = [
     { key: 'model', label: 'Model', sample: 'opus' },
-    { key: 'mode', label: 'Permission mode', sample: 'acceptEdits' },
+    { key: 'mode', label: 'Permission mode', sample: PERM_SHORT.acceptEdits },
     { key: 'branch', label: 'Git branch', sample: '⎇ main' },
     { key: 'time', label: 'Session time', sample: '08:42' },
     { key: 'cost', label: 'Cost spent', sample: '$0.42' },
@@ -233,7 +244,9 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   const ft = el('footer', 'modal-ft settings-ft');
   const resetBtn = button('btn', 'Reset to defaults', () => resetStatusBar());
   resetBtn.title = 'restore the status-bar items to their default on/off state';
-  const doneBtn = button('btn', 'Close', () => close());
+  // Accent-blue primary (refreshed prototype 2026-07-24): confirm, not "go".
+  const doneBtn = button('btn is-acc', 'Done', () => close());
+  doneBtn.title = 'close settings (esc)';
   ft.append(resetBtn, el('span', 'drawer-gap'), doneBtn);
 
   modal.append(hd, bodyEl, ft);

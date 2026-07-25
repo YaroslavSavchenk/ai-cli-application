@@ -937,6 +937,170 @@ test('cloneAuthenticated: reuses the no-clobber rule — a non-empty dest -> 409
   }
 });
 
+test('cloneAuthenticated: an UN-NORMALIZED dest is resolved before any filesystem decision — a `..` component can never make the failure cleanup delete a pre-existing tree', async () => {
+  // REGRESSION (security). `dest = <victim>/<owner>/..` reads as a path whose
+  // parent does not exist, but RESOLVES to the pre-existing <victim>. Before the
+  // fix that split the two: statSync failed -> `existedBefore = false`, step 3b
+  // created <victim>/<owner>, git got `<victim>/<owner>/..` (= a non-empty
+  // <victim>) and failed, and the cleanup ran `rmSync(dest, {recursive:true})`
+  // — which the kernel resolves through the `..`, emptying <victim>.
+  // cloneAuthenticated now normalizes FIRST, so every decision (stat, mkdir,
+  // git argv, cleanup) is about the same directory: the resolved one.
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-dotdot-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-dotdotw-')));
+  try {
+    const victim = join(work, 'important');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(victim, 'sub'), { recursive: true });
+    await writeFile(join(victim, 'precious.txt'), 'do not delete\n');
+    await writeFile(join(victim, 'sub', 'more.txt'), 'also precious\n');
+
+    let spawned = false;
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      // Real git refuses a non-empty destination and exits non-zero — the exact
+      // failure that used to trigger the destructive cleanup.
+      spawnImpl: () => fakeChild(128, () => { spawned = true; }),
+    });
+
+    // Concatenated, not path.join()'d: join() would normalize the `..` away, and
+    // the un-normalized string is exactly what a JSON body can carry.
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/acme/api.git', `${victim}/acme/..`),
+      (e) => e instanceof GithubError,
+      'an un-normalized dest is refused, not cloned into',
+    );
+
+    assert.equal(
+      await readFile(join(victim, 'precious.txt'), 'utf8'),
+      'do not delete\n',
+      'the pre-existing directory this request never created is untouched',
+    );
+    assert.equal(await readFile(join(victim, 'sub', 'more.txt'), 'utf8'), 'also precious\n');
+    assert.equal(existsSync(join(victim, 'acme')), false, 'no owner directory was materialised');
+    assert.equal(spawned, false, 'the resolved dest is non-empty, so git is never spawned');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The normalization above is ONE resolve() feeding SIX filesystem decisions
+// (existedBefore, assertVacant, the step-3b owner-dir allowance, the git argv,
+// the failure cleanup, the .git/config leak guard). The test above only reaches
+// the FIRST of them that refuses — assertVacant 409s and shadows everything
+// downstream — so it cannot tell "resolved once, used everywhere" apart from
+// "resolved once, then one consumer handed the raw string".
+//
+// These three drive an un-normalized dest that PASSES the vacancy check
+// (`<landing>/acme/..`, where `<landing>` exists and is empty), so execution
+// reaches each remaining consumer. The raw string and the resolved one differ
+// for real here: the kernel walks `<landing>/acme` first and fails ENOENT
+// because it does not exist, while path.resolve is purely lexical and lands on
+// `<landing>`.
+// ---------------------------------------------------------------------------
+
+/** `<work>/landing` (existing + empty) and the un-normalized dest resolving to it. */
+function landingPair(work: string): { landing: string; raw: string } {
+  const landing = join(work, 'landing');
+  mkdirSync(landing, { recursive: true });
+  // Concatenated, not join()'d — join() would normalize the `..` away.
+  return { landing, raw: `${landing}/acme/..` };
+}
+
+test('cloneAuthenticated: git and the owner-dir allowance both act on the RESOLVED dest — no directory is materialised for the raw string', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-res1-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-res1w-')));
+  try {
+    const { landing, raw } = landingPair(work);
+    let gitDest: string | undefined;
+    let ownerDirAtSpawn = true;
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: (_cmd, args) =>
+        fakeChild(0, () => {
+          gitDest = args[args.length - 1];
+          // Step 3b runs BEFORE the spawn, so a raw-string parent would have
+          // created `<landing>/acme` by now — and a failing clone would then
+          // remove it again, which is why this is sampled here and not after.
+          ownerDirAtSpawn = existsSync(join(landing, 'acme'));
+        }),
+    });
+
+    await conn.cloneAuthenticated('https://github.com/acme/api.git', raw);
+
+    assert.equal(gitDest, landing, 'git is handed the resolved dest, never the `..` string');
+    assert.equal(ownerDirAtSpawn, false, 'the raw string names a missing `acme` parent — it must not be created');
+    assert.equal(existsSync(join(landing, 'acme')), false, 'and nothing is left behind afterwards either');
+    assert.ok(existsSync(landing), 'the destination itself is untouched');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: `existedBefore` is decided on the RESOLVED dest — a failed clone never removes a directory that already existed', async () => {
+  // The consumer that decides whether the cleanup may delete anything at all.
+  // Reading it from the raw string makes statSync fail (ENOENT on the missing
+  // `acme` component) -> existedBefore=false -> the recursive rmSync then runs
+  // on the RESOLVED, pre-existing directory.
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-res2-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-res2w-')));
+  try {
+    const { landing, raw } = landingPair(work);
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: () => fakeChild(128),
+    });
+
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/acme/api.git', raw),
+      (e) => e instanceof GithubError && e.status === 502,
+      'the clone still fails 502',
+    );
+    assert.ok(existsSync(landing), 'the pre-existing destination survives the failure cleanup');
+    assert.equal(existsSync(join(landing, 'acme')), false, 'and no owner directory was created for the raw string');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test('cloneAuthenticated: the credential-leak guard reads the RESOLVED .git/config — it cannot be silenced by an un-normalized dest', async () => {
+  // End-to-end pin on the security-relevant consumer, and honest about its
+  // strength: swapping `destAbs` for the raw string HERE is not observable,
+  // because the read goes through `path.join`, which normalizes the `..` away
+  // by itself. So this is defence in depth over that accident — it fails if the
+  // leak guard is removed, reordered before the clone, or pointed at a path
+  // that path.join does not normalize for it.
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-res3-'));
+  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-res3w-')));
+  try {
+    const { landing, raw } = landingPair(work);
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: () =>
+        fakeChild(0, () => {
+          mkdirSync(join(landing, '.git'), { recursive: true });
+          writeFileSync(
+            join(landing, '.git', 'config'),
+            `[remote "origin"]\n  url = https://x-access-token:${SECRET}@github.com/o/r.git\n`,
+          );
+        }),
+    });
+
+    await assert.rejects(
+      conn.cloneAuthenticated('https://github.com/acme/api.git', raw),
+      (e) => e instanceof GithubError && e.status === 500 && !e.message.includes(SECRET),
+      'the leak is still detected, and the message never echoes the token',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 3b. Phase 2c gap-closure (test-engineer): extends the dev's 2c tests with
 //     the token-safety corners they did not assert — the askpass script's own
