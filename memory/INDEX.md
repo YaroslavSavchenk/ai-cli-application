@@ -6,6 +6,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[github-token-paste-path]] — 2026-07-25: an "add token" path beside the device flow (user's request), persisted with a remember-toggle; design gate ran BEFORE any code — storage ceiling is 0600 + discipline, and the real win is a fine-grained token with an expiry. **Implementation queued**
 - [[no-code-in-ui-copy]] — 2026-07-25: no commands/flags/config names in the GUI; modes read "Always ask / Auto-approve edits / Read-only planning / Never ask", argv preview → readable summary; UI stays English; custom-command field exempt
 - [[owner-qualified-clone-paths]] — 2026-07-25: GitHub-list clones land at `<home>/projects/<owner>/<repo>` (settles the open decision); kills the same-basename 409 *and* the wrong-project button; rejected adding `remote` to `Project`
 - [[native-webview2-host]] — 2026-07-23: fix the Edge-logo taskbar icon by bringing a lightweight WebView2 host forward (not Tauri); cheap AUMID/shortcut fix proven structurally impossible here. **+2026-07-24: dark window chrome via DWM caption/text/border colors — user chose this over a frameless window with a custom title strip (still available later)**
@@ -23,6 +24,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
+- [[wsl-0600-not-a-boundary]] — 2026-07-25 VERIFIED: any process running as the WINDOWS user reads every 0600 file in the WSL data dir through `\\wsl.localhost\` (the 9p server runs as root) — read the live app token from PowerShell, no elevation; no keyring exists in this distro either
 - [[path-normalization-delete-primitive]] — 2026-07-25: a cleanup that "removes only what we created" wipes a pre-existing directory when the path carries `..` — `resolve()` is lexical, the kernel is not; one normalization is worthless if one consumer still reads the raw string
 - [[pty-exit-data-race]] — **FIXED 2026-07-25**: a session's LAST output vanished at exit — libuv fabricates an EOF on POLLHUP and never re-reads, so the kernel's remaining bytes are dropped (NOT node-pty ordering, my first guess was wrong). Tell: stream emits `'end'` instead of `'error' EIO`. Reproduce by stalling the READER, not by CPU load
 - [[localstorage-origin-port-churn]] — auto-picked port = new origin per backend run = localStorage resets; durable prefs belong server-side

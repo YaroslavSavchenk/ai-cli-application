@@ -135,6 +135,24 @@ and multi-pane layouts on top.
     GitHub OAuth app, the user approves a device code, and a scoped,
     revocable token is stored **server-side** in the data dir beside
     `prefs.json` (never in localStorage, never returned to the browser).
+  - **A pasted token is a SECOND credential path — decided 2026-07-25, user's
+    request; implementation queued.** Extends (does not replace) the
+    device-flow decision: an "add token" affordance stores a user-pasted
+    GitHub token server-side and uses it wherever the device-flow token is
+    used. It needs no OAuth App, so it makes the feature usable before the
+    client id exists — hence `configured` becomes `deviceFlowAvailable` and
+    must never hide the paste affordance. **Persisted by default with a
+    "remember this token" toggle** (off = process-memory only, gone when the
+    backend exits). A security design gate ran *before* any code: storage
+    ceiling is 0600 + discipline (no keyring exists here, verified; same-disk
+    encryption is theatre), the UI must claim nothing stronger than "stored on
+    this machine, readable by your own user account", it must recommend a
+    fine-grained token limited to selected repositories with an expiry (which
+    is strictly safer than our own `repo`-scoped device flow), show the
+    resolved account before accepting, warn against pasting a token someone
+    else supplied, and branch the revocation copy on the credential source.
+    Full constraint list and refusals in
+    `memory/decisions/github-token-paste-path.md`.
   - **v1 is the full shape** (user's call over a local-only first slice):
     (1) **create a local project** — new directory + register in
     `projects.json`, with an **"Initialize git repo" toggle (default on)**
