@@ -1,11 +1,11 @@
 /**
  * Pure presentation logic behind the GitHub connection UI (ui/github.ts): the
  * top-bar chip's status→view derivation, the device-code expiry and
- * relative-time formats, the Linguist language-color table, the poll/tick
- * cadence decisions, and the clone-error copy. Deliberately DOM-free — no
- * document, no window, no fetch, no module state — so it stays importable
- * under `node --test`; github.ts remains the sole owner of elements, timers,
- * and the api/state modules.
+ * relative-time formats, the credential copy keyed on `source`, the Linguist
+ * language-color table, the poll/tick cadence decisions, and the clone/token
+ * error copy. Deliberately DOM-free — no document, no window, no fetch, no
+ * module state — so it stays importable under `node --test`; github.ts remains
+ * the sole owner of elements, timers, and the api/state modules.
  *
  * TIME IS INJECTED. Every clock-dependent function takes `now` (ms epoch)
  * from the caller and never reads Date.now() itself — that is what makes the
@@ -13,7 +13,16 @@
  *
  * NO TOKEN EVER REACHES HERE. GithubStatus carries no access token by
  * protocol design (it stays server-side); nothing below accepts, derives, or
- * renders credential material.
+ * renders credential material. The pasted-token path (2026-07-25) adds only
+ * DESCRIPTIONS of a credential — its source, whether it was persisted, its
+ * expiry, its GitHub-reported scopes — never the credential.
+ *
+ * COPY HONESTY (design gate, 2026-07-25 — binding): nothing here may claim a
+ * keychain, encryption, a vault, or "secure" storage. The verified ceiling in
+ * this environment is file permissions plus discipline (no OS keyring exists,
+ * and 0600 does not hold against the Windows side of WSL at all —
+ * memory/knowledge/wsl-0600-not-a-boundary.md). The strongest permitted
+ * sentence is the one `storageNote` returns.
  */
 import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
 import { joinPath, projectsPath } from './newproject-model.ts';
@@ -43,13 +52,42 @@ export function pollIntervalMs(tabOpen: boolean, status: GithubStatus | null): n
 
 /**
  * Expiry-countdown tick period, or null when no countdown should run: only
- * while the panel is active AND a configured connection is mid device flow
- * (that is the sole state showing a code).
+ * while the panel is active AND a device flow is in progress (that is the sole
+ * state showing a code). `deviceFlowAvailable` is part of the test because a
+ * server without an OAuth client id can never start one.
  */
 export function expiryTickMs(active: boolean, status: GithubStatus | null): number | null {
-  return active && status?.configured === true && status.state === 'connecting'
+  return active && status?.deviceFlowAvailable === true && status.state === 'connecting'
     ? GH_EXPIRY_TICK_MS
     : null;
+}
+
+// ---------------------------------------------------------------------------
+// Credential source — WHICH of the two paths is connected. Everything the user
+// must do differently (above all: where to revoke) branches on this, so it is
+// derived in one place and rendered by both the chip and the panel (V-5).
+// ---------------------------------------------------------------------------
+
+/** `device` = the OAuth device flow; `pat` = a token the user pasted. */
+export type GithubSource = 'device' | 'pat';
+
+/**
+ * Narrow mono tag naming the connected credential for the top-bar chip and the
+ * connected row. '' when the server did not say (older server / unknown) — an
+ * unknown source is left unlabelled rather than guessed, because the revocation
+ * instructions differ.
+ */
+export function sourceTag(source: GithubSource | undefined): string {
+  if (source === 'pat') return 'token';
+  if (source === 'device') return 'sign-in';
+  return '';
+}
+
+/** Plain-language name of the connected credential; '' when unknown. */
+export function sourceLabel(source: GithubSource | undefined): string {
+  if (source === 'pat') return 'pasted token';
+  if (source === 'device') return 'signed in with GitHub';
+  return '';
 }
 
 // ---------------------------------------------------------------------------
@@ -57,9 +95,10 @@ export function expiryTickMs(active: boolean, status: GithubStatus | null): numb
 // ---------------------------------------------------------------------------
 
 /**
- * Chip appearance state. `off` is the honest dormant/unknown case (status not
- * yet fetched, or the server has no OAuth client id); the other three mirror
- * GithubStatus.state for a configured server.
+ * Chip appearance state. `off` means "status not yet fetched" — and ONLY that,
+ * since 2026-07-25. It used to also cover a server with no OAuth client id, but
+ * a pasted token needs no client id, so such a server is a perfectly ordinary
+ * `disconnected` that the user can act on.
  */
 export type ChipState = 'off' | 'disconnected' | 'connecting' | 'connected';
 
@@ -68,32 +107,201 @@ export interface ChipView {
   state: ChipState;
   /** Visible mono label; may embed the untrusted login → caller uses textContent. */
   label: string;
+  /** Micro-tag naming the credential (`token` / `sign-in`); '' renders nothing. */
+  tag: string;
   /** Accessible name; the chip uses the same string as its tooltip. */
   aria: string;
 }
 
 /**
  * What the top-bar chip shows for a status:
- *   not yet fetched          → faint dot + "GitHub"
- *   not configured (dormant) → faint dot + "GitHub", aria says it isn't set up
- *   disconnected             → "Connect GitHub"
- *   connecting               → "connecting…"
- *   connected                → "@login"
+ *   not yet fetched → faint dot + "GitHub"
+ *   disconnected    → "Connect GitHub"   (whatever deviceFlowAvailable says —
+ *                      the paste path is always offered)
+ *   connecting      → "connecting…"
+ *   connected       → "@login" + the credential tag, so the chip answers
+ *                      "connected HOW" as well as "connected as whom" (V-5;
+ *                      disconnecting differs per credential).
  * A missing `login` degrades to an empty name rather than inventing one.
  */
 export function chipView(status: GithubStatus | null): ChipView {
-  if (status === null) return { state: 'off', label: 'GitHub', aria: 'GitHub' };
-  if (!status.configured) {
-    return { state: 'off', label: 'GitHub', aria: 'GitHub — not set up on this server' };
-  }
+  if (status === null) return { state: 'off', label: 'GitHub', tag: '', aria: 'GitHub' };
   if (status.state === 'connected') {
     const login = status.login ?? '';
-    return { state: 'connected', label: `@${login}`, aria: `GitHub — connected as ${login}` };
+    const how =
+      status.source === 'pat'
+        ? ' with a pasted token'
+        : status.source === 'device'
+          ? ' by signing in with GitHub'
+          : '';
+    return {
+      state: 'connected',
+      label: `@${login}`,
+      tag: sourceTag(status.source),
+      aria: `GitHub — connected as ${login}${how}`,
+    };
   }
   if (status.state === 'connecting') {
-    return { state: 'connecting', label: 'connecting…', aria: 'GitHub — connecting' };
+    return { state: 'connecting', label: 'connecting…', tag: '', aria: 'GitHub — connecting' };
   }
-  return { state: 'disconnected', label: 'Connect GitHub', aria: 'GitHub — connect your account' };
+  return {
+    state: 'disconnected',
+    label: 'Connect GitHub',
+    tag: '',
+    aria: 'GitHub — connect your account',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Credential copy — the part the design gate cares most about. Every string
+// below is user-visible and is pinned by tests/ui-github-model.test.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * The disconnected card's copy, which depends on whether this server can offer
+ * the device flow at all. When it cannot, the card must NOT read as dormant:
+ * the pasted-token path below it is fully usable and is in fact the reason this
+ * path exists (the user has no OAuth App).
+ */
+export interface DeviceCardCopy {
+  /** Sans body under the title. */
+  body: string;
+  /** Mono fine print about what signing in grants; '' when there is no button. */
+  fine: string;
+  /** Sans note replacing the button when the server cannot sign in; '' otherwise. */
+  note: string;
+  /**
+   * Heading of the token card below. It is the SECOND path when signing in
+   * works and the FIRST when it does not, and it says so.
+   */
+  tokenTitle: string;
+}
+
+export function deviceCardCopy(deviceFlowAvailable: boolean): DeviceCardCopy {
+  if (deviceFlowAvailable) {
+    return {
+      body: 'List your repositories from inside the manager, clone them, and create new ones. Connect by signing in with GitHub, or by pasting a token you create yourself.',
+      // "usually does not expire" and not "does not expire": an OAuth App set to
+      // expire user authorization tokens hands out 8-hour ones, and this app has
+      // no refresh handling — so the absolute would be false on that server.
+      fine: 'sign in once through GitHub · the token is kept server-side, never in the browser · it can read and write every repository on the account, and usually does not expire',
+      note: '',
+      tokenTitle: 'Or paste a GitHub token',
+    };
+  }
+  return {
+    body: 'List your repositories from inside the manager, clone them, and create new ones.',
+    fine: '',
+    note: 'Signing in with GitHub is not set up on this server — see the project README. Pasting a token works without it.',
+    tokenTitle: 'Paste a GitHub token',
+  };
+}
+
+/**
+ * WHERE the credential is actually revoked — wrong instructions here leave a
+ * live credential the user believes is dead, so it branches on the source
+ * (design gate IV-3). "Applications" is right for a device-flow grant and WRONG
+ * for a pasted token, which lives under Developer settings. Both name screens
+ * in GitHub's own UI, which is what makes them actionable.
+ */
+export function revokeNote(source: GithubSource | undefined): string {
+  if (source === 'pat') {
+    return 'Disconnect removes the token from this app. To revoke it everywhere, delete it on GitHub under Settings → Developer settings → Personal access tokens.';
+  }
+  if (source === 'device') {
+    return 'Disconnect removes the token from this app. To revoke access everywhere, remove the app on GitHub under Settings → Applications.';
+  }
+  return 'Disconnect removes the credential from this app. Where to revoke it on GitHub depends on how it was added: a sign-in under Settings → Applications, a pasted token under Settings → Developer settings → Personal access tokens.';
+}
+
+/**
+ * What storage the user actually got. THE CEILING IS FIXED (design gate II-6):
+ * no keychain, no encryption, no "secure", no vault — an auditor verified there
+ * is no keyring in this environment and that the file permissions do not hold
+ * against the Windows side of WSL. A caption claiming a keychain was shipped
+ * and corrected once already in this project; this is the sentence that
+ * replaced it. '' when the server did not say.
+ */
+export function storageNote(persisted: boolean | undefined): string {
+  if (persisted === true) {
+    return 'Stored on this machine in the app’s data folder, readable by your own user account.';
+  }
+  if (persisted === false) {
+    return 'Kept in this app’s memory only — it is gone when the app closes, and you paste it again next time.';
+  }
+  return '';
+}
+
+/** The same two sentences in the future tense, next to the remember toggle. */
+export function rememberNote(remember: boolean): string {
+  return remember
+    ? 'Stored on this machine in the app’s data folder, readable by your own user account.'
+    : 'Kept in this app’s memory only. It disappears when the app closes — about half a minute after the last window — and you paste it again next time.';
+}
+
+/** Mono value shown in the toggle row's right-hand sample column. */
+export function rememberSample(remember: boolean): string {
+  return remember ? 'kept on this machine' : 'until the app closes';
+}
+
+/**
+ * What GitHub says the credential can do (design gate V-1). Three distinct
+ * answers, because the protocol makes three distinct claims:
+ *
+ *   - ABSENT (`undefined`) — GitHub sent no scopes header, which is what a
+ *     FINE-GRAINED token looks like: its permissions are not expressible as
+ *     scopes. This is "not reportable", NOT "no permissions", so the honest
+ *     render is NOTHING AT ALL. Saying "no permissions" here would be exactly
+ *     backwards about the token we recommend.
+ *   - EMPTY (`[]`) — a real, reported answer: a classic token carrying no
+ *     scopes. Worth saying, and different from the case above.
+ *   - a list — shown verbatim so the user sees what they handed over.
+ *
+ * Scope strings are untrusted → the caller renders via textContent.
+ */
+export function scopesNote(scopes: string[] | undefined): string | null {
+  if (scopes === undefined) return null;
+  const list = scopes.filter((s) => s !== '');
+  if (list.length === 0) return 'GitHub reports no scopes on this token';
+  return `this token can: ${list.join(', ')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Token expiry (V-4: say it BEFORE it bites)
+// ---------------------------------------------------------------------------
+
+/** Inside this window the expiry line turns amber — it needs attention now. */
+export const GH_EXPIRY_WARN_MS = 3 * 24 * 60 * 60 * 1000;
+
+export interface ExpiryView {
+  text: string;
+  /** True when it has expired, or expires within GH_EXPIRY_WARN_MS. */
+  warn: boolean;
+}
+
+function plural(n: number, unit: string): string {
+  return `${n} ${unit}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Expiry line for a CONNECTED credential (distinct from fmtExpiry, which counts
+ * a device code down in MM:SS). Coarse on purpose — a token expiring in a month
+ * does not need seconds — and null whenever there is nothing known: an absent or
+ * unparseable timestamp renders NO line rather than a guess.
+ */
+export function fmtTokenExpiry(iso: string | undefined, now: number): ExpiryView | null {
+  if (iso === undefined || iso === '') return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  const ms = t - now;
+  if (ms <= 0) return { text: 'this token has expired', warn: true };
+  const warn = ms < GH_EXPIRY_WARN_MS;
+  if (ms < 60_000) return { text: 'expires in under a minute', warn };
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return { text: `expires in ${plural(min, 'minute')}`, warn };
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return { text: `expires in ${plural(hr, 'hour')}`, warn };
+  return { text: `expires in ${plural(Math.floor(hr / 24), 'day')}`, warn };
 }
 
 // ---------------------------------------------------------------------------
@@ -329,5 +537,23 @@ export function cloneErrText(status: number, message: string): string {
   if (status === 403) return 'no permission to create that folder';
   if (status === 409) return 'a folder already exists there';
   if (status === 502) return 'clone failed';
+  return message;
+}
+
+/**
+ * Honest copy for a failed "add token" (POST /api/github/token), same shape as
+ * cloneErrText: the server's real message wins, and it usually has one — it
+ * answers 400 for a token GitHub rejected or refused and 502 when GitHub could
+ * not be reached, each with its own sentence. The two fallbacks below only
+ * cover a bodyless response, and mirror those two documented meanings.
+ *
+ * NOTHING here describes the token itself — not its length, not its prefix, not
+ * whether it "looks like" a token (a format allowlist was refused by the design
+ * gate; the server validates shape only and lets GitHub decide the rest).
+ */
+export function tokenErrText(status: number, message: string): string {
+  if (message !== `HTTP ${status}`) return message;
+  if (status === 400) return 'GitHub did not accept that token';
+  if (status === 502) return 'could not reach GitHub';
   return message;
 }

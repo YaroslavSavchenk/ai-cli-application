@@ -250,7 +250,7 @@ test('GithubConnection: absent / empty / whitespace / the literal default apiBas
       const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x', apiBase: ok });
       assert.deepEqual(
         conn.status(),
-        { configured: true, state: 'disconnected' },
+        { deviceFlowAvailable: true, state: 'disconnected' },
         `apiBase ${JSON.stringify(ok)} must construct and start disconnected`,
       );
     }

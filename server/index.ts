@@ -58,8 +58,11 @@ const sessions = new SessionManager(log, journal);
 const claudeDir = resolveClaudeDir();
 const usage = new UsageReader(claudeDir, log);
 const telemetry = new TelemetryReader(claudeDir, log);
-// GitHub OAuth device flow. client_id from env; absent/empty => "not configured"
-// (the feature stays dormant, endpoints answer a clean not-configured signal).
+// GitHub connection. The OAuth client_id comes from env; absent/empty disables
+// only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
+// answers a clean not-available signal). The PASTED-TOKEN path and every
+// connected operation keep working without it — that is the whole point of the
+// second credential path (2026-07-25).
 // AI_SM_GITHUB_API_BASE re-points the REST API for offline tests — loopback
 // only; a non-loopback value throws here and the server refuses to start
 // (before listen, so no runtime.json is ever written).

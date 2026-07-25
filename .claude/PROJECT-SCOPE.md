@@ -135,8 +135,8 @@ and multi-pane layouts on top.
     GitHub OAuth app, the user approves a device code, and a scoped,
     revocable token is stored **server-side** in the data dir beside
     `prefs.json` (never in localStorage, never returned to the browser).
-  - **A pasted token is a SECOND credential path — decided 2026-07-25, user's
-    request; implementation queued.** Extends (does not replace) the
+  - **A pasted token is a SECOND credential path — decided and LANDED
+    2026-07-25, user's request.** Extends (does not replace) the
     device-flow decision: an "add token" affordance stores a user-pasted
     GitHub token server-side and uses it wherever the device-flow token is
     used. It needs no OAuth App, so it makes the feature usable before the

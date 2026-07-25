@@ -233,21 +233,33 @@ export interface RawResult {
 
 /**
  * Raw node:http request — needed where fetch() forbids or normalizes things:
- * overriding the Host header, sending arbitrary Origin values, and sending
- * un-normalized `..` path segments.
+ * overriding the Host header, sending arbitrary Origin values, sending
+ * un-normalized `..` path segments, and sending a RAW body that is not valid
+ * JSON (fetch would happily send it too, but this keeps every hostile-request
+ * shape in one place).
  */
 export function rawRequest(
   port: number,
-  opts: { method?: string; path: string; headers?: Record<string, string> },
+  opts: {
+    method?: string;
+    path: string;
+    headers?: Record<string, string>;
+    /** Sent verbatim — no JSON encoding, no content-type unless you set one. */
+    body?: string;
+  },
 ): Promise<RawResult> {
   return new Promise((resolve, reject) => {
+    const headers = { ...(opts.headers ?? {}) };
+    if (opts.body !== undefined) {
+      headers['content-length'] = String(Buffer.byteLength(opts.body));
+    }
     const req = httpRequest(
       {
         host: '127.0.0.1',
         port,
         method: opts.method ?? 'GET',
         path: opts.path,
-        headers: opts.headers ?? {},
+        headers,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -262,6 +274,7 @@ export function rawRequest(
       },
     );
     req.on('error', reject);
+    if (opts.body !== undefined) req.write(opts.body);
     req.end();
   });
 }

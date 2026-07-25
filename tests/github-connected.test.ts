@@ -201,7 +201,15 @@ after(async () => {
 test('the pre-seeded github.json boots the server CONNECTED; status never carries the token', async () => {
   const res = await api(server, 'GET', '/api/github/status');
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { configured: true, state: 'connected', login: 'octocat' });
+  assert.deepEqual(res.body, {
+    deviceFlowAvailable: true,
+    state: 'connected',
+    login: 'octocat',
+    // No `source` in the seed file -> reads as the device flow, which is what
+    // every record written before the pasted-token path came from.
+    source: 'device',
+    persisted: true,
+  });
   assert.ok(!JSON.stringify(res.body).includes(SECRET), 'status must NEVER contain the access token');
   // The seed file keeps its 0600 mode and stays server-side.
   const st = await stat(join(server.dataDir, 'github.json'));
@@ -439,6 +447,28 @@ test('connected POST /api/github/repos: a 422 from GitHub -> 422 with a clean me
   assert.ok(!text.includes(SECRET));
 });
 
+test('connected POST /api/github/repos: a 403 from GitHub -> 403 saying this token cannot create repos (not the opaque 502)', async () => {
+  // The most predictable failure of the credential the panel recommends: a
+  // fine-grained token limited to selected repositories can list and clone, but
+  // cannot create a new repository. It used to fall into `502 github request
+  // failed`, which the dialog renders verbatim.
+  stub.reset();
+  stub.handler = () => ({
+    status: 403,
+    body: { message: 'Resource not accessible by personal access token' },
+  });
+  const res = await api(server, 'POST', '/api/github/repos', { name: 'fresh', private: false });
+  assert.equal(res.status, 403);
+  assert.deepEqual(res.body, {
+    error:
+      'this token cannot create repositories on this account — creating one needs a token with broader access',
+  });
+  const text = JSON.stringify(res.body);
+  assert.ok(!text.includes('Resource not accessible'), 'the raw github body is never surfaced');
+  assert.ok(!text.includes(SECRET));
+  assert.ok(!/--[A-Za-z]|\brepo\b:|scope/.test(text), 'no flag or scope name in the message');
+});
+
 test('connected POST /api/github/repos: body validation rejects BEFORE any call to GitHub', async () => {
   stub.reset();
   stub.handler = () => ({ status: 201, body: { message: 'must not be reached' } });
@@ -566,7 +596,7 @@ test('connected GET /api/github/repos: a 401 from the API invalidates the token 
     assert.ok(!JSON.stringify(res.body).includes(SECRET));
 
     assert.deepEqual((await api(srv, 'GET', '/api/github/status')).body, {
-      configured: true,
+      deviceFlowAvailable: true,
       state: 'disconnected',
     });
     await assert.rejects(
@@ -587,29 +617,69 @@ test('connected GET /api/github/repos: a 401 from the API invalidates the token 
 // The knob itself: dormant without a client_id; refuses non-loopback values
 // ---------------------------------------------------------------------------
 
-test('AI_SM_GITHUB_API_BASE cannot wake a DORMANT feature: no client_id -> not configured, zero calls to the API', async () => {
+test('no client_id + no credential: nothing is connected and ZERO calls reach the API (AI_SM_GITHUB_API_BASE cannot wake it)', async () => {
   const ownStub = new StubApi();
   await ownStub.start();
   ownStub.handler = () => ({ status: 200, body: [rawRepo(1)] });
-  // Even with a seeded github.json AND the override set, an empty client_id
-  // keeps every endpoint on the not-configured path.
-  const seeded = await seedConnectedDataDir('ai-sm-ghc-dormant-');
+  const srv = await startTestServer({
+    env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
+  });
+  try {
+    assert.deepEqual((await api(srv, 'GET', '/api/github/status')).body, {
+      deviceFlowAvailable: false,
+      state: 'disconnected',
+    });
+    assert.equal((await api(srv, 'GET', '/api/github/repos')).status, 409);
+    assert.deepEqual((await api(srv, 'POST', '/api/github/device')).body, {
+      deviceFlowAvailable: false,
+    });
+    assert.equal(
+      (await api(srv, 'POST', '/api/github/repos', { name: 'x', private: false })).status,
+      409,
+    );
+    assert.equal(
+      ownStub.requests.length,
+      0,
+      'with no credential at all, no endpoint makes an outbound call',
+    );
+  } finally {
+    await srv.stop();
+    await ownStub.stop();
+  }
+});
+
+test('a STORED credential works with NO client_id — availability is decoupled from the OAuth App (2026-07-25)', async () => {
+  // This inverts the old "dormant without a client_id" expectation on purpose.
+  // The pasted-token path exists precisely for a server with no OAuth App, and
+  // the gate is the CREDENTIAL: `deviceFlowAvailable:false` must never disable
+  // the connected surface, or the feature would be unusable in exactly the
+  // situation it was built for.
+  const ownStub = new StubApi();
+  await ownStub.start();
+  ownStub.handler = () => ({ status: 200, body: [rawRepo(1)] });
+  const seeded = await seedConnectedDataDir('ai-sm-ghc-nocid-');
   const srv = await startTestServer({
     dataDir: seeded.dataDir,
     env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
   });
   try {
     assert.deepEqual((await api(srv, 'GET', '/api/github/status')).body, {
-      configured: false,
-      state: 'disconnected',
+      deviceFlowAvailable: false,
+      state: 'connected',
+      login: 'octocat',
+      source: 'device',
+      persisted: true,
     });
-    assert.equal((await api(srv, 'GET', '/api/github/repos')).status, 409);
-    assert.deepEqual((await api(srv, 'POST', '/api/github/device')).body, { configured: false });
-    assert.equal(
-      (await api(srv, 'POST', '/api/github/repos', { name: 'x', private: false })).status,
-      409,
-    );
-    assert.equal(ownStub.requests.length, 0, 'a dormant feature makes ZERO outbound calls');
+    const repos = await api(srv, 'GET', '/api/github/repos');
+    assert.equal(repos.status, 200, 'a stored credential lists repos without a client id');
+    assert.equal((repos.body as { repos: unknown[] }).repos.length, 1);
+    assert.equal(ownStub.requests[0]?.authorization, `Bearer ${SECRET}`);
+
+    // The DEVICE FLOW is the only thing an absent client id disables.
+    assert.deepEqual((await api(srv, 'POST', '/api/github/device')).body, {
+      deviceFlowAvailable: false,
+    });
+    assert.ok(!JSON.stringify(repos.body).includes(SECRET));
   } finally {
     await srv.stop();
     await ownStub.stop();
@@ -624,7 +694,7 @@ test('AI_SM_GITHUB_API_BASE unset/empty: unchanged default behaviour (api.github
   try {
     assert.equal((await fetch(`${srv.baseUrl}/health`)).status, 200);
     assert.deepEqual((await api(srv, 'GET', '/api/github/status')).body, {
-      configured: true,
+      deviceFlowAvailable: true,
       state: 'disconnected',
     });
     assert.equal(

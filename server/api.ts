@@ -21,6 +21,7 @@ import type {
   GithubCloneRequest,
   GithubCreateRepoRequest,
   GithubReposResponse,
+  GithubTokenRequest,
   RuntimeStatusResponse,
   UiPrefs,
 } from '../shared/protocol.ts';
@@ -42,6 +43,15 @@ export const MAX_TERM_DIM = 1000;
 export const PREFS_MAX_BYTES = 64 * 1024;
 /** Bound on a new GitHub repo name (GitHub itself caps at 100; be generous). */
 export const GITHUB_REPO_NAME_MAX = 200;
+/**
+ * Dedicated body cap for POST /api/github/token — NOT the generic 1 MiB. The
+ * whole legitimate body is `{"token":"…","remember":true}` with a token of at
+ * most 1024 characters, so anything past 4 KiB is refused before it is read
+ * into memory, let alone parsed.
+ */
+export const GITHUB_TOKEN_MAX_BYTES = 4096;
+/** Bound on the pasted token itself (mirrors github.ts MAX_PASTED_TOKEN_LEN). */
+export const GITHUB_TOKEN_MAX_CHARS = 1024;
 
 /** Anti-framing headers: the authenticated UI must never be embeddable cross-origin. */
 const FRAME_PROTECTION_HEADERS = {
@@ -98,6 +108,56 @@ async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Pr
   const raw = Buffer.concat(chunks).toString('utf8');
   if (raw === '') return {};
   return JSON.parse(raw) as unknown;
+}
+
+/**
+ * SECRET-SAFE body read: returns a RESULT instead of throwing, so the caller can
+ * answer 400 without ever touching the thrown error.
+ *
+ * WHY THIS EXISTS (measured, not theoretical). `readJsonBody` lets JSON.parse
+ * throw, and the generic handler at the bottom of this file logs
+ * `request … failed: ${String(err)}`. Node embeds a fragment of the INPUT in
+ * that error — `JSON.parse('ghp_S3CRET_TOKEN_VALUE_1234567890')` produces
+ * `SyntaxError: Unexpected token 'g', "ghp_S3CRET"... is not valid JSON` — so a
+ * malformed POST /api/github/token body would have appended part of the pasted
+ * credential to server.log, which survives into server.log.1 and is readable
+ * from Windows through \\wsl.localhost\ whatever its 0600 mode says.
+ *
+ * The error object therefore never leaves this function: the caller learns only
+ * WHICH rule failed, never anything derived from the bytes.
+ */
+type BodyRead = { ok: true; value: unknown } | { ok: false; reason: 'too-large' | 'invalid-json' };
+
+async function readJsonBodySafe(req: IncomingMessage, maxBytes: number): Promise<BodyRead> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  try {
+    for await (const chunk of req) {
+      const buf = chunk as Buffer;
+      bytes += buf.byteLength;
+      if (bytes > maxBytes) return { ok: false, reason: 'too-large' };
+      chunks.push(buf);
+    }
+  } catch {
+    // Aborted/!broken request stream. Nothing parsed, nothing to say.
+    return { ok: false, reason: 'invalid-json' };
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  if (raw === '') return { ok: true, value: {} };
+  try {
+    return { ok: true, value: JSON.parse(raw) as unknown };
+  } catch {
+    // Deliberately NOT rethrown and NOT logged: the caught SyntaxError quotes
+    // the input. See the comment above.
+    return { ok: false, reason: 'invalid-json' };
+  }
+}
+
+/** `application/json`, with or without parameters (charset), case-insensitive. */
+function isJsonContentType(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const type = value.split(';')[0]?.trim().toLowerCase();
+  return type === 'application/json';
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -228,9 +288,10 @@ export function createRequestHandler(
       return;
     }
 
-    // --- GitHub connection (OAuth device flow) -----------------------------
-    // The token stays 100% server-side (github.ts / github.json, 0600). These
-    // handlers only ever surface status, the user_code, and repo metadata.
+    // --- GitHub connection (device flow OR a pasted token) -----------------
+    // The credential stays 100% server-side (github.ts / github.json, 0600).
+    // These handlers only ever surface status, the user_code, and repo
+    // metadata — never the token, in any form.
     if (pathname === '/api/github/status') {
       if (method === 'GET') {
         sendJson(res, 200, github.status());
@@ -252,13 +313,94 @@ export function createRequestHandler(
           return;
         }
         if (result.reason === 'not-configured') {
-          sendJson(res, 409, { configured: false });
+          sendJson(res, 409, { deviceFlowAvailable: false });
           return;
         }
         sendError(res, 502, 'failed to start github device flow');
         return;
       }
       sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Connect with a PASTED GitHub token (the second credential path) ----
+    //
+    // SECURITY, in the order the checks run — every one of these is load-bearing
+    // and was specified by a design gate that ran BEFORE this code existed:
+    //
+    //   * POST ONLY. A GET would put the credential in the request line, and
+    //     from there into access logs, history and referrers. 405 otherwise.
+    //   * The BODY is the only ingress. Nothing here reads the query string, a
+    //     path segment, or a header of our own — so no copy of the token exists
+    //     anywhere a URL is recorded.
+    //   * `content-type: application/json` required (415 otherwise), so a form
+    //     post or a text/plain drive-by never even reaches the parser.
+    //   * A DEDICATED 4 KiB body cap, not the generic 1 MiB.
+    //   * The body read is wrapped HERE (readJsonBodySafe) and its error is
+    //     never rethrown and never logged — a JSON.parse error quotes the input,
+    //     which for this route is the credential itself.
+    //   * Log lines are CONSTANT strings ('github token accepted' / 'github
+    //     token rejected', emitted inside github.ts). Never the token, its
+    //     length, its prefix, the body, or GitHub's response body.
+    //   * NO response on ANY path carries the token, a fragment, a length or a
+    //     masked form: success answers the same GithubStatus the status route
+    //     does, and every failure answers a fixed sentence.
+    //
+    // Inherited unchanged from the surrounding gate: X-Auth-Token + Host/Origin
+    // parity (checked before this handler runs).
+    if (pathname === '/api/github/token') {
+      if (method !== 'POST') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      const contentType = Array.isArray(req.headers['content-type'])
+        ? req.headers['content-type'][0]
+        : req.headers['content-type'];
+      if (!isJsonContentType(contentType)) {
+        sendError(res, 415, 'content-type must be application/json');
+        return;
+      }
+      const read = await readJsonBodySafe(req, GITHUB_TOKEN_MAX_BYTES);
+      if (!read.ok) {
+        if (read.reason === 'too-large') {
+          sendError(res, 413, 'request body is too large');
+        } else {
+          sendError(res, 400, 'invalid JSON body');
+        }
+        return;
+      }
+      const body = read.value;
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        sendError(res, 400, 'invalid JSON body');
+        return;
+      }
+      const parsed = body as Partial<GithubTokenRequest>;
+      if (typeof parsed.token !== 'string' || parsed.token.trim() === '') {
+        sendError(res, 400, 'token is required');
+        return;
+      }
+      // Length is checked WITHOUT quoting any part of the value.
+      if (parsed.token.length > GITHUB_TOKEN_MAX_CHARS) {
+        sendError(res, 400, `token must be at most ${GITHUB_TOKEN_MAX_CHARS} characters`);
+        return;
+      }
+      if (typeof parsed.remember !== 'boolean') {
+        sendError(res, 400, 'remember must be a boolean');
+        return;
+      }
+      try {
+        const result = await github.connectWithToken(parsed.token, parsed.remember);
+        if (result.ok) {
+          sendJson(res, 200, result.status);
+        } else {
+          sendError(res, result.status, result.message);
+        }
+      } catch {
+        // Nothing here throws today, and if it ever does the error must not
+        // reach the generic logger below — it could have the body in scope.
+        log('error', 'github token request failed');
+        sendError(res, 502, 'failed to verify the token with GitHub');
+      }
       return;
     }
 
@@ -331,7 +473,8 @@ export function createRequestHandler(
     }
 
     // --- Clone a connected user's repo (token-authenticated) into a project --
-    // The stored OAuth token is used server-side via GIT_ASKPASS-through-env; it
+    // The stored credential (device flow OR pasted token — the clone path does
+    // not care which) is used server-side via GIT_ASKPASS-through-env; it
     // never reaches argv, the clone url, .git/config, a response, or the log.
     if (pathname === '/api/github/clone') {
       if (method === 'POST') {
@@ -757,7 +900,21 @@ export function createRequestHandler(
 
   return (req, res) => {
     handle(req, res).catch((err: unknown) => {
-      log('error', `request ${req.method ?? '?'} ${req.url ?? '?'} failed: ${String(err)}`);
+      // NEITHER HALF OF THIS LINE MAY CARRY REQUEST DATA. `String(err)` embeds a
+      // fragment of the BODY — Node quotes ~10 characters of the input in a
+      // JSON.parse SyntaxError — and `req.url` carries the QUERY STRING. Both
+      // land in server.log, which survives into server.log.1 and is readable
+      // from Windows whatever its 0600 mode says. So: the error's CLASS name
+      // (constant, from the runtime) and the PATHNAME only, which is still
+      // enough to find the failing route.
+      const kind = err instanceof Error ? err.constructor.name : typeof err;
+      let route = '?';
+      try {
+        route = new URL(req.url ?? '/', `http://127.0.0.1:${deps.getPort()}`).pathname;
+      } catch {
+        // Unparseable request target — the route stays unknown rather than raw.
+      }
+      log('error', `request ${req.method ?? '?'} ${route} failed (${kind})`);
       if (!res.headersSent) {
         sendError(res, 400, 'bad request');
       } else {

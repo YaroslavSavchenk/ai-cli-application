@@ -1,35 +1,56 @@
 /**
- * GitHub connection via OAuth DEVICE FLOW (Phase 2b).
+ * GitHub connection — TWO credential paths, ONE credential at a time.
  *
- * The server owns the WHOLE OAuth exchange; the browser only ever triggers the
- * flow, shows the user_code, polls status, and reads repo metadata. The
- * device_code and the access_token live 100% server-side:
+ *   1. OAuth DEVICE FLOW (Phase 2b). The server owns the WHOLE OAuth exchange;
+ *      the browser only ever triggers the flow, shows the user_code, polls
+ *      status, and reads repo metadata.
+ *   2. A PASTED TOKEN (connectWithToken, 2026-07-25). Needs no OAuth App, which
+ *      is what makes the feature usable before a client id exists. Validated
+ *      against GitHub, then used wherever the device-flow token is used.
  *
- *   - the access token is persisted to github.json in the data dir via
- *     atomicWriteFile (mode 0600), mirroring prefs.ts;
- *   - no public method that feeds an HTTP response ever returns the token, and
- *     the token / device_code are NEVER written to server.log (cf. the
- *     runtime.json token-redaction rule);
- *   - errors are generic; GitHub response bodies are never dumped to the log.
+ * Whichever produced it, the credential lives 100% server-side:
+ *
+ *   - it is persisted to github.json in the data dir via atomicWriteFile (mode
+ *     0600), mirroring prefs.ts — EXCEPT for a pasted token stored with
+ *     remember=false, which stays in this process and is never written at all;
+ *   - no public method that feeds an HTTP response ever returns the token — not
+ *     whole, not a prefix, a suffix, a length, a hash or a masked form — and the
+ *     token / device_code are NEVER written to server.log (cf. the runtime.json
+ *     token-redaction rule);
+ *   - errors are generic and STATUS-derived; GitHub response bodies are never
+ *     surfaced or dumped to the log.
+ *
+ * STORAGE CEILING, stated plainly (memory/knowledge/wsl-0600-not-a-boundary.md):
+ * 0600 plus discipline. Nothing here encrypts the token, and nothing may claim
+ * it does. There is no OS keyring in this environment (verified absent), and on
+ * WSL2 the 9p file server runs as root inside the distro, so ANY process running
+ * as the Windows user reads every 0600 file in the data dir through
+ * \\wsl.localhost\... regardless of the permission bits. The honest promise is
+ * "stored on this machine, readable by your own user account" — no more.
  *
  * Config: the OAuth App client_id comes from env AI_SM_GITHUB_CLIENT_ID (passed
- * in by index.ts). Absent/empty -> "not configured": every method answers a
- * clean not-configured signal and never crashes. No client_secret is used or
- * stored — a public OAuth app's device flow does not need one. Scope = `repo`.
+ * in by index.ts). Absent/empty means only that the DEVICE FLOW is unavailable
+ * (status.deviceFlowAvailable=false, startDeviceFlow -> not-configured); the
+ * pasted-token path and every connected operation keep working, because they
+ * need a credential, not a client id. No client_secret is used or stored — a
+ * public OAuth app's device flow does not need one. Device-flow scope = `repo`.
  * The REST API base (api.github.com) is overridable via AI_SM_GITHUB_API_BASE
  * for offline tests, but ONLY with a loopback origin (config.ts
  * assertLoopbackApiBase; anything else makes the server refuse to start) — the
  * token must never be sendable to a remote host. The device-flow urls and the
  * clone host-lock (exactly github.com) are NOT affected by that knob.
  *
- * Device-flow state machine (see status()):
+ * State machine (see status()):
  *   disconnected --startDeviceFlow()--> connecting --(poll: access_token)--> connected
  *   connecting --(expiry / access_denied / expired_token)--> disconnected
+ *   disconnected|connecting|connected --connectWithToken(ok)--> connected
  *   connected  --disconnect()--> disconnected
- *   connected  --(listRepos 401)--> disconnected
+ *   connected  --(listRepos/createRepo 401)--> disconnected
  * Polling is bounded: it stops on success/expiry/disconnect, honors the server
  * `interval` (and `slow_down`), and is hard-capped by the device code's expiry
- * (also clamped to MAX_FLOW_SECONDS) and MAX_POLLS iterations.
+ * (also clamped to MAX_FLOW_SECONDS) and MAX_POLLS iterations. Accepting a
+ * pasted token bumps the generation counter, so an in-flight device poll
+ * self-cancels — there is never a merge or a fallback chain between the two.
  *
  * HTTP is done with the Node global `fetch` (no new deps); the fetch impl is
  * injectable (a seam) so tests can drive the state machine with no network.
@@ -89,6 +110,35 @@ const REPOS_PER_PAGE = 100;
 /** Reject absurdly long clone urls before parsing them. */
 const MAX_CLONE_URL_LEN = 2048;
 /**
+ * Hard cap on a PASTED token's length. No real GitHub token comes near it;
+ * anything longer is a paste accident or an attack, and is refused by RULE —
+ * the refusal never quotes the value.
+ */
+export const MAX_PASTED_TOKEN_LEN = 1024;
+/**
+ * Probe page size for the capability check: `GET /user/repos?per_page=1` is the
+ * thing the app actually needs (listing repositories), so a token that
+ * authenticates but cannot do that is caught at connect time instead of at the
+ * first repo list.
+ */
+const PROBE_REPOS_PATH = '/user/repos?per_page=1';
+/** Classic-PAT scopes ride on this response header; fine-grained tokens have none. */
+const SCOPES_HEADER = 'x-oauth-scopes';
+/** GitHub reports a token's expiry here when it has one. */
+const TOKEN_EXPIRY_HEADER = 'github-authentication-token-expiration';
+/** Bound on the expiry header before parsing it (it is remote input). */
+const MAX_EXPIRY_HEADER_LEN = 64;
+/** Bound on the scopes header before splitting it (remote input; ~30 scopes exist). */
+const MAX_SCOPES_HEADER_LEN = 1024;
+/**
+ * Thrown (409) after a stored credential is invalidated by a 401 from GitHub.
+ * Deliberately DIFFERENT from the plain 'github not connected' 409, so the UI
+ * can say "the credential stopped working" instead of showing an unexplained
+ * flip to disconnected. Identical for both credential sources.
+ */
+export const CREDENTIAL_REJECTED_MESSAGE =
+  'GitHub rejected the stored credential — connect again';
+/**
  * Username embedded in the authenticated clone url. NOT a secret — the actual
  * password (the OAuth token) is fed to git via GIT_ASKPASS-through-env, never
  * the url. git uses this username and asks GIT_ASKPASS for the matching password.
@@ -137,12 +187,101 @@ export interface GithubConnectionOptions {
   spawnImpl?: SpawnLike;
 }
 
-/** Shape persisted to github.json. The accessToken never leaves the server. */
+/**
+ * Shape persisted to github.json (mode 0600). The accessToken never leaves the
+ * server. `source` was added with the pasted-token path: a record WITHOUT it
+ * predates that path and therefore came from the device flow, so it reads as
+ * 'device' (never as "unknown"). `scopes`/`expiresAt` are only ever present when
+ * GitHub actually reported them.
+ */
 interface StoredToken {
   accessToken: string;
   login?: string;
+  /** Device-flow OAuth scope string, kept for backwards compatibility. */
   scope: string;
   connectedAt: string;
+  /** Absent = 'device' (a record written before the pasted-token path existed). */
+  source?: 'device' | 'pat';
+  /** Classic-PAT scopes from x-oauth-scopes; absent for fine-grained tokens. */
+  scopes?: string[];
+  /** ISO-8601 credential expiry, when GitHub reported one. */
+  expiresAt?: string;
+}
+
+/** Why a pasted token was refused. Both the status and the copy are OURS. */
+export interface TokenRejection {
+  ok: false;
+  /** HTTP status for the API layer: 400 = the token is the problem, 502 = GitHub is. */
+  status: number;
+  message: string;
+}
+
+/**
+ * Shape-only validation of a pasted token (III-5). Deliberately NO prefix
+ * allowlist: `ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_` and legacy 40-hex
+ * tokens are all valid today and GitHub is free to mint new shapes tomorrow.
+ * Only structural impossibilities are refused, and every message names the RULE
+ * and never any part of the value.
+ *
+ * Leading/trailing whitespace is stripped first — clipboards and terminals add
+ * it, and a paste that fails for an invisible reason is a terrible experience.
+ * Interior whitespace (including Unicode spaces that survive nothing) and
+ * control characters stay fatal: they cannot be part of a credential, and a
+ * control character in a header value is a request-splitting primitive.
+ * Exported for tests.
+ */
+export function validatePastedToken(raw: string): { ok: true; token: string } | TokenRejection {
+  if (raw.length > MAX_PASTED_TOKEN_LEN) {
+    return { ok: false, status: 400, message: `token must be at most ${MAX_PASTED_TOKEN_LEN} characters` };
+  }
+  const token = raw.trim();
+  if (token === '') return { ok: false, status: 400, message: 'token is required' };
+  if (token.length > MAX_PASTED_TOKEN_LEN) {
+    return { ok: false, status: 400, message: `token must be at most ${MAX_PASTED_TOKEN_LEN} characters` };
+  }
+  for (let i = 0; i < token.length; i += 1) {
+    const c = token.charCodeAt(i);
+    // C0 + space + DEL + C1. The regex adds the Unicode spaces (NBSP, thin
+    // space, U+FEFF …) a paste can smuggle in the middle of a value.
+    if (c <= 0x20 || (c >= 0x7f && c <= 0x9f)) {
+      return { ok: false, status: 400, message: 'token must not contain spaces or control characters' };
+    }
+  }
+  if (/\s/u.test(token)) {
+    return { ok: false, status: 400, message: 'token must not contain spaces or control characters' };
+  }
+  return { ok: true, token };
+}
+
+/**
+ * Split an `x-oauth-scopes` header into scopes. Present-but-empty is a REAL
+ * answer (a classic token with no scopes) and maps to `[]`; an absent header is
+ * the caller's business and maps to undefined there — never to `[]`, because
+ * "GitHub did not report scopes" is not "this token has no permissions".
+ * Exported for tests.
+ */
+export function parseScopesHeader(value: string): string[] {
+  if (value.length > MAX_SCOPES_HEADER_LEN) return [];
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+/**
+ * Normalize GitHub's `github-authentication-token-expiration` header (e.g.
+ * `2026-12-31 00:00:00 UTC`) to ISO-8601, or undefined when it is absent,
+ * over-long or unparseable. Never surface the raw remote string: the protocol
+ * says ISO-8601, and an unparseable value is better dropped than rendered.
+ * Exported for tests.
+ */
+export function parseTokenExpiry(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed.length > MAX_EXPIRY_HEADER_LEN) return undefined;
+  const ms = Date.parse(trimmed);
+  if (Number.isNaN(ms)) return undefined;
+  return new Date(ms).toISOString();
 }
 
 /** In-flight device-flow state (connecting only). */
@@ -278,6 +417,14 @@ export class GithubConnection {
   #scope: string | undefined;
   #connectedAt: string | undefined;
   #device: DeviceFlow | undefined;
+  /** Which path produced the current credential. A stored record without one reads as 'device'. */
+  #source: 'device' | 'pat' = 'device';
+  /** Whether the CURRENT credential is on disk. False = process memory only. */
+  #persisted = false;
+  /** Classic-PAT scopes, when GitHub reported them. undefined = not reported (fine-grained). */
+  #scopes: string[] | undefined;
+  /** ISO-8601 credential expiry, when GitHub reported one. */
+  #expiresAt: string | undefined;
 
   /** Bumped on every startDeviceFlow/disconnect so stale poll timers self-cancel. */
   #gen = 0;
@@ -304,28 +451,175 @@ export class GithubConnection {
 
   // --- Public API -----------------------------------------------------------
 
-  /** Status for the browser — NEVER contains a token. */
+  /**
+   * Status for the browser — NEVER contains a token, in any form.
+   *
+   * `deviceFlowAvailable` reports ONLY whether an OAuth client id exists. It is
+   * deliberately decoupled from the connection state (2026-07-25): a pasted
+   * token connects, lists, clones and creates with no client id at all, and the
+   * UI must keep offering the paste affordance exactly when this is false.
+   */
   status(): GithubStatus {
-    if (!this.#configured) {
-      return { configured: false, state: 'disconnected' };
-    }
+    const deviceFlowAvailable = this.#configured;
     if (this.#state === 'connected') {
       return {
-        configured: true,
+        deviceFlowAvailable,
         state: 'connected',
         ...(this.#login !== undefined ? { login: this.#login } : {}),
+        source: this.#source,
+        persisted: this.#persisted,
+        ...(this.#scopes !== undefined ? { scopes: [...this.#scopes] } : {}),
+        ...(this.#expiresAt !== undefined ? { expiresAt: this.#expiresAt } : {}),
       };
     }
     if (this.#state === 'connecting' && this.#device !== undefined) {
       return {
-        configured: true,
+        deviceFlowAvailable,
         state: 'connecting',
         userCode: this.#device.userCode,
         verificationUri: this.#device.verificationUri,
         expiresAt: new Date(this.#device.expiresAtMs).toISOString(),
       };
     }
-    return { configured: true, state: 'disconnected' };
+    return { deviceFlowAvailable, state: 'disconnected' };
+  }
+
+  /**
+   * Connect with a PASTED token (the second credential path, 2026-07-25).
+   *
+   * The token arrives from POST /api/github/token's BODY and nowhere else. This
+   * method:
+   *   1. re-validates its SHAPE (validatePastedToken — trim, non-empty,
+   *      <= 1024 chars, no whitespace/control characters, NO prefix allowlist),
+   *      so an in-process caller gets the same guarantee as the route;
+   *   2. asks GITHUB whether it works: `GET /user` for identity, then
+   *      `GET /user/repos?per_page=1` for the capability the app actually needs.
+   *      Both go through #http, so they inherit `redirect: 'error'` and the
+   *      timeout, and carry the token ONLY as an Authorization header;
+   *   3. stores it ONLY on success, replacing whatever credential existed —
+   *      atomically, and bumping the generation counter so an in-flight device
+   *      poll self-cancels. Exactly one credential exists at any moment: no
+   *      merge, no fallback chain.
+   *
+   * `remember` decides persistence: true writes github.json (0600); false keeps
+   * the credential in this process ONLY and REMOVES any existing github.json, so
+   * a restart is genuinely disconnected rather than silently re-using an older
+   * stored credential.
+   *
+   * Failure reporting is STATUS-derived, never body-derived (the GitHub body is
+   * never read, surfaced or logged), and no message — success or failure —
+   * contains the token, a fragment of it, its length or a masked form.
+   *
+   * WRITE ACCESS IS NOT VERIFIED and is not claimed to be: there is no
+   * non-destructive probe for it. Nor are "permissions checked" for a
+   * fine-grained token — GitHub sends no x-oauth-scopes header for one, and
+   * absence is reported as absence.
+   */
+  async connectWithToken(
+    rawToken: string,
+    remember: boolean,
+  ): Promise<{ ok: true; status: GithubStatus } | TokenRejection> {
+    const shape = validatePastedToken(typeof rawToken === 'string' ? rawToken : '');
+    if (!shape.ok) {
+      this.#log('info', 'github token rejected');
+      return shape;
+    }
+    const token = shape.token;
+
+    // 1. Identity: GET /user.
+    let userRes: Response;
+    try {
+      userRes = await this.#http(`${this.#apiBase}${USER_PATH}`, { headers: this.#authHeaders(token) });
+    } catch {
+      return this.#rejectToken(502, "couldn't reach GitHub");
+    }
+    const mapped = this.#mapTokenFailure(userRes.status);
+    if (mapped !== undefined) return mapped;
+    if (!userRes.ok) return this.#rejectToken(502, 'GitHub returned an unexpected response');
+
+    let login: string | undefined;
+    try {
+      const u = asRecord(await userRes.json());
+      if (u !== undefined) login = readString(u, 'login');
+    } catch {
+      // A valid 200 whose body will not parse: identity is best-effort, the
+      // credential is still good. Never surface or log the body.
+      login = undefined;
+    }
+    // Scopes: classic PATs carry them here. NO header (fine-grained) stays
+    // undefined — "not reported", never an empty list.
+    const scopesHeader = userRes.headers.get(SCOPES_HEADER);
+    const scopes = scopesHeader === null ? undefined : parseScopesHeader(scopesHeader);
+    const expiresAt = parseTokenExpiry(userRes.headers.get(TOKEN_EXPIRY_HEADER));
+
+    // 2. Capability: the repo listing this app is built on. A token that
+    //    authenticates but cannot list repositories is refused HERE rather than
+    //    failing later; a token that CAN list but sees zero repositories is a
+    //    real fine-grained outcome and connects fine (the list is just empty).
+    let reposRes: Response;
+    try {
+      reposRes = await this.#http(`${this.#apiBase}${PROBE_REPOS_PATH}`, {
+        headers: this.#authHeaders(token),
+      });
+    } catch {
+      return this.#rejectToken(502, "couldn't reach GitHub");
+    }
+    const mappedRepos = this.#mapTokenFailure(reposRes.status);
+    if (mappedRepos !== undefined) return mappedRepos;
+    if (!reposRes.ok) return this.#rejectToken(502, 'GitHub returned an unexpected response');
+
+    // 3. Commit. Bumping #gen supersedes any in-flight device-flow poll, so the
+    //    two paths can never both land a credential.
+    this.#gen += 1;
+    this.#stopPolling();
+    this.#pollCount = 0;
+    this.#device = undefined;
+    this.#token = token;
+    this.#login = login;
+    this.#scope = SCOPE;
+    this.#scopes = scopes;
+    this.#expiresAt = expiresAt;
+    this.#connectedAt = new Date().toISOString();
+    this.#source = 'pat';
+    this.#state = 'connected';
+    if (remember) {
+      // Reports what actually happened: a failed write says persisted:false.
+      this.#persisted = this.#persist();
+    } else {
+      // No on-disk copy at all — including any older one, which would otherwise
+      // resurrect a superseded credential on the next start.
+      this.#persisted = false;
+      this.#removeStore();
+    }
+    this.#log('info', 'github token accepted');
+    return { ok: true, status: this.status() };
+  }
+
+  /**
+   * Refuse a pasted token. ONE constant log line — never the token, its length,
+   * its prefix, the request body, or GitHub's response body.
+   */
+  #rejectToken(status: number, message: string): TokenRejection {
+    this.#log('info', 'github token rejected');
+    return { ok: false, status, message };
+  }
+
+  /**
+   * Map a GitHub RESPONSE STATUS to our refusal copy, or undefined when that
+   * status is not a refusal. Status-derived by construction: the response body
+   * is never read here, so it can never reach the user or the log.
+   */
+  #mapTokenFailure(status: number): TokenRejection | undefined {
+    if (status === 401) {
+      return this.#rejectToken(400, 'GitHub rejected this token (expired, revoked, or mistyped)');
+    }
+    if (status === 403) {
+      return this.#rejectToken(
+        400,
+        'GitHub refused this token — if the organization uses SSO, authorize the token for that organization first',
+      );
+    }
+    return undefined;
   }
 
   /**
@@ -416,10 +710,16 @@ export class GithubConnection {
   }
 
   /**
-   * Drop the connection. GitHub has no self-serve token-revoke endpoint that
-   * works without the app's client_secret (which a public device-flow app does
-   * not have), so this is a best-effort LOCAL drop: delete github.json and
-   * clear in-memory state. The user can revoke the grant in GitHub settings.
+   * Drop the connection. IDENTICAL for both credential sources: delete
+   * github.json and clear in-memory state.
+   *
+   * It revokes NOTHING remotely, and must never be described as if it did.
+   * GitHub has no self-serve token-revoke endpoint that works without the app's
+   * client_secret (which a public device-flow app does not have), and a pasted
+   * token is not ours to revoke at all. What the user must do to truly kill the
+   * credential differs by source — an OAuth grant is removed under GitHub's
+   * Applications settings, a personal access token under its token settings —
+   * which is why the UI branches that copy on `status.source`.
    */
   async disconnect(): Promise<void> {
     this.#gen += 1;
@@ -430,11 +730,13 @@ export class GithubConnection {
   /**
    * List the connected user's repos (up to MAX_REPO_PAGES * REPOS_PER_PAGE),
    * sorted by most-recent push, optionally filtered by `query`. Throws
-   * GithubError(409) when not configured / not connected; a 401 from GitHub
-   * invalidates the token (-> disconnected) and also throws 409.
+   * GithubError(409) when not connected; a 401 from GitHub invalidates the
+   * token (-> disconnected) and also throws 409.
+   *
+   * The gate is the CREDENTIAL, not the client id (2026-07-25): a pasted token
+   * works on a server that has no OAuth App at all.
    */
   async listRepos(query?: string): Promise<GithubRepo[]> {
-    if (!this.#configured) throw new GithubError(409, 'github not configured');
     if (this.#state !== 'connected' || this.#token === undefined) {
       throw new GithubError(409, 'github not connected');
     }
@@ -452,7 +754,7 @@ export class GithubConnection {
       }
       if (res.status === 401) {
         this.#invalidateToken();
-        throw new GithubError(409, 'github not connected');
+        throw new GithubError(409, CREDENTIAL_REJECTED_MESSAGE);
       }
       if (!res.ok) throw new GithubError(502, 'github request failed');
       let body: unknown;
@@ -492,9 +794,21 @@ export class GithubConnection {
    *      logged (an error line could otherwise echo a credential).
    *   3. `finally`: the askpass script + its dir are deleted. On success the
    *      cloned `.git/config` is verified to NOT contain the token.
-   * The env token is visible only via /proc to the SAME user (same trust
-   * boundary as github.json 0600) — acceptable; argv/url/config are not, and
-   * are avoided.
+   *
+   * WHAT THE ENV DOES AND DOES NOT BUY (corrected 2026-07-25 — the earlier
+   * comment here overstated it). Passing the token through the child's
+   * environment keeps it out of argv, the url, `.git/config`, and any log — the
+   * places it would otherwise PERSIST or be readable by other local users. It is
+   * still readable via /proc by this same Linux user, and, on WSL2, by anything
+   * running as the WINDOWS user: the 9p file server runs as root inside the
+   * distro, so `\\wsl.localhost\...` reads every 0600 file in the data dir
+   * regardless of the permission bits (measured — see
+   * memory/knowledge/wsl-0600-not-a-boundary.md). So this is NOT "the same trust
+   * boundary as github.json 0600" in the protective sense that phrase implied;
+   * both are inside one boundary that already includes the Windows user. The
+   * mechanism is still right — it removes the persistent and cross-user
+   * exposures — it just is not a wall against that principal, and nothing here
+   * may claim it is.
    *
    * Reuses scaffold's assertVacant (409 non-empty, no clobber) and its partial-
    * cleanup discipline (a dest WE created is removed on failure). Throws
@@ -514,8 +828,9 @@ export class GithubConnection {
     // 1. Validate the url FIRST — the token must only ever be sent to github.com.
     const authUrl = this.#buildAuthenticatedGithubUrl(cloneUrl);
 
-    // 2. There must be a connected token to send.
-    if (!this.#configured) throw new GithubError(409, 'github not configured');
+    // 2. There must be a connected token to send. The CREDENTIAL is the gate,
+    //    whatever produced it — a pasted token clones on a server with no
+    //    OAuth App configured.
     if (this.#state !== 'connected' || this.#token === undefined) {
       throw new GithubError(409, 'github not connected');
     }
@@ -674,10 +989,10 @@ export class GithubConnection {
    * Authorization header ONLY (#authHeaders). Maps the response down to
    * GithubRepo (drops everything else — no token, no raw payload). GitHub
    * validation errors (e.g. 422 name-taken) surface as a clean GithubError with
-   * NO token and NO raw body dump. Requires connected state (409 otherwise).
+   * NO token and NO raw body dump. Requires a connected CREDENTIAL (409
+   * otherwise) — not a client id: a pasted token creates repos too.
    */
   async createRepo(input: { name: string; private: boolean; description?: string }): Promise<GithubRepo> {
-    if (!this.#configured) throw new GithubError(409, 'github not configured');
     if (this.#state !== 'connected' || this.#token === undefined) {
       throw new GithubError(409, 'github not connected');
     }
@@ -697,7 +1012,18 @@ export class GithubConnection {
     }
     if (res.status === 401) {
       this.#invalidateToken();
-      throw new GithubError(409, 'github not connected');
+      throw new GithubError(409, CREDENTIAL_REJECTED_MESSAGE);
+    }
+    if (res.status === 403) {
+      // The most predictable failure of the credential this panel recommends: a
+      // fine-grained token limited to selected repositories cannot create new
+      // ones (its own footnote says so). Status-derived like #mapTokenFailure —
+      // GitHub's response body is never read — and it names no flag or scope,
+      // per the UI copy rule.
+      throw new GithubError(
+        403,
+        'this token cannot create repositories on this account — creating one needs a token with broader access',
+      );
     }
     if (res.status === 422) {
       // Validation failure (name already exists, invalid name, etc.). Clean
@@ -927,29 +1253,34 @@ export class GithubConnection {
     this.#token = token;
     this.#login = login;
     this.#scope = scope ?? SCOPE;
+    // The device flow's granted scope is already known (we asked for it) and is
+    // recorded in `scope`. `scopes` is reserved for what GitHub REPORTS about a
+    // credential we did not mint — the pasted-token path — so it stays absent
+    // here rather than duplicating the same fact in two vocabularies.
+    this.#scopes = undefined;
+    this.#expiresAt = undefined;
     this.#connectedAt = new Date().toISOString();
     this.#device = undefined;
+    this.#source = 'device';
     this.#state = 'connected';
-    this.#persist();
+    this.#persisted = this.#persist();
     this.#log('info', 'github connected');
   }
 
-  /** 401 on a repos call: the token is dead — drop it and go disconnected. */
+  /**
+   * 401 on a repos/create call: the credential is dead — drop it and go
+   * disconnected. Identical for both sources. The caller then throws a 409
+   * whose message says the credential STOPPED WORKING, so the UI can say that
+   * instead of showing an unexplained flip to disconnected.
+   */
   #invalidateToken(): void {
     this.#gen += 1;
     this.#toDisconnected();
     this.#log('warn', 'github token invalid, disconnected');
   }
 
-  /** Clear every in-memory field and remove github.json. */
-  #toDisconnected(): void {
-    this.#stopPolling();
-    this.#device = undefined;
-    this.#token = undefined;
-    this.#login = undefined;
-    this.#scope = undefined;
-    this.#connectedAt = undefined;
-    this.#state = 'disconnected';
+  /** Remove github.json. Best-effort: an absent file is the desired end state. */
+  #removeStore(): void {
     try {
       unlinkSync(this.#file);
     } catch {
@@ -957,22 +1288,54 @@ export class GithubConnection {
     }
   }
 
-  #persist(): void {
-    if (this.#token === undefined) return;
+  /** Clear every in-memory field and remove github.json (both sources alike). */
+  #toDisconnected(): void {
+    this.#stopPolling();
+    this.#device = undefined;
+    this.#token = undefined;
+    this.#login = undefined;
+    this.#scope = undefined;
+    this.#scopes = undefined;
+    this.#expiresAt = undefined;
+    this.#connectedAt = undefined;
+    this.#source = 'device';
+    this.#persisted = false;
+    this.#state = 'disconnected';
+    this.#removeStore();
+  }
+
+  /**
+   * Write github.json. Returns whether the credential is now ACTUALLY on disk —
+   * `status.persisted` is set from this, so a failed write reports
+   * `persisted:false` instead of promising a durability the disk refused.
+   */
+  #persist(): boolean {
+    if (this.#token === undefined) return false;
     const stored: StoredToken = {
       accessToken: this.#token,
       ...(this.#login !== undefined ? { login: this.#login } : {}),
       scope: this.#scope ?? SCOPE,
       connectedAt: this.#connectedAt ?? new Date().toISOString(),
+      source: this.#source,
+      ...(this.#scopes !== undefined ? { scopes: [...this.#scopes] } : {}),
+      ...(this.#expiresAt !== undefined ? { expiresAt: this.#expiresAt } : {}),
     };
     try {
       atomicWriteFile(this.#file, JSON.stringify(stored, null, 2) + '\n');
+      return true;
     } catch (err) {
       // Never include the token in the message — err is a filesystem error only.
       this.#log('error', `failed to persist github token store: ${String(err)}`);
+      return false;
     }
   }
 
+  /**
+   * Load github.json on construction. A stored credential sets `connected`
+   * WITHOUT verifying it — the first real API call decides, and a 401 there
+   * invalidates it (#invalidateToken). A record with no `source` predates the
+   * pasted-token path and therefore came from the device flow.
+   */
   #load(): void {
     let raw: string;
     try {
@@ -990,10 +1353,18 @@ export class GithubConnection {
       this.#login = readString(o, 'login');
       this.#scope = readString(o, 'scope') ?? SCOPE;
       this.#connectedAt = readString(o, 'connectedAt') ?? new Date().toISOString();
+      this.#source = readString(o, 'source') === 'pat' ? 'pat' : 'device';
+      const scopes = o['scopes'];
+      this.#scopes = Array.isArray(scopes) && scopes.every((s) => typeof s === 'string')
+        ? (scopes as string[])
+        : undefined;
+      this.#expiresAt = readString(o, 'expiresAt');
+      this.#persisted = true;
       this.#state = 'connected';
-    } catch (err) {
+    } catch {
       this.#log('error', 'failed to parse github.json, starting disconnected');
       this.#state = 'disconnected';
+      this.#persisted = false;
     }
   }
 

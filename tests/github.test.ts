@@ -58,16 +58,16 @@ after(async () => {
   if (server !== undefined) await server.stop();
 });
 
-test('not configured: GET /api/github/status -> { configured:false, state:"disconnected" }', async () => {
+test('no client_id: GET /api/github/status -> { deviceFlowAvailable:false, state:"disconnected" }', async () => {
   const res = await api(server, 'GET', '/api/github/status');
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { configured: false, state: 'disconnected' });
+  assert.deepEqual(res.body, { deviceFlowAvailable: false, state: 'disconnected' });
 });
 
-test('not configured: POST /api/github/device -> 409 { configured:false } (never crashes, no network)', async () => {
+test('no client_id: POST /api/github/device -> 409 { deviceFlowAvailable:false } (never crashes, no network)', async () => {
   const res = await api(server, 'POST', '/api/github/device');
   assert.equal(res.status, 409);
-  assert.deepEqual(res.body, { configured: false });
+  assert.deepEqual(res.body, { deviceFlowAvailable: false });
 });
 
 test('not configured: GET /api/github/repos -> 409 (not connected)', async () => {
@@ -81,10 +81,11 @@ test('not configured: POST /api/github/disconnect -> 200 { ok:true } (idempotent
   assert.deepEqual(res.body, { ok: true });
 });
 
-test('all four /api/github/* endpoints require the auth token (401 without it)', async () => {
+test('every /api/github/* endpoint requires the auth token (401 without it)', async () => {
   const cases: { method: string; path: string }[] = [
     { method: 'GET', path: '/api/github/status' },
     { method: 'POST', path: '/api/github/device' },
+    { method: 'POST', path: '/api/github/token' },
     { method: 'POST', path: '/api/github/disconnect' },
     { method: 'GET', path: '/api/github/repos' },
   ];
@@ -308,7 +309,13 @@ test('device flow: connecting -> connected; token persisted 0600, NEVER in statu
     assert.ok(tokenPolls >= 2, 'authorization_pending must have been polled through');
 
     const connected = conn.status();
-    assert.deepEqual(connected, { configured: true, state: 'connected', login: 'octocat' });
+    assert.deepEqual(connected, {
+      deviceFlowAvailable: true,
+      state: 'connected',
+      login: 'octocat',
+      source: 'device',
+      persisted: true,
+    });
     assert.ok(!JSON.stringify(connected).includes(SECRET), 'status() must NEVER contain the access token');
 
     // github.json: mode 0600, holds the token, but the token never left via status().
@@ -328,7 +335,7 @@ test('device flow: connecting -> connected; token persisted 0600, NEVER in statu
 
     // Disconnect drops github.json and returns to disconnected.
     await conn.disconnect();
-    assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' });
+    assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' });
     await assert.rejects(stat(file), 'github.json must be deleted on disconnect');
     await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
   } finally {
@@ -355,18 +362,18 @@ test('load-on-construction: a github.json with a token boots connected; a 401 on
     assert.equal(conn.status().state, 'connected', 'stored token -> connected on boot');
 
     await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409, '401 surfaces as 409 not-connected');
-    assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' }, '401 invalidated the token');
+    assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' }, '401 invalidated the token');
     await assert.rejects(stat(file), 'github.json removed after 401 invalidation');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test('not-configured GithubConnection (no clientId): startDeviceFlow -> not-configured; listRepos -> 409; status configured:false', async () => {
+test('no clientId: startDeviceFlow -> not-configured; listRepos -> 409 (not connected); status deviceFlowAvailable:false', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-unconf-'));
   try {
     const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: '' });
-    assert.deepEqual(conn.status(), { configured: false, state: 'disconnected' });
+    assert.deepEqual(conn.status(), { deviceFlowAvailable: false, state: 'disconnected' });
     const started = await conn.startDeviceFlow();
     assert.deepEqual(started, { ok: false, reason: 'not-configured' });
     await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
@@ -407,7 +414,7 @@ test('status() while connecting exposes userCode/verificationUri/expiresAt but N
     assert.ok(started.ok, 'flow starts when configured');
 
     const s = conn.status();
-    assert.equal(s.configured, true);
+    assert.equal(s.deviceFlowAvailable, true);
     assert.equal(s.state, 'connecting');
     assert.equal(s.userCode, 'ABCD-1234');
     assert.equal(s.verificationUri, 'https://github.com/login/device');
@@ -501,7 +508,7 @@ for (const errCode of ['expired_token', 'access_denied'] as const) {
         5000,
         5,
       );
-      assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' });
+      assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' });
       await assert.rejects(stat(file), 'no github.json after a terminal poll error');
 
       // Polling truly stopped — no further token polls after the terminal error.
@@ -613,7 +620,7 @@ test('not configured (empty clientId): status/device/repos/disconnect make ZERO 
       clientId: '',
       fetchImpl: stub,
     });
-    assert.deepEqual(conn.status(), { configured: false, state: 'disconnected' });
+    assert.deepEqual(conn.status(), { deviceFlowAvailable: false, state: 'disconnected' });
     assert.deepEqual(await conn.startDeviceFlow(), { ok: false, reason: 'not-configured' });
     await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
     await conn.disconnect();
@@ -636,17 +643,17 @@ test('storage: malformed / missing-token / absent github.json on construction ->
     const badFile = join(root, 'bad.json');
     await writeFile(badFile, '{ this is not json', { mode: 0o600 });
     const c1 = new GithubConnection({ file: badFile, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
-    assert.deepEqual(c1.status(), { configured: true, state: 'disconnected' }, 'malformed json -> disconnected');
+    assert.deepEqual(c1.status(), { deviceFlowAvailable: true, state: 'disconnected' }, 'malformed json -> disconnected');
 
     // (2) valid JSON object but no accessToken field
     const noTokFile = join(root, 'notoken.json');
     await writeFile(noTokFile, JSON.stringify({ login: 'octocat', scope: 'repo' }), { mode: 0o600 });
     const c2 = new GithubConnection({ file: noTokFile, log: noop, clientId: 'Iv1.x', fetchImpl: stub });
-    assert.deepEqual(c2.status(), { configured: true, state: 'disconnected' }, 'missing accessToken -> disconnected');
+    assert.deepEqual(c2.status(), { deviceFlowAvailable: true, state: 'disconnected' }, 'missing accessToken -> disconnected');
 
     // (3) absent file entirely
     const c3 = new GithubConnection({ file: join(root, 'absent.json'), log: noop, clientId: 'Iv1.x', fetchImpl: stub });
-    assert.deepEqual(c3.status(), { configured: true, state: 'disconnected' }, 'absent file -> disconnected');
+    assert.deepEqual(c3.status(), { deviceFlowAvailable: true, state: 'disconnected' }, 'absent file -> disconnected');
 
     assert.equal(fetchCalls, 0, 'construction + status never touch the network');
   } finally {
@@ -1334,7 +1341,7 @@ test('createRepo: a 401 from GitHub invalidates the token (-> disconnected, gith
       (e) => e instanceof GithubError && e.status === 409,
       '401 on create surfaces as 409 not-connected',
     );
-    assert.deepEqual(conn.status(), { configured: true, state: 'disconnected' }, '401 invalidated the token');
+    assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' }, '401 invalidated the token');
     await assert.rejects(stat(file), 'github.json is removed after the 401 invalidation');
   } finally {
     await rm(root, { recursive: true, force: true });

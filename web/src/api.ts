@@ -17,6 +17,7 @@ import type {
   GithubRepo,
   GithubReposResponse,
   GithubStatus,
+  GithubTokenRequest,
   OkResponse,
   PreviousSession,
   Project,
@@ -230,7 +231,7 @@ export function fsList(path?: string): Promise<FsListResponse> {
 // X-Auth-Token + Origin/Host gate request() already applies.
 // ---------------------------------------------------------------------------
 
-/** Current connection status (configured? · disconnected|connecting|connected). */
+/** Current connection status (deviceFlowAvailable · disconnected|connecting|connected). */
 export function githubStatus(): Promise<GithubStatus> {
   return request<GithubStatus>('/api/github/status');
 }
@@ -241,6 +242,26 @@ export function githubStatus(): Promise<GithubStatus> {
  */
 export function githubDevice(): Promise<GithubDeviceResponse> {
   return request<GithubDeviceResponse>('/api/github/device', { method: 'POST' });
+}
+
+/**
+ * Connect with a token the USER pasted (the second credential path, decided
+ * 2026-07-25). The server validates it against GitHub and answers 200 with the
+ * resulting GithubStatus — resolved `login`, `source: 'pat'`, `persisted`, and
+ * `scopes`/`expiresAt` when GitHub reports them. It never returns the token in
+ * any form.
+ *
+ * THE BODY IS THE ONLY PLACE THE CREDENTIAL EXISTS CLIENT-SIDE. The caller
+ * (ui/github.ts) clears its input and drops its own reference in the same frame
+ * it calls this; nothing here retains `body` beyond the JSON.stringify below,
+ * and a failure throws an ApiError carrying the SERVER's message only — never
+ * the request body. On failure the user re-pastes, by design: no retry buffer.
+ */
+export function githubToken(body: GithubTokenRequest): Promise<GithubStatus> {
+  return request<GithubStatus>('/api/github/token', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 /** Drop the LOCAL token (deletes github.json server-side); never revokes the grant. */

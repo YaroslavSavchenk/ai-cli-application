@@ -279,6 +279,46 @@ test('the allowlist has no stale entries — every listed exception still exists
   assert.deepEqual(stale, [], `stale allowlist entries:\n  ${stale.join('\n  ')}`);
 });
 
+test('no frontend copy claims security the storage does not have (design gate, 2026-07-25)', () => {
+  // A SECOND copy rule, enforced over the same scanned literals. The pasted-token
+  // design gate fixed the honesty ceiling for anything we store: "stored on this
+  // machine in the app's data folder, readable by your own user account", and
+  // NOTHING stronger. An auditor verified there is no OS keyring in this
+  // environment and that 0600 does not hold against the Windows side of WSL at
+  // all (memory/knowledge/wsl-0600-not-a-boundary.md), so every word below would
+  // be a false promise about a real credential. A caption claiming an OS keychain
+  // was already shipped and corrected once in this project — this is the guard
+  // that stops the third time.
+  //
+  // Comments are stripped by the scanner, so the module docs that NAME these
+  // words while banning them do not trip it.
+  const CLAIMS = [
+    'keychain',
+    'keyring',
+    'encrypt', // covers encrypted / encryption
+    'vault',
+    'secure', // covers secure / securely / security
+    'protected',
+    'safe from',
+  ];
+  const hits: string[] = [];
+  for (const file of files) {
+    for (const { text, line } of literals(readFileSync(file, 'utf8'))) {
+      const low = text.toLowerCase();
+      for (const w of CLAIMS) {
+        if (low.includes(w)) hits.push(`web/src/${rel(file)}:${line}  ${JSON.stringify(text)} — "${w}"`);
+      }
+    }
+  }
+  assert.deepEqual(
+    hits,
+    [],
+    'UI copy must not claim a keychain, encryption or "secure" storage — the honest ceiling is ' +
+      'file permissions plus discipline. Offenders:\n  ' +
+      hits.join('\n  '),
+  );
+});
+
 test('the exact strings the 2026-07-25 copy pass removed never come back', () => {
   // Named one by one because each was a specific user instruction, and because
   // some of them (a bare `/caveman`) have no code SHAPE for the scan above to
@@ -292,6 +332,15 @@ test('the exact strings the 2026-07-25 copy pass removed never come back', () =>
     'read-only planning mode',
     '$ claude',
     'connected · repo scope',
+    // 2026-07-25, pasted-token path: the dormant card that HID the paste
+    // affordance on exactly the servers it exists for, and the sign-in fine
+    // print that called the device flow "secure". (The card's TITLE is not
+    // listed: the replacement copy legitimately contains it as a substring of
+    // "Signing in with GitHub is not set up on this server", which says
+    // something narrower and true. These two lines are unique to the old card.)
+    'The server needs a GitHub connection setting before this can be used',
+    'one-time server setup · nothing to do in the browser',
+    'secure device-flow sign-in',
   ];
   const hits: string[] = [];
   for (const file of files) {

@@ -2474,6 +2474,19 @@ kbd {
   font-size: var(--fs-label);
 }
 
+/* which credential is connected (`token` / `sign-in`) — the same mono micro-tag
+   idiom as the pane header's model/permission chips. Information, not
+   decoration: the two credentials are revoked on different GitHub screens. */
+.tb-gh-tag {
+  flex: none;
+  padding: 0 var(--s-3);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: var(--r-btn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-tag);
+  color: var(--text-dim);
+}
+
 .tb-gh-dot {
   flex: none;
   width: var(--dot);
@@ -2965,6 +2978,118 @@ kbd {
   font-size: var(--fs-status);
   color: var(--danger);
   line-height: 1.4;
+}
+
+/* ---- pasted-token credential path (2026-07-25) -------------------------------
+   A second way to connect, offered alongside the device flow and NEVER hidden
+   by a missing OAuth client id. Zero new tokens: the token well is the
+   .gh-newform inset in the panel's own language, the remember control is the
+   settings/`Initialize git repo` checkbox idiom (.status-row/.status-box), and
+   the colors keep their exclusive meanings — amber = needs attention (the
+   credential stopped working, an expiry inside three days, "check the
+   account"), red = harm (never paste someone else's token; inline failures),
+   accent = interactive, green = connected.
+
+   The token input is NOT inside a <form> and carries NO name attribute; its
+   value is only ever set through the .value property, so it never reaches
+   outerHTML. See ui/github.ts for the full rule set. */
+
+/* the connection dropped on its own — an expiring pasted token makes this
+   routine, so it gets an explanation instead of a silent state flip */
+.gh-lost {
+  padding: var(--s-5) var(--s-6);
+  background: var(--attn-tint);
+  border: var(--line) solid var(--attn);
+  border-radius: var(--r-box);
+  color: var(--attn);
+  font-size: var(--fs-label);
+  line-height: 1.55;
+}
+
+/* the token well: left-aligned (it holds a field), same inset surface as the
+   "+ New repo" form */
+.gh-token {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-7) var(--s-8);
+  background: var(--bg-deep);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-card-sm);
+}
+
+/* .gh-title/.gh-body/.gh-fine are centered inside .gh-card; here they read as
+   a form's heading and instructions */
+.gh-token .gh-body,
+.gh-token .gh-fine {
+  max-width: none;
+}
+
+.gh-tokenfield {
+  gap: var(--s-4);
+}
+
+/* the paste field's error edge — ui/github.ts sets .is-err on an empty submit
+   and on a refused token; same language as the "+ New repo" name field */
+.gh-tokeninput.is-err {
+  border-color: var(--danger);
+}
+
+/* the checkbox row sits flush in the field stack (same trim as .np-gitrow) */
+.gh-remember {
+  padding: var(--s-3) var(--s-4);
+}
+
+.gh-remember-note {
+  padding: 0 var(--s-4);
+}
+
+/* Add token, with the honest indeterminate check to its left */
+.gh-tokenrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.gh-addtoken {
+  flex: none;
+}
+
+/* the warning that must never fade out of view — the same permanent red the
+   bypass-permission card uses for a caution selection cannot dismiss */
+.gh-warn {
+  font-size: var(--fs-label);
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+/* connected: the credential's facts, one mono line each, rendered only when the
+   server actually reported them */
+.gh-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.gh-fact {
+  overflow-wrap: anywhere; /* GitHub-reported scope lists can be long */
+}
+
+/* expired, or expiring within three days: needs attention now */
+.gh-fact.is-warn {
+  color: var(--attn);
+}
+
+/* "check this is the account you meant" — a pasted token can silently be for
+   the wrong account, and nothing else in the app would say so */
+.gh-verify {
+  font-size: var(--fs-label);
+  color: var(--attn);
+  line-height: 1.5;
 }
 
 /* ---- folder picker (Phase 2a) — real /api/fs/list + /api/fs/mkdir -----------

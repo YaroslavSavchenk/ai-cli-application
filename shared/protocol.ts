@@ -383,7 +383,7 @@ export interface TelemetryResponse {
 }
 
 // ---------------------------------------------------------------------------
-// GitHub connection (github.json in the data dir) — OAuth device flow
+// GitHub connection (github.json in the data dir) — device flow OR pasted token
 // ---------------------------------------------------------------------------
 //
 // Phase 2b: a first-class GitHub connection via OAuth DEVICE FLOW. The server
@@ -392,11 +392,19 @@ export interface TelemetryResponse {
 // server-side (github.json in the data dir, mode 0600) and are NEVER returned
 // to the browser, embedded in a response, or written to server.log.
 //
+// SECOND CREDENTIAL PATH (2026-07-25, user's decision): the user may instead
+// PASTE a GitHub token (POST /api/github/token). It is stored and used exactly
+// where the device-flow token is, needs NO OAuth App, and is therefore the path
+// that works before a client id exists. Exactly ONE credential exists at a
+// time — pasting replaces a device-flow connection and cancels its in-flight
+// poll. `source` records which path produced the current credential.
+//
 // Config: the OAuth App client_id comes from env AI_SM_GITHUB_CLIENT_ID. When
-// it is absent/empty the feature is "not configured" — every endpoint answers
-// a clean not-configured signal (status.configured=false, POST device -> 409
-// { configured:false }, repos -> 409) and never crashes. No client_secret is
-// used or stored (a public OAuth app's device flow needs none). Scope = `repo`.
+// it is absent/empty only the DEVICE FLOW is unavailable
+// (status.deviceFlowAvailable=false, POST device -> 409 { deviceFlowAvailable:
+// false }); the pasted-token path and every connected route keep working, since
+// they need a credential, not a client id. No client_secret is used or stored
+// (a public OAuth app's device flow needs none). Device-flow scope = `repo`.
 //
 // Config: env AI_SM_GITHUB_API_BASE re-points the REST API base
 // (https://api.github.com by default). UNSET IN NORMAL USE — it exists only as a
@@ -410,25 +418,38 @@ export interface TelemetryResponse {
 // Endpoints (ALL behind the same X-Auth-Token + Origin/Host gate as every /api
 // route):
 //   POST /api/github/device     -> 200 { userCode, verificationUri, expiresAt }
-//                                  or 409 { configured:false } when unconfigured.
+//                                  or 409 { deviceFlowAvailable:false } when no
+//                                  client id is configured.
 //                                  Starts the device flow + server-side polling.
+//   POST /api/github/token      -> 200 GithubStatus (GithubTokenRequest body).
+//                                  Validates a PASTED token against GitHub and
+//                                  connects with it. NEVER a GET, and the token
+//                                  travels ONLY in the request body.
 //   GET  /api/github/status     -> 200 GithubStatus.
 //   POST /api/github/disconnect -> 200 OkResponse. Drops the token locally
 //                                  (deletes github.json); no token is ever
-//                                  echoed back.
+//                                  echoed back. Identical for both sources.
 //   GET  /api/github/repos?q=   -> 200 GithubReposResponse, or 409 when not
-//                                  connected/configured. `q` filters
+//                                  connected. `q` filters
 //                                  client-side on name/owner/fullName/description.
 
 /**
- * GET /api/github/status response. `configured` reflects whether an OAuth App
- * client_id is present; `state` is the connection state. `login` is present
- * ONLY when connected; `userCode`/`verificationUri`/`expiresAt` are present
- * ONLY while connecting (the user enters `userCode` at `verificationUri`).
- * The access token is NEVER present in this shape — it stays server-side.
+ * GET /api/github/status response (also the 200 body of POST /api/github/token).
+ * `state` is the connection state. `login` is present ONLY when connected;
+ * `userCode`/`verificationUri` are present ONLY while connecting (the user
+ * enters `userCode` at `verificationUri`).
+ * The access token is NEVER present in this shape — not whole, not as a prefix,
+ * a suffix, a length, a hash or a masked form. It stays server-side.
  */
 export interface GithubStatus {
-  configured: boolean;
+  /**
+   * An OAuth App client id exists on this server, so the DEVICE FLOW can be
+   * offered. Replaced the old `configured` field (2026-07-25): it says nothing
+   * about whether the app is connected and MUST NOT gate the pasted-token
+   * affordance — the token path exists precisely for servers where this is
+   * false.
+   */
+  deviceFlowAvailable: boolean;
   state: 'disconnected' | 'connecting' | 'connected';
   /** GitHub login of the connected account (present only when connected). */
   login?: string;
@@ -436,8 +457,69 @@ export interface GithubStatus {
   userCode?: string;
   /** Where the user enters `userCode` (present only while connecting). */
   verificationUri?: string;
-  /** ISO-8601 expiry of the current device code (present only while connecting). */
+  /**
+   * ISO-8601 expiry, present in two different situations:
+   *   - while CONNECTING: when the current device code expires;
+   *   - while CONNECTED: when the credential itself expires, if GitHub said so
+   *     (the `github-authentication-token-expiration` response header, which
+   *     fine-grained tokens with an expiry carry). Absent = no expiry is known,
+   *     which is NOT a promise that the credential never expires.
+   */
   expiresAt?: string;
+  /**
+   * Which path produced the current credential (present only when connected).
+   * A stored record without a source reads as 'device' — every record written
+   * before the token path existed came from the device flow.
+   */
+  source?: 'device' | 'pat';
+  /**
+   * Whether the current credential is written to disk (github.json). False =
+   * it lives only in this backend process and is gone when the process exits
+   * (~30 s after the last window closes). Present only when connected.
+   */
+  persisted?: boolean;
+  /**
+   * Classic-PAT scopes, from GitHub's `x-oauth-scopes` response header.
+   *
+   * ABSENT means GitHub sent no such header — which is what a FINE-GRAINED
+   * token looks like, since its permissions are not expressible as scopes.
+   * Absence must NEVER be rendered as "no permissions"; the honest reading is
+   * "not reported". An EMPTY ARRAY is different and real: a classic token that
+   * carries no scopes at all.
+   */
+  scopes?: string[];
+}
+
+/**
+ * POST /api/github/token request body — the PASTED-token credential path.
+ * Responds 200 with the resulting GithubStatus (never the token, in any form).
+ *
+ * INGRESS: the body is the ONLY channel this token may arrive through. Never a
+ * query parameter, path segment, custom header, or WebSocket url — those end up
+ * in logs, shell history and referrers. The route is POST-only (405 on GET),
+ * requires `content-type: application/json` (415 otherwise), and caps the body
+ * at 4096 bytes.
+ *
+ * `token` is validated by SHAPE only: trimmed (clipboards add whitespace),
+ * non-empty, at most 1024 characters, no whitespace or control characters
+ * inside. There is deliberately NO prefix allowlist — `ghp_`, `github_pat_`,
+ * `gho_`, `ghu_`, `ghs_` and legacy 40-hex tokens are all valid, and GitHub is
+ * free to invent more. Whether the token WORKS is decided by GitHub
+ * (`GET /user` + `GET /user/repos?per_page=1`), never by a pattern here.
+ *
+ * `remember` is required and decides persistence: true writes github.json
+ * (0600) so the connection survives a backend restart; false keeps the
+ * credential in the backend process ONLY and removes any existing github.json,
+ * so a restart is disconnected.
+ *
+ * Failures answer `{ error }` with a message derived from GitHub's STATUS, never
+ * from its response body: 400 for a token GitHub rejected (401) or refused
+ * (403, e.g. an org requiring SSO authorization), 502 when GitHub could not be
+ * reached or answered unexpectedly. No failure ever quotes the token.
+ */
+export interface GithubTokenRequest {
+  token: string;
+  remember: boolean;
 }
 
 /**
@@ -481,7 +563,7 @@ export interface GithubReposResponse {
  * is denied by the filesystem. `dest` must also already be NORMALIZED: a `.`/
  * `..` component or a trailing slash is rejected (400), because such a path
  * reads as one directory and resolves to another. 409 when GitHub is not
- * connected/configured; 502 on clone failure. After cloning, `dest` is
+ * connected; 502 on clone failure. After cloning, `dest` is
  * registered as a project named `name` (or the repo basename from `cloneUrl`) —
  * except when a project ALREADY carries that name, in which case the clone is
  * registered as `<owner>/<repo>` so the UI, which shows names only, can tell the
@@ -499,7 +581,7 @@ export interface GithubCloneRequest {
  * with the server-side token in the Authorization header only (never echoed
  * back). `name` is required and bounded; `private` is required. GitHub
  * validation failures (e.g. 422 name-already-taken) surface as a clean 4xx with
- * NO token and NO raw body dump. 409 when not connected/configured. This is a
+ * NO token and NO raw body dump. 409 when not connected. This is a
  * SEPARATE endpoint from POST /api/github/clone: the frontend chains
  * create -> clone; the server never auto-clones here.
  */

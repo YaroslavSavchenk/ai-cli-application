@@ -3,17 +3,30 @@
  * chip, and the New Project dialog's GitHub tab panel, all in one cohesive
  * module (the dialog and main.ts both consume it).
  *
+ * TWO CREDENTIAL PATHS (2026-07-25, user's decision): the OAuth device flow and
+ * a token the user pastes. One credential at a time; `status.source` says which
+ * is live, and everything the user must do differently — above all WHERE to
+ * revoke — branches on it.
+ *
  * HONESTY (load-bearing):
- *   - Every state is driven by GET /api/github/status. The feature is DORMANT
- *     until the server has an OAuth client id (env AI_SM_GITHUB_CLIENT_ID —
- *     documented in the README, never NAMED in the UI per the 2026-07-25 copy
- *     rule): status.configured === false renders an honest one-time-setup panel
- *     pointing at the README, never a dead Connect button that would 409
- *     confusingly.
- *   - The access token is 100% server-side. It is NEVER requested, displayed,
- *     or expected here — no shape below carries it.
- *   - Disconnect only drops the LOCAL token; the public device-flow grant can
- *     only be fully revoked from GitHub settings (surfaced in copy).
+ *   - Every state is driven by GET /api/github/status. `deviceFlowAvailable`
+ *     reports whether the server has an OAuth client id (env
+ *     AI_SM_GITHUB_CLIENT_ID — documented in the README, never NAMED in the UI
+ *     per the 2026-07-25 copy rule). It hides the Connect BUTTON and nothing
+ *     else: the paste affordance stays, because a pasted token needs no client
+ *     id and that is precisely the situation it exists for.
+ *   - The access token is 100% server-side. It is never displayed and never
+ *     returned; the ONE inbound flow (POST /api/github/token) reads the pasted
+ *     value straight out of the field into the request body, clears the field,
+ *     and keeps NO copy anywhere — see submitToken().
+ *   - Storage copy has a hard ceiling (design gate): stored on this machine in
+ *     the app's data folder, readable by your own user account. Never
+ *     "keychain", "encrypted", "secure" or "vault" — there is no keyring in
+ *     this environment and 0600 does not hold against the Windows side of WSL.
+ *   - Disconnect only drops the LOCAL credential; a device-flow grant and a
+ *     personal access token are revoked on DIFFERENT GitHub screens
+ *     (revokeNote), and telling the user the wrong one would leave a live
+ *     credential they believe is dead.
  *   - Phase 2c wires the per-repo clone/open action + the "+ New repo" form:
  *     a real POST /api/github/clone and a create->clone chain over POST
  *     /api/github/repos. Clone is a SLOW synchronous call — an HONEST
@@ -44,12 +57,21 @@ import {
   chipView,
   clonedProject,
   cloneErrText,
+  deviceCardCopy,
   expiryTickMs,
   fmtExpiry,
+  fmtTokenExpiry,
   langColor,
   ownerDest,
   pollIntervalMs,
   relTime,
+  rememberNote,
+  rememberSample,
+  revokeNote,
+  scopesNote,
+  sourceLabel,
+  storageNote,
+  tokenErrText,
 } from './github-model.ts';
 
 // ---------------------------------------------------------------------------
@@ -68,6 +90,17 @@ let timer: number | null = null;
 let tabOpen = false;
 let inFlight = false;
 let repoToken = 0;
+
+/**
+ * V-4: a connection that DROPS on its own — an expired or revoked token, or one
+ * that lost access — used to flip the UI to "disconnected" with no explanation,
+ * which with user-pasted tokens will be routine. These two flags separate that
+ * from a disconnect the user asked for, so the panel can say what happened.
+ * Both are per-run observations: after a reload the status is simply
+ * disconnected and we do NOT invent a reason for it.
+ */
+let userDropped = false;
+let credentialLost = false;
 
 // Phase 2c: repos with a clone in flight, keyed by fullName. Lives OUTSIDE the
 // row DOM (like util.ArmedSet) so a per-row "cloning…" state survives a list
@@ -131,13 +164,23 @@ function syncTimer(): void {
 function applyStatus(next: GithubStatus): void {
   const prev = status;
   status = next;
-  if (next.configured && next.state === 'connected' && prev?.state !== 'connected') {
+  if (next.state === 'connected' && prev?.state !== 'connected') {
+    credentialLost = false;
     void loadRepos(''); // load the list once on reaching connected
   }
   if (next.state !== 'connected' && prev?.state === 'connected') {
     repos = [];
     repoState = 'idle';
     reposVersion++;
+    // Only an UNASKED-FOR drop is news (V-4); a disconnect the user pressed is not.
+    // Nor is the drop the "remember this token" toggle CREATES: a credential the
+    // user chose not to store lives only in the backend process, so a plain
+    // restart ends it exactly this way. Saying "expired, revoked, or lost access"
+    // there would name three causes we know to be false — and could send the user
+    // to revoke a healthy token. `prev.persisted === false` is the server's own
+    // report of that choice.
+    credentialLost = !userDropped && prev.persisted !== false;
+    userDropped = false;
   }
   emit();
   syncTimer();
@@ -195,12 +238,13 @@ function setTabOpen(open: boolean): void {
 
 /**
  * A .tb-btn with a status dot + mono label reflecting GithubStatus:
- *   disconnected → gray dot + "Connect GitHub"
- *   connecting   → amber dot + "connecting…"
- *   connected    → green dot + "@login"
- *   not-configured (dormant) → faint dot + muted "GitHub"
- * Clicking always opens the New Project dialog on its GitHub tab (which shows
- * the honest setup panel when dormant — no dead 409 path).
+ *   status unknown → faint dot + "GitHub"
+ *   disconnected   → gray dot + "Connect GitHub"
+ *   connecting     → amber dot + "connecting…"
+ *   connected      → green dot + "@login" + a `token` / `sign-in` tag
+ * The tag is V-5: the two credentials are disconnected on different GitHub
+ * screens, so the chip has to say which one is live, not only that one is.
+ * Clicking always opens the New Project dialog on its GitHub tab.
  */
 export function createGithubChip(openTab: () => void): HTMLButtonElement {
   const chip = button('tb-btn tb-gh', '', openTab);
@@ -208,12 +252,18 @@ export function createGithubChip(openTab: () => void): HTMLButtonElement {
   const dot = el('span', 'tb-gh-dot');
   dot.setAttribute('aria-hidden', 'true');
   const lb = el('span', 'tb-gh-lb');
-  chip.append(dot, lb);
+  // The tag repeats what the aria name already says in words, so it is
+  // decoration for a screen reader — hidden from it, shown to the eye.
+  const tag = el('span', 'tb-gh-tag');
+  tag.setAttribute('aria-hidden', 'true');
+  chip.append(dot, lb, tag);
 
   function render(): void {
     const v = chipView(status);
     dot.className = `tb-gh-dot is-${v.state}`;
     lb.textContent = v.label; // untrusted login → textContent
+    tag.textContent = v.tag;
+    tag.hidden = v.tag === '';
     chip.setAttribute('aria-label', v.aria);
     chip.title = v.aria;
   }
@@ -262,47 +312,132 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   checkRow.append(checkSpin, el('span', '', 'checking GitHub…'));
   checkingCard.append(checkRow);
 
-  // --- not configured (dormant) ---------------------------------------------
-  // COPY RULE (scope doc, 2026-07-25): no config-variable names in the UI. The
-  // setting's actual name lives in the README, where acting on it belongs.
-  const setupCard = el('div', 'gh-card');
-  setupCard.append(ghAvatar('GH'));
-  setupCard.append(el('div', 'gh-title', 'GitHub isn’t set up on this server'));
-  setupCard.append(
-    el(
-      'div',
-      'gh-body',
-      'The server needs a GitHub connection setting before this can be used · see the project README.',
-    ),
+  // --- the connection stopped working on its own (V-4) -----------------------
+  // Shown above the disconnected state when a LIVE connection dropped without
+  // the user asking — the routine outcome of an expiring pasted token. We say
+  // the three things it can be and stop: the server tells us it is gone, not
+  // why, and inventing a single cause would be a lie.
+  const lostCard = el(
+    'div',
+    'gh-lost',
+    'GitHub stopped accepting the stored credential. It may have expired, been revoked, or lost access to your repositories. Connect again below.',
   );
-  setupCard.append(el('div', 'gh-fine', 'one-time server setup · nothing to do in the browser'));
+  lostCard.setAttribute('role', 'status');
+  lostCard.hidden = true;
 
-  // --- disconnected ----------------------------------------------------------
+  // --- disconnected: path 1, sign in with GitHub ------------------------------
   const disconnectedCard = el('div', 'gh-card');
-  disconnectedCard.append(ghAvatar('GH'));
+  // The mark belongs to the sign-in ACTION. With no sign-in button this card is
+  // a heading plus an explanation, and 44px of decoration would push the one
+  // control that does work below the fold — so it is hidden there.
+  const connectAvatar = ghAvatar('GH');
+  disconnectedCard.append(connectAvatar);
   disconnectedCard.append(el('div', 'gh-title', 'Connect your GitHub account'));
-  disconnectedCard.append(
-    el(
-      'div',
-      'gh-body',
-      'List your repositories from inside the manager. Connecting authorizes this app once via GitHub’s device flow.',
-    ),
-  );
+  const connectBody = el('div', 'gh-body', '');
+  disconnectedCard.append(connectBody);
   const connectBtn = button('gh-connect', 'Connect with GitHub', () => void onConnect());
   disconnectedCard.append(connectBtn);
   const connectErr = el('div', 'gh-msg is-err');
   connectErr.setAttribute('role', 'alert');
   connectErr.hidden = true;
   disconnectedCard.append(connectErr);
-  // Honest about the grant's reach WITHOUT naming the OAuth scope (copy rule,
-  // 2026-07-25): "full access to your repositories" is what `repo` means to a
-  // person. Also still corrects the prototype's two lies: it is not read-only,
-  // and the token is not in an OS keychain.
-  disconnectedCard.append(
+  // COPY RULE (scope doc, 2026-07-25): no config-variable names in the UI — the
+  // setting's actual name lives in the README, where acting on it belongs. This
+  // note REPLACES the old dormant "not set up on this server" card, which used
+  // to take over the whole panel and would now hide the one path that still
+  // works on a server without an OAuth App.
+  const noDeviceNote = el('div', 'gh-body', '');
+  noDeviceNote.hidden = true;
+  disconnectedCard.append(noDeviceNote);
+  // Honest about the grant's reach WITHOUT naming the OAuth scope (copy rule):
+  // "read and write every repository on the account" is what it means to a
+  // person — and it is the comparison that makes the recommendation below land.
+  const deviceFine = el('div', 'gh-fine', '');
+  disconnectedCard.append(deviceFine);
+
+  // --- disconnected: path 2, paste a token -----------------------------------
+  // NOT a <form>, and the input carries NO name attribute (design gate II-1):
+  // submitting from a click handler is how every other action in this codebase
+  // works, and it means no browser save-password prompt fires — the Edge --app
+  // fallback window is a full Edge profile with a password manager.
+  const tokenCard = el('div', 'gh-token');
+  tokenCard.setAttribute('role', 'group');
+  tokenCard.setAttribute('aria-label', 'connect with a GitHub token');
+  const tokenTitle = el('div', 'gh-title', '');
+  tokenCard.append(tokenTitle);
+  // THE most valuable sentence in this panel: a fine-grained token limited to
+  // chosen repositories, with an expiry, is strictly safer than our own device
+  // flow. "Contents" and "Metadata" are the permission names on GitHub's own
+  // screens — instructions for GitHub's UI, like the device-flow URL, so they
+  // are allowed under the no-code-in-the-UI rule.
+  tokenCard.append(
+    el(
+      'div',
+      'gh-body',
+      'Recommended: create a fine-grained token on GitHub, limit it to the repositories you want this app to touch, and give it an expiry date. Grant it Contents (read and write); Metadata (read) comes with it.',
+    ),
+  );
+  const tokenField = el('label', 'launch-field gh-tokenfield');
+  tokenField.append(el('span', 'launch-lb', 'GitHub token'));
+  const tokenInput = el('input', 'gh-tokeninput');
+  tokenInput.type = 'password'; // II-1
+  tokenInput.autocomplete = 'new-password'; // II-1: never offered as a saved login
+  tokenInput.spellcheck = false; // II-1: no spell-check upload path
+  tokenInput.placeholder = 'paste your token here';
+  // II-2: the value is only ever read/written through the .value PROPERTY, which
+  // does not reflect to the attribute — so the credential can never appear in
+  // outerHTML, a DOM snapshot, or a copied element.
+  tokenField.append(tokenInput);
+  tokenCard.append(tokenField);
+
+  // "remember this token" — the ONE control that removes the on-disk copy, so
+  // what it does is spelled out underneath rather than implied by the label.
+  let remember = true; // decided default: persisted (user's call, 2026-07-25)
+  const rememberRow = button('status-row gh-remember', '', () => {
+    if (adding) return;
+    remember = !remember;
+    syncRemember();
+  });
+  const rememberBox = el('span', 'status-box');
+  rememberBox.setAttribute('aria-hidden', 'true');
+  const rememberSampleEl = el('span', 'status-sample', '');
+  rememberRow.append(rememberBox, el('span', 'status-lb', 'Remember this token'), rememberSampleEl);
+  const rememberFine = el('div', 'gh-fine gh-remember-note', '');
+  tokenCard.append(rememberRow, rememberFine);
+
+  const tokenRow = el('div', 'gh-tokenrow');
+  const tokenBusy = el('div', 'np-busy');
+  tokenBusy.hidden = true;
+  const tokenSpin = el('span', 'np-spinner');
+  tokenSpin.setAttribute('aria-hidden', 'true');
+  tokenBusy.append(tokenSpin, el('span', '', 'checking with GitHub…'));
+  const tokenBtn = button('gh-connect gh-addtoken', 'Add token', () => void submitToken());
+  tokenRow.append(tokenBusy, el('span', 'launch-gap'), tokenBtn);
+  tokenCard.append(tokenRow);
+
+  const tokenErr = el('div', 'gh-newerr');
+  tokenErr.setAttribute('role', 'alert');
+  tokenErr.hidden = true;
+  tokenCard.append(tokenErr);
+
+  // V-3: the social-engineering case the device flow does not have. Permanent,
+  // in the same red the bypass-permission card uses for a warning that must
+  // never fade out of view.
+  tokenCard.append(
+    el(
+      'div',
+      'gh-warn',
+      'Never paste a token someone else gave you. A token you did not create yourself connects this app to their account.',
+    ),
+  );
+  // The comparison that makes the recommendation above concrete, as a footnote:
+  // it belongs BELOW the action, so the field and the button stay near the top
+  // of the card instead of being pushed under four lines of fine print.
+  tokenCard.append(
     el(
       'div',
       'gh-fine',
-      'secure device-flow sign-in · token stored server-side, never in the browser · full access to your repositories',
+      'narrower than signing in, which takes read and write on every repository of the account and usually does not expire · a token limited to selected repositories can list and clone them, but creating a brand-new repository from here needs a broader one',
     ),
   );
 
@@ -331,19 +466,32 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   meAvatar.classList.add('is-me', 'is-sm');
   const meCol = el('div', 'gh-me-col');
   const meName = el('span', 'gh-me-name', '');
-  meCol.append(meName, el('span', 'gh-me-sub', 'connected · full access to your repositories'));
+  const meSub = el('span', 'gh-me-sub', 'connected');
+  meCol.append(meName, meSub);
   const disconnectBtn = button('gh-mini', 'disconnect');
   armButton(disconnectBtn, 'confirm disconnect', () => void drop());
   meRow.append(meAvatar, meCol, el('span', 'launch-gap'), disconnectBtn);
   connectedWrap.append(meRow);
-  // REQUIRED honest note — the backend can't self-revoke a public device grant.
-  connectedWrap.append(
-    el(
-      'div',
-      'gh-revoke-note',
-      'Disconnect removes the local token. To fully revoke access, remove the app in your GitHub settings → Applications.',
-    ),
+  // V-2: a token can be for the WRONG account, and nothing else in the app would
+  // say so — clones and newly created repositories would just quietly land
+  // there. Shown for a pasted token only; with the device flow the user signed
+  // in themselves and already knows whose account it is.
+  const verifyNote = el(
+    'div',
+    'gh-verify',
+    'Check this is the account you meant — clones and new repositories land in it.',
   );
+  verifyNote.hidden = true;
+  connectedWrap.append(verifyNote);
+  // What this credential actually is: where it is kept, when it expires, and
+  // (classic tokens only) what GitHub says it can do. Every line renders only
+  // when the server actually reported it.
+  const factsEl = el('div', 'gh-facts');
+  connectedWrap.append(factsEl);
+  // REQUIRED honest note — the backend can't self-revoke either credential, and
+  // they are revoked on DIFFERENT GitHub screens (revokeNote, design gate IV-3).
+  const revokeEl = el('div', 'gh-revoke-note', '');
+  connectedWrap.append(revokeEl);
   // search + "+ New repo" (Phase 2c) share one row
   const actionsRow = el('div', 'gh-actions');
   const searchInput = el('input', 'gh-search');
@@ -400,7 +548,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   reposEl.setAttribute('aria-live', 'polite');
   connectedWrap.append(reposEl);
 
-  root.append(checkingCard, setupCard, disconnectedCard, connectingCard, connectedWrap);
+  root.append(checkingCard, lostCard, disconnectedCard, tokenCard, connectingCard, connectedWrap);
 
   // ---- "+ New repo" form state + handlers -----------------------------------
   let newOpen = false;
@@ -534,6 +682,91 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     void loadRepos(searchInput.value.trim());
   }
 
+  // ---- "paste a token" state + handler --------------------------------------
+  let adding = false;
+
+  function syncRemember(): void {
+    rememberRow.setAttribute('aria-pressed', remember ? 'true' : 'false');
+    rememberBox.textContent = remember ? '✓' : '';
+    rememberSampleEl.textContent = rememberSample(remember);
+    rememberFine.textContent = rememberNote(remember);
+  }
+
+  /** Honest indeterminate busy while the server checks the token with GitHub. */
+  function setAdding(on: boolean): void {
+    adding = on;
+    tokenBusy.hidden = !on;
+    tokenInput.disabled = on;
+    tokenBtn.disabled = on;
+    rememberRow.disabled = on;
+    connectBtn.disabled = on;
+  }
+
+  /**
+   * Hand the pasted token to the backend and forget it.
+   *
+   * THE CREDENTIAL'S ENTIRE CLIENT-SIDE LIFETIME IS THIS FUNCTION (design gate
+   * II-3). It is read once out of the field, handed straight to the request,
+   * and the field is cleared in the same frame; the local reference is dropped
+   * the moment JSON.stringify has run. Nothing retains it: no module variable,
+   * no closure kept alive by a timer, no error object (an ApiError carries the
+   * SERVER's message), and deliberately NO retry buffer — a failed add means
+   * the user pastes again, which is the honest cost of not keeping it around.
+   */
+  async function submitToken(): Promise<void> {
+    if (adding) return;
+    tokenErr.hidden = true;
+    tokenInput.classList.remove('is-err');
+    if (tokenInput.value.trim() === '') {
+      tokenErr.textContent = 'paste a token first';
+      tokenErr.hidden = false;
+      tokenInput.classList.add('is-err');
+      tokenInput.focus();
+      return;
+    }
+    let token = tokenInput.value.trim(); // a pasted line often carries whitespace
+    const rememberIt = remember;
+    tokenInput.value = ''; // II-2/II-3: cleared before anything can await
+    setAdding(true);
+    let next: GithubStatus;
+    try {
+      const pending = api.githubToken({ token, remember: rememberIt });
+      token = ''; // the request body owns it now; this frame does not
+      next = await pending;
+    } catch (e) {
+      token = '';
+      setAdding(false);
+      tokenErr.textContent =
+        e instanceof api.ApiError
+          ? tokenErrText(e.status, e.message)
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      tokenErr.hidden = false;
+      tokenInput.focus();
+      return;
+    }
+    setAdding(false);
+    credentialLost = false;
+    remember = true; // back to the decided default for the next paste
+    syncRemember();
+    applyStatus(next); // resolved @login is on screen as part of accepting it
+    if (active && next.state === 'connected') searchInput.focus();
+  }
+
+  tokenInput.addEventListener('input', () => {
+    tokenInput.classList.remove('is-err');
+    tokenErr.hidden = true;
+  });
+  // Enter submits from the keyboard. This adds no <form> and no form submission
+  // — it is the same click-handler path the button takes.
+  tokenInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void submitToken();
+    }
+  });
+
   // ---- handlers -------------------------------------------------------------
   async function onConnect(): Promise<void> {
     connectBtn.disabled = true;
@@ -543,7 +776,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       // Optimistic: the server sets connecting synchronously, so show the code
       // immediately, then confirm via poll.
       applyStatus({
-        configured: true,
+        deviceFlowAvailable: true,
         state: 'connecting',
         userCode: d.userCode,
         verificationUri: d.verificationUri,
@@ -552,8 +785,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       void poll();
     } catch (e) {
       if (e instanceof api.ApiError && e.status === 409) {
-        void poll(); // reveals configured:false → the setup panel
-        connectErr.textContent = 'GitHub isn’t set up on this server — see the project README.';
+        void poll(); // reveals deviceFlowAvailable:false → the button goes away
+        connectErr.textContent =
+          'Signing in with GitHub is not set up on this server — see the project README. You can still paste a token below.';
       } else {
         connectErr.textContent = e instanceof Error ? e.message : String(e);
       }
@@ -565,6 +799,8 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
 
   /** Cancel a pending flow / disconnect — both drop the LOCAL token, then re-poll. */
   async function drop(): Promise<void> {
+    userDropped = true; // an asked-for disconnect is not a lost credential (V-4)
+    credentialLost = false;
     try {
       await api.githubDisconnect();
     } catch {
@@ -583,23 +819,62 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     expiryEl.textContent = fmtExpiry(status?.expiresAt, Date.now());
   }
 
+  /**
+   * The connected credential's facts, one mono line each, and ONLY the ones the
+   * server actually reported. Absent `scopes` says nothing at all about
+   * permissions — for a fine-grained token GitHub does not report them, and
+   * rendering that absence as "no permissions" would be the opposite of true
+   * (design gate V-1).
+   */
+  function renderFacts(s: GithubStatus): void {
+    const lines: HTMLElement[] = [];
+    const storage = storageNote(s.persisted);
+    if (storage !== '') lines.push(el('div', 'gh-fact', storage));
+    const exp = fmtTokenExpiry(s.expiresAt, Date.now());
+    if (exp !== null) lines.push(el('div', `gh-fact${exp.warn ? ' is-warn' : ''}`, exp.text));
+    const scopes = scopesNote(s.scopes); // untrusted strings → textContent (el)
+    if (scopes !== null) lines.push(el('div', 'gh-fact', scopes));
+    factsEl.replaceChildren(...lines);
+    factsEl.hidden = lines.length === 0;
+  }
+
   function render(): void {
     const s = status;
     checkingCard.hidden = s !== null;
-    setupCard.hidden = !(s !== null && !s.configured);
-    const conf = s !== null && s.configured ? s : null;
-    disconnectedCard.hidden = !(conf !== null && conf.state === 'disconnected');
-    connectingCard.hidden = !(conf !== null && conf.state === 'connecting');
-    connectedWrap.hidden = !(conf !== null && conf.state === 'connected');
+    const disconnected = s !== null && s.state === 'disconnected';
+    lostCard.hidden = !(disconnected && credentialLost);
+    disconnectedCard.hidden = !disconnected;
+    tokenCard.hidden = !disconnected; // the paste path is offered whenever it applies
+    connectingCard.hidden = !(s !== null && s.state === 'connecting');
+    connectedWrap.hidden = !(s !== null && s.state === 'connected');
 
-    if (conf !== null && conf.state === 'connecting') {
-      uriSpan.textContent = conf.verificationUri ?? 'github.com/login/device';
-      codeEl.textContent = conf.userCode ?? '—';
+    if (disconnected) {
+      // deviceFlowAvailable hides the BUTTON, never the card and never the
+      // paste path — a server with no OAuth App is exactly who needs the latter.
+      const copy = deviceCardCopy(s.deviceFlowAvailable);
+      connectBody.textContent = copy.body;
+      connectAvatar.hidden = !s.deviceFlowAvailable;
+      connectBtn.hidden = !s.deviceFlowAvailable;
+      deviceFine.textContent = copy.fine;
+      deviceFine.hidden = copy.fine === '';
+      noDeviceNote.textContent = copy.note;
+      noDeviceNote.hidden = copy.note === '';
+      tokenTitle.textContent = copy.tokenTitle;
+      syncRemember();
+    }
+    if (s !== null && s.state === 'connecting') {
+      uriSpan.textContent = s.verificationUri ?? 'github.com/login/device';
+      codeEl.textContent = s.userCode ?? '—';
       renderExpiry();
     }
-    if (conf !== null && conf.state === 'connected') {
-      meName.textContent = `@${conf.login ?? ''}`;
-      meAvatar.textContent = (conf.login ?? '?').slice(0, 1).toUpperCase() || '?';
+    if (s !== null && s.state === 'connected') {
+      meName.textContent = `@${s.login ?? ''}`;
+      meAvatar.textContent = (s.login ?? '?').slice(0, 1).toUpperCase() || '?';
+      const how = sourceLabel(s.source);
+      meSub.textContent = how === '' ? 'connected' : `connected · ${how}`;
+      verifyNote.hidden = s.source !== 'pat';
+      renderFacts(s);
+      revokeEl.textContent = revokeNote(s.source);
       // Rebuild the list ONLY when it actually changed — keeps the search box's
       // focus and the disconnect button's armed state across status polls.
       if (reposVersion !== lastReposVersion) {
@@ -608,6 +883,8 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       }
     }
     syncExpiryTimer();
+    // The first status landed while the tab was open with nothing to focus yet.
+    if (awaitingFocus && active && s !== null) focusFirst();
   }
 
   function renderRepos(): void {
@@ -766,14 +1043,27 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     );
   });
 
+  /**
+   * True while the tab is open but the first status has not landed, so the
+   * panel still shows "checking GitHub…" and has nothing focusable. Without
+   * this, a cold open left focus on <body> — behind the scrim — until the user
+   * pressed Tab; render() now claims it the moment there IS a control.
+   */
+  let awaitingFocus = false;
+
   function focusFirst(): void {
     const s = status;
-    if (s !== null && s.configured) {
-      if (s.state === 'disconnected') connectBtn.focus();
-      else if (s.state === 'connecting') cancelBtn.focus();
-      else if (s.state === 'connected') searchInput.focus();
+    if (s === null) {
+      awaitingFocus = true; // still checking: take focus as soon as we can
+      return;
     }
-    // not-configured / checking: nothing actionable — focus stays on the tab.
+    awaitingFocus = false;
+    if (s.state === 'disconnected') {
+      // Whichever path this server can actually offer first.
+      if (s.deviceFlowAvailable) connectBtn.focus();
+      else tokenInput.focus();
+    } else if (s.state === 'connecting') cancelBtn.focus();
+    else if (s.state === 'connected') searchInput.focus();
   }
 
   function setActive(a: boolean): void {
@@ -797,10 +1087,18 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       render();
       focusFirst();
     } else {
+      // Leaving the tab drops anything typed but not submitted: a pasted
+      // credential never sits in a hidden field waiting for the next open
+      // (II-3 — the field is the only place it ever lives client-side).
+      tokenInput.value = '';
+      tokenErr.hidden = true;
+      tokenInput.classList.remove('is-err');
+      awaitingFocus = false;
       syncExpiryTimer();
     }
   }
 
+  syncRemember();
   onGithubUpdate(render);
   return { el: root, setActive };
 }

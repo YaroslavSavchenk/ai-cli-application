@@ -20,8 +20,10 @@ export interface DataPaths {
   /** Opaque UI preferences bag (theme today; future settings later). */
   prefsFile: string;
   /**
-   * GitHub OAuth device-flow token store (mode 0600). Holds the server-side
-   * access token — NEVER read by the browser-facing API.
+   * GitHub credential store (mode 0600) — from the OAuth device flow OR a
+   * pasted token the user asked to remember. Holds the server-side access
+   * token, which is NEVER returned by the browser-facing API. Not encrypted,
+   * and not claimed to be: see the storage-ceiling note in server/github.ts.
    */
   githubFile: string;
   /** Crash-safe session journal for the CURRENT run. */
@@ -93,20 +95,22 @@ const LOOPBACK_API_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 /**
  * Validate an AI_SM_GITHUB_API_BASE value and return its normalized origin.
  *
- * SECURITY: this knob decides where the stored OAuth access token is sent as a
- * Bearer header. It is therefore restricted to LOOPBACK origins only, so a
- * careless or hostile value can never exfiltrate the token OFF THE MACHINE.
- * Anything else is refused LOUDLY (throws -> the server refuses to start,
- * exactly like a relative AI_SM_CLAUDE_DIR).
+ * SECURITY: this knob decides where the stored GitHub credential (device-flow
+ * token OR pasted token) is sent as a Bearer header. It is therefore restricted
+ * to LOOPBACK origins only, so a careless or hostile value can never exfiltrate
+ * the token OFF THE MACHINE. Anything else is refused LOUDLY (throws -> the
+ * server refuses to start, exactly like a relative AI_SM_CLAUDE_DIR).
  *
  * The residual risk is NOT limited to "another process running as this same
  * user": on Linux ANY local user may bind a loopback port. Since the backend
  * inherits the login shell's environment (launcher/start-backend.sh runs it via
  * `wsl.exe -- bash -lc`), an override left in a shell profile means whichever
- * local account bound that port first receives a `repo`-scope Bearer token — a
- * principal that could never read github.json (0600). Loopback bounds the blast
- * radius to this machine; it does not bound it to this user. Hence: a test seam,
- * unset in normal use.
+ * local account bound that port first receives a credential — a principal that
+ * could not read github.json, since 0600 does hold against another LINUX user
+ * (it does not hold against the Windows user of the same machine; see
+ * memory/knowledge/wsl-0600-not-a-boundary.md). Loopback bounds the blast radius
+ * to this machine; it does not bound it to this user. Hence: a test seam, unset
+ * in normal use.
  *
  * Also refused: non-http(s) schemes, embedded credentials, and any path/query/
  * fragment (the base is an origin, never a prefix that could be re-pointed).

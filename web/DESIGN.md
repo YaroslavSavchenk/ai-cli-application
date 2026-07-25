@@ -405,6 +405,136 @@ project` (blank) · `clones, then registers under Projects` + `Clone ▸` (clone
 Clone is slow and synchronous, so the footer swaps in an honest indeterminate
 spinner `cloning… this can take a while` — never a fake percentage.
 
+## GitHub panel — two credential paths (`web/src/ui/github.ts`)
+
+Added 2026-07-25 (user's decision; security design gate ran BEFORE any code —
+`memory/decisions/github-token-paste-path.md`). The New Project dialog's GitHub
+tab now offers **two ways to connect**: the OAuth device flow and a token the
+user pastes. One credential at a time. `GithubStatus.source` (`device` | `pat`)
+says which is live and EVERYTHING the user must do differently branches on it —
+above all where to revoke, where a wrong instruction leaves a live credential
+the user believes is dead.
+
+`configured` was replaced by `deviceFlowAvailable`, which hides the sign-in
+BUTTON and nothing else: a pasted token needs no OAuth client id, so the paste
+path must stay visible exactly on the servers where sign-in is impossible. The
+old dormant "GitHub isn't set up on this server" card is GONE — it took over the
+whole panel and would now hide the only path that works.
+
+**No new tokens, colors, gradients, shadows, glows, radii or fonts.** The token
+well is the `.gh-newform` inset in the panel's own language (`--bg-deep` on
+`--edge-mid`, `--r-card-sm`), the remember control is the settings /
+`Initialize git repo` checkbox idiom (`.status-row` + `.status-box`), the field
+is `.launch-field`/`.launch-lb`, the busy state is `.np-busy`/`.np-spinner`, and
+the colors keep their exclusive meanings: **amber `--attn` = needs attention**
+(credential stopped working, expiry inside three days, "check the account"),
+**red `--danger` = harm** (the never-paste-someone-else's warning — the same
+permanent red as the bypass permission card — and inline failures), **accent
+`--acc` = interactive**, **green `--ok` = connected**.
+
+### Binding input rules (design gate; enforced in code and by comment)
+
+- `type=password`, `autocomplete=new-password`, `spellcheck=false`, **NO `name`
+  attribute**, and **NOT inside a `<form>`** — submitted from a click handler
+  like every other action here, so no browser save-password prompt fires (the
+  Edge `--app` fallback window is a full Edge profile with a password manager).
+  Enter in the field calls the same handler; it creates no form.
+- The value is set/read **only through the `.value` property**, never a `value`
+  attribute, so the credential never appears in `outerHTML`.
+- The credential's whole client-side lifetime is `submitToken()`: read once,
+  handed to the request, field cleared in the same frame, local reference
+  dropped. NO module variable, timer closure, error object or retry buffer keeps
+  it; a failed add means the user pastes again. Leaving the tab clears the field.
+- No `localStorage` / `sessionStorage` / IndexedDB / cookie / prefs write, and
+  no `history.pushState`, hash or URL involvement — ever.
+- Untrusted strings (login, scopes) render via `textContent`; the repo's
+  zero-`innerHTML` rule is load-bearing here (the page holds the app token).
+
+### Copy — BINDING (pure choosers in `ui/github-model.ts`, pinned by `tests/ui-github-model.test.ts`)
+
+**Storage honesty ceiling.** There is no OS keyring in this environment
+(verified absent) and 0600 does not hold against the Windows side of WSL
+(`memory/knowledge/wsl-0600-not-a-boundary.md`). Nothing may say keychain,
+keyring, encrypted, secure, vault or protected. The strongest permitted
+sentence is `storageNote(true)`, and a test asserts the forbidden words never
+appear in any credential string this module produces.
+
+Disconnected card (`deviceCardCopy`), title `Connect your GitHub account`:
+
+| deviceFlowAvailable | rendering |
+|---|---|
+| `true`  | GH avatar · body `List your repositories from inside the manager, clone them, and create new ones. Connect by signing in with GitHub, or by pasting a token you create yourself.` · button `Connect with GitHub` · fine `sign in once through GitHub · the token is kept server-side, never in the browser · it can read and write every repository on the account, and usually does not expire` |
+| `false` | NO avatar (it belongs to the sign-in action, and 44px would push the working control below the fold) · body `List your repositories from inside the manager, clone them, and create new ones.` · NO button · note `Signing in with GitHub is not set up on this server — see the project README. Pasting a token works without it.` |
+
+A 409 from the device endpoint renders inline: `Signing in with GitHub is not set
+up on this server — see the project README. You can still paste a token below.`
+
+Token well — heading `Or paste a GitHub token` when sign-in also works,
+`Paste a GitHub token` when it is the only path. Order top to bottom:
+
+1. Recommendation (sans body) — **the highest-value security advice in the app**,
+   placed where it is read BEFORE pasting. `Contents`/`Metadata` are permission
+   names on GitHub's own screens, so naming them is allowed under the copy rule,
+   the same way the device-flow URL is:
+   `Recommended: create a fine-grained token on GitHub, limit it to the
+   repositories you want this app to touch, and give it an expiry date. Grant it
+   Contents (read and write); Metadata (read) comes with it.`
+2. Field: label `GITHUB TOKEN`, placeholder `paste your token here`.
+3. `Remember this token` checkbox row (default **ON**, the user's decided
+   default), mono sample `kept on this machine` / `until the app closes`.
+4. Toggle note (`rememberNote`) — the one control that removes the on-disk copy,
+   said plainly:
+   ON `Stored on this machine in the app’s data folder, readable by your own
+   user account.` ·
+   OFF `Kept in this app’s memory only. It disappears when the app closes —
+   about half a minute after the last window — and you paste it again next time.`
+5. `checking with GitHub…` (indeterminate, never a percentage) + primary
+   `Add token`. Empty submit → inline `paste a token first`, no request.
+   Failures show the server's own sentence; `tokenErrText` only covers a
+   bodyless 400 (`GitHub did not accept that token`) / 502 (`could not reach
+   GitHub`) and never describes the token's length, prefix or shape.
+6. Red permanent warning: `Never paste a token someone else gave you. A token
+   you did not create yourself connects this app to their account.`
+7. Fine-print footnote (below the action on purpose): `narrower than signing in,
+   which takes read and write on every repository of the account and usually
+   does not expire · a token limited to selected repositories can list and clone them,
+   but creating a brand-new repository from here needs a broader one`
+
+Connected view — `@login` (large mono) + sub `connected · pasted token` /
+`connected · signed in with GitHub` (`sourceLabel`), then:
+
+- **Account check, pasted token ONLY** (amber): `Check this is the account you
+  meant — clones and new repositories land in it.` A token can silently be for
+  the wrong account; with the device flow the user signed in themselves.
+- **Facts ledger** (`.gh-fact`, mono, one line each, rendered ONLY when the
+  server reported them): `storageNote(persisted)` · `fmtTokenExpiry(expiresAt)`
+  (`expires in N days/hours/minutes` · `expires in under a minute` · `this token
+  has expired`; amber inside 3 days or past) · `scopesNote(scopes)`
+  (`this token can: repo, read:org`). **Absent `scopes` renders NOTHING** — that
+  is what a fine-grained token looks like, and "no permissions" would be exactly
+  backwards; an EMPTY array is a different, real answer and reads `GitHub
+  reports no scopes on this token`.
+- **Revocation, keyed on source** (`revokeNote`) — the instruction that is wrong
+  for the other credential: `pat` → `Disconnect removes the token from this app.
+  To revoke it everywhere, delete it on GitHub under Settings → Developer
+  settings → Personal access tokens.` · `device` → `Disconnect removes the token
+  from this app. To revoke access everywhere, remove the app on GitHub under
+  Settings → Applications.` · unknown source names both screens.
+
+Credential lost (amber strip above the disconnected card, `role=status`) — shown
+when a LIVE connection drops without the user pressing disconnect, which an
+expiring pasted token makes routine: `GitHub stopped accepting the stored
+credential. It may have expired, been revoked, or lost access to your
+repositories. Connect again below.` A user-pressed disconnect never shows it,
+and after a reload no reason is invented.
+
+Top-bar chip (`chipView`) — `disconnected` now reads `Connect GitHub` whatever
+`deviceFlowAvailable` says. Connected shows `@login` plus a mono micro-tag
+naming the credential (`token` / `sign-in`, `.tb-gh-tag`, aria-hidden because
+the accessible name already says it in words: `GitHub — connected as sava with a
+pasted token` / `… by signing in with GitHub`). An unknown source is left
+unlabelled rather than guessed.
+
 ## App settings panel (`web/src/ui/settings.ts`) — the decided four
 
 A modal card opened by the topbar **Settings** button — an icon-only 28px `⚙`
@@ -675,6 +805,16 @@ leaves the empty state — nothing auto-spawns.
   terminal palettes, mono data voice, armed confirms: yes. *"Would a tmux
   power user feel at home?"* — chords for everything, dense mono rows,
   statusline readout, 10 terminal color ramps: yes.
+- 2026-07-25 GitHub token-path re-check: no gradient, shadow, glow, blur, token,
+  color or font was added — the token well reuses the `.gh-newform` inset, the
+  checkbox row reuses the settings idiom, and the only new visual element is a
+  mono micro-tag on the chip that carries real information (which credential).
+  Every control is a real `<button>`/`<input>` with the standard focus ring; the
+  panel has no hover-only affordance. Placed next to 100 AI dashboards it still
+  reads as a credential status block in a terminal tool, not a signup wizard:
+  dense mono facts, an armed disconnect, plain sentences instead of reassuring
+  badges, and no lock icon anywhere — the copy says what the storage actually
+  is rather than drawing a padlock over it.
 - 2026-07-25 delta re-check: the plain-language copy is carried by the SAME mono
   voice (values stay mono, chrome stays Barlow), so the terminal lineage is
   intact — it reads like a tmux status readout in words, not like a friendly
