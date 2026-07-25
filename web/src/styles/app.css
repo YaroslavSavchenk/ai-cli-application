@@ -79,9 +79,7 @@ select,
 .drawer-note,
 .proj-path,
 .proj-meta,
-.dirpath,
 .dirlist,
-.dir-chosen,
 .pane-drop-lb,
 .sc-gesture,
 .theme-note,
@@ -127,7 +125,6 @@ select:focus-visible,
 
 /* section label: letterspaced caps */
 .drawer-label,
-.field-lb,
 .theme-lb,
 .boot-err-hd {
   font-size: var(--fs-label);
@@ -947,17 +944,7 @@ html.scanlines-on .pane-scan {
   font-size: var(--fs-row);
 }
 
-/* ---- shared form bits (projects drawer add-form, dir modal) ----------------- */
-
-.field {
-  display: block;
-  margin-bottom: var(--s-6);
-}
-
-.field-lb {
-  display: block;
-  margin-bottom: var(--s-1);
-}
+/* ---- shared form bits (settings + launch dialog) --------------------------- */
 
 .field-hint {
   font-style: normal;
@@ -1315,43 +1302,6 @@ html.scanlines-on .pane-scan {
 
 .proj-meta.is-on {
   color: var(--ok);
-}
-
-.proj-add {
-  margin: var(--s-3) var(--s-3) var(--s-4);
-  padding: var(--s-5);
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-accent);
-  border-radius: var(--r-btn);
-  animation: fadeUp var(--t-btn) ease;
-}
-
-.proj-add .field {
-  margin-bottom: var(--s-4);
-}
-
-.proj-add-actions {
-  display: flex;
-  gap: var(--s-3);
-  justify-content: flex-end;
-}
-
-.dir-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-}
-
-.dir-chosen {
-  font-size: var(--fs-status);
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-
-.dir-chosen.is-unset {
-  color: var(--text-faint);
 }
 
 /* ---- bottom tab strip (handoff §4, Steam-style) ------------------------------ */
@@ -1723,21 +1673,6 @@ body.is-dnd * {
   gap: var(--s-3);
   padding-left: var(--s-7);
   border-bottom: var(--line) solid var(--edge-mid);
-}
-
-.dirnav {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-3) var(--s-7);
-  border-bottom: var(--line) solid var(--edge-mid);
-}
-
-.dirpath {
-  font-size: var(--fs-status);
-  overflow-wrap: anywhere;
-  min-width: 0;
 }
 
 .dirlist {
