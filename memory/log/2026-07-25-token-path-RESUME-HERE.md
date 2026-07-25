@@ -2,100 +2,116 @@
 type: log
 created: 2026-07-25
 updated: 2026-07-25
-tags: [handoff, github, security, statusline, in-flight]
+tags: [github, security, statusline, start-here]
 ---
-# RESUME HERE — token path mid-flight, statusline phase queued
+# 2026-07-25 (pt.3) — pasted-token path shipped · START HERE next
 
-Written because the session limit was about to hit. **There is uncommitted
-work in the tree** — it is complete and scope-reviewed, not abandoned.
+Third phase of a long day (after [[2026-07-25-pty-tail-rescue]] and
+[[2026-07-25-ui-copy-and-clone-paths]]). **Landed and pushed: `84da3f0`.**
+Suite 462 → 533. Tree clean.
 
-## State of the working tree (uncommitted)
+## What shipped
 
-The **pasted-GitHub-token path** (`[[github-token-paste-path]]`), server +
-browser, both halves landed by their developers. Suite **528 pass / 0 fail**,
-both typechecks clean, vite build clean. Last commit is `4f23fe2` (docs only).
+The **pasted GitHub token** path beside the device flow ([[github-token-paste-path]]).
+`POST /api/github/token` validates with `GET /user` + a repo probe, stores in
+`github.json` 0600 with `source`/`scopes`/`expiresAt`; `remember:false` writes
+nothing and deletes any existing file. `configured` → `deviceFlowAvailable` on
+the wire, and the three connected routes no longer require a client id —
+without that the paste path would have been hidden in exactly the situation it
+exists for. The panel recommends a fine-grained token limited to selected
+repositories with an expiry, and admits what that costs (it cannot create a new
+repo from the app).
 
-- Server: `POST /api/github/token`, validation via `/user` + a repo probe,
-  storage in `github.json` 0600 with `source`/`scopes`/`expiresAt`,
-  `remember:false` writes nothing and deletes any existing file. `configured`
-  REMOVED from the wire in favour of `deviceFlowAvailable`; `listRepos` /
-  `cloneAuthenticated` / `createRepo` no longer require a client id.
-- Browser: token well beside the sign-in card, remember toggle, account
-  verification line, source-branched revocation copy, credential-lost strip,
-  fine-grained recommendation. New repo-wide test guard banning
-  "keychain/encrypted/secure"-style claims in frontend copy.
+## The process fact worth keeping
 
-## Review status
+**The security gate ran BEFORE any code, on the user's explicit request, and
+was committed first (`4f23fe2`).** The auditor then audited against its own
+published list rather than against memory — it could not quietly soften a
+requirement. It re-derived every constraint against a running server: forced
+`#persist()` to fail with `chmod 0500` to confirm `persisted` reports reality,
+proved GitHub's response body is structurally unreachable on failure paths
+(`#mapTokenFailure` takes a `number`), and reproduced the predicted log leak by
+mutating the guard away in a *copy* of the repo. Do this again for anything
+that stores a credential.
 
-- **scope-reviewer: conformant**, no must-fix. Findings below.
-- **security-auditor** (the same agent that wrote the design gate) and
-  **test-engineer**: were still running when the limit approached. Their
-  verdicts are NOT in. **Do not commit before they land** — the gate list they
-  are checking is `memory/decisions/github-token-paste-path.md`.
+## What the gate + reviewers caught that would otherwise have shipped
 
-## Findings awaiting a fixer (from scope review)
+- **A strip that lied in the user's own configuration.** With `remember:false`,
+  a plain backend restart told the user GitHub had rejected their credential —
+  three named causes, all false. Someone would have revoked a healthy token.
+- **Two measured log leaks.** Node embeds a fragment of the request body in
+  `JSON.parse` errors, and the shared handler logged `String(err)` plus the
+  full URL. Fixed on the token route *and* repo-wide (error class + pathname
+  only). Rule recorded: any future secret-bearing route copies the safe reader,
+  and no credential ever rides in a query string.
+- **A 403 as an opaque 502** on create-repo — the most predictable failure of
+  the credential we recommend.
+- **Two mutually-shadowing tests**: the existing test stubbed 500 on *both*
+  upstream calls, so either `!ok` guard could be deleted unnoticed. Consequence
+  of the `/user` half: a partial GitHub outage would connect the app with an
+  unverified identity.
+- A live mutation-test mutant (`if (true) // MUT r2`) sat in the tree for ~13
+  minutes while the test engineer worked. Harmless — the suite kills it — but
+  **verify `git diff | grep MUT` is empty before every commit** now.
 
-- **S1 `web/src/ui/github.ts:176`** — `credentialLost = !userDropped` fires on
-  ANY unasked-for disconnect, so with `remember:false` a plain backend restart
-  tells the user "GitHub stopped accepting the stored credential… expired,
-  revoked, or lost access" when the truth is "you chose not to store it".
-  All three named causes false, in the mode the user's own toggle creates.
-  `prev?.persisted === false` is already in hand to suppress it.
-- **S2 `server/github.ts:1022`** — `createRepo` maps every non-ok to
-  `502 github request failed`. A fine-grained token limited to selected
-  repositories gets **403** there — the most predictable failure of the
-  credential the panel recommends, shown in our most opaque message.
-  `#mapTokenFailure` next door is the pattern to copy.
-- **S3 `web/src/ui/github.ts:717`** — `.gh-tokeninput.is-err` has no CSS rule;
-  the field never turns red. Error still reaches the user as text.
-- Notes: N1 stale `configured` doc comment (`web/src/api.ts:234`); N2
-  DESIGN.md quotes a typographic apostrophe the code does not use; N4 the
-  "does not expire" claim is false if the OAuth App enables token expiry;
-  N5 `expiresAt` carries two meanings gated on `state`; N6 `userDropped` can
-  latch; N7 PROJECT-SCOPE still says "implementation queued" (orchestrator's).
-- Settled by review, do NOT collapse: `scopes` **absent** (fine-grained — no
-  scopes header) vs **`[]`** (classic token with zero scopes) are different
-  facts; collapsing would tell a user their correctly-configured recommended
-  token has no permissions.
+## Honest limits recorded, not papered over
 
-## Next phase, already researched and decided — statusline in Claude Code
+- `0600` is not a boundary against Windows ([[wsl-0600-not-a-boundary]]).
+- No keyring exists in this distro; same-disk encryption is theatre; BitLocker
+  covers the only case it would address. **User action pending: check BitLocker
+  on `C:`.**
+- "No lateral movement after app access" cannot be promised — `POST
+  /api/sessions` spawns arbitrary commands as the user *because that is the
+  product*. The deliverable promise is "unauthorized parties cannot reach the
+  app", which was verified to hold.
+- Unsetting `AI_SM_GITHUB_CLIENT_ID` is NOT a kill switch for a stored
+  credential. Disconnect is.
 
-The user's decisions (2026-07-25): our per-pane status strip is **removed** and
-replaced by Claude Code's own status line; settings keeps ONLY the status-line
-config — **launch defaults, usage display AND the auto-run startup command are
-deleted**, including their backends (`/api/usage`, `/api/telemetry`,
-`ui/startup.ts`, the prefs keys). Scoped to app-launched sessions only — the
-user's `~/.claude/settings.json` is never touched.
+# START HERE — the statusline phase (researched, not built)
 
-Verified contract (docs fetched 2026-07-25, raw copies were in the scratchpad —
-re-fetch if gone):
+**User decisions (2026-07-25), all taken, none open:** our per-pane status strip
+is **removed** and replaced by Claude Code's own status line; the settings panel
+keeps ONLY the status-line config — **launch defaults, usage display AND the
+auto-run startup command are deleted**, including their backends
+(`/api/usage`, `/api/telemetry`, `ui/startup.ts`, `ui/statusbar.ts`, their prefs
+keys). This reverses the 2026-07-20 "decided four" — say so in the scope doc.
+Scoped to app-launched sessions only; the user's `~/.claude/settings.json` is
+never touched. A notice must tell the user when sessions need restarting.
 
-- **`claude --settings /abs/path.json`** — key-level merge for that session
-  only, writes nothing, leaves their hooks/MCP/permissions/model alone. This is
-  the mechanism. `CLAUDE_CONFIG_DIR` would nuke their credentials, history and
-  trust state — rejected. Project `.claude/settings.json` mutates their repo and
-  loses to their own local settings — rejected.
-- **Live updates need no restart**: the command re-runs on every assistant
-  message, `/compact`, permission-mode change, and on `refreshInterval` (min 1s)
+**Verified contract** (docs fetched 2026-07-25 — re-verify version-gated items):
+
+- **`claude --settings /abs/path.json`** — key-level merge, that session only,
+  writes nothing, leaves their hooks/MCP/permissions/model alone. This is the
+  mechanism. `CLAUDE_CONFIG_DIR` would take out their credentials, history and
+  trust state — rejected. A project `.claude/settings.json` mutates their repo
+  and loses to their own local settings — rejected.
+- **Live updates need no restart.** The command re-runs on every assistant
+  message, `/compact`, permission-mode change, and on `refreshInterval` (min 1 s)
   if set. Point `command` at a stable script that reads a config file each
   invocation → toggles apply to running sessions. Only sessions started WITHOUT
-  our `--settings` need a restart, and those are detectable — that is the honest
-  scope of the "restart these sessions" notice the user asked for.
-- **stdin payload gives natively**: `model`, `cost.total_cost_usd`,
+  our `--settings` need a restart — and those are detectable, so the notice can
+  name them instead of nagging everyone.
+- **stdin gives natively**: `model`, `cost.total_cost_usd`,
   `cost.total_lines_added/removed`, `context_window.used_percentage` +
   `context_window_size`, `transcript_path`, `session_id`, `workspace.*`.
   **NOT in the payload: git branch** (shell out to `git branch --show-current`,
-  cache on `session_id` ~5 s) and **permission mode** (so the per-session
-  settings file must carry it as an argument).
+  cache on `session_id` ~5 s — never on pid) and **permission mode** (so the
+  per-session settings file carries it as an argument).
 - **`rate_limits` IS in the payload** (five-hour + seven-day, with reset
-  timestamps; Claude.ai Pro/Max, after the first API response). This revives the
-  `usage %` item we deferred as unsourceable — it can now be honest.
-- **Honest failure mode to build for**: the status line command does not run
-  until the workspace trust dialog is accepted for that cwd — the bar is simply
-  blank, no error. First look at a newly created project is exactly that case.
-- Non-zero exit or empty output → blank line. No documented timeout. Emoji
-  width policy undocumented → prefer ASCII. Invoke via `node /abs/x.mjs` so a
-  missing exec bit cannot silently blank the bar.
+  timestamps; Claude.ai Pro/Max, after the first API response). This revives
+  the `usage %` item we shipped as an honestly-disabled row — it can now be
+  real. See [[2026-07-24-status-bar]] for why it was deferred.
+- **Build for this failure mode**: the status line does not run until the
+  workspace trust dialog is accepted for that cwd — the bar is simply blank,
+  no error. A newly created project is exactly that case.
+- Non-zero exit or empty output → blank. No documented timeout. Emoji width
+  policy undocumented → prefer ASCII. Invoke as `node /abs/x.mjs` so a missing
+  exec bit cannot silently blank the bar.
+
+**Also still open, both user-side and both now four sessions old:**
+`/verify-terminal` live pass on Windows, and registering the GitHub OAuth App
+(no longer blocking — the token path works without it).
 
 Related: [[github-token-paste-path]], [[wsl-0600-not-a-boundary]],
-[[no-code-in-ui-copy]], [[2026-07-25-ui-copy-and-clone-paths]]
+[[no-code-in-ui-copy]], [[2026-07-25-ui-copy-and-clone-paths]],
+[[2026-07-24-status-bar]], [[localhost-security-model]]

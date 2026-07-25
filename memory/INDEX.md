@@ -35,6 +35,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-07-25-token-path-RESUME-HERE]] — **START HERE**: pasted-token path shipped (`84da3f0`, suite→533) with the security gate published BEFORE the code and audited against itself; caught a strip that lied in the user's own config, two measured log leaks, and two mutually-shadowing tests. Carries the fully-researched statusline phase as the next brief
 - [[2026-07-25-ui-copy-and-clone-paths]] — plain-language UI copy pass (no commands/flags in the GUI, user's call) + owner-qualified clone paths; the design-delta turned out to be 2 cosmetic items; gate caught a summary that could drift from the spawn, a proven directory-wipe primitive (+ a pre-existing twin), and a test vacuous for 4 of 6 consumers; suite 396→462
 - [[2026-07-25-pty-tail-rescue]] — the lost PTY tail FIXED via dev-flow (suite 391→396); root cause was libuv, not node-pty. Reviewers caught a comment asserting an invariant the code didn't implement, and twice turned an inherited guarantee into a local one. node-pty pinned exactly; `/verify-terminal` live pass still open
 - [[2026-07-24-github-hardening]] — test-hardening via full dev-flow, suite 288→391: `github-model.ts` extraction (clock injected), `AI_SM_GITHUB_API_BASE` loopback-only test seam, `redirect: 'error'` on token-bearing calls. Lessons: an in-process seam can't reach an out-of-process server; "unavoidable coverage gap" was refuted by a `git` double on PATH; a runtime-inherited guarantee isn't one. Found (not caused) [[pty-exit-data-race]]
