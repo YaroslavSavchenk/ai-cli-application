@@ -13,11 +13,7 @@
  *   - LABELS (`PERMS.title/desc`, `PERM_SHORT`, `launchSummary`) are what the
  *     user reads. Changing a label must never change an emitted arg.
  */
-import type {
-  ClaudePermissionMode,
-  PermissionMode,
-  UiLaunchDefaults,
-} from '../../../shared/protocol.ts';
+import type { ClaudePermissionMode, PermissionMode } from '../../../shared/protocol.ts';
 
 /** Handoff model list — the dialog launches `claude` (server spawns argv, never shell). */
 export const MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
@@ -46,10 +42,10 @@ export const PERMS: { mode: Perm; title: string; desc: string; danger: boolean }
 
 /**
  * Short forms for the NARROW chips — the pane-header permission tag
- * (`permFromArgs` in ./util.ts) and the per-pane status bar's `mode` item.
- * Total over the vocabulary so the map can't drift from `Perm`; `default`
- * never actually reaches a tag (the default mode shows no tag at all — see
- * `permFromArgs`), it is here so the set stays complete and type-checked.
+ * (`permFromArgs` in ./util.ts). Total over the vocabulary so the map can't
+ * drift from `Perm`; `default` never actually reaches a tag (the default mode
+ * shows no tag at all — see `permFromArgs`), it is here so the set stays
+ * complete and type-checked.
  */
 export const PERM_SHORT: Record<Perm, string> = {
   default: 'always ask',
@@ -200,7 +196,7 @@ export function permFromDefaultMode(mode: PermissionMode | undefined): Perm | nu
 }
 
 // ---------------------------------------------------------------------------
-// Global launch defaults (settings panel `UiLaunchDefaults`) + precedence
+// Launch-dialog pre-selection + precedence
 // ---------------------------------------------------------------------------
 
 const PERM_SET: ReadonlySet<string> = new Set(PERMS.map((p) => p.mode));
@@ -216,57 +212,27 @@ export function isModelId(v: unknown): v is (typeof MODELS)[number] {
 }
 
 /**
- * Sanitize a persisted (server- or localStorage-sourced) launch-defaults bag
- * into a known-good shape — drops unknown models/modes, coerces a non-string
- * startup command away. Mirrors clampTheme's tolerance for a bag that crossed
- * a JSON boundary. Absent members stay absent (they mean "no global default").
- *
- * The startup command is additionally stripped of control characters
- * (`\x00-\x1f`, including `\r`/`\n`, and `\x7f`) and trimmed at this boundary:
- * the arming path feeds it to the PTY as `line + '\r'` (terminal.ts), so one
- * configured line must submit as exactly one line. A single-line UI <input>
- * already guarantees this; the persisted-bag path did not until here. A value
- * that strips to empty means "off" — the member is left absent.
- */
-export function clampLaunchDefaults(raw: unknown): UiLaunchDefaults {
-  const o = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const out: UiLaunchDefaults = {};
-  if (isModelId(o.model)) out.model = o.model;
-  if (isPerm(o.permissionMode)) out.permissionMode = o.permissionMode;
-  if (typeof o.startupCommand === 'string') {
-    const cleaned = o.startupCommand.replace(/[\x00-\x1f\x7f]/g, '').trim();
-    if (cleaned !== '') out.startupCommand = cleaned;
-  }
-  return out;
-}
-
-/**
  * Precedence chain for the launch dialog's pre-selected model:
- *   explicit project defaultModel  >  global default  >  hardcoded MODELS[0].
- * Only models in MODELS win; anything else falls through to the next tier.
+ *   explicit project defaultModel  >  hardcoded MODELS[0].
+ * Only models in MODELS win; anything else falls through to the fallback. The
+ * per-launch choice always beats both — the dialog stays editable after this
+ * resolves (it runs once per open).
+ *
+ * The middle tier used to be an app-wide default in the settings panel; it was
+ * removed 2026-07-26 with the rest of the retired settings, so a project's own
+ * default is now the only stored preference.
  */
-export function resolveModel(
-  global: UiLaunchDefaults | undefined,
-  projectModel: string | undefined,
-): (typeof MODELS)[number] {
-  if (isModelId(projectModel)) return projectModel;
-  if (isModelId(global?.model)) return global.model;
-  return MODELS[0];
+export function resolveModel(projectModel: string | undefined): (typeof MODELS)[number] {
+  return isModelId(projectModel) ? projectModel : MODELS[0];
 }
 
 /**
  * Precedence chain for the launch dialog's pre-selected permission mode:
- *   explicit project defaultMode (skip-permissions → bypass)  >  global
- *   default  >  hardcoded 'default'. The project's legacy 2-value mode only
- *   asserts a preference when it is `skip-permissions`; `standard`/absent
- *   defer to the global default.
+ *   explicit project defaultMode (skip-permissions → bypass)  >  hardcoded
+ *   'default'. The project's legacy 2-value mode only asserts a preference when
+ *   it is `skip-permissions`; `standard`/absent assert nothing and land on the
+ *   ask-first fallback.
  */
-export function resolvePerm(
-  global: UiLaunchDefaults | undefined,
-  projectMode: PermissionMode | undefined,
-): Perm {
-  const fromProject = permFromDefaultMode(projectMode);
-  if (fromProject !== null) return fromProject;
-  if (isPerm(global?.permissionMode)) return global.permissionMode;
-  return 'default';
+export function resolvePerm(projectMode: PermissionMode | undefined): Perm {
+  return permFromDefaultMode(projectMode) ?? 'default';
 }

@@ -32,9 +32,8 @@ reference; the single source is `web/src/ui/launch-args.ts` (`PERMS`,
 The bypass description keeps `--danger` red selected or not — the warning never
 disappears.
 
-**Short forms** for narrow chips (`PERM_SHORT` — pane-header permission tag via
-`permFromArgs`, the per-pane status bar `mode` item, the settings status-bar row
-sample): `default` → `always ask` · `acceptEdits` → `auto edits` · `plan` →
+**Short forms** for narrow chips (`PERM_SHORT` — the pane-header permission tag
+via `permFromArgs`): `default` → `always ask` · `acceptEdits` → `auto edits` · `plan` →
 `read-only` · `bypassPermissions` → `no prompts` · `--dangerously-skip-permissions`
 → `no prompts`. Danger detection is unchanged (both bypass forms are danger);
 `default` still renders NO tag at all, so its short form never appears. A mode
@@ -78,9 +77,9 @@ continues where the session stopped`; new-project git toggle sample `git init` �
 `starts version history` (title `start tracking changes in the new project
 folder`); new-project clone tab `$ git clone <url> <dest>` preview → the
 three-line `copies` / url / `into folder: <dest>` summary (exact lines and `—`
-empty state in the New Project dialog section below); settings startup-command
-placeholder → `a line to run in every new session`, hint → `typed into each new
-session once it's ready · empty = off`.
+empty state in the New Project dialog section below). (The settings panel's
+startup-command copy was listed here until 2026-07-26; the control itself is
+gone — see the settings-panel section.)
 
 ## Direction (one sentence)
 
@@ -346,8 +345,9 @@ Entry points: topbar `+ New session`, tab-strip ghost `+`, projects-drawer
 row `+` (project pre-set, defaults applied), empty-state button, Ctrl+Alt+T.
 
 **Pre-selection precedence** (model + permission, `resolveModel`/`resolvePerm`
-in `launch-args.ts`, unit-tested): **explicit project default > global
-settings default > hardcoded fallback**. On every open the dialog resolves
+in `launch-args.ts`, unit-tested): **explicit project default > hardcoded
+fallback** (the middle tier — an app-wide default in the settings panel — was
+removed 2026-07-26 with that section). On every open the dialog resolves
 model + permission ONCE against the selected project through those two
 `resolve*` functions (`applyDefaults`): a project-intent open force-selects
 its project first (`defaultModel` when in the model list; `defaultMode:
@@ -356,9 +356,7 @@ auto-selected first project — either way the same precedence runs, so a
 project default is layered on every open, not only project-intent opens. A
 per-launch edit always wins (the dialog stays fully editable) and is not
 persisted, and a mid-dialog project switch does NOT re-resolve — per-launch
-control stays with the user once the dialog is open. The global defaults are
-read live via `getDefaults()`, so a change in the settings panel pre-selects
-the NEXT open with no reload.
+control stays with the user once the dialog is open.
 
 ## New Project dialog (`web/src/ui/newproject.ts`)
 
@@ -535,118 +533,137 @@ the accessible name already says it in words: `GitHub — connected as sava with
 pasted token` / `… by signing in with GitHub`). An unknown source is left
 unlabelled rather than guessed.
 
-## App settings panel (`web/src/ui/settings.ts`) — the decided four
+## App settings panel (`web/src/ui/settings.ts`) — status line only
 
-A modal card opened by the topbar **Settings** button — an icon-only 28px `⚙`
-(`tb-btn is-icon`), FIRST of the right-hand controls (see the topbar order in
-Shell anatomy) — in the established modal language: the **shared gradient
-dialog header** (`launch-hd` + 30px `launch-tile` holding the `⚙` glyph +
-`Settings` + mono subtitle `launch defaults · usage · terminal status bar`),
-Escape / backdrop / × / **Done** all dismiss, Tab-trapped, focus restores to the
-invoker. Footer: `Reset to defaults` left, accent-blue primary `Done`
-(`btn is-acc`) right. It holds exactly the user-decided four (PROJECT-SCOPE) and
-nothing more — no usage-limit enforcement, no plan display:
+Rewritten 2026-07-26. The panel used to hold four things; three of them are
+gone with the features they configured, and the fourth was replaced by the real
+thing:
 
-- **LAUNCH DEFAULTS** — reuses the dialog's own idioms: a **model** `<select>`
-  (the four models + an explicit `no default` that falls back to the dialog's
-  hardcoded first), the dialog's **2×2 permission cards** (`perm-grid`/
-  `perm-card`, all four modes incl. `plan`; danger card keeps its red desc),
-  and a full-width mono **auto-run startup command** input (placeholder `a line
-  to run in every new session`, hint `typed into each new session once it's
-  ready · empty = off`). Each control commits on change; `close()`
-  flushes an un-blurred edit. Persisted as the prefs bag's `defaults`
-  (`UiLaunchDefaults`) via `api.updatePrefs({defaults})` — omitting off/none
-  values (no `model` when "none", no `permissionMode` when `default`, no
-  `startupCommand` when blank) so the bag stays minimal and `resolve*` treats
-  absent === fallback.
-- **USAGE** (read-only, from `GET /api/usage`) — a dense JetBrains-Mono ledger
-  in the statusline voice, NOT KPI stat-cards: a totals block (headline total
-  + `in/out/cache+/read` breakdown + `N-day window · S sessions · E entries
-  [· M malformed skipped]`), then `BY DAY` (most-recent-first, `date →
-  grouped-total`) and `BY MODEL` (`model → total · N×`). Fetched on open and
-  on an explicit `refresh` only — never polled (the 30s server cache makes
-  opens cheap); an in-flight fetch is superseded/cancelled by token. Numbers
-  are grouped via `fmtCount` with `tabular-nums`. Model strings are Claude-
-  Code-log-derived → rendered via `textContent` (untrusted display text; the
-  repo's zero-`innerHTML` rule holds). A plain caveat states it is
-  approximate, local, and cannot change account-side limits.
+- **launch defaults + auto-run startup command** — removed. The launch dialog
+  now pre-selects from the PROJECT's own defaults (see the precedence paragraph
+  in the Launch dialog section); `ui/defaults.ts` and `ui/startup.ts` are
+  deleted.
+- **usage ledger** — removed with `GET /api/usage`.
+- **terminal status bar** (the app-rendered per-pane strip) — removed with
+  `GET /api/telemetry`; the pane is header + terminal again.
+- **status line** — the section that stayed, now bound to Claude Code's OWN
+  status line, which the session draws inside its terminal.
 
-**Auto-run startup command mechanics** (`ui/startup.ts` + `terminal.ts`
-`onFirstData`/`typeStartup`): claude-mode launches ONLY (never a custom-command
-session). The launching window `armStartupCommand(sessionId, line)` at spawn;
-the session's TerminalView fires `onFirstData` on its FIRST live output frame
-after attach (replay frames never trigger it) and `consumeStartupCommand`
-returns the line ONCE, then the pane types `line + CR` over the socket.
-"Ready" is defined honestly and simply as that first output — no prompt-
-detection heuristics. The guard is client-side once-per-spawn: a reattach's
-first-output finds the entry already consumed, and only the arming window
-ever held it, so a session adopted from elsewhere never retro-runs it.
+Terminal themes are NOT here: they live in the theme popover (`ui/theme.ts`),
+untouched.
 
-**Prefs write discipline** — two writers now share the bag (`theme` from the
-popover, `defaults` from the panel). `PUT /api/prefs` replaces the WHOLE
-object, so both go through `api.updatePrefs(patch)` = GET current bag →
-shallow-merge patch at the top level → PUT. Last-write-wins per top-level key
-across concurrent windows (documented, not solved); fire-and-forget failure
-tolerance stays (localStorage/in-memory hold the value for the run).
+**Shell** — unchanged modal language: shared gradient dialog header
+(`launch-hd` + 30px `launch-tile` holding the `⚙` glyph + `Settings` + mono
+subtitle `what each session shows in its status line`), Escape / backdrop / × /
+**Done** all dismiss, Tab-trapped, focus restores to the invoker, focus enters
+the master switch on open. Footer: `Reset to defaults` left, accent-blue primary
+`Done` (`btn is-acc`) right.
 
-## Terminal status bar (per-pane telemetry strip)
+**Body** — ONE `settings-sect` labelled `STATUS LINE`, in order:
 
-Added 2026-07-24. A thin vim-statusline descendant under each terminal (the
-hero recedes; the strip is chrome). One new token: `--surface-panestatus:
-#0b0e13` (darker than `--term-bg #0e1116`; sits below the terminal); border-top
-reuses `--edge-soft`. Everything else reuses existing tokens.
+1. Two `.settings-note` captions. First: `Claude Code draws a status line at the
+   bottom of every session started here. Pick what it shows — changes reach
+   running sessions within a couple of seconds.` Second, the blank-bar truth
+   said out loud so an empty line reads as normal rather than broken: `A session
+   shows nothing until its first reply — and when Claude asks you to trust a
+   folder it has not worked in before, the line stays blank until you do.`
+2. The **relaunch notice** (`.settings-notice`, `role=note`), rendered ONLY when
+   it is true — see below.
+3. The **master switch**, its own `.status-rows` group: `Show the status line`.
+4. The **seven item rows** (`.status-rows.settings-items`, `role=group`,
+   aria-label `status line items`), each a keyboard-reachable
+   `<button class="status-row">` with the 16px checkbox square (`✓` in
+   `--term-bg` on `--acc` when on) and `aria-pressed`. The right-hand
+   `.status-sample` is the LITERAL text that item draws, so the row promises
+   exactly what appears:
 
-**Strip** (`.pane-status`, LAST child of the pane, after `term-host`):
-`flex:none; height:22px; padding:0 12px; gap:12px;
-background:var(--surface-panestatus); border-top:1px solid var(--edge-soft);
-font-family:var(--font-mono); font-size:var(--fs-micro) (10px); overflow:hidden;
-white-space:nowrap`. Items are `<span class="pane-status-item">` colored by
-SEMANTIC role: neutral → `var(--xt-bright-black)` (the terminal's themable dim,
-so the strip harmonizes with the active xterm theme), `skill` → `var(--acc)`,
-`bypassPermissions` mode → `var(--danger)`. The strip is HIDDEN (no empty 22px
-bar) until ≥1 enabled item has a real value; its show/hide changes pane
-geometry → the existing ResizeObserver→FitAddon→ws-resize chain re-sizes the
-PTY.
+   | row              | key       | default | sample       |
+   |------------------|-----------|---------|--------------|
+   | Model            | `model`   | on      | `opus`       |
+   | Permission mode  | `mode`    | on      | `always ask` |
+   | Git branch       | `branch`  | on      | `git:main`   |
+   | Cost so far      | `cost`    | on      | `$0.42`      |
+   | Lines changed    | `lines`   | off     | `+128 -41`   |
+   | Context used     | `context` | on      | `ctx 62%`    |
+   | Account usage    | `usage`   | off     | `5h 38%`     |
 
-**Honesty rule** (as everywhere): an item renders only when its toggle is ON
-*and* a real value exists — never fabricated. Item table:
+   `Account usage` — the row that was a DISABLED "not available" placeholder in
+   the old strip — is now a real toggle, because the account rate-limit windows
+   really are in the payload Claude Code hands the script. Its
+   `.settings-rowcap` states the honest scope: `works with a Claude Pro or Max
+   account · appears after the session's first reply`. The `Permission mode`
+   row carries a rowcap too — `shows the mode the session was started with` —
+   the known-limit caption for the launch-mode-only item.
 
-| item    | source (client-side vs poll)                        | format          |
-|---------|-----------------------------------------------------|-----------------|
-| model   | launch argv (`modelFromArgs`) — client, no poll     | `opus`          |
-| mode    | launch argv (`permFromArgs`) — client, no poll      | `auto edits`    |
-| skill   | telemetry `skill` — poll                            | `skill: edit`   |
-| cost    | telemetry `costUsd` — poll                          | `$0.42`         |
-| context | telemetry `contextTokens`/`contextMax` — poll       | `ctx 62k/1000k` |
-| time    | `SessionInfo.createdAt`, ticked 1s — client         | `08:42` (mm:ss) |
-| branch  | telemetry `branch` — poll                           | `⎇ feat/auth`   |
-| diff    | telemetry `add`/`del` — poll (omit if both 0)       | `+128 −41`      |
+With the master switch off the item group takes the launch dialog's
+`is-disabled` treatment (0.45 opacity) and its buttons go `disabled` — they
+decide nothing while the line is not drawn.
 
-`model`/`mode`/`time` are derived CLIENT-SIDE (always available, no poll);
-`branch`/`cost`/`context`/`diff`/`skill` come from `GET /api/telemetry`, polled
-~3s while ≥1 pane is visible (paused when hidden / no panes; refreshed once on
-focus/visibility change). Last-known telemetry is cached per session id so an
-EXITED pane keeps its final values (the endpoint omits exited sessions);
-`time` drops off at exit (session no longer running). Untrusted strings
-(branch, skill, model — git/Claude-log derived) render via `textContent`.
+**Relaunch notice** — the ONE thing a toggle cannot fix. A session only has a
+status line when the server injected its per-session settings file at spawn
+(`SessionInfo.statusline === true`); item toggles apply to running sessions
+live, but a session started without one has to be relaunched.
+`sessionsWithoutStatusLine()` (in `ui/statusline-model.ts`, unit-tested) selects
+RUNNING sessions whose command basename is `claude` and whose `statusline` is
+not true — exited sessions and other agents are never mentioned. Empty set = the
+notice does not exist. Otherwise: `These sessions were started without a
+status line. End them and start them again to add one:` plus a mono
+`.settings-notice-names` line joining their display labels with ` · ` — a
+session titled by the user keeps its title; an untitled one renders the shared
+`commandLabel()` product name, and colliding labels append the project name in
+parentheses when one exists (all untrusted → `textContent`). It re-renders on the session poll while the panel is open. Item
+toggles never produce it — nagging for a change that already applied would be a
+lie.
 
-Defaults ON: model, mode, branch, cost, context. OFF: time, diff, skill.
-Persisted in the prefs bag under `statusBar` (server-side, NOT localStorage —
-the port-churn lesson), via the same `api.updatePrefs` merge as `defaults`.
-`usage %` is deliberately absent — an account rate-limit percent lives in live
-API headers, not the local logs, so there is no honest source (shown only as a
-DISABLED settings row labeled "not available from local logs").
+**Persistence** — every toggle writes immediately:
+`api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS)` = GET the bag →
+shallow-merge `statusLine` → DROP `defaults` and `statusBar` → PUT. The drop list
+is how a key is actually deleted from a bag whose write is a whole-object
+replace; it retires the two keys this app stopped writing. `theme` and any
+unknown key survive untouched. Every member of `statusLine` is written
+explicitly (absent means "factory default" to the script, which is not the same
+statement as "the user chose this"). On open the panel re-reads the bag once and
+re-seeds the toggles — unless the user has already toggled something in that
+open, so a slow response can never undo a fresh choice.
 
-**Settings section** — a third `settings-sect` "TERMINAL STATUS BAR" after
-USAGE: a live preview (the `.pane-status` strip, boxed:
-`height:24px; border:1px solid var(--edge-soft); border-radius:var(--r-field)`)
-of the focused/first running session's live telemetry (representative samples
-when none runs; "status bar hidden" when nothing enabled); eight keyboard-
-reachable `<button class="status-row">` toggles (16px checkbox square, `✓` in
-`--term-bg` on `--acc` when on; `aria-pressed` reflects state) matching
-`UiStatusBar`; a ninth DISABLED "Usage limit" row (honest deferral). A footer
-"Reset to defaults" button (left of `Done`) restores the ON/OFF defaults. Each
-toggle persists immediately and re-renders open panes live (no reload).
+**Where the toggles are read** — NOT by the browser. `server/statusline.mjs`
+reads `prefs.json` directly on every invocation, which is what makes a toggle
+apply to already-running sessions with no restart. The factory table in
+`ui/statusline-model.ts` therefore has to stay byte-identical to
+`DEFAULT_CONFIG` in that script; `tests/ui-statusline-model.test.ts` parses the
+script and asserts it.
+
+**Prefs write discipline** — two writers share the bag (`theme` from the
+popover, `statusLine` from the panel). `PUT /api/prefs` replaces the WHOLE
+object, so both go through `api.updatePrefs(patch, drop?)`. Last-write-wins per
+top-level key across concurrent windows (documented, not solved);
+fire-and-forget failure tolerance stays (the in-memory value holds for the run).
+
+## Terminal status line (drawn by the session, not by us)
+
+Replaced the app-rendered per-pane strip on 2026-07-26. There is no app DOM for
+it at all: Claude Code prints the line inside its own terminal, from
+`server/statusline.mjs`. What that means for this frontend:
+
+- **The pane is header + terminal.** `.pane-status`, `.pane-status-item` and the
+  `--surface-panestatus` token are gone, `ui/statusbar.ts` with them. One less
+  element in the pane's vertical flex means the terminal is 22px taller; the
+  existing ResizeObserver → FitAddon → ws-resize chain propagates that like any
+  other geometry change.
+- **No telemetry poll.** The 3s `GET /api/telemetry` loop and its 1s time tick
+  are gone; nothing in the pane path polls anymore.
+- **Order and formatting are the script's**, joined with ` | `: model · mode ·
+  `git:<branch>` · `$<cost>` · `+<added> -<removed>` · `ctx <n>%` · `5h <n>% 7d
+  <n>%`. The settings rows quote these verbatim as samples rather than inventing
+  a second formatting.
+- **Honesty rule survives the move**: an item is drawn only when its toggle is on
+  AND the payload carries a real value. A blank bar is a normal state (before the
+  first reply, in a folder Claude has not been trusted in yet, or in a session
+  started without a status line) — the panel says so in words.
+- **Known limit — the permission-mode item names the LAUNCH mode**: Claude Code
+  2.1.220 sends no permission mode in the status-line payload, so a mode changed
+  mid-session (shift+tab) is not reflected; the settings row carries the caption
+  `shows the mode the session was started with`.
 
 ## Boot panel (handoff §10 visual language, minus fiction — R3)
 
@@ -690,20 +707,22 @@ leaves the empty state — nothing auto-spawns.
   screen — the ORIGINAL handoff was silent on settings. Built by user decision
   2026-07-20 (PROJECT-SCOPE "App settings panel"), designed entirely inside
   the established modal/dialog language (see "App settings panel" above), no
-  new colors/tokens. The frontend-designer anti-slop rules governed what was
-  added: a mono usage ledger (not KPI stat-cards), the dialog's own select +
-  permission-card idioms for the defaults. **Superseded 2026-07-25** — the
+  new colors/tokens. **Reduced 2026-07-26** to a single status-line section,
+  which lands it on the same shape the prototype's own settings dialog has: one
+  labelled section, a caption, checkbox rows, `Reset to defaults` / `Done`.
+  **Superseded 2026-07-25** — the
   user's refreshed `design/session-manager-prototype.html` (2026-07-24) DOES
   contain a settings dialog and an icon-only gear, so the two 2026-07-20 guesses
   below were replaced by the primary source (primary-source rule:
   `memory/decisions/handoff-design-primary.md`):
   - the panel's **plain label header → the shared gradient dialog header**
     (prototype lines 435–472: `launch-hd` + 30px `launch-tile` + `⚙` +
-    `Settings` + mono subtitle). Our subtitle reads `launch defaults · usage ·
-    terminal status bar` rather than the prototype's `terminal status bar ·
-    saved on this machine`, because the prototype's caption predates
-    launch-defaults + usage and "saved on this machine" is wrong for us (prefs
-    live server-side in `prefs.json`) — honesty beats transcription.
+    `Settings` + mono subtitle). Our subtitle reads `what each session shows in
+    its status line` rather than the prototype's `terminal status bar · saved on
+    this machine`: the second half is wrong for us (the toggles are read from
+    the app's data dir by the script Claude Code runs, not from the browser), and
+    the first half names a strip that no longer exists — honesty beats
+    transcription.
   - the footer's neutral **`Close` → the prototype's accent-blue primary
     `Done`** (`btn is-acc`: `--acc-tint` fill, `--acc` border/ink, hover
     `--acc-sel`; the same recipe as `.gh-repo-act.is-clone`, so no new token).
@@ -821,3 +840,16 @@ leaves the empty state — nothing auto-spawns.
   SaaS wizard. No new gradient/shadow/glow/blur, no new token, no new color; the
   one added button variant reuses the accent tints already in the file, and the
   one added glyph is the prototype's own.
+- 2026-07-26 status-line re-check: this pass is mostly SUBTRACTION — one token
+  (`--surface-panestatus`), the whole `.pane-status*` block, the usage ledger's
+  `.settings-usage*`/`.settings-led*` rules and the boxed strip preview left the
+  file. Two structural classes were added and nothing else: `.settings-items` (a
+  hairline seam + the launch dialog's existing dim treatment, so the master
+  switch visibly governs the rows under it) and `.settings-notice` (`--well`
+  fill, 2px `--attn` left edge, mono name line — the `.gh-facts` grammar, in the
+  attention color because it is an attention state, not an error). No gradient,
+  shadow, glow, blur, new color or new font. Every row is a real `<button>` with
+  `aria-pressed` and no hover-only affordance; the samples carry information
+  (they are the literal text the line draws), and the notice exists only when it
+  is true. The pane lost its last piece of app chrome below the terminal, which
+  moves the design further toward "the terminal is the hero", not away from it.

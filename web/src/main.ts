@@ -32,7 +32,7 @@ import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initTheme } from './ui/theme.ts';
 import { initSettings } from './ui/settings.ts';
-import { initDefaults, initStatusBar } from './ui/defaults.ts';
+import { initStatusLine } from './ui/statusline-model.ts';
 import {
   initLaunchDialog,
   openLaunchDialog,
@@ -252,7 +252,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   gear.setAttribute('aria-hidden', 'true');
   settingsBtn.append(gear);
   settingsBtn.setAttribute('aria-label', 'Settings');
-  settingsBtn.title = 'settings — launch defaults, usage, terminal status bar';
+  settingsBtn.title = 'settings — what each session shows in its status line';
   settingsBtn.setAttribute('aria-haspopup', 'dialog');
 
   const themeBtn = button('tb-btn', '');
@@ -311,13 +311,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   root.replaceChildren(topbar, main, strip, statusline, modalHost);
 
   // ---- modules ---------------------------------------------------------------
-  // Launch defaults FIRST: seed the shared store from the boot prefs bag so the
-  // launch dialog and settings panel read the same `defaults` (live-updated by
-  // the panel, applied on the next dialog open — no reload).
-  initDefaults(prefs?.defaults);
-  // Status-bar toggles: same store-seeded-from-prefs pattern; the pane strips
-  // and the settings preview read getStatusBar() live.
-  initStatusBar(prefs?.statusBar);
+  // Status-line toggles FIRST: seed the shared store from the boot prefs bag so
+  // the settings panel opens showing what the sessions' own status line reads
+  // (the script re-reads the same key from disk on every draw).
+  initStatusLine(prefs?.statusLine);
   // Theme next: it applies the persisted ground/ramp onto :root before any
   // terminal is constructed, so terminals are born themed.
   const themePop = initTheme(modalHost, themeBtn, prefs);

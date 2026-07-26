@@ -97,35 +97,40 @@ and multi-pane layouts on top.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
-- **App settings panel — GO given 2026-07-20, shape decided with the user.**
-  A checklist-style settings surface in the UI; set once, survives app
-  relaunch (persisted server-side in `prefs.json` via `/api/prefs`).
-  Decided option list (each an explicit user answer, 2026-07-20):
-  **default model** and **default permission mode** (all four modes incl.
-  `plan`; pre-select the launch dialog, per-launch override stays);
-  **auto-run startup command** (a configurable line, e.g. a skill/slash
-  command, typed into every new claude session once it is ready);
-  **usage display, read-only** (approximate Claude Code usage from its
-  local session logs — informational only; the app cannot change
-  account-side limits). Not in v1: enforcing usage limits, subscription
-  plan display.
-- **Per-pane terminal status bar — added 2026-07-24 (user's design intake).**
-  A thin status strip at the bottom of each terminal pane showing configurable
-  per-session telemetry, toggled in a "Terminal status bar" section of the
-  settings panel (config persisted server-side in `prefs.json`, NOT
-  localStorage — the prototype's localStorage is overridden by our
-  port-churn lesson). Items and honest data sources: **model** and
-  **permission mode** (launch config); **git branch** and **lines changed**
-  (git probe / `--numstat` in the session cwd); **session time** (per-session
-  `createdAt`); **cost** and **context window** (derived from the session's
-  own Claude Code JSONL log, mapped by cwd-slug + newest-after-spawn →
-  `sessionId`, latest assistant `usage` block × model pricing); **active
-  skill** (best-effort: the most-recent `Skill` tool_use in that log;
-  default off). Defaults on: model, mode, branch, cost, context; off: time,
-  diff, skill. **Deferred / not faked: `usage %`** — that is an account
-  rate-limit percentage that
-  lives in live API response headers, not the local logs; shown only if a
-  real source appears. An item renders only when its real value exists.
+- **App settings panel — GO given 2026-07-20; contents REVERSED 2026-07-25
+  (user decision).** A checklist-style settings surface persisted
+  server-side in `prefs.json` via `/api/prefs`. The 2026-07-20 "decided
+  four" (default model, default permission mode, auto-run startup command,
+  read-only usage display) are DELETED — their backends too (`/api/usage`,
+  `/api/telemetry`, the auto-run registry, the global launch-defaults
+  store). The panel now holds ONLY status-line configuration (next bullet).
+  Launch-dialog pre-selection comes from per-project defaults in
+  `projects.json` (which stay — a separate feature) with a hardcoded
+  fallback; a per-launch choice always wins.
+- **Terminal status line — decided 2026-07-25, shipped 2026-07-26,
+  replacing the 2026-07-24 per-pane status strip (removed).** Claude Code
+  draws its OWN status line inside each app-launched claude session; the
+  app no longer renders a telemetry strip. Mechanism: the backend writes a
+  per-session settings file (`<dataDir>/session-settings/<id>.json`) and
+  appends `--settings <file>` to the spawned argv — key-level merge, that
+  session only; the user's `~/.claude/settings.json` is NEVER read or
+  written, and `CLAUDE_CONFIG_DIR` stays untouched. The file points Claude
+  Code at `server/statusline.mjs`, which re-reads `prefs.json` on every
+  invocation, so panel toggles reach RUNNING sessions live (~2 s), no
+  restart. Items (each rendered only when toggled on AND an honest value
+  exists): model, permission mode, git branch, cost, lines changed,
+  context %, account usage % — the formerly-deferred `usage %` is now REAL
+  via the payload's rate-limit data (Claude Pro/Max accounts, present
+  after the first response). Known limit, documented in the UI: the
+  permission-mode item shows the LAUNCH mode — Claude Code's payload
+  carries no live mode, so a mid-session change (shift+tab) is not
+  reflected. A blank line is normal for: sessions started before this
+  feature (the panel names them and says to end + start them again), a
+  not-yet-trusted workspace, and the moments before the first reply.
+  Sessions whose client args already carry `--settings`, and non-claude
+  commands, are left alone. Data-dir artifacts: `session-settings/`
+  (0700, wiped at boot) and `statusline-cache.json` (0600, a ~5 s
+  git-branch cache, wiped at boot).
 - **Project creation + GitHub integration — GO given 2026-07-23, user's
   call; shape decided the same day.** The app stops being a passive
   registrar of existing directories and can *create* projects itself, and

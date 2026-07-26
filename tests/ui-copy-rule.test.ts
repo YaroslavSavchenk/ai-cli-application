@@ -223,7 +223,7 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     'ui/github.ts',
     'ui/newproject.ts',
     'ui/sessions.ts',
-    'ui/statusbar.ts',
+    'ui/statusline-model.ts',
     'ui/util.ts',
   ]) {
     assert.ok(files.some((f) => rel(f) === must), `${must} must be scanned`);

@@ -9,6 +9,11 @@
  * changing the split shape disposes and re-attaches (the server replays the
  * full buffer).
  *
+ * A pane is HEADER + terminal, nothing else: the app-rendered telemetry strip
+ * that used to sit under the terminal was removed 2026-07-26 in favour of
+ * Claude Code's own status line, which the session draws inside the PTY (see
+ * ui/statusline-model.ts and server/statusline.mjs).
+ *
  * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while a
  * tab is dragged over it (drag-to-split). Pane headers are drag sources:
  * onto another pane = swap, onto the tab strip = extract to its own tab.
@@ -21,13 +26,6 @@ import { TerminalView, type TerminalEvents } from './terminal.ts';
 import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { flash } from './statusline.ts';
-import { consumeStartupCommand } from './startup.ts';
-import {
-  initTelemetry,
-  onStatusUpdate,
-  setVisiblePanes,
-  renderPaneStatus,
-} from './statusbar.ts';
 
 interface Slot {
   index: number;
@@ -46,7 +44,6 @@ interface Slot {
   connChip: HTMLElement;
   extractBtn: HTMLButtonElement;
   note: HTMLElement;
-  status: HTMLElement;
 }
 
 let grid: HTMLElement;
@@ -66,12 +63,6 @@ let lastFocusKey = '';
 export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): void {
   grid = gridEl;
   openLaunch = openLaunchDialog;
-  // Telemetry poll + status-strip re-render pulses (poll result / 1s time
-  // tick / config change): re-render every mounted strip in place.
-  initTelemetry();
-  onStatusUpdate(() => {
-    for (const s of slots) updateStatus(s);
-  });
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
@@ -83,7 +74,6 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
       for (const s of slots) {
         updateHeader(s);
         updateNote(s);
-        updateStatus(s);
       }
     }
   });
@@ -138,14 +128,6 @@ function render(): void {
     for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
   }
   applyFocus();
-  syncStatusVisibility();
-}
-
-/** Feed the telemetry poll the active view's mounted session ids (drives poll on/off). */
-function syncStatusVisibility(): void {
-  const ids: string[] = [];
-  for (const s of slots) if (s.sessionId !== null) ids.push(s.sessionId);
-  setVisiblePanes(ids);
 }
 
 /**
@@ -183,7 +165,6 @@ function renderEmpty(): void {
   }
   box.append(tile, hd, row);
   grid.replaceChildren(box);
-  syncStatusVisibility(); // no panes → pause the poll
 }
 
 function rebuild(v: st.ViewState, count: number): void {
@@ -312,7 +293,6 @@ function reconcileSlot(index: number, sessionId: string | null): void {
   if (s.sessionId === sessionId) {
     updateHeader(s);
     updateNote(s);
-    updateStatus(s);
     return;
   }
   s.sessionId = sessionId;
@@ -331,7 +311,6 @@ function reconcileSlot(index: number, sessionId: string | null): void {
   }
   updateHeader(s);
   updateNote(s);
-  updateStatus(s);
 }
 
 function slotEvents(s: Slot, sessionId: string): TerminalEvents {
@@ -356,7 +335,6 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       s.exitCode = exitCode;
       st.markExited(sessionId, exitCode);
       updateNote(s);
-      updateStatus(s); // time drops off (session no longer running); cached values stay
     },
     onAttention: () => {
       const v = st.activeView();
@@ -375,13 +353,6 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       st.notify('conn');
     },
     onDims: (cols, rows) => st.setSessionDims(sessionId, cols, rows),
-    onFirstData: () => {
-      // Auto-run startup command: first live output = ready. consume() is
-      // once-per-spawn, so a reattach's first-output never re-types it, and
-      // only the launching window ever armed this session id.
-      const line = consumeStartupCommand(sessionId);
-      if (line !== null) s.view?.typeStartup(line);
-    },
   };
 }
 
@@ -464,12 +435,10 @@ function createSessionSlot(index: number): Slot {
   scan.setAttribute('aria-hidden', 'true');
   body.append(termHost, scan);
 
-  // Per-pane telemetry strip: LAST child, a thin row under the terminal.
-  // Hidden until ≥1 enabled item has a real value (no empty 22px bar).
-  const status = el('div', 'pane-status');
-  status.hidden = true;
-
-  root.append(hd, note, body, buildDropOverlay(), status);
+  // Terminal-only below the header: the session's own status line (drawn by
+  // Claude Code inside the PTY) replaced the app-rendered strip that used to
+  // sit here (2026-07-26).
+  root.append(hd, note, body, buildDropOverlay());
   root.addEventListener('mousedown', () => st.focusPane(index), true);
   grid.append(root); // Attach before TerminalView so xterm opens on a live node.
 
@@ -490,7 +459,6 @@ function createSessionSlot(index: number): Slot {
     connChip,
     extractBtn,
     note,
-    status,
   };
 
   extractBtn.addEventListener('click', () => {
@@ -559,12 +527,6 @@ function updateHeader(s: Slot): void {
   }
   // Alone in its view, a session already IS its own tab.
   s.extractBtn.hidden = renderedCount <= 1;
-}
-
-/** Recompute the pane's telemetry strip from launch argv + createdAt + the poll cache. */
-function updateStatus(s: Slot): void {
-  const info = s.sessionId !== null ? st.state.sessions.get(s.sessionId) : undefined;
-  renderPaneStatus(s.status, info, s.sessionId);
 }
 
 function updateNote(s: Slot): void {

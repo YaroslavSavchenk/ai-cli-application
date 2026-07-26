@@ -1,44 +1,41 @@
 /**
- * App settings panel — the decided four (PROJECT-SCOPE "App settings panel",
- * user answers 2026-07-20), and nothing more:
+ * App settings panel — since 2026-07-26 it holds exactly ONE thing: what
+ * Claude Code's own status line shows.
  *
- *   1. Default model            → pre-selects the launch dialog's model field.
- *   2. Default permission mode  → pre-selects the dialog's permission cards
- *                                 (all four CLI modes incl. `plan`).
- *   3. Auto-run startup command → a line typed into every new claude session
- *                                 once it is ready (empty = off).
- *   4. Usage display (read-only)→ approximate Claude Code usage aggregates
- *                                 from GET /api/usage.
+ * Everything else this panel used to carry is gone with the feature it
+ * configured: the global launch defaults + auto-run startup command (the launch
+ * dialog now pre-selects from the project's own defaults), the read-only usage
+ * ledger (the endpoint behind it no longer exists), and the per-pane telemetry
+ * strip (replaced by the status line the session draws itself). Terminal themes
+ * live in their own popover (ui/theme.ts) and are untouched.
  *
- * A per-launch override ALWAYS wins over 1–3 (the dialog stays editable).
- * Defaults persist server-side in the prefs bag (`defaults`) via the shared
- * merge-on-write helper (api.updatePrefs), so the theme key and any other bag
- * key survive; changes take effect on the NEXT launch-dialog open with no
- * reload (the dialog reads getDefaults() live). The panel is a modal card in
- * the established dialog/popover language — the shared gradient dialog header
- * (⚙ tile · "Settings" · mono subtitle, aligned with the refreshed prototype
- * 2026-07-24, superseding the earlier plain-label header), the dialog's own
- * select + permission-card idioms for the defaults, and a dense mono ledger for
- * usage. NO new colors/tokens.
+ * What a toggle here does: it writes the `statusLine` key of the prefs bag, and
+ * the script Claude Code runs re-reads that file on every invocation — so an
+ * item toggle takes effect in ALREADY RUNNING sessions within a couple of
+ * seconds, with no restart. The ONE thing a toggle cannot do is give a status
+ * line to a session that was started without one (the server injects the
+ * per-session settings file at spawn); those sessions are named in the notice
+ * this panel renders, and only when there actually are some.
  *
- * Usage is fetched on open and on an explicit refresh only — never polled (the
- * 30s server cache makes opens cheap). Model strings are Claude-Code-log
- * derived: rendered via textContent, treated as untrusted display text.
+ * Copy rule (PROJECT-SCOPE, 2026-07-25): no commands, flags or config-file names
+ * anywhere in here. The per-row samples are the literal text the status line
+ * draws for that item, which is terminal output, not CLI syntax.
  */
-import type { SessionInfo, UiLaunchDefaults, UsageResponse } from '../../../shared/protocol.ts';
+import type { SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
-import { el, button, trapTab, fmtCount } from './util.ts';
-import { PERMS, MODELS, PERM_SHORT, isModelId } from './launch-args.ts';
-import type { Perm } from './launch-args.ts';
-import { getDefaults, setDefaults, getStatusBar, setStatusBar, statusBarDefaults } from './defaults.ts';
-import type { StatusBarCfg } from './defaults.ts';
+import { el, button, trapTab } from './util.ts';
+import { commandLabel } from './sessions.ts';
 import {
-  onStatusUpdate,
-  renderPreviewStrip,
-  statusBarConfigChanged,
-  refreshTelemetryNow,
-} from './statusbar.ts';
+  DEAD_PREFS_KEYS,
+  getStatusLine,
+  initStatusLine,
+  setStatusLine,
+  statusLineDefaults,
+  statusLinePatch,
+  sessionsWithoutStatusLine,
+  type StatusLineCfg,
+} from './statusline-model.ts';
 
 export interface SettingsPanel {
   open(): void;
@@ -46,6 +43,41 @@ export interface SettingsPanel {
   toggle(): void;
   isOpen(): boolean;
 }
+
+/** One toggle row: its key, its label, and the text that item really draws. */
+interface ItemRow {
+  key: keyof StatusLineCfg;
+  label: string;
+  /**
+   * A sample in the status line's own formatting — the same strings
+   * server/statusline.mjs prints, so the row promises exactly what appears.
+   * `always ask` is the mode wording for the ask-first mode there.
+   */
+  sample: string;
+  /** Optional caption under the row: the honest scope of that item. */
+  caption?: string;
+}
+
+const ITEM_ROWS: ItemRow[] = [
+  { key: 'model', label: 'Model', sample: 'opus' },
+  {
+    key: 'mode',
+    label: 'Permission mode',
+    sample: 'always ask',
+    caption: 'shows the mode the session was started with',
+  },
+  { key: 'branch', label: 'Git branch', sample: 'git:main' },
+  { key: 'cost', label: 'Cost so far', sample: '$0.42' },
+  { key: 'lines', label: 'Lines changed', sample: '+128 -41' },
+  { key: 'context', label: 'Context used', sample: 'ctx 62%' },
+  {
+    key: 'usage',
+    label: 'Account usage',
+    sample: '5h 38%',
+    caption:
+      'works with a Claude Pro or Max account · appears after the session’s first reply',
+  },
+];
 
 export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): SettingsPanel {
   // ---- scrim + card --------------------------------------------------------
@@ -64,8 +96,7 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   const titles = el('div', 'launch-titles');
   titles.append(
     el('div', 'launch-title', 'Settings'),
-    // Honest about the three sections this panel actually holds.
-    el('div', 'launch-sub', 'launch defaults · usage · terminal status bar'),
+    el('div', 'launch-sub', 'what each session shows in its status line'),
   );
   const closeX = button('launch-x', '×', () => close());
   closeX.setAttribute('aria-label', 'close settings');
@@ -75,175 +106,71 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   const bodyEl = el('div', 'settings-body');
 
   // ======================================================================
-  // Section 1 — DEFAULTS (model · permission mode · startup command)
+  // Status line — master switch + the seven items
   // ======================================================================
-  const defSect = el('section', 'settings-sect');
-  defSect.append(el('div', 'drawer-label', 'LAUNCH DEFAULTS'));
-  defSect.append(
+  const sect = el('section', 'settings-sect');
+  sect.append(el('div', 'drawer-label', 'STATUS LINE'));
+  sect.append(
     el(
       'div',
       'settings-note',
-      'pre-select the launch dialog · a per-launch change always wins · a project default beats these',
+      'Claude Code draws a status line at the bottom of every session started here. Pick what it shows — changes reach running sessions within a couple of seconds.',
     ),
-  );
-
-  // Default model — a select mirroring the dialog's model list, plus an
-  // explicit "no default" that falls the dialog back to its hardcoded first.
-  const modelField = el('label', 'settings-field');
-  modelField.append(el('span', 'launch-lb', 'Default model'));
-  const modelSel = el('select');
-  modelSel.name = 'defaultModel';
-  const none = el('option', '', 'no default');
-  none.value = '';
-  modelSel.append(none);
-  for (const m of MODELS) {
-    const opt = el('option', '', m);
-    opt.value = m;
-    modelSel.append(opt);
-  }
-  modelField.append(modelSel);
-
-  // Default permission mode — the dialog's own 2×2 permission cards.
-  const permField = el('div', 'settings-field');
-  permField.append(el('span', 'launch-lb', 'Default permission mode'));
-  const permGrid = el('div', 'perm-grid');
-  permGrid.setAttribute('role', 'group');
-  permGrid.setAttribute('aria-label', 'default permission mode');
-  let perm: Perm = 'default';
-  const permButtons = new Map<Perm, HTMLButtonElement>();
-  for (const p of PERMS) {
-    const card = button(`perm-card${p.danger ? ' is-danger' : ''}`, '', () => {
-      setPerm(p.mode);
-      commit();
-    });
-    card.append(el('span', 'perm-mode', p.title), el('span', 'perm-desc', p.desc));
-    if (p.danger) card.title = 'new sessions default to no permission prompts at all';
-    permButtons.set(p.mode, card);
-    permGrid.append(card);
-  }
-  permField.append(permGrid);
-
-  function setPerm(mode: Perm): void {
-    perm = mode;
-    for (const [m, b] of permButtons) {
-      b.classList.toggle('is-sel', m === mode);
-      b.setAttribute('aria-pressed', m === mode ? 'true' : 'false');
-    }
-  }
-
-  // Auto-run startup command — full-width mono line, typed into every new
-  // claude session once it is ready (empty = off; claude-mode launches only).
-  const startField = el('label', 'settings-field');
-  const startLb = el('span', 'launch-lb', 'Auto-run startup command ');
-  startLb.append(el('em', 'field-hint', "typed into each new session once it's ready · empty = off"));
-  startField.append(startLb);
-  const startInput = el('input');
-  startInput.name = 'startupCommand';
-  startInput.placeholder = 'a line to run in every new session';
-  startInput.spellcheck = false;
-  startInput.autocomplete = 'off';
-  startField.append(startInput);
-
-  defSect.append(modelField, permField, startField);
-
-  // ======================================================================
-  // Section 2 — USAGE (read-only, approximate, local)
-  // ======================================================================
-  const useSect = el('section', 'settings-sect');
-  const useHd = el('div', 'settings-usage-hd');
-  const refreshBtn = button('btn settings-refresh', 'refresh', () => void loadUsage());
-  refreshBtn.title = 'recompute usage from the local logs';
-  const useUpdated = el('span', 'settings-usage-updated');
-  useHd.append(
-    el('span', 'drawer-label', 'USAGE'),
-    el('span', 'drawer-gap'),
-    useUpdated,
-    refreshBtn,
-  );
-  useSect.append(useHd);
-  useSect.append(
+    // The blank-bar cases, said out loud so an empty line reads as normal
+    // rather than broken.
     el(
       'div',
       'settings-note',
-      'approximate · read from Claude Code’s local session logs · the app cannot see or change account-side limits',
-    ),
-  );
-  const usageBody = el('div', 'settings-usage');
-  usageBody.setAttribute('aria-live', 'polite');
-  useSect.append(usageBody);
-
-  // ======================================================================
-  // Section 3 — TERMINAL STATUS BAR (per-pane telemetry toggles)
-  // ======================================================================
-  const sbSect = el('section', 'settings-sect');
-  sbSect.append(el('div', 'drawer-label', 'TERMINAL STATUS BAR'));
-  sbSect.append(
-    el(
-      'div',
-      'settings-note',
-      'pick what each session shows in the status bar at the bottom of its terminal · cost and context are approximate, read from Claude Code’s local session logs',
+      'A session shows nothing until its first reply — and when Claude asks you to trust a folder it has not worked in before, the line stays blank until you do.',
     ),
   );
 
-  // Live preview: the real .pane-status strip, boxed. Shows the focused/first
-  // running session's LIVE telemetry, or representative samples when none runs.
-  const sbPreview = el('div', 'pane-status settings-sb-preview');
-  sbPreview.setAttribute('aria-hidden', 'true'); // the toggle rows are the accessible controls
-  sbSect.append(sbPreview);
+  // Relaunch notice: only rendered when running sessions actually lack one.
+  const notice = el('div', 'settings-notice');
+  notice.hidden = true;
+  notice.setAttribute('role', 'note');
+  const noticeText = el(
+    'div',
+    '',
+    'These sessions were started without a status line. End them and start them again to add one:',
+  );
+  const noticeNames = el('div', 'settings-notice-names');
+  notice.append(noticeText, noticeNames);
+  sect.append(notice);
 
-  // Eight real toggles (UiStatusBar order) + a ninth DISABLED "Usage limit"
-  // row (deferred — no honest local source; keeps the prototype's 9-row shape).
-  interface SbRow {
-    key: keyof StatusBarCfg;
-    label: string;
-    sample: string;
-  }
-  const SB_ROWS: SbRow[] = [
-    { key: 'model', label: 'Model', sample: 'opus' },
-    { key: 'mode', label: 'Permission mode', sample: PERM_SHORT.acceptEdits },
-    { key: 'branch', label: 'Git branch', sample: '⎇ main' },
-    { key: 'time', label: 'Session time', sample: '08:42' },
-    { key: 'cost', label: 'Cost spent', sample: '$0.42' },
-    { key: 'context', label: 'Context window', sample: 'ctx 62k/200k' },
-    { key: 'diff', label: 'Lines changed', sample: '+128 −41' },
-    { key: 'skill', label: 'Active skill', sample: 'skill: edit' },
-  ];
-  const sbRows = el('div', 'status-rows');
-  sbRows.setAttribute('role', 'group');
-  sbRows.setAttribute('aria-label', 'terminal status bar items');
-  const sbRowEls = new Map<keyof StatusBarCfg, HTMLButtonElement>();
-  const sbBoxes = new Map<keyof StatusBarCfg, HTMLElement>();
-  for (const r of SB_ROWS) {
-    const row = button('status-row', '', () => toggleStatusRow(r.key));
+  // Master switch — its own row, above the hairline that separates the items
+  // it governs.
+  const masterRow = button('status-row', '', () => toggleKey('enabled'));
+  const masterBox = el('span', 'status-box');
+  masterBox.setAttribute('aria-hidden', 'true');
+  masterRow.append(masterBox, el('span', 'status-lb', 'Show the status line'));
+  const masterWrap = el('div', 'status-rows');
+  masterWrap.append(masterRow);
+  sect.append(masterWrap);
+
+  const itemsWrap = el('div', 'status-rows settings-items');
+  itemsWrap.setAttribute('role', 'group');
+  itemsWrap.setAttribute('aria-label', 'status line items');
+  const rowEls = new Map<keyof StatusLineCfg, HTMLButtonElement>();
+  const boxEls = new Map<keyof StatusLineCfg, HTMLElement>();
+  for (const r of ITEM_ROWS) {
+    const row = button('status-row', '', () => toggleKey(r.key));
     const box = el('span', 'status-box');
     box.setAttribute('aria-hidden', 'true');
     row.append(box, el('span', 'status-lb', r.label), el('span', 'status-sample', r.sample));
-    sbRowEls.set(r.key, row);
-    sbBoxes.set(r.key, box);
-    sbRows.append(row);
+    rowEls.set(r.key, row);
+    boxEls.set(r.key, box);
+    itemsWrap.append(row);
+    if (r.caption !== undefined) itemsWrap.append(el('div', 'settings-rowcap', r.caption));
   }
-  // Disabled usage row — honest about the deferral, not toggleable.
-  const usageDisRow = el('button', 'status-row');
-  usageDisRow.type = 'button';
-  usageDisRow.disabled = true;
-  usageDisRow.setAttribute('aria-disabled', 'true');
-  const usageDisBox = el('span', 'status-box');
-  usageDisBox.setAttribute('aria-hidden', 'true');
-  usageDisRow.append(
-    usageDisBox,
-    el('span', 'status-lb', 'Usage limit'),
-    el('span', 'status-sample', 'not available from local logs'),
-  );
-  usageDisRow.title = 'account rate-limit % lives in live API headers, not the local logs';
-  sbRows.append(usageDisRow);
-  sbSect.append(sbRows);
+  sect.append(itemsWrap);
 
-  bodyEl.append(defSect, useSect, sbSect);
+  bodyEl.append(sect);
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'modal-ft settings-ft');
-  const resetBtn = button('btn', 'Reset to defaults', () => resetStatusBar());
-  resetBtn.title = 'restore the status-bar items to their default on/off state';
+  const resetBtn = button('btn', 'Reset to defaults', () => resetAll());
+  resetBtn.title = 'restore the status line to its default on/off items';
   // Accent-blue primary (refreshed prototype 2026-07-24): confirm, not "go".
   const doneBtn = button('btn is-acc', 'Done', () => close());
   doneBtn.title = 'close settings (esc)';
@@ -257,208 +184,89 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   trapTab(modal);
   modalHost.append(scrim);
 
-  // ---- defaults form <-> store --------------------------------------------
+  // ---- toggles <-> store ---------------------------------------------------
 
-  /** The three controls as a UiLaunchDefaults bag — omit "off"/"none" values. */
-  function readForm(): UiLaunchDefaults {
-    const d: UiLaunchDefaults = {};
-    if (isModelId(modelSel.value)) d.model = modelSel.value;
-    if (perm !== 'default') d.permissionMode = perm; // absent === 'default' baseline
-    if (startInput.value.trim() !== '') d.startupCommand = startInput.value;
-    return d;
-  }
+  /** Writes since this open — a late boot-prefs re-read must not undo them. */
+  let writes = 0;
 
-  function seedForm(): void {
-    const g = getDefaults();
-    modelSel.value = isModelId(g.model) ? g.model : '';
-    setPerm(g.permissionMode ?? 'default');
-    startInput.value = g.startupCommand ?? '';
-  }
-
-  function equalDefaults(a: UiLaunchDefaults, b: UiLaunchDefaults): boolean {
-    return (
-      a.model === b.model &&
-      a.permissionMode === b.permissionMode &&
-      a.startupCommand === b.startupCommand
-    );
+  /** Reflect the whole stored config onto the rows (boxes, aria, disabled). */
+  function syncRows(): void {
+    const cfg = getStatusLine();
+    masterRow.setAttribute('aria-pressed', cfg.enabled ? 'true' : 'false');
+    masterBox.textContent = cfg.enabled ? '✓' : '';
+    for (const r of ITEM_ROWS) {
+      const row = rowEls.get(r.key);
+      const box = boxEls.get(r.key);
+      if (row === undefined || box === undefined) continue;
+      row.setAttribute('aria-pressed', cfg[r.key] ? 'true' : 'false');
+      box.textContent = cfg[r.key] ? '✓' : '';
+      // With the line switched off the items decide nothing; the group dims
+      // and stops taking input (the launch dialog's is-disabled idiom).
+      row.disabled = !cfg.enabled;
+    }
+    itemsWrap.classList.toggle('is-disabled', !cfg.enabled);
   }
 
   /**
-   * Persist the form if it changed the stored defaults: update the in-memory
-   * store (so the launch dialog sees it on the next open) AND fire-and-forget
-   * a merged PUT (theme + any other bag key preserved). Idempotent — a no-op
-   * when nothing changed, so close() can call it safely.
+   * Persist the whole resolved config, dropping the two retired prefs keys in
+   * the same write. Fire-and-forget: a failed write leaves the in-memory value
+   * for this run, and the status line simply keeps drawing what is on disk.
    */
-  function commit(): void {
-    const next = readForm();
-    if (equalDefaults(next, getDefaults())) return;
-    setDefaults(next);
-    void api.updatePrefs({ defaults: getDefaults() }).catch(() => {
-      // Non-fatal: the in-memory store still holds it for this run.
+  function persist(): void {
+    writes++;
+    void api.updatePrefs(statusLinePatch(getStatusLine()), DEAD_PREFS_KEYS).catch(() => {
+      // Non-fatal by design — nothing user-facing to say about it.
     });
   }
 
-  modelSel.addEventListener('change', commit);
-  startInput.addEventListener('change', commit); // fires on blur / Enter
-
-  // ---- usage fetch + render ------------------------------------------------
-
-  let usageToken = 0;
-
-  function setUsageMsg(text: string, kind: 'wait' | 'err' | 'empty'): void {
-    usageBody.replaceChildren(el('div', `settings-usage-msg is-${kind}`, text));
+  function toggleKey(key: keyof StatusLineCfg): void {
+    const cur = getStatusLine();
+    setStatusLine({ ...cur, [key]: !cur[key] });
+    syncRows();
+    persist();
   }
 
-  async function loadUsage(): Promise<void> {
-    const mine = ++usageToken;
-    refreshBtn.disabled = true;
-    setUsageMsg('reading local logs…', 'wait');
-    try {
-      const u = await api.getUsage();
-      if (mine !== usageToken) return; // a newer refresh superseded this one
-      renderUsage(u);
-    } catch (e) {
-      if (mine !== usageToken) return;
-      useUpdated.textContent = '';
-      setUsageMsg(`usage unavailable: ${e instanceof Error ? e.message : String(e)}`, 'err');
-    } finally {
-      if (mine === usageToken) refreshBtn.disabled = false;
+  function resetAll(): void {
+    setStatusLine(statusLineDefaults());
+    syncRows();
+    persist();
+  }
+
+  // ---- relaunch notice -----------------------------------------------------
+
+  /**
+   * Name the RUNNING sessions of the known agent that have no status line.
+   * Titles are user/server strings → textContent only. The notice is silent
+   * when the set is empty, and item toggles never produce it: they apply live.
+   *
+   * A session launched without a title gets the raw command as its title
+   * (server/sessions.ts), so naming it verbatim would print a command name in
+   * UI chrome AND identify nothing when several sessions share it. The drawer's
+   * `commandLabel` is reused for exactly that case, and names that would still
+   * collide take their project as a qualifier when there is one.
+   */
+  function renderNotice(): void {
+    const stale: SessionInfo[] = sessionsWithoutStatusLine(st.state.sessions.values());
+    if (stale.length === 0) {
+      notice.hidden = true;
+      noticeNames.replaceChildren();
+      return;
     }
+    notice.hidden = false;
+    const named = stale.map((s) => ({
+      label: s.title === s.command ? commandLabel(s.command) : s.title,
+      project: st.projectName(s.projectId),
+    }));
+    const counts = new Map<string, number>();
+    for (const n of named) counts.set(n.label, (counts.get(n.label) ?? 0) + 1);
+    noticeNames.textContent = named
+      .map((n) => ((counts.get(n.label) ?? 0) > 1 && n.project !== null ? `${n.label} (${n.project})` : n.label))
+      .join(' · ');
   }
 
-  function fmtUpdated(iso: string): string {
-    const t = new Date(iso);
-    if (Number.isNaN(t.getTime())) return '';
-    const pad = (n: number): string => String(n).padStart(2, '0');
-    return `updated ${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`;
-  }
-
-  /** A `label → value` ledger row (value right-aligned, mono). */
-  function ledgerRow(name: string, value: string, entries?: string): HTMLElement {
-    const row = el('div', 'settings-led-row');
-    row.append(el('span', 'settings-led-name', name)); // textContent — untrusted model strings
-    if (entries !== undefined) row.append(el('span', 'settings-led-sub', entries));
-    row.append(el('span', 'settings-led-val', value));
-    return row;
-  }
-
-  function renderUsage(u: UsageResponse): void {
-    useUpdated.textContent = fmtUpdated(u.updatedAt);
-    const frag = document.createDocumentFragment();
-
-    // Totals: headline total + token-type breakdown + window meta.
-    const totals = el('div', 'settings-usage-totals');
-    const head = el('div', 'settings-usage-total');
-    head.append(
-      el('span', 'settings-usage-total-n', fmtCount(u.totals.total)),
-      el('span', 'settings-usage-total-lb', 'tokens'),
-    );
-    totals.append(head);
-    totals.append(
-      el(
-        'div',
-        'settings-usage-break',
-        `in ${fmtCount(u.totals.input)} · out ${fmtCount(u.totals.output)} · cache +${fmtCount(u.totals.cacheCreation)} · read ${fmtCount(u.totals.cacheRead)}`,
-      ),
-    );
-    const metaBits = [
-      `${u.windowDays}-day window`,
-      `${fmtCount(u.sessionCount)} sessions`,
-      `${fmtCount(u.entryCount)} entries`,
-    ];
-    if (u.malformedLines > 0) metaBits.push(`${fmtCount(u.malformedLines)} malformed skipped`);
-    totals.append(el('div', 'settings-usage-meta', metaBits.join(' · ')));
-    frag.append(totals);
-
-    // By day.
-    frag.append(el('div', 'settings-led-lb', 'BY DAY'));
-    if (u.days.length === 0) {
-      frag.append(el('div', 'settings-usage-msg is-empty', 'no usage in this window'));
-    } else {
-      const table = el('div', 'settings-led');
-      // Descending (most recent first) reads like a log tail.
-      for (const d of [...u.days].reverse()) {
-        table.append(ledgerRow(d.date, fmtCount(d.tokens.total)));
-      }
-      frag.append(table);
-    }
-
-    // By model (model strings are log-derived → textContent, untrusted).
-    frag.append(el('div', 'settings-led-lb', 'BY MODEL'));
-    if (u.models.length === 0) {
-      frag.append(el('div', 'settings-usage-msg is-empty', 'no models in this window'));
-    } else {
-      const table = el('div', 'settings-led');
-      for (const m of u.models) {
-        table.append(
-          ledgerRow(m.model, fmtCount(m.tokens.total), `${fmtCount(m.entryCount)}×`),
-        );
-      }
-      frag.append(table);
-    }
-
-    usageBody.replaceChildren(frag);
-  }
-
-  // ---- status bar toggles + live preview -----------------------------------
-
-  /** Reflect one toggle's stored state onto its row (checkbox fill + aria-pressed). */
-  function syncStatusRow(key: keyof StatusBarCfg): void {
-    const on = getStatusBar()[key];
-    const row = sbRowEls.get(key);
-    const box = sbBoxes.get(key);
-    if (row === undefined || box === undefined) return;
-    row.setAttribute('aria-pressed', on ? 'true' : 'false');
-    box.textContent = on ? '✓' : '';
-  }
-
-  function seedStatusRows(): void {
-    for (const r of SB_ROWS) syncStatusRow(r.key);
-  }
-
-  /** The focused (else first) RUNNING session, for the live preview; null if none. */
-  function focusedRunningSession(): SessionInfo | null {
-    const v = st.activeView();
-    if (v !== null) {
-      const fid = v.sessions[v.focused];
-      const f = fid !== undefined ? st.state.sessions.get(fid) : undefined;
-      if (f !== undefined && f.status === 'running') return f;
-    }
-    for (const s of st.state.sessions.values()) if (s.status === 'running') return s;
-    return null;
-  }
-
-  function renderSbPreview(): void {
-    renderPreviewStrip(sbPreview, focusedRunningSession());
-  }
-
-  /** Persist the current toggles (merged PUT preserves defaults + theme). */
-  function persistStatusBar(): void {
-    void api.updatePrefs({ statusBar: getStatusBar() }).catch(() => {
-      // Non-fatal: the in-memory store still holds it for this run.
-    });
-  }
-
-  function toggleStatusRow(key: keyof StatusBarCfg): void {
-    const cur = getStatusBar();
-    setStatusBar({ ...cur, [key]: !cur[key] });
-    persistStatusBar();
-    syncStatusRow(key);
-    renderSbPreview();
-    statusBarConfigChanged(); // live re-render of open panes (+ the 1s tick on/off)
-  }
-
-  function resetStatusBar(): void {
-    setStatusBar(statusBarDefaults());
-    persistStatusBar();
-    seedStatusRows();
-    renderSbPreview();
-    statusBarConfigChanged();
-  }
-
-  // Keep the preview live while the panel is open (telemetry poll / time tick).
-  onStatusUpdate(() => {
-    if (!scrim.hidden) renderSbPreview();
+  // The session list refreshes on the poll; keep the notice honest while open.
+  st.subscribe((kind) => {
+    if (kind === 'sessions' && !scrim.hidden) renderNotice();
   });
 
   // ---- open / close --------------------------------------------------------
@@ -467,20 +275,30 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   function open(): void {
     if (!scrim.hidden) return;
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    seedForm();
-    seedStatusRows();
-    renderSbPreview();
-    refreshTelemetryNow(); // freshen the preview against live sessions
+    writes = 0;
+    syncRows();
+    renderNotice();
     scrim.hidden = false;
     anchor.setAttribute('aria-expanded', 'true');
-    void loadUsage();
-    modelSel.focus();
+    // Re-read the stored config on open: another window (or another run) may
+    // have changed it since boot, and these toggles must show what the status
+    // line actually reads. Skipped if the user already toggled something in
+    // this open — a slow response must never undo a fresh choice.
+    void api
+      .getPrefs()
+      .then((bag) => {
+        if (scrim.hidden || writes > 0) return;
+        initStatusLine(bag.statusLine);
+        syncRows();
+      })
+      .catch(() => {
+        // Keep the in-memory config; nothing to say.
+      });
+    masterRow.focus();
   }
 
   function close(): void {
     if (scrim.hidden) return;
-    commit(); // flush any un-blurred edit (idempotent when unchanged)
-    usageToken++; // cancel an in-flight usage fetch
     scrim.hidden = true;
     anchor.setAttribute('aria-expanded', 'false');
     if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();

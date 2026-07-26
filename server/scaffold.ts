@@ -9,7 +9,7 @@
  *   - absolute paths only;
  *   - never clobber an existing NON-EMPTY directory or a non-directory;
  *   - git runs via argv with {shell:false} — NOTHING is ever interpolated into
- *     a shell string (identical discipline to server/telemetry.ts);
+ *     a shell string (identical discipline to server/sessions.ts's PTY spawn);
  *   - clone urls pass a scheme allowlist and a `-`-prefix / control-char guard,
  *     and `git clone -- <url> <dest>` uses `--` so the url can never be read as
  *     an option;

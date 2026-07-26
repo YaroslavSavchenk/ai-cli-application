@@ -23,9 +23,7 @@ import type {
   Project,
   RuntimeStatusResponse,
   SessionInfo,
-  TelemetryResponse,
   UiPrefs,
-  UsageResponse,
 } from '../../shared/protocol.ts';
 
 declare global {
@@ -189,13 +187,20 @@ export function putPrefs(body: UiPrefs): Promise<OkResponse> {
 /**
  * Merge-on-write for the shared prefs bag. `/api/prefs` PUT replaces the WHOLE
  * object, so two writers (the theme popover writing `theme`, the settings
- * panel writing `defaults`) must never PUT a stale bag or they drop each
+ * panel writing `statusLine`) must never PUT a stale bag or they drop each
  * other's keys. This reads the current bag, shallow-merges `patch` at the top
  * level, and PUTs the result. Last-write-wins per top-level key (documented,
  * not solved) if two windows race; a failed GET degrades to patch-only rather
  * than clobbering (best effort — a subsequent successful write reconciles).
+ *
+ * `drop` removes top-level keys from the merged bag before the PUT — the one
+ * way to actually DELETE a key from an opaque bag whose write is a whole-object
+ * replace. It is applied AFTER the merge, so a key cannot be dropped and
+ * re-added by the same call. Used by the settings panel to retire the two keys
+ * this app no longer writes (see DEAD_PREFS_KEYS in ui/statusline-model.ts);
+ * every other writer passes nothing and keeps preserving unknown keys verbatim.
  */
-export async function updatePrefs(patch: UiPrefs): Promise<void> {
+export async function updatePrefs(patch: UiPrefs, drop: readonly string[] = []): Promise<void> {
   let current: UiPrefs = {};
   try {
     const bag = await getPrefs();
@@ -203,21 +208,9 @@ export async function updatePrefs(patch: UiPrefs): Promise<void> {
   } catch {
     // GET failed — write the patch alone rather than nothing.
   }
-  await putPrefs({ ...current, ...patch });
-}
-
-/** Read-only Claude Code usage aggregates (settings panel usage section). */
-export function getUsage(): Promise<UsageResponse> {
-  return request<UsageResponse>('/api/usage');
-}
-
-/**
- * Per-session telemetry for the terminal status bars (running sessions only;
- * exited omitted → the client keeps last-known). Same token+Origin gate as
- * every /api route; the endpoint is 200 with partial data, never 500.
- */
-export function getTelemetry(): Promise<TelemetryResponse> {
-  return request<TelemetryResponse>('/api/telemetry');
+  const next: UiPrefs = { ...current, ...patch };
+  for (const key of drop) delete next[key];
+  await putPrefs(next);
 }
 
 export function fsList(path?: string): Promise<FsListResponse> {

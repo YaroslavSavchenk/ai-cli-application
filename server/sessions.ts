@@ -11,14 +11,23 @@
  *
  * Every create/exit/kill is mirrored into the crash-safe SessionJournal so an
  * unclean end can be offered for relaunch on the next run (journal.ts).
+ *
+ * ONE agent-specific behaviour lives here, deliberately narrow: a claude-kind
+ * session (basename(command) === 'claude') gets a per-session settings file
+ * injected as `--settings <file>` so Claude Code draws OUR status line
+ * (session-settings.ts). Everything else about the spawn stays generic, the
+ * injected flag never enters SessionInfo.args, and a session that already
+ * carries its own `--settings` is left completely alone.
  */
 import { randomUUID } from 'node:crypto';
 import { fstatSync, readSync } from 'node:fs';
+import { basename } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage } from '../shared/protocol.ts';
 import type { SessionJournal } from './journal.ts';
+import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import type { Logger } from './config.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
@@ -246,7 +255,7 @@ function drainPtyMaster(
  * measured here as zero U+FFFD across 2000 three-byte glyphs (48 probe runs,
  * 20 mutation-verified test runs), while a different shape (all-multibyte tail,
  * 15 ms/frame stall) did produce exactly 2. Pinned by
- * `tests/sessions-tail.test.ts:288`; the caveat stays because the flush point
+ * `tests/sessions-tail.test.ts:290`; the caveat stays because the flush point
  * is node's, not ours, and may differ on other Node versions. One garbled glyph
  * instead of a lost kilobyte.
  */
@@ -309,10 +318,13 @@ export class SessionManager {
   #sessions = new Map<string, Session>();
   readonly #log: Logger;
   readonly #journal: SessionJournal;
+  /** Absent -> no status-line injection at all (tests that don't need it). */
+  readonly #settings: SessionSettingsStore | undefined;
 
-  constructor(log: Logger, journal: SessionJournal) {
+  constructor(log: Logger, journal: SessionJournal, settings?: SessionSettingsStore) {
     this.#log = log;
     this.#journal = journal;
+    this.#settings = settings;
   }
 
   list(): SessionInfo[] {
@@ -331,17 +343,43 @@ export class SessionManager {
   /** Spawn the PTY and register the session. Throws if the spawn fails. */
   create(opts: CreateSessionOptions): SessionInfo {
     const id = randomUUID();
-    const proc = pty.spawn(opts.command, opts.args, {
-      name: 'xterm-256color',
-      cols: opts.cols,
-      rows: opts.rows,
-      cwd: opts.cwd,
-      env: {
-        ...(process.env as Record<string, string>),
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-      },
-    });
+    // Status line: claude-kind sessions only, and never over a client's own
+    // --settings. `spawnArgs` is what the PTY gets; `opts.args` is what the
+    // session (and therefore the journal, and therefore a relaunch offer)
+    // remembers — a relaunch must get a FRESH settings file, not a path this
+    // boot's wipe already removed.
+    let spawnArgs = [...opts.args];
+    let statusline = false;
+    if (
+      this.#settings !== undefined &&
+      basename(opts.command) === 'claude' &&
+      !hasSettingsArg(opts.args)
+    ) {
+      const file = this.#settings.write(id, parsePermissionMode(opts.args));
+      if (file !== undefined) {
+        spawnArgs = [...spawnArgs, '--settings', file];
+        statusline = true;
+      }
+    }
+
+    let proc: pty.IPty;
+    try {
+      proc = pty.spawn(opts.command, spawnArgs, {
+        name: 'xterm-256color',
+        cols: opts.cols,
+        rows: opts.rows,
+        cwd: opts.cwd,
+        env: {
+          ...(process.env as Record<string, string>),
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+        },
+      });
+    } catch (err) {
+      // A failed spawn must not leave its settings file behind.
+      if (statusline) this.#settings?.remove(id);
+      throw err;
+    }
 
     const info: SessionInfo = {
       id,
@@ -355,6 +393,7 @@ export class SessionManager {
       rows: opts.rows,
       createdAt: new Date().toISOString(),
       attention: false,
+      ...(statusline ? { statusline: true } : {}),
     };
 
     const session: Session = { info, pty: proc, buffer: new RingBuffer(), clients: new Set(), inOsc: false };
@@ -379,6 +418,7 @@ export class SessionManager {
       session.info.status = 'exited';
       session.info.exitCode = exitCode;
       session.pty = null;
+      if (statusline) this.#settings?.remove(id);
       // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
       this.#journal.markEnded(id, 'exit', exitCode);
       this.#broadcast(session, { type: 'exit', exitCode });
@@ -387,7 +427,7 @@ export class SessionManager {
 
     this.#log(
       'info',
-      `session ${id} spawned: ${opts.command} ${JSON.stringify(opts.args)} in ${opts.cwd} (${opts.cols}x${opts.rows})`,
+      `session ${id} spawned: ${opts.command} ${JSON.stringify(spawnArgs)} in ${opts.cwd} (${opts.cols}x${opts.rows})`,
     );
     return { ...info };
   }
@@ -438,6 +478,8 @@ export class SessionManager {
     const session = this.#sessions.get(id);
     if (session === undefined) return false;
     this.#sessions.delete(id);
+    // No-op when the session never had one, or when onExit already removed it.
+    if (session.info.statusline === true) this.#settings?.remove(id);
     if (session.pty !== null) {
       // Stamp BEFORE kill so the async onExit's 'exit' stamp is the no-op.
       // At server shutdown endAllLive() ran first, so THIS is the no-op.

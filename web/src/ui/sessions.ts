@@ -30,8 +30,12 @@ const armed = new ArmedSet();
  * product name (the launch dialog's own `Claude Code`), anything else is echoed
  * exactly as the user typed it in the custom-command field. Inventing a display
  * name for an arbitrary command would be a lie about what is running.
+ *
+ * Exported because the settings panel's relaunch notice names sessions too, and
+ * a second table would be a second place for the literal command name to leak
+ * into UI chrome (PROJECT-SCOPE copy rule, 2026-07-25).
  */
-function commandLabel(command: string): string {
+export function commandLabel(command: string): string {
   return command === 'claude' ? AGENT_LABEL : command;
 }
 

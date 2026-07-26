@@ -854,49 +854,6 @@ html.scanlines-on .pane-scan {
   display: block;
 }
 
-/* ---- per-pane terminal status strip ---------------------------------------
-   A thin vim-statusline descendant under the terminal (the hero). LAST child
-   of the pane; hidden (no empty bar) until ≥1 enabled item has a real value.
-   Colors are SEMANTIC and drawn from the themable xterm palette so the strip
-   stays harmonized with the active terminal theme. 22px is the spec height
-   (no token — a fixed one-off, like the pane header's own measures). */
-.pane-status {
-  flex: none;
-  height: 22px;
-  padding: 0 var(--s-6);
-  display: flex;
-  align-items: center;
-  gap: var(--s-6);
-  background: var(--surface-panestatus);
-  border-top: var(--line) solid var(--edge-soft);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-/* .pane-status sets display:flex, which would override the [hidden] UA rule */
-.pane-status[hidden] {
-  display: none;
-}
-
-.pane-status-item {
-  flex: none;
-  color: var(--xt-bright-black); /* terminal's themable dim = neutral telemetry */
-}
-
-.pane-status-item.is-skill {
-  color: var(--acc); /* the one live-activity highlight */
-}
-
-.pane-status-item.is-danger {
-  color: var(--danger); /* bypassPermissions mode */
-}
-
-.pane-status-item.is-hint {
-  color: var(--text-faint); /* settings preview "status bar hidden" */
-}
-
 /* ---- empty state (handoff §11 minus fiction) ------------------------------- */
 
 .empty-state {
@@ -2061,12 +2018,13 @@ kbd {
   padding: 0 var(--dlg-pad-x);
 }
 
-/* ---- settings panel (app defaults + read-only usage) ------------------------
-   A modal card in the dialog/popover language: the shared gradient dialog
-   header (.launch-hd, as the folder picker uses — refreshed prototype
-   2026-07-24, superseding the earlier plain-label header), the launch dialog's
-   own select + permission-card idioms for the defaults, and a dense mono ledger
-   for usage. No new tokens. */
+/* ---- settings panel (status line) -------------------------------------------
+   One section, one master switch, seven item rows — the panel is a checklist,
+   not a dashboard (2026-07-26: launch defaults, the usage ledger and the
+   per-pane strip were all removed with the features they configured). A modal
+   card in the dialog language: the shared gradient dialog header (.launch-hd,
+   as the folder picker uses) and the app's existing checkbox-row idiom. No new
+   tokens. */
 
 .settings-body {
   flex: 1;
@@ -2084,158 +2042,52 @@ kbd {
   gap: var(--s-5);
 }
 
-/* seam between the two sections */
-.settings-sect + .settings-sect {
-  border-top: var(--line) solid var(--edge-mid);
-  padding-top: var(--s-8);
-}
-
 .settings-note {
   font-size: var(--fs-status);
   color: var(--text-faint);
   line-height: 1.4;
 }
 
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  min-width: 0;
-}
-
-.settings-field select,
-.settings-field input {
-  height: var(--field-h);
-  padding: 0 var(--s-5);
-  background: var(--bg-deep);
-  border-radius: var(--r-field);
-  font-size: var(--fs-name);
-}
-
-/* usage section head: label · spacer · updated-at · refresh */
-.settings-usage-hd {
-  display: flex;
-  align-items: center;
-  gap: var(--s-4);
-}
-
-.settings-usage-updated {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-faint);
-}
-
-.settings-refresh {
-  height: var(--chip-h);
-  padding: 0 var(--s-4);
-  font-size: var(--fs-status);
-}
-
-.settings-usage {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-5);
-}
-
-.settings-usage-msg {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
-
-.settings-usage-msg.is-err {
-  color: var(--danger);
-}
-
-.settings-usage-msg.is-empty {
-  color: var(--text-faint);
-}
-
-/* totals: headline number + token-type breakdown + window meta */
-.settings-usage-totals {
+/* the sessions that predate the status line and need a relaunch to get one:
+   an ATTENTION state (never an error), so the --attn edge and the mono name
+   line — the same "one fact per mono line" grammar as .gh-facts */
+.settings-notice {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  padding: var(--s-5) var(--s-6);
+  padding: var(--s-4) var(--s-5);
   background: var(--well);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-box);
-}
-
-.settings-usage-total {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-3);
-}
-
-.settings-usage-total-n {
-  font-family: var(--font-mono);
-  font-size: var(--fs-title);
-  font-weight: 500;
-  color: var(--text);
-}
-
-.settings-usage-total-lb {
-  font-size: var(--fs-status);
+  border-left: 2px solid var(--attn);
+  border-radius: var(--r-field);
+  font-size: var(--fs-label);
   color: var(--text-dim);
+  line-height: 1.5;
 }
 
-.settings-usage-break {
+.settings-notice-names {
   font-family: var(--font-mono);
   font-size: var(--fs-status);
-  color: var(--text-mute);
+  color: var(--attn);
+  overflow-wrap: anywhere; /* session titles are free text */
 }
 
-.settings-usage-meta {
-  font-family: var(--font-mono);
-  font-size: var(--fs-tag);
-  color: var(--text-faint);
+/* the item rows the master switch governs: a hairline says "these belong to
+   the row above", and the launch dialog's dim treatment says "not in play" */
+.settings-items {
+  border-top: var(--line) solid var(--edge-soft);
+  padding-top: var(--s-3);
 }
 
-/* mono ledger: BY DAY / BY MODEL — name (+ optional count) → right-aligned value */
-.settings-led-lb {
-  font-family: var(--font-mono);
-  font-size: var(--fs-tag);
-  letter-spacing: 1px;
-  color: var(--text-faint);
+.settings-items.is-disabled {
+  opacity: 0.45;
 }
 
-.settings-led {
-  display: flex;
-  flex-direction: column;
-}
-
-.settings-led-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: var(--s-4);
-  align-items: baseline;
-  padding: var(--s-2) 0;
-  border-bottom: var(--line) solid var(--edge-soft);
-  font-family: var(--font-mono);
+/* honest-scope caption under an item row (account usage, permission mode), aligned with its label */
+.settings-rowcap {
+  padding: 0 var(--s-5) var(--s-3) 37px; /* 10px pad + 16px box + 11px gap */
   font-size: var(--fs-status);
-}
-
-.settings-led-row:last-child {
-  border-bottom: none;
-}
-
-.settings-led-name {
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-led-sub {
   color: var(--text-faint);
-  font-size: var(--fs-tag);
-}
-
-.settings-led-val {
-  color: var(--text);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
 }
 
 /* footer shares the dialog's 20px gutter, so header / body / footer line up on
@@ -2246,16 +2098,10 @@ kbd {
   padding-right: var(--dlg-pad-x);
 }
 
-/* ---- settings: terminal status bar section --------------------------------
-   The live preview reuses the .pane-status strip, boxed. The toggle rows use
-   the app's existing checkbox-square idiom; each is a real keyboard-reachable
-   <button> reflecting state via aria-pressed (no hover-only affordance). */
-.settings-sb-preview {
-  height: 24px;
-  border: var(--line) solid var(--edge-soft);
-  border-radius: var(--r-field);
-}
-
+/* the app's checkbox-row idiom: a real keyboard-reachable <button> per row,
+   state via aria-pressed (no hover-only affordance). Shared by the settings
+   status-line toggles, the new-project git-init row and the GitHub remember
+   row — one look for "a boolean you can flip". */
 .status-rows {
   display: flex;
   flex-direction: column;

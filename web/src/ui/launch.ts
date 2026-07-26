@@ -51,8 +51,6 @@ import {
   resolvePerm,
 } from './launch-args.ts';
 import type { Perm, Resume, SpawnSpec } from './launch-args.ts';
-import { getDefaults } from './defaults.ts';
-import { armStartupCommand } from './startup.ts';
 
 export interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
@@ -287,18 +285,17 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
    * Resolve the pre-selected model + permission ONCE per open through the
    * unit-tested precedence chain (`resolveModel`/`resolvePerm` in
    * launch-args.ts, documented in web/DESIGN.md): explicit project default >
-   * global settings default > hardcoded fallback. The selected project is
-   * whatever `projectSel.value` currently points at — a project-intent open
-   * force-selects its project before this runs; a plain open uses
-   * populateProjects()'s auto-selected first project. Called from open() only:
-   * a mid-dialog project switch deliberately does NOT re-resolve, leaving
-   * per-launch control with the user once the dialog is open.
+   * hardcoded fallback. The selected project is whatever `projectSel.value`
+   * currently points at — a project-intent open force-selects its project
+   * before this runs; a plain open uses populateProjects()'s auto-selected
+   * first project. Called from open() only: a mid-dialog project switch
+   * deliberately does NOT re-resolve, leaving per-launch control with the user
+   * once the dialog is open.
    */
   function applyDefaults(): void {
-    const g = getDefaults();
     const p = st.state.projects.find((p) => p.id === projectSel.value);
-    modelSel.value = resolveModel(g, p?.defaultModel);
-    setPerm(resolvePerm(g, p?.defaultMode));
+    modelSel.value = resolveModel(p?.defaultModel);
+    setPerm(resolvePerm(p?.defaultMode));
   }
 
   /**
@@ -392,10 +389,6 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       });
       st.upsertSession(info); // gives the session its own (new) tab
       st.focusSession(info.id); // ... and makes that tab active + focused
-      // Auto-run startup command: claude-mode launches ONLY (a custom bash
-      // session auto-typing a slash command is nonsense). This window armed
-      // it, so only it types the line — once, on the session's first output.
-      if (!customMode) armStartupCommand(info.id, getDefaults().startupCommand ?? '');
       close();
       requestTerminalFocus();
     } catch (e) {

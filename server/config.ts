@@ -3,7 +3,9 @@
  *
  * Data dir: ~/.ai-session-manager/ (created 0700), overridable via the
  * AI_SM_DATA_DIR env var (must be an absolute path). Holds runtime.json,
- * projects.json, prefs.json, github.json and server.log.
+ * projects.json, prefs.json, github.json, journal.json, previous.json,
+ * session-settings/ (0700, wiped at boot), statusline-cache.json (0600, wiped
+ * at boot) and server.log.
  *
  * The process runs detached — nothing may depend on stdout. All logging
  * appends to server.log in the data dir.
@@ -30,6 +32,25 @@ export interface DataPaths {
   journalFile: string;
   /** Rotated journal of the PREVIOUS run (feeds GET /api/previous). */
   previousFile: string;
+  /**
+   * Per-session Claude Code settings files (`--settings <file>`, one per
+   * claude session, holding only our statusLine key). Created 0700 and WIPED
+   * at boot by SessionSettingsStore — no session survives a restart, so any
+   * file found here at startup is garbage.
+   */
+  sessionSettingsDir: string;
+  /**
+   * Git-branch cache written by server/statusline.mjs (mode 0600), keyed by
+   * Claude Code session id. Deleted at boot by server/index.ts: no session
+   * survives a restart, so a leftover is at best useless and at worst a
+   * poisoned string from a previous run.
+   *
+   * MUST AGREE WITH server/statusline.mjs: that script imports nothing from
+   * server/ (it runs inside the foreign `claude` process) and therefore derives
+   * this same path itself, as `<dirname of prefs.json>/statusline-cache.json`.
+   * Change one and you must change the other.
+   */
+  statuslineCacheFile: string;
   logFile: string;
 }
 
@@ -54,27 +75,10 @@ export function resolveDataPaths(): DataPaths {
     githubFile: join(dataDir, 'github.json'),
     journalFile: join(dataDir, 'journal.json'),
     previousFile: join(dataDir, 'previous.json'),
+    sessionSettingsDir: join(dataDir, 'session-settings'),
+    statuslineCacheFile: join(dataDir, 'statusline-cache.json'),
     logFile: join(dataDir, 'server.log'),
   };
-}
-
-/**
- * Resolve Claude Code's home directory — ~/.claude by default, overridable
- * via AI_SM_CLAUDE_DIR (must be absolute) so tests point it at a fixture.
- *
- * This directory is FOREIGN, READ-ONLY territory. The server only ever reads
- * usage aggregates from <claudeDir>/projects/**\/*.jsonl and must never
- * write, modify, or delete anything under it.
- */
-export function resolveClaudeDir(): string {
-  const override = process.env['AI_SM_CLAUDE_DIR'];
-  if (override !== undefined && override !== '') {
-    if (!isAbsolute(override)) {
-      throw new Error(`AI_SM_CLAUDE_DIR must be an absolute path, got: ${override}`);
-    }
-    return override;
-  }
-  return join(homedir(), '.claude');
 }
 
 /**
@@ -99,7 +103,7 @@ const LOOPBACK_API_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
  * token OR pasted token) is sent as a Bearer header. It is therefore restricted
  * to LOOPBACK origins only, so a careless or hostile value can never exfiltrate
  * the token OFF THE MACHINE. Anything else is refused LOUDLY (throws -> the
- * server refuses to start, exactly like a relative AI_SM_CLAUDE_DIR).
+ * server refuses to start, exactly like a relative AI_SM_DATA_DIR).
  *
  * The residual risk is NOT limited to "another process running as this same
  * user": on Linux ANY local user may bind a loopback port. Since the backend

@@ -76,6 +76,24 @@ export interface SessionInfo {
   createdAt: string;
   /** True when a BEL (0x07) was seen in output and not yet acknowledged via 'seen'. */
   attention: boolean;
+  /**
+   * True when the server injected `--settings <file>` into the spawned argv to
+   * give THIS session Claude Code's own status line. Only ever true for
+   * claude-kind sessions (basename(command) === 'claude') whose client-supplied
+   * args did not already carry `--settings`.
+   *
+   * `args` above deliberately does NOT contain the injected flag — it stays the
+   * client's own argv, so the journal (and therefore a relaunch offer) never
+   * points at a per-session settings file that was wiped at boot; the relaunch
+   * gets a fresh one injected instead.
+   *
+   * The UI needs this to tell which running sessions predate a status-line
+   * change that only takes effect on a new session (toggling ITEMS applies to
+   * running sessions live — the script re-reads prefs.json every invocation —
+   * but a session spawned without `--settings` has no status line at all until
+   * it is relaunched).
+   */
+  statusline?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +158,13 @@ export type PreviousSession = SessionJournalEntry;
 //   VERBATIM and never interprets its contents — deliberately an opaque
 //   bag, so a future user-gated settings panel can add keys without a
 //   server-side schema change. Auth like every other /api route.
+//
+// ONE READER exists outside the API (added 2026-07-26): server/statusline.mjs
+// — the script Claude Code runs to draw its native status line — READS
+// prefs.json directly (same user, same data dir) on EVERY invocation and
+// honours the `statusLine` key below. That is what makes a settings-panel
+// toggle apply to already-running sessions with no restart. It only reads;
+// prefs.json is still written exclusively through PUT /api/prefs.
 
 /**
  * The one UiPrefs member the client currently reads/writes — mirrors the
@@ -154,63 +179,65 @@ export interface UiTheme {
 }
 
 /**
- * Launch defaults the settings panel persists (every member optional). The
- * launch dialog pre-selects from these; a per-launch override ALWAYS wins.
- * Like the rest of the prefs bag these are opaque to the server — it stores
- * them verbatim and never reads or validates them beyond the object/size
- * gate on PUT /api/prefs. Mirrors the panel's persisted shape.
+ * Which items Claude Code's OWN status line should draw, per user preference.
+ * Persisted in the prefs bag under `statusLine` and read by server/statusline.mjs
+ * — the script named in each claude session's injected `--settings` file — on
+ * EVERY invocation, so flipping a toggle applies to running sessions with no
+ * restart.
+ *
+ * Every member is optional; an absent member takes the factory default listed
+ * below, and an absent/corrupt prefs.json means all factory defaults. An item is
+ * drawn only when its toggle is on AND the payload carries an honest value for
+ * it (a missing value is omitted, never rendered as zero/unknown).
+ *
+ * Sources, all from the JSON payload Claude Code pipes to the script on stdin
+ * (verified against Claude Code 2.1.220) except where noted:
  */
-export interface UiLaunchDefaults {
-  /** Pre-selected model for the launch dialog (e.g. a Claude model id). */
-  model?: string;
-  /** Pre-selected permission mode for the launch dialog (all four CLI modes). */
-  permissionMode?: ClaudePermissionMode;
-  /**
-   * A line auto-typed into every new session once it is ready — e.g. a skill
-   * or slash command. Empty/absent means no auto-run.
-   */
-  startupCommand?: string;
-}
-
-/**
- * Which per-pane terminal status-bar items the user wants shown. Persisted in
- * the prefs bag under `statusBar`; every member optional so the UI can add
- * items without a contract break. Opaque to the server (stored verbatim). The
- * account rate-limit `usage %` is deliberately ABSENT — it lives in live API
- * response headers, not the local logs, so there is no honest source for it.
- */
-export interface UiStatusBar {
-  /** Model id (from launch args / the session's Claude log). */
+export interface UiStatusLine {
+  /** Master switch. Default ON. Off -> the script prints nothing (blank bar). */
+  enabled?: boolean;
+  /** `model.display_name` (falls back to `model.id`). Default ON. */
   model?: boolean;
-  /** Permission mode (from launch args). */
+  /**
+   * Permission mode in plain words. NOT in the payload: it is passed to the
+   * script as an argument, parsed from the session's own `--permission-mode`
+   * arg at spawn (the script prefers a payload field if a future Claude Code
+   * adds one). Default ON.
+   */
   mode?: boolean;
-  /** Git branch of the session cwd. */
+  /**
+   * Git branch. NOT in the payload either: the script runs
+   * `git branch --show-current` (argv, no shell) in `workspace.current_dir`,
+   * cached ~5 s per `session_id`. Default ON.
+   */
   branch?: boolean;
-  /** Elapsed session time (client-side, from createdAt). */
-  time?: boolean;
-  /** Approximate cumulative cost (Claude log × model pricing). */
+  /** `cost.total_cost_usd`, drawn only when > 0. Default ON. */
   cost?: boolean;
-  /** Context window used vs the model's max (latest Claude turn). */
+  /** `cost.total_lines_added` / `total_lines_removed`, drawn only when nonzero. Default OFF. */
+  lines?: boolean;
+  /** `context_window.used_percentage` (null until the first turn). Default ON. */
   context?: boolean;
-  /** Working-tree diff (+added / -deleted / untracked) of the session cwd. */
-  diff?: boolean;
-  /** Most-recent Skill tool_use in the session's Claude log (best-effort). */
-  skill?: boolean;
+  /**
+   * `rate_limits.five_hour.used_percentage` / `.seven_day.used_percentage` —
+   * the real account rate-limit windows. Claude.ai Pro/Max only, and only after
+   * the first API response of the session; absent -> the item is omitted.
+   * Default OFF.
+   */
+  usage?: boolean;
 }
 
 /**
- * Open preferences bag stored in prefs.json. `theme`, `defaults` and
- * `statusBar` are typed because the client uses them; any other key is opaque
- * to the server and preserved verbatim on PUT — merge-on-write (read the bag,
- * replace only the touched key, PUT the whole thing back) happens client-side,
- * see web/src/ui/theme.ts. The server never interprets `defaults`/`statusBar`;
- * they are part of the opaque bag and only typed here so the UI and this
- * contract agree.
+ * Open preferences bag stored in prefs.json. `theme` and `statusLine` are typed
+ * because the client uses them; any other key is opaque to the server and
+ * preserved verbatim on PUT — merge-on-write (read the bag, replace only the
+ * touched key, PUT the whole thing back) happens client-side, see
+ * web/src/ui/theme.ts. The HTTP layer still never interprets the bag; the one
+ * consumer of `statusLine` is server/statusline.mjs, which reads the file
+ * directly (see the note above this section).
  */
 export interface UiPrefs {
   theme?: UiTheme;
-  defaults?: UiLaunchDefaults;
-  statusBar?: UiStatusBar;
+  statusLine?: UiStatusLine;
   [key: string]: unknown;
 }
 
@@ -253,133 +280,6 @@ export interface HealthResponse {
 export interface RuntimeStatusResponse {
   /** ISO-8601 timestamp. */
   startedAt: string;
-}
-
-// ---------------------------------------------------------------------------
-// Usage aggregates (GET /api/usage) — read-only Claude Code usage
-// ---------------------------------------------------------------------------
-//
-// GET /api/usage -> UsageResponse. Authed like every /api route; GET only
-// (405 otherwise). Read-only, informational: the backend streams Claude
-// Code's OWN local session logs (<claudeDir>/projects/**/*.jsonl, where
-// claudeDir is ~/.claude, override AI_SM_CLAUDE_DIR) and aggregates the
-// per-message `usage` blocks. NEVER returns message content — token counts
-// only. Absent/empty logs dir -> a valid zero response, never an error.
-//
-// Aggregation rules mirrored from the ccusage ecosystem:
-//   - Only assistant records carrying a `usage` block are counted.
-//   - Deduped by (message.id, requestId): the same message is copied across
-//     JSONL files on session resume/fork; each unique pair counts once.
-//   - Records whose model is '<synthetic>' (all-zero placeholder turns) are
-//     dropped.
-//   - Bucketed by LOCAL calendar day; the window is `today` plus the
-//     preceding `windowDays - 1` days.
-//   - Malformed JSONL lines are skipped and counted, never fatal.
-
-/** Token counts, split by type; `total` is the sum of the other four. */
-export interface UsageTokens {
-  input: number;
-  output: number;
-  cacheCreation: number;
-  cacheRead: number;
-  total: number;
-}
-
-/** Aggregate for one local calendar day. */
-export interface UsageDay {
-  /** Local calendar day, YYYY-MM-DD. */
-  date: string;
-  tokens: UsageTokens;
-  /** Deduped assistant/usage records on this day. */
-  entryCount: number;
-  /** Distinct Claude Code sessionIds seen on this day. */
-  sessionCount: number;
-  /** Distinct model ids seen on this day, sorted ascending. */
-  models: string[];
-}
-
-/** Per-model totals across the whole window. */
-export interface UsageModelTotal {
-  model: string;
-  tokens: UsageTokens;
-  entryCount: number;
-}
-
-/**
- * GET /api/usage response. All figures are scoped to the window (`today`
- * plus the preceding `windowDays - 1` local days). `days` holds only days
- * that have data, ascending by date. Approximate/informational — the app
- * cannot see or change account-side limits.
- */
-export interface UsageResponse {
-  /** ISO-8601 timestamp when these aggregates were computed. */
-  updatedAt: string;
-  /** Number of local calendar days the window spans (incl. today). */
-  windowDays: number;
-  /** Days with data, ascending by `date`. */
-  days: UsageDay[];
-  /** Token totals across the window. */
-  totals: UsageTokens;
-  /** Per-model totals across the window, descending by total tokens. */
-  models: UsageModelTotal[];
-  /** Deduped entries across the window. */
-  entryCount: number;
-  /** Distinct sessionIds across the window. */
-  sessionCount: number;
-  /** JSONL lines skipped because they were not valid JSON. */
-  malformedLines: number;
-}
-
-// ---------------------------------------------------------------------------
-// Per-session telemetry (GET /api/telemetry) — read-only status-bar feed
-// ---------------------------------------------------------------------------
-//
-// GET /api/telemetry -> TelemetryResponse. Authed like every /api route; GET
-// only (405 otherwise). Feeds the per-pane terminal status bar. Every field is
-// derived from a REAL source or OMITTED — the server never fabricates a value:
-//   - branch/add/del/untracked: `git` probes (argv, no shell) in session.cwd.
-//   - model/costUsd/contextTokens/contextMax/skill: the session's OWN Claude
-//     Code JSONL log (only for claude-kind sessions), mapped by cwd-slug +
-//     newest-after-spawn. costUsd is APPROXIMATE (log tokens × baked-in model
-//     pricing) and cumulative for the session. Unknown model -> costUsd and
-//     contextMax omitted (never guessed).
-// Message CONTENT never leaves the server — only these numeric/string fields.
-// Git/log failures omit the affected field; the endpoint is 200 with partial
-// data, NEVER 500 (mirrors GET /api/usage "absent -> valid response").
-
-/**
- * Telemetry for one running session. Every field is optional and present ONLY
- * when a real value was sourced; an absent field means "no honest value",
- * never zero-as-unknown.
- */
-export interface TelemetryItem {
-  /** Git branch of the session cwd (detached HEAD shows "HEAD"). */
-  branch?: string;
-  /** Lines added in the working-tree diff (git diff --numstat sum). */
-  add?: number;
-  /** Lines deleted in the working-tree diff (git diff --numstat sum). */
-  del?: number;
-  /** Untracked file count (git ls-files --others --exclude-standard). */
-  untracked?: number;
-  /** Model id from the latest assistant turn in the session's Claude log. */
-  model?: string;
-  /** Approximate cumulative session cost in USD (rounded to cents). */
-  costUsd?: number;
-  /** Context tokens sent on the latest assistant turn (input + cache read + cache creation). */
-  contextTokens?: number;
-  /** The model's context-window size (from the pricing table). */
-  contextMax?: number;
-  /** Most-recent Skill tool_use name in the session's Claude log (best-effort). */
-  skill?: string;
-}
-
-/**
- * GET /api/telemetry response. Keyed by SessionInfo.id; contains an entry for
- * every RUNNING session (exited sessions are omitted — the client keeps their
- * last-known value). A session with no sourceable data maps to an empty {}.
- */
-export interface TelemetryResponse {
-  sessions: Record<string, TelemetryItem>;
 }
 
 // ---------------------------------------------------------------------------

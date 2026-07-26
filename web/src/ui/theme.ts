@@ -96,7 +96,7 @@ export interface ThemePopover {
  * non-fatal here too: the local cache just stands uncorrected). It is
  * consumed once, here at init, to correct the local cache; it is NOT retained.
  * Later theme writes preserve other bag keys (e.g. the settings panel's
- * `defaults`) via api.updatePrefs's merge-on-write (GET current bag →
+ * `statusLine`) via api.updatePrefs's merge-on-write (GET current bag →
  * shallow-merge only `theme` → PUT), not by holding this bag.
  */
 export function initTheme(
@@ -130,7 +130,7 @@ export function initTheme(
   /**
    * Save locally AND fire-and-forget a merged PUT via api.updatePrefs
    * (GET current bag → shallow-merge only `theme` → PUT), so the settings
-   * panel's `defaults` key and any other bag key survive a theme write.
+   * panel's `statusLine` key and any other bag key survive a theme write.
    */
   function persist(): void {
     saveState(state);

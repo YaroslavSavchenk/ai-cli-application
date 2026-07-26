@@ -19,7 +19,6 @@
                              same hex as the DEFAULT ground but NOT themed    */
   --surface: #1b222c;     /* bars / drawers / cards                           */
   --surface-panehd: #141920;
-  --surface-panestatus: #0b0e13; /* per-pane terminal status strip floor (below --term-bg) */
   --surface-status: #10141a;
   --surface-hover: #212a35;
   --surface-active: #232b36; /* pressed / toggled-on controls                 */

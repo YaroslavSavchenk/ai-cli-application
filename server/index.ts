@@ -27,7 +27,6 @@ import { fileURLToPath } from 'node:url';
 import type { RuntimeInfo } from '../shared/protocol.ts';
 import {
   resolveDataPaths,
-  resolveClaudeDir,
   resolveGithubApiBase,
   createLogger,
   atomicWriteFile,
@@ -37,9 +36,8 @@ import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
+import { SessionSettingsStore } from './session-settings.ts';
 import { SessionJournal } from './journal.ts';
-import { UsageReader } from './usage.ts';
-import { TelemetryReader } from './telemetry.ts';
 import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler } from './api.ts';
@@ -48,16 +46,37 @@ import { createUpgradeHandler } from './ws.ts';
 const paths = resolveDataPaths();
 const log = createLogger(paths.logFile);
 const token = generateToken();
-const webDistDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
+const serverDir = dirname(fileURLToPath(import.meta.url));
+const webDistDir = join(serverDir, '..', 'web', 'dist');
 
 const projects = new ProjectStore(paths.projectsFile, log);
 const prefs = new PrefsStore(paths.prefsFile, log);
 const journal = new SessionJournal(paths.journalFile, paths.previousFile, log);
 journal.rotate(); // A previous run's journal becomes previous.json ('crash'-stamped).
-const sessions = new SessionManager(log, journal);
-const claudeDir = resolveClaudeDir();
-const usage = new UsageReader(claudeDir, log);
-const telemetry = new TelemetryReader(claudeDir, log);
+// Per-session `--settings` files giving claude sessions our status line. The
+// script is run by a FOREIGN process (claude), so it is named by absolute path
+// and run with this very node binary — never by a name resolved through the
+// child's PATH. Any file left by a previous run is wiped: sessions do not
+// survive a restart.
+const sessionSettings = new SessionSettingsStore(
+  {
+    dir: paths.sessionSettingsDir,
+    scriptPath: join(serverDir, 'statusline.mjs'),
+    prefsFile: paths.prefsFile,
+    nodePath: process.execPath,
+  },
+  log,
+);
+sessionSettings.resetDir();
+// Same reasoning for the status line's git-branch cache (written by the script,
+// keyed by claude session id): those sessions are gone, so every entry is stale
+// — and a leftover written by anything else must not outlive a restart.
+try {
+  unlinkSync(paths.statuslineCacheFile);
+} catch {
+  // Absent (the normal case) or unremovable — the script tolerates either.
+}
+const sessions = new SessionManager(log, journal, sessionSettings);
 // GitHub connection. The OAuth client_id comes from env; absent/empty disables
 // only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
 // answers a clean not-available signal). The PASTED-TOKEN path and every
@@ -108,8 +127,6 @@ const server = createServer(
     prefs,
     sessions,
     journal,
-    usage,
-    telemetry,
     github,
     webDistDir,
     log,

@@ -30,8 +30,6 @@ import { ProjectStore, isExistingDirectory } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionJournal } from './journal.ts';
-import { UsageReader } from './usage.ts';
-import { TelemetryReader } from './telemetry.ts';
 import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
@@ -80,8 +78,6 @@ export interface ApiDeps {
   prefs: PrefsStore;
   sessions: SessionManager;
   journal: SessionJournal;
-  usage: UsageReader;
-  telemetry: TelemetryReader;
   github: GithubConnection;
   webDistDir: string;
   log: Logger;
@@ -184,8 +180,7 @@ function repoNameFromUrl(url: string): string | undefined {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, journal, usage, telemetry, github, webDistDir, log } =
-    deps;
+  const { token, projects, prefs, sessions, journal, github, webDistDir, log } = deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -262,26 +257,6 @@ export function createRequestHandler(
         }
         prefs.replace(body as UiPrefs);
         sendJson(res, 200, { ok: true });
-        return;
-      }
-      sendError(res, 405, 'method not allowed');
-      return;
-    }
-
-    // --- Usage (read-only Claude Code usage aggregates) --------------------
-    if (pathname === '/api/usage') {
-      if (method === 'GET') {
-        sendJson(res, 200, await usage.read());
-        return;
-      }
-      sendError(res, 405, 'method not allowed');
-      return;
-    }
-
-    // --- Telemetry (read-only per-session status-bar feed) -----------------
-    if (pathname === '/api/telemetry') {
-      if (method === 'GET') {
-        sendJson(res, 200, await telemetry.read(sessions.list()));
         return;
       }
       sendError(res, 405, 'method not allowed');

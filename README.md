@@ -63,6 +63,12 @@ path):
 - `previous.json` — the previous run's journal, rotated here on boot
   (entries left open by a crash are stamped `crash`); feeds the "previous
   run" relaunch offers (`GET /api/previous`)
+- `session-settings/` — one Claude Code settings file per session (directory
+  mode 0700), holding only the status-line command the session is launched
+  with; emptied at boot, since no session survives a restart
+- `statusline-cache.json` — the status line's git-branch cache, user-only
+  readable (mode 0600), written by the script Claude Code runs and keyed by its
+  session id; deleted at boot
 - `server.log` — backend log (rotated to `server.log.1` at 5 MiB)
 
 ## GitHub connection

@@ -139,27 +139,6 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
   return { label: isPerm(v) ? PERM_SHORT[v] : v, danger: v === 'bypassPermissions' };
 }
 
-/**
- * Group a non-negative integer with thin thousands separators for the usage
- * ledger (`1234567` -> `1,234,567`). Non-finite/negative inputs render as the
- * app's empty-value glyph so a malformed count never prints `NaN`.
- */
-export function fmtCount(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return '—';
-  return Math.trunc(n).toLocaleString('en-US');
-}
-
-/**
- * `MM:SS` from an elapsed millisecond span (status-bar session time). Minutes
- * do NOT wrap at 60 (a two-hour session reads `120:00`), mirroring the
- * prototype's fmtDur. Negative/non-finite spans clamp to `00:00`.
- */
-export function fmtDur(ms: number): string {
-  const s = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
-}
-
 /** `HH:MM:SS` since an ISO timestamp (statusline `up …`; hours don't wrap). */
 export function fmtUptime(iso: string): string {
   const t = new Date(iso).getTime();
