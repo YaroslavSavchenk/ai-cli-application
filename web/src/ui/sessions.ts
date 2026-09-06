@@ -8,22 +8,27 @@
  * real button: clicking it activates that session's view and focuses it.
  * Meta line: project name · status (· tab place when assigned).
  *
- * PREVIOUS RUN · N (crash/shutdown offers from GET /api/previous): rows keep
- * the existing `--continue` relaunch + forget + dismiss-all EXACTLY — there
- * is deliberately NO per-id `--resume <id>` (the journal stores our session
- * ids, not Claude conversation ids). The footer note states the contract in
- * plain words ("relaunch continues the previous conversation"); the emitted
- * flag is unchanged.
+ * HISTORY · N (GET /api/history, ENDED entries only) replaced the old
+ * PREVIOUS RUN offers on 2026-09-06 (user's call): every session the app ever
+ * launched is kept across backend runs and can be resumed per conversation.
+ * Entries live in a FOLDER PER PROJECT — the user's own framing, "not loose
+ * sessions" — collapsible, newest folder first. Resuming POSTs
+ * /api/history/:id/resume and the SERVER composes the argv; the browser never
+ * decides how a conversation is continued.
  */
-import type { CreateSessionRequest, PreviousSession } from '../../../shared/protocol.ts';
+import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
-import { el, button, ArmedSet, modelFromArgs } from './util.ts';
+import { el, button, ArmedSet, fmtAgo, modelFromArgs } from './util.ts';
 import { AGENT_LABEL } from './launch-args.ts';
+import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
+
+/** Folder keys the user has collapsed. In memory only — origins churn per backend run. */
+const collapsed = new Set<string>();
 
 /**
  * A session's command as the UI says it: the ONE known agent reads as its
@@ -54,73 +59,44 @@ function splitIntoActive(sessionId: string): void {
 }
 
 /**
- * Previous-run relaunch: POST a new session with the entry's cwd/command/
- * args/title (sized to the focused pane; the attach flow reconciles), then
- * focus the tab it gets and dismiss the offer. Claude continuity: a `claude`
- * entry that carries neither '--continue' nor '--resume' gets '--continue'
- * prepended so the conversation resumes (Claude Code persists its own
- * history).
+ * Resume one history entry. The server owns the argv (a claude conversation
+ * comes back with `--resume <id>`, any other command respawns as it was), so
+ * this posts only the pane size and takes the SessionInfo it gets back.
  */
-/** Claude flags that already resume a conversation ('-c'/'-r' are the short
- *  aliases; the launch dialog emits '--continue'). Prepending '--continue'
- *  on top of any of these would double the flag. */
-const RESUME_FLAGS = ['--continue', '-c', '--resume', '-r'];
-
-async function relaunchPrevious(p: PreviousSession): Promise<void> {
-  const dims = focusedPaneDims();
-  const resumes = p.args.some((a) => RESUME_FLAGS.includes(a));
-  const req: CreateSessionRequest = {
-    // projectId only while the project still exists — relaunch must survive
-    // a deleted project (cwd is explicit either way).
-    ...(p.projectId !== undefined && st.projectName(p.projectId) !== null
-      ? { projectId: p.projectId }
-      : {}),
-    cwd: p.cwd,
-    command: p.command,
-    args: p.command === 'claude' && !resumes ? ['--continue', ...p.args] : [...p.args],
-    title: p.title,
-    cols: dims.cols,
-    rows: dims.rows,
-  };
-  let created;
+export async function resumeEntry(entry: HistoryEntry): Promise<void> {
+  let info;
   try {
-    created = await api.createSession(req);
+    info = await api.resumeHistory(entry.id, focusedPaneDims());
   } catch (err) {
-    flash(`relaunch failed: ${err instanceof Error ? err.message : String(err)}`);
+    flash(`could not start it again: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  st.upsertSession(created); // Gives the session its own tab.
-  showSession(created.id);
-  // Dismiss AFTER the successful relaunch; a lost DELETE only means the
-  // offer reappears on the next reload (its dismiss button still works).
-  try {
-    await api.dismissPrevious(p.id);
-  } catch {
-    // 404 (already gone) or a blip — drop it locally either way.
-  }
-  st.removePrevious(p.id);
+  st.upsertSession(info); // gives the session its own tab
+  st.focusSession(info.id);
+  requestTerminalFocus();
+  scheduleHistoryRefresh(); // the entry is live now — it leaves the ended list
 }
 
-async function dismissPrevious(p: PreviousSession): Promise<void> {
+async function forgetEntry(entry: HistoryEntry): Promise<void> {
   try {
-    await api.dismissPrevious(p.id);
+    await api.forgetHistory(entry.id);
   } catch (err) {
     if (!(err instanceof api.ApiError && err.status === 404)) {
-      flash(`dismiss failed: ${err instanceof Error ? err.message : String(err)}`);
+      flash(`could not forget it: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
   }
-  st.removePrevious(p.id);
+  st.removeHistory(entry.id);
 }
 
-async function dismissAllPrevious(): Promise<void> {
+async function forgetAll(): Promise<void> {
   try {
-    await api.dismissAllPrevious();
+    await api.forgetAllHistory();
   } catch (err) {
-    flash(`dismiss failed: ${err instanceof Error ? err.message : String(err)}`);
+    flash(`could not clear the history: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  st.clearPrevious();
+  st.clearHistory();
 }
 
 export function initSessionsDrawer(host: HTMLElement): { render(): void } {
@@ -130,13 +106,11 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   hd.append(el('span', 'drawer-label', 'SESSIONS'), el('span', 'drawer-gap'));
   const close = button('drawer-x', '×', () => st.closeDrawer());
   close.setAttribute('aria-label', 'close sessions panel');
-  close.title = 'close panel (esc)';
+  close.title = 'close panel';
   hd.append(close);
 
   const body = el('div', 'drawer-body');
-  const note = el('div', 'drawer-note', 'relaunch continues the previous conversation');
-  note.hidden = true;
-  root.append(hd, body, note);
+  root.append(hd, body);
   host.append(root);
 
   let lastSig = '';
@@ -154,11 +128,13 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   function sig(): string {
     if (st.state.drawer !== 'sessions') return 'hidden';
     // Count prefix so the empty list still differs from the initial ''.
-    // Previous-run offers are immutable per id, so their id list captures
-    // every change; placeOf covers tab moves/merges.
+    // History entries change with every refetch, so id + lastUsedAt + armed
+    // state + the collapse set capture everything the section renders.
     return (
       `n${st.state.sessions.size}` +
-      `P${armed.isArmed('prev-all') ? 'a' : ''}${st.state.previous.map((p) => p.id).join(',')}|` +
+      `H${armed.isArmed('hist-all') ? 'a' : ''}` +
+      `${st.state.history.map((h) => `${h.id}@${h.lastUsedAt}${armed.isArmed(`hist:${h.id}`) ? 'a' : ''}`).join(',')}` +
+      `/${Array.from(collapsed).sort().join(',')}|` +
       Array.from(st.state.sessions.values())
         .map(
           (s) =>
@@ -179,6 +155,12 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     if (s === lastSig) return;
     lastSig = s;
     rebuild();
+  }
+
+  /** Re-render from a control's own handler (armed toggles, collapse). */
+  function refresh(): void {
+    lastSig = '';
+    render();
   }
 
   function rebuild(): void {
@@ -224,14 +206,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       split.setAttribute('data-k', `split:${info.id}`);
       split.title = 'add to the current view, max 4 (drag its tab for placement)';
       const kill = button('chip-btn is-x', armed.isArmed(info.id) ? 'sure?' : '×', () => {
-        if (
-          armed.trigger(info.id, () => {
-            lastSig = '';
-            render();
-          })
-        ) {
-          void killSession(info.id);
-        }
+        if (armed.trigger(info.id, refresh)) void killSession(info.id);
       });
       if (armed.isArmed(info.id)) kill.dataset.armed = '1';
       kill.setAttribute('data-k', `kill:${info.id}`);
@@ -243,11 +218,14 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       rows.push(row);
     }
 
-    if (st.state.previous.length > 0) {
-      rows.push(prevHeader());
-      for (const p of st.state.previous) rows.push(prevRow(p));
+    if (st.state.history.length > 0) {
+      rows.push(historyHeader());
+      for (const g of groupHistory(st.state.history, st.projectName)) {
+        const open = !collapsed.has(g.key);
+        rows.push(groupHeader(g.key, g.label, g.entries.length, open));
+        if (open) for (const e of g.entries) rows.push(historyRow(e));
+      }
     }
-    note.hidden = st.state.previous.length === 0;
 
     body.replaceChildren(...rows);
 
@@ -256,58 +234,73 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     }
   }
 
-  /** "PREVIOUS RUN" section header: label + count, dismiss-all. */
-  function prevHeader(): HTMLElement {
+  /** "HISTORY" section header: label + total count, clear-all. */
+  function historyHeader(): HTMLElement {
     const hd2 = el('div', 'drawer-sect');
-    hd2.append(
-      el('span', '', `PREVIOUS RUN · ${st.state.previous.length}`),
-      el('span', 'drawer-gap'),
-    );
-    // Armed two-step confirm, same contract as kill (key 'prev-all' cannot
+    hd2.append(el('span', '', `HISTORY · ${st.state.history.length}`), el('span', 'drawer-gap'));
+    // Armed two-step confirm, same contract as kill (key 'hist-all' cannot
     // collide with session ids in the shared ArmedSet).
-    const all = button('chip-btn', armed.isArmed('prev-all') ? 'sure?' : 'dismiss all', () => {
-      if (
-        armed.trigger('prev-all', () => {
-          lastSig = '';
-          render();
-        })
-      ) {
-        void dismissAllPrevious();
-      }
+    const all = button('chip-btn', armed.isArmed('hist-all') ? 'sure?' : 'clear all', () => {
+      if (armed.trigger('hist-all', refresh)) void forgetAll();
     });
-    if (armed.isArmed('prev-all')) all.dataset.armed = '1';
-    all.setAttribute('data-k', 'prev-dismiss-all');
-    all.title = 'dismiss all previous-run offers (asks to confirm)';
+    if (armed.isArmed('hist-all')) all.dataset.armed = '1';
+    all.setAttribute('data-k', 'hist-clear-all');
+    all.title = 'clear all (asks to confirm)';
     hd2.append(all);
     return hd2;
   }
 
-  /** One crash/shutdown offer: project name (never the path), title, command. */
-  function prevRow(p: PreviousSession): HTMLElement {
-    const row = el('div', 'sess-row is-prev');
+  /** One folder header — the WHOLE row is the collapse toggle. */
+  function groupHeader(key: string, label: string, count: number, open: boolean): HTMLElement {
+    const row = button('hist-group', '', () => {
+      if (collapsed.has(key)) collapsed.delete(key);
+      else collapsed.add(key);
+      refresh();
+    });
+    row.setAttribute('data-k', `hist-group:${key}`);
+    row.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const glyph = el('span', 'hist-caret', open ? '▾' : '▸');
+    glyph.setAttribute('aria-hidden', 'true');
+    row.append(glyph, el('span', 'hist-folder', label), el('span', 'hist-count', `· ${count}`));
+    return row;
+  }
+
+  /** One ended session: dot, title, when it ran, and how to bring it back. */
+  function historyRow(entry: HistoryEntry): HTMLElement {
+    const row = el('div', 'sess-row is-hist');
     const main = el('div', 'sess-main');
     const line = el('div', 'sess-line');
     const dot = el('span', 'dot is-exit');
     dot.setAttribute('aria-hidden', 'true');
-    line.append(dot, el('span', 'sess-name is-prev', p.title));
+    line.append(dot, el('span', 'sess-name is-hist', entry.title));
+
     const meta = el('div', 'sess-meta');
-    const pname = st.projectName(p.projectId);
-    const cmd = commandLabel(p.command);
-    meta.textContent = pname !== null ? `${pname} · ${cmd}` : cmd;
+    const parts = [fmtAgo(entry.lastUsedAt)];
+    const model = modelFromArgs(entry.args);
+    if (model !== null) parts.push(model);
+    const crashed = entry.ended?.reason === 'crash';
+    if (crashed) parts.push('crashed');
+    meta.textContent = parts.join(' · ');
+    meta.classList.toggle('is-danger', crashed);
     main.append(line, meta);
 
     const actions = el('div', 'sess-actions');
-    const re = button('chip-btn is-acc', 'relaunch', () => void relaunchPrevious(p));
-    re.setAttribute('data-k', `prev-relaunch:${p.id}`);
-    re.title =
-      p.command === 'claude'
-        ? 'relaunch as a new tab — continues where the session stopped'
-        : 'relaunch as a new tab';
-    const dis = button('chip-btn is-x', '×', () => void dismissPrevious(p));
-    dis.setAttribute('data-k', `prev-dismiss:${p.id}`);
-    dis.setAttribute('aria-label', `forget ${p.title}`);
-    dis.title = 'forget this offer';
-    actions.append(re, dis);
+    // `resume` is a promise about ONE conversation, so it keys on the pin, not
+    // on the command: a claude session launched to continue the folder's most
+    // recent conversation has no pinned id, and only gets started again.
+    const label = entry.conversation ? 'resume' : 'start again';
+    const re = button('chip-btn is-acc', label, () => void resumeEntry(entry));
+    re.setAttribute('data-k', `hist-resume:${entry.id}`);
+    re.setAttribute('aria-label', `${label} ${entry.title}`);
+    const key = `hist:${entry.id}`;
+    const forget = button('chip-btn is-x', armed.isArmed(key) ? 'sure?' : '×', () => {
+      if (armed.trigger(key, refresh)) void forgetEntry(entry);
+    });
+    if (armed.isArmed(key)) forget.dataset.armed = '1';
+    forget.setAttribute('data-k', `hist-forget:${entry.id}`);
+    forget.setAttribute('aria-label', `forget ${entry.title}`);
+    forget.title = 'forget (asks to confirm)';
+    actions.append(re, forget);
 
     row.append(main, actions);
     return row;

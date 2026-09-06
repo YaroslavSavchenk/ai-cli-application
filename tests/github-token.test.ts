@@ -931,7 +931,7 @@ test('remember=false: nothing is written to github.json, the credential works, a
     assert.equal(ownStub.requests[0]?.authorization, `Bearer ${PASTED}`);
 
     // Nothing on disk carries it, anywhere in the data dir.
-    for (const name of ['prefs.json', 'projects.json', 'runtime.json', 'journal.json']) {
+    for (const name of ['prefs.json', 'projects.json', 'runtime.json', 'history.json']) {
       const contents = await readFile(join(dataDir, name), 'utf8').catch(() => '');
       assert.ok(!contents.includes(PASTED), `${name} must never carry the token`);
     }

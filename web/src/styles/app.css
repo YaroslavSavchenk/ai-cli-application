@@ -76,7 +76,6 @@ select,
 .sess-meta,
 .sess-model,
 .drawer-sect,
-.drawer-note,
 .proj-path,
 .proj-meta,
 .dirlist,
@@ -903,14 +902,6 @@ html.scanlines-on .pane-scan {
 
 /* ---- shared form bits (settings + launch dialog) --------------------------- */
 
-.field-hint {
-  font-style: normal;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-faint);
-}
-
 /* ghost button (dialog cancel, browse, modal actions) */
 .btn {
   height: var(--ctl-h);
@@ -1064,7 +1055,7 @@ html.scanlines-on .pane-scan {
   font-size: var(--fs-ui);
 }
 
-/* mono micro section labels: ACTIVE · N / PREVIOUS RUN · N */
+/* mono micro section labels: ACTIVE · N / HISTORY · N */
 .drawer-sect {
   display: flex;
   align-items: center;
@@ -1075,13 +1066,6 @@ html.scanlines-on .pane-scan {
   color: var(--text-faint);
 }
 
-.drawer-note {
-  flex: none;
-  padding: var(--s-5) var(--s-7);
-  border-top: var(--line) solid var(--edge-mid);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
 
 /* small chip buttons in drawer rows and headers (+, ×, split, relaunch) */
 .chip-btn {
@@ -1184,8 +1168,58 @@ html.scanlines-on .pane-scan {
   text-overflow: ellipsis;
 }
 
-.sess-name.is-prev {
+.sess-name.is-hist {
   color: var(--text-hd);
+}
+
+/* history entries sit INSIDE their folder: one indent step, so the folder
+   headers form the readable left edge of the section */
+.sess-row.is-hist {
+  margin-left: var(--s-5);
+}
+
+/* folder header — the WHOLE row is the collapse toggle (no hover-only
+   affordance, no icon library: the caret is a text glyph like the app's other
+   glyphs) */
+.hist-group {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-3) var(--s-5);
+  border-radius: var(--r-btn);
+  text-align: left;
+  color: var(--text-2);
+}
+
+.hist-group:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.hist-caret {
+  flex: none;
+  width: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-row);
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.hist-folder {
+  min-width: 0;
+  font-size: var(--fs-row);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
 }
 
 .sess-meta {
@@ -1199,6 +1233,12 @@ html.scanlines-on .pane-scan {
 
 .sess-meta.is-attn {
   color: var(--attn);
+}
+
+/* a crashed run keeps the danger colour on its meta line — the word alone is
+   easy to miss in a dense list */
+.sess-meta.is-danger {
+  color: var(--danger-mut);
 }
 
 .sess-model {
@@ -1733,7 +1773,12 @@ kbd {
 /* ---- launch dialog (handoff §8) ---------------------------------------------
    The modal that creates sessions. Centered over the ONE sanctioned blurred
    backdrop; header rides its own sanctioned gradient. Every data surface —
-   chips, fields, permission cards, command preview — is mono. */
+   fields, mode segments, the custom command — is mono.
+
+   2026-09-06: cut back to a short form (user's call). The preset chips and the
+   summary ink well are gone from THIS dialog; `.launch-cmd` / `.launch-sum-line`
+   / `.launch-sub` / `.launch-note` stay because the New Project dialog, the
+   folder picker and the settings panel share them. */
 
 .launch-scrim {
   align-items: center;
@@ -1818,43 +1863,7 @@ kbd {
   overflow-y: auto;
 }
 
-/* preset chips: one click sets model + permission + resume */
-.launch-chips {
-  display: flex;
-  gap: var(--s-4);
-  flex-wrap: wrap;
-}
-
-.chip-pill {
-  height: var(--ctl-h);
-  padding: 0 var(--s-6);
-  background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-pill);
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-}
-
-.chip-pill:hover {
-  background: var(--surface-hover);
-  border-color: var(--edge-hover);
-}
-
-.chip-pill.is-danger {
-  color: var(--danger-mut);
-  border-color: var(--danger-edge);
-}
-
-/* the custom chip is a MODE, not a one-shot preset: toggled state follows
-   the topbar toggle pattern (surface-active + full ink) */
-.chip-pill.is-on {
-  background: var(--surface-active);
-  border-color: var(--edge-hover);
-  color: var(--text);
-}
-
-/* 2×2 fields: session name · project · model · resume */
+/* 2-column fields: name · project / model · effort */
 .launch-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1891,77 +1900,79 @@ kbd {
   font-family: var(--font-mono);
 }
 
-/* custom mode: claude-specific fields go visually AND functionally disabled
+/* custom mode: claude-specific controls go visually AND functionally disabled
    (the old launcher's is-disabled pattern — dimmed, still visible) */
 .launch-field.is-disabled,
-.perm-grid.is-disabled {
+.mode-seg.is-disabled,
+.status-row.is-disabled {
   opacity: 0.45;
 }
 
-.perm-card:disabled {
+.mode-seg-btn:disabled {
   cursor: default;
 }
 
-.perm-card:disabled:hover {
-  border-color: var(--edge-mid);
-}
-
-/* permission mode: 2×2 selectable cards, selection carries the accent */
-.perm-grid {
+/* Mode: ONE segmented row of four, sharing the field floor and height so it
+   reads as another field rather than a card grid. Hairlines between segments,
+   selection carries the accent. */
+.mode-seg {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s-4);
-}
-
-.perm-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--s-1);
-  padding: var(--s-5) var(--s-6);
+  grid-template-columns: repeat(4, 1fr);
   background: var(--bg-deep);
   border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-box);
-  text-align: left;
+  border-radius: var(--r-field);
+  overflow: hidden;
 }
 
-.perm-card:hover {
-  border-color: var(--edge-accent);
-}
-
-.perm-card.is-sel {
-  background: var(--acc-tint);
-  border-color: var(--edge-accent);
-}
-
-.perm-mode {
+.mode-seg-btn {
+  height: var(--field-h);
+  padding: 0 var(--s-3);
+  background: transparent;
+  border-left: var(--line) solid var(--edge-mid);
+  color: var(--text-2);
   font-family: var(--font-mono);
   font-size: var(--fs-tab);
-  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--t-btn), color var(--t-btn);
 }
 
-.perm-card.is-sel .perm-mode {
+.mode-seg-btn:first-child {
+  border-left: none;
+}
+
+.mode-seg-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.mode-seg-btn.is-sel {
+  background: var(--acc-tint);
   color: var(--acc);
 }
 
-.perm-card.is-danger:not(.is-sel) .perm-mode {
+/* the dangerous mode keeps the warning colour selected or NOT — the words got
+   shorter, the red did not go away */
+.mode-seg-btn.is-danger {
   color: var(--danger-mut);
 }
 
-.perm-desc {
-  font-size: var(--fs-label);
-  color: var(--text-dim);
-}
-
-/* the danger card's description stays red even when selected — the warning
-   must never disappear */
-.perm-card.is-danger .perm-desc {
+.mode-seg-btn.is-danger.is-sel {
+  background: var(--danger-edge);
   color: var(--danger);
 }
 
-/* ink well: the readable launch summary (preset modes) / the literal command
-   line (custom mode + the clone preview). Mono, because it states the launch
-   VALUES — the words changed, the voice did not. */
+/* the continue checkbox borrows the app's toggle row; pull it out to the body's
+   own left edge so its box lines up with the field labels above */
+.launch-check {
+  margin: 0 calc(var(--s-4) * -1);
+  padding: var(--s-3) var(--s-4);
+}
+
+/* ink well: the New Project dialog's clone summary. Mono, because it states
+   VALUES (the pasted url, the destination folder). Kept under the launch-*
+   names because that dialog speaks the launch dialog's visual language. */
 .launch-cmd {
   padding: var(--s-5) var(--s-6);
   background: var(--well);
@@ -1974,14 +1985,9 @@ kbd {
   overflow-wrap: anywhere;
 }
 
-/* one summary fact per line; the danger clause keeps the red warning that the
-   flag name used to carry */
+/* one summary fact per line */
 .launch-sum-line {
   line-height: 1.55;
-}
-
-.launch-cmd .is-danger {
-  color: var(--danger);
 }
 
 .launch-none {
@@ -1998,10 +2004,28 @@ kbd {
   background: var(--bg-app);
 }
 
+/* the New Project dialog's footer note (the launch dialog has none anymore) */
 .launch-note {
   font-family: var(--font-mono);
   font-size: var(--fs-status);
   color: var(--text-faint);
+}
+
+/* the custom-command escape hatch: a quiet mono text button at the footer's
+   left, accent when the mode is on */
+.launch-other {
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+.launch-other:hover {
+  color: var(--text);
+}
+
+.launch-other.is-on {
+  color: var(--acc);
 }
 
 .launch-ft .btn,
@@ -2204,7 +2228,7 @@ kbd {
   border-color: var(--edge-accent);
 }
 
-/* selected mode: the topbar/chip-pill toggle idiom (surface-active + full ink) */
+/* selected mode: the topbar toggle idiom (surface-active + full ink) */
 .np-tab.is-on {
   background: var(--surface-active);
   border-color: var(--edge-hover);

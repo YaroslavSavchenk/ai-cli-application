@@ -18,9 +18,10 @@ import type {
   GithubReposResponse,
   GithubStatus,
   GithubTokenRequest,
+  HistoryEntry,
   OkResponse,
-  PreviousSession,
   Project,
+  ResumeHistoryRequest,
   RuntimeStatusResponse,
   SessionInfo,
   UiPrefs,
@@ -156,17 +157,33 @@ export function markSeen(id: string): Promise<OkResponse> {
   return request<OkResponse>(`/api/sessions/${encodeURIComponent(id)}/seen`, { method: 'POST' });
 }
 
-/** Previous-run sessions offered for relaunch ('shutdown'/'crash' only). */
-export function getPrevious(): Promise<PreviousSession[]> {
-  return request<PreviousSession[]>('/api/previous');
+/**
+ * Session history — every session the app launched, kept across backend runs
+ * (ENDED entries only, newest `lastUsedAt` first).
+ */
+export function getHistory(): Promise<HistoryEntry[]> {
+  return request<HistoryEntry[]>('/api/history');
 }
 
-export function dismissPrevious(id: string): Promise<OkResponse> {
-  return request<OkResponse>(`/api/previous/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/**
+ * Resume one history entry: the server respawns it (a claude conversation
+ * with `--resume <id>`, anything else with the same argv) and answers 201 with
+ * the new SessionInfo. `dims` sizes the new PTY; the attach flow reconciles it
+ * with the pane's real dimensions afterwards.
+ */
+export function resumeHistory(id: string, dims: ResumeHistoryRequest): Promise<SessionInfo> {
+  return request<SessionInfo>(`/api/history/${encodeURIComponent(id)}/resume`, {
+    method: 'POST',
+    body: JSON.stringify(dims),
+  });
 }
 
-export function dismissAllPrevious(): Promise<OkResponse> {
-  return request<OkResponse>('/api/previous', { method: 'DELETE' });
+export function forgetHistory(id: string): Promise<OkResponse> {
+  return request<OkResponse>(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function forgetAllHistory(): Promise<OkResponse> {
+  return request<OkResponse>('/api/history', { method: 'DELETE' });
 }
 
 /** Backend boot time (statusline uptime). */

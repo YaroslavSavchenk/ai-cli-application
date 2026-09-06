@@ -25,6 +25,7 @@ import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
 import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
 import { armDrag } from './dnd.ts';
+import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
 
 interface Slot {
@@ -66,7 +67,7 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
-      // The empty state depends on the previous-run offer count; re-render it.
+      // The empty state depends on the history count; re-render it.
       if (st.activeView() === null) {
         render();
         return;
@@ -132,13 +133,13 @@ function render(): void {
 
 /**
  * Handoff §11 empty state (zero views ⇔ zero sessions): centered logo tile,
- * "No active sessions", + New session (opens the launch dialog) and, when
- * crash/shutdown offers exist, "Relaunch previous run (N)" opening the
- * sessions drawer. NO grace countdown — a page able to display one would
- * itself be keeping the backend alive.
+ * "No active sessions", + New session (opens the launch dialog) and, when the
+ * session history holds anything, "Resume a session (N)" opening the sessions
+ * drawer. NO grace countdown — a page able to display one would itself be
+ * keeping the backend alive.
  */
 function renderEmpty(): void {
-  const sig = `__empty:${st.state.previous.length}`;
+  const sig = `__empty:${st.state.history.length}`;
   if (renderedViewId === sig) return;
   for (const s of slots) s.view?.dispose();
   slots = [];
@@ -156,9 +157,9 @@ function renderEmpty(): void {
   const row = el('div', 'empty-actions');
   const launch = button('btn-go', '+ New session', () => openLaunch());
   row.append(launch);
-  if (st.state.previous.length > 0) {
+  if (st.state.history.length > 0) {
     row.append(
-      button('btn-ghost', `Relaunch previous run (${st.state.previous.length})`, () =>
+      button('btn-ghost', `Resume a session (${st.state.history.length})`, () =>
         st.openDrawer('sessions'),
       ),
     );
@@ -551,7 +552,6 @@ function updateNote(s: Slot): void {
     s.note.hidden = false;
     s.note.className = `pane-note ${s.exitCode === 0 ? 'is-exit' : 'is-exit-err'}`;
     const relaunchBtn = button('pane-note-btn is-primary', 'relaunch', () => void relaunch(s));
-    relaunchBtn.title = 'start a new session with the same command; the exited one is deleted';
     const delBtn = button('pane-note-btn', 'delete session');
     armButton(delBtn, 'sure?', () => {
       if (s.sessionId !== null) void killSession(s.sessionId);
@@ -567,10 +567,20 @@ function updateNote(s: Slot): void {
 }
 
 /**
- * Exited-banner relaunch: POST a new session with the exited one's
- * project/cwd/command/args/title/cols/rows, swap it into this slot, then
- * DELETE the exited session. The attach flow reconciles the PTY size with
- * the pane's actual dimensions, so stale cols/rows self-correct.
+ * Exited-banner relaunch: bring this pane's session back, swap it into this
+ * slot, then DELETE the exited one. The attach flow reconciles the PTY size
+ * with the pane's actual dimensions, so stale cols/rows self-correct.
+ *
+ * When the session history still holds THIS session's entry, relaunch goes
+ * through /api/history/:id/resume so a claude session continues its own
+ * conversation instead of starting an empty one (the server composes the
+ * argv). Without an entry — a backend without history, or one already
+ * forgotten — it falls back to reposting the same command.
+ *
+ * The lookup reads a FRESH /api/history rather than `state.history`: the cached
+ * list is filled by a 300 ms-debounced refetch, so a click inside that window
+ * would find no entry, fall back to the create path, and silently FORK the
+ * conversation onto a new pinned id. A failing fetch keeps today's behaviour.
  */
 async function relaunch(s: Slot): Promise<void> {
   const oldId = s.sessionId;
@@ -579,6 +589,14 @@ async function relaunch(s: Slot): Promise<void> {
   if (info === undefined) return;
   const viewId = renderedViewId; // Captured: the user may switch tabs mid-await.
   const index = s.index;
+  let history = st.state.history;
+  try {
+    history = await api.getHistory();
+    st.setHistory(history); // Publish it, so the drawer agrees with this click.
+  } catch {
+    // Unreachable/absent history routes: fall back to the cached list.
+  }
+  const entry = history.find((h) => h.sessionId === oldId);
   const req: CreateSessionRequest = {
     ...(info.projectId !== undefined ? { projectId: info.projectId } : {}),
     cwd: info.cwd, // Explicit, so relaunch survives a deleted project.
@@ -589,7 +607,10 @@ async function relaunch(s: Slot): Promise<void> {
     rows: info.rows,
   };
   try {
-    const created = await api.createSession(req);
+    const created =
+      entry !== undefined
+        ? await api.resumeHistory(entry.id, { cols: info.cols, rows: info.rows })
+        : await api.createSession(req);
     st.upsertSession(created);
     st.replaceSessionInView(viewId, index, created.id);
     if (st.state.activeViewId === viewId) {
@@ -600,6 +621,7 @@ async function relaunch(s: Slot): Promise<void> {
     flash(`relaunch failed: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
+  scheduleHistoryRefresh(); // the entry is live again — it leaves the ended list
   // The new session is live; losing the DELETE only leaves the exited one
   // listed in the drawer (its kill button still works).
   try {

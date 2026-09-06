@@ -22,6 +22,7 @@ import type {
   GithubCreateRepoRequest,
   GithubReposResponse,
   GithubTokenRequest,
+  ResumeHistoryRequest,
   RuntimeStatusResponse,
   UiPrefs,
 } from '../shared/protocol.ts';
@@ -29,7 +30,8 @@ import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { ProjectStore, isExistingDirectory } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
-import { SessionJournal } from './journal.ts';
+import { SessionHistory } from './history.ts';
+import { resumeSpawn } from './conversation.ts';
 import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
@@ -77,7 +79,7 @@ export interface ApiDeps {
   projects: ProjectStore;
   prefs: PrefsStore;
   sessions: SessionManager;
-  journal: SessionJournal;
+  history: SessionHistory;
   github: GithubConnection;
   webDistDir: string;
   log: Logger;
@@ -180,7 +182,7 @@ function repoNameFromUrl(url: string): string | undefined {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, journal, github, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, history, github, webDistDir, log } = deps;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -733,6 +735,7 @@ export function createRequestHandler(
         }
         let projectId: string | undefined;
         let projectPath: string | undefined;
+        let projectName: string | undefined;
         if (body.projectId !== undefined) {
           if (typeof body.projectId !== 'string') {
             sendError(res, 400, 'projectId must be a string');
@@ -745,6 +748,7 @@ export function createRequestHandler(
           }
           projectId = project.id;
           projectPath = project.path;
+          projectName = project.name;
         }
         let cwd: string | undefined;
         if (body.cwd !== undefined) {
@@ -760,20 +764,27 @@ export function createRequestHandler(
           sendError(res, 400, 'cwd or projectId is required');
           return;
         }
+        // Default title: the PROJECT's name (what the launch dialog's
+        // placeholder promises), not the literal command name. With no project
+        // resolved SessionManager still falls back to the command.
+        const givenTitle = typeof body.title === 'string' && body.title.trim() !== ''
+          ? body.title.trim()
+          : undefined;
+        const title = givenTitle ?? projectName;
         try {
           const info = sessions.create({
             ...(projectId !== undefined ? { projectId } : {}),
             cwd,
             command: body.command,
             args: body.args,
-            ...(body.title !== undefined ? { title: body.title } : {}),
+            ...(title !== undefined ? { title } : {}),
             cols: body.cols,
             rows: body.rows,
           });
           sendJson(res, 201, info);
         } catch (err) {
           log('error', `session spawn failed: ${String(err)}`);
-          sendError(res, 500, `failed to spawn session: ${String(err)}`);
+          sendError(res, 500, 'could not start the session');
         }
         return;
       }
@@ -781,14 +792,14 @@ export function createRequestHandler(
       return;
     }
 
-    // --- Previous sessions (journal of the previous run) --------------------
-    if (pathname === '/api/previous') {
+    // --- Session history (history.json, across runs) ------------------------
+    if (pathname === '/api/history') {
       if (method === 'GET') {
-        sendJson(res, 200, journal.listPrevious());
+        sendJson(res, 200, history.list());
         return;
       }
       if (method === 'DELETE') {
-        journal.dismissAllPrevious();
+        history.forgetAllEnded();
         sendJson(res, 200, { ok: true });
         return;
       }
@@ -796,18 +807,68 @@ export function createRequestHandler(
       return;
     }
 
-    const previousMatch = /^\/api\/previous\/([^/]+)$/.exec(pathname);
-    if (previousMatch !== null) {
-      const id = decodeURIComponent(previousMatch[1] as string);
-      if (method === 'DELETE') {
-        if (!journal.dismissPrevious(id)) {
-          sendError(res, 404, 'previous session not found');
+    const historyMatch = /^\/api\/history\/([^/]+)(\/resume)?$/.exec(pathname);
+    if (historyMatch !== null) {
+      const id = decodeURIComponent(historyMatch[1] as string);
+      const isResume = historyMatch[2] === '/resume';
+      if (isResume && method !== 'POST') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      if (!isResume && method !== 'DELETE') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      const entry = history.get(id);
+      if (entry === undefined) {
+        sendError(res, 404, 'history entry not found');
+        return;
+      }
+      if (!isResume) {
+        // DELETE: a live entry is not forgettable — its session is running.
+        if (entry.ended === null) {
+          sendError(res, 409, 'that session is still running');
           return;
         }
+        history.forget(id);
         sendJson(res, 200, { ok: true });
         return;
       }
-      sendError(res, 405, 'method not allowed');
+      const body = (await readJsonBody(req)) as Partial<ResumeHistoryRequest>;
+      if (!isValidDim(body.cols) || !isValidDim(body.rows)) {
+        sendError(res, 400, `cols and rows must be integers between 1 and ${MAX_TERM_DIM}`);
+        return;
+      }
+      if (entry.ended === null) {
+        sendError(res, 409, 'that session is still running');
+        return;
+      }
+      if (!isExistingDirectory(entry.cwd)) {
+        sendError(res, 400, 'the folder this session ran in no longer exists');
+        return;
+      }
+      // A project deleted since the launch must not resurrect its id.
+      const projectId =
+        entry.projectId !== undefined && projects.get(entry.projectId) !== undefined
+          ? entry.projectId
+          : undefined;
+      const spawn = resumeSpawn(entry);
+      try {
+        const info = sessions.create({
+          ...(projectId !== undefined ? { projectId } : {}),
+          cwd: entry.cwd,
+          command: spawn.command,
+          args: spawn.args,
+          title: entry.title,
+          cols: body.cols,
+          rows: body.rows,
+          historyId: entry.id,
+        });
+        sendJson(res, 201, info);
+      } catch (err) {
+        log('error', `history resume spawn failed: ${String(err)}`);
+        sendError(res, 500, 'could not start the session');
+      }
       return;
     }
 

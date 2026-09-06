@@ -30,9 +30,10 @@ presence WebSocket, and when the last one closes the backend waits a ~30 s
 grace period (so reloads and accidental closes reattach harmlessly), then
 ends all sessions, removes runtime.json, and exits. **Closing the window
 ends your sessions** — nothing keeps running in the background. `-Stop`
-shuts down immediately, skipping the grace. On the next start the sessions
-drawer offers the previous run's sessions for one-click relaunch (Claude
-sessions resume with `--continue`).
+shuts down immediately, skipping the grace. Nothing is lost: every session
+is kept in the backend's session history and can be resumed later, on this
+run or any future one (a Claude session resumes its own conversation, pinned
+at launch with `--session-id` and resumed with `--resume`).
 
 The port is auto-picked by the backend; nothing is ever hardcoded. Always
 `127.0.0.1`, never `localhost` (the server binds IPv4 only; `::1` fails).
@@ -162,8 +163,8 @@ Icon-click = `wscript.exe launch-silent.vbs` = hidden
     result. Exit code 0 = running and healthy, 1 = not running or stale.
   - `-Stop` — immediate shutdown, no grace period: SIGTERM to the pid from
     runtime.json, then confirm the server removed runtime.json. Running
-    sessions end right away; the next start offers them for relaunch as a
-    previous run.
+    sessions end right away; they stay in the session history and can be
+    resumed on the next start.
   - `-NoBrowser` — do everything except opening the UI (scripts/tests).
 
 ## Cold boot expectations
@@ -178,8 +179,8 @@ Because the backend exits when the last window closes, most launches are
 cold starts of the backend (a few seconds once the WSL VM is up). A warm
 attach — window open in about a second — only happens while the backend is
 still alive: another app window is open, or you relaunch within the ~30 s
-grace after closing the last one. After a fresh start, the sessions drawer
-offers the previous run's sessions for relaunch instead.
+grace after closing the last one. After a fresh start, the session history
+is still there and any of its sessions can be resumed.
 
 A started backend never lingers unused: if the launcher fails to open a
 window (or you close it before it connects), the backend exits on its own
@@ -238,8 +239,8 @@ reach the dist root.
   full console story; the box text names the same cause.
 - Backend log: `~/.ai-session-manager/server.log` inside the distro.
 - `launch.cmd -Status` says stale → the backend crashed or was SIGKILLed;
-  the next plain launch starts a fresh one automatically and offers the
-  crashed run's sessions for relaunch.
+  the next plain launch starts a fresh one automatically, and the sessions
+  the crash cut short are in the session history, ready to resume.
 - Nothing at all happens on double-click and no error box → check that
   `\\wsl.localhost\Ubuntu-24.04\...\launcher` is reachable in Explorer
   (WSL may need `wsl.exe --update` if the share is broken), then re-run

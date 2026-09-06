@@ -9,7 +9,7 @@
  *
  * A shutdown grace timer runs ONLY while BOTH are zero. Any connect cancels
  * it; the next return to zero re-arms it from scratch. On expiry the
- * onIdleShutdown callback performs the clean shutdown (journal 'shutdown',
+ * onIdleShutdown callback performs the clean shutdown (history 'shutdown',
  * kill PTYs, remove runtime.json, exit 0).
  *
  * Until the FIRST presence connection ever, the window is the startup grace

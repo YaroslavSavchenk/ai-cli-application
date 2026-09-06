@@ -189,8 +189,8 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   // stored value is untouched: a project.json that already carries `standard`
   // keeps being accepted (see submitBlank), no schema/server change.
   // Lowercase to match this select's own `no default` and the sibling
-  // Default-model select — the settings-panel select idiom. The four permission
-  // CARD titles are unaffected (they keep their sentence case).
+  // Default-model select — the settings-panel select idiom. The launch dialog's
+  // mode segments are unaffected (they carry their own short labels, PERM_SHORT).
   const modeOpts: { value: PermissionMode; label: string }[] = [
     { value: 'skip-permissions', label: 'never ask · dangerous' },
   ];
@@ -318,7 +318,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   }
 
   /**
-   * The ink well, in the launch summary's own line structure (PROJECT-SCOPE
+   * The ink well, one fact per `.launch-sum-line` (PROJECT-SCOPE
    * "No commands, flags, or code in the UI", 2026-07-25): what this will do,
    * the pasted URL, and where it lands. The URL stays verbatim — it is the
    * user's own input, not code — and both values fall back to '—', the app's

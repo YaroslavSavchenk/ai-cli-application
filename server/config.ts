@@ -3,7 +3,7 @@
  *
  * Data dir: ~/.ai-session-manager/ (created 0700), overridable via the
  * AI_SM_DATA_DIR env var (must be an absolute path). Holds runtime.json,
- * projects.json, prefs.json, github.json, journal.json, previous.json,
+ * projects.json, prefs.json, github.json, history.json,
  * session-settings/ (0700, wiped at boot), statusline-cache.json (0600, wiped
  * at boot) and server.log.
  *
@@ -28,10 +28,11 @@ export interface DataPaths {
    * and not claimed to be: see the storage-ceiling note in server/github.ts.
    */
   githubFile: string;
-  /** Crash-safe session journal for the CURRENT run. */
-  journalFile: string;
-  /** Rotated journal of the PREVIOUS run (feeds GET /api/previous). */
-  previousFile: string;
+  /**
+   * Persistent session history across runs (feeds GET /api/history and the
+   * resume route). Written atomically 0600 on every session create/end.
+   */
+  historyFile: string;
   /**
    * Per-session Claude Code settings files (`--settings <file>`, one per
    * claude session, holding only our statusLine key). Created 0700 and WIPED
@@ -73,8 +74,7 @@ export function resolveDataPaths(): DataPaths {
     projectsFile: join(dataDir, 'projects.json'),
     prefsFile: join(dataDir, 'prefs.json'),
     githubFile: join(dataDir, 'github.json'),
-    journalFile: join(dataDir, 'journal.json'),
-    previousFile: join(dataDir, 'previous.json'),
+    historyFile: join(dataDir, 'history.json'),
     sessionSettingsDir: join(dataDir, 'session-settings'),
     statuslineCacheFile: join(dataDir, 'statusline-cache.json'),
     logFile: join(dataDir, 'server.log'),

@@ -12,7 +12,7 @@
  *     assertions see is the argv the process received.
  *
  * The invariants that matter beyond "it works":
- *   - SessionInfo.args NEVER contains the injected flag (a journal relaunch
+ *   - SessionInfo.args NEVER contains the injected flag (a history resume
  *     must re-inject a fresh file, not point at one wiped at boot).
  *   - a client's own --settings is never overridden.
  *   - non-claude commands are untouched — the launcher stays generic.
@@ -253,7 +253,7 @@ test('a claude session gets a per-session settings file, the exact statusLine JS
     assert.deepEqual(
       session.args,
       ['--model', 'opus', '--permission-mode', 'acceptEdits'],
-      'SessionInfo.args stays the CLIENT argv — the injected flag must not reach the journal',
+      'SessionInfo.args stays the CLIENT argv — the injected flag must not reach the history',
     );
 
     const file = join(server.dataDir, 'session-settings', `${session.id}.json`);
@@ -266,15 +266,19 @@ test('a claude session gets a per-session settings file, the exact statusLine JS
     });
 
     const argv = await spawnedArgv(server, session.id);
-    assert.equal(argv, `--model opus --permission-mode acceptEdits --settings ${file}`);
+    // Both injections, in spawn order: --settings, then the conversation pin.
+    assert.equal(
+      argv,
+      `--model opus --permission-mode acceptEdits --settings ${file} --session-id ${session.id}`,
+    );
 
-    // Same rule one layer down: the journal (and therefore any relaunch offer)
+    // Same rule one layer down: the history entry (and therefore any resume)
     // must not carry a path this run's boot wipe already deleted.
-    const journal = JSON.parse(await readFile(join(server.dataDir, 'journal.json'), 'utf8')) as {
+    const history = JSON.parse(await readFile(join(server.dataDir, 'history.json'), 'utf8')) as {
       id: string;
       args: string[];
     }[];
-    assert.deepEqual(journal.find((e) => e.id === session.id)?.args, [
+    assert.deepEqual(history.find((e) => e.id === session.id)?.args, [
       '--model',
       'opus',
       '--permission-mode',
@@ -328,7 +332,11 @@ test('a client that brings its own --settings is left completely alone', async (
     });
     assert.equal(session.statusline, undefined, 'no injection claimed');
     const argv = await spawnedArgv(server, session.id);
-    assert.equal(argv, '--settings /tmp/mine.json', 'argv untouched');
+    assert.equal(
+      argv,
+      `--settings /tmp/mine.json --session-id ${session.id}`,
+      'the --settings injection is suppressed; the conversation pin is unrelated and still applies',
+    );
     const dir = await readdir(join(server.dataDir, 'session-settings'));
     assert.deepEqual(dir, [], 'no settings file written');
   } finally {
@@ -437,7 +445,10 @@ test('the `--settings=<value>` spelling suppresses injection too, through the wh
     });
     assert.equal(session.statusline, undefined, 'no injection claimed');
     const argv = await spawnedArgv(server, session.id);
-    assert.equal(argv, '--settings={"statusLine":{"type":"command","command":"whoami"}}');
+    assert.equal(
+      argv,
+      `--settings={"statusLine":{"type":"command","command":"whoami"}} --session-id ${session.id}`,
+    );
     assert.deepEqual(await readdir(join(server.dataDir, 'session-settings')), [], 'no settings file written');
   } finally {
     await rm(stub.dir, { recursive: true, force: true });
@@ -475,7 +486,7 @@ test('relaunching from the remembered argv re-injects a FRESH file (the point of
     assert.equal((await api(server, 'DELETE', `/api/sessions/${first.id}`)).status, 200);
     await assert.rejects(readFile(firstFile, 'utf8'), /ENOENT/);
 
-    // A relaunch offer replays command + the REMEMBERED args, nothing else.
+    // A resume replays command + the REMEMBERED args, nothing else.
     const again = await createSession(server, {
       command: stub.bin,
       args: first.args,

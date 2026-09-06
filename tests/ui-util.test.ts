@@ -3,13 +3,15 @@
  * (`modelFromArgs` / `permFromArgs`, R2 statusline/pane-card tags; the
  * permission tag renders the plain-language short form from `PERM_SHORT`, the
  * CLI value never reaches the DOM) and
- * `fmtUptime` (R2 statusline `up HH:MM:SS`). `el`/`button`/`armButton`/
- * `ArmedSet`/`trapTab`/`fmtAge` all touch the DOM or wall-clock in ways this
- * file doesn't attempt — see the terminal-ui skill for manual verification.
+ * `fmtUptime` (R2 statusline `up HH:MM:SS`), plus `fmtAgo`/`baseName` (the
+ * sessions drawer's HISTORY section: when an entry last ran, and the folder
+ * name for a cwd the app cannot name). `el`/`button`/`armButton`/`ArmedSet`/
+ * `trapTab` all touch the DOM in ways this file doesn't attempt — see the
+ * terminal-ui skill for manual verification.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelFromArgs, permFromArgs, fmtUptime } from '../web/src/ui/util.ts';
+import { modelFromArgs, permFromArgs, fmtUptime, fmtAgo, baseName } from '../web/src/ui/util.ts';
 
 // ---------------------------------------------------------------------------
 // modelFromArgs
@@ -155,4 +157,65 @@ test('fmtUptime: a timestamp in the future clamps to 00:00:00, never negative', 
 
 test('fmtUptime: an unparsable timestamp renders as an em dash', () => {
   assert.equal(fmtUptime('not-a-date'), '—');
+});
+
+// ---------------------------------------------------------------------------
+// fmtAgo (sessions drawer, HISTORY meta line) — `now` is injected, no clock stub
+// ---------------------------------------------------------------------------
+
+const NOW = Date.parse('2026-09-06T12:00:00.000Z');
+const ago = (ms: number): string => fmtAgo(new Date(NOW - ms).toISOString(), NOW);
+const SEC = 1000;
+const MIN = 60 * SEC;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+
+test('fmtAgo: under a minute reads `just now`', () => {
+  assert.equal(ago(0), 'just now');
+  assert.equal(ago(59 * SEC), 'just now');
+});
+
+test('fmtAgo: minutes, then hours, at the exact boundaries', () => {
+  assert.equal(ago(60 * SEC), '1 min ago');
+  assert.equal(ago(5 * MIN), '5 min ago');
+  assert.equal(ago(59 * MIN), '59 min ago');
+  assert.equal(ago(HOUR), '1 h ago');
+  assert.equal(ago(3 * HOUR), '3 h ago');
+  assert.equal(ago(23 * HOUR), '23 h ago');
+});
+
+test('fmtAgo: one day reads `yesterday`, two or more count days', () => {
+  assert.equal(ago(DAY), 'yesterday');
+  assert.equal(ago(2 * DAY - 1), 'yesterday');
+  assert.equal(ago(2 * DAY), '2 d ago');
+  assert.equal(ago(4 * DAY), '4 d ago');
+  assert.equal(ago(6 * DAY), '6 d ago');
+});
+
+test('fmtAgo: a week or more falls back to a short date, with the year only when it differs', () => {
+  assert.equal(fmtAgo('2026-08-30T12:00:00.000Z', NOW), '30 Aug');
+  assert.equal(fmtAgo('2025-12-31T12:00:00.000Z', NOW), '31 Dec 2025');
+});
+
+test('fmtAgo: a timestamp in the future reads `just now` — clock skew is not an event', () => {
+  assert.equal(fmtAgo(new Date(NOW + HOUR).toISOString(), NOW), 'just now');
+});
+
+test('fmtAgo: an unparsable timestamp renders as an em dash, never a fabricated age', () => {
+  assert.equal(fmtAgo('not-a-date', NOW), '—');
+});
+
+// ---------------------------------------------------------------------------
+// baseName (history folder label for a cwd with no known project)
+// ---------------------------------------------------------------------------
+
+test('baseName: the last path segment', () => {
+  assert.equal(baseName('/home/sava/projects/web-ui'), 'web-ui');
+  assert.equal(baseName('/home/sava/projects/web-ui/'), 'web-ui');
+  assert.equal(baseName('/srv'), 'srv');
+});
+
+test('baseName: a path with nothing to take falls back to the input itself', () => {
+  assert.equal(baseName('/'), '/');
+  assert.equal(baseName(''), '');
 });

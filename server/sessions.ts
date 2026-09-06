@@ -9,15 +9,19 @@
  * command + args are spawned as an argv array — client-supplied values never
  * enter a shell string. This is what keeps multi-CLI support generic.
  *
- * Every create/exit/kill is mirrored into the crash-safe SessionJournal so an
- * unclean end can be offered for relaunch on the next run (journal.ts).
+ * Every create/exit/kill is mirrored into the crash-safe SessionHistory so any
+ * ended session can be RESUMED on this or a later run (history.ts).
  *
- * ONE agent-specific behaviour lives here, deliberately narrow: a claude-kind
- * session (basename(command) === 'claude') gets a per-session settings file
- * injected as `--settings <file>` so Claude Code draws OUR status line
- * (session-settings.ts). Everything else about the spawn stays generic, the
- * injected flag never enters SessionInfo.args, and a session that already
- * carries its own `--settings` is left completely alone.
+ * TWO agent-specific behaviours live here, both deliberately narrow and both
+ * for claude-kind sessions only (basename(command) === 'claude'):
+ *   - a per-session settings file injected as `--settings <file>` so Claude
+ *     Code draws OUR status line (session-settings.ts);
+ *   - an injected `--session-id <uuid>` pinning the launch to a conversation
+ *     the history can later `--resume` (conversation.ts).
+ * Everything else about the spawn stays generic, NEITHER injected flag ever
+ * enters SessionInfo.args, a session that already carries its own `--settings`
+ * is left alone, and one that already carries a resume/session flag is never
+ * given a second one.
  */
 import { randomUUID } from 'node:crypto';
 import { fstatSync, readSync } from 'node:fs';
@@ -26,7 +30,8 @@ import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage } from '../shared/protocol.ts';
-import type { SessionJournal } from './journal.ts';
+import type { SessionHistory } from './history.ts';
+import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import type { Logger } from './config.ts';
 
@@ -85,6 +90,12 @@ export interface CreateSessionOptions {
   title?: string;
   cols: number;
   rows: number;
+  /**
+   * RESUME ONLY: the history entry this launch continues. The history upsert
+   * targets THIS key instead of the one the composed args imply, so a resume
+   * updates the entry it came from instead of forking a new one.
+   */
+  historyId?: string;
 }
 
 /**
@@ -301,7 +312,7 @@ function rescueFinalOutput(proc: pty.IPty, emit: (data: string) => void, log: Lo
       // runs the manager's whole output path (ring buffer, broadcast, ws.send).
       // A throw escaping here would skip realDestroy: the master fd would never
       // close, node-pty would never emit 'exit', and the session would stay
-      // pinned 'running' with a non-null pty and no journal stamp. It would also
+      // pinned 'running' with a non-null pty and no history stamp. It would also
       // surface inside node-pty's teardown as an uncaughtException, which tears
       // down the whole process — every session, not one.
       try {
@@ -317,13 +328,13 @@ function rescueFinalOutput(proc: pty.IPty, emit: (data: string) => void, log: Lo
 export class SessionManager {
   #sessions = new Map<string, Session>();
   readonly #log: Logger;
-  readonly #journal: SessionJournal;
+  readonly #history: SessionHistory;
   /** Absent -> no status-line injection at all (tests that don't need it). */
   readonly #settings: SessionSettingsStore | undefined;
 
-  constructor(log: Logger, journal: SessionJournal, settings?: SessionSettingsStore) {
+  constructor(log: Logger, history: SessionHistory, settings?: SessionSettingsStore) {
     this.#log = log;
-    this.#journal = journal;
+    this.#history = history;
     this.#settings = settings;
   }
 
@@ -345,8 +356,8 @@ export class SessionManager {
     const id = randomUUID();
     // Status line: claude-kind sessions only, and never over a client's own
     // --settings. `spawnArgs` is what the PTY gets; `opts.args` is what the
-    // session (and therefore the journal, and therefore a relaunch offer)
-    // remembers — a relaunch must get a FRESH settings file, not a path this
+    // session (and therefore the history entry, and therefore a resume)
+    // remembers — a resume must get a FRESH settings file, not a path this
     // boot's wipe already removed.
     let spawnArgs = [...opts.args];
     let statusline = false;
@@ -361,6 +372,12 @@ export class SessionManager {
         statusline = true;
       }
     }
+    // Conversation pinning: same discipline as --settings. Whatever the plan
+    // adds on top of the client's own argv (today: `--session-id <id>`, and
+    // only when the client asked for no resume/session flag itself) goes into
+    // the PTY argv, never into info.args.
+    const plan = planConversation(opts.command, opts.args, id);
+    if (plan.injected.length > 0) spawnArgs = [...spawnArgs, ...plan.injected];
 
     let proc: pty.IPty;
     try {
@@ -398,7 +415,11 @@ export class SessionManager {
 
     const session: Session = { info, pty: proc, buffer: new RingBuffer(), clients: new Set(), inOsc: false };
     this.#sessions.set(id, session);
-    this.#journal.recordCreate(info);
+    this.#history.recordCreate(info, {
+      id: opts.historyId ?? plan.id,
+      conversation: plan.conversation,
+      baseArgs: plan.baseArgs,
+    });
 
     const handleOutput = (data: string): void => {
       session.buffer.append(data);
@@ -420,7 +441,7 @@ export class SessionManager {
       session.pty = null;
       if (statusline) this.#settings?.remove(id);
       // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
-      this.#journal.markEnded(id, 'exit', exitCode);
+      this.#history.markEnded(id, 'exit', exitCode);
       this.#broadcast(session, { type: 'exit', exitCode });
       this.#log('info', `session ${id} exited with code ${exitCode}`);
     });
@@ -483,7 +504,7 @@ export class SessionManager {
     if (session.pty !== null) {
       // Stamp BEFORE kill so the async onExit's 'exit' stamp is the no-op.
       // At server shutdown endAllLive() ran first, so THIS is the no-op.
-      this.#journal.markEnded(id, 'user-kill');
+      this.#history.markEnded(id, 'user-kill');
       try {
         session.pty.kill();
       } catch (err) {

@@ -75,7 +75,7 @@ export interface TestServer {
  * lifecycle-specific tests override via `opts.env`
  * (AI_SM_STARTUP_GRACE_MS / AI_SM_GRACE_MS).
  *
- * `opts.dataDir` reuses an existing data dir (journal rotation / restart
+ * `opts.dataDir` reuses an existing data dir (session-history / restart
  * tests). The caller owns its cleanup: stop() will NOT remove it.
  */
 export async function startTestServer(

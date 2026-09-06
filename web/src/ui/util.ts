@@ -147,3 +147,39 @@ export function fmtUptime(iso: string): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
+
+/** English month abbreviations for `fmtAgo`'s fallback date (locale-independent). */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * How long ago an ISO timestamp was, in the drawer's short vocabulary:
+ * `just now` (< 1 min) · `5 min ago` (< 1 h) · `3 h ago` (< 1 day) ·
+ * `yesterday` (< 2 days) · `4 d ago` (< 7 days) · else a short date
+ * (`6 Sep`, plus the year when it is not the current one).
+ *
+ * `now` is injectable so the formatter is testable without a clock stub. An
+ * unparseable timestamp yields the app's empty-value glyph rather than a lie;
+ * a timestamp in the future reads `just now` (clock skew is not an event).
+ */
+export function fmtAgo(iso: string, now: number = Date.now()): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '—';
+  const sec = Math.floor((now - t) / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} min ago`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 2) return 'yesterday';
+  if (days < 7) return `${days} d ago`;
+  const d = new Date(t);
+  const short = `${d.getDate()} ${MONTHS[d.getMonth()] ?? ''}`;
+  return d.getFullYear() === new Date(now).getFullYear() ? short : `${short} ${d.getFullYear()}`;
+}
+
+/** Last path segment of an absolute path — a folder the app cannot name is still a folder. */
+export function baseName(path: string): string {
+  const parts = path.split('/').filter((p) => p !== '');
+  return parts[parts.length - 1] ?? path;
+}

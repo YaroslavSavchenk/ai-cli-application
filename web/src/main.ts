@@ -28,6 +28,7 @@ import { initTabs } from './ui/tabs.ts';
 import { initPanes, focusedConn } from './ui/panes.ts';
 import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
+import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initTheme } from './ui/theme.ts';
@@ -228,12 +229,10 @@ async function boot(root: HTMLDivElement): Promise<void> {
   st.initServer(projects, sessions);
   st.loadUi();
   buildShell(root, prefs);
-  // Fire-and-forget extra — never a boot blocker: previous-run relaunch
-  // offers (crash/shutdown recovery).
-  void api
-    .getPrevious()
-    .then((list) => st.setPrevious(list))
-    .catch(() => {});
+  // Fire-and-forget extra — never a boot blocker: the session history, plus
+  // the subscription that refetches it whenever a session ends, is removed,
+  // or the sessions drawer opens.
+  initHistory();
 }
 
 function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {

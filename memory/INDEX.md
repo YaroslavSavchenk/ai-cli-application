@@ -6,6 +6,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[session-history-resume]] — 2026-09-06: cumulative `history.json` + injected `--session-id` → real per-conversation `--resume` (reverses the 2026-07-19 fiction cut); history grouped per project folder; launch dialog cut to a short form with an Effort select; transcript prune is one-directional (realpath + per-cwd dir must exist). Known limit: `--continue` launches can't be pinned
 - [[github-token-paste-path]] — 2026-07-25: an "add token" path beside the device flow (user's request), persisted with a remember-toggle; design gate ran BEFORE any code — storage ceiling is 0600 + discipline, and the real win is a fine-grained token with an expiry. **Implementation queued**
 - [[no-code-in-ui-copy]] — 2026-07-25: no commands/flags/config names in the GUI; modes read "Always ask / Auto-approve edits / Read-only planning / Never ask", argv preview → readable summary; UI stays English; custom-command field exempt
 - [[owner-qualified-clone-paths]] — 2026-07-25: GitHub-list clones land at `<home>/projects/<owner>/<repo>` (settles the open decision); kills the same-basename 409 *and* the wrong-project button; rejected adding `remote` to `Project`
@@ -13,7 +14,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 - [[github-integration]] — 2026-07-23: app can create projects + connect to GitHub (OAuth device flow, user's call); v1 = full create-local / clone / create-repo; token stays server-side
 - [[launch-dialog-custom-escape-hatch]] — 2026-07-20: launch dialog gains a `custom · any command` chip (user's call over claude-only), preserving configurable command + args in the GUI
 - [[handoff-design-primary]] — 2026-07-20 flip: the user's hi-fi handoff is the primary design source; bottom tab strip; modal launch dialog
-- [[lifecycle-bound-backend]] — sessions die with the app (presence WS + grace timer); crash-safe session journal with relaunch
+- [[lifecycle-bound-backend]] — sessions die with the app (presence WS + grace timer); its crash-safe journal superseded 2026-09-06 by [[session-history-resume]]
 - [[auto-port-discovery]] — backend auto-picks its port; runtime.json discovery file carries port + auth token
 - [[vanilla-ts-vite-frontend]] — no UI framework; vanilla TS + Vite around imperative xterm.js
 - [[web-app-inside-wsl]] — why the app is a web app served from WSL, not a Windows-native Electron app
@@ -35,6 +36,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-09-06-history-and-lean-launch]] — **history + real resume + lean launch dialog SHIPPED**: journal/previous → `history.json`, `--session-id`/`--resume`, per-project folders, Effort select, no explanatory copy; reviewers caught a raw-cwd prune that deleted real conversations (realpath + dir-must-exist fix), a relaunch/debounce race, a label keyed on the wrong field; suite 508→546. Open: drop the Continue checkbox?, backend restart needed for the user
 - [[2026-07-26-statusline-phase]] — **statusline phase SHIPPED**: per-pane strip replaced by Claude Code's native status line (per-session `--settings`, script re-reads prefs → live toggles ~2 s, no restart); settings panel cut to status-line config only (2026-07-20 "decided four" REVERSED); usage % real via rate_limits; mode item = launch mode (payload has no live mode — known limit); cache-poison sanitize + boot wipe from review; suite→508
 - [[2026-07-25-token-path-RESUME-HERE]] — pasted-token path shipped (`84da3f0`, suite→533) with the security gate published BEFORE the code and audited against itself; caught a strip that lied in the user's own config, two measured log leaks, and two mutually-shadowing tests. Carried the statusline brief (executed 2026-07-26)
 - [[2026-07-25-ui-copy-and-clone-paths]] — plain-language UI copy pass (no commands/flags in the GUI, user's call) + owner-qualified clone paths; the design-delta turned out to be 2 cosmetic items; gate caught a summary that could drift from the spawn, a proven directory-wipe primitive (+ a pre-existing twin), and a test vacuous for 4 of 6 consumers; suite 396→462

@@ -29,17 +29,40 @@ and multi-pane layouts on top.
   `memory/decisions/lifecycle-bound-backend.md`): a presence WebSocket counts
   open windows; when the last closes, a grace timer (~30 s) lets reloads
   reattach harmlessly, then the backend ends all sessions, removes
-  runtime.json, and exits — plus a crash-safe session journal for one-click
-  relaunch (`--continue`) after unclean shutdown. **Implemented 2026-07-19**:
+  runtime.json, and exits. **Implemented 2026-07-19**:
   presence channel `/ws/presence`; grace 30 s (env `AI_SM_GRACE_MS`) plus a
   120 s startup grace until the first-ever presence (env
-  `AI_SM_STARTUP_GRACE_MS`); the journal lives in `journal.json`, rotated to
-  `previous.json` on boot (open entries stamped 'crash'), served as relaunch
-  offers via `GET/DELETE /api/previous` and surfaced in the sessions drawer.
+  `AI_SM_STARTUP_GRACE_MS`). The crash-safe journal that once backed a
+  `--continue` relaunch (`journal.json` → `previous.json`, `/api/previous`)
+  is **replaced 2026-09-06 by the session history** (next bullet).
   Manual `-Stop` remains as an override. Added 2026-07-19: the presence
   channel answers `ping`/`pong` (latency; inbound frames capped 1 KiB,
   zero lifecycle effect) and authed `GET /api/runtime` exposes
   `startedAt` (uptime) — both feeding the statusline.
+- **Session history with real per-conversation resume — decided and shipped
+  2026-09-06, user's call** (reverses the 2026-07-19 "per-id `--resume` is a
+  fiction" cut; rationale in `memory/decisions/session-history-resume.md`).
+  Every session the app launches is kept across backend runs in
+  `history.json` (data dir, 0600, atomic, bounded to 200 entries, oldest
+  ENDED entries drop first, live ones never). Mechanism: a claude-kind
+  session (`basename(command) === 'claude'`) whose client args carry no
+  `--continue`/`-c`/`--resume`/`-r`/`--session-id` is spawned with an
+  injected `--session-id <app session uuid>` (PTY argv only — never in
+  `SessionInfo.args`, same rule as the injected `--settings`), so the app
+  knows the Claude conversation id; resuming spawns `claude <base args>
+  --resume <id>` server-side (`POST /api/history/:id/resume`). Every end
+  reason is listed (user-kill, exit, shutdown, crash — crash stamped at
+  boot for entries left open). Claude conversations whose transcript is
+  PROVABLY absent (nothing was ever said) are pruned at list time: only when
+  `<CLAUDE_CONFIG_DIR|~/.claude>/projects/<encoded realpath(cwd)>/` exists
+  and `<id>.jsonl` is missing — every uncertainty keeps the entry. Requires
+  **Claude Code ≥ 2.1.263** (`--session-id`, `--resume <id>`, `--effort`
+  verified there); no version probe exists. **Known limit:** a launch with
+  "Continue last conversation" (`--continue`) can never be pinned — its
+  entry resumes with `--continue` again (most recent conversation in that
+  folder) and its button reads "start again". A client-supplied
+  `--session-id <uuid>` / `--resume <uuid>` (custom command) is adopted as
+  the key. Blank session name → title = project name.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
@@ -76,13 +99,21 @@ and multi-pane layouts on top.
   appears only as secondary metadata inside the manage-projects view (needed
   to disambiguate add/delete). "Add project" = browse to a directory + give
   it a name.
-- **Launch presets per session**: permission mode (the four
-  `--permission-mode` values; bypass rendered as danger), model selection,
-  resume (`--continue`; per-id `--resume` is a fiction cut — journal ids
-  aren't conversation ids). The launched "agent" is a configurable
-  command + args, which is what makes multi-CLI support free — in the GUI
-  via the launch dialog's `custom · any command` chip (R3, user decision
-  2026-07-20).
+- **Launch dialog = a short form (reshaped 2026-09-06, user's call: "far
+  too many unnecessary things, no effort choice, too much code-ish text —
+  plain short words, no explanation").** Header `New session`; fields Name
+  (placeholder = the selected project's name) · Project · Model · **Effort**
+  (`default`, `low`, `medium`, `high`, `xhigh`, `max` → `--effort <v>`,
+  default emits nothing) · Mode as one segmented row of the short labels
+  `always ask` · `auto edits` · `read-only` · `no prompts` (danger red) ·
+  a `Continue last conversation` checkbox (`--continue`) · footer `other
+  command` toggle (the 2026-07-20 custom-command escape hatch, kept) ·
+  Cancel · Launch. GONE: the subtitle, the preset chips, the readable
+  launch summary / ink well, the footer note, the permission descriptions,
+  hint text and mechanic-explaining tooltips. Per-id resume lives in the
+  sessions drawer's HISTORY section, grouped per project folder. The
+  launched "agent" is still a configurable command + args (multi-CLI
+  support stays free).
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -202,11 +233,13 @@ and multi-pane layouts on top.
   The GUI speaks plain human language; CLI syntax belongs in the terminal, not
   in the chrome around it. Concretely: permission modes render as **Always
   ask** / **Auto-approve edits** / **Read-only planning** / **Never ask ·
-  dangerous** (never `acceptEdits`, `plan`, `bypassPermissions`), resume reads
+  dangerous** (never `acceptEdits`, `plan`, `bypassPermissions`) — since
+  2026-09-06 the launch dialog uses the short forms `always ask` / `auto
+  edits` / `read-only` / `no prompts` everywhere — resume reads
   **Continue last conversation** (never `--continue`), and the launch dialog's
-  argv **command preview is replaced by a readable summary** (agent · model ·
-  what the mode does · target folder) — the honest "what will run" statement
-  now reads as a sentence instead of a shell line. Also out of the UI: the
+  argv command preview was replaced by a readable summary, itself **removed
+  2026-09-06** (the fields are the statement of what will run; nothing
+  explains itself). Also out of the UI: the
   `git init` sample, the `/caveman` placeholder, `relaunch resumes claude with
   --continue`, `AI_SM_GITHUB_CLIENT_ID` in the GitHub setup card (that card
   says the server is missing a GitHub setting; the variable name lives in the
@@ -324,8 +357,8 @@ enumerated in the now-removed `design/GAP-ANALYSIS.md`), in
 `memory/decisions/handoff-design-primary.md`.)
 
 (Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
-frontend; app data — projects.json, runtime.json, journal.json,
-previous.json, prefs.json (added 2026-07-20: server-side UI prefs, since
+frontend; app data — projects.json, runtime.json, history.json (2026-09-06,
+replacing journal.json + previous.json), prefs.json (added 2026-07-20: server-side UI prefs, since
 localStorage dies with every auto-picked-port origin change), server.log —
 lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
 `shared/protocol.ts`. Rationale in `memory/decisions/`.)
@@ -333,7 +366,8 @@ lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
 (Settled 2026-07-19: backend lifetime bound to UI presence — see the
 Architecture bullet; implemented the same day: presence WS + grace timers,
 session journal with boot rotation, previous-sessions relaunch API and
-drawer UI.)
+drawer UI — the journal/previous part superseded 2026-09-06 by the session
+history bullet.)
 
 (Settled 2026-07-19: full GUI redesign, user's call after real use — the
 anti-slop rule stands unchanged, but the phosphor skin is being replaced by

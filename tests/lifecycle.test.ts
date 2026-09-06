@@ -1,6 +1,6 @@
 /**
- * Lifecycle-bound backend: presence channel, grace timers, session journal,
- * and the previous-sessions API (decided 2026-07-19).
+ * Lifecycle-bound backend: presence channel, grace timers, persistent session
+ * history (decided 2026-07-19; history replaced the journal 2026-09-06).
  *
  * Contract under test:
  *  - startup grace (AI_SM_STARTUP_GRACE_MS): no client ever -> clean exit 0,
@@ -8,10 +8,11 @@
  *  - a presence WS or a session WS cancels the shutdown timer; the last
  *    disconnect arms the regular grace (AI_SM_GRACE_MS); reconnect within
  *    the grace cancels it;
- *  - clean shutdown stamps live journal entries 'shutdown'; a SIGKILL leaves
- *    ended:null entries that boot rotation stamps 'crash' into previous.json;
- *  - GET /api/previous offers ONLY 'shutdown'/'crash' entries (never
- *    'user-kill'/'exit'), DELETE dismisses one/all, auth like all /api;
+ *  - clean shutdown stamps live history entries 'shutdown'; a SIGKILL leaves
+ *    ended:null entries that the next boot stamps 'crash' in history.json;
+ *  - GET /api/history lists EVERY ended entry — 'user-kill', 'exit',
+ *    'shutdown' and 'crash' alike — across runs, DELETE forgets one/all,
+ *    auth like all /api;
  *  - /ws/presence is auth-gated pre-upgrade exactly like the session WS.
  *
  * Determinism: every state transition is observed via the controller's
@@ -27,7 +28,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { PreviousSession, SessionJournalEntry } from '../shared/protocol.ts';
+import type { HistoryEntry } from '../shared/protocol.ts';
 import {
   api,
   createSession,
@@ -77,8 +78,8 @@ async function assertAlive(server: TestServer, exited: () => boolean, when: stri
   assert.equal(res.status, 200, `/health must answer 200 ${when}`);
 }
 
-async function readJournalFile(dataDir: string, name: string): Promise<SessionJournalEntry[]> {
-  return JSON.parse(await readFile(join(dataDir, name), 'utf8')) as SessionJournalEntry[];
+async function readHistoryFile(dataDir: string): Promise<HistoryEntry[]> {
+  return JSON.parse(await readFile(join(dataDir, 'history.json'), 'utf8')) as HistoryEntry[];
 }
 
 test('startup grace: a backend no client ever connects to exits 0 and removes runtime.json', async () => {
@@ -179,7 +180,7 @@ test('reconnect within the grace cancels shutdown; a second presence holds the s
   }
 });
 
-test('a session WS alone (zero presence) holds the server; its close leads to shutdown that journals the running session as shutdown', async () => {
+test('a session WS alone (zero presence) holds the server; its close leads to shutdown that records the running session as shutdown', async () => {
   const workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-work-')));
   const server = await startTestServer({
     env: { AI_SM_STARTUP_GRACE_MS: '2500', AI_SM_GRACE_MS: '600000' },
@@ -212,11 +213,11 @@ test('a session WS alone (zero presence) holds the server; its close leads to sh
     assert.equal(exit.code, 0, `idle shutdown must exit 0 (got ${exit.code}/${exit.signal})`);
     assert.ok(!existsSync(server.runtimeFile), 'runtime.json must be removed');
 
-    // The still-running session must be stamped 'shutdown' in the journal.
-    const entries = await readJournalFile(server.dataDir, 'journal.json');
-    const entry = entries.find((e) => e.id === info.id);
-    assert.ok(entry !== undefined, 'the session must have a journal entry');
-    assert.equal(entry.ended?.reason, 'shutdown', 'a session killed by idle shutdown is journaled shutdown');
+    // The still-running session must be stamped 'shutdown' in the history.
+    const entries = await readHistoryFile(server.dataDir);
+    const entry = entries.find((e) => e.sessionId === info.id);
+    assert.ok(entry !== undefined, 'the session must have a history entry');
+    assert.equal(entry.ended?.reason, 'shutdown', 'a session killed by idle shutdown is recorded shutdown');
     assert.equal(new Date(entry.ended.at).toISOString(), entry.ended.at, 'ended.at must be ISO-8601');
   } finally {
     await server.stop();
@@ -224,7 +225,7 @@ test('a session WS alone (zero presence) holds the server; its close leads to sh
   }
 });
 
-test('journal: SIGKILL rotates ended:null to crash; /api/previous offers only shutdown/crash, auths, and dismisses', async () => {
+test('history: every end reason is listed and persists across runs; SIGKILL stamps crash at boot; DELETE forgets; auth 401', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ai-sm-lifecycle-'));
   const dataDir = join(root, 'data');
   const workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-work-')));
@@ -236,6 +237,7 @@ test('journal: SIGKILL rotates ended:null to crash; /api/previous offers only sh
 
     const sKill = await createSession(a, {
       command: 'bash', args: ['-c', 'sleep 300'], cwd: workDir, cols: 80, rows: 24,
+      title: 'killed by hand',
     });
     const del = await api(a, 'DELETE', `/api/sessions/${sKill.id}`);
     assert.equal(del.status, 200);
@@ -257,74 +259,73 @@ test('journal: SIGKILL rotates ended:null to crash; /api/previous offers only sh
       title: 'crash me',
     });
 
-    // journal.json of the current run mirrors all three, correctly stamped.
-    const journalA = await readJournalFile(dataDir, 'journal.json');
-    assert.equal(journalA.length, 3, 'journal must contain one entry per created session');
-    assert.equal(journalA.find((e) => e.id === sKill.id)?.ended?.reason, 'user-kill');
-    const exitEntry = journalA.find((e) => e.id === sExit.id);
+    // history.json mirrors all three, correctly stamped. A non-claude session
+    // is keyed by its own session id (no conversation to pin).
+    const historyA = await readHistoryFile(dataDir);
+    assert.equal(historyA.length, 3, 'history must contain one entry per created session');
+    assert.equal(historyA.find((e) => e.id === sKill.id)?.ended?.reason, 'user-kill');
+    const exitEntry = historyA.find((e) => e.id === sExit.id);
     assert.equal(exitEntry?.ended?.reason, 'exit');
-    assert.equal(exitEntry?.exitCode, 5, "a natural exit must record its exit code");
-    assert.equal(journalA.find((e) => e.id === sLive.id)?.ended, null, 'live session stays ended:null');
+    assert.equal(exitEntry?.exitCode, 5, 'a natural exit must record its exit code');
+    assert.equal(historyA.find((e) => e.id === sLive.id)?.ended, null, 'live session stays ended:null');
+    assert.equal(historyA.find((e) => e.id === sLive.id)?.sessionId, sLive.id);
+    assert.equal(historyA.find((e) => e.id === sKill.id)?.conversation, false, 'bash is not a conversation');
+
+    // The live one is NOT offered while it runs; the two ended ones are —
+    // including the user-killed one, which the old /api/previous never showed.
+    const listA = await api(a, 'GET', '/api/history');
+    assert.equal(listA.status, 200);
+    const offeredA = listA.body as HistoryEntry[];
+    assert.deepEqual(
+      new Set(offeredA.map((e) => e.ended?.reason)),
+      new Set(['user-kill', 'exit']),
+      `both ended reasons must be listed, got ${JSON.stringify(offeredA.map((e) => e.ended?.reason))}`,
+    );
+    assert.ok(offeredA.every((e) => e.id !== sLive.id), 'a live entry is never listed');
 
     // Hard crash: no chance to stamp anything.
     a.child.kill('SIGKILL');
     await a.exit;
     running = undefined;
 
-    // --- Run B: rotation stamps the live entry 'crash' ----------------------
+    // --- Run B: boot stamps the still-open entry 'crash' --------------------
     const b = await startTestServer({ dataDir });
     running = b;
     const logB = await readServerLog(b);
     assert.ok(
-      logB.includes("journal rotated: 3 entries from previous run (1 stamped 'crash')"),
-      `boot must log the rotation, got: ${logB.split('\n').filter((l) => l.includes('journal')).join(' | ')}`,
+      logB.includes("history loaded: 3 entries (1 stamped 'crash')"),
+      `boot must log the load, got: ${logB.split('\n').filter((l) => l.includes('history')).join(' | ')}`,
     );
-    assert.ok(!existsSync(join(dataDir, 'journal.json')), 'journal.json must be consumed by rotation');
-    const previousOnDisk = await readJournalFile(dataDir, 'previous.json');
-    assert.equal(previousOnDisk.length, 3, 'previous.json must hold ALL rotated entries');
+    assert.ok(existsSync(join(dataDir, 'history.json')), 'history.json must survive the run boundary');
 
-    // Auth: /api/previous is token-gated like every /api route.
-    const noToken = await rawRequest(b.port, { path: '/api/previous' });
-    assert.equal(noToken.status, 401, 'GET /api/previous without token must be 401');
+    // Auth: /api/history is token-gated like every /api route.
+    const noToken = await rawRequest(b.port, { path: '/api/history' });
+    assert.equal(noToken.status, 401, 'GET /api/history without token must be 401');
 
-    // Only the crashed entry is offered — never user-kill or natural exit.
-    const list = await api(b, 'GET', '/api/previous');
-    assert.equal(list.status, 200);
-    const offered = list.body as PreviousSession[];
-    assert.equal(offered.length, 1, `only the crashed session may be offered, got ${JSON.stringify(offered)}`);
-    const prev = offered[0] as PreviousSession;
-    assert.equal(prev.id, sLive.id);
-    assert.equal(prev.ended?.reason, 'crash', 'an ended:null entry must be stamped crash at rotation');
-    assert.equal(new Date(prev.ended.at).toISOString(), prev.ended.at, 'ended.at must be ISO-8601');
-    assert.equal(prev.command, 'bash');
-    assert.deepEqual(prev.args, ['-c', 'sleep 300'], 'args must survive for relaunch');
-    assert.equal(prev.cwd, workDir, 'cwd must survive for relaunch');
-    assert.equal(prev.title, 'crash me', 'title must survive for relaunch');
-    assert.equal(prev.createdAt, sLive.createdAt);
+    const listB = await api(b, 'GET', '/api/history');
+    assert.equal(listB.status, 200);
+    const offeredB = listB.body as HistoryEntry[];
+    assert.equal(offeredB.length, 3, `all three entries must survive, got ${JSON.stringify(offeredB)}`);
+    const crashed = offeredB.find((e) => e.id === sLive.id) as HistoryEntry;
+    assert.ok(crashed !== undefined, 'the crashed session must still be there');
+    assert.equal(crashed.ended?.reason, 'crash', 'an ended:null entry must be stamped crash at boot');
+    assert.equal(new Date(crashed.ended.at).toISOString(), crashed.ended.at, 'ended.at must be ISO-8601');
+    assert.equal(crashed.command, 'bash');
+    assert.deepEqual(crashed.args, ['-c', 'sleep 300'], 'args must survive for resume');
+    assert.equal(crashed.cwd, workDir, 'cwd must survive for resume');
+    assert.equal(crashed.title, 'crash me', 'title must survive for resume');
+    assert.equal(crashed.createdAt, sLive.createdAt);
+    assert.equal(crashed.lastUsedAt, sLive.createdAt, 'lastUsedAt starts at the first launch');
+
+    // Newest lastUsedAt first.
+    const stamps = offeredB.map((e) => e.lastUsedAt);
+    assert.deepEqual(stamps, [...stamps].sort().reverse(), `list must be newest-first, got ${stamps}`);
 
     // Method discipline on the collection route.
-    const post = await api(b, 'POST', '/api/previous');
+    const post = await api(b, 'POST', '/api/history');
     assert.equal(post.status, 405);
 
-    // Dismiss one: unknown id 404, real id ok exactly once, disk updated.
-    const unknown = await api(b, 'DELETE', '/api/previous/no-such-id');
-    assert.equal(unknown.status, 404);
-    const dismissed = await api(b, 'DELETE', `/api/previous/${sLive.id}`);
-    assert.equal(dismissed.status, 200);
-    assert.deepEqual(dismissed.body, { ok: true });
-    const again = await api(b, 'DELETE', `/api/previous/${sLive.id}`);
-    assert.equal(again.status, 404, 'dismissing twice must 404 the second time');
-    const afterDismiss = await api(b, 'GET', '/api/previous');
-    assert.deepEqual(afterDismiss.body, [], 'dismissed entries must no longer be offered');
-    // Persistence: the dismissed entry is gone from previous.json on disk.
-    // (Never-offered 'user-kill'/'exit' entries may legitimately remain there.)
-    const diskAfterDismiss = await readJournalFile(dataDir, 'previous.json');
-    assert.ok(
-      diskAfterDismiss.every((e) => e.id !== sLive.id),
-      'the dismissal must persist to previous.json',
-    );
-
-    // --- Run B -> C: clean shutdown offers the running session as 'shutdown'
+    // --- Run B -> C: clean shutdown records the running session 'shutdown' --
     const s2 = await createSession(b, {
       command: 'bash', args: ['-c', 'sleep 300'], cwd: workDir, cols: 80, rows: 24,
       title: 'survivor',
@@ -336,20 +337,42 @@ test('journal: SIGKILL rotates ended:null to crash; /api/previous offers only sh
 
     const c = await startTestServer({ dataDir });
     running = c;
-    const listC = await api(c, 'GET', '/api/previous');
-    const offeredC = listC.body as PreviousSession[];
-    assert.equal(offeredC.length, 1, 'the SIGTERM-shutdown session must be offered on the next run');
-    assert.equal(offeredC[0]?.id, s2.id);
-    assert.equal(offeredC[0]?.ended?.reason, 'shutdown');
-    assert.equal(offeredC[0]?.title, 'survivor');
+    const listC = await api(c, 'GET', '/api/history');
+    const offeredC = listC.body as HistoryEntry[];
+    assert.equal(offeredC.length, 4, 'the shutdown session joins the three older ones');
+    assert.deepEqual(
+      new Set(offeredC.map((e) => e.ended?.reason)),
+      new Set(['user-kill', 'exit', 'crash', 'shutdown']),
+      'all four end reasons must be listed',
+    );
+    const survivor = offeredC.find((e) => e.id === s2.id);
+    assert.equal(survivor?.ended?.reason, 'shutdown');
+    assert.equal(survivor?.title, 'survivor');
+    assert.equal(offeredC[0]?.id, s2.id, 'the newest entry sorts first');
 
-    // Dismiss all: ok, empties the offer list, idempotent.
-    const dismissAll = await api(c, 'DELETE', '/api/previous');
-    assert.equal(dismissAll.status, 200);
-    assert.deepEqual(dismissAll.body, { ok: true });
-    assert.deepEqual((await api(c, 'GET', '/api/previous')).body, []);
-    const dismissAllAgain = await api(c, 'DELETE', '/api/previous');
-    assert.equal(dismissAllAgain.status, 200, 'dismiss-all must be idempotent');
+    // Forget one: unknown id 404, real id ok exactly once, disk updated.
+    const unknown = await api(c, 'DELETE', '/api/history/no-such-id');
+    assert.equal(unknown.status, 404);
+    const forgotten = await api(c, 'DELETE', `/api/history/${sKill.id}`);
+    assert.equal(forgotten.status, 200);
+    assert.deepEqual(forgotten.body, { ok: true });
+    const again = await api(c, 'DELETE', `/api/history/${sKill.id}`);
+    assert.equal(again.status, 404, 'forgetting twice must 404 the second time');
+    const afterForget = (await api(c, 'GET', '/api/history')).body as HistoryEntry[];
+    assert.ok(afterForget.every((e) => e.id !== sKill.id), 'a forgotten entry is not listed');
+    const diskAfterForget = await readHistoryFile(dataDir);
+    assert.ok(
+      diskAfterForget.every((e) => e.id !== sKill.id),
+      'the deletion must persist to history.json',
+    );
+
+    // Forget all: ok, empties the list, idempotent.
+    const forgetAll = await api(c, 'DELETE', '/api/history');
+    assert.equal(forgetAll.status, 200);
+    assert.deepEqual(forgetAll.body, { ok: true });
+    assert.deepEqual((await api(c, 'GET', '/api/history')).body, []);
+    const forgetAllAgain = await api(c, 'DELETE', '/api/history');
+    assert.equal(forgetAllAgain.status, 200, 'forget-all must be idempotent');
 
     await c.stop();
     running = undefined;
@@ -360,12 +383,12 @@ test('journal: SIGKILL rotates ended:null to crash; /api/previous offers only sh
   }
 });
 
-test('invalid grace env values warn and fall back to defaults; a corrupt journal.json is rotated away harmlessly', async () => {
+test('invalid grace env values warn and fall back to defaults; a corrupt history.json is ignored harmlessly', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ai-sm-lifecycle-'));
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
-  // A previous run's journal that a hard cut left truncated/corrupt.
-  await writeFile(join(dataDir, 'journal.json'), '{ definitely not an array', { mode: 0o600 });
+  // A previous run's history that a hard cut left truncated/corrupt.
+  await writeFile(join(dataDir, 'history.json'), '{ definitely not an array', { mode: 0o600 });
 
   const server = await startTestServer({
     dataDir,
@@ -383,10 +406,9 @@ test('invalid grace env values warn and fall back to defaults; a corrupt journal
       'invalid AI_SM_GRACE_MS must be warned about with the fallback value',
     );
 
-    // Rotation must not die on the corrupt file: warn, consume it, offer nothing.
-    assert.ok(log.includes('unreadable journal file'), 'corrupt journal must be logged, not thrown');
-    assert.ok(!existsSync(join(dataDir, 'journal.json')), 'the corrupt journal must be consumed');
-    assert.deepEqual((await api(server, 'GET', '/api/previous')).body, []);
+    // The boot load must not die on the corrupt file: warn, start empty.
+    assert.ok(log.includes('unreadable history file'), 'corrupt history must be logged, not thrown');
+    assert.deepEqual((await api(server, 'GET', '/api/history')).body, []);
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });
@@ -407,8 +429,8 @@ test('presence WS auth: bad/missing token 401 and evil origin 403 pre-upgrade; v
     });
     assert.match(evilOrigin, /403/, `evil Origin on presence must be 403, got: ${evilOrigin}`);
 
-    // A fresh data dir has no previous run to offer.
-    assert.deepEqual((await api(server, 'GET', '/api/previous')).body, []);
+    // A fresh data dir has nothing to offer.
+    assert.deepEqual((await api(server, 'GET', '/api/history')).body, []);
 
     // Valid token connects; inbound frames (even malformed) are ignored.
     const presence = await WsClient.connect(presenceUrl(server));

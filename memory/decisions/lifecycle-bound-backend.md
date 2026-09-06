@@ -35,7 +35,10 @@ isn't damaged"):
   unclean entries surface in the UI as "previous sessions" with one-click
   relaunch — claude sessions respawn with `--continue`, so the conversation
   resumes (Claude Code persists its own history; nothing is lost but the
-  scrollback pixels).
+  scrollback pixels). **Superseded 2026-09-06 by
+  [[session-history-resume]]**: the journal became a cumulative
+  `history.json` with per-conversation `--resume`; the lifecycle part of
+  this decision is unchanged.
 
 Consequences:
 

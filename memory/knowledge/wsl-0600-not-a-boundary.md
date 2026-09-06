@@ -17,8 +17,9 @@ powershell.exe -NoProfile -Command "Get-Content -TotalCount 3 \
 It printed the live `port` and the full app `token`. **The WSL 9p file server
 runs as root inside the distro, so Linux permission bits do not gate reads from
 the Windows side.** Every 0600 file in `~/.ai-session-manager/` —
-`runtime.json`, `github.json`, `projects.json`, `journal.json`,
-`previous.json`, `server.log` — is plaintext-readable by anything running as
+`runtime.json`, `github.json`, `projects.json`, `history.json` (since
+2026-09-06; formerly `journal.json`/`previous.json`), `server.log` — is
+plaintext-readable by anything running as
 the Windows user.
 
 And the port is reachable from there: `netstat.exe -ano` on the Windows side

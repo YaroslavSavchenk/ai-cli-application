@@ -13,73 +13,62 @@ anti-slop rules in `.claude/skills/frontend-designer/SKILL.md` still apply.
 
 The GUI speaks plain English; CLI syntax belongs in the terminal, not in the
 chrome around it (PROJECT-SCOPE "No commands, flags, or code in the UI"). This
-is **display-only**: `Perm`/`Mode` values, `shared/protocol.ts`, prefs keys and
-the emitted argv are untouched — `claude --permission-mode acceptEdits
---continue` is still exactly what runs. The label sets below are BINDING
-reference; the single source is `web/src/ui/launch-args.ts` (`PERMS`,
-`PERM_SHORT`, `CHIPS`, `RESUME_OPTIONS`, `launchSummary`), pinned by
-`tests/ui-launch-args.test.ts` + `tests/ui-util.test.ts`.
+is **display-only**: `Perm`/`Effort` values, `shared/protocol.ts`, prefs keys and
+the emitted argv are untouched — `claude --permission-mode acceptEdits --effort
+high --continue` is still exactly what runs. The label sets below are BINDING
+reference; the single source is `web/src/ui/launch-args.ts` (`PERM_SHORT`,
+`EFFORTS`, `AGENT_LABEL`), pinned by `tests/ui-launch-args.test.ts`,
+`tests/ui-copy-rule.test.ts` + `tests/ui-util.test.ts`.
 
-**Permission cards** (launch dialog + settings panel; mono title, sans desc):
+**Sharpened 2026-09-06 (user's call):** short plain words, and no sentence that
+explains the app to itself. The launch dialog was cut back to labelled controls
+(see its section below); everything that only *described* a control — the header
+subtitle, the preset chips, the permission descriptions, the readable launch
+summary, the custom-command hint, the footer note, the drawer's previous-run
+note — is gone rather than reworded. `tests/ui-copy-rule.test.ts` lists those
+exact strings so they cannot drift back in.
 
-| value               | title              | description                            |
-|---------------------|--------------------|----------------------------------------|
-| `default`           | Always ask         | before tools that need approval        |
-| `acceptEdits`       | Auto-approve edits | file changes go through without asking |
-| `plan`              | Read-only planning | looks and plans, changes nothing       |
-| `bypassPermissions` | Never ask          | no prompts at all · dangerous          |
+**Permission modes** — ONE label table, `PERM_SHORT`, read by both the launch
+dialog's mode segments and the pane-header tag (`permFromArgs`), so a mode reads
+identically everywhere:
 
-The bypass description keeps `--danger` red selected or not — the warning never
-disappears.
+| value               | label      |
+|---------------------|------------|
+| `default`           | always ask |
+| `acceptEdits`       | auto edits |
+| `plan`              | read-only  |
+| `bypassPermissions` | no prompts |
 
-**Short forms** for narrow chips (`PERM_SHORT` — the pane-header permission tag
-via `permFromArgs`): `default` → `always ask` · `acceptEdits` → `auto edits` · `plan` →
-`read-only` · `bypassPermissions` → `no prompts` · `--dangerously-skip-permissions`
-→ `no prompts`. Danger detection is unchanged (both bypass forms are danger);
-`default` still renders NO tag at all, so its short form never appears. A mode
-outside the known four (only reachable from a typed custom command) is shown
-verbatim rather than mistranslated.
+`--dangerously-skip-permissions` also reads `no prompts`. Both bypass forms are
+danger (red); on the pane tag `default` renders NO tag at all, so its label
+appears only in the dialog. A mode outside the known four (only reachable from a
+typed custom command) is shown verbatim rather than mistranslated.
 
-**Resume select**: `Start fresh` / `Continue last conversation` (values
-`fresh`/`continue`; `continue` still emits `--continue`).
+**Effort** — `EFFORTS` = `default` · `low` · `medium` · `high` · `xhigh` · `max`,
+rendered verbatim as select options (single lowercase words, no flag anywhere in
+the copy). `default` is the app's own sentinel and emits nothing; the other five
+are Claude Code's own level names (`claude --help`, 2.1.263) and emit
+`--effort <level>`.
 
-**Preset chips**: `deep work · opus · auto edits · continue` / `quick fix ·
-sonnet · always ask` / `yolo · opus · no prompts` / `custom · any command`
-(unchanged).
+**Continue** — one checkbox, `Continue last conversation`, emitting `--continue`.
+There is deliberately no per-id `--resume <id>` HERE: resuming a specific
+conversation is the sessions drawer's HISTORY section, where the server composes
+the argv.
 
-**Launch summary** (replaces the argv command preview in preset modes) — three
-mono lines in the same ink well, composed by `launchSummary()` from
-`currentSpawn()`'s own argv array — the one the POST body carries — so summary
-and POST body still cannot diverge:
+**Exempt by construction**: the custom-command field (label `Command`,
+placeholder `htop`) — its content IS a command the user typed. Terminal content
+is obviously exempt. Statusline items (`ws <n> ms`, `pty ok`, `up HH:MM:SS`) and
+model ids (`opus`/`sonnet`/`haiku`/`fable` — product names) stay as they are.
 
-```
-Claude Code · opus
-auto-approves file edits · continues your last conversation
-folder: /home/sava/projects/web-ui
-```
-
-Mode clauses: `asks before tools that need approval` / `auto-approves file edits` /
-`read-only planning, changes nothing` / `never asks · dangerous`. Resume
-clauses: `starts a fresh conversation` / `continues your last conversation`. The
-danger clause renders red (`.launch-cmd .is-danger`) — colour carries the
-warning the flag name used to.
-
-**Exempt by construction**: the custom-command field (label, placeholder `htop
---tree`, hint `whitespace split — no quoting, no shell`) and its preview line —
-its content IS a command the user typed, so custom mode still shows `$ <cmd>
-<args>` (blank → `$ —`) plus the `folder:` line. Terminal content is obviously
-exempt. Statusline items (`ws <n> ms`, `pty ok`, `up HH:MM:SS`) and model ids
-(`opus`/`sonnet`/`haiku`/`fable` — product names) stay as they are.
-
-Other copy this rule changed: sessions drawer footer note → `relaunch continues
-the previous conversation`, relaunch button title → `relaunch as a new tab —
-continues where the session stopped`; new-project git toggle sample `git init` →
-`starts version history` (title `start tracking changes in the new project
-folder`); new-project clone tab `$ git clone <url> <dest>` preview → the
-three-line `copies` / url / `into folder: <dest>` summary (exact lines and `—`
-empty state in the New Project dialog section below). (The settings panel's
-startup-command copy was listed here until 2026-07-26; the control itself is
-gone — see the settings-panel section.)
+Other copy this rule changed, outside the launch dialog: the sessions drawer's
+literal command name → the product name `Claude Code` (`commandLabel`);
+new-project git toggle sample `git init` → `starts version history` (title
+`start tracking changes in the new project folder`); new-project clone tab
+`$ git clone <url> <dest>` preview → the three-line `copies` / url / `into
+folder: <dest>` summary (exact lines and `—` empty state in the New Project
+dialog section below). (The settings panel's startup-command copy was listed
+here until 2026-07-26; the control itself is gone — see the settings-panel
+section.)
 
 ## Direction (one sentence)
 
@@ -256,7 +245,11 @@ Vertical flex, 100vh, no page scroll:
 - Focused pane in a split: inner `outline:1px solid #3d5a75;
   outline-offset:-1px`. A lone pane carries no focus frame.
 - Exited/dead banners stay structural strips under the header (relaunch /
-  delete, armed confirms); the buffer below stays readable.
+  delete, armed confirms); the buffer below stays readable. `relaunch` goes
+  through `POST /api/history/:id/resume` when the session history still holds
+  THIS session's entry — so a claude pane continues its own conversation
+  instead of starting an empty one — and falls back to reposting the same
+  command otherwise. The word on the button stays `relaunch`.
 - Drop overlay during drags: dashed `#5cb8f0` box + accent tint over the
   target half/whole, mono label (`split here` / `merge here`).
 
@@ -277,66 +270,96 @@ Vertical flex, 100vh, no page scroll:
   tag, `split` (append into the current view, max 4 — the button twin of
   drag-to-merge), `×` (armed kill); the row body is a real button: click
   activates that session's view and focuses it. Meta: project · status
-  (· tab place when assigned). `PREVIOUS RUN · N` rows keep the existing
-  crash/shutdown relaunch (`--continue` for claude) + forget + dismiss-all
-  exactly; footer note `relaunch continues the previous conversation` (the
-  emitted flag is unchanged — see the copy rule). NO per-id `--resume <id>`
-  (fiction cut). Slide-in .18s.
+  (· tab place when assigned). Slide-in .18s.
+
+  **`HISTORY · N`** (replaced `PREVIOUS RUN` on 2026-09-06, user's call): every
+  ended session the app ever launched, from `GET /api/history`, in **a folder
+  per project**. Section header carries the total plus a `clear all` armed chip
+  (ArmedSet key `hist-all`, same two-step as kill). Below it, one **folder
+  header per project** — the WHOLE row is the collapse toggle (`.hist-group`,
+  `aria-expanded`): caret text glyph `▾`/`▸` (10px mono, `--text-dim`, no icon
+  library), folder name 13px/500, `· N` in mono micro `--text-faint`. A folder
+  is the project when the app still knows that project id, and otherwise the
+  cwd's LAST SEGMENT — never a path. Folders are ordered by their newest entry,
+  entries inside them newest first; all open by default, collapse state in
+  memory only (localStorage dies with the origin every backend run).
+
+  Entry rows reuse `.sess-row`/`.sess-main`/`.sess-meta`/`.sess-actions`,
+  indented one `--s-5` step so the folder headers form the section's left edge:
+  hollow exit dot, title, and a meta line of `fmtAgo(lastUsedAt)` (`just now` ·
+  `5 min ago` · `3 h ago` · `yesterday` · `4 d ago` · else `30 Aug`, plus the
+  year when it differs) · model tag from argv · `crashed` when
+  `ended.reason === 'crash'`, the whole line in `--danger-mut` in that case.
+  Actions: `resume` (`chip-btn is-acc`; `start again` when the entry carries no
+  pinned conversation — `entry.conversation === false`, i.e. any non-claude
+  command AND a claude launch that continues the folder's most recent
+  conversation, both of which respawn rather than continue THIS conversation)
+  and `×` (armed forget, key `hist:<id>`). Both action buttons carry an
+  `aria-label` naming the entry (`resume <title>` / `start again <title>` /
+  `forget <title>`), since the visible labels repeat per row. Resume POSTs `/api/history/:id/resume` with the
+  focused pane's dims and takes the SessionInfo back — **the SERVER composes the
+  argv**, so no resume flag is ever chosen in the browser. NO explanatory copy
+  anywhere in the drawer; the old footer note is gone.
 
 ## Launch dialog (handoff §8 — R3, replaces launcher-as-tab)
 
 THE way to create a session (`web/src/ui/launch.ts`). Modal over the ONE
 sanctioned blurred backdrop (`rgba(8,10,14,.55)` + `blur(4px)`, centered):
 560px card, radius 12, dialog shadow, fadeUp. Header on the sanctioned
-`#202935→#1b222c` gradient: 30px logo tile (radius 9) · `Launch session`
-14px/600/ls .8px · mono subtitle `spawns a real pty on the backend ·
-survives hidden panes` · bordered `×` (danger on hover). Body (18px 20px,
-16px stack):
+`#202935→#1b222c` gradient: 30px logo tile (radius 9) · `New session`
+14px/600/ls .8px · bordered `×` (danger on hover). NO subtitle.
 
-- **Preset chips** (pill 13px, mono 10.5): `deep work · opus · auto edits ·
-  continue` / `quick fix · sonnet · always ask` / `yolo · opus · no prompts`
-  (red-tinted `#a05252`/`#4a2f33`). A chip sets model + permission + resume.
-  A fourth chip — `custom · any command` — is a MODE toggle, not a one-shot
-  preset (see the custom escape hatch below): neutral steel like its
-  siblings (not red = not danger, not green = not go), toggled state
-  borrows the topbar toggle pattern (`#232b36` fill + full ink).
-- **2×2 fields** (labels 10.5px/600/ls 1.2px uppercase; inputs mono 32px on
-  `#12161d`, radius 8): Session name (placeholder `auto from project`, maps
-  to `title`) · Project (select, names only) · Model (select: opus, sonnet,
-  haiku, fable) · Resume (select: `Start fresh`, `Continue last conversation`
-  — EXACTLY two options, per-id `--resume <id>` is fiction).
-- **Permission cards** (2×2, radius 9, `#12161d`): mono plain-language title +
-  sans description, per the copy rule's label table above ("Always ask" /
-  "Auto-approve edits" / "Read-only planning" / "Never ask"). Selected:
-  `#5cb8f0` text, `rgba(92,184,240,.08)` bg, `#3d5a75` border. The bypass
-  description stays `#d95c5c` even when selected — the warning never
-  disappears.
-- **Launch summary** (`#0e1116` ink well, radius 9, mono 11): three plain
-  lines (agent · model / mode clause · resume clause / `folder: <project
-  path>`), exact copy in the rule above. `currentSpawn()` (over the pure
-  composers in `launch-args.ts`) remains the single spawn source for BOTH
-  modes, and `launchSummary()` derives every clause from that spawn's ARGV —
-  summary and POST body cannot diverge. Custom mode keeps the literal `$ <command> <args>` line
-  (blank → `$ —`, the app's empty-value glyph) plus the `folder:` line.
-- **Custom escape hatch** (user decision 2026-07-20, restoring the
-  launcher tab's configurable command + args): toggling the `custom` chip
-  reveals a full-width mono Command field (placeholder `htop --tree`, hint
-  `whitespace split — no quoting, no shell`) and dims Model, Resume and
-  the permission cards to the old launcher's is-disabled pattern (opacity
-  .45 + real `disabled` attrs — visible, not hidden). First token =
-  command, rest = args; the server spawns argv, never a shell. Exits: any
-  preset chip, or toggling the chip off. Project-preset opens
-  (projects-drawer row `+`) also exit custom mode; other opens remember
-  it (the command text is kept either way). Session name and project still
-  apply (title / cwd). Blank command on Launch → the `.form-err` inline
-  error `command is required for the custom preset`.
+**Reduced 2026-09-06 (user's call — "far too many unnecessary things ... plain
+short words, without further explanation").** The dialog is a short form: six
+labelled controls, nothing that describes them. Body (18px 20px, 16px stack):
 
-Footer (`#171d25`, top seam): faint mono `opens in a new tab` · Cancel
-(ghost, 30px) · `Launch ▸` (green go, 30px). Launch POSTs
-`{ projectId, command, args, title?, cols, rows }` (`command` is `'claude'`
-in preset modes, the user's argv[0] in custom mode; argv only — never a
-shell string), the new session gets its own tab and becomes active,
-keyboard lands in its terminal.
+- **Field grid** (2 columns, `--s-7` gap; labels 10.5px/600/ls 1.2px uppercase
+  `--text-dim`; inputs/selects mono 32px on `#12161d`, radius 8):
+  `Name` · `Project` / `Model` · `Effort`.
+  - `Name` maps to `title`. Its **placeholder is the selected project's name**
+    and follows the project select — blank sends no title and the server names
+    the session after the project, so the placeholder shows what will happen
+    instead of saying it.
+  - `Project`: names only, never paths.
+  - `Model`: opus, sonnet, haiku, fable.
+  - `Effort`: default, low, medium, high, xhigh, max. `default` emits nothing;
+    the rest emit `--effort <level>`.
+- **Mode** — ONE segmented row of four (`.mode-seg`, `--field-h` tall, shared
+  `#12161d` floor, `--edge-mid` hairlines between segments, radius 8), labels
+  from `PERM_SHORT`: `always ask` · `auto edits` · `read-only` · `no prompts`.
+  Selected: `--acc-tint` fill + `--acc` ink. The dangerous segment is
+  `--danger-mut` unselected and `--danger-edge` fill + `--danger` ink selected —
+  **the warning colour survives the shorter words**. No descriptions, no cards.
+- **Continue** — one checkbox row in the app's shared toggle idiom
+  (`.status-row`/`.status-box`, a real button carrying `aria-pressed`), label
+  `Continue last conversation`, pulled to the body's left edge by
+  `.launch-check`. Checked → `--continue`. Default unchecked, reset on every
+  open.
+- **Custom escape hatch** (user decision 2026-07-20, kept): the footer's
+  `other command` text button (quiet mono `--fs-status`, `--acc` when on) toggles
+  custom MODE. It reveals a full-width mono `Command` field (placeholder `htop`)
+  and dims Model, Effort, the mode segments and the continue row to the
+  is-disabled pattern (opacity .45 + real `disabled` attrs — visible, not
+  hidden). First token = command, rest = args; the server spawns argv, never a
+  shell. NO hint text. Exits: toggling it off, or a project-preset open. Name
+  and project still apply (title / cwd). Blank command on Launch → the
+  `.form-err` inline error `type a command`.
+- `no projects yet — add one` (`.launch-none` + `.btn-link`) when the project
+  list is empty — navigation, not explanation.
+
+Footer (`#171d25`, top seam): `other command` (left) · spacer · Cancel (ghost,
+30px) · `Launch` (green go, 30px). No note, no `▸`. Launch POSTs
+`{ projectId, command, args, title?, cols, rows }` from `currentSpawn()` — the
+ONE composition path for both modes, over `composeArgs()`/`parseCustomCommand()`
+in `launch-args.ts` (`command` is `'claude'` in claude mode, the user's argv[0]
+in custom mode; argv only — never a shell string). The new session gets its own
+tab and becomes active, keyboard lands in its terminal.
+
+**Argv order** (`composeArgs(model, perm, continueLast, effort)`):
+`--model <m>`, then `--permission-mode <p>` when not `default`, then
+`--effort <e>` when not `default`, then `--continue` when checked. There is no
+second rendering of that array anywhere in the dialog, so nothing can describe a
+different launch than the one it starts.
 
 Behavior: Escape and backdrop-click close; Tab is trapped inside; focus
 enters the name field on open and returns to the invoking control on close
@@ -351,12 +374,13 @@ removed 2026-07-26 with that section). On every open the dialog resolves
 model + permission ONCE against the selected project through those two
 `resolve*` functions (`applyDefaults`): a project-intent open force-selects
 its project first (`defaultModel` when in the model list; `defaultMode:
-skip-permissions` → bypassPermissions card), a plain open uses the
+skip-permissions` → the `no prompts` segment), a plain open uses the
 auto-selected first project — either way the same precedence runs, so a
 project default is layered on every open, not only project-intent opens. A
 per-launch edit always wins (the dialog stays fully editable) and is not
 persisted, and a mid-dialog project switch does NOT re-resolve — per-launch
-control stays with the user once the dialog is open.
+control stays with the user once the dialog is open. **Effort and continue reset
+to `default`/unchecked on every open**; the custom command text persists.
 
 ## New Project dialog (`web/src/ui/newproject.ts`)
 
@@ -374,17 +398,17 @@ history` (title `start tracking changes in the new project folder`) · two
 OPTIONAL selects in the settings-panel idiom, `Default model (optional)` and
 `Default permission mode (optional)`, both with the lowercase empty option `no
 default`; the permission select's only other entry is `never ask · dangerous`
-(lowercase to match its sibling — the four permission CARD titles above keep
-their sentence case, and `standard` is not offered at all: it is behaviourally
+(lowercase to match its sibling — the launch dialog's own mode segments are
+unaffected, and `standard` is not offered at all: it is behaviourally
 identical to "no default"). Caption: `creates the folder and registers it under
 Projects`.
 
 **Clone repo**: `Git URL` (placeholder `https://github.com/owner/repo.git`) ·
 `Destination (optional)` (pathrow + `Browse`; suggests
 `<home>/projects/<repo>`, or `Browse to choose a location` before home is
-known) · and the ink well (`.launch-cmd`, same `launch-sum-line` structure as
-the launch summary), which since the copy rule holds THREE plain lines instead
-of the old `$ git clone <url> <dest>`:
+known) · and the ink well (`.launch-cmd` / `.launch-sum-line`, now their only
+user), which since the copy rule holds THREE plain lines instead of the old
+`$ git clone <url> <dest>`:
 
 ```
 copies
@@ -686,10 +710,10 @@ guidance line and a reload button; the post-boot 401 takeover panel
 ## Empty state (handoff §11 minus fiction)
 
 Zero views (⇔ zero sessions): centered 64px logo tile, `No active
-sessions`, buttons `+ New session` (opens the launch dialog) and `Relaunch
-previous run (N)` (opens the sessions drawer's previous-run section; shown
-only when offers exist). NO grace countdown line. Closing the last tab
-leaves the empty state — nothing auto-spawns.
+sessions`, buttons `+ New session` (opens the launch dialog) and `Resume a
+session (N)` (opens the sessions drawer, where the HISTORY folders live; shown
+only when the history holds anything). NO grace countdown line. Closing the last
+tab leaves the empty state — nothing auto-spawns.
 
 ## Cut as fiction (unchanged by the precedence flip)
 
@@ -698,8 +722,13 @@ leaves the empty state — nothing auto-spawns.
 - **Boot overlay with launcher lifecycle steps**: the browser opens after
   health passes; the app can never witness those steps (honest in-app boot
   panel lands with R3).
-- **Per-session `--resume <id>`**: the journal stores our ids, not Claude
-  conversation ids; `--continue` relaunch stays.
+- **Per-session `--resume <id>` — UNCUT 2026-09-06.** It was a fiction while the
+  journal only stored OUR session ids. The session-history contract
+  (`shared/protocol.ts`, `HistoryEntry.conversation`) makes the app pin a
+  claude session to a real conversation id at spawn, so `POST
+  /api/history/:id/resume` can target it. The BROWSER still never composes a
+  resume flag — the server does; the launch dialog's own checkbox stays plain
+  `--continue`.
 
 ## Recorded deviations from the handoff (with reasons)
 

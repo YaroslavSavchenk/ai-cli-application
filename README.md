@@ -12,8 +12,10 @@ replays the full scrollback. The backend's lifetime is bound to UI presence
 `memory/decisions/lifecycle-bound-backend.md`): closing the last app window
 starts a ~30 s grace timer, after which the backend ends all sessions and
 exits — nothing keeps running in the background. A crash-safe session
-journal means the next start offers the previous run's sessions for
-one-click relaunch (Claude sessions resume via `--continue`).
+history keeps every session the app ever launched, across runs, and can
+resume any of them (a Claude session resumes ITS OWN conversation: the
+backend pins each launch with `--session-id <uuid>` and resumes with
+`--resume <id>`).
 
 ## Run it (Windows + WSL2)
 
@@ -58,11 +60,11 @@ path):
   **not encrypted** — see the honesty note in the GitHub section below
 - `runtime.json` — runtime discovery (port, auth token, pid, startedAt);
   removed on clean shutdown
-- `journal.json` — crash-safe journal of the current run's sessions
-  (atomically rewritten on every session create/exit/delete and at shutdown)
-- `previous.json` — the previous run's journal, rotated here on boot
-  (entries left open by a crash are stamped `crash`); feeds the "previous
-  run" relaunch offers (`GET /api/previous`)
+- `history.json` — every session the app launched, across runs (atomically
+  rewritten on every session create/exit/delete and at shutdown; entries left
+  open by a crash are stamped `crash` at the next boot). Feeds `GET
+  /api/history` and `POST /api/history/:id/resume`; bounded at 200 entries,
+  where the oldest ended one drops first
 - `session-settings/` — one Claude Code settings file per session (directory
   mode 0700), holding only the status-line command the session is launched
   with; emptied at boot, since no session survives a restart

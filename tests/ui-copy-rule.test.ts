@@ -163,8 +163,8 @@ const ALLOWED: Record<string, string[]> = {
     'bypassPermissions',
     '--model',
     '--permission-mode',
+    '--effort',
     '--continue',
-    '$', // previewLine's prompt token, custom mode only
   ],
   'ui/util.ts': [
     '--model',
@@ -174,7 +174,6 @@ const ALLOWED: Record<string, string[]> = {
     '--permission-mode=',
     'bypassPermissions',
   ],
-  'ui/sessions.ts': ['--continue', '--resume'], // RESUME_FLAGS + the prepend
   // --- CSS custom properties: same `--x` shape, entirely different job -------
   'ui/terminal.ts': [
     '--xt-bg',
@@ -203,10 +202,11 @@ const ALLOWED: Record<string, string[]> = {
   ],
   'ui/theme.ts': ['--term-bg', '--xt-fg', '--xt-white', '--xt-bright-white', '--xt-cursor', '--xt-bright-black'],
   'ui/panes.ts': ['--split-col', '--split-row'],
-  // --- the ONE display exemption (user's call, 2026-07-25) ------------------
-  // The custom-command field's content IS a command the user types, so its
-  // placeholder and its echoed command line stay verbatim.
-  'ui/launch.ts': ['htop --tree', '$ —'],
+  // The ONE display exemption (user's call, 2026-07-25) — the custom-command
+  // field, whose content IS a command the user types — needs no entry since
+  // 2026-09-06: its placeholder is a bare `htop` and the argv echo above it was
+  // removed with the rest of the dialog's explanatory surface. The exemption
+  // still STANDS as a rule; it simply has nothing code-shaped left to excuse.
 };
 
 const files = tsFiles(WEB_SRC);
@@ -231,10 +231,12 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
   // Canaries: real copy the scanner has to see, in files whose literals it must
   // not desynchronise on.
   const canaries: [string, string][] = [
-    ['ui/launch.ts', 'Launch session'],
+    ['ui/launch.ts', 'New session'],
+    ['ui/launch.ts', 'Continue last conversation'],
     ['ui/settings.ts', 'Settings'],
     ['ui/newproject.ts', 'Initialize git repo'],
-    ['ui/launch-args.ts', 'Continue last conversation'],
+    ['ui/launch-args.ts', 'always ask'],
+    ['ui/sessions.ts', 'start again'],
   ];
   for (const [file, text] of canaries) {
     const f = files.find((x) => rel(x) === file);
@@ -341,6 +343,27 @@ test('the exact strings the 2026-07-25 copy pass removed never come back', () =>
     'The server needs a GitHub connection setting before this can be used',
     'one-time server setup · nothing to do in the browser',
     'secure device-flow sign-in',
+    // 2026-09-06, the launch-dialog reduction (user: "far too many unnecessary
+    // things ... plain short words, without further explanation"): the header
+    // subtitle, the preset chip labels, the permission-card descriptions, the
+    // custom-command hint, the footer note, and the drawer's previous-run copy.
+    'spawns a real pty on the backend',
+    'deep work · opus · auto edits · continue',
+    'quick fix · sonnet · always ask',
+    'yolo · opus · no prompts',
+    'custom · any command',
+    'before tools that need approval',
+    'file changes go through without asking',
+    'looks and plans, changes nothing',
+    'no prompts at all · dangerous',
+    'whitespace split',
+    'opens in a new tab',
+    'relaunch continues the previous conversation',
+    'PREVIOUS RUN',
+    'Relaunch previous run',
+    'auto from project',
+    'command is required for the custom preset',
+    'start a new session with the same command',
   ];
   const hits: string[] = [];
   for (const file of files) {

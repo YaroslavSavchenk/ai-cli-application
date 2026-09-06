@@ -13,7 +13,7 @@
  */
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import type { SessionInfo } from '../shared/protocol.ts';
+import type { HistoryEntry, SessionInfo } from '../shared/protocol.ts';
 
 class MemoryStorage {
   #map = new Map<string, string>();
@@ -65,7 +65,7 @@ function resetState(): void {
   memoryStorage.clear();
   st.state.sessions = new Map();
   st.state.projects = [];
-  st.state.previous = [];
+  st.state.history = [];
   st.state.views = [];
   st.state.activeViewId = '';
   st.state.drawer = null;
@@ -315,4 +315,65 @@ test('setBackendReachable: notifies conn on toggle, is a no-op when unchanged', 
 
   st.setBackendReachable(true);
   assert.deepEqual(kinds, ['conn', 'conn']);
+});
+
+// ---------------------------------------------------------------------------
+// Session-history setters (GET /api/history -> drawer) notify 'sessions'
+// ---------------------------------------------------------------------------
+
+function mkHistory(id: string): HistoryEntry {
+  return {
+    id,
+    conversation: true,
+    sessionId: `s-${id}`,
+    cwd: '/tmp/work',
+    command: 'claude',
+    args: ['--model', 'opus'],
+    title: id,
+    createdAt: '2026-09-06T10:00:00.000Z',
+    lastUsedAt: '2026-09-06T10:00:00.000Z',
+    ended: { at: '2026-09-06T11:00:00.000Z', reason: 'exit' },
+  };
+}
+
+test('setHistory: replaces the list and notifies sessions every time (a refetch always publishes)', () => {
+  const { kinds } = collectKinds();
+  st.setHistory([mkHistory('a'), mkHistory('b')]);
+  assert.deepEqual(st.state.history.map((h) => h.id), ['a', 'b']);
+  assert.deepEqual(kinds, ['sessions']);
+
+  // Even an identical-looking refetch republishes: the drawer re-renders from
+  // whatever the server just said, and history.ts debounces the fetches.
+  st.setHistory([mkHistory('a'), mkHistory('b')]);
+  assert.deepEqual(kinds, ['sessions', 'sessions']);
+});
+
+test('removeHistory: drops the matching entry and notifies; an unknown id changes nothing and stays silent', () => {
+  st.setHistory([mkHistory('a'), mkHistory('b')]);
+  const { kinds } = collectKinds();
+
+  st.removeHistory('no-such-entry');
+  assert.deepEqual(st.state.history.map((h) => h.id), ['a', 'b']);
+  assert.deepEqual(kinds, [], 'a miss must not renotify');
+
+  st.removeHistory('a');
+  assert.deepEqual(st.state.history.map((h) => h.id), ['b']);
+  assert.deepEqual(kinds, ['sessions']);
+
+  // The entry KEY is what is matched, never the session id it last ran under.
+  st.removeHistory('s-b');
+  assert.deepEqual(st.state.history.map((h) => h.id), ['b'], 'sessionId is not the key');
+  assert.deepEqual(kinds, ['sessions']);
+});
+
+test('clearHistory: empties the list once and is silent when there is nothing to clear', () => {
+  st.setHistory([mkHistory('a')]);
+  const { kinds } = collectKinds();
+
+  st.clearHistory();
+  assert.deepEqual(st.state.history, []);
+  assert.deepEqual(kinds, ['sessions']);
+
+  st.clearHistory();
+  assert.deepEqual(kinds, ['sessions'], 'clearing an empty list must not renotify');
 });

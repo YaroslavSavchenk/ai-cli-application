@@ -14,8 +14,9 @@
  * Lifetime is bound to UI presence (decided 2026-07-19): the frontend holds
  * a presence WebSocket; when no presence and no session clients remain, a
  * grace timer (LifecycleController) expires into the same clean shutdown as
- * SIGTERM — journal 'shutdown', kill PTYs, remove runtime.json, exit 0. The
- * crash-safe session journal (journal.ts) lets the next run offer relaunch.
+ * SIGTERM — history 'shutdown', kill PTYs, remove runtime.json, exit 0. The
+ * crash-safe session history (history.ts) lets any ended session be resumed
+ * later, on this run or a future one.
  *
  * Runs directly on Node 24 native type stripping: erasable syntax only,
  * relative imports carry explicit .ts extensions.
@@ -37,7 +38,7 @@ import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionSettingsStore } from './session-settings.ts';
-import { SessionJournal } from './journal.ts';
+import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler } from './api.ts';
@@ -51,8 +52,8 @@ const webDistDir = join(serverDir, '..', 'web', 'dist');
 
 const projects = new ProjectStore(paths.projectsFile, log);
 const prefs = new PrefsStore(paths.prefsFile, log);
-const journal = new SessionJournal(paths.journalFile, paths.previousFile, log);
-journal.rotate(); // A previous run's journal becomes previous.json ('crash'-stamped).
+const history = new SessionHistory(paths.historyFile, log);
+history.load(); // Entries a previous run left live are stamped 'crash'.
 // Per-session `--settings` files giving claude sessions our status line. The
 // script is run by a FOREIGN process (claude), so it is named by absolute path
 // and run with this very node binary — never by a name resolved through the
@@ -76,7 +77,7 @@ try {
 } catch {
   // Absent (the normal case) or unremovable — the script tolerates either.
 }
-const sessions = new SessionManager(log, journal, sessionSettings);
+const sessions = new SessionManager(log, history, sessionSettings);
 // GitHub connection. The OAuth client_id comes from env; absent/empty disables
 // only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
 // answers a clean not-available signal). The PASTED-TOKEN path and every
@@ -126,7 +127,7 @@ const server = createServer(
     projects,
     prefs,
     sessions,
-    journal,
+    history,
     github,
     webDistDir,
     log,
@@ -169,9 +170,9 @@ function shutdown(cause: string): void {
   shuttingDown = true;
   log('info', `received ${cause}, shutting down`);
   lifecycle.stop();
-  // Journal first (crash safety), then kill: destroy()'s 'user-kill' and the
+  // History first (crash safety), then kill: destroy()'s 'user-kill' and the
   // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
-  journal.endAllLive('shutdown');
+  history.endAllLive('shutdown');
   sessions.destroyAll();
   try {
     unlinkSync(paths.runtimeFile);

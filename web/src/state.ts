@@ -16,7 +16,7 @@
  * Change notification is a flat pub/sub of coarse ChangeKinds; views decide
  * what to re-render.
  */
-import type { PreviousSession, Project, SessionInfo } from '../../shared/protocol.ts';
+import type { HistoryEntry, Project, SessionInfo } from '../../shared/protocol.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -55,8 +55,8 @@ export interface ViewState {
 interface AppState {
   sessions: Map<string, SessionInfo>;
   projects: Project[];
-  /** Previous-run relaunch offers (GET /api/previous, crash/shutdown only). */
-  previous: PreviousSession[];
+  /** Session history (GET /api/history) — ended sessions, resumable per entry. */
+  history: HistoryEntry[];
   views: ViewState[];
   activeViewId: string;
   drawer: DrawerView;
@@ -71,7 +71,7 @@ interface AppState {
 export const state: AppState = {
   sessions: new Map(),
   projects: [],
-  previous: [],
+  history: [],
   views: [],
   activeViewId: '',
   drawer: null,
@@ -489,25 +489,25 @@ export function removeSessionEverywhere(id: string): void {
   notify('ui');
 }
 
-/** Boot-time load of the previous-run relaunch offers. */
-export function setPrevious(list: PreviousSession[]): void {
-  state.previous = list;
+/** Replace the session history (boot load and every refetch). */
+export function setHistory(list: HistoryEntry[]): void {
+  state.history = list;
   notify('sessions');
 }
 
-/** Drop one offer (after relaunch or dismiss). */
-export function removePrevious(id: string): void {
-  const next = state.previous.filter((p) => p.id !== id);
-  if (next.length !== state.previous.length) {
-    state.previous = next;
+/** Drop one entry (after forget). */
+export function removeHistory(id: string): void {
+  const next = state.history.filter((h) => h.id !== id);
+  if (next.length !== state.history.length) {
+    state.history = next;
     notify('sessions');
   }
 }
 
-/** Drop all offers (dismiss-all). */
-export function clearPrevious(): void {
-  if (state.previous.length > 0) {
-    state.previous = [];
+/** Drop every entry (forget all). */
+export function clearHistory(): void {
+  if (state.history.length > 0) {
+    state.history = [];
     notify('sessions');
   }
 }
@@ -775,7 +775,7 @@ export function toggleDrawer(view: Exclude<DrawerView, null>): void {
   notify('drawer');
 }
 
-/** Open (never close) a drawer — the empty state's "Relaunch previous run". */
+/** Open (never close) a drawer — the empty state's "Resume a session". */
 export function openDrawer(view: Exclude<DrawerView, null>): void {
   if (state.drawer !== view) {
     state.drawer = view;

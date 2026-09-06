@@ -6,45 +6,47 @@
  * time here).
  *
  * Two invariants under test:
- *   1. The summary/preview and the POST body share these composers, so what
- *      they produce IS what the server spawns.
- *   2. The 2026-07-25 copy rule is DISPLAY-ONLY: labels are plain English
- *      ("Auto-approve edits", "Continue last conversation"), while every VALUE
- *      that reaches argv (`acceptEdits`, `--continue`, …) is byte-identical to
- *      before. The composeArgs cases below are the guard for that half — they
- *      must never be relaxed to accommodate a wording change.
+ *   1. `composeArgs` is what the POST body carries, so what it produces IS what
+ *      the server spawns.
+ *   2. The copy rules are DISPLAY-ONLY: the labels are plain short words
+ *      (`always ask`, `auto edits`, …) while every VALUE that reaches argv
+ *      (`acceptEdits`, `--continue`, `--effort high`, …) is byte-exact. The
+ *      composeArgs cases below are the guard for that half — they must never be
+ *      relaxed to accommodate a wording change.
+ *
+ * REWRITTEN 2026-09-06 with the dialog: the preset chips, the resume select and
+ * the readable launch summary were removed (user's call — "far too many
+ * unnecessary things"), and an Effort level was added.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   composeArgs,
   parseCustomCommand,
-  previewLine,
-  launchSummary,
   permFromDefaultMode,
   resolveModel,
   resolvePerm,
   isPerm,
   isModelId,
+  isEffort,
   MODELS,
   PERMS,
   PERM_SHORT,
-  CHIPS,
-  RESUME_OPTIONS,
+  EFFORTS,
   AGENT_LABEL,
 } from '../web/src/ui/launch-args.ts';
-import type { Perm, Resume } from '../web/src/ui/launch-args.ts';
+import type { Effort, Perm } from '../web/src/ui/launch-args.ts';
 
 // ---------------------------------------------------------------------------
 // composeArgs (claude mode)
 // ---------------------------------------------------------------------------
 
-test('composeArgs: default perm + fresh -> model only', () => {
-  assert.deepEqual(composeArgs('opus', 'default', 'fresh'), ['--model', 'opus']);
+test('composeArgs: default perm + no effort + no continue -> model only', () => {
+  assert.deepEqual(composeArgs('opus', 'default', false, 'default'), ['--model', 'opus']);
 });
 
 test('composeArgs: non-default perm adds --permission-mode <mode>', () => {
-  assert.deepEqual(composeArgs('sonnet', 'acceptEdits', 'fresh'), [
+  assert.deepEqual(composeArgs('sonnet', 'acceptEdits', false, 'default'), [
     '--model',
     'sonnet',
     '--permission-mode',
@@ -52,18 +54,42 @@ test('composeArgs: non-default perm adds --permission-mode <mode>', () => {
   ]);
 });
 
-test('composeArgs: continue appends --continue last (handoff preview order)', () => {
-  assert.deepEqual(composeArgs('opus', 'acceptEdits', 'continue'), [
+test('composeArgs: a chosen effort adds --effort <level>', () => {
+  assert.deepEqual(composeArgs('opus', 'default', false, 'high'), [
+    '--model',
+    'opus',
+    '--effort',
+    'high',
+  ]);
+});
+
+test('composeArgs: the `default` effort emits NOTHING — the sentinel names no level', () => {
+  assert.equal(composeArgs('opus', 'default', false, 'default').includes('--effort'), false);
+  assert.equal(composeArgs('opus', 'bypassPermissions', true, 'default').includes('--effort'), false);
+});
+
+test('composeArgs: continue appends --continue LAST', () => {
+  assert.deepEqual(composeArgs('opus', 'acceptEdits', true, 'max'), [
     '--model',
     'opus',
     '--permission-mode',
     'acceptEdits',
+    '--effort',
+    'max',
+    '--continue',
+  ]);
+});
+
+test('composeArgs: continue without a mode or an effort -> --continue straight after the model', () => {
+  assert.deepEqual(composeArgs('haiku', 'default', true, 'default'), [
+    '--model',
+    'haiku',
     '--continue',
   ]);
 });
 
 test('composeArgs: bypassPermissions goes through --permission-mode (never the skip flag)', () => {
-  assert.deepEqual(composeArgs('opus', 'bypassPermissions', 'fresh'), [
+  assert.deepEqual(composeArgs('opus', 'bypassPermissions', false, 'default'), [
     '--model',
     'opus',
     '--permission-mode',
@@ -71,8 +97,30 @@ test('composeArgs: bypassPermissions goes through --permission-mode (never the s
   ]);
 });
 
-test('composeArgs: default perm + continue -> --continue appended with NO --permission-mode in between', () => {
-  assert.deepEqual(composeArgs('haiku', 'default', 'continue'), ['--model', 'haiku', '--continue']);
+test('composeArgs: every effort level in the vocabulary emits itself verbatim, except the sentinel', () => {
+  for (const e of EFFORTS) {
+    const args = composeArgs('opus', 'default', false, e);
+    if (e === 'default') {
+      assert.deepEqual(args, ['--model', 'opus'], 'the sentinel adds nothing');
+      continue;
+    }
+    assert.deepEqual(args, ['--model', 'opus', '--effort', e]);
+  }
+});
+
+test('composeArgs: the full cross product keeps its fixed order (model, mode, effort, continue)', () => {
+  for (const p of PERMS) {
+    for (const e of EFFORTS) {
+      for (const cont of [false, true]) {
+        const args = composeArgs('sonnet', p.mode, cont, e);
+        const expected = ['--model', 'sonnet'];
+        if (p.mode !== 'default') expected.push('--permission-mode', p.mode);
+        if (e !== 'default') expected.push('--effort', e);
+        if (cont) expected.push('--continue');
+        assert.deepEqual(args, expected, `${p.mode} / ${e} / continue=${cont}`);
+      }
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -108,21 +156,6 @@ test('parseCustomCommand: a flag-like first token is preserved as the command (n
 });
 
 // ---------------------------------------------------------------------------
-// previewLine (shared preview rendering)
-// ---------------------------------------------------------------------------
-
-test('previewLine: renders the exact spawn as `$ cmd args…`', () => {
-  assert.equal(previewLine({ command: 'htop', args: ['--tree'] }), '$ htop --tree');
-  assert.equal(previewLine({ command: 'bash', args: [] }), '$ bash');
-});
-
-test('previewLine(parseCustomCommand(x)) round-trips a normalized line', () => {
-  const spec = parseCustomCommand('  htop   --tree ');
-  assert.ok(spec !== null);
-  assert.equal(previewLine(spec), '$ htop --tree');
-});
-
-// ---------------------------------------------------------------------------
 // vocabulary invariants
 // ---------------------------------------------------------------------------
 
@@ -132,41 +165,39 @@ test('permFromDefaultMode: skip-permissions -> bypass; standard/undefined -> nul
   assert.equal(permFromDefaultMode(undefined), null);
 });
 
-test('vocabulary: 4 models per handoff; 3 claude preset chips (custom is a mode, not a CHIPS entry)', () => {
+test('vocabulary: 4 models per handoff', () => {
   assert.deepEqual([...MODELS], ['opus', 'sonnet', 'haiku', 'fable']);
-  assert.equal(CHIPS.length, 3);
-  assert.equal(CHIPS.filter((c) => c.danger).length, 1, 'exactly one danger chip (yolo)');
 });
 
-test('vocabulary: PERMS is the fixed 4-mode set (default/acceptEdits/plan/bypassPermissions) with PLAIN-LANGUAGE titles + descriptions, exactly one dangerous', () => {
+test('vocabulary: PERMS is the fixed 4-mode set, in row order, exactly one dangerous', () => {
   assert.deepEqual(PERMS, [
-    { mode: 'default', title: 'Always ask', desc: 'before tools that need approval', danger: false },
-    {
-      mode: 'acceptEdits',
-      title: 'Auto-approve edits',
-      desc: 'file changes go through without asking',
-      danger: false,
-    },
-    {
-      mode: 'plan',
-      title: 'Read-only planning',
-      desc: 'looks and plans, changes nothing',
-      danger: false,
-    },
-    {
-      mode: 'bypassPermissions',
-      title: 'Never ask',
-      desc: 'no prompts at all · dangerous',
-      danger: true,
-    },
+    { mode: 'default', danger: false },
+    { mode: 'acceptEdits', danger: false },
+    { mode: 'plan', danger: false },
+    { mode: 'bypassPermissions', danger: true },
   ]);
 });
 
+test('vocabulary: PERM_SHORT is the ONE label table — the mode segments AND the pane tag read from it', () => {
+  assert.deepEqual(PERM_SHORT, {
+    default: 'always ask',
+    acceptEdits: 'auto edits',
+    plan: 'read-only',
+    bypassPermissions: 'no prompts',
+  });
+});
+
+test("vocabulary: EFFORTS is Claude Code's own level list plus the app-only `default` sentinel", () => {
+  // `claude --help` (2.1.263): --effort <level> ... (low, medium, high, xhigh, max)
+  assert.deepEqual([...EFFORTS], ['default', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.equal(EFFORTS[0], 'default', 'the sentinel is first — it is the pre-selected value');
+});
+
 /**
- * The code-shaped strings the 2026-07-25 copy rule bans from the UI. Only the
- * camelCase mode values are listed: `plan` and `default` are ordinary English
- * words (and "planning" contains one), so a substring ban on those would be
- * meaningless — the rule is about CLI syntax, not vocabulary overlap.
+ * The code-shaped strings the copy rule bans from the UI. Only the camelCase
+ * mode values are listed: `plan` and `default` are ordinary English words, so a
+ * substring ban on those would be meaningless — the rule is about CLI syntax,
+ * not vocabulary overlap.
  */
 const CODE_SHAPED = ['acceptEdits', 'bypassPermissions', '--', '$'];
 
@@ -176,279 +207,46 @@ function assertPlainCopy(text: string, where: string): void {
   }
 }
 
-test('copy rule: no permission-card label leaks a CLI mode value or a flag (the `mode` field still carries it)', () => {
+test('copy rule: every label the dialog renders is plain short words, no CLI value and no flag', () => {
+  for (const v of Object.values(PERM_SHORT)) assertPlainCopy(v, 'mode segment label');
+  assertPlainCopy(AGENT_LABEL, 'agent label');
+  // Effort options are rendered verbatim; they are single plain words by
+  // construction, and they must stay that way (a `--effort` label would leak a
+  // flag into the select).
+  for (const e of EFFORTS) {
+    assertPlainCopy(e, 'effort option');
+    assert.match(e, /^[a-z]+$/, `effort option must be one lowercase word: ${e}`);
+  }
+});
+
+test('copy rule: a mode label change can never change the emitted argv', () => {
+  // The VALUE is what composeArgs writes; the label lives in a separate table.
   for (const p of PERMS) {
-    assertPlainCopy(p.title, 'card title');
-    assertPlainCopy(p.desc, 'card description');
-  }
-});
-
-test('vocabulary: PERM_SHORT is the narrow-chip form of every mode (pane tag), plain words only', () => {
-  assert.deepEqual(PERM_SHORT, {
-    default: 'always ask',
-    acceptEdits: 'auto edits',
-    plan: 'read-only',
-    bypassPermissions: 'no prompts',
-  });
-});
-
-test('RESUME_OPTIONS: plain labels over the UNCHANGED fresh/continue values', () => {
-  assert.deepEqual(RESUME_OPTIONS, [
-    { value: 'fresh', label: 'Start fresh' },
-    { value: 'continue', label: 'Continue last conversation' },
-  ]);
-  // The value — not the label — is what composeArgs turns into --continue.
-  assert.deepEqual(composeArgs('opus', 'default', RESUME_OPTIONS[1]!.value), [
-    '--model',
-    'opus',
-    '--continue',
-  ]);
-});
-
-test('CHIPS mapping: deep work = opus+acceptEdits+continue', () => {
-  assert.deepEqual(CHIPS[0], {
-    label: 'deep work · opus · auto edits · continue',
-    model: 'opus',
-    perm: 'acceptEdits',
-    resume: 'continue',
-    danger: false,
-  });
-});
-
-test('CHIPS mapping: quick fix = sonnet+default (fresh)', () => {
-  assert.deepEqual(CHIPS[1], {
-    label: 'quick fix · sonnet · always ask',
-    model: 'sonnet',
-    perm: 'default',
-    resume: 'fresh',
-    danger: false,
-  });
-});
-
-test('CHIPS mapping: yolo = opus+bypassPermissions (fresh), the one danger chip', () => {
-  assert.deepEqual(CHIPS[2], {
-    label: 'yolo · opus · no prompts',
-    model: 'opus',
-    perm: 'bypassPermissions',
-    resume: 'fresh',
-    danger: true,
-  });
-});
-
-test('copy rule: no chip label leaks a CLI mode value (the `perm` field still carries it)', () => {
-  for (const c of CHIPS) assertPlainCopy(c.label, 'chip label');
-  for (const r of RESUME_OPTIONS) assertPlainCopy(r.label, 'resume label');
-  for (const v of Object.values(PERM_SHORT)) assertPlainCopy(v, 'short mode form');
-});
-
-// ---------------------------------------------------------------------------
-// launchSummary — the readable replacement for the argv preview
-// ---------------------------------------------------------------------------
-
-test('launchSummary: three plain-language lines (agent · model / mode clause · resume clause / folder)', () => {
-  assert.deepEqual(
-    launchSummary(composeArgs('opus', 'acceptEdits', 'continue'), '/home/sava/projects/web-ui'),
-    {
-      head: 'Claude Code · opus',
-      mode: 'auto-approves file edits',
-      danger: false,
-      resume: 'continues your last conversation',
-      folder: 'folder: /home/sava/projects/web-ui',
-    },
-  );
-});
-
-test('launchSummary: every mode has a clause; only a bypass form is flagged danger', () => {
-  const clauses = new Map<string, string>([
-    ['default', 'asks before tools that need approval'],
-    ['acceptEdits', 'auto-approves file edits'],
-    ['plan', 'read-only planning, changes nothing'],
-    ['bypassPermissions', 'never asks · dangerous'],
-  ]);
-  for (const p of PERMS) {
-    const s = launchSummary(composeArgs('sonnet', p.mode, 'fresh'), '/tmp/x');
-    assert.equal(s.mode, clauses.get(p.mode));
-    assert.equal(s.danger, p.danger, `danger flag must follow PERMS for ${p.mode}`);
-  }
-});
-
-test('launchSummary: the resume clause follows the resume VALUE', () => {
-  assert.equal(
-    launchSummary(composeArgs('opus', 'default', 'fresh'), '/tmp/x').resume,
-    'starts a fresh conversation',
-  );
-  assert.equal(
-    launchSummary(composeArgs('opus', 'default', 'continue'), '/tmp/x').resume,
-    'continues your last conversation',
-  );
-});
-
-test('copy rule: no summary line contains a flag, a `$` shell prompt or a CLI mode value', () => {
-  for (const p of PERMS) {
-    for (const r of ['fresh', 'continue'] as const) {
-      const s = launchSummary(composeArgs('opus', p.mode, r), '/home/sava/projects/web-ui');
-      for (const line of [s.head, s.mode, s.resume, s.folder]) assertPlainCopy(line, 'summary line');
-    }
-  }
-});
-
-test('launchSummary: the folder line keeps the REAL absolute path (paths are sanctioned here) and the empty glyph when unknown', () => {
-  assert.equal(
-    launchSummary(composeArgs('opus', 'plan', 'fresh'), '/srv/deep/nest').folder,
-    'folder: /srv/deep/nest',
-  );
-  assert.equal(launchSummary(composeArgs('opus', 'plan', 'fresh'), '—').folder, 'folder: —');
-});
-
-/**
- * The FULL 4 modes × 2 resume choices table, byte for byte.
- *
- * The tests above each cover one axis (mode clauses at resume=fresh, resume
- * clauses at mode=default, head+folder for one combination), which leaves the
- * combinations themselves — and `head`/`folder` for 7 of the 8 — unpinned. The
- * ink well is the ONLY place the user is told what is about to run now that the
- * argv line is gone, so every cell of it is written out here rather than
- * derived from the same maps the implementation uses (a derived expectation
- * would agree with any renaming, including a wrong one).
- */
-const SUMMARY_TABLE: {
-  perm: Perm;
-  resume: Resume;
-  mode: string;
-  danger: boolean;
-  resumeText: string;
-}[] = [
-  { perm: 'default', resume: 'fresh', mode: 'asks before tools that need approval', danger: false, resumeText: 'starts a fresh conversation' },
-  { perm: 'default', resume: 'continue', mode: 'asks before tools that need approval', danger: false, resumeText: 'continues your last conversation' },
-  { perm: 'acceptEdits', resume: 'fresh', mode: 'auto-approves file edits', danger: false, resumeText: 'starts a fresh conversation' },
-  { perm: 'acceptEdits', resume: 'continue', mode: 'auto-approves file edits', danger: false, resumeText: 'continues your last conversation' },
-  { perm: 'plan', resume: 'fresh', mode: 'read-only planning, changes nothing', danger: false, resumeText: 'starts a fresh conversation' },
-  { perm: 'plan', resume: 'continue', mode: 'read-only planning, changes nothing', danger: false, resumeText: 'continues your last conversation' },
-  { perm: 'bypassPermissions', resume: 'fresh', mode: 'never asks · dangerous', danger: true, resumeText: 'starts a fresh conversation' },
-  { perm: 'bypassPermissions', resume: 'continue', mode: 'never asks · dangerous', danger: true, resumeText: 'continues your last conversation' },
-];
-
-test('launchSummary: every mode × resume combination, in full, including the danger clause', () => {
-  assert.equal(SUMMARY_TABLE.length, PERMS.length * 2, 'the table covers the whole vocabulary');
-  for (const row of SUMMARY_TABLE) {
-    assert.deepEqual(
-      launchSummary(composeArgs('sonnet', row.perm, row.resume), '/home/sava/projects/web-ui'),
-      {
-        head: 'Claude Code · sonnet',
-        mode: row.mode,
-        danger: row.danger,
-        resume: row.resumeText,
-        folder: 'folder: /home/sava/projects/web-ui',
-      },
-      `${row.perm} × ${row.resume}`,
-    );
-  }
-  // The danger clause belongs to the bypass mode ONLY, in both resume states.
-  assert.equal(SUMMARY_TABLE.filter((r) => r.danger).length, 2);
-  for (const row of SUMMARY_TABLE) {
+    if (p.mode === 'default') continue;
+    assert.ok(composeArgs('opus', p.mode, false, 'default').includes(p.mode));
     assert.equal(
-      launchSummary(composeArgs('opus', row.perm, row.resume), '/tmp/x').danger,
-      row.perm === 'bypassPermissions',
-      `only bypass is dangerous (${row.perm})`,
+      composeArgs('opus', p.mode, false, 'default').includes(PERM_SHORT[p.mode]),
+      false,
+      `the label ${PERM_SHORT[p.mode]} must never reach argv`,
     );
   }
-});
-
-test('launchSummary is a FUNCTION OF THE EMITTED ARGV — every clause is derived from the array that becomes the POST body', () => {
-  // The structural guarantee the old `previewLine(spawn)` had for free, and the
-  // regression this pins: the dialog must not compose argv and then re-read its
-  // controls for the summary, because an arg added to composeArgs would then
-  // change what SPAWNS while the summary kept describing the previous launch.
-  // Only the argv array is passed in below — there is no second input left that
-  // could disagree with it.
-  const args = composeArgs('haiku', 'plan', 'continue');
-  assert.deepEqual(args, ['--model', 'haiku', '--permission-mode', 'plan', '--continue']);
-  assert.deepEqual(launchSummary(args, '/srv/x'), {
-    head: 'Claude Code · haiku',
-    mode: 'read-only planning, changes nothing',
-    danger: false,
-    resume: 'continues your last conversation',
-    folder: 'folder: /srv/x',
-  });
-
-  // Change the ARGV alone and every clause follows it.
-  assert.deepEqual(launchSummary(['--model', 'opus', '--permission-mode', 'bypassPermissions'], '/srv/x'), {
-    head: 'Claude Code · opus',
-    mode: 'never asks · dangerous',
-    danger: true,
-    resume: 'starts a fresh conversation',
-    folder: 'folder: /srv/x',
-  });
-
-  // An argv with NO --permission-mode is the CLI's default mode (what
-  // composeArgs emits for `default`), and an argv with no model at all reads as
-  // the app's empty glyph rather than an invented one.
-  assert.equal(launchSummary(['--model', 'sonnet'], '/srv/x').mode, 'asks before tools that need approval');
-  assert.equal(launchSummary([], '/srv/x').head, 'Claude Code · —');
-  assert.equal(launchSummary(['--model'], '/srv/x').head, 'Claude Code · —', 'a dangling flag invents nothing');
-  // An unknown mode value cannot fabricate a clause either — it degrades to the
-  // ask-first reading, never to the dangerous one.
-  const unknown = launchSummary(['--model', 'opus', '--permission-mode', 'newMode'], '/srv/x');
-  assert.equal(unknown.mode, 'asks before tools that need approval');
-  assert.equal(unknown.danger, false);
-});
-
-test('launchSummary: the head follows the model argument for every model in the vocabulary', () => {
-  for (const m of MODELS) {
-    assert.equal(launchSummary(composeArgs(m, 'default', 'fresh'), '/tmp/x').head, `Claude Code · ${m}`);
-  }
-  // AGENT_LABEL is a product name, not the spawned command — `claude` is still
-  // what composeArgs feeds the server, and the two must not be confused.
-  assert.equal(AGENT_LABEL, 'Claude Code');
-  assert.ok(!AGENT_LABEL.includes('claude '), 'the summary names the product, not the binary');
-});
-
-// ---------------------------------------------------------------------------
-// The custom-mode EXEMPTION (the one place CLI syntax is allowed on purpose)
-// ---------------------------------------------------------------------------
-
-test('the custom-mode exemption is a separate function: previewLine still echoes the exact command line', () => {
-  // User's call (2026-07-25): the custom-command field's content IS a command,
-  // so it keeps being shown verbatim — flags, dashes and all. Anything that
-  // "cleaned up" this output would be lying about what gets spawned.
-  const spec = parseCustomCommand('htop --tree -d 5');
-  assert.ok(spec !== null);
-  assert.equal(previewLine(spec), '$ htop --tree -d 5');
-  assert.deepEqual(spec, { command: 'htop', args: ['--tree', '-d', '5'] });
-});
-
-test('the exemption does NOT leak the other way: launchSummary never renders a command line for ANY input', () => {
-  // Adversarial arguments — a model id and a folder that themselves look like
-  // shell — must not turn the summary into a command line. `folder` is the one
-  // caller-controlled string that reaches the ink well verbatim (paths are
-  // sanctioned copy), so it is checked separately from the generated clauses.
-  for (const row of SUMMARY_TABLE) {
-    const s = launchSummary(composeArgs('$ claude --model opus', row.perm, row.resume), '/tmp/x');
-    for (const line of [s.mode, s.resume]) assertPlainCopy(line, 'generated clause');
-    assert.ok(!s.mode.startsWith('$'), 'no clause is ever a shell line');
-    assert.ok(!s.resume.startsWith('$'), 'no clause is ever a shell line');
-    // The model is echoed as given — the summary does not invent one — but it
-    // reaches only `head`, never the clauses.
-    assert.equal(s.head, 'Claude Code · $ claude --model opus');
-  }
-  assert.equal(
-    launchSummary(composeArgs('opus', 'default', 'fresh'), '/srv/a b/c').folder,
-    'folder: /srv/a b/c',
-    'a folder is shown exactly as it is — never quoted or escaped like an argv token',
-  );
 });
 
 // ---------------------------------------------------------------------------
 // Pre-selection guards + precedence chain (launch dialog)
 // ---------------------------------------------------------------------------
 
-test('isPerm / isModelId: only the fixed vocabularies pass', () => {
+test('isPerm / isModelId / isEffort: only the fixed vocabularies pass', () => {
   for (const p of ['default', 'acceptEdits', 'plan', 'bypassPermissions']) assert.ok(isPerm(p));
   for (const bad of ['skip-permissions', 'standard', '', 'DEFAULT', 42, null, undefined]) {
     assert.equal(isPerm(bad), false);
   }
   for (const m of ['opus', 'sonnet', 'haiku', 'fable']) assert.ok(isModelId(m));
   for (const bad of ['gpt-4', 'Opus', '', 3, null]) assert.equal(isModelId(bad), false);
+  for (const e of ['default', 'low', 'medium', 'high', 'xhigh', 'max']) assert.ok(isEffort(e));
+  for (const bad of ['ultra', 'HIGH', '', 'none', 7, null, undefined]) {
+    assert.equal(isEffort(bad), false);
+  }
 });
 
 /*
@@ -476,11 +274,14 @@ test('resolvePerm: legacy project mode `standard` never asserts a preference —
   assert.equal(resolvePerm('standard'), 'default');
 });
 
-test('vocabulary alignment: isPerm accepts EXACTLY the PERMS modes (and PERMS is the 4 ClaudePermissionMode literals) — guards PERMS/isPerm drift', () => {
+test('vocabulary alignment: isPerm accepts EXACTLY the PERMS modes — guards PERMS/isPerm drift', () => {
   assert.deepEqual(PERMS.map((p) => p.mode), ['default', 'acceptEdits', 'plan', 'bypassPermissions']);
   for (const p of PERMS) assert.ok(isPerm(p.mode), `PERMS mode ${p.mode} must pass isPerm`);
   assert.equal(PERMS.filter((p) => p.danger).length, 1, 'exactly one danger mode (bypassPermissions)');
   assert.equal(PERMS.find((p) => p.danger)?.mode, 'bypassPermissions');
+  // PERM_SHORT must stay TOTAL over the vocabulary: a mode without a label
+  // would render as an empty segment.
+  for (const p of PERMS) assert.equal(typeof PERM_SHORT[p.mode], 'string');
 });
 
 // ---------------------------------------------------------------------------
@@ -489,14 +290,20 @@ test('vocabulary alignment: isPerm accepts EXACTLY the PERMS modes (and PERMS is
 //
 // `currentSpawn()` in web/src/ui/launch.ts is NOT DOM-free-importable: it
 // pulls in ./panes.ts -> @xterm/xterm, which throws at import time under
-// plain node:test (confirmed by probe: `import('../web/src/ui/launch.ts')`
-// fails with "The requested module '@xterm/xterm' does not provide an
-// export named 'Terminal'"). Per the gate instructions, this is
-// covered-by-probe, not by an executable test — no browser harness added.
-// The claude branch, read from source at web/src/ui/launch.ts:305-308, is:
+// plain node:test. Per the gate instructions, this is covered-by-probe, not
+// by an executable test — no browser harness added. The claude branch is:
 //   customMode ? parseCustomCommand(cmdInput.value)
-//               : { command: 'claude', args: composeArgs(modelSel.value, perm, resumeSel.value as Resume) }
+//              : { command: 'claude', args: composeArgs(modelSel.value, perm, continueLast, effort) }
 // i.e. exactly `{ command: 'claude', args: composeArgs(...) }` — the same
-// composeArgs under test above, so the composeArgs tests transitively cover
-// the argv contents of that branch; only the `command: 'claude'` literal
-// and the DOM-sourced (model/perm/resume) plumbing are untested here.
+// composeArgs under test above, so these tests transitively cover the argv
+// contents of that branch; only the `command: 'claude'` literal and the
+// DOM-sourced (model/perm/continue/effort) plumbing are untested here.
+
+test('type-level guard: Perm and Effort are the literal unions the dialog binds to', () => {
+  // A compile-time assertion with a runtime body — if either type widened to
+  // `string`, the assignments below would stop being exhaustive checks.
+  const perms: Perm[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+  const efforts: Effort[] = ['default', 'low', 'medium', 'high', 'xhigh', 'max'];
+  assert.deepEqual(perms, PERMS.map((p) => p.mode));
+  assert.deepEqual(efforts, [...EFFORTS]);
+});

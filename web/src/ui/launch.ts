@@ -1,32 +1,28 @@
 /**
- * Launch dialog (handoff §8) — the modal that creates sessions, replacing
- * the launcher-as-tab (settled user decision 2026-07-20).
+ * Launch dialog — the modal that creates sessions (settled user decision
+ * 2026-07-20, replacing the launcher-as-tab).
  *
- * Structure: gradient header (logo tile · "Launch session" · subtitle · ×),
- * preset chips (deep work / quick fix / yolo — each sets model + permission
- * + resume), a 2×2 field grid (session name, project, model, resume), four
- * permission-mode cards with plain-language titles + descriptions, and a live
- * readable summary of what will run. `composeArgs()` is the ONE argv composer:
- * the summary is rendered from the SAME state it composes from — never two
- * code paths.
+ * REDUCED 2026-09-06 (user's call): the dialog is a short form now, not a
+ * briefing. Gone are the preset chips, the readable launch summary, the header
+ * subtitle, the footer note, the permission-card descriptions and every
+ * tooltip that explained mechanics. What is left is six controls with one-word
+ * labels:
  *
- * No flags or CLI syntax are shown in preset mode (PROJECT-SCOPE "No commands,
- * flags, or code in the UI", 2026-07-25): the ink well reads "Claude Code ·
- * opus / auto-approves file edits · continues your last conversation / folder:
- * <path>". Custom mode is the one exemption — its field's content IS a command,
- * so it keeps echoing the exact argv line.
+ *   Name · Project            (Name's placeholder IS the selected project's
+ *   Model · Effort             name — blank means the server titles it that)
+ *   Mode      (one row of four segments: always ask / auto edits /
+ *              read-only / no prompts — the last one red, selected or not)
+ *   Continue last conversation (checkbox → `--continue`)
  *
- * Resume has exactly two options: start fresh, or continue the last
- * conversation (which emits `--continue`). There is deliberately NO per-id
- * `--resume <id>` (fiction cut: the journal stores our session ids, not Claude
- * conversation ids).
+ * `composeArgs()` stays the ONE argv composer and `currentSpawn()` the ONE
+ * composition path for the POST body — there is simply no second rendering of
+ * it to keep in sync anymore.
  *
- * A fourth chip — `custom · any command` — is a MODE, not a one-shot
- * preset (user decision 2026-07-20, restoring the launcher tab's
- * configurable command + args): it reveals a mono free-text command field
- * (whitespace-split argv, no shell) and disables the claude-specific
- * fields. `currentSpawn()` is the one composition path for BOTH modes —
- * preview and POST body cannot diverge.
+ * The custom-command escape hatch survives (user decision 2026-07-20) as the
+ * footer's `other command` text button: it reveals a full-width mono Command
+ * field (whitespace-split argv, no shell) and disables the claude-specific
+ * controls. That field's content IS a command the user types — the one spot
+ * exempt from the plain-language copy rule.
  *
  * Entry points (all funnel here): topbar `+ New session`, tab-strip ghost
  * `+`, projects-drawer per-row `+` (pre-set to that project), the
@@ -41,16 +37,15 @@ import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
 import {
   MODELS,
   PERMS,
-  CHIPS,
-  RESUME_OPTIONS,
+  PERM_SHORT,
+  EFFORTS,
   composeArgs,
   parseCustomCommand,
-  previewLine,
-  launchSummary,
+  isEffort,
   resolveModel,
   resolvePerm,
 } from './launch-args.ts';
-import type { Perm, Resume, SpawnSpec } from './launch-args.ts';
+import type { Effort, Perm, SpawnSpec } from './launch-args.ts';
 
 export interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
@@ -84,56 +79,27 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   const modal = el('div', 'modal launch-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'launch session');
+  modal.setAttribute('aria-label', 'new session');
 
   // ---- header (gradient band) ----------------------------------------------
   const hd = el('header', 'launch-hd');
   const tile = el('div', 'launch-tile');
   tile.setAttribute('aria-hidden', 'true');
   tile.append(el('span', 'logo-glyph', '>_'));
-  const titles = el('div', 'launch-titles');
-  titles.append(
-    el('div', 'launch-title', 'Launch session'),
-    el('div', 'launch-sub', 'spawns a real pty on the backend · survives hidden panes'),
-  );
   const closeBtn = button('launch-x', '×', () => close());
-  closeBtn.setAttribute('aria-label', 'close launch dialog');
-  closeBtn.title = 'close (esc)';
-  hd.append(tile, titles, el('span', 'launch-gap'), closeBtn);
+  closeBtn.setAttribute('aria-label', 'close');
+  hd.append(tile, el('div', 'launch-title', 'New session'), el('span', 'launch-gap'), closeBtn);
 
   // ---- body ----------------------------------------------------------------
   const body = el('div', 'launch-body');
 
-  const chipRow = el('div', 'launch-chips');
-  for (const c of CHIPS) {
-    const chip = button(`chip-pill${c.danger ? ' is-danger' : ''}`, c.label, () => {
-      setCustomMode(false); // presets are claude config — leave custom mode
-      modelSel.value = c.model;
-      setPerm(c.perm);
-      resumeSel.value = c.resume;
-      updatePreview();
-    });
-    chip.title = 'preset: sets model, permission mode and resume';
-    chipRow.append(chip);
-  }
-  // The fourth chip is a MODE toggle, not a one-shot preset: any command,
-  // whitespace-split argv (restores the launcher tab's custom capability).
-  const customChip = button('chip-pill', 'custom · any command', () => {
-    setCustomMode(!customMode);
-    updatePreview();
-  });
-  customChip.title = 'launch any command instead of Claude Code';
-  customChip.setAttribute('aria-pressed', 'false');
-  chipRow.append(customChip);
-
-  // 2×2 fields: session name · project · model · resume.
+  // 2-column field grid: name · project / model · effort.
   const fields = el('div', 'launch-fields');
 
   const nameField = el('label', 'launch-field');
-  nameField.append(el('span', 'launch-lb', 'Session name'));
+  nameField.append(el('span', 'launch-lb', 'Name'));
   const nameInput = el('input');
   nameInput.name = 'title';
-  nameInput.placeholder = 'auto from project';
   nameInput.spellcheck = false;
   nameField.append(nameInput);
 
@@ -154,50 +120,46 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
   modelField.append(modelSel);
 
-  const resumeField = el('label', 'launch-field');
-  resumeField.append(el('span', 'launch-lb', 'Resume'));
-  const resumeSel = el('select');
-  resumeSel.name = 'resume';
-  for (const r of RESUME_OPTIONS) {
-    const opt = el('option', '', r.label);
-    opt.value = r.value; // values unchanged — `continue` still emits --continue
-    resumeSel.append(opt);
+  const effortField = el('label', 'launch-field');
+  effortField.append(el('span', 'launch-lb', 'Effort'));
+  const effortSel = el('select');
+  effortSel.name = 'effort';
+  for (const e of EFFORTS) {
+    const opt = el('option', '', e);
+    opt.value = e;
+    effortSel.append(opt);
   }
-  resumeField.append(resumeSel);
+  effortField.append(effortSel);
 
-  fields.append(nameField, projField, modelField, resumeField);
+  fields.append(nameField, projField, modelField, effortField);
 
   // Custom-mode command field (hidden in claude mode): full-width, mono,
   // whitespace-split argv — the old launcher's field, in the dialog voice.
   const cmdField = el('label', 'launch-field launch-custom');
   cmdField.hidden = true;
-  const cmdLb = el('span', 'launch-lb', 'Command ');
-  cmdLb.append(el('em', 'field-hint', 'whitespace split — no quoting, no shell'));
   const cmdInput = el('input');
   cmdInput.name = 'command';
-  cmdInput.placeholder = 'htop --tree';
+  cmdInput.placeholder = 'htop';
   cmdInput.spellcheck = false;
-  cmdField.append(cmdLb, cmdInput);
+  cmdField.append(el('span', 'launch-lb', 'Command'), cmdInput);
 
-  // Permission mode: 2×2 selectable cards.
+  // Mode: ONE row of four segments. The words are PERM_SHORT — the same table
+  // the pane-header tag reads, so a mode reads identically everywhere.
   const permWrap = el('div', 'launch-field');
-  permWrap.append(el('span', 'launch-lb', 'Permission mode'));
-  const permGrid = el('div', 'perm-grid');
-  permGrid.setAttribute('role', 'group');
-  permGrid.setAttribute('aria-label', 'permission mode');
+  permWrap.append(el('span', 'launch-lb', 'Mode'));
+  const permRow = el('div', 'mode-seg');
+  permRow.setAttribute('role', 'group');
+  permRow.setAttribute('aria-label', 'mode');
   let perm: Perm = 'default';
   const permButtons = new Map<Perm, HTMLButtonElement>();
   for (const p of PERMS) {
-    const card = button(`perm-card${p.danger ? ' is-danger' : ''}`, '', () => {
+    const seg = button(`mode-seg-btn${p.danger ? ' is-danger' : ''}`, PERM_SHORT[p.mode], () => {
       setPerm(p.mode);
-      updatePreview();
     });
-    card.append(el('span', 'perm-mode', p.title), el('span', 'perm-desc', p.desc));
-    if (p.danger) card.title = 'runs with every permission prompt disabled';
-    permButtons.set(p.mode, card);
-    permGrid.append(card);
+    permButtons.set(p.mode, seg);
+    permRow.append(seg);
   }
-  permWrap.append(permGrid);
+  permWrap.append(permRow);
 
   function setPerm(mode: Perm): void {
     perm = mode;
@@ -208,31 +170,22 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
   setPerm('default');
 
-  /**
-   * Custom mode: the command field appears and the claude-specific fields
-   * (model, resume, permission cards) go visually AND functionally disabled
-   * — the old launcher's is-disabled pattern. Exits: any preset chip, or
-   * toggling the custom chip off.
-   */
-  let customMode = false;
-  function setCustomMode(on: boolean): void {
-    if (customMode === on) return;
-    customMode = on;
-    customChip.classList.toggle('is-on', on);
-    customChip.setAttribute('aria-pressed', on ? 'true' : 'false');
-    cmdField.hidden = !on;
-    modelSel.disabled = on;
-    resumeSel.disabled = on;
-    modelField.classList.toggle('is-disabled', on);
-    resumeField.classList.toggle('is-disabled', on);
-    permGrid.classList.toggle('is-disabled', on);
-    for (const b of permButtons.values()) b.disabled = on;
-    if (on) cmdInput.focus();
-  }
+  // Continue: one checkbox row in the app's existing toggle idiom (a real
+  // keyboard-reachable button carrying aria-pressed). Checked → `--continue`.
+  let continueLast = false;
+  const contRow = button('status-row launch-check', '', () => {
+    continueLast = !continueLast;
+    syncContinue();
+  });
+  const contBox = el('span', 'status-box');
+  contBox.setAttribute('aria-hidden', 'true');
+  contRow.append(contBox, el('span', 'status-lb', 'Continue last conversation'));
 
-  // Readable summary of the launch (custom mode: the literal command line).
-  // Either way it is rendered from the state currentSpawn() composes from.
-  const preview = el('div', 'launch-cmd');
+  function syncContinue(): void {
+    contRow.setAttribute('aria-pressed', continueLast ? 'true' : 'false');
+    contBox.textContent = continueLast ? '✓' : '';
+  }
+  syncContinue();
 
   const err = el('div', 'form-err');
   err.setAttribute('role', 'alert');
@@ -248,14 +201,41 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     }),
   );
 
-  body.append(chipRow, fields, cmdField, permWrap, preview, err, none);
+  body.append(fields, cmdField, permWrap, contRow, err, none);
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'launch-ft');
+  const customBtn = button('launch-other', 'other command', () => {
+    setCustomMode(!customMode);
+  });
+  customBtn.setAttribute('aria-pressed', 'false');
   const cancel = button('btn', 'Cancel', () => close());
-  const go = button('btn-go', 'Launch ▸', () => void launch());
-  go.title = 'spawn the session — it opens in a new tab';
-  ft.append(el('span', 'launch-note', 'opens in a new tab'), el('span', 'launch-gap'), cancel, go);
+  const go = button('btn-go', 'Launch', () => void launch());
+  ft.append(customBtn, el('span', 'launch-gap'), cancel, go);
+
+  /**
+   * Custom mode: the command field appears and the claude-specific controls
+   * (model, effort, mode segments, continue) go visually AND functionally
+   * disabled — the old launcher's is-disabled pattern. Exits: toggling
+   * `other command` off, or a project-intent open.
+   */
+  let customMode = false;
+  function setCustomMode(on: boolean): void {
+    if (customMode === on) return;
+    customMode = on;
+    customBtn.classList.toggle('is-on', on);
+    customBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    cmdField.hidden = !on;
+    modelSel.disabled = on;
+    effortSel.disabled = on;
+    contRow.disabled = on;
+    modelField.classList.toggle('is-disabled', on);
+    effortField.classList.toggle('is-disabled', on);
+    permRow.classList.toggle('is-disabled', on);
+    contRow.classList.toggle('is-disabled', on);
+    for (const b of permButtons.values()) b.disabled = on;
+    if (on) cmdInput.focus();
+  }
 
   modal.append(hd, body, ft);
   scrim.append(modal);
@@ -279,6 +259,18 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     const empty = st.state.projects.length === 0;
     go.disabled = empty;
     none.hidden = !empty;
+    syncNamePlaceholder();
+  }
+
+  /**
+   * The Name field's placeholder is the SELECTED project's name: leaving the
+   * field blank sends no title, and the server titles the session after the
+   * project — so the placeholder shows what will actually happen instead of
+   * describing it.
+   */
+  function syncNamePlaceholder(): void {
+    const p = st.state.projects.find((p) => p.id === projectSel.value);
+    nameInput.placeholder = p?.name ?? '';
   }
 
   /**
@@ -299,82 +291,44 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   /**
-   * The ONE composition path for BOTH modes — preview and POST body read
-   * only this. null = nothing to spawn (blank custom command).
+   * The ONE composition path for BOTH modes — the POST body reads only this.
+   * null = nothing to spawn (blank custom command).
    */
   function currentSpawn(): SpawnSpec | null {
     if (customMode) return parseCustomCommand(cmdInput.value);
-    return { command: 'claude', args: composeArgs(modelSel.value, perm, resumeSel.value as Resume) };
-  }
-
-  /**
-   * The ink well: a plain-language summary in preset mode, the literal command
-   * line in custom mode (its content IS a command — the one exemption from the
-   * no-syntax rule). Both end with the real absolute folder; '—' is the app's
-   * empty-value glyph (uptime/cwd use it too).
-   *
-   * BOTH branches render `currentSpawn()`'s OUTPUT — the custom line from the
-   * spec, the summary from the very argv array the POST body carries — so the
-   * ink well cannot describe a different launch than the one it starts.
-   */
-  function updatePreview(): void {
-    const spawn = currentSpawn();
-    const project = st.state.projects.find((p) => p.id === projectSel.value);
-    const cwd = project !== undefined ? project.path : '—';
-    if (customMode) {
-      preview.replaceChildren(
-        el('div', 'launch-sum-line', spawn !== null ? previewLine(spawn) : '$ —'),
-        el('div', 'launch-sum-line', `folder: ${cwd}`),
-      );
-      return;
-    }
-    // Preset mode always composes a spec (only a blank CUSTOM command is null).
-    const s = launchSummary(spawn?.args ?? [], cwd);
-    const what = el('div', 'launch-sum-line');
-    // The danger clause stays red — the warning survives the wording change.
-    what.append(el('span', s.danger ? 'is-danger' : '', s.mode), ' · ', s.resume);
-    preview.replaceChildren(
-      el('div', 'launch-sum-line', s.head),
-      what,
-      el('div', 'launch-sum-line', s.folder),
-    );
+    const effort: Effort = isEffort(effortSel.value) ? effortSel.value : 'default';
+    return { command: 'claude', args: composeArgs(modelSel.value, perm, continueLast, effort) };
   }
 
   projectSel.addEventListener('change', () => {
     // A mid-dialog project switch does NOT re-resolve model/permission —
     // defaults settle once per open (applyDefaults); per-launch control stays
-    // with the user. Only the cwd line + preview follow the new project.
-    updatePreview();
+    // with the user. Only the name placeholder follows the new project.
+    syncNamePlaceholder();
   });
-  modelSel.addEventListener('change', updatePreview);
-  resumeSel.addEventListener('change', updatePreview);
-  cmdInput.addEventListener('input', updatePreview);
 
   // ONE permanent subscription (state.ts has no unsubscribe — never bind per
-  // open): keeps the project list and cwd line fresh while the dialog shows.
+  // open): keeps the project list fresh while the dialog shows.
   st.subscribe((kind) => {
-    if (kind === 'projects' && !scrim.hidden) {
-      populateProjects();
-      updatePreview();
-    }
+    if (kind === 'projects' && !scrim.hidden) populateProjects();
   });
 
   async function launch(): Promise<void> {
     err.hidden = true;
     const projectId = projectSel.value;
     if (projectId === '') {
-      showErr('pick a project (add one in the projects panel)');
+      showErr('pick a project first');
       return;
     }
     const spawn = currentSpawn();
     if (spawn === null) {
-      showErr('command is required for the custom preset');
+      showErr('type a command');
       cmdInput.focus();
       return;
     }
     // Sized to the focused pane as a starting hint; the attach flow
     // reconciles the PTY with the new tab's real dimensions (same contract
-    // as the previous-run relaunch).
+    // as a history resume).
     const dims = focusedPaneDims();
     const title = nameInput.value.trim();
     go.disabled = true;
@@ -419,14 +373,17 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       // resolve so its defaultModel/defaultMode are layered on.
       setCustomMode(false);
       projectSel.value = opts.projectId;
+      syncNamePlaceholder();
     }
     // Resolve model + permission once against the now-settled selected project
     // (the forced project above, or populateProjects()'s auto-selected first
-    // project on a plain open). A plain open otherwise leaves the previous mode,
-    // custom command text, and resume choice as the user left them — only those
-    // persist across opens; model + permission are re-resolved every time.
+    // project on a plain open). Effort and continue reset every open; a plain
+    // open otherwise leaves the previous mode and the custom command text as
+    // the user left them.
     applyDefaults();
-    updatePreview();
+    effortSel.value = 'default';
+    continueLast = false;
+    syncContinue();
     scrim.hidden = false;
     nameInput.focus();
   }

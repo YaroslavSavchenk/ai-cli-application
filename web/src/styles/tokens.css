@@ -123,11 +123,11 @@
   --r-tab: 9px;         /* tabs: 9px 9px 0 0                                  */
   --r-card: 12px;       /* pane cards, dialogs                                */
   --r-card-sm: 10px;    /* popover, boot cards, empty-state tile              */
-  --r-box: 9px;         /* command preview, permission cards, dialog tile     */
+  --r-box: 9px;         /* ink well, dialog tile, GitHub cards                */
   --r-btn: 7px;         /* buttons, tags, logo tile                           */
   --r-input: 6px;       /* drawer inputs, small buttons                       */
   --r-field: 8px;       /* launch-dialog inputs/selects/footer buttons        */
-  --r-pill: 13px;       /* preset chips                                       */
+  --r-pill: 13px;       /* picker quick-zone chips                            */
 
   /* ---- spacing scale ------------------------------------------------------- */
   --s-1: 2px;

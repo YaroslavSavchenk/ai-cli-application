@@ -83,9 +83,10 @@ export interface SessionInfo {
    * args did not already carry `--settings`.
    *
    * `args` above deliberately does NOT contain the injected flag — it stays the
-   * client's own argv, so the journal (and therefore a relaunch offer) never
-   * points at a per-session settings file that was wiped at boot; the relaunch
-   * gets a fresh one injected instead.
+   * client's own argv, so the history entry (and therefore a resume) never
+   * points at a per-session settings file that was wiped at boot; the resume
+   * gets a fresh one injected instead. The same holds for the injected
+   * `--session-id` that pins a claude session to a conversation.
    *
    * The UI needs this to tell which running sessions predate a status-line
    * change that only takes effect on a new session (toggling ITEMS applies to
@@ -97,20 +98,36 @@ export interface SessionInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Session journal (journal.json / previous.json in the data dir)
+// Session history (history.json in the data dir) — replaces journal/previous
 // ---------------------------------------------------------------------------
 //
-// The backend's lifetime is bound to UI presence (decided 2026-07-19): when
-// the last window closes, a grace timer runs out and the backend kills all
-// PTYs and exits. The journal is the crash/shutdown safety net: journal.json
-// mirrors live sessions (atomic rewrite on every create/exit/delete and at
-// shutdown). On boot, a leftover journal from the previous run is rotated to
-// previous.json — entries still ended:null are stamped reason 'crash' — and
-// a fresh journal begins.
+// Decided 2026-09-06 (user's call): every session the app launches is kept
+// across backend runs and can be RESUMED — per conversation, not "the most
+// recent conversation in that folder". Mechanism: a claude-kind session whose
+// client args carry no resume/session flag is spawned with an injected
+// `--session-id <uuid>` (the app session id itself), so the app knows the
+// Claude conversation id; resuming spawns `claude <base args> --resume <id>`.
+//
+// history.json is the crash-safe store: an entry is written at create time
+// (ended: null) and stamped at end; on boot every entry still ended:null is
+// stamped 'crash'. Atomic 0600 rewrites, bounded (oldest ended entries drop
+// past HISTORY_MAX = 200).
+//
+// Routes (auth like every other /api route):
+//   GET    /api/history            -> HistoryEntry[] — ENDED entries only,
+//                                     newest `lastUsedAt` first. Claude
+//                                     conversations whose transcript is
+//                                     provably absent (nothing was ever said)
+//                                     are pruned and never listed.
+//   POST   /api/history/:id/resume -> 201 SessionInfo (ResumeHistoryRequest
+//                                     body). 404 unknown; 409 while the entry
+//                                     is live; 400 when its cwd is gone.
+//   DELETE /api/history/:id        -> OkResponse (forget one; 404 unknown)
+//   DELETE /api/history            -> OkResponse (forget all ended entries)
 
 /**
- * Why a session ended. 'crash' is never written to the live journal; it is
- * stamped only during boot rotation for entries the previous run left open.
+ * Why a session ended. 'crash' is never written by a running server; it is
+ * stamped at boot for entries the previous run left open (ended: null).
  */
 export type SessionEndReason = 'user-kill' | 'exit' | 'shutdown' | 'crash';
 
@@ -120,32 +137,46 @@ export interface SessionEnd {
   reason: SessionEndReason;
 }
 
-/** One entry in journal.json / previous.json. */
-export interface SessionJournalEntry {
+/** One entry in history.json — a session the app launched, kept across runs. */
+export interface HistoryEntry {
+  /**
+   * Stable entry key. For a claude-kind session the server pinned to a
+   * conversation this IS the Claude conversation id (the injected
+   * `--session-id`, or the uuid a client-supplied `--session-id`/`--resume`
+   * carried); otherwise it is the app session id of the first launch.
+   */
   id: string;
+  /** True when `id` is a Claude conversation id that `--resume` can target. */
+  conversation: boolean;
+  /** App session id of the most recent launch of this entry. */
+  sessionId: string;
   projectId?: string;
   /** Absolute working directory the PTY was spawned in. */
   cwd: string;
   command: string;
+  /**
+   * The base argv resume re-uses: the client's own args with any
+   * `--session-id <v>`, `--resume <v>`, `-r <v>`, `--continue`, `-c` removed
+   * and never the injected `--settings`/`--session-id`. Resume appends
+   * `--resume <id>` (conversation) or `--continue` (claude without one).
+   */
   args: string[];
   title: string;
-  /** ISO-8601 timestamp. */
+  /** ISO-8601, first launch. */
   createdAt: string;
-  /** null while the session is live. */
+  /** ISO-8601, latest launch (== createdAt until the first resume). */
+  lastUsedAt: string;
+  /** null while the latest launch is live. */
   ended: SessionEnd | null;
-  /** Present when the PTY exited on its own (reason 'exit'). */
+  /** Present when the latest launch's PTY exited on its own (reason 'exit'). */
   exitCode?: number;
 }
 
-/**
- * GET  /api/previous      -> PreviousSession[] — entries from previous.json
- *   whose ended.reason is 'shutdown' or 'crash' (user-kill and natural exit
- *   are NOT offered for relaunch).
- * DELETE /api/previous/:id -> OkResponse (dismiss one; 404 if unknown)
- * DELETE /api/previous     -> OkResponse (dismiss all)
- * Auth like every other /api route.
- */
-export type PreviousSession = SessionJournalEntry;
+/** POST /api/history/:id/resume request body: the pane size for the new PTY. */
+export interface ResumeHistoryRequest {
+  cols: number;
+  rows: number;
+}
 
 // ---------------------------------------------------------------------------
 // UI preferences (prefs.json in the data dir)
@@ -494,8 +525,8 @@ export interface GithubCreateRepoRequest {
 /**
  * Generic success response, returned 200 by every mutating route that has no
  * richer body: PUT /api/prefs, DELETE /api/projects/:id, DELETE
- * /api/sessions/:id, POST /api/sessions/:id/seen, DELETE /api/previous,
- * DELETE /api/previous/:id.
+ * /api/sessions/:id, POST /api/sessions/:id/seen, DELETE /api/history,
+ * DELETE /api/history/:id.
  */
 export interface OkResponse {
   ok: true;
@@ -682,7 +713,7 @@ export type ClientMessage = InputMessage | ResizeMessage | SeenMessage;
 //   - startup grace from listen until the FIRST presence connection ever:
 //     120000 ms default, env override AI_SM_STARTUP_GRACE_MS.
 //
-// On expiry the backend marks live journal entries ended {reason:'shutdown'},
+// On expiry the backend marks live history entries ended {reason:'shutdown'},
 // kills all PTYs, removes runtime.json, and exits 0.
 
 /** Client -> server on /ws/presence: latency probe. */
