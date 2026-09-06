@@ -324,6 +324,34 @@ export interface RuntimeStatusResponse {
    * Compare with the bundle the page actually loaded to spot a stale process.
    */
   webBuild: string | null;
+  /**
+   * Live "is the code on disk newer than this process" check, computed per
+   * request (added 2026-09-06). `available` is true when the server commit,
+   * the built frontend, or a server source file has moved past this run;
+   * `reason` is a SHORT human string for the log and the UI tooltip (e.g.
+   * "frontend rebuilt"), null when nothing changed. Never a command, never a
+   * path the UI would print raw.
+   */
+  update: UpdateStatus;
+}
+
+/** The `update` member of RuntimeStatusResponse — its own name so the UI can hold one. */
+export interface UpdateStatus {
+  available: boolean;
+  reason: string | null;
+}
+
+/**
+ * POST /api/restart, 202 — the OLD process answers once the replacement is
+ * healthy. `samePort` false means the child could not take the port back
+ * (busy) and auto-picked `port` instead: a host window locked to the launch
+ * origin cannot follow, so the UI says "relaunch" rather than reloading.
+ * The auth token is NEVER in this body; the reloaded page gets a fresh one.
+ */
+export interface RestartResponse {
+  port: number;
+  startedAt: string;
+  samePort: boolean;
 }
 
 // ---------------------------------------------------------------------------

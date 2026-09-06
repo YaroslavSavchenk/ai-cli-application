@@ -288,15 +288,28 @@ test('setWsLatency: notifies conn on change, is a no-op on the same value, notif
   assert.deepEqual(kinds, ['conn', 'conn']);
 });
 
-test('setServerStartedAt: notifies conn on change, is a no-op on the same ISO string', () => {
+test('setRuntime: notifies conn on change, is a no-op when the answer repeats', () => {
+  // The ONE runtime setter (a dedicated setServerStartedAt existed and was
+  // dead: main.ts has always fed the whole /api/runtime answer through here).
   const { kinds } = collectKinds();
   const iso = new Date().toISOString();
-  st.setServerStartedAt(iso);
+  const answer = {
+    startedAt: iso,
+    serverCommit: 'a1b2c3d',
+    webBuild: 'assets/index-Br1e6z0Q.js',
+    update: { available: false, reason: null },
+  };
+  st.setRuntime(answer);
   assert.equal(st.state.serverStartedAt, iso);
+  assert.equal(st.state.serverCommit, 'a1b2c3d');
   assert.deepEqual(kinds, ['conn']);
 
-  st.setServerStartedAt(iso);
-  assert.deepEqual(kinds, ['conn'], 'setting the same startedAt again must not renotify');
+  st.setRuntime(answer);
+  assert.deepEqual(kinds, ['conn'], 'the same runtime answer again must not renotify');
+
+  st.setRuntime({ ...answer, update: { available: true, reason: 'frontend rebuilt' } });
+  assert.deepEqual(st.state.update, { available: true, reason: 'frontend rebuilt' });
+  assert.deepEqual(kinds, ['conn', 'conn'], 'a new update verdict is a change');
 });
 
 test('setBackendReachable: notifies conn on toggle, is a no-op when unchanged', () => {
@@ -376,4 +389,36 @@ test('clearHistory: empties the list once and is silent when there is nothing to
 
   st.clearHistory();
   assert.deepEqual(kinds, ['sessions'], 'clearing an empty list must not renotify');
+});
+
+test('projectName resolves to the NAME — never the path, never the id', () => {
+  // The copy rule (PROJECT-SCOPE, 2026-07-25) says the raw path appears only in
+  // the manage-projects view. Every other surface asks this function, including
+  // the restart confirmation's list of sessions about to be closed, so a path
+  // leaking out of here would leak into that dialog.
+  st.setProjects([
+    {
+      id: 'p1',
+      name: 'Session Manager',
+      path: '/home/sava/projects/ai-cli-application',
+      createdAt: '2026-09-06T12:00:00.000Z',
+    },
+    {
+      id: 'p2',
+      name: 'notes',
+      path: '/home/sava/projects/acme/notes',
+      createdAt: '2026-09-06T12:00:00.000Z',
+    },
+  ]);
+
+  assert.equal(st.projectName('p1'), 'Session Manager');
+  assert.equal(st.projectName('p2'), 'notes');
+  for (const id of ['p1', 'p2']) {
+    const label = st.projectName(id) as string;
+    assert.ok(!label.includes('/'), `no path separator in "${label}"`);
+    assert.notEqual(label, id, 'and it is not the raw id either');
+  }
+  assert.equal(st.projectName('gone'), null, 'an unknown id is null, never a fabricated label');
+  assert.equal(st.projectName(undefined), null, 'a session with no project is null');
+  st.setProjects([]);
 });

@@ -225,6 +225,54 @@ export function getRuntime(): Promise<RuntimeStatusResponse> {
   return request<RuntimeStatusResponse>('/api/runtime');
 }
 
+/**
+ * POST /api/restart — hand the port to a fresh backend process.
+ *
+ * Deliberately NOT routed through `request()`: this is the one call whose
+ * NON-ok statuses are the answer rather than an error (409 = one already
+ * running, 500 = it did not come back), and whose 401 must not trigger the
+ * fatal token-rotation takeover — the page is *expecting* the server to go
+ * away. It resolves for every outcome, including a network failure
+ * (`status: 0`), so the flow in `ui/restart-flow.ts` has one shape to read.
+ *
+ * The 202 body carries port/startedAt/samePort and NEVER a token; the reloaded
+ * page gets its token injected into index.html the way every page does.
+ */
+export async function restartBackend(): Promise<{ status: number; body: unknown }> {
+  const started = performance.now();
+  const took = (): number => Math.round(performance.now() - started);
+  let res: Response;
+  try {
+    res = await fetch('/api/restart', { method: 'POST', headers: { 'x-auth-token': authToken() } });
+  } catch (err) {
+    log.warn(`api POST /api/restart → network error ${took()}ms: ${formatError(err)}`);
+    return { status: 0, body: null };
+  }
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    // No/!JSON body — the status alone decides the outcome.
+  }
+  log.info(`api POST /api/restart → ${res.status} ${took()}ms`);
+  return { status: res.status, body };
+}
+
+/**
+ * GET /health, UNAUTHENTICATED and unlogged — the one probe that still works
+ * across a restart gap, when this page's token belongs to a process that no
+ * longer exists. Called up to 80 times in 20 s, so it stays out of the client
+ * log entirely (the outcome is logged once, by the caller).
+ */
+export async function backendHealth(): Promise<boolean> {
+  try {
+    const res = await fetch('/health', { cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Stored UI prefs bag ({} if none stored yet) — server never interprets it. */
 export function getPrefs(): Promise<UiPrefs> {
   return request<UiPrefs>('/api/prefs');

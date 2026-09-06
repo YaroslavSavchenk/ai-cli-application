@@ -101,6 +101,33 @@ export function parseCustomCommand(line: string): SpawnSpec | null {
   return { command, args: parts.slice(1) };
 }
 
+/**
+ * Was this session launched with "Continue last conversation"? Reads the argv
+ * the server recorded (both spellings the CLI accepts). Used by the restart
+ * confirmation, which owes the user a footnote for exactly these sessions:
+ * they were never pinned to one conversation id, so resuming them lands on
+ * whatever their project's latest conversation is by then.
+ *
+ * Lives HERE and not in the confirmation because this file is the one place
+ * that is allowed to know argv spellings (see the copy rule above).
+ */
+export function hasContinueFlag(args: readonly string[]): boolean {
+  return args.includes('--continue') || args.includes('-c');
+}
+
+/**
+ * Is this the known agent? The SAME rule the server's history/resume path uses
+ * (`basename(command) === 'claude'`, server/conversation.ts): a custom command
+ * that merely happens to take a `-c` flag is not a Claude session and must not
+ * be told anything about Claude conversations.
+ *
+ * Both separators are cut, because the command is whatever the user typed.
+ */
+export function isClaudeCommand(command: string): boolean {
+  const parts = command.split(/[/\\]/);
+  return (parts[parts.length - 1] ?? command) === 'claude';
+}
+
 /** What the known agent is CALLED in the UI — a product name, not a command. */
 export const AGENT_LABEL = 'Claude Code';
 

@@ -18,6 +18,7 @@
 import type { ClientMessage, ServerMessage, SessionInfo } from '../../shared/protocol.ts';
 import { ApiError, authToken, getSessions } from './api.ts';
 import { formatError, log } from './log.ts';
+import { state } from './state.ts';
 
 export type ConnState = 'connecting' | 'live' | 'reconnecting' | 'dead';
 
@@ -44,6 +45,15 @@ export interface SocketHandlers {
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 5000;
+/**
+ * How long both reconnect loops idle while a restart WE asked for is in
+ * flight. During that gap the old process is dying, the replacement has not
+ * taken the port yet, and this page's token belongs to neither — so a retry
+ * can only produce a rejected upgrade or a 401 that would kill the page. The
+ * loops park here and re-check; if the restart fails, they resume by
+ * themselves instead of having been silently switched off.
+ */
+const RESTART_HOLD_MS = 1000;
 
 export class SessionSocket {
   readonly sessionId: string;
@@ -115,6 +125,16 @@ export class SessionSocket {
   async #lost(): Promise<void> {
     this.#ws = null;
     this.#handlers.onConn('reconnecting');
+    if (state.restarting) {
+      // Do NOT probe /api/sessions here: a 401 from the replacement backend
+      // would mark this socket dead permanently, and the page is about to
+      // reload onto a fresh token anyway.
+      this.#timer = window.setTimeout(() => {
+        this.#timer = null;
+        void this.#lost();
+      }, RESTART_HOLD_MS);
+      return;
+    }
     try {
       const list = await getSessions();
       if (!list.some((s) => s.id === this.sessionId)) {
@@ -254,6 +274,16 @@ export function startPresence(onLatency?: (ms: number | null) => void): void {
         pinger = null;
       }
       onLatency?.(null);
+      if (state.restarting) {
+        // Same gap, same rule as the session sockets: park, re-check, and
+        // resume the normal backoff if the restart never completes.
+        log.info(`ws presence closed ${closeInfo(ev)}; holding for the restart`);
+        window.setTimeout(function hold(): void {
+          if (state.restarting) window.setTimeout(hold, RESTART_HOLD_MS);
+          else open();
+        }, RESTART_HOLD_MS);
+        return;
+      }
       log.info(`ws presence closed ${closeInfo(ev)}; retry in ${delay}ms`);
       window.setTimeout(open, delay);
       delay = Math.min(delay * 2, PRESENCE_MAX_MS);

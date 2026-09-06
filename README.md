@@ -43,8 +43,10 @@ stripping).
 
 The backend binds `127.0.0.1` on an OS-assigned port and writes
 `runtime.json` to its data dir; open `http://127.0.0.1:<port>/` with the
-port from that file. The server logs to `server.log` in the data dir, never
-stdout.
+port from that file. The one exception to the auto-pick is a restart handoff
+(see "Restarting the backend"), where the replacement process is asked to try
+the previous port first and falls back to an auto-picked one if it is taken.
+The server logs to `server.log` in the data dir, never stdout.
 
 ## App data
 
@@ -59,7 +61,9 @@ path):
   with "remember"), deleted on disconnect. Never sent to the browser. It is
   **not encrypted** — see the honesty note in the GitHub section below
 - `runtime.json` — runtime discovery (port, auth token, pid, startedAt);
-  removed on clean shutdown
+  removed on clean shutdown, with one deliberate exception: a restart handoff
+  leaves the file in place, because by then it describes the replacement
+  process the launcher has to find
 - `history.json` — every session the app launched, across runs (atomically
   rewritten on every session create/exit/delete and at shutdown; entries left
   open by a crash are stamped `crash` at the next boot). Feeds `GET
@@ -91,6 +95,43 @@ path):
   Terminal input and PTY output are summarized once a second as byte counts. Secrets are never written to it: not the auth
   token, the GitHub token, request bodies, `Authorization` headers,
   query-string values, or PTY input/output
+
+## Restarting the backend
+
+Settings → BACKEND → `Restart backend` replaces the running backend with a
+fresh one on the same port, without closing the window. The app also watches
+for a newer version on disk (a new commit, a rebuilt frontend, or an edited
+server file) and offers the same restart through a notice and a small `update`
+mark in the top bar.
+
+What happens: the old process ends every running session (each one is stamped
+in `history.json`, so it keeps its entry and can be resumed from HISTORY),
+closes its listener, starts the replacement, waits until that one answers
+`/health`, and only then answers the browser and exits. Running sessions do
+not survive this — the app never pretends otherwise.
+
+The route is `POST /api/restart` (same token and Origin/Host check as every
+other `/api` route). It answers `202` with the new port once the replacement
+is healthy, `409` when a restart is already running, `500` when the
+replacement never came up, and `503` in a process with no restart mechanism
+wired.
+
+A failed handoff is **not** a rollback: the sessions are already ended and the
+listener is already closed, so the old process exits either way and the app
+asks you to start it again from the desktop shortcut.
+
+Two environment variables belong to this handoff only — the app sets them on
+the process it starts, and there is no reason to set them by hand:
+
+- `AI_SM_PORT_HINT` — the port the replacement should try first (1-65535); a
+  taken port falls back once to an auto-picked one, and the UI then says the
+  window has to be relaunched
+- `AI_SM_RESTARTED_FROM` — the pid of the process being replaced, written to
+  `server.log` so the two runs read as one story
+
+A restart re-runs the server code on disk. It does not rebuild the frontend,
+so after a `git pull` the UI being served is still whatever `npm run build`
+last produced.
 
 ## GitHub connection
 

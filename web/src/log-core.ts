@@ -160,6 +160,7 @@ export class ClientLogger {
   #retryMs = RETRY_MIN_MS;
   #failing = false;
   #off = false;
+  #held = false;
   #dropped = 0;
 
   constructor(deps: LoggerDeps) {
@@ -179,6 +180,34 @@ export class ClientLogger {
   /** Entries thrown away by the 200-entry cap (visibility for tests/diagnostics). */
   get dropped(): number {
     return this.#dropped;
+  }
+
+  /** True while delivery is parked (the backend-restart gap). */
+  get held(): boolean {
+    return this.#held;
+  }
+
+  /**
+   * Park delivery. WHY: during a backend restart the old process dies and a
+   * CHILD takes the same port with a FRESH token. A flush landing in that gap
+   * is answered 401 by a backend that is perfectly healthy — and 401 is in
+   * PERMANENT_STATUSES, so the page's log transport would switch itself off
+   * for the rest of its life over a restart the user asked for.
+   *
+   * Lines keep buffering (nothing is lost, the 200-entry cap still applies);
+   * only the sending stops. Armed and disarmed by state.setRestarting(), the
+   * same flag that parks the session poll and the sockets.
+   */
+  hold(): void {
+    this.#held = true;
+    this.#disarm();
+  }
+
+  /** The gap is over: send what piled up, on the normal idle window. */
+  resume(): void {
+    if (!this.#held) return;
+    this.#held = false;
+    if (this.#buf.length > 0) this.#arm(this.#failing ? this.#retryMs : FLUSH_MS);
   }
 
   debug(message: string): void {
@@ -217,7 +246,7 @@ export class ClientLogger {
 
   /** Send what is buffered (one batch per call; more batches follow on success). */
   async flush(): Promise<void> {
-    if (this.#off || this.#buf.length === 0) return;
+    if (this.#off || this.#held || this.#buf.length === 0) return;
     if (this.#inFlight) {
       this.#again = true;
       return;
@@ -304,7 +333,7 @@ export class ClientLogger {
   }
 
   #arm(ms: number): void {
-    if (this.#cancelTimer !== null || this.#off) return;
+    if (this.#cancelTimer !== null || this.#off || this.#held) return;
     this.#cancelTimer = this.#deps.schedule(() => {
       this.#cancelTimer = null;
       void this.flush();

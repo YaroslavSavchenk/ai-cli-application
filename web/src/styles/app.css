@@ -3228,3 +3228,251 @@ kbd {
   color: var(--text-mute);
   overflow-wrap: anywhere;
 }
+
+/* ---- update notice + backend restart (2026-09-06) ---------------------------
+   Three surfaces, one idea: a new version is on disk and the running backend
+   is not it. They speak the app's EXISTING attention grammar — the amber
+   --attn family, already the only colour that means "this needs you" (tab
+   badge, sessions count, the settings relaunch notice) — so nothing new had
+   to be invented and nothing competes with the terminal for the eye.
+   No new colours, no gradients, no blur. */
+
+/* the topbar pill: the persistent half of the notice, immediately after the
+   connection dot. Same amber recipe as .tb-attn, sized as a labelled control
+   rather than a count badge, and NOT pulsing: the count badge pulses because
+   a session is waiting for a human right now; an available update is patient. */
+.tb-update {
+  height: 18px;
+  padding: 0 var(--s-3);
+  display: flex;
+  align-items: center;
+  background: var(--attn-tint);
+  border: var(--line) solid var(--attn);
+  border-radius: var(--r-btn);
+  color: var(--attn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-field);
+  white-space: nowrap;
+}
+
+.tb-update:hover {
+  background: var(--attn);
+  color: var(--bg-deep);
+}
+
+/* the toast: bottom-right, above the tab strip, where no pane content and no
+   tab lives. Amber left rule = the same "attention" mark the settings notice
+   wears; --sh-popover is the shadow the theme popover already casts. */
+.toast {
+  position: fixed;
+  right: var(--s-8);
+  bottom: var(--toast-bottom);
+  z-index: var(--z-toast);
+  width: var(--toast-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-6) var(--s-7);
+  background: var(--surface);
+  border: var(--line) solid var(--edge-strong);
+  border-left: 2px solid var(--attn);
+  border-radius: var(--r-card-sm);
+  box-shadow: var(--sh-popover); /* sanctioned: handoff popover shadow */
+  animation: fadeUp var(--t-fade) ease;
+}
+
+.toast-hd {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.toast-title {
+  font-size: var(--fs-row);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toast-x {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-input);
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.toast-x:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.toast-body {
+  font-size: var(--fs-ui);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+/* the server's own words for WHY, in the mono "one fact" voice — secondary,
+   never an instruction */
+.toast-reason {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-3);
+}
+
+/* ---- restart confirmation --------------------------------------------------
+   The shared dialog chrome (.modal-scrim / .modal / .launch-hd). Narrower than
+   the launch dialog: it asks one question. */
+
+/* the ONE dialog that can open over another one (the settings panel's BACKEND
+   button opens it), so it needs a layer of its own — DOM order alone would put
+   it underneath, since the notice module is wired before settings. */
+.restart-scrim {
+  z-index: var(--z-modal-top);
+}
+
+.restart-modal {
+  width: min(var(--modal-w-narrow), 92vw);
+}
+
+.restart-body {
+  padding: var(--s-8) var(--dlg-pad-x);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  overflow-y: auto;
+}
+
+.restart-lead {
+  margin: 0;
+  font-size: var(--fs-ui);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* what is about to close: dense mono rows in the ink well, the same
+   "data, not chrome" treatment the drawer gives session names */
+.restart-list {
+  margin: 0;
+  padding: var(--s-4) var(--s-5);
+  max-height: var(--restart-list-h);
+  overflow-y: auto;
+  list-style: none;
+  background: var(--well);
+  border: var(--line) solid var(--edge-mid);
+  border-radius: var(--r-field);
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+}
+
+.restart-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-1) 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.restart-row-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.restart-row-sep {
+  color: var(--text-faint);
+}
+
+.restart-row-proj {
+  color: var(--text-dim);
+}
+
+.restart-more {
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+}
+
+/* the "Continue last conversation" footnote — an attention note, same rule
+   idiom as .settings-notice, only rendered when it actually applies */
+.restart-note {
+  padding: var(--s-4) var(--s-5);
+  background: var(--well);
+  border-left: 2px solid var(--attn);
+  border-radius: var(--r-field);
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* in flight: the boot panel's spinner, because this IS the same kind of wait */
+.restart-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-4) 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-name);
+  color: var(--text-2);
+}
+
+.restart-spin {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: var(--line) solid var(--edge-strong);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  animation: spin var(--t-spin) linear infinite; /* sanctioned: handoff §10 */
+}
+
+.restart-fail {
+  font-size: var(--fs-ui);
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.restart-ft {
+  align-items: center;
+}
+
+/* ---- settings: BACKEND section ---------------------------------------------
+   Two mono readouts on the left, the action on the right — the drawer-row
+   grammar (facts left, verb right) rather than a card. */
+
+.settings-actionrow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.settings-facts {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-fact-sep {
+  color: var(--text-faint);
+}

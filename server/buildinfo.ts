@@ -92,3 +92,130 @@ export function readWebBuild(webDistDir: string): WebBuildInfo {
   }
   return { asset, indexMtime };
 }
+
+// ---------------------------------------------------------------------------
+// "Is the code on disk newer than this running process?" (2026-09-06)
+// ---------------------------------------------------------------------------
+//
+// Same incident, other half: the boot banner makes a stale backend visible in
+// the LOG, this makes it visible in the UI, so the user can act on it with the
+// restart button instead of closing the window and waiting out the grace timer.
+//
+// The check is deliberately cheap and best-effort — a handful of stats plus one
+// `.git/HEAD` read, cached for a few seconds — and it NEVER throws: an
+// unreadable file, a missing web/dist or a missing .git each mean "no signal",
+// never a false alarm and never a failed request.
+
+/** GET /api/runtime's `update` field. Mirrors UpdateStatus in shared/protocol.ts. */
+export interface UpdateCheckResult {
+  available: boolean;
+  /** Short human sentence for the tooltip/log, or null when nothing changed. */
+  reason: string | null;
+}
+
+export interface UpdateCheckOptions {
+  /** Repo root — holds `.git`. Injectable so tests can point at a fixture. */
+  repoRoot: string;
+  /** Directory of the running server code (`server/`). */
+  serverDir: string;
+  /** Directory of the shared types (`shared/`). */
+  sharedDir: string;
+  /** The built frontend being served (`web/dist`). */
+  webDistDir: string;
+  /** Commit this process booted with (may be null: unknown at boot). */
+  bootCommit: string | null;
+  /** Entry bundle this process booted with (may be null: web/dist absent). */
+  bootAsset: string | null;
+  /** ISO startedAt of this process; '' before listen (then: no signal). */
+  startedAt: () => string;
+  /** Clock + cache seams. */
+  now?: () => number;
+  cacheMs?: number;
+}
+
+/** Result cache window: the UI polls every 30 s, so this only absorbs bursts. */
+export const UPDATE_CHECK_CACHE_MS = 5_000;
+
+const NO_UPDATE: UpdateCheckResult = { available: false, reason: null };
+
+/** Newest mtime (ms) among `dir`'s entries matching `pattern`; 0 when none. */
+function maxMtimeMs(dir: string, pattern: RegExp): number {
+  let newest = 0;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return 0; // Directory gone — no signal, never a throw.
+  }
+  for (const name of names) {
+    if (!pattern.test(name)) continue;
+    try {
+      const ms = statSync(join(dir, name)).mtimeMs;
+      if (ms > newest) newest = ms;
+    } catch {
+      // Vanished between readdir and stat — skip it.
+    }
+  }
+  return newest;
+}
+
+/** mtime in ms of one path, or 0 when it cannot be stat'ed. */
+function mtimeMsOf(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Build the `update` probe used by GET /api/runtime.
+ *
+ * available = true when ANY of:
+ *   - the checked-out commit differs from the one this process booted with;
+ *   - web/dist/index.html is newer than startedAt, or the entry bundle name
+ *     changed (a rebuild);
+ *   - any server/*.ts, server/*.mjs or shared/*.ts is newer than startedAt
+ *     (an edit that this process is not running).
+ *
+ * A commit that cannot be read NOW is treated as "no signal" rather than as a
+ * change: an unreadable .git must not nag the user forever.
+ */
+export function createUpdateChecker(opts: UpdateCheckOptions): () => UpdateCheckResult {
+  const now = opts.now ?? ((): number => Date.now());
+  const cacheMs = opts.cacheMs ?? UPDATE_CHECK_CACHE_MS;
+  let cachedAt = -Infinity;
+  let cached: UpdateCheckResult = NO_UPDATE;
+
+  const compute = (): UpdateCheckResult => {
+    const startedMs = Date.parse(opts.startedAt());
+    if (Number.isNaN(startedMs)) return NO_UPDATE; // Not listening yet.
+
+    const commit = readServerCommit(opts.repoRoot);
+    if (commit !== null && opts.bootCommit !== null && commit !== opts.bootCommit) {
+      return { available: true, reason: `server code changed (${opts.bootCommit} → ${commit})` };
+    }
+
+    const indexMs = mtimeMsOf(join(opts.webDistDir, 'index.html'));
+    const asset = readWebBuild(opts.webDistDir).asset;
+    if (indexMs > startedMs || (asset !== null && asset !== opts.bootAsset)) {
+      return { available: true, reason: 'frontend rebuilt' };
+    }
+
+    const serverMs = Math.max(
+      maxMtimeMs(opts.serverDir, /\.(ts|mjs)$/),
+      maxMtimeMs(opts.sharedDir, /\.ts$/),
+    );
+    if (serverMs > startedMs) return { available: true, reason: 'server files edited' };
+
+    return NO_UPDATE;
+  };
+
+  return () => {
+    const at = now();
+    if (at - cachedAt < cacheMs) return cached;
+    cached = compute();
+    cachedAt = at;
+    return cached;
+  };
+}

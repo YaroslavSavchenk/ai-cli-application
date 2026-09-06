@@ -87,8 +87,17 @@ test('GET /api/runtime: token-gated, body is exactly the startedAt from runtime.
     const body = res.body as Record<string, unknown>;
     assert.deepEqual(
       Object.keys(body).sort(),
-      ['serverCommit', 'startedAt', 'webBuild'],
-      'exactly startedAt + the two build fields, and NO other keys',
+      ['serverCommit', 'startedAt', 'update', 'webBuild'],
+      'exactly startedAt + the two build fields + the live update check, and NO other keys',
+    );
+    // Added 2026-09-06 with the restart button: a LIVE check (cached ~5 s), so
+    // the UI can offer the restart instead of leaving the user on stale code.
+    const update = body['update'] as Record<string, unknown>;
+    assert.deepEqual(Object.keys(update).sort(), ['available', 'reason']);
+    assert.equal(typeof update['available'], 'boolean');
+    assert.ok(
+      update['reason'] === null || typeof update['reason'] === 'string',
+      `update.reason must be a short string or null, got ${JSON.stringify(update['reason'])}`,
     );
     assert.equal(body['startedAt'], server.runtime.startedAt, 'the exact runtime.json value');
     assert.ok(

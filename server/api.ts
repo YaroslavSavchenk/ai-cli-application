@@ -36,6 +36,7 @@ import type {
   GithubTokenRequest,
   ResumeHistoryRequest,
   RuntimeStatusResponse,
+  UpdateStatus,
   UiPrefs,
 } from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
@@ -47,6 +48,7 @@ import { resumeSpawn } from './conversation.ts';
 import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
+import type { RestartRunner } from './restart.ts';
 import {
   createWindowLimiter,
   describeError,
@@ -120,6 +122,18 @@ export interface ApiDeps {
   serverCommit?: string | null;
   /** Hashed frontend entry bundle being served, or null (GET /api/runtime). */
   webAsset?: string | null;
+  /**
+   * Live "is the code on disk newer than this process" probe for
+   * GET /api/runtime (server/buildinfo.ts, cached ~5 s). Absent in unit-test
+   * harnesses that construct the handler directly: then nothing is ever
+   * reported as available.
+   */
+  checkUpdate?: () => UpdateStatus;
+  /**
+   * The same-port restart mechanism (server/restart.ts). Absent in unit-test
+   * harnesses: POST /api/restart then answers 503 instead of pretending.
+   */
+  restart?: RestartRunner;
   log: Logger;
   /**
    * The budget for UNAUTHENTICATED log lines, SHARED with the WebSocket upgrade
@@ -145,11 +159,19 @@ export interface ApiDeps {
 const responseBytes = new WeakMap<ServerResponse, number>();
 const responseReason = new WeakMap<ServerResponse, string>();
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  onFlushed?: () => void,
+): void {
   const text = JSON.stringify(body);
   responseBytes.set(res, Buffer.byteLength(text));
   res.writeHead(status, { 'content-type': 'application/json' });
-  res.end(text);
+  // The callback exists for exactly one caller: POST /api/restart, whose
+  // process must not leave before the bytes are on the wire.
+  if (onFlushed === undefined) res.end(text);
+  else res.end(text, onFlushed);
 }
 
 function sendError(res: ServerResponse, status: number, message: string): void {
@@ -384,11 +406,55 @@ export function createRequestHandler(
           startedAt: deps.getStartedAt(),
           serverCommit: deps.serverCommit ?? null,
           webBuild: deps.webAsset ?? null,
+          // Computed here, not at boot: the whole point is to notice code that
+          // landed AFTER this process started. Cheap (a few stats + .git/HEAD)
+          // and cached inside the checker, so a 30 s UI poll costs nothing.
+          update: deps.checkUpdate?.() ?? { available: false, reason: null },
         };
         sendJson(res, 200, body);
         return;
       }
       sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Manual restart (same-port handoff) ---------------------------------
+    //
+    // State-changing, so it sits behind the SAME token + Origin/Host gate as
+    // every other /api route (applied above, before handleApi runs). NO BODY IS
+    // READ: there is nothing to configure, and not reading is one less parser
+    // between an unauthenticated-until-proven caller and a process spawn.
+    //
+    // The response is the LAST thing this process does: server/restart.ts has
+    // already ended the sessions and closed the listener by the time we answer,
+    // and its onFlushed hook exits the process once these bytes are out.
+    if (pathname === '/api/restart') {
+      if (method !== 'POST') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      if (deps.restart === undefined) {
+        sendError(res, 503, 'restart is not available in this process');
+        return;
+      }
+      // The socket carrying THIS request is the one exception to the teardown.
+      const outcome = await deps.restart.request(req.socket);
+      // 202 and 500 both mean this process is leaving; only 409 lives on. A
+      // dying process must not hand the browser a REUSABLE socket: the very
+      // next request is `GET /health`, and on a keep-alive connection it would
+      // travel back to THIS process in the window before it exits, answering
+      // for a backend on its way out instead of the child that replaced it.
+      if (outcome.status !== 409) res.setHeader('connection', 'close');
+      if (outcome.status === 202) {
+        sendJson(res, 202, outcome.body, outcome.onFlushed ?? undefined);
+        return;
+      }
+      // 409 (one already running) and 500 (the child never came up) both carry
+      // { error }. The message is a CONSTANT from server/restart.ts — nothing
+      // derived from a request — so it is safe in the access log's reason=.
+      const error = (outcome.body as { error?: string }).error ?? 'restart failed';
+      responseReason.set(res, error);
+      sendJson(res, outcome.status, outcome.body, outcome.onFlushed ?? undefined);
       return;
     }
 

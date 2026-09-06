@@ -603,3 +603,54 @@ test('after a permanent status no timer is left armed, and none is ever armed ag
   assert.equal(h.pending(), 0, 'and a disabled logger never arms another one');
   assert.equal(h.sent.length, 1, 'exactly the one attempt that got the 404');
 });
+
+// ---------------------------------------------------------------------------
+// The restart gap: delivery is PARKED, never switched off
+// ---------------------------------------------------------------------------
+
+test('hold(): a flush timer firing during the restart gap sends NOTHING and leaves the transport on', async () => {
+  // The scenario this exists for: `restart confirmed` is logged, which arms the
+  // 2 s window; the old backend then dies and its CHILD takes the same port
+  // with a FRESH token. That flush would be answered 401 — a PERMANENT status —
+  // and this page's log transport would be off for the rest of its life over a
+  // restart the user asked for.
+  const h = harness();
+  h.logger.info('restart confirmed: sessions=2');
+  assert.equal(h.pending(), 1, 'the 2 s window is armed');
+
+  h.logger.hold();
+  assert.equal(h.logger.held, true);
+  assert.equal(h.pending(), 0, 'holding disarms the pending flush');
+
+  // Whatever fires (a timer that escaped, an explicit flush, an `error` line
+  // that normally bypasses the window) must not reach the replacement backend.
+  h.reply({ ok: false, status: 401 });
+  await h.tick();
+  h.logger.error('ws presence closed 1012');
+  await h.settle();
+  await h.logger.flush();
+  await h.settle();
+
+  assert.deepEqual(h.sent, [], 'nothing left the page during the gap');
+  assert.equal(h.logger.off, false, 'and no 401 could switch logging off');
+  assert.deepEqual(h.notices, []);
+  assert.equal(h.logger.buffered, 2, 'both lines are still buffered, not dropped');
+  assert.equal(h.pending(), 0, 'no timer ticks while held');
+});
+
+test('resume(): the gap ends, the buffered lines go out on the normal window', async () => {
+  const h = harness();
+  h.logger.hold();
+  h.logger.info('line during the gap');
+  assert.deepEqual(h.sent, []);
+
+  h.logger.resume();
+  assert.equal(h.logger.held, false);
+  assert.equal(h.pending(), 1, 'resuming re-arms the idle window');
+  await h.tick();
+  assert.deepEqual(flat(h.sent), ['line during the gap']);
+
+  // resume() on a logger that was never held changes nothing.
+  h.logger.resume();
+  assert.equal(h.pending(), 0);
+});

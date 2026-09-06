@@ -54,9 +54,23 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.destroy();
 }
 
-export function createUpgradeHandler(
-  deps: WsDeps,
-): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
+/**
+ * The upgrade listener, plus the one thing the RESTART path needs from this
+ * module: a way to close every live socket with a proper close frame.
+ *
+ * It stays CALLABLE (`server.on('upgrade', handler)`) — the extra member is a
+ * property on the function, so nothing about how it is registered changes.
+ */
+export type UpgradeHandler = ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) & {
+  /**
+   * Close every open WebSocket on both channels. Returns how many were told to
+   * go. Used by the restart handoff with 1012 "service restart", the code a
+   * client is supposed to read as "come back in a moment" rather than an error.
+   */
+  closeAll: (code: number, reason: string) => number;
+};
+
+export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
   const { token, sessions, lifecycle, log } = deps;
   const wsLog = scoped(log, 'ws');
   // Host/Origin/token all fail BEFORE the upgrade, i.e. every reject() below is
@@ -74,7 +88,7 @@ export function createUpgradeHandler(
     maxPayload: MAX_PRESENCE_FRAME_BYTES,
   });
 
-  return (req, socket, head) => {
+  const handler = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const port = deps.getPort();
     // The pathname ONLY: a ws url carries ?token=<the app token> in its query,
     // so the raw url must never be logged. Truncated, because an upgrade target
@@ -129,6 +143,25 @@ export function createUpgradeHandler(
     wss.handleUpgrade(req, socket, head, (ws) => {
       attachClient(ws, sessionId);
     });
+  };
+
+  const closeAll = (code: number, reason: string): number => {
+    let closed = 0;
+    for (const server of [wss, presenceWss]) {
+      for (const ws of server.clients) {
+        // Sockets a session teardown already closed (code 1000) are still in
+        // this set for a moment; counting them would overstate the line.
+        if (ws.readyState !== ws.OPEN) continue;
+        try {
+          ws.close(code, reason);
+          closed += 1;
+        } catch {
+          // Already gone — nothing to close.
+        }
+      }
+    }
+    if (closed > 0) wsLog('info', `closed ${closed} websocket(s) with code ${code}: ${reason}`);
+    return closed;
   };
 
   /**
@@ -248,4 +281,6 @@ export function createUpgradeHandler(
       release();
     });
   }
+
+  return Object.assign(handler, { closeAll });
 }

@@ -108,6 +108,34 @@ and multi-pane layouts on top.
   rename fails the live file is truncated so logging never stops. 0600 is
   hygiene only — the Windows user reads every WSL file — so "never write the
   secret" is the actual control.
+- **Manual backend restart + "new version" notice — decided 2026-09-06,
+  user's call** (rationale in `memory/decisions/backend-restart-same-port.md`).
+  Authed `GET /api/runtime` carries `update: { available, reason }` — true
+  when the code on disk is newer than the running process (git HEAD changed
+  since boot, `web/dist` rebuilt after `startedAt`, or a `server/`/`shared/`
+  source mtime past it; cached ≤ 5 s; the UI polls it every 30 s while
+  visible). `POST /api/restart` (authed) performs a **same-port handoff**:
+  the old process ends sessions exactly like `shutdown()` (history stamped
+  `shutdown` → resumable from HISTORY), closes its listener, spawns a
+  detached child (`process.execPath` + argv, env `AI_SM_PORT_HINT=<port>`,
+  `AI_SM_RESTARTED_FROM=<pid>`), waits for the child's `runtime.json` and
+  `/health`, answers `202 { port, startedAt, samePort }`, and exits WITHOUT
+  unlinking `runtime.json`. The child tries the hinted port and falls back
+  once to auto-pick (`samePort: false` → the UI tells the user to relaunch
+  from the shortcut). **Same port is a hard constraint**: the WebView2 host
+  locks navigation to the exact launch origin including the port. The hint
+  is a handoff detail, not a fixed port — auto-pick stands. UI: Settings →
+  BACKEND (`Restart backend`), a dismissible `New version available` toast,
+  a persistent amber `update` pill after dismissal, and a confirmation that
+  names the running sessions and says they stay in HISTORY. Sessions do
+  NOT survive a restart (decided; no fiction). **A failed handoff is not a
+  rollback**: sessions are already ended and the listener closed, so the
+  old process answers `500` and exits anyway; the UI tells the user to
+  relaunch from the desktop shortcut. `409` exists for a second request
+  already in flight (a new connection cannot reach the closed listener);
+  `503` when no restart runner is wired (test harnesses). A restart
+  re-executes the code on disk; it does NOT build `web/dist` — see Open
+  decisions.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
@@ -335,7 +363,15 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-(none open right now)
+- **Update after a `git pull` without `npm run build`** (raised 2026-09-06 by
+  review of the restart phase): the "new version" check fires on a commit
+  change, the restart re-executes the new server code, but `web/dist` is
+  gitignored and stays whatever was last built — so the pill can stay lit
+  after a successful restart and the UI does not say why. Options: the
+  restart runs `vite build` when `web/dist` is older than `web/src`; the
+  update reason distinguishes "needs a build"; or document the limit and
+  leave it (this repo builds inside its own dev-flow before every commit).
+  User's call.
 
 (Settled 2026-07-25, user's call: **how a cloned project ties back to its
 remote — option (b), owner-qualified clone paths.** App clones from the

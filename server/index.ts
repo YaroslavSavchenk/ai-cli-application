@@ -22,7 +22,10 @@
  * relative imports carry explicit .ts extensions.
  */
 import { createServer } from 'node:http';
-import { unlinkSync } from 'node:fs';
+import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
+import { spawn } from 'node:child_process';
+import { readFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeInfo } from '../shared/protocol.ts';
@@ -39,7 +42,7 @@ import {
   MAX_LOG_BYTES,
   DEFAULT_GITHUB_API_BASE,
 } from './config.ts';
-import { readServerCommit, readWebBuild, mtimeOf } from './buildinfo.ts';
+import { readServerCommit, readWebBuild, mtimeOf, createUpdateChecker } from './buildinfo.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
@@ -48,8 +51,9 @@ import { SessionSettingsStore } from './session-settings.ts';
 import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
-import { createRequestHandler } from './api.ts';
+import { createRequestHandler, type ApiDeps } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
+import { RestartController } from './restart.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -110,6 +114,20 @@ boot(
     mtimeOf(join(serverDir, 'index.ts')) ?? 'unknown'
   })`,
 );
+// A restart handoff (POST /api/restart) says so in one line, so the log reads
+// as one continuous story across the two processes.
+// The value is our OWN env, but a log line is a text record: an unvalidated
+// string could carry anything a future caller puts there, so only a plain pid
+// is printed and everything else is named as invalid.
+const restartedFrom = process.env['AI_SM_RESTARTED_FROM'];
+if (restartedFrom !== undefined && restartedFrom !== '') {
+  boot(
+    'info',
+    /^\d{1,10}$/.test(restartedFrom)
+      ? `restarted from pid ${restartedFrom}`
+      : `restarted from pid <invalid> (${JSON.stringify(oneLine(restartedFrom))})`,
+  );
+}
 boot(
   'info',
   webBuild.indexMtime === null
@@ -195,29 +213,96 @@ const getStartedAt = (): string => startedAt;
 // WebSocket upgrades, so its suppression lines must not point at one surface.
 const allowRefusalLine = createRefusalLimiter(scoped(log, 'log'));
 
-const server = createServer(
-  createRequestHandler({
-    token,
-    getPort,
-    getStartedAt,
-    projects,
-    prefs,
-    sessions,
-    history,
-    github,
-    webDistDir,
-    serverCommit,
-    webAsset: webBuild.asset,
-    log,
-    allowRefusalLine,
-  }),
-);
-server.on(
-  'upgrade',
-  createUpgradeHandler({ token, getPort, sessions, lifecycle, log, allowRefusalLine }),
-);
+/**
+ * "Is the code on disk newer than this process?" for GET /api/runtime — the
+ * signal behind the UI's update notice. Computed per request (cached ~5 s in
+ * the checker), NOT at boot: the whole point is code that landed after we
+ * started.
+ */
+const checkUpdate = createUpdateChecker({
+  repoRoot,
+  serverDir,
+  sharedDir: join(repoRoot, 'shared'),
+  webDistDir,
+  bootCommit: serverCommit,
+  bootAsset: webBuild.asset,
+  startedAt: getStartedAt,
+});
 
-server.listen(0, '127.0.0.1', () => {
+// Mutable so the restart controller — which needs `server`, which needs this —
+// can be attached after both exist. The route reads deps.restart per request.
+const apiDeps: ApiDeps = {
+  token,
+  getPort,
+  getStartedAt,
+  projects,
+  prefs,
+  sessions,
+  history,
+  github,
+  webDistDir,
+  serverCommit,
+  webAsset: webBuild.asset,
+  checkUpdate,
+  log,
+  allowRefusalLine,
+};
+const server = createServer(createRequestHandler(apiDeps));
+const upgrade = createUpgradeHandler({
+  token,
+  getPort,
+  sessions,
+  lifecycle,
+  log,
+  allowRefusalLine,
+});
+
+/**
+ * Every accepted connection, so the restart handoff can close them instead of
+ * leaving the child to race a half-open keep-alive. `wsSockets` marks the ones
+ * that became WebSockets: those get a proper 1012 close frame from the ws layer
+ * and must NOT be destroyed underneath it.
+ */
+const openSockets = new Set<Socket>();
+const wsSockets = new WeakSet<Duplex>();
+server.on('connection', (socket: Socket) => {
+  openSockets.add(socket);
+  socket.on('close', () => openSockets.delete(socket));
+});
+// Registered BEFORE the real handler: both listeners run, this one only marks.
+server.on('upgrade', (_req, socket) => {
+  wsSockets.add(socket);
+});
+server.on('upgrade', upgrade);
+
+/**
+ * PORT HINT (AI_SM_PORT_HINT) — set ONLY by a restart handoff.
+ *
+ * The port stays auto-picked by architecture (decided 2026-07-18): this is a
+ * hint on a handoff, tried once, and a busy port falls straight back to
+ * listen(0). It exists because the WebView2 host locks navigation to the exact
+ * launch origin, so keeping the port is what lets the window simply reload.
+ * Anything that is not a plausible port number is refused loudly and ignored.
+ */
+const portHintRaw = process.env['AI_SM_PORT_HINT'];
+let portHint = 0;
+if (portHintRaw !== undefined && portHintRaw !== '') {
+  const parsed = Number(portHintRaw);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65_535) {
+    portHint = parsed;
+  } else {
+    boot(
+      'warn',
+      `AI_SM_PORT_HINT must be a port number 1-65535, got ${JSON.stringify(oneLine(portHintRaw))}; auto-picking instead`,
+    );
+  }
+}
+/** The hint is tried EXACTLY once; after that the OS picks and that is final. */
+let hintFellBack = false;
+let listening = false;
+
+server.on('listening', () => {
+  listening = true;
   const addr = server.address();
   if (addr === null || typeof addr !== 'object') {
     log('error', 'listen returned no address, exiting');
@@ -237,18 +322,121 @@ server.listen(0, '127.0.0.1', () => {
     log('error', `failed to write ${paths.runtimeFile}: ${describeError(err)}`);
     process.exit(1);
   }
+  if (hintFellBack) {
+    boot('warn', `port hint ${portHint} busy, auto-picked ${port}`);
+  } else if (portHint !== 0) {
+    boot(
+      'info',
+      `port hint ${portHint} taken (a hint on a restart handoff — the port is auto-picked otherwise)`,
+    );
+  }
   log('info', `listening on 127.0.0.1:${port} (pid ${process.pid}, data dir ${paths.dataDir})`);
   lifecycle.start(); // Startup grace: no window ever connecting must not leave a zombie.
 });
 
 server.on('error', (err) => {
+  // A listen error while trying the HINT is the one recoverable case: the port
+  // belongs to someone else (EADDRINUSE is the expected one, but a hint is
+  // untrusted enough that ANY listen failure falls back rather than dying).
+  if (portHint !== 0 && !hintFellBack && !listening) {
+    hintFellBack = true;
+    boot('warn', `listening on the hinted port ${portHint} failed: ${describeError(err)}`);
+    server.listen(0, '127.0.0.1');
+    return;
+  }
   log('error', `server error: ${describeError(err)}`);
   process.exit(1);
 });
 
+server.listen(portHint, '127.0.0.1');
+
+// ---------------------------------------------------------------------------
+// Manual restart: same-port handoff to a fresh process (POST /api/restart).
+// The sequence and its reasons live in server/restart.ts; this is only the
+// wiring to the real OS.
+// ---------------------------------------------------------------------------
+const restart = new RestartController({
+  log,
+  pid: process.pid,
+  port: getPort,
+  counts: () => ({
+    sessions: sessions.list().length,
+    presence: lifecycle.presenceCount,
+    attached: lifecycle.attachedCount,
+  }),
+  teardown: (keepSocket) => {
+    // Same order as shutdown(), minus the unlink: runtime.json is about to
+    // belong to the child, so removing it here would blind the launcher.
+    lifecycle.stop();
+    history.endAllLive('shutdown');
+    sessions.destroyAll();
+    server.close(); // Releases the LISTENING socket; the in-flight request lives on.
+    const closedWs = upgrade.closeAll(1012, 'service restart');
+    let destroyed = 0;
+    for (const socket of openSockets) {
+      if (socket === keepSocket) continue; // The 202 still has to travel here.
+      if (wsSockets.has(socket)) continue; // Let the 1012 close frame flush.
+      socket.destroy();
+      destroyed += 1;
+    }
+    log(
+      'info',
+      `restart teardown: listener closed, ${closedWs} websocket(s) closed 1012, ` +
+        `${destroyed} idle connection(s) destroyed`,
+    );
+  },
+  spawnChild: ({ portHint: hint, restartedFrom: from }) => {
+    // NEVER a shell: this very node binary + an argv array. The launcher
+    // already resolved nvm into process.execPath, so no PATH lookup either.
+    const child = spawn(process.execPath, [join(serverDir, 'index.ts')], {
+      cwd: repoRoot,
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        AI_SM_PORT_HINT: String(hint),
+        AI_SM_RESTARTED_FROM: String(from),
+      },
+    });
+    child.unref();
+    return child.pid;
+  },
+  readRuntime: () => {
+    try {
+      return JSON.parse(readFileSync(paths.runtimeFile, 'utf8')) as RuntimeInfo;
+    } catch {
+      return undefined; // Absent, half-written (it is renamed into place), unreadable.
+    }
+  },
+  probeHealth: async (probePort) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${probePort}/health`, {
+        signal: AbortSignal.timeout(2_000),
+        redirect: 'error',
+      });
+      if (res.status !== 200) return false;
+      const body = (await res.json()) as { ok?: unknown };
+      return body.ok === true;
+    } catch {
+      return false;
+    }
+  },
+  exit: (code) => process.exit(code),
+});
+apiDeps.restart = restart;
+
 let shuttingDown = false;
 function shutdown(cause: string): void {
   if (shuttingDown) return;
+  // A restart already ran the whole teardown (lifecycle stopped, history
+  // stamped 'shutdown', PTYs killed, listener closed) and runtime.json now
+  // describes the CHILD. Doing any of it twice would, at worst, delete the
+  // discovery file of a healthy new backend — so this path only leaves.
+  if (restart.inProgress) {
+    shuttingDown = true;
+    log('info', `received ${cause} while a restart is in progress; exiting without further teardown`);
+    process.exit(0);
+  }
   shuttingDown = true;
   // ONE line. The `received <cause>, shutting down` wording is pinned by tests
   // and by habit, so the counts are appended to it rather than duplicated into
@@ -285,10 +473,13 @@ process.on('unhandledRejection', (reason) => {
 
 process.on('uncaughtException', (err) => {
   log('error', `uncaught exception: ${describeError(err)}`);
-  try {
-    unlinkSync(paths.runtimeFile);
-  } catch {
-    // Already gone.
+  // Not during a restart handoff: runtime.json is the CHILD's by then.
+  if (!restart.inProgress) {
+    try {
+      unlinkSync(paths.runtimeFile);
+    } catch {
+      // Already gone.
+    }
   }
   process.exit(1);
 });

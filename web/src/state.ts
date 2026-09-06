@@ -16,7 +16,13 @@
  * Change notification is a flat pub/sub of coarse ChangeKinds; views decide
  * what to re-render.
  */
-import type { HistoryEntry, Project, SessionInfo } from '../../shared/protocol.ts';
+import type {
+  HistoryEntry,
+  Project,
+  RuntimeStatusResponse,
+  SessionInfo,
+  UpdateStatus,
+} from '../../shared/protocol.ts';
 import { log } from './log.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
@@ -65,6 +71,18 @@ interface AppState {
   wsLatencyMs: number | null;
   /** Backend boot time (GET /api/runtime startedAt); null until fetched. */
   serverStartedAt: string | null;
+  /** Short git hash the running backend was built from; null when unknown. */
+  serverCommit: string | null;
+  /** Live "newer code is on disk" answer from GET /api/runtime; null until fetched. */
+  update: UpdateStatus | null;
+  /**
+   * A backend restart requested from this page is in flight. It is the app's
+   * "expect the server to vanish" flag: while it is true the session poll,
+   * the runtime poll, both WebSocket reconnect loops and the fatal-on-401
+   * takeover all stand down, because every one of them would otherwise read
+   * the restart gap as a catastrophe and tear the page down mid-handover.
+   */
+  restarting: boolean;
   /** Poll/pong-derived backend reachability (topbar dot + statusline pty item). */
   backendReachable: boolean;
 }
@@ -78,6 +96,9 @@ export const state: AppState = {
   drawer: null,
   wsLatencyMs: null,
   serverStartedAt: null,
+  serverCommit: null,
+  update: null,
+  restarting: false,
   backendReachable: true,
 };
 
@@ -808,10 +829,36 @@ export function setWsLatency(ms: number | null): void {
   }
 }
 
-/** Backend boot time from GET /api/runtime (statusline uptime). */
-export function setServerStartedAt(iso: string): void {
-  if (state.serverStartedAt !== iso) {
-    state.serverStartedAt = iso;
+/**
+ * Whole `GET /api/runtime` answer: boot time, the commit the process runs, and
+ * the live update check. One setter so the three readouts (statusline uptime,
+ * settings version, update notice) can never disagree about which poll they
+ * came from.
+ */
+export function setRuntime(r: RuntimeStatusResponse): void {
+  const updateChanged =
+    state.update?.available !== r.update?.available || state.update?.reason !== r.update?.reason;
+  const changed =
+    state.serverStartedAt !== r.startedAt || state.serverCommit !== r.serverCommit || updateChanged;
+  state.serverStartedAt = r.startedAt;
+  state.serverCommit = r.serverCommit;
+  state.update = r.update ?? null;
+  if (changed) notify('conn');
+}
+
+/**
+ * Arm/disarm the restart gap. Every guard reads `state.restarting` directly;
+ * this setter exists so the transition is one notified event (the topbar dot
+ * and statusline stop shouting "offline" during a handover we asked for).
+ */
+export function setRestarting(v: boolean): void {
+  if (state.restarting !== v) {
+    state.restarting = v;
+    // The client-log transport gets the same treatment as the polls: a flush
+    // landing on the CHILD would be answered 401 and turn logging off for the
+    // rest of this page's life.
+    if (v) log.hold();
+    else log.resume();
     notify('conn');
   }
 }

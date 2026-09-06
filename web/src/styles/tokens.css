@@ -157,8 +157,12 @@
   --field-h: 32px;      /* launch-dialog inputs/selects                       */
   --chip-h: 20px;       /* row buttons (+ × split ⇱)                          */
   --popover-w: 268px;
+  --toast-w: 336px;      /* update toast card                                */
+  --toast-bottom: 70px;  /* clears the tab strip (~35px) + statusline (23px) */
+  --restart-list-h: 132px; /* ~6 dense rows before the confirmation scrolls  */
   --modal-w: 560px;
   --modal-w-wide: 680px;
+  --modal-w-narrow: 420px; /* one-question dialogs (restart confirmation)    */
   --panel-w: 460px;     /* boot / restart takeover panel                      */
   --dirlist-min-h: 160px;
   --sc-keys-w: 210px;   /* shortcuts overlay keys column                      */
@@ -174,7 +178,9 @@
 
   /* ---- z ---------------------------------------------------------------------- */
   --z-popover: 45;
+  --z-toast: 46;   /* update toast: over the panes, under every dialog    */
   --z-modal: 50;   /* modal scrims: launch dialog, dir browser, shortcuts */
+  --z-modal-top: 51; /* a dialog that can open OVER another one (restart)  */
   --z-overlay: 60; /* boot overlay covers even open modals                */
   --z-ghost: 70;   /* drag ghost rides above everything                   */
 }

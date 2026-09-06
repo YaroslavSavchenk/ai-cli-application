@@ -29,7 +29,6 @@ import {
   batchBody,
   formatError,
   oneLine,
-  truncate,
   type ClientLogEntry,
   type SendResult,
 } from './log-core.ts';
@@ -105,6 +104,15 @@ export const log = {
   info: (message: string): void => logger.info(message),
   warn: (message: string): void => logger.warn(message),
   error: (message: string): void => logger.error(message),
+  /**
+   * Park/unpark DELIVERY across the backend-restart gap. Called only by
+   * state.setRestarting(): a flush that lands on the replacement process gets
+   * a 401 (fresh token) and 401 is permanent, which would switch this page's
+   * log transport off for good over a restart the user asked for. Lines keep
+   * buffering either way.
+   */
+  hold: (): void => logger.hold(),
+  resume: (): void => logger.resume(),
 };
 
 /**

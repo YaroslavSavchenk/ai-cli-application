@@ -7,6 +7,8 @@ npm-debug.log*
 
 # Local runtime data
 *.log
+# Rotated server.log generations (server.log.1/.2) — *.log does not match them.
+*.log.[0-9]
 .env
 .env.*
 

@@ -47,12 +47,25 @@ import {
   openNewProjectDialog,
 } from './ui/newproject.ts';
 import { createGithubChip, initGithub } from './ui/github.ts';
+import {
+  applyRuntime,
+  closeRestartConfirm,
+  initUpdate,
+  isRestartConfirmOpen,
+} from './ui/update.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import { startPresence } from './ws.ts';
 import { initLogging, log } from './log.ts';
 import { el, button } from './ui/util.ts';
 
 const POLL_MS = 3000;
+/**
+ * How often `GET /api/runtime` is re-asked while the page is visible. It
+ * carries the live "newer code is on disk" answer, which costs the backend a
+ * handful of stats — a minute-scale fact on a 30 s clock, deliberately NOT
+ * folded into the 3 s session poll.
+ */
+const RUNTIME_POLL_MS = 30000;
 /** Boot faster than this and the boot panel never mounts — no chrome flash. */
 const BOOT_PANEL_DELAY_MS = 150;
 
@@ -205,7 +218,8 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // rotated token fails both.
   void api.getRuntime().then(
     (r) => {
-      st.setServerStartedAt(r.startedAt);
+      st.setRuntime(r);
+      applyRuntime();
       // THE line that identifies this page in server.log: which bundle is
       // running against which backend run. A stale bundle talking to a fresh
       // backend (or the reverse) is the failure mode this exists to expose.
@@ -215,7 +229,8 @@ async function boot(root: HTMLDivElement): Promise<void> {
       // having both on one line that makes a stale pairing readable.
       log.info(
         `boot ui=${__BUILD_ID__} backend startedAt=${r.startedAt} port=${location.port === '' ? '-' : location.port} ` +
-          `server=${r.serverCommit ?? '-'} serving=${r.webBuild ?? '-'}`,
+          `server=${r.serverCommit ?? '-'} serving=${r.webBuild ?? '-'} ` +
+          `update=${r.update?.available === true ? (r.update.reason ?? 'yes') : 'no'}`,
       );
       stepToken.ok();
     },
@@ -340,6 +355,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // terminal is constructed, so terminals are born themed.
   const themePop = initTheme(modalHost, themeBtn, prefs);
   themeBtn.addEventListener('click', () => themePop.toggle());
+  // Update notice BEFORE settings: the panel's BACKEND section calls into it,
+  // and its pill lands in the topbar cluster right after the connection dot.
+  const upd = initUpdate(modalHost);
+  conn.after(upd.pill);
   const settings = initSettings(modalHost, settingsBtn);
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
@@ -427,6 +446,11 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       if (shortcuts.isOpen()) {
         e.preventDefault();
         shortcuts.close();
+      } else if (isRestartConfirmOpen()) {
+        // Topmost: it opens OVER the settings panel, and it ignores Esc once
+        // the restart is actually in flight (nothing left to cancel).
+        e.preventDefault();
+        closeRestartConfirm();
       } else if (themePop.isOpen()) {
         e.preventDefault();
         themePop.close();
@@ -455,7 +479,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // this page can never re-auth) — full-page takeover, reload is the cure.
   let fatal = false;
   api.onAuthError(() => {
-    if (fatal) return;
+    // A restart we asked for rotates the token BY DESIGN; the update dialog
+    // owns the screen until it reloads. Tearing the page down here would
+    // replace an honest progress state with a scary panic panel.
+    if (fatal || st.state.restarting) return;
     fatal = true;
     log.error('auth token rejected after boot — the backend restarted; page taken over');
     renderRestartPanel(root);
@@ -469,7 +496,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // first success clears it.
   let pollFailures = 0;
   const poll = (): void => {
-    if (fatal) return;
+    if (fatal || st.state.restarting) return;
     void api
       .getSessions()
       .then((list) => {
@@ -485,8 +512,29 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       });
   };
   window.setInterval(poll, POLL_MS);
+
+  // ---- runtime poll (uptime · version · update check) ----------------------
+  // Only while the page is visible: a backgrounded window has nobody to tell.
+  const runtimePoll = (): void => {
+    if (fatal || st.state.restarting) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    void api
+      .getRuntime()
+      .then((r) => {
+        st.setRuntime(r);
+        applyRuntime();
+      })
+      .catch(() => {
+        // The session poll already owns the reachable/offline readout; a
+        // missed update check is simply asked again in 30 s.
+      });
+  };
+  window.setInterval(runtimePoll, RUNTIME_POLL_MS);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') poll();
+    if (document.visibilityState === 'visible') {
+      poll();
+      runtimePoll();
+    }
   });
 }
 

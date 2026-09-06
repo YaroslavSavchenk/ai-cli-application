@@ -27,6 +27,7 @@ import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { commandLabel } from './sessions.ts';
+import { openRestartConfirm, runtimeFacts } from './update.ts';
 import {
   DEAD_PREFS_KEYS,
   getStatusLine,
@@ -97,7 +98,7 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   const titles = el('div', 'launch-titles');
   titles.append(
     el('div', 'launch-title', 'Settings'),
-    el('div', 'launch-sub', 'what each session shows in its status line'),
+    el('div', 'launch-sub', 'status line · backend'),
   );
   const closeX = button('launch-x', '×', () => close());
   closeX.setAttribute('aria-label', 'close settings');
@@ -166,7 +167,46 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   }
   sect.append(itemsWrap);
 
-  bodyEl.append(sect);
+  // ======================================================================
+  // Backend — the program that runs the sessions, and the one button that
+  // replaces it with the version currently on disk (2026-09-06, user's
+  // request). Two mono readouts and an action: no dashboard, no graphs, and
+  // no mechanics explained — the confirmation says what restarting costs.
+  // ======================================================================
+  const backSect = el('section', 'settings-sect');
+  backSect.append(el('div', 'drawer-label', 'BACKEND'));
+  backSect.append(
+    el(
+      'div',
+      'settings-note',
+      'Your sessions run in a program that keeps going while this window is open. Restarting it picks up a new version of the app.',
+    ),
+  );
+  const facts = el('div', 'settings-facts');
+  const factUp = el('span', 'settings-fact');
+  const factVer = el('span', 'settings-fact');
+  facts.append(factUp, el('span', 'settings-fact-sep', '·'), factVer);
+  const backRow = el('div', 'settings-actionrow');
+  const restartBtn = button('btn', 'Restart backend', () => openRestartConfirm('settings'));
+  restartBtn.setAttribute('aria-haspopup', 'dialog');
+  backRow.append(facts, el('span', 'drawer-gap'), restartBtn);
+  backSect.append(backRow);
+  backSect.append(
+    el('div', 'settings-note', 'Every running session closes. They stay in History.'),
+  );
+
+  bodyEl.append(sect, backSect);
+
+  /**
+   * The two readouts, refreshed on open and on every conn change (the runtime
+   * poll writes both). `running for` is a coarse duration on purpose: this line
+   * is read once, not watched — the statusline already ticks a live clock.
+   */
+  function renderBackend(): void {
+    const f = runtimeFacts();
+    factUp.textContent = `running for ${f.runningFor}`;
+    factVer.textContent = `version ${f.version}`;
+  }
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'modal-ft settings-ft');
@@ -272,7 +312,9 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
 
   // The session list refreshes on the poll; keep the notice honest while open.
   st.subscribe((kind) => {
-    if (kind === 'sessions' && !scrim.hidden) renderNotice();
+    if (scrim.hidden) return;
+    if (kind === 'sessions') renderNotice();
+    if (kind === 'conn') renderBackend();
   });
 
   // ---- open / close --------------------------------------------------------
@@ -284,6 +326,7 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
     writes = 0;
     syncRows();
     renderNotice();
+    renderBackend();
     scrim.hidden = false;
     anchor.setAttribute('aria-expanded', 'true');
     // Re-read the stored config on open: another window (or another run) may
