@@ -33,25 +33,39 @@ import type { SessionInfo, ServerMessage } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
-import type { Logger } from './config.ts';
+import { describeError, scoped, type Logger } from './config.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
 export const SCROLLBACK_MAX_BYTES = 1024 * 1024;
 
-/** Byte-capped ring buffer of output chunks; drops oldest chunks when over cap. */
+/** Minimum gap between per-session output summary lines (debug). */
+export const OUTPUT_LOG_INTERVAL_MS = 1000;
+
+/**
+ * Byte-capped ring buffer of output chunks; drops oldest chunks when over cap.
+ *
+ * `onTrim` (optional) reports how many bytes were dropped, so the manager can
+ * say in server.log that a session's scrollback is no longer complete — a
+ * replay that silently starts mid-stream is otherwise indistinguishable from a
+ * bug. It NEVER receives the bytes themselves.
+ */
 export class RingBuffer {
   #chunks: Buffer[] = [];
   #bytes = 0;
   readonly #maxBytes: number;
+  readonly #onTrim: ((droppedBytes: number) => void) | undefined;
 
-  constructor(maxBytes: number = SCROLLBACK_MAX_BYTES) {
+  constructor(maxBytes: number = SCROLLBACK_MAX_BYTES, onTrim?: (droppedBytes: number) => void) {
     this.#maxBytes = maxBytes;
+    this.#onTrim = onTrim;
   }
 
   append(data: string): void {
     let chunk = Buffer.from(data, 'utf8');
+    let trimmed = 0;
     if (chunk.byteLength > this.#maxBytes) {
       // A single chunk larger than the whole cap: keep only its tail.
+      trimmed += this.#bytes + (chunk.byteLength - this.#maxBytes);
       chunk = chunk.subarray(chunk.byteLength - this.#maxBytes);
       this.#chunks = [];
       this.#bytes = 0;
@@ -60,8 +74,12 @@ export class RingBuffer {
     this.#bytes += chunk.byteLength;
     while (this.#bytes > this.#maxBytes && this.#chunks.length > 1) {
       const dropped = this.#chunks.shift();
-      if (dropped !== undefined) this.#bytes -= dropped.byteLength;
+      if (dropped !== undefined) {
+        this.#bytes -= dropped.byteLength;
+        trimmed += dropped.byteLength;
+      }
     }
+    if (trimmed > 0 && this.#onTrim !== undefined) this.#onTrim(trimmed);
   }
 
   get byteLength(): number {
@@ -80,6 +98,20 @@ interface Session {
   clients: Set<WebSocket>;
   /** OSC-string parser state for bell detection, carried across data chunks. */
   inOsc: boolean;
+  /**
+   * I/O accounting for the log ONLY — byte COUNTS, never bytes. A PTY can
+   * produce thousands of chunks a second and its content may hold anything the
+   * user typed or the agent printed, so traffic is summarized at most once per
+   * OUTPUT_LOG_INTERVAL_MS per session and flushed at exit. Input is counted
+   * the same way and for the same reason: xterm.js sends one frame per
+   * KEYSTROKE, so a line per frame is a line per key.
+   */
+  outBytes: number;
+  outChunks: number;
+  trimmedBytes: number;
+  inBytes: number;
+  inFrames: number;
+  lastOutLogMs: number;
 }
 
 export interface CreateSessionOptions {
@@ -332,8 +364,11 @@ export class SessionManager {
   /** Absent -> no status-line injection at all (tests that don't need it). */
   readonly #settings: SessionSettingsStore | undefined;
 
+  readonly #slog: Logger;
+
   constructor(log: Logger, history: SessionHistory, settings?: SessionSettingsStore) {
     this.#log = log;
+    this.#slog = scoped(log, 'session');
     this.#history = history;
     this.#settings = settings;
   }
@@ -349,6 +384,15 @@ export class SessionManager {
 
   has(id: string): boolean {
     return this.#sessions.has(id);
+  }
+
+  /**
+   * Bytes attach() would replay right now (0 for an unknown session). Read by
+   * the WS layer so the log can state how much scrollback a client received —
+   * the count only, never the content.
+   */
+  scrollbackBytes(id: string): number {
+    return this.#sessions.get(id)?.buffer.byteLength ?? 0;
   }
 
   /** Spawn the PTY and register the session. Throws if the spawn fails. */
@@ -413,7 +457,21 @@ export class SessionManager {
       ...(statusline ? { statusline: true } : {}),
     };
 
-    const session: Session = { info, pty: proc, buffer: new RingBuffer(), clients: new Set(), inOsc: false };
+    const session: Session = {
+      info,
+      pty: proc,
+      buffer: new RingBuffer(SCROLLBACK_MAX_BYTES, (dropped) => {
+        session.trimmedBytes += dropped;
+      }),
+      clients: new Set(),
+      inOsc: false,
+      outBytes: 0,
+      outChunks: 0,
+      trimmedBytes: 0,
+      inBytes: 0,
+      inFrames: 0,
+      lastOutLogMs: Date.now(),
+    };
     this.#sessions.set(id, session);
     this.#history.recordCreate(info, {
       id: opts.historyId ?? plan.id,
@@ -423,9 +481,13 @@ export class SessionManager {
 
     const handleOutput = (data: string): void => {
       session.buffer.append(data);
+      session.outBytes += Buffer.byteLength(data);
+      session.outChunks += 1;
+      this.#flushOutputLog(id, session, false);
       this.#broadcast(session, { type: 'data', data });
       if (scanForBell(data, session)) {
         session.info.attention = true;
+        this.#slog('debug', `${id} attention raised (BEL in output)`);
         this.#broadcast(session, { type: 'attention' });
       }
     };
@@ -435,7 +497,7 @@ export class SessionManager {
     // into the SAME path, before onExit stamps the session 'exited'.
     rescueFinalOutput(proc, handleOutput, this.#log);
 
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(({ exitCode, signal }) => {
       session.info.status = 'exited';
       session.info.exitCode = exitCode;
       session.pty = null;
@@ -443,12 +505,33 @@ export class SessionManager {
       // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
       this.#history.markEnded(id, 'exit', exitCode);
       this.#broadcast(session, { type: 'exit', exitCode });
-      this.#log('info', `session ${id} exited with code ${exitCode}`);
+      // Wording kept verbatim (tests and habits key off it); the signal and the
+      // final output tally are appended.
+      this.#log(
+        'info',
+        `session ${id} exited with code ${exitCode}` +
+          `${signal === undefined || signal === 0 ? '' : ` (signal ${signal})`}`,
+      );
+      this.#flushOutputLog(id, session, true);
+      this.#slog(
+        'info',
+        `${id} totals: scrollback ${session.buffer.byteLength} bytes, ` +
+          `${session.clients.size} client(s) attached at exit`,
+      );
     });
 
+    // The FULL spawned argv, injections included (`--settings <file>`,
+    // `--session-id <uuid>`, `--resume <id>`) — this is the line that answers
+    // "what did the app actually run?".
     this.#log(
       'info',
       `session ${id} spawned: ${opts.command} ${JSON.stringify(spawnArgs)} in ${opts.cwd} (${opts.cols}x${opts.rows})`,
+    );
+    this.#slog(
+      'debug',
+      `${id} created: pid ${proc.pid}, title ${JSON.stringify(info.title)}, ` +
+        `project ${info.projectId ?? 'none'}, statusline ${statusline}, ` +
+        `history key ${opts.historyId ?? plan.id} (conversation ${plan.conversation})`,
     );
     return { ...info };
   }
@@ -463,6 +546,11 @@ export class SessionManager {
   attach(id: string, ws: WebSocket): boolean {
     const session = this.#sessions.get(id);
     if (session === undefined) return false;
+    this.#slog(
+      'debug',
+      `${id} attach: replaying ${session.buffer.byteLength} bytes, status ${session.info.status}, ` +
+        `${session.clients.size + 1} client(s) after this one`,
+    );
     this.#send(ws, { type: 'replay', data: session.buffer.toString() });
     this.#send(ws, { type: 'info', session: { ...session.info } });
     if (session.info.status === 'exited') {
@@ -476,15 +564,23 @@ export class SessionManager {
   write(id: string, data: string): void {
     const session = this.#sessions.get(id);
     if (session === undefined || session.pty === null) return;
+    // Counted, never logged per frame: one ws `input` frame is one keystroke.
+    session.inBytes += Buffer.byteLength(data);
+    session.inFrames += 1;
     session.pty.write(data);
+    this.#flushOutputLog(id, session, false);
   }
 
   resize(id: string, cols: number, rows: number): void {
     const session = this.#sessions.get(id);
-    if (session === undefined) return;
+    if (session === undefined) {
+      this.#slog('debug', `${id} resize ignored: no such session`);
+      return;
+    }
     session.info.cols = cols;
     session.info.rows = rows;
     if (session.pty !== null) session.pty.resize(cols, rows);
+    else this.#slog('debug', `${id} resize ${cols}x${rows} recorded but the pty has exited`);
   }
 
   markSeen(id: string): boolean {
@@ -494,10 +590,25 @@ export class SessionManager {
     return true;
   }
 
-  /** Kill the PTY (if running), close all attached clients, remove the session. */
-  destroy(id: string): boolean {
+  /**
+   * Kill the PTY (if running), close all attached clients, remove the session.
+   *
+   * `by` says WHO asked — 'user' for DELETE /api/sessions/:id, 'shutdown' for
+   * destroyAll() at server exit. It only shapes the log line; the history stamp
+   * stays 'user-kill' (endAllLive() has already stamped 'shutdown' by then, and
+   * the first stamp wins).
+   */
+  destroy(id: string, by: 'user' | 'shutdown' = 'user'): boolean {
     const session = this.#sessions.get(id);
-    if (session === undefined) return false;
+    if (session === undefined) {
+      this.#slog('debug', `${id} delete ignored: no such session`);
+      return false;
+    }
+    this.#slog(
+      'info',
+      `${id} kill requested by ${by} (status ${session.info.status}, ` +
+        `${session.clients.size} client(s) attached)`,
+    );
     this.#sessions.delete(id);
     // No-op when the session never had one, or when onExit already removed it.
     if (session.info.statusline === true) this.#settings?.remove(id);
@@ -508,7 +619,7 @@ export class SessionManager {
       try {
         session.pty.kill();
       } catch (err) {
-        this.#log('warn', `session ${id} kill failed: ${String(err)}`);
+        this.#log('warn', `session ${id} kill failed: ${describeError(err)}`);
       }
       session.pty = null;
     }
@@ -526,7 +637,44 @@ export class SessionManager {
 
   /** Kill every PTY (server shutdown). Sessions die with the server by design. */
   destroyAll(): void {
-    for (const id of [...this.#sessions.keys()]) this.destroy(id);
+    const ids = [...this.#sessions.keys()];
+    this.#slog('info', `destroying all ${ids.length} session(s) for shutdown`);
+    for (const id of ids) this.destroy(id, 'shutdown');
+  }
+
+  /**
+   * Summarize a session's traffic at most once per OUTPUT_LOG_INTERVAL_MS (and
+   * unconditionally at exit, `force`): one output line and one input line.
+   * COUNTS ONLY — both directions can hold anything the user typed or the agent
+   * printed, so no byte of either is ever written to server.log.
+   */
+  #flushOutputLog(id: string, session: Session, force: boolean): void {
+    const now = Date.now();
+    if (!force && now - session.lastOutLogMs < OUTPUT_LOG_INTERVAL_MS) return;
+    if (session.outBytes === 0 && session.trimmedBytes === 0 && session.inBytes === 0) {
+      session.lastOutLogMs = now;
+      return;
+    }
+    const elapsed = now - session.lastOutLogMs;
+    if (session.outBytes > 0 || session.trimmedBytes > 0) {
+      this.#slog(
+        'debug',
+        `${id} output ${session.outBytes} bytes in ${session.outChunks} chunk(s) over ${elapsed}ms` +
+          `${session.trimmedBytes > 0 ? `, scrollback trimmed ${session.trimmedBytes} bytes` : ''}`,
+      );
+    }
+    if (session.inBytes > 0) {
+      this.#slog(
+        'debug',
+        `${id} input ${session.inBytes} bytes in ${session.inFrames} frame(s) over ${elapsed}ms`,
+      );
+    }
+    session.outBytes = 0;
+    session.outChunks = 0;
+    session.trimmedBytes = 0;
+    session.inBytes = 0;
+    session.inFrames = 0;
+    session.lastOutLogMs = now;
   }
 
   #broadcast(session: Session, message: ServerMessage): void {

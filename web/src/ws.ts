@@ -17,8 +17,21 @@
  */
 import type { ClientMessage, ServerMessage, SessionInfo } from '../../shared/protocol.ts';
 import { ApiError, authToken, getSessions } from './api.ts';
+import { formatError, log } from './log.ts';
 
 export type ConnState = 'connecting' | 'live' | 'reconnecting' | 'dead';
+
+/**
+ * `code=<n> reason=<text> clean=<bool>` for a log line. Written defensively:
+ * a close handler must never throw because a field was missing (an
+ * instrumentation line that breaks reconnect would be worse than no line),
+ * and `reason` is server text — never terminal content.
+ */
+function closeInfo(ev?: CloseEvent): string {
+  const code = typeof ev?.code === 'number' ? ev.code : 0;
+  const reason = typeof ev?.reason === 'string' && ev.reason !== '' ? ev.reason : '-';
+  return `code=${code} reason=${reason} clean=${ev?.wasClean === true}`;
+}
 
 export interface SocketHandlers {
   onReplay(data: string): void;
@@ -55,6 +68,7 @@ export class SessionSocket {
     this.#ws = ws;
     ws.onopen = () => {
       this.#delay = BACKOFF_MIN_MS;
+      log.info(`ws session ${this.sessionId} open`);
       this.#handlers.onConn('live');
     };
     ws.onmessage = (ev: MessageEvent) => {
@@ -67,6 +81,9 @@ export class SessionSocket {
       }
       switch (msg.type) {
         case 'replay':
+          // SIZE only — the scrollback itself is terminal content and never
+          // leaves the browser through this channel.
+          log.debug(`ws session ${this.sessionId} replay ${msg.data.length} chars`);
           this.#handlers.onReplay(msg.data);
           break;
         case 'data':
@@ -76,6 +93,7 @@ export class SessionSocket {
           this.#handlers.onInfo(msg.session);
           break;
         case 'exit':
+          log.info(`ws session ${this.sessionId} exit code=${msg.exitCode}`);
           this.#handlers.onExit(msg.exitCode);
           break;
         case 'attention':
@@ -84,8 +102,10 @@ export class SessionSocket {
           break;
       }
     };
-    ws.onclose = () => {
-      if (!this.#closed) void this.#lost();
+    ws.onclose = (ev?: CloseEvent) => {
+      if (this.#closed) return;
+      log.info(`ws session ${this.sessionId} closed ${closeInfo(ev)}`);
+      void this.#lost();
     };
     ws.onerror = () => {
       // A close event always follows; reconnect is handled there.
@@ -108,8 +128,10 @@ export class SessionSocket {
         return;
       }
       // Network error / server briefly down: keep retrying on backoff.
+      log.debug(`ws session ${this.sessionId} liveness check failed: ${formatError(err)}`);
     }
     if (this.#closed) return;
+    log.info(`ws session ${this.sessionId} reconnect in ${this.#delay}ms`);
     this.#timer = window.setTimeout(() => {
       this.#timer = null;
       this.#open();
@@ -119,6 +141,7 @@ export class SessionSocket {
 
   #die(): void {
     if (!this.#closed) {
+      log.warn(`ws session ${this.sessionId} dead — session gone or token stale`);
       this.#closed = true;
       this.#handlers.onConn('dead');
     }
@@ -148,6 +171,7 @@ export class SessionSocket {
 
   /** User-initiated close: no reconnect, no further events. */
   close(): void {
+    if (!this.#closed) log.info(`ws session ${this.sessionId} detached by the ui`);
     this.#closed = true;
     if (this.#timer !== null) {
       clearTimeout(this.#timer);
@@ -202,6 +226,7 @@ export function startPresence(onLatency?: (ms: number | null) => void): void {
     let pinger: number | null = null;
     ws.onopen = () => {
       delay = PRESENCE_MIN_MS;
+      log.info('ws presence open');
       const ping = (): void => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping', t: performance.now() }));
@@ -223,12 +248,13 @@ export function startPresence(onLatency?: (ms: number | null) => void): void {
         onLatency?.(Math.max(0, Math.round(performance.now() - m.t)));
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (ev?: CloseEvent) => {
       if (pinger !== null) {
         clearInterval(pinger);
         pinger = null;
       }
       onLatency?.(null);
+      log.info(`ws presence closed ${closeInfo(ev)}; retry in ${delay}ms`);
       window.setTimeout(open, delay);
       delay = Math.min(delay * 2, PRESENCE_MAX_MS);
     };

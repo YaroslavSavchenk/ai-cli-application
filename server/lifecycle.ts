@@ -16,7 +16,7 @@
  * (a launcher that failed to open a browser must not leave a zombie); after
  * that, the regular grace applies.
  */
-import type { Logger } from './config.ts';
+import { scoped, type Logger } from './config.ts';
 
 /** Grace after the last client disconnects. Env override: AI_SM_GRACE_MS. */
 export const DEFAULT_GRACE_MS = 30_000;
@@ -45,6 +45,8 @@ export interface LifecycleOptions {
 
 export class LifecycleController {
   readonly #graceMs: number;
+  /** `[lifecycle] …`-tagged view of the same logger, for the count transitions. */
+  #llog: Logger = () => undefined;
   readonly #startupGraceMs: number;
   readonly #onIdleShutdown: () => void;
   readonly #log: Logger;
@@ -57,6 +59,7 @@ export class LifecycleController {
   constructor(opts: LifecycleOptions) {
     this.#onIdleShutdown = opts.onIdleShutdown;
     this.#log = opts.log;
+    this.#llog = scoped(opts.log, 'lifecycle');
     this.#graceMs = opts.graceMs ?? envMs('AI_SM_GRACE_MS', DEFAULT_GRACE_MS, opts.log);
     this.#startupGraceMs =
       opts.startupGraceMs ?? envMs('AI_SM_STARTUP_GRACE_MS', DEFAULT_STARTUP_GRACE_MS, opts.log);
@@ -72,37 +75,59 @@ export class LifecycleController {
 
   /** Call once the server is listening: opens the startup grace window. */
   start(): void {
+    this.#llog(
+      'debug',
+      `started: grace ${this.#graceMs}ms, startup grace ${this.#startupGraceMs}ms`,
+    );
     this.#evaluate();
   }
 
   presenceConnected(): void {
     this.#everHadPresence = true;
     this.#presenceCount += 1;
+    this.#transition('presence connected');
     this.#evaluate();
   }
 
   presenceDisconnected(): void {
     this.#presenceCount = Math.max(0, this.#presenceCount - 1);
+    this.#transition('presence disconnected');
     this.#evaluate();
   }
 
   sessionAttached(): void {
     this.#attachedCount += 1;
+    this.#transition('session attached');
     this.#evaluate();
   }
 
   sessionDetached(): void {
     this.#attachedCount = Math.max(0, this.#attachedCount - 1);
+    this.#transition('session detached');
     this.#evaluate();
   }
 
   /** Permanently cancel timers (a shutdown is already in progress). */
   stop(): void {
     this.#stopped = true;
+    this.#llog(
+      'debug',
+      `stopped (timer ${this.#timer === null ? 'was not armed' : 'cancelled'}, ` +
+        `presence=${this.#presenceCount}, attached=${this.#attachedCount})`,
+    );
     if (this.#timer !== null) {
       clearTimeout(this.#timer);
       this.#timer = null;
     }
+  }
+
+  /** Every count change, whether or not it moves the timer. */
+  #transition(what: string): void {
+    this.#llog(
+      'debug',
+      `${what}: presence=${this.#presenceCount}, attached=${this.#attachedCount}` +
+        `${this.#timer === null ? '' : ', shutdown timer currently armed'}`,
+    );
   }
 
   #evaluate(): void {

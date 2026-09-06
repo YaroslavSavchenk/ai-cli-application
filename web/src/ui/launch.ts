@@ -32,6 +32,7 @@
  */
 import * as api from '../api.ts';
 import * as st from '../state.ts';
+import { log } from '../log.ts';
 import { el, button, trapTab } from './util.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
 import {
@@ -296,8 +297,15 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
    */
   function currentSpawn(): SpawnSpec | null {
     if (customMode) return parseCustomCommand(cmdInput.value);
-    const effort: Effort = isEffort(effortSel.value) ? effortSel.value : 'default';
-    return { command: 'claude', args: composeArgs(modelSel.value, perm, continueLast, effort) };
+    return {
+      command: 'claude',
+      args: composeArgs(modelSel.value, perm, continueLast, currentEffort()),
+    };
+  }
+
+  /** The selected effort, resolved in ONE place: the argv and the log line agree. */
+  function currentEffort(): Effort {
+    return isEffort(effortSel.value) ? effortSel.value : 'default';
   }
 
   projectSel.addEventListener('change', () => {
@@ -326,6 +334,17 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       cmdInput.focus();
       return;
     }
+    // What the user asked for, in SHAPE only: the custom command line is
+    // whatever they typed and never reaches a log line — only how many words
+    // it had. The project appears by NAME, never by path.
+    const effort = currentEffort();
+    const projectLabel = st.state.projects.find((p) => p.id === projectId)?.name ?? '?';
+    log.info(
+      customMode
+        ? `launch: project=${projectLabel} custom=yes words=${spawn.args.length + 1}`
+        : `launch: project=${projectLabel} custom=no model=${modelSel.value} effort=${effort} ` +
+          `mode=${perm} continue=${continueLast}`,
+    );
     // Sized to the focused pane as a starting hint; the attach flow
     // reconciles the PTY with the new tab's real dimensions (same contract
     // as a history resume).
@@ -341,11 +360,13 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
         cols: dims.cols,
         rows: dims.rows,
       });
+      log.info(`launch ok: session=${info.id} name=${title !== '' ? 'given' : 'project default'}`);
       st.upsertSession(info); // gives the session its own (new) tab
       st.focusSession(info.id); // ... and makes that tab active + focused
       close();
       requestTerminalFocus();
     } catch (e) {
+      log.warn(`launch failed: ${e instanceof Error ? e.message : String(e)}`);
       showErr(e instanceof Error ? e.message : String(e));
     } finally {
       go.disabled = st.state.projects.length === 0;

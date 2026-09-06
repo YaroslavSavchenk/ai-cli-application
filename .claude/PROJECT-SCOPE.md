@@ -38,7 +38,11 @@ and multi-pane layouts on top.
   Manual `-Stop` remains as an override. Added 2026-07-19: the presence
   channel answers `ping`/`pong` (latency; inbound frames capped 1 KiB,
   zero lifecycle effect) and authed `GET /api/runtime` exposes
-  `startedAt` (uptime) — both feeding the statusline.
+  `startedAt` (uptime) — both feeding the statusline. Added 2026-09-06:
+  `GET /api/runtime` also returns `serverCommit` (short git hash of the
+  running backend, or null) and `webBuild` (the `assets/index-*.js` it is
+  serving, or null); the UI's boot log line prints both beside its own
+  `__BUILD_ID__` so a stale backend is visible in the log.
 - **Session history with real per-conversation resume — decided and shipped
   2026-09-06, user's call** (reverses the 2026-07-19 "per-id `--resume` is a
   fiction" cut; rationale in `memory/decisions/session-history-resume.md`).
@@ -63,6 +67,47 @@ and multi-pane layouts on top.
   folder) and its button reads "start again". A client-supplied
   `--session-id <uuid>` / `--resume <uuid>` (custom command) is adopted as
   the key. Blank session name → title = project name.
+- **Logging: everything, by default — decided and shipped 2026-09-06,
+  user's call** ("log everything"; trigger: the new UI ran against a stale
+  backend, `/api/history` 404'd silently and nothing in the log said so).
+  `server.log` in the data dir is the backend's ONLY diagnostic channel
+  (detached process, stdio on /dev/null). One line per event,
+  `<ISO> [level] [component] message`, levels `debug|info|warn|error`,
+  minimum from env `AI_SM_LOG_LEVEL` (**default `debug`**). Logged: boot
+  banner (node, pid, data dir, level, every set `AI_SM_*` override —
+  redacted by name pattern and when a URL carries userinfo — server commit,
+  frontend build), every HTTP request (method, pathname cut at 256 chars,
+  `?…` for a query — never its values — status, ms, bytes), every WS
+  upgrade/attach/detach/resize, session lifecycle, history load/list/prune
+  decisions, lifecycle count transitions, store load/save, errors with
+  stacks. Terminal input and PTY output are byte COUNTS summarized at most
+  once per second per session — never content. Never written: the app
+  token, the GitHub token, request/response bodies, `Authorization`,
+  query-string values, PTY bytes; the generic request-failure line prints
+  the error class and stack frames only, never the message (Node quotes ~10
+  chars of a request body in `JSON.parse` errors — measured leak lesson of
+  2026-07-25). The browser ships its own lines (errors, unhandled
+  rejections, every API call as `path ?…` + status, WS open/close/reconnect,
+  UI actions as SHAPE — never raw custom command text) through
+  **`POST /api/client-log`** (token + Origin/Host like every route; body
+  ≤ 64 KiB → 413, ≤ 50 entries, message ≤ 2048 chars truncated, C0/C1/U+2028/9
+  stripped so one entry = one line, global 200 entries/min then dropped with
+  one warn per window; tagged `[client]`). Anti-flood, because any web page
+  can hit the port unauthenticated (a no-cors GET carries no Origin):
+  lines for requests that did not carry a valid token — `/health`, the page
+  and its assets, 401/403, a 404 on a mistyped route, rejected upgrades —
+  share ONE budget of 60 log lines/min (one limiter instance for HTTP and
+  WS), then one suppression count per window; a request that carried the
+  token is never metered, whatever it answered (a token-bearing 404 on
+  `/api/history` — the stale-backend symptom — is always written). Known
+  limit: a page load spends ~6 unauthenticated slots, so ~10 reloads in a
+  minute exhaust the window for that minute.
+  Metering on STATUS (4xx only) was the first cut — review showed an
+  unauthenticated `/health` flood still wiped the log in minutes.
+  Rotation 10 MiB → `server.log.1` → `.2` (≤ 30 MiB, all 0600); if the
+  rename fails the live file is truncated so logging never stops. 0600 is
+  hygiene only — the Windows user reads every WSL file — so "never write the
+  secret" is the actual control.
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;

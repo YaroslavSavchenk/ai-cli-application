@@ -17,6 +17,7 @@
  * what to re-render.
  */
 import type { HistoryEntry, Project, SessionInfo } from '../../shared/protocol.ts';
+import { log } from './log.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -541,6 +542,7 @@ export function viewLayout(v: ViewState): Layout {
 /** Structural tab close (no killing — callers kill sessions first if asked to). */
 export function closeView(id: string): void {
   if (!state.views.some((v) => v.id === id)) return;
+  log.debug(`tab closed: view=${id}`);
   dissolveView(id);
   saveUi();
   notify('ui');
@@ -548,6 +550,7 @@ export function closeView(id: string): void {
 
 export function setActiveView(id: string): void {
   if (state.activeViewId !== id && state.views.some((v) => v.id === id)) {
+    log.debug(`tab active: view=${id}`);
     state.activeViewId = id;
     saveUi();
     notify('ui');
@@ -608,6 +611,7 @@ export function mergeViews(targetId: string, sourceId: string, slot: number, zon
   dissolveView(source.id);
   insertSessions(target, slot, zone, ids);
   if (state.activeViewId === sourceId) state.activeViewId = target.id;
+  log.debug(`split merge: view=${target.id} panes=${target.sessions.length} (absorbed view=${sourceId})`);
   saveUi();
   notify('ui');
   return 'ok';
@@ -630,6 +634,7 @@ export function moveSessionToView(sessionId: string, targetId: string): MergeRes
   if (sourceWasActive && !state.views.some((v) => v.id === state.activeViewId)) {
     state.activeViewId = target.id;
   }
+  log.debug(`split move: session=${sessionId} into view=${target.id} panes=${target.sessions.length}`);
   saveUi();
   notify('ui');
   return 'ok';
@@ -647,6 +652,7 @@ export function extractSession(sessionId: string, atIndex?: number): void {
   const nv = newSessionView(sessionId);
   const idx = atIndex ?? state.views.findIndex((x) => x.id === v.id) + 1;
   state.views.splice(Math.min(Math.max(0, idx), state.views.length), 0, nv);
+  log.debug(`split extract: session=${sessionId} left view=${v.id} into its own tab`);
   saveUi();
   notify('ui');
 }

@@ -23,6 +23,7 @@
  */
 import type { SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
+import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { commandLabel } from './sessions.ts';
@@ -214,7 +215,12 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
    */
   function persist(): void {
     writes++;
-    void api.updatePrefs(statusLinePatch(getStatusLine()), DEAD_PREFS_KEYS).catch(() => {
+    const cfg = getStatusLine();
+    log.debug(
+      `prefs statusLine: enabled=${cfg.enabled} ` +
+        ITEM_ROWS.map((r) => `${r.key}=${cfg[r.key]}`).join(' '),
+    );
+    void api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS).catch(() => {
       // Non-fatal by design — nothing user-facing to say about it.
     });
   }

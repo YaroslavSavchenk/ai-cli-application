@@ -311,6 +311,51 @@ export interface HealthResponse {
 export interface RuntimeStatusResponse {
   /** ISO-8601 timestamp. */
   startedAt: string;
+  /**
+   * Short git hash of the server code this process is RUNNING (not the code on
+   * disk now), or null when it could not be read. Added 2026-09-06 so a stale
+   * backend is identifiable from the UI as well as from the boot banner in
+   * server.log.
+   */
+  serverCommit: string | null;
+  /**
+   * The hashed frontend entry bundle this backend SERVES, e.g.
+   * `assets/index-Br1e6z0Q.js`, or null when web/dist is absent/unbuilt.
+   * Compare with the bundle the page actually loaded to spot a stale process.
+   */
+  webBuild: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Client log shipping (POST /api/client-log)
+// ---------------------------------------------------------------------------
+//
+// The browser is only a view, but its failures are invisible in server.log —
+// which is the ONLY diagnostic channel a detached backend has. The frontend
+// batches its own log lines here and the server writes each one as
+// `[client] <message>` at the entry's level, with the client's timestamp
+// appended so clock skew is visible.
+//
+// Server-side limits (server/api.ts): 64 KiB body (413 beyond), 50 entries per
+// request (the rest are dropped), `message` truncated to 2048 characters and
+// stripped of control characters, an unknown `level` becomes 'info', an invalid
+// `at` becomes server time, and ≥200 entries/minute across all clients are
+// dropped. Answers 204.
+//
+// NEVER put anything sensitive in `message`: it lands in server.log verbatim.
+
+/** Severity of one client log entry; anything else is treated as 'info'. */
+export type ClientLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface ClientLogEntry {
+  level: ClientLogLevel;
+  /** ISO-8601 timestamp taken on the CLIENT. */
+  at: string;
+  message: string;
+}
+
+export interface ClientLogRequest {
+  entries: ClientLogEntry[];
 }
 
 // ---------------------------------------------------------------------------

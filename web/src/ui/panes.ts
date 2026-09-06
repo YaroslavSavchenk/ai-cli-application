@@ -21,6 +21,7 @@
 import type { CreateSessionRequest, SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
+import { log } from '../log.ts';
 import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
 import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
@@ -484,14 +485,17 @@ function createSessionSlot(index: number): Slot {
 
 /** DELETE a session; its view slot closes everywhere (drawer + tab close reuse this). */
 export async function killSession(id: string): Promise<void> {
+  log.info(`kill session ${id}`);
   try {
     await api.deleteSession(id);
     st.removeSessionEverywhere(id);
   } catch (err) {
     if (err instanceof api.ApiError && err.status === 404) {
+      log.info(`kill session ${id}: already gone server-side`);
       st.removeSessionEverywhere(id);
       return;
     }
+    log.warn(`kill failed: session=${id} ${err instanceof Error ? err.message : String(err)}`);
     flash(`kill failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -611,6 +615,9 @@ async function relaunch(s: Slot): Promise<void> {
       entry !== undefined
         ? await api.resumeHistory(entry.id, { cols: info.cols, rows: info.rows })
         : await api.createSession(req);
+    log.info(
+      `relaunch ok: old=${oldId} new=${created.id} via=${entry !== undefined ? 'history entry ' + entry.id : 'fresh session'}`,
+    );
     st.upsertSession(created);
     st.replaceSessionInView(viewId, index, created.id);
     if (st.state.activeViewId === viewId) {
@@ -618,6 +625,7 @@ async function relaunch(s: Slot): Promise<void> {
       requestTerminalFocus();
     }
   } catch (err) {
+    log.warn(`relaunch failed: old=${oldId} ${err instanceof Error ? err.message : String(err)}`);
     flash(`relaunch failed: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }

@@ -29,10 +29,17 @@ import type { RuntimeInfo } from '../shared/protocol.ts';
 import {
   resolveDataPaths,
   resolveGithubApiBase,
+  resolveLogLevel,
   createLogger,
+  scoped,
+  describeError,
   atomicWriteFile,
+  createRefusalLimiter,
+  oneLine,
+  MAX_LOG_BYTES,
   DEFAULT_GITHUB_API_BASE,
 } from './config.ts';
+import { readServerCommit, readWebBuild, mtimeOf } from './buildinfo.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
@@ -45,10 +52,70 @@ import { createRequestHandler } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
 
 const paths = resolveDataPaths();
-const log = createLogger(paths.logFile);
+const logLevel = resolveLogLevel();
+const log = createLogger(paths.logFile, logLevel.level);
 const token = generateToken();
 const serverDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(serverDir, '..');
 const webDistDir = join(serverDir, '..', 'web', 'dist');
+
+// ---------------------------------------------------------------------------
+// Boot banner. The first lines of every run answer "which code is this?" —
+// server commit, server/index.ts mtime, frontend bundle, data dir, log level,
+// and every AI_SM_* override in effect. Motivated by a real incident
+// (2026-09-06): a freshly built UI talking to a backend started before the
+// feature existed showed an empty HISTORY section, and the log gave the user
+// nothing to go on. NO SECRET goes in here: token-shaped env values are
+// redacted by name and the auth token is never printed at all.
+// ---------------------------------------------------------------------------
+const boot = scoped(log, 'boot');
+/** Env names whose VALUE is never logged, whatever else they are. */
+const SECRETISH_ENV = /TOKEN|SECRET|PASSWORD|PASSWD|KEY|CRED|AUTH/i;
+/**
+ * A URL with USERINFO (`scheme://user:password@host`). Measured, not
+ * hypothetical: AI_SM_GITHUB_API_BASE is a URL and the server's own refusal
+ * path deliberately declines to echo it for exactly this reason
+ * (assertLoopbackApiBase). The banner must not undo that.
+ */
+const URL_WITH_USERINFO = /\/\/[^/\s@]*:[^/\s@]*@/;
+
+/** The value as it may be logged: redacted whenever it could carry a secret. */
+function envValueForLog(name: string, raw: string): string {
+  if (SECRETISH_ENV.test(name)) return '<redacted by name>';
+  if (URL_WITH_USERINFO.test(raw)) return '<redacted: embeds credentials>';
+  return JSON.stringify(oneLine(raw));
+}
+const serverCommit = readServerCommit(repoRoot);
+const webBuild = readWebBuild(webDistDir);
+
+boot('info', `ai-cli-application backend starting (node ${process.version}, pid ${process.pid})`);
+boot('info', `data dir ${paths.dataDir}`);
+boot(
+  'info',
+  `log level ${logLevel.level} (AI_SM_LOG_LEVEL ${
+    logLevel.raw === undefined ? 'unset, default' : `= ${JSON.stringify(oneLine(logLevel.raw))}`
+  }${logLevel.valid ? '' : ' — unrecognized, using the default'}), rotation at ${MAX_LOG_BYTES} bytes, 2 kept generations`,
+);
+// SET means non-empty: every consumer in this codebase (resolveDataPaths,
+// resolveGithubApiBase, envMs) treats '' as unset, so an empty value is not an
+// override and must not be reported as one.
+for (const name of Object.keys(process.env).filter((n) => n.startsWith('AI_SM_')).sort()) {
+  const raw = process.env[name] ?? '';
+  if (raw === '') continue;
+  boot('info', `env ${name}=${envValueForLog(name, raw)}`);
+}
+boot(
+  'info',
+  `server code ${serverCommit ?? 'commit unknown'} (server/index.ts mtime ${
+    mtimeOf(join(serverDir, 'index.ts')) ?? 'unknown'
+  })`,
+);
+boot(
+  'info',
+  webBuild.indexMtime === null
+    ? 'web build: web/dist missing — the UI will not be served'
+    : `web build ${webBuild.asset ?? 'no assets/index-*.js'} (web/dist/index.html mtime ${webBuild.indexMtime})`,
+);
 
 const projects = new ProjectStore(paths.projectsFile, log);
 const prefs = new PrefsStore(paths.prefsFile, log);
@@ -119,6 +186,15 @@ const getPort = (): number => port;
 let startedAt = '';
 const getStartedAt = (): string => startedAt;
 
+/**
+ * ONE budget for every log line an UNAUTHENTICATED caller can cause, shared by
+ * the HTTP access log and the WebSocket upgrade reject — two instances would
+ * silently double the ceiling the README documents.
+ */
+// Scoped `log`, not `http`: the one budget covers HTTP refusals AND rejected
+// WebSocket upgrades, so its suppression lines must not point at one surface.
+const allowRefusalLine = createRefusalLimiter(scoped(log, 'log'));
+
 const server = createServer(
   createRequestHandler({
     token,
@@ -130,10 +206,16 @@ const server = createServer(
     history,
     github,
     webDistDir,
+    serverCommit,
+    webAsset: webBuild.asset,
     log,
+    allowRefusalLine,
   }),
 );
-server.on('upgrade', createUpgradeHandler({ token, getPort, sessions, lifecycle, log }));
+server.on(
+  'upgrade',
+  createUpgradeHandler({ token, getPort, sessions, lifecycle, log, allowRefusalLine }),
+);
 
 server.listen(0, '127.0.0.1', () => {
   const addr = server.address();
@@ -152,7 +234,7 @@ server.listen(0, '127.0.0.1', () => {
   try {
     atomicWriteFile(paths.runtimeFile, JSON.stringify(runtime, null, 2) + '\n');
   } catch (err) {
-    log('error', `failed to write ${paths.runtimeFile}: ${String(err)}`);
+    log('error', `failed to write ${paths.runtimeFile}: ${describeError(err)}`);
     process.exit(1);
   }
   log('info', `listening on 127.0.0.1:${port} (pid ${process.pid}, data dir ${paths.dataDir})`);
@@ -160,7 +242,7 @@ server.listen(0, '127.0.0.1', () => {
 });
 
 server.on('error', (err) => {
-  log('error', `server error: ${String(err)}`);
+  log('error', `server error: ${describeError(err)}`);
   process.exit(1);
 });
 
@@ -168,7 +250,14 @@ let shuttingDown = false;
 function shutdown(cause: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
-  log('info', `received ${cause}, shutting down`);
+  // ONE line. The `received <cause>, shutting down` wording is pinned by tests
+  // and by habit, so the counts are appended to it rather than duplicated into
+  // a second, hand-prefixed line.
+  log(
+    'info',
+    `received ${cause}, shutting down: sessions=${sessions.list().length} ` +
+      `presence=${lifecycle.presenceCount} attached=${lifecycle.attachedCount}`,
+  );
   lifecycle.stop();
   // History first (crash safety), then kill: destroy()'s 'user-kill' and the
   // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
@@ -188,8 +277,14 @@ function shutdown(cause: string): void {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+process.on('unhandledRejection', (reason) => {
+  // Logged, never fatal: a rejected promise somewhere must not take running
+  // PTY sessions down, but it must be diagnosable from server.log alone.
+  log('error', `unhandled promise rejection: ${describeError(reason)}`);
+});
+
 process.on('uncaughtException', (err) => {
-  log('error', `uncaught exception: ${err.stack ?? String(err)}`);
+  log('error', `uncaught exception: ${describeError(err)}`);
   try {
     unlinkSync(paths.runtimeFile);
   } catch {

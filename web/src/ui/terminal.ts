@@ -18,6 +18,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import type { SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
+import { log } from '../log.ts';
 
 const SCROLLBACK_LINES = 5000;
 const RESIZE_DEBOUNCE_MS = 75;
@@ -88,6 +89,8 @@ export class TerminalView {
   #webgl: WebglAddon | null = null;
   #socket: SessionSocket | null = null;
   #events: TerminalEvents | null = null;
+  /** Log identity only — the socket owns the real attachment. */
+  #sessionId: string | null = null;
   /** True while a replay frame is being written into the terminal. */
   #replaying = false;
   readonly #container: HTMLElement;
@@ -167,6 +170,7 @@ export class TerminalView {
 
   connect(sessionId: string, events: TerminalEvents): void {
     if (this.#socket !== null) return;
+    this.#sessionId = sessionId;
     this.#events = events;
     this.term.onData((data: string) => {
       // While a replay is being processed, xterm re-answers any terminal
@@ -199,6 +203,9 @@ export class TerminalView {
           session.status === 'running' &&
           (session.cols !== this.term.cols || session.rows !== this.term.rows)
         ) {
+          log.debug(
+            `resize ${sessionId} → ${this.term.cols}x${this.term.rows} (reconcile: pty had ${session.cols}x${session.rows})`,
+          );
           this.#socket?.sendResize(this.term.cols, this.term.rows);
           events.onDims(this.term.cols, this.term.rows);
         }
@@ -207,6 +214,7 @@ export class TerminalView {
       onAttention: () => events.onAttention(),
       onConn: (state) => events.onConn(state),
     };
+    log.debug(`attach ${sessionId} at ${this.term.cols}x${this.term.rows}`);
     this.#socket = new SessionSocket(sessionId, handlers);
   }
 
@@ -229,6 +237,11 @@ export class TerminalView {
       return;
     }
     if (report && (this.term.cols !== beforeCols || this.term.rows !== beforeRows)) {
+      // Only on a REAL change (the guard above), so a drag costs one line at
+      // the end of its debounce — not one per frame.
+      log.debug(
+        `resize ${this.#sessionId ?? '-'} → ${this.term.cols}x${this.term.rows} (was ${beforeCols}x${beforeRows})`,
+      );
       this.#socket?.sendResize(this.term.cols, this.term.rows);
       this.#events?.onDims(this.term.cols, this.term.rows);
     }

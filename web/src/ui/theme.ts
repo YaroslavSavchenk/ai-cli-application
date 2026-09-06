@@ -32,6 +32,7 @@ import { el, button } from './util.ts';
 import { refreshAllTerminalThemes } from './terminal.ts';
 import type { UiPrefs, UiTheme } from '../../../shared/protocol.ts';
 import { updatePrefs } from '../api.ts';
+import { log } from '../log.ts';
 import {
   GROUNDS,
   RAMPS,
@@ -135,6 +136,7 @@ export function initTheme(
   function persist(): void {
     saveState(state);
     const theme: UiTheme = { bg: state.bg, fg: state.fg, scan: state.scan };
+    log.debug(`theme: bg=${theme.bg} fg=${theme.fg} scan=${theme.scan}`);
     void updatePrefs({ theme }).catch(() => {
       // Non-fatal: localStorage already holds the value; the server copy just
       // falls behind until the next successful write.

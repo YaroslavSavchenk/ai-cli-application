@@ -71,7 +71,26 @@ path):
 - `statusline-cache.json` — the status line's git-branch cache, user-only
   readable (mode 0600), written by the script Claude Code runs and keyed by its
   session id; deleted at boot
-- `server.log` — backend log (rotated to `server.log.1` at 5 MiB)
+- `server.log` — backend log: one line per event, `<ISO> [level] [component]
+  message`, at `debug`/`info`/`warn`/`error`. **Everything is logged by
+  default** — boot banner (node version, pid, data dir, effective log level,
+  every `AI_SM_*` override, the server commit and the frontend bundle being
+  served), every HTTP request, every WebSocket upgrade/attach/resize, session
+  lifecycle, history decisions, and the browser's own lines shipped through
+  `POST /api/client-log` (tagged `[client]`). Minimum level: `AI_SM_LOG_LEVEL`
+  (`debug|info|warn|error`, default `debug`). Rotated at 10 MiB through two
+  generations (`server.log.1`, `server.log.2`), so at most ~30 MiB on disk; if
+  the rename cannot happen (something is in the way of `server.log.1`) the live
+  file is truncated instead, so logging never stops. Two anti-flood limits, since
+  any web page on the machine can send unauthenticated requests to the port: a
+  logged request path is cut at 256 characters, and **unauthenticated requests
+  and rejected upgrades share a budget of 60 log lines per minute**, after which
+  the file says how many it suppressed. The budget keys on the auth token, not
+  on the status code, so `/health` and the page itself are metered too — and a
+  request that carried the token is never metered, whatever it answered.
+  Terminal input and PTY output are summarized once a second as byte counts. Secrets are never written to it: not the auth
+  token, the GitHub token, request bodies, `Authorization` headers,
+  query-string values, or PTY input/output
 
 ## GitHub connection
 

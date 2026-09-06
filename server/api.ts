@@ -9,11 +9,23 @@
  * The auth token reaches the UI by serve-time injection: web/dist/index.html
  * contains the literal placeholder __AUTH_TOKEN__ which is replaced when
  * serving / (the injected page is never cacheable).
+ *
+ * ACCESS LOG (2026-09-06): every request writes ONE line on completion —
+ * method, pathname, status, duration, response bytes, and for 4xx/5xx the
+ * constant refusal sentence. Never the query string's values (only `?…`),
+ * never a body, never a header, never the token. /assets/* logs at debug.
+ *
+ * POST /api/client-log ships the BROWSER's own log lines into server.log
+ * (`[client] …`), because the page's console dies with the tab while
+ * server.log is the only channel a detached backend has. Limits and
+ * normalization rules live with writeClientLog() below.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type {
+  ClientLogEntry,
+  ClientLogRequest,
   CloneProjectRequest,
   CreateProjectRequest,
   CreateSessionRequest,
@@ -35,7 +47,18 @@ import { resumeSpawn } from './conversation.ts';
 import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
-import type { Logger } from './config.ts';
+import {
+  createWindowLimiter,
+  describeError,
+  errorClass,
+  errorFrames,
+  oneLine,
+  scoped,
+  LOG_LEVELS,
+  MAX_LOGGED_ROUTE_CHARS,
+  type LogLevel,
+  type Logger,
+} from './config.ts';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_TERM_DIM = 1000;
@@ -52,6 +75,17 @@ export const GITHUB_REPO_NAME_MAX = 200;
 export const GITHUB_TOKEN_MAX_BYTES = 4096;
 /** Bound on the pasted token itself (mirrors github.ts MAX_PASTED_TOKEN_LEN). */
 export const GITHUB_TOKEN_MAX_CHARS = 1024;
+
+// --- POST /api/client-log limits (the contract the frontend codes against) ---
+/** Read cap on the batch body; anything larger is 413 before it is parsed. */
+export const CLIENT_LOG_MAX_BYTES = 64 * 1024;
+/** Entries accepted per request; the remainder of a longer batch is dropped. */
+export const CLIENT_LOG_MAX_ENTRIES = 50;
+/** Per-entry message cap, in characters. Longer messages are TRUNCATED, not rejected. */
+export const CLIENT_LOG_MAX_MESSAGE = 2048;
+/** Entries per minute across ALL clients; past this they are dropped (one warn/min). */
+export const CLIENT_LOG_MAX_PER_MINUTE = 200;
+// Window length: the shared LOG_WINDOW_MS default of createWindowLimiter.
 
 /** Anti-framing headers: the authenticated UI must never be embeddable cross-origin. */
 const FRAME_PROTECTION_HEADERS = {
@@ -82,15 +116,44 @@ export interface ApiDeps {
   history: SessionHistory;
   github: GithubConnection;
   webDistDir: string;
+  /** Short git hash of the running server code, or null (GET /api/runtime). */
+  serverCommit?: string | null;
+  /** Hashed frontend entry bundle being served, or null (GET /api/runtime). */
+  webAsset?: string | null;
   log: Logger;
+  /**
+   * The budget for UNAUTHENTICATED log lines, SHARED with the WebSocket upgrade
+   * handler (constructed in server/index.ts). One instance, so the ceiling the
+   * README states is the ceiling that holds — two independent limiters would
+   * silently double it.
+   */
+  allowRefusalLine: () => boolean;
+  /** Clock SEAM for the client-log budget window; tests inject one. */
+  now?: () => number;
 }
 
+/**
+ * Bytes and failure reason of a response, recorded where the body is produced
+ * so the access log can report them without monkey-patching res.end.
+ *
+ * The reason is ONLY ever a sendError message, and every one of those is a
+ * CONSTANT string in this file (or a constant sentence from GithubError /
+ * ScaffoldError / FsBrowseError). Nothing derived from a request body, a query
+ * string or a credential is ever stored here — that is the whole reason this is
+ * a separate channel instead of "log whatever the handler threw".
+ */
+const responseBytes = new WeakMap<ServerResponse, number>();
+const responseReason = new WeakMap<ServerResponse, string>();
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  const text = JSON.stringify(body);
+  responseBytes.set(res, Buffer.byteLength(text));
   res.writeHead(status, { 'content-type': 'application/json' });
-  res.end(JSON.stringify(body));
+  res.end(text);
 }
 
 function sendError(res: ServerResponse, status: number, message: string): void {
+  responseReason.set(res, message);
   sendJson(res, status, { error: message });
 }
 
@@ -183,6 +246,81 @@ export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
   const { token, projects, prefs, sessions, history, github, webDistDir, log } = deps;
+  const httpLog = scoped(log, 'http');
+  const clientLog = scoped(log, 'client');
+
+  // Global (all clients) client-log budget: a fixed window, so a runaway page
+  // cannot fill the disk. The SAME window machinery the access log uses — one
+  // policy, one implementation. State lives with the handler, not a request.
+  const allowClientEntry = createWindowLimiter({
+    log: clientLog,
+    max: CLIENT_LOG_MAX_PER_MINUTE,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+    exceeded: (max) =>
+      `rate limit reached (${max} entries/minute); ` +
+      'further client entries are dropped until the window resets',
+    summary: (n) => `suppressed ${n} client log entr(ies) in the last window`,
+  });
+
+  // Budget for UNAUTHENTICATED log lines, shared with the ws upgrade handler.
+  const allowRefusalLine = deps.allowRefusalLine;
+
+  /**
+   * Responses whose request PASSED the token check. Metering is decided on
+   * TRUST, not on status: an unauthenticated 200 (`/health`, `/`, a static
+   * asset) is just as much a disk-filling primitive as an unauthenticated 404,
+   * and an authenticated 4xx is a real diagnostic that must never be dropped.
+   */
+  const authenticated = new WeakSet<ServerResponse>();
+
+  /** May this response's log line be written? Authenticated: always. */
+  const mayLog = (res: ServerResponse): boolean =>
+    authenticated.has(res) || allowRefusalLine();
+
+  /**
+   * Write one batch of browser log entries into server.log as `[client] …`.
+   *
+   * Every value here is UNTRUSTED and is normalized rather than refused:
+   *   - an unknown/missing `level` becomes 'info';
+   *   - an unparsable `at` becomes server time, and a valid one is re-rendered
+   *     from Date (so only an ISO string we produced is ever printed) and shown
+   *     alongside the server timestamp, which makes clock skew visible;
+   *   - `message` is stripped of control characters — a newline would otherwise
+   *     forge a second, fully-shaped log line — then truncated to
+   *     CLIENT_LOG_MAX_MESSAGE characters;
+   *   - past CLIENT_LOG_MAX_ENTRIES the rest of the batch is dropped;
+   *   - past CLIENT_LOG_MAX_PER_MINUTE entries in the current minute everything
+   *     is dropped, with exactly ONE warn line per window.
+   */
+  function writeClientLog(entries: unknown[]): void {
+    const accepted = entries.slice(0, CLIENT_LOG_MAX_ENTRIES);
+    if (entries.length > accepted.length) {
+      clientLog(
+        'debug',
+        `batch of ${entries.length} entries truncated to ${CLIENT_LOG_MAX_ENTRIES}`,
+      );
+    }
+    for (const raw of accepted) {
+      if (!allowClientEntry()) continue;
+      const entry = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<ClientLogEntry>;
+      const level: LogLevel =
+        typeof entry.level === 'string' && (LOG_LEVELS as readonly string[]).includes(entry.level)
+          ? (entry.level as LogLevel)
+          : 'info';
+      const message = oneLine(typeof entry.message === 'string' ? entry.message : '').slice(
+        0,
+        CLIENT_LOG_MAX_MESSAGE,
+      );
+      let at = new Date().toISOString();
+      if (typeof entry.at === 'string' && entry.at.length <= 64) {
+        const parsed = Date.parse(entry.at);
+        // Re-rendered from the parsed value: only an ISO string WE produced is
+        // ever written, so the field cannot smuggle anything into the line.
+        if (!Number.isNaN(parsed)) at = new Date(parsed).toISOString();
+      }
+      clientLog(level, `${message} (client at ${at})`);
+    }
+  }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const port = deps.getPort();
@@ -214,6 +352,8 @@ export function createRequestHandler(
         sendError(res, 401, 'unauthorized');
         return;
       }
+      // From here the caller holds the token: its log lines are never metered.
+      authenticated.add(res);
       await handleApi(method, pathname, url, req, res);
       return;
     }
@@ -236,12 +376,59 @@ export function createRequestHandler(
     // --- Runtime status -----------------------------------------------------
     if (pathname === '/api/runtime') {
       if (method === 'GET') {
-        // startedAt ONLY — port/token/pid stay out of the browser-facing API.
-        const body: RuntimeStatusResponse = { startedAt: deps.getStartedAt() };
+        // startedAt + build identity ONLY — port/token/pid stay out of the
+        // browser-facing API. The two build fields exist so the UI can tell it
+        // is talking to a STALE backend (2026-09-06 incident); they are public
+        // build metadata, not secrets.
+        const body: RuntimeStatusResponse = {
+          startedAt: deps.getStartedAt(),
+          serverCommit: deps.serverCommit ?? null,
+          webBuild: deps.webAsset ?? null,
+        };
         sendJson(res, 200, body);
         return;
       }
       sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Client log shipping ------------------------------------------------
+    //
+    // The browser is only a view, and its console dies with the tab; server.log
+    // is the only diagnostic channel that survives. This route lets the UI ship
+    // its own lines into it, tagged `[client]`.
+    //
+    // SECURITY / ABUSE, all enforced below: token auth + Host/Origin parity
+    // (inherited from the gate above — any web page can reach this port), a
+    // 64 KiB read cap, 50 entries per request, a 2048-character message cap, a
+    // 200-entries-per-minute global budget, and control-character stripping so a
+    // newline in a message can never forge a second, fake log line.
+    if (pathname === '/api/client-log') {
+      if (method !== 'POST') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      // Read wrapped: a malformed batch must not reach a logger that would
+      // quote its bytes (same rule as /api/github/token).
+      const read = await readJsonBodySafe(req, CLIENT_LOG_MAX_BYTES);
+      if (!read.ok) {
+        if (read.reason === 'too-large') sendError(res, 413, 'request body is too large');
+        else sendError(res, 400, 'invalid JSON body');
+        return;
+      }
+      const body = read.value;
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        sendError(res, 400, 'invalid JSON body');
+        return;
+      }
+      const entries = (body as Partial<ClientLogRequest>).entries;
+      if (!Array.isArray(entries)) {
+        sendError(res, 400, 'entries must be an array');
+        return;
+      }
+      writeClientLog(entries);
+      res.writeHead(204);
+      res.end();
       return;
     }
 
@@ -576,7 +763,7 @@ export function createRequestHandler(
             if (err instanceof ScaffoldError) {
               sendError(res, err.status, err.message);
             } else {
-              log('error', `createLocalDir failed: ${String(err)}`);
+              log('error', `createLocalDir failed: ${describeError(err)}`);
               sendError(res, 500, 'failed to create project directory');
             }
             return;
@@ -672,6 +859,7 @@ export function createRequestHandler(
           if (err instanceof FsBrowseError) {
             sendError(res, err.status, err.message);
           } else {
+            log('error', `fs list failed: ${describeError(err)}`);
             sendError(res, 500, 'failed to list directory');
           }
         }
@@ -699,7 +887,7 @@ export function createRequestHandler(
           if (err instanceof FsBrowseError) {
             sendError(res, err.status, err.message);
           } else {
-            log('error', `mkdir failed: ${String(err)}`);
+            log('error', `mkdir failed: ${describeError(err)}`);
             sendError(res, 500, 'failed to create directory');
           }
         }
@@ -783,7 +971,7 @@ export function createRequestHandler(
           });
           sendJson(res, 201, info);
         } catch (err) {
-          log('error', `session spawn failed: ${String(err)}`);
+          log('error', `session spawn failed: ${describeError(err)}`);
           sendError(res, 500, 'could not start the session');
         }
         return;
@@ -866,7 +1054,7 @@ export function createRequestHandler(
         });
         sendJson(res, 201, info);
       } catch (err) {
-        log('error', `history resume spawn failed: ${String(err)}`);
+        log('error', `history resume spawn failed: ${describeError(err)}`);
         sendError(res, 500, 'could not start the session');
       }
       return;
@@ -904,12 +1092,14 @@ export function createRequestHandler(
     if (pathname === '/' || pathname === '/index.html') {
       try {
         const html = await readFile(join(webDistDir, 'index.html'), 'utf8');
+        const page = html.replaceAll('__AUTH_TOKEN__', token);
+        responseBytes.set(res, Buffer.byteLength(page));
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
           ...FRAME_PROTECTION_HEADERS,
         });
-        res.end(html.replaceAll('__AUTH_TOKEN__', token));
+        res.end(page);
       } catch {
         sendError(res, 404, 'frontend not built (web/dist missing)');
       }
@@ -924,6 +1114,7 @@ export function createRequestHandler(
     }
     try {
       const content = await readFile(resolved);
+      responseBytes.set(res, content.byteLength);
       res.writeHead(200, {
         'content-type': CONTENT_TYPES[extname(resolved)] ?? 'application/octet-stream',
         ...FRAME_PROTECTION_HEADERS,
@@ -935,6 +1126,58 @@ export function createRequestHandler(
   }
 
   return (req, res) => {
+    // --- ACCESS LOG -------------------------------------------------------
+    // One line per request, on completion. WHAT IS DELIBERATELY ABSENT: query
+    // STRING values (a query could carry a credential in future — only its
+    // presence is noted, as `?…`), request bodies, the Authorization/
+    // X-Auth-Token header, and the token itself. Static asset hits log at
+    // debug so a page load does not swamp the file.
+    //
+    // TWO CAPS make this line safe to write for an UNAUTHENTICATED request —
+    // and every request is unauthenticated until the token check inside
+    // handle() says otherwise: the pathname is truncated to
+    // MAX_LOGGED_ROUTE_CHARS (it is attacker-chosen and otherwise unbounded),
+    // and the line goes through a per-minute budget (allowRefusalLine) so a
+    // page hammering 127.0.0.1 cannot rotate the file away in seconds. The
+    // budget keys on TRUST, not on status: `/health` and `/` answer 200 to any
+    // no-cors page, so metering only 4xx would leave the hole wide open.
+    const startedNs = process.hrtime.bigint();
+    const method = req.method ?? '?';
+    let route = '?';
+    let hasQuery = false;
+    try {
+      const parsed = new URL(req.url ?? '/', `http://127.0.0.1:${deps.getPort()}`);
+      route = parsed.pathname.slice(0, MAX_LOGGED_ROUTE_CHARS);
+      hasQuery = parsed.search !== '';
+    } catch {
+      // Unparseable request target — the route stays unknown rather than raw.
+    }
+    res.once('close', () => {
+      const ms = Number(process.hrtime.bigint() - startedNs) / 1e6;
+      const status = res.writableFinished ? res.statusCode : 0;
+      const bytes = responseBytes.get(res);
+      const reason = responseReason.get(res);
+      const parts = [
+        `${method} ${route}${hasQuery ? ' ?…' : ''} ->`,
+        res.writableFinished ? String(status) : 'aborted',
+        `in ${ms.toFixed(1)}ms`,
+      ];
+      if (bytes !== undefined) parts.push(`(${bytes} B)`);
+      if (status >= 400 && reason !== undefined) parts.push(`reason=${JSON.stringify(reason)}`);
+      // An authenticated request's line is ALWAYS written, whatever its status:
+      // a 4xx or 5xx there is a real diagnostic, and its caller already holds
+      // the token. Everything else shares the one budget.
+      if (!mayLog(res)) return;
+      // The log-shipping POST is demoted: it fires every couple of seconds per
+      // open window and logging it at info would roughly double the steady
+      // state volume of the file it is feeding.
+      const quiet =
+        route.startsWith('/assets/') ||
+        status === 304 ||
+        (route === '/api/client-log' && status >= 200 && status < 300);
+      httpLog(status >= 500 ? 'error' : quiet ? 'debug' : 'info', parts.join(' '));
+    });
+
     handle(req, res).catch((err: unknown) => {
       // NEITHER HALF OF THIS LINE MAY CARRY REQUEST DATA. `String(err)` embeds a
       // fragment of the BODY — Node quotes ~10 characters of the input in a
@@ -943,14 +1186,19 @@ export function createRequestHandler(
       // from Windows whatever its 0600 mode says. So: the error's CLASS name
       // (constant, from the runtime) and the PATHNAME only, which is still
       // enough to find the failing route.
-      const kind = err instanceof Error ? err.constructor.name : typeof err;
-      let route = '?';
-      try {
-        route = new URL(req.url ?? '/', `http://127.0.0.1:${deps.getPort()}`).pathname;
-      } catch {
-        // Unparseable request target — the route stays unknown rather than raw.
+      // The STACK is safe to add (frame lines are file:line only, produced by
+      // the runtime) — the MESSAGE is not, and errorFrames() drops it.
+      const kind = errorClass(err);
+      const frames = errorFrames(err);
+      // Reachable without a token (a malformed %-escape in a static path throws
+      // a URIError), so an UNAUTHENTICATED throw shares the budget. An
+      // authenticated one — a body that fails to parse — is always written.
+      if (mayLog(res)) {
+        log(
+          'error',
+          `request ${req.method ?? '?'} ${route} failed (${kind})${frames === '' ? '' : ` ${frames}`}`,
+        );
       }
-      log('error', `request ${req.method ?? '?'} ${route} failed (${kind})`);
       if (!res.headersSent) {
         sendError(res, 400, 'bad request');
       } else {

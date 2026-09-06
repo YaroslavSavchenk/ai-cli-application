@@ -49,11 +49,17 @@ import {
 import { createGithubChip, initGithub } from './ui/github.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import { startPresence } from './ws.ts';
+import { initLogging, log } from './log.ts';
 import { el, button } from './ui/util.ts';
 
 const POLL_MS = 3000;
 /** Boot faster than this and the boot panel never mounts — no chrome flash. */
 const BOOT_PANEL_DELAY_MS = 150;
+
+// FIRST: uncaught errors, unhandled rejections and the pagehide flush are
+// installed before anything else runs, so a failure during boot itself still
+// reaches server.log (the detached backend has no other diagnostic channel).
+initLogging();
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (app === null) throw new Error('#app missing');
@@ -200,9 +206,23 @@ async function boot(root: HTMLDivElement): Promise<void> {
   void api.getRuntime().then(
     (r) => {
       st.setServerStartedAt(r.startedAt);
+      // THE line that identifies this page in server.log: which bundle is
+      // running against which backend run. A stale bundle talking to a fresh
+      // backend (or the reverse) is the failure mode this exists to expose.
+      // serverCommit/webBuild are printed BESIDE the bundle this page is: the
+      // two identities are not directly comparable (`__BUILD_ID__` is
+      // <yyyymmdd-hhmm>-<hash>, `webBuild` is assets/index-<hash>.js), so it is
+      // having both on one line that makes a stale pairing readable.
+      log.info(
+        `boot ui=${__BUILD_ID__} backend startedAt=${r.startedAt} port=${location.port === '' ? '-' : location.port} ` +
+          `server=${r.serverCommit ?? '-'} serving=${r.webBuild ?? '-'}`,
+      );
       stepToken.ok();
     },
-    (err: unknown) => stepToken.fail(err instanceof Error ? err.message : String(err)),
+    (err: unknown) => {
+      log.warn(`boot ui=${__BUILD_ID__} runtime check failed: ${err instanceof Error ? err.message : String(err)}`);
+      stepToken.fail(err instanceof Error ? err.message : String(err));
+    },
   );
 
   // Server state first: loadUi() prunes view assignments against it. Prefs
@@ -219,12 +239,14 @@ async function boot(root: HTMLDivElement): Promise<void> {
       api.getPrefs().catch(() => undefined),
     ]);
   } catch (err) {
+    log.error(`boot failed: hydrate ${err instanceof Error ? err.message : String(err)}`);
     panel.fatal(
       'backend unreachable — the server may have restarted (tokens rotate per run); relaunch from the launcher, then reload.',
     );
     stepHydrate.fail(err instanceof Error ? err.message : String(err));
     return;
   }
+  log.info(`boot hydrated: ${projects.length} projects, ${sessions.length} sessions`);
   stepHydrate.ok();
   st.initServer(projects, sessions);
   st.loadUi();
@@ -435,6 +457,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   api.onAuthError(() => {
     if (fatal) return;
     fatal = true;
+    log.error('auth token rejected after boot — the backend restarted; page taken over');
     renderRestartPanel(root);
   });
 

@@ -6,6 +6,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[log-everything]] — 2026-09-06: `server.log` logs everything by default (debug, `AI_SM_LOG_LEVEL`), boot banner with commit + web build, `POST /api/client-log` ships browser lines, byte COUNTS never bytes, trust-keyed refusal budget (unauthenticated access log was a log-wipe primitive), rotate-failure truncates instead of wedging; sendBeacon rejected (no auth header)
 - [[session-history-resume]] — 2026-09-06: cumulative `history.json` + injected `--session-id` → real per-conversation `--resume` (reverses the 2026-07-19 fiction cut); history grouped per project folder; launch dialog cut to a short form with an Effort select; transcript prune is one-directional (realpath + per-cwd dir must exist). Known limit: `--continue` launches can't be pinned
 - [[github-token-paste-path]] — 2026-07-25: an "add token" path beside the device flow (user's request), persisted with a remember-toggle; design gate ran BEFORE any code — storage ceiling is 0600 + discipline, and the real win is a fine-grained token with an expiry. **Implementation queued**
 - [[no-code-in-ui-copy]] — 2026-07-25: no commands/flags/config names in the GUI; modes read "Always ask / Auto-approve edits / Read-only planning / Never ask", argv preview → readable summary; UI stays English; custom-command field exempt
@@ -36,6 +37,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-09-06-log-everything]] — **log-everything phase SHIPPED** (suite 546→612): stale-backend incident diagnosed (UI 12:14 vs backend 10:49 — not a history bug); review caught a banner credential leak, client-side query values re-leaking what the server redacted, dead runtime fields, an unauthenticated log-wipe primitive (fixed twice: 4xx metering, then trust metering), `errorFrames` defeated by `\n    at ` in a body, a wedging rotate, two vacuous tests
 - [[2026-09-06-history-and-lean-launch]] — **history + real resume + lean launch dialog SHIPPED**: journal/previous → `history.json`, `--session-id`/`--resume`, per-project folders, Effort select, no explanatory copy; reviewers caught a raw-cwd prune that deleted real conversations (realpath + dir-must-exist fix), a relaunch/debounce race, a label keyed on the wrong field; suite 508→546. Open: drop the Continue checkbox?, backend restart needed for the user
 - [[2026-07-26-statusline-phase]] — **statusline phase SHIPPED**: per-pane strip replaced by Claude Code's native status line (per-session `--settings`, script re-reads prefs → live toggles ~2 s, no restart); settings panel cut to status-line config only (2026-07-20 "decided four" REVERSED); usage % real via rate_limits; mode item = launch mode (payload has no live mode — known limit); cache-poison sanitize + boot wipe from review; suite→508
 - [[2026-07-25-token-path-RESUME-HERE]] — pasted-token path shipped (`84da3f0`, suite→533) with the security gate published BEFORE the code and audited against itself; caught a strip that lied in the user's own config, two measured log leaks, and two mutually-shadowing tests. Carried the statusline brief (executed 2026-07-26)

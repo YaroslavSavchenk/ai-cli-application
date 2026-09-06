@@ -30,7 +30,7 @@
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ClaudePermissionMode } from '../shared/protocol.ts';
-import type { Logger } from './config.ts';
+import { describeError, scoped, type Logger } from './config.ts';
 
 /**
  * The four `--permission-mode` values this app launches with. Note Claude Code
@@ -117,10 +117,12 @@ export interface SessionSettingsConfig {
 export class SessionSettingsStore {
   readonly #config: SessionSettingsConfig;
   readonly #log: Logger;
+  readonly #sslog: Logger;
 
   constructor(config: SessionSettingsConfig, log: Logger) {
     this.#config = config;
     this.#log = log;
+    this.#sslog = scoped(log, 'session-settings');
   }
 
   /** Wipe and recreate the directory (0700). Called once at boot. */
@@ -128,12 +130,13 @@ export class SessionSettingsStore {
     try {
       rmSync(this.#config.dir, { recursive: true, force: true });
     } catch (err) {
-      this.#log('warn', `could not clear ${this.#config.dir}: ${String(err)}`);
+      this.#log('warn', `could not clear ${this.#config.dir}: ${describeError(err)}`);
     }
     try {
       mkdirSync(this.#config.dir, { recursive: true, mode: 0o700 });
+      this.#sslog('debug', `reset ${this.#config.dir} (0700, wiped at boot)`);
     } catch (err) {
-      this.#log('error', `could not create ${this.#config.dir}: ${String(err)}`);
+      this.#log('error', `could not create ${this.#config.dir}: ${describeError(err)}`);
     }
   }
 
@@ -169,9 +172,10 @@ export class SessionSettingsStore {
     try {
       mkdirSync(this.#config.dir, { recursive: true, mode: 0o700 });
       writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
+      this.#sslog('debug', `wrote ${file} for mode '${mode}'`);
       return file;
     } catch (err) {
-      this.#log('warn', `could not write ${file}, session gets no status line: ${String(err)}`);
+      this.#log('warn', `could not write ${file}, session gets no status line: ${describeError(err)}`);
       return undefined;
     }
   }
@@ -181,6 +185,7 @@ export class SessionSettingsStore {
     if (!SAFE_ID.test(id)) return;
     try {
       unlinkSync(this.fileFor(id));
+      this.#sslog('debug', `removed ${this.fileFor(id)}`);
     } catch {
       // Already gone (exit then delete is the normal path).
     }

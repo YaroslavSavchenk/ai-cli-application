@@ -190,8 +190,15 @@ test('an id that is not a plain server-generated id is REFUSED, never turned int
       assert.equal(s.store.write(bad, 'default'), undefined, `id ${JSON.stringify(bad)} must be refused`);
     }
     assert.deepEqual(await readdir(s.dir), [], 'a refused id writes no file at all');
-    assert.equal(s.logs.length, 8, 'every refusal is logged');
-    assert.ok(s.logs.every((l) => l.startsWith('warn: refusing to write session settings')));
+    // Refusals only: since the comprehensive-logging pass (2026-09-06) the
+    // store also writes debug lines for resetDir/write/remove.
+    const refusals = s.logs.filter((l) => l.startsWith('warn: '));
+    assert.equal(refusals.length, 8, 'every refusal is logged');
+    assert.ok(refusals.every((l) => l.startsWith('warn: refusing to write session settings')));
+    assert.ok(
+      s.logs.every((l) => l.startsWith('warn: ') || l.startsWith('debug: ')),
+      'nothing louder than a warn comes out of a refused id',
+    );
     // The shape a real session id has still passes.
     assert.notEqual(s.store.write('0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09', 'default'), undefined);
   } finally {

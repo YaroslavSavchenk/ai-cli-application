@@ -21,7 +21,7 @@ class FakeWebSocket {
   readyState = FakeWebSocket.CONNECTING;
   onopen: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((ev: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
   onerror: (() => void) | null = null;
   readonly url: string;
   readonly sent: string[] = [];
@@ -39,6 +39,16 @@ class FakeWebSocket {
   simulateOpen(): void {
     this.readyState = FakeWebSocket.OPEN;
     this.onopen?.();
+  }
+
+  /**
+   * Test helper: close the socket the way a browser does — WITH a CloseEvent.
+   * ws.ts logs `code`/`reason`/`wasClean` from it, so a fake that fired a bare
+   * callback would be testing a socket no browser implements.
+   */
+  simulateClose(code = 1006, reason = '', wasClean = false): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.({ code, reason, wasClean });
   }
 }
 
@@ -65,15 +75,43 @@ function fakeTimer(fn: () => void, ms: number): number {
   setTimeout: fakeTimer,
 };
 
+// `ws.ts` logs through `web/src/log.ts`, whose console MIRROR is real
+// behaviour (devtools must keep working). Here it is pure noise on
+// `node --test` stdout, so it is captured for the duration of this file and
+// restored afterwards. Captured, not discarded: a mirrored line is still
+// assertable, and a silent stub would hide a logger that started throwing.
+const mirrored: string[] = [];
+const realConsole = {
+  debug: console.debug.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+};
+for (const level of ['debug', 'info', 'warn', 'error'] as const) {
+  console[level] = (...args: unknown[]): void => {
+    mirrored.push(`${level} ${String(args[0])}`);
+  };
+}
+process.on('exit', () => {
+  for (const level of ['debug', 'info', 'warn', 'error'] as const) {
+    console[level] = realConsole[level];
+  }
+});
+
 const { startPresence } = await import('../web/src/ws.ts');
 
 test('startPresence: opens with the auth token in the URL and sends one ping frame with a numeric t on open', () => {
+  mirrored.length = 0;
   startPresence(() => undefined);
   assert.equal(created.length, 1);
   const sock = created[0] as FakeWebSocket;
   assert.match(sock.url, /^ws:\/\/localhost:5173\/ws\/presence\?token=test-token$/);
 
   sock.simulateOpen();
+  assert.ok(
+    mirrored.some((l) => l.includes('ws presence open')),
+    'the open IS logged — the console mirror is captured here, not suppressed',
+  );
   assert.equal(sock.sent.length, 1, 'opening must send exactly one ping frame immediately');
   const ping = JSON.parse(sock.sent[0] as string) as { type: string; t: unknown };
   assert.equal(ping.type, 'ping');
@@ -121,7 +159,7 @@ test('startPresence: socket close reports onLatency(null) and schedules a reconn
   const sock = created[0] as FakeWebSocket;
   sock.simulateOpen();
 
-  sock.onclose?.();
+  sock.simulateClose(1006, 'connection lost', false);
 
   assert.deepEqual(latencies, [null], 'close must report latency loss as null, not silence');
   assert.ok(

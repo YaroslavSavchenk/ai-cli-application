@@ -1033,10 +1033,16 @@ test('pruneUnsaid drops ONLY a uuid-keyed claude conversation with no transcript
       `the prune must be logged, got: ${u.lines.join(' | ')}`,
     );
 
-    // (3) Idempotent: a second prune has nothing left to drop and logs nothing.
-    const linesBefore = u.lines.length;
+    // (3) Idempotent: a second prune has nothing left to drop and reports
+    // nothing. DEBUG lines are excluded: since the comprehensive-logging pass
+    // (2026-09-06) every prune call writes a `prune checked N candidate(s),
+    // pruned M` summary at debug, plus one debug line per PRUNE verdict (a KEPT
+    // entry gets none). What must stay silent is the info/warn/error channel:
+    // no summary line when there was no victim.
+    const reportable = (): string[] => u.lines.filter((l) => !l.startsWith('debug '));
+    const linesBefore = reportable().length;
     await withClaudeConfig(config, () => u.store.pruneUnsaid());
-    assert.equal(u.lines.length, linesBefore, 'a prune with no victims must be silent');
+    assert.equal(reportable().length, linesBefore, 'a prune with no victims must be silent');
     assert.equal((JSON.parse(await readFile(u.file, 'utf8')) as HistoryEntry[]).length, 8);
 
     // (4) A cwd that no longer exists cannot be canonicalized -> UNKNOWN -> the

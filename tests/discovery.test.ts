@@ -80,11 +80,28 @@ test('GET /api/runtime: token-gated, body is exactly the startedAt from runtime.
 
     const res = await api(server, 'GET', '/api/runtime');
     assert.equal(res.status, 200);
+    // Since 2026-09-06 the response also carries BUILD IDENTITY — the short git
+    // hash of the running server code and the hashed frontend bundle being
+    // served — so a stale backend is identifiable from the UI. Both are public
+    // build metadata; the secret trio (port/token/pid) still never appears.
+    const body = res.body as Record<string, unknown>;
     assert.deepEqual(
-      res.body,
-      { startedAt: server.runtime.startedAt },
-      'body must be { startedAt } with the exact runtime.json value and NO other keys',
+      Object.keys(body).sort(),
+      ['serverCommit', 'startedAt', 'webBuild'],
+      'exactly startedAt + the two build fields, and NO other keys',
     );
+    assert.equal(body['startedAt'], server.runtime.startedAt, 'the exact runtime.json value');
+    assert.ok(
+      body['serverCommit'] === null || /^[0-9a-f]{7}$/.test(body['serverCommit'] as string),
+      `serverCommit must be a short hash or null, got ${JSON.stringify(body['serverCommit'])}`,
+    );
+    assert.ok(
+      body['webBuild'] === null || /^assets\/index-.*\.js$/.test(body['webBuild'] as string),
+      `webBuild must be a hashed bundle name or null, got ${JSON.stringify(body['webBuild'])}`,
+    );
+    for (const forbidden of ['port', 'token', 'pid']) {
+      assert.ok(!(forbidden in body), `${forbidden} must never reach the browser-facing API`);
+    }
 
     const post = await api(server, 'POST', '/api/runtime');
     assert.equal(post.status, 405, 'non-GET on /api/runtime must be 405');

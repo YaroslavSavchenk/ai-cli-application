@@ -74,6 +74,8 @@ import type { GithubRepo, GithubStatus } from '../shared/protocol.ts';
 import {
   assertLoopbackApiBase,
   atomicWriteFile,
+  errorStackOnly,
+  scoped,
   DEFAULT_GITHUB_API_BASE,
   type Logger,
 } from './config.ts';
@@ -404,6 +406,15 @@ export function filterRepos(repos: GithubRepo[], query?: string): GithubRepo[] {
 export class GithubConnection {
   readonly #file: string;
   readonly #log: Logger;
+  /**
+   * `[github] …`-tagged view of the same logger.
+   *
+   * THE RULE FOR EVERY LINE WRITTEN THROUGH EITHER LOGGER (measured leak,
+   * fixed 2026-07-25): operation names and HTTP STATUS CODES only. Never the
+   * token, never a response body, never an error MESSAGE from this file's
+   * paths — a GitHub error can quote the credential back at us.
+   */
+  readonly #ghlog: Logger;
   /** Normalized REST API origin (no trailing slash). Loopback or api.github.com. */
   readonly #apiBase: string;
   readonly #fetch: FetchLike;
@@ -434,6 +445,7 @@ export class GithubConnection {
   constructor(options: GithubConnectionOptions) {
     this.#file = options.file;
     this.#log = options.log;
+    this.#ghlog = scoped(options.log, 'github');
     // Defense in depth: even though index.ts already validated the env value,
     // re-validate here so no in-process caller can point the token elsewhere.
     const base = (options.apiBase ?? '').trim();
@@ -737,7 +749,13 @@ export class GithubConnection {
    * works on a server that has no OAuth App at all.
    */
   async listRepos(query?: string): Promise<GithubRepo[]> {
+    // The query is the user's own typing; only its LENGTH is logged.
+    this.#ghlog(
+      'debug',
+      `listRepos requested (filter ${query === undefined ? 'none' : `${query.length} chars`})`,
+    );
     if (this.#state !== 'connected' || this.#token === undefined) {
+      this.#ghlog('debug', 'listRepos refused: not connected');
       throw new GithubError(409, 'github not connected');
     }
     const token = this.#token;
@@ -753,10 +771,14 @@ export class GithubConnection {
         throw new GithubError(502, 'failed to reach github');
       }
       if (res.status === 401) {
+        this.#ghlog('warn', 'listRepos: github answered 401, credential invalidated');
         this.#invalidateToken();
         throw new GithubError(409, CREDENTIAL_REJECTED_MESSAGE);
       }
-      if (!res.ok) throw new GithubError(502, 'github request failed');
+      if (!res.ok) {
+        this.#ghlog('warn', `listRepos: github answered ${res.status}`);
+        throw new GithubError(502, 'github request failed');
+      }
       let body: unknown;
       try {
         body = await res.json();
@@ -993,7 +1015,9 @@ export class GithubConnection {
    * otherwise) — not a client id: a pasted token creates repos too.
    */
   async createRepo(input: { name: string; private: boolean; description?: string }): Promise<GithubRepo> {
+    this.#ghlog('info', `createRepo requested (private ${input.private})`);
     if (this.#state !== 'connected' || this.#token === undefined) {
+      this.#ghlog('debug', 'createRepo refused: not connected');
       throw new GithubError(409, 'github not connected');
     }
     const token = this.#token;
@@ -1311,6 +1335,7 @@ export class GithubConnection {
    */
   #persist(): boolean {
     if (this.#token === undefined) return false;
+    this.#ghlog('debug', `persisting credential store to ${this.#file}`);
     const stored: StoredToken = {
       accessToken: this.#token,
       ...(this.#login !== undefined ? { login: this.#login } : {}),
@@ -1325,7 +1350,7 @@ export class GithubConnection {
       return true;
     } catch (err) {
       // Never include the token in the message — err is a filesystem error only.
-      this.#log('error', `failed to persist github token store: ${String(err)}`);
+      this.#log('error', `failed to persist github token store: ${errorStackOnly(err)}`);
       return false;
     }
   }
@@ -1341,6 +1366,7 @@ export class GithubConnection {
     try {
       raw = readFileSync(this.#file, 'utf8');
     } catch {
+      this.#ghlog('debug', `no ${this.#file} — starting disconnected`);
       return; // No github.json yet — start disconnected.
     }
     try {
@@ -1361,6 +1387,12 @@ export class GithubConnection {
       this.#expiresAt = readString(o, 'expiresAt');
       this.#persisted = true;
       this.#state = 'connected';
+      // Source and scope only — NEVER the token, the login is metadata GitHub
+      // itself gave us and is already shown in the UI.
+      this.#ghlog(
+        'debug',
+        `credential store loaded: connected via ${this.#source}, scope '${this.#scope}'`,
+      );
     } catch {
       this.#log('error', 'failed to parse github.json, starting disconnected');
       this.#state = 'disconnected';

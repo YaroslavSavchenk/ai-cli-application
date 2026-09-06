@@ -26,6 +26,7 @@ import type {
   SessionInfo,
   UiPrefs,
 } from '../../shared/protocol.ts';
+import { formatError, log } from './log.ts';
 
 declare global {
   interface Window {
@@ -72,10 +73,39 @@ export function onAuthError(fn: () => void): void {
   authErrorHandler = fn;
 }
 
+/**
+ * EVERY request is logged on completion (user's "everything gets logged",
+ * 2026-09-06): the method, the path, the status and the elapsed ms — plus the
+ * server's own error text when the call failed. What is NEVER logged, here or
+ * anywhere: the auth token, any header, the request body (it can hold a pasted
+ * GitHub token or a typed command), the response body, and QUERY STRING VALUES
+ * (a query is reduced to `?…`, matching the server's own access log).
+ *
+ * Levels: `debug` for a 2xx, `warn` for a 4xx (the caller usually renders it),
+ * `error` for a 5xx, `warn` for a network failure — the backend being briefly
+ * unreachable is a routine condition here (the 3 s poll hits it repeatedly),
+ * and `error` would force an immediate log flush against the very backend that
+ * is not answering.
+ */
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = init.method ?? 'GET';
+  // The QUERY is never logged, only its presence — exactly what the server's
+  // access log prints (`GET /api/fs/list ?… -> 200`). The values are real
+  // secrets-in-waiting: `?path=` carries an absolute filesystem path from the
+  // folder picker and `?q=` carries what the user typed into repo search.
+  const cut = path.indexOf('?');
+  const route = cut === -1 ? path : `${path.slice(0, cut)} ?…`;
+  const started = performance.now();
+  const took = (): number => Math.round(performance.now() - started);
   const headers: Record<string, string> = { 'x-auth-token': authToken() };
   if (init.body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(path, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(path, { ...init, headers });
+  } catch (err) {
+    log.warn(`api ${method} ${route} → network error ${took()}ms: ${formatError(err)}`);
+    throw err;
+  }
   if (res.status === 401 || res.status === 403) authErrorHandler?.();
   let body: unknown = null;
   try {
@@ -90,8 +120,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       typeof (body as { error?: unknown }).error === 'string'
         ? (body as { error: string }).error
         : `HTTP ${res.status}`;
+    const line = `api ${method} ${route} → ${res.status} ${took()}ms: ${msg}`;
+    if (res.status >= 500) log.error(line);
+    else log.warn(line);
     throw new ApiError(res.status, msg);
   }
+  log.debug(`api ${method} ${route} → ${res.status} ${took()}ms`);
   return body as T;
 }
 

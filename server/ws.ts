@@ -26,7 +26,7 @@ import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { SessionManager } from './sessions.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { MAX_TERM_DIM } from './api.ts';
-import type { Logger } from './config.ts';
+import { describeError, scoped, MAX_LOGGED_ROUTE_CHARS, type Logger } from './config.ts';
 
 export interface WsDeps {
   token: string;
@@ -34,6 +34,12 @@ export interface WsDeps {
   sessions: SessionManager;
   lifecycle: LifecycleController;
   log: Logger;
+  /**
+   * The budget for UNAUTHENTICATED log lines. The SAME instance the HTTP access
+   * log uses (constructed in server/index.ts): one ceiling for both surfaces,
+   * because an attacker chooses freely between them.
+   */
+  allowRefusalLine: () => boolean;
 }
 
 /**
@@ -52,6 +58,16 @@ export function createUpgradeHandler(
   deps: WsDeps,
 ): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
   const { token, sessions, lifecycle, log } = deps;
+  const wsLog = scoped(log, 'ws');
+  // Host/Origin/token all fail BEFORE the upgrade, i.e. every reject() below is
+  // reachable by any page on the machine. The line is budgeted per minute for
+  // that reason; the socket is always rejected, budget or not.
+  const allowRefusalLine = deps.allowRefusalLine;
+  /** Reject + one info line. The reason is a CONSTANT — never request data. */
+  const reject = (socket: Duplex, status: number, reason: string, path: string, why: string): void => {
+    if (allowRefusalLine()) wsLog('info', `upgrade rejected ${status} on ${path}: ${why}`);
+    rejectUpgrade(socket, status, reason);
+  };
   const wss = new WebSocketServer({ noServer: true });
   const presenceWss = new WebSocketServer({
     noServer: true,
@@ -60,13 +76,25 @@ export function createUpgradeHandler(
 
   return (req, socket, head) => {
     const port = deps.getPort();
+    // The pathname ONLY: a ws url carries ?token=<the app token> in its query,
+    // so the raw url must never be logged. Truncated, because an upgrade target
+    // is attacker-chosen and unbounded. Unparseable -> '?'.
+    let path = '?';
+    try {
+      path = new URL(req.url ?? '/', `http://127.0.0.1:${port}`).pathname.slice(
+        0,
+        MAX_LOGGED_ROUTE_CHARS,
+      );
+    } catch {
+      // Keep '?'.
+    }
     if (!hostAllowed(req.headers.host, port)) {
-      rejectUpgrade(socket, 403, 'Forbidden');
+      reject(socket, 403, 'Forbidden', path, 'host not allowed');
       return;
     }
     const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
     if (!originAllowed(origin, port)) {
-      rejectUpgrade(socket, 403, 'Forbidden');
+      reject(socket, 403, 'Forbidden', path, 'origin not allowed');
       return;
     }
 
@@ -74,7 +102,7 @@ export function createUpgradeHandler(
 
     if (url.pathname === '/ws/presence') {
       if (!tokenMatches(token, url.searchParams.get('token') ?? undefined)) {
-        rejectUpgrade(socket, 401, 'Unauthorized');
+        reject(socket, 401, 'Unauthorized', path, 'bad or missing token');
         return;
       }
       presenceWss.handleUpgrade(req, socket, head, (ws) => {
@@ -85,16 +113,16 @@ export function createUpgradeHandler(
 
     const match = /^\/ws\/sessions\/([^/]+)$/.exec(url.pathname);
     if (match === null) {
-      rejectUpgrade(socket, 404, 'Not Found');
+      reject(socket, 404, 'Not Found', path, 'unknown websocket path');
       return;
     }
     if (!tokenMatches(token, url.searchParams.get('token') ?? undefined)) {
-      rejectUpgrade(socket, 401, 'Unauthorized');
+      reject(socket, 401, 'Unauthorized', path, 'bad or missing token');
       return;
     }
     const sessionId = decodeURIComponent(match[1] as string);
     if (!sessions.has(sessionId)) {
-      rejectUpgrade(socket, 404, 'Not Found');
+      reject(socket, 404, 'Not Found', path, 'no such session');
       return;
     }
 
@@ -111,13 +139,21 @@ export function createUpgradeHandler(
    */
   function attachPresence(ws: WebSocket): void {
     lifecycle.presenceConnected();
+    wsLog('info', `presence connected (presence=${lifecycle.presenceCount})`);
     let released = false;
     const release = (): void => {
       if (released) return;
       released = true;
       lifecycle.presenceDisconnected();
     };
-    ws.on('close', release);
+    ws.on('close', (code: number, reason: Buffer) => {
+      release();
+      wsLog(
+        'info',
+        `presence disconnected code=${code}${reason.length > 0 ? ` len=${reason.length}` : ''} ` +
+          `(presence=${lifecycle.presenceCount})`,
+      );
+    });
 
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return; // Protocol is JSON text frames only.
@@ -131,30 +167,47 @@ export function createUpgradeHandler(
       const { type, t } = msg as { type?: unknown; t?: unknown };
       // Echo `t` only when it is a finite number — never arbitrary payloads.
       if (type !== 'ping' || typeof t !== 'number' || !Number.isFinite(t)) return;
+      // NOT logged: the UI pings every 5 s per open window, so a line here is
+      // pure steady-state noise in a file that has to survive for days.
       const pong: PongMessage = { type: 'pong', t };
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(pong));
     });
 
     ws.on('error', (err) => {
-      log('warn', `presence ws error: ${String(err)}`);
+      log('warn', `presence ws error: ${describeError(err)}`);
       release();
     });
   }
 
   function attachClient(ws: WebSocket, sessionId: string): void {
+    // Read BEFORE attach: attach() is what replays the buffer.
+    const replayBytes = sessions.scrollbackBytes(sessionId);
     if (!sessions.attach(sessionId, ws)) {
       // Session vanished between the check and the upgrade completing.
+      wsLog('info', `attach failed for session ${sessionId}: session vanished before upgrade`);
       ws.close(1011, 'session not found');
       return;
     }
     lifecycle.sessionAttached();
+    wsLog(
+      'info',
+      `attached session ${sessionId}, replayed ${replayBytes} scrollback bytes ` +
+        `(attached=${lifecycle.attachedCount})`,
+    );
     let released = false;
     const release = (): void => {
       if (released) return;
       released = true;
       lifecycle.sessionDetached();
     };
-    ws.on('close', release);
+    ws.on('close', (code: number, reason: Buffer) => {
+      release();
+      wsLog(
+        'info',
+        `detached session ${sessionId} code=${code}${reason.length > 0 ? ` len=${reason.length}` : ''} ` +
+          `(attached=${lifecycle.attachedCount})`,
+      );
+    });
 
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return; // Protocol is JSON text frames only.
@@ -166,6 +219,10 @@ export function createUpgradeHandler(
         return;
       }
       if (msg.type === 'input' && typeof msg.data === 'string') {
+        // NOT logged here. xterm.js emits one `input` frame per KEYSTROKE, so a
+        // line per frame is a line per key. SessionManager.write() accumulates
+        // the BYTE COUNT (never the bytes — this is what the user types,
+        // passwords included) and flushes one summary line per second.
         sessions.write(sessionId, msg.data);
       } else if (
         msg.type === 'resize' &&
@@ -176,14 +233,18 @@ export function createUpgradeHandler(
         msg.rows >= 1 &&
         msg.rows <= MAX_TERM_DIM
       ) {
+        wsLog('debug', `session ${sessionId}: resize ${msg.cols}x${msg.rows}`);
         sessions.resize(sessionId, msg.cols, msg.rows);
       } else if (msg.type === 'seen') {
+        wsLog('debug', `session ${sessionId}: seen`);
         sessions.markSeen(sessionId);
+      } else {
+        wsLog('debug', `session ${sessionId}: frame ignored (unknown or invalid type/fields)`);
       }
     });
 
     ws.on('error', (err) => {
-      log('warn', `session ${sessionId}: ws error: ${String(err)}`);
+      log('warn', `session ${sessionId}: ws error: ${describeError(err)}`);
       release();
     });
   }

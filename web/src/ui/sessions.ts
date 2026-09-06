@@ -19,6 +19,7 @@
 import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
+import { log } from '../log.ts';
 import { el, button, ArmedSet, fmtAgo, modelFromArgs } from './util.ts';
 import { AGENT_LABEL } from './launch-args.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
@@ -64,13 +65,18 @@ function splitIntoActive(sessionId: string): void {
  * this posts only the pane size and takes the SessionInfo it gets back.
  */
 export async function resumeEntry(entry: HistoryEntry): Promise<void> {
+  // Entry ID + whether the server can pin a real conversation; never the
+  // entry's title or cwd (the drawer already shows what the user picked).
+  log.info(`resume: history entry=${entry.id} conversation=${entry.conversation}`);
   let info;
   try {
     info = await api.resumeHistory(entry.id, focusedPaneDims());
   } catch (err) {
+    log.warn(`resume failed: entry=${entry.id} ${err instanceof Error ? err.message : String(err)}`);
     flash(`could not start it again: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
+  log.info(`resume ok: entry=${entry.id} session=${info.id}`);
   st.upsertSession(info); // gives the session its own tab
   st.focusSession(info.id);
   requestTerminalFocus();
@@ -78,6 +84,7 @@ export async function resumeEntry(entry: HistoryEntry): Promise<void> {
 }
 
 async function forgetEntry(entry: HistoryEntry): Promise<void> {
+  log.info(`forget: history entry=${entry.id}`);
   try {
     await api.forgetHistory(entry.id);
   } catch (err) {
@@ -90,6 +97,7 @@ async function forgetEntry(entry: HistoryEntry): Promise<void> {
 }
 
 async function forgetAll(): Promise<void> {
+  log.info(`forget all history: ${st.state.history.length} entries`);
   try {
     await api.forgetAllHistory();
   } catch (err) {

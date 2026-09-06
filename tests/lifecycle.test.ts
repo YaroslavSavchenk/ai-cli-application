@@ -103,9 +103,10 @@ test('startup grace: a backend no client ever connects to exits 0 and removes ru
       log.includes('startup grace expired with no clients'),
       'log must attribute the shutdown to the startup grace',
     );
-    assert.ok(
-      log.includes('received idle grace expiry, shutting down'),
-      'idle expiry must reuse the clean shutdown path',
+    assert.match(
+      log,
+      /received idle grace expiry, shutting down: sessions=\d+ presence=\d+ attached=\d+/,
+      'idle expiry must reuse the clean shutdown path, and the ONE line carries the counts',
     );
   } finally {
     await server.stop();

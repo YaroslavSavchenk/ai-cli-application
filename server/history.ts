@@ -23,7 +23,7 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { HistoryEntry, SessionEndReason, SessionInfo } from '../shared/protocol.ts';
-import { atomicWriteFile, type Logger } from './config.ts';
+import { atomicWriteFile, describeError, errorStackOnly, scoped, type Logger } from './config.ts';
 import { isUuid } from './conversation.ts';
 
 /** Cap on stored entries; the oldest ENDED one is dropped past this. */
@@ -123,11 +123,14 @@ function normalizeEntry(raw: unknown): HistoryEntry | undefined {
 export class SessionHistory {
   readonly #file: string;
   readonly #log: Logger;
+  /** `[history] …`-tagged view of the same logger, for the detail lines. */
+  readonly #hlog: Logger;
   #entries: HistoryEntry[] = [];
 
   constructor(file: string, log: Logger) {
     this.#file = file;
     this.#log = log;
+    this.#hlog = scoped(log, 'history');
   }
 
   /**
@@ -148,6 +151,12 @@ export class SessionHistory {
     this.#log(
       'info',
       `history loaded: ${this.#entries.length} entries (${crashed} stamped 'crash')`,
+    );
+    const live = this.#entries.filter((e) => e.ended === null).length;
+    this.#hlog(
+      'info',
+      `file ${this.#file}: ${this.#entries.length} entries, ${live} live, ` +
+        `${this.#entries.filter((e) => e.conversation).length} resumable conversations`,
     );
   }
 
@@ -170,6 +179,10 @@ export class SessionHistory {
       delete existing.exitCode;
       if (info.projectId !== undefined) existing.projectId = info.projectId;
       else delete existing.projectId;
+      this.#hlog(
+        'debug',
+        `record update ${key.id} (conversation ${key.conversation}) for session ${info.id}`,
+      );
     } else {
       this.#entries.push({
         id: key.id,
@@ -184,6 +197,11 @@ export class SessionHistory {
         lastUsedAt: info.createdAt,
         ended: null,
       });
+      this.#hlog(
+        'debug',
+        `record create ${key.id} (conversation ${key.conversation}) for session ${info.id}; ` +
+          `${this.#entries.length} entries`,
+      );
       this.#enforceBound();
     }
     this.#write();
@@ -196,9 +214,20 @@ export class SessionHistory {
    */
   markEnded(sessionId: string, reason: LiveEndReason, exitCode?: number): void {
     const entry = this.#entries.find((e) => e.sessionId === sessionId && e.ended === null);
-    if (entry === undefined) return;
+    if (entry === undefined) {
+      this.#hlog(
+        'debug',
+        `end '${reason}' for session ${sessionId} is a no-op (already stamped or unknown)`,
+      );
+      return;
+    }
     entry.ended = { at: new Date().toISOString(), reason };
     if (exitCode !== undefined) entry.exitCode = exitCode;
+    this.#hlog(
+      'debug',
+      `end ${entry.id} reason '${reason}'${exitCode === undefined ? '' : ` exit ${exitCode}`} ` +
+        `(session ${sessionId})`,
+    );
     this.#write();
   }
 
@@ -213,6 +242,7 @@ export class SessionHistory {
       }
     }
     if (stamped > 0) this.#write();
+    this.#hlog('info', `end-all reason '${reason}': ${stamped} live entries stamped`);
   }
 
   /**
@@ -222,10 +252,18 @@ export class SessionHistory {
    */
   list(): HistoryEntry[] {
     this.pruneUnsaid();
-    return this.#entries
+    const listed = this.#entries
       .filter((e) => e.ended !== null)
       .sort((a, b) => (a.lastUsedAt < b.lastUsedAt ? 1 : a.lastUsedAt > b.lastUsedAt ? -1 : 0))
       .map((e) => ({ ...e, args: [...e.args], ended: e.ended === null ? null : { ...e.ended } }));
+    // THE diagnostic for "the drawer's HISTORY section is empty": it says
+    // whether the store had nothing, or had only live entries, or pruned them.
+    this.#hlog(
+      'info',
+      `list -> ${listed.length} ended entries (of ${this.#entries.length} stored, ` +
+        `${this.#entries.filter((e) => e.ended === null).length} live)`,
+    );
+    return listed;
   }
 
   /** One entry by key (live ones included — the route decides 409). */
@@ -243,8 +281,12 @@ export class SessionHistory {
   /** Forget one ENDED entry. False when unknown OR still live. */
   forget(id: string): boolean {
     const entry = this.#entries.find((e) => e.id === id);
-    if (entry === undefined || entry.ended === null) return false;
+    if (entry === undefined || entry.ended === null) {
+      this.#hlog('debug', `forget ${id} refused: ${entry === undefined ? 'unknown' : 'still live'}`);
+      return false;
+    }
     this.#entries = this.#entries.filter((e) => e !== entry);
+    this.#hlog('info', `forgot entry ${id}; ${this.#entries.length} remain`);
     this.#write();
     return true;
   }
@@ -253,6 +295,10 @@ export class SessionHistory {
   forgetAllEnded(): void {
     const before = this.#entries.length;
     this.#entries = this.#entries.filter((e) => e.ended === null);
+    this.#hlog(
+      'info',
+      `forget-all-ended: ${before - this.#entries.length} dropped, ${this.#entries.length} live kept`,
+    );
     if (this.#entries.length !== before) this.#write();
   }
 
@@ -282,9 +328,21 @@ export class SessionHistory {
   pruneUnsaid(): void {
     try {
       const projectsDir = join(claudeConfigDir(), 'projects');
-      if (!isDirectory(projectsDir)) return;
-      const kept = this.#entries.filter((e) => !this.#unsaid(projectsDir, e));
+      if (!isDirectory(projectsDir)) {
+        this.#hlog(
+          'debug',
+          `prune skipped: ${projectsDir} is not a directory — Claude's home was not found, ` +
+            'so nothing is provably empty',
+        );
+        return;
+      }
+      let checked = 0;
+      const kept = this.#entries.filter((e) => !this.#unsaid(projectsDir, e, () => (checked += 1)));
       const dropped = this.#entries.length - kept.length;
+      // ONE line per call. Per-entry lines exist only for the `prune` verdict:
+      // a 200-entry store used to write 200 `prune check ... keep` lines on
+      // every GET /api/history, i.e. on every drawer refresh and relaunch.
+      this.#hlog('debug', `prune checked ${checked} candidate(s), pruned ${dropped}`);
       if (dropped === 0) return;
       this.#entries = kept;
       this.#write();
@@ -295,28 +353,48 @@ export class SessionHistory {
       // #write logs), so nothing here is known to throw today. Kept because the
       // class contract is "history I/O never takes the server down" — a future
       // call added inside this block must not be able to break it.
-      this.#log('warn', `history prune skipped: ${String(err)}`);
+      this.#log('warn', `history prune skipped: ${describeError(err)}`);
     }
   }
 
-  #unsaid(projectsDir: string, entry: HistoryEntry): boolean {
+  #unsaid(projectsDir: string, entry: HistoryEntry, counted: () => void): boolean {
+    // The cheap disqualifiers are NOT logged, and do not count as candidates:
+    // they are not prune decisions.
     if (entry.ended === null) return false;
     if (!entry.conversation) return false;
     if (basename(entry.command) !== 'claude') return false;
     if (!isUuid(entry.id)) return false; // Never let a non-uuid reach a path.
+    counted();
+    // From here on every outcome is a real decision. Only `prune` gets its own
+    // line — an entry VANISHING from the drawer must be explainable from
+    // server.log, while a kept one is the normal case and is covered by the
+    // single `prune checked N candidate(s), pruned M` summary in pruneUnsaid().
+    const decision = (verdict: 'prune' | 'keep', why: string): boolean => {
+      if (verdict === 'prune') {
+        this.#hlog('debug', `prune check ${entry.id} cwd ${entry.cwd}: prune — ${why}`);
+      }
+      return verdict === 'prune';
+    };
     let real: string;
     try {
       real = realpathSync(entry.cwd);
     } catch {
-      return false; // Cannot canonicalize -> cannot know the directory name.
+      // Cannot canonicalize -> cannot know the directory name.
+      return decision('keep', 'cwd does not resolve (uncertain)');
     }
     const encoded = encodeCwd(real);
-    if (encoded.length > ENCODED_CWD_MAX) return false;
+    if (encoded.length > ENCODED_CWD_MAX) {
+      return decision('keep', `encoded cwd is ${encoded.length} > ${ENCODED_CWD_MAX} chars (uncertain)`);
+    }
     const cwdDir = join(projectsDir, encoded);
+    const transcript = join(cwdDir, `${entry.id}.jsonl`);
     // No per-cwd directory: our encoding is unproven for this cwd (or Claude
     // never wrote here at all). Unknown -> keep.
-    if (!isDirectory(cwdDir)) return false;
-    return !fileExists(join(cwdDir, `${entry.id}.jsonl`));
+    if (!isDirectory(cwdDir)) {
+      return decision('keep', `${cwdDir} is not a directory (uncertain)`);
+    }
+    if (fileExists(transcript)) return decision('keep', `${transcript} exists`);
+    return decision('prune', `${transcript} is missing — nothing was ever said`);
   }
 
   /** Keep at most HISTORY_MAX entries, dropping the oldest ENDED ones. */
@@ -330,6 +408,11 @@ export class SessionHistory {
       if (oldest === undefined) return; // Everything is live: never drop a live entry.
       const victim = oldest;
       this.#entries = this.#entries.filter((e) => e !== victim);
+      this.#hlog(
+        'info',
+        `bound ${HISTORY_MAX} exceeded: dropped oldest ended entry ${victim.id} ` +
+          `(last used ${victim.lastUsedAt})`,
+      );
     }
   }
 
@@ -338,6 +421,7 @@ export class SessionHistory {
     try {
       raw = readFileSync(this.#file, 'utf8');
     } catch {
+      this.#hlog('info', `no history file at ${this.#file} yet — starting empty`);
       return []; // No file — nothing recorded yet.
     }
     try {
@@ -355,7 +439,10 @@ export class SessionHistory {
       }
       return entries;
     } catch (err) {
-      this.#log('warn', `unreadable history file ${this.#file} ignored: ${String(err)}`);
+      // errorStackOnly, NOT describeError: history.json is written from data
+      // that came through the API, and a JSON.parse SyntaxError quotes ~10
+      // characters of the file back in its message.
+      this.#log('warn', `unreadable history file ${this.#file} ignored: ${errorStackOnly(err)}`);
       return [];
     }
   }
@@ -363,8 +450,9 @@ export class SessionHistory {
   #write(): void {
     try {
       atomicWriteFile(this.#file, JSON.stringify(this.#entries, null, 2) + '\n');
+      this.#hlog('debug', `wrote ${this.#entries.length} entries to ${this.#file}`);
     } catch (err) {
-      this.#log('error', `failed to write ${this.#file}: ${String(err)}`);
+      this.#log('error', `failed to write ${this.#file}: ${describeError(err)}`);
     }
   }
 }

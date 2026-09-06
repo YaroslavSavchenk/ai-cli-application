@@ -22,6 +22,7 @@
 import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
+import { formatError, log } from '../log.ts';
 import { baseName } from './util.ts';
 
 const DEBOUNCE_MS = 300;
@@ -46,14 +47,19 @@ async function fetchNow(): Promise<void> {
   }
   inFlight = true;
   try {
-    st.setHistory(await api.getHistory());
+    const list = await api.getHistory();
+    st.setHistory(list);
+    // The ONE readout that says whether the drawer's HISTORY section has
+    // anything to show — the empty-section symptom the user hit on 2026-09-06
+    // is answered by this line alone.
+    log.info(`history: ${list.length} entries in ${groupHistory(list, st.projectName).length} folders`);
   } catch (err) {
     if (err instanceof api.ApiError && err.status === 404) {
       // Backend without the history routes: an empty list, quietly.
       st.setHistory([]);
-      console.info('session history unavailable on this backend');
+      log.info('session history unavailable on this backend');
     } else {
-      console.warn('session history refresh failed', err);
+      log.warn(`session history refresh failed: ${formatError(err)}`);
     }
   } finally {
     inFlight = false;
