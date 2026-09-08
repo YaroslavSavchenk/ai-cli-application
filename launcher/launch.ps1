@@ -18,8 +18,8 @@ Usage:
 How it works:
   - The backend auto-picks its port (never hardcode one) and publishes a
     discovery file inside WSL: ~/.ai-session-manager/runtime.json with
-    { port, token, pid, startedAt }. This script reads it via `wsl.exe cat`
-    and health-checks http://127.0.0.1:<port>/health.
+    { port, token, pid, startedAt, appDir }. This script reads it via
+    `wsl.exe cat` and health-checks http://127.0.0.1:<port>/health.
     ALWAYS 127.0.0.1, never `localhost`: the server binds IPv4 only and
     `localhost` may resolve to ::1 and fail.
   - Healthy -> open the UI. File absent or stale (dead pid / failed health)
@@ -248,8 +248,8 @@ function Start-Backend {
     switch ($LASTEXITCODE) {
         0 { return }
         10 { Fail "repo not found / cd failed at $RepoPath inside $Distro." }
-        11 { Fail "no usable node found inside $Distro (login PATH and nvm both checked)." }
-        12 { Fail "Node >= 24 required inside $Distro (an older version was found; try 'nvm install 24')." }
+        11 { Fail "no usable node found inside $Distro (login PATH and nvm both checked). If you installed with the Setup, its bundled runtime is missing - reinstall." }
+        12 { Fail "Node >= 24 required inside $Distro (an older version was found; try 'nvm install 24'). If you installed with the Setup, its bundled runtime is missing - reinstall." }
         13 { Fail "data dir did not expand to an absolute path inside ${Distro}: $DataDir" }
         default { Fail "start-backend.sh failed (exit $LASTEXITCODE)." }
     }

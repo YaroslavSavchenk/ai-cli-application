@@ -78,6 +78,30 @@ choices were put to the user, all answered the same day:
 - Release assets: `AiSessionManager-Setup-<version>.exe`, the bundle
   tar.gz, the host zip, `SHA256SUMS.txt`. Version = tag, as before.
 
+## Sub-decisions settled by the orchestrator (2026-09-08, after the architecture plan)
+
+Reasonable defaults, not user calls — say so if they ever bite:
+- **glibc floor = the ubuntu-22.04 runner's 2.35** (oldest runner GitHub
+  still offers). The installer reads the distro's glibc and refuses politely
+  with both numbers; Ubuntu 20.04 / Debian 11 are out. No older-glibc build
+  path.
+- **Launcher built-in defaults become empty.** A launcher with no env, no
+  config file and no UNC-derivable location FAILS with a message instead of
+  starting the author's repo (also the phase-D leak fix).
+- **Retention:** `current` + one previous version dir; the dir a live pid
+  runs from is never pruned.
+- **Claude Code on the consent page:** offered when missing, opt-in, default
+  off, the exact official command (`curl -fsSL https://claude.ai/install.sh
+  | bash`) and host shown. There is no `npm` in the distro to offer instead.
+- **WebView2 bootstrapper: not in v1.** The Edge `--app` fallback stays.
+- **The host zip stays a separate release asset** for from-source users.
+
+Still the user's (asked at phase D): whether the `memory/` vault goes
+public with the repo or moves to a private sibling, and whether future
+commits switch to a noreply address (history cannot be cleaned without
+invalidating `v0.1.0`). Publisher text + AppId GUID for the Setup are asked
+at the end of phase B.
+
 ## Phases
 
 A backend installed-mode + `scripts/build-bundle.sh` + start script ·

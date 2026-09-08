@@ -288,6 +288,14 @@ export interface RuntimeInfo {
   pid: number;
   /** ISO-8601 timestamp. */
   startedAt: string;
+  /**
+   * The directory the running backend was started from — the repo root on a
+   * developer clone, `<app>/<version>` for an installed bundle (added
+   * 2026-09-08). Optional: a file written by an older backend does not have it.
+   * The installer reads it so it never prunes the version directory a live pid
+   * is running out of.
+   */
+  appDir?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +327,20 @@ export interface RuntimeStatusResponse {
    */
   serverCommit: string | null;
   /**
+   * INSTALLED MODE (2026-09-08): the version of the bundle this process runs
+   * from (`bundle.json`'s `version`, e.g. `v0.2.0`), or null on a developer
+   * clone — where `serverCommit` is the identity instead. Charset-gated
+   * server-side (`server/bundle.ts`) before it ever reaches here.
+   */
+  version: string | null;
+  /**
+   * True when this backend runs from an installed bundle rather than a git
+   * checkout. It changes what an update MEANS (a newer version unpacked beside
+   * this one, not edited sources) and what a restart does (hand the port to
+   * `<app>/current`, never run a build).
+   */
+  installed: boolean;
+  /**
    * The hashed frontend entry bundle this backend SERVES, e.g.
    * `assets/index-Br1e6z0Q.js`, or null when web/dist is absent/unbuilt.
    * Compare with the bundle the page actually loaded to spot a stale process.
@@ -341,6 +363,12 @@ export interface RuntimeStatusResponse {
  * in this order of precedence: `dependencies changed`, `server code changed
  * (<a> → <b>)`, `frontend build missing`, `frontend rebuilt`, `frontend source
  * changed`, `server files edited`.
+ *
+ * INSTALLED MODE (2026-09-08, server/bundle.ts) replaces all six with a single
+ * seventh reason — `a new version is installed`, meaning `<app>/current` points
+ * at a version directory other than the running one. A packaged tree can
+ * produce no other signal, and an installed backend never reports any of the
+ * six above.
  */
 export interface UpdateStatus {
   available: boolean;

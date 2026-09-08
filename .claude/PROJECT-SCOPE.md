@@ -44,7 +44,10 @@ multi-pane layouts on top.
   `GET /api/runtime` also returns `serverCommit` (short git hash of the
   running backend, or null) and `webBuild` (the `assets/index-*.js` it is
   serving, or null); the UI's boot log line prints both beside its own
-  `__BUILD_ID__` so a stale backend is visible in the log.
+  `__BUILD_ID__` so a stale backend is visible in the log. Added
+  2026-09-08 (installer phase A): `version` (the bundle version, null in a
+  developer clone) and `installed` (boolean) — the body is exactly
+  `{ startedAt, serverCommit, version, installed, webBuild, update }`.
 - **Session history with real per-conversation resume — decided and shipped
   2026-09-06, user's call** (reverses the 2026-07-19 "per-id `--resume` is a
   fiction" cut; rationale in `memory/decisions/session-history-resume.md`).
@@ -123,6 +126,11 @@ multi-pane layouts on top.
   rebuilt` (dist newer than `startedAt` / entry bundle renamed), `frontend
   source changed` (web/src, web/index.html, web/public, vite.config.ts or
   shared/ newer than `web/dist/build-id.json`), `server files edited`.
+  **Installed mode (2026-09-08) emits exactly one reason instead of these
+  six: `a new version is installed`** — `<app>/current` resolves to a
+  sibling version dir with a valid `bundle.json` other than the one this
+  process runs from (a half-finished or out-of-tree `current` never lights
+  the pill).
   Cached ≤ 5 s; the UI polls every 30 s while visible; the raw reason never
   reaches the UI copy (mapped to plain sentences).
   `POST /api/restart` (authed) runs a **preflight while the old backend is
@@ -131,7 +139,13 @@ multi-pane layouts on top.
   `node-pty`, lifecycle scripts) — the user installs by hand; (2) frontend
   build, always: vite via `process.execPath` + argv array from the repo
   root into `web/dist-next`, verified (index.html, entry bundle,
-  `build-id.json`), old dist served meanwhile; (3) a **standby child**
+  `build-id.json`), old dist served meanwhile — **in installed mode
+  (2026-09-08) steps 1–2 become "verify the target bundle"**: `current`
+  must resolve to a direct child of `<app>/` holding a valid `bundle.json`,
+  `server/index.ts`, an executable `node/bin/node` and a built `web/dist`;
+  nothing is built, staged or swapped, and the standby is spawned from the
+  TARGET's own runtime (`<target>/node/bin/node <target>/server/index.ts`);
+  (3) a **standby child**
   spawned detached with a messages-only IPC channel and `AI_SM_STANDBY=1`
   that boots completely (imports, config, read-only history load) but
   binds nothing and touches nothing in the data dir, then reports
@@ -190,8 +204,10 @@ multi-pane layouts on top.
   through `typeof`).
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
-  (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
-  user-only readable) that the launcher and tools read — from Windows via
+  (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt,
+  and since 2026-09-08 `appDir` — the app root the process was loaded from
+  (a realpath under Node's default symlink resolution), so an installer never
+  prunes a live version dir; user-only readable) that the launcher and tools read — from Windows via
   `wsl.exe cat`. No fixed port anywhere.
 - **Windows-side launcher** (thin): reads the discovery file and
   health-checks the discovered port; if the file is absent or stale, starts
@@ -297,6 +313,13 @@ multi-pane layouts on top.
   running process. v1 updates = run the newer Setup.exe (upgrades in place,
   keeps data), then the in-app restart; in-app update *checking* over the
   network is out of scope (a "Check for updates" link to the Releases page
+  **`AI_SM_NODE_DIST_BASE` is a test-only seam of `scripts/build-bundle.sh`**
+  (2026-09-08, same precedent): it may only be `file://…` or
+  `https://nodejs.org/dist`; anything else makes the script refuse before any
+  download, so "verified against nodejs.org's SHASUMS256.txt" can never
+  silently mean "verified against a mirror that agrees with itself". The sums
+  file itself is not signature-checked (accepted for v1). The bundle job is
+  wired into CI in phase C; until then `scripts/build-bundle.sh` runs by hand.
   via the sanctioned browser exit is enough). The clone-and-`git pull`
   developer path keeps working unchanged. The repo goes **public** (user
   flips; go-public prep = phase D). Release assets become: Setup exe, bundle

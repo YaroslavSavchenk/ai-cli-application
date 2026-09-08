@@ -47,11 +47,59 @@ The port is auto-picked by the backend; nothing is ever hardcoded. Always
 | `launch.ps1` | the actual launcher logic (all switches + the three UI tiers) |
 | `launch.cmd` | visible/debug path: same launcher with a console you can read |
 | `config-common.ps1` | shared distro / repo-path resolution, dot-sourced by both PowerShell scripts |
-| `start-backend.sh` | Linux side: detached (`setsid`) backend start |
+| `start-backend.sh` | Linux side: detached (`setsid`) backend start; prefers a bundled runtime, falls back to PATH/nvm |
 | `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
 | `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1) |
 | `host/build/` | build output (exe + WebView2 DLLs) — build it, or unzip the release asset here; **git-ignored, never committed** |
 | `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
+
+## Bundle layout (the installed app)
+
+Installed from the Setup, the WSL side is **not a clone**: it is a
+self-contained bundle unpacked at `~/.ai-session-manager/app/<version>/`, with
+`~/.ai-session-manager/app/current` symlinked to the version in use. The data
+dir (`~/.ai-session-manager/` itself — runtime.json, history, prefs,
+server.log) is never touched by an install, an update or an uninstall.
+
+    <version>/bundle.json            version marker: version, commit, nodeVersion, builtAt, platform, glibcMin
+    <version>/node/bin/node          pinned official Node 24 (SHA-256 verified against nodejs.org)
+    <version>/node/LICENSE
+    <version>/package.json           (a bundle has no package-lock.json)
+    <version>/node_modules/…         production deps only; node-pty compiled against the node above
+    <version>/server/…               the backend (incl. statusline.mjs)
+    <version>/shared/…
+    <version>/web/dist/…             the built frontend
+    <version>/launcher/start-backend.sh
+
+Built by `scripts/build-bundle.sh --version <vX.Y.Z> --node <24.x.y>` (see the
+header of that script), which verifies the Node download against nodejs.org's
+`SHASUMS256.txt` before extracting anything and refuses to finish unless the
+bundle it just built boots, serves and shuts down cleanly.
+
+`start-backend.sh` is the same script in both worlds, and it makes two choices
+from where it lives:
+
+- **which node** — `<app root>/node/bin/node` if that exists (a bundle: it is
+  the runtime node-pty was compiled against, so it is used unprobed), otherwise
+  a Node ≥ 24 from the login PATH, else from nvm (`nvm.sh` sourced explicitly —
+  non-interactive login shells never see it);
+- **from where** — it `cd`s to the **physical** directory containing itself
+  (`cd -P`/`pwd -P`), so a start through `current/launcher/start-backend.sh`
+  pins the server to that version directory. `current` may be moved by the next
+  update while the server runs; its files must not move with it.
+
+Its exit codes, as `launch.ps1` maps them to messages:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | started, detached (the launcher then polls runtime.json + `/health`) |
+| 10 | app/repo directory missing, or `cd` failed |
+| 11 | no usable node found (PATH and nvm both checked) |
+| 12 | a node was found, but older than 24 |
+| 13 | the data dir argument was not absolute after shell expansion |
+
+11 and 12 are developer-clone codes: an installed bundle carries its own
+runtime, so seeing either one there means the bundle is incomplete — reinstall.
 
 ## Setup (once)
 

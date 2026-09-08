@@ -28,6 +28,12 @@ web/dist-prev/
 # Never commit binaries; rebuild with launcher/build-host.ps1.
 launcher/host/build/
 
+# Bundle build scratch: scripts/build-bundle.sh caches the Node dist under
+# build/node-cache/ and stages the bundle under build/bundle/<version>/. Both
+# are large, machine-local and reproducible; the tarball itself lands in
+# dist-release/ below.
+build/
+
 # Release packaging output (.github/workflows/release.yml writes the zip +
 # SHA256SUMS.txt here). Produced on a CI runner; only ever appears locally if
 # the packaging step is run by hand. Same rule: never commit binaries.

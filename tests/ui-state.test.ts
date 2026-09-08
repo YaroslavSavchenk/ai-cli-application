@@ -296,6 +296,9 @@ test('setRuntime: notifies conn on change, is a no-op when the answer repeats', 
   const answer = {
     startedAt: iso,
     serverCommit: 'a1b2c3d',
+    // Installed-mode fields (2026-09-08): a developer clone answers null/false.
+    version: null,
+    installed: false,
     webBuild: 'assets/index-Br1e6z0Q.js',
     update: { available: false, reason: null },
   };

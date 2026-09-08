@@ -44,6 +44,14 @@ priority.
   `result: unknown`.
 - [ ] The `bodyThrew` teardown guard has no meta-test (a failing body's
   assertion surviving a settle timeout). Low value; fault-injected harness.
+- [ ] **Suite can hang forever**: a failed test in `tests/github-token.test.ts`
+  leaves its in-process GitHub stub listening → the event loop never drains
+  and `npm test` never returns (`--test-timeout` unset). Fix: unconditional
+  `stub.stop()` in teardown and/or `--test-timeout` in the `test` script.
+- [ ] `frontend rebuilt` compares `web/dist/index.html` mtime with a later
+  non-monotonic `Date.now()` — a WSL2 clock step could false-positive; a
+  tolerance or asset-name-only comparison removes the class (unproven, seen
+  once, never reproduced).
 - [ ] `tests/logging.test.ts` still has fire-and-forget `void rm(dir, …)`
   at 7 pure-logger sites (no PTY, no race) — switch to
   `await removeTempDir(dir)` for uniformity.
@@ -66,9 +74,12 @@ priority.
   publishes the `memory/` vault, the author's home path in the launcher
   defaults, and git author emails.
 - [~] **One-click installer / real app — DECIDED 2026-09-08, IN PROGRESS**
-  (see [[installer-and-self-contained-bundle]]): phases A backend
-  installed-mode + bundle build, B launcher config + Inno Setup installer,
-  C release workflow + README + UI copy, D go-public prep. Tick per phase.
+  (see [[installer-and-self-contained-bundle]]): [x] A backend
+  installed-mode + bundle build ([[2026-09-08-installer-phase-a]]), [ ] B
+  launcher config + Inno Setup installer, [ ] C release workflow + README +
+  UI copy (frontend still lacks `version`/`installed` + the installed reason
+  sentence + "Check for updates" link), [ ] D go-public prep (user: vault
+  visibility, commit e-mail; publisher text + AppId GUID for the Setup).
 - [ ] Register the GitHub OAuth App + set `AI_SM_GITHUB_CLIENT_ID`
   (GitHub integration is dormant until then) — optional.
 

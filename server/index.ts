@@ -3,7 +3,7 @@
  *
  * Binds 127.0.0.1 ONLY on an OS-assigned port (never 0.0.0.0, no fixed
  * port), then atomically writes the discovery file runtime.json (mode 0600)
- * with { port, token, pid, startedAt }. The file is removed on clean
+ * with { port, token, pid, startedAt, appDir }. The file is removed on clean
  * SIGINT/SIGTERM shutdown.
  *
  * The process runs detached (setsid for MVP): nothing depends on stdout;
@@ -50,6 +50,12 @@ import {
   createUpdateChecker,
   dependenciesInStep,
 } from './buildinfo.ts';
+import {
+  readBundleInfo,
+  createInstalledUpdateChecker,
+  resolveInstalledTarget,
+  type InstalledTarget,
+} from './bundle.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
@@ -60,7 +66,13 @@ import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler, type ApiDeps } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
-import { RestartController, createStandbyStarter, STANDBY_TIMEOUT_MS } from './restart.ts';
+import {
+  RestartController,
+  createStandbyStarter,
+  RestartRefusal,
+  REFUSED_STANDBY,
+  STANDBY_TIMEOUT_MS,
+} from './restart.ts';
 import {
   buildFrontend,
   commitFrontend,
@@ -75,6 +87,23 @@ const log = createLogger(paths.logFile, logLevel.level);
 const token = generateToken();
 const serverDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(serverDir, '..');
+/**
+ * INSTALLED MODE (2026-09-08) — is this a developer clone or an unpacked
+ * bundle? `bundle.json` at the root is the marker, and `repoRoot` is then the
+ * VERSION DIR of the install (`<app>/<version>`), with `<app>/current` naming
+ * the version the launcher starts.
+ *
+ * Five things branch on it, all in this file: the banner line, the update
+ * check, the dependency preflight, what the restart preflight verifies and who
+ * it hands the port to. Everything else — data dir, ports, sessions, history,
+ * logging — is identical, and with no marker present the developer path is
+ * byte-for-byte what it was.
+ */
+// Collected, not logged here: the logger is scoped for the banner further down,
+// and this line belongs with the "which code is this?" answer it contradicts.
+const bundleWarnings: string[] = [];
+const bundle = readBundleInfo(repoRoot, { warn: (line) => bundleWarnings.push(line) });
+const installed = bundle !== null;
 // AI_SM_WEB_DIST_DIR (an absolute, normalized directory path) moves the SERVED
 // frontend, and with it the `-next`/`-prev` staging dirs a restart renames.
 // Unset in normal use; the restart tests point it at a copy so a test run never
@@ -157,12 +186,27 @@ for (const name of Object.keys(process.env).filter((n) => n.startsWith('AI_SM_')
   if (raw === '') continue;
   boot('info', `env ${name}=${envValueForLog(name, raw)}`);
 }
-boot(
-  'info',
-  `server code ${serverCommit ?? 'commit unknown'} (server/index.ts mtime ${
-    mtimeOf(join(serverDir, 'index.ts')) ?? 'unknown'
-  })`,
-);
+// Which code is this? An install answers with its bundle marker (there is no
+// .git in a packaged tree, so the commit line would always read "unknown"), a
+// clone with the checked-out commit. Every field of the marker is charset-gated
+// in server/bundle.ts — this line prints untrusted disk content otherwise.
+if (bundle !== null) {
+  boot(
+    'info',
+    `installed build ${bundle.version} (commit ${bundle.commit ?? 'unknown'}, ` +
+      `node ${bundle.nodeVersion}, built ${oneLine(bundle.builtAt)}, app dir ${oneLine(repoRoot)})`,
+  );
+} else {
+  // An unreadable (not absent) bundle.json makes the line below a possible
+  // LIE: this may be an INSTALL running as a clone for the rest of its life.
+  for (const line of bundleWarnings) boot('warn', line);
+  boot(
+    'info',
+    `server code ${serverCommit ?? 'commit unknown'} (server/index.ts mtime ${
+      mtimeOf(join(serverDir, 'index.ts')) ?? 'unknown'
+    })`,
+  );
+}
 // A restart handoff (POST /api/restart) says so in one line, so the log reads
 // as one continuous story across the two processes.
 // The value is our OWN env, but a log line is a text record: an unvalidated
@@ -289,15 +333,20 @@ const allowRefusalLine = createRefusalLimiter(scoped(log, 'log'));
  * the checker), NOT at boot: the whole point is code that landed after we
  * started.
  */
-const checkUpdate = createUpdateChecker({
-  repoRoot,
-  serverDir,
-  sharedDir: join(repoRoot, 'shared'),
-  webDistDir,
-  bootCommit: serverCommit,
-  bootAsset: () => webBuild.asset,
-  startedAt: getStartedAt,
-});
+// Installed mode has ONE honest signal — `<app>/current` points at another
+// version dir — and none of the six developer heuristics can fire in a packaged
+// tree (no .git, no lockfile stamp, no sources). See server/bundle.ts.
+const checkUpdate = installed
+  ? createInstalledUpdateChecker({ appDir: repoRoot, startedAt: getStartedAt })
+  : createUpdateChecker({
+      repoRoot,
+      serverDir,
+      sharedDir: join(repoRoot, 'shared'),
+      webDistDir,
+      bootCommit: serverCommit,
+      bootAsset: () => webBuild.asset,
+      startedAt: getStartedAt,
+    });
 
 // Mutable so the restart controller — which needs `server`, which needs this —
 // can be attached after both exist. The route reads deps.restart per request.
@@ -312,6 +361,8 @@ const apiDeps: ApiDeps = {
   github,
   webDistDir,
   serverCommit,
+  serverVersion: bundle?.version ?? null,
+  installed,
   webAsset: webBuild.asset,
   checkUpdate,
   log,
@@ -385,6 +436,12 @@ server.on('listening', () => {
     token,
     pid: process.pid,
     startedAt,
+    // ADDITIVE (2026-09-08): the directory this process runs from. In installed
+    // mode that is `<app>/<version>`, and the installer must never prune the
+    // version dir a live pid is running out of. Harmless on the developer path
+    // (the repo root) — launch.ps1's parser reads the fields it knows and
+    // ignores the rest.
+    appDir: repoRoot,
   };
   try {
     atomicWriteFile(paths.runtimeFile, JSON.stringify(runtime, null, 2) + '\n');
@@ -477,29 +534,87 @@ const restart = new RestartController({
         `${destroyed} idle connection(s) destroyed`,
     );
   },
-  dependenciesReady: () => dependenciesInStep(repoRoot),
-  buildFrontend: () =>
-    buildFrontend({
-      repoRoot,
-      webDistDir,
-      log: scoped(log, 'restart'),
-      // A build can run for up to two minutes; a SIGTERM or an idle-grace
-      // expiry in that window must not leave vite writing into web/dist-next
-      // after this process is gone.
-      onSpawn: (child) => {
-        buildChild = child;
-      },
-    }),
-  swapFrontend: () => swapFrontend({ webDistDir, log: scoped(log, 'restart') }),
-  revertFrontend: (swap) =>
-    revertFrontend({ webDistDir, log: scoped(log, 'restart'), hadPrevious: swap.hadPrevious }),
-  commitFrontend: () => commitFrontend({ webDistDir }),
-  discardFrontend: () => discardFrontend({ webDistDir }),
-  startStandby: createStandbyStarter({
-    entry: join(serverDir, 'index.ts'),
-    cwd: repoRoot,
-    log,
-  }),
+  // A packaged tree has no package-lock.json and its node_modules ships inside
+  // the bundle, so the dependency question is answered by the build, not by a
+  // stamp comparison that could only ever produce a refusal nobody can clear.
+  dependenciesReady: () => (installed ? true : dependenciesInStep(repoRoot)),
+  // PREFLIGHT STEP 2, installed: there is no vite in a bundle and nothing to
+  // build — the frontend of the version we are about to start is already on
+  // disk. The step keeps its JOB (prove the replacement's screens before
+  // anything is torn down) by RESOLVING AND VERIFYING the target bundle:
+  // `<app>/current` inside `<app>`, with a marker, an entry module, its own
+  // node binary and a real web/dist. A refusal here is a 422 with the old
+  // backend untouched, exactly like a failed build.
+  buildFrontend: installed
+    ? () => {
+        const target = resolveInstalledTarget(repoRoot);
+        installedTarget = target;
+        const built = readWebBuild(join(target.dir, 'web', 'dist'));
+        scoped(log, 'restart')(
+          'info',
+          `preflight: target bundle ${target.version} in ${oneLine(target.dir)} verified ` +
+            `(node ${oneLine(target.execPath)}, entry bundle ${oneLine(built.asset ?? 'unknown')})`,
+        );
+        return Promise.resolve({
+          buildId: built.buildId,
+          asset: built.asset,
+          ms: 0,
+          // Nothing is staged in installed mode: the bundle ships its own
+          // web/dist and the restart only proves it is there.
+          note: 'bundled dist, verified in place',
+        });
+      }
+    : () =>
+        buildFrontend({
+          repoRoot,
+          webDistDir,
+          log: scoped(log, 'restart'),
+          // A build can run for up to two minutes; a SIGTERM or an idle-grace
+          // expiry in that window must not leave vite writing into web/dist-next
+          // after this process is gone.
+          onSpawn: (child) => {
+            buildChild = child;
+          },
+        }),
+  // Nothing was staged, so nothing swaps: the target bundle serves its OWN
+  // web/dist from its own directory. `hadPrevious: false` says there is no
+  // backup, which is what makes revert a no-op rather than a restore.
+  swapFrontend: installed ? () => ({ hadPrevious: false }) : () => swapFrontend({ webDistDir, log: scoped(log, 'restart') }),
+  revertFrontend: installed
+    ? () => {
+        // Nothing to put back: this process's web/dist was never touched.
+      }
+    : (swap) =>
+        revertFrontend({ webDistDir, log: scoped(log, 'restart'), hadPrevious: swap.hadPrevious }),
+  commitFrontend: installed
+    ? () => {
+        // No backup exists to drop.
+      }
+    : () => commitFrontend({ webDistDir }),
+  discardFrontend: installed
+    ? () => {
+        // No staging dir exists; only the resolved target is forgotten, so the
+        // next attempt re-reads where `current` points.
+        installedTarget = undefined;
+      }
+    : () => discardFrontend({ webDistDir }),
+  startStandby: installed
+    ? createStandbyStarter({
+        log,
+        // The bundle's OWN node binary and entry module — never this process's
+        // execPath, which belongs to the version being replaced.
+        resolveTarget: () => {
+          if (installedTarget === undefined) {
+            throw new RestartRefusal(REFUSED_STANDBY, 'the target bundle was not resolved by the preflight');
+          }
+          return installedTarget;
+        },
+      })
+    : createStandbyStarter({
+        entry: join(serverDir, 'index.ts'),
+        cwd: repoRoot,
+        log,
+      }),
   readRuntime: () => {
     try {
       return JSON.parse(readFileSync(paths.runtimeFile, 'utf8')) as RuntimeInfo;
@@ -526,6 +641,13 @@ apiDeps.restart = restart;
 
 /** The vite process of a running preflight build, while there is one. */
 let buildChild: ChildProcess | undefined;
+/**
+ * INSTALLED MODE: the bundle this restart verified, between preflight step 2
+ * and the spawn. Module-scoped rather than threaded through the controller
+ * because a preflight is single-flighted (a second POST /api/restart is 409),
+ * so exactly one value is ever in flight.
+ */
+let installedTarget: InstalledTarget | undefined;
 
 let shuttingDown = false;
 function shutdown(cause: string): void {
@@ -571,7 +693,10 @@ function shutdown(cause: string): void {
   // (standby wait, swap) leaves a staged web/dist-next behind when this
   // process leaves now, and the next restart may be refused before the build
   // gets to clear it. Idempotent — nothing to remove is the common case.
-  discardFrontend({ webDistDir });
+  //
+  // Never in installed mode: nothing there ever stages or renames a directory,
+  // so this would only be a rmSync aimed at paths beside a bundle's web/dist.
+  if (!installed) discardFrontend({ webDistDir });
   // History first (crash safety), then kill: destroy()'s 'user-kill' and the
   // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
   history.endAllLive('shutdown');

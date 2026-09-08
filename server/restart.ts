@@ -162,6 +162,14 @@ export interface FrontendBuild {
   asset: string | null;
   /** Wall-clock milliseconds the build took. */
   ms: number;
+  /**
+   * What happened to the build, in the producer's own words — appended to the
+   * controller's step line. The dev path stages a fresh build (`staged, not
+   * served yet`); an installed backend verifies the bundle's own dist and
+   * stages nothing (`bundled dist, verified in place`). The step is the same;
+   * the sentence must not claim work that was not done.
+   */
+  note?: string;
 }
 
 /** What `swapFrontend` replaced — the one fact `revertFrontend` needs. */
@@ -456,7 +464,8 @@ export class RestartController implements RestartRunner {
     this.#log(
       'info',
       `preflight: frontend build ok (build id ${build.buildId ?? 'unknown'}, ` +
-        `asset ${oneLine(build.asset ?? 'unknown')}, ${build.ms}ms; staged, not served yet)`,
+        `asset ${oneLine(build.asset ?? 'unknown')}, ${build.ms}ms` +
+        `${build.note === undefined ? '' : `; ${oneLine(build.note)}`})`,
     );
 
     // From here every refusal must also drop the staged build: a web/dist-next
@@ -586,11 +595,34 @@ export class RestartController implements RestartRunner {
 // PREFLIGHT 3, for real: the standby child
 // ---------------------------------------------------------------------------
 
-export interface StandbyStarterOptions {
-  /** Absolute path of the entry module the replacement re-executes. */
+/** Where a replacement backend lives: the binary, the module, the cwd. */
+export interface StandbyTarget {
+  /** The node binary that runs it. `process.execPath` on the developer path. */
+  execPath: string;
+  /** Absolute path of the entry module. */
   entry: string;
-  /** The child's working directory (the repo root). */
+  /** The child's working directory, so its node_modules resolve. */
   cwd: string;
+}
+
+export interface StandbyStarterOptions {
+  /**
+   * Absolute path of the entry module the replacement re-executes, run by THIS
+   * process's node binary. The developer path: the replacement is the same
+   * checkout, so it is the same files and the same runtime.
+   *
+   * Ignored when `resolveTarget` is given.
+   */
+  entry?: string;
+  /** The child's working directory (the repo root). Ignored with `resolveTarget`. */
+  cwd?: string;
+  /**
+   * INSTALLED MODE (2026-09-08): the replacement is a DIFFERENT bundle —
+   * `<app>/current` — with its own node binary and its own node_modules, so
+   * neither `process.execPath` nor a fixed entry path can name it. Resolved
+   * ONCE per call, at spawn time, from whatever the preflight verified.
+   */
+  resolveTarget?: () => StandbyTarget;
   /** Unscoped logger; this factory scopes it itself. */
   log: Logger;
   /** Seam: node:child_process.spawn by default, so the glue is unit-testable. */
@@ -625,8 +657,20 @@ export function createStandbyStarter(
 
   return ({ portHint, restartedFrom }) =>
     new Promise<StandbyChild>((resolve, reject) => {
-      const child = spawnFn(process.execPath, [opts.entry], {
-        cwd: opts.cwd,
+      // Resolved HERE, once per call: in installed mode the answer depends on
+      // where `<app>/current` points at this moment, which the preflight has
+      // just verified.
+      const target: StandbyTarget =
+        opts.resolveTarget !== undefined
+          ? opts.resolveTarget()
+          : { execPath: process.execPath, entry: opts.entry ?? '', cwd: opts.cwd ?? '' };
+      log(
+        'debug',
+        `spawning the standby backend: ${oneLine(target.execPath)} ${oneLine(target.entry)} ` +
+          `(cwd ${oneLine(target.cwd)})`,
+      );
+      const child = spawnFn(target.execPath, [target.entry], {
+        cwd: target.cwd,
         detached: true,
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
         env: {

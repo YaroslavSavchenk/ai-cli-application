@@ -2,18 +2,19 @@
  * Discovery file (runtime.json) lifecycle + data dir + loopback-only bind.
  *
  * Contract: data dir created 0700 (AI_SM_DATA_DIR override); runtime.json
- * written atomically with mode 0600 containing {port, token, pid, startedAt};
+ * written atomically with mode 0600 containing
+ * {port, token, pid, startedAt, appDir};
  * removed on clean SIGTERM; server binds 127.0.0.1 only; /health returns
  * exactly {"ok":true}; logging goes to server.log, never stdout.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { api, rawRequest, startTestServer, waitUntil } from './helpers.ts';
+import { api, projectRoot, rawRequest, startTestServer, waitUntil } from './helpers.ts';
 
 test('startup: runtime.json 0600 with correct shape, data dir 0700, health, server.log', async () => {
   const server = await startTestServer();
@@ -30,6 +31,18 @@ test('startup: runtime.json 0600 with correct shape, data dir 0700, health, serv
     assert.match(rt.token, /^[0-9a-f]{64,}$/, 'token must be hex with >= 32 bytes of entropy');
     assert.equal(rt.pid, server.child.pid, 'runtime.json pid must be the server process pid');
     assert.equal(new Date(rt.startedAt).toISOString(), rt.startedAt, 'startedAt must be ISO-8601');
+    // The launcher parses this file, so its key SET is contract, not detail.
+    // `appDir` was added 2026-09-08 for installed mode: the directory the
+    // process actually runs from, REALPATH'ed — an installer must not prune the
+    // version dir a live pid is in, and a symlinked path would not match the one
+    // it is about to remove. On a developer clone it is the repo root.
+    assert.deepEqual(
+      Object.keys(rt as unknown as Record<string, unknown>).sort(),
+      ['appDir', 'pid', 'port', 'startedAt', 'token'],
+      'runtime.json holds exactly these five keys',
+    );
+    assert.equal(rt.appDir, realpathSync(projectRoot), 'appDir is the resolved directory of the running code');
+    assert.equal(rt.appDir, realpathSync(rt.appDir as string), 'and it is already a real path');
 
     const res = await fetch(`${server.baseUrl}/health`);
     assert.equal(res.status, 200);
@@ -87,9 +100,27 @@ test('GET /api/runtime: token-gated, body is exactly the startedAt from runtime.
     const body = res.body as Record<string, unknown>;
     assert.deepEqual(
       Object.keys(body).sort(),
-      ['serverCommit', 'startedAt', 'update', 'webBuild'],
-      'exactly startedAt + the two build fields + the live update check, and NO other keys',
+      ['installed', 'serverCommit', 'startedAt', 'update', 'version', 'webBuild'],
+      'exactly startedAt + the build identity + the live update check, and NO other keys',
     );
+    // The order as the body is CONSTRUCTED (server/api.ts). Not semantic — a
+    // JSON object is unordered — but pinned deliberately: it makes any edit to
+    // this response show up as a change to this list, which is the one place the
+    // wire shape is reviewed. Reordering the object literal is fine; say so here.
+    assert.deepEqual(Object.keys(body), [
+      'startedAt',
+      'serverCommit',
+      'version',
+      'installed',
+      'webBuild',
+      'update',
+    ]);
+    // Added 2026-09-08 with installed mode: which BUNDLE this backend runs from
+    // (null on a developer clone, where serverCommit is the identity instead),
+    // and whether it is an install at all. Public build metadata, like the two
+    // fields above it.
+    assert.equal(body['installed'], false, 'this suite runs a developer clone');
+    assert.equal(body['version'], null, 'and a clone has no bundle version');
     // Added 2026-09-06 with the restart button: a LIVE check (cached ~5 s), so
     // the UI can offer the restart instead of leaving the user on stale code.
     const update = body['update'] as Record<string, unknown>;

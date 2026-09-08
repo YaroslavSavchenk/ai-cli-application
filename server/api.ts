@@ -120,6 +120,13 @@ export interface ApiDeps {
   webDistDir: string;
   /** Short git hash of the running server code, or null (GET /api/runtime). */
   serverCommit?: string | null;
+  /**
+   * INSTALLED MODE (2026-09-08): the bundle version this process runs from, or
+   * null on a developer clone (GET /api/runtime).
+   */
+  serverVersion?: string | null;
+  /** True when this backend runs from an installed bundle (GET /api/runtime). */
+  installed?: boolean;
   /** Hashed frontend entry bundle being served, or null (GET /api/runtime). */
   webAsset?: string | null;
   /**
@@ -405,6 +412,8 @@ export function createRequestHandler(
         const body: RuntimeStatusResponse = {
           startedAt: deps.getStartedAt(),
           serverCommit: deps.serverCommit ?? null,
+          version: deps.serverVersion ?? null,
+          installed: deps.installed ?? false,
           webBuild: deps.webAsset ?? null,
           // Computed here, not at boot: the whole point is to notice code that
           // landed AFTER this process started. Cheap (a few stats + .git/HEAD)

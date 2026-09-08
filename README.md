@@ -230,7 +230,8 @@ path):
   written after a successful connection (device flow, or a pasted token stored
   with "remember"), deleted on disconnect. Never sent to the browser. It is
   **not encrypted** — see the honesty note in the GitHub section below
-- `runtime.json` — runtime discovery (port, auth token, pid, startedAt);
+- `runtime.json` — runtime discovery (port, auth token, pid, startedAt, and
+  `appDir`, the directory the running backend was started from);
   removed on clean shutdown, with one deliberate exception: a restart handoff
   leaves the file in place, because by then it describes the replacement
   process the launcher has to find

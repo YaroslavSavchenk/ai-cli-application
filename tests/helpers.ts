@@ -78,16 +78,27 @@ export interface TestServer {
  *
  * `opts.dataDir` reuses an existing data dir (session-history / restart
  * tests). The caller owns its cleanup: stop() will NOT remove it.
+ *
+ * `opts.entry` / `opts.cwd` start a backend that is NOT this checkout — the
+ * installed-mode tests boot an unpacked bundle fixture (`<app>/current/server/
+ * index.ts`) so `bundle.json`, `web/dist` and `<app>/current` are the ones the
+ * process really resolves. Both default to the repo, so every existing caller
+ * is unchanged.
  */
 export async function startTestServer(
-  opts: { env?: Record<string, string>; dataDir?: string } = {},
+  opts: {
+    env?: Record<string, string>;
+    dataDir?: string;
+    entry?: string;
+    cwd?: string;
+  } = {},
 ): Promise<TestServer> {
   const tmpRoot =
     opts.dataDir === undefined ? await mkdtemp(join(tmpdir(), 'ai-sm-test-')) : null;
   // Deliberately a not-yet-existing subdir: the server must create it (0700).
   const dataDir = opts.dataDir ?? join(tmpRoot as string, 'data');
-  const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {
-    cwd: projectRoot,
+  const child = spawn(process.execPath, [opts.entry ?? join(projectRoot, 'server', 'index.ts')], {
+    cwd: opts.cwd ?? projectRoot,
     env: {
       ...process.env,
       AI_SM_DATA_DIR: dataDir,

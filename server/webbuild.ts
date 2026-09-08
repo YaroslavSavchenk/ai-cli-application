@@ -228,7 +228,7 @@ export async function buildFrontend(opts: WebBuildOptions): Promise<FrontendBuil
     `the frontend build is staged in ${oneLine(nextDir)} (build id ${built.buildId}, ` +
       `entry bundle ${oneLine(built.asset)}, ${ms}ms); it is not served until the swap`,
   );
-  return { buildId: built.buildId, asset: built.asset, ms };
+  return { buildId: built.buildId, asset: built.asset, ms, note: 'staged, not served yet' };
 }
 
 /**
