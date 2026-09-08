@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 /**
@@ -28,7 +29,12 @@ function buildId(): string {
 }
 
 export default defineConfig({
-  root: 'web',
+  // Absolute, not 'web': vite resolves a relative root against process.cwd(),
+  // and this file is also re-exported by web/vite.config.ts so a `vite build`
+  // run from inside web/ still gets the `define` below. A bundle built without
+  // it ships the bare `__BUILD_ID__` identifier (2026-09-08: ReferenceError in
+  // the boot path, 'token check' hung forever).
+  root: fileURLToPath(new URL('./web', import.meta.url)),
   define: {
     __BUILD_ID__: JSON.stringify(buildId()),
   },

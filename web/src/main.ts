@@ -186,6 +186,15 @@ function createBootPanel(): BootPanel {
   };
 }
 
+/**
+ * Bundle identity compiled in by the `define` in vite.config.ts. A bundle built
+ * WITHOUT that config (`vite build` run from web/ instead of the repo root —
+ * 2026-09-08) leaves the bare identifier in place; `typeof` on an undeclared
+ * identifier is the one read that cannot throw, and a correct build rewrites
+ * it to `typeof "<id>"`. 'unstamped' in the boot line is the tell.
+ */
+const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unstamped';
+
 async function boot(root: HTMLDivElement): Promise<void> {
   const panel = createBootPanel();
   // Steps registered up front; each resolves on its own real event. They run
@@ -216,29 +225,36 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // its success proves the served token is current. Failure here alone is
   // non-fatal (uptime shows "—"); the hydrate step is the boot gate, and a
   // rotated token fails both.
-  void api.getRuntime().then(
-    (r) => {
+  //
+  // `.then().catch()`, not `.then(ok, err)`: a throw INSIDE the success path
+  // (the boot log line once threw a ReferenceError on an unstamped bundle)
+  // must land in the catch and settle the step — the two-argument form let it
+  // escape as an unhandled rejection and left 'token check' pending forever.
+  void api
+    .getRuntime()
+    .then((r) => {
       st.setRuntime(r);
       applyRuntime();
       // THE line that identifies this page in server.log: which bundle is
       // running against which backend run. A stale bundle talking to a fresh
       // backend (or the reverse) is the failure mode this exists to expose.
       // serverCommit/webBuild are printed BESIDE the bundle this page is: the
-      // two identities are not directly comparable (`__BUILD_ID__` is
+      // two identities are not directly comparable (`BUILD_ID` is
       // <yyyymmdd-hhmm>-<hash>, `webBuild` is assets/index-<hash>.js), so it is
       // having both on one line that makes a stale pairing readable.
       log.info(
-        `boot ui=${__BUILD_ID__} backend startedAt=${r.startedAt} port=${location.port === '' ? '-' : location.port} ` +
+        `boot ui=${BUILD_ID} backend startedAt=${r.startedAt} port=${location.port === '' ? '-' : location.port} ` +
           `server=${r.serverCommit ?? '-'} serving=${r.webBuild ?? '-'} ` +
           `update=${r.update?.available === true ? (r.update.reason ?? 'yes') : 'no'}`,
       );
       stepToken.ok();
-    },
-    (err: unknown) => {
-      log.warn(`boot ui=${__BUILD_ID__} runtime check failed: ${err instanceof Error ? err.message : String(err)}`);
-      stepToken.fail(err instanceof Error ? err.message : String(err));
-    },
-  );
+    })
+    .catch((err: unknown) => {
+      // Settle FIRST — the step must never depend on the log call succeeding.
+      const m = err instanceof Error ? err.message : String(err);
+      stepToken.fail(m);
+      log.warn(`boot ui=${BUILD_ID} runtime check failed: ${m}`);
+    });
 
   // Server state first: loadUi() prunes view assignments against it. Prefs
   // (theme) is joined into the SAME hydrate wait — no extra boot-panel step,
