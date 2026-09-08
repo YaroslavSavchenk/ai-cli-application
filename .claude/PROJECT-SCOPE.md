@@ -489,6 +489,7 @@ landed features.
 ## Open decisions (do not treat as settled)
 
 Repo visibility (private today) — the release/Install docs are written for a public repo; going public also publishes the `memory/` vault, the author's home path in launcher defaults, and git author emails (2026-09-08).
+- **One-click installer / "real app" packaging — user's wish, 2026-09-08, explicitly FUTURE ("right now it's good enough").** A single downloadable installer exe that checks WSL2, clones or unpacks the repo into the distro, installs Node deps, drops the host build, and makes the shortcut — one frontend + backend as a real app. Not scoped, not started; the backend stays in WSL either way.
 
 (Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":
 **update after a `git pull` without `npm run build`.** The restart always

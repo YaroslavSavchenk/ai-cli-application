@@ -72,3 +72,7 @@ how the app runs ([[web-app-inside-wsl]], [[detached-backend]],
 - **Repo visibility.** Private today: the release and the Install docs only
   work for collaborators. Going public also publishes the `memory/` vault,
   the author's home path in the launcher defaults, and git author emails.
+- **One-click installer ("a real app, frontend + backend").** User's wish,
+  2026-09-08, explicitly future — "right now it's good enough". Would
+  bundle: WSL2 check, clone/unpack into the distro, `npm install`, host
+  build, shortcut. Not scoped.
