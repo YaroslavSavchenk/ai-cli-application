@@ -313,6 +313,10 @@ multi-pane layouts on top.
   running process. v1 updates = run the newer Setup.exe (upgrades in place,
   keeps data), then the in-app restart; in-app update *checking* over the
   network is out of scope (a "Check for updates" link to the Releases page
+  via the sanctioned browser exit is enough). The clone-and-`git pull`
+  developer path keeps working unchanged. The repo goes **public** (user
+  flips; go-public prep = phase D). Release assets become: Setup exe, bundle
+  tar.gz, host zip, `SHA256SUMS.txt`.
   **`AI_SM_NODE_DIST_BASE` is a test-only seam of `scripts/build-bundle.sh`**
   (2026-09-08, same precedent): it may only be `file://…` or
   `https://nodejs.org/dist`; anything else makes the script refuse before any
@@ -320,10 +324,6 @@ multi-pane layouts on top.
   silently mean "verified against a mirror that agrees with itself". The sums
   file itself is not signature-checked (accepted for v1). The bundle job is
   wired into CI in phase C; until then `scripts/build-bundle.sh` runs by hand.
-  via the sanctioned browser exit is enough). The clone-and-`git pull`
-  developer path keeps working unchanged. The repo goes **public** (user
-  flips; go-public prep = phase D). Release assets become: Setup exe, bundle
-  tar.gz, host zip, `SHA256SUMS.txt`.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
