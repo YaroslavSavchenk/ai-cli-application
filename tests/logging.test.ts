@@ -71,8 +71,10 @@ import {
 import {
   api,
   createSession,
+  destroyAllAndSettle,
   rawRequest,
   readServerLog,
+  removeTempDir,
   startTestServer,
   waitForLog,
   waitUntil,
@@ -1303,6 +1305,7 @@ async function withInProcessApi(fn: (ctx: InProcessApi) => Promise<void>): Promi
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as { port: number }).port;
   boundPort = port;
+  let bodyThrew = false;
   try {
     await fn({
       port,
@@ -1319,10 +1322,29 @@ async function withInProcessApi(fn: (ctx: InProcessApi) => Promise<void>): Promi
         offsetMs += ms;
       },
     });
+  } catch (err) {
+    bodyThrew = true;
+    throw err;
   } finally {
-    sessions.destroyAll();
+    // destroyAll() only kills the ptys; node-pty's `exit` lands ticks later and
+    // its handler appends to server.log — a write that recreates the file in
+    // the middle of the removal below and fails it with ENOTEMPTY.
+    // A settle TIMEOUT must never replace the body's error: without this, a
+    // failed assertion is reported as a teardown timeout and the real failure
+    // is invisible.
+    // Stashed, not thrown here: a throw inside `finally` would skip the two
+    // cleanups below, leaking the listener (so `node --test` never drains) and
+    // the temp dir. It is rethrown after them.
+    let settleErr: { err: unknown } | undefined;
+    try {
+      await destroyAllAndSettle(sessions, logFile);
+    } catch (err) {
+      if (bodyThrew) console.error(err);
+      else settleErr = { err };
+    }
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    void rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
+    if (settleErr) throw settleErr.err;
   }
 }
 

@@ -10,6 +10,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -470,4 +471,126 @@ export function wsExpectRejected(
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// In-process teardown: waiting out the LATE writers before removing a temp dir
+// ---------------------------------------------------------------------------
+//
+// Tests that mount server pieces in-process (SessionManager + SessionHistory +
+// createLogger, all pointed at one mkdtemp dir) have an asynchronous tail their
+// teardown cannot see:
+//
+//   * `sessions.destroyAll()` only KILLS the ptys. node-pty emits `exit` a few
+//     ticks later, and server/sessions.ts's onExit handler then writes into the
+//     data dir synchronously — `session <id> exited with code <n>` and
+//     `<id> totals: …` through appendFileSync on server.log.
+//   * a WebSocket closed by the server logs its `detached …` / `presence
+//     disconnected …` line when the close handshake completes, which can be
+//     after the CLIENT already saw the close frame.
+//
+// An `rm(dir, { recursive: true })` racing those writes fails with ENOTEMPTY:
+// the line recreates server.log between rm's unlink pass and its rmdir. Seen on
+// a loaded GitHub Actions runner (run 34248854109); reproduced locally at ~5%
+// with the process pinned to one busy CPU. The cure is to wait for the writers'
+// own log lines — they are the observable end of each handler — and to keep
+// rm's retries as a backstop.
+
+/** Occurrences of `needle` in `haystack` (plain substring, non-overlapping). */
+function countOccurrences(haystack: string, needle: string): number {
+  // An empty needle never advances the index below — the loop would spin
+  // forever, and `npm test` has no per-test timeout to cut it short. Failing
+  // loudly beats returning 0, which would make waitForLogLines spin out its
+  // full timeout on a typo instead of naming the mistake.
+  if (needle === '') throw new Error('countOccurrences: empty needle');
+  let count = 0;
+  for (let i = haystack.indexOf(needle); i !== -1; i = haystack.indexOf(needle, i + needle.length)) {
+    count += 1;
+  }
+  return count;
+}
+
+/**
+ * Wait until `logFile` contains each needle at least `expected[needle]` times.
+ * A missing file counts as empty (the logger creates it on the first line).
+ */
+export async function waitForLogLines(
+  logFile: string,
+  expected: Readonly<Record<string, number>>,
+  what: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const needles = Object.entries(expected);
+  if (needles.length === 0) return;
+  let text = '';
+  try {
+    await waitUntil(
+      () => {
+        try {
+          text = readFileSync(logFile, 'utf8');
+        } catch {
+          text = '';
+        }
+        return needles.every(([needle, min]) => countOccurrences(text, needle) >= min)
+          ? true
+          : undefined;
+      },
+      what,
+      timeoutMs,
+      25,
+    );
+  } catch (err) {
+    const missing = needles
+      .filter(([needle, min]) => countOccurrences(text, needle) < min)
+      .map(([needle, min]) => `${JSON.stringify(needle)} x${min}`)
+      .join(', ');
+    throw new Error(
+      `${err instanceof Error ? err.message : String(err)}; still missing from ${logFile}: ${missing}`,
+    );
+  }
+}
+
+/** The narrow slice of SessionManager this teardown helper needs. */
+interface DestroyableSessions {
+  list(): SessionInfo[];
+  destroyAll(): void;
+}
+
+/**
+ * `destroyAll()` plus a deterministic wait for every killed pty's exit handler
+ * to have finished writing. `<id> totals:` is the LAST line that handler emits,
+ * so one per session that existed at teardown is the settle point.
+ *
+ * It settles PTY EXITS ONLY — and, because every dir-touching effect in that
+ * exit handler is synchronous and `totals:` is its last line, the history.json
+ * and session-settings writes with them. The OTHER late writer named above, a
+ * WebSocket's `detached …` / `presence disconnected …` line, is NOT covered:
+ * wait for those with an explicit `waitForLogLines`, as the closeAll test does.
+ *
+ * Requires the manager's logger to be at level `debug`/`info` and to write to
+ * `logFile` — which is what the in-process harnesses do.
+ */
+export async function destroyAllAndSettle(
+  sessions: DestroyableSessions,
+  logFile: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const ids = sessions.list().map((s) => s.id);
+  sessions.destroyAll();
+  if (ids.length === 0) return;
+  await waitForLogLines(
+    logFile,
+    Object.fromEntries(ids.map((id) => [`${id} totals:`, 1])),
+    `every destroyed session's pty exit to be logged (${ids.length} session(s))`,
+    timeoutMs,
+  );
+}
+
+/**
+ * Remove a test's temp dir. Retries are a BACKSTOP for a late writer nobody
+ * waited for — never the primary defence, because a retry that succeeds hides
+ * the race instead of proving it is gone.
+ */
+export async function removeTempDir(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

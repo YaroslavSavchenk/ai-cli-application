@@ -36,7 +36,6 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -83,11 +82,14 @@ import { GithubConnection } from '../server/github.ts';
 import {
   api,
   createSession,
+  destroyAllAndSettle,
   presenceUrl,
   projectRoot,
   rawRequest,
   readServerLog,
+  removeTempDir,
   startTestServer,
+  waitForLogLines,
   waitUntil,
   WsClient,
 } from './helpers.ts';
@@ -1984,12 +1986,31 @@ async function withRoute(
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   boundPort = (server.address() as { port: number }).port;
   ctx.port = boundPort;
+  let bodyThrew = false;
   try {
     await fn(ctx);
+  } catch (err) {
+    bodyThrew = true;
+    throw err;
   } finally {
-    sessions.destroyAll();
+    // destroyAll() only kills the ptys; their exit handlers write server.log a
+    // few ticks later and would race the rm() below (ENOTEMPTY).
+    // A settle TIMEOUT must never replace the body's error: without this, a
+    // failed assertion is reported as a teardown timeout and the real failure
+    // is invisible.
+    // Stashed, not thrown here: a throw inside `finally` would skip the two
+    // cleanups below, leaking the listener (so `node --test` never drains) and
+    // the temp dir. It is rethrown after them.
+    let settleErr: { err: unknown } | undefined;
+    try {
+      await destroyAllAndSettle(sessions, join(dir, 'server.log'));
+    } catch (err) {
+      if (bodyThrew) console.error(err);
+      else settleErr = { err };
+    }
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
+    if (settleErr) throw settleErr.err;
   }
 }
 
@@ -2262,12 +2283,31 @@ async function withRuntimeRoute(
   );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   boundPort = (server.address() as { port: number }).port;
+  let bodyThrew = false;
   try {
     await fn({ port: boundPort, token });
+  } catch (err) {
+    bodyThrew = true;
+    throw err;
   } finally {
-    sessions.destroyAll();
+    // Same late-writer race as the other in-process harness: wait for the pty
+    // exit lines before the dir goes away.
+    // A settle TIMEOUT must never replace the body's error: without this, a
+    // failed assertion is reported as a teardown timeout and the real failure
+    // is invisible.
+    // Stashed, not thrown here: a throw inside `finally` would skip the two
+    // cleanups below, leaking the listener (so `node --test` never drains) and
+    // the temp dir. It is rethrown after them.
+    let settleErr: { err: unknown } | undefined;
+    try {
+      await destroyAllAndSettle(sessions, join(dir, 'server.log'));
+    } catch (err) {
+      if (bodyThrew) console.error(err);
+      else settleErr = { err };
+    }
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
+    if (settleErr) throw settleErr.err;
   }
 }
 
@@ -3202,6 +3242,8 @@ test('upgrade.closeAll: closes every OPEN socket with 1012 and counts each one e
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   boundPort = (server.address() as { port: number }).port;
 
+  const logFile = join(dir, 'server.log');
+  let bodyThrew = false;
   try {
     assert.equal(upgrade.closeAll(1012, 'service restart'), 0, 'nothing connected, nothing closed');
 
@@ -3230,17 +3272,47 @@ test('upgrade.closeAll: closes every OPEN socket with 1012 and counts each one e
       assert.equal(client.closeInfo?.reason, 'service restart');
     }
     assert.ok(
-      (await import('node:fs')).readFileSync(join(dir, 'server.log'), 'utf8').includes(
+      (await import('node:fs')).readFileSync(logFile, 'utf8').includes(
         'closed 3 websocket(s) with code 1012: service restart',
       ),
       'and the count reaches the log exactly once',
     );
+    // The SERVER half of those three closes writes to server.log as well, and
+    // can land after the client saw the frame. Wait for it here, so nothing is
+    // still appending into `dir` when the finally removes it.
+    await waitForLogLines(
+      logFile,
+      {
+        [`detached session ${session.id} code=1012`]: 1,
+        'presence disconnected code=1012': 2,
+      },
+      'the server side of all three closes to be logged',
+    );
+  } catch (err) {
+    bodyThrew = true;
+    throw err;
   } finally {
     // The grace timer the last presence close armed is a REAL 10-minute timer:
     // without this the file's event loop never drains and `node --test` hangs.
     lifecycle.stop();
-    sessions.destroyAll();
+    // NOT a bare destroyAll(): node-pty's `exit` fires ticks later and its
+    // handler appends to server.log, which recreated the file mid-rm() and
+    // failed this test with ENOTEMPTY on a loaded CI runner (run 34248854109).
+    // A settle TIMEOUT must never replace the body's error: without this, a
+    // failed assertion is reported as a teardown timeout and the real failure
+    // is invisible.
+    // Stashed, not thrown here: a throw inside `finally` would skip the two
+    // cleanups below, leaking the listener (so `node --test` never drains) and
+    // the temp dir. It is rethrown after them.
+    let settleErr: { err: unknown } | undefined;
+    try {
+      await destroyAllAndSettle(sessions, logFile);
+    } catch (err) {
+      if (bodyThrew) console.error(err);
+      else settleErr = { err };
+    }
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
+    if (settleErr) throw settleErr.err;
   }
 });

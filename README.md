@@ -173,19 +173,43 @@ The server logs to `server.log` in the data dir, never stdout.
 
 Continuous integration (`.github/workflows/ci.yml`) runs the typecheck, the
 frontend build, the committed-icon check and the test suite on every push to
-`main` and every pull request.
+`main` and every pull request. Those jobs live in
+`.github/workflows/verify.yml`, which the release workflow calls too, so a
+release is gated on exactly the checks CI runs.
 
 ### Release process
 
-Tagging is the whole release: `git tag v0.1.1 && git push origin v0.1.1` starts
-`.github/workflows/release.yml`. It typechecks and builds the tagged source on
-Linux, builds the native WebView2 host on a Windows runner with
-`launcher/build-host.ps1`, packages the four resulting files as
+Tagging is the whole release: pushing a `v0.1.1` tag starts
+`.github/workflows/release.yml`. It runs the **full verification suite on the
+tagged commit** — the typecheck, the frontend build, the committed-icon check
+and the test suite, the same `.github/workflows/verify.yml` jobs CI runs — and
+in parallel builds the native WebView2 host on a Windows runner with
+`launcher/build-host.ps1`, packaging the four resulting files as
 `AiSessionManagerHost-win-x64.zip` (flat, no folder inside) together with a
-`sha256sum`-compatible `SHA256SUMS.txt`, and publishes both as assets on a
-GitHub Release for that tag, with install notes and the zip's hash in the
-release body. Nothing else is released — the app itself is installed by cloning
-the repository. Running the workflow by hand (`workflow_dispatch`) builds and
+`sha256sum`-compatible `SHA256SUMS.txt`. The publish job waits for **both**, so
+a failing test blocks the release: nothing is ever published from a commit the
+suite did not pass. On success both files are attached to a GitHub Release for
+that tag, with install notes and the zip's hash in the release body. Nothing
+else is released — the app itself is installed by cloning the repository.
+
+The recommended way to tag is:
+
+    npm run release -- v0.1.1
+    npm run release -- v0.1.1 --dry-run   # run every check, tag nothing
+
+`scripts/release.sh` refuses to create the tag unless the commit is already
+proven: exactly one `vX.Y.Z` argument, `gh` installed and logged in, a clean
+working tree on `main`, `HEAD` equal to `origin/main` after a fetch, the tag
+unused locally and on origin, and — the point of the whole thing — a **CI run
+for exactly this commit that concluded `success`** (no run yet, still running,
+or failed all stop it, printing the run's URL). Only then does it
+`git tag -a` and `git push origin`. `--dry-run` performs every check and prints
+what it would do without tagging or pushing. Tagging by hand
+(`git tag v0.1.1 && git push origin v0.1.1`) still works and is gated by the
+workflow anyway — the script just moves the failure from five minutes after the
+push to before it, so you do not end up with a dead tag.
+
+Running the workflow by hand (`workflow_dispatch`) builds and
 uploads the same two files as a workflow artifact, which is the way to test a
 change to it; dispatched from a branch it releases nothing, but dispatched on a
 `v*` tag it publishes exactly like a tag push (the publish job's condition is

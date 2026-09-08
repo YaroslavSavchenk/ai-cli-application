@@ -237,25 +237,40 @@ multi-pane layouts on top.
   upgrade if the separate bar starts to grate. A full **Tauri** shell (tray,
   native folder picker) remains the later upgrade; this host is the minimum
   that fixes the taskbar identity.
-- **Release build / distribution — added 2026-09-08, user's go.** The app
-  itself is never packaged: it is installed by cloning the repo into WSL
-  (`README.md` → Install). The only published artifact is the Windows-side
-  native host window. A `v*` tag push runs `.github/workflows/release.yml`: an
-  ubuntu `check` job (`npm ci`, `npm run typecheck`, `npm run build`, `node
-  launcher/make-icon.mjs --check`), a windows `host` job running the existing
-  `launcher/build-host.ps1` and packaging exactly the four build outputs flat
-  as `AiSessionManagerHost-win-x64.zip` beside a `sha256sum`-compatible
-  `SHA256SUMS.txt`, and a `release` job publishing both with `gh release create
-  --verify-tag` (idempotent: a re-run uploads with `--clobber` and refreshes
-  the notes). `workflow_dispatch` builds the same two files as a workflow
-  artifact without releasing (unless dispatched on a `v*` tag).
-  `.github/workflows/ci.yml` runs typecheck + build + icon check + `npm test`
-  on push to `main` and every PR. Binaries are still never committed
-  (`dist-release/` gitignored beside `launcher/host/build/`); the exe is
-  unsigned (SmartScreen note in both READMEs); the version lives only in the
-  tag. **Repo visibility is a separate, still-open user decision** — the
-  Install section and the release download only work for others once the repo
-  is public.
+- **Release build / distribution — added 2026-09-08, user's go; CI/CD gate
+  2026-09-08 (user: "before every deployment everything is tested
+  automatically", "cicd moet in github staan").** The app itself is never
+  packaged: it is installed by cloning the repo into WSL (`README.md` →
+  Install). The only published artifact is the Windows-side native host
+  window. One reusable workflow, `.github/workflows/verify.yml`
+  (`on: workflow_call`), is the single definition of "verified": a `check`
+  job (`npm ci`, `npm run typecheck`, `npm run build`, `node
+  launcher/make-icon.mjs --check`) and a `test` job (`npm ci`, `npm run
+  build`, `npm test` — the full suite, real servers and PTYs, on
+  ubuntu-latest). `.github/workflows/ci.yml` calls it on push to `main` and
+  every PR. A `v*` tag push runs `.github/workflows/release.yml`: `verify`
+  (the same reusable workflow, on the tagged commit), a windows `host` job
+  running the existing `launcher/build-host.ps1` and packaging exactly the
+  four build outputs flat as `AiSessionManagerHost-win-x64.zip` beside a
+  `sha256sum`-compatible `SHA256SUMS.txt`, and a `release` job with
+  `needs: [verify, host]` publishing both with `gh release create
+  --verify-tag` — a red suite blocks the publish (idempotent: a re-run
+  uploads with `--clobber` and refreshes the notes). `workflow_dispatch`
+  builds the same two files as a workflow artifact without releasing (unless
+  dispatched on a `v*` tag). Tagging is done with `npm run release --
+  vX.Y.Z [--dry-run]` (`scripts/release.sh`): it refuses unless the tree is
+  clean, the branch is `main`, `HEAD` equals `origin/main`, the tag is
+  unused locally and on origin, and the `CI` run for exactly that commit
+  concluded success; only then `git tag -a` + `git push origin
+  refs/tags/<tag>`. A raw `git tag && git push` still works and is gated by
+  the workflow anyway. Binaries are still never committed (`dist-release/`
+  gitignored beside `launcher/host/build/`); the exe is unsigned (SmartScreen
+  note in both READMEs); the version lives only in the tag. **Repo
+  visibility and branch protection are separate, still-open user
+  decisions** — the Install section and the release download only work for
+  others once the repo is public; no branch rules exist today, and the
+  status-check names are now `verify / typecheck + build` and `verify /
+  backend test suite`.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)

@@ -2,15 +2,8 @@
 # typechecks, builds, ships the committed icon artifacts, and passes the
 # backend test suite.
 #
-# NOTE (first run will tell): the `test` job's CI-pass status is NOT yet
-# proven. `npm test` spawns real servers and real PTYs (node-pty); it has only
-# ever been run on the developer's WSL2 Ubuntu box. node-pty 1.1.0 ships NO
-# linux-x64 prebuild, so `npm ci` compiles it from source here (node-gyp); the
-# ubuntu-latest image supplies the toolchain it needs (build-essential +
-# python3), which is also why the timeouts below are generous. PTY behaviour
-# under a GitHub runner (no tty on stdin, different kernel, slower IO) is
-# unverified on top of that. If the suite turns out to be flaky here, tighten
-# or quarantine the offending tests -- do not silence the job.
+# The jobs themselves live in `verify.yml`, which `release.yml` calls too, so a
+# release is gated on exactly the checks that run here.
 
 name: CI
 
@@ -27,67 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: typecheck + build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  verify:
+    name: verify
+    uses: ./.github/workflows/verify.yml
     permissions:
       contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Nothing here pushes, and `npm ci` runs dependency lifecycle
-          # scripts -- they must not find a token in .git/config.
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build the frontend
-        run: npm run build
-
-      - name: Verify the committed icon artifacts
-        run: node launcher/make-icon.mjs --check
-
-  test:
-    name: backend test suite
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Nothing here pushes, and `npm ci` runs dependency lifecycle
-          # scripts -- they must not find a token in .git/config.
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # tests/auth.test.ts runs `npm run build` itself on a fresh checkout
-      # (tests/auth.test.ts:129); doing it here keeps that cost out of a test's
-      # own timeout and gives a clean failure if the build is what broke.
-      - name: Build the frontend
-        run: npm run build
-
-      # Spawns real servers and PTYs. See the note at the top of this file.
-      - name: Run the test suite
-        run: npm test

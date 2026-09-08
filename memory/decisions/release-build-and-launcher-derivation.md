@@ -32,6 +32,19 @@ how the app runs ([[web-app-inside-wsl]], [[detached-backend]],
   builds the same artifact; it publishes only when dispatched on a `v*` tag.
 - **`ci.yml`** runs typecheck + build + icon check + `npm test` on push to
   `main` and every PR. First run proved the suite passes on ubuntu-latest.
+- **CI/CD gate (same day, later — user: "before every deployment everything
+  is tested automatically", "cicd moet in github staan").** The duplicated
+  jobs moved into one reusable `verify.yml` (`on: workflow_call`: `check` +
+  `test`); `ci.yml` and `release.yml` both `uses:` it, and the publish job is
+  `needs: [verify, host]` — **the release IS gated on `npm test`** now
+  (reverses the rejected alternative below). `npm run release -- vX.Y.Z
+  [--dry-run]` (`scripts/release.sh`) is the tagging front door: clean tree,
+  `main`, `HEAD == origin/main`, tag unused, and the `CI` run for that exact
+  commit green (`gh run list --workflow CI --branch main --commit <sha>`),
+  else it refuses; pushes `refs/tags/<tag>` explicitly. Every read that can
+  fail (`git status`, `git tag --list`, `git ls-remote`) is checked, so a
+  network error never reads as "tag is free". See
+  [[2026-09-08-cicd-gate]].
 - **Workflow hygiene:** third-party actions pinned to full commit SHAs
   (checkout v7.0.1, setup-node v7.0.0, upload-artifact v7.0.1,
   download-artifact v8.0.1), top-level `permissions: {}`, `contents: write`
@@ -59,9 +72,12 @@ how the app runs ([[web-app-inside-wsl]], [[detached-backend]],
   read; a developer audience clones anyway.
 - **Third-party release action** (`softprops/action-gh-release`) — `gh` is
   preinstalled and keeps the supply chain to GitHub-owned actions.
-- **Gating the release on `npm test`** — the suite's CI behaviour was
-  unproven at the time; `ci.yml` carries it. Revisit: add `npm test` to the
-  release `check` job now that CI is green.
+- ~~**Gating the release on `npm test`**~~ — was rejected in the morning
+  (suite's CI behaviour unproven); **done the same afternoon** once CI had
+  run green — see the CI/CD gate bullet above.
+- **Branch protection / required status checks** — not added: open user
+  decision, and the repo is private on a plan where branch rules may not be
+  available; the release gate does not depend on it.
 - **Code signing** — no certificate; the exe stays unsigned, SmartScreen
   note in both READMEs.
 - **Launcher in the release zip** — the launcher must live in the repo to
