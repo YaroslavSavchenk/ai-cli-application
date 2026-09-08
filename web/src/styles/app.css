@@ -1763,6 +1763,16 @@ kbd {
   font-size: var(--fs-label);
 }
 
+/* the ONE caption under a shortcuts row (the paste chord's reason): aligned
+   under the `what` column, same grammar as .settings-rowcap — a caption sits
+   with its row, not in a footnote nobody reads */
+.sc-cap {
+  padding: 0 var(--s-7) var(--s-3) calc(var(--s-7) + var(--sc-keys-w) + var(--s-4));
+  font-size: var(--fs-status);
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
 .sc-note {
   padding: var(--s-6) var(--s-7);
   border-top: var(--line) solid var(--edge-mid);
@@ -2128,6 +2138,47 @@ kbd {
   font-size: var(--fs-status);
   color: var(--text-faint);
   line-height: 1.4;
+}
+
+/* KEYS: a two-row excerpt of the shortcuts overlay. Same row grammar as the
+   status-line toggles (label left, value right) minus the checkbox, because
+   these are statements, not switches — and the keys themselves are the SAME
+   <kbd> chips the overlay draws, so the excerpt and the full table read as one
+   object. No new tokens. */
+.settings-keys {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.settings-keyrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-5);
+  padding: var(--s-4) var(--s-5);
+}
+
+.settings-keychips {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+
+.settings-keysep {
+  color: var(--text-faint);
+  font-size: var(--fs-label);
+}
+
+/* a mouse sentence is not a key: plain text, never a chip (overlay rule) */
+.settings-keygesture {
+  font-size: var(--fs-status);
+  color: var(--text-dim);
+}
+
+/* the text button that opens the full overlay, aligned with the row labels */
+.settings-keys + .settings-actionrow {
+  padding: 0 var(--s-5);
 }
 
 /* footer shares the dialog's 20px gutter, so header / body / footer line up on

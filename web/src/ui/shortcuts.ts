@@ -7,7 +7,10 @@
  * The one row without an app control is the paste chord (2026-09-08): its
  * non-keyboard twin is the browser's own paste, which reaches the terminal
  * unchanged — the chords exist because a Windows app window does not always
- * offer that menu, and a login code has to get in somehow.
+ * offer that menu, and a login code has to get in somehow. It is also the one
+ * row that carries a `note`: every other chord is a shortcut for a control the
+ * user can see, while this one answers "why not ctrl+v?" — a question the user
+ * actually asked (2026-09-08), and a table that only lists it does not answer.
  *
  * The link row is a MOUSE gesture, not a chord: a plain click on a link a
  * program printed does nothing, and ctrl (or cmd) is the second gesture that
@@ -21,6 +24,8 @@ interface Row {
   gesture?: boolean;
   what: string;
   ui: string;
+  /** One line under the row, for the ONE chord whose existence needs a reason. */
+  note?: string;
 }
 
 const ROWS: Row[] = [
@@ -33,9 +38,14 @@ const ROWS: Row[] = [
   { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'extract in the pane header' },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split · enter resets', ui: 'drag the divider · double-click resets' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
-  { keys: ['ctrl+shift+v', 'shift+insert'], what: 'paste the clipboard into the terminal', ui: "the browser's own paste" },
+  {
+    keys: ['ctrl+shift+v', 'shift+insert'],
+    what: 'paste the clipboard into the terminal',
+    ui: "the browser's own paste",
+    note: 'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
+  },
   { keys: ['ctrl+click a link'], gesture: true, what: 'open it in your browser', ui: 'links printed in the terminal' },
-  { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the statusline' },
+  { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the top bar · statusline' },
   { keys: ['esc'], what: 'close panel / dialog · cancel a drag', ui: '× buttons' },
 ];
 
@@ -68,6 +78,7 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
     });
     row.append(keys, el('span', 'sc-what', r.what), el('span', 'sc-ui', r.ui));
     table.append(row);
+    if (r.note !== undefined) table.append(el('div', 'sc-cap', r.note));
   }
   const note = el('p', 'sc-note');
   note.textContent =

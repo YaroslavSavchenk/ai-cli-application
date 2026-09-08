@@ -246,6 +246,17 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['ui/keys.ts', '.term-host'],
     ['ui/keys.ts', 'AltGraph'],
     ['ui/sessions.ts', 'start again'],
+    // 2026-09-08: the keyboard help the user asked for — a topbar `?` button,
+    // the settings panel's KEYS excerpt, and the overlay's reason line. Plain
+    // words plus key NAMES, which the copy rule allows (a chord is not a flag).
+    ['main.ts', 'keyboard shortcuts'],
+    ['ui/settings.ts', 'paste into a terminal'],
+    ['ui/settings.ts', 'open a link printed in a terminal'],
+    ['ui/settings.ts', 'all shortcuts'],
+    [
+      'ui/shortcuts.ts',
+      'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
+    ],
   ];
   for (const [file, text] of canaries) {
     const f = files.find((x) => rel(x) === file);

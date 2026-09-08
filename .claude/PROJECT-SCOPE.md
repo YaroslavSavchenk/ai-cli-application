@@ -416,7 +416,11 @@ multi-pane layouts on top.
   app-level shortcuts must not collide with TUI keybindings. The app takes
   exactly two extra chords (2026-09-08): `Ctrl+Shift+V` and `Shift+Insert`
   paste the clipboard into the terminal (plain Ctrl+V is NOT intercepted —
-  it is not a paste in a Linux terminal). When the window regains focus the
+  xterm sends it to the program in the terminal, which Claude Code uses
+  itself). Discoverable (user's ask, 2026-09-08 "hoezo ctrl+shift+v?"): a
+  `?` button in the top bar beside the gear opens the shortcuts overlay,
+  whose paste row carries a one-line why; Settings has a KEYS section with
+  the paste chords, Ctrl+click for links, and an `all shortcuts` link. When the window regains focus the
   keyboard goes back to the focused pane unless a dialog, drawer, overlay
   or editable field owns it. OSC 8 hyperlinks printed by a CLI open in the
   system browser on **Ctrl+click** (`http`/`https` only, no confirm

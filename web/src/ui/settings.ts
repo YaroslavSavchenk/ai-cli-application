@@ -1,6 +1,6 @@
 /**
- * App settings panel — since 2026-07-26 it holds exactly ONE thing: what
- * Claude Code's own status line shows.
+ * App settings panel — what Claude Code's own status line shows, the keys the
+ * app takes off the terminal (2026-09-08), and the one backend action.
  *
  * Everything else this panel used to carry is gone with the feature it
  * configured: the global launch defaults + auto-run startup command (the launch
@@ -46,6 +46,31 @@ export interface SettingsPanel {
   isOpen(): boolean;
 }
 
+export interface SettingsDeps {
+  /** Opens the shortcuts overlay (one instance, shared with the `?` button and key). */
+  openShortcuts(): void;
+}
+
+/**
+ * The KEYS section: the two things the app takes off the terminal, said where
+ * a user goes looking for app behaviour (2026-09-08 — the user asked "why
+ * ctrl+shift+v?" about a chord that lived only in an overlay behind a bare `?`).
+ * It is an EXCERPT, not a second reference: the overlay stays the full list,
+ * and `all shortcuts` opens that same overlay.
+ */
+interface KeyRow {
+  what: string;
+  /** Chords, rendered as <kbd> chips — the same chips the overlay draws. */
+  keys?: string[];
+  /** A mouse sentence, rendered as plain text (never a key chip). */
+  gesture?: string;
+}
+
+const KEY_ROWS: KeyRow[] = [
+  { what: 'paste into a terminal', keys: ['ctrl+shift+v', 'shift+insert'] },
+  { what: 'open a link printed in a terminal', gesture: 'ctrl+click' },
+];
+
 /** One toggle row: its key, its label, and the text that item really draws. */
 interface ItemRow {
   key: keyof StatusLineCfg;
@@ -81,7 +106,11 @@ const ITEM_ROWS: ItemRow[] = [
   },
 ];
 
-export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): SettingsPanel {
+export function initSettings(
+  modalHost: HTMLElement,
+  anchor: HTMLElement,
+  deps: SettingsDeps,
+): SettingsPanel {
   // ---- scrim + card --------------------------------------------------------
   const scrim = el('div', 'modal-scrim');
   scrim.hidden = true;
@@ -98,7 +127,7 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   const titles = el('div', 'launch-titles');
   titles.append(
     el('div', 'launch-title', 'Settings'),
-    el('div', 'launch-sub', 'status line · backend'),
+    el('div', 'launch-sub', 'status line · keys · backend'),
   );
   const closeX = button('launch-x', '×', () => close());
   closeX.setAttribute('aria-label', 'close settings');
@@ -168,6 +197,32 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
   sect.append(itemsWrap);
 
   // ======================================================================
+  // Keys — the two gestures that are NOT visible controls anywhere else
+  // ======================================================================
+  const keysSect = el('section', 'settings-sect');
+  keysSect.append(el('div', 'drawer-label', 'KEYS'));
+  const keyList = el('div', 'settings-keys');
+  for (const r of KEY_ROWS) {
+    const row = el('div', 'settings-keyrow');
+    const chips = el('span', 'settings-keychips');
+    if (r.keys !== undefined) {
+      r.keys.forEach((k, i) => {
+        if (i > 0) chips.append(el('span', 'settings-keysep', '·'));
+        chips.append(el('kbd', '', k));
+      });
+    }
+    if (r.gesture !== undefined) chips.append(el('span', 'settings-keygesture', r.gesture));
+    row.append(el('span', 'status-lb', r.what), chips);
+    keyList.append(row);
+  }
+  keysSect.append(keyList);
+  const allKeysBtn = button('btn-link', 'all shortcuts', () => deps.openShortcuts());
+  allKeysBtn.setAttribute('aria-haspopup', 'dialog');
+  const allKeysRow = el('div', 'settings-actionrow');
+  allKeysRow.append(allKeysBtn);
+  keysSect.append(allKeysRow);
+
+  // ======================================================================
   // Backend — the program that runs the sessions, and the one button that
   // replaces it with the version currently on disk (2026-09-06, user's
   // request). Two mono readouts and an action: no dashboard, no graphs, and
@@ -195,7 +250,7 @@ export function initSettings(modalHost: HTMLElement, anchor: HTMLElement): Setti
     el('div', 'settings-note', 'Every running session closes. They stay in History.'),
   );
 
-  bodyEl.append(sect, backSect);
+  bodyEl.append(sect, keysSect, backSect);
 
   /**
    * The two readouts, refreshed on open and on every conn change (the runtime

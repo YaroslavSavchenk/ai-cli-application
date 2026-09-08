@@ -53,6 +53,15 @@ Suite 767 → 842 (one fix cycle, +75 tests).
   the backend (echo, resize 100→132).
 - The first review round was lost to the session rate limit and re-run.
 
+## Follow-up the same hour
+
+User: "hoezo ctrl+shift+v? kunnen wij dit ergens bij zetten?" — plain
+Ctrl+V cannot be the paste (xterm sends Ctrl+letter to the program; Claude
+Code uses Ctrl+V itself), so the chord is made discoverable: `?` button in
+the top bar beside the gear (opens the shortcuts overlay), a one-line why
+under the overlay's paste row, and a KEYS section in Settings (paste
+chords, Ctrl+click for links, `all shortcuts`). Suite 842 → 850.
+
 ## Open
 
 - Manual (Windows): relaunch from the shortcut (new host exe); `/login`

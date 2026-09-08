@@ -361,6 +361,19 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   settingsBtn.title = 'settings — what each session shows in its status line';
   settingsBtn.setAttribute('aria-haspopup', 'dialog');
 
+  // Keyboard help: the same icon-only 28px control, immediately after the gear
+  // (2026-09-08). Until now the shortcuts overlay had exactly two ways in — the
+  // bare `?` key and the statusline hint — and the app's newest chord (paste)
+  // is the one nobody can guess, so the reference needs a control where the
+  // eye already goes for app-level settings.
+  const helpBtn = button('tb-btn is-icon', '');
+  const qmark = el('span', '', '?');
+  qmark.setAttribute('aria-hidden', 'true');
+  helpBtn.append(qmark);
+  helpBtn.setAttribute('aria-label', 'Keyboard shortcuts');
+  helpBtn.title = 'keyboard shortcuts';
+  helpBtn.setAttribute('aria-haspopup', 'dialog');
+
   const themeBtn = button('tb-btn', '');
   themeBtn.title = 'terminal themes';
   themeBtn.setAttribute('aria-haspopup', 'dialog');
@@ -397,7 +410,20 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const newBtn = button('btn-go', '+ New session', () => openLaunchDialog());
   newBtn.title = 'launch a session (ctrl+alt+t)';
 
-  topbar.append(logo, wordmark, el('span', 'tb-gap'), settingsBtn, themeBtn, projectsBtn, sessionsBtn, divider, conn, ghChip, newBtn);
+  topbar.append(
+    logo,
+    wordmark,
+    el('span', 'tb-gap'),
+    settingsBtn,
+    helpBtn,
+    themeBtn,
+    projectsBtn,
+    sessionsBtn,
+    divider,
+    conn,
+    ghChip,
+    newBtn,
+  );
 
   // ---- middle row: drawers are flex siblings of the grid --------------------
   const main = el('div', 'main');
@@ -429,13 +455,19 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // and its pill lands in the topbar cluster right after the connection dot.
   const upd = initUpdate(modalHost);
   conn.after(upd.pill);
-  const settings = initSettings(modalHost, settingsBtn);
+  // `openShortcuts` is deferred on purpose: the overlay is constructed AFTER
+  // this panel so its scrim stacks above it (equal z-index, later in the DOM),
+  // and the panel's own KEYS section opens it over itself.
+  const settings = initSettings(modalHost, settingsBtn, { openShortcuts: () => shortcuts.toggle() });
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.
   initGithub(); // one status fetch → the GitHub chip is honest from first paint.
   const tabs = initTabs(strip);
+  // ONE overlay instance, three openers: the `?` key, this topbar button and
+  // the statusline hint (plus the settings panel's `all shortcuts`).
   const shortcuts = initShortcuts(modalHost);
+  helpBtn.addEventListener('click', () => shortcuts.toggle());
   const status = initStatusline(statusline, {
     getFocusedConn: focusedConn,
     openShortcuts: () => shortcuts.toggle(),
