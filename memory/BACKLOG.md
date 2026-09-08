@@ -65,10 +65,10 @@ priority.
   README Install section only work for collaborators. Going public also
   publishes the `memory/` vault, the author's home path in the launcher
   defaults, and git author emails.
-- [ ] **One-click installer** ("a real app, frontend + backend") — user's
-  wish, explicitly FUTURE ("right now it's good enough"). Would bundle:
-  WSL2 check → clone/unpack into the distro → `npm install` → host build →
-  shortcut. Not scoped.
+- [~] **One-click installer / real app — DECIDED 2026-09-08, IN PROGRESS**
+  (see [[installer-and-self-contained-bundle]]): phases A backend
+  installed-mode + bundle build, B launcher config + Inno Setup installer,
+  C release workflow + README + UI copy, D go-public prep. Tick per phase.
 - [ ] Register the GitHub OAuth App + set `AI_SM_GITHUB_CLIENT_ID`
   (GitHub integration is dormant until then) — optional.
 

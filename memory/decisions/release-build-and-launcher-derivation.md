@@ -14,7 +14,7 @@ how the app runs ([[web-app-inside-wsl]], [[detached-backend]],
 
 ## What was decided
 
-- **The app is never packaged.** Installing = `git clone` inside WSL +
+- ~~**The app is never packaged.**~~ **Superseded 2026-09-08 by [[installer-and-self-contained-bundle]]** — the host zip stays a release asset; the bundle + installer are added beside it. Original text: Installing = `git clone` inside WSL +
   `npm install` + `npm run build` (README → Install). The ONLY published
   artifact is the Windows-side native host window: `AiSessionManagerHost-win-x64.zip`
   (the exe + the three WebView2 DLLs, flat at the zip root) beside a

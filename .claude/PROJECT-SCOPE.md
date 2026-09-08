@@ -271,6 +271,36 @@ multi-pane layouts on top.
   others once the repo is public; no branch rules exist today, and the
   status-check names are now `verify / typecheck + build` and `verify /
   backend test suite`.
+- **Installer and self-contained bundle — decided 2026-09-08 (user's call:
+  "a real app, frontend + backend, so other people can use it easily"),
+  IN PROGRESS; supersedes "the app itself is never packaged" above.**
+  Four user decisions: (1) the WSL side is a **self-contained bundle**
+  (`ai-session-manager-linux-x64.tar.gz`, built in CI: pinned official Node
+  24 runtime verified against nodejs.org `SHASUMS256.txt`, backend, production
+  `node_modules` with node-pty compiled on ubuntu-22.04 for glibc reach,
+  built `web/dist`, `start-backend.sh`, a version marker) — end users need no
+  Node, git or build tools; (2) **explicit opt-in for anything third-party**
+  the installer offers to install (e.g. Claude Code inside the distro) — a
+  consent page lists each item, nothing third-party is ever installed
+  silently; (3) **Inno Setup**, unsigned, per-user (no admin), with an
+  uninstaller, built on the windows runner (ISCC preinstalled); (4) **no
+  WSL2 / no distro → explain and stop** (`wsl --install` message, never
+  elevates). Working layout: WSL `~/.ai-session-manager/app/<version>/` +
+  `current` symlink (data dir untouched by install/uninstall); Windows
+  `%LOCALAPPDATA%\Programs\AI Session Manager\` with launcher scripts,
+  icon, host exe and an installer-written launcher config (distro + app
+  path; precedence env → config file → UNC-derived → defaults, same
+  allow-list gate). Backend gains an **installed mode** (version marker
+  present): banner shows the bundle version, dependency check skipped, the
+  restart preflight serves the bundled `web/dist` instead of rebuilding,
+  `update.available` = `current` points at a different version dir than the
+  running process. v1 updates = run the newer Setup.exe (upgrades in place,
+  keeps data), then the in-app restart; in-app update *checking* over the
+  network is out of scope (a "Check for updates" link to the Releases page
+  via the sanctioned browser exit is enough). The clone-and-`git pull`
+  developer path keeps working unchanged. The repo goes **public** (user
+  flips; go-public prep = phase D). Release assets become: Setup exe, bundle
+  tar.gz, host zip, `SHA256SUMS.txt`.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
@@ -504,7 +534,7 @@ landed features.
 ## Open decisions (do not treat as settled)
 
 Repo visibility (private today) — the release/Install docs are written for a public repo; going public also publishes the `memory/` vault, the author's home path in launcher defaults, and git author emails (2026-09-08).
-- **One-click installer / "real app" packaging — user's wish, 2026-09-08, explicitly FUTURE ("right now it's good enough").** A single downloadable installer exe that checks WSL2, clones or unpacks the repo into the distro, installs Node deps, drops the host build, and makes the shortcut — one frontend + backend as a real app. Not scoped, not started; the backend stays in WSL either way.
+- ~~One-click installer — FUTURE~~ **DECIDED 2026-09-08 (user: "tijd om hiervan een app te maken, zodat andere mensen dit makkelijk kunnen gebruiken"), IN PROGRESS.** See the Architecture bullet "Installer and self-contained bundle" and `memory/decisions/installer-and-self-contained-bundle.md`. Remaining sub-decisions live there; the visibility flip itself is still the user's hand.
 
 (Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":
 **update after a `git pull` without `npm run build`.** The restart always
