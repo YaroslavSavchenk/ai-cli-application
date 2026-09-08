@@ -25,7 +25,7 @@ import type { UiPrefs } from '../../shared/protocol.ts';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initPanes, focusedConn } from './ui/panes.ts';
+import { initPanes, focusedConn, requestTerminalFocus } from './ui/panes.ts';
 import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
@@ -55,6 +55,7 @@ import {
 } from './ui/update.ts';
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
+import { focusOwnerOpen, isEditableTarget, shouldRefocusTerminal } from './ui/keys.ts';
 import { startPresence } from './ws.ts';
 import { initLogging, log } from './log.ts';
 import { el, button } from './ui/util.ts';
@@ -624,8 +625,30 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     if (document.visibilityState === 'visible') {
       poll();
       runtimePoll();
+      refocusTerminal();
     }
   });
+
+  // ---- focus after a window switch -----------------------------------------
+  // The app window loses focus for real reasons: a `/login` link opens the
+  // Windows browser, the user reads something, alt-tabs back — and the page
+  // came back with the keyboard NOWHERE, so the CLI's own "paste the code
+  // here" field silently took nothing (user report, 2026-09-08). Nothing else
+  // in the app refocuses, so this is it: on regaining window focus, put the
+  // keyboard back in the terminal UNLESS a surface that owns it is up (any
+  // dialog, a drawer, an overlay, a field being typed in). BOTH halves of that
+  // decision live in ui/keys.ts and are unit-tested: `focusOwnerOpen` reads
+  // what is on screen (an open drawer counts even while its own topbar toggle
+  // holds the focus — that button sits inside no drawer, so the element test
+  // alone said yes), `shouldRefocusTerminal` reads where the focus sits.
+  function refocusTerminal(): void {
+    if (focusOwnerOpen(document)) return;
+    const active = document.activeElement;
+    if (shouldRefocusTerminal(active instanceof HTMLElement ? active : null)) {
+      requestTerminalFocus();
+    }
+  }
+  window.addEventListener('focus', refocusTerminal);
 }
 
 /**
@@ -686,14 +709,13 @@ function renderRestartPanel(root: HTMLDivElement): void {
   root.replaceChildren(box);
 }
 
+/**
+ * Does this event target swallow typing? One rule, shared with the
+ * refocus decision (ui/keys.ts) so the two can never disagree about what an
+ * editable element is.
+ */
 function isEditable(t: EventTarget | null): boolean {
-  if (!(t instanceof HTMLElement)) return false;
-  return (
-    t instanceof HTMLInputElement ||
-    t instanceof HTMLTextAreaElement ||
-    t instanceof HTMLSelectElement ||
-    t.isContentEditable
-  );
+  return t instanceof HTMLElement && isEditableTarget(t);
 }
 
 /** True when the event originates inside an xterm instance — its keys are sacred. */

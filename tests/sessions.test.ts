@@ -13,7 +13,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   api,
   createSession,
@@ -39,7 +39,7 @@ after(async () => {
   if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
 });
 
-test('create returns SessionInfo, session is listed, title defaults to command', async () => {
+test('create returns SessionInfo, session is listed, title defaults to the cwd last segment', async () => {
   const info = await createSession(server, {
     command: 'bash',
     args: [],
@@ -54,7 +54,14 @@ test('create returns SessionInfo, session is listed, title defaults to command',
   assert.equal(info.cwd, workDir);
   assert.equal(info.cols, 91);
   assert.equal(info.rows, 33);
-  assert.equal(info.title, 'bash', 'title must default to the command');
+  // 2026-09-08: the fallback is the FOLDER, not the command. A project-less
+  // session used to be titled `bash` / `/bin/bash` / `powershell.exe`, which
+  // puts a command name in the chrome the UI copy rule forbids (PROJECT-SCOPE,
+  // 2026-07-25); the folder's last segment is what the user recognises, and it
+  // is already how HISTORY groups such a session.
+  assert.equal(info.title, basename(workDir), 'title must default to the cwd last segment');
+  assert.notEqual(info.title, 'bash', 'the raw command must never be the title');
+  assert.equal(info.title.includes('/'), false, 'a title is never a path');
   assert.equal(info.attention, false);
   assert.equal(new Date(info.createdAt).toISOString(), info.createdAt);
 
@@ -183,6 +190,80 @@ test('PTY exit: exit broadcast with code, session stays listed as exited until D
 
   const rejected = await wsExpectRejected(wsUrl(server, info.id));
   assert.match(rejected, /404/, 'ws attach to a deleted session must be rejected 404');
+});
+
+test('DELETE on a RUNNING session closes every attached client with 1000 "session deleted" — no exit frame', async () => {
+  // Two exit paths, two different signals to the browser, and only one of them
+  // was pinned: a PTY that ends by itself broadcasts `exit` (the test above),
+  // while a user-requested kill CLOSES the sockets instead (sessions.ts:650).
+  // The UI's tab teardown reads the close, so a silent switch to an exit frame
+  // (or to no notification at all) would strand panes on a dead session.
+  const info = await createSession(server, {
+    command: 'bash',
+    args: [],
+    cwd: workDir,
+    cols: 80,
+    rows: 24,
+  });
+  const c1 = await WsClient.connect(wsUrl(server, info.id));
+  const c2 = await WsClient.connect(wsUrl(server, info.id));
+  for (const c of [c1, c2]) await c.waitForMessage('replay');
+  const framesBefore = [c1.messages.length, c2.messages.length];
+
+  const del = await api(server, 'DELETE', `/api/sessions/${info.id}`);
+  assert.equal(del.status, 200);
+
+  for (const [i, c] of [c1, c2].entries()) {
+    await waitUntil(() => (c.closed ? true : undefined), `client ${i} to be closed by the delete`, 10_000, 50);
+    assert.equal(c.closeInfo?.code, 1000, `client ${i} close code`);
+    assert.equal(c.closeInfo?.reason, 'session deleted', `client ${i} close reason`);
+    assert.equal(
+      c.messages.slice(framesBefore[i] as number).some((m) => m.type === 'exit'),
+      false,
+      `client ${i} must not also get an exit frame`,
+    );
+  }
+  assert.equal(await getSession(server, info.id), undefined, 'the session is gone from the list');
+});
+
+test('the Terminal kind’s WSL argv (/bin/bash -l) really spawns, echoes, and follows a resize', async () => {
+  // `shellSpawn('wsl')` in web/src/ui/launch-args.ts is unit-tested as a value;
+  // this is the same argv handed to the real backend, so the value is proven to
+  // BE a working session and not just a matching string. A login shell is not
+  // the same process as the bare `bash` every other test here spawns: it reads
+  // the profile files first, and `-l` in the wrong position is silently a
+  // different program.
+  const info = await createSession(server, {
+    command: '/bin/bash',
+    args: ['-l'],
+    cwd: workDir,
+    cols: 80,
+    rows: 24,
+    title: 'WSL shell',
+  });
+  assert.equal(info.command, '/bin/bash');
+  assert.deepEqual(info.args, ['-l']);
+  assert.equal(info.status, 'running');
+  assert.equal(info.title, 'WSL shell', 'the UI sends the shell name so no raw path is ever titled');
+
+  const c = await WsClient.connect(wsUrl(server, info.id));
+  await c.waitForMessage('replay');
+  c.send({ type: 'input', data: 'echo L_$(printf OGIN):$0\r' });
+  await c.waitForOutput('L_OGIN:');
+
+  c.send({ type: 'resize', cols: 132, rows: 43 });
+  await waitUntil(
+    () => {
+      c.send({ type: 'input', data: 'echo LSZ_$(printf CHK):$COLUMNS\r' });
+      return c.output().includes('LSZ_CHK:132') ? true : undefined;
+    },
+    'a login shell to report $COLUMNS=132 after the resize',
+    15_000,
+    400,
+  );
+
+  await c.close();
+  await api(server, 'DELETE', `/api/sessions/${info.id}`);
 });
 
 test('session survives client disconnect; reconnect replays the buffer incl. output produced while detached', async () => {

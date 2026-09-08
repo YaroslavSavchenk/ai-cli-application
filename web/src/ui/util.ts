@@ -82,6 +82,11 @@ export class ArmedSet {
  * Minimal Tab-wrap focus trap for a dialog-like container. Keeps Tab /
  * Shift+Tab cycling inside it; everything else (incl. Esc) is untouched —
  * dismissal is handled by the caller's own keydown dispatch.
+ *
+ * `tabIndex >= 0` excludes the unselected members of a roving-tabindex
+ * radiogroup (the launch dialog's kind/shell segments): they are buttons the
+ * browser's own Tab order skips, so counting them as the first/last stop would
+ * break the wrap at exactly the edges this exists to handle.
  */
 export function trapTab(container: HTMLElement): void {
   container.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -90,7 +95,7 @@ export function trapTab(container: HTMLElement): void {
       container.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
       ),
-    ).filter((n) => n.offsetParent !== null);
+    ).filter((n) => n.offsetParent !== null && n.tabIndex >= 0);
     if (focusable.length === 0) return;
     const first = focusable[0] as HTMLElement;
     const last = focusable[focusable.length - 1] as HTMLElement;

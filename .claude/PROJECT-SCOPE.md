@@ -7,9 +7,11 @@ a decision changes; never let it silently drift from reality.
 ## What we are building
 
 A GUI to run and manage multiple AI CLI sessions (Claude Code first; Codex CLI,
-Gemini CLI and others later) side by side. Each session is a real interactive
-terminal running inside WSL; the GUI adds project management, launch presets,
-and multi-pane layouts on top.
+Gemini CLI and others later) side by side — and, since 2026-09-08 (user's
+call, "alles moet mogelijk"), plain terminal sessions (WSL shell or
+PowerShell) next to them. Each session is a real interactive terminal
+running inside WSL; the GUI adds project management, launch presets, and
+multi-pane layouts on top.
 
 ## Architecture (decided)
 
@@ -204,7 +206,15 @@ and multi-pane layouts on top.
   (the Edge `--app` window cannot — see the icon note under Open decisions).
   It navigates only to `127.0.0.1:<port>`, navigation locked to that origin,
   and falls back to the Edge `--app` window if the WebView2 runtime is
-  absent. Its **window chrome is dark** (added 2026-07-24): DWM caption /
+  absent. **One sanctioned, one-way exit (2026-09-08, the `/login` fix):**
+  a user-initiated off-origin `window.open` for an exact `http`/`https`
+  target is handed to the user's default browser (ShellExecute, separate
+  process; scheme allowlist enforced in C#, `host.log` records
+  scheme+host only); every other scheme and every popup is dropped, and
+  top-level navigation stays locked. The host also returns keyboard focus
+  to the web content on window activation (the WebView2 control does not
+  do that by itself after an Alt-Tab) and grants clipboard-read to the
+  launch origin only (all other permissions denied silently). Its **window chrome is dark** (added 2026-07-24): DWM caption /
   text / border colors + immersive dark mode, matching the `--bg-app`,
   `--text-hd` and `--edge` tokens, because the DWM-drawn caption is outside
   the page and showed a white bar above the dark UI when maximized. The
@@ -218,20 +228,33 @@ and multi-pane layouts on top.
 ## Features (decided)
 
 - **Projects**: stored in a `projects.json` — `{ id, name, path,
-  defaultModel, defaultMode, createdAt }` (full schema: `shared/protocol.ts`). UI shows the project *name* everywhere; the raw path
+  defaultModel, defaultMode, createdAt }` (full schema: `shared/protocol.ts`). UI shows the project *name* everywhere (a project-less terminal session,
+  launched into the home folder, is grouped under that folder's last
+  segment in HISTORY — never a full path); the raw path
   appears only as secondary metadata inside the manage-projects view (needed
   to disambiguate add/delete). "Add project" = browse to a directory + give
   it a name.
 - **Launch dialog = a short form (reshaped 2026-09-06, user's call: "far
   too many unnecessary things, no effort choice, too much code-ish text —
-  plain short words, no explanation").** Header `New session`; fields Name
+  plain short words, no explanation"); kind switch added 2026-09-08, user's
+  call.** Header `New session`; first row `Session` = a segmented
+  radiogroup `Claude · Terminal · Other` (same idiom as Mode); `Terminal`
+  reveals a `Shell` row `WSL shell` (`/bin/bash -l`) · `PowerShell`
+  (`powershell.exe -NoLogo` through WSL interop, ~8 s cold start, UNC-form
+  prompt) in the project folder or, with no project, the home folder;
+  `Other` reveals the mono Command field (the 2026-07-20 custom-command
+  escape hatch — the footer toggle it used to live behind is gone, the
+  hatch itself stays); the claude-only controls are hidden AND disabled for
+  the other two kinds (hidden, not dimmed: dimmed plus the Shell row
+  overflowed the dialog). Name, Project, Cancel and Launch are shared by
+  all kinds; the claude-only set is exactly Model · Effort · Mode ·
+  Continue. Fields: Name
   (placeholder = the selected project's name) · Project · Model · **Effort**
   (`default`, `low`, `medium`, `high`, `xhigh`, `max` → `--effort <v>`,
   default emits nothing) · Mode as one segmented row of the short labels
   `always ask` · `auto edits` · `read-only` · `no prompts` (danger red) ·
-  a `Continue last conversation` checkbox (`--continue`) · footer `other
-  command` toggle (the 2026-07-20 custom-command escape hatch, kept) ·
-  Cancel · Launch. GONE: the subtitle, the preset chips, the readable
+  a `Continue last conversation` checkbox (`--continue`) · Cancel · Launch.
+  `composeSpawn()` is the ONE composition path for all three kinds. GONE: the subtitle, the preset chips, the readable
   launch summary / ink well, the footer note, the permission descriptions,
   hint text and mechanic-explaining tooltips. Per-id resume lives in the
   sessions drawer's HISTORY section, grouped per project folder. The
@@ -370,7 +393,9 @@ and multi-pane layouts on top.
   <dest>` preview (same treatment: `copies` / the pasted URL / `into folder:
   <dest>` — the URL stays, it is the user's own input), and the literal command
   name `claude` in the sessions drawer (the known agent renders as its product
-  name; any other command still echoes verbatim). The new-project dialog's
+  name `Claude Code`, the two built-in shells as `WSL shell` / `PowerShell`,
+  in the active list AND the history rows; a user-typed custom command
+  still echoes verbatim). The new-project dialog's
   **`standard` default-permission option was dropped** rather than renamed —
   it behaved identically to "no default", so a plain-language label would have
   promised enforcement it never delivered; a `standard` already stored in
@@ -388,7 +413,20 @@ and multi-pane layouts on top.
 - **Resize must propagate**: pane resize → xterm.js fit addon → `pty.resize()`,
   or TUIs render garbage.
 - Keyboard input goes **to the terminal** (Ctrl+C etc. must reach the PTY);
-  app-level shortcuts must not collide with TUI keybindings.
+  app-level shortcuts must not collide with TUI keybindings. The app takes
+  exactly two extra chords (2026-09-08): `Ctrl+Shift+V` and `Shift+Insert`
+  paste the clipboard into the terminal (plain Ctrl+V is NOT intercepted —
+  it is not a paste in a Linux terminal). When the window regains focus the
+  keyboard goes back to the focused pane unless a dialog, drawer, overlay
+  or editable field owns it. OSC 8 hyperlinks printed by a CLI open in the
+  system browser on **Ctrl+click** (`http`/`https` only, no confirm
+  dialog — the modifier is the second gesture, as in Windows Terminal and
+  VS Code). Known limit (2026-09-08): a reply xterm generates while a
+  replay is being written is dropped on purpose (the live session already
+  answered those queries), so a program that BLOCKS on a terminal query —
+  PowerShell on `ESC[6n` — can hang if that query is replayed into a pane
+  attaching in that few-ms window; not observed (attach beats the interop
+  start), no fix designed yet.
 - Focused pane must be clearly indicated when multiple panes are visible.
 
 ## Environment

@@ -220,6 +220,7 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     'main.ts',
     'ui/launch.ts',
     'ui/launch-args.ts',
+    'ui/keys.ts',
     'ui/settings.ts',
     'ui/github.ts',
     'ui/newproject.ts',
@@ -237,6 +238,13 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['ui/settings.ts', 'Settings'],
     ['ui/newproject.ts', 'Initialize git repo'],
     ['ui/launch-args.ts', 'always ask'],
+    ['ui/launch-args.ts', 'WSL shell'],
+    ['ui/launch.ts', 'Session'],
+    // ui/keys.ts (2026-09-08) carries no display copy at all — only selectors
+    // and protocol names — so its canaries are those: the scan has to be
+    // reading the file for its "no CLI shapes" verdict on it to mean anything.
+    ['ui/keys.ts', '.term-host'],
+    ['ui/keys.ts', 'AltGraph'],
     ['ui/sessions.ts', 'start again'],
   ];
   for (const [file, text] of canaries) {

@@ -11,6 +11,12 @@
  *   as garbage (see PROJECT-SCOPE).
  * - Attach flow: on every replay frame the terminal is reset() first, then
  *   the replay is written, then live data streams (server guarantees order).
+ * - Links: OSC 8 hyperlinks (Claude Code's `/login` prints one) open in the
+ *   system browser on click — no confirm() dialog, http/https only. See
+ *   ./keys.ts for the scheme filter.
+ * - Paste: the browser's own Ctrl+V path into the xterm textarea is untouched;
+ *   Ctrl+Shift+V and Shift+Insert read the clipboard explicitly. Plain Ctrl+C
+ *   and Ctrl+V still reach the PTY (PROJECT-SCOPE keyboard rule).
  */
 import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
@@ -19,6 +25,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import type { SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
+import { isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
 
 const SCROLLBACK_LINES = 5000;
 const RESIZE_DEBOUNCE_MS = 75;
@@ -74,6 +81,22 @@ export function refreshAllTerminalThemes(): void {
   for (const view of liveViews) view.term.options.theme = theme;
 }
 
+/** One debug line per page for a clipboard the browser will not let us read. */
+let clipboardRefusalLogged = false;
+
+/**
+ * Open a terminal hyperlink in the system browser. The address comes from PTY
+ * OUTPUT, so it is never logged (the logging rule: counts, never content).
+ */
+function openTerminalLink(uri: string): void {
+  if (!isOpenableLink(uri)) {
+    log.debug('terminal link ignored: not a web address');
+    return;
+  }
+  log.debug('terminal link opened');
+  window.open(uri, '_blank', 'noopener,noreferrer');
+}
+
 export interface TerminalEvents {
   onInfo(session: SessionInfo): void;
   onExit(exitCode: number): void;
@@ -106,6 +129,23 @@ export class TerminalView {
       fontSize: Number.isFinite(fsTerm) ? fsTerm : 13,
       cursorBlink: false,
       theme: themeFromTokens(),
+      // xterm's default OSC 8 activation asks a confirm() first and then opens
+      // the address. In the app window that confirm is one more click between
+      // a user and the login page they just asked for (2026-09-08 report), so
+      // the confirm is gone and the SECOND GESTURE is the modifier instead:
+      // ctrl+click (cmd+click on a Mac keyboard) opens, a plain click does
+      // nothing at all — the Windows Terminal / VS Code convention, and the
+      // reason a program printing a link cannot turn a stray click into a
+      // navigation. Then http/https only, and never a scheme we did not vet;
+      // `allowNonHttpProtocols` stays off (its default), so that filter is the
+      // third lock, not the only one. Both decisions are pure and unit-tested
+      // in ui/keys.ts.
+      linkHandler: {
+        activate: (event: MouseEvent, uri: string) => {
+          if (!isLinkActivation(event)) return;
+          openTerminalLink(uri);
+        },
+      },
     });
     liveViews.add(this);
     // App shortcuts live exclusively on Ctrl+Alt; keep xterm from also
@@ -114,6 +154,14 @@ export class TerminalView {
     // reports ctrl+alt — getModifierState distinguishes it, so European
     // layouts can still type AltGr characters into the TUI.
     this.term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      // Paste chords FIRST: the browser's own Ctrl+Shift+V ("paste as plain
+      // text") would otherwise fire a second paste into the xterm textarea and
+      // land everything twice, so this preventDefault is load-bearing.
+      if (isPasteChord(e)) {
+        e.preventDefault();
+        void this.#pasteFromClipboard();
+        return false;
+      }
       if (
         e.type === 'keydown' &&
         e.ctrlKey &&
@@ -249,6 +297,26 @@ export class TerminalView {
 
   focus(): void {
     this.term.focus();
+  }
+
+  /**
+   * Explicit paste (Ctrl+Shift+V · Shift+Insert): read the clipboard and hand
+   * the text to xterm, which applies bracketed-paste exactly as it does for a
+   * browser paste event. A refusal (no permission, no clipboard API, an empty
+   * read) does nothing at all — a modal about clipboard permissions in a
+   * terminal window would be worse than the missing paste. One debug line per
+   * page, because the refusal is the same every time.
+   */
+  async #pasteFromClipboard(): Promise<void> {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text !== '') this.term.paste(text);
+    } catch {
+      if (!clipboardRefusalLogged) {
+        clipboardRefusalLogged = true;
+        log.debug('clipboard read refused — the paste chord did nothing');
+      }
+    }
   }
 
   sendSeen(): void {

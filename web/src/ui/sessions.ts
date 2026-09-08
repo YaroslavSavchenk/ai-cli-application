@@ -21,7 +21,7 @@ import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, ArmedSet, fmtAgo, modelFromArgs, fmtCount } from './util.ts';
-import { AGENT_LABEL } from './launch-args.ts';
+import { commandLabel, isClaudeCommand } from './launch-args.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
@@ -30,20 +30,6 @@ const armed = new ArmedSet();
 
 /** Folder keys the user has collapsed. In memory only — origins churn per backend run. */
 const collapsed = new Set<string>();
-
-/**
- * A session's command as the UI says it: the ONE known agent reads as its
- * product name (the launch dialog's own `Claude Code`), anything else is echoed
- * exactly as the user typed it in the custom-command field. Inventing a display
- * name for an arbitrary command would be a lie about what is running.
- *
- * Exported because the settings panel's relaunch notice names sessions too, and
- * a second table would be a second place for the literal command name to leak
- * into UI chrome (PROJECT-SCOPE copy rule, 2026-07-25).
- */
-export function commandLabel(command: string): string {
-  return command === 'claude' ? AGENT_LABEL : command;
-}
 
 /** Go to the session's tab and put the keyboard in its terminal. */
 function showSession(sessionId: string): void {
@@ -284,6 +270,11 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
 
     const meta = el('div', 'sess-meta');
     const parts = [fmtAgo(entry.lastUsedAt)];
+    // What RAN, for everything that is not the known agent: without it a shell
+    // entry is indistinguishable from a claude one (the ACTIVE rows say it in
+    // their model slot; history rows have no model to say). Claude rows are
+    // left alone — their model tag already names them.
+    if (!isClaudeCommand(entry.command)) parts.push(commandLabel(entry.command));
     const model = modelFromArgs(entry.args);
     if (model !== null) parts.push(model);
     const crashed = entry.ended?.reason === 'crash';

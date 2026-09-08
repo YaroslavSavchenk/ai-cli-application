@@ -38,6 +38,21 @@ import { describeError, scoped, type Logger } from './config.ts';
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
 export const SCROLLBACK_MAX_BYTES = 1024 * 1024;
 
+/**
+ * Last-resort session title: the working directory's own last segment.
+ *
+ * A session with no project and no client title used to be titled with the raw
+ * COMMAND, which put a command name straight into the chrome the UI copy rule
+ * forbids (PROJECT-SCOPE, 2026-07-25) — a plain terminal launched into the
+ * home folder read as `/bin/bash`. The folder name is what the user recognises
+ * and is what HISTORY already groups such a session under. A degenerate cwd
+ * with no last segment (`/`) keeps the path itself rather than an empty title.
+ */
+function cwdTitle(cwd: string): string {
+  const base = basename(cwd);
+  return base !== '' ? base : cwd;
+}
+
 /** Minimum gap between per-session output summary lines (debug). */
 export const OUTPUT_LOG_INTERVAL_MS = 1000;
 
@@ -467,7 +482,7 @@ export class SessionManager {
     const info: SessionInfo = {
       id,
       ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
-      title: opts.title !== undefined && opts.title !== '' ? opts.title : opts.command,
+      title: opts.title !== undefined && opts.title !== '' ? opts.title : cwdTitle(opts.cwd),
       command: opts.command,
       args: [...opts.args],
       cwd: opts.cwd,

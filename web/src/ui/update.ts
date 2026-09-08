@@ -34,7 +34,7 @@ import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, trapTab } from './util.ts';
-import { commandLabel } from './sessions.ts';
+import { commandLabel } from './launch-args.ts';
 import { requestTerminalFocus } from './panes.ts';
 import {
   CONTINUE_NOTE,

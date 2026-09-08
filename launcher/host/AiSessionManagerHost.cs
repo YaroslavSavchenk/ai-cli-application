@@ -13,6 +13,15 @@
 // does not monitor or kill the backend. Backend lifetime stays bound to UI
 // presence (the page's presence WebSocket), exactly as the browser window did.
 //
+// Three things the host does for the page beyond showing it: it hands the
+// keyboard back to the web content whenever the window is activated (WebView2
+// runs the page in its own HWND tree, so an Alt-Tab away and back could leave
+// the window active with nothing able to receive typing or pasting), it hands
+// off-origin http/https window.open targets to the user's default browser
+// instead of dropping them, and it grants clipboard-read to the app's own
+// origin so the page can offer a paste command. Everything else stays denied
+// and top-level navigation stays locked to the launch origin.
+//
 // C# 5 only (compiled by the in-box Framework csc.exe, pre-Roslyn): no string
 // interpolation, no expression-bodied members, no null-conditional operators.
 
@@ -87,6 +96,10 @@ namespace AiSessionManager
         // startup. The navigation lock and the new-window handler compare against
         // this, not just the host, so a different scheme/port cannot escape.
         private static Uri _launchOrigin;
+        // The window and its WebView2, captured in BuildForm so the activation
+        // and navigation handlers can hand keyboard focus back to the page.
+        private static Form _form;
+        private static WebView2 _webView;
 
         [STAThread]
         private static int Main(string[] args)
@@ -178,6 +191,7 @@ namespace AiSessionManager
             // WebView2 child can force it), so the event is never missed; it
             // fires again if WinForms ever recreates the handle.
             form.HandleCreated += Form_HandleCreated;
+            form.Activated += Form_Activated;
             form.Text = "AI Session Manager";
             form.Width = 1280;
             form.Height = 860;
@@ -201,8 +215,11 @@ namespace AiSessionManager
 
             webView.CoreWebView2InitializationCompleted += WebView_InitCompleted;
             webView.NavigationStarting += WebView_NavigationStarting;
+            webView.NavigationCompleted += WebView_NavigationCompleted;
 
             form.Controls.Add(webView);
+            _form = form;
+            _webView = webView;
 
             // Setting Source implicitly begins CoreWebView2 initialization using
             // the CreationProperties above (once the control has a window
@@ -332,13 +349,16 @@ namespace AiSessionManager
                 // Lock the host down: disable devtools (F12 / Ctrl+Shift+I) and
                 // browser accelerator keys (reload, etc.); wire NewWindowRequested
                 // so window.open/target=_blank/ctrl-click cannot spawn an
-                // uncontrolled popup that escapes the origin lock.
+                // uncontrolled popup that escapes the origin lock, and
+                // PermissionRequested so every permission the page asks for is
+                // answered by this host instead of by a WebView2 prompt.
                 WebView2 wv = sender as WebView2;
                 if (wv != null && wv.CoreWebView2 != null)
                 {
                     wv.CoreWebView2.Settings.AreDevToolsEnabled = false;
                     wv.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
                     wv.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
+                    wv.CoreWebView2.PermissionRequested += WebView_PermissionRequested;
                 }
                 return;
             }
@@ -372,6 +392,106 @@ namespace AiSessionManager
             }
         }
 
+        // Keyboard focus on activation. WebView2 renders the page in its own
+        // child HWND tree, so the window can become active again — after an
+        // Alt-Tab, or after the user clicked a link that opened the system
+        // browser and then came back by clicking only the title bar, never
+        // inside the page — with nothing in the web content holding the
+        // keyboard. Typing and pasting then go nowhere, which is exactly what
+        // an OAuth "paste code here" prompt runs into.
+        private static void Form_Activated(object sender, EventArgs e)
+        {
+            Form form = sender as Form;
+            if (form == null || form.IsDisposed)
+            {
+                return;
+            }
+            try
+            {
+                // Deferred: while Activated runs, WinForms is still restoring
+                // its own active control, and it would undo the focus change.
+                form.BeginInvoke(new MethodInvoker(FocusWebView));
+            }
+            catch (Exception ex)
+            {
+                Log("could not schedule a focus restore (" + ex.Message + "); non-fatal.");
+            }
+        }
+
+        // A finished navigation means the page is there: give it the keyboard
+        // without making the user click into it first.
+        private static void WebView_NavigationCompleted(
+            object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (e != null && !e.IsSuccess)
+            {
+                return;
+            }
+            FocusWebView();
+        }
+
+        private static void FocusWebView()
+        {
+            try
+            {
+                Form form = _form;
+                WebView2 wv = _webView;
+                if (form == null || wv == null || form.IsDisposed || wv.IsDisposed)
+                {
+                    return;
+                }
+                if (!form.Visible || form.WindowState == FormWindowState.Minimized)
+                {
+                    return;
+                }
+                if (!wv.CanFocus)
+                {
+                    return;
+                }
+                // Clear the form's idea of its active control first. While it
+                // still points at the WebView2 control, WinForms can treat the
+                // Focus() below as a no-op, and the control's OnGotFocus - the
+                // only hook that calls the WebView2 controller's
+                // MoveFocus(CoreWebView2MoveFocusReason.Programmatic), which is
+                // what actually puts the keyboard back into the page - never
+                // runs. There is no public controller on the WinForms wrapper,
+                // so this is the supported way to reach that call.
+                form.ActiveControl = null;
+                wv.Focus();
+            }
+            catch (Exception ex)
+            {
+                Log("could not return keyboard focus to the page (" + ex.Message + "); non-fatal.");
+            }
+        }
+
+        // Permissions. The page asks for clipboard read when the user pastes
+        // with a keyboard command the browser does not handle itself
+        // (navigator.clipboard.readText). Granted for the app's own origin -
+        // the only origin that can ever be loaded here - and denied for
+        // everything else, every other permission kind included. Handled is
+        // always set, so WebView2 never shows a prompt of its own.
+        private static void WebView_PermissionRequested(
+            object sender, CoreWebView2PermissionRequestedEventArgs e)
+        {
+            if (e == null)
+            {
+                return;
+            }
+            Uri origin;
+            bool isOurs = Uri.TryCreate(e.Uri, UriKind.Absolute, out origin)
+                && IsLaunchOrigin(origin);
+            if (isOurs && e.PermissionKind == CoreWebView2PermissionKind.ClipboardRead)
+            {
+                e.State = CoreWebView2PermissionState.Allow;
+            }
+            else
+            {
+                e.State = CoreWebView2PermissionState.Deny;
+            }
+            e.Handled = true;
+        }
+
         // True only for the exact launch origin: same scheme AND host AND port.
         // Host-only matching would let a different scheme/port on 127.0.0.1
         // through; this does not.
@@ -394,19 +514,71 @@ namespace AiSessionManager
             // Never let WebView2 open its own popup window: that popup is not
             // covered by the navigation lock and would escape the origin.
             e.Handled = true;
-            Uri target;
-            if (Uri.TryCreate(e.Uri, UriKind.Absolute, out target)
-                && IsLaunchOrigin(target))
+            // Defence in depth: only a real user gesture may leave this window.
+            // WebView2 sets IsUserInitiated for a click / keyboard activation;
+            // a scripted window.open on a timer, or one a compromised page runs
+            // by itself, reports false and is dropped here before any scheme or
+            // origin test runs. The page is our own, so this changes nothing a
+            // user does - it removes the case where the page acts alone.
+            if (!e.IsUserInitiated)
             {
-                // Same-origin request: keep it in the existing window instead of
-                // a popup.
-                CoreWebView2 core = sender as CoreWebView2;
-                if (core != null)
-                {
-                    core.Navigate(e.Uri);
-                }
+                return;
             }
-            // Anything off-origin is dropped: no popup, no navigation.
+            Uri target;
+            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out target))
+            {
+                return;
+            }
+            // The one sanctioned exit from the origin lock, and a deliberately
+            // narrow one. Only a user-initiated window.open / target=_blank /
+            // ctrl-click from the app's own page can reach this line at all:
+            // the navigation lock in WebView_NavigationStarting means no other
+            // page ever runs in this window. Such a link leaves through the
+            // user's default browser, in a separate process, instead of opening
+            // a WebView2 popup that the lock does not cover. Top-level
+            // navigation in this window stays locked to the launch origin -
+            // nothing here changes that. Only the exact schemes http and https
+            // are handed over, so a link can never shell-execute a file:,
+            // ms-something: or any other custom-protocol target.
+            //
+            // A SAME-ORIGIN new-window request is dropped too, on purpose: this
+            // handler used to Navigate() the existing window to it, which meant
+            // a link printed by a CLI inside a terminal pane could replace the
+            // running app with, say, an unauthenticated 401 page and leave the
+            // user no way back (no address bar, no back button in this window).
+            // Nothing in the app opens a same-origin new window, so there is
+            // nothing to keep working.
+            if (target.Scheme == Uri.UriSchemeHttp || target.Scheme == Uri.UriSchemeHttps)
+            {
+                if (IsLaunchOrigin(target))
+                {
+                    return;
+                }
+                OpenInDefaultBrowser(target);
+                return;
+            }
+            // Anything else is dropped: no popup, no navigation, no shell.
+        }
+
+        private static void OpenInDefaultBrowser(Uri target)
+        {
+            // Logged without the URL itself: an external link can carry an OAuth
+            // state or code in its query, and host.log is a plain file.
+            Log("external link handed to the default browser: "
+                + target.Scheme + "://" + target.Host);
+            try
+            {
+                // The absolute, parsed URI (never the raw string from the page)
+                // and UseShellExecute, which is what routes it to the user's
+                // default browser rather than starting a process directly.
+                ProcessStartInfo psi = new ProcessStartInfo(target.AbsoluteUri);
+                psi.UseShellExecute = true;
+                Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                Log("could not open the external link (" + ex.Message + "); non-fatal.");
+            }
         }
 
         private static void WriteReadySentinel()

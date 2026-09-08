@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { HistoryEntry, Project, SessionInfo } from '../shared/protocol.ts';
 import { planConversation, resumeSpawn, stripConversationArgs } from '../server/conversation.ts';
 import { HISTORY_MAX, SessionHistory } from '../server/history.ts';
@@ -418,7 +418,16 @@ test('a session launched into a project is titled after the PROJECT, not the com
     const noProject = await createSession(f.server, {
       command: 'bash', args: ['-c', 'sleep 300'], cwd: f.workDir, cols: 80, rows: 24,
     });
-    assert.equal(noProject.title, 'bash', 'with no project the command name stays the fallback');
+    // With no project the fallback is the FOLDER the session runs in, never
+    // the raw command (2026-09-08): a project-less terminal used to be titled
+    // `bash`, a command name in the chrome the UI copy rule forbids, and the
+    // folder name is what HISTORY already groups it under.
+    assert.equal(
+      noProject.title,
+      basename(f.workDir),
+      'with no project the cwd last segment is the fallback',
+    );
+    assert.notEqual(noProject.title, 'bash', 'the raw command must never be the title');
   } finally {
     await f.cleanup();
   }
@@ -889,7 +898,8 @@ test('load(): unusable records are skipped, thin ones get conservative defaults,
     );
     assert.equal(disk[0]?.conversation, true, 'a UUID-keyed conversation is still honoured');
     assert.equal(thin.sessionId, 'thin', 'sessionId falls back to the entry id');
-    assert.equal(thin.title, 'claude', 'the title falls back to basename(command)');
+    assert.equal(thin.title, 'x', 'the title falls back to basename(cwd) — never the command word');
+    assert.notEqual(thin.title, 'claude', 'a repaired record never names its command');
     assert.equal(thin.createdAt, new Date(0).toISOString());
     assert.equal(thin.lastUsedAt, thin.createdAt, 'lastUsedAt falls back to createdAt');
     assert.equal(thin.projectId, undefined);

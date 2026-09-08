@@ -101,6 +101,103 @@ export function parseCustomCommand(line: string): SpawnSpec | null {
   return { command, args: parts.slice(1) };
 }
 
+// ---------------------------------------------------------------------------
+// Session kind (2026-09-08, user's request: "alles moet mogelijk")
+// ---------------------------------------------------------------------------
+
+/**
+ * What the launch dialog is launching. Three kinds, one composition path:
+ *   - `claude`   the known agent, composed by `composeArgs` (unchanged);
+ *   - `terminal` a plain shell in the project folder — the app stops being
+ *                claude-only without becoming a command prompt;
+ *   - `other`    the 2026-07-20 escape hatch: whatever the user types.
+ */
+export const KINDS = ['claude', 'terminal', 'other'] as const;
+export type LaunchKind = (typeof KINDS)[number];
+
+/** The kind switch's words — plain, short, and never a command name. */
+export const KIND_LABEL: Record<LaunchKind, string> = {
+  claude: 'Claude',
+  terminal: 'Terminal',
+  other: 'Other',
+};
+
+/** True when `v` is one of the three kinds. */
+export function isKind(v: unknown): v is LaunchKind {
+  return typeof v === 'string' && (KINDS as readonly string[]).includes(v);
+}
+
+/**
+ * The shells a Terminal session can be. Two, deliberately: the Linux shell the
+ * backend already lives in, and the Windows one it can reach through WSL
+ * interop (it runs inside the SAME PTY — a Windows console program on a Linux
+ * pty; see the report/verify notes for what it does and does not do there).
+ *
+ * `command`/`args` are the CLI contract (they reach argv verbatim); `label` is
+ * what the user reads. Same two-layer rule as the permission vocabulary above:
+ * changing a label must never change a spawn.
+ */
+export interface ShellDef {
+  readonly id: string;
+  readonly label: string;
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+export const SHELLS = [
+  { id: 'wsl', label: 'WSL shell', command: '/bin/bash', args: ['-l'] },
+  { id: 'powershell', label: 'PowerShell', command: 'powershell.exe', args: ['-NoLogo'] },
+] as const satisfies readonly ShellDef[];
+
+export type ShellId = (typeof SHELLS)[number]['id'];
+
+/** True when `v` names one of the shells. */
+export function isShellId(v: unknown): v is ShellId {
+  return typeof v === 'string' && SHELLS.some((s) => s.id === v);
+}
+
+/** One shell -> its spawn spec. An unknown id falls back to the first shell. */
+export function shellSpawn(id: ShellId): SpawnSpec {
+  const def = SHELLS.find((s) => s.id === id) ?? SHELLS[0];
+  return { command: def.command, args: [...def.args] };
+}
+
+/**
+ * A spawned command -> the shell's product name, or null when it is not one of
+ * ours. Exact-match on the command the app itself composes: a user-typed custom
+ * command is echoed verbatim (the one display exemption) and must never be
+ * relabelled by guesswork.
+ */
+export function shellLabel(command: string): string | null {
+  return SHELLS.find((s) => s.command === command)?.label ?? null;
+}
+
+/** Everything the dialog's controls hold, in one bag — the input to `composeSpawn`. */
+export interface LaunchForm {
+  kind: LaunchKind;
+  /** claude only */
+  model: string;
+  perm: Perm;
+  continueLast: boolean;
+  effort: Effort;
+  /** terminal only */
+  shell: ShellId;
+  /** other only — the raw line the user typed */
+  customLine: string;
+}
+
+/**
+ * THE composition path for every kind — `currentSpawn()` in launch.ts reads
+ * only this, and its output IS the POST /api/sessions body. `composeArgs`
+ * stays the claude argv composer underneath; the other two kinds add no second
+ * vocabulary. null = nothing to spawn (a blank custom line).
+ */
+export function composeSpawn(f: LaunchForm): SpawnSpec | null {
+  if (f.kind === 'terminal') return shellSpawn(f.shell);
+  if (f.kind === 'other') return parseCustomCommand(f.customLine);
+  return { command: 'claude', args: composeArgs(f.model, f.perm, f.continueLast, f.effort) };
+}
+
 /**
  * Was this session launched with "Continue last conversation"? Reads the argv
  * the server recorded (both spellings the CLI accepts). Used by the restart
@@ -130,6 +227,24 @@ export function isClaudeCommand(command: string): boolean {
 
 /** What the known agent is CALLED in the UI — a product name, not a command. */
 export const AGENT_LABEL = 'Claude Code';
+
+/**
+ * A session's command as the UI says it: the ONE known agent reads as its
+ * product name, a shell the launch dialog can compose reads as that shell's
+ * name (2026-09-08), and anything else is echoed exactly as the user typed it
+ * in the custom-command field. Inventing a display name for an arbitrary
+ * command would be a lie about what is running.
+ *
+ * Lives here — beside `AGENT_LABEL` and `shellLabel`, the two tables it reads —
+ * so it is pure vocabulary with no DOM in its import graph (the sessions
+ * drawer, the settings panel and the restart notice all name sessions, and a
+ * second table would be a second place for the literal command name to leak
+ * into UI chrome: PROJECT-SCOPE copy rule, 2026-07-25).
+ */
+export function commandLabel(command: string): string {
+  if (command === 'claude') return AGENT_LABEL;
+  return shellLabel(command) ?? command;
+}
 
 /** Project defaultMode → dialog permission: `skip-permissions` maps to bypass; otherwise no override. */
 export function permFromDefaultMode(mode: PermissionMode | undefined): Perm | null {

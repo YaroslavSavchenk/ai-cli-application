@@ -26,7 +26,7 @@ import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
-import { commandLabel } from './sessions.ts';
+import { commandLabel } from './launch-args.ts';
 import { openRestartConfirm, runtimeFacts } from './update.ts';
 import {
   DEAD_PREFS_KEYS,

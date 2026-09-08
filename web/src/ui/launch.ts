@@ -5,24 +5,30 @@
  * REDUCED 2026-09-06 (user's call): the dialog is a short form now, not a
  * briefing. Gone are the preset chips, the readable launch summary, the header
  * subtitle, the footer note, the permission-card descriptions and every
- * tooltip that explained mechanics. What is left is six controls with one-word
- * labels:
+ * tooltip that explained mechanics.
  *
+ * KIND SWITCH 2026-09-08 (user's request — "alles moet mogelijk"): the app is
+ * no longer claude-only. The first row of the dialog picks what the session IS
+ * and the rest of the form follows it:
+ *
+ *   Session   [ Claude · Terminal · Other ]   ← radiogroup, arrow keys move
  *   Name · Project            (Name's placeholder IS the selected project's
  *   Model · Effort             name — blank means the server titles it that)
+ *   Shell     [ WSL shell · PowerShell ]      (Terminal only)
+ *   Command                                   (Other only — the escape hatch)
  *   Mode      (one row of four segments: always ask / auto edits /
  *              read-only / no prompts — the last one red, selected or not)
  *   Continue last conversation (checkbox → `--continue`)
  *
- * `composeArgs()` stays the ONE argv composer and `currentSpawn()` the ONE
- * composition path for the POST body — there is simply no second rendering of
- * it to keep in sync anymore.
+ * The four claude-only controls (Model, Effort, Mode, Continue) leave the form
+ * for Terminal and Other — driven by the kind instead of by the footer toggle
+ * the custom hatch used to have (which is GONE: one control per state, and it
+ * is the switch).
  *
- * The custom-command escape hatch survives (user decision 2026-07-20) as the
- * footer's `other command` text button: it reveals a full-width mono Command
- * field (whitespace-split argv, no shell) and disables the claude-specific
- * controls. That field's content IS a command the user types — the one spot
- * exempt from the plain-language copy rule.
+ * `composeSpawn()` in launch-args.ts is the ONE composition path for all three
+ * kinds and `currentSpawn()` its ONE caller, so the POST body has no second
+ * rendering to keep in sync. The Command field's content IS a command the user
+ * types — the one spot exempt from the plain-language copy rule.
  *
  * Entry points (all funnel here): topbar `+ New session`, tab-strip ghost
  * `+`, projects-drawer per-row `+` (pre-set to that project), the
@@ -40,13 +46,16 @@ import {
   PERMS,
   PERM_SHORT,
   EFFORTS,
-  composeArgs,
-  parseCustomCommand,
+  KIND_LABEL,
+  KINDS,
+  SHELLS,
+  composeSpawn,
   isEffort,
+  shellLabel,
   resolveModel,
   resolvePerm,
 } from './launch-args.ts';
-import type { Effort, Perm, SpawnSpec } from './launch-args.ts';
+import type { Effort, LaunchKind, Perm, ShellId, SpawnSpec } from './launch-args.ts';
 
 export interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
@@ -61,6 +70,18 @@ interface LaunchCtl {
 
 let ctl: LaunchCtl | null = null;
 
+/**
+ * The user's home folder, as the server reports it. Asked at most once per
+ * page and only when it is actually needed: a Terminal session launched while
+ * no project exists yet has to start SOMEWHERE, and that somewhere is home.
+ * The path itself never reaches the screen (projects show names, not paths).
+ */
+let homeFolder: string | null = null;
+async function homeCwd(): Promise<string> {
+  if (homeFolder === null) homeFolder = (await api.fsList()).path;
+  return homeFolder;
+}
+
 export function openLaunchDialog(opts?: LaunchOpts): void {
   ctl?.open(opts);
 }
@@ -71,6 +92,69 @@ export function closeLaunchDialog(): void {
 
 export function isLaunchDialogOpen(): boolean {
   return ctl?.isOpen() ?? false;
+}
+
+/** One segment of a radiogroup row. */
+interface Seg<T extends string> {
+  value: T;
+  label: string;
+}
+
+interface SegRow<T extends string> {
+  row: HTMLElement;
+  buttons: Map<T, HTMLButtonElement>;
+  select(v: T): void;
+}
+
+/**
+ * A segmented control that behaves like a real radiogroup: ONE tab stop
+ * (roving tabindex), arrow keys move the selection, Home/End jump. Same
+ * hairline box as the Mode row — the app has one segmented idiom and this is
+ * it; only the semantics differ (Mode is a group of toggles, these are radios).
+ */
+function radioRow<T extends string>(
+  ariaLabel: string,
+  segs: Seg<T>[],
+  onPick: (v: T) => void,
+): SegRow<T> {
+  const row = el('div', 'mode-seg');
+  row.setAttribute('role', 'radiogroup');
+  row.setAttribute('aria-label', ariaLabel);
+  const order = segs.map((s) => s.value);
+  const buttons = new Map<T, HTMLButtonElement>();
+  let current: T = order[0] as T;
+  for (const s of segs) {
+    const b = button('mode-seg-btn', s.label, () => onPick(s.value));
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', 'false');
+    b.tabIndex = -1;
+    buttons.set(s.value, b);
+    row.append(b);
+  }
+  row.addEventListener('keydown', (e: KeyboardEvent) => {
+    let i = order.indexOf(current);
+    const k = e.key;
+    if (k === 'ArrowRight' || k === 'ArrowDown') i = (i + 1) % order.length;
+    else if (k === 'ArrowLeft' || k === 'ArrowUp') i = (i - 1 + order.length) % order.length;
+    else if (k === 'Home') i = 0;
+    else if (k === 'End') i = order.length - 1;
+    else return;
+    e.preventDefault();
+    const next = order[i] as T;
+    onPick(next);
+    buttons.get(next)?.focus();
+  });
+  function select(v: T): void {
+    current = v;
+    for (const [value, b] of buttons) {
+      const on = value === v;
+      b.classList.toggle('is-sel', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    }
+  }
+  select(current);
+  return { row, buttons, select };
 }
 
 export function initLaunchDialog(modalHost: HTMLElement): void {
@@ -93,6 +177,19 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
 
   // ---- body ----------------------------------------------------------------
   const body = el('div', 'launch-body');
+
+  // Kind: the ONE row that changes what the rest of the form means, so it sits
+  // above everything with a rule under it — a field changes a value, this
+  // changes the session.
+  let kind: LaunchKind = 'claude';
+  const kindWrap = el('div', 'launch-field launch-kind');
+  kindWrap.append(el('span', 'launch-lb', 'Session'));
+  const kindSeg = radioRow<LaunchKind>(
+    'session type',
+    KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] })),
+    (k) => setKind(k, true),
+  );
+  kindWrap.append(kindSeg.row);
 
   // 2-column field grid: name · project / model · effort.
   const fields = el('div', 'launch-fields');
@@ -134,8 +231,24 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
 
   fields.append(nameField, projField, modelField, effortField);
 
-  // Custom-mode command field (hidden in claude mode): full-width, mono,
-  // whitespace-split argv — the old launcher's field, in the dialog voice.
+  // Shell (Terminal only): which shell the plain session runs. Two segments in
+  // the same idiom as the kind switch — a small closed choice, not a text box.
+  let shell: ShellId = SHELLS[0].id;
+  const shellWrap = el('div', 'launch-field');
+  shellWrap.hidden = true;
+  shellWrap.append(el('span', 'launch-lb', 'Shell'));
+  const shellSeg = radioRow<ShellId>(
+    'shell',
+    SHELLS.map((s) => ({ value: s.id, label: s.label })),
+    (id) => {
+      shell = id;
+      shellSeg.select(id);
+    },
+  );
+  shellWrap.append(shellSeg.row);
+
+  // Other: full-width, mono, whitespace-split argv — the old launcher's field,
+  // in the dialog voice.
   const cmdField = el('label', 'launch-field launch-custom');
   cmdField.hidden = true;
   const cmdInput = el('input');
@@ -194,48 +307,49 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
 
   const none = el('div', 'launch-none');
   none.hidden = true;
-  none.append(
-    el('span', '', 'no projects yet — '),
-    button('btn-link', 'add one', () => {
-      close();
-      st.openDrawer('projects');
-    }),
-  );
+  const noneTxt = el('span', '', '');
+  const noneAdd = button('btn-link', 'add one', () => {
+    close();
+    st.openDrawer('projects');
+  });
+  none.append(noneTxt, noneAdd);
 
-  body.append(fields, cmdField, permWrap, contRow, err, none);
+  body.append(kindWrap, fields, shellWrap, cmdField, permWrap, contRow, err, none);
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'launch-ft');
-  const customBtn = button('launch-other', 'other command', () => {
-    setCustomMode(!customMode);
-  });
-  customBtn.setAttribute('aria-pressed', 'false');
   const cancel = button('btn', 'Cancel', () => close());
   const go = button('btn-go', 'Launch', () => void launch());
-  ft.append(customBtn, el('span', 'launch-gap'), cancel, go);
+  ft.append(el('span', 'launch-gap'), cancel, go);
 
   /**
-   * Custom mode: the command field appears and the claude-specific controls
-   * (model, effort, mode segments, continue) go visually AND functionally
-   * disabled — the old launcher's is-disabled pattern. Exits: toggling
-   * `other command` off, or a project-intent open.
+   * Switch what is being launched: each kind reveals its own field and the four
+   * claude-only controls (Model, Effort, Mode, Continue) leave the dialog
+   * entirely for the other two kinds. They are HIDDEN, not merely dimmed as the
+   * custom-command hatch used to leave them (2026-09-08): four dead controls
+   * carry no information, and with the Shell row added they pushed the form
+   * into a scrollbar. They stay `disabled` as well, so nothing hidden is
+   * reachable by keyboard or readable by a screen reader.
+   *
+   * `byUser` moves the keyboard into the revealed field — an open() restoring a
+   * remembered kind must not steal focus from the Name box.
    */
-  let customMode = false;
-  function setCustomMode(on: boolean): void {
-    if (customMode === on) return;
-    customMode = on;
-    customBtn.classList.toggle('is-on', on);
-    customBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    cmdField.hidden = !on;
-    modelSel.disabled = on;
-    effortSel.disabled = on;
-    contRow.disabled = on;
-    modelField.classList.toggle('is-disabled', on);
-    effortField.classList.toggle('is-disabled', on);
-    permRow.classList.toggle('is-disabled', on);
-    contRow.classList.toggle('is-disabled', on);
-    for (const b of permButtons.values()) b.disabled = on;
-    if (on) cmdInput.focus();
+  function setKind(next: LaunchKind, byUser: boolean): void {
+    kind = next;
+    kindSeg.select(next);
+    const claudeOnly = next !== 'claude';
+    cmdField.hidden = next !== 'other';
+    shellWrap.hidden = next !== 'terminal';
+    modelSel.disabled = claudeOnly;
+    effortSel.disabled = claudeOnly;
+    contRow.disabled = claudeOnly;
+    modelField.hidden = claudeOnly;
+    effortField.hidden = claudeOnly;
+    permWrap.hidden = claudeOnly;
+    contRow.hidden = claudeOnly;
+    for (const b of permButtons.values()) b.disabled = claudeOnly;
+    syncLaunchable();
+    if (byUser && next === 'other') cmdInput.focus();
   }
 
   modal.append(hd, body, ft);
@@ -257,10 +371,23 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       projectSel.append(opt);
     }
     if (st.state.projects.some((p) => p.id === prev)) projectSel.value = prev;
-    const empty = st.state.projects.length === 0;
-    go.disabled = empty;
-    none.hidden = !empty;
+    syncLaunchable();
     syncNamePlaceholder();
+  }
+
+  /**
+   * With no projects there is nothing for Claude to work on, so Launch stays
+   * off — but a plain Terminal always has somewhere to run (the home folder),
+   * so that one kind stays launchable and the empty line says where it lands.
+   */
+  function syncLaunchable(): void {
+    const empty = st.state.projects.length === 0;
+    go.disabled = empty && kind !== 'terminal';
+    none.hidden = !empty;
+    noneTxt.textContent =
+      empty && kind === 'terminal'
+        ? 'no projects yet — this one opens in your home folder, or '
+        : 'no projects yet — ';
   }
 
   /**
@@ -292,15 +419,19 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   /**
-   * The ONE composition path for BOTH modes — the POST body reads only this.
+   * The ONE composition path for every kind — the POST body reads only this.
    * null = nothing to spawn (blank custom command).
    */
   function currentSpawn(): SpawnSpec | null {
-    if (customMode) return parseCustomCommand(cmdInput.value);
-    return {
-      command: 'claude',
-      args: composeArgs(modelSel.value, perm, continueLast, currentEffort()),
-    };
+    return composeSpawn({
+      kind,
+      model: modelSel.value,
+      perm,
+      continueLast,
+      effort: currentEffort(),
+      shell,
+      customLine: cmdInput.value,
+    });
   }
 
   /** The selected effort, resolved in ONE place: the argv and the log line agree. */
@@ -317,14 +448,14 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
 
   // ONE permanent subscription (state.ts has no unsubscribe — never bind per
   // open): keeps the project list fresh while the dialog shows.
-  st.subscribe((kind) => {
-    if (kind === 'projects' && !scrim.hidden) populateProjects();
+  st.subscribe((kindOfChange) => {
+    if (kindOfChange === 'projects' && !scrim.hidden) populateProjects();
   });
 
   async function launch(): Promise<void> {
     err.hidden = true;
     const projectId = projectSel.value;
-    if (projectId === '') {
+    if (projectId === '' && kind !== 'terminal') {
       showErr('pick a project first');
       return;
     }
@@ -340,27 +471,40 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     const effort = currentEffort();
     const projectLabel = st.state.projects.find((p) => p.id === projectId)?.name ?? '?';
     log.info(
-      customMode
-        ? `launch: project=${projectLabel} custom=yes words=${spawn.args.length + 1}`
-        : `launch: project=${projectLabel} custom=no model=${modelSel.value} effort=${effort} ` +
-          `mode=${perm} continue=${continueLast}`,
+      kind === 'claude'
+        ? `launch: kind=claude project=${projectLabel} model=${modelSel.value} effort=${effort} ` +
+          `mode=${perm} continue=${continueLast}`
+        : kind === 'terminal'
+          ? `launch: kind=terminal project=${projectLabel} shell=${shell}`
+          : `launch: kind=other project=${projectLabel} words=${spawn.args.length + 1}`,
     );
     // Sized to the focused pane as a starting hint; the attach flow
     // reconciles the PTY with the new tab's real dimensions (same contract
     // as a history resume).
     const dims = focusedPaneDims();
     const title = nameInput.value.trim();
+    // A session with no project and no typed name would be titled after its
+    // command by the server — which is how a raw path (`/bin/bash`) ends up on
+    // screen. The shell's product name is sent instead; every other case still
+    // falls through to the server's own titling (blank name -> project name).
+    const shellTitle = projectId === '' ? (shellLabel(spawn.command) ?? '') : '';
+    const sendTitle = title !== '' ? title : shellTitle;
     go.disabled = true;
     try {
+      // A project when there is one; otherwise (Terminal only) the home folder,
+      // which the server resolves and validates like any other cwd.
+      const where = projectId !== '' ? { projectId } : { cwd: await homeCwd() };
       const info = await api.createSession({
-        projectId,
+        ...where,
         command: spawn.command,
         args: spawn.args,
-        ...(title !== '' ? { title } : {}),
+        ...(sendTitle !== '' ? { title: sendTitle } : {}),
         cols: dims.cols,
         rows: dims.rows,
       });
-      log.info(`launch ok: session=${info.id} name=${title !== '' ? 'given' : 'project default'}`);
+      log.info(
+        `launch ok: session=${info.id} name=${title !== '' ? 'given' : shellTitle !== '' ? 'shell' : 'project default'}`,
+      );
       st.upsertSession(info); // gives the session its own (new) tab
       st.focusSession(info.id); // ... and makes that tab active + focused
       close();
@@ -369,7 +513,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       log.warn(`launch failed: ${e instanceof Error ? e.message : String(e)}`);
       showErr(e instanceof Error ? e.message : String(e));
     } finally {
-      go.disabled = st.state.projects.length === 0;
+      syncLaunchable();
     }
   }
 
@@ -389,12 +533,18 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     populateProjects();
     if (opts?.projectId !== undefined && st.state.projects.some((p) => p.id === opts.projectId)) {
       // Explicit project intent (projects-drawer row `+`) means "a claude
-      // session for that project" — exit custom mode so a stale custom command
-      // can't hijack the launch, and force-select that project BEFORE defaults
-      // resolve so its defaultModel/defaultMode are layered on.
-      setCustomMode(false);
+      // session for that project" — go back to the claude kind so a stale
+      // custom command or shell can't hijack the launch, and force-select that
+      // project BEFORE defaults resolve so its defaultModel/defaultMode are
+      // layered on.
+      setKind('claude', false);
       projectSel.value = opts.projectId;
       syncNamePlaceholder();
+    } else {
+      // A plain open keeps the kind (and its shell / command text) as the user
+      // last left it — the dialog's existing remember-what-you-chose behaviour,
+      // now including which kind of session that was.
+      setKind(kind, false);
     }
     // Resolve model + permission once against the now-settled selected project
     // (the forced project above, or populateProjects()'s auto-selected first

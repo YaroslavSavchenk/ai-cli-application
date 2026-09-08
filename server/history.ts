@@ -111,7 +111,13 @@ function normalizeEntry(raw: unknown): HistoryEntry | undefined {
     cwd: r['cwd'],
     command: r['command'],
     args: [...r['args']],
-    title: typeof r['title'] === 'string' ? r['title'] : basename(r['command']),
+    // A record without a title (hand-edited, older writer) is named after its
+    // folder, never its command: the command word is code and stays out of
+    // the HISTORY rows (UI copy rule).
+    title:
+      typeof r['title'] === 'string'
+        ? r['title']
+        : basename(typeof r['cwd'] === 'string' && r['cwd'] !== '' ? r['cwd'] : '/') || '/',
     createdAt,
     lastUsedAt: typeof r['lastUsedAt'] === 'string' ? r['lastUsedAt'] : createdAt,
     ended: endedValue,

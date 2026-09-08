@@ -1022,7 +1022,9 @@ export function createRequestHandler(
         }
         // Default title: the PROJECT's name (what the launch dialog's
         // placeholder promises), not the literal command name. With no project
-        // resolved SessionManager still falls back to the command.
+        // resolved SessionManager falls back to the cwd's last segment — the
+        // folder the user picked, the same name HISTORY groups it under, and
+        // never a command name in the chrome (UI copy rule).
         const givenTitle = typeof body.title === 'string' && body.title.trim() !== ''
           ? body.title.trim()
           : undefined;

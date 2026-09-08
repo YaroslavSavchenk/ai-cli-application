@@ -126,6 +126,38 @@ dark mode. Every failure path is non-fatal and logged — this is cosmetic and
 must never break the window. Keep the constants in sync if those tokens change.
 The Edge `--app` fallback window is unaffected and still shows a light caption.
 
+**Keyboard focus, links and the clipboard.** Four behaviours the host adds
+for the page:
+
+- **Focus comes back on activation.** WebView2 draws the page in its own child
+  window, so the host window could become active again — after an Alt-Tab, or
+  after a link opened the system browser and the user clicked back on the
+  title bar — with nothing in the page holding the keyboard: typing and
+  pasting went nowhere (an OAuth "paste your code here" prompt is where this
+  bites). The host now re-focuses the web content on every window activation
+  and after every completed navigation.
+- **External links open in your default browser.** A link the page opens in a
+  new window (`window.open`, `target=_blank`, ctrl-click) that points outside
+  the app's own origin is handed to Windows' default browser, in its own
+  process. Three conditions, all required: the request must be **user
+  initiated** (WebView2's own `IsUserInitiated` — a scripted `window.open` the
+  page fires by itself is dropped), the scheme must be exactly `http` or
+  `https`, and the target must be off-origin. WebView2 never opens a popup of
+  its own. This is the only way out of the origin lock, and it is one-way: the
+  host window itself still cannot navigate anywhere but the launch origin.
+  `host.log` records such a hand-off as scheme + host only, never the full URL
+  (an OAuth link carries secrets in its query).
+- **A same-origin new-window request is dropped**, not navigated. The handler
+  once redirected such a request into the existing window; it no longer does,
+  because a link printed inside a terminal pane could then replace the running
+  app with any page on that origin — an unauthenticated 401, say — and this
+  window has no address bar and no back button to return from it. Nothing in
+  the app opens a same-origin new window.
+- **Clipboard read is granted to the app's own origin**, so the page can offer
+  a paste command that reads the Windows clipboard (`Ctrl+Shift+V`). Every
+  other permission request, and any request from any other origin, is denied
+  silently — the host answers them itself, so WebView2 never shows a prompt.
+
 The host navigates only to the resolved `http://127.0.0.1:<port>/` and is
 **navigation-locked** to that origin (127.0.0.1/localhost); it monitors nothing
 and kills nothing — backend lifetime stays presence-bound exactly as with the

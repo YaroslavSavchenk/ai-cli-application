@@ -3,6 +3,15 @@
  * Ctrl+Alt+/ or the topbar `?` button. Every chord listed here has a visible
  * UI control (and every drag has a keyboard/button path); plain keys are
  * never intercepted (they belong to the TUI).
+ *
+ * The one row without an app control is the paste chord (2026-09-08): its
+ * non-keyboard twin is the browser's own paste, which reaches the terminal
+ * unchanged — the chords exist because a Windows app window does not always
+ * offer that menu, and a login code has to get in somehow.
+ *
+ * The link row is a MOUSE gesture, not a chord: a plain click on a link a
+ * program printed does nothing, and ctrl (or cmd) is the second gesture that
+ * opens it — so the table has to say so, or the feature is invisible.
  */
 import { el, button, trapTab } from './util.ts';
 
@@ -24,6 +33,8 @@ const ROWS: Row[] = [
   { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'extract in the pane header' },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split · enter resets', ui: 'drag the divider · double-click resets' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
+  { keys: ['ctrl+shift+v', 'shift+insert'], what: 'paste the clipboard into the terminal', ui: "the browser's own paste" },
+  { keys: ['ctrl+click a link'], gesture: true, what: 'open it in your browser', ui: 'links printed in the terminal' },
   { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the statusline' },
   { keys: ['esc'], what: 'close panel / dialog · cancel a drag', ui: '× buttons' },
 ];
@@ -60,7 +71,7 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
   }
   const note = el('p', 'sc-note');
   note.textContent =
-    'everything else goes to the terminal — plain ctrl+c/v, arrows and esc are never intercepted. app chords live only on ctrl+alt (altgr is left alone).';
+    'everything else goes to the terminal — plain ctrl+c/v, arrows and esc are never intercepted. app chords live only on ctrl+alt (altgr is left alone), and the two paste chords above are the only other keys the app takes.';
 
   modal.append(hd, table, note);
   scrim.append(modal);

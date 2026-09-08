@@ -1900,24 +1900,24 @@ kbd {
   font-family: var(--font-mono);
 }
 
-/* custom mode: claude-specific controls go visually AND functionally disabled
-   (the old launcher's is-disabled pattern — dimmed, still visible) */
-.launch-field.is-disabled,
-.mode-seg.is-disabled,
-.status-row.is-disabled {
-  opacity: 0.45;
-}
+/* the claude-only controls are HIDDEN outside the claude kind (2026-09-08),
+   not dimmed — the dimmed variant this rule used to style left four dead
+   controls in a dialog that then needed a scrollbar. `hidden` does the work;
+   nothing here has to. */
 
 .mode-seg-btn:disabled {
   cursor: default;
 }
 
-/* Mode: ONE segmented row of four, sharing the field floor and height so it
-   reads as another field rather than a card grid. Hairlines between segments,
-   selection carries the accent. */
+/* Segmented rows: ONE idiom, three users — the session kind (3 radios), the
+   shell (2 radios) and the permission mode (4 toggles). They share the field
+   floor and height so they read as another field rather than a card grid;
+   hairlines between segments, selection carries the accent. `grid-auto-flow`
+   instead of a fixed column count so the same rule fits every length. */
 .mode-seg {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   background: var(--bg-deep);
   border: var(--line) solid var(--edge-mid);
   border-radius: var(--r-field);
@@ -1942,6 +1942,14 @@ kbd {
   border-left: none;
 }
 
+/* the ring lives INSIDE the segment: .mode-seg clips its overflow, so an
+   outline with an offset would be cut off exactly where it matters — and with
+   the kind/shell rows on a roving tabindex, that ring IS the keyboard position */
+.mode-seg-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--tick) var(--acc);
+}
+
 .mode-seg-btn:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text);
@@ -1961,6 +1969,14 @@ kbd {
 .mode-seg-btn.is-danger.is-sel {
   background: var(--danger-edge);
   color: var(--danger);
+}
+
+/* the kind switch is the only row that changes what the rest of the form MEANS,
+   so it is separated from the fields by the same hairline the dialog uses
+   between its sections — a field changes a value, this changes the session */
+.launch-kind {
+  padding-bottom: var(--dlg-gap);
+  border-bottom: var(--line) solid var(--edge-mid);
 }
 
 /* the continue checkbox borrows the app's toggle row; pull it out to the body's
