@@ -20,7 +20,7 @@ import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
-import { el, button, ArmedSet, fmtAgo, modelFromArgs } from './util.ts';
+import { el, button, ArmedSet, fmtAgo, modelFromArgs, fmtCount } from './util.ts';
 import { AGENT_LABEL } from './launch-args.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
@@ -245,7 +245,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   /** "HISTORY" section header: label + total count, clear-all. */
   function historyHeader(): HTMLElement {
     const hd2 = el('div', 'drawer-sect');
-    hd2.append(el('span', '', `HISTORY · ${st.state.history.length}`), el('span', 'drawer-gap'));
+    hd2.append(el('span', '', `HISTORY · ${fmtCount(st.state.history.length)}`), el('span', 'drawer-gap'));
     // Armed two-step confirm, same contract as kill (key 'hist-all' cannot
     // collide with session ids in the shared ArmedSet).
     const all = button('chip-btn', armed.isArmed('hist-all') ? 'sure?' : 'clear all', () => {
@@ -269,7 +269,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     row.setAttribute('aria-expanded', open ? 'true' : 'false');
     const glyph = el('span', 'hist-caret', open ? '▾' : '▸');
     glyph.setAttribute('aria-hidden', 'true');
-    row.append(glyph, el('span', 'hist-folder', label), el('span', 'hist-count', `· ${count}`));
+    row.append(glyph, el('span', 'hist-folder', label), el('span', 'hist-count', `· ${fmtCount(count)}`));
     return row;
   }
 

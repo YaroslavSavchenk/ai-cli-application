@@ -178,6 +178,15 @@ export function fmtAgo(iso: string, now: number = Date.now()): string {
   return d.getFullYear() === new Date(now).getFullYear() ? short : `${short} ${d.getFullYear()}`;
 }
 
+/**
+ * A count for a badge or header — capped at `9+` past nine (user's request
+ * 2026-09-08: a full number there is "far too unwieldy"). Every history count
+ * the UI shows goes through this so they never disagree.
+ */
+export function fmtCount(n: number): string {
+  return n > 9 ? '9+' : String(n);
+}
+
 /** Last path segment of an absolute path — a folder the app cannot name is still a folder. */
 export function baseName(path: string): string {
   const parts = path.split('/').filter((p) => p !== '');

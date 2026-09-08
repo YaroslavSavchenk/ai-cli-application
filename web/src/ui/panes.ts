@@ -24,7 +24,7 @@ import * as st from '../state.ts';
 import { log } from '../log.ts';
 import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
-import { el, button, armButton, modelFromArgs, permFromArgs } from './util.ts';
+import { el, button, armButton, modelFromArgs, permFromArgs, fmtCount } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
@@ -160,7 +160,7 @@ function renderEmpty(): void {
   row.append(launch);
   if (st.state.history.length > 0) {
     row.append(
-      button('btn-ghost', `Resume a session (${st.state.history.length})`, () =>
+      button('btn-ghost', `Resume a session (${fmtCount(st.state.history.length)})`, () =>
         st.openDrawer('sessions'),
       ),
     );

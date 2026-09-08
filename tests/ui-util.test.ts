@@ -3,7 +3,7 @@
  * (`modelFromArgs` / `permFromArgs`, R2 statusline/pane-card tags; the
  * permission tag renders the plain-language short form from `PERM_SHORT`, the
  * CLI value never reaches the DOM) and
- * `fmtUptime` (R2 statusline `up HH:MM:SS`), plus `fmtAgo`/`baseName` (the
+ * `fmtUptime` (R2 statusline `up HH:MM:SS`), plus `fmtAgo`/`baseName`/`fmtCount` (the
  * sessions drawer's HISTORY section: when an entry last ran, and the folder
  * name for a cwd the app cannot name). `el`/`button`/`armButton`/`ArmedSet`/
  * `trapTab` all touch the DOM in ways this file doesn't attempt — see the
@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelFromArgs, permFromArgs, fmtUptime, fmtAgo, baseName } from '../web/src/ui/util.ts';
+import { modelFromArgs, permFromArgs, fmtUptime, fmtAgo, baseName, fmtCount } from '../web/src/ui/util.ts';
 
 // ---------------------------------------------------------------------------
 // modelFromArgs
@@ -218,4 +218,21 @@ test('baseName: the last path segment', () => {
 test('baseName: a path with nothing to take falls back to the input itself', () => {
   assert.equal(baseName('/'), '/');
   assert.equal(baseName(''), '');
+});
+
+// ---------------------------------------------------------------------------
+// fmtCount — every history count (HISTORY header, folder rows, the empty
+// state's "Resume a session (N)") caps at 9+ (user's request 2026-09-08).
+// ---------------------------------------------------------------------------
+
+test('fmtCount: up to nine is the plain number', () => {
+  assert.equal(fmtCount(0), '0');
+  assert.equal(fmtCount(1), '1');
+  assert.equal(fmtCount(9), '9');
+});
+
+test('fmtCount: ten and beyond read 9+', () => {
+  assert.equal(fmtCount(10), '9+');
+  assert.equal(fmtCount(42), '9+');
+  assert.equal(fmtCount(1000), '9+');
 });
