@@ -4,6 +4,10 @@ Map of content for the project memory vault. One line per note, newest-first
 within sections. Update this file every time a note is added, renamed, or
 superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
+## Backlog
+
+- [[BACKLOG]] — **the living to-do list**: CI/CD leftovers (branch protection = user decision, janitor pass, server-side settle, Dependabot, npm audit), Windows-side checks owed, open decisions (repo visibility, one-click installer), queued ideas. Read first, tick when done.
+
 ## Decisions
 
 - [[release-build-and-launcher-derivation]] — 2026-09-08: GitHub Actions release of the native host zip on `v*` tags (`gh release create --verify-tag`, re-run rewrites notes), `ci.yml` typecheck+build+test, SHA-pinned actions, `permissions: {}`; launcher derives distro + repo path from `\\wsl.localhost\<distro>\<path>\launcher` (env → location → defaults, same allow-list, invalid = FAIL not fallback); app never packaged, version = tag; repo visibility OPEN (user)
