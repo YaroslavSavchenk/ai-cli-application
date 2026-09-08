@@ -100,27 +100,55 @@ path):
 
 Settings → BACKEND → `Restart backend` replaces the running backend with a
 fresh one on the same port, without closing the window. The app also watches
-for a newer version on disk (a new commit, a rebuilt frontend, or an edited
-server file) and offers the same restart through a notice and a small `update`
-mark in the top bar.
+for a newer version on disk — changed dependencies, a new commit, a missing or
+rebuilt frontend build, frontend sources newer than the build being served, or
+an edited server file — and offers the same restart through a notice and a
+small `update` mark in the top bar.
 
-What happens: the old process ends every running session (each one is stamped
+What happens, in order. Nothing is torn down until a replacement has been
+proven, so a restart that cannot succeed leaves the running backend exactly as
+it was — same process, same sessions, same screens:
+
+1. **dependencies** — if `node_modules` is missing or older than
+   `package-lock.json`, the restart is refused and asks you to install them
+   yourself (never automatically: `node-pty` is a native module and an install
+   runs lifecycle scripts);
+2. **the frontend is rebuilt** into `web/dist-next` with the project's own
+   vite and verified (`index.html`, the entry bundle, `build-id.json`). It is
+   only staged there — the old build keeps being served — so a failed build is
+   refused with `web/dist` untouched. This is what makes a restart after a
+   `git pull` serve the new UI;
+3. **a standby backend** is started, boots completely — everything except
+   binding the port — and reports in. A replacement that fails to boot is
+   refused here. Until it says `go` that process writes nothing at all: the
+   data dir still belongs to the backend that is serving;
+4. **only then is the new frontend swapped in** (`web/dist` → `web/dist-prev`,
+   `web/dist-next` → `web/dist`), so new screens never end up in front of the
+   old backend. A served directory is only moved aside when it looks like a
+   frontend build (an `index.html` plus its entry bundle); anything else is
+   refused with nothing renamed. A swap that fails puts the old build back,
+   stops the standby and refuses too.
+
+Only then does the old process end every running session (each one is stamped
 in `history.json`, so it keeps its entry and can be resumed from HISTORY),
-closes its listener, starts the replacement, waits until that one answers
-`/health`, and only then answers the browser and exits. Running sessions do
-not survive this — the app never pretends otherwise.
+close its listener, tell the standby to take the port, wait until that one
+answers `/health`, and answer the browser and exit. Running sessions do not
+survive this — the app never pretends otherwise.
 
 The route is `POST /api/restart` (same token and Origin/Host check as every
 other `/api` route). It answers `202` with the new port once the replacement
-is healthy, `409` when a restart is already running, `500` when the
-replacement never came up, and `503` in a process with no restart mechanism
-wired.
+is healthy, `409` when a restart is already running, `422` when one of the
+four steps above refused (**the old backend is untouched and still
+serving**), `500` when the replacement failed after the handoff had begun, and
+`503` in a process with no restart mechanism wired. A refused restart also
+leaves `web/dist-next` removed.
 
-A failed handoff is **not** a rollback: the sessions are already ended and the
-listener is already closed, so the old process exits either way and the app
-asks you to start it again from the desktop shortcut.
+A failed handoff is **not** a rollback: past the fourth step the sessions are
+already ended and the listener is already closed, so the old process exits
+either way and the app asks you to start it again from the desktop shortcut.
+That window is now as small as "the replacement booted but could not bind".
 
-Two environment variables belong to this handoff only — the app sets them on
+Three environment variables belong to this handoff only — the app sets them on
 the process it starts, and there is no reason to set them by hand:
 
 - `AI_SM_PORT_HINT` — the port the replacement should try first (1-65535); a
@@ -128,10 +156,19 @@ the process it starts, and there is no reason to set them by hand:
   window has to be relaunched
 - `AI_SM_RESTARTED_FROM` — the pid of the process being replaced, written to
   `server.log` so the two runs read as one story
+- `AI_SM_STANDBY` — set to `1` on the standby: it boots but does not listen
+  until the old process hands the port over, and until then it does not write
+  in the data dir at all. Without a parent it exits by itself (immediately if
+  the parent goes away, otherwise 30 seconds after it reported ready)
 
-A restart re-runs the server code on disk. It does not rebuild the frontend,
-so after a `git pull` the UI being served is still whatever `npm run build`
-last produced.
+One more variable belongs to the same machinery: `AI_SM_WEB_DIST_DIR`
+(absolute path, default `web/dist` in the repo) moves the built frontend the
+server SERVES, and with it the `-next`/`-prev` directories a restart renames.
+It exists so the tests can drive a real restart against a copy instead of
+rebuilding the repo's own `web/dist`; leave it unset otherwise. A value that is
+relative, ends in a separator, holds a `.` or `..` segment, or is the root
+makes the server refuse to start, much like `AI_SM_DATA_DIR`. Sessions never
+inherit it, or any of the three variables above.
 
 ## GitHub connection
 

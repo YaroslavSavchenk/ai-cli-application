@@ -257,7 +257,9 @@ test('the boot banner names the code, the build and the environment', async () =
     );
     // Frontend identity, or an explicit statement that there is none.
     assert.ok(
-      /\[boot\] web build assets\/index-.*\.js \(web\/dist\/index\.html mtime \d{4}-/.test(log) ||
+      /\[boot\] web build assets\/index-.*\.js \(build id [A-Za-z0-9._+-]+, web\/dist\/index\.html mtime \d{4}-/.test(
+        log,
+      ) ||
         log.includes('[boot] web build: web/dist missing'),
       'the banner states the frontend build or says web/dist is missing',
     );

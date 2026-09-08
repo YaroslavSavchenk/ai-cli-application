@@ -109,33 +109,83 @@ and multi-pane layouts on top.
   hygiene only — the Windows user reads every WSL file — so "never write the
   secret" is the actual control.
 - **Manual backend restart + "new version" notice — decided 2026-09-06,
-  user's call** (rationale in `memory/decisions/backend-restart-same-port.md`).
+  user's call; preflight-first ("bulletproof update") decided 2026-09-08,
+  user's call** (rationale in `memory/decisions/backend-restart-same-port.md`
+  and `memory/decisions/restart-preflight-standby.md`).
   Authed `GET /api/runtime` carries `update: { available, reason }` — true
-  when the code on disk is newer than the running process (git HEAD changed
-  since boot, `web/dist` rebuilt after `startedAt`, or a `server/`/`shared/`
-  source mtime past it; cached ≤ 5 s; the UI polls it every 30 s while
-  visible). `POST /api/restart` (authed) performs a **same-port handoff**:
-  the old process ends sessions exactly like `shutdown()` (history stamped
-  `shutdown` → resumable from HISTORY), closes its listener, spawns a
-  detached child (`process.execPath` + argv, env `AI_SM_PORT_HINT=<port>`,
-  `AI_SM_RESTARTED_FROM=<pid>`), waits for the child's `runtime.json` and
-  `/health`, answers `202 { port, startedAt, samePort }`, and exits WITHOUT
-  unlinking `runtime.json`. The child tries the hinted port and falls back
-  once to auto-pick (`samePort: false` → the UI tells the user to relaunch
-  from the shortcut). **Same port is a hard constraint**: the WebView2 host
-  locks navigation to the exact launch origin including the port. The hint
-  is a handoff detail, not a fixed port — auto-pick stands. UI: Settings →
-  BACKEND (`Restart backend`), a dismissible `New version available` toast,
-  a persistent amber `update` pill after dismissal, and a confirmation that
-  names the running sessions and says they stay in HISTORY. Sessions do
-  NOT survive a restart (decided; no fiction). **A failed handoff is not a
-  rollback**: sessions are already ended and the listener closed, so the
-  old process answers `500` and exits anyway; the UI tells the user to
-  relaunch from the desktop shortcut. `409` exists for a second request
-  already in flight (a new connection cannot reach the closed listener);
-  `503` when no restart runner is wired (test harnesses). A restart
-  re-executes the code on disk; it does NOT build `web/dist` — see Open
-  decisions.
+  when the code on disk is newer than the running process. Reasons, in
+  precedence order: `dependencies changed` (package-lock.json newer than
+  node_modules/.package-lock.json, or node_modules missing), `server code
+  changed (a → b)` (git HEAD moved since boot), `frontend build missing`
+  (no `web/dist`, no entry bundle, or no `build-id.json`), `frontend
+  rebuilt` (dist newer than `startedAt` / entry bundle renamed), `frontend
+  source changed` (web/src, web/index.html, web/public, vite.config.ts or
+  shared/ newer than `web/dist/build-id.json`), `server files edited`.
+  Cached ≤ 5 s; the UI polls every 30 s while visible; the raw reason never
+  reaches the UI copy (mapped to plain sentences).
+  `POST /api/restart` (authed) runs a **preflight while the old backend is
+  fully intact** — sessions alive, listener open, data dir untouched:
+  (1) dependency check → refuse; the app NEVER runs `npm install` (native
+  `node-pty`, lifecycle scripts) — the user installs by hand; (2) frontend
+  build, always: vite via `process.execPath` + argv array from the repo
+  root into `web/dist-next`, verified (index.html, entry bundle,
+  `build-id.json`), old dist served meanwhile; (3) a **standby child**
+  spawned detached with a messages-only IPC channel and `AI_SM_STANDBY=1`
+  that boots completely (imports, config, read-only history load) but
+  binds nothing and touches nothing in the data dir, then reports
+  `standby-ready`; a child that never reports, dies, or times out is
+  refused. Any refusal answers **`422 { error }` with the old backend
+  untouched and `web/dist` unchanged** (dist-next removed). Only after all
+  three: swap dist-next into `web/dist` (restore on failure → 422; only a
+  directory that looks like a frontend build — `index.html` + an entry
+  bundle — is ever moved aside; `dist-prev` is kept until the handoff and
+  reverted if the standby dies before teardown — including restoring an
+  ABSENT `web/dist` — so every 422 leaves `web/dist` as it was — the two logged exceptions are a restore whose own rename fails, and a `dist-prev` that vanished under the app), end sessions exactly like `shutdown()` (history stamped `shutdown` →
+  resumable from HISTORY), close the listener, send `go`, wait for the
+  child's `runtime.json` + `/health`, answer `202 { port, startedAt,
+  samePort }` (Connection: close) and exit WITHOUT unlinking
+  `runtime.json`. The child on `go` runs the crash-stamp history load,
+  resets session-settings, reads the swapped web build, and listens on the
+  hinted port, falling back once to auto-pick (`samePort: false` → the UI
+  says relaunch from the shortcut). Before `go` the child exits by itself
+  on parent disconnect or a timeout measured from `standby-ready`, and its
+  signal/uncaught handlers never unlink or write anything. **Same port is
+  a hard constraint**: the WebView2 host locks navigation to the exact
+  launch origin including the port. The hint is a handoff detail, not a
+  fixed port — auto-pick stands. Sessions do NOT survive a restart
+  (decided; no fiction). **A failed handoff after teardown is still not a
+  rollback** (`500` + exit; the UI says relaunch) — that window is now only
+  "the proven child could not bind". `409` for a second request while a
+  preflight or handoff is in flight; `503` when no restart runner is wired
+  (test harnesses). Env seams that belong to this handoff only:
+  `AI_SM_PORT_HINT`, `AI_SM_RESTARTED_FROM`, `AI_SM_STANDBY`; and
+  `AI_SM_WEB_DIST_DIR` (absolute and normalized, never root; the SERVED dist
+  dir, so tests can drive a real restart without rebuilding the repo's
+  `web/dist`; a bad value is refused with a `server.log` line). The
+  restart dialog can be hidden during the preflight (sessions are still
+  alive); the pill then reads `restarting…` and re-opens it; every outcome
+  re-opens it; it locks only during the reconnect gap; closing it hands
+  focus back to the element it was opened from when that is still visible
+  (the Settings button, the toast), else to the terminal. PTY sessions
+  inherit none of the four `AI_SM_*` handoff/seam vars. `web/dist-next/` and `web/dist-prev/` are
+  gitignored. UI: Settings → BACKEND (`Restart backend`), a dismissible
+  `New version available` toast, a persistent amber `update` pill after
+  dismissal, a confirmation that names the running sessions and says they
+  stay in HISTORY (plus a note when dependencies must be installed first);
+  the dialog says "Preparing the new version…" while the preflight runs,
+  "Reconnecting…" during the health wait, and on `422` "Nothing was
+  restarted" with Close/Try again and the polls resumed. During the
+  preflight the dialog can be put away (`Hide`, Esc, ×) WITHOUT aborting
+  anything — every session is still alive and reachable, the flow runs on
+  and the outcome re-opens it; during "Reconnecting…" it stays locked.
+  A page whose token is rejected after boot WITHOUT having asked for a
+  restart (another window restarted the backend) probes `/health` for 5 s
+  and reloads once on the same origin; only silence shows the reload
+  panel. The boot panel settles every step even when a handler throws
+  (2026-09-08 incident: a bundle built from inside `web/` shipped a bare
+  `__BUILD_ID__`; now
+  `web/vite.config.ts` re-exports the root config and main.ts reads the id
+  through `typeof`).
 - **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
   on an OS-assigned free port and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt;
@@ -363,15 +413,13 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-- **Update after a `git pull` without `npm run build`** (raised 2026-09-06 by
-  review of the restart phase): the "new version" check fires on a commit
-  change, the restart re-executes the new server code, but `web/dist` is
-  gitignored and stays whatever was last built — so the pill can stay lit
-  after a successful restart and the UI does not say why. Options: the
-  restart runs `vite build` when `web/dist` is older than `web/src`; the
-  update reason distinguishes "needs a build"; or document the limit and
-  leave it (this repo builds inside its own dev-flow before every commit).
-  User's call.
+(Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":
+**update after a `git pull` without `npm run build`.** The restart always
+rebuilds `web/dist` itself as part of a preflight that runs while the old
+backend is intact, refuses with `422` when dependencies changed or the build
+or the replacement's boot fails, and only then hands over. Rejected: a
+"needs a build" reason with no action; documenting the limit. Rationale in
+`memory/decisions/restart-preflight-standby.md`.)
 
 (Settled 2026-07-25, user's call: **how a cloned project ties back to its
 remote — option (b), owner-qualified clone paths.** App clones from the

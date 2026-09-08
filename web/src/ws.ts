@@ -129,10 +129,7 @@ export class SessionSocket {
       // Do NOT probe /api/sessions here: a 401 from the replacement backend
       // would mark this socket dead permanently, and the page is about to
       // reload onto a fresh token anyway.
-      this.#timer = window.setTimeout(() => {
-        this.#timer = null;
-        void this.#lost();
-      }, RESTART_HOLD_MS);
+      this.#hold();
       return;
     }
     try {
@@ -143,6 +140,16 @@ export class SessionSocket {
       }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        // THIS 401 is what armed the gap: `api.onAuthError` fires before the
+        // rejection reaches here, and main.ts's recovery sets `restarting`
+        // while it probes /health. So the flag is re-read AFTER the call, not
+        // only before it — otherwise the very request that discovers the
+        // restart is also the one that kills the pane, a beat before the page
+        // reloads onto a healthy backend.
+        if (state.restarting) {
+          this.#hold();
+          return;
+        }
         // Backend restarted -> new token; this page can never reattach.
         this.#die();
         return;
@@ -157,6 +164,18 @@ export class SessionSocket {
       this.#open();
     }, this.#delay);
     this.#delay = Math.min(this.#delay * 2, BACKOFF_MAX_MS);
+  }
+
+  /**
+   * Park the reconnect loop for one beat and re-enter `#lost()`. Used whenever
+   * the restart gap is armed: the loop pauses and re-checks, so a restart that
+   * never completes resumes the normal backoff by itself.
+   */
+  #hold(): void {
+    this.#timer = window.setTimeout(() => {
+      this.#timer = null;
+      void this.#lost();
+    }, RESTART_HOLD_MS);
   }
 
   #die(): void {

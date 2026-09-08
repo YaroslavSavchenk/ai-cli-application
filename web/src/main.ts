@@ -53,6 +53,7 @@ import {
   initUpdate,
   isRestartConfirmOpen,
 } from './ui/update.ts';
+import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import { startPresence } from './ws.ts';
 import { initLogging, log } from './log.ts';
@@ -68,6 +69,16 @@ const POLL_MS = 3000;
 const RUNTIME_POLL_MS = 30000;
 /** Boot faster than this and the boot panel never mounts — no chrome flash. */
 const BOOT_PANEL_DELAY_MS = 150;
+/**
+ * Ceiling on the ONE boot row that has no failure event of its own. A presence
+ * socket that neither opens nor closes (a backend that accepts the connection
+ * and then answers nothing — a real state right after a restart) leaves that
+ * row spinning forever, and the overlay only leaves when every row has settled:
+ * a fully working app, hidden behind a spinner. This is not staged theater —
+ * the row is settled with what is true at that moment, and the socket keeps
+ * trying underneath.
+ */
+const BOOT_WS_GRACE_MS = 8000;
 
 // FIRST: uncaught errors, unhandled rejections and the pagehide flush are
 // installed before anything else runs, so a failure during boot itself still
@@ -172,9 +183,13 @@ function createBootPanel(): BootPanel {
       };
     },
     fatal(m: string): void {
-      // Callers fatal() BEFORE failing the gating step, so the overlay can
-      // not have self-dismissed yet (that step is still pending).
+      // A fatal can now arrive AFTER every row has settled (a throw while the
+      // shell is being built), by which point the overlay has removed itself.
+      // Un-finishing it is what makes the message visible at all — without
+      // this the window goes blank and says nothing.
       fatalized = true;
+      done = false;
+      mounted = false;
       mount();
       const zone = el('div', 'boot-fatal');
       zone.append(
@@ -211,15 +226,28 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // pong = attached, a close before any pong = failed (it keeps reconnecting
   // in the background either way).
   let wsFirst = true;
-  startPresence((ms) => {
-    if (wsFirst) {
-      wsFirst = false;
-      if (ms !== null) stepWs.ok();
-      else stepWs.fail('presence socket closed — reconnecting in background');
-    }
-    st.setWsLatency(ms);
-    if (ms !== null) st.setBackendReachable(true);
-  });
+  try {
+    startPresence((ms) => {
+      // Settle FIRST, always: a throw further down this callback (state, a log
+      // line) must not be able to leave the row spinning forever — the same
+      // rule the token step learned on 2026-09-08.
+      if (wsFirst) {
+        wsFirst = false;
+        if (ms !== null) stepWs.ok();
+        else stepWs.fail('presence socket closed — reconnecting in background');
+      }
+      st.setWsLatency(ms);
+      if (ms !== null) st.setBackendReachable(true);
+    });
+  } catch (err) {
+    // `new WebSocket(url)` throws synchronously on a URL the browser refuses.
+    // Unguarded that ends boot() before hydrate, leaving THREE pending rows and
+    // an overlay that never goes away.
+    wsFirst = false;
+    const m = err instanceof Error ? err.message : String(err);
+    stepWs.fail(m);
+    log.error(`boot: presence socket could not be opened: ${m}`);
+  }
 
   // Token check doubles as the uptime fetch — GET /api/runtime is authed, so
   // its success proves the served token is current. Failure here alone is
@@ -277,15 +305,40 @@ async function boot(root: HTMLDivElement): Promise<void> {
     stepHydrate.fail(err instanceof Error ? err.message : String(err));
     return;
   }
-  log.info(`boot hydrated: ${projects.length} projects, ${sessions.length} sessions`);
+  // Settle BEFORE the log line, for the same reason the token step does.
   stepHydrate.ok();
-  st.initServer(projects, sessions);
-  st.loadUi();
-  buildShell(root, prefs);
+  log.info(`boot hydrated: ${projects.length} projects, ${sessions.length} sessions`);
+  try {
+    st.initServer(projects, sessions);
+    st.loadUi();
+    buildShell(root, prefs);
+  } catch (err) {
+    // Everything above has settled its row, but the ws row may still be
+    // pending — a throw here would otherwise leave the overlay spinning on a
+    // step that is fine, over an app that never mounted. Pin it instead.
+    const m = err instanceof Error ? err.message : String(err);
+    log.error(`boot failed: shell ${m}`);
+    panel.fatal('the app could not start. reload to try again.');
+    return;
+  }
+  // The shell is up and usable. From here the ws row is the only thing that
+  // could still hold the overlay open, and it has no failure event of its own
+  // when the socket simply hangs — so it gets a ceiling.
+  window.setTimeout(() => {
+    if (wsFirst) {
+      wsFirst = false;
+      stepWs.fail('presence socket is still connecting');
+      log.warn('boot: presence socket had not answered when the app finished starting');
+    }
+  }, BOOT_WS_GRACE_MS);
   // Fire-and-forget extra — never a boot blocker: the session history, plus
   // the subscription that refetches it whenever a session ends, is removed,
-  // or the sessions drawer opens.
-  initHistory();
+  // or the sessions drawer opens. Its own failures are its own: the app is up.
+  try {
+    initHistory();
+  } catch (err) {
+    log.warn(`boot: history init failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
@@ -463,8 +516,9 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         e.preventDefault();
         shortcuts.close();
       } else if (isRestartConfirmOpen()) {
-        // Topmost: it opens OVER the settings panel, and it ignores Esc once
-        // the restart is actually in flight (nothing left to cancel).
+        // Topmost: it opens OVER the settings panel. During the preflight Esc
+        // HIDES it and the restart runs on; once the handover has begun it
+        // ignores Esc (nothing left to cancel, nothing left behind it).
         e.preventDefault();
         closeRestartConfirm();
       } else if (themePop.isOpen()) {
@@ -490,18 +544,38 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     }
   });
 
-  // ---- reliability: token rotation is fatal, network loss is a readout ----
-  // Any REST 401/403 after boot means the backend restarted (token rotated;
-  // this page can never re-auth) — full-page takeover, reload is the cure.
+  // ---- reliability: a rejected token is a QUESTION, network loss is a readout
+  // Any REST 401/403 after boot means the backend this page was served by is
+  // gone. That is USUALLY harmless: another window (or the update flow)
+  // restarted it, and the replacement is already listening on the same port
+  // with a fresh token — which a reload picks up, because index.html injects
+  // it. So the page asks `/health` before it panics, and only a backend that
+  // stays silent for 5 s earns the takeover panel.
   let fatal = false;
+  const recoverFromAuthLoss = createAuthLossRecovery({
+    health: () => api.backendHealth(),
+    now: () => Date.now(),
+    sleep: (ms) => new Promise<void>((resolve) => window.setTimeout(resolve, ms)),
+    setRestarting: (v) => st.setRestarting(v),
+    showProbe: () => showReconnectTakeover(),
+    reload: () => location.reload(),
+    showPanel: () => {
+      fatal = true;
+      hideReconnectTakeover();
+      renderRestartPanel(root);
+    },
+    log: (level, line) => {
+      if (level === 'error') log.error(line);
+      else log.warn(line);
+    },
+  });
   api.onAuthError(() => {
     // A restart we asked for rotates the token BY DESIGN; the update dialog
     // owns the screen until it reloads. Tearing the page down here would
-    // replace an honest progress state with a scary panic panel.
+    // replace an honest progress state with a scary panic panel. The recovery
+    // arms the same flag, so a 401 storm produces exactly one probe.
     if (fatal || st.state.restarting) return;
-    fatal = true;
-    log.error('auth token rejected after boot — the backend restarted; page taken over');
-    renderRestartPanel(root);
+    recoverFromAuthLoss();
   });
 
   // ---- session poll --------------------------------------------------------
@@ -555,9 +629,48 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
 }
 
 /**
- * Full-page takeover after a REST 401/403 post-boot: same panel pattern as
- * the boot error. The app is torn down deliberately — every socket and pane
- * of this page holds a dead token, so nothing behind the panel could work.
+ * The moment between "this page's token was rejected" and "the replacement
+ * backend answered": a boot overlay, verbatim — same brand, same ink-well card,
+ * same single spinning step row. It is not a metaphor for the boot state, it IS
+ * one; the page is about to load again. Removed only if the probe fails, so the
+ * panel underneath is not hidden behind it.
+ */
+const RECONNECT_LABEL = 'Backend restarted — reconnecting…';
+let takeover: HTMLElement | null = null;
+
+function showReconnectTakeover(): void {
+  if (takeover !== null) return;
+  const overlay = el('div', 'boot-overlay');
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  const panel = el('div', 'boot-panel');
+  const brand = el('div', 'boot-brand');
+  const tile = el('div', 'logo-tile');
+  tile.setAttribute('aria-hidden', 'true');
+  tile.append(el('span', 'logo-glyph', '>_'));
+  brand.append(tile, el('div', 'boot-brand-name', 'AI SESSION MANAGER'));
+  const card = el('div', 'boot-card');
+  const row = el('div', 'boot-step');
+  const mark = el('span', 'boot-mark is-spin');
+  mark.setAttribute('aria-hidden', 'true');
+  row.append(mark, el('span', 'boot-lb', RECONNECT_LABEL));
+  card.append(row);
+  panel.append(brand, card);
+  overlay.append(panel);
+  document.body.append(overlay);
+  takeover = overlay;
+}
+
+function hideReconnectTakeover(): void {
+  takeover?.remove();
+  takeover = null;
+}
+
+/**
+ * Full-page takeover after a REST 401/403 post-boot that `/health` could not
+ * explain away: same panel pattern as the boot error. The app is torn down
+ * deliberately — every socket and pane of this page holds a dead token, so
+ * nothing behind the panel could work.
  */
 function renderRestartPanel(root: HTMLDivElement): void {
   const box = el('div', 'boot-err');

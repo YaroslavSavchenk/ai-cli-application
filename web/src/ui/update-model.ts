@@ -31,13 +31,26 @@ import { hasContinueFlag, isClaudeCommand } from './launch-args.ts';
  * - `hidden`     nothing to say (no update, or a restart finished the story)
  * - `toast`      toast AND pill visible — the arrival state of a new reason
  * - `pill`       toast dismissed for this reason; the pill stays
- * - `restarting` a restart is in flight; both surfaces step aside
+ * - `restarting` a restart is in flight; the toast steps aside and the pill
+ *                says so (it is the only thing on screen while the dialog is
+ *                hidden, and clicking it brings the dialog back)
  * - `done`       the restart succeeded and the page is being replaced
  */
 export type NoticeState = 'hidden' | 'toast' | 'pill' | 'restarting' | 'done';
 
 /** Rows the confirmation lists before it collapses the rest into `+ K more`. */
 export const CONFIRM_LIST_MAX = 6;
+
+/** The pill's word while an update is pending. */
+export const PILL_LABEL = 'update';
+/**
+ * …and while a restart is running. During the preflight the dialog can be put
+ * away, and without this the screen would say NOTHING about a restart in
+ * flight — the only way back to it would be the settings panel.
+ */
+export const PILL_LABEL_RESTARTING = 'restarting…';
+/** Tooltip for that state; the pending-update tooltip lives in `update.ts`. */
+export const PILL_TIP_RESTARTING = 'A restart is running — show it';
 
 export class UpdateNotice {
   #state: NoticeState = 'hidden';
@@ -60,7 +73,21 @@ export class UpdateNotice {
   }
 
   get pillVisible(): boolean {
-    return this.#state === 'toast' || this.#state === 'pill';
+    return this.#state === 'toast' || this.#state === 'pill' || this.#state === 'restarting';
+  }
+
+  /** The pill's word right now — a restart in flight renames it, not hides it. */
+  get pillLabel(): string {
+    return this.#state === 'restarting' ? PILL_LABEL_RESTARTING : PILL_LABEL;
+  }
+
+  /**
+   * What a click on the pill means: while a restart runs it can only bring the
+   * hidden dialog back (`reveal`) — asking the question a second time while the
+   * answer to the first is on its way is not a thing the user can want.
+   */
+  get pillAction(): 'confirm' | 'reveal' {
+    return this.#state === 'restarting' ? 'reveal' : 'confirm';
   }
 
   /**
@@ -92,7 +119,7 @@ export class UpdateNotice {
     return this.#state;
   }
 
-  /** The restart POST is about to go out — hide both surfaces. */
+  /** The restart POST is about to go out — the toast goes, the pill reports. */
   startRestart(): NoticeState {
     this.#state = 'restarting';
     return this.#state;
@@ -134,12 +161,39 @@ export class UpdateNotice {
  */
 export const REASON_GENERIC = 'A newer version is on disk.';
 
+/**
+ * The one reason that is also an INSTRUCTION. New dependencies cannot be
+ * installed by the app (it would be installing code into the user's project
+ * folder behind their back), and the backend's preflight refuses the restart
+ * until they are there — so the notice has to say what to do, not just what
+ * happened, or the user meets the refusal with no idea why.
+ */
+export const REASON_DEPS =
+  'Dependencies changed; install them in the project folder first, then restart.';
+
 export function reasonSentence(reason: string | null | undefined): string | null {
   if (reason === null || reason === undefined || reason === '') return null;
   if (reason.startsWith('server code changed')) return 'The server code changed.';
   if (reason === 'frontend rebuilt') return "The app's screens were rebuilt.";
   if (reason === 'server files edited') return 'Server files were edited.';
+  if (reason === 'frontend build missing') return "The app's screens have not been built yet.";
+  if (reason === 'frontend source changed') return "The app's screens changed.";
+  if (reason === 'dependencies changed') return REASON_DEPS;
   return REASON_GENERIC;
+}
+
+/**
+ * The confirmation's footnote for a reason the user is about to walk into. Only
+ * `dependencies changed` has one: pressing Restart with that reason pending
+ * ends in a refusal, and saying so BEFORE the press is the difference between a
+ * dialog that guides and one that scolds. Same slot and same amber note idiom
+ * as CONTINUE_NOTE; null means the confirmation says nothing extra.
+ */
+export const DEPS_NOTE =
+  'Dependencies changed. Until they are installed in the project folder, the app will refuse to restart.';
+
+export function reasonNote(reason: string | null | undefined): string | null {
+  return reason === 'dependencies changed' ? DEPS_NOTE : null;
 }
 
 /** The app's empty-value glyph — one place, so "unknown" always looks the same. */

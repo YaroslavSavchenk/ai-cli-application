@@ -35,13 +35,16 @@ import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, trapTab } from './util.ts';
 import { commandLabel } from './sessions.ts';
+import { requestTerminalFocus } from './panes.ts';
 import {
   CONTINUE_NOTE,
   EMPTY,
+  PILL_TIP_RESTARTING,
   UpdateNotice,
   confirmBody,
   fmtRunningFor,
   moreLabel,
+  reasonNote,
   reasonSentence,
   summarizeRunning,
   type ConfirmSummary,
@@ -49,6 +52,7 @@ import {
 import {
   MSG_OTHER_PORT,
   OTHER_PORT_WAIT_MS,
+  canHideRestartDialog,
   loopbackUrl,
   runRestart,
   type RestartPhase,
@@ -60,16 +64,26 @@ const COPY = {
   toastBody: 'The app has been updated. Restart to use the new version.',
   toastGo: 'Restart now',
   toastLater: 'Later',
-  pill: 'update',
+  // The pill's own word comes from the model (`pillLabel`): it changes while a
+  // restart runs, and that decision is DOM-free next door.
   pillTip: 'A new version is ready — restart to use it',
   dialogTitle: 'Restart the backend?',
   dialogTitleBusy: 'Restarting the backend',
   dialogTitleOver: 'Restart the backend',
+  // A refusal is not a failure and must not be titled like one: nothing was
+  // touched, so the title states the fact and the body says why.
+  dialogTitleRefused: 'Nothing was restarted',
   dialogSub: 'sessions end · History keeps them',
   cancel: 'Cancel',
   confirm: 'Restart',
+  // The preflight runs while every session is still alive and usable, so the
+  // dialog is not a cell: this puts it away without stopping anything.
+  hide: 'Hide',
   close: 'Close',
-  restarting: 'Restarting…',
+  retry: 'Try again',
+  // The truth about the first phase since the backend grew a preflight: while
+  // the request is out it is checking and building, and has ended nothing yet.
+  restarting: 'Preparing the new version…',
   reconnecting: 'Reconnecting…',
 } as const;
 
@@ -88,7 +102,10 @@ export function openRestartConfirm(source: 'settings' | 'pill' | 'toast' = 'sett
   ctl?.openConfirm(source);
 }
 
-/** Esc handling in main.ts. A no-op once the restart is actually in flight. */
+/**
+ * Esc handling in main.ts. During the preflight this HIDES the dialog and lets
+ * the restart run on; once the handover has begun it is a no-op.
+ */
 export function closeRestartConfirm(): void {
   ctl?.closeConfirm();
 }
@@ -109,7 +126,15 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   const notice = new UpdateNotice();
 
   // ---- topbar pill ---------------------------------------------------------
-  const pill = button('tb-update', COPY.pill, () => {
+  const pill = button('tb-update', notice.pillLabel, () => {
+    // While a restart runs the pill is the ONLY thing on screen saying so, and
+    // the dialog it belongs to may be hidden: then a click brings that dialog
+    // back instead of asking the question a second time.
+    if (notice.pillAction === 'reveal') {
+      log.info('update pill clicked: showing the running restart');
+      reveal();
+      return;
+    }
     log.info('update pill clicked');
     openConfirm('pill');
   });
@@ -168,6 +193,11 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   const moreEl = el('div', 'restart-more');
   const contNote = el('div', 'restart-note');
   contNote.setAttribute('role', 'note');
+  // Same note idiom, different job: this one warns about the refusal the
+  // pending reason is going to produce (dependencies), so it is rendered above
+  // the buttons the user is about to press.
+  const depsNote = el('div', 'restart-note');
+  depsNote.setAttribute('role', 'note');
   const progress = el('div', 'restart-progress');
   progress.hidden = true;
   const spinner = el('span', 'restart-spin');
@@ -182,7 +212,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   const failure = el('div', 'restart-fail');
   failure.hidden = true;
   failure.setAttribute('role', 'alert');
-  body.append(bodyText, list, moreEl, contNote, progress, failure);
+  body.append(bodyText, list, moreEl, contNote, depsNote, progress, failure);
 
   const ft = el('footer', 'modal-ft restart-ft');
   const cancelBtn = button('btn', COPY.cancel, () => closeConfirm());
@@ -191,7 +221,17 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   });
   const closeBtn = button('btn', COPY.close, () => closeConfirm());
   closeBtn.hidden = true;
-  ft.append(cancelBtn, el('span', 'drawer-gap'), closeBtn, confirmBtn);
+  // Only while the PREFLIGHT is out: it dismisses the dialog, never the flow.
+  const hideBtn = button('btn', COPY.hide, () => closeConfirm());
+  hideBtn.hidden = true;
+  // Only on the REFUSED phase: after a refusal the backend is still there, so
+  // trying again once the cause is fixed is a real action — unlike after a
+  // failure, where there is nothing left on this origin to ask.
+  const retryBtn = button('btn is-acc', COPY.retry, () => {
+    void startRestart();
+  });
+  retryBtn.hidden = true;
+  ft.append(cancelBtn, el('span', 'drawer-gap'), hideBtn, closeBtn, retryBtn, confirmBtn);
 
   modal.append(hd, body, ft);
   scrim.append(modal);
@@ -202,11 +242,24 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   modalHost.append(scrim);
 
   // ---- state ---------------------------------------------------------------
-  /** `confirm` = the question; `busy` = in flight; `over` = a terminal message. */
-  type Phase = 'confirm' | 'busy' | 'over';
+  /**
+   * `confirm` = the question; `busy` = in flight; `refused` = the preflight said
+   * no and NOTHING happened (recoverable, retryable); `over` = a terminal
+   * message (the old process is gone).
+   */
+  type Phase = 'confirm' | 'busy' | 'refused' | 'over';
   let phase: Phase = 'confirm';
   let restoreTo: HTMLElement | null = null;
   let summary: ConfirmSummary = { count: 0, rows: [], more: 0, continued: false };
+  /** The pending reason's footnote, or null — recomputed on every render. */
+  let depsWarn: string | null = null;
+  /** Which half of the flow is out, while one is. Decides whether Hide is offered. */
+  let flowPhase: RestartPhase | null = null;
+  /**
+   * The user put the dialog away during the preflight. The flow kept running,
+   * so the outcome has to bring the dialog back — that is what this remembers.
+   */
+  let hiddenMidFlow = false;
 
   // ---- notice surfaces -----------------------------------------------------
 
@@ -217,8 +270,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     // the log. Both surfaces say the same thing — one mapping, one truth.
     const sentence = reasonSentence(notice.reason);
     const detail = sentence === null ? '' : ` — ${sentence}`;
-    pill.title = `${COPY.pillTip}${detail}`;
-    pill.setAttribute('aria-label', `${COPY.pillTip}${detail}`);
+    pill.textContent = notice.pillLabel;
+    const tip = notice.pillAction === 'reveal' ? PILL_TIP_RESTARTING : `${COPY.pillTip}${detail}`;
+    pill.title = tip;
+    pill.setAttribute('aria-label', tip);
     toastReason.textContent = sentence ?? '';
     toastReason.hidden = sentence === null;
   }
@@ -281,28 +336,48 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     moreEl.hidden = summary.more === 0;
     contNote.textContent = CONTINUE_NOTE;
     contNote.hidden = !summary.continued;
+    // The pending reason may be one the preflight is going to refuse; say so
+    // while Restart is still unpressed.
+    const note = reasonNote(notice.reason);
+    depsWarn = note;
+    depsNote.textContent = note ?? '';
     setPhase('confirm');
   }
 
   function setPhase(next: Phase): void {
     phase = next;
     const confirming = next === 'confirm';
+    // `over` and `refused` share the message slot; only their colour, their
+    // title and their buttons differ — the difference between "this page is
+    // finished" and "nothing happened, fix it and press again".
+    const ended = next === 'over' || next === 'refused';
     bodyText.hidden = !confirming;
     list.hidden = !confirming || summary.rows.length === 0;
     moreEl.hidden = !confirming || summary.more === 0;
     contNote.hidden = !confirming || !summary.continued;
+    depsNote.hidden = !confirming || depsWarn === null;
     progress.hidden = next !== 'busy';
-    failure.hidden = next !== 'over';
+    failure.hidden = !ended;
+    failure.className = next === 'refused' ? 'restart-fail is-refused' : 'restart-fail';
+    // The preflight is interruptible-looking but not interruptible: the dialog
+    // can go away, the flow cannot. `reconnecting` stays locked — by then the
+    // old process is gone and there is nothing behind the dialog to go back to.
+    const hidable = next === 'busy' && flowPhase !== null && canHideRestartDialog(flowPhase);
     cancelBtn.hidden = !confirming;
     confirmBtn.hidden = !confirming;
-    closeBtn.hidden = next !== 'over';
-    hdX.hidden = next === 'busy';
+    closeBtn.hidden = !ended;
+    retryBtn.hidden = next !== 'refused';
+    hideBtn.hidden = !hidable;
+    hdX.hidden = next === 'busy' && !hidable;
+    hdX.setAttribute('aria-label', hidable ? 'hide' : 'cancel');
     titleEl.textContent =
       next === 'confirm'
         ? COPY.dialogTitle
         : next === 'busy'
           ? COPY.dialogTitleBusy
-          : COPY.dialogTitleOver;
+          : next === 'refused'
+            ? COPY.dialogTitleRefused
+            : COPY.dialogTitleOver;
     subEl.hidden = !confirming;
     // Keep focus inside the dialog across the phase change that removes every
     // button (the failure phase does the same with closeBtn).
@@ -311,6 +386,13 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
 
   function openConfirm(source: 'settings' | 'pill' | 'toast'): void {
     if (!scrim.hidden) return;
+    // A flow is still running behind a hidden dialog: show it again instead of
+    // renderConfirm()'s reset, which would ask the question a second time while
+    // the answer to the first one is still on its way.
+    if (phase === 'busy') {
+      reveal();
+      return;
+    }
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     failure.textContent = '';
     renderConfirm();
@@ -321,16 +403,59 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
 
   function closeConfirm(): void {
     if (scrim.hidden) return;
-    // Nothing to cancel once the old process has been told to go.
-    if (phase === 'busy') return;
+    if (phase === 'busy') {
+      // During the PREFLIGHT this is a Hide, not a Cancel: the POST stays out,
+      // the restart gap stays armed, and the outcome re-opens the dialog. Once
+      // the handover has begun there is nothing left to go back to.
+      if (flowPhase === null || !canHideRestartDialog(flowPhase)) return;
+      hiddenMidFlow = true;
+      log.info('restart dialog hidden while the backend prepares; the restart keeps running');
+      scrim.hidden = true;
+      restoreFocus();
+      return; // restoreTo is kept: the dialog is coming back.
+    }
     if (phase === 'confirm') log.info('restart confirm cancelled');
     scrim.hidden = true;
-    if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();
+    restoreFocus();
     restoreTo = null;
   }
 
+  /**
+   * Put the keyboard back where it came from — and NOT on an element that is
+   * gone from the screen. `Hide` during the preflight is exactly that case: the
+   * dialog was opened from the toast or the settings panel, and by then those
+   * are hidden, so `focus()` would land on <body> and no key would reach the
+   * PTY. Same fallback as the launch dialog: the focused pane's terminal.
+   */
+  function restoreFocus(): void {
+    const back = restoreTo;
+    if (
+      back !== null &&
+      back.isConnected &&
+      !back.hidden &&
+      back.closest('[hidden]') === null &&
+      back.offsetParent !== null
+    ) {
+      back.focus();
+      return;
+    }
+    requestTerminalFocus();
+  }
+
+  /** Put a hidden-mid-flow dialog back on screen. A no-op when it never left. */
+  function reveal(): void {
+    if (!scrim.hidden) return;
+    hiddenMidFlow = false;
+    scrim.hidden = false;
+  }
+
   function showProgress(p: RestartPhase): void {
+    flowPhase = p;
     progressText.textContent = p === 'restarting' ? COPY.restarting : COPY.reconnecting;
+    // `reconnecting` is the moment the old process actually left: a dialog the
+    // user hid during the preflight comes back, because from here the page is
+    // committed and the sessions behind it are already gone.
+    if (hiddenMidFlow && !canHideRestartDialog(p)) reveal();
     setPhase('busy');
   }
 
@@ -343,13 +468,33 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
    */
   function showFailure(message: string): void {
     st.setRestarting(false);
+    reveal(); // The outcome always gets a screen, hidden preflight or not.
+    flowPhase = null;
     failure.textContent = message;
     setPhase('over');
     closeBtn.focus();
   }
 
+  /**
+   * The preflight refused (422). The OLD backend never moved: it is still
+   * serving this page, its token is still ours, and every session is still
+   * running. Dropping the flag here is what puts the app back to work — the
+   * session poll, the runtime poll and both reconnect loops resume within a
+   * beat — and the message is the server's own sentence about which check said
+   * no, because only the server knows.
+   */
+  function showRefused(message: string): void {
+    st.setRestarting(false);
+    reveal(); // Nothing happened, and the user has to be told so.
+    flowPhase = null;
+    failure.textContent = message;
+    setPhase('refused');
+    closeBtn.focus();
+  }
+
   async function startRestart(): Promise<void> {
     log.info(`restart confirmed: sessions=${summary.count}`);
+    failure.textContent = ''; // A retry must not show the previous refusal.
     // BEFORE the POST: the old process starts killing sessions the moment it
     // reads the request, so every "the backend vanished" reflex has to be
     // asleep already.
@@ -379,6 +524,14 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
       notice.restartAborted();
       renderNotice();
       showFailure(outcome.message);
+      return;
+    }
+    if (outcome.kind === 'refused') {
+      // NOT a failure: the backend checked, said no, and touched nothing.
+      log.warn(`restart refused by the backend: ${outcome.message}`);
+      notice.restartAborted();
+      renderNotice();
+      showRefused(outcome.message);
       return;
     }
     if (outcome.kind === 'otherPort') {

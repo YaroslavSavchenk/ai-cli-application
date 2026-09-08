@@ -19,12 +19,17 @@ import assert from 'node:assert/strict';
 import {
   CONFIRM_LIST_MAX,
   CONTINUE_NOTE,
+  DEPS_NOTE,
   EMPTY,
+  PILL_LABEL,
+  PILL_LABEL_RESTARTING,
+  REASON_DEPS,
   REASON_GENERIC,
   UpdateNotice,
   confirmBody,
   fmtRunningFor,
   moreLabel,
+  reasonNote,
   reasonSentence,
   summarizeRunning,
 } from '../web/src/ui/update-model.ts';
@@ -33,6 +38,8 @@ import {
   HEALTH_TIMEOUT_MS,
   MSG_BUSY,
   MSG_LOST,
+  MSG_REFUSED,
+  canHideRestartDialog,
   loopbackUrl,
   parseRestartBody,
   runRestart,
@@ -144,8 +151,31 @@ test('while restarting, a poll landing mid-handover cannot repaint a toast over 
   n.apply({ available: true, reason: 'frontend rebuilt' });
   assert.equal(n.startRestart(), 'restarting');
   assert.equal(n.toastVisible, false);
-  assert.equal(n.pillVisible, false);
   assert.equal(n.apply({ available: true, reason: 'something else entirely' }), 'restarting');
+});
+
+test('while restarting the PILL stays, renamed, and a click can only bring the dialog back', () => {
+  // The dialog may be hidden during the preflight (sessions are alive), and it
+  // then has to be reachable from something other than the settings panel —
+  // and the screen has to say a restart is running at all.
+  const n = new UpdateNotice();
+  n.apply({ available: true, reason: 'frontend rebuilt' });
+  assert.deepEqual(
+    { label: n.pillLabel, action: n.pillAction, pill: n.pillVisible },
+    { label: PILL_LABEL, action: 'confirm', pill: true },
+    'before the restart it is the ordinary update pill',
+  );
+
+  n.startRestart();
+
+  assert.equal(n.pillVisible, true, 'the pill is the only on-screen sign of a running restart');
+  assert.equal(n.toastVisible, false, 'the toast still steps aside');
+  assert.equal(n.pillLabel, PILL_LABEL_RESTARTING);
+  assert.equal(n.pillAction, 'reveal', 'a click shows the flow, it never re-asks the question');
+
+  // …and when the restart is refused, the pill goes back to being the pill.
+  n.restartAborted();
+  assert.deepEqual({ label: n.pillLabel, action: n.pillAction }, { label: PILL_LABEL, action: 'confirm' });
 });
 
 test('a failed/refused restart restores the surface the pending update deserves', () => {
@@ -177,7 +207,7 @@ test('a completed restart is terminal: nothing is shown again on this page', () 
   assert.equal(n.reason, null);
   assert.equal(n.apply({ available: true, reason: 'frontend rebuilt' }), 'done');
   assert.equal(n.toastVisible, false);
-  assert.equal(n.pillVisible, false);
+  assert.equal(n.pillVisible, false, 'the page is being replaced: nothing to press any more');
 });
 
 // ---------------------------------------------------------------------------
@@ -549,4 +579,149 @@ test('waitForHealth returns immediately when the replacement is already up', asy
 test('the fallback address is loopback-only, ends in a slash, and carries no token', () => {
   assert.equal(loopbackUrl(41234), 'http://127.0.0.1:41234/');
   assert.ok(!loopbackUrl(41234).includes('token'));
+});
+
+// ---------------------------------------------------------------------------
+// 422 — the preflight refusal (2026-09-08)
+// ---------------------------------------------------------------------------
+
+test('422: the preflight refused, and that is NOT a failure — the old backend is untouched', async () => {
+  // The whole point of the separate outcome: `failed` makes the page tell the
+  // user to relaunch from the shortcut, which would be a lie here. Nothing was
+  // touched — the caller has to un-arm the restart gap and let the app go on.
+  const h = harness({
+    post: {
+      status: 422,
+      body: { error: 'restart refused: dependencies changed — install them in the project folder, then restart' },
+    },
+  });
+  const out = await runRestart(h.deps);
+  assert.deepEqual(out, {
+    kind: 'refused',
+    message: 'restart refused: dependencies changed — install them in the project folder, then restart',
+  });
+  // Only the preflight phase was ever announced: there is nothing to reconnect
+  // to, because nothing went away.
+  assert.deepEqual(h.phases, ['restarting']);
+  assert.equal(h.healthCalls, 0, 'a refusal must not poll /health — the backend never left');
+  assert.deepEqual(h.slept, []);
+});
+
+test('a 422 with no usable body still says the one thing that is true of every refusal', async () => {
+  for (const body of [null, {}, { error: '' }, { error: 42 }, 'nope']) {
+    const h = harness({ post: { status: 422, body } });
+    const out = await runRestart(h.deps);
+    assert.deepEqual(out, { kind: 'refused', message: MSG_REFUSED }, JSON.stringify(body));
+  }
+  assert.equal(
+    MSG_REFUSED,
+    'The restart did not start, so nothing changed. Your sessions are still running.',
+  );
+  // It must not be the relaunch instruction: that sentence ends this page.
+  assert.notEqual(MSG_REFUSED, MSG_LOST);
+});
+
+test('the refusal is distinguishable from every other outcome by KIND, not by text', async () => {
+  // A caller switching on the message would be one server reword away from
+  // killing a live page. Each status maps to its own kind.
+  const kinds: Record<number, string> = {};
+  for (const status of [202, 409, 422, 500]) {
+    const body =
+      status === 202 ? { port: 41234, startedAt: 'x', samePort: true } : { error: 'because' };
+    const h = harness({ post: { status, body }, healthyAfter: 0 });
+    kinds[status] = (await runRestart(h.deps)).kind;
+  }
+  assert.deepEqual(kinds, { 202: 'reload', 409: 'busy', 422: 'refused', 500: 'failed' });
+});
+
+test('the phase copy the dialog shows is driven by exactly two callbacks, in order', async () => {
+  // The first phase is now a PREFLIGHT that can run for seconds (a build) with
+  // nothing yet destroyed, so the dialog has to be able to say "preparing"
+  // before it says "reconnecting" — one callback each, never the reverse.
+  const ok = harness({
+    post: { status: 202, body: { port: 41234, startedAt: 'x', samePort: true } },
+    healthyAfter: 0,
+  });
+  await runRestart(ok.deps);
+  assert.deepEqual(ok.phases, ['restarting', 'reconnecting']);
+
+  const refused = harness({ post: { status: 422, body: { error: 'no' } } });
+  await runRestart(refused.deps);
+  assert.deepEqual(refused.phases, ['restarting'], 'a refusal never reaches the reconnect phase');
+
+  const busy = harness({ post: { status: 409, body: null } });
+  await runRestart(busy.deps);
+  assert.deepEqual(busy.phases, ['restarting']);
+});
+
+test('a refused restart puts the pending notice back exactly like a cancelled one', () => {
+  // `restartAborted()` is the model half of the un-arming: after a refusal the
+  // update is still pending and the surface it deserves comes back.
+  const n = new UpdateNotice();
+  n.apply({ available: true, reason: 'dependencies changed' });
+  n.dismissToast();
+  n.startRestart();
+  assert.equal(n.restartAborted(), 'pill', 'a dismissed reason does not re-toast after a refusal');
+  assert.equal(n.reason, 'dependencies changed', 'and the reason is still pending');
+  // A poll landing afterwards keeps saying the same thing, without nagging.
+  assert.equal(n.apply({ available: true, reason: 'dependencies changed' }), 'pill');
+});
+
+test('the new preflight reasons all read as plain sentences, and the dependency one instructs', () => {
+  assert.equal(
+    reasonSentence('frontend build missing'),
+    "The app's screens have not been built yet.",
+  );
+  assert.equal(reasonSentence('frontend source changed'), "The app's screens changed.");
+  assert.equal(reasonSentence('dependencies changed'), REASON_DEPS);
+  assert.equal(
+    REASON_DEPS,
+    'Dependencies changed; install them in the project folder first, then restart.',
+  );
+  // Copy rule (PROJECT-SCOPE 2026-07-25): the sentence tells the user WHERE to
+  // act without naming a command, a flag or a file.
+  for (const s of [
+    reasonSentence('frontend build missing'),
+    reasonSentence('frontend source changed'),
+    REASON_DEPS,
+    DEPS_NOTE,
+  ]) {
+    assert.ok(s !== null);
+    assert.ok(!/--\w/.test(s as string), `no flag in: ${String(s)}`);
+    assert.ok(!/\bnpm\b|\bnode_modules\b|\bvite\b/i.test(s as string), `no tooling name in: ${String(s)}`);
+  }
+});
+
+test('only the dependency reason carries a confirmation footnote', () => {
+  // The footnote exists to stop a user pressing Restart into a guaranteed
+  // refusal. Every other reason restarts fine and must not be decorated.
+  assert.equal(reasonNote('dependencies changed'), DEPS_NOTE);
+  assert.equal(
+    DEPS_NOTE,
+    'Dependencies changed. Until they are installed in the project folder, the app will refuse to restart.',
+  );
+  for (const r of [
+    null,
+    undefined,
+    '',
+    'frontend rebuilt',
+    'frontend build missing',
+    'frontend source changed',
+    'server files edited',
+    'server code changed (6113709 → a1b2c3d)',
+    'dependencies changed a bit',
+  ]) {
+    assert.equal(reasonNote(r), null, String(r));
+  }
+});
+
+test('the restart dialog may be hidden during the PREFLIGHT and never during the handover', () => {
+  // While the POST is out the backend is only checking and building: every
+  // session is alive and reachable, so a modal that cannot be dismissed locks a
+  // working app for up to two minutes. Hiding stops nothing — the flow runs on.
+  assert.equal(canHideRestartDialog('restarting'), true);
+  // Once the 202 has landed the old process is gone with its sessions, and the
+  // page is committed to reloading or to saying it cannot. There is nothing
+  // behind the dialog left to go back to, so it stays.
+  assert.equal(canHideRestartDialog('reconnecting'), false);
 });

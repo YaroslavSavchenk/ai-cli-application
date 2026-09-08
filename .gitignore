@@ -17,6 +17,11 @@ npm-debug.log*
 
 # Build output
 web/dist/
+# A restart builds into web/dist-next and keeps the old build as web/dist-prev
+# while it swaps (server/webbuild.ts); both are transient, neither is ever
+# committed — a crashed restart can leave one behind.
+web/dist-next/
+web/dist-prev/
 *.tsbuildinfo
 
 # Native WebView2 host build output (compiled exe + fetched WebView2 DLLs).

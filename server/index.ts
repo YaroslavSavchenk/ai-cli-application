@@ -24,7 +24,7 @@
 import { createServer } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
-import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { readFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,7 @@ import type { RuntimeInfo } from '../shared/protocol.ts';
 import {
   resolveDataPaths,
   resolveGithubApiBase,
+  resolveWebDistDir,
   resolveLogLevel,
   createLogger,
   scoped,
@@ -42,7 +43,13 @@ import {
   MAX_LOG_BYTES,
   DEFAULT_GITHUB_API_BASE,
 } from './config.ts';
-import { readServerCommit, readWebBuild, mtimeOf, createUpdateChecker } from './buildinfo.ts';
+import {
+  readServerCommit,
+  readWebBuild,
+  mtimeOf,
+  createUpdateChecker,
+  dependenciesInStep,
+} from './buildinfo.ts';
 import { generateToken } from './auth.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
@@ -53,7 +60,14 @@ import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler, type ApiDeps } from './api.ts';
 import { createUpgradeHandler } from './ws.ts';
-import { RestartController } from './restart.ts';
+import { RestartController, createStandbyStarter, STANDBY_TIMEOUT_MS } from './restart.ts';
+import {
+  buildFrontend,
+  commitFrontend,
+  discardFrontend,
+  revertFrontend,
+  swapFrontend,
+} from './webbuild.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -61,7 +75,24 @@ const log = createLogger(paths.logFile, logLevel.level);
 const token = generateToken();
 const serverDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(serverDir, '..');
-const webDistDir = join(serverDir, '..', 'web', 'dist');
+// AI_SM_WEB_DIST_DIR (an absolute, normalized directory path) moves the SERVED
+// frontend, and with it the `-next`/`-prev` staging dirs a restart renames.
+// Unset in normal use; the restart tests point it at a copy so a test run never
+// rebuilds the repo's own web/dist.
+//
+// A bad value refuses the start — and the REASON has to reach server.log, not
+// only stderr: this process is started as `setsid --fork nohup node
+// server/index.ts </dev/null >/dev/null 2>&1` (launcher/start-backend.sh), so
+// stderr goes nowhere and the user would see only the launcher's "did not
+// become healthy" timeout. Same shape as the AI_SM_GITHUB_API_BASE refusal
+// below; the message is already one-lined by resolveWebDistDir.
+let webDistDir: string;
+try {
+  webDistDir = resolveWebDistDir(repoRoot);
+} catch (err) {
+  log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
+  throw err; // unchanged otherwise: uncaught at module eval -> stderr + exit 1.
+}
 
 // ---------------------------------------------------------------------------
 // Boot banner. The first lines of every run answer "which code is this?" —
@@ -90,7 +121,25 @@ function envValueForLog(name: string, raw: string): string {
   return JSON.stringify(oneLine(raw));
 }
 const serverCommit = readServerCommit(repoRoot);
-const webBuild = readWebBuild(webDistDir);
+let webBuild = readWebBuild(webDistDir);
+
+// ---------------------------------------------------------------------------
+// STANDBY MODE, decided HERE — before the first thing that writes anything.
+//
+// A standby child (AI_SM_STANDBY=1 + an IPC channel, set only by a restart
+// preflight) shares the data dir with a LIVE parent that is still serving. Until
+// `go` it must therefore own NOTHING in it: no history rewrite, no wiping of the
+// parent's session-settings files, no unlink of anything, not even on a signal.
+// Everything that mutates the data dir is deferred to the `go` handler.
+//
+// Without a channel there is nobody to say `go`, so AI_SM_STANDBY set by hand is
+// an ordinary boot (warned about below) and does all of it right away.
+// ---------------------------------------------------------------------------
+/** Bound once: `process.send` exists only when the parent opened an IPC channel. */
+const sendToParent = process.send?.bind(process);
+const standbyMode = process.env['AI_SM_STANDBY'] === '1';
+/** True from module load until `go`: this process must not touch the data dir. */
+let standbyWaiting = standbyMode && sendToParent !== undefined;
 
 boot('info', `ai-cli-application backend starting (node ${process.version}, pid ${process.pid})`);
 boot('info', `data dir ${paths.dataDir}`);
@@ -128,17 +177,29 @@ if (restartedFrom !== undefined && restartedFrom !== '') {
       : `restarted from pid <invalid> (${JSON.stringify(oneLine(restartedFrom))})`,
   );
 }
-boot(
-  'info',
-  webBuild.indexMtime === null
-    ? 'web build: web/dist missing — the UI will not be served'
-    : `web build ${webBuild.asset ?? 'no assets/index-*.js'} (web/dist/index.html mtime ${webBuild.indexMtime})`,
-);
+/**
+ * The frontend identity line. In a standby child it is printed at `go`, not
+ * here: the parent's preflight swaps a freshly built web/dist into place while
+ * this process waits, so anything read at module load names the OLD bundle.
+ */
+function logWebBuild(): void {
+  boot(
+    'info',
+    webBuild.indexMtime === null
+      ? 'web build: web/dist missing — the UI will not be served'
+      : `web build ${webBuild.asset ?? 'no assets/index-*.js'} (build id ${
+          webBuild.buildId ?? 'unknown'
+        }, web/dist/index.html mtime ${webBuild.indexMtime})`,
+  );
+}
+if (!standbyWaiting) logWebBuild();
 
 const projects = new ProjectStore(paths.projectsFile, log);
 const prefs = new PrefsStore(paths.prefsFile, log);
 const history = new SessionHistory(paths.historyFile, log);
-history.load(); // Entries a previous run left live are stamped 'crash'.
+// A standby reads the file WITHOUT stamping or rewriting it: those entries
+// belong to the parent that is still running them. The full load runs at `go`.
+history.load({ readOnly: standbyWaiting });
 // Per-session `--settings` files giving claude sessions our status line. The
 // script is run by a FOREIGN process (claude), so it is named by absolute path
 // and run with this very node binary — never by a name resolved through the
@@ -153,15 +214,24 @@ const sessionSettings = new SessionSettingsStore(
   },
   log,
 );
-sessionSettings.resetDir();
-// Same reasoning for the status line's git-branch cache (written by the script,
-// keyed by claude session id): those sessions are gone, so every entry is stale
-// — and a leftover written by anything else must not outlive a restart.
-try {
-  unlinkSync(paths.statuslineCacheFile);
-} catch {
-  // Absent (the normal case) or unremovable — the script tolerates either.
+/**
+ * Wipe what no session may inherit across a run. Deferred to `go` in a standby:
+ * `session-settings/` holds the `--settings` files of the PARENT's live claude
+ * sessions, and the statusline cache is written by those very sessions.
+ */
+function resetSessionArtifacts(): void {
+  sessionSettings.resetDir();
+  // Same reasoning for the status line's git-branch cache (written by the
+  // script, keyed by claude session id): those sessions are gone, so every
+  // entry is stale — and a leftover written by anything else must not outlive
+  // a restart.
+  try {
+    unlinkSync(paths.statuslineCacheFile);
+  } catch {
+    // Absent (the normal case) or unremovable — the script tolerates either.
+  }
 }
+if (!standbyWaiting) resetSessionArtifacts();
 const sessions = new SessionManager(log, history, sessionSettings);
 // GitHub connection. The OAuth client_id comes from env; absent/empty disables
 // only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
@@ -225,7 +295,7 @@ const checkUpdate = createUpdateChecker({
   sharedDir: join(repoRoot, 'shared'),
   webDistDir,
   bootCommit: serverCommit,
-  bootAsset: webBuild.asset,
+  bootAsset: () => webBuild.asset,
   startedAt: getStartedAt,
 });
 
@@ -348,7 +418,29 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-server.listen(portHint, '127.0.0.1');
+/**
+ * Bind the port. Called immediately in a normal boot, and only on the parent's
+ * `go` in a STANDBY boot (see the bottom of this file) — everything above this
+ * point is the entire rest of the boot, which is exactly what a standby child
+ * has already done by the time it reports in.
+ */
+function beginListening(): void {
+  server.listen(portHint, '127.0.0.1');
+}
+
+/**
+ * Adopt the frontend that is on disk NOW. Called at `go`: the parent's
+ * preflight built and swapped web/dist while this process was waiting, so the
+ * bundle read at module load is the OLD one — and it feeds the boot banner,
+ * GET /api/runtime's `webBuild`, and the update check's "is the build newer
+ * than me?" comparison, which would otherwise light the update pill on a
+ * backend that had just been restarted.
+ */
+function adoptWebBuild(): void {
+  webBuild = readWebBuild(webDistDir);
+  apiDeps.webAsset = webBuild.asset;
+  logWebBuild();
+}
 
 // ---------------------------------------------------------------------------
 // Manual restart: same-port handoff to a fresh process (POST /api/restart).
@@ -385,22 +477,29 @@ const restart = new RestartController({
         `${destroyed} idle connection(s) destroyed`,
     );
   },
-  spawnChild: ({ portHint: hint, restartedFrom: from }) => {
-    // NEVER a shell: this very node binary + an argv array. The launcher
-    // already resolved nvm into process.execPath, so no PATH lookup either.
-    const child = spawn(process.execPath, [join(serverDir, 'index.ts')], {
-      cwd: repoRoot,
-      detached: true,
-      stdio: 'ignore',
-      env: {
-        ...process.env,
-        AI_SM_PORT_HINT: String(hint),
-        AI_SM_RESTARTED_FROM: String(from),
+  dependenciesReady: () => dependenciesInStep(repoRoot),
+  buildFrontend: () =>
+    buildFrontend({
+      repoRoot,
+      webDistDir,
+      log: scoped(log, 'restart'),
+      // A build can run for up to two minutes; a SIGTERM or an idle-grace
+      // expiry in that window must not leave vite writing into web/dist-next
+      // after this process is gone.
+      onSpawn: (child) => {
+        buildChild = child;
       },
-    });
-    child.unref();
-    return child.pid;
-  },
+    }),
+  swapFrontend: () => swapFrontend({ webDistDir, log: scoped(log, 'restart') }),
+  revertFrontend: (swap) =>
+    revertFrontend({ webDistDir, log: scoped(log, 'restart'), hadPrevious: swap.hadPrevious }),
+  commitFrontend: () => commitFrontend({ webDistDir }),
+  discardFrontend: () => discardFrontend({ webDistDir }),
+  startStandby: createStandbyStarter({
+    entry: join(serverDir, 'index.ts'),
+    cwd: repoRoot,
+    log,
+  }),
   readRuntime: () => {
     try {
       return JSON.parse(readFileSync(paths.runtimeFile, 'utf8')) as RuntimeInfo;
@@ -425,9 +524,20 @@ const restart = new RestartController({
 });
 apiDeps.restart = restart;
 
+/** The vite process of a running preflight build, while there is one. */
+let buildChild: ChildProcess | undefined;
+
 let shuttingDown = false;
 function shutdown(cause: string): void {
   if (shuttingDown) return;
+  // A standby that never got its `go` owns NOTHING in the data dir: runtime.json,
+  // history.json and session-settings/ all still belong to the LIVE parent, which
+  // is exactly who sends this SIGTERM when it gives up on us. Leave, touch nothing.
+  if (standbyWaiting) {
+    shuttingDown = true;
+    boot('info', `standby: received ${cause} before the handoff; exiting without touching the data dir`);
+    process.exit(0);
+  }
   // A restart already ran the whole teardown (lifecycle stopped, history
   // stamped 'shutdown', PTYs killed, listener closed) and runtime.json now
   // describes the CHILD. Doing any of it twice would, at worst, delete the
@@ -447,6 +557,21 @@ function shutdown(cause: string): void {
       `presence=${lifecycle.presenceCount} attached=${lifecycle.attachedCount}`,
   );
   lifecycle.stop();
+  // A frontend build in flight is this process's child: it must not outlive us
+  // writing into web/dist-next, and its half-written output goes with it.
+  if (buildChild !== undefined && buildChild.exitCode === null && buildChild.signalCode === null) {
+    log('info', 'a frontend build was still running; stopping it and dropping its output');
+    try {
+      buildChild.kill('SIGTERM');
+    } catch {
+      // Already gone.
+    }
+  }
+  // Always, not only while a build runs: a preflight that got past the build
+  // (standby wait, swap) leaves a staged web/dist-next behind when this
+  // process leaves now, and the next restart may be refused before the build
+  // gets to clear it. Idempotent — nothing to remove is the common case.
+  discardFrontend({ webDistDir });
   // History first (crash safety), then kill: destroy()'s 'user-kill' and the
   // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
   history.endAllLive('shutdown');
@@ -471,10 +596,88 @@ process.on('unhandledRejection', (reason) => {
   log('error', `unhandled promise rejection: ${describeError(reason)}`);
 });
 
+// ---------------------------------------------------------------------------
+// STANDBY MODE (AI_SM_STANDBY=1) — set ONLY by a restart preflight.
+//
+// The parent must never tear itself down for a replacement that cannot start.
+// So the child does the ENTIRE boot first — imports, config, the server object,
+// every handler above — reports `standby-ready` over IPC, and waits. It binds
+// the port only when the parent has closed its listener and says `go`.
+//
+// While it waits it owns NOTHING: the data dir belongs to the parent, which is
+// still serving. Everything that WRITES there — the history crash-stamp pass,
+// the session-settings wipe, the statusline cache unlink — is deferred to the
+// `go` handler below, and so is reading which frontend to serve (the parent
+// swaps a freshly built one in meanwhile).
+//
+// It must never linger: a parent that dies before the handoff closes the IPC
+// channel ('disconnect'), and a parent that forgets it is caught by a timeout
+// measured from `standby-ready`. Both leave with exit 0, having listened on
+// nothing and written no runtime.json.
+// ---------------------------------------------------------------------------
+if (!standbyMode) {
+  beginListening();
+} else if (sendToParent === undefined) {
+  // Someone set the variable by hand on a normal start. Say so and boot
+  // normally rather than hanging forever on a channel that does not exist.
+  boot('warn', 'AI_SM_STANDBY is set but this process has no IPC channel; starting normally');
+  beginListening();
+} else {
+  const parent = /^\d{1,10}$/.test(restartedFrom ?? '') ? (restartedFrom as string) : 'unknown';
+  let standbyTimer: NodeJS.Timeout | undefined;
+  process.on('message', (message) => {
+    if (!standbyWaiting) return;
+    // Shape-validated; anything else on the channel is ignored, not obeyed.
+    if (typeof message !== 'object' || message === null) return;
+    if ((message as { type?: unknown }).type !== 'go') return;
+    standbyWaiting = false; // From here the data dir is OURS.
+    if (standbyTimer !== undefined) clearTimeout(standbyTimer);
+    boot('info', `standby: handoff received from pid ${parent}, taking the port`);
+    // The three data-dir mutations an ordinary boot does at module load. They
+    // waited for this moment because until now every one of them would have
+    // hit files the parent was still using.
+    //
+    // history.load() also RE-READS the file: the teardown that just happened
+    // stamped the parent's live sessions 'shutdown' on disk — the honest
+    // reason, and the one HISTORY shows.
+    history.load();
+    resetSessionArtifacts();
+    adoptWebBuild();
+    // Belt and braces: the parent drops the swap's backup the moment `go` is
+    // out, but a parent that died in between would leave `<dist>-prev` behind.
+    // Idempotent — normally there is nothing to remove.
+    commitFrontend({ webDistDir });
+    try {
+      // The channel has done its job. Closing it here is also what makes the
+      // 'disconnect' below harmless: after `go` this process lives on its own.
+      process.disconnect?.();
+    } catch {
+      // Already closed by the parent.
+    }
+    beginListening();
+  });
+  process.on('disconnect', () => {
+    if (!standbyWaiting) return;
+    boot('warn', 'standby: the parent went away before the handoff; exiting');
+    process.exit(0);
+  });
+  boot('info', `standby: ready, waiting for the handoff from pid ${parent}`);
+  sendToParent({ type: 'standby-ready' });
+  // Armed AFTER the report, so the window is measured from the moment the
+  // parent starts counting on us — not from a boot that may itself have taken
+  // most of the parent's own ready timeout.
+  standbyTimer = setTimeout(() => {
+    if (!standbyWaiting) return;
+    boot('warn', `standby: no handoff within ${STANDBY_TIMEOUT_MS}ms of reporting ready; exiting`);
+    process.exit(0);
+  }, STANDBY_TIMEOUT_MS);
+}
+
 process.on('uncaughtException', (err) => {
   log('error', `uncaught exception: ${describeError(err)}`);
-  // Not during a restart handoff: runtime.json is the CHILD's by then.
-  if (!restart.inProgress) {
+  // Not during a restart handoff: runtime.json is the CHILD's by then. And not
+  // in a standby before `go` either: there it is the live PARENT's.
+  if (!restart.inProgress && !standbyWaiting) {
     try {
       unlinkSync(paths.runtimeFile);
     } catch {

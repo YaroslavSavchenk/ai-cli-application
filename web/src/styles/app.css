@@ -3446,6 +3446,19 @@ kbd {
   line-height: 1.5;
 }
 
+/* a REFUSAL is not a failure. The preflight said no and touched nothing: the
+   backend still serves this page and every session is alive, so the red of
+   "it did not come back" would be a lie. It wears the attention idiom
+   instead — .restart-note's amber rule on the ink well, the same grammar the
+   toast and the tab badge use for "this needs you". No new colour. */
+.restart-fail.is-refused {
+  padding: var(--s-4) var(--s-5);
+  background: var(--well);
+  border-left: 2px solid var(--attn);
+  border-radius: var(--r-field);
+  color: var(--text-2);
+}
+
 .restart-ft {
   align-items: center;
 }

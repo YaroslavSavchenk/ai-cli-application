@@ -136,21 +136,30 @@ export class SessionHistory {
   /**
    * Boot: read history.json (missing/corrupt -> empty, logged) and stamp every
    * entry a previous run left live as 'crash', then write the repaired file.
+   *
+   * `readOnly` is the STANDBY boot (server/index.ts): that process shares the
+   * data dir with a parent whose sessions are still RUNNING, so stamping them
+   * 'crash' and writing the file would falsify a live process's history. It
+   * reads only, and the full stamping load runs again at `go`.
    */
-  load(): void {
+  load(opts: { readOnly?: boolean } = {}): void {
     this.#entries = this.#read();
     const at = new Date().toISOString();
     let crashed = 0;
-    for (const entry of this.#entries) {
-      if (entry.ended === null) {
-        entry.ended = { at, reason: 'crash' };
-        crashed += 1;
+    if (opts.readOnly !== true) {
+      for (const entry of this.#entries) {
+        if (entry.ended === null) {
+          entry.ended = { at, reason: 'crash' };
+          crashed += 1;
+        }
       }
+      this.#write();
     }
-    this.#write();
     this.#log(
       'info',
-      `history loaded: ${this.#entries.length} entries (${crashed} stamped 'crash')`,
+      opts.readOnly === true
+        ? `history loaded read-only: ${this.#entries.length} entries (nothing stamped, nothing written)`
+        : `history loaded: ${this.#entries.length} entries (${crashed} stamped 'crash')`,
     );
     const live = this.#entries.filter((e) => e.ended === null).length;
     this.#hlog(

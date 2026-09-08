@@ -35,7 +35,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const WEB_SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'src');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const WEB_SRC = join(REPO_ROOT, 'web', 'src');
 
 /** Stand-in for a `${…}` interpolation, so a template's literal text is still checked. */
 const HOLE = '\u0000';
@@ -374,4 +375,52 @@ test('the exact strings the 2026-07-25 copy pass removed never come back', () =>
     }
   }
   assert.deepEqual(hits, [], `removed UI copy reappeared:\n  ${hits.join('\n  ')}`);
+});
+
+// ---------------------------------------------------------------------------
+// The one place SERVER text is UI copy (2026-09-08)
+// ---------------------------------------------------------------------------
+//
+// The REFUSED_* constants in server/restart.ts are the 422 body of
+// POST /api/restart, and the restart dialog renders them VERBATIM. They are
+// therefore display copy that happens to live in the backend, and the same rule
+// applies: plain sentences, no flags, no command names, no file paths — and no
+// pointer to an artifact the user cannot open from the GUI (server.log is the
+// developer's channel; naming it on screen is an instruction the user cannot
+// follow). The reason itself is logged beside every refusal.
+
+test('the server-side restart refusals are UI copy and obey the UI copy rule', () => {
+  const src = readFileSync(join(REPO_ROOT, 'server', 'restart.ts'), 'utf8');
+  const refusals: { name: string; text: string }[] = [];
+  for (const line of src.split('\n')) {
+    const match = /^export const (REFUSED_[A-Z_]+) = (['"`])/.exec(line);
+    if (match === null) continue;
+    const quoteAt = line.indexOf(match[2] as string, match[0].length - 1);
+    refusals.push({ name: match[1] as string, text: readLiteral(line, quoteAt).text });
+  }
+
+  // Non-vacuity: the scan must actually have found the constants it judges.
+  assert.deepEqual(
+    refusals.map((r) => r.name).sort(),
+    ['REFUSED_BUILD', 'REFUSED_DEPENDENCIES', 'REFUSED_STANDBY'],
+    'every REFUSED_* constant must be scanned',
+  );
+
+  const offenders: string[] = [];
+  for (const { name, text } of refusals) {
+    const why = shapeOf(text);
+    if (why !== null) offenders.push(`${name}: ${JSON.stringify(text)} — ${why}`);
+    // The artifact rule: a sentence on screen may not send the user to a file.
+    for (const artifact of ['server.log', 'log file', 'the server log', 'node_modules', 'web/dist', '.json']) {
+      if (text.toLowerCase().includes(artifact.toLowerCase())) {
+        offenders.push(`${name}: ${JSON.stringify(text)} — names ${artifact}, which the GUI cannot open`);
+      }
+    }
+    assert.ok(text.length > 0 && text.length <= 120, `${name} must be one short sentence`);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'the 422 texts are rendered verbatim in the restart dialog. Offenders:\n  ' + offenders.join('\n  '),
+  );
 });

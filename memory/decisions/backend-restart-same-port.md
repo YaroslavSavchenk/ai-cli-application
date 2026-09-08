@@ -1,12 +1,17 @@
 ---
 type: decision
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-08
 tags: [lifecycle, backend, frontend, launcher, restart, update]
 ---
 # Manual backend restart + "new version" notice — same-port handoff
 
-**Status:** decided (2026-09-06, user's call — "voeg ergens een knop toe voor
+**Status:** decided (2026-09-06); the handoff sequence is EXTENDED by
+[[restart-preflight-standby]] (2026-09-08): a preflight (dependency check,
+always-rebuild of `web/dist`, standby child proven over messages-only IPC)
+now runs before anything is torn down, `422` = refused/untouched. The
+"rebuilding web/dist is out of scope" paragraph below and the IPC
+"untestable from WSL" reasoning are superseded there. (2026-09-06, user's call — "voeg ergens een knop toe voor
 handmatige herstart van de backend … een popupmelding als er een nieuwe
 versie van app is … de popup kun je wegklikken maar die blijft ergens hangen
 … een bevestiging zoals 'weet u zeker', als er nog open sessies zijn").

@@ -11,9 +11,27 @@
  *   POST /api/restart
  *     202 { port, startedAt, samePort }  the replacement is already healthy
  *     409 { error }                      another restart is in flight
+ *     422 { error }                      PREFLIGHT REFUSED — nothing was
+ *                                        touched: the old backend is still
+ *                                        serving, this page's token is still
+ *                                        valid, every session is alive
  *     500 { error }                      it did not come back
  *   GET /health   unauthenticated, the ONE call that still works across the
  *                 gap (this page's token dies with the old process).
+ *
+ * WHY 422 IS ITS OWN OUTCOME AND NOT A `failed`. `failed` means the old
+ * process is gone and this page is finished; `refused` means the POST changed
+ * NOTHING. The two need opposite reactions — the refused path has to un-arm
+ * the restart gap so the polls and both reconnect loops pick the still-live
+ * backend straight back up, and it must never print the "close this window and
+ * relaunch" sentence at a user whose app is working fine.
+ *
+ * The POST itself now takes as long as a build does (typically under 3 s, up
+ * to about two minutes in the worst case), because the backend runs its whole
+ * preflight — dependency check, screen rebuild, boot-verification of the
+ * replacement — INSIDE the request, before it touches a single session. That
+ * is why the first phase says "preparing", not "restarting": while it is out,
+ * nothing has happened yet.
  *
  * WHY THE HEALTH POLL EXISTS AT ALL, given the 202 already means "healthy":
  * the 202 is written by the OLD process moments before it exits, and the
@@ -34,6 +52,14 @@ export const HEALTH_TIMEOUT_MS = 20000;
  * and read the result.
  */
 export const OTHER_PORT_WAIT_MS = 2000;
+/**
+ * The budget for the OTHER health wait: a page whose token was rejected without
+ * having asked for anything (a second window restarted the backend underneath
+ * it). Shorter than HEALTH_TIMEOUT_MS on purpose — nobody is watching a
+ * progress dialog here, and the replacement has already been up long enough to
+ * answer this window's request with a 401.
+ */
+export const RECOVER_TIMEOUT_MS = 5000;
 
 /** Every failure the user can be shown. Exported so the tests pin the words. */
 export const MSG_BUSY = 'A restart is already running. Give it a moment.';
@@ -41,9 +67,38 @@ export const MSG_LOST =
   'The backend did not come back. Close this window and start the app again from the desktop shortcut.';
 export const MSG_OTHER_PORT =
   'The backend came back at a different address. Close this window and start the app again from the desktop shortcut.';
+/**
+ * Fallback for a 422 whose body carries no sentence. The server normally sends
+ * its own — it is the only side that knows WHICH check refused — so this is the
+ * shape-failure net, and it says the one thing that is true of every refusal.
+ */
+export const MSG_REFUSED =
+  'The restart did not start, so nothing changed. Your sessions are still running.';
 
-/** `restarting` while the POST is out, `reconnecting` while `/health` is polled. */
+/**
+ * `restarting` while the POST is out — which is now the PREFLIGHT: the backend
+ * is checking and building, and has not touched anything yet. `reconnecting`
+ * once the 202 says the handover happened and `/health` is being polled.
+ */
 export type RestartPhase = 'restarting' | 'reconnecting';
+
+/**
+ * May the user put the dialog away right now — without stopping anything?
+ *
+ * Yes during `restarting`, and only there. That phase is the PREFLIGHT: the
+ * request is out, the backend is checking and building (up to two minutes on a
+ * cold build), and it has not touched a single session. Every session is alive
+ * and reachable, so locking the whole window behind a modal for the duration is
+ * a cost with no purpose. Hiding aborts NOTHING: the flow keeps running with
+ * the restart gap armed, and the dialog comes back with the outcome.
+ *
+ * No during `reconnecting`: the 202 has landed, the old process is gone with
+ * its sessions, and the page is committed to reloading or to saying it cannot.
+ * There is nothing behind the dialog left to use.
+ */
+export function canHideRestartDialog(phase: RestartPhase): boolean {
+  return phase === 'restarting';
+}
 
 export type RestartOutcome =
   /** Same address, replacement answered `/health` after `afterMs`: reload this page. */
@@ -52,6 +107,13 @@ export type RestartOutcome =
   | { kind: 'otherPort'; port: number }
   /** Another restart was already running; nothing happened. */
   | { kind: 'busy'; message: string }
+  /**
+   * Preflight refused (422). NOTHING happened: the old backend still serves
+   * this page. The message is the server's own sentence about which check said
+   * no, and the caller must un-arm the restart gap rather than tell the user to
+   * relaunch.
+   */
+  | { kind: 'refused'; message: string }
   /** 500, a timeout, or a network failure — the message is what the user reads. */
   | { kind: 'failed'; message: string };
 
@@ -136,6 +198,10 @@ export async function runRestart(deps: RestartDeps): Promise<RestartOutcome> {
   }
 
   if (res.status === 409) return { kind: 'busy', message: errorText(res.body, MSG_BUSY) };
+  // 422 is the ONLY non-202 answer that leaves the old process alive and this
+  // page's token valid. It is read before the catch-all below precisely so it
+  // can never be reported as "the backend did not come back".
+  if (res.status === 422) return { kind: 'refused', message: errorText(res.body, MSG_REFUSED) };
   if (res.status !== 202) return { kind: 'failed', message: errorText(res.body, MSG_LOST) };
 
   const parsed = parseRestartBody(res.body);
@@ -152,4 +218,87 @@ export async function runRestart(deps: RestartDeps): Promise<RestartOutcome> {
 /** `http://127.0.0.1:<port>/` — the only address a fallback navigation may use. */
 export function loopbackUrl(port: number): string {
   return `http://127.0.0.1:${port}/`;
+}
+
+// ---------------------------------------------------------------------------
+// Stale-page recovery — a restart this window did NOT ask for
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything the recovery does to the world, injected so
+ * `tests/ui-restart-guards.test.ts` can drive it without a browser. `reload`
+ * and `showPanel` are the two acts a model cannot perform.
+ */
+export interface RecoveryDeps {
+  /** GET /health WITHOUT the token; true only on a 2xx. Never rejects. */
+  health(): Promise<boolean>;
+  now(): number;
+  sleep(ms: number): Promise<void>;
+  /**
+   * Arm/disarm the restart gap. Armed, the session poll, the runtime poll and
+   * both WebSocket reconnect loops stand down — exactly the reflexes that would
+   * otherwise storm a backend this page can no longer authenticate against.
+   */
+  setRestarting(v: boolean): void;
+  /** Paint the brief "the backend restarted, hold on" takeover. */
+  showProbe(): void;
+  /** Same origin: index.html injects the replacement's token into the new page. */
+  reload(): void;
+  /** The backend really is gone — the panel with the reload button. */
+  showPanel(): void;
+  log(level: 'warn' | 'error', line: string): void;
+}
+
+/**
+ * A REST 401/403 after boot used to mean exactly one thing — "this page is
+ * finished" — and got the panic panel. Since the restart button exists, it far
+ * more often means something harmless: ANOTHER window (or the update flow)
+ * restarted the backend underneath this one, and the replacement is already
+ * listening on the same port with a fresh token. A page in that state does not
+ * need a warning, it needs a reload.
+ *
+ * So the handler asks instead of assuming: probe `/health` — unauthenticated,
+ * the one call that survives a token rotation — for RECOVER_TIMEOUT_MS. An
+ * answer means a live backend on this origin, and reloading picks up its token
+ * the way every page load does. Silence means the backend is genuinely gone,
+ * and the panel is the honest end.
+ *
+ * ONE SHOT, two ways: the returned trigger latches, and the very first thing it
+ * does is arm the restart gap, which is what the caller's own guard reads. A
+ * 401 storm (three panes plus two polls) therefore produces exactly one probe
+ * and at most one reload.
+ *
+ * It can never fight the boot path: boot-time auth failures never reach this —
+ * `api.onAuthError` is only wired once the shell is built, and a failed boot
+ * keeps its own fatal overlay.
+ */
+export function createAuthLossRecovery(deps: RecoveryDeps): () => void {
+  let started = false;
+  return (): void => {
+    if (started) return;
+    started = true;
+    deps.log(
+      'warn',
+      'auth token rejected after boot — checking whether the backend restarted underneath this window',
+    );
+    try {
+      // Before the probe, not after: every reflex has to be asleep while the
+      // gap is measured, and a painting failure must not cancel the recovery.
+      deps.setRestarting(true);
+      deps.showProbe();
+    } catch {
+      // The probe below is the part that matters.
+    }
+    void (async () => {
+      const took = await waitForHealth(deps, RECOVER_TIMEOUT_MS);
+      if (took !== null) {
+        deps.log('warn', `backend answered after ${took}ms — reloading to reattach`);
+        deps.reload();
+        return;
+      }
+      deps.log('error', 'the backend did not answer — this page can no longer reach it');
+      deps.setRestarting(false);
+      deps.showPanel();
+    })();
+  };
 }

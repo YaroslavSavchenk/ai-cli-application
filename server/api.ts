@@ -439,19 +439,21 @@ export function createRequestHandler(
       }
       // The socket carrying THIS request is the one exception to the teardown.
       const outcome = await deps.restart.request(req.socket);
-      // 202 and 500 both mean this process is leaving; only 409 lives on. A
+      // 202 and 500 both mean this process is leaving; 409 and 422 live on. A
       // dying process must not hand the browser a REUSABLE socket: the very
       // next request is `GET /health`, and on a keep-alive connection it would
       // travel back to THIS process in the window before it exits, answering
       // for a backend on its way out instead of the child that replaced it.
-      if (outcome.status !== 409) res.setHeader('connection', 'close');
+      if (outcome.status === 202 || outcome.status === 500) res.setHeader('connection', 'close');
       if (outcome.status === 202) {
         sendJson(res, 202, outcome.body, outcome.onFlushed ?? undefined);
         return;
       }
-      // 409 (one already running) and 500 (the child never came up) both carry
-      // { error }. The message is a CONSTANT from server/restart.ts — nothing
-      // derived from a request — so it is safe in the access log's reason=.
+      // 409 (one already running), 422 (the preflight refused — this backend is
+      // untouched and still serving) and 500 (the handoff failed after the
+      // teardown) all carry { error }. The message is a CONSTANT from
+      // server/restart.ts — nothing derived from a request — so it is safe in
+      // the access log's reason=.
       const error = (outcome.body as { error?: string }).error ?? 'restart failed';
       responseReason.set(res, error);
       sendJson(res, outcome.status, outcome.body, outcome.onFlushed ?? undefined);

@@ -335,15 +335,42 @@ export interface RuntimeStatusResponse {
   update: UpdateStatus;
 }
 
-/** The `update` member of RuntimeStatusResponse — its own name so the UI can hold one. */
+/**
+ * The `update` member of RuntimeStatusResponse — its own name so the UI can
+ * hold one. `reason` is one of a fixed set of constants (server/buildinfo.ts),
+ * in this order of precedence: `dependencies changed`, `server code changed
+ * (<a> → <b>)`, `frontend build missing`, `frontend rebuilt`, `frontend source
+ * changed`, `server files edited`.
+ */
 export interface UpdateStatus {
   available: boolean;
   reason: string | null;
 }
 
 /**
- * POST /api/restart, 202 — the OLD process answers once the replacement is
- * healthy. `samePort` false means the child could not take the port back
+ * POST /api/restart — the same-port handoff. Full status contract (the
+ * sequence itself lives in server/restart.ts):
+ *
+ * - **202 `RestartResponse`** — handed off. The preflight passed (dependencies
+ *   in step, the frontend rebuilt and verified, a standby backend booted and
+ *   only THEN the new build swapped in), the old process then tore down and
+ *   told the standby to take the port; it is exiting as this body is flushed.
+ * - **409 `{ error }`** — a restart is already in flight (preflight or
+ *   handoff). Nothing changed.
+ * - **422 `{ error }`** — the PREFLIGHT REFUSED (added 2026-09-08). The old
+ *   backend is UNTOUCHED: still listening, sessions still alive, `web/dist`
+ *   unchanged and the staged `web/dist-next` removed — the swap is the LAST
+ *   preflight step, after the replacement has reported ready, so a refusal
+ *   never puts new screens in front of the old backend. Reasons are constants:
+ *   dependencies changed (run `npm install`), the frontend could not be
+ *   rebuilt, or the replacement failed to start. The UI must un-arm its
+ *   "restarting" state and show `error` — never reload.
+ * - **500 `{ error }`** — the handoff failed AFTER the teardown: sessions are
+ *   already ended and the listener is closed, so the old process answers this
+ *   and exits anyway. The UI tells the user to relaunch from the shortcut.
+ * - **503 `{ error }`** — no restart mechanism wired (test harnesses).
+ *
+ * 202 body: `samePort` false means the child could not take the port back
  * (busy) and auto-picked `port` instead: a host window locked to the launch
  * origin cannot follow, so the UI says "relaunch" rather than reloading.
  * The auth token is NEVER in this body; the reloaded page gets a fresh one.

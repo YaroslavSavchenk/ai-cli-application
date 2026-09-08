@@ -31,7 +31,7 @@ import {
   truncateSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 export interface DataPaths {
@@ -98,6 +98,47 @@ export function resolveDataPaths(): DataPaths {
     statuslineCacheFile: join(dataDir, 'statusline-cache.json'),
     logFile: join(dataDir, 'server.log'),
   };
+}
+
+/**
+ * The built frontend directory this process SERVES — `<repo>/web/dist` unless
+ * AI_SM_WEB_DIST_DIR overrides it (an absolute, ALREADY-NORMALIZED directory
+ * path; validated like AI_SM_DATA_DIR, only stricter — a relative,
+ * trailing-slash, dot-segment or root value makes the server refuse to start).
+ *
+ * WHY the seam exists: a restart REBUILDS and SWAPS this directory
+ * (`<dir>-next` and `<dir>-prev` sit beside it), so a test that drives a real
+ * restart would otherwise rewrite the repo's own `web/dist` — lighting the
+ * update pill of whatever backend the developer has running and leaving a
+ * window in which `web/dist` does not exist. Tests point it at a copy.
+ * A standby child inherits it through the environment like every other
+ * AI_SM_* value.
+ */
+export function resolveWebDistDir(repoRoot: string): string {
+  const override = process.env['AI_SM_WEB_DIST_DIR'];
+  if (override !== undefined && override !== '') {
+    if (!isAbsolute(override)) {
+      throw new Error(`AI_SM_WEB_DIST_DIR must be an absolute path, got: ${oneLine(override)}`);
+    }
+    // NORMALIZED, and a real named directory. Two reasons, both measured:
+    //   - a restart RENAMES this path (`<dir>` -> `<dir>-prev`) and later
+    //     DELETES the backup, so `/` or a value ending in a separator must
+    //     never reach that code — `basename('/')` is '' and `<dir>-prev` of a
+    //     trailing-slash value is a sibling nobody meant;
+    //   - server/api.ts guards static assets with
+    //     `resolved.startsWith(webDistDir + sep)`, which an unnormalized value
+    //     ('/x/', '/x//y', '/x/../y') fails for EVERY asset -> a 403 UI.
+    // `resolve()` collapses all three, so requiring the value to be its own
+    // resolution is the whole check.
+    if (resolve(override) !== override || basename(override) === '') {
+      throw new Error(
+        'AI_SM_WEB_DIST_DIR must be a normalized absolute directory path ' +
+          `(no trailing separator, no '.' or '..' segment, not the root), got: ${oneLine(override)}`,
+      );
+    }
+    return override;
+  }
+  return join(repoRoot, 'web', 'dist');
 }
 
 /**

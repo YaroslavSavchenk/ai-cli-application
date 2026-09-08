@@ -357,6 +357,32 @@ function rescueFinalOutput(proc: pty.IPty, emit: (data: string) => void, log: Lo
   };
 }
 
+/**
+ * The four variables that belong to a RESTART HANDOFF and to nothing else
+ * (server/restart.ts): they describe how THIS backend was started. A session
+ * inheriting them would hand a shell — and anything the user runs in it,
+ * including another copy of this app — a port hint, a foreign pid, a served
+ * frontend directory and a "you are a standby" flag that mean nothing there
+ * and would be obeyed by a backend launched from inside the terminal.
+ */
+const HANDOFF_ENV = [
+  'AI_SM_STANDBY',
+  'AI_SM_PORT_HINT',
+  'AI_SM_RESTARTED_FROM',
+  'AI_SM_WEB_DIST_DIR',
+] as const;
+
+/** This process's environment as a PTY gets it: ours, minus the handoff flags. */
+function ptyEnv(): Record<string, string> {
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+  };
+  for (const name of HANDOFF_ENV) delete env[name];
+  return env;
+}
+
 export class SessionManager {
   #sessions = new Map<string, Session>();
   readonly #log: Logger;
@@ -430,11 +456,7 @@ export class SessionManager {
         cols: opts.cols,
         rows: opts.rows,
         cwd: opts.cwd,
-        env: {
-          ...(process.env as Record<string, string>),
-          TERM: 'xterm-256color',
-          COLORTERM: 'truecolor',
-        },
+        env: ptyEnv(),
       });
     } catch (err) {
       // A failed spawn must not leave its settings file behind.
