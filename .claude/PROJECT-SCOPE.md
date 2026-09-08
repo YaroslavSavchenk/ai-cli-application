@@ -195,9 +195,23 @@ multi-pane layouts on top.
   `wsl.exe cat`. No fixed port anywhere.
 - **Windows-side launcher** (thin): reads the discovery file and
   health-checks the discovered port; if the file is absent or stale, starts
-  the backend via `wsl.exe -d <distro> -- ...` (distro configurable with
-  unique-prefix auto-resolution, default `Ubuntu-24.04`), waits for file +
-  health,
+  the backend via `wsl.exe -d <distro> -- ...` (**distro and repo path are
+  derived from the launcher's own location — added 2026-09-08**: Windows sees
+  the scripts as `\\wsl.localhost\<distro>\<linux path>\launcher`, which
+  states both. `launcher/config-common.ps1` is dot-sourced by `launch.ps1` and
+  `make-shortcut.ps1` so the two can never disagree. Precedence:
+  `AI_SM_DISTRO`/`AI_SM_REPO_PATH` → derived from `$PSScriptRoot` → the
+  hardcoded defaults `Ubuntu-24.04` / `/home/sava/projects/ai-cli-application`,
+  reachable only when the launcher folder was copied OUT of the repo. Every
+  value, whatever its source, passes the same allow-list —
+  `^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$` for the path, `^[A-Za-z0-9._-]+$` for
+  the distro — which is the injection-safety gate, and a derived-but-invalid
+  value FAILS instead of falling back to a default, so the launcher never
+  starts a backend for a repo the user does not have. Distro keeps
+  unique-prefix auto-resolution. Non-`-Silent` launches print one `Config:`
+  line naming both values and their source; `make-shortcut.ps1 -DryRun` prints
+  the resolution and the shortcut target without creating anything.), waits for
+  file + health,
   then opens the UI. MVP launcher is a script + Edge `--app` chromeless window.
   **Native host brought forward (decided 2026-07-23):** a lightweight
   **WebView2** host window (uses the Evergreen runtime already present with
@@ -223,6 +237,25 @@ multi-pane layouts on top.
   upgrade if the separate bar starts to grate. A full **Tauri** shell (tray,
   native folder picker) remains the later upgrade; this host is the minimum
   that fixes the taskbar identity.
+- **Release build / distribution — added 2026-09-08, user's go.** The app
+  itself is never packaged: it is installed by cloning the repo into WSL
+  (`README.md` → Install). The only published artifact is the Windows-side
+  native host window. A `v*` tag push runs `.github/workflows/release.yml`: an
+  ubuntu `check` job (`npm ci`, `npm run typecheck`, `npm run build`, `node
+  launcher/make-icon.mjs --check`), a windows `host` job running the existing
+  `launcher/build-host.ps1` and packaging exactly the four build outputs flat
+  as `AiSessionManagerHost-win-x64.zip` beside a `sha256sum`-compatible
+  `SHA256SUMS.txt`, and a `release` job publishing both with `gh release create
+  --verify-tag` (idempotent: a re-run uploads with `--clobber` and refreshes
+  the notes). `workflow_dispatch` builds the same two files as a workflow
+  artifact without releasing (unless dispatched on a `v*` tag).
+  `.github/workflows/ci.yml` runs typecheck + build + icon check + `npm test`
+  on push to `main` and every PR. Binaries are still never committed
+  (`dist-release/` gitignored beside `launcher/host/build/`); the exe is
+  unsigned (SmartScreen note in both READMEs); the version lives only in the
+  tag. **Repo visibility is a separate, still-open user decision** — the
+  Install section and the release download only work for others once the repo
+  is public.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
@@ -454,6 +487,8 @@ Recall from it before nontrivial work; write back after decisions and
 landed features.
 
 ## Open decisions (do not treat as settled)
+
+Repo visibility (private today) — the release/Install docs are written for a public repo; going public also publishes the `memory/` vault, the author's home path in launcher defaults, and git author emails (2026-09-08).
 
 (Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":
 **update after a `git pull` without `npm run build`.** The restart always

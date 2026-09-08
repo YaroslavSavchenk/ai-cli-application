@@ -46,20 +46,24 @@ The port is auto-picked by the backend; nothing is ever hardcoded. Always
 | `launch-silent.vbs` | what the shortcuts run — fully hidden launch, no console ever |
 | `launch.ps1` | the actual launcher logic (all switches + the three UI tiers) |
 | `launch.cmd` | visible/debug path: same launcher with a console you can read |
+| `config-common.ps1` | shared distro / repo-path resolution, dot-sourced by both PowerShell scripts |
 | `start-backend.sh` | Linux side: detached (`setsid`) backend start |
 | `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
 | `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1) |
-| `host/build/` | build output (exe + WebView2 DLLs) — **git-ignored, never committed** |
+| `host/build/` | build output (exe + WebView2 DLLs) — build it, or unzip the release asset here; **git-ignored, never committed** |
 | `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
 
 ## Setup (once)
 
-From Windows (Run dialog, Explorer address bar, or any terminal):
+From Windows (Run dialog, Explorer address bar, or any terminal) — replace
+`<distro>` and the path with your own clone:
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\make-shortcut.ps1"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\make-shortcut.ps1"
 
 (or from inside WSL, in the repo:
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/make-shortcut.ps1`)
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/make-shortcut.ps1`
+— that is the easy way: no UNC path to type. Add `-DryRun` to print the
+resolved config and shortcut target and exit without creating anything.)
 
 This creates **"AI Session Manager"** on the Desktop and in the Start Menu
 (user scope, no admin), pointing at `wscript.exe launch-silent.vbs`. The
@@ -69,22 +73,50 @@ the VM boots). Re-running the script just overwrites the shortcuts and
 refreshes the icon copy — safe any time the repo moves or the icon
 changes.
 
-Config lives at the top of `launch.ps1` (make-shortcut.ps1 shares the same
-defaults):
+**No configuration needed for a fresh clone.** The distro and the repo path
+are *derived from where the launcher itself lives*: Windows sees these
+scripts as `\\wsl.localhost\<distro>\<linux path>\launcher` (or the older
+`\\wsl$\...`), which states both values, so a clone at
+`/home/them/ai-cli-application` on `Ubuntu-22.04` just works. The
+derivation lives in `config-common.ps1` and is shared by `launch.ps1` and
+`make-shortcut.ps1`, so the two can never disagree.
 
-- `$Distro` — default `Ubuntu-24.04` (this machine's install). An exact
-  match is used silently. If the configured name is not installed but
-  exactly one installed distro starts with it (e.g. `Ubuntu` → a lone
-  `Ubuntu-22.04`), the launcher uses that one and prints a notice. No
-  match, or an ambiguous match (`Ubuntu-22.04` **and** `Ubuntu-24.04`), is
-  an error that lists what `wsl.exe -l -q` reports — set the exact name.
-- `$RepoPath` — Linux path of the repo (default
-  `/home/sava/projects/ai-cli-application`).
-- `$DataDir` — backend data dir (default `~/.ai-session-manager`).
+Precedence for `$Distro` and `$RepoPath`, highest first:
 
-Each value can also be overridden per-invocation via the environment
-variables `AI_SM_DISTRO`, `AI_SM_REPO_PATH`, `AI_SM_DATA_DIR` (used by
-automated tests; normally leave them unset).
+1. the environment variables `AI_SM_DISTRO` / `AI_SM_REPO_PATH` — a supported
+   override (also what the automated tests use); normally unnecessary, because
+   the derivation below already covers a clone anywhere;
+2. **derived from the launcher's own location** — the normal case;
+3. the hardcoded defaults at the top of `launch.ps1` /
+   `make-shortcut.ps1` (`Ubuntu-24.04`, `/home/sava/projects/ai-cli-application`).
+   These only matter when the launcher folder was **copied out of the
+   repo** onto a normal drive path (`C:\...`), where there is nothing to
+   derive.
+
+Every launch that is not `-Silent` prints one line saying what it resolved
+and from where, e.g.
+`Config: distro 'Ubuntu-22.04', repo '/home/them/ai-cli-application' (from launcher location)`.
+
+Notes:
+
+- Whatever the source, both values must pass a strict allow-list (absolute
+  Linux path, and letters, digits, `.`, `_`, `-`, `/` only) — that check is
+  what keeps them safe to put on a WSL command line. **A repo path with a
+  space in it is refused**, and it is never silently replaced by the default
+  (that would start a backend for a repo you don't have). An environment
+  override is no way around this: `AI_SM_REPO_PATH` and `AI_SM_DISTRO` are
+  checked against exactly the same character set. The real fix for a clone at,
+  say, `/home/you/My Projects/app` is to clone it again into a path the
+  allow-list accepts; for a distro whose name holds other characters, to
+  re-import it under a plain name (`wsl --export`, then `wsl --import`).
+- The distro name still auto-resolves by unique prefix: if the resolved
+  name is not installed but exactly one installed distro starts with it
+  (e.g. `Ubuntu` → a lone `Ubuntu-22.04`), that one is used with a notice.
+  No match, or an ambiguous match (`Ubuntu-22.04` **and** `Ubuntu-24.04`),
+  is an error listing what `wsl.exe -l -q` reports — set `AI_SM_DISTRO` to
+  the exact name.
+- `$DataDir` — backend data dir, default `~/.ai-session-manager`, at the
+  top of `launch.ps1`; override with `AI_SM_DATA_DIR`.
 
 ## Native host (taskbar icon)
 
@@ -98,7 +130,7 @@ stamps its own per-URL AUMID that carries the churning auto-picked port).
 
 Build it once (needs network the first time, for the WebView2 NuGet package):
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\build-host.ps1"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\build-host.ps1"
 
 (or from inside WSL: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/build-host.ps1`)
 
@@ -113,6 +145,45 @@ What it does:
   needs beside the exe (`Microsoft.Web.WebView2.Core.dll`,
   `...WinForms.dll`, `WebView2Loader.dll`). Nothing from the package is
   committed; the whole `host/build/` folder is git-ignored.
+
+### Or download it
+
+Every GitHub Release attaches **`AiSessionManagerHost-win-x64.zip`** — the
+exe plus the three WebView2 DLLs, built by GitHub Actions from the tagged
+source with the same pinned, hash-verified WebView2 SDK `build-host.ps1`
+uses — next to a `SHA256SUMS.txt` for the release assets.
+
+1. Download the zip (and `SHA256SUMS.txt` if you want to check it:
+   `Get-FileHash AiSessionManagerHost-win-x64.zip -Algorithm SHA256` in
+   PowerShell — it prints UPPERCASE hex while the file lists lowercase, so a
+   difference in case is not a mismatch — or `sha256sum -c --ignore-missing
+   SHA256SUMS.txt` inside WSL, run in the download folder — a Windows download
+   lives under `/mnt/c/Users/<you>/Downloads` — where `--ignore-missing` is what
+   lets the file's five entries be checked against the one or two you actually
+   downloaded).
+2. Extract its **contents** into `launcher/host/build/` — create that
+   folder; it is git-ignored and empty in a fresh clone. From Windows that
+   is `\\wsl.localhost\<distro>\<your clone>\launcher\host\build\`
+   in Explorer; from inside WSL, `unzip AiSessionManagerHost-win-x64.zip -d
+   launcher/host/build`.
+3. Start the app as usual — the next launch finds the exe and uses Tier 1.
+
+`AiSessionManagerHost.exe` must sit directly in `host/build/`, beside
+`Microsoft.Web.WebView2.Core.dll`, `Microsoft.Web.WebView2.WinForms.dll`
+and `WebView2Loader.dll` (no extra subfolder).
+
+About the SmartScreen warning: this exe is **not code-signed**, because
+signing needs a paid certificate. In practice you should not see a warning
+— the launcher copies the exe to `%LOCALAPPDATA%\ai-session-manager\host\`
+and runs `Unblock-File` on the copy before starting it, and files coming in
+through the WSL share carry no Mark-of-the-Web for Windows to react to. If
+Windows does show "Windows protected your PC", it is because the download
+itself was marked: choose **More info → Run anyway**. Only do that for a
+zip you downloaded from this project's own releases page and, ideally, whose
+SHA-256 matches `SHA256SUMS.txt`. If you would rather not trust a
+prebuilt binary at all, run `build-host.ps1` — it produces exactly the same
+four files from the source in your clone, and skipping the host entirely
+just means the Edge `--app` window (Tier 2) with the Edge taskbar icon.
 
 **Dark window chrome.** The caption bar and border are drawn by DWM, not by
 the page, so a maximized window used to show the default light Windows caption
@@ -274,9 +345,13 @@ reach the dist root.
   the next plain launch starts a fresh one automatically, and the sessions
   the crash cut short are in the session history, ready to resume.
 - Nothing at all happens on double-click and no error box → check that
-  `\\wsl.localhost\Ubuntu-24.04\...\launcher` is reachable in Explorer
+  `\\wsl.localhost\<distro>\...\launcher` is reachable in Explorer
   (WSL may need `wsl.exe --update` if the share is broken), then re-run
   `make-shortcut.ps1`.
+- Launcher starts the **wrong** repo or distro → run `launch.cmd -Status`
+  and read the `Config:` line: it names both values and where they came
+  from. `from built-in default` means the launcher folder is not inside the
+  repo (copied out); `from AI_SM_...` means an environment variable is set.
 - Blank/generic icon on the shortcut → the local icon copy at
   `%LOCALAPPDATA%\ai-session-manager\app.ico` is missing (the shortcut
   normally reads the local copy; it falls back to the WSL share only if

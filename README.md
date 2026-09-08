@@ -17,18 +17,141 @@ resume any of them (a Claude session resumes ITS OWN conversation: the
 backend pins each launch with `--session-id <uuid>` and resumes with
 `--resume <id>`).
 
+## Install
+
+The app is a web UI served from **inside** your WSL2 Linux distro, plus a small
+Windows-side launcher that opens it in its own window. There is no installer
+and no system-wide install: you clone the repository into WSL and make a
+shortcut. Nothing needs administrator rights.
+
+### Before you start
+
+- **Windows 10 or 11 with WSL2** and a Linux distro — Ubuntu recommended
+  (`wsl --install -d Ubuntu` in PowerShell if you have none yet).
+- **Node.js 24 or newer, inside WSL** — `node -v` in the distro must print
+  `v24.` or higher. The server runs its TypeScript directly, which needs that
+  version.
+- **The AI CLI you want to run, installed inside WSL** — Claude Code for the
+  built-in Claude sessions. This app only *launches* it; it never installs it,
+  and it never installs npm packages by itself. (Resuming a specific past
+  conversation needs Claude Code 2.1.263 or newer.) Plain terminal sessions
+  (WSL shell, PowerShell) need nothing extra.
+- **The WebView2 Evergreen runtime, on Windows** — it ships with Microsoft
+  Edge, so any current Windows already has it. Without it the launcher quietly
+  falls back to an Edge window.
+- **Build tools inside WSL** — `sudo apt install -y build-essential python3`
+  (node-pty, the terminal layer, is compiled from source on Linux; it ships no
+  linux-x64 prebuild).
+
+### 1. Clone it, inside WSL
+
+    git clone https://github.com/YaroslavSavchenk/ai-cli-application.git
+    cd ai-cli-application
+
+Pick a path on the Linux filesystem (`/home/you/...`, not `/mnt/c/...`) built
+only from letters, digits, `.`, `_`, `-` and `/` — the launcher refuses
+anything else, spaces included. The location is yours to choose: the launcher works out where
+the repository is from where it sits. If you move the clone later, re-run
+step 4.
+
+### 2. Install and build, inside WSL
+
+    npm install
+    npm run build
+
+`npm install` compiles node-pty from source, which is what the build tools
+above are for. `npm run build` bundles the frontend into `web/dist`.
+
+### 3. The app window (optional, but recommended)
+
+Without this step the app opens in an Edge window and the taskbar shows the
+Edge logo. With it, the app gets its own window, its own taskbar button and its
+own icon. Two ways to get it — both end with the same four files in
+`launcher/host/build/`:
+
+**Download it** (no build step): grab
+`AiSessionManagerHost-win-x64.zip` from the
+[Releases page](https://github.com/YaroslavSavchenk/ai-cli-application/releases),
+optionally check it against the `SHA256SUMS.txt` published beside it
+(`Get-FileHash .\AiSessionManagerHost-win-x64.zip -Algorithm SHA256` in
+PowerShell, or `sha256sum -c --ignore-missing SHA256SUMS.txt` in WSL, where a
+file downloaded on Windows sits under `/mnt/c/Users/<you>/Downloads`;
+`Get-FileHash` prints the hash in UPPERCASE while the file lists it in
+lowercase, so a difference in case is not a mismatch), and extract its four
+files into `launcher/host/build/` inside your clone — you have
+to create that folder. The easiest way is Explorer: type
+
+    \\wsl.localhost\<distro>\<your clone>\launcher\host\build
+
+in the address bar — with your own distro name and the Linux path of your clone,
+for example `\\wsl.localhost\Ubuntu\home\you\ai-cli-application\launcher\host\build`
+— create the missing folder, and drop the files in. The zip has no folder inside it, so "extract
+here" is right.
+
+**Or build it yourself** — from Windows:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\build-host.ps1"
+
+No .NET SDK needed: it compiles with the C# compiler that is already part of
+Windows, and downloads the WebView2 SDK it links against over HTTPS, refusing
+to use it unless its size and SHA-256 match the pinned values. See
+[launcher/README.md](launcher/README.md).
+
+### 4. Make the shortcut, from Windows
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\make-shortcut.ps1"
+
+(again with your own distro name and clone path; run it from the Windows Run dialog,
+the Explorer address bar, or any Windows terminal). This creates an **"AI
+Session Manager"** shortcut on the Desktop and in the Start Menu. Re-run it any
+time — after moving the clone, or after building the window from step 3.
+
+### 5. Double-click "AI Session Manager"
+
+The first launch after a Windows reboot has to start the WSL virtual machine
+first: expect **10–30 seconds where nothing visible happens**. Later launches
+take a second or two. No console window ever appears; if the launch fails you
+get an error box telling you what went wrong.
+
+### Updating
+
+Inside WSL, in the clone:
+
+    git pull
+    npm install     # only when dependencies changed
+
+Then, in the app: **Settings → Restart backend**. The app notices new code on
+disk by itself and offers the restart; it rebuilds the frontend as part of it,
+and refuses the whole thing (changing nothing) if anything about the new
+version does not check out.
+
+### Worth knowing
+
+- **The downloadable window is not code-signed.** It is compiled by GitHub
+  Actions from the source of the tag it is published under, and the WebView2
+  SDK it uses is verified by SHA-256 during that build — but there is no
+  certificate on the exe. The first time you run it, Windows SmartScreen may
+  say "Windows protected your PC": choose **More info → Run anyway**. If you
+  would rather not, build it yourself (step 3, second option) or skip the step
+  entirely.
+- **Everything runs locally.** The backend binds `127.0.0.1` on a port it picks
+  itself and is reachable only from your own machine; the window is locked to
+  that address. Nothing about your sessions leaves the machine through this
+  app.
+- **The app never installs anything.** It launches the CLIs you already have,
+  and it will refuse to restart rather than run `npm install` for you.
+
 ## Run it (Windows + WSL2)
 
-Once: run `launcher/make-shortcut.ps1` — it creates an "AI Session Manager"
-icon on the Desktop and in the Start Menu. From then on, double-click the
-icon: no console appears; the launcher attaches to a running backend (or
-starts one detached inside WSL), waits for it to become healthy, and opens
-the UI in the native WebView2 host window when that host is built
-(`launcher/build-host.ps1`) and the WebView2 runtime is present — otherwise an
-Edge `--app` window, then the default browser. `launcher/launch.cmd` is the
-visible/debug path with the same logic. Configuration, switches (`-Silent`,
-`-Status`, `-Stop`, `-NoBrowser`), pinning, cold-boot expectations, and
-troubleshooting: see [launcher/README.md](launcher/README.md).
+Double-click the "AI Session Manager" icon from the install above. No console
+appears; the launcher attaches to a running backend (or starts one detached
+inside WSL), waits for it to become healthy, and opens the UI in the native
+WebView2 host window when that host is present and the WebView2 runtime is
+installed — otherwise an Edge `--app` window, then the default browser.
+`launcher/launch.cmd` is the visible/debug path with the same logic.
+Configuration, switches (`-Silent`, `-Status`, `-Stop`, `-NoBrowser`), pinning,
+cold-boot expectations, and troubleshooting: see
+[launcher/README.md](launcher/README.md).
 
 ## Develop (inside WSL)
 
@@ -47,6 +170,29 @@ port from that file. The one exception to the auto-pick is a restart handoff
 (see "Restarting the backend"), where the replacement process is asked to try
 the previous port first and falls back to an auto-picked one if it is taken.
 The server logs to `server.log` in the data dir, never stdout.
+
+Continuous integration (`.github/workflows/ci.yml`) runs the typecheck, the
+frontend build, the committed-icon check and the test suite on every push to
+`main` and every pull request.
+
+### Release process
+
+Tagging is the whole release: `git tag v0.1.1 && git push origin v0.1.1` starts
+`.github/workflows/release.yml`. It typechecks and builds the tagged source on
+Linux, builds the native WebView2 host on a Windows runner with
+`launcher/build-host.ps1`, packages the four resulting files as
+`AiSessionManagerHost-win-x64.zip` (flat, no folder inside) together with a
+`sha256sum`-compatible `SHA256SUMS.txt`, and publishes both as assets on a
+GitHub Release for that tag, with install notes and the zip's hash in the
+release body. Nothing else is released — the app itself is installed by cloning
+the repository. Running the workflow by hand (`workflow_dispatch`) builds and
+uploads the same two files as a workflow artifact, which is the way to test a
+change to it; dispatched from a branch it releases nothing, but dispatched on a
+`v*` tag it publishes exactly like a tag push (the publish job's condition is
+the ref, not the trigger). Re-running a publish for a tag that already has a
+release re-uploads both assets over the old ones and rewrites the release notes,
+so the hash in the body always matches the attached zip. The version lives only in the
+tag; `package.json` has no version field.
 
 ## App data
 

@@ -19,20 +19,32 @@ automatically:
   - normally from this script's own location ($PSScriptRoot is already the
     UNC path both when run from the share and when run via powershell.exe
     interop from inside WSL - Windows maps the WSL cwd to UNC);
-  - otherwise built from the configured distro + Linux repo path below.
+  - otherwise built from the resolved distro + Linux repo path.
+
+Distro and repo path come from the SAME resolution launch.ps1 uses
+(config-common.ps1: AI_SM_DISTRO / AI_SM_REPO_PATH env vars -> derived from
+this script's own \\wsl.localhost location -> the hardcoded defaults
+below), so the two scripts can never disagree about which clone in which
+distro they mean.
+
+  -DryRun   print the resolved config + launcher directory and exit,
+            touching no shortcut, no icon copy, nothing.
 
 Run it once, from either side:
-  Windows:  powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\make-shortcut.ps1"
+  Windows:  powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\make-shortcut.ps1"
   WSL:      powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/make-shortcut.ps1
 #>
 [CmdletBinding()]
-param()
+param(
+    [switch]$DryRun
+)
 
 $ErrorActionPreference = 'Stop'
 
-# Same config surface as launch.ps1 (only used for the UNC fallback).
-$Distro   = if ($env:AI_SM_DISTRO)    { $env:AI_SM_DISTRO }    else { 'Ubuntu-24.04' }
-$RepoPath = if ($env:AI_SM_REPO_PATH) { $env:AI_SM_REPO_PATH } else { '/home/sava/projects/ai-cli-application' }
+# Last-resort defaults, used only when nothing can be derived (the launcher
+# folder was copied out of the repo) and no env override is set.
+$DefaultDistro   = 'Ubuntu-24.04'
+$DefaultRepoPath = '/home/sava/projects/ai-cli-application'
 $ShortcutName = 'AI Session Manager'
 
 # Must be byte-identical to the AppUserModelId the native host sets via
@@ -142,6 +154,58 @@ namespace AiSm {
     }
 }
 '@
+
+# --- Resolve distro + repo path (env -> launcher location -> defaults) -----
+# Exactly the resolution launch.ps1 performs, from the same shared file.
+
+$commonPs1 = Join-Path $PSScriptRoot 'config-common.ps1'
+if (-not (Test-Path -LiteralPath $commonPs1)) {
+    Fail "config-common.ps1 not found next to this script ($commonPs1) - copy the whole launcher folder, not just make-shortcut.ps1."
+}
+. $commonPs1
+
+$smConfig = Resolve-AiSmConfig -ScriptRoot $PSScriptRoot `
+    -DefaultDistro $DefaultDistro -DefaultRepoPath $DefaultRepoPath
+$Distro   = $smConfig.Distro
+$RepoPath = $smConfig.RepoPath
+Write-Host (Format-AiSmConfigLine $smConfig)
+
+# Same allow-list gate as launch.ps1, applied whatever the source: a
+# shortcut pointing at a launcher that would refuse to run is worse than an
+# error here. A rejected derived value is never swapped for the default.
+if ($RepoPath -notmatch '^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') {
+    Fail ("RepoPath must be an absolute Linux path without spaces or shell metacharacters, got: $RepoPath`n" +
+        (Get-AiSmConfigHint -Source $smConfig.RepoPathSource -Kind 'RepoPath'))
+}
+if ($Distro -notmatch '^[A-Za-z0-9._-]+$') {
+    Fail ("Distro contains invalid characters: $Distro`n" +
+        (Get-AiSmConfigHint -Source $smConfig.DistroSource -Kind 'Distro'))
+}
+
+# --- Resolve the launcher directory as a \\wsl.localhost UNC path ----------
+
+$launcherUnc = $null
+if ($PSScriptRoot -and ($PSScriptRoot -like '\\wsl.localhost\*' -or $PSScriptRoot -like '\\wsl$\*')) {
+    # Where this script actually is beats any config: that is where
+    # launch-silent.vbs and app.ico live. (An AI_SM_* override then applies
+    # to the config only, not to the shortcut target - and launch.ps1
+    # re-resolves at click time anyway, when those vars are normally unset.)
+    $launcherUnc = $PSScriptRoot
+} else {
+    $launcherUnc = '\\wsl.localhost\' + $Distro + ($RepoPath -replace '/', '\') + '\launcher'
+}
+
+if ($DryRun) {
+    # Read-only preview: resolved config + what the shortcuts WOULD point at.
+    Write-Host "Launcher directory: $launcherUnc"
+    Write-Host ('Shortcut target:    wscript.exe "' + (Join-Path $launcherUnc 'launch-silent.vbs') + '"')
+    Write-Host "AppUserModelID:     $AppUserModelId"
+    Write-Host '-DryRun: nothing was created, copied or modified.'
+    exit 0
+}
+
+# Compiled here, below the -DryRun exit: Add-Type writes CodeDom temp files, so
+# running it earlier would make "-DryRun: nothing was created" untrue.
 try {
     Add-Type -TypeDefinition $aumidHelper -ErrorAction Stop
     $canStampAumid = $true
@@ -152,29 +216,15 @@ try {
     $canStampAumid = $false
 }
 
-# --- Resolve the launcher directory as a \\wsl.localhost UNC path ----------
-
-$launcherUnc = $null
-if ($PSScriptRoot -and ($PSScriptRoot -like '\\wsl.localhost\*' -or $PSScriptRoot -like '\\wsl$\*')) {
-    $launcherUnc = $PSScriptRoot
-} else {
-    if ($RepoPath -notmatch '^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') {
-        Fail "RepoPath must be an absolute Linux path without spaces or shell metacharacters, got: $RepoPath"
-    }
-    if ($Distro -notmatch '^[A-Za-z0-9._-]+$') {
-        Fail "Distro contains invalid characters: $Distro"
-    }
-    $launcherUnc = '\\wsl.localhost\' + $Distro + ($RepoPath -replace '/', '\') + '\launcher'
-}
-
 $vbsPath  = Join-Path $launcherUnc 'launch-silent.vbs'
 $icoPath  = Join-Path $launcherUnc 'app.ico'
 foreach ($required in @($vbsPath, $icoPath)) {
     if (-not (Test-Path -LiteralPath $required)) {
         Fail ("required file not reachable: $required`n" +
-            'Check that the distro name / repo path at the top of this script match ' +
-            'your setup (wsl.exe -l -q lists installed distros), and that the WSL ' +
-            'distro is reachable via \\wsl.localhost.')
+            "Resolved distro '$Distro' (from $($smConfig.DistroSource)) and repo " +
+            "'$RepoPath' (from $($smConfig.RepoPathSource)). Check that they match your " +
+            'setup (wsl.exe -l -q lists installed distros; AI_SM_DISTRO / AI_SM_REPO_PATH ' +
+            'override), and that the WSL distro is reachable via \\wsl.localhost.')
     }
 }
 

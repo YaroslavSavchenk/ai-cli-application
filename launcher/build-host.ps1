@@ -17,7 +17,7 @@ Idempotent: re-run any time. First run needs network (to fetch the .nupkg);
 later runs reuse the cached download if it is already present and verified.
 
 Run from Windows:
-  powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\build-host.ps1"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\build-host.ps1"
 or from inside WSL:
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File launcher/build-host.ps1
 #>

@@ -34,10 +34,16 @@ How it works:
   - runtime.json remains on SIGKILL/crash by design - the health check, not
     the file, decides the truth. Stale file means start fresh, not error.
 
+Config: the distro and the repo path are derived from this script's own
+location under the WSL share (\\wsl.localhost\<distro>\<path>\launcher);
+AI_SM_DISTRO / AI_SM_REPO_PATH override that, and the hardcoded defaults in
+the config block are the last resort. See config-common.ps1.
+
 Injection safety: no client/runtime string is ever interpolated into a
 shell or PowerShell command. The only strings that reach WSL command lines
-are the config values below (validated against strict allow-list patterns
-before first use) and the pid from runtime.json (validated as an integer).
+are the config values below - whatever their source, including derivation
+from the script's location, they pass the same strict allow-list patterns
+before first use - and the pid from runtime.json (validated as an integer).
 
 This script never runs `wsl.exe --shutdown`, `wsl.exe -t`, or anything else
 that terminates the distro or WSL processes it did not start.
@@ -51,16 +57,22 @@ param(
 )
 
 # =============================== Config ====================================
-# Edit the defaults here, or override per-invocation via environment
-# variables (handy for testing). These are the ONLY strings that ever reach
-# a WSL command line, and they are validated below before first use.
-# Default distro is this machine's actual install (Ubuntu-24.04). On other
-# setups the unique-prefix auto-resolution below still kicks in (e.g. a
-# configured 'Ubuntu' finds a lone 'Ubuntu-22.04'), and a wrong/ambiguous
+# Distro and repo path normally need no editing: they are DERIVED from this
+# script's own location, which under the WSL share states both
+# (\\wsl.localhost\<distro>\<linux path>\launcher). Precedence, highest
+# first: AI_SM_DISTRO / AI_SM_REPO_PATH env vars -> derived from
+# $PSScriptRoot -> the defaults below. See config-common.ps1.
+# The defaults are the last resort only - they matter when the launcher
+# folder was copied OUT of the repo onto a normal drive path, where nothing
+# can be derived.
+# These are the ONLY strings that ever reach a WSL command line, and they
+# are validated below before first use, whatever their source.
+# A configured distro that is not installed still auto-resolves by unique
+# prefix (e.g. 'Ubuntu' finds a lone 'Ubuntu-22.04'), and a wrong/ambiguous
 # name still gets the guided error listing what is installed.
-$Distro   = if ($env:AI_SM_DISTRO)    { $env:AI_SM_DISTRO }    else { 'Ubuntu-24.04' }
-$RepoPath = if ($env:AI_SM_REPO_PATH) { $env:AI_SM_REPO_PATH } else { '/home/sava/projects/ai-cli-application' }
-$DataDir  = if ($env:AI_SM_DATA_DIR)  { $env:AI_SM_DATA_DIR }  else { '~/.ai-session-manager' }
+$DefaultDistro   = 'Ubuntu-24.04'
+$DefaultRepoPath = '/home/sava/projects/ai-cli-application'
+$DataDir = if ($env:AI_SM_DATA_DIR) { $env:AI_SM_DATA_DIR } else { '~/.ai-session-manager' }
 # Seconds to wait for runtime.json + health after starting the backend
 # (must absorb a cold WSL boot).
 $StartTimeoutSec = 90
@@ -115,16 +127,35 @@ function Show-WarningBox([string]$Message) {
     } catch { }
 }
 
+# --- Resolve distro + repo path (env -> launcher location -> defaults) -----
+
+$commonPs1 = Join-Path $PSScriptRoot 'config-common.ps1'
+if (-not (Test-Path -LiteralPath $commonPs1)) {
+    Fail "config-common.ps1 not found next to this script ($commonPs1) - copy the whole launcher folder, not just launch.ps1."
+}
+. $commonPs1
+
+$smConfig = Resolve-AiSmConfig -ScriptRoot $PSScriptRoot `
+    -DefaultDistro $DefaultDistro -DefaultRepoPath $DefaultRepoPath
+$Distro   = $smConfig.Distro
+$RepoPath = $smConfig.RepoPath
+if (-not $Silent) { Write-Host (Format-AiSmConfigLine $smConfig) }
+
 # --- Config validation (allow-lists; also the injection-safety gate) -------
+# Applies to every source equally - a derived value is no more trusted than
+# a typed one, and a derived value that fails here is NEVER swapped for the
+# built-in default (that would start a backend for someone else's repo).
 
 if ($RepoPath -notmatch '^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') {
-    Fail "RepoPath must be an absolute Linux path without spaces or shell metacharacters, got: $RepoPath"
+    Fail ("RepoPath must be an absolute Linux path without spaces or shell metacharacters, got: $RepoPath`n" +
+        (Get-AiSmConfigHint -Source $smConfig.RepoPathSource -Kind 'RepoPath'))
 }
 if ($DataDir -notmatch '^(~)?(/[A-Za-z0-9._-]+)+$') {
     Fail "DataDir must be '~/...' or an absolute Linux path without spaces or shell metacharacters, got: $DataDir"
 }
 if ($Distro -notmatch '^[A-Za-z0-9._-]+$') {
-    Fail "Distro contains invalid characters: $Distro"
+    Fail ("Distro contains invalid characters: $Distro`n" +
+        (Get-AiSmConfigHint -Source $smConfig.DistroSource -Kind 'Distro'))
 }
 
 function Get-DistroList {
@@ -145,7 +176,7 @@ function Get-DistroList {
 
 $installedDistros = Get-DistroList
 if ($installedDistros -notcontains $Distro) {
-    # An exact match is silent (the baked-in default matches this machine
+    # An exact match is silent (the derived distro names an installed one
     # exactly, so day-to-day launches print nothing here). A generic name
     # ('Ubuntu') that is not installed as such still auto-resolves: if
     # exactly ONE installed distro starts with the configured name, use it
@@ -157,8 +188,8 @@ if ($installedDistros -notcontains $Distro) {
         $Distro = $candidates[0]
     } else {
         Fail ("WSL distro '$Distro' not found. Installed distros: " +
-            ($installedDistros -join ', ') +
-            ". Edit the config block at the top of launch.ps1 (or set AI_SM_DISTRO).")
+            ($installedDistros -join ', ') + ". " +
+            (Get-AiSmConfigHint -Source $smConfig.DistroSource -Kind 'Distro' -NotInstalled))
     }
 }
 
