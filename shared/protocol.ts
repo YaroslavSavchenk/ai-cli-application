@@ -373,7 +373,69 @@ export interface RuntimeStatusResponse {
 export interface UpdateStatus {
   available: boolean;
   reason: string | null;
+  /**
+   * Present ONLY when `reason === 'a new version is available'` (installed
+   * mode, phase E in-app update): the release the backend found on GitHub.
+   * Never rendered as text by the UI — it drives the Update button and the
+   * progress readout only. Precedence: `a new version is installed` (the
+   * bundle on disk already moved) always wins over `a new version is
+   * available` (the release exists online).
+   */
+  release?: UpdateRelease;
 }
+
+/** A published release the installed app could update to (phase E). */
+export interface UpdateRelease {
+  /** The release tag, e.g. `v0.3.0`; gated by the backend's VERSION_SHAPE. */
+  version: string;
+  /** `AI-Session-Manager-Setup-<version>.exe` — constructed by the backend. */
+  setupName: string;
+  /** The Setup asset URL; constructed by the backend and equality-checked against the API. */
+  setupUrl: string;
+  /** The release's `SHA256SUMS.txt` URL; same construction rule. */
+  sumsUrl: string;
+  /** Setup size in bytes (integer, ≤ 200 MiB); drives the percent readout. */
+  size: number;
+}
+
+/**
+ * Phase E in-app update — the install flow the Update button drives.
+ *
+ * - `POST /api/update` (authed, no body): `202 { version }` started ·
+ *   `409 { error }` already in flight · `422 { error }` nothing to install /
+ *   not installed mode / release gone · `503 { error }` no updater wired.
+ * - `GET /api/update/status` (authed): `UpdateInstallStatus`, polled by the
+ *   UI at 1 Hz while busy and once at page boot to adopt an install in flight.
+ *
+ * `error` is always one of the constant sentences below — never remote text.
+ */
+export type UpdateInstallState =
+  | 'idle'
+  | 'downloading'
+  | 'verifying'
+  | 'installing'
+  | 'installed'
+  | 'failed';
+
+export interface UpdateInstallStatus {
+  state: UpdateInstallState;
+  /** The version being (or last) installed; null when idle. */
+  version: string | null;
+  /** 0..100 integer; meaningful while downloading. */
+  percent: number;
+  /** A constant sentence (see UPDATE_ERROR_*), or null. */
+  error: string | null;
+}
+
+/** The only sentences `UpdateInstallStatus.error` may carry (wire contract). */
+export const UPDATE_ERROR_DOWNLOAD = 'The update could not be downloaded.';
+export const UPDATE_ERROR_CHECKSUM = 'The downloaded file did not match the release checksum.';
+export const UPDATE_ERROR_SPACE = 'There was not enough space to download the update.';
+export const UPDATE_ERROR_START = 'The update could not be started on Windows.';
+export const UPDATE_ERROR_FINISH = 'The update did not finish.';
+
+/** `UpdateStatus.reason` in installed mode when a newer release is published (phase E). */
+export const UPDATE_NEW_VERSION_AVAILABLE = 'a new version is available';
 
 /**
  * POST /api/restart — the same-port handoff. Full status contract (the
