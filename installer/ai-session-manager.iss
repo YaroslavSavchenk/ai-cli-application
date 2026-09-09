@@ -493,8 +493,8 @@ begin
     ' -DataDir ' + WslArg(SelectedDataDir) +
     ' -ConfigDir "' + ExpandConstant('{app}') + '"';
   if not RunHelper(ExpandConstant('{app}\helpers\install-bundle.ps1'), Params) then
-    RaiseException('The app could not be installed inside ' + SelectedDistro + '.' +
-      #13#10#13#10 + Reason + #13#10#13#10 +
+    RaiseException('The app could not be installed inside ' + SelectedDistro + '.' + #13#10#13#10 +
+      Reason + #13#10#13#10 +
       'The Windows part of this app is left installed but incomplete: it cannot ' +
       'start until this step succeeds. Fix the reason above and run this Setup again.');
 
@@ -527,10 +527,8 @@ begin
   if (Distro = '') or (AppDir = '') then
     Exit;
 
-  if MsgBox('Also remove the app files inside ' + Distro + ' at ' + AppDir + '?' +
-    #13#10#13#10 +
-    'Your projects, session history and settings are NOT touched either way.' +
-    #13#10#13#10 +
+  if MsgBox('Also remove the app files inside ' + Distro + ' at ' + AppDir + '?' + #13#10#13#10 +
+    'Your projects, session history and settings are NOT touched either way.' + #13#10#13#10 +
     'If the app is running it will be closed first, which ends any sessions ' +
     'you have open (they stay in the history).',
     mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then

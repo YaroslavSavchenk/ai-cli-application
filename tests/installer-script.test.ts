@@ -191,6 +191,18 @@ test('installer: the consent page offers only opt-in third-party software, with 
   assert.equal((iss.match(/-Item claude/g) ?? []).length, 1);
 });
 
+test('installer: no line in the .iss starts with a Pascal char literal (ISPP reads a leading # as a directive)', () => {
+  // Measured on the windows runner (Inno Setup 6.7.1, run 34353061285): a line
+  // beginning with "#13#10" inside [Code] aborts the compile with
+  // "Unknown preprocessor directive". Char literals must follow something on
+  // the same line.
+  const offenders = iss
+    .split('\n')
+    .map((line, i) => ({ line, n: i + 1 }))
+    .filter(({ line }) => /^\s*#(?!(define|ifdef|ifndef|endif|else|if|error|include|pragma)\b)/.test(line));
+  assert.deepEqual(offenders, [], `lines that would be read as preprocessor directives: ${offenders.map((o) => o.n).join(', ')}`);
+});
+
 test('installer: /SILENT picks a distribution by the same rule as the wizard page', () => {
   // No page is shown, so EnsureDefaults fills in the answers. Taking
   // `default` (or `distro1`) unchecked would install into a WSL 1
