@@ -71,6 +71,14 @@ jobs green, publish correctly skipped off-tag, artifact
 `f9594e12…`) — the user's Windows test build (run 34354085724). Repo
 flipped to PUBLIC at 13:05Z; releases page live.
 
+Afternoon: an audit agent compiled the `.iss` LOCALLY with a portable
+ISCC ([[inno-setup-local-compile]]) and found nine runtime issues (plain
+`MsgBox` blocks silent installs, welcome page hidden by default, no probe
+retry, Back/Next lost the typed folder, …) — fixed in `197bb9f`, compiled
+locally 0 errors, fourth dispatch green: test build
+`AI-Session-Manager-Setup-0.0.0-dev+197bb9f.exe` (run 34356714586, SHA
+`7db3ab31…`).
+
 ## Next
 
 User tests the artifact on Windows (checklist in `memory/BACKLOG.md`,

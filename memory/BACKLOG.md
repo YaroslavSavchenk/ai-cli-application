@@ -85,11 +85,11 @@ priority.
 
 ## Owed on the Windows side (user) — the Setup.exe test, 2026-09-09
 
-Test build: GitHub Actions run 34354085724 (workflow_dispatch on main at
-`08709f5`), artifact **`AI-Session-Manager-Setup`** →
-`AI-Session-Manager-Setup-0.0.0-dev+08709f5.exe`, SHA-256
-`f9594e129e97edd02c14ded47fa3126a34f0672b2680702af1d8ecb6bf47de66`.
-Download from https://github.com/YaroslavSavchenk/ai-cli-application/actions/runs/34354085724
+Test build: GitHub Actions run 34356714586 (workflow_dispatch on main at
+`197bb9f`), artifact **`AI-Session-Manager-Setup`** →
+`AI-Session-Manager-Setup-0.0.0-dev+197bb9f.exe`, SHA-256
+`7db3ab31013471b1ee926dc471483e90d7823819227c67dce9d4490a739916f9`.
+Download from https://github.com/YaroslavSavchenk/ai-cli-application/actions/runs/34356714586
 (artifacts expire after 90 days; re-dispatch `Release` on main for a fresh one).
 **Important:** your live clone-based install and the Setup install are
 two different things — the Setup writes to `%LOCALAPPDATA%\Programs\AI
@@ -107,11 +107,11 @@ app window first so one backend at a time owns runtime.json.
 - [ ] After install: `%LOCALAPPDATA%\Programs\AI Session Manager\` holds
   `launcher-config.json` (your distro + `<appdir>/current`) and
   `install-info.txt`; `wsl -d <distro> -- ls ~/.ai-session-manager/app`
-  shows `0.0.0-dev+08709f5` + `current`; no bundle tar left in `%TEMP%`.
+  shows `0.0.0-dev+197bb9f` + `current`; no bundle tar left in `%TEMP%`.
 - [ ] Shortcut launches with no console; taskbar shows `app.ico` and ONE
   button for shortcut + window (AUMID match); no host copy appears under
   `%LOCALAPPDATA%\ai-session-manager\host` (host runs in place).
-- [ ] Settings → BACKEND shows `version 0.0.0-dev+08709f5` and the
+- [ ] Settings → BACKEND shows `version 0.0.0-dev+197bb9f` and the
   `Check for updates` link opens the Releases page in your browser without
   navigating the app window.
 - [ ] Upgrade: re-dispatch → newer exe → run it while the app is open: no
