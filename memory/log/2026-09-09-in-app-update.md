@@ -62,6 +62,12 @@ knop, zoals andere apps"; code signing declined the same evening). Built on
   with an `LD_PRELOAD` tracer and in a network namespace; redirect
   allow-list measured against 12 bypass spellings.
 
+## Released
+
+v0.3.0 tagged on `5dcfc10` (run 34407472252, all seven jobs green, four
+assets) right after CI; the user installs it by hand once, then v0.3.1 is
+tagged as the first target of the Update button.
+
 ## Windows-only (user)
 
 The one-button run itself: toast → Update → progress → same port on the

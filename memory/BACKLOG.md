@@ -59,9 +59,10 @@ priority.
 
 ## In-app updater (phase E, 2026-09-09) — what is left
 
-- [ ] User's Windows test of the one-button update (needs a release NEWER
-  than the installed one: install v0.3.0 by hand once, then a v0.3.1
-  dispatch/tag to update to).
+- [ ] User's Windows test of the one-button update. **v0.3.0 RELEASED
+  2026-09-09 21:40Z** (first updater-capable build; installed by hand once);
+  v0.3.1 tagged right after as the target: toast → Update → v0.3.1. A
+  `0.0.0-dev` dispatch build cannot test the button (it disables the check).
 - [ ] Progress is not carried across a restart handoff (status resets to
   idle in the new process); the staged copy in `%TEMP%` survives.
 - [ ] `probeWindowsTemp` (real `cmd.exe` → `wslpath`) only ever injected in
