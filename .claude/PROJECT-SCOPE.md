@@ -388,7 +388,11 @@ multi-pane layouts on top.
   the Setup asset name and both asset URLs EQUAL what the backend constructs
   itself, and the size is ≤ 200 MiB; the answer is cached in
   `<dataDir>/update-check.json` (0600, atomic, ≤ 8 KiB, every field gated on
-  read). Precedence: `a new version is installed` (the bundle on disk moved)
+  read; what is cached is the LATEST RELEASE DESCRIPTOR (`latest`), never the
+  verdict — the ETag validates only the payload, so "newer than what I run" is
+  decided at USE time; the field was renamed `release` → `latest` on purpose,
+  so a file in the old shape fails the read and costs one unconditional 200).
+  Precedence: `a new version is installed` (the bundle on disk moved)
   beats `a new version is available` (online); `/api/runtime.update.release`
   carries the offer. **Button** (`POST /api/update`, authed, no body:
   `202 {version}` · `409` in flight · `422` nothing / not installed · `503`

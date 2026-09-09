@@ -204,9 +204,7 @@ export function releaseCheckSupported(version: string): boolean {
 /** Why a release was not offered. A CONSTANT-ish sentence for server.log only. */
 export type ReleaseRejection = string;
 
-export interface GateOptions {
-  /** The version this process runs (`bundle.json.version`). */
-  currentVersion: string;
+export interface AssetOptions {
   /** Origin release assets may be downloaded from (github.com, or the seam). */
   assetBase: string;
 }
@@ -216,22 +214,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Turn a `releases/latest` payload into an UpdateRelease, or into a reason it
- * was refused. NOTHING here trusts the answer:
+ * Turn a `releases/latest` payload into the LATEST RELEASE DESCRIPTOR, or into a
+ * reason it was refused — WITHOUT any version comparison. NOTHING here trusts
+ * the answer:
  *
  *   - `draft` and `prerelease` must both be exactly `false`;
- *   - the tag must pass VERSION_SHAPE (it becomes a path segment and a log
- *     line) AND be strictly newer than the running version;
+ *   - the tag must pass VERSION_SHAPE (it becomes a path segment and a log line);
  *   - the Setup asset name is CONSTRUCTED from the tag and must exist in the
  *     asset list with `state: 'uploaded'`;
  *   - `SHA256SUMS.txt` must exist, uploaded, too;
  *   - both `browser_download_url`s must EQUAL the URL we construct — a release
  *     that points its assets somewhere else is not one we install;
  *   - the Setup size must be a positive integer <= 200 MiB.
+ *
+ * "Newer than what I run" is DELIBERATELY not decided here: that verdict
+ * depends on the running version, which changes under a cached payload (an
+ * install, or a downgrade), while this gate depends only on the payload.
  */
-export function gateRelease(
+export function gateLatestRelease(
   payload: unknown,
-  opts: GateOptions,
+  opts: AssetOptions,
 ): { ok: true; release: UpdateRelease } | { ok: false; why: ReleaseRejection } {
   if (!isRecord(payload)) return { ok: false, why: 'the answer was not a JSON object' };
   if (payload['draft'] !== false) return { ok: false, why: 'the release is a draft' };
@@ -239,9 +241,6 @@ export function gateRelease(
   const tag = payload['tag_name'];
   if (typeof tag !== 'string' || !VERSION_SHAPE.test(tag)) {
     return { ok: false, why: 'the release tag is missing or not a version' };
-  }
-  if (!isNewerVersion(tag, opts.currentVersion)) {
-    return { ok: false, why: `${oneLine(tag)} is not newer than ${oneLine(opts.currentVersion)}` };
   }
   const assets = payload['assets'];
   if (!Array.isArray(assets) || assets.length > 100) {
@@ -280,15 +279,27 @@ export function gateRelease(
 // ---------------------------------------------------------------------------
 
 /**
- * What is persisted between runs. `release` is the LAST OFFER (null when the
- * latest release was not newer): a 304 costs no rate-limit quota, so after a
- * restart the notice is on screen at the first check instead of never.
+ * What is persisted between runs: the ETag and the LATEST RELEASE the API
+ * described — never the VERDICT "an update is available".
+ *
+ * WHY NOT THE VERDICT. The ETag validates the PAYLOAD, not the version this
+ * process runs. Caching "no offer" and then answering a 304 with it kept the
+ * button hidden forever after a downgrade (measured 2026-09-09: v0.3.1 wrote
+ * `no offer`, v0.3.0 adopted it, GitHub answered 304 every six hours, the
+ * verdict never got recomputed). So the descriptor is cached and the comparison
+ * against `currentVersion` happens at USE time, every time.
+ *
+ * `latest: null` means the latest release was refused for a reason that has
+ * nothing to do with version order (draft, pre-release, asset mismatch).
+ *
+ * The field is `latest`, not `release`, ON PURPOSE: a file in the old shape
+ * fails this read, which costs one unconditional 200 and rebuilds the truth.
  */
 export interface UpdateCheckCache {
   etag: string;
   /** ISO-8601 of the last successful (200 or 304) answer. */
   checkedAt: string;
-  release: UpdateRelease | null;
+  latest: UpdateRelease | null;
 }
 
 /**
@@ -298,7 +309,7 @@ export interface UpdateCheckCache {
  * re-CONSTRUCTED and compared rather than believed, so a doctored file cannot
  * point the downloader anywhere.
  */
-export function readUpdateCheckCache(file: string, opts: GateOptions): UpdateCheckCache | null {
+export function readUpdateCheckCache(file: string, opts: AssetOptions): UpdateCheckCache | null {
   let raw: Buffer;
   try {
     raw = readFileSync(file);
@@ -318,30 +329,27 @@ export function readUpdateCheckCache(file: string, opts: GateOptions): UpdateChe
   const checkedAt = parsed['checkedAt'];
   if (typeof checkedAt !== 'string' || !ISO_SHAPE.test(checkedAt)) return null;
   if (Number.isNaN(Date.parse(checkedAt))) return null;
-  const release = parsed['release'];
-  if (release === null) return { etag, checkedAt, release: null };
-  if (!isRecord(release)) return null;
-  const version = release['version'];
+  const latest = parsed['latest'];
+  if (latest === null) return { etag, checkedAt, latest: null };
+  if (!isRecord(latest)) return null;
+  const version = latest['version'];
   if (typeof version !== 'string' || !VERSION_SHAPE.test(version)) return null;
-  // The cached offer must STILL be newer than what we run: after an update the
-  // file describes the version now installed, and re-offering it would nag.
-  if (!isNewerVersion(version, opts.currentVersion)) return { etag, checkedAt, release: null };
   const setupName = setupAssetName(version);
-  if (release['setupName'] !== setupName) return null;
-  if (release['setupUrl'] !== assetUrl(opts.assetBase, version, setupName)) return null;
-  if (release['sumsUrl'] !== assetUrl(opts.assetBase, version, SUMS_ASSET_NAME)) return null;
-  const size = release['size'];
+  if (latest['setupName'] !== setupName) return null;
+  if (latest['setupUrl'] !== assetUrl(opts.assetBase, version, setupName)) return null;
+  if (latest['sumsUrl'] !== assetUrl(opts.assetBase, version, SUMS_ASSET_NAME)) return null;
+  const size = latest['size'];
   if (typeof size !== 'number' || !Number.isInteger(size) || size <= 0 || size > MAX_SETUP_BYTES) {
     return null;
   }
   return {
     etag,
     checkedAt,
-    release: {
+    latest: {
       version,
       setupName,
-      setupUrl: release['setupUrl'] as string,
-      sumsUrl: release['sumsUrl'] as string,
+      setupUrl: latest['setupUrl'] as string,
+      sumsUrl: latest['sumsUrl'] as string,
       size,
     },
   };
@@ -449,18 +457,23 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
   const intervalMs = opts.intervalMs ?? CHECK_INTERVAL_MS;
   const assetBase =
     opts.apiBase === DEFAULT_UPDATE_API_BASE ? DEFAULT_UPDATE_ASSET_BASE : opts.apiBase;
-  const gateOpts: GateOptions = { currentVersion: opts.currentVersion, assetBase };
+  const gateOpts: AssetOptions = { assetBase };
 
   // Adopt the persisted answer immediately: the notice is on screen before the
   // first request, and the ETag makes that request cost no quota.
   const cached = readUpdateCheckCache(opts.cacheFile, gateOpts);
   let etag: string | undefined = cached?.etag;
-  let offer: UpdateRelease | undefined = cached?.release ?? undefined;
+  /** The gated latest release, whatever its order against the running version. */
+  let latest: UpdateRelease | undefined = cached?.latest ?? undefined;
+  /** The OFFER is derived, never stored: it depends on the version we run. */
+  const offer = (): UpdateRelease | undefined =>
+    latest !== undefined && isNewerVersion(latest.version, opts.currentVersion) ? latest : undefined;
   if (cached !== null) {
+    const adopted = offer();
     log(
       'debug',
       `release cache adopted (checked ${oneLine(cached.checkedAt)}, offer ${
-        cached.release === null ? 'none' : oneLine(cached.release.version)
+        adopted === undefined ? 'none' : oneLine(adopted.version)
       })`,
     );
   }
@@ -472,11 +485,11 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
   /** Set by a 403/429: nothing is asked before this instant. */
   let notBeforeMs = 0;
 
-  const persist = (release: UpdateRelease | null): void => {
+  const persist = (value: UpdateRelease | null): void => {
     if (etag === undefined) {
-      // No usable validator: the file could only hold a stale OFFER with an old
-      // etag, and a stale offer survives restarts as a notice for a release
-      // that may be gone. Drop it instead.
+      // No usable validator: the file could only hold a stale descriptor with an
+      // old etag, and a stale descriptor survives restarts as a notice for a
+      // release that may be gone. Drop it instead.
       try {
         unlinkSync(opts.cacheFile);
       } catch {
@@ -488,7 +501,7 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
       writeUpdateCheckCache(opts.cacheFile, {
         etag,
         checkedAt: new Date(now()).toISOString(),
-        release,
+        latest: value,
       });
     } catch (err) {
       // A cache we cannot write only costs rate-limit quota. Class only: the
@@ -545,8 +558,8 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
 
       if (res.status === 304) {
         failures = 0;
-        log('debug', `release check: 304 not modified (offer ${offer?.version ?? 'none'})`);
-        persist(offer ?? null);
+        log('debug', `release check: 304 not modified (offer ${offer()?.version ?? 'none'})`);
+        persist(latest ?? null);
         return;
       }
 
@@ -593,20 +606,29 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
       const newEtag = res.headers.get('etag');
       etag = newEtag !== null && ETAG_SHAPE.test(newEtag) ? newEtag : undefined;
 
-      const gated = gateRelease(payload, gateOpts);
+      const gated = gateLatestRelease(payload, gateOpts);
       if (!gated.ok) {
-        offer = undefined;
+        latest = undefined;
         log('debug', `release check: nothing to offer (${gated.why})`);
         persist(null);
         return;
       }
-      offer = gated.release;
-      log(
-        'info',
-        `release check: ${gated.release.version} is newer than ${oneLine(opts.currentVersion)} ` +
-          `(${gated.release.setupName}, ${gated.release.size} bytes)`,
-      );
-      persist(gated.release);
+      latest = gated.release;
+      const current = offer();
+      if (current === undefined) {
+        log(
+          'debug',
+          `release check: latest ${oneLine(latest.version)} is not newer than ` +
+            `${oneLine(opts.currentVersion)}`,
+        );
+      } else {
+        log(
+          'info',
+          `release check: ${current.version} is newer than ${oneLine(opts.currentVersion)} ` +
+            `(${current.setupName}, ${current.size} bytes)`,
+        );
+      }
+      persist(latest);
     } finally {
       running = false;
       arm(nextMs);
@@ -614,11 +636,13 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
   };
 
   return {
-    status: () =>
-      offer === undefined
+    status: () => {
+      const current = offer();
+      return current === undefined
         ? NO_UPDATE
-        : { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: offer },
-    release: () => offer,
+        : { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: current };
+    },
+    release: () => offer(),
     checkNow: run,
     start: () => {
       stopped = false;

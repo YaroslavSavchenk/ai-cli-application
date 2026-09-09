@@ -29,7 +29,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { accessSync, constants, readFileSync, symlinkSync, existsSync, readdirSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  existsSync,
+  readdirSync,
+} from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
@@ -153,6 +162,26 @@ async function makeBundle(root: string, version: string, withPty = true): Promis
  */
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 20));
 
+/**
+ * ...and waiting is not enough: `settle()` assumes a MONOTONIC wall clock.
+ * Measured 2026-09-10 in a full-suite run: the clock stepped BACKWARD ~0.22 s
+ * between two fixture installs (`tar` warned `time stamp ... is 0.221187265 s
+ * in the future`), so the SECOND install's ctime landed before the first's and
+ * retention pruned the wrong directory. So the order is PROVEN here, never
+ * assumed: re-touch the newer dir (utimes bumps ctime) until its ctime is
+ * strictly greater than the dir installed before it.
+ */
+async function proveNewer(newer: string, older: string): Promise<void> {
+  const ctime = (p: string): number => statSync(p).ctimeMs;
+  for (let i = 0; i < 50; i += 1) {
+    if (ctime(newer) > ctime(older)) return;
+    await settle();
+    const now = new Date();
+    utimesSync(newer, now, now);
+  }
+  assert.fail(`ctime of ${newer} never overtook ${older} (clock stepped backward?)`);
+}
+
 async function install(root: string, appDir: string, version: string, live = '-'): Promise<ShResult> {
   const tar = await readFile(join(root, `${version}.tar.gz`));
   return runSh(unpackScript, [appDir, version, live], tar);
@@ -184,7 +213,9 @@ test('unpack script: retention keeps current + exactly one previous version', as
     await install(root, appDir, 'v0.1.0');
     await settle();
     await install(root, appDir, 'v0.2.0');
-    await settle();
+    // v0.2.0 must be strictly newer than v0.1.0 by ctime before v0.3.0 lands,
+    // or retention has no defined answer here.
+    await proveNewer(join(appDir, 'v0.2.0'), join(appDir, 'v0.1.0'));
     const third = await install(root, appDir, 'v0.3.0');
     assert.equal(third.code, 0, third.out);
     // The oldest goes, and it is NAMED in the output (the helper reports it).
@@ -284,7 +315,7 @@ test('unpack script: prune never rm -rf`s a word-split `..` fragment, so the DAT
     await writeFile(join(dataDir, 'history.json'), '[]');
     await settle();
     await install(root, appDir, 'v0.2.0');
-    await settle();
+    await proveNewer(join(appDir, 'v0.2.0'), join(appDir, 'v0.1.0'));
 
     const third = await install(root, appDir, 'v0.3.0');
     assert.equal(third.code, 0, third.out);
@@ -320,9 +351,9 @@ test('unpack script: a directory named `-x` is skipped, never handed to rm as an
     await writeFile(join(dash, 'bundle.json'), '{"version":"-x"}');
     await settle();
     await install(root, appDir, 'v0.0.9');
-    await settle();
+    await proveNewer(join(appDir, 'v0.0.9'), dash);
     await install(root, appDir, 'v0.1.0');
-    await settle();
+    await proveNewer(join(appDir, 'v0.1.0'), join(appDir, 'v0.0.9'));
 
     // `-x` is the OLDEST candidate here, so it is the one retention wants to
     // remove — exactly the case that used to break the script.
@@ -353,9 +384,9 @@ test('unpack script: a directory name with a space is skipped whole, and costs n
     await writeFile(join(spaced, 'bundle.json'), '{"version":"v0 v2"}');
     await settle();
     await install(root, appDir, 'v1');
-    await settle();
+    await proveNewer(join(appDir, 'v1'), spaced);
     await install(root, appDir, 'v2');
-    await settle();
+    await proveNewer(join(appDir, 'v2'), join(appDir, 'v1'));
 
     const third = await install(root, appDir, 'v3');
     assert.equal(third.code, 0, third.out);

@@ -1622,6 +1622,88 @@ test('END TO END: an installed backend finds v0.3.0, reports it, and POST /api/u
   }
 });
 
+test('END TO END: a DOWNGRADE re-judges the cached release — /api/runtime offers it after a 304', async () => {
+  // The production bug of 2026-09-09: <dataDir>/update-check.json held the
+  // VERDICT ("not newer than me"), while the ETag only validates the PAYLOAD.
+  // After v0.3.1 -> v0.3.0 every six-hourly check answered 304, the verdict was
+  // never recomputed, and the Update button never came back. Here the cache is
+  // the one a NEWER run left behind and the OLDER backend must reach the offer
+  // through a 304 alone — the API sends it no release at all.
+  const stub = await startAssets();
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-update-downgrade-')));
+  const app = installedApp(join(root, 'app'), 'v0.2.0');
+  const dataDir = join(root, 'data');
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  /** The status the release route really served, in order. */
+  const served: number[] = [];
+  try {
+    writeFileSync(
+      join(dataDir, 'update-check.json'),
+      JSON.stringify({
+        etag: '"e2e-1"',
+        checkedAt: '2026-09-09T10:00:00.000Z',
+        latest: releaseFor(stub),
+      }),
+      { mode: 0o600 },
+    );
+    // A 200 here would hand the answer over for free, so it is an ERROR: the
+    // only way this test can pass is the adopted cache, re-judged at use time.
+    stub.routes.set(`/repos/${UPDATE_OWNER}/${UPDATE_REPO}/releases/latest`, (req, res) => {
+      if (req.headers['if-none-match'] === '"e2e-1"') {
+        served.push(304);
+        res.writeHead(304, { etag: '"e2e-1"' }).end();
+        return;
+      }
+      served.push(200);
+      res.writeHead(500).end('the cached ETag was not sent');
+    });
+
+    const server = await startTestServer({
+      entry: app.entry,
+      cwd: join(app.appRoot, 'current'),
+      dataDir,
+      env: {
+        AI_SM_UPDATE_API_BASE: stub.origin,
+        AI_SM_UPDATE_FIRST_MS: '1000',
+        AI_SM_UPDATE_INTERVAL_MS: '3600000',
+      },
+    });
+    try {
+      await waitUntil(
+        async () => (served.length > 0 ? true : undefined),
+        'the scheduled release check to reach the stub',
+        15_000,
+        50,
+      );
+      assert.deepEqual(served, [304], 'conditional: the fix costs no rate-limit quota');
+
+      // Asked AFTER the 304, so nothing here can come from a fresh payload.
+      const body = (await api(server, 'GET', '/api/runtime')).body as {
+        update: Record<string, unknown>;
+      };
+      assert.deepEqual(body.update, {
+        available: true,
+        reason: 'a new version is available',
+        release: releaseFor(stub),
+      });
+
+      // And the descriptor is still on disk for the next boot, ETag intact.
+      const cache = JSON.parse(readFileSync(join(dataDir, 'update-check.json'), 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      assert.deepEqual(cache['latest'], releaseFor(stub), 'a 304 keeps the descriptor');
+      assert.equal(cache['etag'], '"e2e-1"');
+      assert.equal(cache['release'], undefined, 'and never writes the old verdict key');
+    } finally {
+      await server.stop();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await stub.close();
+  }
+});
+
 test('END TO END: a 0.0.0-dev bundle makes ZERO outbound requests — the promise this project makes about itself', async () => {
   // The acceptance criterion of phase E's check half: an off-tag build (what
   // scripts/build-bundle.sh stamps without a tag) is older than every release,
