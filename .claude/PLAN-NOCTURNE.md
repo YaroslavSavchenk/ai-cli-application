@@ -1,6 +1,12 @@
 # Plan: Nocturne redesign (design_handoff_session_manager, v3)
 
-Status: PLAN ONLY (2026-09-10). Nothing implemented. No methods chosen, no
+Status: PLAN ONLY (2026-09-10). Nothing implemented.
+
+Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
+("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
+mode, no toggle, no theme variants. Legacy is preserved only as git history:
+tag `legacy-ui` on the last commit before A1 starts. Legacy styles, the theme
+popover and `design-mocks/` are removed in A8/B8. Nocturne ships as v0.4.0. No methods chosen, no
 code investigated beyond a file listing. Each part below is sized to fit one
 rate-limited session and is started only when the user says "begin aan <id>".
 
@@ -27,6 +33,7 @@ Fixed rules for every part:
 - Replace current theme tokens with Nocturne tokens from `styles.css` (`--color-*`, `--space-*`, `--radius-*`, `--shadow-*`). Inter for UI, JetBrains Mono for terminal/code/data. Radii 4/8/14.
 - Semantic colours: running/added, attention/working-on, danger/removed as in README-v3.
 - Render `app-icon.svg` to multi-size `.ico` (16/32/48/256) via `launcher/make-icon.mjs` (extend if PNG-only). Replace `app.ico`; launcher, taskbar shortcut, Edge app window pick it up (icon cache clear if needed).
+- Before touching code: `git tag legacy-ui` on HEAD and push the tag.
 - Deliverable: app runs with new palette/fonts, old chrome still in place but recoloured; new icon visible in Windows.
 
 ### A2. Shell chrome
@@ -92,12 +99,12 @@ Fixed rules for every part:
 - Data source is an OPEN DECISION; if none exists, table shows an honest empty state and this part is dropped.
 
 ### B8. Cleanup + memory
-- Janitor; remove or keep the old theme picker (OPEN DECISION); update `PROJECT-SCOPE.md`, `web/DESIGN.md`, memory vault; release.
+- Janitor; remove remaining Legacy UI code (theme picker, old tokens, `design-mocks/`, v2 handoff files); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
 
 ---
 
 ## Open decisions (user decides; do not settle silently)
-1. Old theme popover: drop (Nocturne is single-theme) or keep as variants?
+1. ~~Old theme popover~~ DECIDED: drop; Legacy UI removed entirely (see above).
 2. Data sources for Cost, Context, Account usage, Active skill, Lines changed in the status bar.
 3. Source of "files the session is touching": Claude Code hooks, transcript watching, or something else.
 4. Where API keys live locally and how they reach the child process.
