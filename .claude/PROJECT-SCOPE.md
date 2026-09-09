@@ -355,9 +355,11 @@ multi-pane layouts on top.
   restart preflight serves the bundled `web/dist` instead of rebuilding,
   `update.available` = `current` points at a different version dir than the
   running process. v1 updates = run the newer Setup.exe (upgrades in place,
-  keeps data), then the in-app restart; in-app update *checking* over the
-  network is out of scope (a "Check for updates" link to the Releases page
-  via the sanctioned browser exit is enough). The clone-and-`git pull`
+  keeps data), then the in-app restart. ~~In-app update *checking* over the
+  network is out of scope~~ — **REVERSED 2026-09-09 evening, user's call
+  ("melding en hetzelfde knop, zoals andere apps"): phase E adds the
+  in-app updater** (see the bullet "In-app update" below); the "Check for
+  updates" link stays as the manual fallback. The clone-and-`git pull`
   developer path keeps working unchanged. The repo goes **public** (user
   flips; go-public prep = phase D). Release assets become: Setup exe, bundle
   tar.gz, host zip, `SHA256SUMS.txt`.
@@ -369,6 +371,30 @@ multi-pane layouts on top.
   file itself is not signature-checked (accepted for v1). The bundle job is the
   `verify / linux bundle` check in `verify.yml` and the `bundle` job in
   `release.yml` (phase C, 2026-09-09).
+- **In-app update — decided 2026-09-09 evening (user's call: a
+  notification and ONE button, like other apps; the same experience the
+  clone-based app had with "New version available → Restart"), IN PROGRESS
+  as phase E.** Installed mode only. The backend asks GitHub for the latest
+  release (at boot and periodically; one authenticated-free GET to
+  `api.github.com/repos/<owner>/<repo>/releases/latest`, ETag-cached,
+  never more often than the rate limit allows; failures are silent and
+  never block anything). A release newer than `bundle.json.version` shows
+  the toast "Version vX.Y.Z is available" with an **Update** button. The
+  button (user-initiated, authed API) makes the backend download the
+  release's Setup exe AND `SHA256SUMS.txt`, verify the exe's SHA-256
+  against the sums file before anything else touches it, place it where
+  Windows can run it, and start it silently through the interop
+  (`powershell.exe` by full path). The Setup then reuses the existing
+  install's distro and app dir from `install-info.txt` (never the WSL
+  default), replaces the bundle in WSL, closes the app window cleanly
+  (Inno's close-applications support; the host must handle the close),
+  and relaunches the app, which starts the new `current`; as with "Restart
+  backend", open sessions end and HISTORY keeps them. Nothing is ever
+  executed that was not downloaded by the backend and verified against the
+  release's own sums file; a file downloaded by the backend carries no
+  Mark-of-the-Web, so SmartScreen does not interrupt this route (the exe
+  stays unsigned — signing was declined 2026-09-09). Details and rejected
+  alternatives: `memory/decisions/in-app-update.md`.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
