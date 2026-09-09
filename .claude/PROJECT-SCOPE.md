@@ -303,7 +303,8 @@ multi-pane layouts on top.
   then `git tag -a` + `git push origin refs/tags/<tag>`. Binaries are never
   committed (`dist-release/`, `build/`, `installer/payload/` gitignored);
   both exes are unsigned (SmartScreen note in the READMEs); the version lives
-  only in the tag. Branch protection is still an open user decision.
+  only in the tag. Branch protection: ruleset `protect-main` (force-push +
+  deletion blocked, no required checks) since 2026-09-09.
   **Go-public decisions (user, 2026-09-09):** the `memory/` vault goes public
   with the repo; commits use `182082793+YaroslavSavchenk@users.noreply.github.com`
   (set repo-locally; history is not rewritten, so older commits keep the
@@ -606,7 +607,7 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-Repo visibility — DONE: PUBLIC since 2026-09-09 (vault included). Branch protection stays open.
+Repo visibility — DONE: PUBLIC since 2026-09-09 (vault included). Branch protection — DONE 2026-09-09: ruleset `protect-main` blocks force-push + deletion on `main`, no required checks (direct pushes stay possible).
 - ~~One-click installer — FUTURE~~ **DECIDED 2026-09-08 (user: "tijd om hiervan een app te maken, zodat andere mensen dit makkelijk kunnen gebruiken"), IN PROGRESS.** See the Architecture bullet "Installer and self-contained bundle" and `memory/decisions/installer-and-self-contained-bundle.md`. Remaining sub-decisions live there; the visibility flip itself is still the user's hand.
 
 (Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":

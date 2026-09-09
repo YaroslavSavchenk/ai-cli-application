@@ -13,12 +13,13 @@ priority.
 
 ## CI/CD leftovers (from [[2026-09-08-cicd-gate]], 2026-09-08)
 
-- [ ] **Branch protection / required status checks (user).** Not added: the
-  repo is private (branch rules may need a paid plan) and the release gate
-  does not depend on it. If added, the check names are
-  `verify / typecheck + build` and `verify / backend test suite`.
-  Note: a rule requiring checks BEFORE push would block the standing
-  "commit+push to main" flow — decide the workflow together with it.
+- [x] **Branch protection — DONE 2026-09-09 (user: "kun jij dat doen?")**: GitHub
+  ruleset `protect-main` (id 22649598, active) on `refs/heads/main` with
+  `deletion` + `non_fast_forward` only — force-push and branch deletion are
+  blocked, plain pushes still work, so the standing commit+push flow stands.
+  Required status checks deliberately NOT added (a ruleset requiring checks
+  blocks direct pushes). Check names if ever wanted: `verify / typecheck +
+  build`, `verify / backend test suite`, `verify / linux bundle`.
 - [ ] **Janitor pass** over the CI/CD change (skipped: workflows + one
   script + tests only, tree verified clean). Cheap; do it with the next
   feature land.
