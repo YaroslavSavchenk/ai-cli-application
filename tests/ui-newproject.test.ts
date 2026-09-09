@@ -17,14 +17,14 @@ import {
 } from '../web/src/ui/newproject-model.ts';
 
 test('joinPath appends a segment onto an absolute dir; root has no double slash', () => {
-  assert.equal(joinPath('/home/sava', 'projects'), '/home/sava/projects');
-  assert.equal(joinPath('/home/sava/', 'projects'), '/home/sava/projects');
+  assert.equal(joinPath('/home/you', 'projects'), '/home/you/projects');
+  assert.equal(joinPath('/home/you/', 'projects'), '/home/you/projects');
   assert.equal(joinPath('/', 'home'), '/home');
 });
 
 test('parentDir walks up one level; / is its own parent', () => {
-  assert.equal(parentDir('/home/sava/projects'), '/home/sava');
-  assert.equal(parentDir('/home/sava/projects/'), '/home/sava');
+  assert.equal(parentDir('/home/you/projects'), '/home/you');
+  assert.equal(parentDir('/home/you/projects/'), '/home/you');
   assert.equal(parentDir('/home'), '/');
   assert.equal(parentDir('/'), '/');
   assert.equal(parentDir(''), '/');
@@ -42,27 +42,27 @@ test('repoBasename strips .git + trailing slashes across url shapes', () => {
 });
 
 test('suggestProjectPath = <home>/projects/<name>; empty when home or name missing', () => {
-  assert.equal(suggestProjectPath('/home/sava', 'my-app'), '/home/sava/projects/my-app');
-  assert.equal(suggestProjectPath('/home/sava', '  spaced  '), '/home/sava/projects/spaced');
+  assert.equal(suggestProjectPath('/home/you', 'my-app'), '/home/you/projects/my-app');
+  assert.equal(suggestProjectPath('/home/you', '  spaced  '), '/home/you/projects/spaced');
   assert.equal(suggestProjectPath(null, 'my-app'), '');
-  assert.equal(suggestProjectPath('/home/sava', '   '), '');
+  assert.equal(suggestProjectPath('/home/you', '   '), '');
 });
 
 test('suggestDestPath = <home>/projects/<repoBasename(url)>; empty when home or url missing', () => {
   assert.equal(
-    suggestDestPath('/home/sava', 'https://github.com/owner/repo.git'),
-    '/home/sava/projects/repo',
+    suggestDestPath('/home/you', 'https://github.com/owner/repo.git'),
+    '/home/you/projects/repo',
   );
-  assert.equal(suggestDestPath('/home/sava', ''), '');
+  assert.equal(suggestDestPath('/home/you', ''), '');
   assert.equal(suggestDestPath(null, 'https://x/y.git'), '');
 });
 
 test('breadcrumbs yields root-first cumulative segments', () => {
   assert.deepEqual(breadcrumbs('/'), [{ label: '/', path: '/' }]);
-  assert.deepEqual(breadcrumbs('/home/sava/projects'), [
+  assert.deepEqual(breadcrumbs('/home/you/projects'), [
     { label: '/', path: '/' },
     { label: 'home', path: '/home' },
-    { label: 'sava', path: '/home/sava' },
-    { label: 'projects', path: '/home/sava/projects' },
+    { label: 'you', path: '/home/you' },
+    { label: 'projects', path: '/home/you/projects' },
   ]);
 });

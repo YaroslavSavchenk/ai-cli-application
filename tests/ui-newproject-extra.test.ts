@@ -25,11 +25,11 @@ test('joinPath / parentDir / breadcrumbs tolerate repeated and trailing slashes'
   assert.equal(joinPath('/home//', 'x'), '/home/x', 'repeated trailing slashes are trimmed before joining');
   assert.equal(parentDir('/home//'), '/', 'a single-level path with trailing slashes -> root');
   assert.deepEqual(
-    breadcrumbs('/home/sava/'),
+    breadcrumbs('/home/you/'),
     [
       { label: '/', path: '/' },
       { label: 'home', path: '/home' },
-      { label: 'sava', path: '/home/sava' },
+      { label: 'you', path: '/home/you' },
     ],
     'a trailing slash yields no empty final crumb',
   );

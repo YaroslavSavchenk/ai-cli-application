@@ -19,8 +19,16 @@ empty `PrivilegesRequiredOverridesAllowed`), it is **unsigned**, and it
 | `helpers/install-thirdparty.ps1` | one opt-in third-party install (today: Claude Code) |
 | `helpers/uninstall-wsl.ps1` | removes the app directory inside the distro — only after the uninstaller's explicit yes |
 
-Nothing binary is committed. The payload (`payload/`) is assembled by CI and
-is git-ignored.
+Nothing binary is committed. The payload (`payload/`) is git-ignored and is
+assembled by the `windows setup` job of `.github/workflows/release.yml`, which
+downloads the artifacts of the `linux bundle (x64)` job
+(`ai-session-manager-linux-x64.tar.gz`, plus its `.sha256` and a `VERSION.txt`)
+and the `native host (win-x64)` job (`AiSessionManagerHost-win-x64.zip`),
+verifies the tarball's SHA-256, extracts the zip into `payload\host`, and runs
+ISCC. Its own artifact is `AI-Session-Manager-Setup`
+(`AI-Session-Manager-Setup-<version>.exe` + `.sha256`) — which is what a
+`workflow_dispatch` run hands you when you want to test a Setup before a tag
+exists.
 
 **The rule this directory is built on:** the `.iss` holds the wizard, the files
 and the icons; every decision, every parse and every `wsl.exe` call lives in a
@@ -34,7 +42,9 @@ because ISCC only exists on Windows.
 ## Building it
 
 ISCC (Inno Setup 6) ships on GitHub's `windows-latest` image at
-`C:\Program Files (x86)\Inno Setup 6\ISCC.exe`.
+`C:\Program Files (x86)\Inno Setup 6\ISCC.exe`. The `windows setup` job
+checks that path first and fails the job loudly if it is gone, rather than
+publishing a release without the one asset that IS the app.
 
     ISCC.exe /DAppVersion=v0.2.0 ^
              /DBundleTar=payload\ai-session-manager-linux-x64.tar.gz ^
@@ -61,7 +71,11 @@ So the payload a build needs is exactly:
 
 `AppVersion` must be the same string as the bundle's top-level directory and
 its `bundle.json` version, or the install refuses with
-`the archive does not contain <version>/bundle.json`.
+`the archive does not contain <version>/bundle.json`. In CI that string is
+computed once, in the bundle job (the tag name, or `0.0.0-dev+<short sha>` off
+a tag), travels to the Setup in `VERSION.txt` beside the tarball, and is
+re-checked against the same charset rule before it reaches an ISCC command
+line.
 
 ## What a user ends up with
 

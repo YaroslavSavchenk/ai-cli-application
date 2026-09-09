@@ -261,40 +261,59 @@ multi-pane layouts on top.
   upgrade if the separate bar starts to grate. A full **Tauri** shell (tray,
   native folder picker) remains the later upgrade; this host is the minimum
   that fixes the taskbar identity.
-- **Release build / distribution — added 2026-09-08, user's go; CI/CD gate
-  2026-09-08 (user: "before every deployment everything is tested
-  automatically", "cicd moet in github staan").** The app itself is never
-  packaged: it is installed by cloning the repo into WSL (`README.md` →
-  Install). The only published artifact is the Windows-side native host
-  window. One reusable workflow, `.github/workflows/verify.yml`
+- **Release build / distribution — added 2026-09-08 (user's go; CI/CD
+  gate the same day: "before every deployment everything is tested
+  automatically", "cicd moet in github staan"); extended 2026-09-09 for the
+  installable product.** One reusable workflow, `.github/workflows/verify.yml`
   (`on: workflow_call`), is the single definition of "verified": a `check`
   job (`npm ci`, `npm run typecheck`, `npm run build`, `node
-  launcher/make-icon.mjs --check`) and a `test` job (`npm ci`, `npm run
-  build`, `npm test` — the full suite, real servers and PTYs, on
-  ubuntu-latest). `.github/workflows/ci.yml` calls it on push to `main` and
-  every PR. A `v*` tag push runs `.github/workflows/release.yml`: `verify`
-  (the same reusable workflow, on the tagged commit), a windows `host` job
-  running the existing `launcher/build-host.ps1` and packaging exactly the
-  four build outputs flat as `AiSessionManagerHost-win-x64.zip` beside a
-  `sha256sum`-compatible `SHA256SUMS.txt`, and a `release` job with
-  `needs: [verify, host]` publishing both with `gh release create
-  --verify-tag` — a red suite blocks the publish (idempotent: a re-run
-  uploads with `--clobber` and refreshes the notes). `workflow_dispatch`
-  builds the same two files as a workflow artifact without releasing (unless
-  dispatched on a `v*` tag). Tagging is done with `npm run release --
-  vX.Y.Z [--dry-run]` (`scripts/release.sh`): it refuses unless the tree is
-  clean, the branch is `main`, `HEAD` equals `origin/main`, the tag is
-  unused locally and on origin, and the `CI` run for exactly that commit
-  concluded success; only then `git tag -a` + `git push origin
-  refs/tags/<tag>`. A raw `git tag && git push` still works and is gated by
-  the workflow anyway. Binaries are still never committed (`dist-release/`
-  gitignored beside `launcher/host/build/`); the exe is unsigned (SmartScreen
-  note in both READMEs); the version lives only in the tag. **Repo
-  visibility and branch protection are separate, still-open user
-  decisions** — the Install section and the release download only work for
-  others once the repo is public; no branch rules exist today, and the
-  status-check names are now `verify / typecheck + build` and `verify /
-  backend test suite`.
+  launcher/make-icon.mjs --check`), a `test` job (`npm ci`, `npm run build`,
+  `npm test` — the full suite, real servers and PTYs, on ubuntu-latest) and,
+  since 2026-09-09, a `bundle` job on **ubuntu-22.04** (glibc 2.35 floor)
+  that runs `scripts/build-bundle.sh` with its smoke test and uploads
+  nothing — CI proves the same build the release ships. Status-check names:
+  `verify / typecheck + build`, `verify / backend test suite`, `verify /
+  linux bundle`. `.github/workflows/ci.yml` calls it on push to `main` and
+  every PR. A `v*` tag push runs `.github/workflows/release.yml` with five
+  jobs: `verify` (the reusable workflow on the tagged commit), `host`
+  (windows: `launcher/build-host.ps1` → `AiSessionManagerHost-win-x64.zip`),
+  `bundle` (ubuntu-22.04: computes the version ONCE — the tag, or
+  `0.0.0-dev+<sha>` off-tag — into `VERSION.txt` and builds
+  `ai-session-manager-linux-x64.tar.gz`), `installer` (windows, `needs:
+  [host, bundle]`: lays out `installer/payload/`, refuses loudly when
+  `ISCC.exe` is absent, compiles `AI-Session-Manager-Setup-<version>.exe`),
+  and `release` (`needs: [verify, host, bundle, installer]`: re-hashes every
+  downloaded asset into ONE `SHA256SUMS.txt`, `sha256sum -c`, then `gh
+  release create --verify-tag` with the four assets — Setup exe first in the
+  notes, bundle tarball, host zip, checksums, the unsigned-binary paragraph).
+  A red suite or a failed bundle/installer blocks the publish; a re-run is
+  idempotent (`--clobber`, notes refreshed). `workflow_dispatch` builds all
+  artifacts and publishes nothing unless dispatched on a `v*` tag — **this
+  is how the Setup.exe reaches the user for a Windows test before a version
+  is tagged (user's call 2026-09-09: v0.2.0 only after that test)**. One
+  `NODE_VERSION` per workflow file (equal in both, pinned by test) feeds
+  setup-node AND `build-bundle.sh --node`, so the suite runs on the exact
+  runtime that gets bundled. Actions are GitHub-owned and SHA-pinned;
+  `permissions: {}` at the top, `contents: read` on build jobs, `contents:
+  write` only on `release`; `persist-credentials: false`; no `${{ }}` inside
+  `run:`. Tagging is done with `npm run release -- vX.Y.Z [--dry-run]`
+  (`scripts/release.sh`): it refuses unless the tree is clean, the branch is
+  `main`, `HEAD` equals `origin/main`, the tag is unused locally and on
+  origin, and the `CI` run for exactly that commit concluded success; only
+  then `git tag -a` + `git push origin refs/tags/<tag>`. Binaries are never
+  committed (`dist-release/`, `build/`, `installer/payload/` gitignored);
+  both exes are unsigned (SmartScreen note in the READMEs); the version lives
+  only in the tag. Branch protection is still an open user decision.
+  **Go-public decisions (user, 2026-09-09):** the `memory/` vault goes public
+  with the repo; commits use `182082793+YaroslavSavchenk@users.noreply.github.com`
+  (set repo-locally; history is not rewritten, so older commits keep the
+  author's e-mail and 13 of them still contain the old home path);
+  `tests/no-author-paths.test.ts` is the standing guard against the author's
+  paths re-entering tracked files; the orchestrator flips visibility
+  (`gh repo edit --visibility public`) right after phase D lands and CI is
+  green; **v0.2.0 is tagged only after the user has tested the Setup.exe on
+  Windows** (a `workflow_dispatch` run produces it as the
+  `AI-Session-Manager-Setup` artifact).
 - **Installer and self-contained bundle — decided 2026-09-08 (user's call:
   "a real app, frontend + backend, so other people can use it easily"),
   IN PROGRESS; supersedes "the app itself is never packaged" above.**
@@ -347,8 +366,9 @@ multi-pane layouts on top.
   `https://nodejs.org/dist`; anything else makes the script refuse before any
   download, so "verified against nodejs.org's SHASUMS256.txt" can never
   silently mean "verified against a mirror that agrees with itself". The sums
-  file itself is not signature-checked (accepted for v1). The bundle job is
-  wired into CI in phase C; until then `scripts/build-bundle.sh` runs by hand.
+  file itself is not signature-checked (accepted for v1). The bundle job is the
+  `verify / linux bundle` check in `verify.yml` and the `bundle` job in
+  `release.yml` (phase C, 2026-09-09).
 - WSL2 localhost forwarding is how Windows reaches the backend.
 
 ## Features (decided)
@@ -567,7 +587,7 @@ multi-pane layouts on top.
 
 ## Environment
 
-- Development happens inside WSL2 Ubuntu at `/home/sava/projects/ai-cli-application`.
+- Development happens inside WSL2 Ubuntu at `/home/you/projects/ai-cli-application`.
 - The user runs Windows + WSL2; the app must work in that setup first.
 
 ## Process
@@ -587,7 +607,7 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-Repo visibility (private today) — the release/Install docs are written for a public repo; going public also publishes the `memory/` vault, the author's home path in launcher defaults, and git author emails (2026-09-08).
+Repo visibility — DECIDED 2026-09-08/09: goes public (vault included); the flip is executed by the orchestrator after phase D lands and CI is green. Branch protection stays open.
 - ~~One-click installer — FUTURE~~ **DECIDED 2026-09-08 (user: "tijd om hiervan een app te maken, zodat andere mensen dit makkelijk kunnen gebruiken"), IN PROGRESS.** See the Architecture bullet "Installer and self-contained bundle" and `memory/decisions/installer-and-self-contained-bundle.md`. Remaining sub-decisions live there; the visibility flip itself is still the user's hand.
 
 (Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":

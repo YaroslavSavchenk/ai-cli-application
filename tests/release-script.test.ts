@@ -32,7 +32,7 @@ const SCRIPT = join(projectRoot, 'scripts', 'release.sh');
 
 const SHA = '1111111111111111111111111111111111111111';
 const OTHER_SHA = '2222222222222222222222222222222222222222';
-const RUN_URL = 'https://github.com/sava/ai-cli-application/actions/runs/42';
+const RUN_URL = 'https://github.com/you/ai-cli-application/actions/runs/42';
 
 /**
  * A `git` double. Answers every read the script performs from a canned file and
@@ -107,7 +107,7 @@ case "$sub" in
     cat "$d/runs.json"
     ;;
   repo)
-    printf 'sava/ai-cli-application\\n'
+    printf 'you/ai-cli-application\\n'
     ;;
   *)
     ;;
@@ -447,7 +447,7 @@ test('release: --dry-run passes every check but tags nothing', async () => {
   assert.match(r.stdout, /Would run: git push origin refs\/tags\/v1\.2\.3/);
   assert.ok(
     r.stdout.includes(
-      'https://github.com/sava/ai-cli-application/actions/workflows/release.yml',
+      'https://github.com/you/ai-cli-application/actions/workflows/release.yml',
     ),
     r.stdout,
   );
@@ -513,7 +513,7 @@ test('release: the success path tags and pushes, in that order', async () => {
   assert.match(r.stdout, /Tagged 1{40} as v1\.2\.3 and pushed it\./);
   assert.ok(
     r.stdout.includes(
-      'https://github.com/sava/ai-cli-application/actions/workflows/release.yml',
+      'https://github.com/you/ai-cli-application/actions/workflows/release.yml',
     ),
     r.stdout,
   );
@@ -641,7 +641,7 @@ test('release: a NEWER failed run beats an older success on the same commit', as
           status: 'completed',
           conclusion: 'failure',
           databaseId: 44,
-          url: 'https://github.com/sava/ai-cli-application/actions/runs/44',
+          url: 'https://github.com/you/ai-cli-application/actions/runs/44',
         },
         { status: 'completed', conclusion: 'success', databaseId: 43, url: RUN_URL },
       ],
@@ -652,7 +652,7 @@ test('release: a NEWER failed run beats an older success on the same commit', as
   assert.match(r.stderr, /CI did not pass/);
   assert.match(r.stderr, /failure/);
   assert.ok(
-    r.stderr.includes('https://github.com/sava/ai-cli-application/actions/runs/44'),
+    r.stderr.includes('https://github.com/you/ai-cli-application/actions/runs/44'),
     r.stderr,
   );
   assertNothingTagged(r.calls);
@@ -710,10 +710,11 @@ test('workflows: CI and release both call verify.yml, and publishing needs it', 
   assert.ok(ci.includes(call), 'ci.yml must call the shared suite');
   assert.ok(release.includes(call), 'release.yml must call the shared suite');
   // The load-bearing line: without `verify` in `needs`, the publish job runs
-  // beside a red suite instead of behind a green one.
+  // beside a red suite instead of behind a green one. (The other three are the
+  // build jobs; tests/release-workflow.test.ts owns the rest of the graph.)
   assert.match(
     release,
-    /^ {4}needs: \[verify, host\]$/m,
-    'the publish job must wait for BOTH verify and host',
+    /^ {4}needs: \[verify, host, bundle, installer\]$/m,
+    'the publish job must wait for verify and for every build job',
   );
 });

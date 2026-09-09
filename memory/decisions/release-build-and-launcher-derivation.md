@@ -1,10 +1,18 @@
 ---
 type: decision
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 tags: [release, ci, github-actions, launcher, distribution, docs]
 ---
 # Release build on GitHub Actions; launcher derives its config from its own location
+
+> **Extended 2026-09-09 by [[installer-and-self-contained-bundle]] / phase C:**
+> `release.yml` now has five jobs (`verify`, `host`, `bundle` on ubuntu-22.04,
+> `installer` on windows compiling the Setup with ISCC, `release` with
+> `needs: [verify, host, bundle, installer]`), four assets plus one re-hashed
+> `SHA256SUMS.txt`, one `NODE_VERSION` per workflow file, and `actions/cache`
+> (SHA-pinned) joins the pinned-actions list in `verify.yml`. The
+> "never packaged" clause below is superseded; everything else stands.
 
 **Status:** decided (2026-09-08, user's go — "continue werken aan github
 build, zodat andere mensen dit ook kunnen downloaden"). Extends

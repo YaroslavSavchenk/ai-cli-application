@@ -61,7 +61,7 @@ test('commandLabel: every other command is echoed VERBATIM — the custom-comman
     'pwsh',
     'python3',
     'node',
-    '/home/sava/bin/my agent',
+    '/home/you/bin/my agent',
     'CLAUDE',
     'claude-code',
     './claude',
@@ -98,7 +98,7 @@ const historyMetaLabel = (command: string): string | null =>
   isClaudeCommand(command) ? null : commandLabel(command);
 
 test('history meta: a claude entry adds NOTHING — its model tag already names it', () => {
-  for (const c of ['claude', '/home/sava/.local/bin/claude', './claude']) {
+  for (const c of ['claude', '/home/you/.local/bin/claude', './claude']) {
     assert.equal(historyMetaLabel(c), null, c);
   }
 });

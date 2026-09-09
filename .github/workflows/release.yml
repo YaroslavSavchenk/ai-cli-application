@@ -1,32 +1,55 @@
-# Release build: makes the Windows-side native host window downloadable, so a
-# newcomer does not have to build it themselves.
+# Release build: produces everything a user or a developer downloads.
 #
-# What this does NOT do: it does not package the app. The app is a Node backend
-# that runs INSIDE WSL2 and is installed by cloning this repository (see the
-# "Install" section of README.md). The only artifact here is
-# `AiSessionManagerHost-win-x64.zip` -- the four files that
-# `launcher/build-host.ps1` produces into `launcher/host/build/`, which give the
-# app its own Windows taskbar identity. Everything in it is built from the
-# source of the tag being released; nothing is committed to the repo.
+# Four assets, built from the source of the tag being released and nothing
+# committed to the repo:
+#
+#   AI-Session-Manager-Setup-<version>.exe   the app -- the Windows Setup
+#   ai-session-manager-linux-x64.tar.gz      the self-contained Linux bundle
+#                                            the Setup unpacks inside WSL
+#   AiSessionManagerHost-win-x64.zip         the native WebView2 host window,
+#                                            for people running from a clone
+#   SHA256SUMS.txt                           one file, hashing all three plus
+#                                            the four files inside the zip
+#
+# The job graph:
+#
+#   verify     the full suite on the tagged commit (the reusable verify.yml)
+#   host       windows: launcher/build-host.ps1 -> the host zip
+#   bundle     ubuntu-22.04: scripts/build-bundle.sh -> the tarball
+#   installer  windows: needs host + bundle, ISCC -> the Setup exe
+#   release    needs all four; downloads the artifacts, rehashes them into one
+#              SHA256SUMS.txt and publishes
 #
 # Nothing is published unless the full verification suite passed on exactly the
-# commit being released: this workflow calls `verify.yml` -- the same jobs CI
-# runs (typecheck, frontend build, committed icon check, backend test suite) --
-# and the publish job `needs` it. A red test suite blocks the release. The
-# Windows `host` build runs in parallel with it; only publishing waits for both.
+# commit being released: `release` needs `verify`, so a red test suite blocks
+# the publish.
+#
+# Why ubuntu-22.04 for the bundle: node-pty and the Node runtime then link
+# against glibc 2.35, which is what lets the bundle run on Ubuntu 22.04 as well
+# as 24.04+. A bundle built on 24.04 would not run on 22.04. That number is
+# recorded in bundle.json and shown by the installer.
+#
+# NODE_VERSION below is the ONE definition of the Node runtime in this file: it
+# is what setup-node installs AND what goes into the bundle (`--node`). The same
+# value is defined once in verify.yml; tests/release-workflow.test.ts pins that
+# the two agree.
 #
 # Triggers:
 #   - push of a `v*` tag  -> verify + build, then publish a GitHub Release with
-#                            the zip and SHA256SUMS.txt attached;
-#   - workflow_dispatch   -> verify + build and upload the same two files as a
-#                            workflow artifact. Dispatched from a branch it
-#                            publishes nothing; dispatched on a `v*` tag it
-#                            publishes exactly like a tag push (the publish job
-#                            gates on the ref, not on the trigger).
+#                            the four assets attached;
+#   - workflow_dispatch   -> verify + build; every artifact is uploaded as a
+#                            workflow artifact and NOTHING is published. That is
+#                            how a Setup.exe gets tested on Windows before a tag
+#                            exists; its version is `0.0.0-dev+<short sha>`.
+#                            Dispatched on a `v*` tag it publishes exactly like a
+#                            tag push (the publish job gates on the ref, not on
+#                            the trigger).
 #
-# The exe is NOT code-signed. Windows SmartScreen may warn on first run. The
-# WebView2 SDK it links against is pinned by version AND SHA-256 inside
-# build-host.ps1, which refuses to build if either does not match.
+# Neither exe is code-signed. Windows SmartScreen may warn on first run. The
+# WebView2 SDK the host links against is pinned by version AND SHA-256 inside
+# build-host.ps1, which refuses to build if either does not match; the Node
+# runtime in the bundle is verified against nodejs.org's SHASUMS256.txt by
+# build-bundle.sh, which refuses to build if it does not match.
 
 name: Release
 
@@ -37,6 +60,11 @@ on:
 
 # Nothing by default; only the `release` job is granted write access.
 permissions: {}
+
+# The single definition of the Node runtime for this workflow. Keep in step with
+# verify.yml.
+env:
+  NODE_VERSION: '24.20.0'
 
 concurrency:
   # Never cancel a publish that is already running: a half-uploaded release is
@@ -138,7 +166,9 @@ jobs:
           Write-Host ('zip entries: ' + ($entries -join ', '))
 
           # sha256sum-compatible: lowercase hex, two spaces, bare file name, LF.
-          # The zip first, then each file it contains.
+          # The zip first, then each file it contains. The `release` job rehashes
+          # the zip itself and re-extracts the four files, so these lines are a
+          # build-time record, not the published truth.
           $lines = @()
           $lines += ('{0}  {1}' -f (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path -Leaf $zip))
           foreach ($f in $files) {
@@ -162,22 +192,301 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # Tag pushes only. Publishes what `host` built, with the `gh` CLI that is
-  # preinstalled on the runner -- no third-party release action.
-  release:
-    name: publish GitHub Release
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [verify, host]
-    if: startsWith(github.ref, 'refs/tags/v')
+  # Builds the self-contained Linux bundle: pinned Node runtime (SHA-256
+  # verified against nodejs.org), backend, production node_modules with node-pty
+  # compiled here, the built frontend, the start script. The smoke test inside
+  # build-bundle.sh boots the packaged backend and refuses to finish if it does
+  # not come up in installed mode -- so a bundle that cannot run is never
+  # uploaded.
+  #
+  # Deliberately NOT cached here (verify.yml caches the Node download): a
+  # release fetches the runtime from nodejs.org and verifies it, every time.
+  bundle:
+    name: linux bundle (x64)
+    # 22.04, not latest: the glibc this links against is the floor the bundle
+    # can run on. See the note at the top of this file.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, and `npm ci` runs dependency lifecycle
+          # scripts -- they must not find a token in .git/config.
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # The same runtime that goes into the bundle.
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the frontend
+        run: npm run build
+
+      # A tag releases its own name; anything else (a dispatch from a branch)
+      # builds a dev version nobody can mistake for a release. The string ends
+      # up as the bundle's top-level directory name, in bundle.json, in the
+      # Setup's filename and in the directory inside WSL -- so it is computed
+      # ONCE, here, and travels to the installer job in VERSION.txt.
+      - name: Work out the version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = 'tag' ] && [ "${REF_NAME#v}" != "$REF_NAME" ]; then
+            version="$REF_NAME"
+          else
+            version="0.0.0-dev+${COMMIT_SHA:0:7}"
+          fi
+          echo "version: $version"
+          printf 'BUNDLE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+
+      # Smoke test ON (no --skip-smoke): the packaged backend must boot, report
+      # installed mode and shut down cleanly before this succeeds.
+      - name: Build the bundle
+        run: bash scripts/build-bundle.sh --version "$BUNDLE_VERSION" --node "$NODE_VERSION"
+
+      - name: Record the version beside the bundle
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$BUNDLE_VERSION" > dist-release/VERSION.txt
+          ls -l dist-release
+          cat dist-release/ai-session-manager-linux-x64.tar.gz.sha256
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ai-session-manager-linux-x64
+          path: |
+            dist-release/ai-session-manager-linux-x64.tar.gz
+            dist-release/ai-session-manager-linux-x64.tar.gz.sha256
+            dist-release/VERSION.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  # Compiles the Windows Setup with Inno Setup, which is preinstalled on the
+  # windows runner. Needs both binaries: the Setup carries the Linux bundle as a
+  # payload file and the four native-host files.
+  installer:
+    name: windows setup
+    runs-on: windows-latest
+    timeout-minutes: 20
+    needs: [host, bundle]
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The .iss, the helpers and the launcher scripts come from the tree;
+          # nothing here pushes.
+          persist-credentials: false
+
+      # installer/README.md documents this payload layout; the .iss defaults
+      # (BundleTar, HostDir) point at exactly these paths.
+      - name: Download the Linux bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ai-session-manager-linux-x64
+          path: installer/payload
+
       - name: Download the packaged host
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: AiSessionManagerHost-win-x64
-          path: dist-release
+          path: installer/payload/hostzip
+
+      - name: Lay out installer/payload
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $payload = Join-Path $env:GITHUB_WORKSPACE 'installer\payload'
+          $tar = Join-Path $payload 'ai-session-manager-linux-x64.tar.gz'
+          if (-not (Test-Path -LiteralPath $tar -PathType Leaf)) {
+            throw "the bundle did not arrive: $tar"
+          }
+
+          # The bundle job wrote the .sha256 next to the tarball; check the
+          # artifact round-trip before it is baked into a Setup.
+          $expected = ((Get-Content -LiteralPath "$tar.sha256" -Raw).Trim() -split '\s+')[0]
+          $actual = (Get-FileHash -LiteralPath $tar -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) {
+            throw "the bundle's SHA-256 changed in transit: expected $expected, got $actual"
+          }
+          Write-Host "bundle SHA-256 verified: $actual"
+
+          # The four native-host files, flat in payload\host.
+          $hostDir = Join-Path $payload 'host'
+          if (Test-Path -LiteralPath $hostDir) { Remove-Item -LiteralPath $hostDir -Recurse -Force }
+          [void](New-Item -ItemType Directory -Path $hostDir -Force)
+          $zip = Join-Path $payload 'hostzip\AiSessionManagerHost-win-x64.zip'
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) {
+            throw "the host zip did not arrive: $zip"
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath $hostDir -Force
+
+          $names = @(
+            'AiSessionManagerHost.exe',
+            'Microsoft.Web.WebView2.Core.dll',
+            'Microsoft.Web.WebView2.WinForms.dll',
+            'WebView2Loader.dll'
+          )
+          foreach ($n in $names) {
+            $p = Join-Path $hostDir $n
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+              throw "the host zip is missing $n"
+            }
+          }
+
+          Write-Host '--- installer\payload ---'
+          Get-ChildItem -LiteralPath $payload -Recurse -File |
+            ForEach-Object { Write-Host ('  {0,12}  {1}' -f $_.Length, $_.FullName.Substring($payload.Length + 1)) }
+
+      - name: Compile the Setup
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # The version the bundle was built with, and therefore the name of the
+          # directory inside the tarball. AppVersion MUST equal it or the
+          # install refuses with "the archive does not contain
+          # <version>/bundle.json".
+          $versionFile = Join-Path $env:GITHUB_WORKSPACE 'installer\payload\VERSION.txt'
+          $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+          if ($version -notmatch '^v?[0-9][A-Za-z0-9._+\-]{0,63}\z') {
+            throw "VERSION.txt does not hold a usable version: '$version'"
+          }
+          Write-Host "AppVersion: $version"
+
+          # Inno Setup 6 ships on the windows-latest image. If that ever stops
+          # being true, say so loudly instead of silently publishing a release
+          # without the one asset that IS the app.
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            Write-Host "ISCC.exe not found at $iscc -- Inno Setup 6 is not installed on this runner."
+            Write-Host 'The Windows Setup cannot be built. Install Inno Setup 6 in this job, or pin a runner image that ships it.'
+            exit 1
+          }
+          Write-Host "ISCC: $iscc"
+
+          & $iscc "/DAppVersion=$version" `
+            '/DBundleTar=payload\ai-session-manager-linux-x64.tar.gz' `
+            '/DHostDir=payload\host' `
+            'installer\ai-session-manager.iss'
+          if ($LASTEXITCODE -ne 0) {
+            throw "ISCC failed with exit code $LASTEXITCODE"
+          }
+
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'dist-release'
+          $setupName = "AI-Session-Manager-Setup-$version.exe"
+          $setup = Join-Path $outDir $setupName
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw "ISCC reported success but $setup does not exist"
+          }
+
+          # sha256sum-compatible: lowercase hex, two spaces, bare file name, LF.
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $line = '{0}  {1}' -f $hash, $setupName
+          [System.IO.File]::WriteAllText("$setup.sha256", ($line + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+
+          Write-Host '--- dist-release ---'
+          Get-ChildItem -LiteralPath $outDir | ForEach-Object { Write-Host ('  {0,12}  {1}' -f $_.Length, $_.Name) }
+          Write-Host $line
+
+      - name: Upload the Setup
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: AI-Session-Manager-Setup
+          path: |
+            dist-release/AI-Session-Manager-Setup-*.exe
+            dist-release/AI-Session-Manager-Setup-*.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  # Tag pushes only. Publishes what the three build jobs made, with the `gh` CLI
+  # that is preinstalled on the runner -- no third-party release action.
+  release:
+    name: publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [verify, host, bundle, installer]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      # No `name:` -> every artifact of this run, each into its own directory
+      # under downloads/.
+      - name: Download every artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: downloads
+
+      - name: Assemble the release directory and rehash everything
+        run: |
+          set -euo pipefail
+          find downloads -type f | sort
+
+          mkdir -p dist-release
+          BUNDLE_DIR='downloads/ai-session-manager-linux-x64'
+          HOST_DIR='downloads/AiSessionManagerHost-win-x64'
+          SETUP_DIR='downloads/AI-Session-Manager-Setup'
+
+          VERSION="$(tr -d '[:space:]' < "$BUNDLE_DIR/VERSION.txt")"
+          # The same shape the installer job's PowerShell gate enforces on
+          # VERSION.txt, checked again here: this string becomes a filename, a
+          # tag and a release title.
+          if ! [[ "$VERSION" =~ ^v[0-9][A-Za-z0-9._+-]{0,63}$ ]]; then
+            echo "the bundle was built as \"$VERSION\", which is not a v<digit> release version" >&2
+            exit 1
+          fi
+          SETUP_NAME="AI-Session-Manager-Setup-$VERSION.exe"
+
+          cp "$SETUP_DIR/$SETUP_NAME" dist-release/
+          cp "$BUNDLE_DIR/ai-session-manager-linux-x64.tar.gz" dist-release/
+          cp "$HOST_DIR/AiSessionManagerHost-win-x64.zip" dist-release/
+
+          # The four files inside the host zip are hashed HERE, from the zip
+          # that is about to be published, instead of trusting the lines the
+          # windows job wrote.
+          command -v unzip >/dev/null 2>&1 || { echo 'unzip is not installed on this runner' >&2; exit 1; }
+          rm -rf hostfiles
+          mkdir -p hostfiles
+          unzip -q -o dist-release/AiSessionManagerHost-win-x64.zip -d hostfiles
+
+          cd dist-release
+          sha256sum "$SETUP_NAME" \
+            ai-session-manager-linux-x64.tar.gz \
+            AiSessionManagerHost-win-x64.zip > SHA256SUMS.txt
+          ( cd ../hostfiles && sha256sum \
+              AiSessionManagerHost.exe \
+              Microsoft.Web.WebView2.Core.dll \
+              Microsoft.Web.WebView2.WinForms.dll \
+              WebView2Loader.dll ) >> SHA256SUMS.txt
+
+          # The four host lines name files that are not in this directory, hence
+          # --ignore-missing; the three assets are all present and are checked.
+          sha256sum -c --ignore-missing SHA256SUMS.txt
+
+          echo "--- dist-release ---"
+          ls -l
+          echo "--- SHA256SUMS.txt ---"
+          cat SHA256SUMS.txt
+
+          {
+            printf 'RELEASE_VERSION=%s\n' "$VERSION"
+            printf 'SETUP_NAME=%s\n' "$SETUP_NAME"
+          } >> "$GITHUB_ENV"
 
       - name: Publish
         env:
@@ -190,41 +499,64 @@ jobs:
           set -euo pipefail
           cd dist-release
           ls -l
-          sha256sum -c --ignore-missing SHA256SUMS.txt
-          ZIP_SHA="$(awk '$2 == "AiSessionManagerHost-win-x64.zip" { print $1 }' SHA256SUMS.txt)"
-          test -n "$ZIP_SHA"
+
+          if [ "$TAG" != "$RELEASE_VERSION" ]; then
+            echo "the tag is $TAG but the artifacts were built as $RELEASE_VERSION" >&2
+            exit 1
+          fi
+
+          SETUP_SHA="$(awk -v n="$SETUP_NAME" '$2 == n { print $1 }' SHA256SUMS.txt)"
+          test -n "$SETUP_SHA"
 
           cat > notes.md <<EOF
-          ### Windows host window (optional download)
+          ### Install on Windows
 
-          \`AiSessionManagerHost-win-x64.zip\` is **not the app** — the app is a
-          Node backend that runs inside WSL2 and is installed by cloning this
-          repository. The zip holds the small native **WebView2 host window**
-          the Windows launcher opens the UI in, so the app gets its own taskbar
-          button and icon instead of Edge's. Building it yourself with
-          \`launcher/build-host.ps1\` produces the same four files; this
-          download only saves you that step.
+          **\`$SETUP_NAME\` is the app.** Download it, run it, and the wizard
+          does the rest. It needs **Windows 10 or 11 with WSL2** and a Linux
+          distribution whose glibc is **2.35 or newer** (Ubuntu 22.04 and later,
+          Debian 12 and later). It installs **per user and never asks for
+          administrator rights**, it brings **its own Node runtime** into the
+          distribution — no Node, no git and no build tools needed there — and it
+          **installs nothing third-party without asking**: anything extra (today
+          that is Claude Code) sits on a consent page with the exact command,
+          switched off. If WSL2 or a distribution is missing, the wizard says so,
+          shows the command that fixes it, and stops.
 
-          **Install:** extract the four files into \`launcher/host/build/\`
-          inside your clone (create the folder), then run
-          \`launcher/make-shortcut.ps1\`. Full instructions:
-          [README → Install]($REPO_URL#install).
+          ### The other two downloads
 
-          SHA-256 of the zip:
+          \`ai-session-manager-linux-x64.tar.gz\` is what the Setup unpacks
+          inside your distribution: the backend, its production dependencies,
+          the built frontend and the pinned Node runtime, in one directory named
+          after this version. Download it to see exactly what the Setup installs,
+          or to unpack it yourself.
+
+          \`AiSessionManagerHost-win-x64.zip\` is for people who run the app from
+          a clone of this repository. It holds the four files of the native
+          WebView2 host window, which give the app its own taskbar button and
+          icon: extract them into \`launcher/host/build/\` in your clone and run
+          \`launcher/make-shortcut.ps1\`. The Setup already contains them.
+
+          ### Checksums
 
           \`\`\`
-          $ZIP_SHA  AiSessionManagerHost-win-x64.zip
+          $SETUP_SHA  $SETUP_NAME
           \`\`\`
 
-          \`SHA256SUMS.txt\` additionally lists the hash of each of the four
-          extracted files (\`sha256sum\`-compatible; on Windows use
-          \`Get-FileHash\`).
+          \`SHA256SUMS.txt\` lists all three downloads and the four files inside
+          the host zip (\`sha256sum\`-compatible; on Windows use
+          \`Get-FileHash\`, which prints uppercase — a difference in case is not
+          a mismatch).
 
-          **The exe is not code-signed.** It is compiled by GitHub Actions from
-          the source of this tag, against a WebView2 SDK pinned by version and
-          verified by SHA-256. Windows SmartScreen may show "Windows protected
-          your PC" the first time — *More info → Run anyway*. Everything the app
-          does stays on 127.0.0.1.
+          **Neither executable is code-signed.** Both the Setup and the host exe
+          are built by GitHub Actions from the source of this tag; the WebView2
+          SDK is pinned by version and SHA-256, and the bundled Node runtime is
+          verified against nodejs.org's own \`SHASUMS256.txt\` during the build.
+          But there is no certificate on either file, so the first run shows
+          "Windows protected your PC" — *More info → Run anyway*. Do that only
+          for a file downloaded from this releases page, ideally after checking
+          the SHA-256 above. Everything the app does stays on 127.0.0.1.
+
+          Full instructions: [README → Install]($REPO_URL#install).
           EOF
 
           # Idempotent: a re-run after a failed publish updates the existing
@@ -232,14 +564,18 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release $TAG already exists — uploading assets with --clobber"
             gh release upload "$TAG" \
-              AiSessionManagerHost-win-x64.zip SHA256SUMS.txt --clobber
-            # The re-uploaded zip is a NEW file (csc and Compress-Archive are
-            # not deterministic), so the hash in the old body no longer matches
-            # the asset that is now attached. Rewrite the body from the notes
-            # built above. Cost: a re-run drops the auto-generated changelog
-            # that --generate-notes appended on the first publish. A body whose
-            # SHA-256 matches the download is worth more than that changelog.
-            echo "refreshing the release notes so the published hash matches the uploaded zip"
+              "$SETUP_NAME" \
+              ai-session-manager-linux-x64.tar.gz \
+              AiSessionManagerHost-win-x64.zip \
+              SHA256SUMS.txt --clobber
+            # The re-uploaded binaries are NEW files (csc, Compress-Archive, the
+            # node-pty compile and npm's bookkeeping are not deterministic), so
+            # the hash in the old body no longer matches what is now attached.
+            # Rewrite the body from the notes built above. Cost: a re-run drops
+            # the auto-generated changelog that --generate-notes appended on the
+            # first publish. A body whose SHA-256 matches the download is worth
+            # more than that changelog.
+            echo "refreshing the release notes so the published hash matches the uploaded Setup"
             gh release edit "$TAG" --notes-file notes.md
           else
             # --notes-file supplies the block above; --generate-notes appends
@@ -250,7 +586,10 @@ jobs:
               --title "$TAG" \
               --notes-file notes.md \
               --generate-notes \
-              AiSessionManagerHost-win-x64.zip SHA256SUMS.txt
+              "$SETUP_NAME" \
+              ai-session-manager-linux-x64.tar.gz \
+              AiSessionManagerHost-win-x64.zip \
+              SHA256SUMS.txt
           fi
           gh release view "$TAG" --json tagName,url,assets \
             --jq '.tagName + " " + .url + "\n" + (.assets[] | .name + " " + (.size|tostring))'

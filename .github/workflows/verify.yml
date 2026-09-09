@@ -1,8 +1,11 @@
 # The verification suite, in one place: typecheck, frontend build, committed
-# icon artifacts, and the backend test suite. Called by `ci.yml` (push to main,
-# every pull request) and by `release.yml` (a `v*` tag must pass this before
-# anything is published), so CI and a release prove exactly the same thing about
-# exactly the same commit.
+# icon artifacts, the backend test suite, and the self-contained Linux bundle.
+# Called by `ci.yml` (push to main, every pull request) and by `release.yml` (a
+# `v*` tag must pass this before anything is published), so CI and a release
+# prove exactly the same thing about exactly the same commit.
+#
+# The three jobs surface as the checks `verify / typecheck + build`,
+# `verify / backend test suite` and `verify / linux bundle`.
 #
 # Two facts that explain the shape below:
 #   - node-pty 1.1.0 ships NO linux-x64 prebuild, so `npm ci` compiles it from
@@ -24,6 +27,13 @@ on:
 # Nothing by default; each job asks for exactly what it needs.
 permissions: {}
 
+# The single definition of the Node runtime for this workflow: what setup-node
+# installs in every job below AND what `scripts/build-bundle.sh` bundles. The
+# same value is defined once in release.yml; tests/release-workflow.test.ts pins
+# that the two agree.
+env:
+  NODE_VERSION: '24.20.0'
+
 jobs:
   check:
     name: typecheck + build
@@ -42,7 +52,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -74,7 +84,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -89,3 +99,54 @@ jobs:
       # Spawns real servers and PTYs. See the note at the top of this file.
       - name: Run the test suite
         run: npm test
+
+  # Proves the self-contained Linux bundle still builds AND boots: the smoke
+  # test inside build-bundle.sh starts the packaged backend, checks that it
+  # reports installed mode, and shuts it down. Nothing is uploaded -- CI's job
+  # here is to catch a bundle that breaks, not to hand one out (release.yml
+  # builds the published one).
+  #
+  # 22.04, not latest: node-pty and the Node runtime then link against glibc
+  # 2.35, the floor the bundle promises. A bundle built on 24.04 would not run
+  # on 22.04, and the number lands in bundle.json.
+  bundle:
+    name: linux bundle
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, and `npm ci` runs dependency lifecycle
+          # scripts -- they must not find a token in .git/config.
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # The same runtime that goes into the bundle.
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # The ~50 MB Node tarball build-bundle.sh downloads. Keyed by the exact
+      # version, so a NODE_VERSION bump simply misses and re-downloads. The
+      # SHASUMS256.txt it is checked against is re-fetched on every run and
+      # never cached, so a cached tarball is still verified against nodejs.org.
+      - name: Cache the Node runtime download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/node-cache
+          key: node-dist-linux-x64-${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the frontend
+        run: npm run build
+
+      # A dev version: this bundle is never published. GITHUB_SHA is a plain
+      # environment variable on the runner, not a template expression.
+      - name: Build the bundle (with the smoke test)
+        run: bash scripts/build-bundle.sh --version "0.0.0-dev+${GITHUB_SHA:0:7}" --node "$NODE_VERSION"

@@ -441,13 +441,13 @@ test('projectName resolves to the NAME — never the path, never the id', () => 
     {
       id: 'p1',
       name: 'Session Manager',
-      path: '/home/sava/projects/ai-cli-application',
+      path: '/home/you/projects/ai-cli-application',
       createdAt: '2026-09-06T12:00:00.000Z',
     },
     {
       id: 'p2',
       name: 'notes',
-      path: '/home/sava/projects/acme/notes',
+      path: '/home/you/projects/acme/notes',
       createdAt: '2026-09-06T12:00:00.000Z',
     },
   ]);

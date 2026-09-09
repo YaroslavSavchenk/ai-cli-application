@@ -85,7 +85,7 @@ function project(over: Partial<Project> = {}): Project {
   return {
     id: 'p1',
     name: 'ai-cli-application',
-    path: '/home/sava/projects/ai-cli-application',
+    path: '/home/you/projects/ai-cli-application',
     createdAt: '2026-07-01T00:00:00.000Z',
     ...over,
   };
@@ -705,32 +705,32 @@ test('cadence constants are the documented values', () => {
 // ---------------------------------------------------------------------------
 
 test('defaultDest: <home>/projects/<name>, with a trailing slash on home tolerated', () => {
-  assert.equal(defaultDest('/home/sava', 'ai-cli-application'), '/home/sava/projects/ai-cli-application');
-  assert.equal(defaultDest('/home/sava/', 'x'), '/home/sava/projects/x');
+  assert.equal(defaultDest('/home/you', 'ai-cli-application'), '/home/you/projects/ai-cli-application');
+  assert.equal(defaultDest('/home/you/', 'x'), '/home/you/projects/x');
   assert.equal(defaultDest('/', 'x'), '/projects/x');
 });
 
 test('ownerDest: <home>/projects/<owner>/<repo> — the destination every app clone now uses', () => {
-  assert.equal(ownerDest('/home/sava', 'acme', 'api'), '/home/sava/projects/acme/api');
-  assert.equal(ownerDest('/home/sava/', 'acme', 'api'), '/home/sava/projects/acme/api', 'trailing slash');
+  assert.equal(ownerDest('/home/you', 'acme', 'api'), '/home/you/projects/acme/api');
+  assert.equal(ownerDest('/home/you/', 'acme', 'api'), '/home/you/projects/acme/api', 'trailing slash');
   assert.equal(ownerDest('/', 'acme', 'api'), '/projects/acme/api', 'root home');
 });
 
 test('ownerDest: the SAME repo name under two owners produces two different destinations', () => {
   // This is the whole point of the 2026-07-25 decision: the old shared
   // <home>/projects/api made the second clone 409 and mis-resolve to the first.
-  assert.notEqual(ownerDest('/home/sava', 'acme', 'api'), ownerDest('/home/sava', 'myorg', 'api'));
-  assert.equal(ownerDest('/home/sava', 'acme', 'api'), '/home/sava/projects/acme/api');
-  assert.equal(ownerDest('/home/sava', 'myorg', 'api'), '/home/sava/projects/myorg/api');
+  assert.notEqual(ownerDest('/home/you', 'acme', 'api'), ownerDest('/home/you', 'myorg', 'api'));
+  assert.equal(ownerDest('/home/you', 'acme', 'api'), '/home/you/projects/acme/api');
+  assert.equal(ownerDest('/home/you', 'myorg', 'api'), '/home/you/projects/myorg/api');
 });
 
 test('ownerDest: its owner segment is the ONLY difference from the legacy defaultDest', () => {
   // Pins the two conventions against silent drift: same home, same leaf.
-  assert.equal(ownerDest('/home/sava', 'acme', 'api'), `${defaultDest('/home/sava', 'acme')}/api`);
+  assert.equal(ownerDest('/home/you', 'acme', 'api'), `${defaultDest('/home/you', 'acme')}/api`);
 });
 
 test('clonedProject: no local projects at all → null (the row offers clone)', () => {
-  assert.equal(clonedProject(repo(), '/home/sava', []), null);
+  assert.equal(clonedProject(repo(), '/home/you', []), null);
 });
 
 test('clonedProject: matches by NAME even before home resolves (home null)', () => {
@@ -740,29 +740,29 @@ test('clonedProject: matches by NAME even before home resolves (home null)', () 
 
 test('clonedProject: matches by the LEGACY clone path when the name differs', () => {
   const p = project({ id: 'p2', name: 'renamed-locally' });
-  assert.equal(clonedProject(repo(), '/home/sava', [p]), p);
+  assert.equal(clonedProject(repo(), '/home/you', [p]), p);
 });
 
 test('clonedProject: an app clone at the OWNER-QUALIFIED path is matched, and needs no home', () => {
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
-  const p = project({ id: 'p-owner', name: 'api', path: ownerDest('/home/sava', 'acme', 'api') });
-  assert.equal(clonedProject(r, '/home/sava', [p]), p);
+  const p = project({ id: 'p-owner', name: 'api', path: ownerDest('/home/you', 'acme', 'api') });
+  assert.equal(clonedProject(r, '/home/you', [p]), p);
   assert.equal(clonedProject(r, null, [p]), p, 'path-tail matching does not depend on home');
 });
 
 test('clonedProject: the owner-qualified path tail wins over a bare-named LEGACY project', () => {
-  const legacy = project({ id: 'legacy', name: 'api', path: '/home/sava/projects/api' });
-  const owned = project({ id: 'owned', name: 'my api', path: '/home/sava/projects/myorg/api' });
+  const legacy = project({ id: 'legacy', name: 'api', path: '/home/you/projects/api' });
+  const owned = project({ id: 'owned', name: 'my api', path: '/home/you/projects/myorg/api' });
   const r = repo({ fullName: 'myorg/api', name: 'api', owner: 'myorg' });
-  assert.equal(clonedProject(r, '/home/sava', [legacy, owned]), owned, 'tail match is checked FIRST');
+  assert.equal(clonedProject(r, '/home/you', [legacy, owned]), owned, 'tail match is checked FIRST');
 });
 
 test('clonedProject: a path tail under a DIFFERENT owner is never a match (segment-exact)', () => {
-  const other = project({ id: 'other', name: 'x', path: '/home/sava/projects/myorg/api' });
-  const suffix = project({ id: 'suffix', name: 'y', path: '/home/sava/projects/notacme/api' });
-  const deeper = project({ id: 'deeper', name: 'z', path: '/home/sava/projects/acme/api/sub' });
+  const other = project({ id: 'other', name: 'x', path: '/home/you/projects/myorg/api' });
+  const suffix = project({ id: 'suffix', name: 'y', path: '/home/you/projects/notacme/api' });
+  const deeper = project({ id: 'deeper', name: 'z', path: '/home/you/projects/acme/api/sub' });
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
-  assert.equal(clonedProject(r, '/home/sava', [other, suffix, deeper]), null);
+  assert.equal(clonedProject(r, '/home/you', [other, suffix, deeper]), null);
 });
 
 test('clonedProject: the OWNER segment matches case-insensitively — the same rule the server applies', () => {
@@ -772,20 +772,20 @@ test('clonedProject: the OWNER segment matches case-insensitively — the same r
   // offering `clone` for it. The repo segment stays exact — it is a real
   // filesystem name, and the server's vacancy check is exact.
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
-  const upper = project({ id: 'p-upper', name: 'x', path: '/home/sava/projects/Acme/api' });
-  assert.equal(clonedProject(r, '/home/sava', [upper]), upper, 'owner case is ignored');
+  const upper = project({ id: 'p-upper', name: 'x', path: '/home/you/projects/Acme/api' });
+  assert.equal(clonedProject(r, '/home/you', [upper]), upper, 'owner case is ignored');
   const mixed = repo({ fullName: 'AcMe/api', name: 'api', owner: 'AcMe' });
-  const lower = project({ id: 'p-lower', name: 'y', path: '/home/sava/projects/acme/api' });
-  assert.equal(clonedProject(mixed, '/home/sava', [lower]), lower, 'in both directions');
+  const lower = project({ id: 'p-lower', name: 'y', path: '/home/you/projects/acme/api' });
+  assert.equal(clonedProject(mixed, '/home/you', [lower]), lower, 'in both directions');
   // The repo segment is NOT case-folded.
-  const upperRepo = project({ id: 'p-repo', name: 'z', path: '/home/sava/projects/acme/API' });
-  assert.equal(clonedProject(r, '/home/sava', [upperRepo]), null, 'a different repo folder is not ours');
+  const upperRepo = project({ id: 'p-repo', name: 'z', path: '/home/you/projects/acme/API' });
+  assert.equal(clonedProject(r, '/home/you', [upperRepo]), null, 'a different repo folder is not ours');
 });
 
 test('clonedProject: a trailing slash on a stored path does not break the tail match', () => {
-  const p = project({ id: 'slash', name: 'x', path: '/home/sava/projects/acme/api/' });
+  const p = project({ id: 'slash', name: 'x', path: '/home/you/projects/acme/api/' });
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
-  assert.equal(clonedProject(r, '/home/sava', [p]), p);
+  assert.equal(clonedProject(r, '/home/you', [p]), p);
 });
 
 test('clonedProject: a hand-placed checkout following the same convention is matched too', () => {
@@ -793,7 +793,7 @@ test('clonedProject: a hand-placed checkout following the same convention is mat
   // <home>/projects — the tail match is deliberately home-independent.
   const p = project({ id: 'srv', name: 'work api', path: '/srv/src/acme/api' });
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
-  assert.equal(clonedProject(r, '/home/sava', [p]), p);
+  assert.equal(clonedProject(r, '/home/you', [p]), p);
 });
 
 test('clonedProject: a path-only match needs home — without it the row still offers clone', () => {
@@ -802,28 +802,28 @@ test('clonedProject: a path-only match needs home — without it the row still o
 });
 
 test('clonedProject: a project elsewhere with a different name is NOT a match', () => {
-  const p = project({ id: 'p3', name: 'unrelated', path: '/home/sava/work/unrelated' });
-  assert.equal(clonedProject(repo(), '/home/sava', [p]), null);
+  const p = project({ id: 'p3', name: 'unrelated', path: '/home/you/work/unrelated' });
+  assert.equal(clonedProject(repo(), '/home/you', [p]), null);
 });
 
 test('clonedProject: the FIRST match in project order wins', () => {
   const byName = project({ id: 'first', name: 'ai-cli-application', path: '/opt/checkout' });
   const byPath = project({ id: 'second', name: 'other' });
-  assert.equal(clonedProject(repo(), '/home/sava', [byName, byPath]), byName);
+  assert.equal(clonedProject(repo(), '/home/you', [byName, byPath]), byName);
 });
 
 test('clonedProject: an OWNER-QUALIFIED project (named `<owner>/<name>`) wins over a bare-name one', () => {
   // GET /user/repos also returns repos you only collaborate on, so one list can
   // hold acme/api AND myorg/api. A user who disambiguates by naming the project
   // `<owner>/<name>` must get THAT project for THAT repo — never the other one.
-  const acme = project({ id: 'acme', name: 'acme/api', path: '/home/sava/work/acme-api' });
-  const myorg = project({ id: 'myorg', name: 'myorg/api', path: '/home/sava/work/myorg-api' });
-  const bare = project({ id: 'bare', name: 'api', path: '/home/sava/projects/api' });
+  const acme = project({ id: 'acme', name: 'acme/api', path: '/home/you/work/acme-api' });
+  const myorg = project({ id: 'myorg', name: 'myorg/api', path: '/home/you/work/myorg-api' });
+  const bare = project({ id: 'bare', name: 'api', path: '/home/you/projects/api' });
   const acmeRepo = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
   const myorgRepo = repo({ fullName: 'myorg/api', name: 'api', owner: 'myorg' });
 
-  assert.equal(clonedProject(acmeRepo, '/home/sava', [bare, acme, myorg]), acme);
-  assert.equal(clonedProject(myorgRepo, '/home/sava', [bare, acme, myorg]), myorg);
+  assert.equal(clonedProject(acmeRepo, '/home/you', [bare, acme, myorg]), acme);
+  assert.equal(clonedProject(myorgRepo, '/home/you', [bare, acme, myorg]), myorg);
   assert.equal(
     clonedProject(acmeRepo, null, [bare, acme]),
     acme,
@@ -832,9 +832,9 @@ test('clonedProject: an OWNER-QUALIFIED project (named `<owner>/<name>`) wins ov
 });
 
 test('clonedProject: the bare-name fallback applies only when NO owner-qualified project exists', () => {
-  const bare = project({ id: 'bare', name: 'api', path: '/home/sava/projects/api' });
+  const bare = project({ id: 'bare', name: 'api', path: '/home/you/projects/api' });
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
-  assert.equal(clonedProject(r, '/home/sava', [bare]), bare, 'no `acme/api` project → fall back');
+  assert.equal(clonedProject(r, '/home/you', [bare]), bare, 'no `acme/api` project → fall back');
 });
 
 test('two same-basename repos from different owners are BOTH cloneable and each identified correctly', () => {
@@ -843,7 +843,7 @@ test('two same-basename repos from different owners are BOTH cloneable and each 
   // owner-qualified clone paths, so this is now real behaviour:
   // <home>/projects/<owner>/<repo> per clone, and clonedProject resolves each
   // GitHub row to ITS OWN project — never the other owner's folder.
-  const home = '/home/sava';
+  const home = '/home/you';
   const acmeRepo = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
   const myorgRepo = repo({ fullName: 'myorg/api', name: 'api', owner: 'myorg' });
 
@@ -859,7 +859,7 @@ test('two same-basename repos from different owners are BOTH cloneable and each 
     path: ownerDest(home, 'acme', 'api'),
     createdAt: '2026-07-25T10:00:00.000Z',
   };
-  assert.equal(acmeProject.path, '/home/sava/projects/acme/api');
+  assert.equal(acmeProject.path, '/home/you/projects/acme/api');
   assert.equal(clonedProject(acmeRepo, home, [acmeProject]), acmeProject, 'acme row → its own clone');
   assert.equal(
     clonedProject(myorgRepo, home, [acmeProject]),
@@ -892,12 +892,12 @@ test('clonedProject: another owner’s app clone is excluded from the owner-blin
   // The first of two same-basename clones legitimately registers as `api` (the
   // name was free), so the bare-NAME tier would otherwise return it for the
   // OTHER owner's row. Its path says whose it is, and that wins.
-  const home = '/home/sava';
+  const home = '/home/you';
   const acme = project({ id: 'p-acme', name: 'api', path: ownerDest(home, 'acme', 'api') });
   const myorgRepo = repo({ fullName: 'myorg/api', name: 'api', owner: 'myorg' });
   assert.equal(clonedProject(myorgRepo, home, [acme]), null, 'offers clone, not acme’s folder');
   // The exclusion is EXACT: only `<home>/projects/<other>/<repo>` is excluded.
-  const elsewhere = project({ id: 'p-else', name: 'api', path: '/home/sava/dev/checkouts/api' });
+  const elsewhere = project({ id: 'p-else', name: 'api', path: '/home/you/dev/checkouts/api' });
   assert.equal(
     clonedProject(myorgRepo, home, [elsewhere]),
     elsewhere,
@@ -912,16 +912,16 @@ test('clonedProject: RESIDUAL LIMIT — before $HOME resolves the owner-blind ti
   // null a bare-named clone of another owner can satisfy a row for one repaint.
   // github.ts resolves home on tab open and rebuilds the list when it lands, and
   // the server's dest/409 rules are owner-qualified regardless.
-  const acme = project({ id: 'p-acme', name: 'api', path: '/home/sava/projects/acme/api' });
+  const acme = project({ id: 'p-acme', name: 'api', path: '/home/you/projects/acme/api' });
   const myorgRepo = repo({ fullName: 'myorg/api', name: 'api', owner: 'myorg' });
   assert.equal(clonedProject(myorgRepo, null, [acme]), acme, 'transient, home-null only');
-  assert.equal(clonedProject(myorgRepo, '/home/sava', [acme]), null, 'corrected as soon as home is known');
+  assert.equal(clonedProject(myorgRepo, '/home/you', [acme]), null, 'corrected as soon as home is known');
 });
 
 test('clonedProject: a LEGACY bare clone (pre-2026-07-25) is still recognized — existing users keep working', () => {
   // What the flow produced BEFORE owner-qualified paths: name = repo basename at
   // <home>/projects/<repo>. Recognized by the fallback tier, by name and by path.
-  const home = '/home/sava';
+  const home = '/home/you';
   const legacy: Project = {
     id: 'p-legacy',
     name: 'api',
@@ -947,7 +947,7 @@ test('clonedProject: RESIDUAL LIMIT — the LEGACY fallback tier is still owner-
   const r = repo({ fullName: 'someoneelse/ai-cli-application', owner: 'someoneelse' });
   const legacyBare = project(); // name/path from before the change
   assert.equal(
-    clonedProject(r, '/home/sava', [legacyBare]),
+    clonedProject(r, '/home/you', [legacyBare]),
     legacyBare,
     'indistinguishable from the pre-change clone of the same basename',
   );
@@ -955,11 +955,11 @@ test('clonedProject: RESIDUAL LIMIT — the LEGACY fallback tier is still owner-
   const owned = project({
     id: 'owned',
     name: 'someoneelse/ai-cli-application',
-    path: ownerDest('/home/sava', 'someoneelse', 'ai-cli-application'),
+    path: ownerDest('/home/you', 'someoneelse', 'ai-cli-application'),
   });
-  assert.equal(clonedProject(r, '/home/sava', [legacyBare, owned]), owned);
+  assert.equal(clonedProject(r, '/home/you', [legacyBare, owned]), owned);
   assert.equal(
-    clonedProject(repo(), '/home/sava', [legacyBare, owned]),
+    clonedProject(repo(), '/home/you', [legacyBare, owned]),
     legacyBare,
     'and sava/ai-cli-application still resolves to the legacy project, not someoneelse’s',
   );
@@ -1044,11 +1044,11 @@ test('tokenErrText: no fallback describes the token itself — no length, prefix
 
 test('defaultDest agrees BYTE-FOR-BYTE with both New Project suggestions (one <home>/projects convention)', () => {
   const cases: [string, string][] = [
-    ['/home/sava', 'api'],
-    ['/home/sava/', 'api'], // trailing slash on home
+    ['/home/you', 'api'],
+    ['/home/you/', 'api'], // trailing slash on home
     ['/', 'api'], // root home
-    ['/home/sava', 'name with spaces'],
-    ['/home/sava', '.dotted'],
+    ['/home/you', 'name with spaces'],
+    ['/home/you', '.dotted'],
   ];
   for (const [home, name] of cases) {
     const dest = defaultDest(home, name);
@@ -1065,7 +1065,7 @@ test('a repo cloned through the URL panel is detected in the GitHub list (both f
   // The URL-clone path the New Project dialog proposes (newproject.ts:283) and
   // the name the server registers for it (server/api.ts: repoNameFromUrl(url)
   // -> the bare basename) — the GitHub list must recognize THAT project.
-  const home = '/home/sava';
+  const home = '/home/you';
   const url = 'https://github.com/acme/api.git';
   const urlCloned: Project = {
     id: 'p-url',
@@ -1073,7 +1073,7 @@ test('a repo cloned through the URL panel is detected in the GitHub list (both f
     path: suggestDestPath(home, url),
     createdAt: '2026-07-24T00:00:00.000Z',
   };
-  assert.equal(urlCloned.path, '/home/sava/projects/api', 'the url flow lands in <home>/projects/<basename>');
+  assert.equal(urlCloned.path, '/home/you/projects/api', 'the url flow lands in <home>/projects/<basename>');
   const r = repo({ fullName: 'acme/api', name: 'api', owner: 'acme' });
   assert.equal(clonedProject(r, home, [urlCloned]), urlCloned, 'the row must offer `open`, not a 409 `clone`');
   // And by PATH alone, i.e. even if the project was renamed after cloning.

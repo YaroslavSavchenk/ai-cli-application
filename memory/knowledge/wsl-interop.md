@@ -42,7 +42,7 @@ Facts this project's Windows integration relies on:
 - **The distro here is `Ubuntu-24.04`, not `Ubuntu`** — never hardcode a
   distro name; the launcher does unique-prefix auto-resolution with a
   guided error listing installed distros.
-- **Dev environment**: repo at `/home/sava/projects/ai-cli-application`;
+- **Dev environment**: repo at `/home/you/projects/ai-cli-application`;
   Obsidian/Explorer reach it via `\\wsl$\Ubuntu\...`.
 - **Never launch a Windows `.exe` straight from a `\\wsl.localhost` (or
   `\\wsl$`) UNC path**: it runs in the network zone, so `Start-Process` /

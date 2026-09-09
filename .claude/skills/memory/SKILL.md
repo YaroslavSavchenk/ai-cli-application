@@ -7,7 +7,7 @@ description: Read and write the project's Obsidian-style memory vault in memory/
 
 The vault lives at `memory/` in the repo root. It is plain markdown with
 `[[wikilinks]]`, fully compatible with Obsidian (the user may open it as a
-vault via `\\wsl$\Ubuntu\home\sava\projects\ai-cli-application\memory`).
+vault via `\\wsl$\Ubuntu\home\you\projects\ai-cli-application\memory`).
 `.obsidian/` is gitignored — never create or edit files inside it.
 
 ## Division of labor — do not blur it

@@ -73,8 +73,8 @@ export interface Crumb {
 }
 
 /**
- * Breadcrumb segments for an absolute path, root first: `/home/sava/x` →
- * `[/, home, sava, x]` with each crumb carrying its cumulative absolute path.
+ * Breadcrumb segments for an absolute path, root first: `/home/you/x` →
+ * `[/, home, you, x]` with each crumb carrying its cumulative absolute path.
  */
 export function breadcrumbs(path: string): Crumb[] {
   if (path === '/' || path === '') return [{ label: '/', path: '/' }];

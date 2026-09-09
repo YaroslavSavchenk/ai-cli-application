@@ -75,7 +75,7 @@ test('hasSettingsArg: both spellings of a client-supplied --settings are respect
 });
 
 test('shellQuote: safe paths pass through, hostile ones cannot escape the quotes', () => {
-  assert.equal(shellQuote('/home/sava/.ai-session-manager/prefs.json'), '/home/sava/.ai-session-manager/prefs.json');
+  assert.equal(shellQuote('/home/you/.ai-session-manager/prefs.json'), '/home/you/.ai-session-manager/prefs.json');
   assert.equal(shellQuote('acceptEdits'), 'acceptEdits');
   assert.equal(shellQuote('/data dir/prefs.json'), "'/data dir/prefs.json'");
   assert.equal(shellQuote('/a;rm -rf ~/b'), "'/a;rm -rf ~/b'");

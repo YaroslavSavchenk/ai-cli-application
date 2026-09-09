@@ -210,8 +210,8 @@ test('fmtAgo: an unparsable timestamp renders as an em dash, never a fabricated 
 // ---------------------------------------------------------------------------
 
 test('baseName: the last path segment', () => {
-  assert.equal(baseName('/home/sava/projects/web-ui'), 'web-ui');
-  assert.equal(baseName('/home/sava/projects/web-ui/'), 'web-ui');
+  assert.equal(baseName('/home/you/projects/web-ui'), 'web-ui');
+  assert.equal(baseName('/home/you/projects/web-ui/'), 'web-ui');
   assert.equal(baseName('/srv'), 'srv');
 });
 

@@ -19,31 +19,101 @@ backend pins each launch with `--session-id <uuid>` and resumes with
 
 ## Install
 
-The app is a web UI served from **inside** your WSL2 Linux distro, plus a small
-Windows-side launcher that opens it in its own window. There is no installer
-and no system-wide install: you clone the repository into WSL and make a
-shortcut. Nothing needs administrator rights.
+Download **`AI-Session-Manager-Setup-<version>.exe`** from the
+[Releases page](https://github.com/YaroslavSavchenk/ai-cli-application/releases)
+and run it. That is the install. The Setup carries the whole app — backend,
+frontend and its own Node runtime — puts it inside your WSL2 Linux
+distribution, and leaves an **AI Session Manager** shortcut on the Desktop and
+in the Start Menu. It installs for your user only, it never asks for
+administrator rights, and it installs nothing else unless you tick it.
 
 ### Before you start
 
-- **Windows 10 or 11 with WSL2** and a Linux distro — Ubuntu recommended
-  (`wsl --install -d Ubuntu` in PowerShell if you have none yet).
-- **Node.js 24 or newer, inside WSL** — `node -v` in the distro must print
-  `v24.` or higher. The server runs its TypeScript directly, which needs that
-  version.
-- **The AI CLI you want to run, installed inside WSL** — Claude Code for the
-  built-in Claude sessions. This app only *launches* it; it never installs it,
-  and it never installs npm packages by itself. (Resuming a specific past
-  conversation needs Claude Code 2.1.263 or newer.) Plain terminal sessions
-  (WSL shell, PowerShell) need nothing extra.
-- **The WebView2 Evergreen runtime, on Windows** — it ships with Microsoft
-  Edge, so any current Windows already has it. Without it the launcher quietly
-  falls back to an Edge window.
-- **Build tools inside WSL** — `sudo apt install -y build-essential python3`
-  (node-pty, the terminal layer, is compiled from source on Linux; it ships no
-  linux-x64 prebuild).
+- **Windows 10 or 11 with WSL2, and a Linux distribution.** If either is
+  missing, the Setup says so, shows the one command that fixes it —
+  `wsl --install`, in a PowerShell started as administrator — and stops. It
+  never elevates itself and never installs a distribution behind your back.
+- **A distribution with glibc 2.35 or newer**: Ubuntu 22.04 and later, Debian
+  12 and later. An older one is refused by name, with the version it has and
+  the version it needs.
+- **Claude Code inside that distribution**, if you want Claude sessions. The
+  Setup offers to install it for you — switched off by default, on a page that
+  shows the exact command and the site it comes from. Plain terminal sessions
+  (WSL shell, PowerShell) need nothing extra. Resuming a specific past
+  conversation needs Claude Code 2.1.263 or newer.
 
-### 1. Clone it, inside WSL
+Nothing else: no Node, no git and no build tools inside the distribution — the
+Setup brings the runtime the app runs on. On the Windows side the app window
+uses the WebView2 runtime that comes with Microsoft Edge, so a current Windows
+already has it; without it the launcher quietly falls back to an Edge window.
+
+### Running the Setup
+
+The exe is not code-signed, so Windows may greet it with "Windows protected
+your PC": choose **More info → Run anyway** (the reasoning is under
+[Worth knowing](#worth-knowing)).
+
+The wizard then asks, in order:
+
+1. **the WSL check** — is WSL 2 there, is there a distribution, is its glibc
+   new enough. This is where it stops if something is missing, with the exact
+   command that fixes it;
+2. **which distribution** to install into — always asked, also when there is
+   only one, so you can see which one it picked;
+3. **which folder inside Linux** — the default is `.ai-session-manager/app` in
+   your Linux home directory. Whatever you type must end in `/app` with at
+   least two folders above it (`/home/you/.ai-session-manager/app`), and may
+   use only letters, digits, `.`, `_`, `-` and `/` — no spaces, no quotes. The
+   uninstaller relies on that shape, so the wizard refuses anything else;
+4. **optional extras** — the consent page. It appears only when something is
+   actually missing, every box starts off, and each entry names the exact
+   command and the site it downloads from. Today the only entry is Claude Code.
+   Nothing third-party is ever installed silently;
+5. **shortcuts** — one tick box, "Create a desktop shortcut", on by default.
+   The Start Menu entry is always made;
+6. **ready** — it names both destinations, the Windows one and the Linux one,
+   and says whether anything extra will be installed.
+
+Then it unpacks and is done. Double-click **AI Session Manager**. The first
+launch after a Windows reboot has to start the WSL virtual machine first:
+expect **10–30 seconds where nothing visible happens**. Later launches take a
+second or two. No console window ever appears; if a launch fails you get an
+error box telling you what went wrong.
+
+Your projects, session history and settings live inside Linux in
+`~/.ai-session-manager/`, next to the app but separate from it, and no install,
+upgrade or uninstall ever touches them.
+
+### Updating
+
+Download the newer `AI-Session-Manager-Setup-<version>.exe` and run it. It
+upgrades in place, keeps everything, and you may leave the app open while it
+runs. Afterwards the app notices the new version by itself and offers the
+restart that moves it there — through the notice in the window, or under
+**Settings → Restart backend**. Sessions that are open at that moment end;
+they keep their place in HISTORY and can be resumed.
+
+### Uninstalling
+
+Windows Settings → **Apps** → "AI Session Manager" → Uninstall, like any other
+app. It asks one question — whether to also remove the app files inside your
+Linux distribution — and that one defaults to No. Either way your projects,
+session history and settings stay: nothing in `~/.ai-session-manager/` is
+removed.
+
+### From source (developers)
+
+Cloning the repository and running it from there still works, unchanged, and
+needs no Setup. It needs WSL2 with a Linux distribution, and Claude Code inside
+it for Claude sessions — but not the glibc 2.35 floor above: that one belongs
+to the Setup's prebuilt bundle, and a clone compiles against whatever your
+distribution has, so the floor is Node's own. Inside WSL it needs
+**Node.js 24 or newer** (`node -v` must print `v24.` or higher — the server
+runs its TypeScript directly) and **build tools**
+(`sudo apt install -y build-essential python3`; node-pty, the terminal layer,
+is compiled from source and ships no linux-x64 prebuild).
+
+#### 1. Clone it, inside WSL
 
     git clone https://github.com/YaroslavSavchenk/ai-cli-application.git
     cd ai-cli-application
@@ -54,7 +124,7 @@ anything else, spaces included. The location is yours to choose: the launcher wo
 the repository is from where it sits. If you move the clone later, re-run
 step 4.
 
-### 2. Install and build, inside WSL
+#### 2. Install and build, inside WSL
 
     npm install
     npm run build
@@ -62,7 +132,7 @@ step 4.
 `npm install` compiles node-pty from source, which is what the build tools
 above are for. `npm run build` bundles the frontend into `web/dist`.
 
-### 3. The app window (optional, but recommended)
+#### 3. The app window (optional, but recommended)
 
 Without this step the app opens in an Edge window and the taskbar shows the
 Edge logo. With it, the app gets its own window, its own taskbar button and its
@@ -97,7 +167,7 @@ Windows, and downloads the WebView2 SDK it links against over HTTPS, refusing
 to use it unless its size and SHA-256 match the pinned values. See
 [launcher/README.md](launcher/README.md).
 
-### 4. Make the shortcut, from Windows
+#### 4. Make the shortcut, from Windows
 
     powershell -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\<distro>\<your clone>\launcher\make-shortcut.ps1"
 
@@ -106,14 +176,14 @@ the Explorer address bar, or any Windows terminal). This creates an **"AI
 Session Manager"** shortcut on the Desktop and in the Start Menu. Re-run it any
 time — after moving the clone, or after building the window from step 3.
 
-### 5. Double-click "AI Session Manager"
+#### 5. Double-click "AI Session Manager"
 
 The first launch after a Windows reboot has to start the WSL virtual machine
 first: expect **10–30 seconds where nothing visible happens**. Later launches
 take a second or two. No console window ever appears; if the launch fails you
 get an error box telling you what went wrong.
 
-### Updating
+#### Updating a clone
 
 Inside WSL, in the clone:
 
@@ -123,23 +193,29 @@ Inside WSL, in the clone:
 Then, in the app: **Settings → Restart backend**. The app notices new code on
 disk by itself and offers the restart; it rebuilds the frontend as part of it,
 and refuses the whole thing (changing nothing) if anything about the new
-version does not check out.
+version does not check out. (An installed copy updates differently — see
+[Updating](#updating) above.)
 
 ### Worth knowing
 
-- **The downloadable window is not code-signed.** It is compiled by GitHub
-  Actions from the source of the tag it is published under, and the WebView2
-  SDK it uses is verified by SHA-256 during that build — but there is no
-  certificate on the exe. The first time you run it, Windows SmartScreen may
-  say "Windows protected your PC": choose **More info → Run anyway**. If you
-  would rather not, build it yourself (step 3, second option) or skip the step
-  entirely.
+- **Neither downloadable exe is code-signed.** Both the Setup and the native
+  window inside it are built by GitHub Actions from the source of the tag they
+  are published under — the WebView2 SDK verified by SHA-256, the bundled Node
+  runtime verified against nodejs.org's own checksums during that build — but
+  there is no certificate on either file. The first time you run one, Windows
+  SmartScreen may say "Windows protected your PC": choose **More info → Run
+  anyway**. Every release lists the SHA-256 of every download, so you can check
+  what you got before you run it (`Get-FileHash <file> -Algorithm SHA256` in
+  PowerShell prints it in uppercase, the published list is lowercase — a
+  difference in case is not a mismatch).
 - **Everything runs locally.** The backend binds `127.0.0.1` on a port it picks
   itself and is reachable only from your own machine; the window is locked to
   that address. Nothing about your sessions leaves the machine through this
   app.
-- **The app never installs anything.** It launches the CLIs you already have,
-  and it will refuse to restart rather than run `npm install` for you.
+- **The app never installs anything behind your back.** The Setup asks before
+  it installs anything third-party, and it is the only part that installs
+  anything at all: the app itself launches the CLIs you already have, and it
+  will refuse to restart rather than run `npm install` for you.
 
 ## Run it (Windows + WSL2)
 
@@ -172,25 +248,43 @@ the previous port first and falls back to an auto-picked one if it is taken.
 The server logs to `server.log` in the data dir, never stdout.
 
 Continuous integration (`.github/workflows/ci.yml`) runs the typecheck, the
-frontend build, the committed-icon check and the test suite on every push to
-`main` and every pull request. Those jobs live in
-`.github/workflows/verify.yml`, which the release workflow calls too, so a
+frontend build, the committed-icon check, the test suite and a full build of
+the self-contained Linux bundle (including its boot smoke test) on every push
+to `main` and every pull request. Those jobs live in
+`.github/workflows/verify.yml` — they surface as the checks
+`verify / typecheck + build`, `verify / backend test suite` and
+`verify / linux bundle` — and the release workflow calls the same file, so a
 release is gated on exactly the checks CI runs.
 
 ### Release process
 
 Tagging is the whole release: pushing a `v0.1.1` tag starts
-`.github/workflows/release.yml`. It runs the **full verification suite on the
-tagged commit** — the typecheck, the frontend build, the committed-icon check
-and the test suite, the same `.github/workflows/verify.yml` jobs CI runs — and
-in parallel builds the native WebView2 host on a Windows runner with
-`launcher/build-host.ps1`, packaging the four resulting files as
-`AiSessionManagerHost-win-x64.zip` (flat, no folder inside) together with a
-`sha256sum`-compatible `SHA256SUMS.txt`. The publish job waits for **both**, so
-a failing test blocks the release: nothing is ever published from a commit the
-suite did not pass. On success both files are attached to a GitHub Release for
-that tag, with install notes and the zip's hash in the release body. Nothing
-else is released — the app itself is installed by cloning the repository.
+`.github/workflows/release.yml`, which builds four things and publishes them
+together:
+
+- `AI-Session-Manager-Setup-<version>.exe` — the Windows Setup, compiled with
+  Inno Setup on a Windows runner. This is the app;
+- `ai-session-manager-linux-x64.tar.gz` — the self-contained Linux bundle the
+  Setup unpacks inside WSL (backend, production dependencies, built frontend,
+  pinned Node runtime), built on **ubuntu-22.04** so its glibc floor is 2.35;
+- `AiSessionManagerHost-win-x64.zip` — the four files of the native WebView2
+  host window, flat, no folder inside, for people running from a clone;
+- `SHA256SUMS.txt` — one `sha256sum`-compatible list covering all three plus
+  the four files inside the zip, rehashed in the publish job from the files it
+  is about to attach.
+
+Five jobs: `verify` (the **full verification suite on the tagged commit** — the
+same `.github/workflows/verify.yml` jobs CI runs), `host` and `bundle` in
+parallel, `installer` after those two (it needs both binaries), and the publish
+job after all four. So a failing test blocks the release: nothing is ever
+published from a commit the suite did not pass, and no bundle ships that did
+not boot in its own smoke test. The release body leads with the Setup, then the
+bundle, then the host zip, and carries the Setup's SHA-256.
+
+The Node runtime the bundle ships is defined once per workflow file, as
+`NODE_VERSION`; `tests/release-workflow.test.ts` pins that `verify.yml` and
+`release.yml` agree on it, that every action is pinned to a commit SHA, and
+that nothing is published from anything but a `v*` tag.
 
 The recommended way to tag is:
 
@@ -209,14 +303,20 @@ what it would do without tagging or pushing. Tagging by hand
 workflow anyway — the script just moves the failure from five minutes after the
 push to before it, so you do not end up with a dead tag.
 
-Running the workflow by hand (`workflow_dispatch`) builds and
-uploads the same two files as a workflow artifact, which is the way to test a
-change to it; dispatched from a branch it releases nothing, but dispatched on a
-`v*` tag it publishes exactly like a tag push (the publish job's condition is
-the ref, not the trigger). Re-running a publish for a tag that already has a
-release re-uploads both assets over the old ones and rewrites the release notes,
-so the hash in the body always matches the attached zip. The version lives only in the
-tag; `package.json` has no version field.
+Running the workflow by hand (`workflow_dispatch`) builds all four artifacts
+and uploads them as workflow artifacts without publishing anything — that is
+how a Setup gets tested on Windows before a tag exists, and it is the way to
+test a change to the workflow itself. Its version is then `0.0.0-dev+<short
+sha>`, which nothing can mistake for a release. Dispatched on a `v*` tag it
+publishes exactly like a tag push (the publish job's condition is the ref, not
+the trigger). Re-running a publish for a tag that already has a release
+re-uploads every asset over the old ones and rewrites the release notes, so the
+hashes in the body always match the attached files. The version lives only in
+the tag; `package.json` has no version field. `scripts/build-bundle.sh` also
+runs by hand — `scripts/build-bundle.sh --version v0.1.1 --node 24.20.0` — for
+building a bundle locally; the Node version that CI actually ships is the
+`NODE_VERSION` pinned in `.github/workflows/verify.yml`, not the one in that
+example.
 
 ## App data
 

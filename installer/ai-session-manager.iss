@@ -67,9 +67,10 @@ DefaultDirName={localappdata}\Programs\AI Session Manager
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 ; The Windows side is a fixed per-user location, so the wizard is exactly the
-; six pages the flow needs: welcome, WSL check, distribution, folder inside
-; Linux, optional extras, ready. `/DIR=...` on the command line still moves it
-; for the unusual case.
+; seven pages the flow needs: welcome, WSL check, distribution, folder inside
+; Linux, optional extras, shortcuts (the [Tasks] desktop icon), ready -- six
+; when Claude Code is already there and the consent page is skipped.
+; `/DIR=...` on the command line still moves it for the unusual case.
 DisableDirPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=

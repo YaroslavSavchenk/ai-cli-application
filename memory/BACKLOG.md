@@ -88,19 +88,17 @@ priority.
 
 ## Open decisions (user) — also listed in `.claude/PROJECT-SCOPE.md`
 
-- [ ] **Repo visibility.** Private today: the release download and the
-  README Install section only work for collaborators. Going public also
-  publishes the `memory/` vault, the author's home path in the launcher
-  defaults, and git author emails.
-- [~] **One-click installer / real app — DECIDED 2026-09-08, IN PROGRESS**
-  (see [[installer-and-self-contained-bundle]]): [x] A backend
-  installed-mode + bundle build ([[2026-09-08-installer-phase-a]]), [ ] B
-  launcher config + Inno Setup installer, [ ] C release workflow + README +
-  UI copy (frontend still lacks `version`/`installed` + the installed reason
-  sentence + "Check for updates" link), [ ] D go-public prep (user: vault
-  visibility, commit e-mail; publisher text + AppId GUID for the Setup).
-- [ ] Register the GitHub OAuth App + set `AI_SM_GITHUB_CLIENT_ID`
-  (GitHub integration is dormant until then) — optional.
+- [x] **Repo visibility — decided 2026-09-09: public, vault included**;
+  noreply commit e-mail set; history not rewritten (author e-mail + old
+  paths remain in old commits by choice). Flip pending CI green.
+- [~] **One-click installer / real app — DECIDED 2026-09-08, phases A–D
+  LANDED 2026-09-09** (see [[installer-and-self-contained-bundle]],
+  [[2026-09-08-installer-phase-a]], [[2026-09-09-installer-phase-b]],
+  [[2026-09-09-installer-phase-c-d]]). Remaining: [ ] `workflow_dispatch`
+  green on GitHub (first ISCC compile ever), [ ] user tests the
+  `AI-Session-Manager-Setup` artifact on Windows (checklist in
+  `installer/README.md`), [ ] visibility flip (orchestrator, after CI
+  green), [ ] `npm run release -- v0.2.0` after the Windows test.
 
 ## Queued ideas (not decided)
 

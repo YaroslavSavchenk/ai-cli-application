@@ -11,7 +11,7 @@ gate — executed, not reasoned. From inside WSL, with no elevation:
 
 ```
 powershell.exe -NoProfile -Command "Get-Content -TotalCount 3 \
-  '\\wsl.localhost\Ubuntu-24.04\home\sava\.ai-session-manager\runtime.json'"
+  '\\wsl.localhost\Ubuntu-24.04\home\you\.ai-session-manager\runtime.json'"
 ```
 
 It printed the live `port` and the full app `token`. **The WSL 9p file server

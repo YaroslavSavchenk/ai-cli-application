@@ -20,7 +20,7 @@ function entry(over: Partial<HistoryEntry> & { id: string; lastUsedAt: string })
   return {
     conversation: true,
     sessionId: `s-${over.id}`,
-    cwd: '/home/sava/projects/web-ui',
+    cwd: '/home/you/projects/web-ui',
     command: 'claude',
     args: ['--model', 'opus'],
     title: over.id,
@@ -55,7 +55,7 @@ test('groupHistory: a project id the app no longer knows falls back to a cwd fol
       entry({
         id: 'a',
         projectId: 'gone',
-        cwd: '/home/sava/projects/deleted-thing',
+        cwd: '/home/you/projects/deleted-thing',
         lastUsedAt: '2026-09-06T10:00:00.000Z',
       }),
     ],
@@ -63,7 +63,7 @@ test('groupHistory: a project id the app no longer knows falls back to a cwd fol
   );
   assert.equal(groups.length, 1);
   assert.equal(groups[0]?.label, 'deleted-thing', 'a folder the app cannot name is still a folder');
-  assert.equal(groups[0]?.key, 'c:/home/sava/projects/deleted-thing');
+  assert.equal(groups[0]?.key, 'c:/home/you/projects/deleted-thing');
   assert.ok(!groups[0]?.label.includes('/'), 'a group label is never a path');
 });
 
@@ -153,20 +153,20 @@ test('groupHistory: two sessions of a DELETED project land in ONE folder — a d
       entry({
         id: 'a',
         projectId: 'gone',
-        cwd: '/home/sava/projects/deleted-thing',
+        cwd: '/home/you/projects/deleted-thing',
         lastUsedAt: '2026-09-06T10:00:00.000Z',
       }),
       entry({
         id: 'b',
         projectId: 'gone',
-        cwd: '/home/sava/projects/deleted-thing',
+        cwd: '/home/you/projects/deleted-thing',
         lastUsedAt: '2026-09-04T10:00:00.000Z',
       }),
     ],
     nameOf,
   );
   assert.equal(groups.length, 1, 'both entries belong to the same (unnamed) folder');
-  assert.equal(groups[0]?.key, 'c:/home/sava/projects/deleted-thing');
+  assert.equal(groups[0]?.key, 'c:/home/you/projects/deleted-thing');
   assert.equal(groups[0]?.label, 'deleted-thing');
   assert.deepEqual(groups[0]?.entries.map((e) => e.id), ['a', 'b']);
 });

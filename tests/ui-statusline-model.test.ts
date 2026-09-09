@@ -166,7 +166,7 @@ function session(over: Partial<SessionInfo>): SessionInfo {
     title: 'session',
     command: 'claude',
     args: [],
-    cwd: '/home/sava/projects/web-ui',
+    cwd: '/home/you/projects/web-ui',
     status: 'running',
     cols: 80,
     rows: 24,
@@ -210,7 +210,7 @@ test('matches on the LAST path segment, exactly as the server decides it', () =>
   // server/sessions.ts spawns with basename(command) === 'claude', so an
   // absolute path to the same binary is the same case and must be named too.
   const list = [
-    session({ id: 'p', title: 'abs-path', command: '/home/sava/.local/bin/claude' }),
+    session({ id: 'p', title: 'abs-path', command: '/home/you/.local/bin/claude' }),
     session({ id: 'q', title: 'relative', command: './claude' }),
   ];
   assert.deepEqual(

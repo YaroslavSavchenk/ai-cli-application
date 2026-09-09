@@ -413,7 +413,7 @@ user), which since the copy rule holds THREE plain lines instead of the old
 ```
 copies
 https://github.com/owner/repo.git
-into folder: /home/sava/projects/repo
+into folder: /home/you/projects/repo
 ```
 
 Line 1 is fixed. Line 2 is the pasted URL verbatim (the user's own input, not
@@ -553,8 +553,8 @@ and after a reload no reason is invented.
 Top-bar chip (`chipView`) — `disconnected` now reads `Connect GitHub` whatever
 `deviceFlowAvailable` says. Connected shows `@login` plus a mono micro-tag
 naming the credential (`token` / `sign-in`, `.tb-gh-tag`, aria-hidden because
-the accessible name already says it in words: `GitHub — connected as sava with a
-pasted token` / `… by signing in with GitHub`). An unknown source is left
+the accessible name already says it in words: `GitHub — connected as octocat
+with a pasted token` / `… by signing in with GitHub`). An unknown source is left
 unlabelled rather than guessed.
 
 ## App settings panel (`web/src/ui/settings.ts`) — status line only

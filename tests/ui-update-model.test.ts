@@ -62,7 +62,7 @@ function mkSession(over: Partial<SessionInfo> = {}): SessionInfo {
     title: over.title ?? 'work',
     command: over.command ?? 'claude',
     args: over.args ?? ['--model', 'opus'],
-    cwd: over.cwd ?? '/home/sava/projects/x',
+    cwd: over.cwd ?? '/home/you/projects/x',
     status: over.status ?? 'running',
     cols: 80,
     rows: 24,
@@ -313,7 +313,7 @@ test('the footnote is CLAUDE-only: a custom command whose `-c` means something e
   assert.equal(claude.continued, true);
 
   const absolute = summarizeRunning(
-    [mkSession({ command: '/home/sava/.nvm/versions/node/v24.14.0/bin/claude', args: ['--continue'] })],
+    [mkSession({ command: '/home/you/.nvm/versions/node/v24.14.0/bin/claude', args: ['--continue'] })],
     nameOf,
     () => null,
   );

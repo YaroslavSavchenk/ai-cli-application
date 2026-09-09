@@ -243,9 +243,12 @@ What it does:
 ### Or download it
 
 Every GitHub Release attaches **`AiSessionManagerHost-win-x64.zip`** — the
-exe plus the three WebView2 DLLs, built by GitHub Actions from the tagged
-source with the same pinned, hash-verified WebView2 SDK `build-host.ps1`
-uses — next to a `SHA256SUMS.txt` for the release assets.
+exe plus the three WebView2 DLLs, built by the `native host (win-x64)` job of
+`.github/workflows/release.yml` from the tagged source with the same pinned,
+hash-verified WebView2 SDK `build-host.ps1` uses — next to a `SHA256SUMS.txt`
+covering every asset of that release. The zip exists for people running from a
+clone: the Windows Setup on the same release page already contains these four
+files (the `windows setup` job feeds the same zip into it).
 
 1. Download the zip (and `SHA256SUMS.txt` if you want to check it:
    `Get-FileHash AiSessionManagerHost-win-x64.zip -Algorithm SHA256` in
@@ -253,7 +256,8 @@ uses — next to a `SHA256SUMS.txt` for the release assets.
    difference in case is not a mismatch — or `sha256sum -c --ignore-missing
    SHA256SUMS.txt` inside WSL, run in the download folder — a Windows download
    lives under `/mnt/c/Users/<you>/Downloads` — where `--ignore-missing` is what
-   lets the file's five entries be checked against the one or two you actually
+   lets the file's seven entries — the three downloads plus the four files
+   inside this zip — be checked against the one or two you actually
    downloaded).
 2. Extract its **contents** into `launcher/host/build/` — create that
    folder; it is git-ignored and empty in a fresh clone. From Windows that
