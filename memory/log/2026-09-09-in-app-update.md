@@ -1,7 +1,7 @@
 ---
 type: log
 created: 2026-09-09
-updated: 2026-09-09
+updated: 2026-09-10
 tags: [log, update, installer, security, ui]
 ---
 # 2026-09-09 (evening/night) — phase E: the in-app updater SHIPPED
@@ -75,3 +75,11 @@ new version, no SmartScreen; `host\next` promoted at the next start; a
 `/SILENT` upgrade reusing the recorded distro; `%TEMP%` with a space. The
 first updater-capable release (v0.3.0) must be installed by hand once —
 v0.2.0 has no button.
+
+## 2026-09-10 — the button works
+
+After the cached-verdict fix (`1cdb766`, v0.3.2), the user's test on v0.3.0:
+toast → Update → silent Setup (exit 0 in 6 s) → same-port restart → running
+v0.3.2, no SmartScreen; "yes alles werkt nice". Phase E is DONE. The app
+is an installable product that updates itself with one button.
+
