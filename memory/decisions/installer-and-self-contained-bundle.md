@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-09
 tags: [distribution, installer, release, launcher, packaging]
 ---
 # One installer, one self-contained bundle: the app becomes a product
@@ -75,7 +75,8 @@ choices were put to the user, all answered the same day:
   to the Releases page through the sanctioned browser exit suffices.
 - Uninstall: Windows side always; the WSL `app/` dir only via opt-in;
   never the data dir.
-- Release assets: `AiSessionManager-Setup-<version>.exe`, the bundle
+- Release assets: `AI-Session-Manager-Setup-<version>.exe` (what the `.iss`
+  emits), the bundle
   tar.gz, the host zip, `SHA256SUMS.txt`. Version = tag, as before.
 
 ## Sub-decisions settled by the orchestrator (2026-09-08, after the architecture plan)
@@ -96,11 +97,18 @@ Reasonable defaults, not user calls — say so if they ever bite:
 - **WebView2 bootstrapper: not in v1.** The Edge `--app` fallback stays.
 - **The host zip stays a separate release asset** for from-source users.
 
-Still the user's (asked at phase D): whether the `memory/` vault goes
-public with the repo or moves to a private sibling, and whether future
-commits switch to a noreply address (history cannot be cleaned without
-invalidating `v0.1.0`). Publisher text + AppId GUID for the Setup are asked
-at the end of phase B.
+Answered by the user on 2026-09-09 (before leaving for the day):
+- the `memory/` vault goes **public with the repo** (honest, mitigated;
+  only home paths / personal details are scrubbed);
+- **future commits use a GitHub noreply address**; history is not
+  rewritten (`v0.1.0` stays valid);
+- **the orchestrator flips visibility** (`gh repo edit --visibility
+  public`) right after the phase-D scrub lands and CI is green;
+- **v0.2.0 is tagged only after the user has tested the Setup.exe on
+  Windows** — a `workflow_dispatch` build produces it as a CI artifact
+  first (the `.iss` has never been compiled anywhere but CI).
+Publisher text "AI Session Manager" and the AppId GUID
+`D6B61737-0EA3-4035-85CC-00BCDC60CE05` are orchestrator defaults.
 
 ## Phases
 

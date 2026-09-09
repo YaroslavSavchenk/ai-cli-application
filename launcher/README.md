@@ -46,12 +46,41 @@ The port is auto-picked by the backend; nothing is ever hardcoded. Always
 | `launch-silent.vbs` | what the shortcuts run — fully hidden launch, no console ever |
 | `launch.ps1` | the actual launcher logic (all switches + the three UI tiers) |
 | `launch.cmd` | visible/debug path: same launcher with a console you can read |
-| `config-common.ps1` | shared distro / repo-path resolution, dot-sourced by both PowerShell scripts |
+| `config-common.ps1` | shared distro / app-path resolution (env → config file → derived → nothing) and the allow-list every value passes; dot-sourced by both PowerShell scripts, and by every installer helper |
 | `start-backend.sh` | Linux side: detached (`setsid`) backend start; prefers a bundled runtime, falls back to PATH/nvm |
 | `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
 | `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1) |
 | `host/build/` | build output (exe + WebView2 DLLs) — build it, or unzip the release asset here; **git-ignored, never committed** |
 | `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
+
+## Installed layout (the Setup) vs a clone
+
+Two shapes run the same scripts.
+
+**A developer clone**: `launcher/` sits inside the repo, Windows reaches it as
+`\\wsl.localhost\<distro>\<clone>\launcher`, and that path states both the
+distro and the repo — nothing to configure.
+
+**An installation** (`installer/`, see `installer/README.md`): the launcher
+scripts are copied to a plain Windows path,
+`%LOCALAPPDATA%\Programs\AI Session Manager\`, where nothing can be derived.
+The Setup therefore writes **`launcher-config.json`** beside them:
+
+    {
+      "distro": "Ubuntu-24.04",
+      "appPath": "/home/you/.ai-session-manager/app/current"
+    }
+
+Both keys are optional and both are checked against the same allow-list as
+every other source. A file that exists but cannot be believed — not JSON, not
+an object, a key that is not a non-empty string — is an **error**, never a
+fall-through: an installed launcher with a damaged config stops with a
+message instead of quietly starting a different backend. The installation
+folder also holds `install-info.txt` (`distro`, `appDir`, `version`), which is
+what the uninstaller reads before offering to remove the WSL side, and
+`host\AiSessionManagerHost.exe`, which is run **in place** — the
+`%LOCALAPPDATA%\ai-session-manager\host` staging copy exists only for the
+clone case, where the exe would otherwise run from a UNC path.
 
 ## Bundle layout (the installed app)
 
@@ -121,6 +150,16 @@ the VM boots). Re-running the script just overwrites the shortcuts and
 refreshes the icon copy — safe any time the repo moves or the icon
 changes.
 
+The shortcut points at **the folder `make-shortcut.ps1` itself sits in**
+whenever `launch-silent.vbs` is beside it — the `\\wsl.localhost` share in a
+clone, `%LOCALAPPDATA%\Programs\AI Session Manager` after a Setup install —
+and only falls back to building a `\\wsl.localhost\<distro>\<repo>\launcher`
+path when it is not. So a launcher folder copied out of the repo onto a plain
+Windows path makes its own folder the target, and that folder needs
+`launcher-config.json` (what the Setup writes) or `AI_SM_DISTRO` /
+`AI_SM_REPO_PATH` before anything it launches can resolve a distro and an app
+path.
+
 **No configuration needed for a fresh clone.** The distro and the repo path
 are *derived from where the launcher itself lives*: Windows sees these
 scripts as `\\wsl.localhost\<distro>\<linux path>\launcher` (or the older
@@ -133,13 +172,17 @@ Precedence for `$Distro` and `$RepoPath`, highest first:
 
 1. the environment variables `AI_SM_DISTRO` / `AI_SM_REPO_PATH` — a supported
    override (also what the automated tests use); normally unnecessary, because
-   the derivation below already covers a clone anywhere;
-2. **derived from the launcher's own location** — the normal case;
-3. the hardcoded defaults at the top of `launch.ps1` /
-   `make-shortcut.ps1` (`Ubuntu-24.04`, `/home/sava/projects/ai-cli-application`).
-   These only matter when the launcher folder was **copied out of the
-   repo** onto a normal drive path (`C:\...`), where there is nothing to
-   derive.
+   the two sources below already cover both a clone and an installation;
+2. **`launcher-config.json` next to the scripts** — what the Windows Setup
+   writes (see the installed layout above). A corrupt one is an error, not a
+   fall-through;
+3. **derived from the launcher's own location** — the normal case for a
+   clone;
+4. the defaults at the top of `launch.ps1` / `make-shortcut.ps1`, which are
+   **empty**. A launcher folder copied onto a plain Windows path with no
+   config file and no environment variables therefore **fails with a
+   message** naming all three ways to fix it — it does not start a backend
+   for a repo that is not yours, in a distro you did not pick.
 
 Every launch that is not `-Silent` prints one line saying what it resolved
 and from where, e.g.
@@ -165,6 +208,9 @@ Notes:
   the exact name.
 - `$DataDir` — backend data dir, default `~/.ai-session-manager`, at the
   top of `launch.ps1`; override with `AI_SM_DATA_DIR`.
+- There is **no built-in fallback repo or distro** any more. `launch.ps1
+  -Status` on a launcher that can resolve nothing prints `No launcher
+  configuration found: …` and exits 1.
 
 ## Native host (taskbar icon)
 
@@ -218,7 +264,10 @@ uses — next to a `SHA256SUMS.txt` for the release assets.
 
 `AiSessionManagerHost.exe` must sit directly in `host/build/`, beside
 `Microsoft.Web.WebView2.Core.dll`, `Microsoft.Web.WebView2.WinForms.dll`
-and `WebView2Loader.dll` (no extra subfolder).
+and `WebView2Loader.dll` (no extra subfolder). An **installed** app keeps the
+same four files one level up, in `host\` beside the launcher scripts, and
+runs the exe from there directly; `launch.ps1` looks in `host\` first, then
+`host\build\`.
 
 About the SmartScreen warning: this exe is **not code-signed**, because
 signing needs a paid certificate. In practice you should not see a warning
@@ -398,8 +447,14 @@ reach the dist root.
   `make-shortcut.ps1`.
 - Launcher starts the **wrong** repo or distro → run `launch.cmd -Status`
   and read the `Config:` line: it names both values and where they came
-  from. `from built-in default` means the launcher folder is not inside the
-  repo (copied out); `from AI_SM_...` means an environment variable is set.
+  from. `from config file` means `launcher-config.json` in the installation
+  folder decides (re-run the Setup to rewrite it); `from launcher location`
+  means it was derived from the clone's own path; `from AI_SM_...` means an
+  environment variable is set.
+- `No launcher configuration found` → the scripts are on a plain Windows
+  path with no `launcher-config.json` and no environment variables. Install
+  with the Setup, run them from inside the clone through
+  `\\wsl.localhost\...`, or set `AI_SM_DISTRO` + `AI_SM_REPO_PATH`.
 - Blank/generic icon on the shortcut → the local icon copy at
   `%LOCALAPPDATA%\ai-session-manager\app.ico` is missing (the shortcut
   normally reads the local copy; it falls back to the WSL share only if

@@ -71,6 +71,23 @@ const KEY_ROWS: KeyRow[] = [
   { what: 'open a link printed in a terminal', gesture: 'ctrl+click' },
 ];
 
+/**
+ * Where an INSTALLED app goes to look for a newer one (2026-09-08). The address
+ * lives here, in code, and never in UI copy — the link says what it does in
+ * words, exactly like every other control in this panel.
+ *
+ * This is the ONE sanctioned way out of the app window: the host hands an exact
+ * http/https `window.open` to the user's default browser as a separate process
+ * (scheme allowlist enforced host-side), and top-level navigation stays locked
+ * to the launch origin. It therefore has to stay a plain `window.open` on a
+ * real user click — a fetch, a redirect or a programmatic open is not that.
+ *
+ * The app deliberately does NOT check for updates itself: a localhost tool that
+ * reaches out to the network on its own is a promise this project has not made
+ * (PROJECT-SCOPE, installer bullet). The user asks, and the browser answers.
+ */
+const RELEASES_URL = 'https://github.com/YaroslavSavchenk/ai-cli-application/releases';
+
 /** One toggle row: its key, its label, and the text that item really draws. */
 interface ItemRow {
   key: keyof StatusLineCfg;
@@ -227,6 +244,9 @@ export function initSettings(
   // replaces it with the version currently on disk (2026-09-06, user's
   // request). Two mono readouts and an action: no dashboard, no graphs, and
   // no mechanics explained — the confirmation says what restarting costs.
+  // An INSTALLED app gets a second, quieter verb between them (2026-09-08):
+  // where to go and get a newer version. Text link, not a second button —
+  // the weight ordering says which one is the act with consequences.
   // ======================================================================
   const backSect = el('section', 'settings-sect');
   backSect.append(el('div', 'drawer-label', 'BACKEND'));
@@ -242,9 +262,18 @@ export function initSettings(
   const factVer = el('span', 'settings-fact');
   facts.append(factUp, el('span', 'settings-fact-sep', '·'), factVer);
   const backRow = el('div', 'settings-actionrow');
+  // Only an installed app can be updated by downloading one; a developer clone
+  // updates with the tools it was cloned with, and a link to a releases page
+  // would be an instruction that does not apply to it.
+  const checkBtn = button('btn-link', 'Check for updates', () => {
+    log.info('opening the releases page in the browser');
+    window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+  });
+  checkBtn.title = 'opens the releases page in your browser';
+  checkBtn.hidden = true;
   const restartBtn = button('btn', 'Restart backend', () => openRestartConfirm('settings'));
   restartBtn.setAttribute('aria-haspopup', 'dialog');
-  backRow.append(facts, el('span', 'drawer-gap'), restartBtn);
+  backRow.append(facts, checkBtn, el('span', 'drawer-gap'), restartBtn);
   backSect.append(backRow);
   backSect.append(
     el('div', 'settings-note', 'Every running session closes. They stay in History.'),
@@ -261,6 +290,7 @@ export function initSettings(
     const f = runtimeFacts();
     factUp.textContent = `running for ${f.runningFor}`;
     factVer.textContent = `version ${f.version}`;
+    checkBtn.hidden = !st.state.installed;
   }
 
   // ---- footer --------------------------------------------------------------

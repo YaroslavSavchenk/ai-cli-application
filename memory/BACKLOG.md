@@ -56,6 +56,25 @@ priority.
   at 7 pure-logger sites (no PTY, no race) — switch to
   `await removeTempDir(dir)` for uniformity.
 
+## Installer leftovers (from the phase-B review, 2026-09-09)
+
+- [ ] **Live-check TOCTOU in `install-bundle.ps1`**: `$live` (runtime.json
+  `appDir` + `kill -0`) is computed in PowerShell BEFORE the tarball streams
+  and node-pty is proven (seconds). A backend started from `<app>/<ver>` in
+  that window, with `<ver>` = the version being installed, gets its dir
+  renamed to `.old` and deleted. Fix: re-check runtime.json inside the const
+  script (pass the data dir as `$4`) right before the `.old` rename and
+  before `rm -rf .old`. Same class: `$liveDir.StartsWith($AppDir + '/')`
+  compares a realpath against the typed app dir — a symlinked component
+  silently disables the live-dir protection.
+- [ ] Untested install-bundle failure codes 21/22/29/30 (`mkdir_failed`,
+  `stage_failed`, `symlink_failed`, `current_swap_failed`) and the atomic
+  `mv -T` swap on failure.
+- [ ] `.iss` `[Code]` is pinned by source inspection only; no ISCC compile
+  check exists in the suite (the CI `installer` job of phase C is the gate).
+- [ ] Publisher text "AI Session Manager" + AppId GUID are orchestrator
+  defaults — user may rename.
+
 ## Owed on the Windows side (user, since 2026-09-08 evening)
 
 - [ ] Re-run `launcher/make-shortcut.ps1` (script changed: self-locating

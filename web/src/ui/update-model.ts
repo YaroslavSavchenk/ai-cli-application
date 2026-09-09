@@ -171,8 +171,18 @@ export const REASON_GENERIC = 'A newer version is on disk.';
 export const REASON_DEPS =
   'Dependencies changed; install them in the project folder first, then restart.';
 
+/**
+ * INSTALLED MODE (2026-09-08). A packaged app produces exactly ONE reason — a
+ * newer version directory sits beside the running one, put there by the
+ * installer the user just ran. Nothing is "on disk newer than the process" in
+ * the developer sense, and there is nothing for the user to do first: the work
+ * already happened, only the restart is left.
+ */
+export const REASON_INSTALLED = 'A new version has been installed.';
+
 export function reasonSentence(reason: string | null | undefined): string | null {
   if (reason === null || reason === undefined || reason === '') return null;
+  if (reason === 'a new version is installed') return REASON_INSTALLED;
   if (reason.startsWith('server code changed')) return 'The server code changed.';
   if (reason === 'frontend rebuilt') return "The app's screens were rebuilt.";
   if (reason === 'server files edited') return 'Server files were edited.';
@@ -198,6 +208,25 @@ export function reasonNote(reason: string | null | undefined): string | null {
 
 /** The app's empty-value glyph — one place, so "unknown" always looks the same. */
 export const EMPTY = '—';
+
+/**
+ * The settings panel's `version` fact: WHICH APP IS RUNNING, in one slot.
+ *
+ * Two honest forms, because there are two ways this app is installed
+ * (2026-09-08). An INSTALLED backend runs from a versioned bundle and knows its
+ * version (`v0.2.0`) — that is what its user has, what the releases page lists,
+ * and the only identity that means anything to them. A developer clone has no
+ * version at all: its identity is the commit it was started from, which is what
+ * this line has always shown.
+ *
+ * So: version, else commit, else the empty glyph. Never both (one fact, one
+ * slot), and never a fabricated stand-in for a backend that answered neither.
+ * Kept here rather than in the DOM half so the chain is testable without a
+ * browser — `update.ts`'s `runtimeFacts()` is the only caller.
+ */
+export function versionFact(version: string | null, commit: string | null): string {
+  return version ?? commit ?? EMPTY;
+}
 
 /**
  * How long the backend has been up, in the settings panel's words:

@@ -38,7 +38,6 @@ import { commandLabel } from './launch-args.ts';
 import { requestTerminalFocus } from './panes.ts';
 import {
   CONTINUE_NOTE,
-  EMPTY,
   PILL_TIP_RESTARTING,
   UpdateNotice,
   confirmBody,
@@ -47,6 +46,7 @@ import {
   reasonNote,
   reasonSentence,
   summarizeRunning,
+  versionFact,
   type ConfirmSummary,
 } from './update-model.ts';
 import {
@@ -581,10 +581,16 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
 /**
  * The settings panel's two readouts, in one place so the panel does not have to
  * know how a missing value is written. `running for 3 h 41 min` · `version a1b2c3d`.
+ *
+ * The version fact answers "which app is running", and that has two honest
+ * forms: an INSTALLED backend knows its bundle version (`v0.2.0`) and says so;
+ * a developer clone has no version at all and identifies itself by the commit
+ * it was started from. The commit is the fallback, never a second line — one
+ * fact, one slot — and the empty glyph when neither is known.
  */
 export function runtimeFacts(now: number = Date.now()): { runningFor: string; version: string } {
   return {
     runningFor: fmtRunningFor(st.state.serverStartedAt, now),
-    version: st.state.serverCommit ?? EMPTY,
+    version: versionFact(st.state.version, st.state.serverCommit),
   };
 }

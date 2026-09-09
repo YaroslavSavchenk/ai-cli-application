@@ -3556,3 +3556,11 @@ kbd {
 .settings-fact-sep {
   color: var(--text-faint);
 }
+
+/* Text buttons in an action row are the QUIET verb beside a bordered one
+   ("Check for updates" next to Restart backend, "all shortcuts" in KEYS).
+   They inherit the body's 13px, which would make the quiet verb larger than
+   the loud one — this puts both on the control size instead. */
+.settings-actionrow .btn-link {
+  font-size: var(--fs-ui);
+}

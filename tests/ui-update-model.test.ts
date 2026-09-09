@@ -25,6 +25,7 @@ import {
   PILL_LABEL_RESTARTING,
   REASON_DEPS,
   REASON_GENERIC,
+  REASON_INSTALLED,
   UpdateNotice,
   confirmBody,
   fmtRunningFor,
@@ -32,6 +33,7 @@ import {
   reasonNote,
   reasonSentence,
   summarizeRunning,
+  versionFact,
 } from '../web/src/ui/update-model.ts';
 import {
   HEALTH_POLL_MS,
@@ -381,6 +383,22 @@ test('hasContinueFlag matches WHOLE argv tokens — a look-alike flag is not a c
 // Readouts
 // ---------------------------------------------------------------------------
 
+test('versionFact: the bundle version wins, the commit is the fallback, neither is never invented', () => {
+  // Two ways this app runs (2026-09-08). An INSTALLED backend knows its bundle
+  // version and that is the identity its user can act on — it matches what the
+  // releases page lists. A developer clone has no version and identifies
+  // itself by the commit it was started from, exactly as this line always did.
+  assert.equal(versionFact('v0.2.0', 'a1b2c3d'), 'v0.2.0');
+  assert.equal(versionFact('v0.2.0', null), 'v0.2.0');
+  assert.equal(versionFact(null, 'a1b2c3d'), 'a1b2c3d');
+  // A backend that could answer neither says so with the app's one empty glyph,
+  // never with a plausible-looking stand-in.
+  assert.equal(versionFact(null, null), EMPTY);
+  assert.equal(EMPTY, '—');
+  // One fact, one slot: the fallback replaces, it never concatenates.
+  assert.equal(versionFact('v0.2.0', 'a1b2c3d').includes('a1b2c3d'), false);
+});
+
 test('fmtRunningFor: coarse, honest, and never a fabricated age', () => {
   const base = Date.parse('2026-09-06T12:00:00.000Z');
   const at = (ms: number): string => new Date(base - ms).toISOString();
@@ -690,6 +708,38 @@ test('the new preflight reasons all read as plain sentences, and the dependency 
     assert.ok(!/--\w/.test(s as string), `no flag in: ${String(s)}`);
     assert.ok(!/\bnpm\b|\bnode_modules\b|\bvite\b/i.test(s as string), `no tooling name in: ${String(s)}`);
   }
+});
+
+test('installed mode: the one reason a packaged app can report reads as a plain sentence', () => {
+  // Installed mode (2026-09-08) replaces the six developer reasons with exactly
+  // one: `<app>/current` resolves to a version directory other than the running
+  // one, because the user ran a newer Setup. The user never sees that sentence
+  // — they see what happened to THEM.
+  assert.equal(reasonSentence('a new version is installed'), REASON_INSTALLED);
+  assert.equal(REASON_INSTALLED, 'A new version has been installed.');
+
+  // It is a statement, not an instruction: unlike the dependency reason there
+  // is nothing left for the user to do first, so it must not carry a footnote
+  // or send anyone to a folder.
+  assert.equal(reasonNote('a new version is installed'), null);
+
+  // Copy rule (PROJECT-SCOPE 2026-07-25) — and the raw reason must not be it:
+  // no flags, no tooling names, no paths, no `current`-shaped code words, and
+  // nothing that reads like the server's own diagnostic string.
+  assert.notEqual(REASON_INSTALLED, 'a new version is installed');
+  assert.ok(!/--\w/.test(REASON_INSTALLED));
+  assert.ok(!/\bnpm\b|\bnode_modules\b|\bvite\b|\bbundle\b|\bsymlink\b/i.test(REASON_INSTALLED));
+  assert.ok(!REASON_INSTALLED.includes('/'), 'no path in the sentence');
+  assert.ok(!/[0-9a-f]{7}/.test(REASON_INSTALLED), 'no commit hash in the sentence');
+  // A real sentence, which is what separates it from the server's reason.
+  assert.match(REASON_INSTALLED, /^[A-Z].*\.$/);
+
+  // It must not collide with the developer reasons: an installed backend and a
+  // clone are telling the user two different stories.
+  assert.notEqual(REASON_INSTALLED, REASON_GENERIC);
+  assert.notEqual(REASON_INSTALLED, REASON_DEPS);
+  // And an unknown reason still falls back rather than leaking through.
+  assert.equal(reasonSentence('a new version is installed somewhere'), REASON_GENERIC);
 });
 
 test('only the dependency reason carries a confirmation footnote', () => {

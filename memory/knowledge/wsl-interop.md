@@ -1,7 +1,7 @@
 ---
 type: knowledge
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-09-09
 tags: [wsl, windows]
 ---
 # WSL ↔ Windows interop facts
@@ -55,3 +55,19 @@ Facts this project's Windows integration relies on:
   ([[native-webview2-host]], launcher/launch.ps1 `Open-NativeHost`).
 
 Related: [[thin-windows-launcher]], [[web-app-inside-wsl]]
+
+## 2026-09-09 additions (installer phase B, measured)
+
+- **`wsl.exe -d <distro> -- <cmd> <args…>` is double-expanded.** wsl.exe
+  re-joins the argv into one string and hands it to the distro's DEFAULT
+  shell, which expands `$1`, `$(…)`, quotes and globs BEFORE the command
+  runs (`sh -c '<script>' sh a b` saw `A1= A2= ZERO=/bin/bash`). Use
+  `--exec` for anything that must arrive verbatim; positional args, stdin
+  and multi-line scripts all survive under `--exec`.
+- `wsl -l -v` writes UTF-16LE without a BOM. `WSL_UTF8=1` must be set on
+  the Windows-side child process; setting it inside WSL does not cross.
+- A tarball can be streamed to a Linux command over stdin from PowerShell
+  (`ProcessStartInfo.RedirectStandardInput`), so no Windows path — with
+  its spaces — ever has to reach a Linux command line.
+- .NET regex `$` matches before a trailing `\n`; anchor gates with `\z`.
+

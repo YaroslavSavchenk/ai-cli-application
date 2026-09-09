@@ -34,10 +34,13 @@ How it works:
   - runtime.json remains on SIGKILL/crash by design - the health check, not
     the file, decides the truth. Stale file means start fresh, not error.
 
-Config: the distro and the repo path are derived from this script's own
-location under the WSL share (\\wsl.localhost\<distro>\<path>\launcher);
-AI_SM_DISTRO / AI_SM_REPO_PATH override that, and the hardcoded defaults in
-the config block are the last resort. See config-common.ps1.
+Config: the distro and the app/repo path come from (highest first) the
+AI_SM_DISTRO / AI_SM_REPO_PATH environment variables, launcher-config.json
+next to this script (written by the Windows Setup), or derivation from this
+script's own location under the WSL share
+(\\wsl.localhost\<distro>\<path>\launcher). There are no built-in defaults:
+when none of the three states a value, the launcher says so and stops - it
+never guesses a distro or someone else's clone. See config-common.ps1.
 
 Injection safety: no client/runtime string is ever interpolated into a
 shell or PowerShell command. The only strings that reach WSL command lines
@@ -57,21 +60,23 @@ param(
 )
 
 # =============================== Config ====================================
-# Distro and repo path normally need no editing: they are DERIVED from this
-# script's own location, which under the WSL share states both
-# (\\wsl.localhost\<distro>\<linux path>\launcher). Precedence, highest
-# first: AI_SM_DISTRO / AI_SM_REPO_PATH env vars -> derived from
-# $PSScriptRoot -> the defaults below. See config-common.ps1.
-# The defaults are the last resort only - they matter when the launcher
-# folder was copied OUT of the repo onto a normal drive path, where nothing
-# can be derived.
+# Distro and app path normally need no editing. Precedence, highest first:
+# AI_SM_DISTRO / AI_SM_REPO_PATH env vars -> launcher-config.json next to
+# this script (written by the Windows Setup: the distro it installed into
+# and <app>/current) -> derived from $PSScriptRoot, which under the WSL
+# share states both (\\wsl.localhost\<distro>\<linux path>\launcher) ->
+# the defaults below. See config-common.ps1.
+# The defaults are EMPTY on purpose. A launcher that can resolve nothing
+# (folder copied onto a plain Windows path, no config file, no env vars)
+# must say so - a built-in default would start a backend for a repo that is
+# not yours, in a distro you did not pick.
 # These are the ONLY strings that ever reach a WSL command line, and they
 # are validated below before first use, whatever their source.
 # A configured distro that is not installed still auto-resolves by unique
 # prefix (e.g. 'Ubuntu' finds a lone 'Ubuntu-22.04'), and a wrong/ambiguous
 # name still gets the guided error listing what is installed.
-$DefaultDistro   = 'Ubuntu-24.04'
-$DefaultRepoPath = '/home/sava/projects/ai-cli-application'
+$DefaultDistro   = ''
+$DefaultRepoPath = ''
 $DataDir = if ($env:AI_SM_DATA_DIR) { $env:AI_SM_DATA_DIR } else { '~/.ai-session-manager' }
 # Seconds to wait for runtime.json + health after starting the backend
 # (must absorb a cold WSL boot).
@@ -127,7 +132,7 @@ function Show-WarningBox([string]$Message) {
     } catch { }
 }
 
-# --- Resolve distro + repo path (env -> launcher location -> defaults) -----
+# --- Resolve distro + app path (env -> config file -> location -> defaults) --
 
 $commonPs1 = Join-Path $PSScriptRoot 'config-common.ps1'
 if (-not (Test-Path -LiteralPath $commonPs1)) {
@@ -135,10 +140,18 @@ if (-not (Test-Path -LiteralPath $commonPs1)) {
 }
 . $commonPs1
 
-$smConfig = Resolve-AiSmConfig -ScriptRoot $PSScriptRoot `
-    -DefaultDistro $DefaultDistro -DefaultRepoPath $DefaultRepoPath
+# -ConfigDir: the installed launcher reads launcher-config.json from its own
+# folder. A corrupt one THROWS out of Resolve-AiSmConfig rather than falling
+# through to a guess; catch it here so -Silent still gets a message box.
+try {
+    $smConfig = Resolve-AiSmConfig -ScriptRoot $PSScriptRoot -ConfigDir $PSScriptRoot `
+        -DefaultDistro $DefaultDistro -DefaultRepoPath $DefaultRepoPath
+} catch {
+    Fail $_.Exception.Message
+}
 $Distro   = $smConfig.Distro
 $RepoPath = $smConfig.RepoPath
+if (-not $Distro -or -not $RepoPath) { Fail (Get-AiSmNoConfigMessage -ConfigDir $PSScriptRoot) }
 if (-not $Silent) { Write-Host (Format-AiSmConfigLine $smConfig) }
 
 # --- Config validation (allow-lists; also the injection-safety gate) -------
@@ -146,14 +159,14 @@ if (-not $Silent) { Write-Host (Format-AiSmConfigLine $smConfig) }
 # a typed one, and a derived value that fails here is NEVER swapped for the
 # built-in default (that would start a backend for someone else's repo).
 
-if ($RepoPath -notmatch '^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') {
+if (-not (Test-AiSmLinuxPath $RepoPath)) {
     Fail ("RepoPath must be an absolute Linux path without spaces or shell metacharacters, got: $RepoPath`n" +
         (Get-AiSmConfigHint -Source $smConfig.RepoPathSource -Kind 'RepoPath'))
 }
-if ($DataDir -notmatch '^(~)?(/[A-Za-z0-9._-]+)+$') {
+if (-not (Test-AiSmDataDir $DataDir)) {
     Fail "DataDir must be '~/...' or an absolute Linux path without spaces or shell metacharacters, got: $DataDir"
 }
-if ($Distro -notmatch '^[A-Za-z0-9._-]+$') {
+if (-not (Test-AiSmDistroName $Distro)) {
     Fail ("Distro contains invalid characters: $Distro`n" +
         (Get-AiSmConfigHint -Source $smConfig.DistroSource -Kind 'Distro'))
 }
@@ -182,7 +195,7 @@ if ($installedDistros -notcontains $Distro) {
     # exactly ONE installed distro starts with the configured name, use it
     # (with a notice). No match or an ambiguous match (e.g. Ubuntu-22.04 +
     # Ubuntu-24.04) is still a hard error.
-    $candidates = @($installedDistros | Where-Object { $_ -like "$Distro*" -and $_ -match '^[A-Za-z0-9._-]+$' })
+    $candidates = @($installedDistros | Where-Object { $_ -like "$Distro*" -and (Test-AiSmDistroName $_) })
     if ($candidates.Count -eq 1) {
         Write-Host "Distro '$Distro' is not installed; using the unique match '$($candidates[0])'."
         $Distro = $candidates[0]
@@ -295,13 +308,23 @@ function Test-WebView2Runtime {
 }
 
 function Open-NativeHost([string]$Url) {
-    # Tier 1: the native WebView2 host (launcher\host\build\AiSessionManagerHost.exe,
-    # built by build-host.ps1). It owns its window's AppUserModelID
+    # Tier 1: the native WebView2 host (host\AiSessionManagerHost.exe when
+    # installed, launcher\host\build\AiSessionManagerHost.exe in a clone built
+    # by build-host.ps1). It owns its window's AppUserModelID
     # ('AiSessionManager', matched by make-shortcut.ps1) so the taskbar button
     # shows app.ico instead of the Edge logo. Returns $true on a confirmed-ready
     # window; $false means "unavailable or failed - fall through to Edge".
-    $srcExe = Join-Path $PSScriptRoot 'host\build\AiSessionManagerHost.exe'
-    if (-not (Test-Path -LiteralPath $srcExe)) { return $false }
+    # Two layouts hold the same exe: 'host\' beside the scripts (what the
+    # Windows Setup installs) and 'host\build\' (what build-host.ps1 produces
+    # in a developer clone). First one that exists wins.
+    $srcDir = $null
+    foreach ($candidate in @((Join-Path $PSScriptRoot 'host'), (Join-Path $PSScriptRoot 'host\build'))) {
+        if (Test-Path -LiteralPath (Join-Path $candidate 'AiSessionManagerHost.exe')) {
+            $srcDir = $candidate
+            break
+        }
+    }
+    if (-not $srcDir) { return $false }
     if (-not (Test-WebView2Runtime)) {
         Write-Host 'WebView2 runtime not detected - using the Edge --app fallback.'
         return $false
@@ -310,31 +333,38 @@ function Open-NativeHost([string]$Url) {
     $localAppData  = [Environment]::GetFolderPath('LocalApplicationData')
     $readySentinel = Join-Path $localAppData 'ai-session-manager\host-ready'
 
-    # Run from a LOCAL copy, never the \\wsl.localhost source. Launching an exe
-    # off that UNC path puts it in the network zone: ShellExecute pops a modal
-    # "Open File - Security Warning" that blocks invisibly under the silent
-    # launcher (so nothing ever opens), and .NET's ExtractAssociatedIcon
-    # rejects UNC paths. Stage exe + DLLs into %LOCALAPPDATA% and run there.
-    $srcDir   = Join-Path $PSScriptRoot 'host\build'
-    $localDir = Join-Path $localAppData 'ai-session-manager\host'
-    $hostExe  = Join-Path $localDir 'AiSessionManagerHost.exe'
-    try {
-        if (-not (Test-Path -LiteralPath $localDir)) {
-            New-Item -ItemType Directory -Force -Path $localDir -ErrorAction Stop | Out-Null
-        }
-        # Copy each build artifact when missing or older than the source, then
-        # Unblock-File to strip any network Mark-of-the-Web that would re-warn.
-        Get-ChildItem -LiteralPath $srcDir -File -ErrorAction Stop | ForEach-Object {
-            $target = Join-Path $localDir $_.Name
-            if (-not (Test-Path -LiteralPath $target) -or
-                $_.LastWriteTimeUtc -gt (Get-Item -LiteralPath $target).LastWriteTimeUtc) {
-                Copy-Item -LiteralPath $_.FullName -Destination $target -Force -ErrorAction Stop
+    if ($PSScriptRoot -and -not $PSScriptRoot.StartsWith('\\')) {
+        # Installed (or otherwise copied onto a real drive): run the exe where
+        # it lies. The staging dance below exists only for UNC paths, and doing
+        # it here would be actively wrong - an update replaces {app}\host, and a
+        # stale %LOCALAPPDATA% copy could shadow it.
+        $hostExe = Join-Path $srcDir 'AiSessionManagerHost.exe'
+    } else {
+        # Run from a LOCAL copy, never the \\wsl.localhost source. Launching an exe
+        # off that UNC path puts it in the network zone: ShellExecute pops a modal
+        # "Open File - Security Warning" that blocks invisibly under the silent
+        # launcher (so nothing ever opens), and .NET's ExtractAssociatedIcon
+        # rejects UNC paths. Stage exe + DLLs into %LOCALAPPDATA% and run there.
+        $localDir = Join-Path $localAppData 'ai-session-manager\host'
+        $hostExe  = Join-Path $localDir 'AiSessionManagerHost.exe'
+        try {
+            if (-not (Test-Path -LiteralPath $localDir)) {
+                New-Item -ItemType Directory -Force -Path $localDir -ErrorAction Stop | Out-Null
             }
-            Unblock-File -LiteralPath $target -ErrorAction SilentlyContinue
+            # Copy each build artifact when missing or older than the source, then
+            # Unblock-File to strip any network Mark-of-the-Web that would re-warn.
+            Get-ChildItem -LiteralPath $srcDir -File -ErrorAction Stop | ForEach-Object {
+                $target = Join-Path $localDir $_.Name
+                if (-not (Test-Path -LiteralPath $target) -or
+                    $_.LastWriteTimeUtc -gt (Get-Item -LiteralPath $target).LastWriteTimeUtc) {
+                    Copy-Item -LiteralPath $_.FullName -Destination $target -Force -ErrorAction Stop
+                }
+                Unblock-File -LiteralPath $target -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-Host "Native host: could not stage a local copy ($($_.Exception.Message)) - using the Edge --app fallback."
+            return $false
         }
-    } catch {
-        Write-Host "Native host: could not stage a local copy ($($_.Exception.Message)) - using the Edge --app fallback."
-        return $false
     }
     if (-not (Test-Path -LiteralPath $hostExe)) { return $false }
 

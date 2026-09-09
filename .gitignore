@@ -38,3 +38,15 @@ build/
 # SHA256SUMS.txt here). Produced on a CI runner; only ever appears locally if
 # the packaging step is run by hand. Same rule: never commit binaries.
 dist-release/
+
+# The launcher config the Windows Setup writes beside the INSTALLED scripts
+# (launcher/README.md). It never belongs in a clone: a stray copy here would
+# outrank the derivation from the launcher's own location and silently point
+# the launcher at another distro or app directory.
+launcher/launcher-config.json
+launcher/install-info.txt
+
+# Installer payload: the Linux bundle tarball and the four native-host files
+# CI drops here before running ISCC (installer/README.md). Binaries, never
+# committed.
+installer/payload/

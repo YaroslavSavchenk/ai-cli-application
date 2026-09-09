@@ -315,6 +315,44 @@ test('setRuntime: notifies conn on change, is a no-op when the answer repeats', 
   assert.deepEqual(kinds, ['conn', 'conn'], 'a new update verdict is a change');
 });
 
+test('setRuntime: an INSTALLED backend carries its version and flag beside the commit', () => {
+  // Installer phase C (2026-09-08). The panel's `version` fact and the
+  // `Check for updates` link both read these two; a poll that dropped them
+  // would silently turn an installed app back into a developer clone on screen.
+  const { kinds } = collectKinds();
+  const iso = new Date().toISOString();
+  const installed = {
+    startedAt: iso,
+    // A packaged tree has no git checkout to read a hash from.
+    serverCommit: null,
+    version: 'v0.2.0',
+    installed: true,
+    webBuild: 'assets/index-Br1e6z0Q.js',
+    update: { available: false, reason: null },
+  };
+  st.setRuntime(installed);
+  assert.equal(st.state.version, 'v0.2.0');
+  assert.equal(st.state.installed, true);
+  assert.equal(st.state.serverCommit, null);
+  assert.deepEqual(kinds, ['conn']);
+
+  st.setRuntime(installed);
+  assert.deepEqual(kinds, ['conn'], 'the same installed answer again must not renotify');
+
+  // A newer bundle taking the port is a change even when nothing else moved.
+  st.setRuntime({ ...installed, version: 'v0.3.0' });
+  assert.equal(st.state.version, 'v0.3.0');
+  assert.deepEqual(kinds, ['conn', 'conn'], 'a new bundle version is a change');
+
+  // …and so is the mode itself flipping, which is what a handover to a
+  // developer clone on the same port would look like.
+  st.setRuntime({ ...installed, version: null, installed: false, serverCommit: 'a1b2c3d' });
+  assert.equal(st.state.installed, false);
+  assert.equal(st.state.version, null, 'a clone must not keep the previous run’s version');
+  assert.equal(st.state.serverCommit, 'a1b2c3d');
+  assert.deepEqual(kinds, ['conn', 'conn', 'conn']);
+});
+
 test('setBackendReachable: notifies conn on toggle, is a no-op when unchanged', () => {
   const { kinds } = collectKinds();
   assert.equal(st.state.backendReachable, true, 'precondition: defaults reachable');

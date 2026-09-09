@@ -73,6 +73,18 @@ interface AppState {
   serverStartedAt: string | null;
   /** Short git hash the running backend was built from; null when unknown. */
   serverCommit: string | null;
+  /**
+   * Installed mode (2026-09-08): the bundle version the backend runs from
+   * (e.g. `v0.2.0`), null on a developer clone — where `serverCommit` is the
+   * identity instead. The settings panel prefers this and falls back.
+   */
+  version: string | null;
+  /**
+   * True when the backend runs from an installed bundle rather than a git
+   * checkout. It decides what an update MEANS, so the panel offers the
+   * releases page instead of assuming the user can pull sources.
+   */
+  installed: boolean;
   /** Live "newer code is on disk" answer from GET /api/runtime; null until fetched. */
   update: UpdateStatus | null;
   /**
@@ -97,6 +109,8 @@ export const state: AppState = {
   wsLatencyMs: null,
   serverStartedAt: null,
   serverCommit: null,
+  version: null,
+  installed: false,
   update: null,
   restarting: false,
   backendReachable: true,
@@ -830,18 +844,25 @@ export function setWsLatency(ms: number | null): void {
 }
 
 /**
- * Whole `GET /api/runtime` answer: boot time, the commit the process runs, and
- * the live update check. One setter so the three readouts (statusline uptime,
- * settings version, update notice) can never disagree about which poll they
- * came from.
+ * Whole `GET /api/runtime` answer: boot time, the commit the process runs, the
+ * bundle version and installed flag (2026-09-08), and the live update check.
+ * One setter so the readouts (statusline uptime, settings version, the
+ * releases link, update notice) can never disagree about which poll they came
+ * from.
  */
 export function setRuntime(r: RuntimeStatusResponse): void {
   const updateChanged =
     state.update?.available !== r.update?.available || state.update?.reason !== r.update?.reason;
   const changed =
-    state.serverStartedAt !== r.startedAt || state.serverCommit !== r.serverCommit || updateChanged;
+    state.serverStartedAt !== r.startedAt ||
+    state.serverCommit !== r.serverCommit ||
+    state.version !== r.version ||
+    state.installed !== r.installed ||
+    updateChanged;
   state.serverStartedAt = r.startedAt;
   state.serverCommit = r.serverCommit;
+  state.version = r.version ?? null;
+  state.installed = r.installed === true;
   state.update = r.update ?? null;
   if (changed) notify('conn');
 }

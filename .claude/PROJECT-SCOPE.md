@@ -215,15 +215,23 @@ multi-pane layouts on top.
   derived from the launcher's own location — added 2026-09-08**: Windows sees
   the scripts as `\\wsl.localhost\<distro>\<linux path>\launcher`, which
   states both. `launcher/config-common.ps1` is dot-sourced by `launch.ps1` and
-  `make-shortcut.ps1` so the two can never disagree. Precedence:
-  `AI_SM_DISTRO`/`AI_SM_REPO_PATH` → derived from `$PSScriptRoot` → the
-  hardcoded defaults `Ubuntu-24.04` / `/home/sava/projects/ai-cli-application`,
-  reachable only when the launcher folder was copied OUT of the repo. Every
-  value, whatever its source, passes the same allow-list —
-  `^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$` for the path, `^[A-Za-z0-9._-]+$` for
-  the distro — which is the injection-safety gate, and a derived-but-invalid
-  value FAILS instead of falling back to a default, so the launcher never
-  starts a backend for a repo the user does not have. Distro keeps
+  `make-shortcut.ps1` so the two can never disagree. Precedence (installer
+  phase B, 2026-09-09): `AI_SM_DISTRO`/`AI_SM_REPO_PATH` → **`launcher-config.json`
+  beside the scripts** (written by the Setup; a corrupt or non-string file is
+  an ERROR, never a fall-through) → derived from `$PSScriptRoot` → the
+  built-in defaults, which are now **EMPTY**: nothing resolvable = a
+  message naming the three fixes, never someone else's repo. Every value,
+  whatever its source, passes the same allow-list — defined ONCE in
+  `config-common.ps1` (`Test-AiSmLinuxPath`, `Test-AiSmDistroName`,
+  `Test-AiSmDataDir`; `^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\z` for the path,
+  `^[A-Za-z0-9._-]+\z` for the distro — `\z`, not `$`, which in .NET admits
+  a trailing newline) and shared with every `installer/helpers/*.ps1` — which
+  is the injection-safety gate, and a derived-but-invalid value FAILS instead
+  of falling back to a default, so the launcher never starts a backend for a
+  repo the user does not have. When the scripts are NOT on a UNC
+  path (an installed copy) the WebView2 host runs in place from `host\`;
+  the `%LOCALAPPDATA%` staging copy + `Unblock-File` pass is kept for any
+  `\\` path (the repo-clone case). Distro keeps
   unique-prefix auto-resolution. Non-`-Silent` launches print one `Config:`
   line naming both values and their source; `make-shortcut.ps1 -DryRun` prints
   the resolution and the shortcut target without creating anything.), waits for
@@ -306,7 +314,24 @@ multi-pane layouts on top.
   `%LOCALAPPDATA%\Programs\AI Session Manager\` with launcher scripts,
   icon, host exe and an installer-written launcher config (distro + app
   path; precedence env → config file → UNC-derived → defaults, same
-  allow-list gate). Backend gains an **installed mode** (version marker
+  allow-list gate) plus `install-info.txt` (`distro`/`appDir`/`version`,
+  key=value, the uninstaller's only input). The WSL app dir MUST end in
+  `/app` with ≥ 3 segments — enforced at install time so the uninstall guard
+  (allow-listed, ends in `/app`, holds ≥ 1 `<v>/bundle.json`) is always
+  checkable; the Windows dir page is disabled (`/DIR=` still works).
+  Retention: `current` + one previous + whatever a live pid runs from (read
+  from `runtime.json.appDir` + `kill -0`); a same-version reinstall of the
+  RUNNING version is refused (close or restart first). **Every `wsl.exe`
+  invocation in the installer helpers uses `--exec`** (measured 2026-09-08:
+  with `--` wsl.exe re-joins argv and the default shell expands `$1`/`$(…)`
+  before `sh -c` sees them; the launcher's older `-- bash -lc "<one
+  string>"` start line is safe only because that string holds nothing but
+  allow-listed values — any NEW call with positional args uses `--exec`);
+  the constant unpack/remove scripts contain no double quotes, positional
+  args are allow-listed first, and the tarball travels over stdin so no
+  Windows path ever reaches a Linux command line. Test-only seams:
+  `-DryRun` on all helpers (prints the exact argv) and `wsl-probe.ps1
+  -ListFile` (a committed UTF-16LE `wsl -l -v` fixture). Backend gains an **installed mode** (version marker
   present): banner shows the bundle version, dependency check skipped, the
   restart preflight serves the bundled `web/dist` instead of rebuilding,
   `update.available` = `current` points at a different version dir than the
@@ -477,6 +502,12 @@ multi-pane layouts on top.
     recorded rather than hidden.
 
 - **No commands, flags, or code in the UI — decided 2026-07-25, user's call.**
+  Carve-out (2026-09-08, user decision 2 of the installer): the Setup
+  wizard's WSL and consent pages MUST show the exact `wsl …` fix commands
+  (`wsl --install`, `wsl --install -d Ubuntu`, `wsl --set-version <name>
+  2`) and the exact third-party command (`curl -fsSL
+  https://claude.ai/install.sh | bash`) verbatim — informed consent and an
+  actionable fix are the point there. The app's own chrome stays clean.
   The GUI speaks plain human language; CLI syntax belongs in the terminal, not
   in the chrome around it. Concretely: permission modes render as **Always
   ask** / **Auto-approve edits** / **Read-only planning** / **Never ask ·

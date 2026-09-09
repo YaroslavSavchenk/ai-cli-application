@@ -14,18 +14,20 @@ while WSL is down (\\wsl.localhost is unreachable until the VM boots, which
 otherwise leaves the shortcut icon blank after every Windows reboot).
 Re-run this script to refresh the copy after regenerating the icon.
 
-The launcher directory is resolved to its \\wsl.localhost UNC form
-automatically:
-  - normally from this script's own location ($PSScriptRoot is already the
-    UNC path both when run from the share and when run via powershell.exe
-    interop from inside WSL - Windows maps the WSL cwd to UNC);
-  - otherwise built from the resolved distro + Linux repo path.
+The launcher directory the shortcuts point at:
+  - this script's own folder whenever launch-silent.vbs sits next to it -
+    the \\wsl.localhost UNC path in a clone ($PSScriptRoot already has that
+    form both when run from the share and when run via powershell.exe
+    interop from inside WSL), or the installation folder
+    (%LOCALAPPDATA%\Programs\AI Session Manager) after a Setup install;
+  - otherwise built as \\wsl.localhost\<distro>\<repo path>\launcher from
+    the resolved config.
 
 Distro and repo path come from the SAME resolution launch.ps1 uses
-(config-common.ps1: AI_SM_DISTRO / AI_SM_REPO_PATH env vars -> derived from
-this script's own \\wsl.localhost location -> the hardcoded defaults
-below), so the two scripts can never disagree about which clone in which
-distro they mean.
+(config-common.ps1: AI_SM_DISTRO / AI_SM_REPO_PATH env vars ->
+launcher-config.json next to this script -> derived from this script's own
+\\wsl.localhost location -> the defaults below, which are EMPTY), so the two
+scripts can never disagree about which app in which distro they mean.
 
   -DryRun   print the resolved config + launcher directory and exit,
             touching no shortcut, no icon copy, nothing.
@@ -41,10 +43,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Last-resort defaults, used only when nothing can be derived (the launcher
-# folder was copied out of the repo) and no env override is set.
-$DefaultDistro   = 'Ubuntu-24.04'
-$DefaultRepoPath = '/home/sava/projects/ai-cli-application'
+# EMPTY on purpose (same as launch.ps1): with no env var, no
+# launcher-config.json and no derivable WSL location there is nothing
+# honest to fall back to, so the script says so instead of pointing a
+# shortcut at someone else's clone.
+$DefaultDistro   = ''
+$DefaultRepoPath = ''
 $ShortcutName = 'AI Session Manager'
 
 # Must be byte-identical to the AppUserModelId the native host sets via
@@ -155,7 +159,7 @@ namespace AiSm {
 }
 '@
 
-# --- Resolve distro + repo path (env -> launcher location -> defaults) -----
+# --- Resolve distro + app path (env -> config file -> location -> defaults) --
 # Exactly the resolution launch.ps1 performs, from the same shared file.
 
 $commonPs1 = Join-Path $PSScriptRoot 'config-common.ps1'
@@ -164,32 +168,39 @@ if (-not (Test-Path -LiteralPath $commonPs1)) {
 }
 . $commonPs1
 
-$smConfig = Resolve-AiSmConfig -ScriptRoot $PSScriptRoot `
-    -DefaultDistro $DefaultDistro -DefaultRepoPath $DefaultRepoPath
+try {
+    $smConfig = Resolve-AiSmConfig -ScriptRoot $PSScriptRoot -ConfigDir $PSScriptRoot `
+        -DefaultDistro $DefaultDistro -DefaultRepoPath $DefaultRepoPath
+} catch {
+    Fail $_.Exception.Message
+}
 $Distro   = $smConfig.Distro
 $RepoPath = $smConfig.RepoPath
+if (-not $Distro -or -not $RepoPath) { Fail (Get-AiSmNoConfigMessage -ConfigDir $PSScriptRoot) }
 Write-Host (Format-AiSmConfigLine $smConfig)
 
 # Same allow-list gate as launch.ps1, applied whatever the source: a
 # shortcut pointing at a launcher that would refuse to run is worse than an
 # error here. A rejected derived value is never swapped for the default.
-if ($RepoPath -notmatch '^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') {
+if (-not (Test-AiSmLinuxPath $RepoPath)) {
     Fail ("RepoPath must be an absolute Linux path without spaces or shell metacharacters, got: $RepoPath`n" +
         (Get-AiSmConfigHint -Source $smConfig.RepoPathSource -Kind 'RepoPath'))
 }
-if ($Distro -notmatch '^[A-Za-z0-9._-]+$') {
+if (-not (Test-AiSmDistroName $Distro)) {
     Fail ("Distro contains invalid characters: $Distro`n" +
         (Get-AiSmConfigHint -Source $smConfig.DistroSource -Kind 'Distro'))
 }
 
-# --- Resolve the launcher directory as a \\wsl.localhost UNC path ----------
+# --- Resolve the launcher directory ---------------------------------------
 
 $launcherUnc = $null
-if ($PSScriptRoot -and ($PSScriptRoot -like '\\wsl.localhost\*' -or $PSScriptRoot -like '\\wsl$\*')) {
+if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'launch-silent.vbs'))) {
     # Where this script actually is beats any config: that is where
-    # launch-silent.vbs and app.ico live. (An AI_SM_* override then applies
-    # to the config only, not to the shortcut target - and launch.ps1
-    # re-resolves at click time anyway, when those vars are normally unset.)
+    # launch-silent.vbs and app.ico live - the \\wsl.localhost share in a
+    # clone, the installation folder after a Setup install. (An AI_SM_*
+    # override then applies to the config only, not to the shortcut target -
+    # and launch.ps1 re-resolves at click time anyway, when those vars are
+    # normally unset.)
     $launcherUnc = $PSScriptRoot
 } else {
     $launcherUnc = '\\wsl.localhost\' + $Distro + ($RepoPath -replace '/', '\') + '\launcher'
