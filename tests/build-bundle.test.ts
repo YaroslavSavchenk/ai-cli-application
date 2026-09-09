@@ -69,6 +69,7 @@ async function makeRepo(opts: { noWebDist?: boolean } = {}): Promise<FakeRepo> {
   await writeFile(join(dir, 'server', 'statusline.mjs'), '');
   await mkdir(join(dir, 'launcher'), { recursive: true });
   await writeFile(join(dir, 'launcher', 'start-backend.sh'), '');
+  await writeFile(join(dir, 'launcher', 'run-update.ps1'), '');
   if (opts.noWebDist !== true) {
     await mkdir(join(dir, 'web', 'dist'), { recursive: true });
     await writeFile(join(dir, 'web', 'dist', 'index.html'), '<!doctype html>');
@@ -504,5 +505,72 @@ test('build-bundle: the tar call is argv-safe — a version that LOOKS like a fl
     assert.equal(await exists(staged), true, 'the staged file was REMOVED — tar parsed the version as an option');
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('build-bundle: the bundle ships run-update.ps1 — an installed app that cannot update itself', async () => {
+  // The in-app update runs the Setup through `launcher/run-update.ps1`, which
+  // the BACKEND copies out of its own bundle into a Windows staging directory.
+  // Forget it here and the whole feature dies at the last step, on the user's
+  // machine, with the exe already downloaded and verified — so the copy, its
+  // mode and the check that it landed are lifted out of the script verbatim
+  // and run, exactly like the bundle.json test above.
+  const script = await readFile(SCRIPT, 'utf8');
+  const from = 'mkdir -p "$STAGE/launcher"';
+  const to = '# --- 8. bundle.json';
+  const a = script.indexOf(from);
+  const b = script.indexOf(to);
+  assert.ok(
+    a >= 0 && b > a,
+    `scripts/build-bundle.sh no longer contains ${JSON.stringify(from)} … ${JSON.stringify(to)} — this test lifts that block and must be updated with it`,
+  );
+  const block = script.slice(a, b);
+
+  // It must also refuse BEFORE the download when the file is not in the repo.
+  assert.ok(
+    script.includes('[ -f "$REPO/launcher/run-update.ps1" ] || die "No launcher/run-update.ps1 at $REPO."'),
+    'the preflight must name run-update.ps1',
+  );
+
+  const stage = await mkdtemp(join(tmpdir(), 'ai-sm-stage-'));
+  try {
+    const harness = [
+      'set -euo pipefail',
+      'die() { echo "$*" >&2; exit 1; }',
+      `REPO=${JSON.stringify(projectRoot)}`,
+      `STAGE=${JSON.stringify(stage)}`,
+      // What the earlier steps of a real build already put in the staging dir;
+      // the lifted block asserts on these.
+      'mkdir -p "$STAGE/server" "$STAGE/web/dist"',
+      ': > "$STAGE/server/statusline.mjs"',
+      ': > "$STAGE/web/dist/index.html"',
+      ': > "$STAGE/web/dist/build-id.json"',
+      block,
+    ].join('\n');
+    const r = await new Promise<RunResult>((resolve, reject) => {
+      const child = spawn(BASH, ['-c', harness], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (c: Buffer) => (stdout += c.toString('utf8')));
+      child.stderr.on('data', (c: Buffer) => (stderr += c.toString('utf8')));
+      child.on('error', reject);
+      child.on('close', (code) => resolve({ code, stdout, stderr, out: `${stdout}${stderr}` }));
+    });
+    assert.equal(r.code, 0, r.out);
+
+    const staged = join(stage, 'launcher', 'run-update.ps1');
+    assert.equal(await exists(staged), true, 'run-update.ps1 is not in the bundle');
+    assert.equal(
+      await readFile(staged, 'utf8'),
+      await readFile(join(projectRoot, 'launcher', 'run-update.ps1'), 'utf8'),
+      'the bundled copy must be the committed script, byte for byte',
+    );
+    // 0644: it is never executed inside Linux — powershell.exe runs it, from a
+    // copy on the Windows side.
+    assert.equal((await stat(staged)).mode & 0o777, 0o644);
+    // …while the script that IS executed in Linux stays executable.
+    assert.equal((await stat(join(stage, 'launcher', 'start-backend.sh'))).mode & 0o777, 0o755);
+  } finally {
+    await rm(stage, { recursive: true, force: true });
   }
 });

@@ -27,6 +27,7 @@ import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { commandLabel } from './launch-args.ts';
+import { openReleasesPage } from './releases.ts';
 import { openRestartConfirm, runtimeFacts } from './update.ts';
 import {
   DEAD_PREFS_KEYS,
@@ -70,23 +71,6 @@ const KEY_ROWS: KeyRow[] = [
   { what: 'paste into a terminal', keys: ['ctrl+shift+v', 'shift+insert'] },
   { what: 'open a link printed in a terminal', gesture: 'ctrl+click' },
 ];
-
-/**
- * Where an INSTALLED app goes to look for a newer one (2026-09-08). The address
- * lives here, in code, and never in UI copy — the link says what it does in
- * words, exactly like every other control in this panel.
- *
- * This is the ONE sanctioned way out of the app window: the host hands an exact
- * http/https `window.open` to the user's default browser as a separate process
- * (scheme allowlist enforced host-side), and top-level navigation stays locked
- * to the launch origin. It therefore has to stay a plain `window.open` on a
- * real user click — a fetch, a redirect or a programmatic open is not that.
- *
- * The app deliberately does NOT check for updates itself: a localhost tool that
- * reaches out to the network on its own is a promise this project has not made
- * (PROJECT-SCOPE, installer bullet). The user asks, and the browser answers.
- */
-const RELEASES_URL = 'https://github.com/YaroslavSavchenk/ai-cli-application/releases';
 
 /** One toggle row: its key, its label, and the text that item really draws. */
 interface ItemRow {
@@ -267,7 +251,7 @@ export function initSettings(
   // would be an instruction that does not apply to it.
   const checkBtn = button('btn-link', 'Check for updates', () => {
     log.info('opening the releases page in the browser');
-    window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+    openReleasesPage();
   });
   checkBtn.title = 'opens the releases page in your browser';
   checkBtn.hidden = true;

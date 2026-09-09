@@ -240,6 +240,10 @@ stripping).
     npm test            # backend test suite (spawns real servers and PTYs)
     npm run typecheck   # tsc over server/shared/tests and web
 
+Every test has a 120 s timeout (`--test-timeout`): the suite starts real
+backend children, and a hang there must cost one red test, not a stalled CI
+job. The slowest test today takes a few seconds.
+
 The backend binds `127.0.0.1` on an OS-assigned port and writes
 `runtime.json` to its data dir; open `http://127.0.0.1:<port>/` with the
 port from that file. The one exception to the auto-pick is a restart handoff
@@ -515,6 +519,18 @@ user-chosen destination.
 REST base and is refused unless it is a loopback origin (the server exits 1
 rather than start), so it can never be a production or GitHub-Enterprise
 setting.
+
+`AI_SM_UPDATE_API_BASE` is the same kind of seam for the in-app update check
+(the anonymous `releases/latest` request an installed app makes). It is
+loopback-only under the same rule — a non-loopback value makes the server exit
+1 before it listens — and, while it is set, it also becomes the only origin an
+update file may be downloaded from. Two timing seams belong to the same
+machinery and are equally test-only: `AI_SM_UPDATE_FIRST_MS` (how long after
+startup the first check runs; 20 s by default) and `AI_SM_UPDATE_INTERVAL_MS`
+(how often afterwards; 6 hours by default). Both are floored at 1000 ms — they
+move a clock that talks to api.github.com, and a smaller value would be a
+request flood rather than a faster test. A developer clone never checks for
+updates at all, and neither does a bundle whose version is `0.0.0-*`.
 
 ## More
 

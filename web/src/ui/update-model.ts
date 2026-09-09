@@ -24,19 +24,27 @@
  * `reasonSentence()` below maps it to a plain sentence and the raw text stays
  * in the client log line only.
  */
-import type { SessionInfo, UpdateStatus } from '../../../shared/protocol.ts';
+import {
+  UPDATE_NEW_VERSION_AVAILABLE,
+  type SessionInfo,
+  type UpdateRelease,
+  type UpdateStatus,
+} from '../../../shared/protocol.ts';
 import { hasContinueFlag, isClaudeCommand } from './launch-args.ts';
 
 /**
  * - `hidden`     nothing to say (no update, or a restart finished the story)
  * - `toast`      toast AND pill visible — the arrival state of a new reason
  * - `pill`       toast dismissed for this reason; the pill stays
+ * - `updating`   the in-app update is downloading/installing (phase E); like
+ *                `restarting` it owns the screen, but nothing has been torn
+ *                down yet — every session is alive behind the dialog
  * - `restarting` a restart is in flight; the toast steps aside and the pill
  *                says so (it is the only thing on screen while the dialog is
  *                hidden, and clicking it brings the dialog back)
  * - `done`       the restart succeeded and the page is being replaced
  */
-export type NoticeState = 'hidden' | 'toast' | 'pill' | 'restarting' | 'done';
+export type NoticeState = 'hidden' | 'toast' | 'pill' | 'updating' | 'restarting' | 'done';
 
 /** Rows the confirmation lists before it collapses the rest into `+ K more`. */
 export const CONFIRM_LIST_MAX = 6;
@@ -49,14 +57,29 @@ export const PILL_LABEL = 'update';
  * flight — the only way back to it would be the settings panel.
  */
 export const PILL_LABEL_RESTARTING = 'restarting…';
+/**
+ * …and while the in-app update runs (phase E). Its own word, not `restarting…`:
+ * during this half nothing has been ended yet — the download and the Windows
+ * installer are still working while every session keeps running behind the
+ * dialog — and the pill is what a user who hid that dialog reads.
+ */
+export const PILL_LABEL_UPDATING = 'updating…';
 /** Tooltip for that state; the pending-update tooltip lives in `update.ts`. */
 export const PILL_TIP_RESTARTING = 'A restart is running — show it';
+export const PILL_TIP_UPDATING = 'An update is running — show it';
 
 export class UpdateNotice {
   #state: NoticeState = 'hidden';
   /** The reason currently being reported, or null when nothing is available. */
   #reason: string | null = null;
-  /** The reason whose toast the user waved away. Never cleared by a poll. */
+  /**
+   * The dismissal KEY of the offer on the table: the reason AND the version it
+   * names. The reason alone is not enough — 'a new version is available' is the
+   * same sentence for v0.3.0 and v0.4.0, so keying on it made one `Later`
+   * silence every release that follows.
+   */
+  #key: string | null = null;
+  /** The key whose toast the user waved away. Never cleared by a poll. */
   #dismissed: string | null = null;
 
   get state(): NoticeState {
@@ -73,21 +96,28 @@ export class UpdateNotice {
   }
 
   get pillVisible(): boolean {
-    return this.#state === 'toast' || this.#state === 'pill' || this.#state === 'restarting';
+    return (
+      this.#state === 'toast' ||
+      this.#state === 'pill' ||
+      this.#state === 'updating' ||
+      this.#state === 'restarting'
+    );
   }
 
-  /** The pill's word right now — a restart in flight renames it, not hides it. */
+  /** The pill's word right now — a flow in flight renames it, not hides it. */
   get pillLabel(): string {
+    if (this.#state === 'updating') return PILL_LABEL_UPDATING;
     return this.#state === 'restarting' ? PILL_LABEL_RESTARTING : PILL_LABEL;
   }
 
   /**
-   * What a click on the pill means: while a restart runs it can only bring the
-   * hidden dialog back (`reveal`) — asking the question a second time while the
-   * answer to the first is on its way is not a thing the user can want.
+   * What a click on the pill means: while an update or a restart runs it can
+   * only bring the hidden dialog back (`reveal`) — asking the question a second
+   * time while the answer to the first is on its way is not a thing the user
+   * can want.
    */
   get pillAction(): 'confirm' | 'reveal' {
-    return this.#state === 'restarting' ? 'reveal' : 'confirm';
+    return this.#state === 'updating' || this.#state === 'restarting' ? 'reveal' : 'confirm';
   }
 
   /**
@@ -96,25 +126,30 @@ export class UpdateNotice {
    * must not resurrect a toast over the progress text.
    */
   apply(update: UpdateStatus | null | undefined): NoticeState {
-    if (this.#state === 'restarting' || this.#state === 'done') return this.#state;
+    if (this.#state === 'updating' || this.#state === 'restarting' || this.#state === 'done') {
+      return this.#state;
+    }
     if (update === null || update === undefined || !update.available) {
       this.#reason = null;
+      this.#key = null;
       this.#state = 'hidden';
       return this.#state;
     }
     // A null reason still counts as an update; it is keyed as the empty
     // string so "no reason given" behaves like one stable reason rather than
-    // re-toasting on every poll.
+    // re-toasting on every poll. The offered version is part of the key: a new
+    // release must be able to speak up even after `Later` on the previous one.
     const reason = update.reason ?? '';
     this.#reason = reason;
-    this.#state = this.#dismissed === reason ? 'pill' : 'toast';
+    this.#key = `${reason}@${update.release?.version ?? ''}`;
+    this.#state = this.#dismissed === this.#key ? 'pill' : 'toast';
     return this.#state;
   }
 
   /** `Later` / `×` on the toast: the pill survives, this reason stops toasting. */
   dismissToast(): NoticeState {
     if (this.#state !== 'toast') return this.#state;
-    this.#dismissed = this.#reason ?? '';
+    this.#dismissed = this.#key ?? '';
     this.#state = 'pill';
     return this.#state;
   }
@@ -126,14 +161,41 @@ export class UpdateNotice {
   }
 
   /**
+   * The update POST is about to go out (phase E). Same shape as `startRestart`
+   * and a different word on the pill: this half downloads and installs while
+   * the app keeps running, and the restart only begins once it succeeded.
+   */
+  startUpdate(): NoticeState {
+    this.#state = 'updating';
+    return this.#state;
+  }
+
+  /**
    * The restart did not happen (cancelled, 409, 500, timeout): go back to the
    * surface the pending update deserves. A reason the user already dismissed
    * comes back as the pill only — cancelling a restart is not a new fact.
    */
   restartAborted(): NoticeState {
     if (this.#state !== 'restarting') return this.#state;
+    return this.#backToPending();
+  }
+
+  /**
+   * The update half ended without installing anything (refused, failed, a
+   * network gap). Exactly the same fact as an aborted restart — nothing
+   * happened, the pending update is still pending — so it restores the same
+   * surface; it is a separate verb only because the two halves are separate
+   * states and each may only leave its own.
+   */
+  updateAborted(): NoticeState {
+    if (this.#state !== 'updating') return this.#state;
+    return this.#backToPending();
+  }
+
+  /** The one rule both aborts share: back to the surface the reason deserves. */
+  #backToPending(): NoticeState {
     if (this.#reason === null) this.#state = 'hidden';
-    else this.#state = this.#dismissed === this.#reason ? 'pill' : 'toast';
+    else this.#state = this.#dismissed === this.#key ? 'pill' : 'toast';
     return this.#state;
   }
 
@@ -141,6 +203,7 @@ export class UpdateNotice {
   finishRestart(): NoticeState {
     this.#state = 'done';
     this.#reason = null;
+    this.#key = null;
     return this.#state;
   }
 }
@@ -180,9 +243,19 @@ export const REASON_DEPS =
  */
 export const REASON_INSTALLED = 'A new version has been installed.';
 
+/**
+ * ONLINE (2026-09-09, phase E). An installed app that asked GitHub found a
+ * published release newer than the bundle it runs from. Nothing is on this
+ * machine yet — that is the whole difference from REASON_INSTALLED, and it is
+ * why the button beside it downloads instead of restarting. Used verbatim when
+ * the release's version fails the shape gate below.
+ */
+export const REASON_AVAILABLE = 'A newer version is available.';
+
 export function reasonSentence(reason: string | null | undefined): string | null {
   if (reason === null || reason === undefined || reason === '') return null;
   if (reason === 'a new version is installed') return REASON_INSTALLED;
+  if (reason === UPDATE_NEW_VERSION_AVAILABLE) return REASON_AVAILABLE;
   if (reason.startsWith('server code changed')) return 'The server code changed.';
   if (reason === 'frontend rebuilt') return "The app's screens were rebuilt.";
   if (reason === 'server files edited') return 'Server files were edited.';
@@ -190,6 +263,63 @@ export function reasonSentence(reason: string | null | undefined): string | null
   if (reason === 'frontend source changed') return "The app's screens changed.";
   if (reason === 'dependencies changed') return REASON_DEPS;
   return REASON_GENERIC;
+}
+
+/**
+ * THE VERSION GATE. `release.version` is the only string in this whole feature
+ * that comes from OUTSIDE the app — a tag read out of a GitHub release — and
+ * `releaseSentence()` puts it in front of a human. The backend gates it too
+ * (VERSION_SHAPE), but the sentence is written here, so the gate is repeated
+ * here: a tag is a short version-ish word and nothing else. Anything with a
+ * space, a quote, an angle bracket, a newline, a semicolon, or more than 64
+ * characters is not printed at all — the generic sentence is, which says the
+ * same true thing without quoting a stranger.
+ *
+ * (Nothing on this path can execute a string; this is about what the user is
+ * asked to trust with their eyes, and about a toast that cannot be turned into
+ * a billboard by whoever can publish a release.)
+ */
+export const VERSION_SHAPE = /^v?[0-9][A-Za-z0-9._+-]{0,63}$/;
+
+/** True when the tag may be shown as-is. */
+export function showableVersion(version: string | null | undefined): boolean {
+  return typeof version === 'string' && VERSION_SHAPE.test(version);
+}
+
+/**
+ * The toast's body in the ONLINE state: `Version v0.3.0 is available.` — the
+ * one fact that makes the button worth pressing. A version that fails the gate
+ * degrades to the generic sentence rather than to no sentence: the update is
+ * real either way.
+ *
+ * Never mentions the size, the file, or the address it would be downloaded
+ * from (copy rule): a user decides on "is there a newer app", not on bytes.
+ */
+export function releaseSentence(release: UpdateRelease | null | undefined): string {
+  const v = release?.version;
+  return showableVersion(v) ? `Version ${v as string} is available.` : REASON_AVAILABLE;
+}
+
+/**
+ * The update confirmation's first line — what pressing the button does, before
+ * the sentence about the sessions it costs. Same version gate as above.
+ */
+export function updateLead(release: UpdateRelease | null | undefined): string {
+  const v = release?.version;
+  return showableVersion(v)
+    ? `Version ${v as string} will be downloaded and installed.`
+    : 'The newer version will be downloaded and installed.';
+}
+
+/**
+ * Which VERB the notice offers for the reason at hand. `update` = the release
+ * lives online and this app can fetch it (phase E); `restart` = the newer
+ * version is already on this machine and only the running process is old.
+ * Precedence between the two reasons is the backend's job; the UI renders
+ * whichever one arrives.
+ */
+export function noticeVerb(reason: string | null | undefined): 'update' | 'restart' {
+  return reason === UPDATE_NEW_VERSION_AVAILABLE ? 'update' : 'restart';
 }
 
 /**

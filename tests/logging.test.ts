@@ -454,6 +454,34 @@ test('every request logs one line — and NEVER the query string values', async 
   }
 });
 
+test('the high-frequency polls are demoted to debug: /api/client-log and /api/update/status', async () => {
+  const server = await startTestServer();
+  try {
+    const shipped = await api(server, 'POST', '/api/client-log', { entries: [] });
+    assert.equal(shipped.status, 204);
+    const status = await api(server, 'GET', '/api/update/status');
+    assert.equal(status.status, 200, 'the status route answers 200 in this harness');
+
+    const log = await waitForLog(server, '[http] GET /api/update/status');
+    assert.match(
+      log,
+      /\[debug\] \[http\] POST \/api\/client-log -> 204/,
+      'the log-shipping POST is written at debug',
+    );
+    assert.match(
+      log,
+      /\[debug\] \[http\] GET \/api\/update\/status -> 200/,
+      'the 1 Hz update-progress poll is written at debug too',
+    );
+    assert.ok(
+      !/\[info\] \[http\] GET \/api\/update\/status/.test(log),
+      'never at info — it would bury the rest of the file for the whole install',
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 4. WebSocket log
 // ---------------------------------------------------------------------------

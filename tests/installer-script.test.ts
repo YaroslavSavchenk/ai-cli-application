@@ -75,7 +75,25 @@ test('installer: the wizard directives the release depends on', () => {
   assert.match(setup, /^OutputBaseFilename=AI-Session-Manager-Setup-\{#AppVersion\}$/m);
   // An upgrade must never ask to close the app: the backend lives in WSL and
   // the in-app restart is what moves a running install to the new version.
+  // The in-app update runs this Setup UNDER the running app, so both of these
+  // are load-bearing: `yes` would make the wizard ask (and the silent run
+  // kill) the very window that started the update, and the host has no
+  // close handler.
   assert.match(setup, /^CloseApplications=no$/m);
+  assert.match(setup, /^RestartApplications=no$/m);
+  // Two Setups of this app may never run at once: the in-app updater starts
+  // this Setup detached and stops WAITING for it after 15 minutes, so a
+  // manually started Setup (or a second press after that timeout) must be
+  // refused by Windows itself rather than unpack the bundle a second time.
+  assert.match(setup, /^SetupMutex=AiSessionManagerSetup$/m);
+});
+
+test('installer: there is no [Run] section - Setup starts nothing at the end', () => {
+  // The in-app update drives its own restart (POST /api/restart) once the
+  // Setup exits; a [Run] entry would start a SECOND launcher behind it, on
+  // the old backend, with the old host still open.
+  assert.doesNotMatch(iss, /^\[Run\]$/m);
+  assert.doesNotMatch(iss, /^\[UninstallRun\]$/m);
 });
 
 test('installer: AppUserModelID is byte-identical in the .iss, the host source and make-shortcut.ps1', () => {
@@ -124,7 +142,11 @@ test('installer: every file it ships exists in this repo', () => {
   }
 });
 
-test('installer: the four native-host files are installed beside the launcher, not staged elsewhere', () => {
+test('installer: the four native-host files are staged in {app}\\host\\next, never written over a running host', () => {
+  // The in-app update runs this Setup while the old host window is open and
+  // CloseApplications is no, so those four files are LOCKED. Writing them
+  // straight to {app}\host would fail the update it has to survive; the
+  // launcher promotes next\ at the following start (Move-AiSmHostNext).
   for (const name of [
     'AiSessionManagerHost.exe',
     'Microsoft.Web.WebView2.Core.dll',
@@ -133,8 +155,11 @@ test('installer: the four native-host files are installed beside the launcher, n
   ]) {
     const line = iss.split('\n').find((l) => l.includes(`{#HostDir}\\${name}`));
     assert.ok(line, `no [Files] entry for ${name}`);
-    assert.ok(line.includes('DestDir: "{app}\\host"'), line);
+    assert.ok(line.includes('DestDir: "{app}\\host\\next"'), line);
+    assert.ok(!/DestDir: "\{app\}\\host"/.test(line), line);
   }
+  // And the promoted copies, which Inno never logged, still go on uninstall.
+  assert.match(iss, /^Type: filesandordirs; Name: "\{app\}\\host"$/m);
 });
 
 test('installer: all logic is in PowerShell helpers - Pascal only ever runs powershell.exe', () => {
@@ -328,7 +353,7 @@ test('installer: R4 - Back-then-Next out of the distribution page keeps the type
   // overwrite what the user typed on the next page.
   assert.match(
     code,
-    /if \(AppDirPage\.Values\[0\] = ''\) or \(SelectedDistro <> LastProbedDistro\) then\s*\n\s*AppDirPage\.Values\[0\] := DefaultAppDir;\s*\n\s*LastProbedDistro := SelectedDistro;/,
+    /if \(AppDirPage\.Values\[0\] = ''\) or \(SelectedDistro <> LastProbedDistro\) then\s*\n\s*AppDirPage\.Values\[0\] := DefaultedAppDir;\s*\n\s*LastProbedDistro := SelectedDistro;/,
   );
   assert.match(code, /^\s{2}LastProbedDistro: String;$/m, 'the remembered distro needs its own var');
 });
@@ -372,4 +397,69 @@ test('installer: R10 - an empty WSL folder or data dir stops the install instead
     /if \(SelectedDataDir = ''\) or \(AppDirPage\.Values\[0\] = ''\) then\s*\n\s*RaiseException\('Setup lost the WSL folder answers; run this Setup again\.'\);/,
   );
   assert.ok(step.indexOf('RaiseException(\'Setup lost') < step.indexOf("Params := '-Distro '"), 'the guard must run before the Params are built');
+});
+
+/* -------------------------------------------------------------------------
+ * Phase E: the Setup is also run SILENTLY, by the app itself, under a
+ * running install. Everything below is about that run being an upgrade of
+ * THIS install rather than a second copy somewhere else.
+ * ---------------------------------------------------------------------- */
+
+test('installer: an upgrade reads the previous install with the same reader the uninstaller uses', () => {
+  const fn = code.slice(code.indexOf('procedure LoadPreviousInstall'), code.indexOf('function DefaultedAppDir'));
+  assert.ok(fn.length > 0, 'LoadPreviousInstall must exist');
+  // install-info.txt is the record of where the last install went: the same
+  // key=value file, the same LoadStringsFromFile + GetVal pair, as
+  // CurUninstallStepChanged reads.
+  // WizardDirValue, never ExpandConstant('{app}') here: measured on Inno
+  // 6.7.1, the app constant is not initialized yet in InitializeWizard and
+  // expanding it raises. WizardDirValue is already the destination — and
+  // already the PREVIOUS install's directory, restored by UsePreviousAppDir.
+  assert.match(fn, /InfoFile := AddBackslash\(WizardDirValue\) \+ 'install-info\.txt';/);
+  assert.doesNotMatch(fn, /ExpandConstant\('\{app\}/);
+  assert.match(fn, /LoadStringsFromFile\(InfoFile, LastResult\);/);
+  assert.match(fn, /Distro := GetVal\('distro'\);/);
+  assert.match(fn, /AppDir := GetVal\('appDir'\);/);
+  // Both values pass the one command-line guard before they are remembered,
+  // and it is all-or-nothing: a remembered distro with a guessed folder is a
+  // second copy inside the right distribution.
+  assert.match(fn, /if IsWslSafe\(Distro\) and IsWslSafe\(AppDir\) then/);
+  assert.match(fn, /if \(Distro = ''\) or \(AppDir = ''\) then\s*\n\s*Exit;/);
+  // It runs before any page can be shown.
+  assert.match(code, /procedure InitializeWizard;[\s\S]*?LoadPreviousInstall;/);
+});
+
+test('installer: /SILENT prefers the previous install BEFORE it picks a distribution', () => {
+  const ensure = code.slice(code.indexOf('procedure EnsureDefaults'), code.indexOf('procedure CurStepChanged'));
+  // The in-app update runs `/SILENT`, where no page is shown at all. Picking
+  // this PC's default distribution there would install a SECOND copy beside
+  // the running one, in a distro the user never chose.
+  assert.match(
+    ensure,
+    /if \(PrevDistro <> ''\) and \(PrevAppDir <> ''\) then\s*\n\s*begin\s*\n\s*SelectedDistro := PrevDistro;\s*\n\s*if not ProbeDistro\(SelectedDistro\) then\s*\n\s*RaiseException\(Reason\);\s*\n\s*AppDirPage\.Values\[0\] := PrevAppDir;\s*\n\s*Exit;\s*\n\s*end;/,
+  );
+  // …before the probe pick, not after it.
+  assert.ok(
+    ensure.indexOf('PrevDistro <> ') < ensure.indexOf("RunHelper(TempHelper('wsl-probe.ps1'), '')"),
+    'the remembered install must be preferred before the probe runs',
+  );
+});
+
+test('installer: the wizard pages default to the previous install too', () => {
+  // The distribution page pre-selects it (after the PC-default loop, so it
+  // wins), and the Linux folder page defaults to the folder already in use —
+  // but only while the same distribution is selected, since that path is a
+  // path inside its home.
+  const probe = code.slice(code.indexOf('procedure ProbeWsl'), code.indexOf('function SelectedDistroName'));
+  assert.match(
+    probe,
+    /if DistroNames\[I\] = GetVal\('default'\) then\s*\n\s*DistroPage\.SelectedValueIndex := I;[\s\S]*?if DistroNames\[I\] = PrevDistro then\s*\n\s*DistroPage\.SelectedValueIndex := I;/,
+  );
+  const fn = code.slice(code.indexOf('function DefaultedAppDir'), code.indexOf('procedure InitializeWizard'));
+  assert.match(fn, /Result := DefaultAppDir;/);
+  assert.match(fn, /if \(PrevAppDir <> ''\) and \(PrevDistro = SelectedDistro\) then\s*\n\s*Result := PrevAppDir;/);
+  // Every place that fills the folder answer goes through it — a leftover
+  // `:= DefaultAppDir` would silently move an upgrade to a new folder.
+  assert.equal((code.match(/AppDirPage\.Values\[0\] := DefaultedAppDir;/g) ?? []).length, 3);
+  assert.equal((code.match(/AppDirPage\.Values\[0\] := DefaultAppDir;/g) ?? []).length, 0);
 });

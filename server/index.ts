@@ -42,6 +42,8 @@ import {
   oneLine,
   MAX_LOG_BYTES,
   DEFAULT_GITHUB_API_BASE,
+  DEFAULT_UPDATE_API_BASE,
+  resolveUpdateApiBase,
 } from './config.ts';
 import {
   readServerCommit,
@@ -80,6 +82,17 @@ import {
   revertFrontend,
   swapFrontend,
 } from './webbuild.ts';
+import {
+  composeUpdateStatus,
+  createReleaseChecker,
+  releaseCheckSupported,
+  type ReleaseChecker,
+} from './update-release.ts';
+import {
+  cleanupUpdatesDir,
+  createInteropLauncher,
+  UpdateController,
+} from './update-install.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -275,7 +288,19 @@ function resetSessionArtifacts(): void {
     // Absent (the normal case) or unremovable — the script tolerates either.
   }
 }
-if (!standbyWaiting) resetSessionArtifacts();
+/**
+ * IN-APP UPDATE (phase E): drop `<dataDir>/updates` — a `.part` from a killed
+ * download, or a Setup.exe from a release nobody ran, must never be reused.
+ * The only file this app ever executes is one it verified in the CURRENT run.
+ * Deferred to `go` in a standby, like every other data-dir mutation.
+ */
+function resetUpdateArtifacts(): void {
+  cleanupUpdatesDir(paths.updatesDir, log);
+}
+if (!standbyWaiting) {
+  resetSessionArtifacts();
+  resetUpdateArtifacts();
+}
 const sessions = new SessionManager(log, history, sessionSettings);
 // GitHub connection. The OAuth client_id comes from env; absent/empty disables
 // only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
@@ -307,8 +332,34 @@ const github = new GithubConnection({
   clientId: process.env['AI_SM_GITHUB_CLIENT_ID'],
   apiBase: githubApiBase,
 });
+/**
+ * Absolute ceiling on deferring the idle shutdown for an install: the download
+ * budget (15 min) plus the Setup budget (15 min) plus a minute of slack. The
+ * states below already end by themselves within it; this is the backstop for a
+ * state machine that somehow does not, so "an update is installing" can never
+ * become an immortal backend.
+ */
+const IDLE_DEFER_MAX_MS = 15 * 60 * 1000 + 15 * 60 * 1000 + 60_000;
 const lifecycle = new LifecycleController({
-  onIdleShutdown: () => shutdown('idle grace expiry'),
+  onIdleShutdown: () => {
+    // An in-app update that is WORKING holds the backend alive: the presence
+    // grace is about idle windows, and exiting mid-download (or while the Setup
+    // runs on the Windows side) would abandon the install with nothing left to
+    // report its outcome. `holdsProcess` — not `inProgress` — is the question:
+    // a Setup that outran its timeout keeps the single-flight lock (so a second
+    // press is refused) but is detached and may never exit, and THAT must not
+    // defer anything. Belt and braces on top: IDLE_DEFER_MAX_MS since the
+    // install started ends the deferrals whatever the state says.
+    if (updater.holdsProcess) {
+      const heldFor = Date.now() - updater.holdingSince;
+      if (heldFor < IDLE_DEFER_MAX_MS) {
+        lifecycle.deferIdleShutdown('an update is installing');
+        return;
+      }
+      log('warn', `an update has been installing for ${heldFor}ms; shutting down anyway`);
+    }
+    shutdown('idle grace expiry');
+  },
   log,
 });
 
@@ -333,11 +384,101 @@ const allowRefusalLine = createRefusalLimiter(scoped(log, 'log'));
  * the checker), NOT at boot: the whole point is code that landed after we
  * started.
  */
-// Installed mode has ONE honest signal — `<app>/current` points at another
-// version dir — and none of the six developer heuristics can fire in a packaged
-// tree (no .git, no lockfile stamp, no sources). See server/bundle.ts.
-const checkUpdate = installed
+// Installed mode has ONE honest signal on disk — `<app>/current` points at
+// another version dir — and none of the six developer heuristics can fire in a
+// packaged tree (no .git, no lockfile stamp, no sources). See server/bundle.ts.
+const installedCheck = installed
   ? createInstalledUpdateChecker({ appDir: repoRoot, startedAt: getStartedAt })
+  : undefined;
+
+// ---------------------------------------------------------------------------
+// IN-APP UPDATE (phase E, 2026-09-09) — the ONLINE half of the same question.
+//
+// AI_SM_UPDATE_API_BASE re-points the anonymous `releases/latest` GET (and with
+// it the host an update executable may be downloaded from) — loopback only, and
+// a non-loopback value refuses the start here, before `listen`, so no
+// runtime.json is ever written. Same shape and same reason as the
+// AI_SM_GITHUB_API_BASE refusal: stderr goes to /dev/null in production, so the
+// reason has to reach server.log.
+// ---------------------------------------------------------------------------
+let updateApiBase: string;
+try {
+  updateApiBase = resolveUpdateApiBase();
+} catch (err) {
+  log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
+  throw err;
+}
+if (updateApiBase !== DEFAULT_UPDATE_API_BASE) {
+  log('warn', `release check api base overridden via AI_SM_UPDATE_API_BASE: ${updateApiBase}`);
+}
+
+/**
+ * Millisecond seam, same contract as AI_SM_GRACE_MS: invalid falls back loudly.
+ *
+ * FLOORED AT ONE SECOND. These two seams move the clock of a loop that talks to
+ * api.github.com, and `0` (or 5) would turn it into a request flood against
+ * someone else's service from a machine the user thought was idle. A value
+ * below the floor is raised to it and said out loud; the test suite only ever
+ * needs "sooner", never "as fast as the CPU allows".
+ */
+const UPDATE_ENV_MIN_MS = 1_000;
+/**
+ * CAPPED AT THE NODE TIMER MAXIMUM (2^31-1 ms). setTimeout silently treats a
+ * larger delay as 1 ms, so an over-large seam would produce the exact flood the
+ * floor above exists to prevent instead of the "practically never" the value
+ * asks for.
+ */
+const UPDATE_ENV_MAX_MS = 2_147_483_647;
+function updateEnvMs(name: string, fallback: number): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    boot('warn', `${name} must be a non-negative integer (ms), got ${JSON.stringify(oneLine(raw))}; using ${fallback}`);
+    return undefined;
+  }
+  if (value < UPDATE_ENV_MIN_MS) {
+    boot('warn', `${name}=${value} is below the ${UPDATE_ENV_MIN_MS}ms floor; using ${UPDATE_ENV_MIN_MS}`);
+    return UPDATE_ENV_MIN_MS;
+  }
+  if (value > UPDATE_ENV_MAX_MS) {
+    boot('warn', `${name}=${value} is above the ${UPDATE_ENV_MAX_MS}ms timer maximum; using ${UPDATE_ENV_MAX_MS}`);
+    return UPDATE_ENV_MAX_MS;
+  }
+  return value;
+}
+const firstCheckMs = updateEnvMs('AI_SM_UPDATE_FIRST_MS', 20_000);
+const checkIntervalMs = updateEnvMs('AI_SM_UPDATE_INTERVAL_MS', 6 * 60 * 60 * 1000);
+
+/**
+ * The periodic release check. Built ONLY for an installed bundle whose version
+ * is a real release: a developer clone and a `0.0.0-dev+<sha>` bundle make zero
+ * outbound requests, which is the promise this project makes about itself.
+ */
+let releaseChecker: ReleaseChecker | undefined;
+if (bundle !== null) {
+  if (releaseCheckSupported(bundle.version)) {
+    releaseChecker = createReleaseChecker({
+      currentVersion: bundle.version,
+      apiBase: updateApiBase,
+      cacheFile: paths.updateCheckFile,
+      log,
+      ...(firstCheckMs !== undefined ? { firstCheckMs } : {}),
+      ...(checkIntervalMs !== undefined ? { intervalMs: checkIntervalMs } : {}),
+    });
+  } else {
+    boot(
+      'debug',
+      `online release check disabled for build ${oneLine(bundle.version)} (not a released version)`,
+    );
+  }
+}
+
+// COMPOSITION (the scope bullet): installed-on-disk beats available-online. A
+// bundle that is already unpacked is one restart away; a release still has to
+// be downloaded, verified and installed.
+const checkUpdate = installedCheck !== undefined
+  ? () => composeUpdateStatus(installedCheck(), releaseChecker?.status())
   : createUpdateChecker({
       repoRoot,
       serverDir,
@@ -347,6 +488,24 @@ const checkUpdate = installed
       bootAsset: () => webBuild.asset,
       startedAt: getStartedAt,
     });
+
+/**
+ * POST /api/update — download, verify, and start the Setup on Windows. The
+ * Windows launch is injected so the pipeline is testable on Linux; here it is
+ * the real WSL interop spawn. A developer clone gets a controller too, and it
+ * answers 422 ("only in the installed app") instead of a bare 503, which is a
+ * different and more honest thing to say.
+ */
+const updater = new UpdateController({
+  log,
+  updatesDir: paths.updatesDir,
+  installed,
+  release: () => releaseChecker?.release(),
+  installedCheck: () => installedCheck?.() ?? { available: false, reason: null },
+  launchSetup: createInteropLauncher({ log, appDir: repoRoot }),
+  // With the seam set, the asset host allow-list collapses to exactly it.
+  ...(updateApiBase !== DEFAULT_UPDATE_API_BASE ? { seamOrigin: updateApiBase } : {}),
+});
 
 // Mutable so the restart controller — which needs `server`, which needs this —
 // can be attached after both exist. The route reads deps.restart per request.
@@ -365,6 +524,7 @@ const apiDeps: ApiDeps = {
   installed,
   webAsset: webBuild.asset,
   checkUpdate,
+  update: updater,
   log,
   allowRefusalLine,
 };
@@ -459,6 +619,10 @@ server.on('listening', () => {
   }
   log('info', `listening on 127.0.0.1:${port} (pid ${process.pid}, data dir ${paths.dataDir})`);
   lifecycle.start(); // Startup grace: no window ever connecting must not leave a zombie.
+  // Only now: the first check is deliberately late (WSL often has no network
+  // the instant Windows boots), and a standby child never reaches this handler
+  // before its `go`, so a waiting standby asks GitHub nothing.
+  releaseChecker?.start();
 });
 
 server.on('error', (err) => {
@@ -517,6 +681,7 @@ const restart = new RestartController({
     // Same order as shutdown(), minus the unlink: runtime.json is about to
     // belong to the child, so removing it here would blind the launcher.
     lifecycle.stop();
+    releaseChecker?.stop();
     history.endAllLive('shutdown');
     sessions.destroyAll();
     server.close(); // Releases the LISTENING socket; the in-flight request lives on.
@@ -679,6 +844,7 @@ function shutdown(cause: string): void {
       `presence=${lifecycle.presenceCount} attached=${lifecycle.attachedCount}`,
   );
   lifecycle.stop();
+  releaseChecker?.stop();
   // A frontend build in flight is this process's child: it must not outlive us
   // writing into web/dist-next, and its half-written output goes with it.
   if (buildChild !== undefined && buildChild.exitCode === null && buildChild.signalCode === null) {
@@ -767,6 +933,7 @@ if (!standbyMode) {
     // reason, and the one HISTORY shows.
     history.load();
     resetSessionArtifacts();
+    resetUpdateArtifacts();
     adoptWebBuild();
     // Belt and braces: the parent drops the swap's backup the moment `go` is
     // out, but a parent that died in between would leave `<dist>-prev` behind.

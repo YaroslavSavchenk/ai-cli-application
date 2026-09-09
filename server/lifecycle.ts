@@ -107,6 +107,23 @@ export class LifecycleController {
     this.#evaluate();
   }
 
+  /**
+   * The grace expired, but the process must NOT go yet: an in-app update is
+   * installing, and killing the backend mid-download (or while the Setup runs)
+   * would leave a half-finished install with nothing left to report it. Logs
+   * one line and re-arms the SAME grace window.
+   *
+   * How long this can repeat is entirely the CALLER's business, and the caller
+   * (server/index.ts) bounds it twice: it only defers while the update pipeline
+   * is really working — never for a detached Setup it has stopped waiting for —
+   * and it stops deferring altogether once the install has been running longer
+   * than its own budgets (15 min download + 15 min Setup + slack).
+   */
+  deferIdleShutdown(why: string): void {
+    this.#llog('info', `idle grace expired while ${why} — deferring`);
+    this.#evaluate();
+  }
+
   /** Permanently cancel timers (a shutdown is already in progress). */
   stop(): void {
     this.#stopped = true;

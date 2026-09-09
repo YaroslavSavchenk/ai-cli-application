@@ -259,6 +259,70 @@ export async function restartBackend(): Promise<{ status: number; body: unknown 
 }
 
 /**
+ * POST /api/update — start the in-app update (phase E). The backend downloads
+ * the release's Setup, verifies its checksum, and runs it silently on Windows;
+ * this call only STARTS that and answers immediately.
+ *
+ * Same treatment as `restartBackend()` and for the same reason: its non-ok
+ * statuses are the ANSWER, not an error (409 = one is already running and the
+ * UI adopts it, 422/503 = nothing happened), so it never throws and never
+ * routes through `request()`. Nothing is sent: the backend decides WHAT to
+ * install from the release it already found — the page cannot name a version,
+ * a file or an address.
+ */
+export async function startUpdate(): Promise<{ status: number; body: unknown }> {
+  const started = performance.now();
+  const took = (): number => Math.round(performance.now() - started);
+  let res: Response;
+  try {
+    res = await fetch('/api/update', { method: 'POST', headers: { 'x-auth-token': authToken() } });
+  } catch (err) {
+    log.warn(`api POST /api/update → network error ${took()}ms: ${formatError(err)}`);
+    return { status: 0, body: null };
+  }
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    // No/!JSON body — the status alone decides the outcome.
+  }
+  log.info(`api POST /api/update → ${res.status} ${took()}ms`);
+  return { status: res.status, body };
+}
+
+/**
+ * GET /api/update/status — the progress readout, polled once a second while an
+ * install runs and once at page boot to adopt one that is already in flight.
+ *
+ * UNLOGGED, like `/health` and for the same reason: a several-minute install is
+ * hundreds of calls, and the client log is a metered channel (the backend drops
+ * everything past 200 entries a minute — a progress poll would spend that
+ * budget and take the interesting lines down with it). The flow logs the phase
+ * CHANGES instead, which is the information.
+ *
+ * Authed like every route, and it never throws: `status: 0` is the flow's
+ * "unreadable answer", which it tolerates a few of before giving up.
+ */
+export async function updateStatus(): Promise<{ status: number; body: unknown }> {
+  let res: Response;
+  try {
+    res = await fetch('/api/update/status', {
+      headers: { 'x-auth-token': authToken() },
+      cache: 'no-store',
+    });
+  } catch {
+    return { status: 0, body: null };
+  }
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    // Non-JSON body: the flow reads it as unreadable, which it is.
+  }
+  return { status: res.status, body };
+}
+
+/**
  * GET /health, UNAUTHENTICATED and unlogged — the one probe that still works
  * across a restart gap, when this page's token belongs to a process that no
  * longer exists. Called up to 80 times in 20 s, so it stays out of the client

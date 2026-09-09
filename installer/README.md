@@ -84,7 +84,8 @@ Windows, `%LOCALAPPDATA%\Programs\AI Session Manager\`:
     launch.ps1  launch.cmd  launch-silent.vbs  config-common.ps1
     make-shortcut.ps1  app.ico
     helpers\*.ps1
-    host\AiSessionManagerHost.exe + 3 WebView2 DLLs
+    host\next\AiSessionManagerHost.exe + 3 WebView2 DLLs   ← what Setup writes
+    host\AiSessionManagerHost.exe + 3 WebView2 DLLs        ← promoted by launch.ps1 at the next start
     launcher-config.json      written after the install: distro + <appdir>/current
     install-info.txt          written after the install: distro, appDir, version
 
@@ -134,13 +135,39 @@ Then: unpack, `current` swap, prune, config files, optional extras.
 
 ### Upgrades
 
-Same `AppId`, so a newer Setup upgrades in place. `CloseApplications=no`: the
-app may keep running, because the backend lives inside WSL and the running
-process keeps using its own version directory (`runtime.json.appDir`), which
-the installer refuses to prune. Afterwards the app reports
-`a new version is installed` and its **Restart backend** button moves onto the
-new `current`. Retention is `current` + one previous version + whatever a live
-backend is using.
+Same `AppId`, so a newer Setup upgrades in place. `CloseApplications=no` /
+`RestartApplications=no`: the app may keep running, because the backend lives
+inside WSL and the running process keeps using its own version directory
+(`runtime.json.appDir`), which the installer refuses to prune. Afterwards the
+app reports `a new version is installed` and its **Restart backend** button
+moves onto the new `current`. Retention is `current` + one previous version +
+whatever a live backend is using.
+
+Two things exist only because the app may be running:
+
+- **The host goes to `{app}\host\next`,** not to `{app}\host`. The four
+  WebView2 host files are locked by the open window; `launch.ps1` copies
+  `next\` one level up at the next start (`Move-AiSmHostNext` in
+  `launcher/config-common.ps1`) and leaves it alone if anything is still in
+  use. `[UninstallDelete]` removes the whole `{app}\host` directory, because
+  the promoted copies are not in Inno's uninstall log.
+- **An upgrade goes back where the previous install went.** `InitializeWizard`
+  reads `install-info.txt` out of `WizardDirValue` (`LoadPreviousInstall`, the
+  same reader the uninstaller uses, both values gated by `IsWslSafe`; the
+  `{app}` constant is *not* initialized that early — measured on Inno 6.7.1,
+  expanding it there raises, while `WizardDirValue` already holds the previous
+  install's directory restored by `UsePreviousAppDir`): the distribution page
+  pre-selects that distro, the folder page defaults to that Linux folder, and
+  `EnsureDefaults` — the silent path, which is what the **in-app update** runs
+  — prefers both *before* the probe's own pick. Without that, a `/SILENT`
+  upgrade would install a second copy into this PC's default distribution and
+  leave the running one behind. A remembered distribution that no longer
+  exists fails loudly (`ProbeDistro` → `RaiseException`); an unreadable or
+  unbelievable `install-info.txt` simply falls back to first-install
+  behaviour.
+
+There is no `[Run]` section: Setup never starts anything at the end. The
+in-app update drives the restart itself.
 
 ### Uninstall
 

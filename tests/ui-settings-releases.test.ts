@@ -1,12 +1,14 @@
 /**
- * The settings panel's `Check for updates` link (2026-09-08, installer phase C).
+ * The releases-page opener: the settings panel's `Check for updates`
+ * (2026-09-08, installer phase C) and, since phase E (2026-09-09), the update
+ * dialog's `Download it yourself` fallback — ONE address and ONE call, in
+ * `web/src/ui/releases.ts`, with both surfaces as callers.
  *
- * WHAT IT IS. An INSTALLED app cannot update itself: it is replaced by running
- * a newer Setup, and in-app update *checking* — a localhost tool reaching out
- * to the network on its own — is deliberately out of scope (PROJECT-SCOPE,
- * "Installer and self-contained bundle"). So the panel offers the one thing
- * that is honest: a link to the page where the newer Setup lives, opened in the
- * user's own browser when the user asks for it.
+ * WHAT IT IS. The link to the page where the newer Setup lives, opened in the
+ * user's own browser when the user asks for it. It was the whole story until
+ * phase E (2026-09-09) gave the app an Update button of its own; it stays as
+ * the MANUAL fallback — the settings panel's quiet verb, and the one thing left
+ * to offer when the in-app update refused.
  *
  * WHY IT IS SECURITY-SHAPED. This is THE ONE SANCTIONED WAY OUT of the app
  * window. The WebView2 host locks top-level navigation to the launch origin and
@@ -36,17 +38,20 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isOpenableLink } from '../web/src/ui/keys.ts';
+import { UPDATE_OWNER, UPDATE_REPO } from '../server/update-release.ts';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p: string[]): string => readFileSync(join(REPO_ROOT, ...p), 'utf8');
 
 const SETTINGS = read('web', 'src', 'ui', 'settings.ts');
+const RELEASES = read('web', 'src', 'ui', 'releases.ts');
+const UPDATE = read('web', 'src', 'ui', 'update.ts');
 const CSS = read('web', 'src', 'styles', 'app.css');
 
 /** The address as the module really declares it — parsed out, never re-typed. */
 function releasesUrl(): string {
-  const m = /const RELEASES_URL = '([^']+)';/.exec(SETTINGS);
-  assert.notEqual(m, null, 'settings.ts must declare the releases address as one constant');
+  const m = /export const RELEASES_URL = '([^']+)';/.exec(RELEASES);
+  assert.notEqual(m, null, 'releases.ts must declare the releases address as one constant');
   return m?.[1] as string;
 }
 
@@ -61,6 +66,15 @@ test('the scan actually reads the panel (non-vacuity: the file and its landmarks
 
 test('the address is ONE constant in code, and no part of it is UI copy', () => {
   const url = releasesUrl();
+  // It lives in the shared opener and NOWHERE else: two copies is how two
+  // addresses drift apart, and this one is the app's only way out of its window.
+  for (const [name, src] of [
+    ['settings.ts', SETTINGS],
+    ['update.ts', UPDATE],
+  ] as const) {
+    assert.equal(src.includes(url), false, `${name} must not carry the address itself`);
+    assert.equal(src.includes('github.com'), false, `${name} must not name the host`);
+  }
   // Copy rule (PROJECT-SCOPE, 2026-07-25): the user reads words, not addresses.
   // The link's label and tooltip must not contain the url or any piece of it.
   const label = /button\('btn-link', '([^']*)', \(\) => \{/.exec(SETTINGS);
@@ -73,9 +87,8 @@ test('the address is ONE constant in code, and no part of it is UI copy', () => 
     assert.equal(/https?:\/\//.test(text), false, `no address in UI copy: ${text}`);
     assert.equal(text.includes('github.com'), false, `no host name in UI copy: ${text}`);
   }
-  // Exactly one occurrence of the literal: a second copy is how two addresses
-  // drift apart.
-  assert.equal(SETTINGS.split(url).length - 1, 1, 'the address must appear exactly once');
+  // Exactly one occurrence of the literal, in the module that owns it.
+  assert.equal(RELEASES.split(url).length - 1, 1, 'the address must appear exactly once');
 });
 
 test('the address is the project’s releases page, and one the host is allowed to hand over', () => {
@@ -93,6 +106,16 @@ test('the address is the project’s releases page, and one the host is allowed 
   assert.equal(isOpenableLink(url), true, 'the sanctioned exit only carries http/https');
 });
 
+test('phase E: the manual page and the in-app check are the SAME repository', () => {
+  // The backend asks api.github.com about <owner>/<repo> and constructs every
+  // asset URL from those two constants; this link is where the user is sent
+  // when that fails. If they ever drift apart, the fallback points at a repo
+  // that has nothing to do with the update the app just offered.
+  assert.equal(releasesUrl(), `https://github.com/${UPDATE_OWNER}/${UPDATE_REPO}/releases`);
+  assert.equal(UPDATE_OWNER, 'YaroslavSavchenk', 'non-vacuity: the constants really carry values');
+  assert.equal(UPDATE_REPO, 'ai-cli-application');
+});
+
 test('the link opens the browser through the sanctioned exit: window.open, exactly three arguments', () => {
   // The host hands an off-origin `window.open` of an exact http/https target to
   // the default browser. `_blank` is what makes it a new window rather than a
@@ -100,20 +123,55 @@ test('the link opens the browser through the sanctioned exit: window.open, exact
   // `noopener,noreferrer` is what keeps the opened page from reaching back into
   // this window's `opener` — a localhost page holding an auth token.
   assert.ok(
-    SETTINGS.includes("window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');"),
+    RELEASES.includes("window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');"),
     'the call must be exactly window.open(RELEASES_URL, \'_blank\', \'noopener,noreferrer\')',
   );
   // It must be the CONSTANT that is opened, never a string built at the call.
-  assert.equal(/window\.open\(\s*'/.test(SETTINGS), false, 'no inline address at the call site');
+  assert.equal(/window\.open\(\s*'/.test(RELEASES), false, 'no inline address at the call site');
+  // Exactly one exit from the whole frontend.
+  assert.equal(RELEASES.split('window.open(').length - 1, 1, 'exactly one window is ever opened');
+  for (const [name, src] of [
+    ['settings.ts', SETTINGS],
+    ['update.ts', UPDATE],
+  ] as const) {
+    assert.equal(src.includes('window.open('), false, `${name} must go through the shared opener`);
+  }
   // And it must be a user CLICK: the host's exception is user-initiated only.
   assert.match(
     SETTINGS,
-    /const checkBtn = button\('btn-link', 'Check for updates', \(\) => \{[\s\S]*?window\.open\(RELEASES_URL, '_blank', 'noopener,noreferrer'\);[\s\S]*?\}\);/,
+    /const checkBtn = button\('btn-link', 'Check for updates', \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
   );
-  // Exactly one exit from this panel.
-  assert.equal(SETTINGS.split('window.open(').length - 1, 1, 'the panel opens exactly one window');
-  // Nothing here fetches an update itself (out of scope, PROJECT-SCOPE).
+  assert.match(SETTINGS, /import \{ openReleasesPage \} from '\.\/releases\.ts';/);
+  // The panel itself still fetches nothing: checking is the backend's job now
+  // (phase E) and asking the page to do it would be a second, unaudited path.
   assert.equal(SETTINGS.includes('fetch('), false, 'the panel must not check for updates over the network');
+});
+
+test('phase E: the update dialog’s manual fallback is the SAME opener, on a real click', () => {
+  // It exists for exactly one moment: the app tried to fetch the new version
+  // and could not. Sending the user somewhere else would be a second address to
+  // keep right; this is the first one, called the same way.
+  assert.match(UPDATE, /import \{ openReleasesPage \} from '\.\/releases\.ts';/);
+  assert.match(
+    UPDATE,
+    /const dlBtn = button\('btn-link', COPY\.downloadSelf, \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
+    'the fallback is a text button whose click calls the shared opener',
+  );
+  // Same quiet-verb idiom as the settings panel, and only on a refused UPDATE:
+  // after a refused RESTART the newer version is already on this machine.
+  assert.match(UPDATE, /dlBtn\.hidden = true;/);
+  assert.match(UPDATE, /dlBtn\.hidden = next !== 'refused' \|\| half !== 'update';/);
+  // The words: what it does, no address, no host, no file name.
+  const label = /downloadSelf: '([^']*)'/.exec(UPDATE);
+  const tip = /downloadSelfTip: '([^']*)'/.exec(UPDATE);
+  assert.equal(label?.[1], 'Download it yourself');
+  assert.notEqual(tip, null, 'a control that leaves the app window should say so');
+  for (const text of [label?.[1] as string, tip?.[1] as string]) {
+    assert.equal(/https?:\/\//.test(text), false, `no address in UI copy: ${text}`);
+    assert.equal(text.includes('github.com'), false, `no host name in UI copy: ${text}`);
+  }
+  // Reused class, no new visual language for it.
+  assert.match(CSS, /\.restart-ft \.btn-link \{\n\s*font-size: var\(--fs-ui\);\n\}/);
 });
 
 test('the link exists ONLY in installed mode — a developer clone is never told to download one', () => {

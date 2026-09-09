@@ -443,3 +443,91 @@ test('the server-side restart refusals are UI copy and obey the UI copy rule', (
     'the 422 texts are rendered verbatim in the restart dialog. Offenders:\n  ' + offenders.join('\n  '),
   );
 });
+
+// ---------------------------------------------------------------------------
+// Phase E: a release's ADDRESSES are backend-only — they never reach the page
+// ---------------------------------------------------------------------------
+//
+// `UpdateRelease` carries `setupUrl` and `sumsUrl` so the BACKEND can download
+// and verify. The page needs neither: it presses a button and reads a state.
+// Keeping them out of the frontend entirely is what makes "no URL in the copy"
+// a structural fact instead of a review habit — a string that is never read
+// cannot be rendered, logged, put in a tooltip or built into a link.
+
+/** The source with every comment blanked out, line numbers preserved. */
+function codeOnly(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') i += 1;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+        if (src[i] === '\n') out += '\n';
+        i += 1;
+      }
+      i += 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      const { end } = readLiteral(src, i);
+      out += src.slice(i, end);
+      i = end;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+test('phase E: no frontend module reads a release’s download addresses', () => {
+  // Non-vacuity: the fields really are in the contract, so "not found in
+  // web/src" means "not used", not "renamed and this test forgot".
+  const protocolSrc = readFileSync(join(REPO_ROOT, 'shared', 'protocol.ts'), 'utf8');
+  for (const field of ['setupUrl', 'sumsUrl']) {
+    assert.ok(protocolSrc.includes(`${field}:`), `shared/protocol.ts must still declare ${field}`);
+  }
+  // …and the frontend really does read the rest of the release, so the scan is
+  // pointed at a module that handles this object at all.
+  const modelSrc = readFileSync(join(WEB_SRC, 'ui', 'update-model.ts'), 'utf8');
+  assert.ok(modelSrc.includes('UpdateRelease'), 'ui/update-model.ts must still take the release');
+  assert.ok(modelSrc.includes('release?.version'), 'the VERSION is the one field the UI prints');
+
+  const offenders: string[] = [];
+  for (const file of files) {
+    // CODE only: the modules that must not USE these fields are precisely the
+    // ones whose comments explain why, and a doc comment is not a code path.
+    const src = codeOnly(readFileSync(file, 'utf8'));
+    src.split('\n').forEach((line, i) => {
+      for (const field of ['setupUrl', 'sumsUrl']) {
+        if (line.includes(field)) offenders.push(`web/src/${rel(file)}:${i + 1}  ${field}`);
+      }
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a release download address must never enter the page. Offenders:\n  ' + offenders.join('\n  '),
+  );
+});
+
+test('phase E: the update dialog prints a version only through the shape gate', () => {
+  // The tag comes from a GitHub release — the only string in this feature
+  // written by someone who is not the user. `update.ts` may not interpolate it
+  // itself; both sentences that carry it live in the model, behind VERSION_SHAPE.
+  const updateSrc = codeOnly(readFileSync(join(WEB_SRC, 'ui', 'update.ts'), 'utf8'));
+  assert.match(updateSrc, /releaseSentence\(st\.state\.update\?\.release\)/);
+  assert.match(updateSrc, /updateLead\(st\.state\.update\?\.release\)/);
+  assert.equal(
+    /release\??\.version/.test(updateSrc),
+    false,
+    'the DOM half must not touch the raw version: the gate is in ui/update-model.ts',
+  );
+  const modelSrc = readFileSync(join(WEB_SRC, 'ui', 'update-model.ts'), 'utf8');
+  assert.match(modelSrc, /export const VERSION_SHAPE = \/\^v\?\[0-9\]\[A-Za-z0-9\._\+-\]\{0,63\}\$\//);
+});

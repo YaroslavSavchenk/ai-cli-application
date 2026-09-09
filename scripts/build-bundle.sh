@@ -20,6 +20,7 @@
 #   <version>/shared/...
 #   <version>/web/dist/...
 #   <version>/launcher/start-backend.sh   (0755; prefers ../node/bin/node)
+#   <version>/launcher/run-update.ps1     (0644; the Windows-side updater runner)
 #
 # `bundle.json` is what puts the backend in INSTALLED MODE: it is read from the
 # app root, and every field is charset-gated on the reading side, so nothing but
@@ -152,6 +153,7 @@ done
 [ -f "$REPO/server/index.ts" ] || die "No server/index.ts at $REPO."
 [ -f "$REPO/server/statusline.mjs" ] || die "No server/statusline.mjs at $REPO."
 [ -f "$REPO/launcher/start-backend.sh" ] || die "No launcher/start-backend.sh at $REPO."
+[ -f "$REPO/launcher/run-update.ps1" ] || die "No launcher/run-update.ps1 at $REPO."
 
 # glibcMin: the build machine's glibc, i.e. the OLDEST glibc this bundle can
 # run on. `ldd --version` line 1 ends with the version on every glibc build
@@ -274,8 +276,16 @@ cp -R "$DIST" "$STAGE/web/dist"
 mkdir -p "$STAGE/launcher"
 cp "$REPO/launcher/start-backend.sh" "$STAGE/launcher/start-backend.sh"
 chmod 0755 "$STAGE/launcher/start-backend.sh"
+# The Windows-side half of the in-app update: the backend copies this script
+# into a Windows staging directory beside the verified Setup exe and runs it
+# through powershell.exe. It is never executed inside Linux, hence 0644 -- but
+# it MUST be in the bundle, or an installed app can download an update and then
+# have nothing to run it with.
+cp "$REPO/launcher/run-update.ps1" "$STAGE/launcher/run-update.ps1"
+chmod 0644 "$STAGE/launcher/run-update.ps1"
 
 [ -f "$STAGE/server/statusline.mjs" ] || die "server/statusline.mjs did not make it into the bundle."
+[ -f "$STAGE/launcher/run-update.ps1" ] || die "launcher/run-update.ps1 did not make it into the bundle."
 [ -f "$STAGE/web/dist/index.html" ] || die "web/dist/index.html did not make it into the bundle."
 [ -f "$STAGE/web/dist/build-id.json" ] || die "web/dist/build-id.json did not make it into the bundle."
 

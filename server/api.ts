@@ -49,6 +49,7 @@ import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts'
 import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { RestartRunner } from './restart.ts';
+import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE, type UpdateRunner } from './update-install.ts';
 import {
   createWindowLimiter,
   describeError,
@@ -141,6 +142,13 @@ export interface ApiDeps {
    * harnesses: POST /api/restart then answers 503 instead of pretending.
    */
   restart?: RestartRunner;
+  /**
+   * IN-APP UPDATE (phase E): the download/verify/install pipeline
+   * (server/update-install.ts). Absent in unit-test harnesses and in a
+   * developer clone's harnesses: POST /api/update then answers 503 instead of
+   * pretending. Present-but-not-installed answers 422 with a plain sentence.
+   */
+  update?: UpdateRunner;
   log: Logger;
   /**
    * The budget for UNAUTHENTICATED log lines, SHARED with the WebSocket upgrade
@@ -446,6 +454,17 @@ export function createRequestHandler(
         sendError(res, 503, 'restart is not available in this process');
         return;
       }
+      // AN INSTALL IN FLIGHT OUTRANKS A RESTART. The handoff ends this process,
+      // and the child wipes <dataDir>/updates at boot — so a restart started
+      // while the Setup is being downloaded, verified or run would delete the
+      // half-written `.part` (or abandon a running Setup) with nothing left to
+      // report it. Same 409 shape as "another restart is in flight", which is
+      // exactly how the UI already reads it.
+      if (deps.update?.holdsProcess === true) {
+        responseReason.set(res, UPDATE_BLOCKS_RESTART);
+        sendJson(res, 409, { error: UPDATE_BLOCKS_RESTART });
+        return;
+      }
       // The socket carrying THIS request is the one exception to the teardown.
       const outcome = await deps.restart.request(req.socket);
       // 202 and 500 both mean this process is leaving; 409 and 422 live on. A
@@ -466,6 +485,52 @@ export function createRequestHandler(
       const error = (outcome.body as { error?: string }).error ?? 'restart failed';
       responseReason.set(res, error);
       sendJson(res, outcome.status, outcome.body, outcome.onFlushed ?? undefined);
+      return;
+    }
+
+    // --- In-app update (download + verify + run the Setup on Windows) -------
+    //
+    // Same gate as every other /api route (token + Origin/Host parity, applied
+    // before handleApi runs) and, like /api/restart, NO BODY IS READ: the only
+    // thing this route can start is the update the backend itself found and
+    // gated in server/update-release.ts. A periodic check can never install
+    // anything — only this user-initiated POST can.
+    if (pathname === '/api/update') {
+      if (method !== 'POST') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      if (deps.update === undefined) {
+        sendError(res, 503, UPDATE_NOT_AVAILABLE);
+        return;
+      }
+      const outcome = await deps.update.request();
+      if (outcome.status === 202) {
+        sendJson(res, 202, outcome.body);
+        return;
+      }
+      // 409 (one already running) and 422 (nothing to install / not an
+      // installed app) both carry { error } — a CONSTANT sentence from
+      // server/update-install.ts, so it is safe in the access log's reason=.
+      const error = (outcome.body as { error?: string }).error ?? 'update refused';
+      responseReason.set(res, error);
+      sendJson(res, outcome.status, outcome.body);
+      return;
+    }
+
+    // Progress readout: polled at 1 Hz while busy and once at page boot, so a
+    // reload adopts an install that is already running. Constant sentences
+    // only (UPDATE_ERROR_* in shared/protocol.ts) — never remote text.
+    if (pathname === '/api/update/status') {
+      if (method !== 'GET') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      if (deps.update === undefined) {
+        sendError(res, 503, UPDATE_NOT_AVAILABLE);
+        return;
+      }
+      sendJson(res, 200, deps.update.status());
       return;
     }
 
@@ -1249,11 +1314,15 @@ export function createRequestHandler(
       if (!mayLog(res)) return;
       // The log-shipping POST is demoted: it fires every couple of seconds per
       // open window and logging it at info would roughly double the steady
-      // state volume of the file it is feeding.
+      // state volume of the file it is feeding. The update-progress GET is
+      // demoted for the same reason — the UI polls it at 1 Hz for the whole
+      // install (and once per page boot), so at info it would bury everything
+      // else in the file.
       const quiet =
         route.startsWith('/assets/') ||
         status === 304 ||
-        (route === '/api/client-log' && status >= 200 && status < 300);
+        (route === '/api/client-log' && status >= 200 && status < 300) ||
+        (route === '/api/update/status' && status === 200);
       httpLog(status >= 500 ? 'error' : quiet ? 'debug' : 'info', parts.join(' '));
     });
 

@@ -57,6 +57,19 @@ priority.
   at 7 pure-logger sites (no PTY, no race) — switch to
   `await removeTempDir(dir)` for uniformity.
 
+## In-app updater (phase E, 2026-09-09) — what is left
+
+- [ ] User's Windows test of the one-button update (needs a release NEWER
+  than the installed one: install v0.3.0 by hand once, then a v0.3.1
+  dispatch/tag to update to).
+- [ ] Progress is not carried across a restart handoff (status resets to
+  idle in the new process); the staged copy in `%TEMP%` survives.
+- [ ] `probeWindowsTemp` (real `cmd.exe` → `wslpath`) only ever injected in
+  tests; the progress throttle's intermediate percents never asserted.
+- [ ] Inno's own exit 3 (prepare-phase failure) is reported as "could not
+  be started" — cosmetic.
+- [ ] `tests/bundle.test.ts` chmod-000 cases fail as root (CI is non-root).
+
 ## Installer leftovers (from the phase-B review, 2026-09-09)
 
 - [ ] **Live-check TOCTOU in `install-bundle.ps1`**: `$live` (runtime.json

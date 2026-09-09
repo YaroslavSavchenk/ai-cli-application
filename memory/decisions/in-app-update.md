@@ -33,11 +33,17 @@ SmartScreen prompt on the unsigned exe is accepted).
    against the sums file BEFORE anything else touches the file, places it
    where Windows can run it, and starts it silently via `powershell.exe`
    (full path, argv only). Progress/failure is reported back to the UI.
-4. **The Setup** (silent) must reuse the existing install's distro and app
-   dir from `install-info.txt` (never the WSL default), replace the bundle
-   in WSL, close the app window cleanly (Inno close-applications; the host
-   handles the close), and relaunch the app → new `current` boots. Open
-   sessions end like "Restart backend"; HISTORY keeps them.
+4. **The Setup (silent) closes NOTHING — flow B.** `CloseApplications=no`
+   stays, no `[Run]`. It reuses the previous install's distro and app dir
+   from `install-info.txt` (read via `WizardDirValue`; `{app}` cannot be
+   expanded in `InitializeWizard` — measured), replaces the Windows scripts
+   (not in use), stages the host binaries in `{app}\host\next` (promoted by
+   the launcher at the next start), unpacks the bundle in WSL and flips
+   `current` with the existing live-dir guards. The existing installed-mode
+   checker then reports "a new version is installed" and the UI continues
+   automatically into the proven same-port `POST /api/restart` handoff.
+   Open sessions end like "Restart backend"; HISTORY keeps them; the page
+   reloads on the same origin.
 
 Why the Setup and not an in-place swap: the Windows side (host exe, DLLs,
 launcher scripts, uninstaller) can only be replaced by the installer, and
@@ -61,6 +67,15 @@ the installer already knows how to swap `current`, prune and refuse.
   already accept on first install.
 
 ## Rejected alternatives
+
+- **Flow A — the Setup closes and relaunches the app** (`/CLOSEAPPLICATIONS`
+  + a `[Run]`/`ssDone` relaunch): the old backend survives the 30 s presence
+  grace and `runtime.json` still points at it, so the relaunched launcher
+  attaches to the OLD backend; fixing that needs a hard `-Stop` instead of
+  the proven preflight; `CloseApplications=yes` makes the wizard ask too;
+  the host has no close handler to verify from WSL. Flow B has one cost:
+  the host exe/DLLs lag one version until the next app start — harmless,
+  the host only navigates to `127.0.0.1:<port>`.
 
 - **Host-side updater** (C# downloads + runs): needs a page→host message
   channel, a host rebuild for every change, and does nothing for the Edge

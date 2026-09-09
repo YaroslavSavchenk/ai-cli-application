@@ -491,11 +491,14 @@ test('ui/update.ts: closing the dialog never focuses a HIDDEN element — the te
 test('ui/update.ts: the dialog can be HIDDEN during the preflight, and nothing is aborted with it', () => {
   // A preflight can run for two minutes while every session is alive behind the
   // scrim. The dialog therefore has to be dismissible there — but dismissing it
-  // must not touch the flow, and the handover phase must stay locked.
+  // must not touch the flow, and the handover phase must stay locked. Since
+  // phase E the same branch also covers the update half (download, verify,
+  // install), which is hidable throughout: `canHideFlow` is the one rule for
+  // both, and it delegates to `canHideRestartDialog` for the restart phases.
   const close = bodyOf(updateSrc, 'function closeConfirm(');
   assert.match(
     close,
-    /canHideRestartDialog\(flowPhase\)/,
+    /canHideFlow\(flowPhase\)/,
     'the busy branch asks the DOM-free rule instead of hard-coding the phase',
   );
   assert.match(close, /hiddenMidFlow = true/, 'and it remembers that the outcome must bring it back');

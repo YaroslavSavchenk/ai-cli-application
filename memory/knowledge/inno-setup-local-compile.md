@@ -36,3 +36,21 @@ runs), and a `deleteafterinstall` file still exists at `ssPostInstall`.
 Backlog: turn this into an opt-in `installer/check-iss.ps1` (+ a test that
 runs it when `ISCC.exe` is reachable) so a pre-push check catches syntax
 classes locally.
+
+## More measured Inno 6.7.1 facts (phase E, 2026-09-09)
+
+- **`ExpandConstant('{app}')` inside `InitializeWizard` raises** "Internal
+  error: An attempt was made to expand the "app" constant before it was
+  initialized". `WizardDirValue` is already populated there — on an
+  upgrade (`UsePreviousAppDir`, same `AppId`) it holds the previous
+  install's dir even in `/SILENT` mode without `/DIR`. So a previous
+  `install-info.txt` is read as `AddBackslash(WizardDirValue) +
+  'install-info.txt'` inside `try/except`, never via `{app}`.
+- `restartreplace` is unusable at `PrivilegesRequired=lowest` (it needs
+  `PendingFileRenameOperations`, i.e. admin). Files that may be in use
+  (the running WebView2 host) are therefore staged to `host\next` and
+  promoted by the launcher at the next start.
+- PowerShell 5.1 `Start-Process -ArgumentList` joins with spaces and quotes
+  nothing: an argument carrying a path (`/LOG=C:\Users\First Last\…`)
+  must be quoted by hand.
+

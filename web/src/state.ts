@@ -85,7 +85,13 @@ interface AppState {
    * releases page instead of assuming the user can pull sources.
    */
   installed: boolean;
-  /** Live "newer code is on disk" answer from GET /api/runtime; null until fetched. */
+  /**
+   * Live "a newer version exists" answer from GET /api/runtime; null until
+   * fetched. Two kinds since phase E: a newer version already on disk
+   * (`a new version is installed`) and a newer release online
+   * (`a new version is available`, carrying `release`). The notice reads the
+   * reason to pick its verb; the release's addresses are never rendered.
+   */
   update: UpdateStatus | null;
   /**
    * A backend restart requested from this page is in flight. It is the app's
@@ -851,8 +857,13 @@ export function setWsLatency(ms: number | null): void {
  * from.
  */
 export function setRuntime(r: RuntimeStatusResponse): void {
+  // The RELEASE version counts as a change too (phase E): a second release can
+  // be published under the same reason, and the toast that names a version must
+  // not keep naming the older one.
   const updateChanged =
-    state.update?.available !== r.update?.available || state.update?.reason !== r.update?.reason;
+    state.update?.available !== r.update?.available ||
+    state.update?.reason !== r.update?.reason ||
+    state.update?.release?.version !== r.update?.release?.version;
   const changed =
     state.serverStartedAt !== r.startedAt ||
     state.serverCommit !== r.serverCommit ||

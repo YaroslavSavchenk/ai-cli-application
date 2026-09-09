@@ -435,6 +435,19 @@ function Find-Edge {
 }
 
 function Open-UI([string]$Url) {
+    # An in-app update runs the Setup while the OLD host window is still open,
+    # so the Setup writes the new host into {app}\host\next and leaves the
+    # running exe alone. This launch is the first moment that window is gone:
+    # promote next\ before anything looks for the exe. Installed layout only -
+    # a clone builds into host\build\, and a launcher on a \\wsl.localhost
+    # path was never written to by a Setup. Never fails a launch (see
+    # Move-AiSmHostNext); a file still in use just stays in next\.
+    $installedHostDir = Join-Path $PSScriptRoot 'host'
+    if ($PSScriptRoot -and -not $PSScriptRoot.StartsWith('\\') -and
+        (Test-Path -LiteralPath $installedHostDir)) {
+        [void](Move-AiSmHostNext -HostDir $installedHostDir)
+    }
+
     # Tier 1: the native WebView2 host (owns its taskbar identity). Only used
     # when the built exe + the WebView2 runtime are both present, with real
     # failure detection; any failure falls through to the Edge tiers below.

@@ -75,7 +75,7 @@ const MAX_BUNDLE_BYTES = 4_096;
 // ONE contract with scripts/build-bundle.sh, which uses the same shape — there
 // the leading anchor is also what keeps `.`, `..` and a leading `-` out of a
 // directory name and an argv slot.
-const VERSION_SHAPE = /^v?[0-9][A-Za-z0-9._+-]{0,63}$/;
+export const VERSION_SHAPE = /^v?[0-9][A-Za-z0-9._+-]{0,63}$/;
 const COMMIT_SHAPE = /^[0-9a-f]{7,40}$/;
 const NODE_VERSION_SHAPE = /^v?\d{1,3}(\.\d{1,3}){2}$/;
 // `Date.parse` is NOT a shape check: V8 accepts free text inside parentheses

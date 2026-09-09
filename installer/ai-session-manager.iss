@@ -93,6 +93,12 @@ SolidCompression=yes
 ; running install onto the new version.
 CloseApplications=no
 RestartApplications=no
+; Two Setups of this app may never run at once. The in-app updater starts this
+; Setup detached and stops waiting after 15 minutes; the backend holds its own
+; single flight until the child really exits, and this mutex is the second lock
+; on the same door - a manually started Setup and an in-app one cannot unpack
+; the same bundle over each other.
+SetupMutex=AiSessionManagerSetup
 AllowNoIcons=yes
 
 [Languages]
@@ -111,11 +117,18 @@ Source: "{#LauncherDir}\make-shortcut.ps1"; DestDir: "{app}"; Flags: ignoreversi
 Source: "{#LauncherDir}\app.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; --- installer helpers (also used by the uninstaller) ---------------------
 Source: "helpers\*.ps1"; DestDir: "{app}\helpers"; Flags: ignoreversion
-; --- native WebView2 host (run in place from {app}\host) ------------------
-Source: "{#HostDir}\AiSessionManagerHost.exe"; DestDir: "{app}\host"; Flags: ignoreversion
-Source: "{#HostDir}\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\host"; Flags: ignoreversion
-Source: "{#HostDir}\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\host"; Flags: ignoreversion
-Source: "{#HostDir}\WebView2Loader.dll"; DestDir: "{app}\host"; Flags: ignoreversion
+; --- native WebView2 host (staged; launch.ps1 promotes it) -----------------
+; Written to {app}\host\next, never straight to {app}\host: an in-app update
+; runs this Setup while the old host window is still open, and CloseApplications
+; is no, so those four files are locked. The next launch moves next\ into
+; {app}\host before it starts the host (Move-AiSmHostNext in
+; launcher\config-common.ps1); a first install promotes it on its first launch
+; the same way. Nothing here may write {app}\host directly - that would fail
+; the update it is meant to survive.
+Source: "{#HostDir}\AiSessionManagerHost.exe"; DestDir: "{app}\host\next"; Flags: ignoreversion
+Source: "{#HostDir}\Microsoft.Web.WebView2.Core.dll"; DestDir: "{app}\host\next"; Flags: ignoreversion
+Source: "{#HostDir}\Microsoft.Web.WebView2.WinForms.dll"; DestDir: "{app}\host\next"; Flags: ignoreversion
+Source: "{#HostDir}\WebView2Loader.dll"; DestDir: "{app}\host\next"; Flags: ignoreversion
 ; --- the Linux bundle: unpacked into WSL, then deleted from Windows -------
 Source: "{#BundleTar}"; DestDir: "{tmp}"; DestName: "{#BundleTarName}"; Flags: deleteafterinstall
 ; --- wizard-time copies: extracted to {tmp} before {app} exists -----------
@@ -133,6 +146,10 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """
 ; Written after installation by install-bundle.ps1, so Inno does not know them.
 Type: files; Name: "{app}\launcher-config.json"
 Type: files; Name: "{app}\install-info.txt"
+; The host itself: Setup only ever writes {app}\host\next, and the launcher
+; COPIES those files one level up, so the copies in {app}\host are not in the
+; uninstall log either. Removing the whole directory covers both.
+Type: filesandordirs; Name: "{app}\host"
 ; The native host's own Windows-side folder: WebView2 user-data profile, the
 ; host-ready marker and the local icon copy. Written at RUN time, not by
 ; Setup, so Inno does not know it. (The app's DATA - projects, history,
@@ -154,6 +171,8 @@ var
   SelectedDataDir: String;
   DefaultAppDir: String;
   ClaudePresent: Boolean;
+  PrevDistro: String;
+  PrevAppDir: String;
 
 function GetVal(const Key: String): String;
 var
@@ -233,12 +252,76 @@ begin
   Result := ExpandConstant('{tmp}\') + FileName;
 end;
 
+{ An UPGRADE - including the silent one an in-app update runs - must go back
+  to the distribution and the Linux folder the previous install used, never to
+  this PC default. install-info.txt is the record of that, written beside the
+  launcher by install-bundle.ps1 and read here with the same reader (and the
+  same key=value shape) the uninstaller uses. Anything it cannot believe leaves
+  both values empty and the wizard behaves exactly as it did for a first
+  install.
+
+  WizardDirValue, not ExpandConstant of the app constant: measured on Inno
+  Setup 6.7.1 (a throwaway probe installer, 2026-09-09), expanding it this
+  early raises
+
+    Internal error: An attempt was made to expand the app constant before it
+    was initialized
+
+  while WizardDirValue is already the destination - and, proven in the same
+  probe with a second silent run, already the PREVIOUS install directory that
+  UsePreviousAppDir restored. The try/except stays as the belt: a value we
+  cannot read must cost us the defaults, never the install. }
+procedure LoadPreviousInstall;
+var
+  InfoFile, Distro, AppDir: String;
+begin
+  PrevDistro := '';
+  PrevAppDir := '';
+  InfoFile := '';
+  try
+    InfoFile := AddBackslash(WizardDirValue) + 'install-info.txt';
+  except
+    InfoFile := '';
+  end;
+  if InfoFile = '' then
+    Exit;
+  if not FileExists(InfoFile) then
+    Exit;
+  SetArrayLength(LastResult, 0);
+  LoadStringsFromFile(InfoFile, LastResult);
+  Distro := GetVal('distro');
+  AppDir := GetVal('appDir');
+  { Both or neither: a half-remembered install would mix a remembered distro
+    with a freshly guessed folder, i.e. a second copy inside the same distro.
+    IsWslSafe is the same gate every other value passes - the file is on disk
+    where anything could have edited it. }
+  if (Distro = '') or (AppDir = '') then
+    Exit;
+  if IsWslSafe(Distro) and IsWslSafe(AppDir) then
+  begin
+    PrevDistro := Distro;
+    PrevAppDir := AppDir;
+  end;
+end;
+
+{ What the Linux folder answer defaults to: what this install already uses,
+  and only otherwise what the probe suggested for the distribution picked.
+  Switching distribution on an upgrade drops the remembered folder - it was a
+  path inside the other distribution home. }
+function DefaultedAppDir: String;
+begin
+  Result := DefaultAppDir;
+  if (PrevAppDir <> '') and (PrevDistro = SelectedDistro) then
+    Result := PrevAppDir;
+end;
+
 procedure InitializeWizard;
 begin
   DistroNames := TStringList.Create;
   WslOk := False;
   WslProbed := False;
   ClaudePresent := False;
+  LoadPreviousInstall;
 
   WslPage := CreateOutputMsgPage(wpWelcome,
     'Windows Subsystem for Linux',
@@ -313,6 +396,10 @@ begin
     for I := 0 to DistroNames.Count - 1 do
       if DistroNames[I] = GetVal('default') then
         DistroPage.SelectedValueIndex := I;
+    { An upgrade beats the PC default: this is where the app already lives. }
+    for I := 0 to DistroNames.Count - 1 do
+      if DistroNames[I] = PrevDistro then
+        DistroPage.SelectedValueIndex := I;
   end;
 end;
 
@@ -352,7 +439,7 @@ begin
     ProbeWsl;
   if CurPageID = AppDirPage.ID then
     if AppDirPage.Values[0] = '' then
-      AppDirPage.Values[0] := DefaultAppDir;
+      AppDirPage.Values[0] := DefaultedAppDir;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -393,7 +480,7 @@ begin
         answer belongs to a different distribution: this runs on EVERY Next
         out of this page, and Back-then-Next must not discard what was typed. }
       if (AppDirPage.Values[0] = '') or (SelectedDistro <> LastProbedDistro) then
-        AppDirPage.Values[0] := DefaultAppDir;
+        AppDirPage.Values[0] := DefaultedAppDir;
       LastProbedDistro := SelectedDistro;
     end;
   end
@@ -462,6 +549,18 @@ var
 begin
   if SelectedDistro <> '' then
     Exit;
+  { Before the probe pick, never after it: a silent upgrade - which is what
+    the in-app update runs - would otherwise install a SECOND copy into this
+    PC default distribution and leave the running one behind. A remembered
+    distribution that no longer exists fails loudly in ProbeDistro below. }
+  if (PrevDistro <> '') and (PrevAppDir <> '') then
+  begin
+    SelectedDistro := PrevDistro;
+    if not ProbeDistro(SelectedDistro) then
+      RaiseException(Reason);
+    AppDirPage.Values[0] := PrevAppDir;
+    Exit;
+  end;
   if not RunHelper(TempHelper('wsl-probe.ps1'), '') then
     RaiseException(Reason);
   { Exactly the rule the wizard page uses: only a WSL 2 distribution this
@@ -490,7 +589,7 @@ begin
   SelectedDistro := Pick;
   if not ProbeDistro(SelectedDistro) then
     RaiseException(Reason);
-  AppDirPage.Values[0] := DefaultAppDir;
+  AppDirPage.Values[0] := DefaultedAppDir;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

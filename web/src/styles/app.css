@@ -3507,6 +3507,15 @@ kbd {
   animation: spin var(--t-spin) linear infinite; /* sanctioned: handoff §10 */
 }
 
+/* the download percent, beside the phase and never instead of it. Its own rule
+   for one reason: TABULAR figures. It changes once a second for minutes, and
+   proportional digits make the whole line twitch left and right while it
+   counts — motion that carries no information, which this app does not do. */
+.restart-pct {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 .restart-fail {
   font-size: var(--fs-ui);
   color: var(--danger);
@@ -3528,6 +3537,14 @@ kbd {
 
 .restart-ft {
   align-items: center;
+}
+
+/* the manual fallback after a refused update: the quiet verb on the left of a
+   footer of bordered buttons (the existing flex-1 spacer keeps Close and Try
+   again anchored right). Same treatment as the settings panel's own text link —
+   drop to the control size so it never outweighs what it sits beside. */
+.restart-ft .btn-link {
+  font-size: var(--fs-ui);
 }
 
 /* ---- settings: BACKEND section ---------------------------------------------

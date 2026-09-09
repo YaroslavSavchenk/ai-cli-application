@@ -26,9 +26,31 @@
  *     red: red is reserved for the "no prompts" launch mode, and this action is
  *     recoverable — every closed session is in History.
  *
+ * ONE BUTTON, ONE FLOW (phase E, 2026-09-09 — the user's ask: "a notification
+ * and one button, like other apps"). The same three surfaces carry BOTH kinds
+ * of newer version, and the only thing that changes is the verb:
+ *
+ *   reason `a new version is available`  →  `Update`  — the release lives
+ *     online. One press runs the whole thing without a second question:
+ *     download → verify → install (`./update-flow.ts`) and then, automatically,
+ *     the proven same-port restart (`./restart-flow.ts`). Nothing in the first
+ *     half is destructive, so the dialog may be put away for all of it; the
+ *     sessions only end when the restart half begins, exactly as before.
+ *
+ *   any other reason (`a new version is installed`, the developer-clone set)
+ *     →  `Restart now` — the newer version is already on this machine.
+ *
+ * The precedence between the two reasons is the backend's; this file renders
+ * whichever one arrives. `Restart backend` in the settings panel is ALWAYS the
+ * restart, whatever is pending — a maintenance verb must not turn into a
+ * downloader because a release happened to be published.
+ *
  * Copy rule (2026-07-25): no flags, commands or config names in any string
  * here — the server's `reason` is rendered through `reasonSentence()`, never
- * verbatim; its raw text goes to the client log line only.
+ * verbatim; its raw text goes to the client log line only. Phase E adds one
+ * more: the release's `setupUrl`/`sumsUrl`/`size` never reach the DOM. The only
+ * part of a release this file prints is its VERSION, through the model's shape
+ * gate — an address is not copy, and a byte count is not a decision.
  */
 import * as api from '../api.ts';
 import * as st from '../state.ts';
@@ -39,23 +61,41 @@ import { requestTerminalFocus } from './panes.ts';
 import {
   CONTINUE_NOTE,
   PILL_TIP_RESTARTING,
+  PILL_TIP_UPDATING,
   UpdateNotice,
   confirmBody,
   fmtRunningFor,
   moreLabel,
+  noticeVerb,
   reasonNote,
   reasonSentence,
+  releaseSentence,
   summarizeRunning,
+  updateLead,
   versionFact,
   type ConfirmSummary,
 } from './update-model.ts';
 import {
+  canHideFlow,
+  followUpdate,
+  isBusyStatus,
+  isUpdatePhase,
+  parseInstallStatus,
+  percentText,
+  phaseOf,
+  phaseText,
+  runUpdate,
+  type FlowPhase,
+  type UpdateDeps,
+  type UpdateOutcome,
+  type UpdatePhase,
+} from './update-flow.ts';
+import { openReleasesPage } from './releases.ts';
+import {
   MSG_OTHER_PORT,
   OTHER_PORT_WAIT_MS,
-  canHideRestartDialog,
   loopbackUrl,
   runRestart,
-  type RestartPhase,
 } from './restart-flow.ts';
 
 /** The exact words of every state this surface can be in. */
@@ -63,19 +103,37 @@ const COPY = {
   toastTitle: 'New version available',
   toastBody: 'The app has been updated. Restart to use the new version.',
   toastGo: 'Restart now',
+  // The ONLINE state's verb (phase E): the release is not on this machine yet,
+  // so the button fetches it. Its body sentence comes from the model, because
+  // it names a version the backend read out of a release.
+  toastGoUpdate: 'Update',
   toastLater: 'Later',
   // The pill's own word comes from the model (`pillLabel`): it changes while a
-  // restart runs, and that decision is DOM-free next door.
+  // restart or an update runs, and that decision is DOM-free next door.
   pillTip: 'A new version is ready — restart to use it',
+  pillTipUpdate: 'A new version is available — update to get it',
   dialogTitle: 'Restart the backend?',
   dialogTitleBusy: 'Restarting the backend',
   dialogTitleOver: 'Restart the backend',
   // A refusal is not a failure and must not be titled like one: nothing was
   // touched, so the title states the fact and the body says why.
   dialogTitleRefused: 'Nothing was restarted',
+  // The same four, for the update flow. The refusal title is per HALF, not per
+  // dialog: an update that installed and then met a refused restart says
+  // "Nothing was restarted", because the new version really is on disk now.
+  dialogTitleUpdate: 'Update the app?',
+  dialogTitleUpdateBusy: 'Updating the app',
+  dialogTitleUpdateOver: 'Update the app',
+  dialogTitleUpdateRefused: 'Nothing was updated',
   dialogSub: 'sessions end · History keeps them',
   cancel: 'Cancel',
   confirm: 'Restart',
+  confirmUpdate: 'Update',
+  // The manual route, offered only when the app's own one failed: the same
+  // opener the settings panel's `Check for updates` uses, so there is exactly
+  // one address in the frontend and one sanctioned way out of the window.
+  downloadSelf: 'Download it yourself',
+  downloadSelfTip: 'opens the releases page in your browser',
   // The preflight runs while every session is still alive and usable, so the
   // dialog is not a cell: this puts it away without stopping anything.
   hide: 'Hide',
@@ -153,15 +211,17 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   const toastHd = el('div', 'toast-hd');
   toastHd.append(el('span', 'toast-title', COPY.toastTitle), el('span', 'launch-gap'), toastX);
   const toastReason = el('div', 'toast-reason');
+  const toastBody = el('div', 'toast-body', COPY.toastBody);
   const toastActions = el('div', 'toast-actions');
-  toastActions.append(
-    button('btn', COPY.toastLater, () => dismissToast()),
-    button('btn is-acc', COPY.toastGo, () => {
-      log.info('update toast: restart chosen');
-      openConfirm('toast');
-    }),
-  );
-  toast.append(toastHd, el('div', 'toast-body', COPY.toastBody), toastReason, toastActions);
+  // ONE accent button whose word follows the reason: `Update` when the release
+  // is still online, `Restart now` when the newer version is already here. Two
+  // buttons would ask the user to know the difference; the app knows it.
+  const toastGo = button('btn is-acc', COPY.toastGo, () => {
+    log.info(`update toast: ${notice.reason === null ? 'restart' : noticeVerb(notice.reason)} chosen`);
+    openConfirm('toast');
+  });
+  toastActions.append(button('btn', COPY.toastLater, () => dismissToast()), toastGo);
+  toast.append(toastHd, toastBody, toastReason, toastActions);
   modalHost.append(toast);
 
   // ---- confirmation dialog -------------------------------------------------
@@ -188,6 +248,9 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   hd.append(tile, titles, el('span', 'launch-gap'), hdX);
 
   const body = el('div', 'restart-body');
+  // The update flow's first line — what the button is about to fetch — above
+  // the sentence about what it costs. Same lead treatment, no new class.
+  const leadUpdate = el('p', 'restart-lead');
   const bodyText = el('p', 'restart-lead');
   const list = el('ul', 'restart-list');
   const moreEl = el('div', 'restart-more');
@@ -200,6 +263,12 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   depsNote.setAttribute('role', 'note');
   const progress = el('div', 'restart-progress');
   progress.hidden = true;
+  // The phase is the news ("Downloading…" -> "Verifying…" -> "Installing…" ->
+  // "Preparing the new version…" -> "Reconnecting…") and is announced politely
+  // when it changes. The PERCENT beside it is not news: it moves once a second
+  // for minutes, so its own span turns announcements off inside this region —
+  // a screen reader hears five phases, not four hundred numbers.
+  progress.setAttribute('aria-live', 'polite');
   const spinner = el('span', 'restart-spin');
   spinner.setAttribute('aria-hidden', 'true');
   const progressText = el('span', 'restart-progress-lb');
@@ -208,16 +277,19 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   // BEHIND an aria-modal scrim, where Tab walks the page the dialog is blocking
   // and a screen reader reads nothing at all.
   progressText.tabIndex = -1;
-  progress.append(spinner, progressText);
+  const progressPct = el('span', 'restart-pct');
+  progressPct.setAttribute('aria-live', 'off');
+  progressPct.hidden = true;
+  progress.append(spinner, progressText, progressPct);
   const failure = el('div', 'restart-fail');
   failure.hidden = true;
   failure.setAttribute('role', 'alert');
-  body.append(bodyText, list, moreEl, contNote, depsNote, progress, failure);
+  body.append(leadUpdate, bodyText, list, moreEl, contNote, depsNote, progress, failure);
 
   const ft = el('footer', 'modal-ft restart-ft');
   const cancelBtn = button('btn', COPY.cancel, () => closeConfirm());
   const confirmBtn = button('btn is-acc', COPY.confirm, () => {
-    void startRestart();
+    void startFlow();
   });
   const closeBtn = button('btn', COPY.close, () => closeConfirm());
   closeBtn.hidden = true;
@@ -228,10 +300,20 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   // trying again once the cause is fixed is a real action — unlike after a
   // failure, where there is nothing left on this origin to ask.
   const retryBtn = button('btn is-acc', COPY.retry, () => {
-    void startRestart();
+    void startFlow();
   });
   retryBtn.hidden = true;
-  ft.append(cancelBtn, el('span', 'drawer-gap'), hideBtn, closeBtn, retryBtn, confirmBtn);
+  // Only on a refused UPDATE: when the app could not fetch the new version, the
+  // honest next move is the one a user would make anyway — get it themselves.
+  // The quiet verb on the left, the loud ones on the right, exactly like the
+  // settings panel's row; same opener, same single address.
+  const dlBtn = button('btn-link', COPY.downloadSelf, () => {
+    log.info('update refused: opening the releases page in the browser');
+    openReleasesPage();
+  });
+  dlBtn.title = COPY.downloadSelfTip;
+  dlBtn.hidden = true;
+  ft.append(dlBtn, cancelBtn, el('span', 'drawer-gap'), hideBtn, closeBtn, retryBtn, confirmBtn);
 
   modal.append(hd, body, ft);
   scrim.append(modal);
@@ -249,12 +331,24 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
    */
   type Phase = 'confirm' | 'busy' | 'refused' | 'over';
   let phase: Phase = 'confirm';
+  /**
+   * WHICH FLOW this dialog is asking about. `update` fetches the release and
+   * then restarts; `restart` only restarts. Fixed when the dialog opens — from
+   * the reason for the toast/pill, and ALWAYS `restart` for the settings
+   * panel's maintenance button.
+   */
+  let mode: 'restart' | 'update' = 'restart';
+  /**
+   * Which half is running, once one is. It decides the refusal TITLE: an update
+   * that installed and then met a refused restart did not fail to update.
+   */
+  let half: 'update' | 'restart' = 'restart';
   let restoreTo: HTMLElement | null = null;
   let summary: ConfirmSummary = { count: 0, rows: [], more: 0, continued: false };
   /** The pending reason's footnote, or null — recomputed on every render. */
   let depsWarn: string | null = null;
-  /** Which half of the flow is out, while one is. Decides whether Hide is offered. */
-  let flowPhase: RestartPhase | null = null;
+  /** Which phase of the flow is out, while one is. Decides whether Hide is offered. */
+  let flowPhase: FlowPhase | null = null;
   /**
    * The user put the dialog away during the preflight. The flow kept running,
    * so the outcome has to bring the dialog back — that is what this remembers.
@@ -271,11 +365,22 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     const sentence = reasonSentence(notice.reason);
     const detail = sentence === null ? '' : ` — ${sentence}`;
     pill.textContent = notice.pillLabel;
-    const tip = notice.pillAction === 'reveal' ? PILL_TIP_RESTARTING : `${COPY.pillTip}${detail}`;
+    const online = noticeVerb(notice.reason) === 'update';
+    const running =
+      notice.state === 'updating' ? PILL_TIP_UPDATING : notice.state === 'restarting' ? PILL_TIP_RESTARTING : null;
+    const tip =
+      notice.pillAction === 'reveal' && running !== null
+        ? running
+        : `${online ? COPY.pillTipUpdate : COPY.pillTip}${online ? '' : detail}`;
     pill.title = tip;
     pill.setAttribute('aria-label', tip);
-    toastReason.textContent = sentence ?? '';
-    toastReason.hidden = sentence === null;
+    // ONLINE: the body IS the fact ("Version v0.3.0 is available."), so the
+    // reason line underneath would say the same thing twice. ON DISK: the body
+    // is the standing sentence and the reason line says which change it was.
+    toastGo.textContent = online ? COPY.toastGoUpdate : COPY.toastGo;
+    toastBody.textContent = online ? releaseSentence(st.state.update?.release) : COPY.toastBody;
+    toastReason.textContent = online ? '' : (sentence ?? '');
+    toastReason.hidden = online || sentence === null;
   }
 
   /** Toast arrival is announced once per reason, never once per poll. */
@@ -320,6 +425,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
       nameOf,
       (s) => st.projectName(s.projectId),
     );
+    leadUpdate.textContent = mode === 'update' ? updateLead(st.state.update?.release) : '';
     bodyText.textContent = confirmBody(summary.count);
     list.replaceChildren(
       ...summary.rows.map((r) => {
@@ -352,6 +458,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     // finished" and "nothing happened, fix it and press again".
     const ended = next === 'over' || next === 'refused';
     bodyText.hidden = !confirming;
+    leadUpdate.hidden = !confirming || mode !== 'update';
     list.hidden = !confirming || summary.rows.length === 0;
     moreEl.hidden = !confirming || summary.more === 0;
     contNote.hidden = !confirming || !summary.continued;
@@ -362,26 +469,51 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     // The preflight is interruptible-looking but not interruptible: the dialog
     // can go away, the flow cannot. `reconnecting` stays locked — by then the
     // old process is gone and there is nothing behind the dialog to go back to.
-    const hidable = next === 'busy' && flowPhase !== null && canHideRestartDialog(flowPhase);
+    // Same rule for both halves, one function: every phase of the install may
+    // be hidden (nothing has been torn down yet), the preflight may, the
+    // handover may not.
+    const hidable = next === 'busy' && flowPhase !== null && canHideFlow(flowPhase);
     cancelBtn.hidden = !confirming;
     confirmBtn.hidden = !confirming;
+    confirmBtn.textContent = mode === 'update' ? COPY.confirmUpdate : COPY.confirm;
     closeBtn.hidden = !ended;
     retryBtn.hidden = next !== 'refused';
+    // The manual route belongs to exactly one situation: the app tried to fetch
+    // the new version and could not. After a refused RESTART the new version is
+    // already on this machine — sending the user to a download page there would
+    // be advice for a problem they do not have.
+    dlBtn.hidden = next !== 'refused' || half !== 'update';
     hideBtn.hidden = !hidable;
     hdX.hidden = next === 'busy' && !hidable;
     hdX.setAttribute('aria-label', hidable ? 'hide' : 'cancel');
+    // The title follows the flow: the QUESTION and the in-flight line follow the
+    // dialog's mode, the two endings follow the half that actually ended.
+    const updating = mode === 'update';
+    const failedHalfIsUpdate = half === 'update';
     titleEl.textContent =
       next === 'confirm'
-        ? COPY.dialogTitle
+        ? updating
+          ? COPY.dialogTitleUpdate
+          : COPY.dialogTitle
         : next === 'busy'
-          ? COPY.dialogTitleBusy
+          ? updating && flowPhase !== null && isUpdatePhase(flowPhase)
+            ? COPY.dialogTitleUpdateBusy
+            : COPY.dialogTitleBusy
           : next === 'refused'
-            ? COPY.dialogTitleRefused
-            : COPY.dialogTitleOver;
+            ? failedHalfIsUpdate
+              ? COPY.dialogTitleUpdateRefused
+              : COPY.dialogTitleRefused
+            : updating
+              ? COPY.dialogTitleUpdateOver
+              : COPY.dialogTitleOver;
     subEl.hidden = !confirming;
     // Keep focus inside the dialog across the phase change that removes every
-    // button (the failure phase does the same with closeBtn).
-    if (next === 'busy') progressText.focus();
+    // button (the failure phase does the same with closeBtn) — but NEVER take
+    // it from somewhere else: while the install runs the dialog may be hidden
+    // and the user typing in a terminal, and this runs on every phase change.
+    if (next === 'busy' && !scrim.hidden && !modal.contains(document.activeElement)) {
+      progressText.focus();
+    }
   }
 
   function openConfirm(source: 'settings' | 'pill' | 'toast'): void {
@@ -394,10 +526,16 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
       return;
     }
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The settings panel's `Restart backend` is a maintenance verb and stays
+    // one whatever is pending; the toast and the pill ask about the reason they
+    // are showing.
+    mode = source === 'settings' ? 'restart' : noticeVerb(notice.reason);
+    half = mode;
+    modal.setAttribute('aria-label', mode === 'update' ? 'update the app' : 'restart the backend');
     failure.textContent = '';
     renderConfirm();
     scrim.hidden = false;
-    log.info(`restart confirm opened from ${source}: sessions=${summary.count}`);
+    log.info(`${mode} confirm opened from ${source}: sessions=${summary.count}`);
     confirmBtn.focus();
   }
 
@@ -407,14 +545,14 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
       // During the PREFLIGHT this is a Hide, not a Cancel: the POST stays out,
       // the restart gap stays armed, and the outcome re-opens the dialog. Once
       // the handover has begun there is nothing left to go back to.
-      if (flowPhase === null || !canHideRestartDialog(flowPhase)) return;
+      if (flowPhase === null || !canHideFlow(flowPhase)) return;
       hiddenMidFlow = true;
-      log.info('restart dialog hidden while the backend prepares; the restart keeps running');
+      log.info('the dialog was hidden while the backend works; the flow keeps running');
       scrim.hidden = true;
       restoreFocus();
       return; // restoreTo is kept: the dialog is coming back.
     }
-    if (phase === 'confirm') log.info('restart confirm cancelled');
+    if (phase === 'confirm') log.info(`${mode} confirm cancelled`);
     scrim.hidden = true;
     restoreFocus();
     restoreTo = null;
@@ -449,14 +587,31 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     scrim.hidden = false;
   }
 
-  function showProgress(p: RestartPhase): void {
+  /**
+   * Paint one phase of the running flow. Called once per phase by the restart
+   * half and once a SECOND by the install half (the percent moves), so it does
+   * the cheap thing on a repeat: only the number changes, and `setPhase` — with
+   * its focus move and its polite announcement — runs on real changes only.
+   */
+  function showProgress(p: FlowPhase, percent = 0): void {
+    const changed = flowPhase !== p;
     flowPhase = p;
-    progressText.textContent = p === 'restarting' ? COPY.restarting : COPY.reconnecting;
+    if (isUpdatePhase(p)) {
+      progressText.textContent = phaseText(p);
+      // The percent is honest only while bytes are moving; verify and install
+      // have no measurable middle, and a frozen `100%` would claim one.
+      progressPct.hidden = p !== 'downloading';
+      progressPct.textContent = p === 'downloading' ? percentText(percent) : '';
+    } else {
+      progressText.textContent = p === 'restarting' ? COPY.restarting : COPY.reconnecting;
+      progressPct.hidden = true;
+      progressPct.textContent = '';
+    }
     // `reconnecting` is the moment the old process actually left: a dialog the
-    // user hid during the preflight comes back, because from here the page is
-    // committed and the sessions behind it are already gone.
-    if (hiddenMidFlow && !canHideRestartDialog(p)) reveal();
-    setPhase('busy');
+    // user hid earlier comes back, because from here the page is committed and
+    // the sessions behind it are already gone.
+    if (hiddenMidFlow && !canHideFlow(p)) reveal();
+    if (changed || phase !== 'busy') setPhase('busy');
   }
 
   /**
@@ -492,8 +647,91 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     closeBtn.focus();
   }
 
+  /** Everything the install half does to the world, in one place. */
+  function updateDeps(): UpdateDeps {
+    return {
+      postUpdate: () => api.startUpdate(),
+      status: () => api.updateStatus(),
+      now: () => Date.now(),
+      sleep: (ms) => new Promise<void>((resolve) => window.setTimeout(resolve, ms)),
+      onPhase: (p, percent) => showProgress(p, percent),
+    };
+  }
+
+  /**
+   * The button the user actually pressed. ONE flow either way: `update` fetches
+   * the new version and then restarts into it without asking again; `restart`
+   * is the flow this dialog has always run.
+   */
+  async function startFlow(): Promise<void> {
+    failure.textContent = ''; // A retry must not show the previous refusal.
+    if (mode === 'update') {
+      await startUpdate();
+      return;
+    }
+    await startRestart();
+  }
+
+  /**
+   * Download, verify, install. Nothing here is destructive: the backend keeps
+   * serving, every session keeps running, and the dialog may be hidden for all
+   * of it — so the restart gap is NOT armed (the polls and both reconnect loops
+   * must keep working) and every failure is a refusal.
+   */
+  async function startUpdate(): Promise<void> {
+    log.info(`update confirmed: sessions=${summary.count}`);
+    half = 'update';
+    notice.startUpdate();
+    renderNotice();
+    showProgress('downloading', 0);
+    await settleUpdate(await runUpdate(updateDeps()));
+  }
+
+  /**
+   * The hinge of the one-button promise: an install that reached the disk
+   * continues into the restart on its own — the user answered that question
+   * when they pressed Update. A refusal stops here with the app untouched.
+   */
+  async function settleUpdate(up: UpdateOutcome): Promise<void> {
+    if (up.kind === 'refused') {
+      log.warn(`update did not happen: ${up.message}`);
+      notice.updateAborted();
+      renderNotice();
+      showRefused(up.message);
+      return;
+    }
+    log.info(`update installed${up.version === null ? '' : `: ${up.version}`} — restarting into it`);
+    await startRestart();
+  }
+
+  /**
+   * A page that loads while an install is running (a reload, a second window)
+   * adopts it instead of asking a question whose answer is already on its way.
+   * ONE status call at boot; anything but a busy state is silence.
+   */
+  async function adoptInFlight(): Promise<void> {
+    const res = await api.updateStatus();
+    const status = res.status === 200 ? parseInstallStatus(res.body) : null;
+    if (status === null || !isBusyStatus(status)) return;
+    const p = phaseOf(status.state) as UpdatePhase;
+    log.info(`an update was already running at page load: ${status.state}`);
+    mode = 'update';
+    half = 'update';
+    modal.setAttribute('aria-label', 'update the app');
+    // Opened by the app, not by a click: there is no element to hand the
+    // keyboard back to, so closing it falls through to the terminal.
+    restoreTo = null;
+    failure.textContent = '';
+    notice.startUpdate();
+    renderNotice();
+    scrim.hidden = false;
+    showProgress(p, status.percent);
+    await settleUpdate(await followUpdate(updateDeps()));
+  }
+
   async function startRestart(): Promise<void> {
     log.info(`restart confirmed: sessions=${summary.count}`);
+    half = 'restart'; // From here a refusal is the restart's, not the update's.
     failure.textContent = ''; // A retry must not show the previous refusal.
     // BEFORE the POST: the old process starts killing sessions the moment it
     // reads the request, so every "the backend vanished" reflex has to be
@@ -575,6 +813,9 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   });
 
   applyRuntimeInner();
+  // One call, at boot: a reload in the middle of an install lands back on the
+  // progress it left rather than on a fresh question.
+  void adoptInFlight();
   return { pill };
 }
 

@@ -48,6 +48,7 @@ The port is auto-picked by the backend; nothing is ever hardcoded. Always
 | `launch.cmd` | visible/debug path: same launcher with a console you can read |
 | `config-common.ps1` | shared distro / app-path resolution (env → config file → derived → nothing) and the allow-list every value passes; dot-sourced by both PowerShell scripts, and by every installer helper |
 | `start-backend.sh` | Linux side: detached (`setsid`) backend start; prefers a bundled runtime, falls back to PATH/nvm |
+| `run-update.ps1` | Windows side of the in-app update: re-hashes the Setup exe the backend downloaded, then runs it silently (`/SILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`) and removes the staging directory |
 | `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
 | `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1) |
 | `host/build/` | build output (exe + WebView2 DLLs) — build it, or unzip the release asset here; **git-ignored, never committed** |
@@ -82,6 +83,18 @@ what the uninstaller reads before offering to remove the WSL side, and
 `%LOCALAPPDATA%\ai-session-manager\host` staging copy exists only for the
 clone case, where the exe would otherwise run from a UNC path.
 
+The Setup never writes `host\` directly: it installs the host into
+**`host\next\`**, and `launch.ps1` promotes that folder into `host\` at the
+next start, just before it opens the window (`Move-AiSmHostNext` in
+`config-common.ps1`). The reason is the in-app update: it runs the Setup while
+the old host window is still open, and `CloseApplications=no` means those four
+files are locked. Promotion copies each file with three 200 ms retries; if any
+one of them is still in use, `next\` is left **whole** for the next launch and
+the launch continues with the host that is installed — one printed line, no
+error. It never fails a launch. (In practice all four files are locked
+together, by the same open window; if a copy ever fails halfway, `next\` still
+holds the complete set and the following launch copies it again.)
+
 ## Bundle layout (the installed app)
 
 Installed from the Setup, the WSL side is **not a clone**: it is a
@@ -99,6 +112,7 @@ server.log) is never touched by an install, an update or an uninstall.
     <version>/shared/…
     <version>/web/dist/…             the built frontend
     <version>/launcher/start-backend.sh
+    <version>/launcher/run-update.ps1  the Windows-side updater runner (copied out to %TEMP%, never run in Linux)
 
 Built by `scripts/build-bundle.sh --version <vX.Y.Z> --node <24.x.y>` (see the
 header of that script), which verifies the Node download against nodejs.org's
@@ -129,6 +143,54 @@ Its exit codes, as `launch.ps1` maps them to messages:
 
 11 and 12 are developer-clone codes: an installed bundle carries its own
 runtime, so seeing either one there means the bundle is incomplete — reinstall.
+
+## In-app update (the Windows half)
+
+An installed app checks GitHub for a newer release and offers one **Update**
+button. Everything up to "run the installer" happens in the backend, inside
+WSL; this directory holds the last step.
+
+1. The backend downloads the release's `AI-Session-Manager-Setup-<version>.exe`
+   and `SHA256SUMS.txt`, verifies the exe against the sums file, and only then
+   gives the file its `.exe` name.
+2. It copies that exe **and `run-update.ps1`** (out of the running bundle,
+   `<version>/launcher/run-update.ps1`) into a Windows staging directory,
+   `%TEMP%\ai-session-manager-update\<version>\`.
+3. It starts, by full path and argv only:
+
+       powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass ^
+         -File <staging>\run-update.ps1 ^
+         -SetupPath <staging>\AI-Session-Manager-Setup-<version>.exe ^
+         -ExpectedSha <64 lowercase hex> ^
+         -LogPath <staging>\setup.log
+
+`run-update.ps1` refuses anything that is not exactly that shape: the exe must
+lie directly in the script's own directory, its name must match
+`AI-Session-Manager-Setup-v<...>.exe`, the hash must be 64 lowercase hex
+characters, and both Windows paths are charset-gated. It then **re-hashes the
+file with `Get-FileHash`** — the backend already verified those bytes, but this
+is the last moment before Windows executes them — `Unblock-File`s it, and runs
+it with `Start-Process -Wait`. Its staging directory (exe, Setup log, the
+script itself) is removed in a `finally`; that removal only ever applies to a
+path holding an `ai-session-manager-update` segment, so the master copy in the
+bundle can never delete anything.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | the Setup ran and finished |
+| 2 | the file did not match `-ExpectedSha`; it was **deleted** and nothing ran |
+| 3 | this script refused (bad arguments, missing file, could not start) |
+| other | the Setup's own exit code, unchanged |
+
+`-DryRun` prints the exact `Start-Process` argv and exits 0 without hashing,
+starting or deleting anything — that is how `tests/run-update.test.ts` pins
+this interface from WSL.
+
+The Setup itself reuses the distro and Linux folder recorded in
+`install-info.txt` (never the machine default), replaces the bundle inside WSL
+and moves `current`, and installs the new host into `host\next\`. The app then
+continues into its normal **Restart backend** handoff, and the new host window
+appears at the next launch, when `next\` is promoted.
 
 ## Setup (once)
 

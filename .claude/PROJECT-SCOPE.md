@@ -113,6 +113,10 @@ multi-pane layouts on top.
   rename fails the live file is truncated so logging never stops. 0600 is
   hygiene only — the Windows user reads every WSL file — so "never write the
   secret" is the actual control.
+  Since phase E (2026-09-09) one more source: `launcher/run-update.ps1`'s
+  stdout, piped by the backend (bounded 64 KiB, `debug` on exit 0, `warn`
+  otherwise, every line through `oneLine()`), which on failure includes the
+  last 30 lines of the Setup's own `setup.log`.
 - **Manual backend restart + "new version" notice — decided 2026-09-06,
   user's call; preflight-first ("bulletproof update") decided 2026-09-08,
   user's call** (rationale in `memory/decisions/backend-restart-same-port.md`
@@ -373,27 +377,68 @@ multi-pane layouts on top.
   `release.yml` (phase C, 2026-09-09).
 - **In-app update — decided 2026-09-09 evening (user's call: a
   notification and ONE button, like other apps; the same experience the
-  clone-based app had with "New version available → Restart"), IN PROGRESS
-  as phase E.** Installed mode only. The backend asks GitHub for the latest
-  release (at boot and periodically; one authenticated-free GET to
-  `api.github.com/repos/<owner>/<repo>/releases/latest`, ETag-cached,
-  never more often than the rate limit allows; failures are silent and
-  never block anything). A release newer than `bundle.json.version` shows
-  the toast "Version vX.Y.Z is available" with an **Update** button. The
-  button (user-initiated, authed API) makes the backend download the
-  release's Setup exe AND `SHA256SUMS.txt`, verify the exe's SHA-256
-  against the sums file before anything else touches it, place it where
-  Windows can run it, and start it silently through the interop
-  (`powershell.exe` by full path). The Setup then reuses the existing
-  install's distro and app dir from `install-info.txt` (never the WSL
-  default), replaces the bundle in WSL, closes the app window cleanly
-  (Inno's close-applications support; the host must handle the close),
-  and relaunches the app, which starts the new `current`; as with "Restart
-  backend", open sessions end and HISTORY keeps them. Nothing is ever
-  executed that was not downloaded by the backend and verified against the
-  release's own sums file; a file downloaded by the backend carries no
-  Mark-of-the-Web, so SmartScreen does not interrupt this route (the exe
-  stays unsigned — signing was declined 2026-09-09). Details and rejected
+  clone-based app had with "New version available → Restart"), phase E.**
+  Installed mode only; a developer clone and a `0.0.0*` bundle make no
+  outbound request and answer `422` on `POST /api/update`. **Check**
+  (`server/update-release.ts`): 20 s after `listen`, then every 6 h (15 min
+  backoff × 3 on failure; never in a standby child), one GET to
+  `api.github.com/repos/<owner>/<repo>/releases/latest` with ETag /
+  `If-None-Match`, no credentials, 15 s timeout, 1 MiB body cap; the release
+  passes only if not draft/prerelease, the tag matches the version shape,
+  the Setup asset name and both asset URLs EQUAL what the backend constructs
+  itself, and the size is ≤ 200 MiB; the answer is cached in
+  `<dataDir>/update-check.json` (0600, atomic, ≤ 8 KiB, every field gated on
+  read). Precedence: `a new version is installed` (the bundle on disk moved)
+  beats `a new version is available` (online); `/api/runtime.update.release`
+  carries the offer. **Button** (`POST /api/update`, authed, no body:
+  `202 {version}` · `409` in flight · `422` nothing / not installed · `503`
+  no updater; progress via `GET /api/update/status` polled at 1 Hz):
+  `server/update-install.ts` downloads `SHA256SUMS.txt` then the Setup as
+  `<dataDir>/updates/<version>/<name>.part` with the SHA-256 computed inline,
+  exact size, 200 MiB cap, 60 s idle / 15 min total, free-space precheck,
+  manual redirects ≤ 3 hops to `github.com` / `*.githubusercontent.com`
+  only; a mismatch unlinks the `.part` — the `.part` → `.exe` rename after
+  the check is the ONLY way a runnable file ever exists. It then probes
+  `%TEMP%` once (`cmd.exe /c echo %TEMP%` → validated → `wslpath -u`), stages
+  the exe + `launcher/run-update.ps1` (from the bundle) there through the
+  drvfs mount, and runs `powershell.exe` by full path with argv only
+  (`-File run-update.ps1 -SetupPath … -ExpectedSha … -LogPath …`); the
+  script re-hashes with `Get-FileHash`, refuses on mismatch (exit 2), and
+  runs the Setup `/SILENT /SUPPRESSMSGBOXES /NORESTART`; a Setup that has
+  not returned after 15 min counts as failed, but the single flight stays
+  HELD until that child really exits (a second `Update` answers `409` until
+  then; `SetupMutex=AiSessionManagerSetup` is the second lock against two
+  concurrent Setups), and the idle-shutdown deferral that an install earns
+  ends with the install's active states, never with a held flight. The
+  script's stdout is piped into `server.log` (bounded 64 KiB, `debug` on
+  exit 0, `warn` otherwise, incl. the last 30 lines of Inno's `setup.log`
+  on failure). `POST /api/restart` answers `409` while an install is
+  downloading/verifying/installing (a handoff would wipe the `.part`). **The Setup closes nothing
+  (flow B)**: `CloseApplications=no` stays, there is no `[Run]`; Windows
+  scripts are replaced (not in use), the host binaries land in
+  `{app}\host\next` and are promoted to `{app}\host` by the launcher at the
+  NEXT start (`Move-AiSmHostNext`, retries, never fails a launch); the WSL
+  bundle is unpacked and `current` flipped by the existing helper with its
+  live-dir guards; then the existing installed-mode checker reports `a new
+  version is installed` and the UI continues AUTOMATICALLY into the proven
+  same-port `POST /api/restart` handoff — sessions end like Restart, HISTORY
+  keeps them, the page reloads on the same origin. A silent upgrade reuses
+  the previous install's distro and app dir from `install-info.txt`
+  (`LoadPreviousInstall`, read via `WizardDirValue` — `{app}` cannot be
+  expanded in `InitializeWizard`), never the WSL default. Rejected: closing
+  and relaunching the app from the Setup (the old backend survives the 30 s
+  grace, so the relaunch attaches to it; `CloseApplications=yes` makes the
+  wizard ask too). UI: toast verb `Update` vs `Restart now` by reason; one
+  dialog (`Update the app?` → `Downloading… n%` → `Verifying…` →
+  `Installing…` → the restart phases); failure = `Nothing was updated` + a
+  constant sentence + `Download it yourself` (the one sanctioned browser
+  exit); pill `updating…`; a reload mid-install re-adopts progress. Test
+  seams: `AI_SM_UPDATE_API_BASE` (loopback-only, refuse-to-start otherwise;
+  collapses the asset allow-list to itself), `AI_SM_UPDATE_FIRST_MS`,
+  `AI_SM_UPDATE_INTERVAL_MS` (floored at 1000 ms with a boot warning, capped
+  at the timer maximum). The exe stays unsigned (signing declined
+  2026-09-09); a backend-written file carries no Mark-of-the-Web, so
+  SmartScreen does not interrupt this route. Details and rejected
   alternatives: `memory/decisions/in-app-update.md`.
 - WSL2 localhost forwarding is how Windows reaches the backend.
 

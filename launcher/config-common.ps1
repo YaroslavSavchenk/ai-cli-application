@@ -357,3 +357,75 @@ function Get-AiSmNoConfigMessage {
         "(\\wsl.localhost\<distro>\<path>\launcher), which states both;`n" +
         "  - set the AI_SM_DISTRO and AI_SM_REPO_PATH environment variables.")
 }
+
+function Move-AiSmHostNext {
+    <#
+    Promotes an updated native host from <HostDir>\next\ into <HostDir>\.
+
+    Why it exists: the Windows Setup writes the host exe and its three
+    WebView2 DLLs to {app}\host\next instead of {app}\host, because an
+    in-app update runs that Setup while the OLD host window is still open
+    and holding those files. The next launch - by which time the old window
+    is gone - moves them into place, before the host is started.
+
+    Contract, in order of importance:
+
+      1. It NEVER fails a launch. Every failure mode ends in one printed
+         line and a return value; the caller starts the host it has.
+      2. A file that cannot be copied (the old host still running, a
+         virus scanner holding it open) leaves next\ COMPLETELY intact, so
+         the next launch tries the whole set again. Half a promoted host -
+         a new exe beside old DLLs - would be worse than an old one.
+      3. Nothing is deleted before every file has been copied.
+
+    Returns 'none' (no next\ to promote), 'promoted' (every file copied,
+    next\ removed) or 'kept' (something was in use; next\ left for the next
+    launch).
+    #>
+    param([Parameter(Mandatory)][string]$HostDir)
+
+    $next = Join-Path $HostDir 'next'
+    if (-not (Test-Path -LiteralPath $next)) { return 'none' }
+
+    try {
+        # Top-level files only: the host is four flat files beside each other,
+        # and a directory inside next\ is not something this ever produced.
+        $files = @(Get-ChildItem -LiteralPath $next -File -ErrorAction Stop)
+    } catch {
+        Write-Host "Native host: could not read $next ($($_.Exception.Message)) - starting the host that is installed."
+        return 'kept'
+    }
+
+    foreach ($file in $files) {
+        $target = Join-Path $HostDir $file.Name
+        # Three tries, 200 ms apart: a sharing violation right after the old
+        # window closed is usually over in well under a second, and a launch
+        # may not wait longer than that for a cosmetic upgrade.
+        $copied = $false
+        $lastError = ''
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                Copy-Item -LiteralPath $file.FullName -Destination $target -Force -ErrorAction Stop
+                $copied = $true
+                break
+            } catch {
+                $lastError = $_.Exception.Message
+                if ($attempt -lt 3) { Start-Sleep -Milliseconds 200 }
+            }
+        }
+        if (-not $copied) {
+            Write-Host "Native host: $($file.Name) is in use ($lastError) - keeping the updated files in $next and starting the host that is installed."
+            return 'kept'
+        }
+    }
+
+    try {
+        Remove-Item -LiteralPath $next -Recurse -Force -ErrorAction Stop
+    } catch {
+        # The files are already in place, so this is bookkeeping: the next
+        # launch copies the same bytes over themselves and tries again.
+        Write-Host "Native host: updated files are in place, but $next could not be removed ($($_.Exception.Message))."
+    }
+    Write-Host "Native host: updated to the version installed in $next."
+    return 'promoted'
+}

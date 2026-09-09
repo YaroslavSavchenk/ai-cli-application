@@ -71,6 +71,21 @@ export interface DataPaths {
    * Change one and you must change the other.
    */
   statuslineCacheFile: string;
+  /**
+   * IN-APP UPDATE (2026-09-09, phase E). Where a downloaded Setup.exe and its
+   * `SHA256SUMS.txt` are written (mode 0700, `<version>` subdirectory per
+   * release). WIPED AT BOOT by server/index.ts: a half-downloaded `.part`, or
+   * an exe from a release that was never run, must never be reused — the only
+   * runnable file is one this process verified in THIS run.
+   */
+  updatesDir: string;
+  /**
+   * ETag cache of the last `releases/latest` answer (mode 0600, atomic,
+   * <= 8 KiB, every field charset-gated on read like bundle.json). It exists
+   * so a restart costs no GitHub rate-limit quota and the "new version"
+   * notice is back on screen immediately instead of 20 s later.
+   */
+  updateCheckFile: string;
   logFile: string;
 }
 
@@ -96,6 +111,8 @@ export function resolveDataPaths(): DataPaths {
     historyFile: join(dataDir, 'history.json'),
     sessionSettingsDir: join(dataDir, 'session-settings'),
     statuslineCacheFile: join(dataDir, 'statusline-cache.json'),
+    updatesDir: join(dataDir, 'updates'),
+    updateCheckFile: join(dataDir, 'update-check.json'),
     logFile: join(dataDir, 'server.log'),
   };
 }
@@ -149,6 +166,31 @@ export function resolveWebDistDir(repoRoot: string): string {
 export const DEFAULT_GITHUB_API_BASE = 'https://api.github.com';
 
 /**
+ * Release-check API base (phase E). Same host as the REST base by default and a
+ * SEPARATE variable on purpose: `AI_SM_UPDATE_API_BASE` re-points the anonymous
+ * `releases/latest` GET and, with it, the asset host allow-list — it must never
+ * be able to move the credential-bearing GitHub client, and vice versa.
+ */
+export const DEFAULT_UPDATE_API_BASE = 'https://api.github.com';
+
+/** Where release ASSETS are downloaded from when the seam is unset. */
+export const DEFAULT_UPDATE_ASSET_BASE = 'https://github.com';
+
+/**
+ * Resolve the release-check API base: api.github.com unless
+ * AI_SM_UPDATE_API_BASE overrides it with a loopback origin (offline tests).
+ * Throws on anything else, and the caller then refuses to start — exactly like
+ * AI_SM_GITHUB_API_BASE, and for the stronger of the two reasons: with the seam
+ * set, the same origin also becomes the only host an update EXECUTABLE may be
+ * downloaded from.
+ */
+export function resolveUpdateApiBase(): string {
+  const override = (process.env['AI_SM_UPDATE_API_BASE'] ?? '').trim();
+  if (override === '') return DEFAULT_UPDATE_API_BASE;
+  return assertLoopbackApiBase(override, 'AI_SM_UPDATE_API_BASE');
+}
+
+/**
  * Hostnames accepted for an AI_SM_GITHUB_API_BASE override. Exact allowlist —
  * NOT a 127.0.0.0/8 range check — so 127.0.0.2, 0.0.0.0, or any routable host is
  * refused. `localhost` is included for ergonomics; pointing it elsewhere needs
@@ -157,7 +199,15 @@ export const DEFAULT_GITHUB_API_BASE = 'https://api.github.com';
 const LOOPBACK_API_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
- * Validate an AI_SM_GITHUB_API_BASE value and return its normalized origin.
+ * Validate a loopback-only API base override and return its normalized origin.
+ *
+ * TWO CALLERS, one rule (generalised 2026-09-09 for phase E): the GitHub REST
+ * base (`AI_SM_GITHUB_API_BASE`, where the stored credential is sent) and the
+ * release-check base (`AI_SM_UPDATE_API_BASE`, where "is there a new version?"
+ * is asked and, with the seam set, where the Setup.exe is downloaded from).
+ * `varName` only names the variable in the refusal text — the rule itself is
+ * identical, and deliberately so: both are test-only seams whose accepted
+ * values must never include a routable host.
  *
  * SECURITY: this knob decides where the stored GitHub credential (device-flow
  * token OR pasted token) is sent as a Bearer header. It is therefore restricted
@@ -179,9 +229,9 @@ const LOOPBACK_API_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
  * Also refused: non-http(s) schemes, embedded credentials, and any path/query/
  * fragment (the base is an origin, never a prefix that could be re-pointed).
  */
-export function assertLoopbackApiBase(value: string): string {
+export function assertLoopbackApiBase(value: string, varName = 'AI_SM_GITHUB_API_BASE'): string {
   const fail = (why: string): never => {
-    throw new Error(`AI_SM_GITHUB_API_BASE ${why} (expected e.g. http://127.0.0.1:8787), got: ${value}`);
+    throw new Error(`${varName} ${why} (expected e.g. http://127.0.0.1:8787), got: ${value}`);
   };
   let parsed: URL;
   try {
@@ -191,7 +241,7 @@ export function assertLoopbackApiBase(value: string): string {
   }
   if (parsed.username !== '' || parsed.password !== '') {
     // Never echo the value here — it carries the embedded credential.
-    throw new Error('AI_SM_GITHUB_API_BASE must not embed credentials');
+    throw new Error(`${varName} must not embed credentials`);
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return fail('must use http:// or https://');
