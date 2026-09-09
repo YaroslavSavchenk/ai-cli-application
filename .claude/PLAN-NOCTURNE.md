@@ -6,8 +6,9 @@ Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
 mode, no toggle, no theme variants. Legacy is preserved only as git history:
 tag `legacy-ui` on the last commit before A1 starts. Legacy styles, the theme
-popover and `design-mocks/` are removed in A8/B8. Nocturne ships as v0.4.0. No methods chosen, no
-code investigated beyond a file listing. Each part below is sized to fit one
+popover and `design-mocks/` are removed in A8/B8. Nocturne ships as v0.4.0.
+
+No methods chosen, no code investigated beyond a file listing. Each part below is sized to fit one
 rate-limited session and is started only when the user says "begin aan <id>".
 
 Source of truth for look and behaviour:
