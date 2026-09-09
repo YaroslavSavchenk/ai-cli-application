@@ -86,6 +86,12 @@ priority.
 
 ## Owed on the Windows side (user) — the Setup.exe test, 2026-09-09
 
+**2026-09-09 17:30: user tested `0.0.0-dev+197bb9f` on Windows — "alles okey"**
+(install, wizard, shortcut, taskbar, Settings version + Check for updates,
+sessions, HISTORY, in-place restart; this Claude session itself ran inside
+the installed app). v0.2.0 tagged on `fc59d81` right after. Left: the
+upgrade test with the real v0.2.0 Setup, uninstall both answers, /SILENT.
+
 Test build: GitHub Actions run 34356714586 (workflow_dispatch on main at
 `197bb9f`), artifact **`AI-Session-Manager-Setup`** →
 `AI-Session-Manager-Setup-0.0.0-dev+197bb9f.exe`, SHA-256
@@ -98,24 +104,24 @@ Session Manager\` and `~/.ai-session-manager/app/`, and both share the
 data dir `~/.ai-session-manager/` (history, prefs, runtime.json). Close the
 app window first so one backend at a time owns runtime.json.
 
-- [ ] SmartScreen on first run: "More info → Run anyway" (unsigned).
-- [ ] Wizard: WSL page lists your WSL 2 distros with the default preselected;
+- [x] SmartScreen on first run: "More info → Run anyway" (unsigned).
+- [x] Wizard: WSL page lists your WSL 2 distros with the default preselected;
   folder page prefills `<home>/.ai-session-manager/app`; a folder with a
   space is refused with a readable message; the extras (consent) page is
   SKIPPED when `claude` is already installed, else its box is OFF; shortcut
   page shows "Create a desktop shortcut" ticked; Ready page lists it all.
-- [ ] Never a UAC prompt anywhere.
-- [ ] After install: `%LOCALAPPDATA%\Programs\AI Session Manager\` holds
+- [x] Never a UAC prompt anywhere.
+- [x] After install: `%LOCALAPPDATA%\Programs\AI Session Manager\` holds
   `launcher-config.json` (your distro + `<appdir>/current`) and
   `install-info.txt`; `wsl -d <distro> -- ls ~/.ai-session-manager/app`
   shows `0.0.0-dev+197bb9f` + `current`; no bundle tar left in `%TEMP%`.
-- [ ] Shortcut launches with no console; taskbar shows `app.ico` and ONE
+- [x] Shortcut launches with no console; taskbar shows `app.ico` and ONE
   button for shortcut + window (AUMID match); no host copy appears under
   `%LOCALAPPDATA%\ai-session-manager\host` (host runs in place).
-- [ ] Settings → BACKEND shows `version 0.0.0-dev+197bb9f` and the
+- [x] Settings → BACKEND shows `version 0.0.0-dev+197bb9f` and the
   `Check for updates` link opens the Releases page in your browser without
   navigating the app window.
-- [ ] Upgrade: re-dispatch → newer exe → run it while the app is open: no
+- [ ] Upgrade (test = the real v0.2.0 Setup over the 0.0.0-dev+197bb9f install): re-dispatch → newer exe → run it while the app is open: no
   "close the app" prompt; app toasts "A new version has been installed";
   Restart backend lands on the new `current`; old version dir still present.
   Running the SAME version's Setup again must be refused with the
@@ -142,7 +148,7 @@ app window first so one backend at a time owns runtime.json.
   green on GitHub (third try: two ISPP/Pascal comment traps, both pinned by
   tests — [[inno-setup-ispp-char-literals]]), [ ] user tests the
   `AI-Session-Manager-Setup` artifact on Windows (checklist in
-  `installer/README.md`), [x] visibility flip (2026-09-09), [ ] `npm run release -- v0.2.0` after the Windows test.
+  `installer/README.md`), [x] visibility flip (2026-09-09), [x] `npm run release -- v0.2.0` — RELEASED 2026-09-09 (run 34370652699, four assets).
 
 ## Queued ideas (not decided)
 

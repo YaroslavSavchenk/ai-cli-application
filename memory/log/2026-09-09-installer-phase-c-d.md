@@ -79,7 +79,21 @@ locally 0 errors, fourth dispatch green: test build
 `AI-Session-Manager-Setup-0.0.0-dev+197bb9f.exe` (run 34356714586, SHA
 `7db3ab31…`).
 
+## v0.2.0 RELEASED (2026-09-09, evening)
+
+The user installed the `197bb9f` test build on Windows and ran this very
+Claude session inside the installed app — "alles okey" (install, wizard,
+shortcut + taskbar identity, Settings version + Check for updates,
+sessions, HISTORY, in-place restart). `npm run release -- v0.2.0` on
+`fc59d81` → run 34370652699, all seven jobs green, publish succeeded:
+`AI-Session-Manager-Setup-v0.2.0.exe` (62.7 MB),
+`ai-session-manager-linux-x64.tar.gz` (60.8 MB),
+`AiSessionManagerHost-win-x64.zip`, `SHA256SUMS.txt`. Ruleset
+`protect-main` (force-push + deletion blocked) added the same afternoon.
+First release anyone can install: https://github.com/YaroslavSavchenk/ai-cli-application/releases/tag/v0.2.0
+
 ## Next
 
-User tests the artifact on Windows (checklist in `memory/BACKLOG.md`,
-"Owed on the Windows side") → fixes if any → `npm run release -- v0.2.0`.
+Upgrade test = run the real v0.2.0 Setup over the `0.0.0-dev+197bb9f`
+install with the app open (toast → Restart → v0.2.0); uninstall both
+answers; `/SILENT`. Then the backlog's installer leftovers.
