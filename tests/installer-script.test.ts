@@ -203,6 +203,33 @@ test('installer: no line in the .iss starts with a Pascal char literal (ISPP rea
   assert.deepEqual(offenders, [], `lines that would be read as preprocessor directives: ${offenders.map((o) => o.n).join(', ')}`);
 });
 
+test('installer: no Pascal block comment in [Code] contains a nested brace (it would end the comment early)', () => {
+  // Measured on the windows runner (run 34353560564): "({tmp}, {app})" inside a
+  // { ... } comment closed the comment at the first "}", and the rest of the
+  // sentence was compiled as code -> "'BEGIN' expected".
+  const code = iss.slice(iss.indexOf('[Code]'));
+  const base = iss.slice(0, iss.indexOf('[Code]')).split('\n').length;
+  const issues: string[] = [];
+  let i = 0;
+  let line = base;
+  while (i < code.length) {
+    const c = code[i];
+    if (c === '\n') { line += 1; i += 1; continue; }
+    if (c === "'") { let j = i + 1; while (j < code.length && code[j] !== "'" && code[j] !== '\n') j += 1; i = j + 1; continue; }
+    if (code.startsWith('//', i)) { const j = code.indexOf('\n', i); i = j < 0 ? code.length : j; continue; }
+    if (c === '{') {
+      const j = code.indexOf('}', i + 1);
+      const inner = code.slice(i + 1, j);
+      if (inner.includes('{')) issues.push(`line ${line}: ${code.slice(i, i + 60).replace(/\n/g, ' ')}`);
+      line += inner.split('\n').length - 1;
+      i = j + 1;
+      continue;
+    }
+    i += 1;
+  }
+  assert.deepEqual(issues, []);
+});
+
 test('installer: /SILENT picks a distribution by the same rule as the wizard page', () => {
   // No page is shown, so EnsureDefaults fills in the answers. Taking
   // `default` (or `distro1`) unchecked would install into a WSL 1

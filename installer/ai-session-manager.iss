@@ -197,7 +197,7 @@ end;
   whitespace (which would split one argument into several). The helpers gate
   every value again against the shared allow-list in config-common.ps1; this
   is the same gate one step earlier, before a command line exists at all.
-  Windows paths Setup itself produces ({tmp}, {app}) do NOT go through here:
+  Windows paths Setup itself produces (the tmp and app constants) do NOT go through here:
   they legitimately contain spaces and are quoted verbatim. }
 function IsWslSafe(const Value: String): Boolean;
 begin
