@@ -63,6 +63,11 @@ priority.
   2026-09-09 21:40Z** (first updater-capable build; installed by hand once);
   v0.3.1 RELEASED 21:52Z (run 34407959793) as the target: toast → Update → v0.3.1. A
   `0.0.0-dev` dispatch build cannot test the button (it disables the check).
+  **2026-09-10: the first attempt showed NO button** — v0.3.1 had been
+  installed before v0.3.0 and the cached verdict survived a 304
+  ([[etag-cache-verdict-not-payload]], fixed in `1cdb766`); the stale
+  cache was deleted, **v0.3.2 is the new target**: restart the app on
+  v0.3.0 → toast → Update → v0.3.2.
 - [ ] Progress is not carried across a restart handoff (status resets to
   idle in the new process); the staged copy in `%TEMP%` survives.
 - [ ] `probeWindowsTemp` (real `cmd.exe` → `wslpath`) only ever injected in
