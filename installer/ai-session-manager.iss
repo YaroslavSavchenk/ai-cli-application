@@ -66,6 +66,9 @@ AppUpdatesURL={#AppUrl}/releases
 DefaultDirName={localappdata}\Programs\AI Session Manager
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+; Inno 6 hides the Welcome page by default; the WSL probe (a synchronous
+; wsl.exe call, seconds on a cold WSL) must not run on the first painted frame.
+DisableWelcomePage=no
 ; The Windows side is a fixed per-user location, so the wizard is exactly the
 ; seven pages the flow needs: welcome, WSL check, distribution, folder inside
 ; Linux, optional extras, shortcuts (the [Tasks] desktop icon), ready -- six
@@ -147,6 +150,7 @@ var
   WslOk: Boolean;
   WslProbed: Boolean;
   SelectedDistro: String;
+  LastProbedDistro: String;
   SelectedDataDir: String;
   DefaultAppDir: String;
   ClaudePresent: Boolean;
@@ -179,7 +183,7 @@ begin
   ResultFile := ExpandConstant('{tmp}\aism-result.txt');
   DeleteFile(ResultFile);
   SetArrayLength(LastResult, 0);
-  Cmd := '-NoProfile -ExecutionPolicy Bypass -File "' + HelperPath + '"' +
+  Cmd := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + HelperPath + '"' +
     ' -ResultFile "' + ResultFile + '" ' + Params;
   { Full path, never the bare name: Exec resolves a bare name through the
     CreateProcess search order, which starts at the inherited directory. }
@@ -218,7 +222,7 @@ function Reason: String;
 begin
   Result := GetVal('reason');
   if Result = '' then
-    Result := 'The step could not be completed. Run the same command from installer\helpers\ in PowerShell to see why.';
+    Result := 'The step could not be completed and gave no reason. Run this Setup again; if it keeps failing, report the text above.';
 end;
 
 function TempHelper(const FileName: String): String;
@@ -272,12 +276,13 @@ var
   I, Count: Integer;
   Name, Version, Usable, Text: String;
 begin
-  { Once only: the check-list entries are ADDED here, so a second run (Back,
-    then Next again) would list every distribution twice. }
+  { Once only on SUCCESS: the check-list entries are ADDED here, so a second
+    run (Back, then Next again) would list every distribution twice. A FAILED
+    probe stays re-armed - a cold WSL that timed out must be retryable. }
   if WslProbed then
     Exit;
-  WslProbed := True;
   WslOk := RunHelper(TempHelper('wsl-probe.ps1'), '');
+  WslProbed := WslOk;
   if not WslOk then
   begin
     WslPage.MsgLabel.Caption := Reason;
@@ -358,12 +363,13 @@ begin
   begin
     if not WslOk then
     begin
-      MsgBox(Reason, mbCriticalError, MB_OK);
+      { The reason itself is already on this page in WslPage.MsgLabel. }
+      SuppressibleMsgBox('WSL 2 is not ready on this PC. Follow the steps shown on this page, then run this Setup again.', mbCriticalError, MB_OK, IDOK);
       Result := False;
     end
     else if DistroNames.Count = 0 then
     begin
-      MsgBox('No usable WSL 2 distribution was found.', mbCriticalError, MB_OK);
+      SuppressibleMsgBox('No usable WSL 2 distribution was found.', mbCriticalError, MB_OK, IDOK);
       Result := False;
     end;
   end
@@ -373,16 +379,23 @@ begin
     SelectedDistro := SelectedDistroName;
     if SelectedDistro = '' then
     begin
-      MsgBox('Choose a distribution first.', mbError, MB_OK);
+      SuppressibleMsgBox('Choose a distribution first.', mbError, MB_OK, IDOK);
       Result := False;
     end
     else if not ProbeDistro(SelectedDistro) then
     begin
-      MsgBox(Reason, mbCriticalError, MB_OK);
+      SuppressibleMsgBox(Reason, mbCriticalError, MB_OK, IDOK);
       Result := False;
     end
     else
-      AppDirPage.Values[0] := DefaultAppDir;
+    begin
+      { Only default the folder when there is nothing to keep, or when the
+        answer belongs to a different distribution: this runs on EVERY Next
+        out of this page, and Back-then-Next must not discard what was typed. }
+      if (AppDirPage.Values[0] = '') or (SelectedDistro <> LastProbedDistro) then
+        AppDirPage.Values[0] := DefaultAppDir;
+      LastProbedDistro := SelectedDistro;
+    end;
   end
 
   else if CurPageID = AppDirPage.ID then
@@ -392,8 +405,8 @@ begin
       never has to reach WslArg's refusal. }
     if not IsWslSafe(AppDirPage.Values[0]) then
     begin
-      MsgBox('The folder name cannot contain spaces or quotation marks.' + #13#10#13#10 +
-        'Use something like /home/you/.ai-session-manager/app.', mbError, MB_OK);
+      SuppressibleMsgBox('The folder name cannot contain spaces or quotation marks.' + #13#10#13#10 +
+        'Use something like /home/you/.ai-session-manager/app.', mbError, MB_OK, IDOK);
       Result := False;
       Exit;
     end;
@@ -404,7 +417,7 @@ begin
       ' -AppDir ' + WslArg(AppDirPage.Values[0]) +
       ' -Version "{#AppVersion}" -Tarball "none"') then
     begin
-      MsgBox(Reason, mbError, MB_OK);
+      SuppressibleMsgBox(Reason, mbError, MB_OK, IDOK);
       Result := False;
     end;
   end;
@@ -437,8 +450,11 @@ begin
     Result := Result + NewLine + MemoTasksInfo + NewLine;
 end;
 
-{ A silent install (/SILENT, /VERYSILENT) never shows a page, so fill in the
-  same answers the wizard would have defaulted to. }
+{ Belt and braces, normally unreachable: Inno simulates a Next click on every
+  custom page even in a silent install, so NextButtonClick has already filled
+  SelectedDistro and AppDirPage.Values[0] and the Exit below always fires.
+  It stays as the fallback that fills in the same answers the wizard would
+  have defaulted to, for the day that stops being true. }
 procedure EnsureDefaults;
 var
   I, Count: Integer;
@@ -486,6 +502,11 @@ begin
 
   EnsureDefaults;
 
+  { Both are gated by IsWslSafe, which accepts '' - and an empty WSL folder or
+    data dir would be handed to the installing helper as a quoted nothing. }
+  if (SelectedDataDir = '') or (AppDirPage.Values[0] = '') then
+    RaiseException('Setup lost the WSL folder answers; run this Setup again.');
+
   Params := '-Distro ' + WslArg(SelectedDistro) +
     ' -AppDir ' + WslArg(AppDirPage.Values[0]) +
     ' -Version "{#AppVersion}"' +
@@ -501,8 +522,8 @@ begin
   if (not ClaudePresent) and ConsentPage.Values[0] then
     if not RunHelper(ExpandConstant('{app}\helpers\install-thirdparty.ps1'),
       '-Distro ' + WslArg(SelectedDistro) + ' -Item claude') then
-      MsgBox('The app is installed, but Claude Code was not:' + #13#10#13#10 +
-        Reason, mbInformation, MB_OK);
+      SuppressibleMsgBox('The app is installed, but Claude Code was not:' + #13#10#13#10 +
+        Reason, mbInformation, MB_OK, IDOK);
 end;
 
 { ---------------------------- uninstall --------------------------------- }
@@ -527,11 +548,11 @@ begin
   if (Distro = '') or (AppDir = '') then
     Exit;
 
-  if MsgBox('Also remove the app files inside ' + Distro + ' at ' + AppDir + '?' + #13#10#13#10 +
+  if SuppressibleMsgBox('Also remove the app files inside ' + Distro + ' at ' + AppDir + '?' + #13#10#13#10 +
     'Your projects, session history and settings are NOT touched either way.' + #13#10#13#10 +
     'If the app is running it will be closed first, which ends any sessions ' +
     'you have open (they stay in the history).',
-    mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then
     Exit;
 
   { Stop a running backend first - removing the files under it would leave a
@@ -543,6 +564,6 @@ begin
 
   if not RunHelper(ExpandConstant('{app}\helpers\uninstall-wsl.ps1'),
     '-Distro ' + WslArg(Distro) + ' -AppDir ' + WslArg(AppDir)) then
-    MsgBox('The app files inside ' + Distro + ' were not removed:' + #13#10#13#10 +
-      Reason, mbInformation, MB_OK);
+    SuppressibleMsgBox('The app files inside ' + Distro + ' were not removed:' + #13#10#13#10 +
+      Reason, mbInformation, MB_OK, IDOK);
 end;

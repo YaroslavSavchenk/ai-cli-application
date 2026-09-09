@@ -35,6 +35,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
+- [[inno-setup-local-compile]] — 2026-09-09: compile the `.iss` from WSL with a PORTABLE Inno Setup (`/CURRENTUSER /PORTABLE=1`, no elevation) instead of a 6-min CI loop; measured Inno 6.7.1 facts (`SuppressibleMsgBox`, `DisableWelcomePage` default yes, silent mode simulates Next, no `LoadStringsFromFileUTF8`)
 - [[inno-setup-ispp-char-literals]] — 2026-09-09: ISPP reads any `[Code]` line starting with `#` as a directive — `#13#10` may never open a line (first ISCC compile on CI failed on it); pinned by test
 - [[webview2-focus-links-clipboard]] — 2026-09-08: WebView2 never takes keyboard focus back after an Alt-Tab (`ActiveControl = null; Focus()` on Activated); popups die under the origin lock so OSC 8 links need a ShellExecute exit checked in C#; clipboard-read needs PermissionRequested Allow; PowerShell in a Linux PTY works but blocks on `ESC[6n`; reproduce Claude's login screen with `CLAUDE_CONFIG_DIR`
 - [[vite-config-cwd-trap]] — 2026-09-08 incident: `vite build` run from inside `web/` finds no config → bare `__BUILD_ID__` → ReferenceError in a `.then(ok, err)` success handler → boot step never settled, page hung on 'token check'; fixes: `web/vite.config.ts` re-export shim, `typeof` read, settle-before-log

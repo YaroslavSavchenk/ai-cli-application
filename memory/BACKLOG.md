@@ -71,7 +71,15 @@ priority.
   `stage_failed`, `symlink_failed`, `current_swap_failed`) and the atomic
   `mv -T` swap on failure.
 - [ ] `.iss` `[Code]` is pinned by source inspection only; no ISCC compile
-  check exists in the suite (the CI `installer` job of phase C is the gate).
+  check exists in the suite (the CI `installer` job is the gate). Cheap
+  next step: opt-in `installer/check-iss.ps1` using the portable-ISCC
+  recipe in [[inno-setup-local-compile]], run by a test when ISCC is
+  reachable.
+- [ ] Consent page sub-caption is ~11 rendered lines; at 125 %/150 % scaling
+  the single checkbox may be pushed off the page (user to confirm; shorten
+  the text if so).
+- [ ] `install-bundle` runs up to 1800 s with a frozen wizard and no progress
+  feedback (unpack + node-pty proof). Bounded, but a progress line would help.
 - [ ] Publisher text "AI Session Manager" + AppId GUID are orchestrator
   defaults — user may rename.
 

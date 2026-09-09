@@ -288,3 +288,88 @@ test('installer: the uninstaller asks before touching WSL, defaulting to NO', ()
   // know it. The app's data lives inside WSL and is never touched here.
   assert.match(iss, /^Type: filesandordirs; Name: "\{localappdata\}\\ai-session-manager"$/m);
 });
+
+/* -------------------------------------------------------------------------
+ * Runtime findings from the ISCC audit (compiled locally against Inno Setup
+ * 6.7.1). Each of these pins one behaviour that the text alone would happily
+ * regress back into.
+ * ---------------------------------------------------------------------- */
+
+const code = iss.slice(iss.indexOf('\n[Code]\n'));
+
+test('installer: R1 - every message box in [Code] is suppressible (/VERYSILENT must never hang on a modal)', () => {
+  // A plain MsgBox() ignores /SUPPRESSMSGBOXES, so a silent install stops on
+  // an invisible window that nobody can click.
+  const bare = code
+    .split('\n')
+    .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+    .filter(({ line }) => /(^|[^a-zA-Z])MsgBox\(/.test(line) && !/SuppressibleMsgBox\(/.test(line));
+  assert.deepEqual(bare, [], `bare MsgBox( in [Code]: ${bare.map((b) => b.line).join(' | ')}`);
+  assert.ok((code.match(/SuppressibleMsgBox\(/g) ?? []).length >= 8, 'every former MsgBox site must still show its message');
+  // The uninstall confirmation keeps NO as the default answer, and its
+  // suppressed answer is NO too - a silent uninstall removes nothing in WSL.
+  assert.match(code, /mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO\) <> IDYES then/);
+});
+
+test('installer: R2 - the Welcome page is shown, so the WSL probe does not run on the first painted frame', () => {
+  // Inno 6 defaults DisableWelcomePage to yes; the probe is a synchronous
+  // wsl.exe call that takes seconds on a cold WSL.
+  assert.match(setup, /^DisableWelcomePage=no$/m);
+  assert.ok(iss.includes('seven pages the flow needs'), 'the page count comment must stay at seven');
+});
+
+test('installer: R3 - the helper powershell.exe can never sit waiting for a prompt', () => {
+  // SW_HIDE + a prompt = an invisible hang.
+  assert.match(code, /Cmd := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' \+ HelperPath/);
+});
+
+test('installer: R4 - Back-then-Next out of the distribution page keeps the typed Linux folder', () => {
+  // NextButtonClick runs on EVERY Next, so an unconditional assignment would
+  // overwrite what the user typed on the next page.
+  assert.match(
+    code,
+    /if \(AppDirPage\.Values\[0\] = ''\) or \(SelectedDistro <> LastProbedDistro\) then\s*\n\s*AppDirPage\.Values\[0\] := DefaultAppDir;\s*\n\s*LastProbedDistro := SelectedDistro;/,
+  );
+  assert.match(code, /^\s{2}LastProbedDistro: String;$/m, 'the remembered distro needs its own var');
+});
+
+test('installer: R5 - a failed WSL probe stays retryable', () => {
+  const probe = code.slice(code.indexOf('procedure ProbeWsl'), code.indexOf('function SelectedDistroName'));
+  // Latching WslProbed before the probe made a transient failure (cold WSL
+  // past the timeout) permanent for the whole wizard.
+  assert.match(probe, /WslOk := RunHelper\(TempHelper\('wsl-probe\.ps1'\), ''\);\s*\n\s*WslProbed := WslOk;/);
+  assert.doesNotMatch(probe, /WslProbed := True;/);
+});
+
+test('installer: R6 - the no-reason fallback names no path an end user does not have', () => {
+  assert.ok(
+    iss.includes("'The step could not be completed and gave no reason. Run this Setup again; if it keeps failing, report the text above.'"),
+    'the fallback reason must be the pathless one',
+  );
+  assert.doesNotMatch(code, /installer\\helpers/, 'an installed copy has no installer\\helpers directory');
+});
+
+test('installer: R7 - the WSL page does not repeat its own paragraph in a message box', () => {
+  // WslPage.MsgLabel.Caption already shows Reason.
+  assert.ok(
+    code.includes("SuppressibleMsgBox('WSL 2 is not ready on this PC. Follow the steps shown on this page, then run this Setup again.', mbCriticalError, MB_OK, IDOK);"),
+    'the WSL page box must be the one-liner',
+  );
+});
+
+test('installer: R9 - the EnsureDefaults comment says what is actually measured', () => {
+  const comment = iss.slice(iss.indexOf('{ Belt and braces'), iss.indexOf('procedure EnsureDefaults'));
+  assert.ok(comment.includes('Inno simulates a Next click on every'), comment);
+  assert.ok(comment.includes('normally unreachable'), comment);
+  assert.doesNotMatch(iss, /A silent install \(\/SILENT, \/VERYSILENT\) never shows a page/);
+});
+
+test('installer: R10 - an empty WSL folder or data dir stops the install instead of being quoted through', () => {
+  // IsWslSafe('') is True, so WslArg('') would hand the helper a quoted nothing.
+  const step = code.slice(code.indexOf('procedure CurStepChanged'), code.indexOf('{ ---------------------------- uninstall'));
+  assert.match(
+    step,
+    /if \(SelectedDataDir = ''\) or \(AppDirPage\.Values\[0\] = ''\) then\s*\n\s*RaiseException\('Setup lost the WSL folder answers; run this Setup again\.'\);/,
+  );
+  assert.ok(step.indexOf('RaiseException(\'Setup lost') < step.indexOf("Params := '-Distro '"), 'the guard must run before the Params are built');
+});
