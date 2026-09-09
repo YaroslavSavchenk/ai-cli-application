@@ -309,9 +309,8 @@ multi-pane layouts on top.
   (set repo-locally; history is not rewritten, so older commits keep the
   author's e-mail and 13 of them still contain the old home path);
   `tests/no-author-paths.test.ts` is the standing guard against the author's
-  paths re-entering tracked files; the orchestrator flips visibility
-  (`gh repo edit --visibility public`) right after phase D lands and CI is
-  green; **v0.2.0 is tagged only after the user has tested the Setup.exe on
+  paths re-entering tracked files; the repo was flipped to PUBLIC on 2026-09-09 right after phase D
+  landed and CI was green; **v0.2.0 is tagged only after the user has tested the Setup.exe on
   Windows** (a `workflow_dispatch` run produces it as the
   `AI-Session-Manager-Setup` artifact).
 - **Installer and self-contained bundle — decided 2026-09-08 (user's call:
@@ -607,7 +606,7 @@ landed features.
 
 ## Open decisions (do not treat as settled)
 
-Repo visibility — DECIDED 2026-09-08/09: goes public (vault included); the flip is executed by the orchestrator after phase D lands and CI is green. Branch protection stays open.
+Repo visibility — DONE: PUBLIC since 2026-09-09 (vault included). Branch protection stays open.
 - ~~One-click installer — FUTURE~~ **DECIDED 2026-09-08 (user: "tijd om hiervan een app te maken, zodat andere mensen dit makkelijk kunnen gebruiken"), IN PROGRESS.** See the Architecture bullet "Installer and self-contained bundle" and `memory/decisions/installer-and-self-contained-bundle.md`. Remaining sub-decisions live there; the visibility flip itself is still the user's hand.
 
 (Settled 2026-09-08, user's call — "de update moet echt bulletproof zijn":

@@ -75,30 +75,65 @@ priority.
 - [ ] Publisher text "AI Session Manager" + AppId GUID are orchestrator
   defaults — user may rename.
 
-## Owed on the Windows side (user, since 2026-09-08 evening)
+## Owed on the Windows side (user) — the Setup.exe test, 2026-09-09
 
-- [ ] Re-run `launcher/make-shortcut.ps1` (script changed: self-locating
-  config), relaunch from the shortcut (new host exe + backend code).
-- [ ] Check `launch.cmd -Status` prints the
-  `Config: ... (from launcher location)` line.
-- [ ] Windows-eye pass of toast / pill / dialog, and a restart from inside
-  the WebView2 window.
-- [ ] Try the v0.1.0 release zip in a fresh clone; the SmartScreen claim
-  in the README is unverified.
+Test build: GitHub Actions run 34354085724 (workflow_dispatch on main at
+`08709f5`), artifact **`AI-Session-Manager-Setup`** →
+`AI-Session-Manager-Setup-0.0.0-dev+08709f5.exe`, SHA-256
+`f9594e129e97edd02c14ded47fa3126a34f0672b2680702af1d8ecb6bf47de66`.
+Download from https://github.com/YaroslavSavchenk/ai-cli-application/actions/runs/34354085724
+(artifacts expire after 90 days; re-dispatch `Release` on main for a fresh one).
+**Important:** your live clone-based install and the Setup install are
+two different things — the Setup writes to `%LOCALAPPDATA%\Programs\AI
+Session Manager\` and `~/.ai-session-manager/app/`, and both share the
+data dir `~/.ai-session-manager/` (history, prefs, runtime.json). Close the
+app window first so one backend at a time owns runtime.json.
+
+- [ ] SmartScreen on first run: "More info → Run anyway" (unsigned).
+- [ ] Wizard: WSL page lists your WSL 2 distros with the default preselected;
+  folder page prefills `<home>/.ai-session-manager/app`; a folder with a
+  space is refused with a readable message; the extras (consent) page is
+  SKIPPED when `claude` is already installed, else its box is OFF; shortcut
+  page shows "Create a desktop shortcut" ticked; Ready page lists it all.
+- [ ] Never a UAC prompt anywhere.
+- [ ] After install: `%LOCALAPPDATA%\Programs\AI Session Manager\` holds
+  `launcher-config.json` (your distro + `<appdir>/current`) and
+  `install-info.txt`; `wsl -d <distro> -- ls ~/.ai-session-manager/app`
+  shows `0.0.0-dev+08709f5` + `current`; no bundle tar left in `%TEMP%`.
+- [ ] Shortcut launches with no console; taskbar shows `app.ico` and ONE
+  button for shortcut + window (AUMID match); no host copy appears under
+  `%LOCALAPPDATA%\ai-session-manager\host` (host runs in place).
+- [ ] Settings → BACKEND shows `version 0.0.0-dev+08709f5` and the
+  `Check for updates` link opens the Releases page in your browser without
+  navigating the app window.
+- [ ] Upgrade: re-dispatch → newer exe → run it while the app is open: no
+  "close the app" prompt; app toasts "A new version has been installed";
+  Restart backend lands on the new `current`; old version dir still present.
+  Running the SAME version's Setup again must be refused with the
+  "this exact version is running" message.
+- [ ] Uninstall, both answers: No → WSL `app/` still there, Windows side
+  gone; Yes → backend stopped first, `app/` gone,
+  `~/.ai-session-manager/{runtime,history,prefs,projects,github}.json` +
+  `server.log` still present.
+- [ ] `/SILENT` install picks the WSL default distro and the default app dir.
+- [ ] Earlier items still owed from the clone path: re-run
+  `launcher/make-shortcut.ps1` in the clone (defaults are now empty — the
+  UNC-derived path must still print `(from launcher location)`); Windows-eye
+  pass of toast/pill/dialog; a restart inside the WebView2 window.
 
 ## Open decisions (user) — also listed in `.claude/PROJECT-SCOPE.md`
 
 - [x] **Repo visibility — decided 2026-09-09: public, vault included**;
   noreply commit e-mail set; history not rewritten (author e-mail + old
-  paths remain in old commits by choice). Flip pending CI green.
+  paths remain in old commits by choice). **FLIPPED 2026-09-09 13:05Z** (`gh repo edit --visibility public`), releases page live.
 - [~] **One-click installer / real app — DECIDED 2026-09-08, phases A–D
   LANDED 2026-09-09** (see [[installer-and-self-contained-bundle]],
   [[2026-09-08-installer-phase-a]], [[2026-09-09-installer-phase-b]],
-  [[2026-09-09-installer-phase-c-d]]). Remaining: [ ] `workflow_dispatch`
-  green on GitHub (first ISCC compile ever), [ ] user tests the
+  [[2026-09-09-installer-phase-c-d]]). Remaining: [x] `workflow_dispatch`
+  green on GitHub (third try: two ISPP/Pascal comment traps, both pinned by
+  tests — [[inno-setup-ispp-char-literals]]), [ ] user tests the
   `AI-Session-Manager-Setup` artifact on Windows (checklist in
-  `installer/README.md`), [ ] visibility flip (orchestrator, after CI
-  green), [ ] `npm run release -- v0.2.0` after the Windows test.
+  `installer/README.md`), [x] visibility flip (2026-09-09), [ ] `npm run release -- v0.2.0` after the Windows test.
 
 ## Queued ideas (not decided)
 

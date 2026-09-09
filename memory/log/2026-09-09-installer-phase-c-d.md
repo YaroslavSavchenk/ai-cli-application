@@ -59,9 +59,19 @@ harmless reformats → red) — accepted as the file's stated design.
 - `actions/cache` v4.3.0 = `0057852b…`, v6.1.0 = `55cc8345…` (both verified
   via `gh api …/git/ref/tags/`).
 
+## CI reality check (same day)
+
+The first two `workflow_dispatch` runs died in ISCC, both in `[Code]`
+comments/literals the suite could not see: a continuation line opening
+with `#13#10` (ISPP directive) and `({tmp}, {app})` inside a `{ … }`
+comment (closed it early → `'BEGIN' expected`). Both fixed in minutes,
+both pinned by tests ([[inno-setup-ispp-char-literals]]). Third run: all
+jobs green, publish correctly skipped off-tag, artifact
+`AI-Session-Manager-Setup-0.0.0-dev+08709f5.exe` (62 MB, SHA
+`f9594e12…`) — the user's Windows test build (run 34354085724). Repo
+flipped to PUBLIC at 13:05Z; releases page live.
+
 ## Next
 
-Push → `workflow_dispatch` on main → the `AI-Session-Manager-Setup`
-artifact is the user's Windows test build → user tests (list in
-`installer/README.md` + the phase-B report) → `npm run release -- v0.2.0`.
-Visibility flip right after this lands green.
+User tests the artifact on Windows (checklist in `memory/BACKLOG.md`,
+"Owed on the Windows side") → fixes if any → `npm run release -- v0.2.0`.
