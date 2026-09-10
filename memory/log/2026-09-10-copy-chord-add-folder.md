@@ -36,3 +36,5 @@ Backlog: server-side dedupe for register mode; clipboard write in the real
 WebView2 host is unverified from WSL; the Edge `--app` fallback opens
 DevTools on Ctrl+Shift+C without a selection (WebView2 host is immune).
 A7 brief must carry the add intent (v3 tabs have no slot for it).
+
+**User-verified 2026-09-10** in the Windows dev window (A1–A3 + both fixes): "ziet er goed uit. Alles werkt".

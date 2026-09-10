@@ -178,7 +178,7 @@ app window first so one backend at a time owns runtime.json.
 ## From the copy/add-folder fix (2026-09-10)
 
 - [ ] Server-side dedupe for `POST /api/projects` register mode (today only the dialog's `isRegistered()` guard stops duplicates).
-- [ ] Windows-side: confirm Ctrl+Shift+C / Ctrl+Insert copy works in the real WebView2 host (headless-only so far) — part of the user's next test window.
+- [x] Windows-side: Ctrl+Shift+C / Ctrl+Insert copy in the real WebView2 host — user tested the dev window 2026-09-10: "Alles werkt".
 - [ ] Edge `--app` fallback: Ctrl+Shift+C without a selection opens DevTools inspect (WebView2 host is immune: accelerator keys off). Accept or swallow there.
 - [ ] A7 brief: carry the add-existing intent (v3 tabs New folder / Clone / From GitHub have no slot for it).
 
