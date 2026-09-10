@@ -2125,12 +2125,13 @@ kbd {
    cards (part B5) keep their outline but drop to neutral-700 ink. */
 
 /* Top-anchored, never centred: the modal's height changes with the Tool, and a
-   centred box moved the tool grid under the pointer on every switch. 317px is
-   half the Claude Code layout's measured height (634.5px at 540 wide), so the
+   centred box moved the tool grid under the pointer on every switch. 319px is
+   half the Claude Code layout's height (634.5px measured at 540 wide, +4px
+   since the Permission cards went to 40px), so the
    tallest layout still sits centred and every other kind keeps the same top. */
 .modal-scrim.ns-scrim {
   align-items: flex-start;
-  padding: max(var(--space-6), calc(50vh - 317px)) var(--space-6) var(--space-6);
+  padding: max(var(--space-6), calc(50vh - 319px)) var(--space-6) var(--space-6);
   background: var(--color-scrim);
   animation: nsFade 0.14s ease;
 }
@@ -2291,10 +2292,6 @@ kbd {
   gap: var(--space-2);
 }
 
-.ns-shells {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .ns-card {
   min-width: 0;
   display: flex;
@@ -2381,9 +2378,13 @@ kbd {
   color: var(--color-neutral-700);
 }
 
-/* Shell and Permission cards: label (500) over an optional sub-line */
+/* Shell and Permission cards: label (500) over an optional sub-line, two to
+   a row at the Tool cards' 40px, so every card grid in the dialog shares one
+   size (user's ask, 2026-09-10) */
 .ns-shells .ns-card,
 .ns-perms .ns-card {
+  height: 40px;
+  padding: 0 var(--space-4);
   color: var(--color-text);
 }
 
@@ -2394,17 +2395,6 @@ kbd {
 
 .ns-shells .ns-card[aria-disabled='true'] {
   color: var(--color-neutral-700);
-}
-
-/* four to a row leaves ~120px a card: a long name ("Command Prompt") wraps
-   to a second line instead of being cut, and every card keeps its words at
-   the top */
-.ns-shells .ns-card {
-  align-items: flex-start;
-}
-
-.ns-shells .ns-card-lb {
-  white-space: normal;
 }
 
 .ns-shells .ns-card-sub {
@@ -2550,12 +2540,9 @@ kbd {
   cursor: default;
 }
 
-/* Narrow: four shell cards no longer fit a row — two by two, and the paired
-   fields stack so no select is squeezed below its words. */
+/* Narrow: tighter side padding; below 360px the paired fields stack so no
+   select is squeezed below its words. */
 @media (max-width: 520px) {
-  .ns-shells {
-    grid-template-columns: 1fr 1fr;
-  }
   .ns-hd,
   .ns-ft {
     padding-left: var(--space-6);
