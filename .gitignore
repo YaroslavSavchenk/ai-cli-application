@@ -50,3 +50,6 @@ launcher/install-info.txt
 # CI drops here before running ISCC (installer/README.md). Binaries, never
 # committed.
 installer/payload/
+
+# Personal Claude Code hook scripts (referenced from settings.local.json)
+.claude/hooks/

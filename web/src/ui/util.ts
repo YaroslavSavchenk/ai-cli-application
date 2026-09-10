@@ -150,11 +150,14 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
  * second-by-second uptime is a readout nobody reads). Hours are shown only
  * once there is at least one, and never wrap; seconds are never shown. An
  * unparsable timestamp renders as an em dash.
+ *
+ * `now` is injectable (same pattern as `fmtAgo`) so the pane status bar's
+ * model can be tested without a clock stub; the statusline passes nothing.
  */
-export function fmtUptime(iso: string): string {
+export function fmtUptime(iso: string, now: number = Date.now()): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return '—';
-  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  const s = Math.max(0, Math.floor((now - t) / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   return h ? `${h}h ${m}m` : `${m}m`;

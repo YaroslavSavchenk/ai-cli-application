@@ -275,8 +275,14 @@ function setTarget(target: Target, x: number): void {
       if (host !== undefined && host !== null) {
         host.dataset.zone = target.zone;
         const lb = host.querySelector('.pane-drop-lb');
-        // 'fill' only arises for multi-session merges now (dropZonesFor).
-        if (lb !== null) lb.textContent = target.zone === 'fill' ? 'merge here' : 'split here';
+        // 'fill' only arises for multi-session merges now (dropZonesFor):
+        // the whole pane area takes them, so the sentence is plural.
+        if (lb !== null) {
+          lb.textContent =
+            target.zone === 'fill'
+              ? 'Drop here to show them side by side'
+              : 'Drop here to show side by side';
+        }
         host.hidden = false;
       }
       break;

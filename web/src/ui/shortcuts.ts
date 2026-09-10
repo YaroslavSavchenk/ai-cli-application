@@ -35,7 +35,7 @@ const ROWS: Row[] = [
   { keys: ['ctrl+alt+shift+pgup/pgdn'], what: 'move the active tab left / right (reorder)', ui: 'drag a tab along the strip' },
   { keys: ['ctrl+alt+t'], what: 'launch a new session (dialog)', ui: 'New session, or + in the tab strip' },
   { keys: ['drag a tab onto a pane or tab'], gesture: true, what: 'merge its sessions into that view (split)', ui: 'split in the sessions panel' },
-  { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'extract in the pane header' },
+  { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'Own tab in the pane header' },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split, enter resets it', ui: 'drag the divider, double-click resets it' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
   {

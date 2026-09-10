@@ -67,9 +67,6 @@ button {
    statusline) is Inter — in Nocturne the mono face carries DATA, not chrome. */
 input,
 select,
-.pane-title,
-.pane-tag,
-.pane-conn,
 .sess-name,
 .sess-meta,
 .sess-model,
@@ -77,11 +74,9 @@ select,
 .proj-path,
 .proj-meta,
 .dirlist,
-.pane-drop-lb,
 .sc-gesture,
 .theme-note,
 .logo-glyph,
-.empty-glyph,
 kbd {
   font-family: var(--font-mono);
 }
@@ -151,6 +146,25 @@ select:focus-visible,
    hollow ring (design_handoff_session_manager/session-manager-v3.html). */
 .dot.is-exit {
   background: var(--color-neutral-700);
+}
+
+/* Shared state-colour helpers (drawer rows, GitHub facts, the launch
+   dialog's danger segment). Still on the alias names — the surfaces that use
+   them are migrated in A5 and A7. */
+.is-warn {
+  color: var(--text-mute);
+}
+
+.is-ok {
+  color: var(--ok);
+}
+
+.is-attn {
+  color: var(--attn);
+}
+
+.is-danger {
+  color: var(--danger);
 }
 
 /* ---- keyframes (handoff motion set) ---------------------------------------- */
@@ -438,21 +452,34 @@ select:focus-visible,
   box-shadow: 0 0 18px var(--ok-glow); /* sanctioned: handoff "go" glow */
 }
 
-/* ghost secondary (empty-state relaunch) */
-.btn-ghost {
-  height: 30px;
-  padding: 0 var(--s-8);
+/* The Nocturne pair, first used by the pane area's empty state (A3): an
+   outlined-accent primary — the same statement the top bar's New session
+   makes, never a fill — and a quiet neutral second choice. */
+.btn-accent,
+.btn-quiet {
+  height: 34px;
+  padding: 0 var(--space-6);
   background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-mute);
-  font-size: var(--fs-row);
+  border: var(--line) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-300);
+  font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
-.btn-ghost:hover {
-  border-color: var(--acc);
-  color: var(--acc);
+.btn-accent:hover {
+  background: var(--color-accent-900);
+}
+
+.btn-quiet {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-300);
+  font-weight: 400;
+}
+
+.btn-quiet:hover {
+  border-color: var(--color-neutral-600);
 }
 
 /* ---- middle row: drawers + pane area ---------------------------------------- */
@@ -463,35 +490,39 @@ select:focus-visible,
   display: flex;
 }
 
-/* ---- pane area: radial lift, 10px grid of floating terminal cards ----------- */
+/* ---- pane area (Nocturne A3) --------------------------------------------------
+   Flat app ground, one --space-4 gutter around and between the cards. The
+   terminal is the hero here: everything else in a pane is a hairline strip.
+   Written on the Nocturne PRIMITIVES (no alias tokens) — the pane is the
+   first surface fully off the Legacy layer.                                  */
 
 .grid {
   position: relative; /* anchors the absolutely-positioned split dividers */
   flex: 1;
   min-width: 0;
   display: grid;
-  gap: var(--pane-gap);
-  padding: var(--pane-gap);
-  background: var(--grad-panearea); /* flat Nocturne ground (A1) */
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-bg);
 }
 
 /* Split fractions come from --split-col/--split-row (set per tab by
    ui/panes.ts, persisted in localStorage); the first track takes its share
-   of the space left after the 10px gap, the second takes the rest. */
+   of the space left after the gap, the second takes the rest. */
 
 .grid[data-layout='1'] {
   grid-template: 1fr / 1fr;
 }
 
 .grid[data-layout='2'] {
-  grid-template: 1fr / calc((100% - var(--pane-gap)) * var(--split-col, 0.5)) minmax(0, 1fr);
+  grid-template: 1fr / calc((100% - var(--space-4)) * var(--split-col, 0.5)) minmax(0, 1fr);
 }
 
 .grid[data-layout='3'],
 .grid[data-layout='4'] {
   grid-template:
-    calc((100% - var(--pane-gap)) * var(--split-row, 0.5)) minmax(0, 1fr)
-    / calc((100% - var(--pane-gap)) * var(--split-col, 0.5)) minmax(0, 1fr);
+    calc((100% - var(--space-4)) * var(--split-row, 0.5)) minmax(0, 1fr)
+    / calc((100% - var(--space-4)) * var(--split-col, 0.5)) minmax(0, 1fr);
 }
 
 /* 3-pane variants: L = tall pane left (stacked pair right), R = mirrored.
@@ -517,11 +548,12 @@ select:focus-visible,
 }
 
 /* ---- split dividers ----------------------------------------------------------
-   Invisible grab strips centered in the 10px gap; a 1px core line surfaces
-   on hover (edge-hover) and turns accent blue while focused or dragging.
-   Position math: the grid has --pane-gap padding AND gap, so the usable
-   track space is (100% - 3 * gap); % offsets resolve against the grid's
-   padding box. */
+   A grab strip exactly as wide as the gutter (so it never steals a click from
+   a terminal edge), carrying a 1px line that is ALWAYS drawn — neutral-900 at
+   rest, accent while hovered, focused or dragging. A control that appears only
+   under the pointer is forbidden here (frontend-designer).
+   Position math: the grid has --space-4 padding AND gap, so the usable track
+   space is (100% - 3 * gap); % offsets resolve against the grid's padding box. */
 
 .divider {
   position: absolute;
@@ -532,12 +564,12 @@ select:focus-visible,
 .divider::after {
   content: '';
   position: absolute;
-  background: transparent;
+  background: var(--color-neutral-900);
   transition: background-color var(--t-btn);
 }
 
 .divider:hover::after {
-  background: var(--edge-hover);
+  background: var(--color-neutral-700);
 }
 
 .divider:focus-visible {
@@ -546,15 +578,15 @@ select:focus-visible,
 
 .divider:focus-visible::after,
 .divider.is-dragging::after {
-  background: var(--acc);
+  background: var(--color-accent);
 }
 
 .divider-col {
-  top: var(--pane-gap);
-  bottom: var(--pane-gap);
-  width: var(--divider-hit);
+  top: var(--space-4);
+  bottom: var(--space-4);
+  width: var(--space-4);
   left: calc(
-    var(--pane-gap) + (100% - 3 * var(--pane-gap)) * var(--split-col, 0.5) + var(--pane-gap) / 2
+    var(--space-4) + (100% - 3 * var(--space-4)) * var(--split-col, 0.5) + var(--space-4) / 2
   );
   transform: translateX(-50%);
   cursor: col-resize;
@@ -565,15 +597,15 @@ select:focus-visible,
   top: 0;
   bottom: 0;
   width: var(--line);
-  left: calc((var(--divider-hit) - var(--line)) / 2);
+  left: calc((var(--space-4) - var(--line)) / 2);
 }
 
 .divider-row {
-  left: var(--pane-gap);
-  right: var(--pane-gap);
-  height: var(--divider-hit);
+  left: var(--space-4);
+  right: var(--space-4);
+  height: var(--space-4);
   top: calc(
-    var(--pane-gap) + (100% - 3 * var(--pane-gap)) * var(--split-row, 0.5) + var(--pane-gap) / 2
+    var(--space-4) + (100% - 3 * var(--space-4)) * var(--split-row, 0.5) + var(--space-4) / 2
   );
   transform: translateY(-50%);
   cursor: row-resize;
@@ -583,7 +615,7 @@ select:focus-visible,
   left: 0;
   right: 0;
   height: var(--line);
-  top: calc((var(--divider-hit) - var(--line)) / 2);
+  top: calc((var(--space-4) - var(--line)) / 2);
 }
 
 /* 3 panes: the tall pane spans both rows, so the row divider lives only over
@@ -591,17 +623,20 @@ select:focus-visible,
    (both edges track the column split). */
 .divider-row.is-partial-r {
   left: calc(
-    var(--pane-gap) + (100% - 3 * var(--pane-gap)) * var(--split-col, 0.5) + var(--pane-gap)
+    var(--space-4) + (100% - 3 * var(--space-4)) * var(--split-col, 0.5) + var(--space-4)
   );
 }
 
 .divider-row.is-partial-l {
   right: calc(
-    100% - var(--pane-gap) - (100% - 3 * var(--pane-gap)) * var(--split-col, 0.5)
+    100% - var(--space-4) - (100% - 3 * var(--space-4)) * var(--split-col, 0.5)
   );
 }
 
-/* ---- pane card (handoff §3) --------------------------------------------------- */
+/* ---- pane card ----------------------------------------------------------------
+   neutral-900 card, 8px radius, its edge IS the elevation (--shadow-sm =
+   a 1px neutral-800 ring). Unfocused panes are NOT dimmed — a terminal you
+   can read is the whole point; focus is stated by the ring instead. */
 
 .pane {
   position: relative; /* anchors the .pane-drop overlay */
@@ -609,19 +644,17 @@ select:focus-visible,
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--term-bg); /* follows the theme popover's ground */
-  border: var(--line) solid var(--edge);
-  border-radius: var(--r-card);
+  background: var(--color-neutral-900);
+  border-radius: var(--radius-md);
   overflow: hidden;
-  box-shadow: var(--sh-pane); /* sanctioned: handoff pane elevation */
+  box-shadow: var(--shadow-sm);
   outline: none;
 }
 
-/* Focused pane in a split: the handoff's inner accent outline. A lone pane
-   carries no frame — the terminal dominates undecorated. */
+/* Focused pane in a split: the ring turns accent-700. A lone pane has no
+   competition, so it keeps the neutral edge. */
 .grid:not([data-layout='1']) .pane.focused {
-  outline: var(--line) solid var(--edge-accent);
-  outline-offset: calc(-1 * var(--line));
+  box-shadow: 0 0 0 var(--line) var(--color-accent-700);
 }
 
 /* header drag: source dims; a swap candidate gets a dashed accent edge
@@ -631,8 +664,14 @@ select:focus-visible,
 }
 
 .pane.is-drop-target {
-  outline: var(--line) dashed var(--acc);
+  outline: var(--line) dashed var(--color-accent);
   outline-offset: calc(-1 * var(--line));
+}
+
+/* the pane's bottom breathing space, inside the card (v3) */
+.pane-foot {
+  flex: none;
+  height: var(--space-2);
 }
 
 /* drop-zone overlay: revealed by dnd while a tab hovers this pane; the box
@@ -646,13 +685,14 @@ select:focus-visible,
 
 .pane-drop-box {
   position: absolute;
-  inset: var(--s-2);
+  inset: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--acc-tint);
-  border: var(--line) dashed var(--acc);
-  border-radius: var(--r-card-sm);
+  background: var(--color-accent-900);
+  opacity: 0.92;
+  border: var(--line) dashed var(--color-accent);
+  border-radius: var(--radius-md);
 }
 
 .pane-drop[data-zone='left'] .pane-drop-box {
@@ -672,15 +712,10 @@ select:focus-visible,
 }
 
 .pane-drop-lb {
-  font-size: var(--fs-ui);
-  font-weight: 600;
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--acc);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  padding: var(--s-2) var(--s-6);
+  font-size: 13px;
+  color: var(--color-accent-200);
+  text-align: center;
+  padding: 0 var(--space-4);
 }
 
 /* rejected drop (view already holds 4): one danger pulse */
@@ -690,7 +725,7 @@ select:focus-visible,
     outline-color: transparent;
   }
   50% {
-    outline-color: var(--danger);
+    outline-color: var(--color-danger);
   }
 }
 
@@ -700,17 +735,17 @@ select:focus-visible,
   animation: grid-reject var(--t-btn) ease-out;
 }
 
-/* ---- pane header (30px) --------------------------------------------------- */
+/* ---- pane header (38px) ---------------------------------------------------
+   dot, name, project name, spacer, state pill, (connection chip), Own tab.
+   No border under it: the terminal card's own edge is the separation. */
 
 .pane-hd {
   height: var(--panehd-h);
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: 0 var(--s-5);
-  background: var(--surface-panehd);
-  border-bottom: var(--line) solid var(--edge-soft);
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
@@ -722,10 +757,16 @@ select:focus-visible,
   cursor: pointer;
 }
 
+.pane-dot {
+  width: 8px;
+  height: 8px;
+}
+
 .pane-title {
-  font-size: var(--fs-name);
+  font-family: var(--font-sans); /* a session's name is words, not data */
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
@@ -733,75 +774,62 @@ select:focus-visible,
 }
 
 .pane-proj {
-  font-size: var(--fs-label);
-  color: var(--text-dim);
+  font-size: 12px;
+  color: var(--color-neutral-600);
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 2;
 }
 
 .pane-gap {
   flex: 1;
 }
 
-/* model / permission chips — mono 9.5px, argv-derived */
-.pane-tag {
+/* state pill: the word, on the app ground — amber-tinted while it waits */
+.pane-state {
   flex: none;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  padding: var(--line) var(--s-3);
-  color: var(--text-mute);
-  font-size: var(--fs-tag);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  padding: 2px var(--space-3);
+  border-radius: 10px;
+  background: var(--color-bg);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
 }
 
-.pane-tag.is-danger {
-  color: var(--danger);
-  border-color: var(--danger-edge);
-  text-transform: none; /* the mode value is case-sensitive information */
+.pane-state.is-attn {
+  background: var(--color-attn-tint-soft);
+  color: var(--color-attn);
 }
 
+.pane-state.is-exit {
+  color: var(--color-neutral-600);
+}
+
+/* connection readout, only while the socket is not live */
 .pane-conn {
   flex: none;
-  font-size: var(--fs-tag);
-  color: var(--text-mute);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
 }
 
 .pane-conn.is-danger {
-  color: var(--danger);
+  color: var(--color-danger);
 }
 
-.is-warn {
-  color: var(--text-mute);
-}
-
-.is-ok {
-  color: var(--ok);
-}
-
-.is-attn {
-  color: var(--attn);
-}
-
-.is-danger {
-  color: var(--danger);
-}
-
-/* ⇱ own tab — pop the session back out of a split (blue = interaction) */
+/* Own tab — pop the session back out of a split */
 .pane-pop {
   flex: none;
-  height: var(--chip-h);
-  padding: 0 var(--s-4);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--acc);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
 }
 
 .pane-pop:hover {
-  border-color: var(--acc);
-  background: var(--acc-tint);
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
 }
 
 /* exited / dead banner: full-width structural strip, buffer stays readable */
@@ -810,64 +838,82 @@ select:focus-visible,
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: var(--s-2) var(--s-5);
-  background: var(--surface-panehd);
-  border-bottom: var(--line) solid var(--edge-soft);
-  font-size: var(--fs-label);
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
+  font-size: 12px;
 }
 
 .pane-note-text {
-  font-family: var(--font-mono);
-}
-
-.pane-note.is-exit .pane-note-text {
-  color: var(--text-mute);
+  color: var(--color-neutral-500);
 }
 
 .pane-note.is-exit-err .pane-note-text {
-  color: var(--danger);
+  color: var(--color-danger);
 }
 
 .pane-note.is-dead {
-  background: var(--danger);
+  background: var(--color-danger);
+  padding: var(--space-2) var(--space-4);
 }
 
 .pane-note.is-dead .pane-note-text {
-  color: var(--danger-ink);
-  font-weight: 700;
+  color: var(--color-ink-on-danger);
+  font-weight: 600;
 }
 
 .pane-note-btn {
-  padding: 0 var(--s-4);
-  font-weight: 600;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-input);
-  color: var(--text-mute);
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
 }
 
 .pane-note-btn:hover {
-  color: var(--text);
-  border-color: var(--edge-hover);
+  color: var(--color-text);
+  border-color: var(--color-neutral-600);
 }
 
-/* relaunch: the banner's primary action — green "go" family */
+/* start it again: the banner's primary action */
 .pane-note-btn.is-primary {
-  color: var(--ok-text);
-  border-color: var(--ok);
-  background: var(--ok-tint);
+  color: var(--color-accent-300);
+  border-color: var(--color-accent);
 }
 
 .pane-note-btn.is-primary:hover {
-  background: var(--ok-tint-hover);
+  background: var(--color-accent-900);
+  color: var(--color-accent-200);
+}
+
+.pane-note-btn[data-armed='1'] {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .pane-note.is-dead .pane-note-btn {
-  border-color: var(--danger-ink);
-  color: var(--danger-ink);
+  border-color: var(--color-ink-on-danger);
+  color: var(--color-ink-on-danger);
 }
 
+/* ---- terminal card ----------------------------------------------------------
+   The xterm mount, the status bar and the agents table share ONE rounded box
+   on the terminal ground, so the ground fills every corner. The mount keeps
+   its own padding: the fit addon subtracts it, which is what keeps cols/rows
+   exact. */
+
 .pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-term);
+  overflow: hidden;
+}
+
+.pane-termwrap {
   position: relative;
   flex: 1;
   min-height: 0;
@@ -886,31 +932,128 @@ select:focus-visible,
 
 /* FitAddon subtracts .xterm's own padding from the host size */
 .term-host .xterm {
-  padding: var(--s-5) var(--s-7);
+  padding: var(--space-4) var(--space-6);
 }
 
-/* scanline overlay (theme popover toggle, default OFF): terminal body only,
-   OUTSIDE the isolated term-host, never interactive */
-.pane-scan {
-  display: none;
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.16) 0 var(--line),
-    transparent var(--line) 3px
-  );
-  opacity: 0.5;
-  mix-blend-mode: multiply;
+/* ---- pane status bar --------------------------------------------------------
+   label + mono value pairs, wrapping. Rendered only when the app really knows
+   the values (ui/pane-status-model.ts); a shell pane has no bar at all. */
+
+.pane-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-6);
+  min-height: 30px;
+  padding: var(--space-1) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+  font-size: 11.5px;
 }
 
-html.scanlines-on .pane-scan {
-  display: block;
+.pane-status-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: none;
 }
 
-/* ---- empty state (handoff §11 minus fiction) ------------------------------- */
+.pane-status-k {
+  color: var(--color-neutral-600);
+}
+
+.pane-status-v {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
+}
+
+.pane-status-v.is-danger {
+  color: var(--color-danger);
+}
+
+/* ---- background agents (empty until part B7) -------------------------------- */
+
+.pane-agents {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+.pane-agents-hd {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.pane-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pane-agent-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-neutral-700);
+}
+
+.pane-agent-dot.is-running {
+  background: var(--color-ok);
+}
+
+.pane-agent-dot.is-attention {
+  background: var(--color-attn);
+}
+
+.pane-agent-name {
+  flex: none;
+  width: 118px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-agent-task {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-neutral-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-agent-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.pane-agent-tokens {
+  flex: none;
+  width: 56px;
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+/* ---- empty state (no panes) --------------------------------------------------
+   Words and two ways forward. No illustration, no tile, no countdown. */
 
 .empty-state {
   grid-column: 1 / -1;
@@ -918,43 +1061,28 @@ html.scanlines-on .pane-scan {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--s-7);
+  gap: var(--space-4);
   animation: fadeUp var(--t-fade) ease;
 }
 
-.empty-tile {
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface);
-  border: var(--line) solid var(--edge);
-  border-radius: var(--r-card-sm);
-}
-
-.empty-glyph {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-faint);
-}
-
 .empty-hd {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 500;
-  color: var(--text-hd);
+  color: var(--color-text);
+}
+
+.empty-sub {
+  max-width: 340px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-500);
 }
 
 .empty-actions {
   display: flex;
-  gap: var(--s-5);
-  margin-top: var(--s-3);
-}
-
-.empty-actions .btn-go {
-  height: var(--ctl-h-lg);
-  padding: 0 var(--s-8);
-  font-size: var(--fs-row);
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 /* ---- shared form bits (settings + launch dialog) --------------------------- */

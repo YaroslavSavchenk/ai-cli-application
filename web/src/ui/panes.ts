@@ -9,10 +9,19 @@
  * changing the split shape disposes and re-attaches (the server replays the
  * full buffer).
  *
- * A pane is HEADER + terminal, nothing else: the app-rendered telemetry strip
- * that used to sit under the terminal was removed 2026-07-26 in favour of
- * Claude Code's own status line, which the session draws inside the PTY (see
- * ui/statusline-model.ts and server/statusline.mjs).
+ * A pane (Nocturne part A3) is a neutral-900 card holding, top to bottom: a
+ * 38px header (state dot, session name, project NAME, state pill, "Own tab"
+ * in a split), the exited/lost banner when there is one, and the terminal
+ * card — the xterm mount on the terminal ground, with a thin status bar
+ * under it (label + mono value pairs, ui/pane-status-model.ts) and the
+ * background-agents table (ui/pane-agents.ts, empty in A3) below that.
+ *
+ * The status bar is NOT the 2026-07-26 telemetry strip that was removed: it
+ * states only what the app already knows (argv model, argv permission mode,
+ * PTY age). Claude Code keeps drawing its OWN status line inside the PTY
+ * (ui/statusline-model.ts, server/statusline.mjs); the two do not compete —
+ * one is the app's view of the session, the other is the session's view of
+ * itself.
  *
  * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while a
  * tab is dragged over it (drag-to-split). Pane headers are drag sources:
@@ -24,10 +33,15 @@ import * as st from '../state.ts';
 import { log } from '../log.ts';
 import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
-import { el, button, armButton, modelFromArgs, permFromArgs, fmtCount } from './util.ts';
+import { el, button, armButton } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
+import { paneStatusItems } from './pane-status-model.ts';
+import { renderAgents, type AgentRow } from './pane-agents.ts';
+
+/** How often the status bar's `Time` value is refreshed (the statusline's rate). */
+const STATUS_TICK_MS = 15_000;
 
 interface Slot {
   index: number;
@@ -41,18 +55,23 @@ interface Slot {
   dot: HTMLElement;
   proj: HTMLElement;
   title: HTMLElement;
-  tagModel: HTMLElement;
-  tagPerm: HTMLElement;
+  state: HTMLElement;
   connChip: HTMLElement;
   extractBtn: HTMLButtonElement;
   note: HTMLElement;
+  statusBar: HTMLElement;
+  agentsHost: HTMLElement;
+  /** Last rendered status-bar / agents content, so a tick that changed
+      nothing does not rebuild the DOM under the user's pointer. */
+  statusSig: string;
+  agentsSig: string;
 }
 
 let grid: HTMLElement;
 let slots: Slot[] = [];
 /** Injected by main.ts (avoids a panes ↔ launch import cycle). */
 let openLaunch: () => void = () => {};
-/** Rendered view id, or the empty-state sentinel `__empty:<prevCount>`. */
+/** Rendered view id, or the empty-state sentinel `__empty`. */
 let renderedViewId = '';
 let renderedCount = -1;
 let renderedL3: st.L3 = 'L';
@@ -68,7 +87,9 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
-      // The empty state depends on the history count; re-render it.
+      // No panes to reconcile without an active view: the grid is showing the
+      // empty state, whose copy is static (renderEmpty draws two buttons and
+      // no count), so this call only MOUNTS it if it is not up yet.
       if (st.activeView() === null) {
         render();
         return;
@@ -76,9 +97,15 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
       for (const s of slots) {
         updateHeader(s);
         updateNote(s);
+        updateStatus(s);
       }
     }
   });
+  // The status bar's `Time` value ages; nothing else in a pane ticks. One
+  // timer for the whole grid, at the statusline's rate.
+  window.setInterval(() => {
+    for (const s of slots) updateStatus(s);
+  }, STATUS_TICK_MS);
   // Regaining window focus while a pane with attention is focused clears it.
   window.addEventListener('focus', () => {
     const v = st.activeView();
@@ -127,14 +154,19 @@ function render(): void {
 }
 
 /**
- * Handoff §11 empty state (zero views ⇔ zero sessions): centered logo tile,
- * "No active sessions", + New session (opens the launch dialog) and, when the
- * session history holds anything, "Resume a session (N)" opening the sessions
- * drawer. NO grace countdown — a page able to display one would itself be
- * keeping the backend alive.
+ * Empty state (zero views ⇔ zero sessions), Nocturne A3: a centred column of
+ * words and two ways forward — "New session" (the launch dialog, same
+ * outlined accent as the top bar's) and "Open history" (the sessions drawer,
+ * where every earlier session can be picked up). No illustration, no tile.
+ *
+ * Two lines the reference has are deliberately absent: the grace countdown
+ * ("the background service stops in N seconds") — the backend only counts
+ * down once the LAST window closes, so a page that could render it is the
+ * very reason it is not running — and a history count on the second button,
+ * which would need the drawer's list to be honest about what it opens.
  */
 function renderEmpty(): void {
-  const sig = `__empty:${st.state.history.length}`;
+  const sig = '__empty';
   if (renderedViewId === sig) return;
   for (const s of slots) s.view?.dispose();
   slots = [];
@@ -145,21 +177,18 @@ function renderEmpty(): void {
   delete grid.dataset.l3;
 
   const box = el('div', 'empty-state');
-  const tile = el('div', 'empty-tile');
-  tile.append(el('span', 'empty-glyph', '>_'));
-  tile.setAttribute('aria-hidden', 'true');
-  const hd = el('div', 'empty-hd', 'No active sessions');
+  const hd = el('div', 'empty-hd', 'No sessions running');
+  const sub = el(
+    'div',
+    'empty-sub',
+    'Start a new session, or pick one up from where you left off in the Sessions panel.',
+  );
   const row = el('div', 'empty-actions');
-  const launch = button('btn-go', '+ New session', () => openLaunch());
-  row.append(launch);
-  if (st.state.history.length > 0) {
-    row.append(
-      button('btn-ghost', `Resume a session (${fmtCount(st.state.history.length)})`, () =>
-        st.openDrawer('sessions'),
-      ),
-    );
-  }
-  box.append(tile, hd, row);
+  row.append(
+    button('btn-accent', 'New session', () => openLaunch()),
+    button('btn-quiet', 'Open history', () => st.openDrawer('sessions')),
+  );
+  box.append(hd, sub, row);
   grid.replaceChildren(box);
 }
 
@@ -210,8 +239,10 @@ function buildDividers(v: st.ViewState): void {
 }
 
 /**
- * A divider is a wide invisible hit strip centered on the 1px gutter; its
- * 1px line surfaces only on hover/focus/drag. Pointer-drag adjusts the
+ * A divider is a grab strip as wide as the gutter, carrying a 1px line that
+ * is ALWAYS drawn (neutral-900 at rest) and takes the accent while hovered,
+ * focused or dragging — a control that appears only under the pointer is
+ * forbidden here (app.css, "split dividers"). Pointer-drag adjusts the
  * fraction (min pane 15%), double-click or Enter resets to equal, arrow
  * keys nudge 2% — keyboard-reachable like every control.
  */
@@ -289,6 +320,7 @@ function reconcileSlot(index: number, sessionId: string | null): void {
   if (s.sessionId === sessionId) {
     updateHeader(s);
     updateNote(s);
+    updateStatus(s);
     return;
   }
   s.sessionId = sessionId;
@@ -307,6 +339,7 @@ function reconcileSlot(index: number, sessionId: string | null): void {
   }
   updateHeader(s);
   updateNote(s);
+  updateStatus(s);
 }
 
 function slotEvents(s: Slot, sessionId: string): TerminalEvents {
@@ -331,6 +364,7 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       s.exitCode = exitCode;
       st.markExited(sessionId, exitCode);
       updateNote(s);
+      updateStatus(s);
     },
     onAttention: () => {
       const v = st.activeView();
@@ -398,43 +432,43 @@ function createSessionSlot(index: number): Slot {
   root.tabIndex = -1;
   root.dataset.slot = String(index);
 
-  // Handoff §3 header: dot · session name · project name · spacer · model
-  // tag · permission tag · (conn chip while degraded) · ⇱ own tab. Status is
-  // the dot (pulsing amber = attention); killing lives on the tab × and the
-  // sessions drawer. The whole header is the drag source — keyboard twins:
-  // ctrl+alt+shift+arrows (swap) and the ⇱ button (extract).
+  // A3 header (38px): dot, session name, project NAME, spacer, state pill,
+  // (conn chip while degraded), "Own tab" when the tab holds more than one
+  // pane. Ending a session is NOT here — it lives on the tab × and in the
+  // sessions drawer, both of which confirm; a one-click kill on every pane
+  // header would be the only destructive control on this surface. The whole
+  // header is the drag source — keyboard twins: ctrl+alt+shift+arrows (swap)
+  // and the "Own tab" button (extract).
   const hd = el('header', 'pane-hd');
-  const dot = el('span', 'dot');
+  const dot = el('span', 'dot pane-dot');
   dot.setAttribute('aria-hidden', 'true');
   const title = el('span', 'pane-title');
   const proj = el('span', 'pane-proj');
   const gap = el('span', 'pane-gap');
-  const tagModel = el('span', 'pane-tag');
-  tagModel.hidden = true;
-  const tagPerm = el('span', 'pane-tag');
-  tagPerm.hidden = true;
+  const state = el('span', 'pane-state');
   const connChip = el('span', 'pane-conn');
   connChip.hidden = true;
-  const extractBtn = button('pane-pop', '⇱ own tab');
-  extractBtn.title = 'move to its own tab (or drag the header onto the tab strip)';
-  hd.append(dot, title, proj, gap, tagModel, tagPerm, connChip, extractBtn);
+  const extractBtn = button('pane-pop', 'Own tab');
+  extractBtn.title = 'Move to its own tab';
+  hd.append(dot, title, proj, gap, state, connChip, extractBtn);
   hd.title = 'Drag onto a pane to swap them, or onto the tab strip to give it its own tab.';
 
   const note = el('div', 'pane-note');
   note.hidden = true;
 
+  // The terminal card: the xterm mount fills it, the status bar and the
+  // agents table sit under it on the same terminal ground, and the rounded
+  // corners are the card's own (overflow hidden).
   const body = el('div', 'pane-body');
+  const termWrap = el('div', 'pane-termwrap');
   const termHost = el('div', 'term-host');
-  // Scanline overlay (theme popover toggle): OUTSIDE the isolated term-host,
-  // pointer-events:none, revealed by html.scanlines-on. Terminal body only.
-  const scan = el('div', 'pane-scan');
-  scan.setAttribute('aria-hidden', 'true');
-  body.append(termHost, scan);
+  termWrap.append(termHost);
+  const statusBar = el('div', 'pane-status');
+  statusBar.hidden = true;
+  const agentsHost = el('div', 'pane-agents-host');
+  body.append(termWrap, statusBar, agentsHost);
 
-  // Terminal-only below the header: the session's own status line (drawn by
-  // Claude Code inside the PTY) replaced the app-rendered strip that used to
-  // sit here (2026-07-26).
-  root.append(hd, note, body, buildDropOverlay());
+  root.append(hd, note, body, el('div', 'pane-foot'), buildDropOverlay());
   root.addEventListener('mousedown', () => st.focusPane(index), true);
   grid.append(root); // Attach before TerminalView so xterm opens on a live node.
 
@@ -450,11 +484,15 @@ function createSessionSlot(index: number): Slot {
     dot,
     proj,
     title,
-    tagModel,
-    tagPerm,
+    state,
     connChip,
     extractBtn,
     note,
+    statusBar,
+    agentsHost,
+    // A sentinel no signature can equal, so the FIRST update always renders.
+    statusSig: '\u0000',
+    agentsSig: '\u0000',
   };
 
   extractBtn.addEventListener('click', () => {
@@ -497,35 +535,71 @@ export async function killSession(id: string): Promise<void> {
 function updateHeader(s: Slot): void {
   if (s.sessionId === null) return;
   const info = st.state.sessions.get(s.sessionId);
+  // Projects are named, never pathed (PROJECT-SCOPE); a session without one
+  // shows nothing at all rather than a folder.
   const pname = st.projectName(info?.projectId);
   s.proj.textContent = pname ?? '';
   s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
   const attention = info !== undefined && info.attention;
   const running = info === undefined || info.status === 'running';
-  // The dot IS the status readout: green running / pulsing amber
-  // attention / hollow gray exited (exit code lives on the banner).
-  s.dot.className = `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
-  s.dot.title = attention ? 'Needs your answer' : running ? 'Working' : 'Finished';
-  // Model/permission tags derive from argv client-side (no protocol fields).
-  const m = info !== undefined ? modelFromArgs(info.args) : null;
-  s.tagModel.hidden = m === null;
-  if (m !== null) s.tagModel.textContent = m;
-  const p = info !== undefined ? permFromArgs(info.args) : null;
-  s.tagPerm.hidden = p === null;
-  if (p !== null) {
-    s.tagPerm.textContent = p.label;
-    s.tagPerm.classList.toggle('is-danger', p.danger);
-    s.tagPerm.title = p.danger ? 'permissions bypassed — dangerous' : 'permission mode';
-  }
+  // Dot and pill are one readout: green Working, pulsing amber Needs your
+  // answer, neutral Finished. The exit code rides in the pill's title (and
+  // on the banner) — a code is not a state word.
+  s.dot.className = `dot pane-dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+  const stateText = attention ? 'Needs your answer' : running ? 'Working' : 'Finished';
+  s.state.textContent = stateText;
+  s.state.className = `pane-state ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+  const code = info?.exitCode ?? s.exitCode;
+  s.state.title = !running && code !== null && code !== undefined ? `Finished, code ${code}` : stateText;
   if (s.conn === null || s.conn === 'live') {
     s.connChip.hidden = true;
   } else {
     s.connChip.hidden = false;
-    s.connChip.textContent = s.conn === 'dead' ? 'lost' : `${s.conn}…`;
+    s.connChip.textContent = s.conn === 'dead' ? 'Lost' : 'Reconnecting';
     s.connChip.className = `pane-conn ${s.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
   }
   // Alone in its view, a session already IS its own tab.
   s.extractBtn.hidden = renderedCount <= 1;
+}
+
+/**
+ * The status bar under the terminal, plus the (A3: always empty) background
+ * agents table. Both are absent — not blank — when there is nothing honest to
+ * put in them: `paneStatusItems` returns [] for anything but the known agent,
+ * so a plain shell's pane is terminal edge to terminal edge.
+ */
+function updateStatus(s: Slot): void {
+  const info = s.sessionId !== null ? st.state.sessions.get(s.sessionId) : undefined;
+  const items = paneStatusItems(info, Date.now());
+  // The 15 s tick calls this for every slot; most ticks change nothing (Time
+  // moves once a minute at most). Rebuilding then would throw away live DOM
+  // — a text selection inside the bar, the row the pointer is over — for no
+  // pixel change, so the rendered content is compared first.
+  const statusSig = items.map((i) => `${i.k}=${i.v}:${i.tone}`).join('\n');
+  if (statusSig !== s.statusSig) {
+    s.statusSig = statusSig;
+    s.statusBar.hidden = items.length === 0;
+    s.statusBar.replaceChildren(
+      ...items.map((it) => {
+        const cell = el('span', 'pane-status-item');
+        cell.append(
+          el('span', 'pane-status-k', it.k),
+          el('span', `pane-status-v${it.tone === 'danger' ? ' is-danger' : ''}`, it.v),
+        );
+        return cell;
+      }),
+    );
+  }
+  // Part B7 decides where background agents come from (open decision #7);
+  // until then the list is empty and the table renders as nothing at all —
+  // which is exactly once, by the same signature rule.
+  const rows: AgentRow[] = [];
+  const agentsSig = rows.map((r) => JSON.stringify(r)).join('\n');
+  if (agentsSig !== s.agentsSig) {
+    s.agentsSig = agentsSig;
+    const table = renderAgents(rows);
+    s.agentsHost.replaceChildren(...(table === null ? [] : [table]));
+  }
 }
 
 function updateNote(s: Slot): void {
@@ -538,8 +612,8 @@ function updateNote(s: Slot): void {
     s.note.hidden = false;
     s.note.className = 'pane-note is-dead';
     s.note.replaceChildren(
-      el('span', 'pane-note-text', 'session gone from server'),
-      button('pane-note-btn', 'close pane', () => {
+      el('span', 'pane-note-text', 'This session is gone from the server'),
+      button('pane-note-btn', 'Close pane', () => {
         if (s.sessionId !== null) st.removeSessionEverywhere(s.sessionId);
       }),
     );
@@ -549,9 +623,9 @@ function updateNote(s: Slot): void {
     // Structural exited banner; the buffer below stays readable.
     s.note.hidden = false;
     s.note.className = `pane-note ${s.exitCode === 0 ? 'is-exit' : 'is-exit-err'}`;
-    const relaunchBtn = button('pane-note-btn is-primary', 'relaunch', () => void relaunch(s));
-    const delBtn = button('pane-note-btn', 'delete session');
-    armButton(delBtn, 'sure?', () => {
+    const relaunchBtn = button('pane-note-btn is-primary', 'Start it again', () => void relaunch(s));
+    const delBtn = button('pane-note-btn', 'End session');
+    armButton(delBtn, 'Sure?', () => {
       if (s.sessionId !== null) void killSession(s.sessionId);
     });
     s.note.replaceChildren(

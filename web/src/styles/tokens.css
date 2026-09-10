@@ -92,7 +92,14 @@
      session row at line 861 uses the same hue at /.14),
      a deliberately warmer fill than --color-attn.                           */
   --color-attn-tint: oklch(0.78 0.14 75 / 0.18);
+  /* The same warm fill one step quieter — the pane header's state pill
+     (v3 markup, pane header) sits INSIDE an attention-coloured card and
+     would shout at /.18.                                                    */
+  --color-attn-tint-soft: oklch(0.78 0.14 75 / 0.14);
   --color-term: oklch(0.16 0.015 275);  /* terminal ground (= #0b0d14)        */
+  /* Ink on a --color-danger fill. A fixed white, not a themed text role:
+     the fill is one constant red, so its readable ink is constant too.     */
+  --color-ink-on-danger: #ffffff;
 
   /* ══ LEGACY ALIAS LAYER ═══════════════════════════════════════════════════
      The role tokens below are the LEGACY UI's names, kept only so the whole
@@ -244,14 +251,12 @@
   --topbar-h: 48px;     /* A2: the v3 instrument strip                       */
   --tab-h: 32px;        /* A2: v3 tab chip (was 30px, Legacy)                 */
   --status-h: 26px;     /* A2: v3 statusline                                  */
-  --panehd-h: 30px;
+  --panehd-h: 38px;     /* A3: v3 pane header (was 30px, Legacy)              */
   --drawerhd-h: 34px;
   --drawer-proj-w: 272px;
   --drawer-sess-w: 296px;
-  --pane-gap: 10px;     /* pane grid gap AND padding                          */
   --line: 1px;
   --tick: 2px;          /* active-tab glow bar, insertion caret               */
-  --divider-hit: 10px;  /* grab strip centered in the pane gap                */
   --dot: 7px;           /* status dots                                        */
   --ctl-h: 30px;        /* topbar controls (A2: v3 height, was 26px)          */
   --ctl-h-lg: 30px;     /* dialog footer buttons, empty-state buttons         */
