@@ -23,7 +23,7 @@
  * a placeholder value would be a lie with a label on it.
  */
 import type { SessionInfo } from '../../../shared/protocol.ts';
-import { isClaudeCommand } from './launch-args.ts';
+import { isClaudeCommand, modelLabel } from './launch-args.ts';
 import { fmtUptime, modelFromArgs, permFromArgs } from './util.ts';
 
 /** How a value reads: plain data, or a mode that removes a safety net. */
@@ -48,7 +48,7 @@ export function paneStatusItems(
   const items: PaneStatusItem[] = [];
 
   const model = modelFromArgs(session.args);
-  if (model !== null) items.push({ k: 'Model', v: model, tone: 'neutral' });
+  if (model !== null) items.push({ k: 'Model', v: modelLabel(model), tone: 'neutral' });
 
   const perm = permFromArgs(session.args);
   if (perm !== null) {

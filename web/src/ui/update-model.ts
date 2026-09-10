@@ -395,7 +395,7 @@ export interface ConfirmSummary {
   rows: ConfirmRow[];
   /** Rows the list did not show. */
   more: number;
-  /** True when any running session was started with "Continue last conversation". */
+  /** True when any running session was started from the last conversation (`--continue`). */
   continued: boolean;
 }
 
@@ -438,13 +438,15 @@ export function confirmBody(count: number): string {
 }
 
 /**
- * The honest footnote for sessions started with "Continue last conversation":
+ * The honest footnote for sessions started with Start from "The last
+ * conversation in this project" (the launch dialog's `--continue` choice, the
+ * former "Continue last conversation" checkbox):
  * those were never pinned to a conversation id (PROJECT-SCOPE known limit), so
  * resuming them lands on their project's most recent conversation — which may
  * by then be a different one. Rendered ONLY when such a session is running.
  */
 export const CONTINUE_NOTE =
-  'Sessions started with "Continue last conversation" come back to the latest conversation of their project, not necessarily this one.';
+  'Sessions started from "The last conversation in this project" come back to the latest conversation of their project, not necessarily this one.';
 
 /** `+ 3 more` under the list; empty string when nothing was left out. */
 export function moreLabel(more: number): string {

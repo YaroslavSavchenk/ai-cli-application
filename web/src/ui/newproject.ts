@@ -222,8 +222,9 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   // stored value is untouched: a project.json that already carries `standard`
   // keeps being accepted (see submitBlank), no schema/server change.
   // Lowercase to match this select's own `no default` and the sibling
-  // Default-model select — the settings-panel select idiom. The launch dialog's
-  // mode segments are unaffected (they carry their own short labels, PERM_SHORT).
+  // Default-model select — the settings-panel select idiom. The New session
+  // dialog's Permissions cards are unaffected (they carry their own short
+  // labels, PERM_SHORT).
   const modeOpts: { value: PermissionMode; label: string }[] = [
     { value: 'skip-permissions', label: 'never ask (dangerous)' },
   ];

@@ -2,54 +2,65 @@
  * Launch dialog — the modal that creates sessions (settled user decision
  * 2026-07-20, replacing the launcher-as-tab).
  *
- * REDUCED 2026-09-06 (user's call): the dialog is a short form now, not a
- * briefing. Gone are the preset chips, the readable launch summary, the header
- * subtitle, the footer note, the permission-card descriptions and every
- * tooltip that explained mechanics.
+ * REDUCED 2026-09-06 (user's call): the dialog is a short form, not a
+ * briefing. No preset chips, no readable launch summary, no header subtitle,
+ * no footer note, no tooltip that explains mechanics.
  *
  * KIND SWITCH 2026-09-08 (user's request — "alles moet mogelijk"): the app is
- * no longer claude-only. The first row of the dialog picks what the session IS
- * and the rest of the form follows it:
+ * not claude-only; what the session IS decides the rest of the form.
  *
- *   Session   [ Claude · Terminal · Other ]   ← radiogroup, arrow keys move
- *   Name · Project            (Name's placeholder IS the selected project's
- *   Model · Effort             name — blank means the server titles it that)
- *   Shell     [ WSL shell · PowerShell ]      (Terminal only)
- *   Command                                   (Other only — the escape hatch)
- *   Mode      (one row of four segments: always ask / auto edits /
- *              read-only / no prompts — the last one red, selected or not)
- *   Continue last conversation (checkbox → `--continue`)
+ * NOCTURNE A4 2026-09-10 — the v3 layout, the same launches behind it:
  *
- * The four claude-only controls (Model, Effort, Mode, Continue) leave the form
- * for Terminal and Other — driven by the kind instead of by the footer toggle
- * the custom hatch used to have (which is GONE: one control per state, and it
- * is the switch).
+ *   Tool         2 x 3 card grid: Claude Code, Codex, Gemini CLI, Grok,
+ *                Terminal, Other. Codex, Gemini CLI and Grok are INERT until
+ *                part B5 (shown, never selectable, skipped by the arrows).
+ *   Name (optional)   Project      (Name's placeholder IS the selected
+ *                                   project's name — blank = titled that)
+ *   Claude Code: Model   Effort
+ *                Permissions (i)   2 x 2 cards; the (i) button opens the ONE
+ *                                  sanctioned explanation in this dialog
+ *                Start from        fresh / the last conversation (= the old
+ *                                  `Continue last conversation` checkbox)
+ *   Terminal:    Shell             Bash, Zsh, PowerShell, Command Prompt
+ *                                  (Zsh and Command Prompt inert until B5)
+ *   Other:       Command           the custom-command escape hatch
+ *
+ * The claude-only controls are HIDDEN and DISABLED for the other kinds (not
+ * dimmed — four dead controls carry no information). No command preview: the
+ * 2026-07-25 "no commands or flags in the UI" rule stands (user, 2026-09-10).
  *
  * `composeSpawn()` in launch-args.ts is the ONE composition path for all three
  * kinds and `currentSpawn()` its ONE caller, so the POST body has no second
  * rendering to keep in sync. The Command field's content IS a command the user
  * types — the one spot exempt from the plain-language copy rule.
  *
- * Entry points (all funnel here): topbar `+ New session`, tab-strip ghost
- * `+`, projects-drawer per-row `+` (pre-set to that project), the
- * empty-state button, and Ctrl+Alt+T. The new session opens in its own new
- * tab and becomes active. While closed, the dialog touches no keyboard
- * input — the terminal owns the keys.
+ * Entry points (all funnel here): top bar `New session`, tab-strip `+`,
+ * projects-drawer per-row `+` (pre-set to that project), the empty-state
+ * button, and Ctrl+Alt+T. The new session opens in its own new tab and becomes
+ * active. While closed, the dialog touches no keyboard input — the terminal
+ * owns the keys.
  */
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, trapTab } from './util.ts';
+import { infoIcon } from './icons.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
 import {
   MODELS,
+  MODEL_LABEL,
   PERMS,
   PERM_SHORT,
+  PERM_HELP,
   EFFORTS,
-  KIND_LABEL,
-  KINDS,
+  EFFORT_LABEL,
+  NOT_YET,
   SHELLS,
+  SHELL_CARDS,
+  START_FROM,
+  TOOL_CARDS,
   composeSpawn,
+  continueFromStart,
   isEffort,
   shellLabel,
   resolveModel,
@@ -94,43 +105,58 @@ export function isLaunchDialogOpen(): boolean {
   return ctl?.isOpen() ?? false;
 }
 
-/** One segment of a radiogroup row. */
-interface Seg<T extends string> {
-  value: T;
-  label: string;
+/** One card of a card radiogroup. */
+interface CardSpec<T extends string> {
+  /** The value the card selects; null = INERT (shown, never selectable). */
+  value: T | null;
+  /** Extra class on the card (the danger mode). */
+  cls?: string;
+  content: Node[];
 }
 
-interface SegRow<T extends string> {
+interface CardGroup<T extends string> {
   row: HTMLElement;
   buttons: Map<T, HTMLButtonElement>;
   select(v: T): void;
 }
 
 /**
- * A segmented control that behaves like a real radiogroup: ONE tab stop
- * (roving tabindex), arrow keys move the selection, Home/End jump. Same
- * hairline box as the Mode row — the app has one segmented idiom and this is
- * it; only the semantics differ (Mode is a group of toggles, these are radios).
+ * A grid of cards that behaves like a real radiogroup — the same idiom the
+ * segmented rows had: ONE tab stop (roving tabindex), arrow keys move the
+ * selection in reading order, Home/End jump. Inert cards are
+ * `aria-disabled="true"` and permanently `tabindex=-1`: the arrows skip them,
+ * a click does nothing and does not even take focus, and the dialog's focus
+ * trap (`tabIndex >= 0` filter) never counts them as a stop.
  */
-function radioRow<T extends string>(
-  ariaLabel: string,
-  segs: Seg<T>[],
+function radioCards<T extends string>(
+  rowClass: string,
+  labelledBy: string,
+  specs: CardSpec<T>[],
   onPick: (v: T) => void,
-): SegRow<T> {
-  const row = el('div', 'mode-seg');
+): CardGroup<T> {
+  const row = el('div', rowClass);
   row.setAttribute('role', 'radiogroup');
-  row.setAttribute('aria-label', ariaLabel);
-  const order = segs.map((s) => s.value);
+  row.setAttribute('aria-labelledby', labelledBy);
   const buttons = new Map<T, HTMLButtonElement>();
-  let current: T = order[0] as T;
-  for (const s of segs) {
-    const b = button('mode-seg-btn', s.label, () => onPick(s.value));
+  const order: T[] = [];
+  for (const s of specs) {
+    const b = button(s.cls !== undefined && s.cls !== '' ? `ns-card ${s.cls}` : 'ns-card', '');
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', 'false');
     b.tabIndex = -1;
-    buttons.set(s.value, b);
+    b.append(...s.content);
+    const v = s.value;
+    if (v === null) {
+      b.setAttribute('aria-disabled', 'true');
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+    } else {
+      order.push(v);
+      buttons.set(v, b);
+      b.addEventListener('click', () => onPick(v));
+    }
     row.append(b);
   }
+  let current = order[0] as T;
   row.addEventListener('keydown', (e: KeyboardEvent) => {
     let i = order.indexOf(current);
     const k = e.key;
@@ -157,197 +183,234 @@ function radioRow<T extends string>(
   return { row, buttons, select };
 }
 
+/** A card's words: the label, and an optional quieter sub-line under it. */
+function cardText(label: string, sub?: string): HTMLElement {
+  const txt = el('span', 'ns-card-txt');
+  txt.append(el('span', 'ns-card-lb', label));
+  if (sub !== undefined) txt.append(el('span', 'ns-card-sub', sub));
+  return txt;
+}
+
+/** A group label that a radiogroup can point `aria-labelledby` at. */
+function groupLabel(id: string, text: string): HTMLElement {
+  const lb = el('span', 'ns-lb', text);
+  lb.id = id;
+  return lb;
+}
+
 export function initLaunchDialog(modalHost: HTMLElement): void {
   // ---- scrim + card --------------------------------------------------------
-  const scrim = el('div', 'modal-scrim launch-scrim');
+  // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
+  // it. Everything visual is the `ns-` block in app.css.
+  const scrim = el('div', 'modal-scrim ns-scrim');
   scrim.hidden = true;
-  const modal = el('div', 'modal launch-modal');
+  const modal = el('div', 'ns-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'new session');
+  modal.setAttribute('aria-labelledby', 'ns-title');
 
-  // ---- header (gradient band) ----------------------------------------------
-  const hd = el('header', 'launch-hd');
-  const tile = el('div', 'launch-tile');
-  tile.setAttribute('aria-hidden', 'true');
-  tile.append(el('span', 'logo-glyph', '>_'));
-  const closeBtn = button('launch-x', '×', () => close());
-  closeBtn.setAttribute('aria-label', 'close');
-  hd.append(tile, el('div', 'launch-title', 'New session'), el('span', 'launch-gap'), closeBtn);
+  // ---- header: title and close, nothing else --------------------------------
+  const hd = el('header', 'ns-hd');
+  const title = el('h2', 'ns-title', 'New session');
+  title.id = 'ns-title';
+  const closeBtn = button('ns-x', '×', () => close());
+  closeBtn.setAttribute('aria-label', 'Close');
+  hd.append(title, closeBtn);
 
   // ---- body ----------------------------------------------------------------
-  const body = el('div', 'launch-body');
+  const body = el('div', 'ns-body');
 
-  // Kind: the ONE row that changes what the rest of the form means, so it sits
-  // above everything with a rule under it — a field changes a value, this
-  // changes the session.
+  // Tool: the ONE choice that changes what the rest of the form means.
   let kind: LaunchKind = 'claude';
-  const kindWrap = el('div', 'launch-field launch-kind');
-  kindWrap.append(el('span', 'launch-lb', 'Session'));
-  const kindSeg = radioRow<LaunchKind>(
-    'session type',
-    KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] })),
+  const toolGroup = el('div', 'ns-group');
+  const toolCards = radioCards<LaunchKind>(
+    'ns-grid ns-tools',
+    'ns-tool-lb',
+    TOOL_CARDS.map((t) => {
+      const mark = el('span', t.kind === 'claude' ? 'ns-mark is-agent' : 'ns-mark', t.mark);
+      mark.setAttribute('aria-hidden', 'true');
+      return {
+        value: t.kind,
+        content: [mark, cardText(t.label, t.kind === null ? NOT_YET : t.sub)],
+      };
+    }),
     (k) => setKind(k, true),
   );
-  kindWrap.append(kindSeg.row);
+  toolGroup.append(groupLabel('ns-tool-lb', 'Tool'), toolCards.row);
 
-  // 2-column field grid: name · project / model · effort.
-  const fields = el('div', 'launch-fields');
-
-  const nameField = el('label', 'launch-field');
-  nameField.append(el('span', 'launch-lb', 'Name'));
+  // Name + Project, shared by every kind.
+  const nameProj = el('div', 'ns-row2');
+  const nameField = el('label', 'ns-field');
+  const nameLb = el('span', 'ns-lb', 'Name ');
+  nameLb.append(el('span', 'ns-opt', '(optional)'));
   const nameInput = el('input');
   nameInput.name = 'title';
   nameInput.spellcheck = false;
-  nameField.append(nameInput);
+  nameField.append(nameLb, nameInput);
 
-  const projField = el('label', 'launch-field');
-  projField.append(el('span', 'launch-lb', 'Project'));
+  const projField = el('label', 'ns-field');
   const projectSel = el('select');
   projectSel.name = 'project';
-  projField.append(projectSel);
+  projField.append(el('span', 'ns-lb', 'Project'), projectSel);
+  nameProj.append(nameField, projField);
 
-  const modelField = el('label', 'launch-field');
-  modelField.append(el('span', 'launch-lb', 'Model'));
+  // ---- Claude Code only ----------------------------------------------------
+  const claudeBox = el('div', 'ns-kindbox');
+
+  const modelEffort = el('div', 'ns-row2');
+  const modelField = el('label', 'ns-field');
   const modelSel = el('select');
   modelSel.name = 'model';
   for (const m of MODELS) {
-    const opt = el('option', '', m);
+    const opt = el('option', '', MODEL_LABEL[m]);
     opt.value = m;
     modelSel.append(opt);
   }
-  modelField.append(modelSel);
+  modelField.append(el('span', 'ns-lb', 'Model'), modelSel);
 
-  const effortField = el('label', 'launch-field');
-  effortField.append(el('span', 'launch-lb', 'Effort'));
+  const effortField = el('label', 'ns-field');
   const effortSel = el('select');
   effortSel.name = 'effort';
   for (const e of EFFORTS) {
-    const opt = el('option', '', e);
+    const opt = el('option', '', EFFORT_LABEL[e]);
     opt.value = e;
     effortSel.append(opt);
   }
-  effortField.append(effortSel);
+  effortField.append(el('span', 'ns-lb', 'Effort'), effortSel);
+  modelEffort.append(modelField, effortField);
 
-  fields.append(nameField, projField, modelField, effortField);
+  // Permissions: labels only on the cards (the 2026-09-06 cut stands). The
+  // words are PERM_SHORT — the same table the pane status bar's Mode reads.
+  let perm: Perm = 'default';
+  let helpOpen = false;
+  const permGroup = el('div', 'ns-group ns-perm');
+  const permLbRow = el('div', 'ns-lbrow');
 
-  // Shell (Terminal only): which shell the plain session runs. Two segments in
-  // the same idiom as the kind switch — a small closed choice, not a text box.
+  // The ONE explanation in the dialog (user decision 2026-09-10): a disclosure
+  // button beside the group label, one popover for all four modes. Esc while
+  // it is open closes ONLY it (see the capture listener below).
+  const infoBtn = button('ns-info', '', () => setHelp(!helpOpen, false));
+  infoBtn.setAttribute('aria-label', 'What these mean');
+  infoBtn.setAttribute('aria-expanded', 'false');
+  infoBtn.setAttribute('aria-controls', 'ns-perm-help');
+  infoBtn.append(infoIcon());
+  permLbRow.append(groupLabel('ns-perm-lb', 'Permissions'), infoBtn);
+
+  const help = el('div', 'ns-help');
+  help.id = 'ns-perm-help';
+  help.hidden = true;
+  const helpList = el('dl', 'ns-help-list');
+  for (const p of PERMS) {
+    helpList.append(
+      el('dt', p.danger ? 'is-danger' : '', PERM_SHORT[p.mode]),
+      el('dd', '', PERM_HELP[p.mode]),
+    );
+  }
+  help.append(helpList);
+
+  const permCards = radioCards<Perm>(
+    'ns-grid ns-perms',
+    'ns-perm-lb',
+    PERMS.map((p) => ({
+      value: p.mode,
+      cls: p.danger ? 'is-danger' : '',
+      content: [cardText(PERM_SHORT[p.mode])],
+    })),
+    (mode) => setPerm(mode),
+  );
+  permGroup.append(permLbRow, help, permCards.row);
+
+  function setPerm(mode: Perm): void {
+    perm = mode;
+    permCards.select(mode);
+  }
+  setPerm('default');
+
+  // Start from: `continue` is exactly the old "Continue last conversation"
+  // checkbox (`--continue`). Per-id resume stays in the drawer's HISTORY.
+  const startField = el('label', 'ns-field');
+  const startSel = el('select');
+  startSel.name = 'start';
+  for (const s of START_FROM) {
+    const opt = el('option', '', s.label);
+    opt.value = s.value;
+    startSel.append(opt);
+  }
+  startField.append(el('span', 'ns-lb', 'Start from'), startSel);
+
+  claudeBox.append(modelEffort, permGroup, startField);
+
+  // ---- Terminal only -------------------------------------------------------
   let shell: ShellId = SHELLS[0].id;
-  const shellWrap = el('div', 'launch-field');
-  shellWrap.hidden = true;
-  shellWrap.append(el('span', 'launch-lb', 'Shell'));
-  const shellSeg = radioRow<ShellId>(
-    'shell',
-    SHELLS.map((s) => ({ value: s.id, label: s.label })),
+  const shellGroup = el('div', 'ns-group');
+  shellGroup.hidden = true;
+  const shellCards = radioCards<ShellId>(
+    'ns-grid ns-shells',
+    'ns-shell-lb',
+    SHELL_CARDS.map((c) => ({
+      value: c.shell,
+      content: [cardText(c.label, c.shell === null ? NOT_YET : c.sub)],
+    })),
     (id) => {
       shell = id;
-      shellSeg.select(id);
+      shellCards.select(id);
     },
   );
-  shellWrap.append(shellSeg.row);
+  shellGroup.append(groupLabel('ns-shell-lb', 'Shell'), shellCards.row);
 
-  // Other: full-width, mono, whitespace-split argv — the old launcher's field,
-  // in the dialog voice.
-  const cmdField = el('label', 'launch-field launch-custom');
+  // ---- Other only: the escape hatch, mono, whitespace-split argv -------------
+  const cmdField = el('label', 'ns-field ns-cmd');
   cmdField.hidden = true;
   const cmdInput = el('input');
   cmdInput.name = 'command';
   cmdInput.placeholder = 'htop';
   cmdInput.spellcheck = false;
-  cmdField.append(el('span', 'launch-lb', 'Command'), cmdInput);
+  cmdField.append(el('span', 'ns-lb', 'Command'), cmdInput);
 
-  // Mode: ONE row of four segments. The words are PERM_SHORT — the same table
-  // the pane-header tag reads, so a mode reads identically everywhere.
-  const permWrap = el('div', 'launch-field');
-  permWrap.append(el('span', 'launch-lb', 'Mode'));
-  const permRow = el('div', 'mode-seg');
-  permRow.setAttribute('role', 'group');
-  permRow.setAttribute('aria-label', 'mode');
-  let perm: Perm = 'default';
-  const permButtons = new Map<Perm, HTMLButtonElement>();
-  for (const p of PERMS) {
-    const seg = button(`mode-seg-btn${p.danger ? ' is-danger' : ''}`, PERM_SHORT[p.mode], () => {
-      setPerm(p.mode);
-    });
-    permButtons.set(p.mode, seg);
-    permRow.append(seg);
-  }
-  permWrap.append(permRow);
-
-  function setPerm(mode: Perm): void {
-    perm = mode;
-    for (const [m, b] of permButtons) {
-      b.classList.toggle('is-sel', m === mode);
-      b.setAttribute('aria-pressed', m === mode ? 'true' : 'false');
-    }
-  }
-  setPerm('default');
-
-  // Continue: one checkbox row in the app's existing toggle idiom (a real
-  // keyboard-reachable button carrying aria-pressed). Checked → `--continue`.
-  let continueLast = false;
-  const contRow = button('status-row launch-check', '', () => {
-    continueLast = !continueLast;
-    syncContinue();
-  });
-  const contBox = el('span', 'status-box');
-  contBox.setAttribute('aria-hidden', 'true');
-  contRow.append(contBox, el('span', 'status-lb', 'Continue last conversation'));
-
-  function syncContinue(): void {
-    contRow.setAttribute('aria-pressed', continueLast ? 'true' : 'false');
-    contBox.textContent = continueLast ? '✓' : '';
-  }
-  syncContinue();
-
-  const err = el('div', 'form-err');
+  const err = el('div', 'ns-err');
   err.setAttribute('role', 'alert');
   err.hidden = true;
 
-  const none = el('div', 'launch-none');
+  const none = el('div', 'ns-none');
   none.hidden = true;
   const noneTxt = el('span', '', '');
-  const noneAdd = button('btn-link', 'add one', () => {
+  const noneAdd = button('ns-link', 'Add a project', () => {
     close();
     st.openDrawer('projects');
   });
   none.append(noneTxt, noneAdd);
 
-  body.append(kindWrap, fields, shellWrap, cmdField, permWrap, contRow, err, none);
+  body.append(toolGroup, nameProj, claudeBox, shellGroup, cmdField, err, none);
 
   // ---- footer --------------------------------------------------------------
-  const ft = el('footer', 'launch-ft');
-  const cancel = button('btn', 'Cancel', () => close());
-  const go = button('btn-go', 'Launch', () => void launch());
-  ft.append(el('span', 'launch-gap'), cancel, go);
+  const ft = el('footer', 'ns-ft');
+  const cancel = button('btn-quiet', 'Cancel', () => close());
+  const go = button('btn-accent', 'Start session', () => void launch());
+  ft.append(cancel, go);
 
   /**
-   * Switch what is being launched: each kind reveals its own field and the four
-   * claude-only controls (Model, Effort, Mode, Continue) leave the dialog
-   * entirely for the other two kinds. They are HIDDEN, not merely dimmed as the
-   * custom-command hatch used to leave them (2026-09-08): four dead controls
-   * carry no information, and with the Shell row added they pushed the form
-   * into a scrollbar. They stay `disabled` as well, so nothing hidden is
-   * reachable by keyboard or readable by a screen reader.
+   * Switch what is being launched: each kind reveals its own group, and the
+   * claude-only set (Model, Effort, Permissions and its info button, Start
+   * from) leaves the dialog entirely for the other two kinds — hidden AND
+   * `disabled`, so nothing hidden is reachable by keyboard or read by a screen
+   * reader.
    *
-   * `byUser` moves the keyboard into the revealed field — an open() restoring a
-   * remembered kind must not steal focus from the Name box.
+   * `byUser` moves the keyboard into the revealed Command field — an open()
+   * restoring a remembered kind must not steal focus from the Name box.
    */
   function setKind(next: LaunchKind, byUser: boolean): void {
     kind = next;
-    kindSeg.select(next);
-    const claudeOnly = next !== 'claude';
+    toolCards.select(next);
+    const claudeOff = next !== 'claude';
     cmdField.hidden = next !== 'other';
-    shellWrap.hidden = next !== 'terminal';
-    modelSel.disabled = claudeOnly;
-    effortSel.disabled = claudeOnly;
-    contRow.disabled = claudeOnly;
-    modelField.hidden = claudeOnly;
-    effortField.hidden = claudeOnly;
-    permWrap.hidden = claudeOnly;
-    contRow.hidden = claudeOnly;
-    for (const b of permButtons.values()) b.disabled = claudeOnly;
+    shellGroup.hidden = next !== 'terminal';
+    claudeBox.hidden = claudeOff;
+    modelSel.disabled = claudeOff;
+    effortSel.disabled = claudeOff;
+    startSel.disabled = claudeOff;
+    infoBtn.disabled = claudeOff;
+    for (const b of permCards.buttons.values()) b.disabled = claudeOff;
+    if (claudeOff) setHelp(false, false);
     syncLaunchable();
     if (byUser && next === 'other') cmdInput.focus();
   }
@@ -359,6 +422,53 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   });
   trapTab(modal);
   modalHost.append(scrim);
+
+  // ---- the info popover ----------------------------------------------------
+
+  function setHelp(open: boolean, refocus: boolean): void {
+    helpOpen = open;
+    help.hidden = !open;
+    infoBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open && refocus && !infoBtn.disabled) infoBtn.focus();
+  }
+
+  // Esc closes the popover and NOTHING else: main.ts closes the dialog from a
+  // bubbling window listener, so a capture listener on the same window runs
+  // first and stops the event before that one ever sees it — also when the
+  // keyboard sits on the page body after a click on the popover's text.
+  window.addEventListener(
+    'keydown',
+    (e: KeyboardEvent) => {
+      if (!helpOpen || scrim.hidden || e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setHelp(false, true);
+    },
+    true,
+  );
+
+  // A press anywhere outside the popover and its button closes it (the press
+  // then does whatever it does — focus goes where the user clicked).
+  document.addEventListener(
+    'pointerdown',
+    (e: PointerEvent) => {
+      if (!helpOpen) return;
+      const t = e.target;
+      if (t instanceof Node && (help.contains(t) || infoBtn.contains(t))) return;
+      setHelp(false, false);
+    },
+    true,
+  );
+
+  // Keyboard focus moving on to anything outside the popover and its button
+  // (Tab to the cards it covers) closes it too: a focused control hidden under
+  // the popover would be a focus ring nobody can see.
+  document.addEventListener('focusin', (e: FocusEvent) => {
+    if (!helpOpen) return;
+    const t = e.target;
+    if (t instanceof Node && (help.contains(t) || infoBtn.contains(t))) return;
+    setHelp(false, false);
+  });
 
   // ---- data flow -----------------------------------------------------------
 
@@ -376,9 +486,10 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   /**
-   * With no projects there is nothing for Claude to work on, so Launch stays
-   * off — but a plain Terminal always has somewhere to run (the home folder),
-   * so that one kind stays launchable and the empty line says where it lands.
+   * With no projects there is nothing for Claude to work on, so Start session
+   * stays off — but a plain Terminal always has somewhere to run (the home
+   * folder), so that one kind stays launchable and the line says where it
+   * lands.
    */
   function syncLaunchable(): void {
     const empty = st.state.projects.length === 0;
@@ -386,8 +497,8 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     none.hidden = !empty;
     noneTxt.textContent =
       empty && kind === 'terminal'
-        ? 'no projects yet — this one opens in your home folder, or '
-        : 'no projects yet — ';
+        ? 'No projects yet. This one opens in your home folder.'
+        : 'No projects yet.';
   }
 
   /**
@@ -404,18 +515,22 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   /**
    * Resolve the pre-selected model + permission ONCE per open through the
    * unit-tested precedence chain (`resolveModel`/`resolvePerm` in
-   * launch-args.ts, documented in web/DESIGN.md): explicit project default >
-   * hardcoded fallback. The selected project is whatever `projectSel.value`
-   * currently points at — a project-intent open force-selects its project
-   * before this runs; a plain open uses populateProjects()'s auto-selected
-   * first project. Called from open() only: a mid-dialog project switch
-   * deliberately does NOT re-resolve, leaving per-launch control with the user
-   * once the dialog is open.
+   * launch-args.ts): explicit project default > hardcoded fallback. The
+   * selected project is whatever `projectSel.value` currently points at — a
+   * project-intent open force-selects its project before this runs; a plain
+   * open uses populateProjects()'s auto-selected first project. Called from
+   * open() only: a mid-dialog project switch deliberately does NOT re-resolve,
+   * leaving per-launch control with the user once the dialog is open.
    */
   function applyDefaults(): void {
     const p = st.state.projects.find((p) => p.id === projectSel.value);
     modelSel.value = resolveModel(p?.defaultModel);
     setPerm(resolvePerm(p?.defaultMode));
+  }
+
+  /** Start from, read in ONE place: the argv and the log line agree. */
+  function currentContinue(): boolean {
+    return continueFromStart(startSel.value);
   }
 
   /**
@@ -427,7 +542,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       kind,
       model: modelSel.value,
       perm,
-      continueLast,
+      continueLast: currentContinue(),
       effort: currentEffort(),
       shell,
       customLine: cmdInput.value,
@@ -456,12 +571,12 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     err.hidden = true;
     const projectId = projectSel.value;
     if (projectId === '' && kind !== 'terminal') {
-      showErr('pick a project first');
+      showErr('Pick a project first.');
       return;
     }
     const spawn = currentSpawn();
     if (spawn === null) {
-      showErr('type a command');
+      showErr('Type a command.');
       cmdInput.focus();
       return;
     }
@@ -469,6 +584,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     // whatever they typed and never reaches a log line — only how many words
     // it had. The project appears by NAME, never by path.
     const effort = currentEffort();
+    const continueLast = currentContinue();
     const projectLabel = st.state.projects.find((p) => p.id === projectId)?.name ?? '?';
     log.info(
       kind === 'claude'
@@ -530,9 +646,10 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     err.hidden = true;
     nameInput.value = '';
+    setHelp(false, false);
     populateProjects();
     if (opts?.projectId !== undefined && st.state.projects.some((p) => p.id === opts.projectId)) {
-      // Explicit project intent (projects-drawer row `+`) means "a claude
+      // Explicit project intent (projects-drawer row `+`) means "a Claude Code
       // session for that project" — go back to the claude kind so a stale
       // custom command or shell can't hijack the launch, and force-select that
       // project BEFORE defaults resolve so its defaultModel/defaultMode are
@@ -542,25 +659,22 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       syncNamePlaceholder();
     } else {
       // A plain open keeps the kind (and its shell / command text) as the user
-      // last left it — the dialog's existing remember-what-you-chose behaviour,
-      // now including which kind of session that was.
+      // last left it — the dialog's remember-what-you-chose behaviour.
       setKind(kind, false);
     }
     // Resolve model + permission once against the now-settled selected project
     // (the forced project above, or populateProjects()'s auto-selected first
-    // project on a plain open). Effort and continue reset every open; a plain
-    // open otherwise leaves the previous mode and the custom command text as
-    // the user left them.
+    // project on a plain open). Effort and Start from reset every open.
     applyDefaults();
     effortSel.value = 'default';
-    continueLast = false;
-    syncContinue();
+    startSel.value = 'fresh';
     scrim.hidden = false;
     nameInput.focus();
   }
 
   function close(): void {
     if (scrim.hidden) return;
+    setHelp(false, false);
     scrim.hidden = true;
     // Return the keyboard where it came from — opening from a terminal
     // restores the terminal; otherwise fall back to the focused pane.

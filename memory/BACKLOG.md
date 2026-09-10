@@ -182,9 +182,16 @@ app window first so one backend at a time owns runtime.json.
 - [ ] Edge `--app` fallback: Ctrl+Shift+C without a selection opens DevTools inspect (WebView2 host is immune: accelerator keys off). Accept or swallow there.
 - [ ] A7 brief: carry the add-existing intent (v3 tabs New folder / Clone / From GitHub have no slot for it).
 
+## From Nocturne A4 (2026-09-10)
+
+- [ ] **(user)** Two permission vocabularies: the app says `Always ask / Auto edits / Read only / No prompts` (`PERM_SHORT`), Claude Code's in-terminal status line from `server/statusline.mjs` `MODE_LABELS` says `always ask / auto-edits / plan / never ask` (pinned by `tests/statusline-script.test.ts`), mirrored by the Settings sample (`web/src/ui/settings.ts:95`) and the New Project select (`never ask (dangerous)`, `web/src/ui/newproject.ts:228`). Align in A7 (Settings + Add a project) or record the terminal line as exempt.
+- [ ] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sit below the `LEGACY ALIAS LAYER` marker in `tokens.css` — move them above the marker before the alias block is deleted.
+- [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
+- [ ] Windows-side: look at the new dialog in the real WebView2 host (fonts, card borders, popover).
+
 ## Queued ideas (not decided)
 
-- [ ] Drop the "Continue last conversation" checkbox?
+- [x] Drop the "Continue last conversation" checkbox? — done in Nocturne A4 (2026-09-10): Start from select.
 - [ ] Should HISTORY list Claude conversations not launched by the app?
 - [ ] BitLocker check in the launcher.
 - [ ] Dead code noted, not removed: `web/src/api.ts createProject()`.

@@ -23,7 +23,7 @@
  *   CONFIRMATION — the shared dialog chrome (`modal-scrim` / `modal` /
  *     `launch-hd`), because it is a decision with consequences and the app has
  *     exactly one visual grammar for those. Its `Restart` is accent-blue, not
- *     red: red is reserved for the "no prompts" launch mode, and this action is
+ *     red: red is reserved for the "No prompts" launch mode, and this action is
  *     recoverable — every closed session is in History.
  *
  * ONE BUTTON, ONE FLOW (phase E, 2026-09-09 — the user's ask: "a notification
@@ -225,9 +225,9 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   modalHost.append(toast);
 
   // ---- confirmation dialog -------------------------------------------------
-  // Plain `modal-scrim`, NOT the launch dialog's blurred variant: this dialog
-  // can open on top of the settings panel, and two blurred scrims stacked read
-  // as a smeared mistake rather than as depth.
+  // Plain `modal-scrim`, NOT the blurred `launch-scrim` the New Project dialog
+  // wears: this dialog can open on top of the settings panel, and two blurred
+  // scrims stacked read as a smeared mistake rather than as depth.
   const scrim = el('div', 'modal-scrim restart-scrim');
   scrim.hidden = true;
   const modal = el('div', 'modal restart-modal');

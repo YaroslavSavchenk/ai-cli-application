@@ -39,7 +39,7 @@ administrator rights, and it installs nothing else unless you tick it.
 - **Claude Code inside that distribution**, if you want Claude sessions. The
   Setup offers to install it for you — switched off by default, on a page that
   shows the exact command and the site it comes from. Plain terminal sessions
-  (WSL shell, PowerShell) need nothing extra. Resuming a specific past
+  (Bash, PowerShell) need nothing extra. Resuming a specific past
   conversation needs Claude Code 2.1.263 or newer.
 
 Nothing else: no Node, no git and no build tools inside the distribution — the

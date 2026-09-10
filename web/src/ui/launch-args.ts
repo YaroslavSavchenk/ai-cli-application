@@ -17,8 +17,16 @@
  * preset chips, the readable launch summary and every explanatory clause are
  * gone, and an effort level joined the form. What survived is exactly what a
  * control needs to render or emit.
+ *
+ * 2026-09-10 (Nocturne A4): the dialog took the v3 layout — card grids for the
+ * tool, the shell and the permission mode, a `Start from` select in place of
+ * the continue checkbox. The card tables below are DISPLAY over the same
+ * values; `composeSpawn` and every argv it emits are unchanged.
  */
 import type { ClaudePermissionMode, PermissionMode } from '../../../shared/protocol.ts';
+
+/** What the known agent is CALLED in the UI — a product name, not a command. */
+export const AGENT_LABEL = 'Claude Code';
 
 /** Handoff model list — the dialog launches `claude` (server spawns argv, never shell). */
 export const MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
@@ -27,9 +35,9 @@ export const MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
 export type Perm = ClaudePermissionMode;
 
 /**
- * The mode segments, in row order: `mode` is the CLI value that reaches argv,
- * `danger` decides the red treatment (which the segment keeps selected or not
- * — the warning never disappears). The user-visible words come from
+ * The permission cards, in grid order: `mode` is the CLI value that reaches
+ * argv, `danger` decides the red treatment (which the card keeps selected or
+ * not — the warning never disappears). The user-visible words come from
  * `PERM_SHORT`; there is no second label table anymore.
  */
 export const PERMS: { mode: Perm; danger: boolean }[] = [
@@ -40,16 +48,33 @@ export const PERMS: { mode: Perm; danger: boolean }[] = [
 ];
 
 /**
- * The ONE label table for permission modes: the launch dialog's mode segments
- * AND the pane-header permission tag (`permFromArgs` in ./util.ts). Total over
- * the vocabulary so the map can't drift from `Perm`. `default` renders no pane
- * tag at all (see `permFromArgs`), but it IS a segment in the dialog.
+ * The ONE label table for permission modes: the launch dialog's permission
+ * cards, its info popover AND the pane status bar's Mode value (`permFromArgs`
+ * in ./util.ts). Total over the vocabulary so the map can't drift from `Perm`.
+ * `default` renders no pane Mode at all (see `permFromArgs`), but it IS a card
+ * in the dialog.
+ *
+ * Sentence case since Nocturne A4 (2026-09-10), the v3 handoff's own words —
+ * the pane status bar follows because it reads this same table.
  */
 export const PERM_SHORT: Record<Perm, string> = {
-  default: 'always ask',
-  acceptEdits: 'auto edits',
-  plan: 'read-only',
-  bypassPermissions: 'no prompts',
+  default: 'Always ask',
+  acceptEdits: 'Auto edits',
+  plan: 'Read only',
+  bypassPermissions: 'No prompts',
+};
+
+/**
+ * What each permission mode DOES, one short plain line per mode — the ONE
+ * sanctioned piece of explanatory copy in the launch dialog (user decision
+ * 2026-09-10, Nocturne A4), shown only when the user asks for it through the
+ * info button beside the Permissions label. Never a flag, never a CLI value.
+ */
+export const PERM_HELP: Record<Perm, string> = {
+  default: 'Asks before every edit or command.',
+  acceptEdits: 'Edits files without asking. Still asks before commands.',
+  plan: 'Reads and plans. Changes nothing.',
+  bypassPermissions: 'Does everything without asking. Use with care.',
 };
 
 /**
@@ -60,6 +85,37 @@ export const PERM_SHORT: Record<Perm, string> = {
  */
 export const EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
+
+/**
+ * What the Model and Effort selects SHOW (Nocturne A4: capitalised, as in the
+ * v3 handoff). Display only — the option VALUE stays the MODELS / EFFORTS id,
+ * which is what reaches argv, so a label change can never change a spawn.
+ */
+export const MODEL_LABEL: Record<(typeof MODELS)[number], string> = {
+  opus: 'Opus',
+  sonnet: 'Sonnet',
+  haiku: 'Haiku',
+  fable: 'Fable',
+};
+
+/**
+ * A model id as the UI says it anywhere a session is named (the pane status
+ * bar, the sessions drawer, the history rows): a known id reads as its
+ * `MODEL_LABEL`, the same word the dialog showed; anything else (a custom
+ * command's own `--model` value) is echoed verbatim — never relabelled.
+ */
+export function modelLabel(id: string): string {
+  return isModelId(id) ? MODEL_LABEL[id] : id;
+}
+
+export const EFFORT_LABEL: Record<Effort, string> = {
+  default: 'Default',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+};
 
 /** One spawn spec — what the server will exec (argv array, never a shell string). */
 export interface SpawnSpec {
@@ -115,13 +171,6 @@ export function parseCustomCommand(line: string): SpawnSpec | null {
 export const KINDS = ['claude', 'terminal', 'other'] as const;
 export type LaunchKind = (typeof KINDS)[number];
 
-/** The kind switch's words — plain, short, and never a command name. */
-export const KIND_LABEL: Record<LaunchKind, string> = {
-  claude: 'Claude',
-  terminal: 'Terminal',
-  other: 'Other',
-};
-
 /** True when `v` is one of the three kinds. */
 export function isKind(v: unknown): v is LaunchKind {
   return typeof v === 'string' && (KINDS as readonly string[]).includes(v);
@@ -145,7 +194,7 @@ export interface ShellDef {
 }
 
 export const SHELLS = [
-  { id: 'wsl', label: 'WSL shell', command: '/bin/bash', args: ['-l'] },
+  { id: 'wsl', label: 'Bash', command: '/bin/bash', args: ['-l'] },
   { id: 'powershell', label: 'PowerShell', command: 'powershell.exe', args: ['-NoLogo'] },
 ] as const satisfies readonly ShellDef[];
 
@@ -170,6 +219,88 @@ export function shellSpawn(id: ShellId): SpawnSpec {
  */
 export function shellLabel(command: string): string | null {
   return SHELLS.find((s) => s.command === command)?.label ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// The dialog's card grids (Nocturne A4, 2026-09-10)
+// ---------------------------------------------------------------------------
+//
+// DISPLAY tables over the vocabularies above. A card either maps to exactly
+// one existing value (a kind, a shell) or to `null` — an INERT card: shown,
+// never selectable, spawning nothing. The inert ones are the v3 handoff's
+// other tools and shells, which get their command builders in part B5; until
+// then no flag, command or key for them exists anywhere in this app.
+
+/** The hint every inert card carries instead of its sub-line. Plain words. */
+export const NOT_YET = 'Not available yet';
+
+export interface ToolCard {
+  readonly id: string;
+  readonly label: string;
+  /** Vendor or kind, one plain word or two. */
+  readonly sub: string;
+  /** The two-glyph tile, decoration only (aria-hidden in the DOM). */
+  readonly mark: string;
+  /** The kind this card launches; null = inert until B5. */
+  readonly kind: LaunchKind | null;
+}
+
+/**
+ * The Tool grid, two per row, three rows: the known agent, the three tools
+ * part B5 will wire, the plain terminal, and the custom-command escape hatch
+ * (which used to be the `Other` segment of the kind switch).
+ */
+export const TOOL_CARDS = [
+  { id: 'claude', label: AGENT_LABEL, sub: 'Anthropic', mark: 'CC', kind: 'claude' },
+  { id: 'codex', label: 'Codex', sub: 'OpenAI', mark: 'CX', kind: null },
+  { id: 'gemini', label: 'Gemini CLI', sub: 'Google', mark: 'GM', kind: null },
+  { id: 'grok', label: 'Grok', sub: 'xAI', mark: 'GK', kind: null },
+  { id: 'terminal', label: 'Terminal', sub: 'Plain shell', mark: '>_', kind: 'terminal' },
+  { id: 'other', label: 'Other', sub: 'Any command', mark: '…', kind: 'other' },
+] as const satisfies readonly ToolCard[];
+
+export interface ShellCard {
+  readonly id: string;
+  readonly label: string;
+  /** Where the shell lives: `WSL` or `Windows`. */
+  readonly sub: string;
+  /** The SHELLS entry this card spawns; null = inert until B5. */
+  readonly shell: ShellId | null;
+}
+
+/**
+ * The Shell cards, one row of four. `Bash` IS today's WSL login shell and
+ * `PowerShell` today's interop PowerShell — the SHELLS argv, byte for byte
+ * (the v3 handoff's `pwsh.exe` is not adopted). Their labels ARE the SHELLS
+ * labels, so the card, the no-project tab title, the drawer and the history
+ * rows all say the same name. Zsh and Command Prompt are inert until B5.
+ */
+export const SHELL_CARDS = [
+  { id: 'bash', label: SHELLS[0].label, sub: 'WSL', shell: 'wsl' },
+  { id: 'zsh', label: 'Zsh', sub: 'WSL', shell: null },
+  { id: 'powershell', label: SHELLS[1].label, sub: 'Windows', shell: 'powershell' },
+  { id: 'cmd', label: 'Command Prompt', sub: 'Windows', shell: null },
+] as const satisfies readonly ShellCard[];
+
+/**
+ * The `Start from` select. `continue` is exactly the former "Continue last
+ * conversation" checkbox (`--continue`); resuming ONE earlier conversation by
+ * id stays in the sessions drawer's HISTORY until part B5.
+ */
+export const START_FROM = [
+  { value: 'fresh', label: 'A fresh conversation' },
+  { value: 'continue', label: 'The last conversation in this project' },
+] as const;
+export type StartFrom = (typeof START_FROM)[number]['value'];
+
+/** True when `v` is one of the Start from values. */
+export function isStartFrom(v: unknown): v is StartFrom {
+  return typeof v === 'string' && START_FROM.some((s) => s.value === v);
+}
+
+/** Start from -> the `continueLast` bit `composeSpawn` reads. Unknown = fresh. */
+export function continueFromStart(v: string): boolean {
+  return v === 'continue';
 }
 
 /** Everything the dialog's controls hold, in one bag — the input to `composeSpawn`. */
@@ -199,7 +330,8 @@ export function composeSpawn(f: LaunchForm): SpawnSpec | null {
 }
 
 /**
- * Was this session launched with "Continue last conversation"? Reads the argv
+ * Was this session launched to continue the last conversation (the New session
+ * dialog's Start from "The last conversation in this project")? Reads the argv
  * the server recorded (both spellings the CLI accepts). Used by the restart
  * confirmation, which owes the user a footnote for exactly these sessions:
  * they were never pinned to one conversation id, so resuming them lands on
@@ -225,9 +357,6 @@ export function isClaudeCommand(command: string): boolean {
   return (parts[parts.length - 1] ?? command) === 'claude';
 }
 
-/** What the known agent is CALLED in the UI — a product name, not a command. */
-export const AGENT_LABEL = 'Claude Code';
-
 /**
  * A session's command as the UI says it: the ONE known agent reads as its
  * product name, a shell the launch dialog can compose reads as that shell's
@@ -235,7 +364,7 @@ export const AGENT_LABEL = 'Claude Code';
  * in the custom-command field. Inventing a display name for an arbitrary
  * command would be a lie about what is running.
  *
- * Lives here — beside `AGENT_LABEL` and `shellLabel`, the two tables it reads —
+ * Lives here — with `AGENT_LABEL` and `shellLabel`, the two tables it reads —
  * so it is pure vocabulary with no DOM in its import graph (the sessions
  * drawer, the settings panel and the restart notice all name sessions, and a
  * second table would be a second place for the literal command name to leak

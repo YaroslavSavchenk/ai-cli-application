@@ -100,6 +100,10 @@
   /* Ink on a --color-danger fill. A fixed white, not a themed text role:
      the fill is one constant red, so its readable ink is constant too.     */
   --color-ink-on-danger: #ffffff;
+  /* Modal scrim — NOT from README-v3/styles.css; source is the v3 markup's
+     dialog backdrop (session-manager-v3.html, the launch dialog's scrim,
+     rgba(10,11,20,.6)). Darker than --color-bg, and flat: no blur.         */
+  --color-scrim: rgb(10 11 20 / 0.6);
 
   /* ══ LEGACY ALIAS LAYER ═══════════════════════════════════════════════════
      The role tokens below are the LEGACY UI's names, kept only so the whole
@@ -224,7 +228,7 @@
   --fs-title: 14px;     /* dialog title                                       */
   --ls-wordmark: 1.6px;
   --ls-label: 1.4px;
-  --ls-field: 1.2px;    /* launch-dialog field labels                         */
+  --ls-field: 1.2px;    /* .launch-lb field labels (New Project, GitHub)      */
   --ls-title: 0.8px;    /* dialog title                                       */
 
   /* ---- radius by role (Nocturne 4/8/14) --------------------------------------- */
@@ -260,7 +264,7 @@
   --dot: 7px;           /* status dots                                        */
   --ctl-h: 30px;        /* topbar controls (A2: v3 height, was 26px)          */
   --ctl-h-lg: 30px;     /* dialog footer buttons, empty-state buttons         */
-  --field-h: 32px;      /* launch-dialog inputs/selects                       */
+  --field-h: 32px;      /* launch-* dialog inputs/selects                     */
   --chip-h: 20px;       /* row buttons (+ × split ⇱)                          */
   --popover-w: 268px;
   --toast-w: 336px;      /* update toast card                                */
@@ -272,8 +276,8 @@
   --panel-w: 460px;     /* boot / restart takeover panel                      */
   --dirlist-min-h: 160px;
   --sc-keys-w: 210px;   /* shortcuts overlay keys column                      */
-  --dlg-pad-x: 20px;    /* launch-dialog horizontal padding (handoff §8)      */
-  --dlg-gap: 16px;      /* launch-dialog body stack gap + header padding      */
+  --dlg-pad-x: 20px;    /* dialog horizontal padding (handoff §8)             */
+  --dlg-gap: 16px;      /* dialog body stack gap + header padding             */
 
   /* ---- motion (handoff set, <=.2s + sanctioned pulses/spin) ------------------- */
   --t-btn: 0.15s;       /* control color/border transitions                   */

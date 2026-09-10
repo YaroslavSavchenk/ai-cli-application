@@ -67,7 +67,8 @@ multi-pane layouts on top.
   and `<id>.jsonl` is missing — every uncertainty keeps the entry. Requires
   **Claude Code ≥ 2.1.263** (`--session-id`, `--resume <id>`, `--effort`
   verified there); no version probe exists. **Known limit:** a launch with
-  "Continue last conversation" (`--continue`) can never be pinned — its
+  Start from "The last conversation in this project" (`--continue`; until
+  2026-09-10 the "Continue last conversation" checkbox) can never be pinned — its
   entry resumes with `--continue` again (most recent conversation in that
   folder) and its button reads "start again". A client-supplied
   `--session-id <uuid>` / `--resume <uuid>` (custom command) is adopted as
@@ -458,29 +459,43 @@ multi-pane layouts on top.
 - **Launch dialog = a short form (reshaped 2026-09-06, user's call: "far
   too many unnecessary things, no effort choice, too much code-ish text —
   plain short words, no explanation"); kind switch added 2026-09-08, user's
-  call.** Header `New session`; first row `Session` = a segmented
-  radiogroup `Claude · Terminal · Other` (same idiom as Mode); `Terminal`
-  reveals a `Shell` row `WSL shell` (`/bin/bash -l`) · `PowerShell`
-  (`powershell.exe -NoLogo` through WSL interop, ~8 s cold start, UNC-form
-  prompt) in the project folder or, with no project, the home folder;
-  `Other` reveals the mono Command field (the 2026-07-20 custom-command
-  escape hatch — the footer toggle it used to live behind is gone, the
-  hatch itself stays); the claude-only controls are hidden AND disabled for
-  the other two kinds (hidden, not dimmed: dimmed plus the Shell row
-  overflowed the dialog). Name, Project, Cancel and Launch are shared by
-  all kinds; the claude-only set is exactly Model · Effort · Mode ·
-  Continue. Fields: Name
-  (placeholder = the selected project's name) · Project · Model · **Effort**
-  (`default`, `low`, `medium`, `high`, `xhigh`, `max` → `--effort <v>`,
-  default emits nothing) · Mode as one segmented row of the short labels
-  `always ask` · `auto edits` · `read-only` · `no prompts` (danger red) ·
-  a `Continue last conversation` checkbox (`--continue`) · Cancel · Launch.
-  `composeSpawn()` is the ONE composition path for all three kinds. GONE: the subtitle, the preset chips, the readable
-  launch summary / ink well, the footer note, the permission descriptions,
-  hint text and mechanic-explaining tooltips. Per-id resume lives in the
-  sessions drawer's HISTORY section, grouped per project folder. The
-  launched "agent" is still a configurable command + args (multi-CLI
-  support stays free).
+  call; Nocturne layout (part A4) 2026-09-10, user's calls on the three v3
+  conflicts.** Header `New session`, no subtitle; the modal is anchored at a
+  stable top so switching Tool never moves the grid under the pointer.
+  First group `Tool` = a 2-per-row card radiogroup (roving tabindex, arrow
+  keys): **Claude Code · Codex · Gemini CLI · Grok · Terminal · Other**.
+  Codex, Gemini CLI and Grok are visible but **inert until part B5**
+  (`aria-disabled`, never selectable, skipped by the arrows, sub-line
+  `Not available yet`); `Other` is the 2026-07-20 custom-command escape
+  hatch as the sixth card (user's call 2026-09-10, v3 has none) and reveals
+  the mono Command field. `Terminal` reveals `Shell` cards **Bash**
+  (`/bin/bash -l`) · Zsh (inert until B5) · **PowerShell** (`powershell.exe
+  -NoLogo` through WSL interop, ~8 s cold start, UNC-form prompt; v3's
+  `pwsh.exe` NOT adopted) · Command Prompt (inert until B5), in the project
+  folder or, with no project, the home folder. The claude-only controls
+  are hidden AND disabled for the other kinds (hidden, not dimmed). Shared
+  by all kinds: Name (optional; placeholder = the selected project's name)
+  and Project on one row, Cancel and **Start session** (was Launch). The
+  claude-only set is exactly Model · **Effort** (`default`, `low`,
+  `medium`, `high`, `xhigh` shown as "Extra high", `max` → `--effort <v>`,
+  default emits nothing) · **Permissions** as a 2×2 card radiogroup `Always
+  ask` · `Auto edits` · `Read only` · `No prompts` (danger red) · **Start
+  from** `A fresh conversation` / `The last conversation in this project`
+  (`--continue`; replaced the checkbox). **One info button** beside the
+  Permissions label opens a short plain explanation of the four modes
+  (`PERM_HELP`) — the ONLY explanatory copy in the dialog (user's call
+  2026-09-10: labels only on the cards, one on-demand explanation); Esc
+  closes that popover first. v3's command preview is left out (user's call
+  2026-09-10; the no-code rule stands). Per-id resume entries in Start from
+  arrive with B5; until then per-id resume lives in the sessions drawer's
+  HISTORY section, grouped per project folder. No API-key notice before
+  B5. `composeSpawn()` is the ONE composition path for all kinds, and every
+  pre-A4 dialog state emits byte-identical argv (pinned through the real
+  dialog by `tests/ui-launch-dialog.test.ts`). GONE since 2026-09-06: the
+  subtitle, the preset chips, the readable launch summary / ink well, the
+  footer note, per-card permission descriptions, hint text and
+  mechanic-explaining tooltips. The launched "agent" is still a
+  configurable command + args (multi-CLI support stays free).
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -605,13 +620,20 @@ multi-pane layouts on top.
   actionable fix are the point there. The app's own chrome stays clean.
   The GUI speaks plain human language; CLI syntax belongs in the terminal, not
   in the chrome around it. Concretely: permission modes render as the short
-  forms `always ask` / `auto edits` / `read-only` / `no prompts` (one label
-  table, `PERM_SHORT`; since 2026-09-06 the long forms are gone; never
-  `acceptEdits`, `plan`, `bypassPermissions`) — resume reads
-  **Continue last conversation** (never `--continue`), and the launch dialog's
+  forms `Always ask` / `Auto edits` / `Read only` / `No prompts` (sentence
+  case since Nocturne A4, 2026-09-10; one label table, `PERM_SHORT`; since
+  2026-09-06 the long forms are gone; never `acceptEdits`, `plan`,
+  `bypassPermissions`) — known exception: Claude Code's own in-terminal
+  status line (`server/statusline.mjs` `MODE_LABELS`) still prints its
+  older words incl. `plan`, and so does its Settings preview sample; the
+  New Project default-mode option still reads `never ask (dangerous)`;
+  aligning all three is open (backlog) — resume reads
+  **The last conversation in this project** (never `--continue`), and the launch dialog's
   argv command preview was replaced by a readable summary, itself **removed
-  2026-09-06** (the fields are the statement of what will run; nothing
-  explains itself). Also out of the UI: the
+  2026-09-06** and not brought back by the v3 design (user's call
+  2026-09-10) (the fields are the statement of what will run; nothing
+  explains itself, except the one on-demand permissions info popover
+  decided 2026-09-10). Also out of the UI: the
   `git init` sample, the `/caveman` placeholder, `relaunch resumes claude with
   --continue`, `AI_SM_GITHUB_CLIENT_ID` in the GitHub setup card (that card
   says the server is missing a GitHub setting; the variable name lives in the
@@ -619,7 +641,10 @@ multi-pane layouts on top.
   <dest>` preview (same treatment: `copies` / the pasted URL / `into folder:
   <dest>` — the URL stays, it is the user's own input), and the literal command
   name `claude` in the sessions drawer (the known agent renders as its product
-  name `Claude Code`, the two built-in shells as `WSL shell` / `PowerShell`,
+  name `Claude Code`, the two built-in shells as `Bash` / `PowerShell` —
+  `Bash` since 2026-09-10, formerly `WSL shell` — a no-project history
+  entry titled before that keeps its stored `WSL shell` title until it ages
+  out, no rewrite of `history.json`,
   in the active list AND the history rows; a user-typed custom command
   still echoes verbatim). The new-project dialog's
   **`standard` default-permission option was dropped** rather than renamed —

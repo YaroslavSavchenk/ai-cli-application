@@ -121,7 +121,7 @@ export function initSettings(
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', 'app settings');
 
-  // ---- header (the shared gradient dialog header: launch dialog / picker) --
+  // ---- header (the shared gradient dialog header: New Project / picker) ---
   const hd = el('header', 'launch-hd');
   const tile = el('div', 'launch-tile');
   tile.setAttribute('aria-hidden', 'true');

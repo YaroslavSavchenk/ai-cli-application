@@ -4,8 +4,9 @@
  * test at all ("touches the DOM in ways this file doesn't attempt",
  * `tests/ui-util.test.ts:9`), and 2026-09-08 gave it a real behavioural rule
  * worth pinning: the `tabIndex >= 0` filter that keeps the UNSELECTED members
- * of a roving-tabindex radiogroup (the launch dialog's `Session` and `Shell`
- * segments) out of the wrap. They are `<button>` elements, so the trap's
+ * of a roving-tabindex radiogroup (the launch dialog's card grids — Tool,
+ * Permissions and Shell since Nocturne A4; the `Session` / `Shell` segments
+ * before that) out of the wrap. They are `<button>` elements, so the trap's
  * `button:not([disabled])` selector matches them regardless of their
  * `tabindex="-1"`; without the filter the first/last stop of the cycle becomes
  * an element the browser's own Tab order skips, and the wrap silently stops
@@ -233,4 +234,26 @@ test('trapTab: a container that is ONLY unselected radio segments has no stops',
   assert.equal(press('Tab').prevented, false);
   assert.equal(press('Tab', true).prevented, false);
   assert.deepEqual(focused, []);
+});
+
+test('trapTab: an INERT card (aria-disabled, rendered, tabIndex -1) is never a stop, even as the last node (Nocturne A4)', () => {
+  // The launch dialog's inert cards (Codex, Gemini CLI, Grok; Zsh, Command
+  // Prompt) are rendered <button>s WITHOUT the `disabled` attribute — they
+  // stay readable as "unavailable" — so the selector matches them. Their
+  // permanent tabIndex -1 is what keeps them out of the wrap.
+  reset();
+  const tool = node('tool-selected', 0);
+  const name = node('name', 0);
+  const start = node('start-session', 0);
+  const inertCmd = node('shell-cmd-inert', -1);
+  const press = trap([tool, node('tool-codex-inert', -1), name, start, inertCmd]);
+
+  setActive(start);
+  assert.equal(press('Tab').prevented, true, 'tab at the last REAL stop must wrap past the inert card');
+  assert.deepEqual(focused, ['tool-selected']);
+
+  reset();
+  setActive(tool);
+  assert.equal(press('Tab', true).prevented, true);
+  assert.deepEqual(focused, ['start-session']);
 });

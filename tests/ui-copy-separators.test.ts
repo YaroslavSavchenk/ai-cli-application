@@ -226,6 +226,12 @@ test('the separator scan actually reads the chrome (non-vacuity: files, literals
     ['ui/tabs.ts', 'Needs you'],
     ['ui/sessions.ts', 'Working'],
     ['ui/panes.ts', 'Needs your answer'],
+    // Nocturne A4: the New session dialog's own copy and its display tables.
+    ['ui/launch.ts', 'Start session'],
+    ['ui/launch.ts', 'No projects yet. This one opens in your home folder.'],
+    ['ui/launch-args.ts', 'Asks before every edit or command.'],
+    ['ui/launch-args.ts', 'The last conversation in this project'],
+    ['ui/launch-args.ts', 'Not available yet'],
   ];
   for (const [file, text] of canaries) {
     const found = (litsOf.get(file) as Lit[]).some((l) => l.text === text);

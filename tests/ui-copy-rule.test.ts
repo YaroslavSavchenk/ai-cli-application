@@ -234,12 +234,15 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
   // not desynchronise on.
   const canaries: [string, string][] = [
     ['ui/launch.ts', 'New session'],
-    ['ui/launch.ts', 'Continue last conversation'],
+    ['ui/launch.ts', 'Start session'],
+    ['ui/launch.ts', 'What these mean'],
     ['ui/settings.ts', 'Settings'],
     ['ui/newproject.ts', 'Initialize git repo'],
-    ['ui/launch-args.ts', 'always ask'],
-    ['ui/launch-args.ts', 'WSL shell'],
-    ['ui/launch.ts', 'Session'],
+    ['ui/launch-args.ts', 'Always ask'],
+    ['ui/launch-args.ts', 'Bash'],
+    ['ui/launch-args.ts', 'The last conversation in this project'],
+    ['ui/launch-args.ts', 'Asks before every edit or command.'],
+    ['ui/launch.ts', 'Tool'],
     // ui/keys.ts (2026-09-08) carries no display copy at all — only selectors
     // and protocol names — so its canaries are those: the scan has to be
     // reading the file for its "no CLI shapes" verdict on it to mean anything.
@@ -400,6 +403,15 @@ test('the exact strings the 2026-07-25 copy pass removed never come back', () =>
     'auto from project',
     'command is required for the custom preset',
     'start a new session with the same command',
+    // 2026-09-10, Nocturne A4 (user decisions 1 and 2): the v3 dialog's
+    // subtitle and its per-card permission descriptions stay out — the one
+    // explanation is the info popover's PERM_HELP. (The v3 command preview is
+    // covered by '$ claude' above and by the shape scan.)
+    'Runs on the server and keeps going when you switch tabs.',
+    'Approve every action first',
+    'File edits run without asking',
+    'Plans, never changes files',
+    'Runs everything. Use with care',
   ];
   const hits: string[] = [];
   for (const file of files) {

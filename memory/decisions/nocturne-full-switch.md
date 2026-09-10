@@ -44,6 +44,38 @@ RULE itself stands).
   neutral-200, neutral-800); the border tracks `--edge-strong`, since `--edge`
   is now a translucent `color-mix`. Needs a Windows rebuild.
 
+## A4 decisions — New session dialog (2026-09-10)
+
+Three v3-vs-earlier-decision conflicts, all answered by the user before A4
+started:
+
+- **Command preview: left out.** v3 ends the dialog with a mono
+  `$ claude --model …` line; the 2026-07-25 [[no-code-in-ui-copy]] rule wins.
+- **Permission cards: labels only + ONE info button** beside the
+  "Permissions" label that opens a short plain explanation of all four
+  modes (`PERM_HELP`). The user's own middle way between v3's per-card
+  descriptions and the 2026-09-06 no-explanatory-copy cut
+  ([[session-history-resume]]). It is the only explanatory copy in the
+  dialog; Esc closes it before the dialog.
+- **Custom command: a sixth tool card "Other"** after Terminal (v3 has no
+  escape hatch; [[launch-dialog-custom-escape-hatch]] stands).
+
+Orchestrator calls inside the brief (reversible, told to the user): no v3
+subtitle (same 2026-09-06 cut); footer "Start session" replaces "Launch";
+Codex / Gemini CLI / Grok / Zsh / Command Prompt visible but inert until
+B5; Start from = fresh / last conversation only (per-id resume entries →
+B5); PowerShell keeps `powershell.exe -NoLogo` (v3's `pwsh.exe` not
+adopted); all six effort values kept; `PERM_SHORT` goes sentence case in
+the one table; the shell is named **Bash** everywhere (was "WSL shell" —
+ambiguous once Zsh sits beside it); model ids render through `MODEL_LABEL`
+("Opus") in the pane status bar, drawer and history; the modal is
+**top-anchored** instead of v3's centring, because a centred modal whose
+height changes with the Tool moved the grid under the pointer.
+
+Rejected: a per-card info button (the user asked for one); keeping v3's
+centring; wiring per-id resume through `POST /api/history/:id/resume` in
+A4 (it would ignore the dialog's Model/Effort/Permissions choices).
+
 ## Rejected alternatives
 
 - Side-by-side Legacy/Nocturne or a theme toggle — doubles every UI part's

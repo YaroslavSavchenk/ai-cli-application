@@ -21,7 +21,7 @@ import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, ArmedSet, fmtAgo, modelFromArgs, fmtCount } from './util.ts';
-import { commandLabel, isClaudeCommand } from './launch-args.ts';
+import { commandLabel, isClaudeCommand, modelLabel } from './launch-args.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
@@ -195,7 +195,8 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       main.append(line, meta);
 
       const actions = el('div', 'sess-actions');
-      const model = el('span', 'sess-model', modelFromArgs(info.args) ?? commandLabel(info.command));
+      const modelId = modelFromArgs(info.args);
+      const model = el('span', 'sess-model', modelId !== null ? modelLabel(modelId) : commandLabel(info.command));
       const split = button('chip-btn is-acc', 'split', () => splitIntoActive(info.id));
       split.setAttribute('data-k', `split:${info.id}`);
       split.title = 'add to the current view, max 4 (drag its tab for placement)';
@@ -276,7 +277,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     // left alone — their model tag already names them.
     if (!isClaudeCommand(entry.command)) parts.push(commandLabel(entry.command));
     const model = modelFromArgs(entry.args);
-    if (model !== null) parts.push(model);
+    if (model !== null) parts.push(modelLabel(model));
     const crashed = entry.ended?.reason === 'crash';
     if (crashed) parts.push('crashed');
     meta.textContent = parts.join(', ');

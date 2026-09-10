@@ -87,7 +87,7 @@ import {
   type RestartHttpResult,
   type RestartPhase,
 } from '../web/src/ui/restart-flow.ts';
-import { hasContinueFlag } from '../web/src/ui/launch-args.ts';
+import { START_FROM, hasContinueFlag } from '../web/src/ui/launch-args.ts';
 import type { SessionInfo } from '../shared/protocol.ts';
 
 // ---------------------------------------------------------------------------
@@ -1250,4 +1250,14 @@ test('a page that reloads mid-install ADOPTS it: no POST, straight into the prog
   ]);
   assert.deepEqual(await followUpdate(d.deps), { kind: 'installed', version: 'v0.3.0' });
   assert.deepEqual(d.phases, [['installing', 100]], 'it starts on the phase it found, not on "downloading"');
+});
+
+test('the continue footnote names the launch dialog choice by its CURRENT words (Nocturne A4)', () => {
+  // The footnote quotes a label the user saw when starting the session; since
+  // A4 that is the Start from option, not the removed checkbox. Read from the
+  // one table, so a relabel there cannot leave this sentence quoting a ghost.
+  const label = START_FROM.find((s) => s.value === 'continue')?.label ?? '';
+  assert.ok(label.length > 0, 'the continue option must exist');
+  assert.ok(CONTINUE_NOTE.includes(`"${label}"`), CONTINUE_NOTE);
+  assert.equal(CONTINUE_NOTE.includes('Continue last conversation'), false, 'the checkbox is gone');
 });

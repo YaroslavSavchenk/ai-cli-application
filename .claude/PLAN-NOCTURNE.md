@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design_handoff_session_manager, v3)
 
-Status (2026-09-10): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). Next: A4 — ask open decisions 7 and 8 first.
+Status (2026-09-10): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed (decisions 7, 8, 9 settled by the user); Windows look owed. Next: A5, only on "begin aan A5".
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -70,6 +70,7 @@ Fixed rules for every part:
 
 ### A8. UI gate
 - Side-by-side compare against the HTML for every screen; frontend-designer anti-generic check; full `/verify-terminal`; janitor pass removing dead styles from the old theme. Milestone commit + release notes draft.
+- Before deleting the `LEGACY ALIAS LAYER` block: `--line`, `--tick`, `--font-sans`, `--font-mono` (used by the A3 pane block and the A4 `ns-` dialog block) must move above the marker.
 
 ---
 
@@ -111,8 +112,9 @@ Fixed rules for every part:
 4. Where API keys live locally and how they reach the child process.
 5. Phosphor icons: inline SVG subset vs. package.
 6. pwsh.exe / cmd.exe via interop: allowed under the hard constraints in `PROJECT-SCOPE.md`? Check at B5.
-7. A4 — command preview at the bottom of the new-session dialog (v3) vs the 2026-07-25 rule "no commands or flags in the UI" (`memory/decisions/no-code-in-ui-copy.md`). Orchestrator's advice: leave it out. Ask before A4 starts.
-8. A4 — one-line descriptions under the permission cards (v3: "Approve every action first") vs the 2026-09-06 cut of all explanatory copy in the launch dialog (`memory/decisions/session-history-resume.md`). Orchestrator's advice: labels only. Ask before A4 starts.
+7. ~~A4 — command preview~~ DECIDED 2026-09-10 (user): left out; the 2026-07-25 "no commands or flags in the UI" rule stands.
+8. ~~A4 — permission-card descriptions~~ DECIDED 2026-09-10 (user): cards show labels only, plus ONE small info button beside the "Permissions" label that opens a short plain explanation of all four modes. The only explanatory copy in the dialog.
+9. ~~A4 — where the custom-command escape hatch lives (v3 has none)~~ DECIDED 2026-09-10 (user): a sixth tool card "Other" after Terminal, showing the existing command field.
 
 ## Suggested order
 A1 → A2 → A3 → A4 → A5 → A6 → A7 → A8, then B1 → B5 → B2 → B3 → B4 → B6 → B7 → B8.

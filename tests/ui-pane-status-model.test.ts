@@ -102,12 +102,16 @@ test('claude with NO args -> only Time (the argv names neither model nor mode)',
 // Model
 // ---------------------------------------------------------------------------
 
-test('Model: the `--model <value>` form, value byte-exact', () => {
-  assert.equal(valueOf(session({ args: ['--model', 'opus'] }), 'Model'), 'opus');
+test('Model: the `--model <value>` form, a known id reads as its dialog label', () => {
+  assert.equal(valueOf(session({ args: ['--model', 'opus'] }), 'Model'), 'Opus');
 });
 
-test('Model: the `--model=<value>` form, value byte-exact', () => {
-  assert.equal(valueOf(session({ args: ['--model=sonnet'] }), 'Model'), 'sonnet');
+test('Model: the `--model=<value>` form, a known id reads as its dialog label', () => {
+  assert.equal(valueOf(session({ args: ['--model=sonnet'] }), 'Model'), 'Sonnet');
+});
+
+test('Model: an id outside the dialog list is shown verbatim, byte-exact', () => {
+  assert.equal(valueOf(session({ args: ['--model', 'claude-opus-4-1'] }), 'Model'), 'claude-opus-4-1');
 });
 
 test('Model: absent / valueless flag -> no Model item at all', () => {
@@ -254,7 +258,7 @@ test('order is Model, Mode, Time — always, whatever the argv order', () => {
     createdAt: ago(2 * HOUR + 15 * MIN),
   });
   assert.deepEqual(paneStatusItems(full, NOW), [
-    { k: 'Model', v: 'opus', tone: 'neutral' },
+    { k: 'Model', v: 'Opus', tone: 'neutral' },
     { k: 'Mode', v: PERM_SHORT.plan, tone: 'neutral' },
     { k: 'Time', v: '2h 15m', tone: 'neutral' },
   ]);

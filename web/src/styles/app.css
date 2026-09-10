@@ -148,9 +148,8 @@ select:focus-visible,
   background: var(--color-neutral-700);
 }
 
-/* Shared state-colour helpers (drawer rows, GitHub facts, the launch
-   dialog's danger segment). Still on the alias names — the surfaces that use
-   them are migrated in A5 and A7. */
+/* Shared state-colour helpers (drawer rows, GitHub facts). Still on the
+   alias names — the surfaces that use them are migrated in A5 and A7. */
 .is-warn {
   color: var(--text-mute);
 }
@@ -434,7 +433,7 @@ select:focus-visible,
   background: var(--color-accent-800);
 }
 
-/* the primary green "go" button: empty state, launch dialog */
+/* the primary green "go" button: the New Project dialog's Create project */
 .btn-go {
   height: var(--ctl-h);
   padding: 0 var(--s-7);
@@ -1085,7 +1084,7 @@ select:focus-visible,
   margin-top: var(--space-2);
 }
 
-/* ---- shared form bits (settings + launch dialog) --------------------------- */
+/* ---- shared form bits (settings + the launch-* dialogs) -------------------- */
 
 /* ghost button (dialog cancel, browse, modal actions) */
 .btn {
@@ -1943,20 +1942,17 @@ kbd {
   font-size: var(--fs-label);
 }
 
-/* ---- launch dialog (handoff §8) ---------------------------------------------
-   The modal that creates sessions. Centered over the ONE sanctioned blurred
-   backdrop; header rides its own sanctioned gradient. Every data surface —
-   fields, mode segments, the custom command — is mono.
-
-   2026-09-06: cut back to a short form (user's call). The preset chips and the
-   summary ink well are gone from THIS dialog; `.launch-cmd` / `.launch-sum-line`
-   / `.launch-sub` / `.launch-note` stay because the New Project dialog, the
-   folder picker and the settings panel share them. */
+/* ---- shared dialog chrome (the Legacy launch-* names) ------------------------
+   These launch-* rules no longer style the New session dialog — Nocturne A4
+   moved it onto its own `ns-` block (below, on the primitives). They stay
+   because the New Project dialog, the folder picker, the settings panel and
+   the restart/update dialogs still wear them; part A7 migrates those and A8
+   deletes what is left. */
 
 .launch-scrim {
   align-items: center;
   padding-top: 0;
-  backdrop-filter: blur(4px); /* sanctioned: handoff launch-dialog backdrop */
+  backdrop-filter: blur(4px); /* sanctioned: handoff dialog backdrop, New Project only (New session: flat --color-scrim, A4) */
 }
 
 .launch-gap {
@@ -2036,13 +2032,6 @@ kbd {
   overflow-y: auto;
 }
 
-/* 2-column fields: name · project / model · effort */
-.launch-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s-7);
-}
-
 .launch-field {
   display: flex;
   flex-direction: column;
@@ -2067,101 +2056,9 @@ kbd {
   font-size: var(--fs-name);
 }
 
-/* custom-mode command field: command text is code/data → mono (size stays
-   the shared field size, --fs-name — itself a mono data size) */
-.launch-custom input {
-  font-family: var(--font-mono);
-}
-
-/* the claude-only controls are HIDDEN outside the claude kind (2026-09-08),
-   not dimmed — the dimmed variant this rule used to style left four dead
-   controls in a dialog that then needed a scrollbar. `hidden` does the work;
-   nothing here has to. */
-
-.mode-seg-btn:disabled {
-  cursor: default;
-}
-
-/* Segmented rows: ONE idiom, three users — the session kind (3 radios), the
-   shell (2 radios) and the permission mode (4 toggles). They share the field
-   floor and height so they read as another field rather than a card grid;
-   hairlines between segments, selection carries the accent. `grid-auto-flow`
-   instead of a fixed column count so the same rule fits every length. */
-.mode-seg {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-field);
-  overflow: hidden;
-}
-
-.mode-seg-btn {
-  height: var(--field-h);
-  padding: 0 var(--s-3);
-  background: transparent;
-  border-left: var(--line) solid var(--edge-mid);
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tab);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: background var(--t-btn), color var(--t-btn);
-}
-
-.mode-seg-btn:first-child {
-  border-left: none;
-}
-
-/* the ring lives INSIDE the segment: .mode-seg clips its overflow, so an
-   outline with an offset would be cut off exactly where it matters — and with
-   the kind/shell rows on a roving tabindex, that ring IS the keyboard position */
-.mode-seg-btn:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 var(--tick) var(--acc);
-}
-
-.mode-seg-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.mode-seg-btn.is-sel {
-  background: var(--acc-tint);
-  color: var(--acc);
-}
-
-/* the dangerous mode keeps the warning colour selected or NOT — the words got
-   shorter, the red did not go away */
-.mode-seg-btn.is-danger {
-  color: var(--danger-mut);
-}
-
-.mode-seg-btn.is-danger.is-sel {
-  background: var(--danger-edge);
-  color: var(--danger);
-}
-
-/* the kind switch is the only row that changes what the rest of the form MEANS,
-   so it is separated from the fields by the same hairline the dialog uses
-   between its sections — a field changes a value, this changes the session */
-.launch-kind {
-  padding-bottom: var(--dlg-gap);
-  border-bottom: var(--line) solid var(--edge-mid);
-}
-
-/* the continue checkbox borrows the app's toggle row; pull it out to the body's
-   own left edge so its box lines up with the field labels above */
-.launch-check {
-  margin: 0 calc(var(--s-4) * -1);
-  padding: var(--s-3) var(--s-4);
-}
-
 /* ink well: the New Project dialog's clone summary. Mono, because it states
    VALUES (the pasted url, the destination folder). Kept under the launch-*
-   names because that dialog speaks the launch dialog's visual language. */
+   names because that dialog speaks the Legacy launch dialog's visual language. */
 .launch-cmd {
   padding: var(--s-5) var(--s-6);
   background: var(--well);
@@ -2177,10 +2074,6 @@ kbd {
 /* one summary fact per line */
 .launch-sum-line {
   line-height: 1.55;
-}
-
-.launch-none {
-  color: var(--text-mute);
 }
 
 .launch-ft {
@@ -2200,23 +2093,6 @@ kbd {
   color: var(--text-faint);
 }
 
-/* the custom-command escape hatch: a quiet mono text button at the footer's
-   left, accent when the mode is on */
-.launch-other {
-  padding: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
-
-.launch-other:hover {
-  color: var(--text);
-}
-
-.launch-other.is-on {
-  color: var(--acc);
-}
-
 .launch-ft .btn,
 .launch-ft .btn-go {
   height: var(--ctl-h-lg);
@@ -2229,6 +2105,472 @@ kbd {
 
 .launch-ft .btn-go {
   padding: 0 var(--dlg-pad-x);
+}
+
+/* ---- New session dialog (Nocturne A4) ---------------------------------------
+   The v3 modal, written against the Nocturne primitives (--color-*,
+   --space-*, --radius-*, --shadow-*) plus four structural tokens that are
+   declared below the LEGACY ALIAS LAYER marker in tokens.css and have no
+   primitive twin: --line, --tick, --font-sans, --font-mono (the A3 pane block
+   uses the same four). No Legacy colour or spacing alias. When part A8 deletes
+   the alias layer it must keep these four, or move them above the marker
+   (tests/ui-launch-a4.test.ts, BELOW_MARKER_ALLOWED). Type sizes are the v3
+   markup's own literals. One accent rule: the SELECTED card's outline and the
+   Start session outline; nothing else in the dialog is blurple except the
+   focus ring. Danger red belongs to exactly one card, No prompts.
+
+   Structure: header (title, close) / scrolling body / footer with a top
+   hairline. Cards are the dialog's radio controls — 1px neutral-800 outline,
+   transparent; selected = accent outline on the --color-bg ground. Inert
+   cards (part B5) keep their outline but drop to neutral-700 ink. */
+
+/* Top-anchored, never centred: the modal's height changes with the Tool, and a
+   centred box moved the tool grid under the pointer on every switch. 317px is
+   half the Claude Code layout's measured height (634.5px at 540 wide), so the
+   tallest layout still sits centred and every other kind keeps the same top. */
+.modal-scrim.ns-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 317px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: nsFade 0.14s ease;
+}
+
+.ns-modal {
+  width: 540px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the body scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@keyframes nsFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.ns-scrim,
+  .ns-modal {
+    animation: none;
+  }
+}
+
+.ns-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.ns-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.ns-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ns-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ns-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-2) var(--space-8) var(--space-6);
+}
+
+/* the claude-only set is one block so it hides as one; inside it keeps the
+   body's own rhythm */
+.ns-kindbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* a labelled group (Tool, Permissions, Shell) and a labelled field */
+.ns-group,
+.ns-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ns-lb {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.ns-opt {
+  color: var(--color-neutral-600);
+}
+
+/* two fields side by side: Name + Project, Model + Effort */
+.ns-row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.ns-field input,
+.ns-field select {
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans); /* names and choices are words, not data */
+  font-size: 13px;
+}
+
+.ns-field select {
+  padding: 0 var(--space-3);
+}
+
+.ns-field input::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.ns-field input:focus,
+.ns-field select:focus {
+  border-color: var(--color-accent);
+}
+
+/* a field's focus is ONE 2px ring: its own border plus an inset line, so a
+   focused input never wears a border AND an outline */
+.ns-modal .ns-field input:focus-visible,
+.ns-modal .ns-field select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 var(--line) var(--color-accent);
+}
+
+/* the Command field's content IS a command: the one mono input */
+.ns-cmd input {
+  font-family: var(--font-mono);
+}
+
+/* ---- card grids -------------------------------------------------------------- */
+
+.ns-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ns-shells {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ns-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 13px;
+  text-align: left;
+}
+
+.ns-card:hover:not(.is-sel):not([aria-disabled='true']):not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.ns-card.is-sel {
+  background: var(--color-bg);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ns-card[aria-disabled='true'] {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+.ns-card-txt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ns-card-lb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-card-sub {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-card[aria-disabled='true'] .ns-card-sub {
+  color: var(--color-neutral-600); /* the hint stays readable; the name dims */
+}
+
+/* Tool cards: 40px, mark tile + label + sub-line on one line */
+.ns-tools .ns-card {
+  height: 40px;
+  padding: 0 var(--space-3);
+}
+
+.ns-mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-300);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* the known agent's tile carries the accent family (v3) */
+.ns-mark.is-agent {
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+}
+
+.ns-card[aria-disabled='true'] .ns-mark {
+  color: var(--color-neutral-700);
+}
+
+/* Shell and Permission cards: label (500) over an optional sub-line */
+.ns-shells .ns-card,
+.ns-perms .ns-card {
+  color: var(--color-text);
+}
+
+.ns-shells .ns-card-lb,
+.ns-perms .ns-card-lb {
+  font-weight: 500;
+}
+
+.ns-shells .ns-card[aria-disabled='true'] {
+  color: var(--color-neutral-700);
+}
+
+/* four to a row leaves ~120px a card: a long name ("Command Prompt") wraps
+   to a second line instead of being cut, and every card keeps its words at
+   the top */
+.ns-shells .ns-card {
+  align-items: flex-start;
+}
+
+.ns-shells .ns-card-lb {
+  white-space: normal;
+}
+
+.ns-shells .ns-card-sub {
+  color: var(--color-neutral-500);
+}
+
+/* No prompts: red label whether selected or not, red outline when selected */
+.ns-card.is-danger .ns-card-lb {
+  color: var(--color-danger);
+}
+
+.ns-card.is-danger.is-sel {
+  border-color: var(--color-danger);
+}
+
+/* ---- focus: one structural ring for every control in the dialog ------------- */
+
+.ns-modal button:focus-visible,
+.ns-modal input:focus-visible,
+.ns-modal select:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* ---- Permissions: label row + the one info button + its popover ------------- */
+
+.ns-perm {
+  position: relative;
+}
+
+.ns-lbrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ns-info {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+}
+
+.ns-info svg {
+  display: block;
+}
+
+.ns-info:hover,
+.ns-info[aria-expanded='true'] {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ns-help {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  z-index: 2;
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: fadeUp 0.14s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-help {
+    animation: none;
+  }
+}
+
+.ns-help-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.ns-help-list dt {
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.ns-help-list dt.is-danger {
+  color: var(--color-danger);
+}
+
+.ns-help-list dd {
+  color: var(--color-neutral-400);
+}
+
+/* ---- error, the no-projects line, footer ------------------------------------- */
+
+.ns-err {
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ns-none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+}
+
+.ns-link {
+  padding: 0;
+  color: var(--color-accent-300);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ns-link:hover {
+  color: var(--color-text);
+}
+
+.ns-ft {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+.ns-ft .btn-accent:disabled {
+  background: transparent;
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* Narrow: four shell cards no longer fit a row — two by two, and the paired
+   fields stack so no select is squeezed below its words. */
+@media (max-width: 520px) {
+  .ns-shells {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ns-hd,
+  .ns-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .ns-body {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+@media (max-width: 360px) {
+  .ns-row2 {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---- settings panel (status line) -------------------------------------------
@@ -2285,7 +2627,7 @@ kbd {
 }
 
 /* the item rows the master switch governs: a hairline says "these belong to
-   the row above", and the launch dialog's dim treatment says "not in play" */
+   the row above", and the dim treatment says "not in play" */
 .settings-items {
   border-top: var(--line) solid var(--edge-soft);
   padding-top: var(--s-3);
@@ -2418,7 +2760,7 @@ kbd {
 }
 
 /* ---- new project dialog (Phase 2a) ------------------------------------------
-   Reuses the launch-dialog gradient header + scroll body + ink-well preview.
+   Reuses the shared launch-* gradient header + scroll body + ink-well preview.
    Adds only the two-mode tab row, the browse-path row, and a mono caption; the
    GitHub tab is deferred to 2b (the .np-tabs list takes a third entry). No new
    design tokens — every value maps to an existing token. */
@@ -3594,8 +3936,9 @@ kbd {
   color: var(--text-faint);
 }
 
-/* the "Continue last conversation" footnote — an attention note, same rule
-   idiom as .settings-notice, only rendered when it actually applies */
+/* the Start from "The last conversation in this project" footnote
+   (CONTINUE_NOTE) — an attention note, same rule idiom as .settings-notice,
+   only rendered when it actually applies */
 .restart-note {
   padding: var(--s-4) var(--s-5);
   background: var(--well);

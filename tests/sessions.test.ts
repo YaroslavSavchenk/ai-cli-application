@@ -239,12 +239,12 @@ test('the Terminal kind’s WSL argv (/bin/bash -l) really spawns, echoes, and f
     cwd: workDir,
     cols: 80,
     rows: 24,
-    title: 'WSL shell',
+    title: 'Bash',
   });
   assert.equal(info.command, '/bin/bash');
   assert.deepEqual(info.args, ['-l']);
   assert.equal(info.status, 'running');
-  assert.equal(info.title, 'WSL shell', 'the UI sends the shell name so no raw path is ever titled');
+  assert.equal(info.title, 'Bash', 'the UI sends the shell name so no raw path is ever titled');
 
   const c = await WsClient.connect(wsUrl(server, info.id));
   await c.waitForMessage('replay');

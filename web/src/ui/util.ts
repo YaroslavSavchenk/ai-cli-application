@@ -84,7 +84,8 @@ export class ArmedSet {
  * dismissal is handled by the caller's own keydown dispatch.
  *
  * `tabIndex >= 0` excludes the unselected members of a roving-tabindex
- * radiogroup (the launch dialog's kind/shell segments): they are buttons the
+ * radiogroup (the New session dialog's Tool, Shell and Permissions card grids,
+ * whose inert cards are permanently tabindex -1 too): they are buttons the
  * browser's own Tab order skips, so counting them as the first/last stop would
  * break the wrap at exactly the edges this exists to handle.
  */
@@ -123,9 +124,9 @@ export function modelFromArgs(args: string[]): string | null {
 }
 
 /**
- * Permission tag from argv, in the UI's plain words (`PERM_SHORT`, the narrow-
- * chip forms): both bypass forms read "no prompts", `acceptEdits` reads
- * "auto edits", `plan` reads "read-only". Danger (red tag) for both bypass
+ * Permission tag from argv, in the UI's plain words (`PERM_SHORT`, the pane
+ * status bar's Mode value): both bypass forms read "No prompts", `acceptEdits`
+ * reads "Auto edits", `plan` reads "Read only". Danger (red tag) for both bypass
  * forms; null for default/absent (no tag shown at all — unchanged). A mode
  * outside the known four (only reachable from a custom command the user typed)
  * is shown verbatim: inventing a translation for it would be dishonest.

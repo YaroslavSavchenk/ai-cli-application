@@ -49,7 +49,7 @@ test('commandLabel: each shell the dialog composes reads as that shell’s name 
     assert.equal(commandLabel(s.command).includes('.exe'), false, s.label);
   }
   // Byte-exact, so a table edit that renames a spawn is visible here too.
-  assert.equal(commandLabel('/bin/bash'), 'WSL shell');
+  assert.equal(commandLabel('/bin/bash'), 'Bash');
   assert.equal(commandLabel('powershell.exe'), 'PowerShell');
 });
 
@@ -104,7 +104,7 @@ test('history meta: a claude entry adds NOTHING — its model tag already names 
 });
 
 test('history meta: both built-in shells get their product name, so a shell row is not mistaken for a Claude row', () => {
-  assert.equal(historyMetaLabel('/bin/bash'), 'WSL shell');
+  assert.equal(historyMetaLabel('/bin/bash'), 'Bash');
   assert.equal(historyMetaLabel('powershell.exe'), 'PowerShell');
   for (const s of SHELLS) assert.equal(historyMetaLabel(s.command), s.label, s.command);
 });
@@ -129,8 +129,49 @@ test('the sessions drawer really composes its history meta from this rule (sourc
   );
   // And it must be the SHARED helper, not a second table copied into the drawer.
   assert.ok(
-    src.includes("import { commandLabel, isClaudeCommand } from './launch-args.ts';"),
+    src.includes("import { commandLabel, isClaudeCommand, modelLabel } from './launch-args.ts';"),
     'the drawer must import the shared vocabulary, never redefine it',
   );
   assert.equal(src.includes('export function commandLabel'), false, 'commandLabel must not live here anymore');
+});
+
+// ---------------------------------------------------------------------------
+// The model word (Nocturne A4 fix round, 2026-09-10)
+// ---------------------------------------------------------------------------
+//
+// The New session dialog shows `Opus`, so every place a session's model is
+// named says `Opus` too: `modelLabel` (ui/launch-args.ts, unit-tested in
+// tests/ui-launch-args.test.ts) at the pane status bar (behaviour-tested in
+// tests/ui-pane-status-model.test.ts) and at the two drawer sites below. The
+// drawer needs a DOM, so — as above — the wiring is a source check.
+
+test('the sessions drawer names a model through modelLabel at BOTH render sites, never the raw argv id (source check)', () => {
+  const src = readFileSync(SESSIONS, 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // Active row: the model tag, falling back to the command's product name.
+  const tagLines = code.split('\n').filter((l) => l.includes("'sess-model'"));
+  assert.equal(tagLines.length, 1, 'non-vacuity: exactly one sess-model tag builder');
+  assert.ok(
+    /modelLabel\(\s*modelId\s*\)/.test(tagLines[0] as string),
+    `the drawer model tag must go through modelLabel: ${(tagLines[0] as string).trim()}`,
+  );
+  assert.ok(
+    (tagLines[0] as string).includes('commandLabel(info.command)'),
+    'a session with no model still names its command through commandLabel, never the raw command',
+  );
+
+  // History row: the meta line's model part.
+  const start = code.indexOf('function historyRow(');
+  assert.notEqual(start, -1, 'sessions.ts must still define historyRow');
+  const body = code.slice(start, start + 2000);
+  assert.ok(body.includes('parts.push(modelLabel(model));'), 'historyRow must push modelLabel(model)');
+  assert.equal(/parts\.push\(\s*model\s*\)/.test(body), false, 'historyRow must not push the raw model id');
+
+  // Rule, not snapshot: every model the drawer READS from argv is labelled —
+  // a third site that shows `modelFromArgs(...)` directly fails here.
+  const reads = [...code.matchAll(/\bmodelFromArgs\(/g)].length;
+  const labels = [...code.matchAll(/\bmodelLabel\(/g)].length;
+  assert.ok(reads >= 2, `non-vacuity: ${reads} modelFromArgs reads`);
+  assert.equal(labels, reads, `${reads} modelFromArgs reads but ${labels} modelLabel calls`);
 });

@@ -4,7 +4,9 @@
  * dialog's blank LOCAL PATH and clone DESTINATION rows.
  *
  * Anatomy (in the established dialog language): the sanctioned gradient header
- * (reusing the launch-dialog header idioms), a breadcrumb + "up one level" nav,
+ * (the shared `launch-hd` dialog header the New Project, settings and restart
+ * dialogs also wear; the New session dialog left it for its own `ns-` chrome
+ * in Nocturne A4), a breadcrumb + "up one level" nav,
  * quick zones (Home / ~/projects when it exists / Root), the directory list
  * (folders only, from `dirs`, via the existing `.dirlist`/`.dir-btn`), a
  * "new folder" input + button (POST /api/fs/mkdir → navigate into it), and a
@@ -64,7 +66,7 @@ export function openFolderPicker(opts: PickerOpts): void {
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', opts.title);
 
-  // ---- header (sanctioned gradient, reusing the launch-dialog header) -------
+  // ---- header (sanctioned gradient, the shared `launch-hd` dialog header) ----
   const hd = el('header', 'launch-hd');
   const tile = el('div', 'launch-tile');
   tile.setAttribute('aria-hidden', 'true');

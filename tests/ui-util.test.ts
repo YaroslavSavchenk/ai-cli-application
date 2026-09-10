@@ -48,28 +48,28 @@ test('modelFromArgs: --model= with an empty value -> null', () => {
 
 test('permFromArgs: --dangerously-skip-permissions -> the plain short form, danger', () => {
   assert.deepEqual(permFromArgs(['--dangerously-skip-permissions']), {
-    label: 'no prompts',
+    label: 'No prompts',
     danger: true,
   });
 });
 
 test('permFromArgs: --permission-mode <value> -> that mode in plain words, not dangerous', () => {
   assert.deepEqual(permFromArgs(['--permission-mode', 'plan']), {
-    label: 'read-only',
+    label: 'Read only',
     danger: false,
   });
 });
 
 test('permFromArgs: --permission-mode=<value> form', () => {
   assert.deepEqual(permFromArgs(['--permission-mode=acceptEdits']), {
-    label: 'auto edits',
+    label: 'Auto edits',
     danger: false,
   });
 });
 
 test('permFromArgs: --permission-mode bypassPermissions -> danger, same red semantics AND the same plain label as the skip flag', () => {
   assert.deepEqual(permFromArgs(['--permission-mode', 'bypassPermissions']), {
-    label: 'no prompts',
+    label: 'No prompts',
     danger: true,
   });
 });
@@ -111,7 +111,7 @@ test('permFromArgs: --permission-mode as the last arg (no value) -> null', () =>
 test('permFromArgs: both bypass forms present -> the skip flag wins, still danger', () => {
   assert.deepEqual(
     permFromArgs(['--permission-mode', 'plan', '--dangerously-skip-permissions']),
-    { label: 'no prompts', danger: true },
+    { label: 'No prompts', danger: true },
   );
 });
 
