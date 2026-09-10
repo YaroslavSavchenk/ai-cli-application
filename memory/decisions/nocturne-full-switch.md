@@ -44,6 +44,19 @@ RULE itself stands).
   neutral-200, neutral-800); the border tracks `--edge-strong`, since `--edge`
   is now a translucent `color-mix`. Needs a Windows rebuild.
 
+## Amendment — terminal colours come back (2026-09-10 evening, user's call)
+
+After checking A4 the user asked for a step so the terminal colours can be
+customised again, "zoals in dit terminal ook staat". The Legacy theme
+POPOVER still goes, but customisation returns inside Nocturne: a
+**Terminal colours** page in Settings (A7 visual, new part **B9** live).
+The machinery in `web/src/ui/theme.ts` — `:root` custom properties feeding
+`themeFromTokens()`, `refreshAllTerminalThemes()`, the prefs.json copy
+(localStorage dies with the port) — is kept and reused, NOT deleted in
+A8/B8. Its shape (presets vs picker, which colours, terminal only vs app
+accent, placement) is open decision 10 in the plan. Status colours stay
+semantic, never themed.
+
 ## A4 decisions — New session dialog (2026-09-10)
 
 Three v3-vs-earlier-decision conflicts, all answered by the user before A4

@@ -1,12 +1,17 @@
 # Plan: Nocturne redesign (design_handoff_session_manager, v3)
 
-Status (2026-09-10): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed (decisions 7, 8, 9 settled by the user); Windows look owed. Next: A5, only on "begin aan A5".
+Status (2026-09-10): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed and user-checked in the Windows dev window ("ziet er goed uit"). Next: A4b (terminal ground + font load fix), then A5 — each only on the user's "begin aan <id>".
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
-mode, no toggle, no theme variants. Legacy is preserved only as git history:
+mode, no Legacy/Nocturne toggle. Legacy is preserved only as git history:
 tag `legacy-ui` on the last commit before A1 starts. Legacy styles, the theme
-popover and `design-mocks/` are removed in A8/B8. Nocturne ships as v0.4.0.
+popover UI and `design-mocks/` are removed in A8/B8. Nocturne ships as v0.4.0.
+Amended (user, 2026-09-10 evening): customising the terminal colours comes
+BACK inside Nocturne, as a Settings page (A7 visual, B9 live), not as the
+Legacy popover. The persistence/refresh machinery in `web/src/ui/theme.ts`
+(prefs.json copy, live refresh of every open terminal) is therefore kept and
+reused, not deleted in A8/B8.
 
 No methods chosen, no code investigated beyond a file listing. Each part below is sized to fit one
 rate-limited session and is started only when the user says "begin aan <id>".
@@ -54,6 +59,11 @@ Fixed rules for every part:
 - Terminal: shell cards Bash, Zsh, PowerShell, Command Prompt. Command preview at bottom.
 - Existing Claude Code launch keeps working behind the new visuals. Non-Claude tools and shells are visible but inert (disabled with clear hint) until B5.
 
+### A4b. Terminal ground + font load (fix, before A5)
+- Found while the user tested A4 (2026-09-10): xterm's viewport paints its default `#000` in the `.xterm` padding, so a black band (~17 px) frames the text on the Nocturne ground `#0b0d14`. The whole terminal area must be the ground.
+- Nothing waits for JetBrains Mono before a terminal draws; the woff2 can arrive after the first draw, and that pane then keeps a fallback font (Cascadia Mono on Windows) until a reload. Load the font first, or clear the glyph atlas + refit once it lands.
+- `/dev-flow` + `/verify-terminal` (terminal code).
+
 ### A5. Files panel + Commits list (visual)
 - Left panel, resizable 200–520 px by dragging its right edge. Tabs Files / Commits, header with project name.
 - Files: summary row, tree with folder icons and per-extension badges, per-file +/-, amber pulse on touched files and ancestor folders.
@@ -65,7 +75,7 @@ Fixed rules for every part:
 - Editor right of terminal at ~54 % width: tabs with amber unsaved dot, path, Save/Saved, line gutter, editable mono text. Mock content.
 
 ### A7. Settings + Add-a-project dialog (visual)
-- Settings with left nav: Status bar (checklist), Preferences, Keyboard, Background service (version, uptime, Check for updates, Restart). Existing update/restart flows reused visually.
+- Settings with left nav: Status bar (checklist), Preferences, Keyboard, **Terminal colours** (added 2026-09-10, user's ask; not in v3 — designed in the Nocturne idiom, see B9 and open decision 10), Background service (version, uptime, Check for updates, Restart). Existing update/restart flows reused visually.
 - Add a project: tabs New folder / Clone a repository / From GitHub, restyled over the existing flow.
 
 ### A8. UI gate
@@ -100,13 +110,18 @@ Fixed rules for every part:
 ### B7. Background agents table live
 - Data source is an OPEN DECISION; if none exists, table shows an honest empty state and this part is dropped.
 
+### B9. Terminal colours live (added 2026-09-10, user's ask)
+- The user can customise the terminal colours, like other terminals allow (e.g. Windows Terminal colour schemes): at least the terminal ground and the text colours, with the Nocturne look as the default and a way back to it.
+- Reuse the existing machinery in `web/src/ui/theme.ts`: CSS custom properties on `:root` feed `themeFromTokens()`, `refreshAllTerminalThemes()` repaints every open terminal live, the choice persists server-side in `prefs.json` (localStorage dies with every auto-picked port). Status colours (green/amber/red) stay semantic and are never themed.
+- Exact shape is OPEN DECISION 10.
+
 ### B8. Cleanup + memory
-- Janitor; remove remaining Legacy UI code (theme picker, old tokens, `design-mocks/`, v2 handoff files); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
+- Janitor; remove remaining Legacy UI code (the theme popover UI — not the `theme.ts` machinery B9 reuses — old tokens, `design-mocks/`, v2 handoff files); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
 
 ---
 
 ## Open decisions (user decides; do not settle silently)
-1. ~~Old theme popover~~ DECIDED: drop; Legacy UI removed entirely (see above).
+1. ~~Old theme popover~~ DECIDED: drop the popover; Legacy UI removed entirely (see above). Amended 2026-09-10 evening (user): colour customisation itself returns as a Nocturne Settings page — see A7, B9 and decision 10.
 2. Data sources for Cost, Context, Account usage, Active skill, Lines changed in the status bar.
 3. Source of "files the session is touching": Claude Code hooks, transcript watching, or something else.
 4. Where API keys live locally and how they reach the child process.
@@ -115,7 +130,8 @@ Fixed rules for every part:
 7. ~~A4 — command preview~~ DECIDED 2026-09-10 (user): left out; the 2026-07-25 "no commands or flags in the UI" rule stands.
 8. ~~A4 — permission-card descriptions~~ DECIDED 2026-09-10 (user): cards show labels only, plus ONE small info button beside the "Permissions" label that opens a short plain explanation of all four modes. The only explanatory copy in the dialog.
 9. ~~A4 — where the custom-command escape hatch lives (v3 has none)~~ DECIDED 2026-09-10 (user): a sixth tool card "Other" after Terminal, showing the existing command field.
+10. Terminal colours (B9), ask before A7: (a) presets only, a free colour picker, or both; (b) which colours — ground + text only, or the full ANSI palette; (c) terminal only, or the app's accent colour too; (d) its place — a Settings page only, or also a quick switch in the top bar. Orchestrator's advice: a Settings page with a handful of presets (Nocturne first) plus custom ground and text colours; terminal only; status colours never themed.
 
 ## Suggested order
-A1 → A2 → A3 → A4 → A5 → A6 → A7 → A8, then B1 → B5 → B2 → B3 → B4 → B6 → B7 → B8.
+A1 → A2 → A3 → A4 → A4b → A5 → A6 → A7 → A8, then B1 → B5 → B2 → B3 → B4 → B6 → B9 → B7 → B8.
 B5 early because it unblocks real use of the new dialog; B2–B4 form one git/editor cluster.
