@@ -121,7 +121,36 @@ function tsFiles(dir: string): string[] {
 // a. the handoff primitives are transcribed, value for value
 // ---------------------------------------------------------------------------
 
-test('A1 (a): tokens.css carries every Nocturne primitive from the handoff, with the handoff value', () => {
+/**
+ * The handoff directory is a local design asset (excluded from the repo via
+ * .git/info/exclude), so CI never sees it. The committed fixture is the
+ * snapshot of its `:root` primitives; tokens.css is always checked against
+ * the fixture, and — whenever the handoff IS present — the fixture is checked
+ * against the handoff, so neither side can drift unnoticed.
+ */
+const HANDOFF_FIXTURE = join(projectRoot, 'tests', 'fixtures', 'nocturne-handoff-tokens.json');
+
+function primitivesOf(decls: Map<string, string>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [name, value] of decls) {
+    if (name.startsWith('--color-section')) continue; // deck-only fills, intentionally omitted
+    if (name.startsWith('--font-')) continue; // the app has its own stack
+    if (!/^--(color|space|radius|shadow)-/.test(name)) continue;
+    out.set(name, value);
+  }
+  return out;
+}
+
+function fixtureTokens(): Map<string, string> {
+  const parsed = JSON.parse(read(HANDOFF_FIXTURE)) as { tokens: Record<string, string> };
+  return new Map(Object.entries(parsed.tokens));
+}
+
+test('A1 (a0): the committed fixture is a faithful snapshot of the handoff styles.css (when the handoff is present)', (t) => {
+  if (!existsSync(DS_DIR)) {
+    t.skip(`${rel(DS_DIR)} is not present (local design asset, excluded from git) — fixture parity cannot be checked here`);
+    return;
+  }
   const dirs = readdirSync(DS_DIR).filter((d) => d.startsWith('nocturne-'));
   assert.equal(
     dirs.length,
@@ -129,20 +158,36 @@ test('A1 (a): tokens.css carries every Nocturne primitive from the handoff, with
     `expected exactly one nocturne-* design system under ${rel(DS_DIR)}, found ${dirs.length}: ${dirs.join(', ')}`,
   );
   const handoffCss = join(DS_DIR, dirs[0]!, 'styles.css');
-  const handoff = declarations(rootBlock(stripComments(read(handoffCss)), rel(handoffCss)));
+  const handoff = primitivesOf(declarations(rootBlock(stripComments(read(handoffCss)), rel(handoffCss))));
+  assert.ok(handoff.size >= 40, `only parsed ${handoff.size} primitives out of ${rel(handoffCss)}`);
+  const fixture = fixtureTokens();
+  const problems: string[] = [];
+  for (const [name, value] of handoff) {
+    if (!fixture.has(name)) problems.push(`${name}: missing from the fixture (handoff: ${value})`);
+    else if (norm(fixture.get(name)!) !== norm(value)) problems.push(`${name}: fixture has \`${fixture.get(name)}\`, the handoff says \`${value}\``);
+  }
+  for (const name of fixture.keys()) {
+    if (!handoff.has(name)) problems.push(`${name}: in the fixture but not in the handoff`);
+  }
+  assert.deepEqual(
+    problems,
+    [],
+    `${rel(HANDOFF_FIXTURE)} must mirror ${rel(handoffCss)} — regenerate it from the handoff:\n${problems.join('\n')}`,
+  );
+});
+
+test('A1 (a): tokens.css carries every Nocturne primitive from the handoff, with the handoff value', () => {
+  const handoff = fixtureTokens();
   const tokens = tokenDecls();
 
   // Parser sanity: if either side silently produced nothing, every assertion
   // below would pass vacuously.
-  assert.ok(handoff.size >= 45, `only parsed ${handoff.size} declarations out of ${rel(handoffCss)}`);
+  assert.ok(handoff.size >= 40, `only ${handoff.size} primitives in ${rel(HANDOFF_FIXTURE)}`);
   assert.ok(tokens.size >= 150, `only parsed ${tokens.size} declarations out of ${rel(TOKENS_CSS)}`);
 
   const problems: string[] = [];
   let compared = 0;
   for (const [name, value] of handoff) {
-    if (name.startsWith('--color-section')) continue; // deck-only fills, intentionally omitted
-    if (name.startsWith('--font-')) continue; // the app has its own stack
-    if (!/^--(color|space|radius|shadow)-/.test(name)) continue;
     compared++;
     if (!tokens.has(name)) {
       problems.push(`${name}: missing from tokens.css (handoff: ${value})`);
@@ -153,11 +198,11 @@ test('A1 (a): tokens.css carries every Nocturne primitive from the handoff, with
       problems.push(`${name}: tokens.css has \`${mine}\`, the handoff says \`${value}\``);
     }
   }
-  assert.ok(compared >= 40, `only compared ${compared} primitives — the filter is too narrow`);
+  assert.ok(compared >= 40, `only compared ${compared} primitives — the fixture is too small`);
   assert.deepEqual(
     problems,
     [],
-    `tokens.css must transcribe ${rel(handoffCss)} verbatim (it may define MORE, never a different value):\n${problems.join('\n')}`,
+    `tokens.css must transcribe the handoff primitives verbatim (it may define MORE, never a different value):\n${problems.join('\n')}`,
   );
 });
 
