@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design_handoff_session_manager, v3)
 
-Status: PLAN ONLY (2026-09-10). Nothing implemented.
+Status (2026-09-10): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). Next: A4 — ask open decisions 7 and 8 first.
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -111,6 +111,8 @@ Fixed rules for every part:
 4. Where API keys live locally and how they reach the child process.
 5. Phosphor icons: inline SVG subset vs. package.
 6. pwsh.exe / cmd.exe via interop: allowed under the hard constraints in `PROJECT-SCOPE.md`? Check at B5.
+7. A4 — command preview at the bottom of the new-session dialog (v3) vs the 2026-07-25 rule "no commands or flags in the UI" (`memory/decisions/no-code-in-ui-copy.md`). Orchestrator's advice: leave it out. Ask before A4 starts.
+8. A4 — one-line descriptions under the permission cards (v3: "Approve every action first") vs the 2026-09-06 cut of all explanatory copy in the launch dialog (`memory/decisions/session-history-resume.md`). Orchestrator's advice: labels only. Ask before A4 starts.
 
 ## Suggested order
 A1 → A2 → A3 → A4 → A5 → A6 → A7 → A8, then B1 → B5 → B2 → B3 → B4 → B6 → B7 → B8.
