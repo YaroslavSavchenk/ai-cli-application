@@ -1,7 +1,8 @@
 /**
- * Terminal theme popover (handoff §9): anchored under the topbar Theme
- * button, two INDEPENDENT 5-column swatch grids — 10 terminal grounds × 10
- * text ramps — plus the scanline toggle (default OFF).
+ * Terminal theme popover (Legacy UI, handoff §9; removed in Nocturne part
+ * A8): anchored under the topbar Theme button, two INDEPENDENT 5-column
+ * swatch grids — 10 terminal grounds × 10 text ramps — plus the scanline
+ * toggle (default OFF). Entry 0 of both grids is the Nocturne default.
  *
  * Implementation contract: selections write the existing --term-bg / --xt-*
  * custom properties inline on :root, so themeFromTokens() in ui/terminal.ts
@@ -46,8 +47,8 @@ import {
 
 const STORAGE_KEY = 'ai-sm:theme:v1';
 
-/** The "Aa" text-ramp swatches always render over the charcoal ground. */
-const SWATCH_GROUND = '#0e1116';
+/** The "Aa" text-ramp swatches always render over the Nocturne ground. */
+const SWATCH_GROUND = '#0b0d14';
 
 function loadState(): ThemeState {
   let parsed: unknown = null;

@@ -38,9 +38,11 @@ Do not tweak it — redesign it:
 - Centered empty-state illustrations with friendly copy.
 - Evenly-distributed timid palettes; decoration that carries no information.
 - Fonts chosen by reflex: Inter, Roboto, Arial, and also the AI-favorite
-  Space Grotesk. Pick type with intent (e.g. a characterful mono like
-  JetBrains Mono, Berkeley Mono, Commit Mono, IBM Plex Mono for UI accents —
-  paired with a restrained UI face if mixing).
+  Space Grotesk. (Inter is sanctioned since 2026-09-10 as the Nocturne chrome
+  face — user's handoff, `design_handoff_session_manager/README-v3.md`; the
+  ban is on reflex, not on the face.) Pick type with intent (e.g. a
+  characterful mono like JetBrains Mono, Berkeley Mono, Commit Mono, IBM
+  Plex Mono for UI accents — paired with a restrained UI face if mixing).
 
 ## Required process
 

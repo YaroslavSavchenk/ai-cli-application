@@ -81,11 +81,13 @@ namespace AiSessionManager
         private const int DwmwaCaptionColor = 35;
         private const int DwmwaTextColor = 36;
 
-        // Design tokens, written exactly as in web/src/styles/tokens.css so the
-        // two stay diffable: --bg-app, --text-hd, --edge. ToColorRef converts.
-        private const int TokenBgApp = 0x171D25;
-        private const int TokenTextHd = 0xAAB7C4;
-        private const int TokenEdge = 0x262F3B;
+        // Nocturne design tokens, written exactly as in web/src/styles/tokens.css
+        // so the two stay diffable: --color-bg (caption), --color-neutral-200
+        // (what --text-hd aliases), --color-neutral-800 (the --shadow-sm edge).
+        // ToColorRef converts.
+        private const int TokenBgApp = 0x161826;
+        private const int TokenTextHd = 0xE4E7F5;
+        private const int TokenEdge = 0x3F424D;
 
         private static string _dataDir;
         private static string _readySentinel;

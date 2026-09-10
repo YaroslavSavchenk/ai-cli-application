@@ -1,5 +1,15 @@
 # AI CLI Session Manager — frontend design (handoff transcription)
 
+> **Note (2026-09-10) — the tokens are Nocturne now.** The design source of
+> truth is `design_handoff_session_manager/README-v3.md` plus
+> `design_handoff_session_manager/_ds/nocturne-*/styles.css`. Part A1 of the
+> Nocturne switch (`.claude/PLAN-NOCTURNE.md`) landed the tokens and the
+> fonts: `web/src/styles/tokens.css` now holds the Nocturne primitives with
+> a temporary alias layer for the old role-token names, and the chrome face
+> is **Inter**, not Barlow. Everything else in this file still describes the
+> **Legacy UI** (the "steam blend" skin, preserved as git tag `legacy-ui`)
+> and is rewritten in part B8.
+
 Binding reference for every visual decision in `web/src/`. Since 2026-07-20
 the **hi-fi handoff in `design/` is the primary design source** (user's call,
 reversing the 2026-07-19 "repo tokens win" rule; rationale in
@@ -155,8 +165,9 @@ toggle, default OFF.
 
 ### Typography
 
-- **Chrome: Barlow** 400/500/600/700 — self-hosted woff2 (latin subset,
-  Google Fonts pipeline), OFL at `src/assets/fonts/OFL.txt`.
+- **Chrome: Inter** (Nocturne A1, 2026-09-10 — replaced Barlow) 400–700 —
+  self-hosted variable woff2 (Google's latin subset), under Inter's SIL Open
+  Font License 1.1, committed at `src/assets/fonts/OFL-Inter.txt`.
 - **Data + terminal: JetBrains Mono** 400/500/700 — self-hosted woff2
   (official JetBrains release, full glyph set for terminal coverage), OFL at
   `src/assets/fonts/OFL-JetBrainsMono.txt`. First in the mono stack;
@@ -836,8 +847,13 @@ tab leaves the empty state — nothing auto-spawns.
   them (topbar + pane-area + dialog-header gradients; four shadows; tab/
   dot/go-button glows; the launch-dialog backdrop blur) — **user-sanctioned
   by decision 2026-07-20**, not template residue. Nothing beyond that list.
-- Default-Tailwind look: no Inter/system font (bundled Barlow + JetBrains
-  Mono), no rounded-2xl-card-grid shell, no gray-50.
+- Default-Tailwind look: the chrome face IS Inter — by the Nocturne handoff
+  decision of 2026-09-10 (`design_handoff_session_manager/README-v3.md`), a
+  deliberate choice, not a reflex. The "default-Tailwind" test is the
+  COMBINATION — Inter + a rounded-2xl card grid + soft shadows + gray-50 —
+  and the rest of the system has none of it: no card-grid shell, no soft
+  shadows (hairline edge + ambient darkness only), no gray-50, data and
+  terminal in JetBrains Mono.
 - Generic SaaS dashboard: the shell is topbar / terminal cards / Steam tab
   strip / statusline — no icon sidebar, no card grid, no KPI tiles.
 - Emoji/sparkle iconography: none — text glyphs and state-encoding dots. The

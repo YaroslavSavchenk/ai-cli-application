@@ -1,9 +1,13 @@
 /**
  * Pure data + logic behind the terminal theme popover (ui/theme.ts):
- * the handoff palette tables and the validation/comparison helpers for the
- * persisted selection. Deliberately DOM-free — no xterm, no document — so it
- * stays importable under `node --test`; theme.ts remains the sole owner of
- * applying a theme to :root and the live terminals.
+ * the palette tables and the validation/comparison helpers for the
+ * persisted selection. Entry 0 of each table is the DEFAULT and carries the
+ * Nocturne palette since 2026-09-10; the remaining entries are the Legacy
+ * UI's handoff tables, kept so persisted indexes keep their meaning until
+ * the popover is removed (Nocturne part A8). Deliberately DOM-free — no
+ * xterm, no document — so it stays importable under `node --test`; theme.ts
+ * remains the sole owner of applying a theme to :root and the live
+ * terminals.
  */
 import type { UiTheme } from '../../../shared/protocol.ts';
 
@@ -19,9 +23,15 @@ export interface Ramp {
   dim: string;
 }
 
-/** Handoff "Terminal backgrounds" — exact values. */
+/**
+ * Terminal backgrounds. Entry 0 is the DEFAULT (clampTheme falls back to it)
+ * and since 2026-09-10 it is the Nocturne ground `--color-term`
+ * (oklch(0.16 0.015 275) = #0b0d14), replacing the Legacy UI's charcoal in
+ * place so persisted indexes stay valid. The rest are the Legacy handoff's
+ * "Terminal backgrounds" — exact values; the whole popover goes away in A8.
+ */
 export const GROUNDS: Ground[] = [
-  { name: 'charcoal', hex: '#0e1116' },
+  { name: 'nocturne', hex: '#0b0d14' },
   { name: 'void', hex: '#07090c' },
   { name: 'deep blue', hex: '#0a1220' },
   { name: 'navy', hex: '#0d1526' },
@@ -33,9 +43,14 @@ export const GROUNDS: Ground[] = [
   { name: 'espresso', hex: '#161010' },
 ];
 
-/** Handoff "Terminal text ramps" — exact values (cmd / out / dim). */
+/**
+ * Terminal text ramps (cmd / out / dim). Entry 0 is the DEFAULT and since
+ * 2026-09-10 it is the Nocturne neutral ramp (--color-text / neutral-300 /
+ * neutral-600), matching the --xt-* tokens; the rest are the Legacy
+ * handoff's ramps — exact values.
+ */
 export const RAMPS: Ramp[] = [
-  { name: 'default', cmd: '#e6edf3', out: '#b7c2cd', dim: '#66788a' },
+  { name: 'nocturne', cmd: '#e9e9ed', out: '#cfd3e5', dim: '#75798c' },
   { name: 'phosphor', cmd: '#d8ffd8', out: '#7ee787', dim: '#3f7a4a' },
   { name: 'amber', cmd: '#ffe9c4', out: '#e8b24a', dim: '#8a6a2f' },
   { name: 'ice', cmd: '#e8f4ff', out: '#8fc7f2', dim: '#4a6f8a' },

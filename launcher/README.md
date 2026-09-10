@@ -353,8 +353,9 @@ the page, so a maximized window used to show the default light Windows caption
 above the dark UI. On every handle creation the host applies
 `DwmSetWindowAttribute`: immersive dark mode (attribute `20`, falling back to
 the legacy `19`) plus caption / text / border colors taken straight from
-`web/src/styles/tokens.css` — `--bg-app` `#171D25`, `--text-hd` `#AAB7C4`,
-`--edge` `#262F3B`. The three color attributes need **Windows 11 build
+`web/src/styles/tokens.css` — caption `--color-bg` `#161826`, text
+`--color-neutral-200` `#E4E7F5` (what `--text-hd` aliases), border
+`--color-neutral-800` `#3F424D`. The three color attributes need **Windows 11 build
 22000+**; on Windows 10 they fail harmlessly and the caption stays in plain
 dark mode. Every failure path is non-fatal and logged — this is cosmetic and
 must never break the window. Keep the constants in sync if those tokens change.
@@ -470,8 +471,18 @@ after a ~120 s startup grace with no window ever connected.
 ## Icon
 
 `app.ico` is generated — never hand-edited — by `make-icon.mjs` (plain
-Node, no deps): 16/32/48/256 px, 32bpp BMP entries, phosphor design
-language (warm-graphite square, 1px border, green `>_`).
+Node, no deps): 16/32/48/256 px, 32bpp BMP entries, Nocturne design
+language. The mark is transcribed from
+`design_handoff_session_manager/app-icon.svg` (256-unit viewBox): a dark
+rounded tile with a vertical gradient `#232532` → `#161826`, a 1px
+`#3f424d` edge, a blurple `#b5abfc` chevron with round caps and joins, and a
+light `#e9e9ed` cursor block. **Everything outside the rounded tile is
+transparent** (the old phosphor icon was an opaque square): alpha now carries
+the corners, and the ICO's 1bpp AND mask sets its bit for every alpha-0 pixel
+so consumers that ignore the alpha channel still punch the corners out. The
+16 px entry is a hand-placed pixel map (full-bleed tile, 1px corner cut, 2px
+chevron, 4×2 cursor block) because anti-aliasing turns the mark to mush at
+that size; 32/48/256 are the vector geometry at 4×4 supersampling.
 
 The same script also emits the **web icon set** into `web/public/` (copied to
 the dist root by Vite and served by the backend), so the Edge `--app`
@@ -485,14 +496,18 @@ chromeless window gets a real window/taskbar icon instead of the Edge logo:
 | `web/public/manifest.json` | names the icon set; **not** installable — no `display`/`start_url`, so no PWA pins the auto-picked port |
 
 `web/index.html` declares them (`<link rel="icon">` × 3, `<link
-rel="manifest">`, `<meta name="theme-color" content="#1b222c">`). All five
+rel="manifest">`, `<meta name="theme-color">`). `manifest.json` carries
+`background_color` and `theme_color` `#161826` (`--color-bg`). All five
 outputs are committed artifacts.
 
     node launcher/make-icon.mjs           # regenerate all 5 outputs + self-verify
     node launcher/make-icon.mjs --check   # verify committed outputs match a fresh render
+    node launcher/make-icon.mjs --preview <dir>   # icon-preview-16/32/48/256.png, visual check only
 
 `--check` compares ICO/JSON bytes exactly and PNG *pixels* (decoded), so a
-differing zlib build never trips a false failure.
+differing zlib build never trips a false failure. `--preview` writes nothing
+but those four throwaway PNGs and verifies nothing; it never touches a
+committed output.
 
 After regenerating, re-run `make-shortcut.ps1` so the Windows-local copy at
 `%LOCALAPPDATA%\ai-session-manager\app.ico` (what the shortcuts actually

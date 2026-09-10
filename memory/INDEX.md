@@ -10,6 +10,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Decisions
 
+- [[nocturne-full-switch]] — 2026-09-10: full switch to the v3 "Nocturne" handoff (user's call); Legacy UI = git tag `legacy-ui`, no toggle, popover dies in A8; plan `.claude/PLAN-NOCTURNE.md` A1–A8/B1–B8; A1 decisions: alias layer over `app.css`, xterm palette = exact hex of the oklch semantics, Inter self-hosted (sanctioned), icon from `app-icon.svg`, host DWM colours
 - [[in-app-update]] — 2026-09-09: notification + ONE Update button (user's call, like other apps): backend checks GitHub releases (ETag, silent failures), downloads Setup + SHA256SUMS, verifies BEFORE anything runs, starts the Setup silently via interop; Setup reuses install-info.txt, closes the host cleanly, relaunches; sessions end like Restart; rejected: host-side updater, in-place swap, auto-install
 - [[installer-and-self-contained-bundle]] — 2026-09-08: the app becomes a product (user's call): self-contained WSL bundle (pinned Node + node-pty built on 22.04, no Node/git/build tools for users), Inno Setup unsigned per-user installer, explicit opt-in for every third-party install, no-WSL = explain and stop, repo goes public; backend "installed mode", `app/<version>` + `current`, updates = newer Setup.exe; phases A–D
 - [[release-build-and-launcher-derivation]] — 2026-09-08: GitHub Actions release of the native host zip on `v*` tags (`gh release create --verify-tag`, re-run rewrites notes), `ci.yml` typecheck+build+test, SHA-pinned actions, `permissions: {}`; launcher derives distro + repo path from `\\wsl.localhost\<distro>\<path>\launcher` (env → location → defaults, same allow-list, invalid = FAIL not fallback); app never packaged, version = tag; repo visibility OPEN (user)
@@ -36,6 +37,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
+- [[google-fonts-subset-trap]] — 2026-09-10 incident: Google's latin-EXT woff2 has NO ASCII; "font loaded" ≠ "font renders" — prove glyphs (fontTools cmap / measureText), pin font assets by size+sha256; xterm.js colours must be hex/rgb, never oklch/color-mix
 - [[etag-cache-verdict-not-payload]] — 2026-09-10 incident: the release check cached the VERDICT ("not newer") beside GitHub's ETag; after a downgrade a 304 re-used it and the Update button never appeared. Cache only what the validator covers, derive version-relative decisions at use time, rename the field so old files fail the read; same shape: ctime-order tests assumed a monotonic clock (`proveNewer`)
 - [[inno-setup-local-compile]] — 2026-09-09: compile the `.iss` from WSL with a PORTABLE Inno Setup (`/CURRENTUSER /PORTABLE=1`, no elevation) instead of a 6-min CI loop; measured Inno 6.7.1 facts (`SuppressibleMsgBox`, `DisableWelcomePage` default yes, silent mode simulates Next, no `LoadStringsFromFileUTF8`)
 - [[inno-setup-ispp-char-literals]] — 2026-09-09: ISPP reads any `[Code]` line starting with `#` as a directive — `#13#10` may never open a line (first ISCC compile on CI failed on it); pinned by test
@@ -53,6 +55,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-09-10-nocturne-a1]] — **Nocturne A1 LANDED** (tokens, Inter, icon, host colours; suite 1165→1178): alias layer recolours Legacy chrome; orchestrator caught the latin-ext Inter (no ASCII); 12 scope findings → 7 fixed, rest A2/A8 notes; Windows checks owed; next A2
 - [[2026-09-10-update-check-cache-fix]] — **"no Update button" FIXED** (`1cdb766`, dev-flow 2 cycles, mutants 8/8, suite 1160→1165): cache holds the latest release DESCRIPTOR, `offer()` derived per call, `gateRelease` deleted; retention tests prove ctime order; stale cache deleted for the user, v0.3.2 = the button's target
 - [[2026-09-09-in-app-update]] — **phase E in-app updater SHIPPED**: release check (ETag, gated, constructed URLs), download + inline SHA-256 + manual redirect allow-list, `%TEMP%` staging + `run-update.ps1` (re-hash, exit 0/2/3), flow B installer (`host\next`, `WizardDirValue`, `SetupMutex`), one-dialog UI; review caught log flood, lifecycle hole, lost diagnostics, per-reason dismiss, held-flight deferral, restart-wipes-download; mutants 13/13, zero non-loopback connects proven
 - [[2026-09-09-installer-phase-c-d]] — **installer phases C + D SHIPPED, v0.2.0 RELEASED** (user tested the Setup on Windows: "alles okey"; first installable release): five-job `release.yml` (bundle on 22.04, installer via ISCC, release needs all four, one re-hashed SHA256SUMS), `verify / linux bundle`, one NODE_VERSION per file, README Install = Setup.exe; go-public scrub (94 lines → 0) + `no-author-paths` guard; dispatch = test build for the user before v0.2.0; history keeps the old e-mail/paths by user choice

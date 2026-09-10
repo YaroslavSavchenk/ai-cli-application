@@ -2,10 +2,17 @@
  * Self-hosted typefaces — no runtime network font fetch (offline localhost
  * tool). Referenced from tokens.css as --font-sans / --font-mono.
  *
- * Barlow (chrome face) — SIL Open Font License 1.1, license committed at
- * ../assets/fonts/OFL.txt. Latin-subset woff2, weights 400/500/600/700,
- * from the Google Fonts pipeline (upstream: github.com/jpt/barlow via
- * github.com/google/fonts/tree/main/ofl/barlow).
+ * Inter (chrome face, Nocturne — replaced Barlow on 2026-09-10) — SIL Open
+ * Font License 1.1, license committed at ../assets/fonts/OFL-Inter.txt.
+ * VARIABLE woff2, Google's *latin* subset (230 glyphs, ~48 KB — NOT the
+ * latin-ext subset, which carries no basic ASCII at all), Inter 4.001 (the
+ * Google asset path says v20 — that is their pipeline version, not Inter's),
+ * weight axis 100-900, declared here as 400-700 — the range the UI uses.
+ * Source file: UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2 from the Google
+ * Fonts pipeline (upstream: github.com/rsms/inter via
+ * github.com/google/fonts/tree/main/ofl/inter). The unicode-range is
+ * Google's own latin subset range, kept verbatim so the file is only
+ * fetched for text it can render.
  *
  * JetBrains Mono (terminal + all data) — SIL Open Font License 1.1, license
  * committed at ../assets/fonts/OFL-JetBrainsMono.txt. Full-glyph woff2 from
@@ -14,35 +21,14 @@
  * 400/500/700 per the handoff.
  */
 @font-face {
-  font-family: "Barlow";
+  font-family: "Inter";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 700;
   font-display: swap;
-  src: url("../assets/fonts/barlow-400.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Barlow";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("../assets/fonts/barlow-500.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Barlow";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("../assets/fonts/barlow-600.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Barlow";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("../assets/fonts/barlow-700.woff2") format("woff2");
+  src: url("../assets/fonts/inter-latin-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {

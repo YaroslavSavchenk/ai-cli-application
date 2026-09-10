@@ -776,7 +776,12 @@ the **"steam blend"** direction chosen from rendered mockups committed under
 `design-mocks/`; and the interaction model becomes sessions-as-tabs with
 drag-to-split — see the Tabs-and-layouts bullet. Both shipped 2026-07-19:
 the tab model, then the steam-blend skin (brief + slop-filter pass in
-`web/DESIGN.md`; tokens in `web/src/styles/tokens.css`; chrome typeface is
+`web/DESIGN.md`; tokens in `web/src/styles/tokens.css`; chrome typeface was
 self-hosted Barlow, OFL license committed beside the woff2 assets). Blend
 definition and rationale in
-`memory/decisions/anti-slop-design-direction.md`.)
+`memory/decisions/anti-slop-design-direction.md`. **Superseded 2026-09-10**:
+the steam-blend skin is the *Legacy UI* (git tag `legacy-ui`), being replaced
+by the **Nocturne** design (`.claude/PLAN-NOCTURNE.md`;
+`design_handoff_session_manager/README-v3.md`). Part A1 landed the Nocturne
+tokens and swapped the chrome typeface to self-hosted **Inter** — the Barlow
+woff2 files and its OFL are gone.)

@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 // make-icon.mjs - deterministically generate the app icon set. No deps.
 //
-//   node make-icon.mjs           regenerate every output, then re-read + verify
-//   node make-icon.mjs --check   verify only: every committed output must
-//                                still match a fresh render (exit 1 otherwise)
+//   node make-icon.mjs                 regenerate every output, then re-read + verify
+//   node make-icon.mjs --check         verify only: every committed output must
+//                                      still match a fresh render (exit 1 otherwise)
+//   node make-icon.mjs --preview <dir> write icon-preview-<size>.png (16/32/48/256)
+//                                      into <dir> for a visual check; writes
+//                                      nothing else and verifies nothing
+//   --check and --preview are mutually exclusive (exit 1): --preview verifies
+//   nothing, so the combination would exit 0 having checked nothing.
 //
 // Outputs (all committed artifacts, regenerated only by this script):
 //   launcher/app.ico          Windows shortcut icon (ICO, 16/32/48/256 px)
@@ -21,17 +26,25 @@
 // PNGs are encoded with node:zlib only (hand-built PNG chunks + CRC-32); no
 // npm dependency is introduced.
 //
-// Design (phosphor instrument panel, see web/DESIGN.md + tokens.css):
-//   - near-black warm-graphite square  #101312 (--bg-term), sharp corners
-//   - 1px structural border            #3a443d (--edge-strong)
-//   - phosphor-green '>_' prompt glyph #7edc93 (--focus)
+// Design (Nocturne; source of truth: design_handoff_session_manager/app-icon.svg,
+// geometry transcribed below from its 256-unit viewBox):
+//   - dark rounded tile, vertical gradient #232532 (top) -> #161826 (bottom)
+//     (#161826 = --color-bg), rounded corners
+//   - 1px tile edge                        #3f424d (--color-neutral-800)
+//   - blurple chevron, round caps + joins  #b5abfc (--color-accent)
+//   - light cursor block                   #e9e9ed (--color-neutral-100)
+//   - everything OUTSIDE the rounded tile is fully transparent (alpha 0) --
+//     unlike the old phosphor icon, which was an opaque square, so alpha is
+//     now load-bearing at the corners and along the tile margin.
 //
 // ICO format: classic ICO with 4 BMP-format entries (16/32/48/256), 32bpp
-// BGRA bottom-up XOR data + all-zero 1bpp AND mask (alpha carries
-// transparency; the square is fully opaque anyway). The 256 entry is
-// deliberately BMP, not PNG-compressed, for maximum consumer compatibility.
+// BGRA bottom-up XOR data + a 1bpp AND mask whose bit is SET for every pixel
+// with alpha 0, so a legacy consumer that ignores the alpha channel still
+// punches out the transparent corners; the 32bpp alpha channel stays
+// authoritative for everyone else. The 256 entry is deliberately BMP, not
+// PNG-compressed, for maximum consumer compatibility.
 // The 16px art is a hand-placed pixel map (AA mush is unacceptable at that
-// size); 32/48/256 are the same geometry rendered with 4x4 supersampling.
+// size); 32/48/256 are the same mark rendered with 4x4 supersampling.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -44,35 +57,64 @@ const APP_ICO = join(SCRIPT_DIR, 'app.ico');
 const WEB_PUBLIC = join(REPO_ROOT, 'web', 'public');
 const SIZES = [16, 32, 48, 256];
 
-const BG = [0x10, 0x13, 0x12]; // --bg-term
-const EDGE = [0x3a, 0x44, 0x3d]; // --edge-strong
-const GREEN = [0x7e, 0xdc, 0x93]; // --focus (phosphor green)
+// Palette (Nocturne). Straight (non-premultiplied) RGB; alpha is carried
+// separately, exactly as PNG and 32bpp ICO expect.
+const TILE_TOP = [0x23, 0x25, 0x32]; // tile gradient, top
+const TILE_BOTTOM = [0x16, 0x18, 0x26]; // tile gradient, bottom (--color-bg)
+const EDGE = [0x3f, 0x42, 0x4d]; // 1px tile edge (--color-neutral-800)
+const ACCENT = [0xb5, 0xab, 0xfc]; // chevron (--color-accent)
+const CURSOR_FG = [0xe9, 0xe9, 0xed]; // cursor block (--color-neutral-100)
 
-// --- 16px: hand pixel map ('#' border, 'G' glyph, '.' background) ----------
+// --- Geometry in unit space (0..1), transcribed from app-icon.svg (256 box) --
+
+const U = (v) => v / 256; // svg user unit -> unit space
+
+const TILE = { x0: U(8), y0: U(8), x1: U(248), y1: U(248), r: U(56) };
+const CHEVRON = {
+  p0: [U(84), U(92)],
+  p1: [U(128), U(128)],
+  p2: [U(84), U(164)],
+  hw: U(10), // stroke-width 20, round caps + joins
+};
+const CURSOR = { x0: U(136), y0: U(156), x1: U(176), y1: U(174), r: U(6) };
+
+// --- 16px: hand pixel map --------------------------------------------------
+// Anti-aliasing turns this mark to mush at 16px, so the smallest entry is
+// authored by hand: the tile is full-bleed with a 1px corner cut (' ' =
+// transparent), the chevron is 2px thick, the cursor is a 4x2 block. No
+// intermediate shades are needed -- every pixel is one of the four colours.
+//   ' ' transparent   '#' tile edge   '.' tile fill (gradient by row)
+//   'C' chevron       'B' cursor block
 
 const MAP16 = [
-  '################',
+  ' ############## ',
   '#..............#',
   '#..............#',
   '#..............#',
-  '#..GG..........#',
-  '#...GG.........#',
-  '#....GG........#',
-  '#.....GG.......#',
-  '#....GG........#',
-  '#...GG.........#',
-  '#..GG..........#',
-  '#........GGGGG.#',
-  '#........GGGGG.#',
+  '#..............#',
+  '#....CC........#',
+  '#.....CC.......#',
+  '#......CC......#',
+  '#......CC......#',
+  '#.....CC.......#',
+  '#....CC..BBBB..#',
+  '#........BBBB..#',
   '#..............#',
   '#..............#',
-  '################',
+  '#..............#',
+  ' ############## ',
 ];
 
-// --- Vector geometry in unit space (matches the 16px art's proportions) ----
+// --- Rasterisation ---------------------------------------------------------
 
-const CHEVRON = { p0: [0.21, 0.28], p1: [0.47, 0.5], p2: [0.21, 0.72], hw: 0.055 };
-const CURSOR = { x0: 0.56, x1: 0.86, y0: 0.7, y1: 0.8 }; // underscore block
+// Signed distance to a rounded rect (negative inside), unit space.
+function sdRoundRect(px, py, r) {
+  const hx = (r.x1 - r.x0) / 2;
+  const hy = (r.y1 - r.y0) / 2;
+  const qx = Math.abs(px - (r.x0 + hx)) - (hx - r.r);
+  const qy = Math.abs(py - (r.y0 + hy)) - (hy - r.r);
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r.r;
+}
 
 function distToSegment(px, py, [ax, ay], [bx, by]) {
   const dx = bx - ax, dy = by - ay;
@@ -83,54 +125,78 @@ function distToSegment(px, py, [ax, ay], [bx, by]) {
   return Math.hypot(ex, ey);
 }
 
-function glyphHit(x, y) {
-  // x,y in unit space. Chevron: round-capped stroke along two segments.
+// Round-capped stroke along the two chevron segments; their union at p1 is
+// exactly the round join the svg asks for.
+function chevronHit(x, y) {
   if (distToSegment(x, y, CHEVRON.p0, CHEVRON.p1) <= CHEVRON.hw) return true;
-  if (distToSegment(x, y, CHEVRON.p1, CHEVRON.p2) <= CHEVRON.hw) return true;
-  return x >= CURSOR.x0 && x <= CURSOR.x1 && y >= CURSOR.y0 && y <= CURSOR.y1;
+  return distToSegment(x, y, CHEVRON.p1, CHEVRON.p2) <= CHEVRON.hw;
 }
 
-// Render one size to top-down RGBA (Uint8Array, 4 bytes/px).
+// Vertical gradient across the TILE's own height (y 8 -> 248), clamped.
+function gradientAt(uy) {
+  let t = (uy - TILE.y0) / (TILE.y1 - TILE.y0);
+  t = Math.max(0, Math.min(1, t));
+  return [
+    TILE_TOP[0] + (TILE_BOTTOM[0] - TILE_TOP[0]) * t,
+    TILE_TOP[1] + (TILE_BOTTOM[1] - TILE_TOP[1]) * t,
+    TILE_TOP[2] + (TILE_BOTTOM[2] - TILE_TOP[2]) * t,
+  ];
+}
+
+const mix = (a, b, t) => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+  a[2] + (b[2] - a[2]) * t,
+];
+
+// Render one size to top-down RGBA (Uint8Array, 4 bytes/px). Pixels outside
+// the tile keep RGB 0 and alpha 0.
 function render(size) {
   const px = new Uint8Array(size * size * 4);
-  const put = (x, y, [r, g, b]) => {
+  const put = (x, y, [r, g, b], a) => {
     const o = (y * size + x) * 4;
-    px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+    px[o] = Math.round(r); px[o + 1] = Math.round(g); px[o + 2] = Math.round(b); px[o + 3] = a;
   };
 
   if (size === 16) {
     for (let y = 0; y < 16; y++) {
+      const fill = gradientAt((y + 0.5) / 16);
       for (let x = 0; x < 16; x++) {
         const c = MAP16[y][x];
-        put(x, y, c === '#' ? EDGE : c === 'G' ? GREEN : BG);
+        if (c === ' ') continue; // transparent corner cut
+        put(x, y, c === '#' ? EDGE : c === 'C' ? ACCENT : c === 'B' ? CURSOR_FG : fill, 255);
       }
     }
     return px;
   }
 
   const SS = 4; // 4x4 supersamples per pixel -> box-filtered coverage
+  const N = SS * SS;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      let cover = 0;
+      let tile = 0, chev = 0, cur = 0;
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
           const ux = (x + (sx + 0.5) / SS) / size;
           const uy = (y + (sy + 0.5) / SS) / size;
-          if (glyphHit(ux, uy)) cover++;
+          if (sdRoundRect(ux, uy, TILE) <= 0) tile++;
+          if (chevronHit(ux, uy)) chev++;
+          if (sdRoundRect(ux, uy, CURSOR) <= 0) cur++;
         }
       }
-      const a = cover / (SS * SS);
-      put(x, y, [
-        Math.round(BG[0] + (GREEN[0] - BG[0]) * a),
-        Math.round(BG[1] + (GREEN[1] - BG[1]) * a),
-        Math.round(BG[2] + (GREEN[2] - BG[2]) * a),
-      ]);
+      if (tile === 0) continue; // outside the tile: alpha 0, RGB 0
+      const cx = (x + 0.5) / size, cy = (y + 0.5) / size;
+      let color;
+      if (sdRoundRect(cx, cy, TILE) * size > -1) {
+        // 1px edge ring, decided at final resolution so it stays crisp.
+        color = EDGE;
+      } else {
+        color = gradientAt(cy);
+        if (chev) color = mix(color, ACCENT, chev / N);
+        if (cur) color = mix(color, CURSOR_FG, cur / N);
+      }
+      put(x, y, color, Math.round((255 * tile) / N));
     }
-  }
-  // 1px structural border, drawn last at final resolution so it stays crisp.
-  for (let i = 0; i < size; i++) {
-    put(i, 0, EDGE); put(i, size - 1, EDGE);
-    put(0, i, EDGE); put(size - 1, i, EDGE);
   }
   return px;
 }
@@ -161,7 +227,19 @@ function encodeEntryImage(size, rgba) {
       buf[o++] = rgba[i + 3]; // A
     }
   }
-  // AND mask: already zeroed by alloc (fully opaque; alpha rules anyway).
+  // AND mask: 1 = transparent, for legacy consumers that ignore the alpha
+  // channel. Rows are bottom-up like the XOR data, MSB = leftmost pixel, each
+  // row padded to 4 bytes (the padding stays 0 from alloc).
+  const andStart = 40 + size * size * 4;
+  const rowBytes = andRowBytes(size);
+  for (let y = 0; y < size; y++) {
+    const row = size - 1 - y; // stored bottom-up
+    for (let x = 0; x < size; x++) {
+      if (rgba[(y * size + x) * 4 + 3] === 0) {
+        buf[andStart + row * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+      }
+    }
+  }
   return buf;
 }
 
@@ -292,8 +370,8 @@ function decodePng(buf) {
 
 const MANIFEST = `{
   "name": "AI Session Manager",
-  "background_color": "#12161d",
-  "theme_color": "#1b222c",
+  "background_color": "#161826",
+  "theme_color": "#161826",
   "icons": [
     { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
     { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
@@ -331,11 +409,24 @@ function checkIco(buf) {
     if (buf.readInt32LE(off + 8) !== s * 2) fail(`entry ${i}: biHeight != ${s * 2} (XOR+AND)`);
     if (buf.readUInt16LE(off + 14) !== 32) fail(`entry ${i}: biBitCount != 32`);
     if (buf.readUInt32LE(off + 16) !== 0) fail(`entry ${i}: biCompression != BI_RGB`);
-    // First stored row is the image's BOTTOM row = all border pixels.
-    const [br, bg2, bb] = EDGE;
-    if (buf[off + 40] !== bb || buf[off + 41] !== bg2 || buf[off + 42] !== br || buf[off + 43] !== 255) {
-      fail(`entry ${i}: bottom-left pixel is not the opaque border color`);
+    // Pixel probes. XOR rows are stored bottom-up, so top-down row y lives at
+    // stored row (s - 1 - y); the AND mask is indexed the same way.
+    const alphaAt = (x, y) => buf[off + 40 + ((s - 1 - y) * s + x) * 4 + 3];
+    const andBitAt = (x, y) =>
+      (buf[off + 40 + s * s * 4 + (s - 1 - y) * andRowBytes(s) + (x >> 3)] >> (7 - (x & 7))) & 1;
+    // The tile has rounded corners on transparency now: the bottom-left pixel
+    // must be fully transparent in BOTH channels of truth.
+    if (alphaAt(0, s - 1) !== 0) fail(`entry ${i}: bottom-left pixel alpha ${alphaAt(0, s - 1)}, expected 0`);
+    if (andBitAt(0, s - 1) !== 1) fail(`entry ${i}: AND mask bit not set on the transparent bottom-left pixel`);
+    // ...and the tile body is really drawn: centre column, just inside the
+    // tile's bottom edge (the tile stops at y=248/256, so this is NOT the
+    // image's last row for the supersampled sizes).
+    const probeX = s >> 1;
+    const probeY = Math.floor(TILE.y1 * s) - 2;
+    if (alphaAt(probeX, probeY) !== 255) {
+      fail(`entry ${i}: pixel (${probeX},${probeY}) alpha ${alphaAt(probeX, probeY)}, expected 255 (tile body)`);
     }
+    if (andBitAt(probeX, probeY) !== 0) fail(`entry ${i}: AND mask bit set on an opaque tile pixel`);
     expectedOffset += bytes;
   }
   if (expectedOffset !== buf.length) fail(`file length ${buf.length}, expected ${expectedOffset}`);
@@ -384,8 +475,37 @@ function validate(out, bytes) {
 // --- Main ------------------------------------------------------------------
 
 const checkOnly = process.argv.includes('--check');
+const previewFlag = process.argv.indexOf('--preview');
+
+// --check verifies committed outputs, --preview writes throwaway PNGs and
+// verifies nothing; combining them would silently exit 0 having checked
+// nothing. Refuse before anything is rendered or written.
+if (checkOnly && previewFlag !== -1) {
+  console.error('--check and --preview are mutually exclusive');
+  process.exit(1);
+}
+
 const outputs = buildOutputs();
 const rel = (p) => relative(REPO_ROOT, p);
+
+// --preview <dir>: visual sanity only. Writes icon-preview-<size>.png for
+// every ICO size into <dir> and exits; it never touches a committed output
+// and never verifies anything (--check semantics are unaffected).
+if (previewFlag !== -1) {
+  const dir = process.argv[previewFlag + 1];
+  if (!dir) {
+    console.error('--preview needs a directory argument');
+    process.exit(1);
+  }
+  mkdirSync(dir, { recursive: true });
+  for (const size of SIZES) {
+    const file = join(dir, `icon-preview-${size}.png`);
+    const bytes = encodePng(size, render(size));
+    writeFileSync(file, bytes);
+    console.log(`preview ${file}  (png, ${bytes.length} bytes)`);
+  }
+  process.exit(0);
+}
 
 if (checkOnly) {
   for (const out of outputs) {

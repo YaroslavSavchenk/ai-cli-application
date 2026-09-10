@@ -96,7 +96,9 @@ route** (2026-07-24).
 Shipped: on `HandleCreated`, `DwmSetWindowAttribute` sets immersive dark mode
 (attribute `20`, legacy fallback `19`) plus `DWMWA_CAPTION_COLOR` (35),
 `DWMWA_TEXT_COLOR` (36) and `DWMWA_BORDER_COLOR` (34) from the CSS tokens
-(`--bg-app` `#171D25`, `--text-hd` `#AAB7C4`, `--edge` `#262F3B`). The color
+(originally `--bg-app` `#171D25`, `--text-hd` `#AAB7C4`, `--edge` `#262F3B`;
+since Nocturne A1 2026-09-10: `#161826` / `#E4E7F5` / `#3F424D` = `--color-bg`,
+neutral-200, neutral-800 — see [[nocturne-full-switch]]). The color
 attributes are **Windows 11 22000+ only**; on Windows 10 they fail and the
 caption degrades to plain dark mode — acceptable, not worked around.
 

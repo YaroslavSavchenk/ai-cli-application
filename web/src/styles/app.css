@@ -1,11 +1,11 @@
 /*
- * App styles — hi-fi handoff skin (design/README.md; transcription in
- * web/DESIGN.md). Steam-lineage shell: gradient topbar, radial-lit pane
- * area with floating terminal cards, BOTTOM tab strip with a glowing accent
- * bar, 23px mono statusline. Barlow for chrome, JetBrains Mono for data and
- * the terminal. Every color comes from tokens.css — no hex here; the
- * gradients, four shadows and glow accents are the handoff's own
- * (user-sanctioned, see DESIGN.md).
+ * App styles — the Legacy UI's structure, recoloured to Nocturne by the
+ * alias layer in tokens.css (2026-09-10; parts A2-A7 migrate this file onto
+ * the Nocturne primitives). Shell: topbar, pane area with floating terminal
+ * cards, BOTTOM tab strip with an accent bar, 23px mono statusline. Inter
+ * for chrome, JetBrains Mono for data and the terminal. Every color comes
+ * from tokens.css — no hex here; the three --grad-* tokens are flat
+ * Nocturne grounds now (the interface has no gradients).
  */
 
 /* ---- base ---------------------------------------------------------------- */
@@ -415,7 +415,7 @@ select:focus-visible,
   display: grid;
   gap: var(--pane-gap);
   padding: var(--pane-gap);
-  background: var(--grad-panearea); /* sanctioned: handoff radial lift */
+  background: var(--grad-panearea); /* flat Nocturne ground (A1) */
 }
 
 /* Split fractions come from --split-col/--split-row (set per tab by
@@ -1806,7 +1806,7 @@ kbd {
   align-items: center;
   gap: var(--s-6);
   padding: var(--dlg-gap) var(--dlg-pad-x);
-  background: var(--grad-dialoghd); /* sanctioned: handoff dialog header */
+  background: var(--grad-dialoghd); /* flat Nocturne surface (A1) */
   border-bottom: var(--line) solid var(--edge-mid);
 }
 

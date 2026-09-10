@@ -102,6 +102,15 @@ priority.
 
 ## Owed on the Windows side (user) — the Setup.exe test, 2026-09-09
 
+**Nocturne A1 (2026-09-10) — owed on Windows:** rebuild the host
+(`launcher/build-host.ps1`) so the exe embeds the new `app.ico` and the
+Nocturne DWM caption/text/border colours; re-run `make-shortcut.ps1` so
+`%LOCALAPPDATA%\ai-session-manager\app.ico` is refreshed; if the taskbar
+still shows the old phosphor icon, clear the icon cache (`ie4uinit -show`
+or delete `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db`,
+restart Explorer). Also: does the WebView2 window's Inter rendering look
+right on Windows (ClearType)? — see [[2026-09-10-nocturne-a1]].
+
 **2026-09-09 17:30: user tested `0.0.0-dev+197bb9f` on Windows — "alles okey"**
 (install, wizard, shortcut, taskbar, Settings version + Check for updates,
 sessions, HISTORY, in-place restart; this Claude session itself ran inside

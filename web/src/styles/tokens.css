@@ -1,107 +1,208 @@
 /*
  * Design tokens — the single source of truth for every color, size and
- * timing in the UI, remapped 2026-07-20 to the hi-fi handoff
- * (design/README.md "Design tokens"; transcription in web/DESIGN.md).
+ * timing in the UI.
+ *
+ * Since 2026-09-10 the palette and type are NOCTURNE: a dark indigo-neutral
+ * instrument panel. The design source is
+ * `design_handoff_session_manager/README-v3.md` plus the primitives in
+ * `design_handoff_session_manager/_ds/nocturne-<id>/styles.css`, which the
+ * "Nocturne primitives" block below transcribes verbatim. The accent blurple
+ * is an OUTLINE and small-mark color, never a fill; fills are 12% tints of
+ * it. Elevation is a 1px edge plus ambient dark — no heavy shadows. Radii
+ * are 4/8/14. Inter carries the chrome, JetBrains Mono the terminal and
+ * every data value. The previous palette ("steam blend", 2026-07-20 handoff)
+ * is the Legacy UI, preserved as git tag `legacy-ui`.
  *
  * The xterm.js theme is built at runtime from the --xt-* properties below
  * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
- * and the app palette are ONE system. The theme popover (ui/theme.ts)
- * overrides --term-bg and the neutral --xt-* text slots inline on :root;
- * ANSI status hues are semantic and never themed. Never hardcode a color
- * outside this file.
+ * and the app palette are ONE system. Because xterm's parser only
+ * understands #rgb[a] / #rrggbb[aa] / rgb() / rgba() reliably, every --xt-*
+ * value is a plain hex or rgba — never oklch() or color-mix(). The theme
+ * popover (ui/theme.ts) overrides --term-bg and the neutral --xt-* text
+ * slots inline on :root; ANSI status hues are semantic and never themed.
+ * Never hardcode a color outside this file.
  */
 :root {
-  /* ---- surfaces (handoff core palette) ----------------------------------- */
-  --bg-app: #171d25;      /* app background                                   */
-  --bg-deep: #12161d;     /* deep bg: logo tiles, inset inputs, add-form floor */
-  --term-bg: #0e1116;     /* terminal ground — themable (ui/theme.ts)         */
-  --well: #0e1116;        /* static ink well: inputs, kbd, command previews —
-                             same hex as the DEFAULT ground but NOT themed    */
-  --surface: #1b222c;     /* bars / drawers / cards                           */
-  --surface-panehd: #141920;
-  --surface-status: #10141a;
-  --surface-hover: #212a35;
-  --surface-active: #232b36; /* pressed / toggled-on controls                 */
-  --scrim: rgba(8, 10, 14, 0.55); /* dialog backdrop (R3 adds blur per spec)  */
+  /* ══ Nocturne primitives ══════════════════════════════════════════════════
+     Verbatim from design_handoff_session_manager/_ds/nocturne-<id>/styles.css.
+     The deck-only --color-section* tokens are deliberately not copied: the
+     README calls them deck-scale fills, not interface colors. */
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;   /* blurple — outline + small marks, never a fill */
+  --color-accent-2: #a7a1db; /* same hue, lighter; secondary marks            */
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
+     same step of any role matches the others in visual value. */
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  --color-accent-2-100: #f5f4ff;
+  --color-accent-2-200: #e7e5fe;
+  --color-accent-2-300: #d2cefd;
+  --color-accent-2-400: #b5afe8;
+  --color-accent-2-500: #9690c9;
+  --color-accent-2-600: #7972a9;
+  --color-accent-2-700: #5c5783;
+  --color-accent-2-800: #423e5d;
+  --color-accent-2-900: #2b293a;
+
+  --space-1: 2.8px;
+  --space-2: 5.6px;
+  --space-3: 8.4px;
+  --space-4: 11.2px;
+  --space-6: 16.8px;
+  --space-8: 22.4px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* Elevation — a hairline edge plus ambient darkness, never a soft haze. */
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, 0.65);
+
+  /* ══ Nocturne semantics (README-v3) ═══════════════════════════════════════
+     Three exclusive meanings; the accent is never one of them. */
+  --color-ok: oklch(0.72 0.14 150);     /* running / added / connected        */
+  --color-attn: oklch(0.85 0.12 80);    /* attention / working on             */
+  --color-danger: oklch(0.7 0.16 25);   /* danger / removed                   */
+  /* Attention pill fill — NOT from README-v3/styles.css; source is
+     design_handoff_session_manager/session-manager-v3.html (line 42; the
+     session row at line 861 uses the same hue at /.14),
+     a deliberately warmer fill than --color-attn.                           */
+  --color-attn-tint: oklch(0.78 0.14 75 / 0.18);
+  --color-term: oklch(0.16 0.015 275);  /* terminal ground (= #0b0d14)        */
+
+  /* ══ LEGACY ALIAS LAYER ═══════════════════════════════════════════════════
+     The role tokens below are the LEGACY UI's names, kept only so the whole
+     app recolours to Nocturne without touching app.css (3583 lines, zero
+     hardcoded hex — keep it that way). Their values are Nocturne. Parts
+     A2-A7 migrate components off these names onto the primitives above; A8
+     DELETES this block. Do not add a new alias here — reach for a primitive.
+     ═════════════════════════════════════════════════════════════════════ */
+
+  /* ---- surfaces ------------------------------------------------------------ */
+  --bg-app: var(--color-bg);
+  --bg-deep: var(--color-term);
+  --term-bg: #0b0d14; /* terminal ground — plain hex on purpose: themable
+                         (ui/theme.ts writes it inline) and read by --xt-bg  */
+  --well: var(--color-term); /* static ink well: inputs, kbd, previews — the
+                                default ground's color but never themed      */
+  --surface: var(--color-surface);
+  --surface-panehd: var(--color-neutral-900); /* pane card (README-v3)        */
+  --surface-status: var(--color-bg);
+  --surface-hover: color-mix(in srgb, var(--color-text) 7%, var(--color-surface));
+  --surface-active: color-mix(in srgb, var(--color-text) 14%, var(--color-surface));
+  /* Darkening scrim — Nocturne defines none; must be DARKER than --color-bg
+     (a neutral-900 mix is lighter and brightens the page behind a modal).
+     Legacy was rgba(8, 10, 14, .55).                                        */
+  --scrim: rgb(0 0 0 / 0.55);
 
   /* ---- borders ------------------------------------------------------------ */
-  --edge: #262f3b;        /* structural: bars, pane cards, dividers           */
-  --edge-strong: #2e3846; /* controls: buttons, inputs, tags                  */
-  --edge-mid: #232b36;    /* quiet: drawer header underline, dialog seams     */
-  --edge-soft: #1d242e;   /* pane-header underline, statusline top            */
-  --edge-accent: #3d5a75; /* focused-pane outline, split badge, selected card */
-  --edge-hover: #3d4b5d;  /* hover-lit control borders                        */
+  --edge: var(--color-divider);
+  --edge-strong: var(--color-neutral-800);
+  --edge-mid: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --edge-soft: color-mix(in srgb, var(--color-text) 8%, transparent);
+  --edge-accent: var(--color-accent);
+  --edge-hover: color-mix(in srgb, var(--color-text) 45%, transparent);
 
   /* ---- text ramp ----------------------------------------------------------- */
-  --text: #dbe2ea;
-  --text-hd: #aab7c4;     /* wordmark, headings                               */
-  --text-2: #8e9cab;      /* secondary (inactive tab names)                   */
-  --text-mute: #7d8b9c;   /* muted controls                                   */
-  --text-dim: #5c6b7c;    /* dim: statusline, labels, paths                   */
-  --text-faint: #3d4b5d;  /* faint: hints, section labels, empty meta         */
+  --text: var(--color-text);
+  --text-hd: var(--color-neutral-200);
+  --text-2: var(--color-neutral-400);
+  --text-mute: var(--color-neutral-500);
+  --text-dim: var(--color-neutral-600);
+  --text-faint: var(--color-neutral-700);
 
-  /* ---- interactive accent (Steam light-blue) ------------------------------ */
-  --acc: #5cb8f0;
-  --acc-glow: rgba(92, 184, 240, 0.45);
-  --acc-tint: rgba(92, 184, 240, 0.08);
-  --acc-sel: rgba(92, 184, 240, 0.28); /* text selection (app + xterm)        */
+  /* ---- interactive accent (Nocturne blurple) ------------------------------ */
+  --acc: var(--color-accent);
+  --acc-glow: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  --acc-tint: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --acc-sel: color-mix(in srgb, var(--color-accent) 30%, transparent);
 
   /* ---- status: exclusive meanings ------------------------------------------ */
-  --ok: #64c25a;          /* running / connected / "go"                       */
-  --ok-text: #7ed673;     /* text on green-tinted "go" buttons                */
-  --ok-tint: rgba(100, 194, 90, 0.08);
-  --ok-tint-hover: rgba(100, 194, 90, 0.18);
-  --ok-glow: rgba(100, 194, 90, 0.3);
-  --attn: #e0a53c;        /* needs-attention ONLY                             */
-  --attn-tint: rgba(224, 165, 60, 0.15);
-  --danger: #d95c5c;      /* kill / nonzero exit / bypass tag                 */
-  --danger-mut: #a05252;  /* muted danger (yolo chip, R3)                     */
-  --danger-edge: #4a2f33; /* danger-tinted borders                            */
-  --danger-ink: #ffffff;  /* text on armed-confirm fill                       */
-  --exit: #3d4b5d;        /* exited / idle dot                                */
+  --ok: var(--color-ok);
+  --ok-text: oklch(0.8 0.13 150);
+  --ok-tint: oklch(0.72 0.14 150 / 0.08);
+  --ok-tint-hover: oklch(0.72 0.14 150 / 0.18);
+  --ok-glow: oklch(0.72 0.14 150 / 0.3);
+  --attn: var(--color-attn);
+  --attn-tint: var(--color-attn-tint);
+  --danger: var(--color-danger);
+  --danger-mut: oklch(0.55 0.12 25);
+  --danger-edge: oklch(0.7 0.16 25 / 0.4);
+  --danger-ink: #ffffff;
+  --exit: var(--color-neutral-700);
 
-  /* ---- sanctioned gradients (handoff) -------------------------------------- */
-  --grad-topbar: linear-gradient(180deg, #1f2833, #1b222c);
-  --grad-panearea: radial-gradient(1100px 520px at 32% -10%, #1b232f, #12161d);
-  --grad-dialoghd: linear-gradient(180deg, #202935, #1b222c); /* launch dialog header */
+  /* ---- former gradients ----------------------------------------------------
+     Nocturne's interface has no gradients; the three sanctioned handoff
+     gradients collapse to flat grounds. Every use site is a `background:`
+     shorthand, so a flat color is valid there. */
+  --grad-topbar: var(--color-surface);
+  --grad-panearea: var(--color-bg);
+  --grad-dialoghd: var(--color-surface);
 
-  /* ---- the four sanctioned shadows (handoff) -------------------------------- */
-  --sh-pane: 0 12px 32px rgba(0, 0, 0, 0.32);
-  --sh-dialog: 0 24px 60px rgba(0, 0, 0, 0.5);
-  --sh-popover: 0 14px 36px rgba(0, 0, 0, 0.45);
-  --sh-ghost: 0 10px 28px rgba(0, 0, 0, 0.55);
+  /* ---- elevation by role --------------------------------------------------- */
+  --sh-pane: var(--shadow-sm);
+  --sh-popover: var(--shadow-md);
+  --sh-dialog: var(--shadow-lg);
+  --sh-ghost: var(--shadow-md);
 
   /* ---- xterm palette --------------------------------------------------------
-     Neutral slots follow the "default" text ramp (out/cmd/dim); the theme
-     popover overrides exactly these on :root. ANSI status hues below the
-     line are semantic (green/amber/red + accent blue) and NEVER themed. */
+     Plain hex / rgba only (see the header). Neutral slots follow the
+     Nocturne text ramp (out/cmd/dim); the theme popover overrides exactly
+     these on :root. The ANSI hues are the README-v3 semantics converted to
+     sRGB: green oklch(0.72 0.14 150), yellow oklch(0.85 0.12 80), red
+     oklch(0.7 0.16 25), plus blue/magenta/cyan on the same lightness band. */
   --xt-bg: var(--term-bg);
-  --xt-fg: #b7c2cd;             /* ramp.out                                   */
-  --xt-cursor: #e6edf3;         /* ramp.cmd                                   */
+  --xt-fg: #cfd3e5;             /* neutral-300 — v3 "out"                     */
+  --xt-cursor: #e9e9ed;         /* --color-text — v3 "cmd"                    */
   --xt-cursor-accent: var(--term-bg);
-  --xt-selection: var(--acc-sel);
-  --xt-white: #b7c2cd;          /* ramp.out                                   */
-  --xt-bright-white: #e6edf3;   /* ramp.cmd (bold/bright)                     */
-  --xt-bright-black: #66788a;   /* ramp.dim (faint)                           */
-  --xt-black: #1c232c;
-  --xt-red: #d95c5c;
-  --xt-green: #64c25a;
-  --xt-yellow: #e0a53c;
-  --xt-blue: #5cb8f0;
-  --xt-magenta: #b39df2;
-  --xt-cyan: #66d9e8;
-  --xt-bright-red: #ef938c;
-  --xt-bright-green: #7ed673;
-  --xt-bright-yellow: #ecc06d;
-  --xt-bright-blue: #8fd0f8;
-  --xt-bright-magenta: #cdbbf7;
-  --xt-bright-cyan: #8ce7f2;
+  --xt-selection: rgba(145, 132, 217, 0.3); /* = --acc-sel, spelled rgba()
+                                               because xterm parses it       */
+  --xt-white: #cfd3e5;          /* out                                        */
+  --xt-bright-white: #f3f5fe;   /* neutral-100 — v3 "bold"                    */
+  --xt-bright-black: #75798c;   /* neutral-600 — v3 "dim"                     */
+  --xt-black: #292b31;          /* neutral-900                                */
+  --xt-red: #f2716a;
+  --xt-green: #5bbd74;
+  --xt-yellow: #f7c56d;
+  --xt-blue: #80a3f0;
+  --xt-magenta: #bb9af4;
+  --xt-cyan: #57c3cf;
+  --xt-bright-red: #ff958d;
+  --xt-bright-green: #7cd591;
+  --xt-bright-yellow: #fdd990;
+  --xt-bright-blue: #9ebdff;
+  --xt-bright-magenta: #d1b9ff;
+  --xt-bright-cyan: #89dae3;
 
   /* ---- type ------------------------------------------------------------------
-     Barlow (bundled woff2 400/500/600/700) carries chrome; JetBrains Mono
-     (bundled woff2 400/500/700, official release) leads the mono stack and
-     carries the terminal and everything that is data. */
-  --font-sans: "Barlow", "Segoe UI", system-ui, sans-serif;
+     Inter (bundled latin-subset variable woff2, 400-700) carries chrome;
+     JetBrains Mono (bundled woff2 400/500/700, official release) leads the
+     mono stack and carries the terminal and everything that is data. */
+  --font-sans: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", "IBM Plex Mono",
     ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --fs-ui: 12px;        /* topbar buttons, dialog copy                        */
@@ -119,15 +220,15 @@
   --ls-field: 1.2px;    /* launch-dialog field labels                         */
   --ls-title: 0.8px;    /* dialog title                                       */
 
-  /* ---- radius by role (handoff) ----------------------------------------------- */
-  --r-tab: 9px;         /* tabs: 9px 9px 0 0                                  */
-  --r-card: 12px;       /* pane cards, dialogs                                */
-  --r-card-sm: 10px;    /* popover, boot cards, empty-state tile              */
-  --r-box: 9px;         /* ink well, dialog tile, GitHub cards                */
-  --r-btn: 7px;         /* buttons, tags, logo tile                           */
-  --r-input: 6px;       /* drawer inputs, small buttons                       */
-  --r-field: 8px;       /* launch-dialog inputs/selects/footer buttons        */
-  --r-pill: 13px;       /* picker quick-zone chips                            */
+  /* ---- radius by role (Nocturne 4/8/14) --------------------------------------- */
+  --r-tab: var(--radius-md);
+  --r-card: var(--radius-lg);   /* pane cards, dialogs                        */
+  --r-card-sm: var(--radius-md);
+  --r-box: var(--radius-md);
+  --r-btn: var(--radius-md);
+  --r-input: var(--radius-sm);
+  --r-field: var(--radius-md);
+  --r-pill: 13px;       /* fully round chips — a role, not a corner radius    */
 
   /* ---- spacing scale ------------------------------------------------------- */
   --s-1: 2px;
