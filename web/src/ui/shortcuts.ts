@@ -4,13 +4,19 @@
  * UI control (and every drag has a keyboard/button path); plain keys are
  * never intercepted (they belong to the TUI).
  *
- * The one row without an app control is the paste chord (2026-09-08): its
- * non-keyboard twin is the browser's own paste, which reaches the terminal
- * unchanged — the chords exist because a Windows app window does not always
- * offer that menu, and a login code has to get in somehow. It is also the one
- * row that carries a `note`: every other chord is a shortcut for a control the
- * user can see, while this one answers "why not ctrl+v?" — a question the user
- * actually asked (2026-09-08), and a table that only lists it does not answer.
+ * Two rows have no app control at all, and they are also the only two carrying
+ * a `note` — every other chord is a shortcut for a control the user can see,
+ * while these two answer a question the user actually asked:
+ *
+ *   - paste (2026-09-08): its non-keyboard twin is the browser's own paste,
+ *     which reaches the terminal unchanged — the chords exist because a Windows
+ *     app window does not always offer that menu, and a login code has to get
+ *     in somehow. Its note answers "why not ctrl+v?".
+ *   - copy (2026-09-10): xterm serves the browser's own copy event, but the
+ *     only key that fires one is ctrl+c, which xterm turns into the interrupt.
+ *     Its note says the two things a terminal user has to be able to trust:
+ *     plain ctrl+c is still the interrupt, and with nothing selected these
+ *     keys do nothing.
  *
  * The link row is a MOUSE gesture, not a chord: a plain click on a link a
  * program printed does nothing, and ctrl (or cmd) is the second gesture that
@@ -24,7 +30,7 @@ interface Row {
   gesture?: boolean;
   what: string;
   ui: string;
-  /** One line under the row, for the ONE chord whose existence needs a reason. */
+  /** One line under the row, for the chords whose existence needs a reason (paste, copy). */
   note?: string;
 }
 
@@ -43,6 +49,12 @@ const ROWS: Row[] = [
     what: 'paste the clipboard into the terminal',
     ui: "the browser's own paste",
     note: 'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
+  },
+  {
+    keys: ['ctrl+shift+c', 'ctrl+insert'],
+    what: 'copy the selection',
+    ui: 'select with the mouse, then press the keys',
+    note: 'plain ctrl+c stays the interrupt; with nothing selected these keys do nothing',
   },
   { keys: ['ctrl+click a link'], gesture: true, what: 'open it in your browser', ui: 'links printed in the terminal' },
   { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: 'Keyboard shortcuts in the statusline' },
@@ -82,7 +94,7 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
   }
   const note = el('p', 'sc-note');
   note.textContent =
-    'everything else goes to the terminal — plain ctrl+c/v, arrows and esc are never intercepted. app chords live only on ctrl+alt (altgr is left alone), and the two paste chords above are the only other keys the app takes.';
+    'everything else goes to the terminal — plain ctrl+c/v, arrows and esc are never intercepted. app chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes.';
 
   modal.append(hd, table, note);
   scrim.append(modal);

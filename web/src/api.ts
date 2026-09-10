@@ -61,13 +61,32 @@ export interface GithubDeviceResponse {
 }
 
 /**
- * Called on ANY 401/403 REST response. The token is injected at page-serve
- * time and rotates on every backend restart, so an auth failure after boot
- * means this page can never talk to the server again — main.ts registers a
- * handler that takes over the page with a reload panel. Registered after
- * boot succeeds; boot-time failures keep their own error path.
+ * Called on a REST response that `isAuthFailure()` calls an auth failure. The
+ * token is injected at page-serve time and rotates on every backend restart,
+ * so an auth failure after boot means this page can never talk to the server
+ * again — main.ts registers a handler that takes over the page with a reload
+ * panel. Registered after boot succeeds; boot-time failures keep their own
+ * error path.
  */
 let authErrorHandler: (() => void) | null = null;
+
+/**
+ * Is this failed response "this page can no longer talk to the server"?
+ *
+ * - 401 always: the token check (`'unauthorized'`) is the only 401 on `/api/`.
+ * - 403 only for the Origin/Host gate (`'forbidden host'`, `'forbidden
+ *   origin'`) — or when there is no readable `error` text (`null`): the gate
+ *   runs first on every request, and the only other text-less 403 the server
+ *   has (the static-file `'forbidden'`) never answers an `/api/` path.
+ * - Any other 403 is an ordinary refusal the caller renders — the filesystem's
+ *   `'permission denied'` (folder picker, new project) or a GitHub refusal —
+ *   and must NOT tear the page down.
+ */
+export function isAuthFailure(status: number, errorText: string | null): boolean {
+  if (status === 401) return true;
+  if (status !== 403) return false;
+  return errorText === null || errorText === 'forbidden host' || errorText === 'forbidden origin';
+}
 
 export function onAuthError(fn: () => void): void {
   authErrorHandler = fn;
@@ -106,20 +125,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     log.warn(`api ${method} ${route} → network error ${took()}ms: ${formatError(err)}`);
     throw err;
   }
-  if (res.status === 401 || res.status === 403) authErrorHandler?.();
   let body: unknown = null;
   try {
     body = await res.json();
   } catch {
     // Non-JSON body (shouldn't happen; treat as empty).
   }
+  const errorText =
+    body !== null &&
+    typeof body === 'object' &&
+    typeof (body as { error?: unknown }).error === 'string'
+      ? (body as { error: string }).error
+      : null;
+  if (isAuthFailure(res.status, errorText)) authErrorHandler?.();
   if (!res.ok) {
-    const msg =
-      body !== null &&
-      typeof body === 'object' &&
-      typeof (body as { error?: unknown }).error === 'string'
-        ? (body as { error: string }).error
-        : `HTTP ${res.status}`;
+    const msg = errorText ?? `HTTP ${res.status}`;
     const line = `api ${method} ${route} → ${res.status} ${took()}ms: ${msg}`;
     if (res.status >= 500) log.error(line);
     else log.warn(line);

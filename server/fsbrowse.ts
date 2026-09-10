@@ -1,6 +1,7 @@
 /**
  * Directory browsing for the "Add project" picker: directory NAMES only —
- * no files, no file contents. Absolute paths only; defaults to $HOME.
+ * no files, no file contents — plus one boolean, `empty`, saying whether the
+ * directory holds any entry at all. Absolute paths only; defaults to $HOME.
  *
  * Plus the WRITE side (POST /api/fs/mkdir): create a single new subdirectory
  * inside an existing directory, named a single validated path segment.
@@ -54,7 +55,10 @@ export function listDirs(requestedPath: string | undefined): FsListResponse {
     }
   }
   dirs.sort((a, b) => a.localeCompare(b));
-  return { path, dirs };
+  // Every entry type counts (files, hidden files, broken symlinks) — the same
+  // test the create path's assertVacant applies, so `empty` means "create
+  // would accept this folder".
+  return { path, dirs, empty: entries.length === 0 };
 }
 
 /**

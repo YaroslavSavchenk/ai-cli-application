@@ -55,6 +55,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-09-10-copy-chord-add-folder]] — **copy + add-existing-folder FIXED** (user reports from the A2 test; suite 1219→1259): Ctrl+Shift+C / Ctrl+Insert copy only with a selection (scope: four chords now); fs/list `empty` → non-empty folder = "Add this folder", empty = create + git init; probe race, dup guard; any-403-is-auth-loss bug fixed (`isAuthFailure`)
 - [[2026-09-10-nocturne-a3]] — **Nocturne A3 LANDED** (pane card/header 38/status bar Model-Mode-Time/agents parked/empty state; suite 1189→1219): verify-terminal 1–9 PASS via CDP (9 without a prompt); Time drops on exit; `--color-ink-on-danger` primitive; owed: copy-chord + add-existing-folder before A4
 - [[2026-09-10-nocturne-a2]] — **Nocturne A2 LANDED** (top bar 48, tab strip 32, statusline 26, copy rules app-wide; suite 1179→1189): Theme + `?` buttons gone (scope doc updated: shortcuts via statusline button/`?` key), statusline counts alive sessions, uptime `2h 15m`; separator-ban test; leftovers → A3/A5/A8
 - [[2026-09-10-nocturne-a1]] — **Nocturne A1 LANDED** (tokens, Inter, icon, host colours; suite 1165→1179): alias layer recolours Legacy chrome; orchestrator caught the latin-ext Inter (no ASCII); 12 scope findings → 7 fixed, rest A2/A8 notes; Windows checks owed; handoff dir is LOCAL-only (`.git/info/exclude`) → parity test uses a committed fixture; next A2

@@ -17,6 +17,7 @@ import {
   OPEN_FOCUS_OWNER_SELECTOR,
   TERMINAL_SELECTOR,
   focusOwnerOpen,
+  isCopyChord,
   isEditableTarget,
   isLinkActivation,
   isOpenableLink,
@@ -312,6 +313,73 @@ test('isPasteChord: only keydown — keyup/keypress must not fire a second read'
     isPasteChord({ key: 'v', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false }),
     true,
   );
+});
+
+// ---------------------------------------------------------------------------
+// isCopyChord (2026-09-10) — xterm draws on a canvas, so the browser's own copy
+// takes nothing. Ctrl+Shift+C and Ctrl+Insert mirror the paste pair; plain
+// Ctrl+C is ^C and is never one of them. (Whether the keystroke is SWALLOWED —
+// only with a selection — is terminal.ts's decision, pinned in
+// tests/ui-terminal-copy.test.ts.)
+// ---------------------------------------------------------------------------
+
+test('isCopyChord: ctrl+shift+c, in both key cases', () => {
+  assert.equal(isCopyChord(chord({ key: 'c', ctrlKey: true, shiftKey: true })), true);
+  assert.equal(isCopyChord(chord({ key: 'C', ctrlKey: true, shiftKey: true })), true);
+});
+
+test('isCopyChord: ctrl+insert', () => {
+  assert.equal(isCopyChord(chord({ key: 'Insert', ctrlKey: true })), true);
+});
+
+test('isCopyChord: plain ctrl+c is NOT ours — it is the interrupt and must keep reaching the PTY', () => {
+  assert.equal(isCopyChord(chord({ key: 'c', ctrlKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'C', ctrlKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'c' })), false);
+  assert.equal(isCopyChord(chord({ key: 'C', shiftKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'Insert' })), false);
+});
+
+test('isCopyChord: alt, meta or AltGr disqualifies ctrl+shift+c (and ctrl+insert)', () => {
+  assert.equal(isCopyChord(chord({ key: 'c', ctrlKey: true, shiftKey: true, altKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'c', ctrlKey: true, shiftKey: true, metaKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'Insert', ctrlKey: true, altKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'Insert', ctrlKey: true, metaKey: true })), false);
+  const e = chord({ key: 'c', ctrlKey: true, shiftKey: true });
+  assert.equal(isCopyChord({ ...e, getModifierState: (k: string) => k === 'AltGraph' }), false);
+  assert.equal(isCopyChord({ ...e, getModifierState: () => false }), true);
+  const ins = chord({ key: 'Insert', ctrlKey: true });
+  assert.equal(isCopyChord({ ...ins, getModifierState: (k: string) => k === 'AltGraph' }), false);
+});
+
+test('isCopyChord: only keydown — keyup/keypress must not copy a second time', () => {
+  for (const type of ['keyup', 'keypress']) {
+    assert.equal(isCopyChord(chord({ key: 'c', ctrlKey: true, shiftKey: true, type })), false, type);
+    assert.equal(isCopyChord(chord({ key: 'Insert', ctrlKey: true, type })), false, type);
+  }
+  // An event object without a type (a hand-built chord) is still judged on its keys.
+  assert.equal(
+    isCopyChord({ key: 'c', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false }),
+    true,
+  );
+});
+
+test('ctrl+shift+insert is NEITHER copy nor paste — the Insert pair is told apart by exactly one modifier', () => {
+  const both = chord({ key: 'Insert', ctrlKey: true, shiftKey: true });
+  assert.equal(isCopyChord(both), false);
+  assert.equal(isPasteChord(both), false);
+});
+
+test('shift+insert is paste, not copy; ctrl+insert is copy, not paste', () => {
+  const shiftIns = chord({ key: 'Insert', shiftKey: true });
+  assert.equal(isPasteChord(shiftIns), true);
+  assert.equal(isCopyChord(shiftIns), false);
+  const ctrlIns = chord({ key: 'Insert', ctrlKey: true });
+  assert.equal(isCopyChord(ctrlIns), true);
+  assert.equal(isPasteChord(ctrlIns), false);
+  // And the letter pair: ctrl+shift+c never pastes, ctrl+shift+v never copies.
+  assert.equal(isPasteChord(chord({ key: 'c', ctrlKey: true, shiftKey: true })), false);
+  assert.equal(isCopyChord(chord({ key: 'v', ctrlKey: true, shiftKey: true })), false);
 });
 
 // ---------------------------------------------------------------------------

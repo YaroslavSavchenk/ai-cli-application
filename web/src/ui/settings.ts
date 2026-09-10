@@ -53,7 +53,7 @@ export interface SettingsDeps {
 }
 
 /**
- * The KEYS section: the two things the app takes off the terminal, said where
+ * The KEYS section: the things the app takes off the terminal, said where
  * a user goes looking for app behaviour (2026-09-08 — the user asked "why
  * ctrl+shift+v?" about a chord that lived only in an overlay behind a bare `?`).
  * It is an EXCERPT, not a second reference: the overlay stays the full list,
@@ -69,6 +69,7 @@ interface KeyRow {
 
 const KEY_ROWS: KeyRow[] = [
   { what: 'paste into a terminal', keys: ['ctrl+shift+v', 'shift+insert'] },
+  { what: 'copy the selection', keys: ['ctrl+shift+c', 'ctrl+insert'] },
   { what: 'open a link printed in a terminal', gesture: 'ctrl+click' },
 ];
 
@@ -198,7 +199,7 @@ export function initSettings(
   sect.append(itemsWrap);
 
   // ======================================================================
-  // Keys — the two gestures that are NOT visible controls anywhere else
+  // Keys — the gestures that are NOT visible controls anywhere else
   // ======================================================================
   const keysSect = el('section', 'settings-sect');
   keysSect.append(el('div', 'drawer-label', 'Keys'));

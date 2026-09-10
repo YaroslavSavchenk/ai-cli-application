@@ -414,6 +414,18 @@ unaffected, and `standard` is not offered at all: it is behaviourally
 identical to "no default"). Caption: `creates the folder and registers it under
 Projects`.
 
+**Add intent** (2026-09-10): a BROWSED path is probed with the same `GET
+/api/fs/list` the picker uses (its `empty` flag). A folder that exists and is
+not empty flips the tab: primary `Add this folder`, a note under the path
+`This folder already exists. It is added as it is.`, the git row and the
+caption hidden, and the name prefilled with the folder's basename (over an
+empty or previously auto-filled name, never over a typed one); the request
+registers the folder as it is. A browsed folder that is already a project
+shows `This folder is already a project.` and the primary is disabled. Empty,
+missing or unknown stays `Create project` with git init as before. Each new
+pick drops back to `Create project` with the primary disabled until its probe
+answers.
+
 **Clone repo**: `Git URL` (placeholder `https://github.com/owner/repo.git`) ·
 `Destination (optional)` (pathrow + `Browse`; suggests
 `<home>/projects/<repo>`, or `Browse to choose a location` before home is
@@ -433,7 +445,7 @@ empty-value glyph, so an empty dialog reads `copies` / `—` / `into folder: —
 and never shows a half-real command.
 
 Footer note + primary follow the tab: `registers under Projects` + `Create
-project` (blank) · `clones, then registers under Projects` + `Clone ▸` (clone)
+project` or `Add this folder` (blank, by intent — see above) · `clones, then registers under Projects` + `Clone ▸` (clone)
 · `browse your GitHub repositories` + NO primary (GitHub is view-only here).
 Clone is slow and synchronous, so the footer swaps in an honest indeterminate
 spinner `cloning… this can take a while` — never a fake percentage.

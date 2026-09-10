@@ -8,6 +8,8 @@
  * at runtime from GET /api/fs/list and passed in as `home`.
  */
 
+import type { FsListResponse } from '../../../shared/protocol.ts';
+
 /** Join a single segment onto an absolute directory (no normalization beyond a trailing-slash trim). */
 export function joinPath(dir: string, seg: string): string {
   if (dir === '/') return `/${seg}`;
@@ -86,4 +88,62 @@ export function breadcrumbs(path: string): Crumb[] {
     out.push({ label: p, path: acc });
   }
   return out;
+}
+
+/**
+ * What a probe of a browsed folder could establish. `GET /api/fs/list` answers
+ * 200 for a directory it could read — with `empty` saying whether it holds any
+ * entry at all (files, hidden files and broken symlinks count) — 404 for a path
+ * that is missing or is not a directory, and 403 when it exists but may not be
+ * read. So: `empty`, `nonEmpty`, `missing`, and `unknown` for everything else
+ * (403, a network error, or a 200 from an older backend that sends no `empty`).
+ */
+export type FolderProbe = 'missing' | 'empty' | 'nonEmpty' | 'unknown';
+
+/** What the New-folder tab will DO with the path the user picked. */
+export type BlankIntent = 'create' | 'add';
+
+/**
+ * Map an `/api/fs/list` outcome onto a probe verdict: the parsed body on
+ * success (`status` 200), or `null` plus the HTTP status for a failure —
+ * `status` is `null` when the call never produced one (offline, a network
+ * error), which is `unknown`, and unknown never changes what the dialog does.
+ * A 200 whose body carries no boolean `empty` (an older backend) is `unknown`
+ * too: without it an empty folder cannot be told from a full one.
+ */
+export function probeFromList(result: FsListResponse | null, status: number | null): FolderProbe {
+  if (status === 404) return 'missing';
+  if (status !== 200 || result === null) return 'unknown';
+  if (typeof result.empty !== 'boolean') return 'unknown';
+  return result.empty ? 'empty' : 'nonEmpty';
+}
+
+/**
+ * The New-folder decision: a folder that already holds something is ADDED as
+ * it is (`POST /api/projects` without `create`); everything else — missing,
+ * empty, or unknown — is CREATED (`create: true`, plus the git-init toggle),
+ * which the backend accepts for an absent or empty directory. `unknown` stays
+ * on the create path — the old behaviour, whose failure is a plain inline
+ * backend error.
+ */
+export function blankIntent(probe: FolderProbe): BlankIntent {
+  return probe === 'nonEmpty' ? 'add' : 'create';
+}
+
+/** Last segment of an absolute path (`/` and `''` have none). */
+export function baseName(path: string): string {
+  const trimmed = path.replace(/\/+$/, '');
+  if (trimmed === '') return '';
+  return trimmed.slice(trimmed.lastIndexOf('/') + 1);
+}
+
+/**
+ * The name an ADDED folder gets: whatever the user typed, or — when they typed
+ * nothing — the folder's own basename, which is the name they already gave it
+ * in the filesystem. Never a path: only the last segment (PROJECT-SCOPE, the
+ * UI shows a project's NAME everywhere).
+ */
+export function addedProjectName(typedName: string, path: string): string {
+  const typed = typedName.trim();
+  return typed !== '' ? typed : baseName(path);
 }

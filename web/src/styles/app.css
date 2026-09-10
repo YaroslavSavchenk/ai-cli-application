@@ -2529,6 +2529,17 @@ kbd {
   color: var(--text-dim);
 }
 
+/* verdict line under the browse row (2026-09-10): shown only when the picked
+   folder is already there, i.e. when the primary button changes from creating
+   to adding. The field's own 6px gap places it — the accent hairline is what
+   makes a CHANGE of what the button does visible rather than merely legible,
+   and the full-strength text says it is a statement, not a caption. */
+.np-pathnote {
+  padding-left: var(--s-4);
+  border-left: var(--line) solid var(--edge-accent);
+  color: var(--text);
+}
+
 /* the git-init checkbox reuses .status-row / .status-box; tighten the vertical
    padding so it sits flush in the field stack (hover feedback is kept) */
 .np-gitrow {

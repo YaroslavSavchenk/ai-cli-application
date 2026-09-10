@@ -640,15 +640,19 @@ multi-pane layouts on top.
   or TUIs render garbage.
 - Keyboard input goes **to the terminal** (Ctrl+C etc. must reach the PTY);
   app-level shortcuts must not collide with TUI keybindings. The app takes
-  exactly two extra chords (2026-09-08): `Ctrl+Shift+V` and `Shift+Insert`
-  paste the clipboard into the terminal (plain Ctrl+V is NOT intercepted —
+  exactly four extra chords: `Ctrl+Shift+V` and `Shift+Insert` paste the
+  clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
-  itself). Discoverable (user's ask, 2026-09-08 "hoezo ctrl+shift+v?"; the
+  itself), and `Ctrl+Shift+C` and `Ctrl+Insert` copy the terminal selection
+  (2026-09-10, user report "ik mag niks kopieren vanuit de sessies") — taken
+  ONLY while a selection exists; with nothing selected they are left alone
+  (xterm sends no bytes for either chord anyway), and plain Ctrl+C always
+  stays the interrupt. Discoverable (user's ask, 2026-09-08 "hoezo ctrl+shift+v?"; the
   top-bar `?` button was dropped by the Nocturne chrome, part A2, 2026-09-10 —
   the v3 handoff has none): the statusline's "Keyboard shortcuts" button, the
-  `?` key and Ctrl+Alt+/ open the shortcuts overlay, whose paste row carries a
-  one-line why; Settings has a Keys section with the paste chords, Ctrl+click
-  for links, and an `all shortcuts` link (the Keyboard page, A7). When the window regains focus the
+  `?` key and Ctrl+Alt+/ open the shortcuts overlay, whose paste and copy rows
+  carry a one-line why; Settings has a Keys section with the paste and copy
+  chords, Ctrl+click for links, and an `all shortcuts` link (the Keyboard page, A7). When the window regains focus the
   keyboard goes back to the focused pane unless a dialog, drawer, overlay
   or editable field owns it. OSC 8 hyperlinks printed by a CLI open in the
   system browser on **Ctrl+click** (`http`/`https` only, no confirm

@@ -777,6 +777,11 @@ export interface CloneProjectRequest {
 export interface FsListResponse {
   path: string;
   dirs: string[];
+  /**
+   * True when the directory holds no entries at all (files, hidden files and
+   * broken symlinks count too); lets the new-project dialog decide create vs add.
+   */
+  empty: boolean;
 }
 
 /**

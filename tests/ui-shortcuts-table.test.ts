@@ -22,13 +22,21 @@
  * cross-checked against `isLinkActivation` on its own, and the "only paste
  * lives outside ctrl+alt" invariant exempts gesture rows explicitly rather than
  * by accident.
+ *
+ * 2026-09-10 added the COPY row — `ctrl+shift+c` / `ctrl+insert`, "copy the
+ * selection" (xterm draws on a canvas, so the browser's own copy takes
+ * nothing). It is the second sanctioned row outside the `ctrl+alt`
+ * reservation, and it gets the same treatment as paste: exactly one row,
+ * exactly two chords, and an enumeration proving the set `isCopyChord` accepts
+ * IS that row. The two sets must also be disjoint — `ctrl+insert` is copy,
+ * `shift+insert` is paste, and `ctrl+shift+insert` is neither.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isLinkActivation, isPasteChord } from '../web/src/ui/keys.ts';
+import { isCopyChord, isLinkActivation, isPasteChord } from '../web/src/ui/keys.ts';
 import type { KeyChord } from '../web/src/ui/keys.ts';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -84,6 +92,31 @@ function spell(e: KeyChord): string {
 
 const ROWS = readRows();
 const pasteRows = ROWS.filter((r) => r.what.includes('paste'));
+const copyRows = ROWS.filter((r) => r.what.includes('copy'));
+
+/**
+ * Every chord in the plausible space (all 16 ctrl/shift/alt/meta combinations
+ * over the keys a paste or copy could reasonably be bound to, plus a few the
+ * app must leave to the PTY) that `accepts` takes, in table spelling.
+ */
+function acceptedChords(accepts: (e: KeyChord) => boolean): string[] {
+  const keys = ['v', 'V', 'Insert', 'insert', 'c', 'C', 'x', 'p', 'y', 'Delete', 'Enter', ' '];
+  const accepted = new Set<string>();
+  for (const key of keys) {
+    for (let bits = 0; bits < 16; bits += 1) {
+      const e: KeyChord = {
+        type: 'keydown',
+        key,
+        ctrlKey: (bits & 1) !== 0,
+        shiftKey: (bits & 2) !== 0,
+        altKey: (bits & 4) !== 0,
+        metaKey: (bits & 8) !== 0,
+      };
+      if (accepts(e)) accepted.add(spell(e));
+    }
+  }
+  return [...accepted].sort();
+}
 
 // ---------------------------------------------------------------------------
 
@@ -138,22 +171,31 @@ test('the app takes NO paste chord the overlay does not list — the accepted se
   assert.deepEqual([...accepted].sort(), [...listed].sort());
 });
 
-test('the paste row is the ONLY row outside the ctrl+alt reservation that binds a printable key', () => {
+test('the paste and copy rows are the ONLY rows outside the ctrl+alt reservation that bind a printable key', () => {
   // The overlay's own standing claim (its note, and the file header): app
   // chords live on ctrl+alt. Gestures and single non-printing keys are exempt;
-  // anything else taking `ctrl+`/`shift+` must be a paste chord.
-  const offenders = ROWS.filter((r) =>
+  // anything else taking `ctrl+`/`shift+` must be THE paste row or THE copy
+  // row — exempted by identity (the single rows pinned above), not by a
+  // substring of their description.
+  const sanctioned = [...pasteRows, ...copyRows];
+  assert.equal(sanctioned.length, 2, 'the exemption must name exactly the paste row and the copy row');
+  const outside = ROWS.filter((r) =>
     r.keys.some(
       (k) =>
         !r.gesture &&
         (k.startsWith('ctrl+') || k.startsWith('shift+')) &&
-        !k.startsWith('ctrl+alt+') &&
-        !r.what.includes('paste'),
+        !k.startsWith('ctrl+alt+'),
     ),
   );
+  const offenders = outside.filter((r) => !sanctioned.includes(r));
   assert.deepEqual(
     offenders.map((r) => `${r.keys.join(' / ')} — ${r.what}`),
     [],
+  );
+  // And both sanctioned rows really ARE outside it (non-vacuity of the exemption).
+  assert.deepEqual(
+    outside.map((r) => r.what),
+    ['paste the clipboard into the terminal', 'copy the selection'],
   );
 });
 
@@ -196,21 +238,82 @@ test('the link row promises exactly what isLinkActivation does: ctrl (or meta) o
   assert.equal(isLinkActivation({ ctrlKey: false, altKey: false, metaKey: false }), false);
 });
 
-test('the paste row is the ONLY keyboard row outside the ctrl+alt reservation — gestures are exempt by flag, not by luck', () => {
+test('the paste and copy rows are the ONLY keyboard rows outside the ctrl+alt reservation — gestures are exempt by flag, not by luck', () => {
   // Same invariant as above, stated over the parsed `gesture` flag: a MOUSE
   // sentence beginning with `ctrl+` is not a key the app takes off the TUI.
+  const sanctioned = [...pasteRows, ...copyRows];
   const offenders = ROWS.filter(
     (r) =>
       !r.gesture &&
-      r.keys.some(
-        (k) =>
-          (k.startsWith('ctrl+') || k.startsWith('shift+')) &&
-          !k.startsWith('ctrl+alt+') &&
-          !r.what.includes('paste'),
-      ),
+      !sanctioned.includes(r) &&
+      r.keys.some((k) => (k.startsWith('ctrl+') || k.startsWith('shift+')) && !k.startsWith('ctrl+alt+')),
   );
   assert.deepEqual(
     offenders.map((r) => `${r.keys.join(' / ')} — ${r.what}`),
     [],
   );
+  // The one gesture row that starts with `ctrl+` is exempt by its flag — and it
+  // must actually exist, or this test's exemption is untested.
+  assert.ok(
+    ROWS.some((r) => r.gesture && r.keys.some((k) => k.startsWith('ctrl+'))),
+    'expected the ctrl+click gesture row to exercise the gesture exemption',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The copy row (2026-09-10)
+// ---------------------------------------------------------------------------
+
+test('the overlay lists the copy chords on exactly ONE row, and it lists exactly two', () => {
+  assert.equal(copyRows.length, 1, `expected one copy row, found ${copyRows.length}`);
+  const row = copyRows[0] as TableRow;
+  assert.deepEqual(row.keys, ['ctrl+shift+c', 'ctrl+insert']);
+  assert.equal(row.what, 'copy the selection');
+  assert.equal(row.gesture, false, 'the copy row is a keyboard chord, not a gesture');
+  // Not the paste row wearing a second label.
+  assert.equal(pasteRows.includes(row), false);
+});
+
+test('every chord the overlay lists as a copy chord really IS one (isCopyChord accepts it)', () => {
+  const row = copyRows[0] as TableRow;
+  for (const text of row.keys) {
+    assert.equal(isCopyChord(parseChord(text)), true, `the overlay promises ${text}`);
+  }
+});
+
+test('the app takes NO copy chord the overlay does not list — the accepted set is the table', () => {
+  // Same enumeration as the paste one: whatever isCopyChord accepts over the
+  // whole space IS its vocabulary, and it must equal the row, both ways.
+  const accepted = acceptedChords(isCopyChord);
+  assert.ok(accepted.length >= 2, `the enumeration found only ${accepted.length} copy chords — vacuous`);
+  assert.deepEqual(accepted, [...(copyRows[0] as TableRow).keys].sort());
+  // Plain ctrl+c is ^C, the interrupt — it is never in the accepted set.
+  assert.equal(accepted.includes('ctrl+c'), false);
+});
+
+test('no keystroke is both a paste chord and a copy chord (ctrl+insert copies, shift+insert pastes, both mods = neither)', () => {
+  const paste = acceptedChords(isPasteChord);
+  const copy = acceptedChords(isCopyChord);
+  assert.deepEqual(
+    paste.filter((c) => copy.includes(c)),
+    [],
+  );
+  // The Insert pair, stated outright: one modifier each, never both.
+  assert.ok(copy.includes('ctrl+insert') && !paste.includes('ctrl+insert'));
+  assert.ok(paste.includes('shift+insert') && !copy.includes('shift+insert'));
+  assert.equal(paste.includes('ctrl+shift+insert'), false);
+  assert.equal(copy.includes('ctrl+shift+insert'), false);
+});
+
+test('the copy row answers the two things a terminal user must trust, on the row itself', () => {
+  const src = readFileSync(SHORTCUTS, 'utf8');
+  const row = /\{[^{}]*'ctrl\+shift\+c'[\s\S]*?\n  \}/.exec(src);
+  assert.notEqual(row, null, 'the copy row must still be in the table');
+  const note = /note:\s*'([^']*)'/.exec(row?.[0] ?? '');
+  assert.notEqual(note, null, 'the copy row must carry a note explaining itself');
+  const text = note?.[1] ?? '';
+  assert.ok(text.includes('ctrl+c') && text.includes('interrupt'), `plain ctrl+c must still read as the interrupt: ${text}`);
+  assert.ok(text.includes('nothing selected'), `the note must say the keys fall through with no selection: ${text}`);
+  // And the footer no longer claims paste is the only other thing the app takes.
+  assert.ok(src.includes('the paste and copy chords above are the only other keys the app takes'));
 });

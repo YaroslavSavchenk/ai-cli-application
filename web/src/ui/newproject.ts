@@ -7,6 +7,20 @@
  *     createLocalProject ({ create: true, gitInit }). The path auto-suggests
  *     `<home>/projects/<name>` as the name is typed (home resolved live from
  *     GET /api/fs/list — never hardcoded); Browse overrides it.
+ *     A BROWSED path is probed against that same GET (2026-09-10 user report:
+ *     picking a folder that already existed could only ever end in the
+ *     backend's 409). A folder that is already there AND holds something
+ *     (its `empty` flag is false) switches the tab to the ADD intent: the
+ *     button reads `Add this folder`, the git-init toggle goes away, a line
+ *     under the path says the folder is added as it is, and the POST carries
+ *     neither `create` nor `gitInit` — the register-an-existing-directory mode
+ *     the endpoint has always had. An empty name (or one an earlier pick
+ *     filled in) is prefilled with the folder's basename; a typed one is kept.
+ *     A folder that is already a project holds the button. An EMPTY folder
+ *     (e.g. one just made with the picker's `+ folder`) stays on the create
+ *     path and keeps its git init — the backend creates into an empty
+ *     directory. The decisions are pure in
+ *     newproject-model (`probeFromList`, `blankIntent`, `addedProjectName`).
  *   - Clone repo: GIT URL + DESTINATION (optional; Browse → folder picker;
  *     default `<home>/projects/<repoBasename>`) + a live three-line summary in
  *     the ink well — `copies` / the pasted url / `into folder: <dest>`, each
@@ -33,9 +47,15 @@ import { openFolderPicker } from './picker.ts';
 import { MODELS } from './launch-args.ts';
 import { createGithubPanel } from './github.ts';
 import {
+  addedProjectName,
+  baseName,
+  blankIntent,
   parentDir,
+  probeFromList,
   suggestProjectPath,
   suggestDestPath,
+  type BlankIntent,
+  type FolderProbe,
 } from './newproject-model.ts';
 
 type Mode = 'blank' | 'clone' | 'github';
@@ -130,6 +150,19 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   const blankPathText = el('span', 'np-pathrow-path is-suggested', '');
   blankPathRow.append(blankPathGlyph, blankPathText, el('span', 'np-pathrow-browse', 'Browse'));
   blankPathField.append(blankPathRow);
+
+  // The verdict on a browsed folder, one line, directly under the row it is
+  // about (2026-09-10 user report: browsing to a folder that already existed
+  // could only ever end in the backend's 409). Hidden until a probe says the
+  // folder is already there and not empty; the primary button's verb says the
+  // same thing in the place a user commits from.
+  const existsNote = el(
+    'div',
+    'np-caption np-pathnote',
+    'This folder already exists. It is added as it is.',
+  );
+  existsNote.hidden = true;
+  blankPathField.append(existsNote);
 
   // "Initialize git repo" — default CHECKED (maps to gitInit). Reuses the
   // settings checkbox idiom (16px square, ✓ in --term-bg on --acc, aria-pressed).
@@ -281,6 +314,14 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   let mode: Mode = 'blank';
   let blankTouched = false; // user browsed → path no longer auto-tracks the name
   let blankChosen = '';
+  // What the blank tab will do with the chosen path, and the probe it came
+  // from. Only a BROWSED path is probed: a path the dialog itself suggested
+  // from the typed name is a new folder by construction.
+  let intent: BlankIntent = 'create';
+  let probeSeq = 0; // a slow probe of an abandoned path must not win
+  let probing = false; // the latest pick's probe has not answered yet
+  let autoName = ''; // the last name the ADD intent filled in (a typed name is never replaced)
+  let submittingBlank = false;
   let cloneTouched = false;
   let cloneChosen = '';
   let cloning = false;
@@ -303,6 +344,95 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
         homeDir !== null ? `${homeDir}/projects/…` : 'Browse to choose a location';
       blankPathText.classList.add('is-suggested');
     }
+  }
+
+  /**
+   * Paint the blank tab for the current intent. `add` states it in the two
+   * places that already carry state — the note under the path and the verb on
+   * the button you commit with — and takes the git-init toggle away, because
+   * an existing folder is registered exactly as it is (no mkdir, no git init).
+   */
+  function syncIntent(): void {
+    const adding = intent === 'add';
+    const dup = isRegistered();
+    existsNote.textContent = dup
+      ? 'This folder is already a project.'
+      : 'This folder already exists. It is added as it is.';
+    existsNote.hidden = !adding && !dup;
+    gitRow.hidden = adding;
+    blankCaption.hidden = adding;
+    if (mode === 'blank') primary.textContent = adding ? 'Add this folder' : 'Create project';
+    if (adding) {
+      // The folder already carries a name; offer it rather than asking again —
+      // over an empty field or the name an earlier pick filled in, never over
+      // one the user typed.
+      const suggested = baseName(effectiveBlankPath());
+      const current = nameInput.value;
+      if (suggested !== '' && (current.trim() === '' || current === autoName)) {
+        nameInput.value = suggested;
+        autoName = suggested;
+      }
+    }
+    syncPrimary();
+  }
+
+  /**
+   * Is the browsed folder already registered? The register mode of
+   * POST /api/projects does not dedupe, so the dialog refuses it here. Exact
+   * string match: the picker hands back the server's normalized path.
+   */
+  function isRegistered(): boolean {
+    return blankTouched && blankChosen !== '' && st.state.projects.some((p) => p.path === blankChosen);
+  }
+
+  /**
+   * The footer button is held while a submit or clone is in flight and — on
+   * the blank tab — while the picked folder's probe has not answered or the
+   * folder is already a project, so no verb is ever sent on a stale decision.
+   */
+  function syncPrimary(): void {
+    primary.disabled =
+      cloning || submittingBlank || (mode === 'blank' && (probing || isRegistered()));
+  }
+
+  /**
+   * Does the chosen folder already exist, and does it hold anything? Asked of
+   * the same endpoint the folder picker browses with: 200 + `empty` false = a
+   * folder with contents (add it), 200 + `empty` true = an empty folder
+   * (create into it), 404 = nothing is there (see probeFromList). Every new
+   * pick first drops back to `Create project` with the button held, so the
+   * previous pick's verdict can never be submitted for this one; the answer
+   * (or its drop) frees the button again.
+   */
+  async function refreshIntent(): Promise<void> {
+    const seq = (probeSeq += 1);
+    const path = effectiveBlankPath();
+    if (!blankTouched || path === '') {
+      intent = 'create';
+      probing = false;
+      syncIntent();
+      return;
+    }
+    // Safe default until THIS path answers: create, button held.
+    intent = 'create';
+    probing = true;
+    syncIntent();
+    let probe: FolderProbe;
+    try {
+      probe = probeFromList(await api.fsList(path), 200);
+    } catch (e) {
+      probe = probeFromList(null, e instanceof api.ApiError ? e.status : null);
+    }
+    // This pick is no longer pending, whether its answer lands or is dropped
+    // below; a later pick (or a reopen) owns the flag otherwise.
+    if (seq === probeSeq) {
+      probing = false;
+      syncIntent();
+    }
+    // A later pick (or a close + reopen) already owns the tab.
+    if (seq !== probeSeq || scrim.hidden || effectiveBlankPath() !== path) return;
+    intent = blankIntent(probe);
+    syncIntent();
   }
 
   function renderClonePath(): void {
@@ -349,7 +479,10 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     // GitHub is VIEW-ONLY here (no create action) — the footer primary is
     // hidden; the panel carries its own Connect/Disconnect controls.
     primary.hidden = next === 'github';
-    primary.textContent = next === 'clone' ? 'Clone' : 'Create project';
+    // The blank tab owns its own verb (Create project / Add this folder).
+    primary.textContent =
+      next === 'clone' ? 'Clone' : intent === 'add' ? 'Add this folder' : 'Create project';
+    syncPrimary();
     note.textContent =
       next === 'clone'
         ? 'clones, then registers under Projects'
@@ -382,6 +515,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
         blankTouched = true;
         blankChosen = chosen;
         renderBlankPath();
+        void refreshIntent();
       },
     });
   }
@@ -420,33 +554,54 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     }
   }
 
+  /**
+   * Two acts behind one button, decided by whether the folder is already there
+   * with something in it:
+   *
+   *   - CREATE (the default — missing, empty, or unknown): `create: true` — the
+   *     backend makes the folder (or reuses an empty one) and honours the
+   *     git-init toggle. A path that turns out to be an existing non-empty
+   *     folder is what the backend answers 409 to.
+   *   - ADD (the folder exists and is not empty): the same endpoint WITHOUT
+   *     `create` and without `gitInit`, which registers the directory as it
+   *     is. Nothing is created, nothing is initialised, nothing in the folder
+   *     is touched.
+   *
+   * Per-project defaults ride along either way; a blank/"no default" select
+   * omits its field. Backend errors render inline, unchanged.
+   */
   async function submitBlank(): Promise<void> {
-    const name = nameInput.value.trim();
+    const path = effectiveBlankPath();
+    const name =
+      intent === 'add' ? addedProjectName(nameInput.value, path) : nameInput.value.trim();
     if (name === '') {
       showErr('project name is required');
       nameInput.focus();
       return;
     }
-    const path = effectiveBlankPath();
     if (path === '') {
       showErr('choose a location with Browse');
       return;
     }
-    // Optional per-project defaults: blank/"no default" → omit the field.
-    const body: Omit<CreateProjectRequest, 'create'> = { name, path, gitInit };
+    const body: Omit<CreateProjectRequest, 'create' | 'gitInit'> = { name, path };
     const modelVal = modelSel.value;
     if (modelVal !== '') body.defaultModel = modelVal;
     const modeVal = modeSel.value;
     if (modeVal === 'standard' || modeVal === 'skip-permissions') body.defaultMode = modeVal;
-    primary.disabled = true;
+    submittingBlank = true;
+    syncPrimary();
     try {
-      const p = await api.createLocalProject(body);
+      const p =
+        intent === 'add'
+          ? await api.createProject(body) // no `create`, no `gitInit`
+          : await api.createLocalProject({ ...body, gitInit });
       st.setProjects([...st.state.projects, p]);
       close();
     } catch (e) {
       showErr(e instanceof Error ? e.message : String(e));
     } finally {
-      primary.disabled = false;
+      submittingBlank = false;
+      syncPrimary();
     }
   }
 
@@ -503,8 +658,13 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     blankChosen = '';
     cloneTouched = false;
     cloneChosen = '';
+    probing = false;
+    autoName = '';
+    intent = 'create';
+    probeSeq += 1; // an in-flight probe from the previous open never lands here
     gitInit = true;
     syncGit();
+    syncIntent();
     modelSel.value = '';
     modeSel.value = '';
     err.hidden = true;

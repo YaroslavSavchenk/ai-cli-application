@@ -16,6 +16,9 @@
  *   4. `isLinkActivation` — was that click the deliberate second gesture a
  *      link activation requires (Ctrl/Cmd), or a plain click?
  *   5. `isPasteChord` — is this keystroke the app's explicit paste chord?
+ *   6. `isCopyChord` — is this keystroke the app's explicit copy chord?
+ *      (the only key that fires the browser's own copy is Ctrl+C, which
+ *      xterm turns into ^C for the program — 2026-09-10 user report.)
  *
  * Callers pass a STRUCTURAL view of the event/element (`FocusTarget`,
  * `KeyChord`, `MouseChord`, `DocumentLike`), which a real `HTMLElement` /
@@ -166,4 +169,28 @@ export function isPasteChord(e: KeyChord): boolean {
   if (e.getModifierState?.('AltGraph') === true) return false;
   if (e.ctrlKey && e.shiftKey && (e.key === 'v' || e.key === 'V')) return true;
   return !e.ctrlKey && e.shiftKey && e.key === 'Insert';
+}
+
+/**
+ * The app's copy chords: Ctrl+Shift+C and Ctrl+Insert — the terminal pair that
+ * mirrors the paste chords above. Plain Ctrl+C is NOT one of them and never
+ * will be: it is ^C, the interrupt, and it belongs to the program in the
+ * terminal (PROJECT-SCOPE's keyboard rule).
+ *
+ * Ctrl+Insert is copy, Shift+Insert is paste — the two are told apart by the
+ * OTHER modifier, so a chord carrying BOTH ctrl and shift on Insert is neither
+ * (it is left alone, exactly as `isPasteChord` already decides — and xterm
+ * sends no bytes for it, so it produces nothing).
+ *
+ * Taking the keystroke is a SECOND decision the caller owns: with nothing
+ * selected there is nothing to copy, and the chord is left alone so the app
+ * never swallows a key for nothing (xterm itself sends no bytes for either
+ * chord). This predicate answers only "is this the chord", never "swallow it".
+ */
+export function isCopyChord(e: KeyChord): boolean {
+  if (e.type !== undefined && e.type !== 'keydown') return false;
+  if (e.altKey || e.metaKey) return false;
+  if (e.getModifierState?.('AltGraph') === true) return false;
+  if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) return true;
+  return e.ctrlKey && !e.shiftKey && e.key === 'Insert';
 }

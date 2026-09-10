@@ -262,6 +262,17 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
       'ui/shortcuts.ts',
       'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
     ],
+    // 2026-09-10: the copy chord's row, in both places it is stated, and the
+    // New Project dialog's add-an-existing-folder copy.
+    ['ui/settings.ts', 'copy the selection'],
+    ['ui/shortcuts.ts', 'copy the selection'],
+    [
+      'ui/shortcuts.ts',
+      'plain ctrl+c stays the interrupt; with nothing selected these keys do nothing',
+    ],
+    ['ui/newproject.ts', 'Add this folder'],
+    ['ui/newproject.ts', 'This folder already exists. It is added as it is.'],
+    ['ui/newproject.ts', 'This folder is already a project.'],
   ];
   for (const [file, text] of canaries) {
     const f = files.find((x) => rel(x) === file);

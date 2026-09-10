@@ -17,6 +17,12 @@
  * - Paste: the browser's own Ctrl+V path into the xterm textarea is untouched;
  *   Ctrl+Shift+V and Shift+Insert read the clipboard explicitly. Plain Ctrl+C
  *   and Ctrl+V still reach the PTY (PROJECT-SCOPE keyboard rule).
+ * - Copy: xterm serves the browser's own copy event, but the only key that
+ *   fires one is Ctrl+C, which xterm turns into ^C. Ctrl+Shift+C and
+ *   Ctrl+Insert write the terminal's own selection to the clipboard — but ONLY
+ *   when there is a selection; with none they are left alone so the app never
+ *   swallows a key for nothing (xterm sends no bytes for either chord), and
+ *   plain Ctrl+C is always ^C.
  */
 import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
@@ -25,7 +31,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import type { SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
-import { isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
+import { isCopyChord, isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
 
 const SCROLLBACK_LINES = 5000;
 const RESIZE_DEBOUNCE_MS = 75;
@@ -83,6 +89,8 @@ export function refreshAllTerminalThemes(): void {
 
 /** One debug line per page for a clipboard the browser will not let us read. */
 let clipboardRefusalLogged = false;
+/** The same, for a clipboard the browser will not let us write. */
+let clipboardWriteRefusalLogged = false;
 
 /**
  * Open a terminal hyperlink in the system browser. The address comes from PTY
@@ -160,6 +168,17 @@ export class TerminalView {
       if (isPasteChord(e)) {
         e.preventDefault();
         void this.#pasteFromClipboard();
+        return false;
+      }
+      // Copy chords: a selection is what makes them ours. With nothing
+      // selected the keystroke is NOT taken — it is left alone (not swallowed)
+      // exactly as before this existed, and produces nothing (xterm sends no
+      // bytes for either chord), which is the whole reason the selection is
+      // tested here and not inside the copy itself.
+      if (isCopyChord(e)) {
+        if (!this.term.hasSelection()) return true;
+        e.preventDefault();
+        void this.#copySelection();
         return false;
       }
       if (
@@ -315,6 +334,29 @@ export class TerminalView {
       if (!clipboardRefusalLogged) {
         clipboardRefusalLogged = true;
         log.debug('clipboard read refused — the paste chord did nothing');
+      }
+    }
+  }
+
+  /**
+   * Explicit copy (Ctrl+Shift+C · Ctrl+Insert): hand the terminal's OWN
+   * selection to the clipboard. The caller has already established that there
+   * is one; the selection is deliberately NOT cleared, so the text stays
+   * visible and a second copy is free.
+   *
+   * The selected text came from PTY output, so it is never logged (the logging
+   * rule: counts, never content) — and a refusal does nothing visible at all,
+   * for the same reason the paste path stays silent. One debug line per page.
+   */
+  async #copySelection(): Promise<void> {
+    const text = this.term.getSelection();
+    if (text === '') return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      if (!clipboardWriteRefusalLogged) {
+        clipboardWriteRefusalLogged = true;
+        log.debug('clipboard write refused — the copy chord did nothing');
       }
     }
   }

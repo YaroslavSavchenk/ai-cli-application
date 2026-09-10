@@ -25,9 +25,11 @@
  * regex that quietly matches nothing cannot make the file pass.
  *
  * The load-bearing half is the LAST test: the settings excerpt's chords are
- * compared against the real `isPasteChord` / `isLinkActivation` predicates, so
- * the panel cannot promise a key the app does not take (the same rule
- * `tests/ui-shortcuts-table.test.ts` enforces for the overlay itself).
+ * compared against the real `isPasteChord` / `isCopyChord` / `isLinkActivation`
+ * predicates, so the panel cannot promise a key the app does not take (the
+ * same rule `tests/ui-shortcuts-table.test.ts` enforces for the overlay
+ * itself). 2026-09-10 added the copy row (`ctrl+shift+c` / `ctrl+insert`) as
+ * the excerpt's second row; the link row moved to third.
  *
  * NOT claimed here: that the button is visible, sized, or in the right place on
  * screen. That stays manual (`.claude/skills/verify-terminal/SKILL.md`).
@@ -37,7 +39,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isLinkActivation, isPasteChord } from '../web/src/ui/keys.ts';
+import { isCopyChord, isLinkActivation, isPasteChord } from '../web/src/ui/keys.ts';
 import type { KeyChord } from '../web/src/ui/keys.ts';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -169,26 +171,33 @@ test('the settings panel opens the same overlay through its injected dependency'
   assert.equal(count(SETTINGS, 'initShortcuts'), 0);
 });
 
-test('the settings KEYS section states both gestures, and nothing that is not in the overlay', () => {
+test('the settings KEYS section states paste, copy and the link gesture, and nothing that is not in the overlay', () => {
   const block = /const KEY_ROWS: KeyRow\[\] = \[([\s\S]*?)\n\];/.exec(SETTINGS);
   assert.notEqual(block, null, 'settings.ts must still declare KEY_ROWS');
   const src = block?.[1] ?? '';
   const rows = [...src.matchAll(/\{([^}]*)\}/g)].map((m) => m[1] as string);
-  assert.equal(rows.length, 2, `expected the two-row excerpt, parsed ${rows.length}`);
+  assert.equal(rows.length, 3, `expected the three-row excerpt, parsed ${rows.length}`);
 
   const whats = rows.map((r) => (/what:\s*'([^']*)'/.exec(r) ?? [])[1]);
-  assert.deepEqual(whats, ['paste into a terminal', 'open a link printed in a terminal']);
+  assert.deepEqual(whats, ['paste into a terminal', 'copy the selection', 'open a link printed in a terminal']);
 
-  // Row 1: chords, rendered as <kbd> chips. Row 2: a mouse sentence, never a chip.
+  // Rows 0 and 1: chords, rendered as <kbd> chips. Row 2: a mouse sentence, never a chip.
   const chords = [...(rows[0] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
   assert.deepEqual(chords, ['ctrl+shift+v', 'shift+insert']);
-  assert.match(rows[1] as string, /gesture:\s*'ctrl\+click'/);
+  const copyChords = [...(rows[1] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
+  assert.deepEqual(copyChords, ['ctrl+shift+c', 'ctrl+insert']);
+  assert.match(rows[2] as string, /gesture:\s*'ctrl\+click'/);
   assert.equal((rows[0] as string).includes('gesture:'), false, 'a chord row must not render as a gesture');
-  assert.equal((rows[1] as string).includes('keys:'), false, 'a mouse sentence must not render as a key chip');
+  assert.equal((rows[1] as string).includes('gesture:'), false, 'a chord row must not render as a gesture');
+  assert.equal((rows[2] as string).includes('keys:'), false, 'a mouse sentence must not render as a key chip');
 
   // The excerpt may not drift from the full table it excerpts.
-  for (const c of chords) assert.ok(SHORTCUTS.includes(`'${c}'`), `${c} must also be in the overlay table`);
+  for (const c of [...chords, ...copyChords]) {
+    assert.ok(SHORTCUTS.includes(`'${c}'`), `${c} must also be in the overlay table`);
+  }
   assert.ok(SHORTCUTS.includes("'ctrl+click a link'"), 'the link gesture must also be in the overlay table');
+  // Same words in both places: the panel and the overlay name the copy row alike.
+  assert.ok(SHORTCUTS.includes("what: 'copy the selection'"), 'the overlay must carry the same copy row');
 });
 
 test('every key the settings excerpt promises is one the app really takes', () => {
@@ -211,6 +220,14 @@ test('every key the settings excerpt promises is one the app really takes', () =
   const chords = [...(rows[0] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
   assert.ok(chords.length >= 2, 'no chords parsed out of the panel — the check would be vacuous');
   for (const c of chords) assert.equal(isPasteChord(chord(c)), true, `the panel promises ${c}`);
+  // Row 1 is the copy row: its chords are exactly the copy pair, each one a
+  // chord isCopyChord accepts — and none of them a paste chord.
+  const copyChords = [...(rows[1] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
+  assert.deepEqual(copyChords, ['ctrl+shift+c', 'ctrl+insert']);
+  for (const c of copyChords) {
+    assert.equal(isCopyChord(chord(c)), true, `the panel promises ${c} copies`);
+    assert.equal(isPasteChord(chord(c)), false, `${c} must not also paste`);
+  }
   // The link row's claim is that the MODIFIER opens it; a plain click must not.
   assert.equal(isLinkActivation({ ctrlKey: true, altKey: false, metaKey: false }), true);
   assert.equal(isLinkActivation({ ctrlKey: false, altKey: false, metaKey: false }), false);
