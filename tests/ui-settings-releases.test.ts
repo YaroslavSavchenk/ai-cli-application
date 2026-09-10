@@ -60,8 +60,10 @@ function releasesUrl(): string {
 test('the scan actually reads the panel (non-vacuity: the file and its landmarks are found)', () => {
   assert.ok(SETTINGS.length > 1000, `settings.ts looks empty (${SETTINGS.length} chars)`);
   assert.ok(SETTINGS.includes('export function initSettings'), 'settings.ts must still export its init');
-  assert.ok(SETTINGS.includes("el('div', 'drawer-label', 'BACKEND')"), 'the BACKEND section must still exist');
-  assert.ok(SETTINGS.includes('function renderBackend'), 'the BACKEND readouts must still be rendered here');
+  // Nocturne A2 (2026-09-10): section labels are sentence case, not shouted
+  // all-caps — `BACKEND` became `Backend`.
+  assert.ok(SETTINGS.includes("el('div', 'drawer-label', 'Backend')"), 'the Backend section must still exist');
+  assert.ok(SETTINGS.includes('function renderBackend'), 'the Backend readouts must still be rendered here');
 });
 
 test('the address is ONE constant in code, and no part of it is UI copy', () => {

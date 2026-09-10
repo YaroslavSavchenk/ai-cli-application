@@ -50,20 +50,20 @@ export type NoticeState = 'hidden' | 'toast' | 'pill' | 'updating' | 'restarting
 export const CONFIRM_LIST_MAX = 6;
 
 /** The pill's word while an update is pending. */
-export const PILL_LABEL = 'update';
+export const PILL_LABEL = 'Update';
 /**
  * …and while a restart is running. During the preflight the dialog can be put
  * away, and without this the screen would say NOTHING about a restart in
  * flight — the only way back to it would be the settings panel.
  */
-export const PILL_LABEL_RESTARTING = 'restarting…';
+export const PILL_LABEL_RESTARTING = 'Restarting';
 /**
- * …and while the in-app update runs (phase E). Its own word, not `restarting…`:
+ * …and while the in-app update runs (phase E). Its own word, not `Restarting`:
  * during this half nothing has been ended yet — the download and the Windows
  * installer are still working while every session keeps running behind the
  * dialog — and the pill is what a user who hid that dialog reads.
  */
-export const PILL_LABEL_UPDATING = 'updating…';
+export const PILL_LABEL_UPDATING = 'Updating';
 /** Tooltip for that state; the pending-update tooltip lives in `update.ts`. */
 export const PILL_TIP_RESTARTING = 'A restart is running — show it';
 export const PILL_TIP_UPDATING = 'An update is running — show it';

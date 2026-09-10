@@ -55,6 +55,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Log
 
+- [[2026-09-10-nocturne-a2]] — **Nocturne A2 LANDED** (top bar 48, tab strip 32, statusline 26, copy rules app-wide; suite 1179→1189): Theme + `?` buttons gone (scope doc updated: shortcuts via statusline button/`?` key), statusline counts alive sessions, uptime `2h 15m`; separator-ban test; leftovers → A3/A5/A8
 - [[2026-09-10-nocturne-a1]] — **Nocturne A1 LANDED** (tokens, Inter, icon, host colours; suite 1165→1179): alias layer recolours Legacy chrome; orchestrator caught the latin-ext Inter (no ASCII); 12 scope findings → 7 fixed, rest A2/A8 notes; Windows checks owed; handoff dir is LOCAL-only (`.git/info/exclude`) → parity test uses a committed fixture; next A2
 - [[2026-09-10-update-check-cache-fix]] — **"no Update button" FIXED** (`1cdb766`, dev-flow 2 cycles, mutants 8/8, suite 1160→1165): cache holds the latest release DESCRIPTOR, `offer()` derived per call, `gateRelease` deleted; retention tests prove ctime order; stale cache deleted for the user, v0.3.2 = the button's target
 - [[2026-09-09-in-app-update]] — **phase E in-app updater SHIPPED**: release check (ETag, gated, constructed URLs), download + inline SHA-256 + manual redirect allow-list, `%TEMP%` staging + `run-update.ps1` (re-hash, exit 0/2/3), flow B installer (`host\next`, `WizardDirValue`, `SetupMutex`), one-dialog UI; review caught log flood, lifecycle hole, lost diagnostics, per-reason dismiss, held-flight deferral, restart-wipes-download; mutants 13/13, zero non-loopback connects proven

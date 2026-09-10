@@ -3,14 +3,18 @@
  * bottom tab strip / statusline), wires the modules together, owns the
  * global keyboard chords and the session poll.
  *
- * Shell anatomy, top to bottom: 44px gradient topbar (logo tile + wordmark,
- * then the right-hand cluster in the refreshed prototype's order — ⚙ Settings
- * icon, Theme / Projects / Sessions toggles, divider, connected dot, GitHub
- * chip, + New session), the
- * middle row (projects drawer · pane grid · sessions drawer — drawers are
- * structural flex siblings, so toggling one resizes panes through the real
- * fit -> ws-resize chain), the Steam-style BOTTOM tab strip, and the 23px
- * statusline. Heights and colors live in tokens.css.
+ * Shell anatomy, top to bottom (Nocturne A2): a 48px top bar — logo tile +
+ * wordmark, hairline, the Files / Projects / Sessions toggles, spacer,
+ * connection readout with the update pill, hairline, GitHub account chip,
+ * Settings, New session — the middle row (projects drawer, pane grid,
+ * sessions drawer; drawers are structural flex siblings, so toggling one
+ * resizes panes through the real fit -> ws-resize chain), the 32px tab strip,
+ * and the 26px statusline. Heights and colors live in tokens.css.
+ *
+ * A2 removed two top-bar controls: the Theme button (Nocturne is the only
+ * theme; ui/theme.ts is unwired and part A8 deletes it) and the `?` help
+ * button (the shortcuts overlay stays reachable through the `?` key, the
+ * statusline's "Keyboard shortcuts" button and the settings panel).
  *
  * Keyboard: app chords live EXCLUSIVELY on Ctrl+Alt (AltGr excluded via
  * getModifierState so European layouts still reach the TUI). Plain keys are
@@ -25,13 +29,12 @@ import type { UiPrefs } from '../../shared/protocol.ts';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initPanes, focusedConn, requestTerminalFocus } from './ui/panes.ts';
+import { initPanes, requestTerminalFocus } from './ui/panes.ts';
 import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
-import { initTheme } from './ui/theme.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
 import {
@@ -59,6 +62,7 @@ import { focusOwnerOpen, isEditableTarget, shouldRefocusTerminal } from './ui/ke
 import { startPresence } from './ws.ts';
 import { initLogging, log } from './log.ts';
 import { el, button } from './ui/util.ts';
+import { gearIcon } from './ui/icons.ts';
 
 const POLL_MS = 3000;
 /**
@@ -122,7 +126,7 @@ function createBootPanel(): BootPanel {
   const tile = el('div', 'logo-tile');
   tile.setAttribute('aria-hidden', 'true');
   tile.append(el('span', 'logo-glyph', '>_'));
-  brand.append(tile, el('div', 'boot-brand-name', 'AI SESSION MANAGER'));
+  brand.append(tile, el('div', 'boot-brand-name', 'Session Manager'));
   const card = el('div', 'boot-card');
   panel.append(brand, card);
   overlay.append(panel);
@@ -286,9 +290,10 @@ async function boot(root: HTMLDivElement): Promise<void> {
     });
 
   // Server state first: loadUi() prunes view assignments against it. Prefs
-  // (theme) is joined into the SAME hydrate wait — no extra boot-panel step,
+  // (the status-line checklist) is joined into the SAME hydrate wait — no extra boot-panel step,
   // no reordering — but wrapped in its own .catch so a prefs-fetch failure
-  // never fails hydrate or blocks the UI: the cached/default theme stands.
+  // never fails hydrate or blocks the UI (the status-line checklist then keeps
+  // its defaults; A2 unwired the theme popover, so no theme rides along).
   let projects;
   let sessions;
   let prefs: UiPrefs | undefined;
@@ -343,85 +348,66 @@ async function boot(root: HTMLDivElement): Promise<void> {
 }
 
 function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
-  // ---- topbar (handoff §2) -------------------------------------------------
+  // ---- top bar (Nocturne A2) -----------------------------------------------
+  // Left to right: logo tile + wordmark, hairline, the three panel toggles,
+  // spacer, connection readout (+ the update pill), hairline, GitHub account
+  // chip, Settings, New session. Nothing here is decorative: every item is a
+  // state readout or a way in.
   const topbar = el('header', 'topbar');
+  const brand = el('div', 'tb-brand');
   const logo = el('div', 'logo-tile');
   logo.setAttribute('aria-hidden', 'true');
   logo.append(el('span', 'logo-glyph', '>_'));
-  const wordmark = el('div', 'wordmark', 'AI SESSION MANAGER');
+  brand.append(logo, el('div', 'wordmark', 'Session Manager'));
 
-  // Settings: icon-only 28px gear, FIRST of the right-hand controls (refreshed
-  // prototype, 2026-07-24 — superseding the earlier text button). The glyph is
-  // decorative; `aria-label` carries the accessible name.
-  const settingsBtn = button('tb-btn is-icon', '');
-  const gear = el('span', '', '⚙');
-  gear.setAttribute('aria-hidden', 'true');
-  settingsBtn.append(gear);
-  settingsBtn.setAttribute('aria-label', 'Settings');
-  settingsBtn.title = 'settings — what each session shows in its status line';
-  settingsBtn.setAttribute('aria-haspopup', 'dialog');
-
-  // Keyboard help: the same icon-only 28px control, immediately after the gear
-  // (2026-09-08). Until now the shortcuts overlay had exactly two ways in — the
-  // bare `?` key and the statusline hint — and the app's newest chord (paste)
-  // is the one nobody can guess, so the reference needs a control where the
-  // eye already goes for app-level settings.
-  const helpBtn = button('tb-btn is-icon', '');
-  const qmark = el('span', '', '?');
-  qmark.setAttribute('aria-hidden', 'true');
-  helpBtn.append(qmark);
-  helpBtn.setAttribute('aria-label', 'Keyboard shortcuts');
-  helpBtn.title = 'keyboard shortcuts';
-  helpBtn.setAttribute('aria-haspopup', 'dialog');
-
-  const themeBtn = button('tb-btn', '');
-  themeBtn.title = 'terminal themes';
-  themeBtn.setAttribute('aria-haspopup', 'dialog');
-  const swatch = el('span', 'tb-swatch');
-  swatch.setAttribute('aria-hidden', 'true');
-  swatch.append(
-    el('span', 'tb-sw is-a'),
-    el('span', 'tb-sw is-b'),
-    el('span', 'tb-sw is-c'),
-    el('span', 'tb-sw is-d'),
-  );
-  themeBtn.append(swatch, el('span', '', 'Theme'));
-
+  const toggles = el('div', 'tb-toggles');
+  // Files: the panel itself arrives in part A5. Until then the toggle is a
+  // real button, disabled (so not in the tab order; its title is hover-only)
+  // — never a fake panel.
+  const filesBtn = button('tb-btn', 'Files');
+  filesBtn.disabled = true;
+  filesBtn.title = 'The Files panel is not available yet';
   const projectsBtn = button('tb-btn', 'Projects', () => st.toggleDrawer('projects'));
-  projectsBtn.title = 'manage projects';
+  projectsBtn.title = 'Projects';
   const sessionsBtn = button('tb-btn', 'Sessions', () => st.toggleDrawer('sessions'));
-  sessionsBtn.title = 'sessions panel — all server sessions';
+  sessionsBtn.title = 'Sessions';
   const sessionsBadge = el('span', 'tb-attn');
   sessionsBadge.hidden = true;
-  sessionsBadge.title = 'sessions awaiting input';
+  sessionsBadge.title = 'Sessions waiting for you';
   sessionsBtn.append(sessionsBadge);
+  toggles.append(filesBtn, projectsBtn, sessionsBtn);
 
-  const divider = el('span', 'tb-divider');
   const conn = el('div', 'tb-conn');
   const connDot = el('span', 'tb-conn-dot is-ok');
   connDot.setAttribute('aria-hidden', 'true');
-  const connTxt = el('span', '', 'connected');
+  const connTxt = el('span', '', 'Connected');
   conn.append(connDot, connTxt);
 
-  // GitHub chip: live status dot + label; opens the New Project dialog on its
+  // GitHub chip: account initial + login; opens the New Project dialog on its
   // GitHub tab (honest setup panel when the feature is dormant).
   const ghChip = createGithubChip(() => openNewProjectDialog('github'));
 
-  const newBtn = button('btn-go', '+ New session', () => openLaunchDialog());
-  newBtn.title = 'launch a session (ctrl+alt+t)';
+  // Settings: icon-only, the Phosphor gear as inline SVG (no icon package —
+  // open decision #5 stays open). The glyph is decorative; `aria-label`
+  // carries the accessible name.
+  const settingsBtn = button('tb-icon', '');
+  settingsBtn.append(gearIcon());
+  settingsBtn.setAttribute('aria-label', 'Settings');
+  settingsBtn.title = 'Settings';
+  settingsBtn.setAttribute('aria-haspopup', 'dialog');
+
+  const newBtn = button('tb-new', 'New session', () => openLaunchDialog());
+  newBtn.title = 'New session (ctrl+alt+t)';
 
   topbar.append(
-    logo,
-    wordmark,
+    brand,
+    el('span', 'tb-divider'),
+    toggles,
     el('span', 'tb-gap'),
-    settingsBtn,
-    helpBtn,
-    themeBtn,
-    projectsBtn,
-    sessionsBtn,
-    divider,
     conn,
+    el('span', 'tb-divider'),
     ghChip,
+    settingsBtn,
     newBtn,
   );
 
@@ -447,10 +433,6 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // the settings panel opens showing what the sessions' own status line reads
   // (the script re-reads the same key from disk on every draw).
   initStatusLine(prefs?.statusLine);
-  // Theme next: it applies the persisted ground/ramp onto :root before any
-  // terminal is constructed, so terminals are born themed.
-  const themePop = initTheme(modalHost, themeBtn, prefs);
-  themeBtn.addEventListener('click', () => themePop.toggle());
   // Update notice BEFORE settings: the panel's BACKEND section calls into it,
   // and its pill lands in the topbar cluster right after the connection dot.
   const upd = initUpdate(modalHost);
@@ -464,12 +446,11 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.
   initGithub(); // one status fetch → the GitHub chip is honest from first paint.
   const tabs = initTabs(strip);
-  // ONE overlay instance, three openers: the `?` key, this topbar button and
-  // the statusline hint (plus the settings panel's `all shortcuts`).
+  // ONE overlay instance; A2 dropped the topbar `?` button, so its openers are
+  // the `?` key, Ctrl+Alt+/, the statusline's Keyboard shortcuts button and
+  // the settings panel's `all shortcuts` link.
   const shortcuts = initShortcuts(modalHost);
-  helpBtn.addEventListener('click', () => shortcuts.toggle());
   const status = initStatusline(statusline, {
-    getFocusedConn: focusedConn,
     openShortcuts: () => shortcuts.toggle(),
   });
   const sessionsDrawer = initSessionsDrawer(sessAside);
@@ -490,7 +471,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     projectsBtn.setAttribute('aria-pressed', st.state.drawer === 'projects' ? 'true' : 'false');
     const ok = st.state.backendReachable;
     connDot.className = `tb-conn-dot ${ok ? 'is-ok' : 'is-down'}`;
-    connTxt.textContent = ok ? 'connected' : 'offline';
+    connTxt.textContent = ok ? 'Connected' : 'Offline';
   }
 
   st.subscribe(() => {
@@ -554,9 +535,6 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         // ignores Esc (nothing left to cancel, nothing left behind it).
         e.preventDefault();
         closeRestartConfirm();
-      } else if (themePop.isOpen()) {
-        e.preventDefault();
-        themePop.close();
       } else if (settings.isOpen()) {
         e.preventDefault();
         settings.close();
@@ -703,7 +681,7 @@ function showReconnectTakeover(): void {
   const tile = el('div', 'logo-tile');
   tile.setAttribute('aria-hidden', 'true');
   tile.append(el('span', 'logo-glyph', '>_'));
-  brand.append(tile, el('div', 'boot-brand-name', 'AI SESSION MANAGER'));
+  brand.append(tile, el('div', 'boot-brand-name', 'Session Manager'));
   const card = el('div', 'boot-card');
   const row = el('div', 'boot-step');
   const mark = el('span', 'boot-mark is-spin');

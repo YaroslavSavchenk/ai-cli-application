@@ -125,7 +125,7 @@ const COPY = {
   dialogTitleUpdateBusy: 'Updating the app',
   dialogTitleUpdateOver: 'Update the app',
   dialogTitleUpdateRefused: 'Nothing was updated',
-  dialogSub: 'sessions end · History keeps them',
+  dialogSub: 'Sessions end. History keeps them.',
   cancel: 'Cancel',
   confirm: 'Restart',
   confirmUpdate: 'Update',
@@ -432,7 +432,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
         const li = el('li', 'restart-row');
         li.append(el('span', 'restart-row-name', r.name));
         if (r.project !== null) {
-          li.append(el('span', 'restart-row-sep', '·'), el('span', 'restart-row-proj', r.project));
+          li.append(el('span', 'restart-row-proj', `, ${r.project}`));
         }
         return li;
       }),

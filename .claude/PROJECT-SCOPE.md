@@ -183,13 +183,13 @@ multi-pane layouts on top.
   dir, so tests can drive a real restart without rebuilding the repo's
   `web/dist`; a bad value is refused with a `server.log` line). The
   restart dialog can be hidden during the preflight (sessions are still
-  alive); the pill then reads `restarting…` and re-opens it; every outcome
+  alive); the pill then reads `Restarting` and re-opens it; every outcome
   re-opens it; it locks only during the reconnect gap; closing it hands
   focus back to the element it was opened from when that is still visible
   (the Settings button, the toast), else to the terminal. PTY sessions
   inherit none of the four `AI_SM_*` handoff/seam vars. `web/dist-next/` and `web/dist-prev/` are
-  gitignored. UI: Settings → BACKEND (`Restart backend`), a dismissible
-  `New version available` toast, a persistent amber `update` pill after
+  gitignored. UI: Settings → Backend (`Restart backend`), a dismissible
+  `New version available` toast, a persistent amber `Update` pill after
   dismissal, a confirmation that names the running sessions and says they
   stay in HISTORY (plus a note when dependencies must be installed first);
   the dialog says "Preparing the new version…" while the preflight runs,
@@ -436,7 +436,7 @@ multi-pane layouts on top.
   dialog (`Update the app?` → `Downloading… n%` → `Verifying…` →
   `Installing…` → the restart phases); failure = `Nothing was updated` + a
   constant sentence + `Download it yourself` (the one sanctioned browser
-  exit); pill `updating…`; a reload mid-install re-adopts progress. Test
+  exit); pill `Updating`; a reload mid-install re-adopts progress. Test
   seams: `AI_SM_UPDATE_API_BASE` (loopback-only, refuse-to-start otherwise;
   collapses the asset allow-list to itself), `AI_SM_UPDATE_FIRST_MS`,
   `AI_SM_UPDATE_INTERVAL_MS` (floored at 1000 ms with a boot warning, capped
@@ -604,11 +604,10 @@ multi-pane layouts on top.
   https://claude.ai/install.sh | bash`) verbatim — informed consent and an
   actionable fix are the point there. The app's own chrome stays clean.
   The GUI speaks plain human language; CLI syntax belongs in the terminal, not
-  in the chrome around it. Concretely: permission modes render as **Always
-  ask** / **Auto-approve edits** / **Read-only planning** / **Never ask ·
-  dangerous** (never `acceptEdits`, `plan`, `bypassPermissions`) — since
-  2026-09-06 the launch dialog uses the short forms `always ask` / `auto
-  edits` / `read-only` / `no prompts` everywhere — resume reads
+  in the chrome around it. Concretely: permission modes render as the short
+  forms `always ask` / `auto edits` / `read-only` / `no prompts` (one label
+  table, `PERM_SHORT`; since 2026-09-06 the long forms are gone; never
+  `acceptEdits`, `plan`, `bypassPermissions`) — resume reads
   **Continue last conversation** (never `--continue`), and the launch dialog's
   argv command preview was replaced by a readable summary, itself **removed
   2026-09-06** (the fields are the statement of what will run; nothing
@@ -644,10 +643,12 @@ multi-pane layouts on top.
   exactly two extra chords (2026-09-08): `Ctrl+Shift+V` and `Shift+Insert`
   paste the clipboard into the terminal (plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
-  itself). Discoverable (user's ask, 2026-09-08 "hoezo ctrl+shift+v?"): a
-  `?` button in the top bar beside the gear opens the shortcuts overlay,
-  whose paste row carries a one-line why; Settings has a KEYS section with
-  the paste chords, Ctrl+click for links, and an `all shortcuts` link. When the window regains focus the
+  itself). Discoverable (user's ask, 2026-09-08 "hoezo ctrl+shift+v?"; the
+  top-bar `?` button was dropped by the Nocturne chrome, part A2, 2026-09-10 —
+  the v3 handoff has none): the statusline's "Keyboard shortcuts" button, the
+  `?` key and Ctrl+Alt+/ open the shortcuts overlay, whose paste row carries a
+  one-line why; Settings has a Keys section with the paste chords, Ctrl+click
+  for links, and an `all shortcuts` link (the Keyboard page, A7). When the window regains focus the
   keyboard goes back to the focused pane unless a dialog, drawer, overlay
   or editable field owns it. OSC 8 hyperlinks printed by a CLI open in the
   system browser on **Ctrl+click** (`http`/`https` only, no confirm

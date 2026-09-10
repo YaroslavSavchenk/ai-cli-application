@@ -3,7 +3,7 @@
  * (`modelFromArgs` / `permFromArgs`, R2 statusline/pane-card tags; the
  * permission tag renders the plain-language short form from `PERM_SHORT`, the
  * CLI value never reaches the DOM) and
- * `fmtUptime` (R2 statusline `up HH:MM:SS`), plus `fmtAgo`/`baseName`/`fmtCount` (the
+ * `fmtUptime` (Nocturne statusline `Up 31m` / `Up 2h 15m`), plus `fmtAgo`/`baseName`/`fmtCount` (the
  * sessions drawer's HISTORY section: when an entry last ran, and the folder
  * name for a cwd the app cannot name). `el`/`button`/`armButton`/`ArmedSet`/
  * `trapTab` all touch the DOM in ways this file doesn't attempt — see the
@@ -129,30 +129,36 @@ function isoSecondsAgo(totalSeconds: number): string {
   return new Date(Date.now() - totalSeconds * 1000 - 500).toISOString();
 }
 
-test('fmtUptime: 0s -> 00:00:00', () => {
-  assert.equal(fmtUptime(isoSecondsAgo(0)), '00:00:00');
+test('fmtUptime: 0s -> 0m', () => {
+  assert.equal(fmtUptime(isoSecondsAgo(0)), '0m');
 });
 
-test('fmtUptime: under a minute', () => {
-  assert.equal(fmtUptime(isoSecondsAgo(59)), '00:00:59');
+test('fmtUptime: under a minute reads 0m — seconds are not shown', () => {
+  assert.equal(fmtUptime(isoSecondsAgo(59)), '0m');
 });
 
 test('fmtUptime: minute rollover at 60s', () => {
-  assert.equal(fmtUptime(isoSecondsAgo(60)), '00:01:00');
+  assert.equal(fmtUptime(isoSecondsAgo(60)), '1m');
 });
 
 test('fmtUptime: hour rollover at 3600s', () => {
-  assert.equal(fmtUptime(isoSecondsAgo(3599)), '00:59:59');
-  assert.equal(fmtUptime(isoSecondsAgo(3600)), '01:00:00');
+  assert.equal(fmtUptime(isoSecondsAgo(3599)), '59m');
+  assert.equal(fmtUptime(isoSecondsAgo(3600)), '1h 0m');
 });
 
-test('fmtUptime: past 24h, hours do not wrap (25:01:01)', () => {
-  assert.equal(fmtUptime(isoSecondsAgo(25 * 3600 + 61)), '25:01:01');
+test('fmtUptime: past 24h, hours do not wrap (25h 1m)', () => {
+  assert.equal(fmtUptime(isoSecondsAgo(25 * 3600 + 61)), '25h 1m');
 });
 
-test('fmtUptime: a timestamp in the future clamps to 00:00:00, never negative', () => {
+test('fmtUptime: a timestamp in the future clamps to 0m, never negative', () => {
   const future = new Date(Date.now() + 60_000).toISOString();
-  assert.equal(fmtUptime(future), '00:00:00');
+  assert.equal(fmtUptime(future), '0m');
+});
+
+test('fmtUptime: the shape is `<h>h <m>m` / `<m>m` — hours only once there are any', () => {
+  for (const secs of [0, 59, 60, 3599, 3600, 25 * 3600 + 61, 100 * 3600]) {
+    assert.match(fmtUptime(isoSecondsAgo(secs)), /^(\d+h )?\d+m$/, `shape for ${secs}s`);
+  }
 });
 
 test('fmtUptime: an unparsable timestamp renders as an em dash', () => {

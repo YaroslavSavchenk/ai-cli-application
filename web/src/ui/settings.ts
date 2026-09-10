@@ -103,7 +103,7 @@ const ITEM_ROWS: ItemRow[] = [
     label: 'Account usage',
     sample: '5h 38%',
     caption:
-      'works with a Claude Pro or Max account · appears after the session’s first reply',
+      'works with a Claude Pro or Max account, and appears after the session’s first reply',
   },
 ];
 
@@ -128,7 +128,7 @@ export function initSettings(
   const titles = el('div', 'launch-titles');
   titles.append(
     el('div', 'launch-title', 'Settings'),
-    el('div', 'launch-sub', 'status line · keys · backend'),
+    el('div', 'launch-sub', 'status line, keys, backend'),
   );
   const closeX = button('launch-x', '×', () => close());
   closeX.setAttribute('aria-label', 'close settings');
@@ -141,7 +141,7 @@ export function initSettings(
   // Status line — master switch + the seven items
   // ======================================================================
   const sect = el('section', 'settings-sect');
-  sect.append(el('div', 'drawer-label', 'STATUS LINE'));
+  sect.append(el('div', 'drawer-label', 'Status line'));
   sect.append(
     el(
       'div',
@@ -201,14 +201,13 @@ export function initSettings(
   // Keys — the two gestures that are NOT visible controls anywhere else
   // ======================================================================
   const keysSect = el('section', 'settings-sect');
-  keysSect.append(el('div', 'drawer-label', 'KEYS'));
+  keysSect.append(el('div', 'drawer-label', 'Keys'));
   const keyList = el('div', 'settings-keys');
   for (const r of KEY_ROWS) {
     const row = el('div', 'settings-keyrow');
     const chips = el('span', 'settings-keychips');
     if (r.keys !== undefined) {
       r.keys.forEach((k, i) => {
-        if (i > 0) chips.append(el('span', 'settings-keysep', '·'));
         chips.append(el('kbd', '', k));
       });
     }
@@ -233,7 +232,7 @@ export function initSettings(
   // the weight ordering says which one is the act with consequences.
   // ======================================================================
   const backSect = el('section', 'settings-sect');
-  backSect.append(el('div', 'drawer-label', 'BACKEND'));
+  backSect.append(el('div', 'drawer-label', 'Backend'));
   backSect.append(
     el(
       'div',
@@ -244,7 +243,7 @@ export function initSettings(
   const facts = el('div', 'settings-facts');
   const factUp = el('span', 'settings-fact');
   const factVer = el('span', 'settings-fact');
-  facts.append(factUp, el('span', 'settings-fact-sep', '·'), factVer);
+  facts.append(factUp, factVer);
   const backRow = el('div', 'settings-actionrow');
   // Only an installed app can be updated by downloading one; a developer clone
   // updates with the tools it was cloned with, and a link to a releases page
@@ -376,7 +375,7 @@ export function initSettings(
     for (const n of named) counts.set(n.label, (counts.get(n.label) ?? 0) + 1);
     noticeNames.textContent = named
       .map((n) => ((counts.get(n.label) ?? 0) > 1 && n.project !== null ? `${n.label} (${n.project})` : n.label))
-      .join(' · ');
+      .join(', ');
   }
 
   // The session list refreshes on the poll; keep the notice honest while open.

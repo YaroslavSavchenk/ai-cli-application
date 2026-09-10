@@ -33,10 +33,10 @@ const ROWS: Row[] = [
   { keys: ['ctrl+alt+shift+←↑↓→'], what: 'move session between panes of its view (swap)', ui: 'drag a pane header onto a pane' },
   { keys: ['ctrl+alt+1…9'], what: 'switch tab', ui: 'tab strip' },
   { keys: ['ctrl+alt+shift+pgup/pgdn'], what: 'move the active tab left / right (reorder)', ui: 'drag a tab along the strip' },
-  { keys: ['ctrl+alt+t'], what: 'launch a new session (dialog)', ui: '+ New session · + in the tab strip' },
+  { keys: ['ctrl+alt+t'], what: 'launch a new session (dialog)', ui: 'New session, or + in the tab strip' },
   { keys: ['drag a tab onto a pane or tab'], gesture: true, what: 'merge its sessions into that view (split)', ui: 'split in the sessions panel' },
   { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'extract in the pane header' },
-  { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split · enter resets', ui: 'drag the divider · double-click resets' },
+  { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split, enter resets it', ui: 'drag the divider, double-click resets it' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
   {
     keys: ['ctrl+shift+v', 'shift+insert'],
@@ -45,8 +45,8 @@ const ROWS: Row[] = [
     note: 'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
   },
   { keys: ['ctrl+click a link'], gesture: true, what: 'open it in your browser', ui: 'links printed in the terminal' },
-  { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: '? in the top bar · statusline' },
-  { keys: ['esc'], what: 'close panel / dialog · cancel a drag', ui: '× buttons' },
+  { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: 'Keyboard shortcuts in the statusline' },
+  { keys: ['esc'], what: 'close a panel or dialog, or cancel a drag', ui: '× buttons' },
 ];
 
 export interface ShortcutsOverlay {
@@ -66,7 +66,7 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
   const hd = el('header', 'modal-hd');
   const x = button('drawer-x', '×', close);
   x.setAttribute('aria-label', 'close shortcuts');
-  hd.append(el('span', 'drawer-label', 'SHORTCUTS'), el('span', 'drawer-gap'), x);
+  hd.append(el('span', 'drawer-label', 'Shortcuts'), el('span', 'drawer-gap'), x);
 
   const table = el('div', 'sc-table');
   for (const r of ROWS) {

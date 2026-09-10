@@ -83,7 +83,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   const titles = el('div', 'launch-titles');
   titles.append(
     el('div', 'launch-title', 'New project'),
-    el('div', 'launch-sub', 'create locally · clone a repo'),
+    el('div', 'launch-sub', 'create locally or clone a repo'),
   );
   const closeX = button('launch-x', '×', () => close());
   closeX.setAttribute('aria-label', 'close new project dialog');
@@ -192,7 +192,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   // Default-model select — the settings-panel select idiom. The launch dialog's
   // mode segments are unaffected (they carry their own short labels, PERM_SHORT).
   const modeOpts: { value: PermissionMode; label: string }[] = [
-    { value: 'skip-permissions', label: 'never ask · dangerous' },
+    { value: 'skip-permissions', label: 'never ask (dangerous)' },
   ];
   for (const o of modeOpts) {
     const opt = el('option', '', o.label);
@@ -349,7 +349,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     // GitHub is VIEW-ONLY here (no create action) — the footer primary is
     // hidden; the panel carries its own Connect/Disconnect controls.
     primary.hidden = next === 'github';
-    primary.textContent = next === 'clone' ? 'Clone ▸' : 'Create project';
+    primary.textContent = next === 'clone' ? 'Clone' : 'Create project';
     note.textContent =
       next === 'clone'
         ? 'clones, then registers under Projects'

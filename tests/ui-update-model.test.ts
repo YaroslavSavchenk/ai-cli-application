@@ -1012,7 +1012,7 @@ test('while UPDATING the pill has its own word, and a click can only bring the d
   assert.equal(n.toastVisible, false, 'the toast steps aside for the dialog');
   assert.equal(n.pillVisible, true, 'the pill is the only thing left saying so');
   assert.equal(n.pillLabel, PILL_LABEL_UPDATING);
-  assert.equal(PILL_LABEL_UPDATING, 'updating…');
+  assert.equal(PILL_LABEL_UPDATING, 'Updating');
   assert.notEqual(PILL_LABEL_UPDATING, PILL_LABEL_RESTARTING, 'the two halves are not the same news');
   assert.equal(n.pillAction, 'reveal');
   // A poll landing mid-install must not repaint a toast over the progress.

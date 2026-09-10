@@ -96,7 +96,7 @@ function project(over: Partial<Project> = {}): Project {
 // ---------------------------------------------------------------------------
 
 test('chipView: status not yet fetched (null) is the neutral off chip', () => {
-  assert.deepEqual(chipView(null), { state: 'off', label: 'GitHub', tag: '', aria: 'GitHub' });
+  assert.deepEqual(chipView(null), { state: 'off', label: 'GitHub', initial: 'G', aria: 'GitHub' });
 });
 
 test('chipView: NO device flow on this server is still an actionable "Connect GitHub" chip', () => {
@@ -107,7 +107,7 @@ test('chipView: NO device flow on this server is still an actionable "Connect Gi
   assert.deepEqual(chipView({ deviceFlowAvailable: false, state: 'disconnected' }), {
     state: 'disconnected',
     label: 'Connect GitHub',
-    tag: '',
+    initial: 'G',
     aria: 'GitHub — connect your account',
   });
 });
@@ -119,22 +119,26 @@ test('chipView: disconnected reads the same whether or not device sign-in is ava
   );
 });
 
-test('chipView: connecting shows the in-progress label (U+2026 ellipsis)', () => {
+test('chipView: connecting shows the in-progress label', () => {
   assert.deepEqual(chipView({ deviceFlowAvailable: true, state: 'connecting', userCode: 'ABCD-1234' }), {
     state: 'connecting',
-    label: 'connecting…',
-    tag: '',
+    label: 'Connecting',
+    initial: 'G',
     aria: 'GitHub — connecting',
   });
 });
 
-test('chipView: a connection made by SIGNING IN says so in the tag and the accessible name (V-5)', () => {
+test('chipView: a connection made by SIGNING IN says so in the accessible name (V-5)', () => {
+  // The Nocturne chip is an avatar + a name, so the credential is no longer a
+  // visible tag — it survives in the accessible name AND the tooltip, which is
+  // the same string. "Connected HOW" must stay answerable: the two credentials
+  // are revoked in different places.
   assert.deepEqual(
     chipView({ deviceFlowAvailable: true, state: 'connected', login: 'sava', source: 'device' }),
     {
       state: 'connected',
-      label: '@sava',
-      tag: 'sign-in',
+      label: 'sava',
+      initial: 'S',
       aria: 'GitHub — connected as sava by signing in with GitHub',
     },
   );
@@ -145,8 +149,8 @@ test('chipView: a connection made by a PASTED TOKEN says so too — the two are 
     chipView({ deviceFlowAvailable: false, state: 'connected', login: 'sava', source: 'pat' }),
     {
       state: 'connected',
-      label: '@sava',
-      tag: 'token',
+      label: 'sava',
+      initial: 'S',
       aria: 'GitHub — connected as sava with a pasted token',
     },
   );
@@ -155,23 +159,28 @@ test('chipView: a connection made by a PASTED TOKEN says so too — the two are 
 test('chipView: an UNKNOWN source is left unlabelled rather than guessed', () => {
   assert.deepEqual(chipView({ deviceFlowAvailable: true, state: 'connected', login: 'sava' }), {
     state: 'connected',
-    label: '@sava',
-    tag: '',
+    label: 'sava',
+    initial: 'S',
     aria: 'GitHub — connected as sava',
   });
 });
 
-test('chipView: connected without a login degrades to an empty name, never "undefined"', () => {
+test('chipView: connected without a login degrades to the neutral name, never "undefined"', () => {
   const v = chipView({ deviceFlowAvailable: true, state: 'connected' });
   assert.equal(v.state, 'connected');
-  assert.equal(v.label, '@');
-  assert.equal(v.aria, 'GitHub — connected as ');
+  assert.equal(v.label, 'GitHub', 'a nameless connection reads as the feature, not as an empty chip');
+  assert.equal(v.initial, 'G', 'and the avatar keeps the feature letter');
+  // A nameless connection drops the "as …" clause instead of ending in
+  // "connected as " with nothing after it (github-model.ts chipView).
+  assert.equal(v.aria, 'GitHub — connected');
   assert.equal(v.label.includes('undefined'), false);
+  assert.equal(v.aria.includes('undefined'), false);
 });
 
 test('chipView: the login is passed through verbatim (untrusted string, escaped at the DOM edge)', () => {
   const v = chipView({ deviceFlowAvailable: true, state: 'connected', login: '<img src=x>' });
-  assert.equal(v.label, '@<img src=x>', 'no mangling here — github.ts sets it via textContent');
+  assert.equal(v.label, '<img src=x>', 'no mangling here — github.ts sets it via textContent');
+  assert.equal(v.initial, '<', 'the avatar letter is the login\u2019s own first character, upper-cased');
 });
 
 test('chipView: aria is a non-empty accessible name in every state (also used as the tooltip)', () => {
@@ -203,7 +212,10 @@ test('chipView: NOTHING it returns could be a credential — only account + sour
     scopes: ['repo'],
     expiresAt: ahead(DAY),
   });
-  assert.deepEqual(Object.keys(v).sort(), ['aria', 'label', 'state', 'tag']);
+  assert.deepEqual(Object.keys(v).sort(), ['aria', 'initial', 'label', 'state']);
+  assert.equal(v.initial.length, 1, 'the avatar carries exactly one character');
+  assert.equal(v.initial, v.initial.toUpperCase(), 'upper-cased');
+  assert.equal(v.initial, 'S', 'and it is the account initial — a letter already printed in full beside it');
   const blob = JSON.stringify(v);
   assert.equal(blob.includes('repo'), false, 'the chip shows no permissions');
   assert.equal(blob.includes('2026-'), false, 'and no timestamps');
@@ -213,6 +225,10 @@ test('chipView: NOTHING it returns could be a credential — only account + sour
 // sourceTag / sourceLabel — the credential the user is actually holding
 // ---------------------------------------------------------------------------
 
+// NOTE (Nocturne A2, 2026-09-10): `sourceTag` has NO production caller any more
+// — the top-bar chip stopped rendering the credential tag (it moved into the
+// accessible name). The function and this test are kept for the panel work in
+// later parts; part A8's janitor pass decides whether both go.
 test('sourceTag / sourceLabel: each path has one name, and an unknown source has none', () => {
   assert.equal(sourceTag('pat'), 'token');
   assert.equal(sourceTag('device'), 'sign-in');
@@ -234,8 +250,9 @@ test('deviceCardCopy: with device sign-in available, the body offers BOTH paths'
   );
   assert.equal(
     c.fine,
-    'sign in once through GitHub · the token is kept server-side, never in the browser · it can read and write every repository on the account, and usually does not expire',
+    'You sign in once through GitHub. The token is kept server-side, never in the browser. It can read and write every repository on the account, and usually does not expire.',
   );
+  assert.equal(c.fine.includes('·'), false, 'no decorative separators in UI copy (README-v3)');
   assert.equal(c.note, '', 'no "not set up" note when it IS set up');
   assert.equal(c.tokenTitle, 'Or paste a GitHub token', 'the token card is the SECOND path here');
 });

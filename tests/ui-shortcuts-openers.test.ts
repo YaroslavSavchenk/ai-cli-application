@@ -6,11 +6,16 @@
  * `ctrl+shift+v` in the wild had nowhere to ask why. This file pins the two new
  * answers to that:
  *
- *   1. a topbar `?` button, in the same icon-only idiom as the ⚙ gear beside it,
- *      wired to the SAME overlay instance the `?` key toggles (one open/close —
- *      a second `initShortcuts()` would mean two scrims and two states);
- *   2. a KEYS section in the settings panel whose rows are an EXCERPT of the
- *      overlay's table, plus an `all shortcuts` text button that opens it.
+ *   1. a KEYS section in the settings panel whose rows are an EXCERPT of the
+ *      overlay's table, plus an `all shortcuts` text button that opens it;
+ *   2. a labelled `Keyboard shortcuts` button in the statusline.
+ *
+ * NOCTURNE A2 (2026-09-10) removed the third one, the topbar `?` button: the
+ * design's top bar has no help icon, and the statusline now spells the opener
+ * out in words instead of a 10.5px hint. The tests for that button are gone
+ * with it (its subject no longer exists); what stays pinned is that there is
+ * still exactly ONE overlay instance and that every REMAINING opener toggles
+ * that same handle, plus the full top-bar order that replaced it.
  *
  * WHY A SOURCE SCAN. There is no DOM in this test runner (see
  * `tests/ui-focus-trap.test.ts` for the doubles idiom that reaches the few
@@ -61,52 +66,97 @@ test('the scan actually reads the modules (non-vacuity: the three files and thei
     assert.ok(src.length > 1000, `${name} looks empty (${src.length} chars)`);
   }
   assert.ok(MAIN.includes('function buildShell'), 'main.ts must still build the shell here');
-  assert.ok(MAIN.includes("button('tb-btn is-icon', '')"), 'the icon-only topbar idiom must still exist');
+  assert.ok(MAIN.includes("button('tb-icon', '')"), 'the icon-only topbar idiom must still exist');
   assert.ok(SETTINGS.includes('export function initSettings'), 'settings.ts must still export its init');
   assert.ok(SHORTCUTS.includes('export function initShortcuts'), 'shortcuts.ts must still export its init');
 });
 
-test('the topbar has a `?` button in the gear idiom, and it opens the shortcuts overlay', () => {
-  assert.ok(MAIN.includes('const helpBtn = '), 'the topbar `?` button must exist');
-  // Same class as the ⚙ Settings button: icon-only 28px, not a text button.
-  assert.match(MAIN, /const helpBtn = button\('tb-btn is-icon', ''\);/);
-  // The glyph is decorative; the accessible name comes from aria-label.
-  assert.match(MAIN, /const qmark = el\('span', '', '\?'\);\n\s*qmark\.setAttribute\('aria-hidden', 'true'\);/);
-  assert.match(MAIN, /helpBtn\.setAttribute\('aria-label', 'Keyboard shortcuts'\);/);
-  assert.match(MAIN, /helpBtn\.title = 'keyboard shortcuts';/);
-  assert.match(MAIN, /helpBtn\.setAttribute\('aria-haspopup', 'dialog'\);/);
-  // Wired to the overlay, not to a private copy of it.
-  assert.match(MAIN, /helpBtn\.addEventListener\('click', \(\) => shortcuts\.toggle\(\)\);/);
-});
+/**
+ * The arguments of `topbar.append(...)`, split at the TOP level only — a child
+ * like `el('span', 'tb-divider')` carries its own commas, so a plain split
+ * would shred it into `el('span'` + `'tb-divider')`.
+ */
+function topbarChildren(src: string): string[] {
+  const start = src.indexOf('topbar.append(');
+  assert.notEqual(start, -1, 'main.ts must still append the topbar children in one call');
+  const from = start + 'topbar.append('.length;
+  let depth = 0;
+  let quote = '';
+  let cur = '';
+  const out: string[] = [];
+  for (let i = from; i < src.length; i += 1) {
+    const c = src[i] as string;
+    if (quote !== '') {
+      cur += c;
+      if (c === '\\') {
+        cur += src[i + 1] ?? '';
+        i += 1;
+      } else if (c === quote) quote = '';
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      quote = c;
+      cur += c;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth += 1;
+    if (c === ')' && depth === 0) break;
+    if (c === ')' || c === ']' || c === '}') depth -= 1;
+    if (c === ',' && depth === 0) {
+      out.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += c;
+  }
+  out.push(cur.trim());
+  return out.filter((c) => c !== '');
+}
 
-test('the `?` button sits in the topbar, immediately after the gear', () => {
-  const append = /topbar\.append\(([\s\S]*?)\);/.exec(MAIN);
-  assert.notEqual(append, null, 'main.ts must still append the topbar children in one call');
-  const children = (append?.[1] ?? '')
-    .split(',')
-    .map((c) => c.trim())
-    .filter((c) => c !== '');
-  assert.ok(children.includes('settingsBtn'), `the gear must be in the topbar: ${children.join(' ')}`);
-  assert.equal(
-    children[children.indexOf('settingsBtn') + 1],
-    'helpBtn',
-    `the ? button must follow the gear: ${children.join(' ')}`,
-  );
+test('the top bar holds exactly the Nocturne row, in order, and no help button', () => {
+  // A2's top bar (README-v3 §top bar): brand, hairline, the three panel
+  // toggles, spacer, the connection readout, hairline, the GitHub account
+  // chip, Settings, New session. Order is the contract — the update pill is
+  // inserted after `conn` at runtime (`conn.after(upd.pill)`), not here.
+  assert.deepEqual(topbarChildren(MAIN), [
+    'brand',
+    "el('span', 'tb-divider')",
+    'toggles',
+    "el('span', 'tb-gap')",
+    'conn',
+    "el('span', 'tb-divider')",
+    'ghChip',
+    'settingsBtn',
+    'newBtn',
+  ]);
+  // The gear is still there and still an opener; the `?` button is not.
+  assert.match(MAIN, /settingsBtn\.setAttribute\('aria-label', 'Settings'\);/);
+  assert.match(MAIN, /settingsBtn\.setAttribute\('aria-haspopup', 'dialog'\);/);
+  assert.equal(count(MAIN, 'helpBtn'), 0, 'the topbar `?` button was removed in A2');
 });
 
 test('there is exactly ONE overlay instance — the key, the button, the statusline and settings share it', () => {
   assert.ok(MAIN.includes("import { initShortcuts } from './ui/shortcuts.ts';"), 'the import must still be there');
   assert.equal(count(MAIN, 'initShortcuts('), 1, 'expected exactly one construction of the overlay');
   assert.equal(count(MAIN, 'const shortcuts = initShortcuts(modalHost);'), 1);
-  // The three openers main.ts owns, each on the same handle.
-  assert.ok(MAIN.includes('helpBtn.addEventListener(\'click\', () => shortcuts.toggle());'));
-  assert.ok(MAIN.includes('openShortcuts: () => shortcuts.toggle(),'), 'the statusline hint must still open it');
+  // The two openers main.ts owns, each on the same handle.
+  assert.ok(
+    MAIN.includes('openShortcuts: () => shortcuts.toggle(),'),
+    'the statusline button must still open it',
+  );
   assert.ok(
     MAIN.includes('{ openShortcuts: () => shortcuts.toggle() }'),
     'the settings panel must be handed the same opener',
   );
   // The bare `?` key path (outside editable targets) must keep working.
   assert.match(MAIN, /e\.key === '\?'[\s\S]{0,200}?shortcuts\.toggle\(\);/);
+});
+
+test('the statusline opener is a spelled-out button, not a glyph (it replaced the topbar `?`)', () => {
+  const STATUSLINE = read('web', 'src', 'ui', 'statusline.ts');
+  assert.ok(STATUSLINE.length > 1000, 'ui/statusline.ts looks empty');
+  assert.match(STATUSLINE, /el\('button', 'status-hint', 'Keyboard shortcuts'\)/);
+  assert.match(STATUSLINE, /hint\.title = 'Keyboard shortcuts \(\? or ctrl\+alt\+\/\)';/);
 });
 
 test('the settings panel opens the same overlay through its injected dependency', () => {

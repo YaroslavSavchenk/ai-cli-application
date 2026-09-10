@@ -95,12 +95,6 @@ function focusedSlot(): Slot | undefined {
   return v !== null ? slots[v.focused] : undefined;
 }
 
-/** Connection state of the focused pane's session view (for the statusline). */
-export function focusedConn(): ConnState | null {
-  const s = focusedSlot();
-  return s !== undefined && s.sessionId !== null ? s.conn : null;
-}
-
 /** Focus the terminal of the focused slot (used after drawer/tab focus moves). */
 export function requestTerminalFocus(): void {
   const s = focusedSlot();
@@ -231,7 +225,7 @@ function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | 
   d.setAttribute('aria-label', axis === 'col' ? 'column split' : 'row split');
   d.setAttribute('aria-valuemin', String(Math.round(st.SPLIT_MIN * 100)));
   d.setAttribute('aria-valuemax', String(Math.round(st.SPLIT_MAX * 100)));
-  d.title = 'drag to resize · arrow keys nudge · double-click or enter resets';
+  d.title = 'Drag to resize. Arrow keys nudge it, double-click or enter resets it.';
   const setNow = (f: number): void => {
     d.setAttribute('aria-valuenow', String(Math.round(f * 100)));
   };
@@ -424,7 +418,7 @@ function createSessionSlot(index: number): Slot {
   const extractBtn = button('pane-pop', '⇱ own tab');
   extractBtn.title = 'move to its own tab (or drag the header onto the tab strip)';
   hd.append(dot, title, proj, gap, tagModel, tagPerm, connChip, extractBtn);
-  hd.title = 'drag onto a pane to swap · onto the tab strip to extract';
+  hd.title = 'Drag onto a pane to swap them, or onto the tab strip to give it its own tab.';
 
   const note = el('div', 'pane-note');
   note.hidden = true;
@@ -496,7 +490,7 @@ export async function killSession(id: string): Promise<void> {
       return;
     }
     log.warn(`kill failed: session=${id} ${err instanceof Error ? err.message : String(err)}`);
-    flash(`kill failed: ${err instanceof Error ? err.message : String(err)}`);
+    flash(`Could not end it: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -504,14 +498,14 @@ function updateHeader(s: Slot): void {
   if (s.sessionId === null) return;
   const info = st.state.sessions.get(s.sessionId);
   const pname = st.projectName(info?.projectId);
-  s.proj.textContent = pname ?? '·';
+  s.proj.textContent = pname ?? '';
   s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
   const attention = info !== undefined && info.attention;
   const running = info === undefined || info.status === 'running';
   // The dot IS the status readout: green running / pulsing amber
   // attention / hollow gray exited (exit code lives on the banner).
   s.dot.className = `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
-  s.dot.title = attention ? 'needs input' : running ? 'running' : 'exited';
+  s.dot.title = attention ? 'Needs your answer' : running ? 'Working' : 'Finished';
   // Model/permission tags derive from argv client-side (no protocol fields).
   const m = info !== undefined ? modelFromArgs(info.args) : null;
   s.tagModel.hidden = m === null;
@@ -561,7 +555,7 @@ function updateNote(s: Slot): void {
       if (s.sessionId !== null) void killSession(s.sessionId);
     });
     s.note.replaceChildren(
-      el('span', 'pane-note-text', `exited · code ${s.exitCode}`),
+      el('span', 'pane-note-text', `Finished, code ${s.exitCode}`),
       relaunchBtn,
       delBtn,
     );
@@ -626,7 +620,7 @@ async function relaunch(s: Slot): Promise<void> {
     }
   } catch (err) {
     log.warn(`relaunch failed: old=${oldId} ${err instanceof Error ? err.message : String(err)}`);
-    flash(`relaunch failed: ${err instanceof Error ? err.message : String(err)}`);
+    flash(`Could not start it again: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
   scheduleHistoryRefresh(); // the entry is live again — it leaves the ended list

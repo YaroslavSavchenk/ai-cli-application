@@ -27,7 +27,7 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
   const root = el('section', 'drawer-view');
 
   const hd = el('header', 'drawer-hd');
-  hd.append(el('span', 'drawer-label', 'PROJECTS'), el('span', 'drawer-gap'));
+  hd.append(el('span', 'drawer-label', 'Projects'), el('span', 'drawer-gap'));
   const addBtn = button('chip-btn is-go', '+ add', () => openNewProjectDialog());
   addBtn.title = 'new project (create locally or clone a repo)';
   addBtn.setAttribute('aria-haspopup', 'dialog');
@@ -50,7 +50,7 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
       await api.deleteProject(id);
     } catch (e2) {
       if (!(e2 instanceof api.ApiError && e2.status === 404)) {
-        flash(`delete failed: ${e2 instanceof Error ? e2.message : String(e2)}`);
+        flash(`Could not remove it: ${e2 instanceof Error ? e2.message : String(e2)}`);
         return;
       }
     }

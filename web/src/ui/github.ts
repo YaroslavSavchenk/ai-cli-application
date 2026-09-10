@@ -247,23 +247,19 @@ function setTabOpen(open: boolean): void {
  * Clicking always opens the New Project dialog on its GitHub tab.
  */
 export function createGithubChip(openTab: () => void): HTMLButtonElement {
-  const chip = button('tb-btn tb-gh', '', openTab);
+  const chip = button('tb-gh', '', openTab);
   chip.setAttribute('aria-haspopup', 'dialog');
-  const dot = el('span', 'tb-gh-dot');
-  dot.setAttribute('aria-hidden', 'true');
+  // The avatar is the account's own initial — decorative next to the name the
+  // chip prints in full, so it is hidden from a screen reader.
+  const avatar = el('span', 'tb-gh-av');
+  avatar.setAttribute('aria-hidden', 'true');
   const lb = el('span', 'tb-gh-lb');
-  // The tag repeats what the aria name already says in words, so it is
-  // decoration for a screen reader — hidden from it, shown to the eye.
-  const tag = el('span', 'tb-gh-tag');
-  tag.setAttribute('aria-hidden', 'true');
-  chip.append(dot, lb, tag);
+  chip.append(avatar, lb);
 
   function render(): void {
     const v = chipView(status);
-    dot.className = `tb-gh-dot is-${v.state}`;
+    avatar.textContent = v.initial; // derived from the untrusted login → textContent
     lb.textContent = v.label; // untrusted login → textContent
-    tag.textContent = v.tag;
-    tag.hidden = v.tag === '';
     chip.setAttribute('aria-label', v.aria);
     chip.title = v.aria;
   }
@@ -437,7 +433,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     el(
       'div',
       'gh-fine',
-      'narrower than signing in, which takes read and write on every repository of the account and usually does not expire · a token limited to selected repositories can list and clone them, but creating a brand-new repository from here needs a broader one',
+      'Narrower than signing in, which takes read and write on every repository of the account and usually does not expire. A token limited to selected repositories can list and clone them, but creating a brand-new repository from here needs a broader one.',
     ),
   );
 
@@ -871,7 +867,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       meName.textContent = `@${s.login ?? ''}`;
       meAvatar.textContent = (s.login ?? '?').slice(0, 1).toUpperCase() || '?';
       const how = sourceLabel(s.source);
-      meSub.textContent = how === '' ? 'connected' : `connected · ${how}`;
+      meSub.textContent = how === '' ? 'Connected' : `Connected, ${how}`;
       verifyNote.hidden = s.source !== 'pat';
       renderFacts(s);
       revokeEl.textContent = revokeNote(s.source);
@@ -937,8 +933,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     }
     const pushed = relTime(r.pushedAt, Date.now());
     if (pushed !== '') {
-      if (hasLang) meta.append(el('span', 'gh-meta-sep', '·'));
-      meta.append(el('span', 'gh-meta-t', `pushed ${pushed}`));
+      // A comma, attached to the text it follows — never a separator element
+      // in its own flex slot (A2 copy rules).
+      meta.append(el('span', 'gh-meta-t', `${hasLang ? ', ' : ''}pushed ${pushed}`));
     }
     if (meta.childElementCount > 0) card.append(meta);
 

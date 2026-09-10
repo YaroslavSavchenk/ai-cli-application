@@ -77,6 +77,13 @@ export type GithubSource = 'device' | 'pat';
  * unknown source is left unlabelled rather than guessed, because the revocation
  * instructions differ.
  */
+/*
+ * NOTE (Nocturne A2, 2026-09-10): the top-bar chip stopped RENDERING this tag
+ * — the v3 account chip is an avatar plus a name — and the credential is now
+ * named in the chip's accessible name and tooltip instead. The function is
+ * kept for the panel work in later parts; if nothing claims it, part A8's
+ * janitor pass removes it.
+ */
 export function sourceTag(source: GithubSource | undefined): string {
   if (source === 'pat') return 'token';
   if (source === 'device') return 'sign-in';
@@ -103,29 +110,50 @@ export function sourceLabel(source: GithubSource | undefined): string {
 export type ChipState = 'off' | 'disconnected' | 'connecting' | 'connected';
 
 export interface ChipView {
-  /** Drives the dot modifier class (`is-<state>`), nothing else. */
+  /**
+   * Which of the four appearances this is. Informational only today: the chip
+   * renders no state-dependent class or attribute — `label`, `initial` and
+   * `aria` carry everything the user sees. Tests assert on it, and it is what
+   * a future state-styled chip would key off.
+   */
   state: ChipState;
-  /** Visible mono label; may embed the untrusted login → caller uses textContent. */
+  /** Visible label; may BE the untrusted login → caller uses textContent. */
   label: string;
-  /** Micro-tag naming the credential (`token` / `sign-in`); '' renders nothing. */
-  tag: string;
+  /**
+   * One character for the avatar circle: the account's initial, upper-cased,
+   * or `G` while there is no account to name. Never a credential — it is a
+   * letter of a name the chip already prints in full beside it.
+   */
+  initial: string;
   /** Accessible name; the chip uses the same string as its tooltip. */
   aria: string;
 }
 
+/** The avatar's letter: an account's initial, or `G` when there is no name. */
+function chipInitial(login: string | undefined): string {
+  const first = (login ?? '').trim().slice(0, 1).toUpperCase();
+  return first === '' ? 'G' : first;
+}
+
 /**
- * What the top-bar chip shows for a status:
- *   not yet fetched → faint dot + "GitHub"
+ * What the top-bar chip shows for a status (Nocturne A2 — the design's own
+ * account chip: an avatar circle plus a name):
+ *   not yet fetched → "GitHub"
  *   disconnected    → "Connect GitHub"   (whatever deviceFlowAvailable says —
  *                      the paste path is always offered)
- *   connecting      → "connecting…"
- *   connected       → "@login" + the credential tag, so the chip answers
- *                      "connected HOW" as well as "connected as whom" (V-5;
- *                      disconnecting differs per credential).
- * A missing `login` degrades to an empty name rather than inventing one.
+ *   connecting      → "Connecting"
+ *   connected       → the login, with the credential named in the accessible
+ *                      name and tooltip, so the chip still answers "connected
+ *                      HOW" as well as "connected as whom" (V-5; disconnecting
+ *                      differs per credential).
+ * A missing `login` degrades to the neutral "GitHub" rather than inventing a
+ * name (and never to an empty chip); its accessible name drops the "as …"
+ * clause with it, so nothing ever reads "connected as " with a hole after it.
  */
 export function chipView(status: GithubStatus | null): ChipView {
-  if (status === null) return { state: 'off', label: 'GitHub', tag: '', aria: 'GitHub' };
+  if (status === null) {
+    return { state: 'off', label: 'GitHub', initial: 'G', aria: 'GitHub' };
+  }
   if (status.state === 'connected') {
     const login = status.login ?? '';
     const how =
@@ -136,18 +164,23 @@ export function chipView(status: GithubStatus | null): ChipView {
           : '';
     return {
       state: 'connected',
-      label: `@${login}`,
-      tag: sourceTag(status.source),
-      aria: `GitHub — connected as ${login}${how}`,
+      label: login === '' ? 'GitHub' : login,
+      initial: chipInitial(status.login),
+      aria: login === '' ? `GitHub — connected${how}` : `GitHub — connected as ${login}${how}`,
     };
   }
   if (status.state === 'connecting') {
-    return { state: 'connecting', label: 'connecting…', tag: '', aria: 'GitHub — connecting' };
+    return {
+      state: 'connecting',
+      label: 'Connecting',
+      initial: 'G',
+      aria: 'GitHub — connecting',
+    };
   }
   return {
     state: 'disconnected',
     label: 'Connect GitHub',
-    tag: '',
+    initial: 'G',
     aria: 'GitHub — connect your account',
   };
 }
@@ -184,7 +217,7 @@ export function deviceCardCopy(deviceFlowAvailable: boolean): DeviceCardCopy {
       // "usually does not expire" and not "does not expire": an OAuth App set to
       // expire user authorization tokens hands out 8-hour ones, and this app has
       // no refresh handling — so the absolute would be false on that server.
-      fine: 'sign in once through GitHub · the token is kept server-side, never in the browser · it can read and write every repository on the account, and usually does not expire',
+      fine: 'You sign in once through GitHub. The token is kept server-side, never in the browser. It can read and write every repository on the account, and usually does not expire.',
       note: '',
       tokenTitle: 'Or paste a GitHub token',
     };

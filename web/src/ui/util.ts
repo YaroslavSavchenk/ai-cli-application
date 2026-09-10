@@ -144,13 +144,20 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
   return { label: isPerm(v) ? PERM_SHORT[v] : v, danger: v === 'bypassPermissions' };
 }
 
-/** `HH:MM:SS` since an ISO timestamp (statusline `up …`; hours don't wrap). */
+/**
+ * Uptime since an ISO timestamp in the v3 handoff's form — `31m`, `2h 15m`
+ * (the statusline prints it as `Up …`; the Legacy form was `HH:MM:SS`, and a
+ * second-by-second uptime is a readout nobody reads). Hours are shown only
+ * once there is at least one, and never wrap; seconds are never shown. An
+ * unparsable timestamp renders as an em dash.
+ */
 export function fmtUptime(iso: string): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return '—';
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
 }
 
 /** English month abbreviations for `fmtAgo`'s fallback date (locale-independent). */

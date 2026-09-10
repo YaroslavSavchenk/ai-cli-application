@@ -246,10 +246,15 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['ui/keys.ts', '.term-host'],
     ['ui/keys.ts', 'AltGraph'],
     ['ui/sessions.ts', 'start again'],
-    // 2026-09-08: the keyboard help the user asked for — a topbar `?` button,
-    // the settings panel's KEYS excerpt, and the overlay's reason line. Plain
+    // 2026-09-08: the keyboard help the user asked for — the settings panel's
+    // KEYS excerpt, the statusline opener and the overlay's reason line. Plain
     // words plus key NAMES, which the copy rule allows (a chord is not a flag).
-    ['main.ts', 'keyboard shortcuts'],
+    // (Nocturne A2 removed the topbar `?` button that used to carry main.ts's
+    // `keyboard shortcuts` literal; the label moved to ui/statusline.ts, so
+    // main.ts is canaried on the top bar's own copy instead.)
+    ['main.ts', 'New session'],
+    ['main.ts', 'Session Manager'],
+    ['ui/statusline.ts', 'Keyboard shortcuts'],
     ['ui/settings.ts', 'paste into a terminal'],
     ['ui/settings.ts', 'open a link printed in a terminal'],
     ['ui/settings.ts', 'all shortcuts'],

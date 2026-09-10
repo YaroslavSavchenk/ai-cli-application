@@ -62,16 +62,14 @@ button {
     box-shadow var(--t-slide);
 }
 
-/* Everything typed or listed as data is mono: tab labels, session rows,
-   the statusline, paths, tags, directory lists, input values. */
+/* Everything typed or listed as data is mono: session rows, paths, tags,
+   directory lists, input values. The A2 chrome (top bar, tab strip,
+   statusline) is Inter — in Nocturne the mono face carries DATA, not chrome. */
 input,
 select,
-.tabstrip,
-.drag-ghost,
 .pane-title,
 .pane-tag,
 .pane-conn,
-.statusline,
 .sess-name,
 .sess-meta,
 .sess-model,
@@ -84,7 +82,6 @@ select,
 .theme-note,
 .logo-glyph,
 .empty-glyph,
-.tb-conn,
 kbd {
   font-family: var(--font-mono);
 }
@@ -122,18 +119,17 @@ select:focus-visible,
   scrollbar-color: var(--edge-hover) transparent;
 }
 
-/* section label: letterspaced caps */
+/* Section label. A2 dropped the letterspaced CAPS: Nocturne's copy rules
+   want sentence case, and a label that shouts is decoration. */
 .drawer-label,
 .theme-lb,
 .boot-err-hd {
   font-size: var(--fs-label);
   font-weight: 600;
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
   color: var(--text-dim);
 }
 
-/* ---- status dots: green running / pulsing amber attention / hollow exited -- */
+/* ---- status dots: green running / pulsing amber attention / neutral exited - */
 
 .dot {
   flex: none;
@@ -143,17 +139,18 @@ select:focus-visible,
 }
 
 .dot.is-run {
-  background: var(--ok);
+  background: var(--color-ok);
 }
 
 .dot.is-attn {
-  background: var(--attn);
+  background: var(--color-attn);
   animation: pulse var(--t-pulse) infinite;
 }
 
+/* A2: Nocturne draws a finished session as a filled neutral dot, not a
+   hollow ring (design_handoff_session_manager/session-manager-v3.html). */
 .dot.is-exit {
-  background: transparent;
-  border: var(--line) solid var(--exit);
+  background: var(--color-neutral-700);
 }
 
 /* ---- keyframes (handoff motion set) ---------------------------------------- */
@@ -208,42 +205,50 @@ select:focus-visible,
   }
 }
 
-/* ---- topbar (handoff §2): gradient band ------------------------------------ */
+/* ---- topbar (Nocturne A2): a 48px instrument strip -------------------------
+   One hairline at the bottom, no fill anywhere except the ACTIVE toggle, and
+   exactly one accent: the New session outline. Everything here is written
+   against the Nocturne primitives (--color-*, --space-*, --radius-*), never
+   the legacy alias names. Type sizes are the v3 markup's own literals. */
 
 .topbar {
   height: var(--topbar-h);
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-5);
-  padding: 0 var(--s-7);
-  background: var(--grad-topbar);
-  border-bottom: var(--line) solid var(--edge);
+  gap: var(--space-3);
+  padding: 0 var(--space-6);
+  background: var(--color-bg);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.tb-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .logo-tile {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
 }
 
 .logo-glyph {
-  font-size: 8px;
-  font-weight: 700;
-  color: var(--ok);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-accent-300);
 }
 
 .wordmark {
-  font-size: var(--fs-ui);
-  font-weight: 600;
-  letter-spacing: var(--ls-wordmark);
-  color: var(--text-hd);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
   user-select: none;
   white-space: nowrap;
 }
@@ -252,99 +257,74 @@ select:focus-visible,
   flex: 1;
 }
 
+/* the three panel toggles — one group, tight gap */
+.tb-toggles {
+  display: flex;
+  gap: var(--space-1);
+}
+
 .tb-btn {
   height: var(--ctl-h);
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: 0 var(--s-6);
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
   background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-mute);
-  font-size: var(--fs-ui);
-  font-weight: 500;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 13px;
   white-space: nowrap;
 }
 
-.tb-btn:hover {
-  border-color: var(--edge-hover);
-  color: var(--text);
+.tb-btn:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
 }
 
 .tb-btn.is-on {
-  background: var(--surface-active);
-  color: var(--text);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
-/* icon-only topbar control (the 28px ⚙ Settings button, prototype line 44).
-   The ONLY icon-only control in the bar — its accessible name comes from
-   aria-label, the glyph itself is aria-hidden. */
-.tb-btn.is-icon {
-  width: 28px;
-  padding: 0;
-  justify-content: center;
-  font-size: var(--fs-title);
-  line-height: 1;
+/* A panel that does not exist yet (Files, until A5): the button is rendered
+   but disabled, so it is NOT in the tab order and the keyboard never reaches
+   it — its `title` is a hover-only explanation for now. It is dimmed rather
+   than hidden so the bar's shape does not shift when A5 lands. */
+.tb-btn:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
 }
 
-/* CSS-drawn 2x2 swatch icon on the Theme button (prototype: no icon deps) */
-.tb-swatch {
-  display: grid;
-  grid-template-columns: 6px 6px;
-  grid-template-rows: 6px 6px;
-  gap: var(--s-1);
-}
-
-.tb-sw {
-  border-radius: var(--line);
-}
-
-.tb-sw.is-a {
-  background: var(--ok);
-}
-
-.tb-sw.is-b {
-  background: var(--acc);
-}
-
-.tb-sw.is-c {
-  background: var(--attn);
-}
-
-.tb-sw.is-d {
-  background: var(--xt-magenta);
-}
-
-/* amber count badge on the Sessions toggle — attention only */
+/* attention count on the Sessions toggle — the only warm mark in the bar */
 .tb-attn {
-  min-width: 15px;
-  height: 15px;
-  padding: 0 var(--s-2);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--attn-tint);
-  border: var(--line) solid var(--attn);
-  border-radius: var(--r-btn);
-  color: var(--attn);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  animation: pulse var(--t-pulse) infinite;
+  background: var(--color-attn-tint);
+  border-radius: 9px;
+  color: var(--color-attn);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .tb-divider {
+  flex: none;
   width: var(--line);
-  height: 18px;
-  background: var(--edge);
+  height: 20px;
+  margin: 0 var(--space-2);
+  background: var(--color-neutral-900);
 }
 
 .tb-conn {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  font-size: var(--fs-label);
-  color: var(--text-mute);
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-500);
   white-space: nowrap;
 }
 
@@ -355,15 +335,92 @@ select:focus-visible,
 }
 
 .tb-conn-dot.is-ok {
-  background: var(--ok);
-  box-shadow: 0 0 6px var(--ok-glow); /* sanctioned: handoff connected glow */
+  background: var(--color-ok);
 }
 
 .tb-conn-dot.is-down {
-  background: var(--danger);
+  background: var(--color-danger);
 }
 
-/* the primary green "go" button: + New session, empty state, launch */
+/* GitHub account chip + Settings icon: the same quiet outlined control, one
+   with a label, one square. */
+.tb-gh,
+.tb-icon {
+  height: var(--ctl-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-900);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+}
+
+.tb-gh:hover,
+.tb-icon:hover {
+  border-color: var(--color-neutral-700);
+  color: var(--color-text);
+}
+
+.tb-gh {
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-2);
+  font-size: 12.5px;
+  max-width: 190px;
+}
+
+.tb-gh-lb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the account's initial; 'G' before a login is known */
+.tb-gh-av {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tb-icon {
+  width: var(--ctl-h);
+  padding: 0;
+}
+
+.tb-icon svg {
+  display: block;
+}
+
+/* New session — the ONE accent outline in the bar (never a fill) */
+.tb-new {
+  height: var(--ctl-h);
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-300);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tb-new:hover {
+  background: var(--color-accent-900);
+}
+
+.tb-new:active {
+  background: var(--color-accent-800);
+}
+
+/* the primary green "go" button: empty state, launch dialog */
 .btn-go {
   height: var(--ctl-h);
   padding: 0 var(--s-7);
@@ -1062,7 +1119,6 @@ html.scanlines-on .pane-scan {
   gap: var(--s-3);
   padding: var(--s-3) var(--s-5);
   font-size: var(--fs-micro);
-  letter-spacing: 1px;
   color: var(--text-faint);
 }
 
@@ -1301,60 +1357,46 @@ html.scanlines-on .pane-scan {
   color: var(--ok);
 }
 
-/* ---- bottom tab strip (handoff §4, Steam-style) ------------------------------ */
+/* ---- tab strip (Nocturne A2) -----------------------------------------------
+   One tab per screen, 32px chips on the app ground, separated from the pane
+   area by a single hairline. The ACTIVE tab is the only filled one. */
 
 .tabstrip {
   flex: none;
   display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  padding: 5px var(--s-4) 0;
-  background: var(--surface);
-  border-top: var(--line) solid var(--edge);
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg);
+  border-top: var(--line) solid var(--color-neutral-900);
   overflow-x: auto;
   overflow-y: hidden;
 }
 
 .tab {
   flex: none;
-  position: relative; /* anchors the active glow bar */
+  position: relative; /* anchors the insertion caret */
   display: flex;
   align-items: center;
   height: var(--tab-h);
-  max-width: 240px;
+  max-width: 260px;
   background: transparent;
   border: var(--line) solid transparent;
-  border-bottom: none;
-  border-radius: var(--r-tab) var(--r-tab) 0 0;
-  /* Insertion caret slot: lit while a dragged tab would land before this one. */
-  border-left-width: var(--tick);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
   white-space: nowrap;
   user-select: none;
   touch-action: none; /* tabs are pointer-drag sources */
 }
 
 .tab:hover {
-  background: var(--surface-hover);
+  background: var(--color-neutral-900);
 }
 
 .tab.is-active {
-  background: var(--term-bg);
-  border-color: var(--edge);
-  border-left-color: var(--edge);
-}
-
-/* the glowing accent bar across the active tab's top, inset 12px */
-.tab.is-active::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 12px;
-  right: 12px;
-  height: var(--tick);
-  border-radius: var(--tick);
-  background: var(--acc);
-  box-shadow: 0 0 14px 2px var(--acc-glow); /* sanctioned: handoff tab glow */
-  pointer-events: none;
+  background: var(--color-surface);
+  border-color: var(--color-neutral-800);
+  color: var(--color-text);
 }
 
 .tab-sel {
@@ -1362,73 +1404,74 @@ html.scanlines-on .pane-scan {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: 0 var(--s-2) 0 var(--s-6);
-  color: var(--text-2);
-}
-
-.tab:hover .tab-sel,
-.tab.is-active .tab-sel {
-  color: var(--text);
+  gap: var(--space-2);
+  padding: 0 var(--space-1) 0 var(--space-4);
+  color: inherit;
+  font-size: 13px;
 }
 
 .tab-label {
-  font-size: var(--fs-tab);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
 
-/* ▦ N split badge: the view holds a split (blue = interaction/selection) */
-.tab-split {
+/* how many sessions share this tab — a count, not a glyph */
+.tab-count {
   flex: none;
-  font-size: var(--fs-tag);
-  color: var(--acc);
-  border: var(--line) solid var(--edge-accent);
-  border-radius: var(--r-btn);
-  padding: 0 var(--s-3);
+  padding: 0 5px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: 8px;
+  color: var(--color-neutral-500);
+  font-size: 11px;
 }
 
-/* pulsing amber input pill: a member session awaits input */
-.tab-input {
+/* a member session is waiting for an answer */
+.tab-attn {
   flex: none;
-  font-size: var(--fs-tag);
-  color: var(--attn);
-  border: var(--line) solid var(--attn);
-  border-radius: var(--r-btn);
-  padding: 0 var(--s-2);
-  animation: pulse var(--t-pulse) infinite;
+  color: var(--color-attn);
+  font-size: 11px;
 }
 
 .tab-x {
   flex: none;
-  height: 100%;
-  padding: 0 var(--s-4);
-  border-radius: 0 var(--r-tab) 0 0;
-  color: var(--text-dim);
-  font-size: var(--fs-ui);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  line-height: 1;
 }
 
 .tab-x:hover {
-  color: var(--danger);
-  background: var(--surface-active);
+  background: var(--color-neutral-800);
+  color: var(--color-text);
 }
 
-/* ghost + after the tabs (opens the launch dialog) */
+/* the armed confirm keeps its own width */
+.tab-x[data-armed='1'] {
+  width: auto;
+  padding: 0 var(--space-2);
+}
+
 .tab-new {
   flex: none;
+  position: relative;
+  width: var(--tab-h);
   height: var(--tab-h);
-  width: 32px;
-  border-radius: var(--r-tab) var(--r-tab) 0 0;
-  border-left: var(--tick) solid transparent; /* caret slot, as on tabs */
-  color: var(--text-dim);
-  font-size: 15px;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 17px;
 }
 
 .tab-new:hover {
-  background: var(--surface-hover);
-  color: var(--ok-text);
+  background: var(--color-neutral-900);
+  color: var(--color-text);
 }
 
 .strip-gap {
@@ -1438,9 +1481,9 @@ html.scanlines-on .pane-scan {
 .strip-hint {
   flex: none;
   align-self: center;
-  padding: 0 var(--s-4);
-  font-size: var(--fs-status);
-  color: var(--text-faint);
+  padding-right: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-600);
   white-space: nowrap;
 }
 
@@ -1450,21 +1493,29 @@ html.scanlines-on .pane-scan {
   opacity: 0.45;
 }
 
-/* dashed = prospective (same contract as the pane drop target) */
+/* prospective drop target: the accent as an outline, never as a fill */
 .tab.is-drop {
-  background: var(--surface-hover);
-  outline: var(--line) dashed var(--acc);
-  outline-offset: calc(-1 * var(--line));
+  background: var(--color-neutral-900);
+  border-color: var(--color-accent);
 }
 
-.tab.is-insert-before,
-.tab-new.is-insert-before {
-  border-left-color: var(--acc); /* insertion caret */
+/* insertion caret: a 2px accent tick in the gap before the tab */
+.tab.is-insert-before::before,
+.tab-new.is-insert-before::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--space-1));
+  width: var(--tick);
+  border-radius: var(--tick);
+  background: var(--color-accent);
+  pointer-events: none;
 }
 
 .tabstrip.is-drop {
-  outline: var(--line) dashed var(--acc);
-  outline-offset: calc(-2 * var(--line));
+  outline: var(--line) solid var(--color-accent);
+  outline-offset: calc(-1 * var(--line));
 }
 
 /* cursor-following chip — real shadow sanctioned (handoff drag ghost) */
@@ -1476,19 +1527,20 @@ html.scanlines-on .pane-scan {
   pointer-events: none;
   display: flex;
   align-items: center;
-  padding: var(--s-3) var(--s-7);
-  font-size: var(--fs-tab);
-  background: var(--surface);
-  border: var(--line) solid var(--acc);
-  border-radius: var(--r-btn);
-  box-shadow: var(--sh-ghost);
-  color: var(--text);
+  height: var(--tab-h);
+  padding: 0 var(--space-4);
+  font-size: 13px;
+  background: var(--color-surface);
+  border: var(--line) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
   white-space: nowrap;
 }
 
 .drag-ghost.is-invalid {
-  border-color: var(--danger);
-  color: var(--danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 body.is-dnd {
@@ -1499,79 +1551,62 @@ body.is-dnd * {
   cursor: grabbing !important;
 }
 
-/* ---- statusline (handoff §5): 23px mono readout ------------------------------ */
+/* ---- statusline (Nocturne A2): 26px readout -------------------------------- */
 
 .statusline {
   height: var(--status-h);
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s-6);
-  padding: 0 var(--s-6);
-  font-size: var(--fs-status);
-  background: var(--surface-status);
-  border-top: var(--line) solid var(--edge-soft);
-  color: var(--text-dim);
+  gap: var(--space-6);
+  padding: 0 var(--space-6);
+  background: var(--color-bg);
+  border-top: var(--line) solid var(--color-neutral-900);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
   white-space: nowrap;
   overflow: hidden;
 }
 
-.status-left,
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: var(--s-6);
-  min-width: 0;
-}
-
 .status-seg {
-  color: var(--text-dim);
+  flex: none;
 }
 
-.status-strong {
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
+.status-gap {
+  flex: 1;
 }
 
-.status-ok {
-  color: var(--ok);
-}
-
-.status-warn {
-  color: var(--text-mute);
-}
-
+/* `flex: none` keeps the count whole when the readouts beside it grow; the
+   one item allowed to shrink is `.status-flash` below. */
 .status-attn {
-  color: var(--attn);
-  animation: pulse var(--t-pulse) infinite;
-}
-
-.status-danger {
-  color: var(--danger);
+  flex: none;
+  color: var(--color-attn);
 }
 
 /* inverse ink block, NOT amber: amber means attention, flashes are notices */
 .status-flash {
-  background: var(--text);
-  color: var(--surface-status);
-  padding: 0 var(--s-2);
-  border-radius: var(--line);
-  font-weight: 700;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .status-hint {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
+  flex: none;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 11.5px;
 }
 
 .status-hint:hover {
-  color: var(--text-mute);
+  color: var(--color-text);
 }
 
 /* ---- theme popover (handoff §9) ---------------------------------------------- */
@@ -2165,11 +2200,6 @@ kbd {
   gap: var(--s-2);
 }
 
-.settings-keysep {
-  color: var(--text-faint);
-  font-size: var(--fs-label);
-}
-
 /* a mouse sentence is not a key: plain text, never a chip (overlay rule) */
 .settings-keygesture {
   font-size: var(--fs-status);
@@ -2405,49 +2435,8 @@ kbd {
    compact search (matching the prototype). Repo language colors are
    GitHub-Linguist DATA set inline in ui/github.ts, NOT app tokens. */
 
-/* top-bar chip: a .tb-btn with a status dot + mono label */
-.tb-gh-lb {
-  font-family: var(--font-mono);
-  font-size: var(--fs-label);
-}
-
-/* which credential is connected (`token` / `sign-in`) — the same mono micro-tag
-   idiom as the pane header's model/permission chips. Information, not
-   decoration: the two credentials are revoked on different GitHub screens. */
-.tb-gh-tag {
-  flex: none;
-  padding: 0 var(--s-3);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tag);
-  color: var(--text-dim);
-}
-
-.tb-gh-dot {
-  flex: none;
-  width: var(--dot);
-  height: var(--dot);
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-
-.tb-gh-dot.is-off {
-  background: var(--text-faint);
-}
-
-.tb-gh-dot.is-disconnected {
-  background: var(--text-dim);
-}
-
-.tb-gh-dot.is-connecting {
-  background: var(--attn);
-}
-
-.tb-gh-dot.is-connected {
-  background: var(--ok);
-  box-shadow: 0 0 6px var(--ok-glow); /* sanctioned: handoff connected glow */
-}
+/* The top-bar chip itself lives in the A2 top-bar block above (.tb-gh,
+   .tb-gh-av, .tb-gh-lb); what follows is the dialog's GitHub tab. */
 
 /* centered state card: checking / not-set-up / disconnected / connecting */
 .gh-card {
@@ -2712,10 +2701,6 @@ kbd {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-}
-
-.gh-meta-sep {
-  color: var(--text-faint);
 }
 
 .gh-msg {
@@ -3198,10 +3183,11 @@ kbd {
   font-size: var(--fs-label);
 }
 
+/* the same wordmark as the top bar's (.wordmark): no tracking, no caps —
+   the boot and reconnect panels show the app's name, not a Legacy label. */
 .boot-brand-name {
   font-size: var(--fs-row);
   font-weight: 600;
-  letter-spacing: var(--ls-wordmark);
   color: var(--text-hd);
 }
 
@@ -3308,24 +3294,24 @@ kbd {
    connection dot. Same amber recipe as .tb-attn, sized as a labelled control
    rather than a count badge, and NOT pulsing: the count badge pulses because
    a session is waiting for a human right now; an available update is patient. */
+/* A2: the same outlined idiom as the rest of the bar, in the attention hue —
+   it is a notice, so it never fills. */
 .tb-update {
-  height: 18px;
-  padding: 0 var(--s-3);
+  height: 20px;
+  padding: 0 var(--space-2);
   display: flex;
   align-items: center;
-  background: var(--attn-tint);
-  border: var(--line) solid var(--attn);
-  border-radius: var(--r-btn);
-  color: var(--attn);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--ls-field);
+  background: transparent;
+  border: var(--line) solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  color: var(--color-attn);
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .tb-update:hover {
-  background: var(--attn);
-  color: var(--bg-deep);
+  background: var(--color-attn-tint);
 }
 
 /* the toast: bottom-right, above the tab strip, where no pane content and no
@@ -3447,7 +3433,6 @@ kbd {
 .restart-row {
   display: flex;
   align-items: baseline;
-  gap: var(--s-3);
   padding: var(--s-1) 0;
   white-space: nowrap;
   overflow: hidden;
@@ -3458,10 +3443,6 @@ kbd {
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.restart-row-sep {
-  color: var(--text-faint);
 }
 
 .restart-row-proj {
@@ -3568,10 +3549,6 @@ kbd {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.settings-fact-sep {
-  color: var(--text-faint);
 }
 
 /* Text buttons in an action row are the QUIET verb beside a bordered one

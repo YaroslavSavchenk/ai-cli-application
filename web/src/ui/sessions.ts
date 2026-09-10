@@ -40,8 +40,8 @@ function showSession(sessionId: string): void {
 /** Button twin of drag-to-split: append the session into the active view. */
 function splitIntoActive(sessionId: string): void {
   const result = st.moveSessionToView(sessionId, st.state.activeViewId);
-  if (result === 'full') flash('view is full — 4 panes max');
-  else if (result === 'no') flash('already in the active view');
+  if (result === 'full') flash('This tab is full. It can show 4 panes.');
+  else if (result === 'no') flash('It is already in this tab.');
   else requestTerminalFocus();
 }
 
@@ -59,7 +59,7 @@ export async function resumeEntry(entry: HistoryEntry): Promise<void> {
     info = await api.resumeHistory(entry.id, focusedPaneDims());
   } catch (err) {
     log.warn(`resume failed: entry=${entry.id} ${err instanceof Error ? err.message : String(err)}`);
-    flash(`could not start it again: ${err instanceof Error ? err.message : String(err)}`);
+    flash(`Could not start it again: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
   log.info(`resume ok: entry=${entry.id} session=${info.id}`);
@@ -75,7 +75,7 @@ async function forgetEntry(entry: HistoryEntry): Promise<void> {
     await api.forgetHistory(entry.id);
   } catch (err) {
     if (!(err instanceof api.ApiError && err.status === 404)) {
-      flash(`could not forget it: ${err instanceof Error ? err.message : String(err)}`);
+      flash(`Could not forget it: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
   }
@@ -87,7 +87,7 @@ async function forgetAll(): Promise<void> {
   try {
     await api.forgetAllHistory();
   } catch (err) {
-    flash(`could not clear the history: ${err instanceof Error ? err.message : String(err)}`);
+    flash(`Could not clear the history: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
   st.clearHistory();
@@ -97,7 +97,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   const root = el('section', 'drawer-view');
 
   const hd = el('header', 'drawer-hd');
-  hd.append(el('span', 'drawer-label', 'SESSIONS'), el('span', 'drawer-gap'));
+  hd.append(el('span', 'drawer-label', 'Sessions'), el('span', 'drawer-gap'));
   const close = button('drawer-x', '×', () => st.closeDrawer());
   close.setAttribute('aria-label', 'close sessions panel');
   close.title = 'close panel';
@@ -115,7 +115,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     if (v === undefined) return '';
     const tabIdx = st.state.views.indexOf(v) + 1;
     return v.id === st.state.activeViewId
-      ? `tab ${tabIdx} · pane ${v.sessions.indexOf(id) + 1}`
+      ? `tab ${tabIdx}, pane ${v.sessions.indexOf(id) + 1}`
       : `tab ${tabIdx}`;
   }
 
@@ -167,9 +167,9 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
         : null;
 
     const rows: HTMLElement[] = [];
-    rows.push(el('div', 'drawer-sect', `ACTIVE · ${sessions.length}`));
+    rows.push(el('div', 'drawer-sect', `Active ${sessions.length}`));
     if (sessions.length === 0) {
-      rows.push(el('div', 'drawer-empty', 'no sessions — launch one with + new session'));
+      rows.push(el('div', 'drawer-empty', 'No sessions yet. Start one with New session.'));
     }
     for (const info of sessions) {
       const row = el('div', 'sess-row');
@@ -186,11 +186,11 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       const meta = el('div', 'sess-meta');
       const pname = st.projectName(info.projectId) ?? commandLabel(info.command);
       let statusTxt: string;
-      if (attention) statusTxt = 'waiting for input';
-      else if (running) statusTxt = 'running';
-      else statusTxt = `exited (${info.exitCode ?? 0})`;
+      if (attention) statusTxt = 'Needs your answer';
+      else if (running) statusTxt = 'Working';
+      else statusTxt = `Finished (${info.exitCode ?? 0})`;
       const place = placeOf(info.id);
-      meta.textContent = `${pname} · ${statusTxt}${place !== '' ? ` · ${place}` : ''}`;
+      meta.textContent = `${pname}, ${statusTxt}${place !== '' ? `, ${place}` : ''}`;
       meta.classList.toggle('is-attn', attention);
       main.append(line, meta);
 
@@ -231,7 +231,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
   /** "HISTORY" section header: label + total count, clear-all. */
   function historyHeader(): HTMLElement {
     const hd2 = el('div', 'drawer-sect');
-    hd2.append(el('span', '', `HISTORY · ${fmtCount(st.state.history.length)}`), el('span', 'drawer-gap'));
+    hd2.append(el('span', '', `History ${fmtCount(st.state.history.length)}`), el('span', 'drawer-gap'));
     // Armed two-step confirm, same contract as kill (key 'hist-all' cannot
     // collide with session ids in the shared ArmedSet).
     const all = button('chip-btn', armed.isArmed('hist-all') ? 'sure?' : 'clear all', () => {
@@ -255,7 +255,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     row.setAttribute('aria-expanded', open ? 'true' : 'false');
     const glyph = el('span', 'hist-caret', open ? '▾' : '▸');
     glyph.setAttribute('aria-hidden', 'true');
-    row.append(glyph, el('span', 'hist-folder', label), el('span', 'hist-count', `· ${fmtCount(count)}`));
+    row.append(glyph, el('span', 'hist-folder', label), el('span', 'hist-count', fmtCount(count)));
     return row;
   }
 
@@ -279,7 +279,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     if (model !== null) parts.push(model);
     const crashed = entry.ended?.reason === 'crash';
     if (crashed) parts.push('crashed');
-    meta.textContent = parts.join(' · ');
+    meta.textContent = parts.join(', ');
     meta.classList.toggle('is-danger', crashed);
     main.append(line, meta);
 

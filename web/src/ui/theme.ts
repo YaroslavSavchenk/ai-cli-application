@@ -1,4 +1,6 @@
 /**
+ * UNWIRED SINCE PART A2 (2026-09-10): main.ts no longer calls initTheme — Nocturne is the only theme; part A8 deletes this file.
+ *
  * Terminal theme popover (Legacy UI, handoff §9; removed in Nocturne part
  * A8): anchored under the topbar Theme button, two INDEPENDENT 5-column
  * swatch grids — 10 terminal grounds × 10 text ramps — plus the scanline

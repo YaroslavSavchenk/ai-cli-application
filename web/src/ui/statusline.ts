@@ -1,24 +1,23 @@
 /**
- * Statusline (handoff §5): 23px mono readout, bg #10141a via tokens.
+ * Statusline (Nocturne A2): a 26px readout, left to right —
+ * `N sessions` (the ones still running), `N panes`, an amber `N waiting for
+ * you` when any session is, spacer, `Latency N ms` (the presence ping round
+ * trip), `Up 2h 15m` (server uptime, ticked locally every 15 s) and a
+ * Keyboard shortcuts button.
  *
- * Left: `ws <n> ms` (presence ping round-trip), `<n> sessions · <n> panes`,
- * amber `<n> awaiting input` when >0, then the focused-session readout
- * (project · title · cols×rows · connection state — carried over, it is
- * information). Right: transient flash notices (inverse block), `up
- * HH:MM:SS` (GET /api/runtime startedAt, ticked locally every second),
- * `pty ok` (health-derived — replaced by a red `backend unreachable` when
- * the poll fails repeatedly), and the `?` shortcuts hint as a real button.
+ * Transient flash notices (a rejected drop, a failed kill) ride on the right,
+ * before the latency readout: they are information the user asked for by
+ * acting, and nothing else on screen carries them.
  *
- * Deliberately NO separate "healthy" item (the topbar dot covers
- * connection) and NO grace countdown (lifecycle fiction — a page able to
- * show it would itself be keeping the backend alive).
+ * Deliberately NOT here (dropped with the Legacy statusline in A2): the ws
+ * round-trip in isolation, the focused-session readout (name, size and
+ * connection state — the pane header says all three), `pty ok`, and the `?`
+ * key glyph. Connection state is the top bar's dot.
  */
 import * as st from '../state.ts';
-import type { ConnState } from '../ws.ts';
 import { el, fmtUptime } from './util.ts';
 
 interface Deps {
-  getFocusedConn(): ConnState | null;
   openShortcuts(): void;
 }
 
@@ -26,8 +25,12 @@ let root: HTMLElement | null = null;
 let deps: Deps | null = null;
 let flashMsg: string | null = null;
 let flashTimer: number | null = null;
-/** Mutable `up …` span — the 1s ticker updates it without a full rebuild. */
+/** Mutable `Up …` span — a 15 s ticker updates it (the readout only changes per minute) without a full rebuild. */
 let upSeg: HTMLElement | null = null;
+
+function upText(): string {
+  return st.state.serverStartedAt !== null ? `Up ${fmtUptime(st.state.serverStartedAt)}` : 'Up —';
+}
 
 export function flash(msg: string): void {
   flashMsg = msg;
@@ -43,82 +46,54 @@ export function flash(msg: string): void {
 export function initStatusline(container: HTMLElement, d: Deps): { render(): void } {
   root = container;
   deps = d;
+  // Minute resolution, so a 15 s tick is the coarsest that still moves the
+  // readout within a minute of the rollover (a 1 s tick was 59 no-ops out of
+  // 60). The first paint comes from `render()`, not from this timer.
   window.setInterval(() => {
-    if (upSeg !== null && st.state.serverStartedAt !== null) {
-      upSeg.textContent = `up ${fmtUptime(st.state.serverStartedAt)}`;
-    }
-  }, 1000);
+    if (upSeg !== null && st.state.serverStartedAt !== null) upSeg.textContent = upText();
+  }, 15_000);
   return { render };
 }
 
 export function render(): void {
   if (root === null || deps === null) return;
-  const left = el('div', 'status-left');
+  const nodes: HTMLElement[] = [];
 
-  const lat = st.state.wsLatencyMs;
-  left.append(el('span', 'status-seg', lat !== null ? `ws ${lat} ms` : 'ws —'));
+  // ALIVE sessions only (v3: `sessions.filter(x => x.status !== 'exited')`).
+  // A finished session stays listed in the drawer until it is dismissed; the
+  // statusline counts what is still running, not what is still on file.
+  let sessions = 0;
+  for (const s of st.state.sessions.values()) if (s.status !== 'exited') sessions += 1;
+  nodes.push(el('span', 'status-seg', `${sessions} ${sessions === 1 ? 'session' : 'sessions'}`));
 
   const v = st.activeView();
-  const paneCount = v === null ? 0 : v.sessions.length;
-  left.append(el('span', 'status-seg', `${st.state.sessions.size} sessions · ${paneCount} panes`));
+  const panes = v === null ? 0 : v.sessions.length;
+  nodes.push(el('span', 'status-seg', `${panes} ${panes === 1 ? 'pane' : 'panes'}`));
 
   const attn = st.attentionCount();
-  if (attn > 0) left.append(el('span', 'status-seg status-attn', `${attn} awaiting input`));
+  if (attn > 0) nodes.push(el('span', 'status-attn', `${attn} waiting for you`));
 
-  if (v !== null) {
-    const sessionId = v.sessions[v.focused] ?? null;
-    const info = sessionId !== null ? st.state.sessions.get(sessionId) : undefined;
-    if (info !== undefined) {
-      const pname = st.projectName(info.projectId);
-      left.append(
-        el(
-          'span',
-          'status-seg status-strong',
-          pname !== null ? `${pname} · ${info.title}` : info.title,
-        ),
-      );
-      left.append(el('span', 'status-seg', `${info.cols}×${info.rows}`));
-      if (info.status === 'exited') {
-        const code = info.exitCode ?? 0;
-        left.append(
-          el('span', 'status-seg status-danger', code === 0 ? 'exited' : `exited · ${code}`),
-        );
-      } else {
-        const conn = deps.getFocusedConn();
-        const cls =
-          conn === 'live' ? 'status-ok' : conn === 'dead' ? 'status-danger' : 'status-warn';
-        left.append(el('span', `status-seg ${cls}`, conn ?? 'connecting'));
-      }
-    }
-  }
+  nodes.push(el('span', 'status-gap'));
 
-  const right = el('div', 'status-right');
-  if (flashMsg !== null) {
-    right.append(el('span', 'status-flash', flashMsg));
-  }
-  upSeg = el(
-    'span',
-    'status-seg',
-    st.state.serverStartedAt !== null ? `up ${fmtUptime(st.state.serverStartedAt)}` : 'up —',
-  );
-  right.append(upSeg);
-  right.append(
-    st.state.backendReachable
-      ? el('span', 'status-seg', 'pty ok')
-      : el('span', 'status-seg status-danger', 'backend unreachable'),
-  );
+  if (flashMsg !== null) nodes.push(el('span', 'status-flash', flashMsg));
+
+  const lat = st.state.wsLatencyMs;
+  nodes.push(el('span', 'status-seg', lat !== null ? `Latency ${lat} ms` : 'Latency —'));
+
+  upSeg = el('span', 'status-seg', upText());
+  nodes.push(upSeg);
 
   const hadFocus =
     document.activeElement instanceof HTMLElement &&
     document.activeElement.getAttribute('data-k') === 'status-help';
-  const hint = el('button', 'status-hint');
+  const hint = el('button', 'status-hint', 'Keyboard shortcuts');
   hint.type = 'button';
   hint.setAttribute('data-k', 'status-help');
-  hint.title = 'keyboard shortcuts (? or ctrl+alt+/)';
-  hint.append(el('kbd', '', '?'), el('span', '', 'shortcuts'));
+  hint.title = 'Keyboard shortcuts (? or ctrl+alt+/)';
+  hint.setAttribute('aria-haspopup', 'dialog');
   hint.addEventListener('click', () => deps?.openShortcuts());
-  right.append(hint);
+  nodes.push(hint);
 
-  root.replaceChildren(left, right);
+  root.replaceChildren(...nodes);
   if (hadFocus) hint.focus();
 }

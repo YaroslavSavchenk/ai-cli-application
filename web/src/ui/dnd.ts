@@ -314,7 +314,7 @@ function clearVisuals(): void {
 // --------------------------------------------------------------------------
 
 function rejectFull(): void {
-  flash('view is full — 4 panes max');
+  flash('This tab is full. It can show 4 panes.');
   const grid = document.querySelector('.grid');
   if (grid !== null) {
     grid.classList.remove('is-reject');

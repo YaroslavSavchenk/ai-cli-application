@@ -241,9 +241,9 @@
   --s-8: 18px;
 
   /* ---- structure ------------------------------------------------------------ */
-  --topbar-h: 44px;
-  --tab-h: 30px;        /* tab block, bottom-aligned in the ~35px strip       */
-  --status-h: 23px;
+  --topbar-h: 48px;     /* A2: the v3 instrument strip                       */
+  --tab-h: 32px;        /* A2: v3 tab chip (was 30px, Legacy)                 */
+  --status-h: 26px;     /* A2: v3 statusline                                  */
   --panehd-h: 30px;
   --drawerhd-h: 34px;
   --drawer-proj-w: 272px;
@@ -253,7 +253,7 @@
   --tick: 2px;          /* active-tab glow bar, insertion caret               */
   --divider-hit: 10px;  /* grab strip centered in the pane gap                */
   --dot: 7px;           /* status dots                                        */
-  --ctl-h: 26px;        /* topbar buttons                                     */
+  --ctl-h: 30px;        /* topbar controls (A2: v3 height, was 26px)          */
   --ctl-h-lg: 30px;     /* dialog footer buttons, empty-state buttons         */
   --field-h: 32px;      /* launch-dialog inputs/selects                       */
   --chip-h: 20px;       /* row buttons (+ × split ⇱)                          */

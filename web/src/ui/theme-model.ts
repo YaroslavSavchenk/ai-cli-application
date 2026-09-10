@@ -1,4 +1,6 @@
 /**
+ * UNWIRED SINCE PART A2 (2026-09-10): its only consumer, ui/theme.ts, is no longer called from main.ts; part A8 deletes both.
+ *
  * Pure data + logic behind the terminal theme popover (ui/theme.ts):
  * the palette tables and the validation/comparison helpers for the
  * persisted selection. Entry 0 of each table is the DEFAULT and carries the
