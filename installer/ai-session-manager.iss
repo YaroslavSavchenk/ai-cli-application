@@ -531,7 +531,7 @@ begin
     Result := Result + 'No third-party software will be installed.' + NewLine + NewLine;
   Result := Result +
     'Your projects, session history and settings are not touched.' + NewLine +
-    'The app can stay open while this runs; use "Restart backend" in its' + NewLine +
+    'The app can stay open while this runs; use "Restart service" in its' + NewLine +
     'settings afterwards to switch to the new version.' + NewLine;
   if MemoTasksInfo <> '' then
     Result := Result + NewLine + MemoTasksInfo + NewLine;

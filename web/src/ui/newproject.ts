@@ -1,10 +1,11 @@
 /**
- * New Project dialog (Phase 2a) — the modal that CREATES projects, replacing
- * the old inline add-project form in the projects drawer. Two modes only:
+ * Add-a-project dialog (Phase 2a; Nocturne A7 look, 2026-09-13) — the modal
+ * that CREATES projects, replacing the old inline add-project form in the
+ * projects drawer. Three tabs:
  *
- *   - Blank local: PROJECT NAME + LOCAL PATH (Browse → folder picker) + an
- *     "Initialize git repo" checkbox (default CHECKED → `gitInit`). POSTs
- *     createLocalProject ({ create: true, gitInit }). The path auto-suggests
+ *   - New folder: NAME + FOLDER (Browse → folder picker) + an "Initialize git
+ *     repo" checkbox (default CHECKED → `gitInit`). POSTs createLocalProject
+ *     ({ create: true, gitInit }). The path auto-suggests
  *     `<home>/projects/<name>` as the name is typed (home resolved live from
  *     GET /api/fs/list — never hardcoded); Browse overrides it.
  *     A BROWSED path is probed against that same GET (2026-09-10 user report:
@@ -21,20 +22,23 @@
  *     path and keeps its git init — the backend creates into an empty
  *     directory. The decisions are pure in
  *     newproject-model (`probeFromList`, `blankIntent`, `addedProjectName`).
- *   - Clone repo: GIT URL + DESTINATION (optional; Browse → folder picker;
- *     default `<home>/projects/<repoBasename>`) + a live three-line summary in
- *     the ink well — `copies` / the pasted url / `into folder: <dest>`, each
- *     unfilled value falling back to `—` (the argv-shaped command preview was
- *     dropped by the UI copy rule, 2026-07-25). POSTs cloneProject. Clone is a
- *     SLOW synchronous call — an honest indeterminate "cloning…" spinner shows
- *     while awaiting (NOT a fake percentage); success adds the project +
- *     closes, failure renders the backend error inline.
+ *   - Clone a repository: REPOSITORY ADDRESS + CLONE INTO (optional; Browse →
+ *     folder picker; default `<home>/projects/<repoBasename>`). POSTs
+ *     cloneProject. Clone is a SLOW synchronous call — an honest indeterminate
+ *     spinner shows in the footer while awaiting (NOT a fake percentage);
+ *     success adds the project + closes, failure renders the backend error
+ *     inline. The two fields ARE the statement of what will happen: the
+ *     three-line ink-well summary A7 replaced said the same thing twice (and
+ *     the argv-shaped preview under it was already dropped by the UI copy
+ *     rule, 2026-07-25).
+ *   - From GitHub: ui/github.ts owns the whole tab (device flow, pasted token,
+ *     repo list, clone, New repository). This dialog only mounts it and tells
+ *     it when its tab is active.
  *
- * Built entirely in the established dialog language: the sanctioned gradient
- * header (launch-dialog idioms), the ink-well command preview (`.launch-cmd`),
- * the settings checkbox row (`.status-row`), `.form-err` for errors. A clean
- * seam is left for the 2b "GitHub" tab — the mode row is a plain list; adding a
- * third entry + panel is all it takes. No GitHub / OAuth here.
+ * The look is the Nocturne A7 `ap-` block in app.css: top-anchored scrim,
+ * header (title, one line of what a project is, close), text tabs with a 2px
+ * accent underline on the active one, a scrolling body of stacked label
+ * blocks, and a footer with Cancel plus the tab's own primary verb.
  *
  * Untrusted display: every path (fs-derived) and url basename renders via
  * textContent — never innerHTML.
@@ -88,52 +92,52 @@ let projectsDir: string | null = null; // `<home>/projects` if it exists, else n
 
 export function initNewProjectDialog(modalHost: HTMLElement): void {
   // ---- scrim + card --------------------------------------------------------
-  const scrim = el('div', 'modal-scrim launch-scrim');
+  // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
+  // it. Everything visual is the `ap-` block in app.css (Nocturne A7).
+  const scrim = el('div', 'modal-scrim ap-scrim');
   scrim.hidden = true;
-  const modal = el('div', 'modal np-modal');
+  const modal = el('div', 'ap-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'new project');
+  modal.setAttribute('aria-labelledby', 'ap-title');
 
-  // ---- header (sanctioned gradient) ----------------------------------------
-  const hd = el('header', 'launch-hd');
-  const tile = el('div', 'launch-tile');
-  tile.setAttribute('aria-hidden', 'true');
-  tile.append(el('span', 'np-glyph', '◧'));
-  const titles = el('div', 'launch-titles');
-  titles.append(
-    el('div', 'launch-title', 'New project'),
-    el('div', 'launch-sub', 'create locally or clone a repo'),
-  );
-  const closeX = button('launch-x', '×', () => close());
-  closeX.setAttribute('aria-label', 'close new project dialog');
-  closeX.title = 'close (esc)';
-  hd.append(tile, titles, el('span', 'launch-gap'), closeX);
+  // ---- header: what is being added, one line of what it is, close ----------
+  const hd = el('header', 'ap-hd');
+  const hdTxt = el('div');
+  const title = el('h2', 'ap-title', 'Add a project');
+  title.id = 'ap-title';
+  hdTxt.append(title, el('div', 'ap-sub', 'A project is a folder your sessions work in.'));
+  const closeX = button('ap-x', '\u00d7', () => close());
+  closeX.setAttribute('aria-label', 'Close');
+  hd.append(hdTxt, closeX);
 
-  // ---- mode tabs (two only; a clean seam for the 2b GitHub tab) -------------
-  const tabsRow = el('div', 'np-tabs');
+  // ---- the three ways in, as text tabs on the header's hairline -------------
+  // Buttons in a group with aria-pressed, NOT a tablist: a roving-tabindex
+  // tablist would take the inactive tabs out of the Tab order, and every
+  // control in this dialog stays reachable with Tab alone.
+  const tabsRow = el('div', 'ap-tabs');
   tabsRow.setAttribute('role', 'group');
-  tabsRow.setAttribute('aria-label', 'project source');
+  tabsRow.setAttribute('aria-label', 'Where the project comes from');
   const tabDefs: { mode: Mode; label: string }[] = [
-    { mode: 'blank', label: 'Blank local' },
-    { mode: 'clone', label: 'Clone repo' },
-    { mode: 'github', label: 'GitHub' },
+    { mode: 'blank', label: 'New folder' },
+    { mode: 'clone', label: 'Clone a repository' },
+    { mode: 'github', label: 'From GitHub' },
   ];
   const tabBtns = new Map<Mode, HTMLButtonElement>();
   for (const t of tabDefs) {
-    const b = button('np-tab', t.label, () => setMode(t.mode));
+    const b = button('ap-tab', t.label, () => setMode(t.mode));
     tabBtns.set(t.mode, b);
     tabsRow.append(b);
   }
 
-  // ---- body (reuses the launch-dialog scroll body) --------------------------
-  const body = el('div', 'launch-body');
+  // ---- body ----------------------------------------------------------------
+  const body = el('div', 'ap-body');
 
-  // Blank panel -------------------------------------------------------------
-  const blankPanel = el('div', 'np-panel');
+  // New folder panel --------------------------------------------------------
+  const blankPanel = el('div', 'ap-panel');
 
-  const nameField = el('label', 'launch-field');
-  nameField.append(el('span', 'launch-lb', 'Project name'));
+  const nameField = el('label', 'ap-field');
+  nameField.append(el('span', 'ap-lb', 'Name'));
   const nameInput = el('input');
   nameInput.name = 'name';
   nameInput.placeholder = 'my-project';
@@ -141,14 +145,15 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   nameInput.autocomplete = 'off';
   nameField.append(nameInput);
 
-  const blankPathField = el('div', 'launch-field');
-  blankPathField.append(el('span', 'launch-lb', 'Local path'));
-  const blankPathRow = button('np-pathrow', '', () => openBlankPicker());
-  blankPathRow.setAttribute('aria-label', 'choose the local path — opens the folder picker');
-  const blankPathGlyph = el('span', 'np-pathrow-glyph', '⌕');
-  blankPathGlyph.setAttribute('aria-hidden', 'true');
-  const blankPathText = el('span', 'np-pathrow-path is-suggested', '');
-  blankPathRow.append(blankPathGlyph, blankPathText, el('span', 'np-pathrow-browse', 'Browse'));
+  // The folder is never typed — the picker is the only way in — so the whole
+  // row is one button that looks like the field it stands for, with the Browse
+  // affordance at its end (one control, one tab stop).
+  const blankPathField = el('div', 'ap-field');
+  blankPathField.append(el('span', 'ap-lb', 'Folder'));
+  const blankPathRow = button('ap-pathrow', '', () => openBlankPicker());
+  blankPathRow.setAttribute('aria-label', 'Folder, opens the folder picker');
+  const blankPathText = el('span', 'ap-path is-suggested', '');
+  blankPathRow.append(blankPathText, el('span', 'ap-browse', 'Browse'));
   blankPathField.append(blankPathRow);
 
   // The verdict on a browsed folder, one line, directly under the row it is
@@ -156,43 +161,41 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   // could only ever end in the backend's 409). Hidden until a probe says the
   // folder is already there and not empty; the primary button's verb says the
   // same thing in the place a user commits from.
-  const existsNote = el(
-    'div',
-    'np-caption np-pathnote',
-    'This folder already exists. It is added as it is.',
-  );
+  const existsNote = el('div', 'ap-pathnote', 'This folder already exists. It is added as it is.');
   existsNote.hidden = true;
   blankPathField.append(existsNote);
 
-  // "Initialize git repo" — default CHECKED (maps to gitInit). Reuses the
-  // settings checkbox idiom (16px square, ✓ in --term-bg on --acc, aria-pressed).
+  const blankCaption = el('div', 'ap-note', 'The folder is created if it does not exist yet.');
+
+  // "Initialize git repo" — default CHECKED (maps to gitInit). The v3
+  // checklist row: an 18px box that fills with the accent when it is on.
   let gitInit = true;
-  const gitRow = button('status-row np-gitrow', '', () => {
+  const gitRow = button('ap-check', '', () => {
     gitInit = !gitInit;
     syncGit();
   });
-  const gitBox = el('span', 'status-box');
+  const gitBox = el('span', 'ap-box');
   gitBox.setAttribute('aria-hidden', 'true');
   gitRow.append(
     gitBox,
-    el('span', 'status-lb', 'Initialize git repo'),
-    el('span', 'status-sample', 'starts version history'),
+    el('span', 'ap-check-lb', 'Initialize git repo'),
+    el('span', 'ap-check-sub', 'starts version history'),
   );
   gitRow.title = 'start tracking changes in the new project folder';
 
   function syncGit(): void {
     gitRow.setAttribute('aria-pressed', gitInit ? 'true' : 'false');
-    gitBox.textContent = gitInit ? '✓' : '';
+    gitBox.textContent = gitInit ? '\u2713' : '';
   }
 
-  // Optional per-project launch defaults — mirror the settings panel's
-  // "no default" select idiom (blank → the field is OMITTED from the request).
-  // The dialog's own .launch-field / .launch-lb styling; PermissionMode here is
-  // the TWO-value PROJECT default ('standard' | 'skip-permissions'), not the
-  // four CLI launch modes.
-  const modelField = el('label', 'launch-field');
-  const modelLb = el('span', 'launch-lb', 'Default model ');
-  modelLb.append(el('span', 'np-optional', '(optional)'));
+  // Optional per-project launch defaults — two selects side by side, blank =
+  // the field is OMITTED from the request. PermissionMode here is the
+  // TWO-value PROJECT default ('standard' | 'skip-permissions'), not the four
+  // CLI launch modes.
+  const defaultsRow = el('div', 'ap-row2');
+  const modelField = el('label', 'ap-field');
+  const modelLb = el('span', 'ap-lb', 'Default model ');
+  modelLb.append(el('span', 'ap-opt', '(optional)'));
   modelField.append(modelLb);
   const modelSel = el('select');
   modelSel.name = 'defaultModel';
@@ -206,9 +209,9 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   }
   modelField.append(modelSel);
 
-  const modeField = el('label', 'launch-field');
-  const modeLb = el('span', 'launch-lb', 'Default permission mode ');
-  modeLb.append(el('span', 'np-optional', '(optional)'));
+  const modeField = el('label', 'ap-field');
+  const modeLb = el('span', 'ap-lb', 'Default permission mode ');
+  modeLb.append(el('span', 'ap-opt', '(optional)'));
   modeField.append(modeLb);
   const modeSel = el('select');
   modeSel.name = 'defaultMode';
@@ -221,10 +224,6 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   // it "Always ask" would promise enforcement the value does not deliver. The
   // stored value is untouched: a project.json that already carries `standard`
   // keeps being accepted (see submitBlank), no schema/server change.
-  // Lowercase to match this select's own `no default` and the sibling
-  // Default-model select — the settings-panel select idiom. The New session
-  // dialog's Permissions cards are unaffected (they carry their own short
-  // labels, PERM_SHORT).
   const modeOpts: { value: PermissionMode; label: string }[] = [
     { value: 'skip-permissions', label: 'never ask (dangerous)' },
   ];
@@ -234,21 +233,20 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     modeSel.append(opt);
   }
   modeField.append(modeSel);
+  defaultsRow.append(modelField, modeField);
 
-  const blankCaption = el(
-    'div',
-    'np-caption',
-    'creates the folder and registers it under Projects',
-  );
-
-  blankPanel.append(nameField, blankPathField, gitRow, modelField, modeField, blankCaption);
+  blankPanel.append(nameField, blankPathField, blankCaption, gitRow, defaultsRow);
 
   // Clone panel -------------------------------------------------------------
-  const clonePanel = el('div', 'np-panel');
+  const clonePanel = el('div', 'ap-panel');
   clonePanel.hidden = true;
 
-  const urlField = el('label', 'launch-field');
-  urlField.append(el('span', 'launch-lb', 'Git URL'));
+  // The address is the user's own input and reads as data, so it is the one
+  // mono field on this tab (the argv-shaped preview it used to carry below was
+  // dropped by the UI copy rule, 2026-07-25; the two fields ARE the statement
+  // of what will happen).
+  const urlField = el('label', 'ap-field is-mono');
+  urlField.append(el('span', 'ap-lb', 'Repository address'));
   const urlInput = el('input');
   urlInput.name = 'url';
   urlInput.placeholder = 'https://github.com/owner/repo.git';
@@ -256,21 +254,17 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   urlInput.autocomplete = 'off';
   urlField.append(urlInput);
 
-  const destField = el('div', 'launch-field');
-  const destLb = el('span', 'launch-lb', 'Destination ');
-  destLb.append(el('span', 'np-optional', '(optional)'));
+  const destField = el('div', 'ap-field');
+  const destLb = el('span', 'ap-lb', 'Clone into ');
+  destLb.append(el('span', 'ap-opt', '(optional)'));
   destField.append(destLb);
-  const destRow = button('np-pathrow', '', () => openClonePicker());
-  destRow.setAttribute('aria-label', 'choose the clone destination — opens the folder picker');
-  const destGlyph = el('span', 'np-pathrow-glyph', '⌕');
-  destGlyph.setAttribute('aria-hidden', 'true');
-  const destText = el('span', 'np-pathrow-path is-suggested', '');
-  destRow.append(destGlyph, destText, el('span', 'np-pathrow-browse', 'Browse'));
+  const destRow = button('ap-pathrow', '', () => openClonePicker());
+  destRow.setAttribute('aria-label', 'Clone into, opens the folder picker');
+  const destText = el('span', 'ap-path is-suggested', '');
+  destRow.append(destText, el('span', 'ap-browse', 'Browse'));
   destField.append(destRow);
 
-  const clonePreview = el('div', 'launch-cmd');
-
-  clonePanel.append(urlField, destField, clonePreview);
+  clonePanel.append(urlField, destField);
 
   // GitHub panel (Phase 2b + 2c) — the third tab. All GitHub UI + the status
   // controller live in ui/github.ts; this dialog only mounts the panel and
@@ -285,23 +279,22 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   });
   githubPanel.el.hidden = true;
 
-  const err = el('div', 'form-err');
+  const err = el('div', 'ap-err');
   err.setAttribute('role', 'alert');
   err.hidden = true;
 
   body.append(blankPanel, clonePanel, githubPanel.el, err);
 
   // ---- footer --------------------------------------------------------------
-  const ft = el('footer', 'launch-ft');
-  const note = el('span', 'launch-note', 'registers under Projects');
-  const busy = el('span', 'np-busy');
+  const ft = el('footer', 'ap-ft');
+  const busy = el('div', 'ap-busy');
   busy.hidden = true;
-  const busySpin = el('span', 'np-spinner');
+  const busySpin = el('span', 'ap-spinner');
   busySpin.setAttribute('aria-hidden', 'true');
-  busy.append(busySpin, el('span', '', 'cloning… this can take a while'));
-  const cancel = button('btn', 'Cancel', () => close());
-  const primary = button('btn-go', 'Create project', () => void submit());
-  ft.append(note, busy, el('span', 'launch-gap'), cancel, primary);
+  busy.append(busySpin, el('span', '', 'Cloning the repository, this can take a while'));
+  const cancel = button('btn-quiet', 'Cancel', () => close());
+  const primary = button('btn-accent', 'Create project', () => void submit());
+  ft.append(busy, cancel, primary);
 
   modal.append(hd, tabsRow, body, ft);
   scrim.append(modal);
@@ -448,24 +441,6 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     }
   }
 
-  /**
-   * The ink well, one fact per `.launch-sum-line` (PROJECT-SCOPE
-   * "No commands, flags, or code in the UI", 2026-07-25): what this will do,
-   * the pasted URL, and where it lands. The URL stays verbatim — it is the
-   * user's own input, not code — and both values fall back to '—', the app's
-   * empty-value glyph, so an unfilled field never reads as a real value.
-   * Untrusted text via textContent (el), never innerHTML.
-   */
-  function renderClonePreview(): void {
-    const url = urlInput.value.trim();
-    const dest = effectiveClonePath();
-    clonePreview.replaceChildren(
-      el('div', 'launch-sum-line', 'copies'),
-      el('div', 'launch-sum-line', url !== '' ? url : '—'),
-      el('div', 'launch-sum-line', `into folder: ${dest !== '' ? dest : '—'}`),
-    );
-  }
-
   function setMode(next: Mode): void {
     mode = next;
     for (const [m, b] of tabBtns) {
@@ -482,14 +457,12 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     primary.hidden = next === 'github';
     // The blank tab owns its own verb (Create project / Add this folder).
     primary.textContent =
-      next === 'clone' ? 'Clone' : intent === 'add' ? 'Add this folder' : 'Create project';
-    syncPrimary();
-    note.textContent =
       next === 'clone'
-        ? 'clones, then registers under Projects'
-        : next === 'github'
-          ? 'browse your GitHub repositories'
-          : 'registers under Projects';
+        ? 'Clone repository'
+        : intent === 'add'
+          ? 'Add this folder'
+          : 'Create project';
+    syncPrimary();
     err.hidden = true;
     // github: the panel handles its own focus (Connect / search / Cancel).
     if (next === 'blank') nameInput.focus();
@@ -497,10 +470,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   }
 
   nameInput.addEventListener('input', renderBlankPath);
-  urlInput.addEventListener('input', () => {
-    renderClonePath();
-    renderClonePreview();
-  });
+  urlInput.addEventListener('input', renderClonePath);
 
   // ---- folder picker openers -----------------------------------------------
   function openBlankPicker(): void {
@@ -534,7 +504,6 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
         cloneTouched = true;
         cloneChosen = chosen;
         renderClonePath();
-        renderClonePreview();
       },
     });
   }
@@ -576,12 +545,12 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     const name =
       intent === 'add' ? addedProjectName(nameInput.value, path) : nameInput.value.trim();
     if (name === '') {
-      showErr('project name is required');
+      showErr('A project name is required.');
       nameInput.focus();
       return;
     }
     if (path === '') {
-      showErr('choose a location with Browse');
+      showErr('Choose a folder with Browse.');
       return;
     }
     const body: Omit<CreateProjectRequest, 'create' | 'gitInit'> = { name, path };
@@ -609,13 +578,13 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   async function submitClone(): Promise<void> {
     const url = urlInput.value.trim();
     if (url === '') {
-      showErr('a git URL is required');
+      showErr('A repository address is required.');
       urlInput.focus();
       return;
     }
     const dest = effectiveClonePath();
     if (dest === '') {
-      showErr('choose a destination with Browse');
+      showErr('Choose a destination with Browse.');
       return;
     }
     setCloning(true);
@@ -634,7 +603,6 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   function setCloning(on: boolean): void {
     cloning = on;
     busy.hidden = !on;
-    note.hidden = on;
     primary.disabled = on;
     cancel.disabled = on;
     closeX.disabled = on;
@@ -671,7 +639,6 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     err.hidden = true;
     renderBlankPath();
     renderClonePath();
-    renderClonePreview();
     scrim.hidden = false;
     setMode(initialMode); // unhidden first so the per-mode focus lands
     // Resolve home (+ whether ~/projects exists) once, then refresh suggestions.
@@ -679,7 +646,6 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
       if (scrim.hidden) return;
       renderBlankPath();
       renderClonePath();
-      renderClonePreview();
     });
   }
 

@@ -1,5 +1,5 @@
 /**
- * UNWIRED SINCE PART A2 (2026-09-10): its only consumer, ui/theme.ts, is no longer called from main.ts; part A8 deletes both.
+ * Consumed since A7 (2026-09-13) by ui/term-colours-model.ts (presets are GROUNDS×RAMPS index pairs); KEPT — part B9 wires the Terminal colours page to ui/theme.ts.
  *
  * Pure data + logic behind the terminal theme popover (ui/theme.ts):
  * the palette tables and the validation/comparison helpers for the

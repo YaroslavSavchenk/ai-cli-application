@@ -139,7 +139,7 @@ Same `AppId`, so a newer Setup upgrades in place. `CloseApplications=no` /
 `RestartApplications=no`: the app may keep running, because the backend lives
 inside WSL and the running process keeps using its own version directory
 (`runtime.json.appDir`), which the installer refuses to prune. Afterwards the
-app reports `a new version is installed` and its **Restart backend** button
+app reports `a new version is installed` and its **Restart service** button
 moves onto the new `current`. Retention is `current` + one previous version +
 whatever a live backend is using.
 

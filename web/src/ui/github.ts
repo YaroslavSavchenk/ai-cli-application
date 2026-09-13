@@ -274,7 +274,7 @@ export function createGithubChip(openTab: () => void): HTMLButtonElement {
 // ---------------------------------------------------------------------------
 
 export interface GithubPanel {
-  /** The panel root (a .np-panel sibling of the blank/clone panels). */
+  /** The panel root (an .ap-panel sibling of the blank/clone panels). */
   el: HTMLElement;
   /** The dialog switched to / away from the GitHub tab. */
   setActive(active: boolean): void;
@@ -296,16 +296,16 @@ function ghAvatar(text: string): HTMLElement {
 }
 
 export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
-  const root = el('div', 'np-panel');
+  const root = el('div', 'ap-panel');
   root.hidden = true;
   let active = false;
 
   // --- checking (status not yet known) --------------------------------------
   const checkingCard = el('div', 'gh-card');
   const checkRow = el('div', 'gh-wait');
-  const checkSpin = el('span', 'np-spinner');
+  const checkSpin = el('span', 'ap-spinner');
   checkSpin.setAttribute('aria-hidden', 'true');
-  checkRow.append(checkSpin, el('span', '', 'checking GitHub…'));
+  checkRow.append(checkSpin, el('span', '', 'Checking GitHub'));
   checkingCard.append(checkRow);
 
   // --- the connection stopped working on its own (V-4) -----------------------
@@ -323,15 +323,10 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
 
   // --- disconnected: path 1, sign in with GitHub ------------------------------
   const disconnectedCard = el('div', 'gh-card');
-  // The mark belongs to the sign-in ACTION. With no sign-in button this card is
-  // a heading plus an explanation, and 44px of decoration would push the one
-  // control that does work below the fold — so it is hidden there.
-  const connectAvatar = ghAvatar('GH');
-  disconnectedCard.append(connectAvatar);
   disconnectedCard.append(el('div', 'gh-title', 'Connect your GitHub account'));
   const connectBody = el('div', 'gh-body', '');
   disconnectedCard.append(connectBody);
-  const connectBtn = button('gh-connect', 'Connect with GitHub', () => void onConnect());
+  const connectBtn = button('btn-accent', 'Connect with GitHub', () => void onConnect());
   disconnectedCard.append(connectBtn);
   const connectErr = el('div', 'gh-msg is-err');
   connectErr.setAttribute('role', 'alert');
@@ -373,8 +368,8 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       'Recommended: create a fine-grained token on GitHub, limit it to the repositories you want this app to touch, and give it an expiry date. Grant it Contents (read and write); Metadata (read) comes with it.',
     ),
   );
-  const tokenField = el('label', 'launch-field gh-tokenfield');
-  tokenField.append(el('span', 'launch-lb', 'GitHub token'));
+  const tokenField = el('label', 'ap-field is-mono');
+  tokenField.append(el('span', 'ap-lb', 'GitHub token'));
   const tokenInput = el('input', 'gh-tokeninput');
   tokenInput.type = 'password'; // II-1
   tokenInput.autocomplete = 'new-password'; // II-1: never offered as a saved login
@@ -389,26 +384,33 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   // "remember this token" — the ONE control that removes the on-disk copy, so
   // what it does is spelled out underneath rather than implied by the label.
   let remember = true; // decided default: persisted (user's call, 2026-07-25)
-  const rememberRow = button('status-row gh-remember', '', () => {
+  const rememberRow = button('ap-check', '', () => {
     if (adding) return;
     remember = !remember;
     syncRemember();
   });
-  const rememberBox = el('span', 'status-box');
+  const rememberBox = el('span', 'ap-box');
   rememberBox.setAttribute('aria-hidden', 'true');
-  const rememberSampleEl = el('span', 'status-sample', '');
-  rememberRow.append(rememberBox, el('span', 'status-lb', 'Remember this token'), rememberSampleEl);
-  const rememberFine = el('div', 'gh-fine gh-remember-note', '');
+  const rememberSampleEl = el('span', 'ap-check-sub', '');
+  rememberRow.append(
+    rememberBox,
+    el('span', 'ap-check-lb', 'Remember this token'),
+    rememberSampleEl,
+  );
+  const rememberFine = el('div', 'gh-fine', '');
   tokenCard.append(rememberRow, rememberFine);
 
   const tokenRow = el('div', 'gh-tokenrow');
-  const tokenBusy = el('div', 'np-busy');
+  const tokenBusy = el('div', 'ap-busy');
   tokenBusy.hidden = true;
-  const tokenSpin = el('span', 'np-spinner');
+  const tokenSpin = el('span', 'ap-spinner');
   tokenSpin.setAttribute('aria-hidden', 'true');
-  tokenBusy.append(tokenSpin, el('span', '', 'checking with GitHub…'));
-  const tokenBtn = button('gh-connect gh-addtoken', 'Add token', () => void submitToken());
-  tokenRow.append(tokenBusy, el('span', 'launch-gap'), tokenBtn);
+  tokenBusy.append(tokenSpin, el('span', '', 'Checking the token with GitHub'));
+  // Neutral outline, not the accent: the tab shows exactly one accent primary,
+  // and whenever this card is visible the accent belongs to Connect with GitHub
+  // (the recommended path) — both cards show together while disconnected.
+  const tokenBtn = button('btn-quiet', 'Add token', () => void submitToken());
+  tokenRow.append(tokenBusy, tokenBtn);
   tokenCard.append(tokenRow);
 
   const tokenErr = el('div', 'gh-newerr');
@@ -440,9 +442,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   // --- connecting ------------------------------------------------------------
   const connectingCard = el('div', 'gh-card');
   const waitRow = el('div', 'gh-wait');
-  const waitSpin = el('span', 'np-spinner');
+  const waitSpin = el('span', 'ap-spinner');
   waitSpin.setAttribute('aria-hidden', 'true');
-  waitRow.append(waitSpin, el('span', '', 'Waiting for authorization…'));
+  waitRow.append(waitSpin, el('span', '', 'Waiting for you to approve'));
   connectingCard.append(waitRow);
   const instruct = el('div', 'gh-instruct');
   const uriSpan = el('span', 'gh-uri'); // verificationUri (untrusted → textContent)
@@ -459,14 +461,13 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   const connectedWrap = el('div', 'gh-connected');
   const meRow = el('div', 'gh-me');
   const meAvatar = ghAvatar('?');
-  meAvatar.classList.add('is-me', 'is-sm');
   const meCol = el('div', 'gh-me-col');
   const meName = el('span', 'gh-me-name', '');
-  const meSub = el('span', 'gh-me-sub', 'connected');
+  const meSub = el('span', 'gh-me-sub', 'Connected');
   meCol.append(meName, meSub);
-  const disconnectBtn = button('gh-mini', 'disconnect');
-  armButton(disconnectBtn, 'confirm disconnect', () => void drop());
-  meRow.append(meAvatar, meCol, el('span', 'launch-gap'), disconnectBtn);
+  const disconnectBtn = button('gh-mini', 'Disconnect');
+  armButton(disconnectBtn, 'Confirm disconnect', () => void drop());
+  meRow.append(meAvatar, meCol, disconnectBtn);
   connectedWrap.append(meRow);
   // V-2: a token can be for the WRONG account, and nothing else in the app would
   // say so — clones and newly created repositories would just quietly land
@@ -491,11 +492,11 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   // search + "+ New repo" (Phase 2c) share one row
   const actionsRow = el('div', 'gh-actions');
   const searchInput = el('input', 'gh-search');
-  searchInput.placeholder = 'search repositories…';
+  searchInput.placeholder = 'Search repositories';
   searchInput.spellcheck = false;
   searchInput.autocomplete = 'off';
   searchInput.setAttribute('aria-label', 'search repositories');
-  const newRepoBtn = button('gh-newrepo', '+ New repo', () => toggleNewForm());
+  const newRepoBtn = button('gh-newrepo', 'New repository', () => toggleNewForm());
   newRepoBtn.setAttribute('aria-expanded', 'false');
   newRepoBtn.setAttribute('aria-controls', 'gh-newform');
   newRepoBtn.title = 'create a new repository on GitHub and clone it locally';
@@ -519,17 +520,17 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   newDescInput.autocomplete = 'off';
   newDescInput.setAttribute('aria-label', 'new repository description (optional)');
   const newRow = el('div', 'gh-newrow');
-  const privBtn = button('gh-newbtn is-toggle', 'private', () => togglePrivate());
-  const newNote = el('span', 'gh-newnote', 'creates it on GitHub and clones it locally');
-  const newCancel = button('gh-newbtn is-cancel', 'Cancel', () => closeNewForm());
+  const privBtn = button('gh-newbtn', 'Private', () => togglePrivate());
+  const newNote = el('span', 'gh-newnote', 'Created on GitHub, then cloned to this computer');
+  const newCancel = button('gh-newbtn', 'Cancel', () => closeNewForm());
   const newCreate = button('gh-newbtn is-create', 'Create', () => void submitNewRepo());
-  newRow.append(privBtn, newNote, el('span', 'launch-gap'), newCancel, newCreate);
+  newRow.append(privBtn, newNote, newCancel, newCreate);
   const newErr = el('div', 'gh-newerr');
   newErr.setAttribute('role', 'alert');
   newErr.hidden = true;
-  const newBusy = el('div', 'np-busy');
+  const newBusy = el('div', 'ap-busy');
   newBusy.hidden = true;
-  const newBusySpin = el('span', 'np-spinner');
+  const newBusySpin = el('span', 'ap-spinner');
   newBusySpin.setAttribute('aria-hidden', 'true');
   const newBusyLabel = el('span', '', '');
   newBusy.append(newBusySpin, newBusyLabel);
@@ -552,7 +553,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   let creating = false;
 
   function syncPrivate(): void {
-    privBtn.textContent = newPrivate ? 'private' : 'public';
+    privBtn.textContent = newPrivate ? 'Private' : 'Public';
     privBtn.setAttribute('aria-pressed', newPrivate ? 'true' : 'false');
     privBtn.setAttribute(
       'aria-label',
@@ -628,7 +629,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       return;
     }
     const description = newDescInput.value.trim();
-    setCreating(true, 'creating…');
+    setCreating(true, 'Creating the repository');
     let created: GithubRepo;
     try {
       created = await api.githubCreateRepo({
@@ -657,7 +658,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     // the URL-clone tab out of this rule. `created.name` (not the typed `name`)
     // is authoritative: GitHub may normalize what it accepted, and the path has
     // to match what the repo list will compare against.
-    newBusyLabel.textContent = 'cloning…';
+    newBusyLabel.textContent = 'Cloning';
     try {
       const project = await api.githubClone({
         cloneUrl: created.cloneUrl,
@@ -849,7 +850,6 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       // paste path — a server with no OAuth App is exactly who needs the latter.
       const copy = deviceCardCopy(s.deviceFlowAvailable);
       connectBody.textContent = copy.body;
-      connectAvatar.hidden = !s.deviceFlowAvailable;
       connectBtn.hidden = !s.deviceFlowAvailable;
       deviceFine.textContent = copy.fine;
       deviceFine.hidden = copy.fine === '';
@@ -885,15 +885,17 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
 
   function renderRepos(): void {
     if (repoState === 'loading' && repos.length === 0) {
-      reposEl.replaceChildren(el('div', 'gh-msg', 'loading repositories…'));
+      reposEl.replaceChildren(el('div', 'gh-msg', 'Loading your repositories'));
       return;
     }
     if (repoState === 'error') {
-      reposEl.replaceChildren(el('div', 'gh-msg is-err', `couldn’t load repositories: ${repoErr}`));
+      reposEl.replaceChildren(
+        el('div', 'gh-msg is-err', `Could not load your repositories: ${repoErr}`),
+      );
       return;
     }
     if (repos.length === 0) {
-      reposEl.replaceChildren(el('div', 'gh-msg', 'no repositories match'));
+      reposEl.replaceChildren(el('div', 'gh-msg', 'No repositories match'));
       return;
     }
     const frag = document.createDocumentFragment();
@@ -901,21 +903,21 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     reposEl.replaceChildren(frag);
   }
 
+  /**
+   * One repository as a ROW (Nocturne A7, v3): name and visibility on the
+   * first line, the quiet facts under it, the action pinned right. No card —
+   * the list is a ledger separated by hairlines.
+   */
   function repoCard(r: GithubRepo): HTMLElement {
-    const card = el('div', 'gh-repo');
+    const row = el('div', 'gh-repo');
+    const main = el('div', 'gh-repo-main');
     const top = el('div', 'gh-repo-top');
     top.append(el('span', 'gh-repo-name', r.fullName)); // untrusted → textContent
-    top.append(
-      el('span', `gh-badge ${r.private ? 'is-private' : 'is-public'}`, r.private ? 'private' : 'public'),
-    );
-    // Phase 2c: per-repo clone/open action, pinned right. `actionSlot` holds the
-    // clone|open button; `statusSlot` holds the "cloning…" indicator or an error.
-    const actionSlot = el('span', 'gh-repo-actslot');
-    top.append(actionSlot);
-    card.append(top);
+    top.append(el('span', 'gh-badge', r.private ? 'Private' : 'Public'));
+    main.append(top);
 
     if (r.description !== undefined && r.description !== '') {
-      card.append(el('div', 'gh-repo-desc', r.description)); // untrusted → textContent
+      main.append(el('div', 'gh-repo-desc', r.description)); // untrusted → textContent
     }
 
     const meta = el('div', 'gh-repo-meta');
@@ -928,20 +930,26 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
         d.setAttribute('aria-hidden', 'true');
         meta.append(d);
       }
-      meta.append(el('span', 'gh-meta-t', r.language)); // untrusted → textContent
+      meta.append(el('span', '', r.language)); // untrusted → textContent
       hasLang = true;
     }
     const pushed = relTime(r.pushedAt, Date.now());
     if (pushed !== '') {
       // A comma, attached to the text it follows — never a separator element
       // in its own flex slot (A2 copy rules).
-      meta.append(el('span', 'gh-meta-t', `${hasLang ? ', ' : ''}pushed ${pushed}`));
+      meta.append(el('span', '', `${hasLang ? ', ' : ''}Updated ${pushed}`));
     }
-    if (meta.childElementCount > 0) card.append(meta);
+    if (meta.childElementCount > 0) main.append(meta);
 
+    // The row's status line: the honest indeterminate "Cloning" indicator or an
+    // inline clone error, under the facts it belongs to.
     const statusSlot = el('div', 'gh-repo-status');
     statusSlot.hidden = true;
-    card.append(statusSlot);
+    main.append(statusSlot);
+
+    // Phase 2c: per-repo clone/open action, pinned right of the whole row.
+    const actionSlot = el('span', 'gh-repo-actslot');
+    row.append(main, actionSlot);
 
     let rowErr = '';
 
@@ -954,25 +962,25 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       statusSlot.hidden = true;
 
       if (inFlightClone) {
-        const b = button('gh-repo-act is-clone', 'clone');
+        const b = button('gh-repo-act is-clone', 'Clone');
         b.disabled = true;
         actionSlot.append(b);
-        const busy = el('div', 'np-busy');
-        const spin = el('span', 'np-spinner');
+        const busy = el('div', 'ap-busy');
+        const spin = el('span', 'ap-spinner');
         spin.setAttribute('aria-hidden', 'true');
-        busy.append(spin, el('span', '', 'cloning…'));
+        busy.append(spin, el('span', '', 'Cloning'));
         statusSlot.append(busy);
         statusSlot.hidden = false;
         return;
       }
 
       if (project !== null) {
-        const b = button('gh-repo-act is-open', 'open', () => opts.onOpenProject?.(project));
+        const b = button('gh-repo-act', 'Open', () => opts.onOpenProject?.(project));
         b.setAttribute('aria-label', `open ${r.name} — reveal it in the Projects drawer`);
         b.title = 'already cloned — open in the Projects drawer';
         actionSlot.append(b);
       } else {
-        const b = button('gh-repo-act is-clone', 'clone', () => void startClone());
+        const b = button('gh-repo-act is-clone', 'Clone', () => void startClone());
         b.setAttribute('aria-label', `clone ${r.fullName} into your projects folder`);
         b.title = 'clone into your projects folder, grouped by owner, and register it as a project';
         actionSlot.append(b);
@@ -1015,7 +1023,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     }
 
     paint();
-    return card;
+    return row;
   }
 
   // ---- expiry ticker (1 s while active + connecting) ------------------------

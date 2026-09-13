@@ -39,6 +39,12 @@ test('commandLabel: the known agent reads as its product name, never as the comm
   assert.equal(commandLabel('claude'), AGENT_LABEL);
   assert.equal(commandLabel('claude'), 'Claude Code');
   assert.notEqual(commandLabel('claude'), 'claude');
+  // By BASENAME since 2026-09-13, the same rule `isClaudeCommand` and
+  // statusline-model.ts apply: a claude launched by path is still the agent, and
+  // printing that path would put a command in UI chrome.
+  for (const path of ['/usr/local/bin/claude', './claude', '~/bin/claude', 'C:\\tools\\claude']) {
+    assert.equal(commandLabel(path), AGENT_LABEL, path);
+  }
 });
 
 test('commandLabel: each shell the dialog composes reads as that shell’s name — no path, no .exe on screen', () => {
@@ -64,7 +70,6 @@ test('commandLabel: every other command is echoed VERBATIM — the custom-comman
     '/home/you/bin/my agent',
     'CLAUDE',
     'claude-code',
-    './claude',
     '',
   ]) {
     assert.equal(commandLabel(raw), raw, JSON.stringify(raw));

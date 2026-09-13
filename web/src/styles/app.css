@@ -77,13 +77,12 @@ button {
 }
 
 /* Everything typed or listed as data is mono: session rows, paths, tags,
-   directory lists, input values. The A2 chrome (top bar, tab strip,
-   statusline) is Inter — in Nocturne the mono face carries DATA, not chrome. */
+   input values. The A2 chrome (top bar, tab strip, statusline) is Inter — in
+   Nocturne the mono face carries DATA, not chrome. */
 input,
 select,
 .proj-path,
 .proj-meta,
-.dirlist,
 .sc-gesture,
 .theme-note,
 .logo-glyph,
@@ -432,24 +431,6 @@ select:focus-visible,
 
 .tb-new:active {
   background: var(--color-accent-800);
-}
-
-/* the primary green "go" button: the New Project dialog's Create project */
-.btn-go {
-  height: var(--ctl-h);
-  padding: 0 var(--s-7);
-  background: var(--ok-tint);
-  border: var(--line) solid var(--ok);
-  border-radius: var(--r-btn);
-  color: var(--ok-text);
-  font-size: var(--fs-ui);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.btn-go:hover {
-  background: var(--ok-tint-hover);
-  box-shadow: 0 0 18px var(--ok-glow); /* sanctioned: handoff "go" glow */
 }
 
 /* The Nocturne pair, first used by the pane area's empty state (A3): an
@@ -1177,16 +1158,6 @@ select:focus-visible,
 
 .btn-link:hover {
   color: var(--text);
-}
-
-.form-err {
-  margin-top: var(--s-4);
-  padding: var(--s-2) var(--s-4);
-  border: var(--line) solid var(--danger);
-  border-radius: var(--r-input);
-  color: var(--danger);
-  font-size: var(--fs-label);
-  overflow-wrap: anywhere;
 }
 
 /* ---- panels (Nocturne A5, v3 §2): flex siblings, slide-in .18s --------------
@@ -2326,29 +2297,6 @@ body.is-dnd * {
   border-bottom: var(--line) solid var(--edge-mid);
 }
 
-.dirlist {
-  flex: 1;
-  min-height: var(--dirlist-min-h);
-  overflow-y: auto;
-  font-size: var(--fs-name);
-}
-
-.dir-btn {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: var(--s-2) var(--s-7);
-  color: var(--text);
-}
-
-.dir-btn:hover {
-  background: var(--surface-hover);
-}
-
-.modal .form-err {
-  margin: var(--s-3) var(--s-7);
-}
-
 .modal-ft {
   flex: none;
   display: flex;
@@ -2418,7 +2366,7 @@ kbd {
 }
 
 /* the ONE caption under a shortcuts row (the paste chord's reason): aligned
-   under the `what` column, same grammar as .settings-rowcap — a caption sits
+   under the `what` column, same grammar as .sg-cap — a caption sits
    with its row, not in a footnote nobody reads */
 .sc-cap {
   padding: 0 var(--s-7) var(--s-3) calc(var(--s-7) + var(--sc-keys-w) + var(--s-4));
@@ -2437,15 +2385,8 @@ kbd {
 /* ---- shared dialog chrome (the Legacy launch-* names) ------------------------
    These launch-* rules no longer style the New session dialog — Nocturne A4
    moved it onto its own `ns-` block (below, on the primitives). They stay
-   because the New Project dialog, the folder picker, the settings panel and
-   the restart/update dialogs still wear them; part A7 migrates those and A8
-   deletes what is left. */
-
-.launch-scrim {
-  align-items: center;
-  padding-top: 0;
-  backdrop-filter: blur(4px); /* sanctioned: handoff dialog backdrop, New Project only (New session: flat --color-scrim, A4) */
-}
+   because the restart/update dialogs (`update.ts`) still wear them; part A8
+   migrates or deletes what is left. */
 
 .launch-gap {
   flex: 1;
@@ -2514,89 +2455,6 @@ kbd {
 .launch-x:hover {
   border-color: var(--danger);
   color: var(--danger);
-}
-
-.launch-body {
-  padding: var(--s-8) var(--dlg-pad-x);
-  display: flex;
-  flex-direction: column;
-  gap: var(--dlg-gap);
-  overflow-y: auto;
-}
-
-.launch-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  min-width: 0;
-}
-
-.launch-lb {
-  font-size: var(--fs-status);
-  font-weight: 600;
-  letter-spacing: var(--ls-field);
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.launch-field input,
-.launch-field select {
-  height: var(--field-h);
-  padding: 0 var(--s-5);
-  background: var(--bg-deep);
-  border-radius: var(--r-field);
-  font-size: var(--fs-name);
-}
-
-/* ink well: the New Project dialog's clone summary. Mono, because it states
-   VALUES (the pasted url, the destination folder). Kept under the launch-*
-   names because that dialog speaks the Legacy launch dialog's visual language. */
-.launch-cmd {
-  padding: var(--s-5) var(--s-6);
-  background: var(--well);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-box);
-  font-family: var(--font-mono);
-  font-size: var(--fs-label);
-  color: var(--text-mute);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-/* one summary fact per line */
-.launch-sum-line {
-  line-height: 1.55;
-}
-
-.launch-ft {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-5);
-  padding: var(--s-7) var(--dlg-pad-x);
-  border-top: var(--line) solid var(--edge-mid);
-  background: var(--bg-app);
-}
-
-/* the New Project dialog's footer note (the launch dialog has none anymore) */
-.launch-note {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-faint);
-}
-
-.launch-ft .btn,
-.launch-ft .btn-go {
-  height: var(--ctl-h-lg);
-  border-radius: var(--r-field);
-}
-
-.launch-ft .btn {
-  padding: 0 var(--s-8);
-}
-
-.launch-ft .btn-go {
-  padding: 0 var(--dlg-pad-x);
 }
 
 /* ---- New session dialog (Nocturne A4) ---------------------------------------
@@ -3052,576 +2910,1517 @@ kbd {
   }
 }
 
-/* ---- settings panel (status line) -------------------------------------------
-   One section, one master switch, seven item rows — the panel is a checklist,
-   not a dashboard (2026-07-26: launch defaults, the usage ledger and the
-   per-pane strip were all removed with the features they configured). A modal
-   card in the dialog language: the shared gradient dialog header (.launch-hd,
-   as the folder picker uses) and the app's existing checkbox-row idiom. No new
-   tokens. */
+/* ---- settings panel (status line) — since A7 the whole five-page Settings modal ---
+   Nocturne A7: the v3 settings modal (session-manager-v3.html lines 561-640) —
+   640 wide, a 170px LEFT NAV of page names beside one scrolling page. Written
+   against the Nocturne primitives (--color-*, --space-*, --radius-*,
+   --shadow-*) plus the four structural tokens declared below the LEGACY ALIAS
+   LAYER marker in tokens.css that have no primitive twin: --line, --tick,
+   --font-sans, --font-mono (the A3 pane block and the A4 dialog use the same
+   four). No Legacy colour or spacing alias — part A8 deletes those.
+   `tests/ui-settings-a7.test.ts` pins all of it.
 
-.settings-body {
-  flex: 1;
+   Grammar, shared with the New session dialog: rows are hairline-separated
+   (neutral-900), controls are 1px neutral-800 outlines on nothing, the ONE
+   accent statement is a selected card / the footer's Done, and an INERT
+   control (the Preferences page, mocked until part B6) keeps its outline and
+   drops to neutral-700 ink. Type sizes are the v3 markup's own literals.
+
+   Everything a colour MEANS stays out of here: the three status hues are never
+   decoration, and the Terminal colours page paints its preview from inline
+   values the model computes (ui/term-colours.ts) — a stylesheet cannot know
+   which hex a user picked. */
+
+/* Top-anchored, never centred: the page swaps under one fixed top edge, and a
+   centred box would re-place itself under the pointer on every nav click (the
+   A4 lesson). `.modal-scrim` stays on the element for its z-layer — the
+   restart confirmation opens OVER this panel from a higher one. */
+.modal-scrim.sg-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), 6vh) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  /* nsFade + fadeUp: the two dialog keyframes A4 and the handoff motion set
+     already declare — one fade vocabulary for every modal in the app. */
+  animation: nsFade 0.14s ease;
+}
+
+.sg-modal {
+  width: 640px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the page scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.sg-scrim,
+  .sg-modal {
+    animation: none;
+  }
+}
+
+/* ---- left nav ---------------------------------------------------------------
+   Flat labels, no icons: five words are faster to read than five glyphs, and
+   the active page is stated by GROUND (--color-bg, the app's own floor showing
+   through the surface) rather than by a bar or a colour. */
+
+.sg-nav {
+  width: 170px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-6) var(--space-3);
+  border-right: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-navtitle {
+  padding: 0 var(--space-3) var(--space-4);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sg-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-8);
-  padding: var(--s-8) var(--dlg-pad-x);
 }
 
-.settings-sect {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-5);
-}
-
-.settings-note {
-  font-size: var(--fs-status);
-  color: var(--text-faint);
-  line-height: 1.4;
-}
-
-/* the sessions that predate the status line and need a relaunch to get one:
-   an ATTENTION state (never an error), so the --attn edge and the mono name
-   line — the same "one fact per mono line" grammar as .gh-facts */
-.settings-notice {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  padding: var(--s-4) var(--s-5);
-  background: var(--well);
-  border-left: 2px solid var(--attn);
-  border-radius: var(--r-field);
-  font-size: var(--fs-label);
-  color: var(--text-dim);
-  line-height: 1.5;
-}
-
-.settings-notice-names {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--attn);
-  overflow-wrap: anywhere; /* session titles are free text */
-}
-
-/* the item rows the master switch governs: a hairline says "these belong to
-   the row above", and the dim treatment says "not in play" */
-.settings-items {
-  border-top: var(--line) solid var(--edge-soft);
-  padding-top: var(--s-3);
-}
-
-.settings-items.is-disabled {
-  opacity: 0.45;
-}
-
-/* honest-scope caption under an item row (account usage, permission mode), aligned with its label */
-.settings-rowcap {
-  padding: 0 var(--s-5) var(--s-3) 37px; /* 10px pad + 16px box + 11px gap */
-  font-size: var(--fs-status);
-  color: var(--text-faint);
-  line-height: 1.4;
-}
-
-/* KEYS: a two-row excerpt of the shortcuts overlay. Same row grammar as the
-   status-line toggles (label left, value right) minus the checkbox, because
-   these are statements, not switches — and the keys themselves are the SAME
-   <kbd> chips the overlay draws, so the excerpt and the full table read as one
-   object. No new tokens. */
-.settings-keys {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-}
-
-.settings-keyrow {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-5);
-  padding: var(--s-4) var(--s-5);
-}
-
-.settings-keychips {
+.sg-tab {
   flex: none;
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-2);
-}
-
-/* a mouse sentence is not a key: plain text, never a chip (overlay rule) */
-.settings-keygesture {
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
-
-/* the text button that opens the full overlay, aligned with the row labels */
-.settings-keys + .settings-actionrow {
-  padding: 0 var(--s-5);
-}
-
-/* footer shares the dialog's 20px gutter, so header / body / footer line up on
-   one left edge now that the header is the gradient dialog header */
-.settings-ft {
-  background: var(--bg-app);
-  padding-left: var(--dlg-pad-x);
-  padding-right: var(--dlg-pad-x);
-}
-
-/* the app's checkbox-row idiom: a real keyboard-reachable <button> per row,
-   state via aria-pressed (no hover-only affordance). Shared by the settings
-   status-line toggles, the new-project git-init row and the GitHub remember
-   row — one look for "a boolean you can flip". */
-.status-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-}
-
-.status-row {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: var(--s-4) var(--s-5);
-  border-radius: var(--r-field);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 13px;
   text-align: left;
-  transition: background var(--t-btn);
-}
-
-.status-row:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.status-row:disabled {
-  cursor: default;
-}
-
-.status-box {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: 5px;
-  background: transparent;
-  font-size: var(--fs-tag);
-  line-height: 1;
-  color: var(--term-bg);
-}
-
-.status-row[aria-pressed='true'] .status-box {
-  background: var(--acc);
-  border-color: var(--acc);
-}
-
-.status-lb {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--text);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.status-sample {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
+.sg-tab:hover {
+  color: var(--color-text);
 }
 
-.status-row:disabled .status-lb,
-.status-row:disabled .status-sample {
-  color: var(--text-faint);
+.sg-tab.is-sel {
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
-/* ---- new project dialog (Phase 2a) ------------------------------------------
-   Reuses the shared launch-* gradient header + scroll body + ink-well preview.
-   Adds only the two-mode tab row, the browse-path row, and a mono caption; the
-   GitHub tab is deferred to 2b (the .np-tabs list takes a third entry). No new
-   design tokens — every value maps to an existing token. */
+/* ---- the page column --------------------------------------------------------
+   One scrolling body plus a footer with a top hairline (the A4 dialog's shape,
+   minus the header: the nav's own title is the dialog's title). */
 
-/* dialog-tile glyph (◧ new project / ▤ folder picker / ⚙ settings): sans
-   (system) so the geometric glyph never tofus in mono */
-.np-glyph {
-  color: var(--acc);
-  font-size: var(--fs-title);
-  line-height: 1;
-}
-
-.np-tabs {
-  flex: none;
-  display: flex;
-  gap: var(--s-3);
-  padding: var(--s-7) var(--dlg-pad-x) 0;
-}
-
-.np-tab {
+.sg-col {
   flex: 1;
-  height: var(--field-h);
-  background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-field);
-  color: var(--text-2);
-  font-size: var(--fs-ui);
-  font-weight: 500;
-}
-
-.np-tab:hover {
-  border-color: var(--edge-accent);
-}
-
-/* selected mode: the topbar toggle idiom (surface-active + full ink) */
-.np-tab.is-on {
-  background: var(--surface-active);
-  border-color: var(--edge-hover);
-  color: var(--text);
-}
-
-.np-panel {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--dlg-gap);
 }
 
-/* browse-path row: a readonly path display that opens the folder picker */
-.np-pathrow {
-  height: var(--field-h);
+.sg-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8);
+}
+
+.sg-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sg-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sg-sub {
+  margin: var(--space-2) 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sg-lead {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+  line-height: 1.5;
+}
+
+/* the one quiet line that says a surface is not wired yet (files-note idiom) */
+.sg-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.sg-lb {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.sg-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.sg-actions {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: 0 var(--s-5);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-field);
+  gap: var(--space-4);
+}
+
+.sg-ft {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* ---- rows: the checklist idiom ----------------------------------------------
+   A real keyboard-reachable <button> per boolean, state in aria-pressed, no
+   hover-only affordance. Rows are separated by a hairline, not by gaps. */
+
+.sg-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.sg-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-3) var(--space-2);
+  border: none;
+  border-bottom: var(--line) solid var(--color-neutral-900);
+  border-radius: 0;
+  background: transparent;
   text-align: left;
 }
 
-.np-pathrow:hover:not(:disabled) {
-  border-color: var(--edge-accent);
+.sg-row:hover:not(:disabled) {
+  background: var(--color-neutral-900);
 }
 
-.np-pathrow:disabled {
-  opacity: 0.55;
+.sg-row:disabled {
   cursor: default;
 }
 
-.np-pathrow-glyph {
+.sg-box {
   flex: none;
-  color: var(--text-dim);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-700);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-bg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
 }
 
-.np-pathrow-path {
+.sg-row[aria-pressed='true'] .sg-box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* inert (Preferences, until part B6): the box still states its value, in the
+   same neutral-700 ink an inert card uses — never the live accent */
+.sg-row:disabled[aria-pressed='true'] .sg-box {
+  background: var(--color-neutral-700);
+  border-color: var(--color-neutral-700);
+}
+
+.sg-rowlb {
   flex: 1;
   min-width: 0;
+  font-size: 13px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-val {
+  flex: none;
   font-family: var(--font-mono);
-  font-size: var(--fs-name);
-  color: var(--text);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-row:disabled .sg-rowlb,
+.sg-row:disabled .sg-val {
+  color: var(--color-neutral-700);
+}
+
+/* honest-scope caption under an item row (account usage, permission mode).
+   35px = the row's 5.6px pad + the 18px box + the space-4 gap, so a caption
+   starts where its label does. */
+.sg-cap {
+  padding: 0 var(--space-2) var(--space-3) 35px;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  line-height: 1.4;
+}
+
+/* with the status line switched off the items decide nothing: their rows are
+   disabled (above), and the captions go with them */
+.sg-items.is-disabled .sg-cap {
+  color: var(--color-neutral-700);
+}
+
+/* ---- Status bar page: the preview strip ------------------------------------
+   The bar as it will read, on the app ground and in the terminal's own type —
+   a promise the rows can be checked against. */
+
+.sg-prevbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 32px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sg-previtem {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.sg-prevlb {
+  color: var(--color-neutral-600);
+}
+
+.sg-prevval {
+  font-family: var(--font-mono);
+  color: var(--color-neutral-300);
+}
+
+.sg-prevempty {
+  color: var(--color-neutral-600);
+}
+
+/* the sessions that predate the status line and need a relaunch to get one: an
+   ATTENTION state (never an error), so the attention edge and one mono name
+   line */
+.sg-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-left: 2px solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+  line-height: 1.5;
+}
+
+.sg-notice-names {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-attn);
+  overflow-wrap: anywhere; /* session titles are free text */
+}
+
+/* ---- buttons ----------------------------------------------------------------
+   Three weights, in order of consequence: a text button (Reset), a text LINK
+   (Check for updates, all shortcuts), and an outlined button (Restart). The
+   footer's Done is the shared .btn-accent — the Nocturne accent outline. */
+
+.sg-textbtn {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 12.5px;
+}
+
+.sg-textbtn:hover {
+  color: var(--color-text);
+}
+
+.sg-link {
+  flex: none;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-accent-300);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sg-link:hover {
+  color: var(--color-text);
+}
+
+.sg-outbtn {
+  flex: none;
+  height: 30px;
+  padding: 0 var(--space-4);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-300);
+  font-size: 12.5px;
+}
+
+.sg-outbtn:hover {
+  border-color: var(--color-neutral-600);
+}
+
+.sg-smallbtn {
+  flex: none;
+  width: 82px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.sg-smallbtn:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+}
+
+.sg-smallbtn:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* one structural focus ring for every control in the panel (the A4 rule) */
+.sg-modal button:focus-visible,
+.sg-modal input:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* ---- Keyboard page ---------------------------------------------------------- */
+
+.sg-keyrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-keychips {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sg-kbd {
+  padding: 3px 8px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
+}
+
+/* a mouse sentence is not a key: plain text, never a chip (overlay rule) */
+.sg-gesture {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+/* ---- Preferences page (MOCK until part B6) ---------------------------------- */
+
+.sg-prow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-prowtxt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sg-prowkey {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-mark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-300);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* the known agent's tile carries the accent family (v3), as in the New session dialog */
+.sg-mark.is-agent {
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+}
+
+.sg-keyin {
+  flex: none;
+  width: 170px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.sg-keyin::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.sg-keyin:disabled {
+  color: var(--color-neutral-700);
+}
+
+.sg-keyin:disabled::placeholder {
+  color: var(--color-neutral-700);
+}
+
+/* ---- Background service page ------------------------------------------------
+   One card on the app ground: the two facts left, the quiet verb, then the act
+   with consequences. The confirmation it opens sits on a higher layer. */
+
+.sg-svc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.sg-svcfacts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sg-svcver {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.sg-svcup {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+/* ---- Terminal colours page (Nocturne A7; live in part B9) -------------------
+   The preview is a terminal fragment: the terminal's own mono, plain glyphs
+   (no ligatures, like every code surface here), three ink steps. Its ground
+   and ink arrive inline from ui/term-colours.ts, because they ARE the data. */
+
+.sg-tcprev {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+.sg-tcline {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-tcgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-2);
+}
+
+/* a scheme card: the A4 card, with the swatch doing the talking */
+.sg-tccard {
+  min-width: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-400);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.sg-tccard:hover:not(.is-sel) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.sg-tccard.is-sel {
+  background: var(--color-bg);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.sg-tcsw {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sg-tcname {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* a still-suggested (not yet browsed) path reads dimmer than a chosen one */
-.np-pathrow-path.is-suggested {
-  color: var(--text-dim);
-}
-
-.np-pathrow-browse {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--acc);
-}
-
-/* "(optional)" tail on a field label: not caps, not letterspaced */
-.np-optional {
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-faint);
-}
-
-.np-caption {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
-
-/* verdict line under the browse row (2026-09-10): shown only when the picked
-   folder is already there, i.e. when the primary button changes from creating
-   to adding. The field's own 6px gap places it — the accent hairline is what
-   makes a CHANGE of what the button does visible rather than merely legible,
-   and the full-strength text says it is a statement, not a caption. */
-.np-pathnote {
-  padding-left: var(--s-4);
-  border-left: var(--line) solid var(--edge-accent);
-  color: var(--text);
-}
-
-/* the git-init checkbox reuses .status-row / .status-box; tighten the vertical
-   padding so it sits flush in the field stack (hover feedback is kept) */
-.np-gitrow {
-  padding: var(--s-3) var(--s-4);
-}
-
-/* clone in-flight: an HONEST indeterminate spinner (never a fake percentage) */
-.np-busy {
+.sg-tcfield {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--line) solid var(--color-neutral-900);
 }
 
-.np-spinner {
+.sg-tclb {
+  width: 64px;
   flex: none;
-  width: 14px;
-  height: 14px;
-  border: var(--tick) solid var(--edge-strong);
-  border-top-color: var(--acc);
-  border-radius: 50%;
-  animation: spin var(--t-spin) linear infinite;
+  font-size: 13px;
+  color: var(--color-text);
 }
 
-/* ---- GitHub connection (Phase 2b) -------------------------------------------
-   The top-bar chip + the New Project dialog's GitHub tab. Reuses the launch /
-   newproject idioms and the .np-spinner (spin keyframe); the ONLY off-scale
-   literals are the oversized device-code readout (22px / 6px ls — a deliberate
-   display-size one-off, no mono token for it) and the 8px language dot / 30px
-   compact search (matching the prototype). Repo language colors are
-   GitHub-Linguist DATA set inline in ui/github.ts, NOT app tokens. */
+.sg-tcswatch {
+  width: 34px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  cursor: pointer;
+}
 
-/* The top-bar chip itself lives in the A2 top-bar block above (.tb-gh,
-   .tb-gh-av, .tb-gh-lb); what follows is the dialog's GitHub tab. */
+/* the native swatch draws its own inner well; strip its chrome so the field
+   reads as one control */
+.sg-tcswatch::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
 
-/* centered state card: checking / not-set-up / disconnected / connecting */
-.gh-card {
+.sg-tcswatch::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.sg-tchex {
+  flex: none;
+  width: 92px;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.sg-tchex:focus {
+  border-color: var(--color-accent);
+}
+
+/* a half-typed colour is not an error state, it is simply not a colour yet:
+   the field says so and the preview does not move */
+.sg-tchex.is-bad {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+/* Narrow window: the nav becomes a row of page names above the page. */
+@media (max-width: 560px) {
+  .sg-modal {
+    flex-direction: column;
+  }
+  .sg-nav {
+    width: auto;
+    padding: var(--space-4) var(--space-4) var(--space-3);
+    border-right: none;
+    border-bottom: var(--line) solid var(--color-neutral-900);
+  }
+  .sg-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .sg-body,
+  .sg-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .sg-tcgrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---- settings panel: END of the primitives-only sg- block ------------------ */
+
+/* ---- Add a project dialog (Nocturne A7) -------------------------------------
+   The v3 project modal (session-manager-v3.html, the project dialog) written
+   against the Nocturne primitives (--color-*, --space-*, --radius-*,
+   --shadow-*) plus the four structural tokens the A3 pane and A4 dialog blocks
+   also use and that have no primitive twin: --line, --tick, --font-sans,
+   --font-mono (declared below the LEGACY ALIAS LAYER marker in tokens.css; A8
+   must keep or re-home them — tests/ui-addproject-a7.test.ts pins that). No
+   Legacy colour or spacing alias, no hardcoded colour. Type sizes are the v3
+   markup's own literals.
+
+   Direction: the dialog is a ledger of three ways in, not three cards. The
+   only ground inside the card is --color-bg — fields, the GitHub connect card
+   and the account row sink INTO the surface instead of floating on it — every
+   separator is one neutral-900 hairline, and there is exactly ONE accent rule:
+   the active tab's 2px underline and the primary action's outline (plus the
+   focus ring). Everything inert is neutral-700/800. Nothing is filled except
+   an 18px checkbox and nothing glows.
+
+   Meanings that stay exclusive: amber = needs your attention (a credential
+   that stopped working, an expiry inside three days, "check the account"),
+   red = harm (never paste someone else's token, inline failures), accent =
+   interactive, and there is NO percentage anywhere — a clone reports an
+   honest indeterminate spinner, never the v3 mock's fake progress bar.
+
+   Structure, like the A4 dialog: top-anchored scrim (the card's height changes
+   per tab — a centred box would move the tab row under the pointer), header
+   (title, one line of what a project is, close) / tab row on a hairline /
+   scrolling body / footer with a top hairline. */
+
+/* 250px ≈ half the New-folder tab's height, so that tab sits centred and the
+   taller GitHub tab grows downward from the same top edge. */
+.modal-scrim.ap-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+}
+
+.ap-modal {
+  width: 560px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the body scrolls instead */
+  max-height: min(88vh, 100%);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--s-6);
-  padding: var(--dlg-pad-x);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-card-sm);
-  text-align: center;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
 }
 
-.gh-avatar {
-  width: 44px;
-  height: 44px;
+@media (prefers-reduced-motion: reduce) {
+  .ap-modal {
+    animation: none;
+  }
+}
+
+/* ---- header --------------------------------------------------------------- */
+
+.ap-hd {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.ap-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* the one line that says what the thing being added IS (v3) */
+.ap-sub {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.ap-x {
+  width: 28px;
+  height: 28px;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--well);
-  border: var(--line) solid var(--edge-strong);
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ap-x:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ap-x:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- the three ways in: text tabs on the header's hairline ---------------- */
+
+.ap-tabs {
+  flex: none;
+  display: flex;
+  gap: var(--space-6);
+  padding: 0 var(--space-8);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.ap-tab {
+  height: 36px;
+  padding: 0 2px;
+  margin-bottom: -1px; /* the underline sits ON the row's hairline */
+  background: transparent;
+  border: none;
+  border-bottom: var(--tick) solid transparent;
+  border-radius: 0;
+  color: var(--color-neutral-500);
+  font-size: 13px;
+}
+
+.ap-tab:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.ap-tab.is-on {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ap-tab:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- body, panels, fields ------------------------------------------------- */
+
+.ap-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8);
+}
+
+.ap-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ap-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ap-lb {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.ap-opt {
+  color: var(--color-neutral-600);
+}
+
+/* two optional fields side by side (the per-project launch defaults) */
+.ap-row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.ap-field input,
+.ap-field select {
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans); /* a name or a choice is words, not data */
+  font-size: 13px;
+}
+
+.ap-field select {
+  padding: 0 var(--space-3);
+}
+
+.ap-field input::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.ap-field input:disabled,
+.ap-field select:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* a field whose VALUE is data reads in mono: a repository address, a token */
+.ap-field.is-mono input {
   font-family: var(--font-mono);
-  font-size: var(--fs-name);
-  font-weight: 700;
-  color: var(--text-hd);
+  font-size: 12px;
 }
 
-.gh-avatar.is-sm {
-  width: 26px;
+.ap-field input:focus,
+.ap-field select:focus {
+  border-color: var(--color-accent);
+}
+
+/* a field's focus is ONE 2px ring: its own border plus an inset line, so a
+   focused input never wears a border AND an outline */
+.ap-modal .ap-field input:focus-visible,
+.ap-modal .ap-field select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 var(--line) var(--color-accent);
+}
+
+/* ---- the folder row: one control, shaped like a field -------------------- */
+/* Paths are never typed here — the folder picker is the only way in — so the
+   whole row is ONE button (one tab stop) that looks like the field it stands
+   for, with the Browse affordance at its end. */
+
+.ap-pathrow {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.ap-pathrow:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+}
+
+.ap-pathrow:disabled {
+  cursor: default;
+}
+
+.ap-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a still-suggested (not yet browsed) path reads as the placeholder it is */
+.ap-path.is-suggested {
+  color: var(--color-neutral-600);
+}
+
+.ap-pathrow:disabled .ap-path {
+  color: var(--color-neutral-700);
+}
+
+.ap-browse {
+  flex: none;
   height: 26px;
-  font-size: var(--fs-status);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
 }
 
-.gh-avatar.is-me {
-  background: var(--acc-tint);
-  border-color: var(--acc);
-  color: var(--acc);
+.ap-pathrow:hover:not(:disabled) .ap-browse {
+  border-color: var(--color-neutral-600);
+}
+
+.ap-pathrow:disabled .ap-browse {
+  color: var(--color-neutral-700);
+}
+
+/* ---- captions and the one note that changes what the button does ---------- */
+
+.ap-note {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  line-height: 1.5;
+}
+
+/* Shown only when the picked folder is already there, i.e. when the primary
+   button changes from creating to adding. The accent hairline is what makes a
+   CHANGE of what the button does visible rather than merely legible, and the
+   brighter ink says it is a statement, not a caption. */
+.ap-pathnote {
+  padding-left: var(--space-3);
+  border-left: var(--tick) solid var(--color-accent);
+  font-size: 12px;
+  color: var(--color-neutral-300);
+  line-height: 1.5;
+}
+
+/* ---- checklist row (v3 settings idiom): an 18px box and a label ----------- */
+
+.ap-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* the negative inline margin cancels the row's own padding, so the 18px box
+     lines up with the field labels above it while the hover ground still has
+     air around the words */
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-3) var(--space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.ap-check:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+}
+
+.ap-box {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-700);
+  border-radius: var(--radius-sm);
+  color: var(--color-bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ap-check[aria-pressed='true'] .ap-box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.ap-check-lb {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.ap-check-sub {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.ap-check:disabled .ap-check-lb,
+.ap-check:disabled .ap-check-sub {
+  color: var(--color-neutral-700);
+}
+
+/* ---- honest indeterminate busy (never a percentage) ---------------------- */
+
+.ap-busy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.ap-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: var(--tick) solid var(--color-neutral-800);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* ---- inline error -------------------------------------------------------- */
+
+.ap-err {
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ---- footer -------------------------------------------------------------- */
+
+.ap-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the clone/create indicator sits at the far left of the footer it blocks */
+.ap-ft .ap-busy {
+  margin-right: auto;
+}
+
+.ap-modal .btn-accent:disabled,
+.ap-modal .btn-quiet:disabled {
+  background: transparent;
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- focus: one structural ring for every control in the dialog ---------- */
+
+.ap-modal button:focus-visible,
+.ap-modal input:focus-visible,
+.ap-modal select:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* ---- GitHub tab (Nocturne A7) --------------------------------------------
+   Same primitives, same three exclusive meanings. The connect state is one
+   quiet card sunk into the surface; connected is a ledger: the account row,
+   then the search row, then one row per repository separated by hairlines —
+   no cards, nothing filled. Two deliberate divergences from the v3 mock,
+   both load-bearing:
+
+     - the mock's "The app only needs read access" and "Connected with read
+       access" are NOT adopted: this app's grant reads AND writes every
+       repository on the account, and the honest copy for each state comes
+       from ui/github-model.ts (security design gate, 2026-07-25).
+     - the mock's per-row clone PROGRESS BAR and "Cloning 40%" are NOT
+       adopted: the backend clone is one synchronous call with no progress to
+       report, so the row shows the indeterminate spinner instead of a number
+       nothing measures.
+
+   The login renders in mono on purpose — a homoglyph or a stray space in an
+   account name has to be visible, because "check this is the account you
+   meant" is the user's only defence against a token for the wrong account. */
+
+/* a state that fills the tab: checking, connect, the device code */
+.gh-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  text-align: center;
 }
 
 .gh-title {
-  font-size: var(--fs-title);
-  font-weight: 600;
-  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text);
 }
 
 .gh-body {
   max-width: 380px;
-  font-size: var(--fs-name);
-  color: var(--text-mute);
-  line-height: 1.55;
-}
-
-.gh-fine {
-  max-width: 360px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
+  font-size: 13px;
+  color: var(--color-neutral-500);
   line-height: 1.5;
 }
 
-/* accent "Connect with GitHub" — the accent twin of .btn-go's glow-on-hover */
-.gh-connect {
-  height: var(--ctl-h-lg);
-  padding: 0 var(--s-8);
-  background: var(--acc-tint);
-  border: var(--line) solid var(--acc);
-  border-radius: var(--r-field);
-  color: var(--acc);
-  font-size: var(--fs-name);
-  font-weight: 600;
+.gh-fine {
+  max-width: 380px;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  line-height: 1.5;
 }
 
-.gh-connect:hover {
-  box-shadow: 0 0 18px var(--acc-glow); /* sanctioned: accent "go" glow */
-}
-
-.gh-connect:disabled {
-  opacity: 0.55;
-}
-
-/* connecting */
+/* connecting: the spinner row, the instruction, the code */
 .gh-wait {
   display: flex;
   align-items: center;
-  gap: var(--s-5);
-  font-size: var(--fs-row);
-  color: var(--text);
+  gap: var(--space-3);
+  font-size: 13px;
+  color: var(--color-neutral-400);
 }
 
 .gh-instruct {
-  font-size: var(--fs-name);
-  color: var(--text-mute);
+  font-size: 13px;
+  color: var(--color-neutral-400);
   line-height: 1.5;
 }
 
 .gh-uri {
   font-family: var(--font-mono);
-  color: var(--acc);
+  color: var(--color-accent-300);
 }
 
 .gh-code {
+  padding: var(--space-3) var(--space-6);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 22px; /* off-scale one-off: oversized device-code readout */
-  letter-spacing: 6px;
-  color: var(--text);
-  background: var(--well);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-field);
-  padding: var(--s-6) var(--dlg-pad-x);
+  font-size: 24px;
+  letter-spacing: 5px;
+  color: var(--color-text);
 }
 
 .gh-expiry {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
 }
 
-/* small mono action (Cancel / disconnect) — hover + armed go danger */
+/* small outline action (Cancel a pending flow, Disconnect): armed goes red */
 .gh-mini {
-  height: var(--ctl-h);
-  padding: 0 var(--s-5);
+  height: 28px;
+  padding: 0 var(--space-3);
   background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-mute);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 12px;
 }
 
-.gh-mini:hover,
+.gh-mini:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
 .gh-mini[data-armed='1'] {
-  border-color: var(--danger);
-  color: var(--danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
-/* connected */
+/* ---- connected ---------------------------------------------------------- */
+
 .gh-connected {
   display: flex;
   flex-direction: column;
-  gap: var(--dlg-gap);
+  gap: var(--space-4);
 }
 
 .gh-me {
   display: flex;
   align-items: center;
-  gap: var(--s-5);
-  padding: var(--s-5) var(--s-6);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-box);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+.gh-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .gh-me-col {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
 }
 
 .gh-me-name {
   font-family: var(--font-mono);
-  font-size: var(--fs-name);
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gh-me-sub {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--ok);
+  font-size: 12px;
+  color: var(--color-neutral-500);
 }
 
 .gh-revoke-note {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-faint);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
   line-height: 1.5;
 }
 
+/* search + New repository share one row; the search box grows */
+.gh-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .gh-search {
-  height: 30px; /* compact search field (prototype) */
-  padding: 0 var(--s-5);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-field);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tab);
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.gh-search::placeholder {
+  color: var(--color-neutral-600);
 }
 
 .gh-search:focus {
-  border-color: var(--edge-accent);
+  border-color: var(--color-accent);
 }
+
+.gh-newrepo {
+  flex: none;
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.gh-newrepo:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+}
+
+.gh-newrepo:disabled {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- the New repository form: the one accent-outlined thing in the tab --- */
+
+.gh-newform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--line) solid var(--color-accent-800);
+  border-radius: var(--radius-md);
+  animation: fadeUp 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-newform {
+    animation: none;
+  }
+}
+
+.gh-newinput {
+  height: 32px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.gh-newinput::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.gh-newinput:focus {
+  border-color: var(--color-accent);
+}
+
+.gh-newinput.is-err {
+  border-color: var(--color-danger);
+}
+
+.gh-newrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.gh-newnote {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.gh-newbtn {
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.gh-newbtn:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.gh-newbtn:disabled {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+.gh-newbtn.is-create {
+  padding: 0 var(--space-4);
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+  font-weight: 500;
+}
+
+.gh-newbtn.is-create:hover:not(:disabled) {
+  background: var(--color-accent-900);
+}
+
+.gh-newerr {
+  font-size: 12px;
+  color: var(--color-danger);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ---- one repository per row --------------------------------------------- */
 
 .gh-repos {
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
 }
 
-/* VIEW-ONLY repo card (2b): NO per-repo action — the clone/open button is 2c */
 .gh-repo {
   display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.gh-repo-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
-  gap: var(--s-3);
-  padding: var(--s-5) var(--s-6);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-box);
+  gap: 2px;
 }
 
 .gh-repo-top {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .gh-repo-name {
-  flex: 1;
   min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-name);
-  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3629,187 +4428,38 @@ kbd {
 
 .gh-badge {
   flex: none;
-  padding: 0 var(--s-3);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tag);
-  color: var(--text-dim);
-}
-
-.gh-badge.is-private {
-  color: var(--attn);
-  border-color: var(--attn);
+  padding: 0 var(--space-2);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  color: var(--color-neutral-600);
 }
 
 .gh-repo-desc {
-  font-size: var(--fs-label);
-  color: var(--text-mute);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gh-repo-meta {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--text-dim);
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-500);
 }
 
 .gh-lang-dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
 }
 
-.gh-msg {
-  padding: var(--s-7);
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: var(--fs-label);
-  color: var(--text-dim);
-}
-
-.gh-msg.is-err {
-  color: var(--danger);
-}
-
-/* ---- GitHub clone-by-picking + create-repo (Phase 2c) -----------------------
-   Per-repo clone/open action, the "+ New repo" inline form, and honest
-   indeterminate clone/create states (reusing .np-busy + .np-spinner — NEVER a
-   fake percentage; the prototype's faked % progress bar is deliberately
-   dropped). The ONLY off-scale literal is the 24px compact row-action height
-   (prototype), consistent with the documented 30px-search / 8px-dot one-offs
-   above. All repo/created-repo fields render via textContent in ui/github.ts. */
-
-/* search + "+ New repo" share one row; search grows */
-.gh-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--s-4);
-}
-
-.gh-actions .gh-search {
-  flex: 1;
-  min-width: 0;
-}
-
-/* accent-green "+ New repo" — the create twin of .gh-connect's accent */
-.gh-newrepo {
-  flex: none;
-  height: 30px; /* matches the compact .gh-search height (prototype) */
-  padding: 0 var(--s-6);
-  background: var(--ok-tint);
-  border: var(--line) solid var(--ok);
-  border-radius: var(--r-field);
-  color: var(--ok-text);
-  font-size: var(--fs-tab);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.gh-newrepo:hover {
-  background: var(--ok-tint-hover);
-}
-
-.gh-newrepo:disabled {
-  opacity: 0.55;
-}
-
-/* the create form: a bordered inset card that reveals below the actions row */
-.gh-newform {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-5);
-  padding: var(--s-6);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-accent);
-  border-radius: var(--r-box);
-  animation: fadeUp var(--t-fade) ease;
-}
-
-.gh-newinput {
-  height: 28px; /* compact form input (prototype) */
-  padding: 0 var(--s-5);
-  background: var(--well);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tab);
-}
-
-.gh-newinput:focus {
-  border-color: var(--edge-accent);
-}
-
-.gh-newinput.is-err {
-  border-color: var(--danger);
-}
-
-.gh-newrow {
-  display: flex;
-  align-items: center;
-  gap: var(--s-5);
-}
-
-.gh-newnote {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
-
-/* small form buttons: private/public toggle, Cancel, Create */
-.gh-newbtn {
-  flex: none;
-  height: var(--ctl-h);
-  padding: 0 var(--s-5);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  font-size: var(--fs-status);
-}
-
-.gh-newbtn:disabled {
-  opacity: 0.55;
-}
-
-.gh-newbtn.is-toggle {
-  background: transparent;
-  color: var(--text-mute);
-  font-family: var(--font-mono);
-}
-
-.gh-newbtn.is-toggle:hover,
-.gh-newbtn.is-cancel:hover {
-  border-color: var(--edge-hover);
-  color: var(--text);
-}
-
-.gh-newbtn.is-cancel {
-  background: transparent;
-  color: var(--text-mute);
-}
-
-.gh-newbtn.is-create {
-  background: var(--ok-tint);
-  border-color: var(--ok);
-  color: var(--ok-text);
-  font-weight: 600;
-}
-
-.gh-newbtn.is-create:hover {
-  background: var(--ok-tint-hover);
-}
-
-.gh-newerr {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--danger);
-  line-height: 1.4;
-}
-
-/* per-repo action: clone (accent) flips to open (green) once cloned locally */
+/* the row's action: Clone carries the accent (it is what the row is for),
+   Open is neutral (the repository is already here) */
 .gh-repo-actslot {
   flex: none;
   display: flex;
@@ -3817,143 +4467,130 @@ kbd {
 }
 
 .gh-repo-act {
-  height: 24px; /* off-scale one-off: compact row action (prototype) */
-  padding: 0 var(--s-6);
-  border-radius: var(--r-btn);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
+  height: 28px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
 }
 
-.gh-repo-act:disabled {
-  opacity: 0.55;
+.gh-repo-act:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
 }
 
 .gh-repo-act.is-clone {
-  background: var(--acc-tint);
-  border: var(--line) solid var(--acc);
-  color: var(--acc);
+  border-color: var(--color-accent-700);
+  color: var(--color-accent-300);
 }
 
 .gh-repo-act.is-clone:hover:not(:disabled) {
-  background: var(--acc-sel);
+  background: var(--color-accent-900);
+  border-color: var(--color-accent);
 }
 
-.gh-repo-act.is-open {
-  background: var(--ok-tint);
-  border: var(--line) solid var(--ok);
-  color: var(--ok-text);
+.gh-repo-act:disabled {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
 }
 
-.gh-repo-act.is-open:hover {
-  background: var(--ok-tint-hover);
-}
-
-/* row status: the "cloning…" indicator (.np-busy) or an inline clone error */
 .gh-repo-status {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: var(--space-1);
 }
 
 .gh-repo-err {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--danger);
-  line-height: 1.4;
+  font-size: 12px;
+  color: var(--color-danger);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
-/* ---- pasted-token credential path (2026-07-25) -------------------------------
-   A second way to connect, offered alongside the device flow and NEVER hidden
-   by a missing OAuth client id. Zero new tokens: the token well is the
-   .gh-newform inset in the panel's own language, the remember control is the
-   settings/`Initialize git repo` checkbox idiom (.status-row/.status-box), and
-   the colors keep their exclusive meanings — amber = needs attention (the
-   credential stopped working, an expiry inside three days, "check the
-   account"), red = harm (never paste someone else's token; inline failures),
-   accent = interactive, green = connected.
-
-   The token input is NOT inside a <form> and carries NO name attribute; its
-   value is only ever set through the .value property, so it never reaches
-   outerHTML. See ui/github.ts for the full rule set. */
-
-/* the connection dropped on its own — an expiring pasted token makes this
-   routine, so it gets an explanation instead of a silent state flip */
-.gh-lost {
-  padding: var(--s-5) var(--s-6);
-  background: var(--attn-tint);
-  border: var(--line) solid var(--attn);
-  border-radius: var(--r-box);
-  color: var(--attn);
-  font-size: var(--fs-label);
-  line-height: 1.55;
+/* the list's own states: loading, empty, failed */
+.gh-msg {
+  padding: var(--space-6);
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
 }
 
-/* the token well: left-aligned (it holds a field), same inset surface as the
-   "+ New repo" form */
+.gh-msg.is-err {
+  color: var(--color-danger);
+}
+
+/* ---- the pasted-token credential path ----------------------------------- */
+/* A second way to connect, offered alongside the device flow and NEVER hidden
+   by a missing OAuth client id. The token well is a field card on the same
+   sunk ground; the remember control is the checklist row; the warning stays
+   red and permanent. See ui/github.ts for the credential's full rule set. */
+
+/* OUTLINED, not sunk: the connect card and the account row own the sunk
+   --color-bg ground, and a field standing on that same ground would lose its
+   edge. An outline also separates the two offers — the action this server can
+   make, and the alternative that always works. */
 .gh-token {
   display: flex;
   flex-direction: column;
-  gap: var(--s-5);
-  padding: var(--s-7) var(--s-8);
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-card-sm);
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
 }
 
-/* .gh-title/.gh-body/.gh-fine are centered inside .gh-card; here they read as
-   a form's heading and instructions */
+/* .gh-title/.gh-body/.gh-fine are centred inside .gh-card; here they read as a
+   form's heading and its instructions */
 .gh-token .gh-body,
 .gh-token .gh-fine {
   max-width: none;
 }
 
-.gh-tokenfield {
-  gap: var(--s-4);
-}
-
-/* the paste field's error edge — ui/github.ts sets .is-err on an empty submit
-   and on a refused token; same language as the "+ New repo" name field */
-.gh-tokeninput.is-err {
-  border-color: var(--danger);
-}
-
-/* the checkbox row sits flush in the field stack (same trim as .np-gitrow) */
-.gh-remember {
-  padding: var(--s-3) var(--s-4);
-}
-
-.gh-remember-note {
-  padding: 0 var(--s-4);
-}
-
-/* Add token, with the honest indeterminate check to its left */
 .gh-tokenrow {
   display: flex;
   align-items: center;
-  gap: var(--s-5);
+  gap: var(--space-3);
 }
 
-.gh-addtoken {
-  flex: none;
+/* the check with GitHub runs to the left of the button that started it */
+.gh-tokenrow .ap-busy {
+  margin-right: auto;
 }
 
-/* the warning that must never fade out of view — the same permanent red the
-   bypass-permission card uses for a caution selection cannot dismiss */
+/* the paste field's error edge — ui/github.ts sets .is-err on an empty submit
+   and on a refused token */
+.gh-tokeninput.is-err {
+  border-color: var(--color-danger);
+}
+
+/* the warning that must never fade out of view: a token someone else supplied
+   connects this app to THEIR account */
 .gh-warn {
-  font-size: var(--fs-label);
-  color: var(--danger);
+  font-size: 12px;
+  color: var(--color-danger);
   line-height: 1.5;
 }
 
-/* connected: the credential's facts, one mono line each, rendered only when the
-   server actually reported them */
+/* the connection stopped working on its own — an expiring pasted token makes
+   this routine, so it gets an explanation instead of a silent state flip */
+.gh-lost {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-attn-tint);
+  border-radius: var(--radius-md);
+  color: var(--color-attn);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* connected: the credential's facts, only the ones the server reported */
 .gh-facts {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
+  gap: var(--space-1);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
   line-height: 1.5;
 }
 
@@ -3963,148 +4600,409 @@ kbd {
 
 /* expired, or expiring within three days: needs attention now */
 .gh-fact.is-warn {
-  color: var(--attn);
+  color: var(--color-attn);
 }
 
 /* "check this is the account you meant" — a pasted token can silently be for
    the wrong account, and nothing else in the app would say so */
 .gh-verify {
-  font-size: var(--fs-label);
-  color: var(--attn);
+  font-size: 12px;
+  color: var(--color-attn);
   line-height: 1.5;
 }
 
-/* ---- folder picker (Phase 2a) — real /api/fs/list + /api/fs/mkdir -----------
-   Gradient header (reused), breadcrumb + up nav, quick zones, the existing
-   .dirlist/.dir-btn folder list, a new-folder row, and a Select-folder footer.
-   All paths + dir names are untrusted → rendered via textContent. */
+/* ---- narrow window ------------------------------------------------------ */
 
-.pk-nav {
+@media (max-width: 520px) {
+  .ap-hd,
+  .ap-tabs,
+  .ap-body,
+  .ap-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+@media (max-width: 360px) {
+  .ap-row2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- folder picker (Phase 2a) — Nocturne A7 dialog ---------------------------
+   The picker that the Add-a-project dialog's folder rows open, written against
+   the Nocturne primitives (--color-*, --space-*, --radius-*, --shadow-*) plus
+   the four structural tokens with no primitive twin that the A3 pane, the A4
+   `ns-` dialog and the A7 `ap-`/`sg-` blocks also use: --line, --tick,
+   --font-sans, --font-mono. No Legacy alias, no hardcoded colour. Type sizes
+   are the v3 markup's own literals.
+
+   It replaced the Legacy chrome this dialog wore until A7 (`modal pk-modal`
+   with the gradient `launch-hd` header, the `.dirlist`/`.dir-btn` list and a
+   `.btn is-primary` footer) — a Legacy dialog over a Nocturne one, since the
+   dialog it opens from is `ap-`.
+
+   Direction: a path instrument, not a second dialog. Three statements, top to
+   bottom — where you ARE (the path as one walkable mono row, the last segment
+   in full ink), where you can GO (quick zones, then the folders in this one as
+   hairline-separated rows), and what you will DO (one accent-outlined
+   commitment). Everything that is merely available is neutral-700/800 on the
+   card's own ground; the folder list and the path row sink INTO the surface on
+   --color-bg instead of floating on it. Folder names and path segments read in
+   JetBrains Mono because they are data, the title and the actions in Inter
+   because they are words. Nothing is filled, nothing glows.
+
+   ONE accent rule: the footer's "Choose this folder" (the shared .btn-accent
+   outline) and the focus ring. The marked quick zone is a STATE, so it takes
+   the neutral-900 ground, never the accent — the same discipline as the `ap-`
+   block, where the accent means interactive-and-chosen only.
+
+   Z-ORDER, unchanged from Legacy: the scrim keeps `modal-scrim` (ui/keys.ts
+   finds an open dialog by it, and main.ts ranks Esc: picker before the
+   Add-a-project dialog under it), so it sits at the same --z-modal as that
+   dialog and paints on top purely because it is appended to the same modal host
+   LAST. The 250px top anchor is the one the `ap-` scrim uses, so the picker's
+   top edge lands exactly on the card it covers instead of jumping.
+
+   All paths and directory names are untrusted → textContent (ui/picker.ts). */
+
+.modal-scrim.pk-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+}
+
+.pk-modal {
+  width: 480px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the list scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-modal {
+    animation: none;
+  }
+}
+
+/* ---- header: the opener's own words ------------------------------------- */
+
+.pk-hd {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: var(--s-5) var(--s-7);
-  border-bottom: var(--line) solid var(--edge-mid);
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
 }
 
-.pk-up {
+.pk-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.pk-x {
+  width: 28px;
+  height: 28px;
   flex: none;
-  width: var(--ctl-h);
-  height: var(--ctl-h);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-hd);
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.pk-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+/* ---- where you are: the path, walkable, in mono -------------------------- */
+
+.pk-pathrow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-8) var(--space-4);
+}
+
+.pk-up {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 13px;
+  line-height: 1;
 }
 
 .pk-up:hover:not(:disabled) {
-  border-color: var(--edge-accent);
-  color: var(--text);
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
 }
 
+/* at the root there is nowhere up to go, and the control says so */
 .pk-up:disabled {
-  color: var(--text-faint);
+  border-color: var(--color-neutral-900);
+  color: var(--color-neutral-700);
   cursor: default;
 }
 
 .pk-crumbs {
   flex: 1;
   min-width: 0;
+  height: 28px;
   display: flex;
   align-items: center;
-  gap: var(--s-1);
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-900);
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   white-space: nowrap;
 }
 
 .pk-crumb {
   flex: none;
-  padding: var(--s-1);
+  padding: 0 var(--space-1);
   background: transparent;
   border: none;
-  color: var(--acc);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
   font-family: var(--font-mono);
-  font-size: var(--fs-tab);
+  font-size: 12px;
 }
 
 .pk-crumb:hover {
-  color: var(--text);
+  color: var(--color-text);
+}
+
+/* the folder you are IN is the one segment in full ink */
+.pk-crumb.is-here {
+  color: var(--color-text);
 }
 
 .pk-sep {
   flex: none;
-  color: var(--text-faint);
+  color: var(--color-neutral-700);
   font-family: var(--font-mono);
-  font-size: var(--fs-tab);
+  font-size: 12px;
 }
+
+/* ---- quick zones --------------------------------------------------------- */
 
 .pk-quick {
   flex: none;
   display: flex;
-  gap: var(--s-3);
-  padding: var(--s-5) var(--s-7) var(--s-2);
+  gap: var(--space-2);
+  padding: 0 var(--space-8) var(--space-4);
 }
 
 .pk-zone {
-  height: var(--chip-h);
-  padding: 0 var(--s-5);
+  height: 26px;
+  padding: 0 var(--space-4);
   background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-pill);
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 12px;
 }
 
 .pk-zone:hover {
-  border-color: var(--edge-accent);
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
 }
 
+/* standing on a zone is a STATE, not an action: the neutral ground, never the
+   accent (which in this dialog means the one thing that commits) */
 .pk-zone.is-on {
-  background: var(--acc-tint);
-  border-color: var(--edge-accent);
-  color: var(--acc);
+  background: var(--color-neutral-900);
+  border-color: var(--color-neutral-700);
+  color: var(--color-text);
 }
 
-.pk-newfolder {
-  flex: none;
+/* ---- where you can go: one folder per row ------------------------------- */
+
+.pk-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  border-top: var(--line) solid var(--color-neutral-900);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.pk-row {
+  width: 100%;
   display: flex;
-  gap: var(--s-4);
-  padding: var(--s-5) var(--s-7);
-  border-top: var(--line) solid var(--edge-mid);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-8);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  text-align: left;
 }
 
-.pk-newfolder input {
-  flex: 1;
-  height: var(--ctl-h);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tab);
+.pk-row + .pk-row {
+  border-top: var(--line) solid var(--color-neutral-900);
 }
 
-/* the "+ folder" button reads green — it CREATES (the app's add/go role) */
-.pk-newfolder .btn {
+.pk-row:hover {
+  background: var(--color-neutral-900);
+}
+
+.pk-row svg {
   flex: none;
-  color: var(--ok-text);
+  color: var(--color-neutral-600);
 }
 
-.pk-newfolder .btn:hover {
-  border-color: var(--ok);
-  background: var(--ok-tint);
+.pk-row:hover svg {
+  color: var(--color-neutral-400);
 }
 
-.pk-cwd {
-  flex: 1;
+.pk-rowname {
   min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-mute);
+  font-family: var(--font-mono); /* a folder name is data */
+  font-size: 12.5px;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pk-empty {
+  padding: var(--space-6) var(--space-8);
+  font-size: 12.5px;
+  color: var(--color-neutral-600);
+}
+
+/* ---- inline failure (the backend's own reason) -------------------------- */
+
+.pk-err {
+  margin: var(--space-4) var(--space-8) 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ---- make one here ------------------------------------------------------ */
+
+.pk-mkrow {
+  flex: none;
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+}
+
+.pk-mkname {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-3);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-mono); /* it becomes a path segment */
+  font-size: 12px;
+}
+
+.pk-mkname::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.pk-mk {
+  flex: none;
+  height: 30px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.pk-mk:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.pk-mk:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- footer ------------------------------------------------------------- */
+
+.pk-ft {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* ---- focus: one structural ring for every control in the dialog --------- */
+
+.pk-modal button:focus-visible,
+.pk-modal input:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* the one field: its focus is ONE 2px ring — its own border plus an inset
+   line, so it never wears a border AND an outline (as in the `ap-` block) */
+.pk-modal .pk-mkname:focus {
+  border-color: var(--color-accent);
+}
+
+.pk-modal .pk-mkname:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--line) var(--color-accent);
+}
+
+/* ---- narrow window ------------------------------------------------------ */
+
+@media (max-width: 520px) {
+  .pk-hd,
+  .pk-pathrow,
+  .pk-quick,
+  .pk-row,
+  .pk-empty,
+  .pk-mkrow,
+  .pk-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .pk-err {
+    margin-left: var(--space-6);
+    margin-right: var(--space-6);
+  }
 }
 
 /* ---- boot overlay (honest steps; handoff §10 visual language) ---------------
@@ -4356,8 +5254,9 @@ kbd {
    The shared dialog chrome (.modal-scrim / .modal / .launch-hd). Narrower than
    the launch dialog: it asks one question. */
 
-/* the ONE dialog that can open over another one (the settings panel's BACKEND
-   button opens it), so it needs a layer of its own — DOM order alone would put
+/* the ONE dialog that can open over another one (the `Restart service` button
+   on the Settings `Background service` page opens it), so it needs a layer of
+   its own — DOM order alone would put
    it underneath, since the notice module is wired before settings. */
 .restart-scrim {
   z-index: var(--z-modal-top);
@@ -4423,7 +5322,7 @@ kbd {
 }
 
 /* the Start from "The last conversation in this project" footnote
-   (CONTINUE_NOTE) — an attention note, same rule idiom as .settings-notice,
+   (CONTINUE_NOTE) — an attention note, same rule idiom as .sg-notice,
    only rendered when it actually applies */
 .restart-note {
   padding: var(--s-4) var(--s-5);
@@ -4493,37 +5392,6 @@ kbd {
    again anchored right). Same treatment as the settings panel's own text link —
    drop to the control size so it never outweighs what it sits beside. */
 .restart-ft .btn-link {
-  font-size: var(--fs-ui);
-}
-
-/* ---- settings: BACKEND section ---------------------------------------------
-   Two mono readouts on the left, the action on the right — the drawer-row
-   grammar (facts left, verb right) rather than a card. */
-
-.settings-actionrow {
-  display: flex;
-  align-items: center;
-  gap: var(--s-5);
-}
-
-.settings-facts {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-3);
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Text buttons in an action row are the QUIET verb beside a bordered one
-   ("Check for updates" next to Restart backend, "all shortcuts" in KEYS).
-   They inherit the body's 13px, which would make the quiet verb larger than
-   the loud one — this puts both on the control size instead. */
-.settings-actionrow .btn-link {
   font-size: var(--fs-ui);
 }
 
@@ -4968,7 +5836,8 @@ kbd {
 .editor-path,
 .diff-t,
 .diff-path,
-.commit-fpath {
+.commit-fpath,
+.sg-tcprev {
   font-variant-ligatures: none;
 }
 

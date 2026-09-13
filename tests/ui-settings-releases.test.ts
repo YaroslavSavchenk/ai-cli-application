@@ -61,8 +61,12 @@ test('the scan actually reads the panel (non-vacuity: the file and its landmarks
   assert.ok(SETTINGS.length > 1000, `settings.ts looks empty (${SETTINGS.length} chars)`);
   assert.ok(SETTINGS.includes('export function initSettings'), 'settings.ts must still export its init');
   // Nocturne A2 (2026-09-10): section labels are sentence case, not shouted
-  // all-caps — `BACKEND` became `Backend`.
-  assert.ok(SETTINGS.includes("el('div', 'drawer-label', 'Backend')"), 'the Backend section must still exist');
+  // all-caps — `BACKEND` became `Backend`. Nocturne A7 (2026-09-13) turned the
+  // sections into PAGES behind a left nav, and that one is `Background service`.
+  assert.ok(
+    SETTINGS.includes("    'Background service',"),
+    'the Background service page must still exist',
+  );
   assert.ok(SETTINGS.includes('function renderBackend'), 'the Backend readouts must still be rendered here');
 });
 
@@ -79,7 +83,9 @@ test('the address is ONE constant in code, and no part of it is UI copy', () => 
   }
   // Copy rule (PROJECT-SCOPE, 2026-07-25): the user reads words, not addresses.
   // The link's label and tooltip must not contain the url or any piece of it.
-  const label = /button\('btn-link', '([^']*)', \(\) => \{/.exec(SETTINGS);
+  // A7: the panel's text-link class is `sg-link` (Nocturne primitives; the
+  // Legacy `.btn-link` rule is built from the alias layer part A8 deletes).
+  const label = /button\('sg-link', '([^']*)', \(\) => \{/.exec(SETTINGS);
   assert.notEqual(label, null, 'the link must be built with the panel’s existing text-button idiom');
   assert.equal(label?.[1], 'Check for updates');
   const tip = /checkBtn\.title = '([^']*)';/.exec(SETTINGS);
@@ -141,7 +147,7 @@ test('the link opens the browser through the sanctioned exit: window.open, exact
   // And it must be a user CLICK: the host's exception is user-initiated only.
   assert.match(
     SETTINGS,
-    /const checkBtn = button\('btn-link', 'Check for updates', \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
+    /const checkBtn = button\('sg-link', 'Check for updates', \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
   );
   assert.match(SETTINGS, /import \{ openReleasesPage \} from '\.\/releases\.ts';/);
   // The panel itself still fetches nothing: checking is the backend's job now
@@ -195,24 +201,30 @@ test('the link exists ONLY in installed mode — a developer clone is never told
   );
   assert.match(SETTINGS, /if \(kind === 'conn'\) renderBackend\(\);/);
   // `hidden` removes it from the tab order too — a keyboard user cannot land on
-  // a control that does not apply. (The panel has no display:none override for
-  // it; app.css hides [hidden] globally.)
-  assert.equal(/\.settings-actionrow[^{]*\{[^}]*display:\s*flex/.test(CSS), true);
+  // a control that does not apply. (The row it sits in has no display:none
+  // override for it; app.css hides [hidden] globally.)
+  assert.equal(/\.sg-svc[^{]*\{[^}]*display:\s*flex/.test(CSS), true);
 });
 
 test('the link is the QUIET verb beside Restart backend, on the panel’s control size', () => {
   // Design (frontend-designer pass): facts left, verbs right; a text link must
   // not outweigh the bordered button it sits next to. Both are reused idioms —
   // `btn-link` is the same class the KEYS section’s `all shortcuts` uses.
+  // A7: the two verbs sit in one card on the Background service page, facts
+  // first (they take the free space), then the link, then the bordered button.
   assert.match(
     SETTINGS,
-    /backRow\.append\(facts, checkBtn, el\('span', 'drawer-gap'\), restartBtn\);/,
+    /card\.append\(facts, checkBtn, restartBtn\);/,
     'the link belongs in the facts cluster, with the restart button still anchored right',
   );
-  assert.ok(SETTINGS.includes("button('btn', 'Restart backend'"), 'the loud verb must still be a bordered button');
-  // One rule, one existing token: the text buttons in these rows drop from the
-  // body’s 13px to the control size so the quiet verb reads quieter.
-  assert.match(CSS, /\.settings-actionrow \.btn-link \{\n\s*font-size: var\(--fs-ui\);\n\}/);
+  assert.ok(
+    SETTINGS.includes("button('sg-outbtn', 'Restart service'"),
+    'the loud verb must still be a bordered button',
+  );
+  // Neither verb outweighs the other in type: one size for both, so the
+  // BORDER is what says which one has consequences.
+  assert.match(CSS, /\.sg-link \{[^}]*font-size: 12\.5px;/);
+  assert.match(CSS, /\.sg-outbtn \{[^}]*font-size: 12\.5px;/);
   // No bespoke colour, radius or shadow was invented for it.
   assert.equal(CSS.includes('.settings-check'), false, 'no one-off class for this link');
 });

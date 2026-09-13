@@ -269,7 +269,6 @@
   --fs-title: 14px;     /* dialog title                                       */
   --ls-wordmark: 1.6px;
   --ls-label: 1.4px;
-  --ls-field: 1.2px;    /* .launch-lb field labels (New Project, GitHub)      */
   --ls-title: 0.8px;    /* dialog title                                       */
 
   /* ---- radius by role (Nocturne 4/8/14) --------------------------------------- */
@@ -326,7 +325,6 @@
   --modal-w-wide: 680px;
   --modal-w-narrow: 420px; /* one-question dialogs (restart confirmation)    */
   --panel-w: 460px;     /* boot / restart takeover panel                      */
-  --dirlist-min-h: 160px;
   --sc-keys-w: 210px;   /* shortcuts overlay keys column                      */
   --dlg-pad-x: 20px;    /* dialog horizontal padding (handoff §8)             */
   --dlg-gap: 16px;      /* dialog body stack gap + header padding             */

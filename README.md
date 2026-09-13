@@ -90,8 +90,8 @@ Download the newer `AI-Session-Manager-Setup-<version>.exe` and run it. It
 upgrades in place, keeps everything, and you may leave the app open while it
 runs. Afterwards the app notices the new version by itself and offers the
 restart that moves it there — through the notice in the window, or under
-**Settings → Restart backend**. Sessions that are open at that moment end;
-they keep their place in HISTORY and can be resumed.
+**Settings → Background service → Restart service**. Sessions that are open at
+that moment end; they keep their place in HISTORY and can be resumed.
 
 ### Uninstalling
 
@@ -190,11 +190,11 @@ Inside WSL, in the clone:
     git pull
     npm install     # only when dependencies changed
 
-Then, in the app: **Settings → Restart backend**. The app notices new code on
-disk by itself and offers the restart; it rebuilds the frontend as part of it,
-and refuses the whole thing (changing nothing) if anything about the new
-version does not check out. (An installed copy updates differently — see
-[Updating](#updating) above.)
+Then, in the app: **Settings → Background service → Restart service**. The app
+notices new code on disk by itself and offers the restart; it rebuilds the
+frontend as part of it, and refuses the whole thing (changing nothing) if
+anything about the new version does not check out. (An installed copy updates
+differently — see [Updating](#updating) above.)
 
 ### Worth knowing
 
@@ -373,12 +373,12 @@ path):
 
 ## Restarting the backend
 
-Settings → BACKEND → `Restart backend` replaces the running backend with a
-fresh one on the same port, without closing the window. The app also watches
-for a newer version on disk — changed dependencies, a new commit, a missing or
-rebuilt frontend build, frontend sources newer than the build being served, or
-an edited server file — and offers the same restart through a notice and a
-small `update` mark in the top bar.
+Settings → Background service → `Restart service` replaces the running backend
+with a fresh one on the same port, without closing the window. The app also
+watches for a newer version on disk — changed dependencies, a new commit, a
+missing or rebuilt frontend build, frontend sources newer than the build being
+served, or an edited server file — and offers the same restart through a notice
+and a small `update` mark in the top bar.
 
 What happens, in order. Nothing is torn down until a replacement has been
 proven, so a restart that cannot succeed leaves the running backend exactly as

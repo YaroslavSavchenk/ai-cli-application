@@ -1,21 +1,30 @@
 /**
- * App settings panel — what Claude Code's own status line shows, the keys the
- * app takes off the terminal (2026-09-08), and the one backend action.
+ * App settings — a modal with a LEFT NAV (Nocturne A7, v3
+ * `session-manager-v3.html` lines 561-640): a 170px column of page names beside
+ * a scrolling page. Five pages:
  *
- * Everything else this panel used to carry is gone with the feature it
- * configured: the global launch defaults + auto-run startup command (the launch
- * dialog now pre-selects from the project's own defaults), the read-only usage
- * ledger (the endpoint behind it no longer exists), and the per-pane telemetry
- * strip (replaced by the status line the session draws itself). Terminal themes
- * live in their own popover (ui/theme.ts) and are untouched.
+ *   Status bar          what Claude Code's own status line shows — LIVE, the
+ *                       prefs `statusLine` key, exactly as before.
+ *   Preferences         which tools show up and the keys they need — MOCK until
+ *                       part B6; every control is inert and says so.
+ *   Keyboard            the chords the app takes off the terminal, plus the
+ *                       link to the full shortcuts overlay — unchanged.
+ *   Terminal colours    ground + text for the terminals (ui/term-colours.ts) —
+ *                       LOCAL to the page until part B9 wires ui/theme.ts.
+ *   Background service  version, uptime, Check for updates, Restart — the
+ *                       existing flows, restyled.
  *
- * What a toggle here does: it writes the `statusLine` key of the prefs bag, and
- * the script Claude Code runs re-reads that file on every invocation — so an
- * item toggle takes effect in ALREADY RUNNING sessions within a couple of
+ * What a Status bar toggle does: it writes the `statusLine` key of the prefs
+ * bag, and the script Claude Code runs re-reads that file on every invocation —
+ * so an item toggle takes effect in ALREADY RUNNING sessions within a couple of
  * seconds, with no restart. The ONE thing a toggle cannot do is give a status
  * line to a session that was started without one (the server injects the
  * per-session settings file at spawn); those sessions are named in the notice
- * this panel renders, and only when there actually are some.
+ * the Status bar page renders, and only when there actually are some.
+ *
+ * The modal is TOP-anchored like the New session dialog, and for the same
+ * reason: its height changes per page, and a centred box would re-place itself
+ * under the pointer every time the nav is used.
  *
  * Copy rule (PROJECT-SCOPE, 2026-07-25): no commands, flags or config-file names
  * anywhere in here. The per-row samples are the literal text the status line
@@ -26,9 +35,10 @@ import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
-import { commandLabel } from './launch-args.ts';
+import { NOT_YET, TOOL_CARDS, commandLabel } from './launch-args.ts';
 import { openReleasesPage } from './releases.ts';
 import { openRestartConfirm, runtimeFacts } from './update.ts';
+import { buildTermColours } from './term-colours.ts';
 import {
   DEAD_PREFS_KEYS,
   getStatusLine,
@@ -48,12 +58,23 @@ export interface SettingsPanel {
 }
 
 export interface SettingsDeps {
-  /** Opens the shortcuts overlay (one instance, shared with the `?` button and key). */
+  /** Opens the shortcuts overlay (one instance, shared with the `?` key). */
   openShortcuts(): void;
 }
 
+/** The nav, in order. The gear always opens the first one. */
+const PAGES = [
+  { id: 'status', label: 'Status bar' },
+  { id: 'prefs', label: 'Preferences' },
+  { id: 'keys', label: 'Keyboard' },
+  { id: 'colours', label: 'Terminal colours' },
+  { id: 'service', label: 'Background service' },
+] as const;
+
+type PageId = (typeof PAGES)[number]['id'];
+
 /**
- * The KEYS section: the things the app takes off the terminal, said where
+ * The Keyboard page: the things the app takes off the terminal, said where
  * a user goes looking for app behaviour (2026-09-08 — the user asked "why
  * ctrl+shift+v?" about a chord that lived only in an overlay behind a bare `?`).
  * It is an EXCERPT, not a second reference: the overlay stays the full list,
@@ -108,58 +129,157 @@ const ITEM_ROWS: ItemRow[] = [
   },
 ];
 
+/**
+ * The Preferences page's rows — MOCK until part B6. `needsKey` decides whether
+ * the row shows a key field. Nothing here claims a key EXISTS: an invented
+ * "Key added" row would be the one mock a user could act on by mistake.
+ */
+interface ProviderRow {
+  mark: string;
+  label: string;
+  keyText: string;
+  needsKey: boolean;
+  /** The known agent's tile carries the accent family (v3). */
+  agent?: boolean;
+}
+
+/**
+ * What each row says about its key, by the New session dialog's own card id.
+ * The three tools part B5 will wire say what that dialog says about them —
+ * `NOT_YET`, one string in one place — because "Needs a key" would promise a
+ * key is all that is missing. A card with no entry here (the custom-command
+ * `Other`) gets no provider row.
+ */
+const ROW_KEYS: Record<string, { keyText: string; needsKey: boolean; agent?: boolean }> = {
+  claude: { keyText: 'Uses your Claude login', needsKey: false, agent: true },
+  codex: { keyText: NOT_YET, needsKey: true },
+  gemini: { keyText: NOT_YET, needsKey: true },
+  grok: { keyText: NOT_YET, needsKey: true },
+  terminal: { keyText: 'No key needed', needsKey: false },
+};
+
+/**
+ * The marks and names are the New session dialog's own table (launch-args.ts
+ * `TOOL_CARDS`, whose `claude` entry carries `AGENT_LABEL`) in its own order, so
+ * the two surfaces cannot drift apart and the product name lives in one place.
+ */
+const PROVIDER_ROWS: ProviderRow[] = TOOL_CARDS.flatMap((c) => {
+  const k = ROW_KEYS[c.id];
+  return k === undefined ? [] : [{ mark: c.mark, label: c.label, ...k }];
+});
+
+/** The Defaults block on the Preferences page — MOCK until part B6. */
+const DEFAULT_ROWS: { label: string; on: boolean }[] = [
+  { label: 'Reopen tabs on start', on: true },
+  { label: 'Confirm before ending a session', on: true },
+  { label: 'Notifications when a session needs you', on: true },
+  { label: 'Follow output', on: false },
+];
+
 export function initSettings(
   modalHost: HTMLElement,
   anchor: HTMLElement,
   deps: SettingsDeps,
 ): SettingsPanel {
   // ---- scrim + card --------------------------------------------------------
-  const scrim = el('div', 'modal-scrim');
+  // `.modal-scrim` stays on the scrim for its z-layer: the restart confirmation
+  // opens OVER this panel and claims a higher one (app.css, .restart-scrim).
+  const scrim = el('div', 'modal-scrim sg-scrim');
   scrim.hidden = true;
-  const modal = el('div', 'modal settings-modal');
+  const modal = el('div', 'sg-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'app settings');
+  modal.setAttribute('aria-label', 'Settings');
 
-  // ---- header (the shared gradient dialog header: New Project / picker) ---
-  const hd = el('header', 'launch-hd');
-  const tile = el('div', 'launch-tile');
-  tile.setAttribute('aria-hidden', 'true');
-  tile.append(el('span', 'np-glyph', '⚙'));
-  const titles = el('div', 'launch-titles');
-  titles.append(
-    el('div', 'launch-title', 'Settings'),
-    el('div', 'launch-sub', 'status line, keys, backend'),
+  // ---- left nav ------------------------------------------------------------
+  const nav = el('nav', 'sg-nav');
+  nav.append(el('div', 'sg-navtitle', 'Settings'));
+  const tabs = el('div', 'sg-tabs');
+  tabs.setAttribute('role', 'tablist');
+  tabs.setAttribute('aria-orientation', 'vertical');
+  tabs.setAttribute('aria-label', 'settings pages');
+  const tabEls = new Map<PageId, HTMLButtonElement>();
+  const panelEls = new Map<PageId, HTMLElement>();
+  for (const p of PAGES) {
+    const b = button('sg-tab', p.label, () => showPage(p.id));
+    b.id = `sg-tab-${p.id}`;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', 'false');
+    b.setAttribute('aria-controls', `sg-panel-${p.id}`);
+    b.tabIndex = -1;
+    tabEls.set(p.id, b);
+    tabs.append(b);
+  }
+  // One tab stop for the whole nav, arrows move between pages (the A4 card-grid
+  // idiom, the WAI-ARIA tablist pattern).
+  tabs.addEventListener('keydown', (e: KeyboardEvent) => {
+    const order = PAGES.map((p) => p.id);
+    let i = order.indexOf(page);
+    const k = e.key;
+    if (k === 'ArrowDown' || k === 'ArrowRight') i = (i + 1) % order.length;
+    else if (k === 'ArrowUp' || k === 'ArrowLeft') i = (i - 1 + order.length) % order.length;
+    else if (k === 'Home') i = 0;
+    else if (k === 'End') i = order.length - 1;
+    else return;
+    e.preventDefault();
+    const next = order[i] as PageId;
+    showPage(next);
+    tabEls.get(next)?.focus();
+  });
+  nav.append(tabs);
+
+  const bodyEl = el('div', 'sg-body');
+
+  /** A page: the title the nav names, a lead line, then its rows. */
+  function newPage(id: PageId, title: string, lead: string): HTMLElement {
+    const sect = el('section', 'sg-page');
+    sect.id = `sg-panel-${id}`;
+    sect.setAttribute('role', 'tabpanel');
+    sect.setAttribute('aria-labelledby', `sg-tab-${id}`);
+    sect.append(el('h2', 'sg-title', title), el('p', 'sg-lead', lead));
+    panelEls.set(id, sect);
+    bodyEl.append(sect);
+    return sect;
+  }
+
+  /** A boolean row: a real button, state in aria-pressed, no hover-only affordance. */
+  function checkRow(label: string, onToggle?: () => void): {
+    row: HTMLButtonElement;
+    box: HTMLElement;
+  } {
+    const row = button('sg-row', '', onToggle);
+    const box = el('span', 'sg-box');
+    box.setAttribute('aria-hidden', 'true');
+    row.append(box, el('span', 'sg-rowlb', label));
+    return { row, box };
+  }
+
+  // ======================================================================
+  // Status bar — the checklist, live
+  // ======================================================================
+  const statusPage = newPage(
+    'status',
+    'Status bar',
+    'Choose what each session shows under its terminal. Saved on this computer.',
   );
-  const closeX = button('launch-x', '×', () => close());
-  closeX.setAttribute('aria-label', 'close settings');
-  closeX.title = 'close (esc)';
-  hd.append(tile, titles, el('span', 'launch-gap'), closeX);
 
-  const bodyEl = el('div', 'settings-body');
+  // The bar as it will read, in the terminal's own ground and type.
+  const preview = el('div', 'sg-prevbar');
+  preview.setAttribute('aria-hidden', 'true');
+  statusPage.append(preview);
 
-  // ======================================================================
-  // Status line — master switch + the seven items
-  // ======================================================================
-  const sect = el('section', 'settings-sect');
-  sect.append(el('div', 'drawer-label', 'Status line'));
-  sect.append(
-    el(
-      'div',
-      'settings-note',
-      'Claude Code draws a status line at the bottom of every session started here. Pick what it shows — changes reach running sessions within a couple of seconds.',
-    ),
+  statusPage.append(
     // The blank-bar cases, said out loud so an empty line reads as normal
     // rather than broken.
     el(
-      'div',
-      'settings-note',
-      'A session shows nothing until its first reply — and when Claude asks you to trust a folder it has not worked in before, the line stays blank until you do.',
+      'p',
+      'sg-lead',
+      'A session shows nothing until its first reply, and when Claude asks you to trust a folder it has not worked in before the line stays blank until you do.',
     ),
   );
 
   // Relaunch notice: only rendered when running sessions actually lack one.
-  const notice = el('div', 'settings-notice');
+  const notice = el('div', 'sg-notice');
   notice.hidden = true;
   notice.setAttribute('role', 'note');
   const noticeText = el(
@@ -167,126 +287,184 @@ export function initSettings(
     '',
     'These sessions were started without a status line. End them and start them again to add one:',
   );
-  const noticeNames = el('div', 'settings-notice-names');
+  const noticeNames = el('div', 'sg-notice-names');
   notice.append(noticeText, noticeNames);
-  sect.append(notice);
+  statusPage.append(notice);
 
-  // Master switch — its own row, above the hairline that separates the items
-  // it governs.
-  const masterRow = button('status-row', '', () => toggleKey('enabled'));
-  const masterBox = el('span', 'status-box');
-  masterBox.setAttribute('aria-hidden', 'true');
-  masterRow.append(masterBox, el('span', 'status-lb', 'Show the status line'));
-  const masterWrap = el('div', 'status-rows');
-  masterWrap.append(masterRow);
-  sect.append(masterWrap);
+  // Master switch — its own row above the items it governs.
+  const master = checkRow('Show the status line', () => toggleKey('enabled'));
+  const masterWrap = el('div', 'sg-rows');
+  masterWrap.append(master.row);
+  statusPage.append(masterWrap);
 
-  const itemsWrap = el('div', 'status-rows settings-items');
+  const itemsWrap = el('div', 'sg-rows sg-items');
   itemsWrap.setAttribute('role', 'group');
   itemsWrap.setAttribute('aria-label', 'status line items');
   const rowEls = new Map<keyof StatusLineCfg, HTMLButtonElement>();
   const boxEls = new Map<keyof StatusLineCfg, HTMLElement>();
   for (const r of ITEM_ROWS) {
-    const row = button('status-row', '', () => toggleKey(r.key));
-    const box = el('span', 'status-box');
-    box.setAttribute('aria-hidden', 'true');
-    row.append(box, el('span', 'status-lb', r.label), el('span', 'status-sample', r.sample));
+    const { row, box } = checkRow(r.label, () => toggleKey(r.key));
+    row.append(el('span', 'sg-val', r.sample));
     rowEls.set(r.key, row);
     boxEls.set(r.key, box);
     itemsWrap.append(row);
-    if (r.caption !== undefined) itemsWrap.append(el('div', 'settings-rowcap', r.caption));
+    if (r.caption !== undefined) itemsWrap.append(el('div', 'sg-cap', r.caption));
   }
-  sect.append(itemsWrap);
+  statusPage.append(itemsWrap);
+
+  const resetBtn = button('sg-textbtn', 'Reset to defaults', () => resetAll());
+  resetBtn.title = 'restore the status line to its default on and off items';
+  const resetRow = el('div', 'sg-actions');
+  resetRow.append(resetBtn);
+  statusPage.append(resetRow);
 
   // ======================================================================
-  // Keys — the gestures that are NOT visible controls anywhere else
+  // Preferences — MOCK until part B6. Every control is disabled, and one line
+  // says so (the A4 inert-card idiom: the outline stays, the ink drops).
   // ======================================================================
-  const keysSect = el('section', 'settings-sect');
-  keysSect.append(el('div', 'drawer-label', 'Keys'));
-  const keyList = el('div', 'settings-keys');
-  for (const r of KEY_ROWS) {
-    const row = el('div', 'settings-keyrow');
-    const chips = el('span', 'settings-keychips');
-    if (r.keys !== undefined) {
-      r.keys.forEach((k, i) => {
-        chips.append(el('kbd', '', k));
-      });
+  const prefsPage = newPage(
+    'prefs',
+    'Preferences',
+    'Which tools show up when you start a session, and the keys they need.',
+  );
+  const provWrap = el('div', 'sg-rows');
+  for (const p of PROVIDER_ROWS) {
+    const row = el('div', 'sg-prow');
+    const mark = el('span', p.agent === true ? 'sg-mark is-agent' : 'sg-mark', p.mark);
+    mark.setAttribute('aria-hidden', 'true');
+    const txt = el('div', 'sg-prowtxt');
+    txt.append(el('span', 'sg-rowlb', p.label), el('span', 'sg-prowkey', p.keyText));
+    row.append(mark, txt);
+    if (p.needsKey) {
+      const inp = el('input', 'sg-keyin');
+      // Same shape as the app's one real credential field (ui/github.ts): a key
+      // is never plain text on screen, and never offered as a saved login. No
+      // `name`, so nothing can autofill it either.
+      inp.type = 'password';
+      inp.autocomplete = 'new-password';
+      inp.placeholder = 'Paste API key';
+      inp.disabled = true;
+      inp.setAttribute('aria-label', `${p.label} key`);
+      const show = button('sg-smallbtn', 'Show');
+      show.disabled = true;
+      row.append(inp, show);
     }
-    if (r.gesture !== undefined) chips.append(el('span', 'settings-keygesture', r.gesture));
-    row.append(el('span', 'status-lb', r.what), chips);
+    provWrap.append(row);
+  }
+  prefsPage.append(provWrap);
+
+  prefsPage.append(el('h3', 'sg-sub', 'Defaults'));
+  const defWrap = el('div', 'sg-rows');
+  for (const d of DEFAULT_ROWS) {
+    const { row, box } = checkRow(d.label);
+    row.setAttribute('aria-pressed', d.on ? 'true' : 'false');
+    box.textContent = d.on ? '✓' : '';
+    row.disabled = true;
+    defWrap.append(row);
+  }
+  prefsPage.append(defWrap);
+
+  /**
+   * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B6). Every control on this
+   * page is inert, and a settings page that silently forgets what it was told
+   * is worse than one that is not there. One function, one call site.
+   */
+  function prefsPlaceholderNote(): HTMLElement {
+    return el('p', 'sg-note', 'Example settings until the app saves them.');
+  }
+  prefsPage.append(prefsPlaceholderNote());
+
+  // ======================================================================
+  // Keyboard — the gestures that are NOT visible controls anywhere else
+  // ======================================================================
+  const keysPage = newPage(
+    'keys',
+    'Keyboard',
+    'Almost everything you type goes straight to the terminal. The app only listens for these.',
+  );
+  const keyList = el('div', 'sg-rows');
+  for (const r of KEY_ROWS) {
+    const row = el('div', 'sg-keyrow');
+    const chips = el('span', 'sg-keychips');
+    if (r.keys !== undefined) for (const k of r.keys) chips.append(el('kbd', 'sg-kbd', k));
+    // A mouse sentence is not a key: plain text, never a chip (overlay rule).
+    if (r.gesture !== undefined) chips.append(el('span', 'sg-gesture', r.gesture));
+    row.append(el('span', 'sg-rowlb', r.what), chips);
     keyList.append(row);
   }
-  keysSect.append(keyList);
-  const allKeysBtn = button('btn-link', 'all shortcuts', () => deps.openShortcuts());
+  keysPage.append(keyList);
+  const allKeysBtn = button('sg-link', 'all shortcuts', () => deps.openShortcuts());
   allKeysBtn.setAttribute('aria-haspopup', 'dialog');
-  const allKeysRow = el('div', 'settings-actionrow');
+  const allKeysRow = el('div', 'sg-actions');
   allKeysRow.append(allKeysBtn);
-  keysSect.append(allKeysRow);
+  keysPage.append(allKeysRow);
 
   // ======================================================================
-  // Backend — the program that runs the sessions, and the one button that
-  // replaces it with the version currently on disk (2026-09-06, user's
-  // request). Two mono readouts and an action: no dashboard, no graphs, and
-  // no mechanics explained — the confirmation says what restarting costs.
-  // An INSTALLED app gets a second, quieter verb between them (2026-09-08):
-  // where to go and get a newer version. Text link, not a second button —
-  // the weight ordering says which one is the act with consequences.
+  // Terminal colours — its own module (ui/term-colours.ts). Local to the page
+  // until part B9: nothing here paints a terminal yet.
   // ======================================================================
-  const backSect = el('section', 'settings-sect');
-  backSect.append(el('div', 'drawer-label', 'Backend'));
-  backSect.append(
-    el(
-      'div',
-      'settings-note',
-      'Your sessions run in a program that keeps going while this window is open. Restarting it picks up a new version of the app.',
-    ),
+  const colours = buildTermColours('sg-tab-colours');
+  colours.root.id = 'sg-panel-colours';
+  panelEls.set('colours', colours.root);
+  bodyEl.append(colours.root);
+
+  // ======================================================================
+  // Background service — the program that runs the sessions, and the one
+  // button that replaces it with the version currently on disk (2026-09-06,
+  // user's request). Two readouts and an action: no dashboard, no graphs. An
+  // INSTALLED app gets a second, quieter verb between them (2026-09-08): where
+  // to go and get a newer version. Text link, not a second button — the weight
+  // ordering says which one is the act with consequences.
+  // ======================================================================
+  const servicePage = newPage(
+    'service',
+    'Background service',
+    'Your sessions run in a service that keeps going while this window is open. Restarting it picks up a new version of the app. Every running session closes, but stays in history.',
   );
-  const facts = el('div', 'settings-facts');
-  const factUp = el('span', 'settings-fact');
-  const factVer = el('span', 'settings-fact');
-  facts.append(factUp, factVer);
-  const backRow = el('div', 'settings-actionrow');
+  const card = el('div', 'sg-svc');
+  const facts = el('div', 'sg-svcfacts');
+  const factVer = el('span', 'sg-svcver');
+  const factUp = el('span', 'sg-svcup');
+  facts.append(factVer, factUp);
   // Only an installed app can be updated by downloading one; a developer clone
   // updates with the tools it was cloned with, and a link to a releases page
   // would be an instruction that does not apply to it.
-  const checkBtn = button('btn-link', 'Check for updates', () => {
+  const checkBtn = button('sg-link', 'Check for updates', () => {
     log.info('opening the releases page in the browser');
     openReleasesPage();
   });
   checkBtn.title = 'opens the releases page in your browser';
   checkBtn.hidden = true;
-  const restartBtn = button('btn', 'Restart backend', () => openRestartConfirm('settings'));
+  const restartBtn = button('sg-outbtn', 'Restart service', () => openRestartConfirm('settings'));
   restartBtn.setAttribute('aria-haspopup', 'dialog');
-  backRow.append(facts, checkBtn, el('span', 'drawer-gap'), restartBtn);
-  backSect.append(backRow);
-  backSect.append(
-    el('div', 'settings-note', 'Every running session closes. They stay in History.'),
-  );
-
-  bodyEl.append(sect, keysSect, backSect);
+  card.append(facts, checkBtn, restartBtn);
+  servicePage.append(card);
 
   /**
    * The two readouts, refreshed on open and on every conn change (the runtime
-   * poll writes both). `running for` is a coarse duration on purpose: this line
+   * poll writes both). `Running for` is a coarse duration on purpose: this line
    * is read once, not watched — the statusline already ticks a live clock.
    */
   function renderBackend(): void {
     const f = runtimeFacts();
-    factUp.textContent = `running for ${f.runningFor}`;
-    factVer.textContent = `version ${f.version}`;
+    factVer.textContent = `Version ${f.version}`;
+    factUp.textContent = `Running for ${f.runningFor}`;
     checkBtn.hidden = !st.state.installed;
   }
 
   // ---- footer --------------------------------------------------------------
-  const ft = el('footer', 'modal-ft settings-ft');
-  const resetBtn = button('btn', 'Reset to defaults', () => resetAll());
-  resetBtn.title = 'restore the status line to its default on/off items';
-  // Accent-blue primary (refreshed prototype 2026-07-24): confirm, not "go".
-  const doneBtn = button('btn is-acc', 'Done', () => close());
+  // v3's own footer: one accent-OUTLINE confirm. `.btn-accent` is the Nocturne
+  // pair already in app.css (the pane area's empty state, the top bar's New
+  // session) — the Legacy `.btn.is-acc` tint it replaces is built from alias
+  // tokens part A8 deletes.
+  const ft = el('footer', 'sg-ft');
+  const doneBtn = button('btn-accent', 'Done', () => close());
   doneBtn.title = 'close settings (esc)';
-  ft.append(resetBtn, el('span', 'drawer-gap'), doneBtn);
+  ft.append(doneBtn);
 
-  modal.append(hd, bodyEl, ft);
+  const col = el('div', 'sg-col');
+  col.append(bodyEl, ft);
+  modal.append(nav, col);
   scrim.append(modal);
   scrim.addEventListener('mousedown', (e) => {
     if (e.target === scrim) close();
@@ -294,16 +472,56 @@ export function initSettings(
   trapTab(modal);
   modalHost.append(scrim);
 
+  // ---- pages ---------------------------------------------------------------
+  let page: PageId = PAGES[0].id;
+
+  function showPage(id: PageId): void {
+    page = id;
+    for (const p of PAGES) {
+      const tab = tabEls.get(p.id);
+      const panel = panelEls.get(p.id);
+      const on = p.id === id;
+      if (tab !== undefined) {
+        tab.classList.toggle('is-sel', on);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        tab.tabIndex = on ? 0 : -1;
+      }
+      if (panel !== undefined) panel.hidden = !on;
+    }
+    // A page swap must not leave the reader halfway down the previous one.
+    bodyEl.scrollTop = 0;
+  }
+
   // ---- toggles <-> store ---------------------------------------------------
 
   /** Writes since this open — a late boot-prefs re-read must not undo them. */
   let writes = 0;
 
+  /** The bar as the enabled items will render it, or the honest empty line. */
+  function renderPreview(): void {
+    const cfg = getStatusLine();
+    const on = cfg.enabled ? ITEM_ROWS.filter((r) => cfg[r.key]) : [];
+    if (on.length === 0) {
+      preview.replaceChildren(el('span', 'sg-prevempty', 'Nothing selected, the bar is hidden'));
+      return;
+    }
+    preview.replaceChildren(
+      // The samples are invented ($0.42, 5h 38%); without this marker the strip
+      // reads as the user's own numbers.
+      el('span', 'sg-prevlb', 'Example'),
+      ...on.map((r) => {
+        const item = el('span', 'sg-previtem');
+        item.append(el('span', 'sg-prevlb', r.label), el('span', 'sg-prevval', r.sample));
+        return item;
+      }),
+    );
+  }
+
   /** Reflect the whole stored config onto the rows (boxes, aria, disabled). */
   function syncRows(): void {
     const cfg = getStatusLine();
-    masterRow.setAttribute('aria-pressed', cfg.enabled ? 'true' : 'false');
-    masterBox.textContent = cfg.enabled ? '✓' : '';
+    master.row.setAttribute('aria-pressed', cfg.enabled ? 'true' : 'false');
+    master.box.textContent = cfg.enabled ? '✓' : '';
     for (const r of ITEM_ROWS) {
       const row = rowEls.get(r.key);
       const box = boxEls.get(r.key);
@@ -315,6 +533,7 @@ export function initSettings(
       row.disabled = !cfg.enabled;
     }
     itemsWrap.classList.toggle('is-disabled', !cfg.enabled);
+    renderPreview();
   }
 
   /**
@@ -393,6 +612,8 @@ export function initSettings(
     if (!scrim.hidden) return;
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     writes = 0;
+    // The gear opens the panel on the page about the sessions' own status line.
+    showPage(PAGES[0].id);
     syncRows();
     renderNotice();
     renderBackend();
@@ -412,7 +633,7 @@ export function initSettings(
       .catch(() => {
         // Keep the in-memory config; nothing to say.
       });
-    masterRow.focus();
+    tabEls.get(page)?.focus();
   }
 
   function close(): void {
@@ -423,6 +644,8 @@ export function initSettings(
     else anchor.focus();
     restoreTo = null;
   }
+
+  showPage(page);
 
   return {
     open,

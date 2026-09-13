@@ -41,8 +41,8 @@
  *     →  `Restart now` — the newer version is already on this machine.
  *
  * The precedence between the two reasons is the backend's; this file renders
- * whichever one arrives. `Restart backend` in the settings panel is ALWAYS the
- * restart, whatever is pending — a maintenance verb must not turn into a
+ * whichever one arrives. `Restart service` on the Background service page is
+ * ALWAYS the restart, whatever is pending — a maintenance verb must not turn into a
  * downloader because a release happened to be published.
  *
  * Copy rule (2026-07-25): no flags, commands or config names in any string
@@ -112,9 +112,12 @@ const COPY = {
   // restart or an update runs, and that decision is DOM-free next door.
   pillTip: 'A new version is ready — restart to use it',
   pillTipUpdate: 'A new version is available — update to get it',
-  dialogTitle: 'Restart the backend?',
-  dialogTitleBusy: 'Restarting the backend',
-  dialogTitleOver: 'Restart the backend',
+  // One noun for the thing being restarted: Settings calls the page
+  // "Background service" and its button "Restart service", so the confirmation
+  // may not call it "the backend" (PROJECT-SCOPE copy rule, 2026-07-25).
+  dialogTitle: 'Restart the background service?',
+  dialogTitleBusy: 'Restarting the background service',
+  dialogTitleOver: 'Restart the background service',
   // A refusal is not a failure and must not be titled like one: nothing was
   // touched, so the title states the fact and the body says why.
   dialogTitleRefused: 'Nothing was restarted',
@@ -225,15 +228,16 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   modalHost.append(toast);
 
   // ---- confirmation dialog -------------------------------------------------
-  // Plain `modal-scrim`, NOT the blurred `launch-scrim` the New Project dialog
-  // wears: this dialog can open on top of the settings panel, and two blurred
-  // scrims stacked read as a smeared mistake rather than as depth.
+  // Plain `modal-scrim`, never a blurred one: this dialog can open on top of
+  // the settings panel, and two blurred scrims stacked read as a smeared
+  // mistake rather than as depth (the Legacy `launch-scrim` blur is gone
+  // since A7; every Nocturne dialog uses the flat --color-scrim).
   const scrim = el('div', 'modal-scrim restart-scrim');
   scrim.hidden = true;
   const modal = el('div', 'modal restart-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'restart the backend');
+  modal.setAttribute('aria-label', 'restart the background service');
 
   const hd = el('header', 'launch-hd');
   const tile = el('div', 'launch-tile');
@@ -526,12 +530,12 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
       return;
     }
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // The settings panel's `Restart backend` is a maintenance verb and stays
+    // The settings panel's `Restart service` is a maintenance verb and stays
     // one whatever is pending; the toast and the pill ask about the reason they
     // are showing.
     mode = source === 'settings' ? 'restart' : noticeVerb(notice.reason);
     half = mode;
-    modal.setAttribute('aria-label', mode === 'update' ? 'update the app' : 'restart the backend');
+    modal.setAttribute('aria-label', mode === 'update' ? 'update the app' : 'restart the background service');
     failure.textContent = '';
     renderConfirm();
     scrim.hidden = false;

@@ -1015,6 +1015,9 @@ test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-s
     '.diff-t',
     '.diff-path',
     '.commit-fpath',
+    // Nocturne A7: the Terminal colours preview is a terminal fragment, so it
+    // joins the same rule instead of declaring a second copy.
+    '.sg-tcprev',
   ]) {
     assert.ok(rule.includes(`${sel},`) || rule.includes(`${sel} {`), `${sel} is in the rule`);
   }

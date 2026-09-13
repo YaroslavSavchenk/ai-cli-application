@@ -76,18 +76,61 @@ export class FakeText extends FakeNode {
 
 const FOCUSABLE_TAGS = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 
+/**
+ * `element.style`: a plain property bag that ALSO answers `setProperty` —
+ * the UI modules set data-valued properties through it (ui/panes.ts writes the
+ * split columns, ui/term-colours.ts the chosen ground and ink), and a bag
+ * without the method would make those modules throw instead of being tested.
+ */
+export type FakeStyle = Record<string, string> & {
+  setProperty(name: string, value: string): void;
+  getPropertyValue(name: string): string;
+  removeProperty(name: string): void;
+};
+
+function makeStyle(): FakeStyle {
+  const bag: Record<string, string> = {};
+  const api = {
+    setProperty(name: string, value: string): void {
+      bag[name] = value;
+    },
+    getPropertyValue(name: string): string {
+      return bag[name] ?? '';
+    },
+    removeProperty(name: string): void {
+      delete bag[name];
+    },
+  };
+  // One object: the methods live on it, the properties land in the same bag, so
+  // `style.width = '3px'` and `style.setProperty('width', '3px')` agree.
+  return new Proxy(api as unknown as FakeStyle, {
+    get: (t, k) => (k in api ? (api as Record<string, unknown>)[k as string] : bag[k as string]),
+    set: (_t, k, v) => {
+      bag[k as string] = String(v);
+      return true;
+    },
+    has: (_t, k) => k in api || k in bag,
+    deleteProperty: (_t, k) => {
+      delete bag[k as string];
+      return true;
+    },
+  });
+}
+
 export class FakeElement extends FakeNode {
   readonly tagName: string;
   children: FakeNode[] = [];
   className = '';
   readonly attrs = new Map<string, string>();
   readonly dataset: Record<string, string | undefined> = {};
-  readonly style: Record<string, string> = {};
+  readonly style: FakeStyle = makeStyle();
   hidden = false;
   disabled = false;
   id = '';
   title = '';
   type = '';
+  placeholder = '';
+  autocomplete = '';
   readonly captured = new Set<number>();
   #tabIndex: number | null = null;
   #value: string | null = null;
@@ -109,6 +152,14 @@ export class FakeElement extends FakeNode {
     for (const c of this.children) c.parentNode = null;
     this.children = [];
     this.append(...nodes);
+  }
+  /** Detach from the parent — how a dialog that is CREATED on open goes away. */
+  remove(): void {
+    const parent = this.parentNode;
+    if (parent === null) return;
+    const i = parent.children.indexOf(this);
+    if (i !== -1) parent.children.splice(i, 1);
+    this.parentNode = null;
   }
   contains(n: unknown): boolean {
     let x = n instanceof FakeNode ? (n as FakeNode | null) : null;
@@ -262,13 +313,29 @@ export interface FakeDocument extends FakeTarget {
   activeElement: FakeElement;
   createElement(tag: string): FakeElement;
   createElementNS(ns: string, tag: string): FakeElement;
+  /**
+   * A bare text node. `ui/github.ts` builds one sentence out of text + a span +
+   * text (the device-flow instruction), so a module under test asks for this at
+   * CONSTRUCTION time — without it the Add-a-project dialog cannot be built here.
+   */
+  createTextNode(data: string): FakeText;
 }
 
 export interface FakeWindow extends FakeTarget {
   setTimeout(fn: () => void, ms: number): number;
   clearTimeout(id: number): void;
+  /**
+   * Recorded like `setTimeout`, and for the same reason: `ui/github.ts` arms a
+   * status poll (and an expiry ticker) the moment its tab is shown, and a real
+   * interval would both hold the runner open and make the test depend on a
+   * clock. A test fires `win.intervals[i].fn()` when it wants a tick.
+   */
+  setInterval(fn: () => void, ms: number): number;
+  clearInterval(id: number): void;
   /** Every timer the modules armed, never fired — a test decides. */
   readonly timers: { fn: () => void; ms: number; id: number }[];
+  /** Every interval the modules armed, never fired — a test decides. */
+  readonly intervals: { fn: () => void; ms: number; id: number }[];
 }
 
 let doc: FakeDocument | null = null;
@@ -358,9 +425,11 @@ export interface Dom {
 export function installDom(): Dom {
   const body = new FakeElement('body');
   const timers: { fn: () => void; ms: number; id: number }[] = [];
+  const intervals: { fn: () => void; ms: number; id: number }[] = [];
   let nextTimer = 1;
   const w = Object.assign(new FakeTarget(), {
     timers,
+    intervals,
     setTimeout(fn: () => void, ms: number): number {
       const id = nextTimer;
       nextTimer += 1;
@@ -371,12 +440,23 @@ export function installDom(): Dom {
       const i = timers.findIndex((t) => t.id === id);
       if (i !== -1) timers.splice(i, 1);
     },
+    setInterval(fn: () => void, ms: number): number {
+      const id = nextTimer;
+      nextTimer += 1;
+      intervals.push({ fn, ms, id });
+      return id;
+    },
+    clearInterval(id: number): void {
+      const i = intervals.findIndex((t) => t.id === id);
+      if (i !== -1) intervals.splice(i, 1);
+    },
   }) as FakeWindow;
   const d = Object.assign(new FakeTarget(), {
     body,
     activeElement: body,
     createElement: (tag: string) => new FakeElement(tag),
     createElementNS: (_ns: string, tag: string) => new FakeElement(tag),
+    createTextNode: (data: string) => new FakeText(data),
   }) as FakeDocument;
   doc = d;
   win = w;
@@ -387,6 +467,14 @@ export function installDom(): Dom {
   g.Node = FakeNode;
   g.HTMLElement = FakeElement;
   g.localStorage = storage;
+  // `ui/github.ts` clears with the BARE globals (`clearInterval(timer)`), so the
+  // fake ids must reach the same bookkeeping as `window.clearInterval`.
+  g.clearInterval = (id: number) => {
+    w.clearInterval(id);
+  };
+  g.clearTimeout = (id: number) => {
+    w.clearTimeout(id);
+  };
   g.CSS = { escape: (s: string) => s.replace(/([^\w-])/g, '\\$1') };
   return { doc: d, win: w, body, storage };
 }

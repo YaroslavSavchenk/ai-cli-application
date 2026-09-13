@@ -257,7 +257,7 @@ if ($res.ExitCode -ne 0 -or ($stdout -notmatch 'AI_SM_OK')) {
         'no_bundle_json' { $why = "the archive does not contain $Version/bundle.json" }
         'no_node' { $why = 'the archive contains no runnable node binary' }
         'node_pty_failed' { $why = "this bundle does not run in '$Distro' (its terminal library failed to load - the distribution may be too old)" }
-        'same_version_live' { $why = 'this exact version is running - close the app window (or use Restart backend in its settings), then run Setup again' }
+        'same_version_live' { $why = 'this exact version is running - close the app window (or use Restart service in its settings), then run Setup again' }
         'current_swap_failed' { $why = "the 'current' link could not be updated" }
     }
     Add-AiSmPair $pairs 'errorCode' $code

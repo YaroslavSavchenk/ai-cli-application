@@ -1,27 +1,30 @@
 /**
  * Folder picker modal — wired to the REAL backend fs endpoints (GET
- * /api/fs/list + POST /api/fs/mkdir), NO faked tree. Reused by the New Project
- * dialog's blank LOCAL PATH and clone DESTINATION rows.
+ * /api/fs/list + POST /api/fs/mkdir), NO faked tree. Reused by the Add-a-project
+ * dialog's New-folder FOLDER row and its Clone-into row.
  *
- * Anatomy (in the established dialog language): the sanctioned gradient header
- * (the shared `launch-hd` dialog header the New Project, settings and restart
- * dialogs also wear; the New session dialog left it for its own `ns-` chrome
- * in Nocturne A4), a breadcrumb + "up one level" nav,
- * quick zones (Home / ~/projects when it exists / Root), the directory list
- * (folders only, from `dirs`, via the existing `.dirlist`/`.dir-btn`), a
- * "new folder" input + button (POST /api/fs/mkdir → navigate into it), and a
- * "Select folder" that returns the CURRENT directory to the opener.
+ * Anatomy (Nocturne A7, the `pk-` block in app.css — the same dialog idiom as
+ * the Add-a-project (`ap-`) and New session (`ns-`) cards): a top-anchored
+ * scrim, a header (the opener's own title + close), the current path as one
+ * walkable mono row with an "up one level" control, quick zones (Home /
+ * ~/projects when it exists / Root), the folder list as hairline-separated rows
+ * with the Phosphor folder mark, a "+ folder" row (POST /api/fs/mkdir →
+ * navigate into it), and a footer with Cancel and "Choose this folder", which
+ * returns the CURRENT directory to the opener.
  *
  * Honest states only: fs/list errors (403 permission / 404 not-a-directory)
- * render inline; an empty directory reads "empty folder". All directory names
- * and paths are UNTRUSTED display text → textContent, never innerHTML.
+ * render inline; a directory with no subdirectories reads "No folders here."
+ * All directory names and paths are UNTRUSTED display text → textContent,
+ * never innerHTML.
  *
  * Created on open, removed on close (like the old dir browser). One picker at a
- * time; it may open OVER the New Project dialog (appended last → paints on top
- * at the same modal z). Escape is dispatched centrally from main.ts.
+ * time; it may open OVER the Add-a-project dialog (appended last → paints on top
+ * at the same modal z, and its top edge lands on that card's). Escape is
+ * dispatched centrally from main.ts.
  */
 import * as api from '../api.ts';
 import { el, button, trapTab } from './util.ts';
+import { folderIcon } from './icons.ts';
 import { breadcrumbs, parentDir } from './newproject-model.ts';
 
 export interface PickerOpts {
@@ -36,7 +39,7 @@ export interface PickerOpts {
   projectsDir?: string | null;
   /** Focus target restored on close (the row button that opened the picker). */
   restoreTo?: HTMLElement | null;
-  /** Called with the chosen absolute directory when "Select folder" is pressed. */
+  /** Called with the chosen absolute directory when "Choose this folder" is pressed. */
   onSelect(path: string): void;
 }
 
@@ -60,37 +63,34 @@ export function openFolderPicker(opts: PickerOpts): void {
   if (scrim !== null) return; // one picker at a time
   restore = opts.restoreTo ?? null;
 
-  scrim = el('div', 'modal-scrim');
-  const modal = el('div', 'modal pk-modal');
+  // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
+  // it. Everything visual is the `pk-` block in app.css (Nocturne A7).
+  scrim = el('div', 'modal-scrim pk-scrim');
+  const modal = el('div', 'pk-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', opts.title);
+  modal.setAttribute('aria-labelledby', 'pk-title');
 
-  // ---- header (sanctioned gradient, the shared `launch-hd` dialog header) ----
-  const hd = el('header', 'launch-hd');
-  const tile = el('div', 'launch-tile');
-  tile.setAttribute('aria-hidden', 'true');
-  tile.append(el('span', 'np-glyph', '▤'));
-  const titles = el('div', 'launch-titles');
-  titles.append(el('div', 'launch-title', opts.title));
-  const closeX = button('launch-x', '×', closeFolderPicker);
-  closeX.setAttribute('aria-label', 'cancel');
-  closeX.title = 'cancel (esc)';
-  hd.append(tile, titles, el('span', 'launch-gap'), closeX);
+  // ---- header: the opener's own words + close -------------------------------
+  const hd = el('header', 'pk-hd');
+  const title = el('h2', 'pk-title', opts.title);
+  title.id = 'pk-title';
+  const closeX = button('pk-x', '×', closeFolderPicker);
+  closeX.setAttribute('aria-label', 'Close');
+  hd.append(title, closeX);
 
-  // ---- nav: up + breadcrumb -------------------------------------------------
-  const nav = el('div', 'pk-nav');
+  // ---- the current path: one walkable mono row ------------------------------
+  const pathRow = el('div', 'pk-pathrow');
   const up = button('pk-up', '↑', () => void load(parentDir(curPath)));
-  up.setAttribute('aria-label', 'up one level');
-  up.title = 'parent directory';
+  up.setAttribute('aria-label', 'Up one level');
   const crumbs = el('div', 'pk-crumbs');
-  crumbs.setAttribute('aria-label', 'current path');
-  nav.append(up, crumbs);
+  crumbs.setAttribute('aria-label', 'Current path');
+  pathRow.append(up, crumbs);
 
   // ---- quick zones ----------------------------------------------------------
   const quick = el('div', 'pk-quick');
   quick.setAttribute('role', 'group');
-  quick.setAttribute('aria-label', 'quick locations');
+  quick.setAttribute('aria-label', 'Quick locations');
   interface Zone {
     label: string;
     path: string | undefined;
@@ -107,22 +107,21 @@ export function openFolderPicker(opts: PickerOpts): void {
     quick.append(b);
   }
 
-  // ---- directory list (existing dir-browser idiom) --------------------------
-  const list = el('div', 'dirlist');
-  list.setAttribute('aria-label', 'subdirectories');
-  const err = el('div', 'form-err');
+  // ---- the folder list ------------------------------------------------------
+  const list = el('div', 'pk-list');
+  list.setAttribute('aria-label', 'Folders in this folder');
+  const err = el('div', 'pk-err');
   err.setAttribute('role', 'alert');
   err.hidden = true;
 
   // ---- new folder -----------------------------------------------------------
-  const nf = el('div', 'pk-newfolder');
-  const nfInput = el('input');
+  const nf = el('div', 'pk-mkrow');
+  const nfInput = el('input', 'pk-mkname');
   nfInput.placeholder = 'new folder name';
   nfInput.spellcheck = false;
   nfInput.autocomplete = 'off';
-  nfInput.setAttribute('aria-label', 'new folder name');
-  const nfBtn = button('btn', '+ folder', () => void makeFolder());
-  nfBtn.title = 'create a new folder here';
+  nfInput.setAttribute('aria-label', 'Name for a new folder');
+  const nfBtn = button('pk-mk', '+ folder', () => void makeFolder());
   nf.append(nfInput, nfBtn);
   nfInput.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -131,26 +130,30 @@ export function openFolderPicker(opts: PickerOpts): void {
     }
   });
 
-  // ---- footer: current path · Cancel · Select folder ------------------------
-  const ft = el('footer', 'modal-ft');
-  const cwdEl = el('span', 'pk-cwd');
-  const cancel = button('btn', 'Cancel', closeFolderPicker);
-  const select = button('btn is-primary', 'Select folder', () => {
+  // ---- footer: Cancel · Choose this folder ----------------------------------
+  const ft = el('footer', 'pk-ft');
+  const cancel = button('btn-quiet', 'Cancel', closeFolderPicker);
+  const select = button('btn-accent', 'Choose this folder', () => {
     const chosen = curPath;
+    if (chosen === '') return; // no listing yet: there is no folder to hand back
     opts.onSelect(chosen);
     closeFolderPicker();
   });
-  select.title = 'use this directory';
-  ft.append(cwdEl, cancel, select);
+  // `curPath` is '' until the first listing resolves, so there is nothing to
+  // choose yet: pressing this in that window would hand the opener an empty
+  // path. The first successful listing enables it, and a later failed listing
+  // keeps the listing that was there, so it stays enabled.
+  select.disabled = true;
+  ft.append(cancel, select);
 
-  modal.append(hd, nav, quick, list, err, nf, ft);
+  modal.append(hd, pathRow, quick, list, err, nf, ft);
   scrim.append(modal);
   scrim.addEventListener('mousedown', (e) => {
     if (e.target === scrim) closeFolderPicker();
   });
   trapTab(modal);
   opts.modalHost.append(scrim);
-  select.focus();
+  cancel.focus(); // moves to the commitment once the first listing arrives
 
   let curPath = '';
 
@@ -158,10 +161,13 @@ export function openFolderPicker(opts: PickerOpts): void {
     const parts = breadcrumbs(curPath);
     const nodes: HTMLElement[] = [];
     parts.forEach((c, i) => {
-      const b = button('pk-crumb', c.label, () => void load(c.path)); // textContent — untrusted
+      const last = i === parts.length - 1;
+      // textContent — untrusted. The last segment is where you ARE: brighter
+      // ink, still a button (re-listing the current folder is legitimate).
+      const b = button(last ? 'pk-crumb is-here' : 'pk-crumb', c.label, () => void load(c.path));
       b.title = c.path;
       nodes.push(b);
-      if (i < parts.length - 1) nodes.push(el('span', 'pk-sep', '/'));
+      if (!last) nodes.push(el('span', 'pk-sep', '/'));
     });
     crumbs.replaceChildren(...nodes);
   }
@@ -179,24 +185,27 @@ export function openFolderPicker(opts: PickerOpts): void {
     try {
       const res = await api.fsList(path);
       curPath = res.path;
-      cwdEl.textContent = res.path; // untrusted path → textContent
-      cwdEl.title = res.path;
       up.disabled = res.path === '/';
       renderCrumbs();
       syncZones();
       const items: HTMLElement[] = [];
       if (res.dirs.length === 0) {
-        items.push(el('div', 'drawer-empty', 'empty folder'));
+        items.push(el('div', 'pk-empty', 'No folders here.'));
       }
       for (const name of res.dirs) {
-        const row = button('dir-btn', `${name}/`, () => {
+        const row = button('pk-row', '', () => {
           // curPath is always the normalized absolute dir just loaded.
           void load(curPath === '/' ? `/${name}` : `${curPath}/${name}`);
         });
-        row.textContent = `${name}/`; // untrusted dir name → textContent
+        // untrusted dir name → textContent (el() sets it); the mark is decoration
+        row.append(folderIcon(), el('span', 'pk-rowname', name));
         items.push(row);
       }
       list.replaceChildren(...items);
+      if (select.disabled) {
+        select.disabled = false;
+        if (document.activeElement === cancel) select.focus();
+      }
     } catch (e) {
       // Stay on the previous listing; surface the failure inline.
       err.textContent = e instanceof Error ? e.message : String(e);

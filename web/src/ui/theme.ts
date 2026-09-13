@@ -1,5 +1,5 @@
 /**
- * UNWIRED SINCE PART A2 (2026-09-10): main.ts no longer calls initTheme — Nocturne is the only theme; part A8 deletes this file.
+ * UNWIRED since A2; the popover UI goes in A8, the apply/persist/refresh machinery is KEPT and part B9 reconnects it to the Terminal colours Settings page.
  *
  * Terminal theme popover (Legacy UI, handoff §9; removed in Nocturne part
  * A8): anchored under the topbar Theme button, two INDEPENDENT 5-column

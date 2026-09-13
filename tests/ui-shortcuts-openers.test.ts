@@ -164,7 +164,9 @@ test('the statusline opener is a spelled-out button, not a glyph (it replaced th
 test('the settings panel opens the same overlay through its injected dependency', () => {
   assert.match(SETTINGS, /export interface SettingsDeps \{[\s\S]*?openShortcuts\(\): void;[\s\S]*?\}/);
   assert.match(SETTINGS, /deps: SettingsDeps,/);
-  assert.match(SETTINGS, /button\('btn-link', 'all shortcuts', \(\) => deps\.openShortcuts\(\)\)/);
+  // Nocturne A7 renamed the panel's text-link class `btn-link` -> `sg-link`
+  // (the Legacy `.btn-link` rule is built from alias tokens part A8 deletes).
+  assert.match(SETTINGS, /button\('sg-link', 'all shortcuts', \(\) => deps\.openShortcuts\(\)\)/);
   // A dialog opener says so, like every other one in this app.
   assert.match(SETTINGS, /allKeysBtn\.setAttribute\('aria-haspopup', 'dialog'\);/);
   // The panel must not build a second overlay of its own.

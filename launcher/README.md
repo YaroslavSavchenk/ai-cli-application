@@ -189,7 +189,7 @@ this interface from WSL.
 The Setup itself reuses the distro and Linux folder recorded in
 `install-info.txt` (never the machine default), replaces the bundle inside WSL
 and moves `current`, and installs the new host into `host\next\`. The app then
-continues into its normal **Restart backend** handoff, and the new host window
+continues into its normal **Restart service** handoff, and the new host window
 appears at the next launch, when `next\` is promoted.
 
 ## Setup (once)

@@ -371,7 +371,11 @@ export function isClaudeCommand(command: string): boolean {
  * into UI chrome: PROJECT-SCOPE copy rule, 2026-07-25).
  */
 export function commandLabel(command: string): string {
-  if (command === 'claude') return AGENT_LABEL;
+  // The agent is recognised by its BASENAME, the same rule
+  // `isClaudeCommand` / statusline-model.ts apply — a session launched as
+  // `/usr/local/bin/claude` is the known agent, and printing its path would put
+  // a command in UI chrome.
+  if (isClaudeCommand(command)) return AGENT_LABEL;
   return shellLabel(command) ?? command;
 }
 

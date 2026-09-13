@@ -189,7 +189,7 @@ multi-pane layouts on top.
   focus back to the element it was opened from when that is still visible
   (the Settings button, the toast), else to the terminal. PTY sessions
   inherit none of the four `AI_SM_*` handoff/seam vars. `web/dist-next/` and `web/dist-prev/` are
-  gitignored. UI: Settings → Backend (`Restart backend`), a dismissible
+  gitignored. UI: Settings → Background service (`Restart service`, since Nocturne A7 2026-09-13), a dismissible
   `New version available` toast, a persistent amber `Update` pill after
   dismissal, a confirmation that names the running sessions and says they
   stay in HISTORY (plus a note when dependencies must be installed first);
@@ -569,7 +569,18 @@ multi-pane layouts on top.
   four" (default model, default permission mode, auto-run startup command,
   read-only usage display) are DELETED — their backends too (`/api/usage`,
   `/api/telemetry`, the auto-run registry, the global launch-defaults
-  store). The panel now holds ONLY status-line configuration (next bullet).
+  store). Since Nocturne A7 (2026-09-13) the panel is a v3 left-nav modal
+  with five pages: Status bar (the status-line checklist, next bullet, the
+  only LIVE preferences), Preferences (tool visibility, API keys, defaults —
+  mock until B6; where keys live is plan open decision 4), Keyboard,
+  Terminal colours (mock until B9; shape decided 2026-09-13, plan decision
+  10: presets + custom ground and text, ground + text only, terminal only,
+  status colours never themed, no top-bar switch — see
+  `memory/decisions/terminal-colours-shape.md`), Background service.
+  The same part restyled the `Add a project` dialog (header, tabs
+  `New folder` / `Clone a repository` / `From GitHub`, checklist rows,
+  footer) and the folder picker (`pk-` block) onto the Nocturne primitives,
+  behaviour and request bodies unchanged.
   Launch-dialog pre-selection comes from per-project defaults in
   `projects.json` (which stay — a separate feature) with a hardcoded
   fallback; a per-launch choice always wins.

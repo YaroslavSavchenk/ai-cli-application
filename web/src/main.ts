@@ -659,7 +659,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         e.preventDefault();
         settings.close();
       } else if (isFolderPickerOpen()) {
-        // Topmost: the folder picker can open OVER the New Project dialog.
+        // Topmost: the folder picker can open OVER the Add a project dialog.
         e.preventDefault();
         closeFolderPicker();
       } else if (isNewProjectDialogOpen()) {
