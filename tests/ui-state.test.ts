@@ -69,6 +69,8 @@ function resetState(): void {
   st.state.views = [];
   st.state.activeViewId = '';
   st.state.drawer = null;
+  st.state.leftPanel = 'files';
+  st.state.filesWidth = st.FILES_W_DEFAULT;
   st.state.wsLatencyMs = null;
   st.state.serverStartedAt = null;
   st.state.backendReachable = true;
@@ -462,4 +464,72 @@ test('projectName resolves to the NAME — never the path, never the id', () => 
   assert.equal(st.projectName('gone'), null, 'an unknown id is null, never a fabricated label');
   assert.equal(st.projectName(undefined), null, 'a session with no project is null');
   st.setProjects([]);
+});
+
+// ---------------------------------------------------------------------------
+// The left panel (Nocturne A5) rides in the same v2 bag as the pane splits
+// ---------------------------------------------------------------------------
+
+test('saveUi/loadUi: a dragged Files width and a closed panel survive a reload', () => {
+  st.initServer([], []);
+  st.loadUi();
+  assert.equal(st.state.leftPanel, 'files', 'the panel is wanted by default');
+  assert.equal(st.state.filesWidth, st.FILES_W_DEFAULT);
+
+  st.setFilesWidth(460);
+  st.toggleLeftPanel('files'); // closes it
+
+  // What a reload really does: forget the module state, read the bag back.
+  st.state.filesWidth = st.FILES_W_DEFAULT;
+  st.state.leftPanel = 'files';
+  st.loadUi();
+
+  assert.equal(st.state.filesWidth, 460, 'the dragged width is still the dragged width');
+  assert.equal(st.state.leftPanel, null, 'and the panel the user closed stays closed');
+
+  // Same key as the splits, no version bump.
+  const bag = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.deepEqual([bag.filesWidth, bag.leftPanel], [460, null]);
+});
+
+test('saveUi: a live drag (commit false) writes nothing; the commit at the end does', () => {
+  st.initServer([], []);
+  st.loadUi();
+  st.setFilesWidth(420, false);
+  let bag = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.equal(bag.filesWidth, st.FILES_W_DEFAULT, 'sixty writes a second is what this avoids');
+  st.setFilesWidth(420, true);
+  bag = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.equal(bag.filesWidth, 420);
+});
+
+test('loadUi: a garbage width falls back to the default, and a garbage wish to open', () => {
+  st.initServer([], []);
+  for (const bad of ['wide', null, {}, [], true, Number.NaN]) {
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ views: [], active: null, filesWidth: bad, leftPanel: 'sideways' }),
+    );
+    st.loadUi();
+    assert.equal(st.state.filesWidth, st.FILES_W_DEFAULT, `filesWidth: ${JSON.stringify(bad)}`);
+    assert.equal(st.state.leftPanel, 'files', 'an unknown panel name is not a panel');
+  }
+
+  // Out of range is not garbage — it is clamped, like a split fraction.
+  memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ views: [], active: null, filesWidth: 9000 }));
+  st.loadUi();
+  assert.equal(st.state.filesWidth, st.FILES_W_MAX);
+  memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ views: [], active: null, filesWidth: 12 }));
+  st.loadUi();
+  assert.equal(st.state.filesWidth, st.FILES_W_MIN);
+});
+
+test('loadUi: a pre-A5 v2 blob (neither key) opens the panel at the default width', () => {
+  st.initServer([], []);
+  memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ views: [], active: null }));
+  st.state.leftPanel = null;
+  st.state.filesWidth = 512;
+  st.loadUi();
+  assert.equal(st.state.leftPanel, 'files');
+  assert.equal(st.state.filesWidth, st.FILES_W_DEFAULT);
 });

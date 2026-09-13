@@ -487,8 +487,9 @@ multi-pane layouts on top.
   2026-09-10: labels only on the cards, one on-demand explanation); Esc
   closes that popover first. v3's command preview is left out (user's call
   2026-09-10; the no-code rule stands). Per-id resume entries in Start from
-  arrive with B5; until then per-id resume lives in the sessions drawer's
-  HISTORY section, grouped per project folder. No API-key notice before
+  arrive with B5; until then per-id resume lives in the sessions panel's
+  "Earlier" section (the HISTORY section until Nocturne A5, 2026-09-13),
+  grouped per project folder. No API-key notice before
   B5. `composeSpawn()` is the ONE composition path for all kinds, and every
   pre-A4 dialog state emits byte-identical argv (pinned through the real
   dialog by `tests/ui-launch-dialog.test.ts`). GONE since 2026-09-06: the
@@ -505,8 +506,29 @@ multi-pane layouts on top.
   header to the strip to extract, drag along the strip to reorder — every
   drag has a keyboard/button equivalent (see the shortcuts overlay). The
   arrangement is client-local, persisted as localStorage schema v2 with
-  migration from v1. Either way, sessions exist independently of
+  migration from v1 (since Nocturne A5, 2026-09-13, the same v2 bag also
+  carries the Files panel's wish and width — the reader ignores unknown
+  keys, so no bump). Either way, sessions exist independently of
   tabs/panes/splits.
+- **Files panel** (Nocturne A5, landed 2026-09-13; visual, mocked until
+  B2/B3): a third middle-row column left of the pane grid (after the
+  Projects drawer), flex sibling like the drawers so opening or dragging it
+  refits every pane through the one fit → ws resize seam. Tabs Files
+  (summary row, tree with folder icons and per-extension badges, per-file
+  +/-, amber pulse on files being edited and their ancestor folders) and
+  Commits (message, hash, author, relative time, +/-); header shows the
+  focused session's project name. Resizable 200–520 px by its right edge
+  (pointer, arrow keys, home/enter/double-click resets to 300). Shown when
+  the wish is on AND a session is alive (auto-opens with the first
+  session); the Files toggle closes the Projects drawer when it opens
+  (v3 semantics); Esc closes it only when focus is inside it and hands the
+  keyboard back to the terminal. It is NOT a keyboard owner: an open Files
+  panel never blocks the window-activation refocus of the terminal
+  (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2/B3 land, each tab
+  carries one quiet "Example data until the panel reads your …" line —
+  the data is placeholder, the project name is real. Sessions panel
+  (right, 300 px) restyled in the same part: "Running now" / "Earlier",
+  "Side by side", "Continue" / "Start again", armed "End" / "Forget".
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.

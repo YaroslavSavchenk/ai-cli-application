@@ -121,7 +121,10 @@ test('the sessions drawer really composes its history meta from this rule (sourc
   assert.notEqual(start, -1, 'sessions.ts must still define historyRow');
   const body = src.slice(start, start + 2000);
   // Non-vacuity: the slice really is the row builder.
-  assert.ok(body.includes("el('div', 'sess-meta')"), 'historyRow must still build a sess-meta line');
+  assert.ok(
+    body.includes("el('div', 'sess-meta is-hist')"),
+    'historyRow must still build a sess-meta line (Nocturne A5: the earlier-run variant)',
+  );
   assert.ok(body.includes('fmtAgo(entry.lastUsedAt)'), 'historyRow must still show the age');
   assert.ok(
     body.includes('if (!isClaudeCommand(entry.command)) parts.push(commandLabel(entry.command));'),
@@ -149,17 +152,19 @@ test('the sessions drawer names a model through modelLabel at BOTH render sites,
   const src = readFileSync(SESSIONS, 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-  // Active row: the model tag, falling back to the command's product name.
-  const tagLines = code.split('\n').filter((l) => l.includes("'sess-model'"));
-  assert.equal(tagLines.length, 1, 'non-vacuity: exactly one sess-model tag builder');
+  // Active row: Nocturne A5 folded the separate model tag into the row's meta
+  // line ("api, Claude Code Opus"), so the site moved — the rule did not.
+  const tagLines = code.split('\n').filter((l) => l.includes('const tool ='));
+  assert.equal(tagLines.length, 1, 'non-vacuity: exactly one active-row tool/model builder');
   assert.ok(
     /modelLabel\(\s*modelId\s*\)/.test(tagLines[0] as string),
-    `the drawer model tag must go through modelLabel: ${(tagLines[0] as string).trim()}`,
+    `the drawer model name must go through modelLabel: ${(tagLines[0] as string).trim()}`,
   );
   assert.ok(
     (tagLines[0] as string).includes('commandLabel(info.command)'),
     'a session with no model still names its command through commandLabel, never the raw command',
   );
+  assert.equal(code.includes("'sess-model'"), false, 'the separate model tag is gone since A5');
 
   // History row: the meta line's model part.
   const start = code.indexOf('function historyRow(');

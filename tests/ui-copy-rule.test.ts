@@ -248,7 +248,9 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     // reading the file for its "no CLI shapes" verdict on it to mean anything.
     ['ui/keys.ts', '.term-host'],
     ['ui/keys.ts', 'AltGraph'],
-    ['ui/sessions.ts', 'start again'],
+    // Nocturne A5 took the v3 word for the resume action ('Continue'); an entry
+    // with no pinned conversation still says exactly what it can do instead.
+    ['ui/sessions.ts', 'Start again'],
     // 2026-09-08: the keyboard help the user asked for — the settings panel's
     // KEYS excerpt, the statusline opener and the overlay's reason line. Plain
     // words plus key NAMES, which the copy rule allows (a chord is not a flag).

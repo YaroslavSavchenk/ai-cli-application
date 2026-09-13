@@ -213,6 +213,39 @@
   --xt-bright-magenta: #d1b9ff;
   --xt-bright-cyan: #89dae3;
 
+  /* ---- file-type badge chips (Files panel, A5) -------------------------------
+     A DATA table, not a role palette: one background/ink pair per file-type
+     family, transcribed from the v3 reference's own map. oklch() is safe for
+     every one of them — they are chrome marks and never reach xterm's theme
+     parser (see the header rule about --xt-*). app.css maps a family onto the
+     chip through [data-kind]. */
+  --badge-ts-bg: oklch(0.35 0.06 250);
+  --badge-ts-fg: oklch(0.85 0.1 250);
+  --badge-js-bg: oklch(0.4 0.08 90);
+  --badge-js-fg: oklch(0.9 0.12 95);
+  --badge-py-bg: oklch(0.35 0.06 230);
+  --badge-py-fg: oklch(0.88 0.12 95);
+  --badge-md-bg: var(--color-neutral-800);
+  --badge-md-fg: var(--color-neutral-200);
+  --badge-json-bg: oklch(0.38 0.07 80);
+  --badge-json-fg: oklch(0.9 0.1 85);
+  --badge-ps-bg: oklch(0.35 0.07 240);
+  --badge-ps-fg: oklch(0.88 0.08 240);
+  --badge-css-bg: oklch(0.35 0.08 300);
+  --badge-css-fg: oklch(0.88 0.1 300);
+  --badge-html-bg: oklch(0.4 0.1 35);
+  --badge-html-fg: oklch(0.9 0.1 40);
+  --badge-sh-bg: var(--color-neutral-800);
+  --badge-sh-fg: oklch(0.85 0.12 150);
+  --badge-yml-bg: oklch(0.35 0.05 340);
+  --badge-yml-fg: oklch(0.88 0.08 340);
+  --badge-rs-bg: oklch(0.38 0.08 40);
+  --badge-rs-fg: oklch(0.88 0.1 45);
+  --badge-go-bg: oklch(0.35 0.07 210);
+  --badge-go-fg: oklch(0.88 0.1 210);
+  --badge-plain-bg: var(--color-neutral-900);
+  --badge-plain-fg: var(--color-neutral-500);
+
   /* ---- type ------------------------------------------------------------------
      Inter (bundled latin-subset variable woff2, 400-700) carries chrome;
      JetBrains Mono (bundled woff2 400/500/700, official release) leads the
@@ -260,9 +293,16 @@
   --tab-h: 32px;        /* A2: v3 tab chip (was 30px, Legacy)                 */
   --status-h: 26px;     /* A2: v3 statusline                                  */
   --panehd-h: 38px;     /* A3: v3 pane header (was 30px, Legacy)              */
-  --drawerhd-h: 34px;
+  --panelhd-h: 44px;    /* A5: v3 panel header (Files, drawers)               */
+  --modalhd-h: 34px;    /* shortcuts overlay header                           */
   --drawer-proj-w: 272px;
-  --drawer-sess-w: 296px;
+  --drawer-sess-w: 300px; /* A5: v3 sessions panel                            */
+  --files-row-h: 26px;  /* A5: Files tree row                                 */
+  --files-grip-w: 6px;  /* A5: width-drag hit zone on the panel's right edge   */
+  --files-badge-w: 18px; /* A5: file-type chip                                */
+  --files-badge-h: 16px;
+  --dot-row: 8px;       /* A5: status dot in a Sessions panel row             */
+  --ctl-h-row: 24px;    /* A5: row buttons (Side by side, Continue, end)      */
   --line: 1px;
   --tick: 2px;          /* active-tab glow bar, insertion caret               */
   --dot: 7px;           /* status dots                                        */
@@ -288,6 +328,7 @@
   --t-fade: 0.2s;       /* fadeUp: dialogs, popover, new content              */
   --t-slide: 0.18s;     /* drawer slide-in                                    */
   --t-pulse: 1.6s;      /* attention pulse (sanctioned, infinite)             */
+  --t-pulse-edit: 1.2s; /* A5 edited-file pulse (README-v3's own number)      */
   --t-spin: 0.7s;       /* boot-step spinner (sanctioned, handoff §10)        */
 
   /* ---- z ---------------------------------------------------------------------- */

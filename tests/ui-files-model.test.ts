@@ -1,0 +1,636 @@
+/**
+ * Nocturne part A5 — the Files panel's LOGIC, and the state rules the panel
+ * hangs on.
+ *
+ * Two halves, both driven through the real modules:
+ *
+ *   1. `web/src/ui/files-model.ts` — flat path list → tree, tree → the rows a
+ *      render actually draws (indent, caret, which rows pulse), the
+ *      since-last-commit summary, the plural copy, and the per-extension
+ *      badge table. This is the half that survives part B2 unchanged: the
+ *      mock module is replaced by `git diff --numstat`, and every rule below
+ *      still has to hold.
+ *   2. `web/src/state.ts` — the width clamp (200..520), the toggle semantics
+ *      (opening Files closes the Projects drawer; a drawer never touches
+ *      Files) and the visibility rule (`leftPanel === 'files'` AND a session
+ *      that has not exited).
+ *
+ * The mock module is checked too, but only for the things that would make the
+ * panel lie about itself: it must carry the numbers the summary row prints and
+ * it must not have drifted into a second author.
+ *
+ * NOT claimed here (needs a browser, `.claude/skills/verify-terminal/SKILL.md`):
+ * that the panel is laid out or coloured as specified, that the drag really
+ * resizes a PTY, or that anything is legible.
+ */
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { SessionInfo } from '../shared/protocol.ts';
+import {
+  badgeFor,
+  buildTree,
+  commitsHeaderText,
+  diffSummary,
+  summaryText,
+  treeRows,
+  type FileChange,
+} from '../web/src/ui/files-model.ts';
+import { MOCK_BRANCH, MOCK_COMMITS, MOCK_FILES, MOCK_OPEN_FOLDERS } from '../web/src/ui/files-mock.ts';
+
+// state.ts touches localStorage inside function bodies; same shim as tests/ui-state.test.ts.
+class MemoryStorage {
+  #map = new Map<string, string>();
+  getItem(k: string): string | null {
+    return this.#map.has(k) ? (this.#map.get(k) as string) : null;
+  }
+  setItem(k: string, v: string): void {
+    this.#map.set(k, v);
+  }
+  removeItem(k: string): void {
+    this.#map.delete(k);
+  }
+  clear(): void {
+    this.#map.clear();
+  }
+}
+const memoryStorage = new MemoryStorage();
+(globalThis as unknown as { localStorage: MemoryStorage }).localStorage = memoryStorage;
+const st = await import('../web/src/state.ts');
+
+function mkSession(id: string, status: SessionInfo['status'] = 'running'): SessionInfo {
+  return {
+    id,
+    title: id,
+    command: 'bash',
+    args: [],
+    cwd: '/tmp',
+    status,
+    cols: 80,
+    rows: 24,
+    createdAt: new Date().toISOString(),
+    attention: false,
+  };
+}
+
+beforeEach(() => {
+  memoryStorage.clear();
+  st.state.sessions = new Map();
+  st.state.projects = [];
+  st.state.views = [];
+  st.state.activeViewId = '';
+  st.state.drawer = null;
+  st.state.leftPanel = 'files';
+  st.state.filesWidth = st.FILES_W_DEFAULT;
+});
+
+// ---------------------------------------------------------------------------
+// The tree
+// ---------------------------------------------------------------------------
+
+const SAMPLE: FileChange[] = [
+  { path: 'web/src/main.ts', add: 10, del: 2 },
+  { path: 'web/src/ui/files.ts', add: 5, del: 0, editing: true },
+  { path: 'web/README.md' },
+  { path: 'server/index.ts', add: 1, del: 1 },
+  { path: 'LICENSE' },
+];
+
+test('buildTree: flat paths become folders and files, in the order they arrived', () => {
+  const tree = buildTree(SAMPLE);
+  assert.deepEqual(
+    tree.map((n) => `${n.name}${n.dir ? '/' : ''}`),
+    ['web/', 'server/', 'LICENSE'],
+    'roots keep input order — no invented sorting (B2 decides that with real data)',
+  );
+  const web = tree[0];
+  assert.equal(web?.path, 'web');
+  assert.deepEqual(
+    (web?.children ?? []).map((n) => n.name),
+    ['src', 'README.md'],
+  );
+  const src = web?.children[0];
+  assert.equal(src?.dir, true);
+  assert.deepEqual(
+    (src?.children ?? []).map((n) => n.name),
+    ['main.ts', 'ui'],
+    'a folder discovered through a later path is created where it was first seen',
+  );
+});
+
+test('buildTree: a folder carries the sums and the editing flag of everything beneath it', () => {
+  const tree = buildTree(SAMPLE);
+  const web = tree[0];
+  assert.equal(web?.add, 15, 'web = 10 + 5');
+  assert.equal(web?.del, 2);
+  assert.equal(web?.editing, true, 'a folder holding an edited file is busy');
+  const server = tree[1];
+  assert.equal(server?.editing, false, 'a folder with nothing being edited is not');
+  const license = tree[2];
+  assert.equal(license?.dir, false);
+  assert.equal(license?.add, 0);
+});
+
+test('buildTree: an empty list is an empty tree, and a stray empty path is ignored', () => {
+  assert.deepEqual(buildTree([]), []);
+  assert.deepEqual(buildTree([{ path: '' }]), []);
+});
+
+test('treeRows: indent is 8 + depth * 14, and the caret states the folder', () => {
+  const open = new Set(['web', 'web/src', 'web/src/ui', 'server']);
+  const rows = treeRows(buildTree(SAMPLE), open);
+  const byPath = new Map(rows.map((r) => [r.path, r]));
+  assert.equal(byPath.get('web')?.indent, 8);
+  assert.equal(byPath.get('web/src')?.indent, 22);
+  assert.equal(byPath.get('web/src/ui')?.indent, 36);
+  assert.equal(byPath.get('web/src/ui/files.ts')?.indent, 50);
+  assert.equal(byPath.get('web')?.caret, '▾');
+  assert.equal(byPath.get('web/src/main.ts')?.caret, '', 'a file has no caret');
+});
+
+test('treeRows: a closed folder hides its whole subtree, and reopening brings it back', () => {
+  const closed = treeRows(buildTree(SAMPLE), new Set(['web']));
+  assert.deepEqual(
+    closed.map((r) => r.path),
+    ['web', 'web/src', 'web/README.md', 'server', 'LICENSE'],
+    'web/src is drawn but closed, so nothing under it is',
+  );
+  const opened = treeRows(buildTree(SAMPLE), new Set(['web', 'web/src']));
+  assert.ok(opened.some((r) => r.path === 'web/src/main.ts'));
+  assert.equal(
+    opened.some((r) => r.path === 'web/src/ui/files.ts'),
+    false,
+    'web/src/ui is still closed',
+  );
+});
+
+test('treeRows: the amber pulse marks the edited file AND every folder above it, nothing else', () => {
+  const open = new Set(['web', 'web/src', 'web/src/ui', 'server']);
+  const rows = treeRows(buildTree(SAMPLE), open);
+  const busy = rows.filter((r) => r.busy).map((r) => r.path);
+  assert.deepEqual(busy, ['web', 'web/src', 'web/src/ui', 'web/src/ui/files.ts']);
+  const editing = rows.filter((r) => r.editing).map((r) => r.path);
+  assert.deepEqual(editing, ['web/src/ui/files.ts'], 'only a FILE is ever "editing"');
+});
+
+test('treeRows: a file knows whether it carries a diff — that is what decides its ink', () => {
+  const rows = treeRows(buildTree(SAMPLE), new Set(['web', 'web/src']));
+  const main = rows.find((r) => r.path === 'web/src/main.ts');
+  assert.equal(main?.hasDiff, true);
+  assert.equal(main?.add, 10);
+  assert.equal(main?.del, 2);
+  const readme = rows.find((r) => r.path === 'web/README.md');
+  assert.equal(readme?.hasDiff, false, 'an untouched file shows no numbers');
+});
+
+// ---------------------------------------------------------------------------
+// Summary + copy
+// ---------------------------------------------------------------------------
+
+test('diffSummary: totals, and only files with a real diff are counted', () => {
+  const s = diffSummary(SAMPLE);
+  assert.deepEqual(s, { add: 16, del: 3, files: 3 });
+  assert.deepEqual(diffSummary([]), { add: 0, del: 0, files: 0 });
+  assert.deepEqual(
+    diffSummary([{ path: 'a.ts', add: 0, del: 0 }]),
+    { add: 0, del: 0, files: 0 },
+    'a zero-line entry is not a changed file',
+  );
+});
+
+test('counts are pluralised in both tabs (README-v3 copy rule)', () => {
+  assert.equal(summaryText(1), 'since last commit in 1 file');
+  assert.equal(summaryText(0), 'since last commit in 0 files');
+  assert.equal(summaryText(7), 'since last commit in 7 files');
+  assert.equal(commitsHeaderText('main', 1), 'main, 1 commit');
+  assert.equal(commitsHeaderText('main', 5), 'main, 5 commits');
+  assert.equal(commitsHeaderText('release', 0), 'release, 0 commits');
+});
+
+// ---------------------------------------------------------------------------
+// Badges
+// ---------------------------------------------------------------------------
+
+test('badgeFor: the v3 table, including the families that share a colour', () => {
+  assert.deepEqual(badgeFor('main.ts'), { label: 'TS', kind: 'ts' });
+  assert.deepEqual(badgeFor('App.tsx'), { label: 'TSX', kind: 'ts' });
+  assert.deepEqual(badgeFor('x.js'), { label: 'JS', kind: 'js' });
+  assert.deepEqual(badgeFor('x.jsx'), { label: 'JSX', kind: 'js' });
+  assert.deepEqual(badgeFor('make-icon.mjs'), { label: 'JS', kind: 'js' });
+  assert.deepEqual(badgeFor('a.py'), { label: 'PY', kind: 'py' });
+  assert.deepEqual(badgeFor('README.md'), { label: 'MD', kind: 'md' });
+  assert.deepEqual(badgeFor('package.json'), { label: '{ }', kind: 'json' });
+  assert.deepEqual(badgeFor('launch.ps1'), { label: 'PS', kind: 'ps' });
+  assert.deepEqual(badgeFor('app.css'), { label: 'CSS', kind: 'css' });
+  assert.deepEqual(badgeFor('index.html'), { label: '<>', kind: 'html' });
+  assert.deepEqual(badgeFor('run.sh'), { label: 'SH', kind: 'sh' });
+  assert.deepEqual(badgeFor('ci.yml'), { label: 'YML', kind: 'yml' });
+  assert.deepEqual(badgeFor('ci.yaml'), { label: 'YML', kind: 'yml' });
+  // `.toml` is NOT a family: README-v3 lists thirteen marks and TML is none of
+  // them, so it falls through to the neutral chip like any other unknown type.
+  assert.deepEqual(badgeFor('Cargo.toml'), { label: '·', kind: 'plain' });
+  assert.deepEqual(badgeFor('main.rs'), { label: 'RS', kind: 'rs' });
+  assert.deepEqual(badgeFor('main.go'), { label: 'GO', kind: 'go' });
+});
+
+test('badgeFor: an unknown type, a dotfile and a file with no extension all get the neutral mark', () => {
+  assert.deepEqual(badgeFor('LICENSE'), { label: '·', kind: 'plain' });
+  assert.deepEqual(badgeFor('.gitignore'), { label: '·', kind: 'plain' });
+  assert.deepEqual(badgeFor('notes.xyz'), { label: '·', kind: 'plain' });
+  assert.deepEqual(badgeFor('MAIN.TS'), { label: 'TS', kind: 'ts' }, 'the extension is case-insensitive');
+  assert.deepEqual(badgeFor('archive.tar.gz'), { label: '·', kind: 'plain' }, 'only the LAST extension counts');
+});
+
+// ---------------------------------------------------------------------------
+// The mock (placeholder until B2/B3) — it may be fake, it may not be dishonest
+// ---------------------------------------------------------------------------
+
+test('the mock file list is flat, and the summary it produces is the one the panel prints', () => {
+  assert.ok(MOCK_FILES.length >= 10, 'non-vacuity: the placeholder tree has content');
+  const s = diffSummary(MOCK_FILES);
+  assert.deepEqual(s, { add: 176, del: 46, files: 5 });
+  assert.equal(summaryText(s.files), 'since last commit in 5 files');
+  // Every folder the mock says is open must exist in the tree it builds from,
+  // or the panel opens with a set of names that mean nothing.
+  const rows = treeRows(buildTree(MOCK_FILES), new Set(MOCK_OPEN_FOLDERS));
+  const dirs = new Set(rows.filter((r) => r.dir).map((r) => r.path));
+  for (const f of MOCK_OPEN_FOLDERS) assert.ok(dirs.has(f), `open folder ${f} is in the tree`);
+  assert.ok(rows.some((r) => r.busy), 'the placeholder shows the amber pulse at least once');
+});
+
+test('the mock commits carry this repo`s author and a plural-correct header', () => {
+  assert.equal(MOCK_COMMITS.length, 5);
+  for (const c of MOCK_COMMITS) {
+    assert.equal(c.author, 'Sava');
+    assert.match(c.hash, /^[0-9a-f]{7}$/, 'a short hash, the only code-shaped value the spec allows');
+    assert.ok(c.message.length > 0 && c.add >= 0 && c.del >= 0);
+  }
+  assert.equal(commitsHeaderText(MOCK_BRANCH, MOCK_COMMITS.length), 'main, 5 commits');
+});
+
+// ---------------------------------------------------------------------------
+// State: width, toggle, visibility
+// ---------------------------------------------------------------------------
+
+test('the width clamps to 200..520 and never becomes a fraction or a NaN', () => {
+  assert.equal(st.FILES_W_MIN, 200);
+  assert.equal(st.FILES_W_MAX, 520);
+  assert.equal(st.FILES_W_DEFAULT, 300);
+  assert.equal(st.clampFilesWidth(300), 300);
+  assert.equal(st.clampFilesWidth(199), 200);
+  assert.equal(st.clampFilesWidth(-4000), 200);
+  assert.equal(st.clampFilesWidth(521), 520);
+  assert.equal(st.clampFilesWidth(99999), 520);
+  assert.equal(st.clampFilesWidth(301.6), 302);
+  assert.equal(st.clampFilesWidth(Number.NaN), 300);
+});
+
+test('setFilesWidth stores the clamped value and hands it back to the caller', () => {
+  assert.equal(st.setFilesWidth(1000, false), 520);
+  assert.equal(st.state.filesWidth, 520);
+  assert.equal(st.setFilesWidth(120), 200);
+  assert.equal(st.state.filesWidth, 200);
+});
+
+test('toggling Files: it opens, it closes, and opening it closes the Projects drawer', () => {
+  st.state.leftPanel = null;
+  st.state.drawer = 'projects';
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, 'files');
+  assert.equal(st.state.drawer, null, 'two left panels at once would squeeze the terminal');
+
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, null, 'the same toggle closes it');
+});
+
+test('toggling Files leaves the SESSIONS drawer alone (it is on the other side)', () => {
+  st.state.leftPanel = null;
+  st.state.drawer = 'sessions';
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.drawer, 'sessions');
+});
+
+test('toggling a drawer never touches the Files panel (v3: only Files closes Projects)', () => {
+  st.state.leftPanel = 'files';
+  st.toggleDrawer('projects');
+  assert.equal(st.state.drawer, 'projects');
+  assert.equal(st.state.leftPanel, 'files', 'the wish survives; the layout is the user`s to make');
+  st.toggleDrawer('sessions');
+  assert.equal(st.state.leftPanel, 'files');
+  st.closeDrawer();
+  assert.equal(st.state.leftPanel, 'files');
+});
+
+test('visibility = the user wants it AND a session is alive', () => {
+  st.state.leftPanel = 'files';
+  assert.equal(st.aliveSessionCount(), 0);
+  assert.equal(st.filesPanelVisible(), false, 'nothing to be about yet');
+
+  st.initServer([], [mkSession('s1')]);
+  assert.equal(st.aliveSessionCount(), 1);
+  assert.equal(st.filesPanelVisible(), true);
+
+  st.state.leftPanel = null;
+  assert.equal(st.filesPanelVisible(), false, 'closed is closed, session or no session');
+});
+
+test('an EXITED session does not keep the panel open, and the toggle still records the wish', () => {
+  st.initServer([], [mkSession('s1', 'exited'), mkSession('s2', 'exited')]);
+  assert.equal(st.aliveSessionCount(), 0);
+  st.state.leftPanel = null;
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, 'files', 'the button always answers');
+  assert.equal(st.filesPanelVisible(), false, 'but the panel stays away until something runs');
+});
+
+test('the panel starts WANTED, so it appears by itself with the first session', () => {
+  // A module-level default, which this runner's shared singleton cannot show
+  // after the reset above — so it is read where it is declared.
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'src', 'state.ts'),
+    'utf8',
+  );
+  const init = src.slice(src.indexOf('export const state: AppState = {'));
+  assert.ok(init.length > 100, 'non-vacuity: the state initializer was found');
+  assert.match(init.slice(0, 400), /leftPanel: 'files',/);
+  assert.match(init.slice(0, 400), /filesWidth: FILES_W_DEFAULT,/);
+});
+
+// ===========================================================================
+// Gap closure (test-engineer, A5 gate): the shapes a real `git diff --numstat`
+// walk will hand this model in part B2 — deep spines, unsorted input, implicit
+// folders — plus the edges the panel's own arithmetic hangs on.
+// ===========================================================================
+
+test('buildTree ORDER RULE: input order, verbatim — folders are not hoisted, nothing is sorted', () => {
+  // The rule the code implements (files-model.ts buildTree): a node appears
+  // where its path was FIRST seen, siblings keep that order, and folders are
+  // NOT grouped before files. git already returns a stable order; inventing a
+  // second one is B2's decision to make with real data, not this model's.
+  const tree = buildTree([
+    { path: 'zeta.md' },
+    { path: 'alpha/one.ts' },
+    { path: 'beta.md' },
+    { path: 'alpha/two.ts' },
+  ]);
+  assert.deepEqual(
+    tree.map((n) => `${n.name}${n.dir ? '/' : ''}`),
+    ['zeta.md', 'alpha/', 'beta.md'],
+    'a file BEFORE a folder stays before it (no folders-first, no alphabetical)',
+  );
+  assert.deepEqual(
+    (tree[1]?.children ?? []).map((n) => n.name),
+    ['one.ts', 'two.ts'],
+    'and a second file in a known folder joins it in arrival order',
+  );
+});
+
+test('buildTree: every ancestor is created implicitly — a folder never has to be listed', () => {
+  const tree = buildTree([{ path: 'a/b/c/d/deep.ts', add: 3, del: 1 }]);
+  const names: string[] = [];
+  let node = tree[0];
+  while (node !== undefined) {
+    names.push(`${node.name}:${node.dir ? 'dir' : 'file'}:${node.path}`);
+    node = node.children[0];
+  }
+  assert.deepEqual(names, [
+    'a:dir:a',
+    'b:dir:a/b',
+    'c:dir:a/b/c',
+    'd:dir:a/b/c/d',
+    'deep.ts:file:a/b/c/d/deep.ts',
+  ]);
+});
+
+test('buildTree: the sums climb the WHOLE spine, and a sibling branch stays at zero', () => {
+  const tree = buildTree([
+    { path: 'x/y/z/touched.ts', add: 4, del: 2, editing: true },
+    { path: 'x/other/quiet.ts', add: 1, del: 0 },
+  ]);
+  const x = tree[0];
+  assert.equal(x?.add, 5, 'x = 4 + 1');
+  assert.equal(x?.del, 2);
+  assert.equal(x?.editing, true);
+  const y = x?.children[0];
+  assert.equal(y?.name, 'y');
+  assert.equal(y?.editing, true);
+  assert.equal(y?.children[0]?.editing, true, 'z, the last folder above the file');
+  const other = x?.children[1];
+  assert.equal(other?.name, 'other');
+  assert.equal(other?.editing, false, 'a sibling branch never pulses');
+  assert.equal(other?.add, 1);
+});
+
+test('buildTree: a leading slash and a doubled slash are segments that do not exist', () => {
+  const tree = buildTree([{ path: '/web//src/main.ts', add: 1 }]);
+  assert.deepEqual(
+    (tree[0]?.children ?? []).map((n) => n.path),
+    ['web/src'],
+    'empty segments are dropped, so the path keys stay the ones git prints',
+  );
+  assert.equal(tree[0]?.path, 'web');
+});
+
+test('buildTree: a missing add or del counts as zero, it is not NaN', () => {
+  const tree = buildTree([{ path: 'a/only-add.ts', add: 7 }, { path: 'a/only-del.ts', del: 3 }]);
+  assert.equal(tree[0]?.add, 7);
+  assert.equal(tree[0]?.del, 3);
+  assert.equal(tree[0]?.children[0]?.del, 0);
+  assert.equal(tree[0]?.children[1]?.add, 0);
+});
+
+test('KNOWN LIMIT: a path listed as a file AND used as a folder keeps the first shape', () => {
+  // `git diff --numstat` cannot produce both for one path, so this is an
+  // impossible input, pinned rather than defended against: the first entry
+  // decides, and the second entry's children hang under a FILE node, which
+  // `treeRows` never descends into. If B2 ever feeds this model a listing
+  // that CAN contain both, this is the test that must change first.
+  const tree = buildTree([{ path: 'a', add: 1 }, { path: 'a/b.ts', add: 2 }]);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0]?.dir, false, 'the file came first, so `a` stays a file');
+  assert.equal(tree[0]?.children.length, 1, 'the child is built, but nothing renders it');
+  const rows = treeRows(tree, new Set(['a']));
+  assert.deepEqual(rows.map((r) => r.path), ['a'], 'the panel shows one row, never a half-tree');
+});
+
+test('KNOWN LIMIT: the same path twice adds up twice (a numstat walk lists a path once)', () => {
+  assert.deepEqual(diffSummary([{ path: 'a.ts', add: 2, del: 1 }, { path: 'a.ts', add: 3, del: 1 }]), {
+    add: 5,
+    del: 2,
+    files: 2,
+  });
+  const tree = buildTree([{ path: 'a.ts', add: 2 }, { path: 'a.ts', add: 3 }]);
+  assert.equal(tree.length, 1, 'the tree still holds ONE node for the path');
+  assert.equal(tree[0]?.add, 5);
+});
+
+test('treeRows: a folder row never prints numbers, even though its node carries the sums', () => {
+  const rows = treeRows(buildTree(SAMPLE), new Set(['web']));
+  const web = rows.find((r) => r.path === 'web');
+  assert.equal(web?.add, 0);
+  assert.equal(web?.del, 0);
+  assert.equal(web?.hasDiff, false, 'the +/- column belongs to files; a folder is a spine');
+  assert.equal(web?.editing, false, 'and a folder is never "editing" — it is `busy`');
+});
+
+test('treeRows: the open set is folders only — a FILE path in it changes nothing', () => {
+  const open = new Set(['web', 'web/src', 'web/src/main.ts', 'LICENSE']);
+  const rows = treeRows(buildTree(SAMPLE), open);
+  const main = rows.find((r) => r.path === 'web/src/main.ts');
+  assert.equal(main?.dir, false);
+  assert.equal(main?.open, false);
+  assert.equal(main?.caret, '');
+  assert.equal(rows.filter((r) => r.path === 'LICENSE').length, 1);
+});
+
+test('treeRows: indent keeps stepping past the third level (8 + depth * 14)', () => {
+  const files: FileChange[] = [{ path: 'a/b/c/d/e/leaf.ts', add: 1 }];
+  const open = new Set(['a', 'a/b', 'a/b/c', 'a/b/c/d', 'a/b/c/d/e']);
+  const rows = treeRows(buildTree(files), open);
+  assert.deepEqual(
+    rows.map((r) => r.indent),
+    [8, 22, 36, 50, 64, 78],
+  );
+  assert.deepEqual(
+    rows.map((r) => r.depth),
+    [0, 1, 2, 3, 4, 5],
+  );
+});
+
+test('treeRows: a closed folder deep in the spine cuts everything below it', () => {
+  const files: FileChange[] = [{ path: 'a/b/c/leaf.ts', add: 1, editing: true }];
+  const rows = treeRows(buildTree(files), new Set(['a', 'a/b/c']));
+  assert.deepEqual(rows.map((r) => r.path), ['a', 'a/b'], 'a/b is closed; opening a/b/c is moot');
+  assert.deepEqual(rows.filter((r) => r.busy).map((r) => r.path), ['a', 'a/b'], 'the pulse still reaches what IS drawn');
+});
+
+test('diffSummary: one-sided diffs count as changed, and a missing number is not a change', () => {
+  assert.deepEqual(diffSummary([{ path: 'a.ts', add: 5 }]), { add: 5, del: 0, files: 1 });
+  assert.deepEqual(diffSummary([{ path: 'a.ts', del: 5 }]), { add: 0, del: 5, files: 1 });
+  assert.deepEqual(diffSummary([{ path: 'a.ts' }]), { add: 0, del: 0, files: 0 });
+  assert.deepEqual(
+    diffSummary([{ path: 'a.ts', editing: true }]),
+    { add: 0, del: 0, files: 0 },
+    'a file being edited has not changed anything until it has',
+  );
+});
+
+test('badgeFor: multi-dot names take the LAST extension, and case never matters', () => {
+  assert.deepEqual(badgeFor('ui-files-model.test.ts'), { label: 'TS', kind: 'ts' });
+  assert.deepEqual(badgeFor('index.d.ts'), { label: 'TS', kind: 'ts' });
+  assert.deepEqual(badgeFor('vite.config.MJS'), { label: 'JS', kind: 'js' });
+  assert.deepEqual(badgeFor('App.TSX'), { label: 'TSX', kind: 'ts' });
+  assert.deepEqual(badgeFor('CI.YAML'), { label: 'YML', kind: 'yml' });
+});
+
+test('badgeFor: a name with no usable extension is the neutral mark, never a guess', () => {
+  assert.deepEqual(badgeFor('Makefile'), { label: '·', kind: 'plain' });
+  assert.deepEqual(badgeFor('LICENSE.'), { label: '·', kind: 'plain' }, 'a trailing dot is not an extension');
+  assert.deepEqual(badgeFor('.env'), { label: '·', kind: 'plain' }, 'a dotfile has no extension');
+  assert.deepEqual(badgeFor(''), { label: '·', kind: 'plain' });
+  assert.deepEqual(badgeFor('.eslintrc.json'), { label: '{ }', kind: 'json' }, 'a dotfile WITH one does');
+});
+
+test('badgeFor: every kind in the table is reachable, and `plain` only by falling through', () => {
+  const kinds = new Set(
+    [
+      'a.ts', 'a.tsx', 'a.js', 'a.jsx', 'a.mjs', 'a.py', 'a.md', 'a.json',
+      'a.ps1', 'a.css', 'a.html', 'a.sh', 'a.yml', 'a.yaml', 'a.rs', 'a.go',
+    ].map((n) => badgeFor(n).kind),
+  );
+  assert.deepEqual(
+    Array.from(kinds).sort(),
+    ['css', 'go', 'html', 'js', 'json', 'md', 'ps', 'py', 'rs', 'sh', 'ts', 'yml'],
+    'the 12 colour families the panel styles — losing one silently would drop a colour',
+  );
+  assert.equal(badgeFor('a.xyz').kind, 'plain');
+});
+
+test('commitsHeaderText: the branch is printed verbatim, whatever it is called', () => {
+  assert.equal(commitsHeaderText('feature/files-panel', 2), 'feature/files-panel, 2 commits');
+  assert.equal(commitsHeaderText('main', 100), 'main, 100 commits');
+});
+
+// ---------------------------------------------------------------------------
+// State: the notifications the chrome hangs on
+// ---------------------------------------------------------------------------
+
+const kinds: string[] = [];
+st.subscribe((k: string) => {
+  kinds.push(k);
+});
+
+test('clampFilesWidth: infinities and fractions land on a whole, in-range number', () => {
+  assert.equal(st.clampFilesWidth(Number.POSITIVE_INFINITY), st.FILES_W_DEFAULT);
+  assert.equal(st.clampFilesWidth(Number.NEGATIVE_INFINITY), st.FILES_W_DEFAULT);
+  assert.equal(st.clampFilesWidth(0), 200);
+  assert.equal(st.clampFilesWidth(200.4), 200);
+  assert.equal(st.clampFilesWidth(519.5), 520);
+  assert.equal(st.clampFilesWidth(520.6), 520, 'rounding never escapes the bound');
+  assert.equal(Number.isInteger(st.clampFilesWidth(333.333)), true);
+});
+
+test('setFilesWidth notifies the chrome on a COMMIT and stays silent during the drag', () => {
+  kinds.length = 0;
+  st.setFilesWidth(400, false);
+  assert.deepEqual(kinds, [], 'a live drag must not rebuild the chrome per pointermove');
+  st.setFilesWidth(400, true);
+  assert.deepEqual(kinds, ['panel']);
+  kinds.length = 0;
+  st.setFilesWidth(410);
+  assert.deepEqual(kinds, ['panel'], 'committing is the default');
+});
+
+test('toggleLeftPanel: closing Files leaves the Projects drawer alone', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = 'projects';
+  kinds.length = 0;
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, null);
+  assert.equal(st.state.drawer, 'projects', 'only OPENING Files takes the left side');
+  assert.deepEqual(kinds, ['panel']);
+});
+
+test('toggleLeftPanel: opening Files over the Projects drawer announces both changes', () => {
+  st.state.leftPanel = null;
+  st.state.drawer = 'projects';
+  kinds.length = 0;
+  st.toggleLeftPanel('files');
+  assert.deepEqual(kinds, ['drawer', 'panel'], 'the drawer closed AND the panel opened');
+});
+
+test('toggleLeftPanel: with no drawer open it is one change', () => {
+  st.state.leftPanel = null;
+  st.state.drawer = null;
+  kinds.length = 0;
+  st.toggleLeftPanel('files');
+  assert.deepEqual(kinds, ['panel']);
+  assert.equal(st.state.leftPanel, 'files');
+});
+
+test('toggleLeftPanel: over the Sessions drawer it is one change too (other side)', () => {
+  st.state.leftPanel = null;
+  st.state.drawer = 'sessions';
+  kinds.length = 0;
+  st.toggleLeftPanel('files');
+  assert.deepEqual(kinds, ['panel']);
+  assert.equal(st.state.drawer, 'sessions');
+});
+
+test('aliveSessionCount counts what has not exited, and the panel follows it', () => {
+  st.initServer([], [mkSession('a'), mkSession('b', 'exited'), mkSession('c')]);
+  assert.equal(st.aliveSessionCount(), 2);
+  st.state.leftPanel = 'files';
+  assert.equal(st.filesPanelVisible(), true);
+
+  st.state.sessions = new Map([['b', mkSession('b', 'exited')]]);
+  assert.equal(st.aliveSessionCount(), 0);
+  assert.equal(st.filesPanelVisible(), false, 'the last live session leaving takes the panel with it');
+
+  st.state.sessions = new Map();
+  st.state.leftPanel = null;
+  st.initServer([], [mkSession('d')]);
+  assert.equal(st.filesPanelVisible(), false, 'a live session does not re-open a panel the user closed');
+});

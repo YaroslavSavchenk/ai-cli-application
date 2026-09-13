@@ -75,9 +75,16 @@ export const FOCUS_OWNER_SELECTOR = '[role="dialog"], .drawer, .modal-scrim, .bo
  * hides the same way, and the boot/reconnect overlay only exists while it is
  * up — so "open" is `:not([hidden])` for the first two and mere existence for
  * the third.
+ *
+ * The Files panel (Nocturne A5) is EXCLUDED here even though it shares the
+ * `.drawer` chrome class: it is visible for the whole normal working state of
+ * the app, so counting it would make every refocus a no-op — exactly the
+ * 2026-09-08 bug (alt-tab back from the browser after a `/login` link and the
+ * keyboard is nowhere). It stays in `FOCUS_OWNER_SELECTOR` above: focus INSIDE
+ * the panel is still deliberate, the panel merely being on screen is not.
  */
 export const OPEN_FOCUS_OWNER_SELECTOR =
-  '.modal-scrim:not([hidden]), .drawer:not([hidden]), .boot-overlay';
+  '.modal-scrim:not([hidden]), .drawer:not(.files-panel):not([hidden]), .boot-overlay';
 
 /**
  * Is a surface that owns the keyboard OPEN?

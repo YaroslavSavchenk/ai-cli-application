@@ -8,7 +8,8 @@
  * connection readout with the update pill, hairline, GitHub account chip,
  * Settings, New session — the middle row (projects drawer, pane grid,
  * sessions drawer; drawers are structural flex siblings, so toggling one
- * resizes panes through the real fit -> ws-resize chain), the 32px tab strip,
+ * resizes panes through the real fit -> ws-resize chain; since A5 the Files
+ * panel is a third one, between the projects drawer and the grid), the 32px tab strip,
  * and the 26px statusline. Heights and colors live in tokens.css.
  *
  * A2 removed two top-bar controls: the Theme button (Nocturne is the only
@@ -34,6 +35,7 @@ import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
+import { initFilesPanel } from './ui/files.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
@@ -403,12 +405,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   brand.append(logo, el('div', 'wordmark', 'Session Manager'));
 
   const toggles = el('div', 'tb-toggles');
-  // Files: the panel itself arrives in part A5. Until then the toggle is a
-  // real button, disabled (so not in the tab order; its title is hover-only)
-  // — never a fake panel.
-  const filesBtn = button('tb-btn', 'Files');
-  filesBtn.disabled = true;
-  filesBtn.title = 'The Files panel is not available yet';
+  // Files (A5): a real toggle. It records the wish even with no session alive
+  // — the panel is about a running session, so it shows itself the moment one
+  // exists, and the button says so in its title meanwhile.
+  const filesBtn = button('tb-btn', 'Files', () => st.toggleLeftPanel('files'));
   const projectsBtn = button('tb-btn', 'Projects', () => st.toggleDrawer('projects'));
   projectsBtn.title = 'Projects';
   const sessionsBtn = button('tb-btn', 'Sessions', () => st.toggleDrawer('sessions'));
@@ -457,10 +457,16 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const main = el('div', 'main');
   const projAside = el('aside', 'drawer drawer-proj');
   projAside.hidden = true;
+  // Files sits between the Projects drawer and the grid (v3 order), and is a
+  // flex sibling like them: its width IS the grid's missing width, so opening
+  // or dragging it resizes every pane for real.
+  const filesAside = el('aside', 'drawer files-panel');
+  filesAside.hidden = true;
+  filesAside.setAttribute('aria-label', 'Files');
   const grid = el('div', 'grid');
   const sessAside = el('aside', 'drawer drawer-sess');
   sessAside.hidden = true;
-  main.append(projAside, grid, sessAside);
+  main.append(projAside, filesAside, grid, sessAside);
 
   // ---- bottom strip + statusline + modal host --------------------------------
   const strip = el('nav', 'tabstrip');
@@ -497,6 +503,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   });
   const sessionsDrawer = initSessionsDrawer(sessAside);
   const projectsDrawer = initProjectsDrawer(projAside);
+  const filesPanel = initFilesPanel(filesAside);
   // Last: its first render needs the grid mounted and sized. The dialog
   // opener is injected to avoid a panes ↔ launch import cycle.
   initPanes(grid, () => openLaunchDialog());
@@ -507,6 +514,18 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     sessionsBadge.textContent = String(n);
     projAside.hidden = st.state.drawer !== 'projects';
     sessAside.hidden = st.state.drawer !== 'sessions';
+    const filesOn = st.state.leftPanel === 'files';
+    const filesLive = st.aliveSessionCount() > 0;
+    const filesShown = st.filesPanelVisible();
+    filesAside.hidden = !filesShown;
+    // `is-on` is the WISH (the filled look the reference keeps while no session
+    // runs); `aria-pressed` is what is actually ON SCREEN — a screen reader
+    // must not be told a panel is open that is not.
+    filesBtn.classList.toggle('is-on', filesOn);
+    filesBtn.setAttribute('aria-pressed', filesShown ? 'true' : 'false');
+    // The sentence belongs to the wanted-but-not-yet-shown state only: a
+    // persisted closed wish must not promise a panel that will not open.
+    filesBtn.title = filesOn && !filesLive ? 'Opens when a session is running' : 'Files';
     sessionsBtn.classList.toggle('is-on', st.state.drawer === 'sessions');
     sessionsBtn.setAttribute('aria-pressed', st.state.drawer === 'sessions' ? 'true' : 'false');
     projectsBtn.classList.toggle('is-on', st.state.drawer === 'projects');
@@ -523,12 +542,14 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     status.render();
     sessionsDrawer.render();
     projectsDrawer.render();
+    filesPanel.render();
   });
   updateChrome();
   tabs.render();
   status.render();
   sessionsDrawer.render();
   projectsDrawer.render();
+  filesPanel.render();
 
   // ---- global keyboard -----------------------------------------------------
   window.addEventListener('keydown', (e) => {
@@ -593,6 +614,20 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       } else if (st.state.drawer !== null && focusInOrFree(projAside, sessAside)) {
         e.preventDefault();
         st.closeDrawer();
+        // The surface that held the focus just went away; without this the
+        // focus falls to <body> and typing goes nowhere until the next window
+        // activation.
+        requestTerminalFocus();
+      } else if (
+        st.state.leftPanel !== null &&
+        document.activeElement !== null &&
+        filesAside.contains(document.activeElement)
+      ) {
+        // Narrower than the drawer rule on purpose: Esc with focus nowhere in
+        // particular must not make the Files panel disappear under the user.
+        e.preventDefault();
+        st.toggleLeftPanel('files');
+        requestTerminalFocus();
       }
     }
   });

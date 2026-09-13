@@ -32,7 +32,13 @@ export type Zone = 'left' | 'right' | 'top' | 'bottom' | 'fill';
 /** Which column holds the tall pane in a 3-split. */
 export type L3 = 'L' | 'R';
 export type DrawerView = 'sessions' | 'projects' | null;
-export type ChangeKind = 'sessions' | 'projects' | 'ui' | 'drawer' | 'conn';
+/**
+ * The LEFT panel (Nocturne A5). It is not a drawer: it has its own toggle, its
+ * own width, and it is only VISIBLE while a session is alive — `null` means
+ * the user closed it.
+ */
+export type LeftPanel = 'files' | null;
+export type ChangeKind = 'sessions' | 'projects' | 'ui' | 'drawer' | 'panel' | 'conn';
 
 export const MAX_PANES = 4;
 const MAX_VIEWS = 16;
@@ -67,6 +73,14 @@ interface AppState {
   views: ViewState[];
   activeViewId: string;
   drawer: DrawerView;
+  /**
+   * Which left panel the user wants (Nocturne A5). Defaults to 'files', so the
+   * panel APPEARS by itself the first time a session runs (README-v3: "auto-opens
+   * when a session runs") — `filesPanelVisible()` is the whole rule.
+   */
+  leftPanel: LeftPanel;
+  /** Files panel width in px, FILES_W_MIN..FILES_W_MAX (drag its right edge). */
+  filesWidth: number;
   /** Presence ping round-trip in ms; null until measured / while disconnected. */
   wsLatencyMs: number | null;
   /** Backend boot time (GET /api/runtime startedAt); null until fetched. */
@@ -105,6 +119,17 @@ interface AppState {
   backendReachable: boolean;
 }
 
+/** Files panel width bounds (README-v3: "resizable 200-520 px"). */
+export const FILES_W_MIN = 200;
+export const FILES_W_MAX = 520;
+export const FILES_W_DEFAULT = 300;
+
+/** Width a drag or a keyboard nudge is allowed to land on. */
+export function clampFilesWidth(px: number): number {
+  if (!Number.isFinite(px)) return FILES_W_DEFAULT;
+  return Math.max(FILES_W_MIN, Math.min(FILES_W_MAX, Math.round(px)));
+}
+
 export const state: AppState = {
   sessions: new Map(),
   projects: [],
@@ -112,6 +137,8 @@ export const state: AppState = {
   views: [],
   activeViewId: '',
   drawer: null,
+  leftPanel: 'files',
+  filesWidth: FILES_W_DEFAULT,
   wsLatencyMs: null,
   serverStartedAt: null,
   serverCommit: null,
@@ -165,7 +192,16 @@ export function saveUi(): void {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ views: state.views, active: state.activeViewId }),
+      JSON.stringify({
+        views: state.views,
+        active: state.activeViewId,
+        // The left panel rides in the SAME bag as the pane splits: same chrome,
+        // same gesture, so a dragged width survives a reload the way a split
+        // fraction does. No version bump — the v2 reader ignores keys it does
+        // not know, and a blob written before A5 simply lands on the defaults.
+        leftPanel: state.leftPanel,
+        filesWidth: state.filesWidth,
+      }),
     );
   } catch {
     // Storage full/unavailable — UI still works, arrangement just won't survive reload.
@@ -261,6 +297,11 @@ export function loadUi(): void {
   let views: ViewState[] = [];
   let active: unknown = null;
 
+  // Defaults first, so a missing key, a garbage value and a pre-A5 blob all
+  // land in the same place: the panel open at FILES_W_DEFAULT.
+  state.leftPanel = 'files';
+  state.filesWidth = FILES_W_DEFAULT;
+
   let parsed: unknown = null;
   try {
     parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
@@ -276,6 +317,10 @@ export function loadUi(): void {
       }
     }
     active = o.active;
+    // Only a literal null means "the user closed it"; anything else (absent,
+    // a stale string, a number) is the default wish.
+    if (o.leftPanel === null) state.leftPanel = null;
+    if (typeof o.filesWidth === 'number') state.filesWidth = clampFilesWidth(o.filesWidth);
   } else {
     // No v2 state: try migrating v1 (malformed v1 degrades to a clean start).
     let v1: unknown = null;
@@ -828,6 +873,56 @@ export function openDrawer(view: Exclude<DrawerView, null>): void {
     state.drawer = view;
     notify('drawer');
   }
+}
+
+/**
+ * Toggle the Files panel. Opening it CLOSES the projects drawer (v3
+ * semantics): both live on the left, and two left panels at once leaves the
+ * terminal — the hero — a strip. Closing Files leaves every drawer alone, and
+ * so does toggling a drawer.
+ */
+export function toggleLeftPanel(panel: Exclude<LeftPanel, null>): void {
+  const opening = state.leftPanel !== panel;
+  state.leftPanel = opening ? panel : null;
+  if (opening && state.drawer === 'projects') {
+    state.drawer = null;
+    notify('drawer');
+  }
+  saveUi();
+  notify('panel');
+}
+
+/**
+ * Set the Files panel width (clamped). `commit` false is the live drag: the
+ * caller has already styled the element and a notify per pointermove would
+ * rebuild chrome 60 times a second for a number nothing else reads.
+ */
+export function setFilesWidth(px: number, commit = true): number {
+  const w = clampFilesWidth(px);
+  state.filesWidth = w;
+  // A live drag neither notifies nor writes: the same reason, sixty times a
+  // second. The commit at the end of the gesture is what reaches storage.
+  if (commit) {
+    saveUi();
+    notify('panel');
+  }
+  return w;
+}
+
+/** Sessions that have not exited — the v3 `alive` list, used by the panel rule. */
+export function aliveSessionCount(): number {
+  let n = 0;
+  for (const s of state.sessions.values()) if (s.status !== 'exited') n += 1;
+  return n;
+}
+
+/**
+ * Is the Files panel on screen: the user wants it AND there is something for
+ * it to be about. With no live session it stays hidden, and its toggle still
+ * records the wish (v3: `leftPanel === 'files' && alive.length > 0`).
+ */
+export function filesPanelVisible(): boolean {
+  return state.leftPanel === 'files' && aliveSessionCount() > 0;
 }
 
 export function closeDrawer(): void {

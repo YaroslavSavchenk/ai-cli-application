@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design_handoff_session_manager, v3)
 
-Status (2026-09-13): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed and user-checked in the Windows dev window ("ziet er goed uit"). A4b landed 2026-09-13 and user-verified on Windows ("alles werkt keurig"). A5 started 2026-09-13. Next after A5: A6 — each only on the user's "begin aan <id>".
+Status (2026-09-13): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed and user-checked in the Windows dev window ("ziet er goed uit"). A4b landed 2026-09-13 and user-verified on Windows ("alles werkt keurig"). A5 landed 2026-09-13 (Windows look owed). Next: A6 — each only on the user's "begin aan <id>".
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side

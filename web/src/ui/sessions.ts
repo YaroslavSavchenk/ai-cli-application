@@ -1,20 +1,27 @@
 /**
- * Sessions drawer (handoff §7, right, 296px): ALL server-side sessions,
+ * Sessions panel (Nocturne A5, right, 300px): ALL server-side sessions,
  * whoever created them — sessions are global; every one of them has a tab.
  *
- * ACTIVE · N rows: status dot, mono session name, model tag (derived from
- * argv), a `split` button (append into the current view, max 4 — the button
- * twin of drag-to-merge) and `×` (armed two-step kill). The row body is a
- * real button: clicking it activates that session's view and focuses it.
- * Meta line: project name · status (· tab place when assigned).
+ * "Running now" rows: an 8px state dot, the session name, "Side by side"
+ * (append into the current view, max 4 — the button twin of drag-to-merge) and
+ * an end control that arms into a worded "End" before it kills anything. Dot
+ * and name are one button: clicking it activates that session's view and
+ * focuses its terminal, and its accessible name carries the state word the
+ * v3 row does not print.
+ * Meta line, indented under the name: the project's NAME and what is running
+ * in it ("api, Claude Code Opus"), the amber "Needs your answer" when the
+ * session is waiting, or how it finished. A5 dropped the tab/pane PLACE from
+ * this line (it is what truncated it at 300px); the row still takes you there.
  *
- * HISTORY · N (GET /api/history, ENDED entries only) replaced the old
+ * "Earlier" (GET /api/history, ENDED entries only) replaced the old
  * PREVIOUS RUN offers on 2026-09-06 (user's call): every session the app ever
  * launched is kept across backend runs and can be resumed per conversation.
  * Entries live in a FOLDER PER PROJECT — the user's own framing, "not loose
  * sessions" — collapsible, newest folder first. Resuming POSTs
  * /api/history/:id/resume and the SERVER composes the argv; the browser never
- * decides how a conversation is continued.
+ * decides how a conversation is continued. Its rows keep the per-project
+ * FOLDERS (the user's own framing, 2026-09-06) even though the v3 reference
+ * draws one flat list: the folders are a decided feature, not a style.
  */
 import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
@@ -109,16 +116,6 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
 
   let lastSig = '';
 
-  /** The session's place in the strip: tab index (+ pane when in the active view). */
-  function placeOf(id: string): string {
-    const v = st.viewOfSession(id);
-    if (v === undefined) return '';
-    const tabIdx = st.state.views.indexOf(v) + 1;
-    return v.id === st.state.activeViewId
-      ? `tab ${tabIdx}, pane ${v.sessions.indexOf(id) + 1}`
-      : `tab ${tabIdx}`;
-  }
-
   function sig(): string {
     if (st.state.drawer !== 'sessions') return 'hidden';
     // Count prefix so the empty list still differs from the initial ''.
@@ -133,7 +130,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
         .map(
           (s) =>
             `${s.id}:${st.projectName(s.projectId) ?? ''}:${s.title}:${s.status}:${s.exitCode ?? ''}:` +
-            `${s.attention ? '!' : ''}:${placeOf(s.id)}:${armed.isArmed(s.id) ? 'a' : ''}`,
+            `${s.attention ? '!' : ''}:${armed.isArmed(s.id) ? 'a' : ''}`,
         )
         .join('|')
     );
@@ -167,49 +164,60 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
         : null;
 
     const rows: HTMLElement[] = [];
-    rows.push(el('div', 'drawer-sect', `Active ${sessions.length}`));
+    rows.push(el('div', 'drawer-sect', 'Running now'));
     if (sessions.length === 0) {
       rows.push(el('div', 'drawer-empty', 'No sessions yet. Start one with New session.'));
     }
     for (const info of sessions) {
       const row = el('div', 'sess-row');
-
-      const main = button('sess-main', '', () => showSession(info.id));
-      main.setAttribute('data-k', `show:${info.id}`);
-      main.title = 'view this session';
       const line = el('div', 'sess-line');
+
       const attention = info.attention;
       const running = info.status === 'running';
+      // The state word the v3 row does not print. It is not decoration: the
+      // dot is the visual, this is what a screen reader and a hover get.
+      const stateWord = attention
+        ? 'Needs your answer'
+        : running
+          ? 'Working'
+          : `Finished (${info.exitCode ?? 0})`;
+
+      const open = button('sess-open', '', () => showSession(info.id));
+      open.setAttribute('data-k', `show:${info.id}`);
+      open.setAttribute('aria-label', `${info.title}, ${stateWord}`);
+      open.title = stateWord;
       const dot = el('span', `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`);
       dot.setAttribute('aria-hidden', 'true');
-      line.append(dot, el('span', 'sess-name', info.title));
-      const meta = el('div', 'sess-meta');
-      const pname = st.projectName(info.projectId) ?? commandLabel(info.command);
-      let statusTxt: string;
-      if (attention) statusTxt = 'Needs your answer';
-      else if (running) statusTxt = 'Working';
-      else statusTxt = `Finished (${info.exitCode ?? 0})`;
-      const place = placeOf(info.id);
-      meta.textContent = `${pname}, ${statusTxt}${place !== '' ? `, ${place}` : ''}`;
-      meta.classList.toggle('is-attn', attention);
-      main.append(line, meta);
+      open.append(dot, el('span', 'sess-name', info.title));
 
-      const actions = el('div', 'sess-actions');
-      const modelId = modelFromArgs(info.args);
-      const model = el('span', 'sess-model', modelId !== null ? modelLabel(modelId) : commandLabel(info.command));
-      const split = button('chip-btn is-acc', 'split', () => splitIntoActive(info.id));
+      const split = button('row-btn', 'Side by side', () => splitIntoActive(info.id));
       split.setAttribute('data-k', `split:${info.id}`);
-      split.title = 'add to the current view, max 4 (drag its tab for placement)';
-      const kill = button('chip-btn is-x', armed.isArmed(info.id) ? 'sure?' : '×', () => {
+      split.setAttribute('aria-label', `show ${info.title} next to the current session`);
+      split.title = 'Show next to the current session, up to four';
+      const armedKill = armed.isArmed(info.id);
+      const kill = button('row-x', armedKill ? 'End' : '×', () => {
         if (armed.trigger(info.id, refresh)) void killSession(info.id);
       });
-      if (armed.isArmed(info.id)) kill.dataset.armed = '1';
+      if (armedKill) kill.dataset.armed = '1';
       kill.setAttribute('data-k', `kill:${info.id}`);
-      kill.setAttribute('aria-label', `end session ${info.title}`);
-      kill.title = 'end session (asks to confirm)';
-      actions.append(model, split, kill);
+      kill.setAttribute('aria-label', armedKill ? `end ${info.title} now` : `end session ${info.title}`);
+      kill.title = armedKill ? 'Click again to end it' : 'End session';
+      line.append(open, split, kill);
 
-      row.append(main, actions);
+      // The quiet fact under the name: what it is and where it runs, or the
+      // one thing that needs the user.
+      const meta = el('div', 'sess-meta');
+      const pname = st.projectName(info.projectId);
+      const modelId = modelFromArgs(info.args);
+      const tool = `${commandLabel(info.command)}${modelId !== null ? ` ${modelLabel(modelId)}` : ''}`;
+      let metaTxt: string;
+      if (attention) metaTxt = stateWord;
+      else if (!running) metaTxt = pname !== null ? `${pname}, ${stateWord}` : stateWord;
+      else metaTxt = pname !== null ? `${pname}, ${tool}` : tool;
+      meta.textContent = metaTxt;
+      meta.classList.toggle('is-attn', attention);
+
+      row.append(line, meta);
       rows.push(row);
     }
 
@@ -229,18 +237,20 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     }
   }
 
-  /** "HISTORY" section header: label + total count, clear-all. */
+  /** "Earlier" section header: the word, and the clear-all action. */
   function historyHeader(): HTMLElement {
-    const hd2 = el('div', 'drawer-sect');
-    hd2.append(el('span', '', `History ${fmtCount(st.state.history.length)}`), el('span', 'drawer-gap'));
+    const hd2 = el('div', 'drawer-sect is-later');
+    hd2.append(el('span', '', 'Earlier'), el('span', 'drawer-gap'));
     // Armed two-step confirm, same contract as kill (key 'hist-all' cannot
     // collide with session ids in the shared ArmedSet).
-    const all = button('chip-btn', armed.isArmed('hist-all') ? 'sure?' : 'clear all', () => {
+    const isArmed = armed.isArmed('hist-all');
+    const all = button('link-btn', isArmed ? 'Clear them all?' : 'Clear', () => {
       if (armed.trigger('hist-all', refresh)) void forgetAll();
     });
-    if (armed.isArmed('hist-all')) all.dataset.armed = '1';
+    if (isArmed) all.dataset.armed = '1';
     all.setAttribute('data-k', 'hist-clear-all');
-    all.title = 'clear all (asks to confirm)';
+    all.setAttribute('aria-label', 'clear the earlier sessions');
+    all.title = 'Clear the list (asks to confirm)';
     hd2.append(all);
     return hd2;
   }
@@ -260,16 +270,15 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     return row;
   }
 
-  /** One ended session: dot, title, when it ran, and how to bring it back. */
+  /** One ended session: hollow dot, title, when it ran, and how to bring it back. */
   function historyRow(entry: HistoryEntry): HTMLElement {
     const row = el('div', 'sess-row is-hist');
-    const main = el('div', 'sess-main');
     const line = el('div', 'sess-line');
-    const dot = el('span', 'dot is-exit');
+    const dot = el('span', 'dot is-past');
     dot.setAttribute('aria-hidden', 'true');
     line.append(dot, el('span', 'sess-name is-hist', entry.title));
 
-    const meta = el('div', 'sess-meta');
+    const meta = el('div', 'sess-meta is-hist');
     const parts = [fmtAgo(entry.lastUsedAt)];
     // What RAN, for everything that is not the known agent: without it a shell
     // entry is indistinguishable from a claude one (the ACTIVE rows say it in
@@ -280,29 +289,30 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     if (model !== null) parts.push(modelLabel(model));
     const crashed = entry.ended?.reason === 'crash';
     if (crashed) parts.push('crashed');
-    meta.textContent = parts.join(', ');
+    // Sentence case: this line starts with a moment in time ("Yesterday").
+    const text = parts.join(', ');
+    meta.textContent = text.charAt(0).toUpperCase() + text.slice(1);
     meta.classList.toggle('is-danger', crashed);
-    main.append(line, meta);
 
-    const actions = el('div', 'sess-actions');
-    // `resume` is a promise about ONE conversation, so it keys on the pin, not
-    // on the command: a claude session launched to continue the folder's most
-    // recent conversation has no pinned id, and only gets started again.
-    const label = entry.conversation ? 'resume' : 'start again';
-    const re = button('chip-btn is-acc', label, () => void resumeEntry(entry));
+    // `Continue` is a promise about ONE conversation, so it keys on the pin,
+    // not on the command: a claude session launched to continue the folder's
+    // most recent conversation has no pinned id, and only gets started again.
+    const label = entry.conversation ? 'Continue' : 'Start again';
+    const re = button('row-btn is-acc', label, () => void resumeEntry(entry));
     re.setAttribute('data-k', `hist-resume:${entry.id}`);
     re.setAttribute('aria-label', `${label} ${entry.title}`);
     const key = `hist:${entry.id}`;
-    const forget = button('chip-btn is-x', armed.isArmed(key) ? 'sure?' : '×', () => {
+    const isArmed = armed.isArmed(key);
+    const forget = button('row-x is-quiet', isArmed ? 'Forget' : '×', () => {
       if (armed.trigger(key, refresh)) void forgetEntry(entry);
     });
-    if (armed.isArmed(key)) forget.dataset.armed = '1';
+    if (isArmed) forget.dataset.armed = '1';
     forget.setAttribute('data-k', `hist-forget:${entry.id}`);
-    forget.setAttribute('aria-label', `forget ${entry.title}`);
-    forget.title = 'forget (asks to confirm)';
-    actions.append(re, forget);
+    forget.setAttribute('aria-label', isArmed ? `forget ${entry.title} now` : `forget ${entry.title}`);
+    forget.title = isArmed ? 'Click again to forget it' : 'Forget this session';
+    line.append(re, forget);
 
-    row.append(main, actions);
+    row.append(line, meta);
     return row;
   }
 

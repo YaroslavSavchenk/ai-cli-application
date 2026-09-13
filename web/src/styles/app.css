@@ -67,10 +67,6 @@ button {
    statusline) is Inter — in Nocturne the mono face carries DATA, not chrome. */
 input,
 select,
-.sess-name,
-.sess-meta,
-.sess-model,
-.drawer-sect,
 .proj-path,
 .proj-meta,
 .dirlist,
@@ -290,7 +286,7 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-.tb-btn:hover:not(:disabled) {
+.tb-btn:hover {
   background: var(--color-neutral-900);
   color: var(--color-text);
 }
@@ -298,15 +294,6 @@ select:focus-visible,
 .tb-btn.is-on {
   background: var(--color-surface);
   color: var(--color-text);
-}
-
-/* A panel that does not exist yet (Files, until A5): the button is rendered
-   but disabled, so it is NOT in the tab order and the keyboard never reaches
-   it — its `title` is a hover-only explanation for now. It is dimmed rather
-   than hidden so the bar's shape does not shift when A5 lands. */
-.tb-btn:disabled {
-  color: var(--color-neutral-700);
-  cursor: default;
 }
 
 /* attention count on the Sessions toggle — the only warm mark in the bar */
@@ -1188,24 +1175,28 @@ select:focus-visible,
   overflow-wrap: anywhere;
 }
 
-/* ---- drawers (handoff §6–§7): flex siblings, slide-in .18s ------------------ */
+/* ---- panels (Nocturne A5, v3 §2): flex siblings, slide-in .18s --------------
+   Projects, Files and Sessions are structural columns of the middle row, not
+   floating surfaces: they sit on the app ground, separated from the pane area
+   by one neutral-900 hairline, and their width is width the grid does not get
+   — which is what makes opening one a real pane resize. */
 
 .drawer {
   flex: none;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  background: var(--color-bg);
 }
 
 .drawer-proj {
   width: var(--drawer-proj-w);
-  border-right: var(--line) solid var(--edge);
+  border-right: var(--line) solid var(--color-neutral-900);
 }
 
 .drawer-sess {
   width: var(--drawer-sess-w);
-  border-left: var(--line) solid var(--edge);
+  border-left: var(--line) solid var(--color-neutral-900);
 }
 
 .drawer-view {
@@ -1223,14 +1214,15 @@ select:focus-visible,
   animation: slideR var(--t-slide) ease;
 }
 
+/* 44px header, no hairline under it: the section labels below carry the
+   structure, and a second rule this close would read as a toolbar. */
 .drawer-hd {
-  height: var(--drawerhd-h);
+  height: var(--panelhd-h);
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-4);
-  padding: 0 var(--s-4) 0 var(--s-7);
-  border-bottom: var(--line) solid var(--edge-mid);
+  gap: var(--space-3);
+  padding: 0 var(--space-6);
 }
 
 .drawer-gap {
@@ -1238,14 +1230,22 @@ select:focus-visible,
 }
 
 .drawer-x {
-  height: 100%;
-  min-width: var(--drawerhd-h);
-  color: var(--text-dim);
-  font-size: var(--fs-row);
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 15px;
+  line-height: 1;
 }
 
 .drawer-x:hover {
-  color: var(--danger);
+  background: var(--color-neutral-900);
+  color: var(--color-text);
 }
 
 .drawer-body {
@@ -1253,27 +1253,54 @@ select:focus-visible,
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--s-3);
+  padding: 0 var(--space-3) var(--space-3);
 }
 
 .drawer-empty {
-  padding: var(--s-5);
-  color: var(--text-faint);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-neutral-600);
   font-size: var(--fs-ui);
 }
 
-/* mono micro section labels: ACTIVE · N / HISTORY · N */
+/* Section labels ("Running now", "Earlier"): quiet sentence-case words, no
+   counts and no separator — the rows beneath them are the count. */
 .drawer-sect {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-3) var(--s-5);
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* the Earlier section's header sits lower: it separates two lists */
+.drawer-sect.is-later {
+  padding-top: var(--space-6);
+}
+
+/* text-only action in a section header (Clear), armed like every destructive
+   control in this app */
+.link-btn {
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 11.5px;
+}
+
+.link-btn:hover {
+  color: var(--color-text);
+}
+
+.link-btn[data-armed='1'] {
+  color: var(--color-danger);
+  font-weight: 600;
 }
 
 
-/* small chip buttons in drawer rows and headers (+, ×, split, relaunch) */
+/* small chip buttons in the projects drawer's rows and header (+ add, +, ×) */
 .chip-btn {
   flex: none;
   height: var(--chip-h);
@@ -1306,15 +1333,6 @@ select:focus-visible,
   background: var(--ok-tint);
 }
 
-.chip-btn.is-acc {
-  color: var(--acc);
-}
-
-.chip-btn.is-acc:hover {
-  border-color: var(--acc);
-  background: var(--acc-tint);
-}
-
 .chip-btn.is-x {
   color: var(--text-dim);
 }
@@ -1333,112 +1351,157 @@ select:focus-visible,
   font-weight: 600;
 }
 
-/* sessions drawer rows */
+/* ---- sessions panel rows (Nocturne A5) --------------------------------------
+   Two lines, no card: line one is the session (dot, name, its two actions),
+   line two is the quiet fact about it, indented under the name. Nothing here
+   is filled — the only ground is the neutral-900 hover — and the only colour
+   is state: green running, amber waiting, neutral finished, danger armed. */
 
 .sess-row {
   display: flex;
-  align-items: flex-start;
-  gap: var(--s-3);
-  padding: var(--s-4) var(--s-5);
-  border: var(--line) solid transparent;
-  border-radius: var(--r-btn);
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
 }
 
 .sess-row:hover {
-  background: var(--surface-hover);
-  border-color: var(--edge);
-}
-
-.sess-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  text-align: left;
-  padding: 0;
+  background: var(--color-neutral-900);
 }
 
 .sess-line {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
+  gap: var(--space-2);
   min-width: 0;
 }
 
+/* the select target: dot + name, the rest of the row's width */
+.sess-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  text-align: left;
+  background: transparent;
+}
+
+.sess-row .dot {
+  width: var(--dot-row);
+  height: var(--dot-row);
+}
+
+/* an earlier run is a hollow ring: the shape says "not here any more" before
+   the colour does */
+.dot.is-past {
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-700);
+}
+
 .sess-name {
-  font-size: var(--fs-name);
-  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-row);
+  font-weight: 500;
+  color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .sess-name.is-hist {
-  color: var(--text-hd);
+  font-weight: 400;
+  color: var(--color-neutral-300);
 }
 
-/* history entries sit INSIDE their folder: one indent step, so the folder
-   headers form the readable left edge of the section */
-.sess-row.is-hist {
-  margin-left: var(--s-5);
-}
-
-/* folder header — the WHOLE row is the collapse toggle (no hover-only
-   affordance, no icon library: the caret is a text glyph like the app's other
-   glyphs) */
-.hist-group {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  width: 100%;
-  padding: var(--s-3) var(--s-5);
-  border-radius: var(--r-btn);
-  text-align: left;
-  color: var(--text-2);
-}
-
-.hist-group:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.hist-caret {
+/* outlined row action (Side by side, Continue): 24px, quiet until hovered */
+.row-btn {
   flex: none;
-  width: 12px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-row);
-  line-height: 1;
-  color: var(--text-dim);
-}
-
-.hist-folder {
-  min-width: 0;
-  font-size: var(--fs-row);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
-.hist-count {
+.row-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+}
+
+/* the resume action carries the accent at rest — it is the one thing an
+   earlier run is for */
+.row-btn.is-acc {
+  border-color: var(--color-accent-700);
+  color: var(--color-accent-300);
+}
+
+.row-btn.is-acc:hover {
+  background: var(--color-accent-900);
+}
+
+/* the row's destructive control: a 24px × that becomes a worded button once
+   armed, so "one more click ends it" is never a colour change alone */
+.row-x {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
+  width: var(--ctl-h-row);
+  height: var(--ctl-h-row);
+  padding: 0;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.row-x:hover {
+  border-color: var(--color-neutral-800);
+  color: var(--color-danger);
+}
+
+.row-x[data-armed='1'] {
+  width: auto;
+  padding: 0 var(--space-3);
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-ink-on-danger);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* forgetting an ENDED session destroys nothing that runs: it is armed the
+   same way, but it is not painted as danger */
+.row-x.is-quiet[data-armed='1'] {
+  border-color: var(--color-neutral-700);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.row-x.is-quiet:hover {
+  color: var(--color-text);
 }
 
 .sess-meta {
-  padding-left: calc(var(--dot) + var(--s-4));
-  font-size: var(--fs-label);
-  color: var(--text-dim);
+  padding-left: calc(var(--dot-row) + var(--space-2));
+  font-size: var(--fs-name);
+  color: var(--color-neutral-500);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.sess-meta.is-hist {
+  color: var(--color-neutral-600);
+}
+
 .sess-meta.is-attn {
-  color: var(--attn);
+  color: var(--color-attn);
 }
 
 /* a crashed run keeps the danger colour on its meta line — the word alone is
@@ -1447,17 +1510,52 @@ select:focus-visible,
   color: var(--danger-mut);
 }
 
-.sess-model {
-  align-self: center;
-  font-size: var(--fs-micro);
-  color: var(--text-dim);
+/* history entries sit INSIDE their folder: one indent step, so the folder
+   headers form the readable left edge of the section */
+.sess-row.is-hist {
+  margin-left: var(--space-3);
+}
+
+/* folder header — the WHOLE row is the collapse toggle (no hover-only
+   affordance, no icon library: the caret is a text glyph like the app's other
+   glyphs) */
+.hist-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--color-neutral-400);
+}
+
+.hist-group:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.hist-caret {
+  flex: none;
+  width: 10px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-neutral-600);
+}
+
+.hist-folder {
+  min-width: 0;
+  font-size: var(--fs-name);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sess-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
+.hist-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
 }
 
 /* projects drawer rows + inline add form */
@@ -1505,6 +1603,359 @@ select:focus-visible,
 
 .proj-meta.is-on {
   color: var(--ok);
+}
+
+/* ---- Files panel (Nocturne A5, v3 §"Files panel") ---------------------------
+   A ledger, not a card: one hairline under the 44px tab header, one under the
+   summary row, 26px rows on the app ground with a neutral-900 hover, and the
+   only colours are information — green added, red removed, amber being edited
+   right now (pulsing, and pulsing on every folder above it). The accent shows
+   up exactly once, as the 2px underline of the active tab.
+
+   Width is inline (state.filesWidth, 200..520): the panel is a flex sibling of
+   the grid, so its width is width the panes lose, and the drag really resizes
+   every PTY. */
+
+.files-panel {
+  position: relative; /* anchors the drag edge */
+  border-right: var(--line) solid var(--color-neutral-900);
+}
+
+.files-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: slideL var(--t-slide) ease;
+}
+
+.files-hd {
+  height: var(--panelhd-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.files-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-4);
+  height: 100%;
+}
+
+/* a tab is its label plus a 2px underline; nothing is filled, nothing is boxed */
+.files-tab {
+  padding: 0 2px;
+  border: none;
+  border-bottom: var(--tick) solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: var(--fs-row);
+}
+
+.files-tab:hover {
+  color: var(--color-text);
+}
+
+.files-tab.is-on {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+/* what the panel is about: the project's NAME, never its path */
+.files-proj {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-sum {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+  font-size: var(--fs-name);
+  color: var(--color-neutral-500);
+}
+
+.files-sum-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* every number in this panel is mono and coloured by what it means */
+.files-num {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.files-sum .files-num {
+  font-size: var(--fs-name);
+}
+
+.files-num.is-add {
+  color: var(--color-ok);
+}
+
+.files-num.is-del {
+  color: var(--color-danger);
+}
+
+.files-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-2) var(--space-3);
+}
+
+/* one tree row: folders are buttons (they open and close), files are rows
+   until the editor exists — both are 26px, and the indent is inline */
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--files-row-h);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  background: transparent;
+}
+
+.files-row:hover {
+  background: var(--color-neutral-900);
+}
+
+/* a file the session is editing, and every folder holding one */
+.files-row.is-busy {
+  animation: pulse var(--t-pulse-edit) infinite;
+}
+
+.files-caret {
+  flex: none;
+  width: 10px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-neutral-600);
+}
+
+.files-folder {
+  flex: none;
+  color: var(--color-neutral-600);
+}
+
+.files-folder.is-open {
+  color: var(--color-neutral-500);
+}
+
+.files-row.is-busy .files-folder {
+  color: var(--color-attn);
+}
+
+/* file-type chip: the one place a type is a mark instead of a word. Colours
+   come from the --badge-<kind>-* pairs in tokens.css. */
+.files-badge {
+  flex: none;
+  width: var(--files-badge-w);
+  height: var(--files-badge-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--badge-plain-bg);
+  color: var(--badge-plain-fg);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.files-badge[data-kind='ts'] {
+  background: var(--badge-ts-bg);
+  color: var(--badge-ts-fg);
+}
+
+.files-badge[data-kind='js'] {
+  background: var(--badge-js-bg);
+  color: var(--badge-js-fg);
+}
+
+.files-badge[data-kind='py'] {
+  background: var(--badge-py-bg);
+  color: var(--badge-py-fg);
+}
+
+.files-badge[data-kind='md'] {
+  background: var(--badge-md-bg);
+  color: var(--badge-md-fg);
+}
+
+.files-badge[data-kind='json'] {
+  background: var(--badge-json-bg);
+  color: var(--badge-json-fg);
+}
+
+.files-badge[data-kind='ps'] {
+  background: var(--badge-ps-bg);
+  color: var(--badge-ps-fg);
+}
+
+.files-badge[data-kind='css'] {
+  background: var(--badge-css-bg);
+  color: var(--badge-css-fg);
+}
+
+.files-badge[data-kind='html'] {
+  background: var(--badge-html-bg);
+  color: var(--badge-html-fg);
+}
+
+.files-badge[data-kind='sh'] {
+  background: var(--badge-sh-bg);
+  color: var(--badge-sh-fg);
+}
+
+.files-badge[data-kind='yml'] {
+  background: var(--badge-yml-bg);
+  color: var(--badge-yml-fg);
+}
+
+.files-badge[data-kind='rs'] {
+  background: var(--badge-rs-bg);
+  color: var(--badge-rs-fg);
+}
+
+.files-badge[data-kind='go'] {
+  background: var(--badge-go-bg);
+  color: var(--badge-go-fg);
+}
+
+/* the name ramp IS the information: a folder and an untouched file recede, a
+   changed file is full ink, an edited one is amber */
+.files-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-row.is-dir .files-name {
+  color: var(--color-neutral-300);
+}
+
+.files-name.has-diff {
+  color: var(--color-text);
+}
+
+.files-row.is-busy .files-name {
+  color: var(--color-attn);
+}
+
+/* ---- commits list (A5: visual only; a row opens nothing until A6) ---------- */
+
+.files-branch {
+  padding: var(--space-2) var(--space-3);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* The placeholder marker at the top of either tab, while the panel still shows
+   `ui/files-mock.ts` under the user's real project name. Quietest thing in the
+   panel: the branch line's own size and ink, and the body's own row padding so
+   it lines up with the rows it is about. Goes away with parts B2/B3. */
+.files-note {
+  padding: var(--space-2) var(--space-3);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.commit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.commit-row:hover {
+  background: var(--color-neutral-900);
+}
+
+.commit-msg {
+  font-size: var(--fs-row);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  min-width: 0;
+}
+
+.commit-meta > span {
+  white-space: nowrap;
+}
+
+.commit-hash {
+  font-family: var(--font-mono);
+}
+
+/* ---- the drag edge --------------------------------------------------------
+   6px of hit zone hanging half over the pane area, invisible until it is
+   touched. Keyboard-reachable like every control here: it is a separator with
+   arrow keys and home. */
+
+.files-grip {
+  position: absolute;
+  top: 0;
+  right: calc(var(--files-grip-w) / -2);
+  width: var(--files-grip-w);
+  height: 100%;
+  z-index: 5;
+  cursor: col-resize;
+}
+
+.files-grip:hover {
+  background: var(--color-accent-800);
+}
+
+/* keyboard focus and a live drag light the strip fully, like .divider — a
+   pointer merely resting on it does not */
+.files-grip.is-dragging,
+.files-grip:focus-visible {
+  background: var(--color-accent);
+}
+
+.files-grip:focus-visible {
+  outline: none; /* the lit strip IS the focus ring, like .divider */
+}
+
+/* while dragging, nothing on the page may select or show a text cursor */
+body.is-resizing-col {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* ---- tab strip (Nocturne A2) -----------------------------------------------
@@ -1848,7 +2299,7 @@ body.is-dnd * {
 }
 
 .modal-hd {
-  height: var(--drawerhd-h);
+  height: var(--modalhd-h);
   flex: none;
   display: flex;
   align-items: center;

@@ -20,9 +20,7 @@ priority.
   Required status checks deliberately NOT added (a ruleset requiring checks
   blocks direct pushes). Check names if ever wanted: `verify / typecheck +
   build`, `verify / backend test suite`, `verify / linux bundle`.
-- [ ] **Janitor pass** over the CI/CD change (skipped: workflows + one
-  script + tests only, tree verified clean). Cheap; do it with the next
-  feature land.
+- [x] **Janitor pass** over the CI/CD change — done 2026-09-13 with the A5 land: no dead steps, no unused inputs, `release.sh` every variable consumed.
 - [ ] **Server-side settle for shutdown**: `SessionManager.destroyAll():
   Promise<void>` resolving after the last pty `onExit`, plus a logger
   `close()`. Tests currently wait for the exit handler's last log line
@@ -188,6 +186,10 @@ app window first so one backend at a time owns runtime.json.
 - [ ] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sit below the `LEGACY ALIAS LAYER` marker in `tokens.css` — move them above the marker before the alias block is deleted.
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
 - [x] Windows-side: the A4 dialog in the real WebView2 host — user-checked 2026-09-10 ("ziet er goed uit") and again 2026-09-13 with A4b.
+- [ ] Windows-side (A5, 2026-09-13): Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
+- [ ] `prefers-reduced-motion` guard for the two pulses (`--t-pulse` dot, `--t-pulse-edit` file rows) — scope-reviewer note 2026-09-13.
+- [ ] B2/B3: delete `placeholderNote()` in `web/src/ui/files.ts` (one function, one call site) when real data lands; B2 must revisit `buildTree` limits (path as file AND folder; duplicate path) if the source is not numstat.
+- [ ] Nothing clamps `filesWidth` when the WINDOW shrinks under it (520 + 300 px of chrome in a 1000 px window leaves ~18 cols) — optional clamp on window resize.
 - [x] Windows-side (A4b) — user tested the dev window 2026-09-13: "alles werkt keurig" (no black frame, JetBrains Mono on the first pane, TUIs fine after resize).
 
 ## Queued ideas (not decided)

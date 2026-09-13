@@ -138,7 +138,7 @@ test('focusOwnerOpen: an OPEN drawer counts — the bug this helper exists for',
   // the sessions drawer's own topbar toggle (which is inside NO drawer) held
   // the focus, so `shouldRefocusTerminal` said yes and the terminal stole the
   // keyboard out from under an open drawer.
-  assert.equal(focusOwnerOpen(docWith(['.drawer:not([hidden])'])), true);
+  assert.equal(focusOwnerOpen(docWith(['.drawer:not(.files-panel):not([hidden])'])), true);
 });
 
 test('focusOwnerOpen: every selector the constant names really triggers it (guards the constant against drift)', () => {
@@ -152,7 +152,7 @@ test('focusOwnerOpen: every selector the constant names really triggers it (guar
 test('focusOwnerOpen: the three surfaces are exactly scrim, drawer and boot overlay — and the first two only while OPEN', () => {
   assert.deepEqual(OPEN_FOCUS_OWNER_SELECTOR.split(',').map((p) => p.trim()), [
     '.modal-scrim:not([hidden])',
-    '.drawer:not([hidden])',
+    '.drawer:not(.files-panel):not([hidden])',
     '.boot-overlay',
   ]);
   // A CLOSED drawer/scrim is `hidden`, so the bare selector must NOT be what
@@ -161,12 +161,69 @@ test('focusOwnerOpen: the three surfaces are exactly scrim, drawer and boot over
   assert.equal(focusOwnerOpen(docWith(['.modal-scrim'])), false);
 });
 
+// A second double, one level lower: `docWith` compares selector STRINGS, so it
+// can never answer "is this element on the page a focus owner". This one holds
+// element descriptors (classes + hidden) and evaluates the constant's own
+// selector shapes (`.a.b`, `:not(.c)`, `:not([hidden])`) against them.
+interface PageEl {
+  classes: string[];
+  hidden?: boolean;
+}
+
+function elMatches(e: PageEl, sel: string): boolean {
+  const nots = Array.from(sel.matchAll(/:not\(([^)]*)\)/g), (m) => m[1] as string);
+  const base = sel.replace(/:not\([^)]*\)/g, '');
+  for (const cls of base.split('.').filter((c) => c !== '')) {
+    if (!e.classes.includes(cls)) return false;
+  }
+  for (const n of nots) {
+    if (n === '[hidden]') {
+      if (e.hidden === true) return false;
+    } else if (n.startsWith('.')) {
+      if (e.classes.includes(n.slice(1))) return false;
+    } else {
+      throw new Error(`the double does not implement :not(${n})`);
+    }
+  }
+  return true;
+}
+
+function pageWith(els: PageEl[]): DocumentLike {
+  return {
+    querySelector(selectors: string): unknown {
+      const parts = selectors.split(',').map((p) => p.trim());
+      return els.find((e) => parts.some((p) => elMatches(e, p))) ?? null;
+    },
+  };
+}
+
+test('focusOwnerOpen: an open Files panel does not own the keyboard', () => {
+  // Nocturne A5: the Files panel carries `.drawer` for the chrome CSS and is
+  // on screen for the whole normal working state of the app. If it counted as
+  // a focus owner, `refocusTerminal()` would be a permanent no-op and an
+  // alt-tab back from the Windows browser would leave the keyboard nowhere.
+  const filesPanel: PageEl = { classes: ['drawer', 'files-panel'], hidden: false };
+  assert.equal(focusOwnerOpen(pageWith([filesPanel])), false);
+
+  // Non-vacuity: the same double still sees a real drawer, so the `false`
+  // above is the `:not(.files-panel)` doing work, not a broken matcher.
+  assert.equal(
+    focusOwnerOpen(pageWith([filesPanel, { classes: ['drawer', 'drawer-sess'], hidden: false }])),
+    true,
+  );
+  // And a hidden drawer beside an open Files panel is still nobody.
+  assert.equal(
+    focusOwnerOpen(pageWith([filesPanel, { classes: ['drawer', 'drawer-sess'], hidden: true }])),
+    false,
+  );
+});
+
 test('focusOwnerOpen and shouldRefocusTerminal are BOTH required: the drawer case needs the screen half', () => {
   // The topbar toggle: a plain button, inside no drawer -> the element half
   // says "yes, refocus". Only the screen half stops it.
   const toggle = elem({ tag: 'BUTTON' });
   assert.equal(shouldRefocusTerminal(toggle), true);
-  assert.equal(focusOwnerOpen(docWith(['.drawer:not([hidden])'])), true);
+  assert.equal(focusOwnerOpen(docWith(['.drawer:not(.files-panel):not([hidden])'])), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -425,7 +482,13 @@ test('the selector constants still name markup the frontend actually produces', 
     // modal scrim, so `:not([hidden])` is only true while one is really up.
     // If either stopped being toggled that way, `focusOwnerOpen` would answer
     // false forever and the drawer bug would come straight back.
-    ['.drawer:not([hidden])', ['projAside.hidden =', 'sessAside.hidden =']],
+    // The Files panel is carved OUT of that (A5): same `.drawer` chrome class,
+    // but on screen for the whole normal working state, so the carve-out has
+    // to name a class the frontend really puts on it.
+    [
+      '.drawer:not(.files-panel):not([hidden])',
+      ['projAside.hidden =', 'sessAside.hidden =', "'drawer files-panel'"],
+    ],
     ['.modal-scrim:not([hidden])', ['scrim.hidden =']],
   ];
   for (const [selector, marks] of needles) {

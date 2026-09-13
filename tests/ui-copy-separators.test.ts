@@ -189,6 +189,14 @@ const ALLOWED: Record<string, { text: string; why: string }[]> = {
   'ui/sessions.ts': [
     { text: '▸', why: 'collapsed-group disclosure caret (aria-hidden, paired with ▾)' },
   ],
+  // The Files panel's tree (Nocturne A5). Same two non-text roles: a folder's
+  // disclosure caret is geometry in its own aria-hidden span, and the unknown
+  // file type's chip is a centred dot MARK inside an aria-hidden badge — no
+  // sentence anywhere near either of them.
+  'ui/files-model.ts': [
+    { text: '▸', why: 'closed-folder disclosure caret (aria-hidden span, paired with ▾)' },
+    { text: '·', why: 'unknown file-type badge mark (aria-hidden chip), never text' },
+  ],
   // ui/theme.ts is the Legacy theme popover. A2 unwired it (main.ts no longer
   // calls initTheme) and part A8 deletes the file; its copy can never reach a
   // screen while nothing imports it, which the test below proves rather than
@@ -330,13 +338,39 @@ test('the Legacy state vocabulary is gone from every chrome module', () => {
   assert.deepEqual(offenders, [], 'Legacy state words are replaced by the Nocturne four. Offenders:\n  ' + offenders.join('\n  '));
 });
 
+/**
+ * The one SECTION label that legitimately contains the word — Nocturne A5's
+ * sessions panel calls its live list "Running now" (v3 markup). It names a
+ * LIST, not a session's state, so it cannot be confused with the Legacy state
+ * word the rule below exists to keep out. Exact literal, per file, with a
+ * staleness check like the separator list.
+ */
+const RUNNING_ALLOWED: Record<string, { text: string; why: string }[]> = {
+  'ui/sessions.ts': [
+    { text: 'Running now', why: 'v3 section label for the live list, not a session state word' },
+  ],
+};
+
+test('the `running` allowlist has no stale entries', () => {
+  for (const [file, entries] of Object.entries(RUNNING_ALLOWED)) {
+    assert.ok(FILES.includes(file), `RUNNING_ALLOWED names a file that is not scanned: ${file}`);
+    const present = new Set((litsOf.get(file) as Lit[]).map((l) => l.text));
+    for (const e of entries) {
+      assert.ok(present.has(e.text), `stale entry in web/src/${file}: ${JSON.stringify(e.text)}`);
+      assert.ok(e.why.length > 10, `every entry states a reason: ${e.text}`);
+    }
+  }
+});
+
 test('`running` survives only as a protocol value, never as a rendered label', () => {
   // The subtle half of the rule: `status === 'running'` and `is-running` are
   // the wire and the stylesheet, both legal. What may not come back is a
   // literal the DOM shows — a bare `running` / `Running` word.
   const offenders: string[] = [];
   for (const file of FILES) {
+    const allowed = new Set((RUNNING_ALLOWED[file] ?? []).map((a) => a.text));
     for (const { text, line } of litsOf.get(file) as Lit[]) {
+      if (allowed.has(text)) continue;
       if (/^\s*running\s*$/i.test(text) && text !== 'running') {
         offenders.push(`web/src/${file}:${line}  ${JSON.stringify(text)}`);
       }
