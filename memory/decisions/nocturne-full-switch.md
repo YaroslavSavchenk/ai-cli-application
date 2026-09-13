@@ -1,12 +1,12 @@
 ---
 type: decision
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-13
 tags: [design, frontend, nocturne]
 ---
 # Nocturne: full switch, Legacy UI kept only as a git tag
 
-**Status:** decided (2026-09-10, user's call); in progress — A1 landed 2026-09-10
+**Status:** decided (2026-09-10, user's call); in progress — A1–A4 landed 2026-09-10, A4b landed 2026-09-13 ([[2026-09-13-nocturne-a4b]]); next A5
 
 The user's v3 design handoff ("Nocturne", `design_handoff_session_manager/`)
 replaces the steam-blend skin of v0.3.x wholesale. The old skin is from now on

@@ -17,6 +17,11 @@
  * - Paste: the browser's own Ctrl+V path into the xterm textarea is untouched;
  *   Ctrl+Shift+V and Shift+Insert read the clipboard explicitly. Plain Ctrl+C
  *   and Ctrl+V still reach the PTY (PROJECT-SCOPE keyboard rule).
+ * - Font: the terminal must not draw before its mono face exists — a view
+ *   built on the fallback keeps the wrong glyphs AND the wrong cell width
+ *   (so the cols/rows it reports to the PTY are wrong) until a reload.
+ *   `loadTerminalFont()` is awaited once at boot and `watchTerminalFont()`
+ *   repairs any view that drew without it. Decisions in ./font-ready.ts.
  * - Copy: xterm serves the browser's own copy event, but the only key that
  *   fires one is Ctrl+C, which xterm turns into ^C. Ctrl+Shift+C and
  *   Ctrl+Insert write the terminal's own selection to the clipboard — but ONLY
@@ -32,6 +37,14 @@ import type { SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
 import { isCopyChord, isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
+import {
+  ensureFontsLoaded,
+  FONT_WAIT_MS,
+  terminalFontSpecs,
+  watchFontArrival,
+  type FontFaceSetLike,
+  type FontWaitResult,
+} from './font-ready.ts';
 
 const SCROLLBACK_LINES = 5000;
 const RESIZE_DEBOUNCE_MS = 75;
@@ -85,6 +98,58 @@ const liveViews = new Set<TerminalView>();
 export function refreshAllTerminalThemes(): void {
   const theme = themeFromTokens();
   for (const view of liveViews) view.term.options.theme = theme;
+}
+
+/** `document.fonts`, or null where the browser has no font-loading API. */
+function fontSet(): FontFaceSetLike | null {
+  const fonts = (document as Document & { fonts?: FontFaceSetLike }).fonts;
+  if (
+    fonts === undefined ||
+    typeof fonts.check !== 'function' ||
+    typeof fonts.load !== 'function' ||
+    typeof fonts.addEventListener !== 'function'
+  ) {
+    return null;
+  }
+  return fonts;
+}
+
+/** The faces a terminal draws with, read from the same tokens it is built from. */
+function specsFromTokens(): string[] {
+  return terminalFontSpecs(cssVar('--font-mono'), parseFloat(cssVar('--fs-term')));
+}
+
+/**
+ * Wait for the terminal's mono face, bounded by FONT_WAIT_MS. main.ts awaits
+ * this BEFORE it builds the shell, which is the one seam every TerminalView
+ * construction sits behind (the first panes, a reattach after a tab switch, a
+ * New session — all of them are built by the shell this gates).
+ */
+export async function loadTerminalFont(): Promise<FontWaitResult> {
+  const result = await ensureFontsLoaded(fontSet(), specsFromTokens(), FONT_WAIT_MS);
+  if (result !== 'already') log.debug(`terminal font: ${result}`);
+  return result;
+}
+
+/**
+ * Second half of the same fix: if the face arrives AFTER views exist — the
+ * wait timed out, or the spec could not be parsed at boot — re-measure and
+ * redraw those views once. The watch latches on the first ready reading and
+ * never looks again, so a face evicted and re-fetched later is NOT repaired
+ * (deliberate: that latch is what keeps a normal boot from costing a redraw
+ * and a PTY resize for nothing). Fires at most once and never when no view
+ * drew without the font.
+ */
+export function watchTerminalFont(): void {
+  watchFontArrival({
+    fonts: fontSet(),
+    specs: specsFromTokens(),
+    views: () => liveViews.size,
+    refresh: () => {
+      log.debug(`terminal font arrived late — redrawing ${liveViews.size} terminals`);
+      for (const view of liveViews) view.reloadFont();
+    },
+  });
 }
 
 /** One debug line per page for a clipboard the browser will not let us read. */
@@ -316,6 +381,28 @@ export class TerminalView {
 
   focus(): void {
     this.term.focus();
+  }
+
+  /**
+   * The mono face landed after this view was built: re-measure the cell,
+   * throw away the glyph atlas drawn with the fallback, and refit — through
+   * the SAME #fitNow(true) every resize uses, so a changed cols/rows reaches
+   * the PTY over the socket exactly once.
+   *
+   * The fontFamily write is what forces the re-measure: xterm's options
+   * service drops a write of an EQUAL value (no event, no
+   * CharSizeService.measure()), and without a re-measure the cell keeps the
+   * fallback's width and every later fit reports a lie. So the same stack is
+   * re-spelled with one trailing space — identical to the CSS parser,
+   * different to `!==`. `clearTextureAtlas()` is a no-op under the DOM
+   * renderer (xterm calls its renderer's method optionally), so the WebGL
+   * fallback needs no guard here.
+   */
+  reloadFont(): void {
+    const family = this.term.options.fontFamily ?? '';
+    this.term.options.fontFamily = family.endsWith(' ') ? family.trimEnd() : `${family} `;
+    this.term.clearTextureAtlas();
+    this.#fitNow(true);
   }
 
   /**

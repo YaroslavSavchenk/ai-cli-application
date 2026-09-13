@@ -117,7 +117,11 @@
   --bg-app: var(--color-bg);
   --bg-deep: var(--color-term);
   --term-bg: #0b0d14; /* terminal ground — plain hex on purpose: themable
-                         (ui/theme.ts writes it inline) and read by --xt-bg  */
+                         (ui/theme.ts writes it inline — unwired since A2,
+                         B9 re-wires it) and read by --xt-bg.
+                         SURVIVES A8 (plan B9, terminal colours in Settings):
+                         the whole terminal card paints from this, xterm's own
+                         #000 viewport included (app.css, "the black band")   */
   --well: var(--color-term); /* static ink well: inputs, kbd, previews — the
                                 default ground's color but never themed      */
   --surface: var(--color-surface);

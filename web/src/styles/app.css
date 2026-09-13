@@ -899,7 +899,13 @@ select:focus-visible,
    The xterm mount, the status bar and the agents table share ONE rounded box
    on the terminal ground, so the ground fills every corner. The mount keeps
    its own padding: the fit addon subtracts it, which is what keeps cols/rows
-   exact. */
+   exact.
+
+   The ground is spelled --term-bg (not its oklch twin --color-term) on every
+   surface of this card. ui/theme.ts is the machinery that writes --term-bg
+   inline on :root and calls refreshAllTerminalThemes() so the card and the
+   glyphs recolour together — unwired since A2, re-wired by Nocturne B9
+   (terminal colours in Settings); today nothing calls it. */
 
 .pane-body {
   flex: 1;
@@ -908,7 +914,7 @@ select:focus-visible,
   flex-direction: column;
   margin: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  background: var(--color-term);
+  background: var(--term-bg);
   overflow: hidden;
 }
 
@@ -932,6 +938,23 @@ select:focus-visible,
 /* FitAddon subtracts .xterm's own padding from the host size */
 .term-host .xterm {
   padding: var(--space-4) var(--space-6);
+}
+
+/* The black band, fixed (A4b, user report 2026-09-10).
+   xterm 6.0 still ships `.xterm .xterm-viewport { background-color: #000 }`
+   from its own stylesheet, and keeps that element as an EMPTY div positioned
+   absolute inset 0 over the whole .xterm box — the padding above included.
+   The runtime only ever colours the sibling .xterm-scrollable-element (the
+   content box), so the padding rendered as a ~17px black frame around the
+   text on the #0b0d14 ground. Repainting both from the token is the whole
+   fix; the padding values are untouched, because the fit addon subtracts them
+   and cols/rows must not move. xterm's other #000 surface, .composition-view,
+   is deliberately LEFT alone: it is display:none until an IME pre-edit, so it
+   is no part of the band, and its #000/#FFF is the only cue separating the
+   uncommitted composing string from the committed text under it. */
+.term-host .xterm,
+.term-host .xterm .xterm-viewport {
+  background-color: var(--term-bg);
 }
 
 /* ---- pane status bar --------------------------------------------------------
@@ -3705,6 +3728,13 @@ kbd {
 
 .boot-mark.is-err {
   color: var(--danger);
+}
+
+/* The label never wraps: a message beside it (a failed row) takes the slack,
+   not the two-word label (A4b, "terminal font" broke onto two lines). */
+.boot-lb {
+  flex: none;
+  white-space: nowrap;
 }
 
 .boot-msg {

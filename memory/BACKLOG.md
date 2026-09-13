@@ -188,6 +188,7 @@ app window first so one backend at a time owns runtime.json.
 - [ ] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sit below the `LEGACY ALIAS LAYER` marker in `tokens.css` — move them above the marker before the alias block is deleted.
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
 - [ ] Windows-side: look at the new dialog in the real WebView2 host (fonts, card borders, popover).
+- [ ] Windows-side (A4b, 2026-09-13): no black frame around the terminal in 1/2/4 panes and after a divider drag; glyphs are JetBrains Mono (not Cascadia Mono) on the FIRST pane after a cold start and after Restart backend; no torn TUI rows after a window resize.
 
 ## Queued ideas (not decided)
 

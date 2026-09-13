@@ -12,7 +12,7 @@
  * and the 26px statusline. Heights and colors live in tokens.css.
  *
  * A2 removed two top-bar controls: the Theme button (Nocturne is the only
- * theme; ui/theme.ts is unwired and part A8 deletes it) and the `?` help
+ * theme; ui/theme.ts is unwired since A2 and part B9 re-wires it) and the `?` help
  * button (the shortcuts overlay stays reachable through the `?` key, the
  * statusline's "Keyboard shortcuts" button and the settings panel).
  *
@@ -59,6 +59,8 @@ import {
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import { focusOwnerOpen, isEditableTarget, shouldRefocusTerminal } from './ui/keys.ts';
+import { loadTerminalFont, watchTerminalFont } from './ui/terminal.ts';
+import type { FontWaitResult } from './ui/font-ready.ts';
 import { startPresence } from './ws.ts';
 import { initLogging, log } from './log.ts';
 import { el, button } from './ui/util.ts';
@@ -222,6 +224,39 @@ async function boot(root: HTMLDivElement): Promise<void> {
   const stepToken = panel.step('token check');
   const stepHydrate = panel.step('hydrate sessions');
   const stepWs = panel.step('attach ws');
+  const stepFont = panel.step('terminal font');
+
+  // Terminal font BEFORE any terminal: a TerminalView built while JetBrains
+  // Mono is still in flight measures the FALLBACK face, and keeps its glyphs
+  // and its (wrong) cell width — so the cols/rows it reports to the PTY are
+  // wrong — until a reload. The request starts here and is awaited just
+  // before buildShell, which is the only place a pane (and therefore a
+  // terminal) is ever built, so the wait overlaps the hydrate round trip
+  // instead of adding to it. Bounded inside (FONT_WAIT_MS) and free when the
+  // face is already there; ui/terminal.ts repairs a late arrival anyway.
+  //
+  // `.catch` at the SOURCE, not around the await: a synchronous throw out of
+  // the token reads or `document.fonts` would otherwise reject this promise,
+  // and the await below sits after every other row has settled — boot would
+  // end on a bare unhandledrejection with the overlay already gone (dark
+  // window, no message). 'failed' is a settled outcome the app survives.
+  const fontReady = loadTerminalFont().catch((): FontWaitResult => 'failed');
+  // It is an honest row, because the wait is real time the user waits: settled
+  // from the SAME promise, so the overlay is still up while it runs instead of
+  // holding buildShell behind an empty page. A 'timeout'/'failed' face is not
+  // fatal — the terminal draws with the fallback and the watch below repairs
+  // it — so it reads like the other non-fatal rows: a message, not a stop.
+  // No .catch on this .then: fontReady cannot reject (caught at its source
+  // above), and ok()/fail() settle the row before touching the DOM, so even a
+  // throw in here could only cost one unhandledrejection line, never a
+  // spinning row.
+  void fontReady.then((result) => {
+    if (result === 'timeout' || result === 'failed' || result === 'unparseable') {
+      stepFont.fail('did not arrive — terminals start with a substitute font');
+    } else {
+      stepFont.ok();
+    }
+  });
 
   // Presence FIRST: the backend's lifetime is bound to open windows, so the
   // socket must be up even when the REST boot below fails (an open window
@@ -314,6 +349,13 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // Settle BEFORE the log line, for the same reason the token step does.
   stepHydrate.ok();
   log.info(`boot hydrated: ${projects.length} projects, ${sessions.length} sessions`);
+  await fontReady; // see loadTerminalFont above — it started before hydrate
+  // The watch is armed HERE, between the wait and the first terminal: what it
+  // remembers is whether the font was present at the moment terminals started
+  // being built. Armed any earlier it would also fire on the face landing
+  // normally (before any view existed) and cost a redraw and a PTY resize for
+  // nothing.
+  watchTerminalFont();
   try {
     st.initServer(projects, sessions);
     st.loadUi();
