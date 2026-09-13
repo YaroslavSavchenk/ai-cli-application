@@ -96,3 +96,5 @@ A4 (it would ignore the dialog's Model/Effort/Permissions choices).
 - Rewriting `app.css` in A1 — the alias layer gives the recolour for free and
   keeps A1 inside one rate-limited session.
 - Phosphor icon package — open decision #5, untouched (A1 adds no icon set).
+
+**2026-09-13 (user, after A5):** the user noticed the Files panel and Commits list are not functional and chose to KEEP the plan order — A6 (commit view + editor, visual) now, B2/B3 (live git data) after A8 as planned. Offered alternatives: pull B2+B3 forward, or B2 only. Rejected for now, not forever.
