@@ -186,12 +186,14 @@ app window first so one backend at a time owns runtime.json.
 - [ ] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sit below the `LEGACY ALIAS LAYER` marker in `tokens.css` — move them above the marker before the alias block is deleted.
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
 - [x] Windows-side: the A4 dialog in the real WebView2 host — user-checked 2026-09-10 ("ziet er goed uit") and again 2026-09-13 with A4b.
-- [ ] Windows-side (A6, 2026-09-13): commit view open/Back with a TUI running (no torn rows, WebGL intact), editor column at 54 % with typing + Save, `Changes` diff tab, Esc out of the view, ligature-free `===` in the editor, `This commit is not available.` never seen (mock only).
+- [x] Windows-side (A6) — user tested the dev window 2026-09-13: "alles goed".
+- [ ] ~~Windows-side (A6, 2026-09-13):~~ (verified, see above) commit view open/Back with a TUI running (no torn rows, WebGL intact), editor column at 54 % with typing + Save, `Changes` diff tab, Esc out of the view, ligature-free `===` in the editor, `This commit is not available.` never seen (mock only).
 - [ ] B3 owes: `syntheticDiff` → `git show <hash> -- <path>` (one diff per PATH today, so two commits sharing a file show identical rows/numbers); `DiffLine.n` → `oldNo/newNo` two-column gutter (`--diff-gut-w` sized for one); a remote datum for `Open on GitHub`.
 - [ ] B4 owes: unsaved-text confirm on all four doors (tab close, reload, window close, backend grace) + disk write; `lastGoodDims` in `panes.ts` is global not per-slot (self-corrects at attach).
 - [ ] Editor caret/scroll position is lost when a commit view opens over it (text survives) — scope note A6.
 - [ ] `MOCK_FILES` is an exported const mutated at module init (`files-mock.ts`); a future import cycle would hand an importer `[]` silently — `buildMockFiles()` returning the array removes the hazard (or B2 deletes the mock).
-- [ ] Windows-side (A5, 2026-09-13): Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
+- [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
+- [ ] ~~Windows-side (A5, 2026-09-13):~~ (verified, see above) Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
 - [ ] `prefers-reduced-motion` guard for the two pulses (`--t-pulse` dot, `--t-pulse-edit` file rows) — scope-reviewer note 2026-09-13.
 - [ ] B2/B3: delete `placeholderNote()` in `web/src/ui/files.ts` (one function, one call site) when real data lands; B2 must revisit `buildTree` limits (path as file AND folder; duplicate path) if the source is not numstat.
 - [ ] Nothing clamps `filesWidth` when the WINDOW shrinks under it (520 + 300 px of chrome in a 1000 px window leaves ~18 cols) — optional clamp on window resize.
