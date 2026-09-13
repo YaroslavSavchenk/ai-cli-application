@@ -43,8 +43,8 @@ orchestrator: `'unparseable'` as its own log word, "fallback face" → plain
 fail state). Suite 1320 → 1358; 1 fix cycle; verify-terminal 1–9 PASS twice
 (before and after the fix round) via CDP against a scratch backend.
 
-Owed: Windows/WebView2 look (no black frame in 1/2/4 panes and after a
-divider drag; glyphs = JetBrains Mono on the first pane after a cold start
-and after Restart backend; no torn TUI rows after a window resize). Janitor
+**User-verified 2026-09-13** in the Windows dev window (`launch.ps1` with
+`AI_SM_DATA_DIR=~/.ai-session-manager-dev`, log `terminal font: loaded`):
+"alles werkt keurig". Janitor
 pass skipped (fix-sized, tree verified clean) — still owed with the next
 feature land per [[BACKLOG]]. Next: A5 on "begin aan A5".
