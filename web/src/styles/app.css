@@ -45,6 +45,20 @@ body {
   display: none !important;
 }
 
+/* Text for a screen reader only: off the screen, still in the accessibility
+   tree. `display: none` or `visibility: hidden` would take it out of both. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 ::selection {
   background: var(--acc-sel);
 }
@@ -1721,8 +1735,9 @@ select:focus-visible,
   padding: var(--space-2) var(--space-3);
 }
 
-/* one tree row: folders are buttons (they open and close), files are rows
-   until the editor exists — both are 26px, and the indent is inline */
+/* one tree row: folders are buttons (they open and close) and so are files
+   since A6 (they open that file in the editor) — both are 26px, and the
+   indent is inline */
 .files-row {
   display: flex;
   align-items: center;
@@ -1867,7 +1882,7 @@ select:focus-visible,
   color: var(--color-attn);
 }
 
-/* ---- commits list (A5: visual only; a row opens nothing until A6) ---------- */
+/* ---- commits list (a row opens the commit view since A6) ------------------- */
 
 .files-branch {
   padding: var(--space-2) var(--space-3);
@@ -1885,12 +1900,15 @@ select:focus-visible,
   color: var(--color-neutral-600);
 }
 
+/* a commit row is a real button (A6: it opens the commit view) */
 .commit-row {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  width: 100%;
   padding: var(--space-3);
   border-radius: var(--radius-md);
+  text-align: left;
 }
 
 .commit-row:hover {
@@ -4507,4 +4525,612 @@ kbd {
    the loud one — this puts both on the control size instead. */
 .settings-actionrow .btn-link {
   font-size: var(--fs-ui);
+}
+
+/* ═══ Nocturne A6 — the commit view and the editor ═══════════════════════════
+   Two more occupants of the middle row, built on the SAME grammar as a pane:
+   a neutral-900 card with a hairline edge, a 38px strip of chrome, and the
+   content itself on the terminal ground (--term-bg, never a raw oklch — A4b's
+   lesson, and part B9 themes that one property). Nothing here is decorated:
+   in a diff the colour IS the meaning, and the only motion is the 150ms fade
+   of a screen arriving.                                                      */
+
+.screen-commit,
+.screen-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+/* The editor stands BESIDE the panes (v3 DOM order), so it keeps the left
+   gutter and the grid keeps the right one. */
+.screen-editor {
+  padding: var(--space-4) 0 var(--space-4) var(--space-4);
+}
+
+.screen-commit {
+  padding: var(--space-4);
+}
+
+/* the panes give up the row to the editor: v3's own 46% */
+.grid.is-narrow {
+  flex: 0 0 46%;
+}
+
+.commit-card,
+.editor-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-900);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.commit-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  animation: fadeUp var(--t-btn) ease;
+}
+
+/* ---- commit view: header ---------------------------------------------------
+   The message is the title; everything under it is metadata, in the quiet
+   ramp, with the two numbers and the five-block bar as the only colour.      */
+
+.commit-vhd {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+  border-bottom: var(--line) solid var(--color-neutral-800);
+}
+
+.commit-vtop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+/* the two back controls: a chevron MARK plus plain words */
+.commit-back,
+.files-back {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  color: var(--color-neutral-300);
+  font-size: 12.5px;
+}
+
+.commit-back {
+  height: var(--ctl-h);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+}
+
+.commit-back:hover {
+  border-color: var(--color-neutral-600);
+}
+
+.commit-vtitle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.commit-vmsg {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.commit-vmeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+/* the author's initial: a mark, not a photo */
+.commit-avatar {
+  flex: none;
+  width: var(--avatar-w);
+  height: var(--avatar-w);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.commit-vauthor {
+  color: var(--color-neutral-300);
+}
+
+/* the branch chip and the hash chip: data, so mono and boxed in a hairline */
+.commit-branch,
+.commit-vhash {
+  font-family: var(--font-mono);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+}
+
+.commit-branch {
+  padding: 1px 6px;
+}
+
+.commit-vhash {
+  padding: 3px 8px;
+  font-size: var(--fs-name);
+  color: var(--color-neutral-400);
+}
+
+.commit-vright {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+/* NOT a link until the app reads a remote (part B3): quiet, unclickable, and
+   its title says when it starts working. */
+/* a real button that says it is unavailable: the disabled LOOK, never the
+   disabled attribute (a screen reader must still reach its explanation) */
+.commit-gh {
+  font-size: var(--fs-name);
+  color: var(--color-neutral-600);
+  cursor: default;
+}
+
+.commit-gh[aria-disabled='true'] {
+  opacity: 0.6;
+}
+
+/* a commit the view cannot resolve: one sentence, and the back control above
+   it is the whole point of the state */
+.commit-missing {
+  padding: var(--space-6) var(--space-4);
+  font-size: var(--fs-row);
+  color: var(--color-neutral-500);
+}
+
+.commit-vsum {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.commit-vsum .files-num {
+  font-size: 12.5px;
+}
+
+/* five blocks, 1px apart: a ratio at a glance, with the real numbers beside it */
+.commit-bar {
+  display: flex;
+  gap: 1px;
+}
+
+.commit-bar-b {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--color-danger);
+}
+
+.commit-bar-b[data-kind='add'] {
+  background: var(--color-ok);
+}
+
+/* the honest line about mock data, in the header's own quiet ramp */
+.commit-note,
+.editor-note {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* ---- commit view: one collapsible file, then its diff ---------------------- */
+
+.commit-vbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8) var(--space-8);
+}
+
+.diff-block {
+  /* The body is a column flex scroller: without this a long diff would be
+     SHRUNK to fit the card and clipped mid-hunk instead of scrolling. */
+  flex: none;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.diff-hd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--panehd-h);
+  padding: 0 var(--space-4);
+  background: var(--color-surface);
+  user-select: none;
+}
+
+/* the whole left side of the header row is the fold control */
+.diff-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.diff-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-hd .files-num {
+  font-size: 11.5px;
+}
+
+/* the two verbs on a file block */
+.diff-act {
+  flex: none;
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+.diff-act:hover {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+/* ---- the diff itself (commit view AND the editor's diff tab) ---------------
+   On the terminal ground, 12px mono: the densest surface in the app, and the
+   one place where a row's GROUND carries meaning.                            */
+
+.diff-body {
+  background: var(--term-bg);
+  padding: var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+}
+
+.diff-line[data-kind='add'] {
+  background: var(--ok-tint);
+}
+
+.diff-line[data-kind='del'] {
+  background: var(--danger-tint);
+}
+
+.diff-n {
+  flex: none;
+  width: var(--diff-gut-w);
+  padding-right: var(--space-3);
+  text-align: right;
+  color: var(--color-neutral-700);
+  user-select: none;
+}
+
+.diff-sign {
+  flex: none;
+  width: var(--diff-sign-w);
+  user-select: none;
+}
+
+.diff-t {
+  white-space: pre;
+  color: var(--color-neutral-400);
+}
+
+/* No example text for this path: a NOTE, not a numbered diff row. Same quiet
+   ink and size as the panel's placeholder line, on the terminal ground. */
+.diff-note,
+.editor-empty {
+  padding: var(--space-3) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.editor-empty {
+  flex: 1;
+  min-width: 0;
+}
+
+.diff-line[data-kind='add'] .diff-sign,
+.diff-line[data-kind='add'] .diff-t {
+  color: var(--color-ok);
+}
+
+.diff-line[data-kind='del'] .diff-sign,
+.diff-line[data-kind='del'] .diff-t {
+  color: var(--color-danger);
+}
+
+/* ---- the Files panel's selected-commit state ------------------------------- */
+
+.files-selhd {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.files-back {
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-2);
+  color: var(--color-neutral-500);
+}
+
+.files-back:hover {
+  color: var(--color-text);
+}
+
+.files-selmsg {
+  font-size: var(--fs-row);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.files-selhd .commit-meta {
+  font-size: 11.5px;
+}
+
+/* one file of the open commit: clicking it folds that file's diff in the view */
+.commit-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.commit-file:hover {
+  background: var(--color-neutral-900);
+}
+
+/* the PATH identifies the row, so it truncates at its FRONT */
+.commit-fpath {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+/* a folded file recedes, exactly like a closed folder in the tree */
+.commit-file.is-collapsed .commit-fpath {
+  color: var(--color-neutral-500);
+}
+
+/* the tree row of the file the editor is showing keeps a ground */
+.files-row.is-open {
+  background: var(--color-neutral-900);
+}
+
+/* ---- editor ---------------------------------------------------------------- */
+
+/* DESIGN-SYSTEM RULE: code surfaces draw plain glyphs, like the terminal.
+   xterm renders no ligatures, so an editor that prints `=` `=` as one long
+   glyph (or `=>` as an arrow) would show code this app cannot show in the pane
+   beside it — and a reader could not tell `==` from `===`. Every surface that
+   prints code or a path is listed here, once.                                */
+.editor-text,
+.editor-gutter,
+.editor-path,
+.diff-t,
+.diff-path,
+.commit-fpath {
+  font-variant-ligatures: none;
+}
+
+.editor-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.editor-tabs {
+  height: var(--panehd-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+
+/* a tab is its ground: the active one sits on the terminal ground it opens */
+.editor-tab {
+  height: var(--edit-tab-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 200px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 12.5px;
+}
+
+.editor-tab.is-on {
+  background: var(--term-bg);
+  color: var(--color-text);
+}
+
+.editor-tab-pick {
+  min-width: 0;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* unsaved: the app's one attention colour, as a mark beside the name */
+.editor-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-attn);
+}
+
+.editor-x {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+  font-size: var(--fs-name);
+}
+
+.editor-x:hover {
+  background: var(--color-neutral-800);
+  color: var(--color-text);
+}
+
+/* right side of the strip: what the tab is about */
+.editor-path,
+.editor-meta {
+  padding-right: var(--space-2);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-path {
+  font-family: var(--font-mono);
+}
+
+.editor-meta {
+  color: var(--color-neutral-500);
+}
+
+.editor-save {
+  flex: none;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+  font-size: var(--fs-name);
+}
+
+/* only a file with unsaved text offers the accent — `Saved` is a statement */
+.editor-save.is-dirty {
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+}
+
+.editor-save.is-dirty:hover {
+  background: var(--color-accent-900);
+}
+
+.editor-save:disabled {
+  cursor: default;
+}
+
+.editor-note {
+  flex: none;
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  margin: 0 var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--term-bg);
+  overflow: hidden;
+}
+
+.editor-body .diff-body {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.editor-gutter {
+  flex: none;
+  padding: var(--space-4) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-700);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+  overflow: hidden;
+}
+
+.editor-text {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  resize: none;
+  background: transparent;
+  color: var(--color-neutral-200);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: var(--space-4) var(--space-4) var(--space-4) 0;
+  white-space: pre;
+  overflow: auto;
+}
+
+.editor-text:focus-visible {
+  outline: none; /* the caret is the focus ring inside a text field */
 }

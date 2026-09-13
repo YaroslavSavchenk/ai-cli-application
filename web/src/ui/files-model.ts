@@ -21,6 +21,8 @@
  * `--badge-<kind>-*` pair per family and this table only names the family.
  */
 
+import type { CommitFileChange } from './commit-model.ts';
+
 /** One changed (or merely listed) file, as B2's `git diff --numstat` walk will hand it over. */
 export interface FileChange {
   /** Repo-relative path with `/` separators, e.g. `web/src/main.ts`. */
@@ -35,7 +37,11 @@ export interface FileChange {
 
 /** One commit, as B3's `git log` walk will hand it over. */
 export interface CommitEntry {
-  /** Short hash, rendered mono. */
+  /**
+   * Short hash doubles as the IDENTITY: the commit view is opened by it and
+   * the collapse keys are built from it. B3 keeps that (a hash is unique in a
+   * repository), so nothing downstream needs a second id. Rendered mono.
+   */
   hash: string;
   /** Subject line only. */
   message: string;
@@ -44,6 +50,13 @@ export interface CommitEntry {
   when: string;
   add: number;
   del: number;
+  /**
+   * What the commit touched — the commit view's whole body (part A6). The two
+   * numbers above are the sums of these, which
+   * `tests/ui-commit-model.test.ts` pins on the mock so the list row and the
+   * opened view can never state different totals.
+   */
+  files: CommitFileChange[];
 }
 
 /** A folder or file in the derived tree. */
@@ -86,6 +99,17 @@ export interface DiffSummary {
   del: number;
   /** How many files carry a diff. */
   files: number;
+}
+
+/**
+ * The disclosure glyph of anything that folds: a tree folder (this module) and
+ * a commit view's file block (ui/commit-view.ts). ONE definition, because it is
+ * GEOMETRY, not text — it always lives in an `aria-hidden` span beside a
+ * control that states its own `aria-expanded`, and the copy rules' allowlist
+ * should never need a second entry for the same mark.
+ */
+export function caretGlyph(open: boolean): '▾' | '▸' {
+  return open ? '▾' : '▸';
 }
 
 const ROW_INDENT_BASE = 8;
@@ -153,7 +177,7 @@ export function treeRows(
         indent,
         dir: true,
         open,
-        caret: open ? '▾' : '▸',
+        caret: caretGlyph(open),
         hasDiff: false,
         add: 0,
         del: 0,

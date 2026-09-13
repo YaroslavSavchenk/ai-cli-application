@@ -250,7 +250,7 @@ test('badgeFor: an unknown type, a dotfile and a file with no extension all get 
 test('the mock file list is flat, and the summary it produces is the one the panel prints', () => {
   assert.ok(MOCK_FILES.length >= 10, 'non-vacuity: the placeholder tree has content');
   const s = diffSummary(MOCK_FILES);
-  assert.deepEqual(s, { add: 176, del: 46, files: 5 });
+  assert.deepEqual(s, { add: 26, del: 10, files: 5 });
   assert.equal(summaryText(s.files), 'since last commit in 5 files');
   // Every folder the mock says is open must exist in the tree it builds from,
   // or the panel opens with a set of names that mean nothing.

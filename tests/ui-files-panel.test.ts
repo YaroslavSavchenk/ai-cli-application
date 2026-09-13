@@ -34,7 +34,6 @@ import type { Project, SessionInfo } from '../shared/protocol.ts';
 import {
   byClass,
   byKey,
-  descendants,
   dispatch,
   installDom,
   textsOf,
@@ -50,10 +49,17 @@ const st = (await import(new URL('../web/src/state.ts', import.meta.url).href)) 
 const F = (await import(new URL('../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 const M = (await import(new URL('../web/src/ui/files-model.ts', import.meta.url).href)) as ModelModule;
 const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as MockModule;
+const MODEL = (await import(new URL('../web/src/ui/commit-model.ts', import.meta.url).href)) as {
+  blockDomId(hash: string, path: string): string;
+};
 
 interface StateModule {
   state: {
     sessions: Map<string, SessionInfo>;
+    openCommit: string | null;
+    commitCollapsed: Set<string>;
+    editor: { tabs: { id: string; label: string; path: string; hash?: string }[]; active: string | null };
+    edits: Map<string, string>;
     projects: Project[];
     views: { id: string; sessions: string[]; focused: number }[];
     activeViewId: string;
@@ -70,9 +76,13 @@ interface StateModule {
   subscribe(fn: (kind: string) => void): void;
   toggleLeftPanel(p: 'files'): void;
   filesPanelVisible(): boolean;
+  openCommitView(hash: string): void;
+  closeCommitView(): void;
+  commitFileCollapsed(hash: string, path: string): boolean;
+  editorFileId(path: string): string;
 }
 interface FilesModule {
-  initFilesPanel(host: unknown): { render(): void };
+  initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
 }
 interface ModelModule {
   buildTree(files: readonly { path: string }[]): unknown[];
@@ -81,19 +91,34 @@ interface ModelModule {
 interface MockModule {
   MOCK_FILES: { path: string; add?: number; del?: number; editing?: boolean }[];
   MOCK_OPEN_FOLDERS: string[];
-  MOCK_COMMITS: { hash: string; message: string; author: string; when: string; add: number; del: number }[];
+  MOCK_COMMITS: {
+    hash: string;
+    message: string;
+    author: string;
+    when: string;
+    add: number;
+    del: number;
+    files: { path: string; add: number; del: number }[];
+  }[];
   MOCK_BRANCH: string;
 }
 
 const host = dom.doc.createElement('aside');
 dom.body.append(host);
-const panel = F.initFilesPanel(host);
+/** The keyboard hand-back main.ts injects (the real one focuses a terminal). */
+let handBacks = 0;
+const panel = F.initFilesPanel(host, () => {
+  handBacks += 1;
+});
 const root = host.children[0] as FakeElement;
 
 /** Everything `notify()` emitted since the last reset. */
 const kinds: string[] = [];
 st.subscribe((k) => {
   kinds.push(k);
+  // The shell re-renders the panel on every change (main.ts); without this the
+  // A6 screens — which live in state, not in the panel — would never reach it.
+  panel.render();
 });
 
 function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
@@ -142,6 +167,11 @@ beforeEach(() => {
   host.style.width = `${st.FILES_W_DEFAULT}px`;
   grip.setAttribute('aria-valuenow', String(st.FILES_W_DEFAULT));
   kinds.length = 0;
+  handBacks = 0;
+  st.state.openCommit = null;
+  st.state.commitCollapsed = new Set();
+  st.state.editor = { tabs: [], active: null };
+  st.state.edits = new Map();
   dom.doc.activeElement = dom.body;
 });
 
@@ -275,7 +305,7 @@ test('with no live session the panel renders nothing at all', () => {
 
 test('a live session fills the panel: the summary the model computes, then the tree', () => {
   liveSession();
-  assert.deepEqual(textsOf(root, 'files-num').slice(0, 2), ['+176', '-46']);
+  assert.deepEqual(textsOf(root, 'files-num').slice(0, 2), ['+26', '-10']);
   assert.equal(textsOf(root, 'files-sum-text')[0], 'since last commit in 5 files');
   assert.equal(summary.hidden, false);
 
@@ -365,10 +395,10 @@ test('the amber pulse is on the edited file and every folder above it, and nowhe
   const busy = byClass(root, 'files-row')
     .filter((r) => r.classList.contains('is-busy'))
     .map((r) => (r.textContent.replace(/^[▾▸]/, '') || '').trim());
-  assert.deepEqual(busy, ['web', 'src', 'TSXPane.tsx+87-22'], 'the spine of the one edited file');
+  assert.deepEqual(busy, ['web', 'src', 'TSXPane.tsx+4-2'], 'the spine of the one edited file');
 });
 
-test('a folder row toggles its subtree; a file row is inert until the editor (A6)', () => {
+test('a folder row toggles its subtree; a file row opens that file in the editor (A6)', () => {
   liveSession();
   const server = byKey(root, 'fdir:server') as FakeElement;
   assert.equal(server.tagName, 'BUTTON');
@@ -386,8 +416,32 @@ test('a folder row toggles its subtree; a file row is inert until the editor (A6
   (byKey(root, 'fdir:server') as FakeElement).click();
   assert.equal(byClass(root, 'files-row').length, before, 'and come back');
 
-  const file = byClass(root, 'files-row').find((r) => r.classList.contains('is-file')) as FakeElement;
-  assert.equal(file.tagName, 'DIV', 'a dead button would be a lie to the keyboard');
+  // A6 turned the inert row into a real opener: it is a button, it opens the
+  // file's editor tab, and the row of the file the editor shows keeps a ground.
+  const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
+  assert.equal(file.tagName, 'BUTTON', 'a row that opens a file is a button, not a hover');
+  file.click();
+  assert.deepEqual(
+    st.state.editor.tabs.map((t) => [t.id, t.label, t.path]),
+    [['f:web/src/Pane.tsx', 'Pane.tsx', 'web/src/Pane.tsx']],
+    'the tab is keyed by path and labelled with the NAME',
+  );
+  assert.equal(st.state.editor.active, 'f:web/src/Pane.tsx');
+  panel.render();
+  assert.equal(
+    (byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement).classList.contains('is-open'),
+    true,
+    'the tree says where the editor is standing',
+  );
+  assert.equal(
+    (byKey(root, 'ffile:web/src/store.ts') as FakeElement).classList.contains('is-open'),
+    false,
+    'and only there',
+  );
+
+  // Opening the same file twice must not stack a second tab.
+  (byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement).click();
+  assert.equal(st.state.editor.tabs.length, 1, 'the id is the dedupe key');
 });
 
 test('every file row carries a colour-family badge, including the ones behind a closed folder', () => {
@@ -470,15 +524,110 @@ test('the Commits tab swaps the body and hides the summary; both tabs say which 
   assert.equal(textsOf(root, 'commit-hash')[0], first.hash);
   assert.ok(rows[0]?.textContent.includes(first.when));
   assert.ok(rows[0]?.textContent.includes(`+${first.add}`));
-  assert.equal(
-    descendants(rows[0] as FakeElement).some((n) => n.tagName === 'BUTTON'),
-    false,
-    'A5 commit rows are inert: the commit view is A6',
-  );
+  // A6: a commit row opens the full commit view.
+  assert.equal(rows[0]?.tagName, 'BUTTON', 'a commit row is a control now, not a card');
+  assert.equal(rows[0]?.getAttribute('data-k'), `commit:${first.hash}`);
 
   files.click();
   assert.equal(summary.hidden, false);
   assert.ok(byClass(root, 'files-row').length > 0, 'and the tree comes back');
+});
+
+// ---------------------------------------------------------------------------
+// The Commits tab while a commit is open (Nocturne A6)
+// ---------------------------------------------------------------------------
+
+test('clicking a commit opens the commit view, and the tab becomes its selected state', () => {
+  liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
+
+  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+  assert.equal(st.state.openCommit, first.hash, 'the panel opens the view, it does not draw it');
+
+  // The selected state: a back control, the message, the meta line, and one
+  // row per file — the commit list itself is gone.
+  const sel = byClass(root, 'files-selhd')[0] as FakeElement;
+  assert.equal(sel.hidden, false);
+  assert.equal(textsOf(root, 'files-selmsg')[0], first.message);
+  assert.equal(textsOf(root, 'commit-hash')[0], first.hash);
+  assert.ok(sel.textContent.includes(first.author) && sel.textContent.includes(first.when));
+  assert.equal(byClass(root, 'commit-row').length, 0, 'the list gave way to the one commit');
+  assert.equal(textsOf(root, 'files-branch')[0], `${first.files.length} files changed`);
+  assert.deepEqual(textsOf(root, 'commit-fpath'), first.files.map((f) => f.path));
+  const nums = byClass(root, 'commit-file')[0] as FakeElement;
+  assert.ok(nums.textContent.includes(`+${(first.files[0] as { add: number }).add}`));
+});
+
+test('a file row in the selected state folds that file in the view, and says which state it is in', () => {
+  liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
+  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+  const path = (first.files[0] as { path: string }).path;
+
+  const row = byKey(root, `cfile:${path}`) as FakeElement;
+  assert.equal(row.tagName, 'BUTTON');
+  assert.equal(row.getAttribute('aria-expanded'), 'true', 'a commit opens fully expanded');
+  row.click();
+  assert.equal(st.commitFileCollapsed(first.hash, path), true, 'the SAME key the view folds by');
+  const after = byKey(root, `cfile:${path}`) as FakeElement;
+  assert.equal(after.getAttribute('aria-expanded'), 'false');
+  assert.equal(after.classList.contains('is-collapsed'), true, 'a folded file recedes');
+
+  // The other file is untouched.
+  const other = (first.files[1] as { path: string }).path;
+  assert.equal(st.commitFileCollapsed(first.hash, other), false);
+});
+
+test('a file row NAMES the block it expands — the block lives in another region', () => {
+  // `aria-expanded` with nothing to point at leaves a reader with "expanded
+  // what?": the block is in the commit VIEW, not in this panel.
+  liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
+  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+  assert.ok(first.files.length > 1, 'non-vacuity: more than one row');
+  for (const f of first.files) {
+    const row = byKey(root, `cfile:${f.path}`) as FakeElement;
+    assert.equal(
+      row.getAttribute('aria-controls'),
+      MODEL.blockDomId(first.hash, f.path),
+      `${f.path}: the id the view gives that block`,
+    );
+  }
+});
+
+test('All commits closes the whole view and hands the keyboard back', () => {
+  liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
+  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+
+  const back = byKey(root, 'commit:all') as FakeElement;
+  assert.equal(back.textContent, 'All commits', 'words only — the chevron is a drawn mark beside them');
+  back.click();
+  assert.equal(st.state.openCommit, null, 'one commit is open or none is');
+  assert.equal(handBacks, 1);
+  assert.equal((byClass(root, 'files-selhd')[0] as FakeElement).hidden, true);
+  assert.equal(byClass(root, 'commit-row').length, MOCK.MOCK_COMMITS.length, 'the list is back');
+});
+
+test('switching to the Files tab while a commit is open keeps the VIEW open', () => {
+  liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
+  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+
+  (byKey(root, 'ftab:files') as FakeElement).click();
+  assert.equal(st.state.openCommit, first.hash, 'only the PANEL is gated on the tab, never the view');
+  assert.equal((byClass(root, 'files-selhd')[0] as FakeElement).hidden, true);
+  assert.ok(byClass(root, 'files-row').length > 0, 'the tree is what the Files tab shows');
+
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  assert.equal((byClass(root, 'files-selhd')[0] as FakeElement).hidden, false, 'and back again');
+  st.closeCommitView();
+  (byKey(root, 'ftab:files') as FakeElement).click();
 });
 
 test('a rebuild keeps the keyboard where it was (folder rows are re-created wholesale)', () => {
@@ -502,7 +651,7 @@ test('main.ts constructs the panel — on the aside it just created', () => {
   assert.match(MAIN, /import \{ initFilesPanel \} from '\.\/ui\/files\.ts';/);
   assert.match(
     MAIN,
-    /const filesPanel = initFilesPanel\(filesAside\);/,
+    /const filesPanel = initFilesPanel\(filesAside, requestTerminalFocus\);/,
     'the panel must be initialised with the files aside, or nothing is ever built',
   );
 });
@@ -516,7 +665,13 @@ test('main.ts renders the panel on every state change AND once at boot', () => {
 });
 
 test('the Files aside is a flex sibling BEFORE the grid — that is what resizes the panes', () => {
-  assert.match(MAIN, /main\.append\(projAside, filesAside, grid, sessAside\);/);
+  // A6 added two more occupants of the same row (the commit view and the
+  // editor); the Files panel keeps its place directly after the projects
+  // drawer, and everything up to the grid is still a flex SIBLING of it.
+  assert.match(
+    MAIN,
+    /main\.append\(projAside, filesAside, commitAside, editorAside, grid, sessAside\);/,
+  );
 });
 
 test('the Files button is a live toggle, not the disabled placeholder A2 shipped', () => {

@@ -218,6 +218,32 @@ test('focusOwnerOpen: an open Files panel does not own the keyboard', () => {
   );
 });
 
+test('focusOwnerOpen: the editor column is not a screen-level owner either (Nocturne A6)', () => {
+  // Same rule as the Files panel: the editor can stand open beside the panes
+  // for a whole working session, so its mere PRESENCE must never block the
+  // window-activation refocus. It carries neither `.drawer` nor `.modal-scrim`
+  // — this pins that it stays that way.
+  const editor: PageEl = { classes: ['screen-editor'], hidden: false };
+  const commit: PageEl = { classes: ['screen-commit'], hidden: false };
+  assert.equal(focusOwnerOpen(pageWith([editor, commit])), false);
+  // Non-vacuity: the same double still sees a real owner.
+  assert.equal(
+    focusOwnerOpen(pageWith([editor, { classes: ['modal-scrim'], hidden: false }])),
+    true,
+  );
+});
+
+test('shouldRefocusTerminal: the editor textarea keeps the keyboard (A6)', () => {
+  // The element half is what protects a file being typed in: a TEXTAREA is an
+  // editable target, so an alt-tab back into the window does NOT yank the
+  // caret out of the editor and into a terminal.
+  assert.equal(shouldRefocusTerminal(elem({ tag: 'TEXTAREA', inside: ['.editor-body'] })), false);
+  assert.equal(isEditableTarget(elem({ tag: 'TEXTAREA' })), true);
+  // But a BUTTON in the editor's tab strip is not a field and owns nothing —
+  // the keyboard may go back to the terminal from there.
+  assert.equal(shouldRefocusTerminal(elem({ tag: 'BUTTON', inside: ['.editor-tabs'] })), true);
+});
+
 test('focusOwnerOpen and shouldRefocusTerminal are BOTH required: the drawer case needs the screen half', () => {
   // The topbar toggle: a plain button, inside no drawer -> the element half
   // says "yes, refocus". Only the screen half stops it.

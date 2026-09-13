@@ -42,6 +42,15 @@ const INFO_PATH =
   'M128,70a13,13,0,1,1,0,26a13,13,0,1,1,0-26Z' +
   'M120,112h16v72h-16Z';
 
+/**
+ * "Caret left" — the back chevron on the commit view's two back controls
+ * (Nocturne A6). NOT a Phosphor path: the v3 handoff draws its chevron as the
+ * TEXT character `\u2039`, and a glyph inside a sentence is exactly what the
+ * copy rules ban — so the mark is drawn here on the same 256 grid and 16-unit
+ * line weight as the Phosphor regular set, and the button keeps a plain label.
+ */
+const CARET_LEFT_PATH = 'M152.7,41.4L164,52.7L88.7,128L164,203.3L152.7,214.6L66.1,128Z';
+
 function icon(d: string, size: number, fillRule: 'nonzero' | 'evenodd' = 'nonzero'): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('width', String(size));
@@ -65,6 +74,11 @@ export function gearIcon(): SVGSVGElement {
 /** The folder glyph at the v3 size (16px) in a tree row. Colour comes from CSS. */
 export function folderIcon(): SVGSVGElement {
   return icon(FOLDER_PATH, 16);
+}
+
+/** The back chevron at 12px, inside the commit view's back controls (A6). */
+export function caretLeftIcon(): SVGSVGElement {
+  return icon(CARET_LEFT_PATH, 12);
 }
 
 /** The info glyph at 14px, inside the launch dialog's 20px info button. */

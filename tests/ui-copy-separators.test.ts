@@ -194,7 +194,10 @@ const ALLOWED: Record<string, { text: string; why: string }[]> = {
   // file type's chip is a centred dot MARK inside an aria-hidden badge — no
   // sentence anywhere near either of them.
   'ui/files-model.ts': [
-    { text: '▸', why: 'closed-folder disclosure caret (aria-hidden span, paired with ▾)' },
+    {
+      text: '▸',
+      why: 'closed disclosure caret (aria-hidden span, paired with ▾) — ONE definition, `caretGlyph()`: it draws the tree folders here AND the commit view file blocks (ui/commit-view.ts)',
+    },
     { text: '·', why: 'unknown file-type badge mark (aria-hidden chip), never text' },
   ],
   // ui/theme.ts is the Legacy theme popover. A2 unwired it (main.ts no longer
@@ -442,4 +445,33 @@ test('tokens.css pins the three Nocturne chrome heights, and app.css builds on t
     // A token nothing consumes is a comment, not a contract.
     assert.ok(APP.includes(`var(${name})`), `app.css must size the chrome with var(${name})`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Gate addition (test-engineer, A6): the fold caret has ONE definition
+// ---------------------------------------------------------------------------
+
+test('the fold caret is borrowed, not copied — A6 widened no exemption', () => {
+  // `▸` is a BANNED glyph with a narrow, reasoned exemption per file. Part A6
+  // gave the commit view's file blocks the same disclosure caret; it takes it
+  // from `caretGlyph()` in ui/files-model.ts instead of writing the character
+  // again, so the allowlist above did NOT grow an entry. This pins that: the
+  // caret pair exists in exactly the two modules already excused, and the
+  // commit view holds no caret literal at all.
+  const carrying = FILES.filter((f) =>
+    (litsOf.get(f) as Lit[]).some((l) => l.text.includes('▸') || l.text.includes('▾')),
+  );
+  assert.deepEqual(
+    carrying.sort(),
+    ['ui/files-model.ts', 'ui/sessions.ts'],
+    'a third copy of the caret needs a third allowlist entry — borrow it instead',
+  );
+  const CV = src('ui/commit-view.ts');
+  assert.ok(CV.includes('caretGlyph(open)'), 'the commit view draws its caret from the one definition');
+  assert.match(CV, /import \{ caretGlyph \} from '\.\/files-model\.ts';/);
+  assert.match(src('ui/files-model.ts'), /export function caretGlyph\(open: boolean\)/);
+  // And the allowlist itself still carries exactly one ▸ entry per excused
+  // file, so nothing was quietly added while the caret moved.
+  assert.equal((ALLOWED['ui/files-model.ts'] ?? []).filter((e) => e.text === '▸').length, 1);
+  assert.equal((ALLOWED['ui/commit-view.ts'] ?? []).length, 0, 'the A6 view needs no exemption');
 });

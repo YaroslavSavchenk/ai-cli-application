@@ -167,6 +167,10 @@
   --danger: var(--color-danger);
   --danger-mut: oklch(0.55 0.12 25);
   --danger-edge: oklch(0.7 0.16 25 / 0.4);
+  /* Removed-line ground in a unified diff (Nocturne A6) — the exact mirror of
+     --ok-tint above, and the reference's own value. No existing token carried
+     it: --danger-edge is the same hue at /.4, four times too loud under text. */
+  --danger-tint: oklch(0.7 0.16 25 / 0.08);
   --danger-ink: #ffffff;
   --exit: var(--color-neutral-700);
 
@@ -302,6 +306,10 @@
   --files-badge-w: 18px; /* A5: file-type chip                                */
   --files-badge-h: 16px;
   --dot-row: 8px;       /* A5: status dot in a Sessions panel row             */
+  --diff-gut-w: 44px;   /* A6: diff line-number column (commit view + editor) */
+  --diff-sign-w: 16px;  /* A6: the +/- column beside it                       */
+  --edit-tab-h: 28px;   /* A6: editor tab chip inside the 38px tab strip      */
+  --avatar-w: 20px;     /* A6: author initial in the commit view header       */
   --ctl-h-row: 24px;    /* A5: row buttons (Side by side, Continue, end)      */
   --line: 1px;
   --tick: 2px;          /* active-tab glow bar, insertion caret               */

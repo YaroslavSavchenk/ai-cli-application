@@ -500,6 +500,49 @@ test('history is bounded at HISTORY_MAX: the oldest ENDED entry drops, a live on
   }
 });
 
+test('list() is newest-first even when two entries share a lastUsedAt to the millisecond', async () => {
+  // `lastUsedAt` is an ISO string with MILLISECOND resolution, so two sessions
+  // created inside the same millisecond tie — and a comparator that answered 0
+  // there left the order to the array, which made the newest-first list a coin
+  // flip (observed as a 1-in-4 flake in tests/lifecycle.test.ts). The entry
+  // appended LATER was created later and must sort first.
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-history-tie-'));
+  const file = join(root, 'history.json');
+  const log = (): void => {};
+  try {
+    const store = new SessionHistory(file, log as never);
+    store.load();
+    const at = new Date(Date.UTC(2026, 0, 1)).toISOString();
+    for (const n of [1, 2, 3]) {
+      const info = { ...fakeInfo(n), createdAt: at };
+      store.recordCreate(info, { id: info.id, conversation: false, baseArgs: [] });
+      store.markEnded(info.id, 'exit', 0);
+    }
+    const listed = await withClaudeConfig(root, () => store.list());
+    assert.deepEqual(
+      listed.map((e) => e.lastUsedAt),
+      [at, at, at],
+      'non-vacuity: all three really do share the same timestamp',
+    );
+    assert.deepEqual(
+      listed.map((e) => e.id),
+      ['session-0003', 'session-0002', 'session-0001'],
+      'the entry recorded last sorts first',
+    );
+    // Deterministic: the same store answers the same order every time.
+    const again = await withClaudeConfig(root, () => store.list());
+    assert.deepEqual(again.map((e) => e.id), listed.map((e) => e.id));
+    // And a real timestamp still beats the tie-break.
+    const newer = { ...fakeInfo(0), createdAt: new Date(Date.UTC(2026, 0, 2)).toISOString() };
+    store.recordCreate(newer, { id: newer.id, conversation: false, baseArgs: [] });
+    store.markEnded(newer.id, 'exit', 0);
+    const withNewer = await withClaudeConfig(root, () => store.list());
+    assert.equal(withNewer[0]?.id, newer.id, 'lastUsedAt is still the primary key');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // (h) planConversation / resumeSpawn — the pure argv table
 // ---------------------------------------------------------------------------

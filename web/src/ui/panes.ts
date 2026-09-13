@@ -76,6 +76,12 @@ let renderedViewId = '';
 let renderedCount = -1;
 let renderedL3: st.L3 = 'L';
 let lastFocusKey = '';
+/**
+ * The last cols/rows any TerminalView measured for itself. Only read while the
+ * pane grid is hidden and the focused slot has no running session to ask —
+ * see `focusedPaneDims()`.
+ */
+let lastGoodDims: { cols: number; rows: number } | null = null;
 
 // --------------------------------------------------------------------------
 // Public API
@@ -108,6 +114,11 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
   }, STATUS_TICK_MS);
   // Regaining window focus while a pane with attention is focused clears it.
   window.addEventListener('focus', () => {
+    // ...unless the panes are not on screen (the commit view covers them):
+    // acknowledging then would clear a "Needs you" badge for a terminal the
+    // user never saw. The deferred `applyFocus()` that runs when the grid is
+    // back acknowledges it honestly, on a pane that is actually visible.
+    if (gridHidden()) return;
     const v = st.activeView();
     if (v === null) return;
     const s = slots[v.focused];
@@ -116,10 +127,41 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
   render();
 }
 
+/**
+ * Is the pane grid hidden right now? Exactly one thing hides it: the commit
+ * view covering the pane area (Nocturne A6, main.ts `applyScreenLayout`).
+ * `[hidden] { display: none !important }` in app.css makes the flag real, and
+ * a `display: none` node is unmeasurable — which is the one state xterm must
+ * never be built against.
+ */
+function gridHidden(): boolean {
+  // `hidden` is `boolean | 'until-found'` in the DOM types; anything but a
+  // plain false means the node is not being rendered.
+  return grid.hidden !== false;
+}
+
 /** The focused slot of the active view, if any. */
 function focusedSlot(): Slot | undefined {
   const v = st.activeView();
   return v !== null ? slots[v.focused] : undefined;
+}
+
+/**
+ * Re-render the pane area after it was INVISIBLE (Nocturne A6: the commit view
+ * covered it). `render()` is signature-guarded and idempotent, so this is a
+ * cheap "you can measure the grid again" nudge — and it is the other half of
+ * the guard at the top of `render()`: the render that was refused while the
+ * grid was hidden happens here instead, on a node xterm can measure.
+ */
+export function refreshPaneArea(): void {
+  render();
+  // The pane the user is now looking at may have raised attention while it
+  // was covered; applyFocus() skips an unchanged focus key, so the ack that
+  // belongs to "the grid is back on screen" is taken here — only when the
+  // window really has the user (otherwise the next activation acks it).
+  if (gridHidden() || !document.hasFocus()) return;
+  const s = focusedSlot();
+  if (s !== undefined) clearAttentionIfPending(s);
 }
 
 /** Focus the terminal of the focused slot (used after drawer/tab focus moves). */
@@ -128,9 +170,26 @@ export function requestTerminalFocus(): void {
   if (s !== undefined && s.view !== null && s.sessionId !== null) s.view.focus();
 }
 
-/** Measured cols/rows of the focused pane (sizes launch + relaunch POSTs). */
+/**
+ * Measured cols/rows of the focused pane (sizes launch + relaunch POSTs).
+ *
+ * A HIDDEN grid is `display: none` and therefore unmeasurable: `proposeDims()`
+ * would fall through to its 80x24 clamp fallback and the new PTY would write
+ * its first screenful wrapped at 80 columns. The attach reconcile fixes the
+ * size afterwards, but never that scrollback — and `New session` (top bar,
+ * Ctrl+Alt+T) and the Sessions drawer's resume both stay reachable while the
+ * commit view covers the panes. So while the grid is hidden the answer comes
+ * from what the app already knows the pane is: the focused session's own live
+ * size, else the last size any TerminalView reported, else the same fallback.
+ */
 export function focusedPaneDims(): { cols: number; rows: number } {
   const s = focusedSlot();
+  if (gridHidden()) {
+    const id = s?.sessionId ?? null;
+    const info = id === null ? undefined : st.state.sessions.get(id);
+    if (info !== undefined && info.status === 'running') return { cols: info.cols, rows: info.rows };
+    return lastGoodDims ?? { cols: 80, rows: 24 };
+  }
   return s !== undefined && s.view !== null ? s.view.proposeDims() : { cols: 80, rows: 24 };
 }
 
@@ -139,6 +198,16 @@ export function focusedPaneDims(): { cols: number; rows: number } {
 // --------------------------------------------------------------------------
 
 function render(): void {
+  // EVERY path below can construct a TerminalView (a rebuild does, and so does
+  // a reconcile whose slot changed session), and xterm must open on an
+  // attached, MEASURABLE node — opening or measuring one on a hidden grid can
+  // permanently downgrade the WebGL renderer and leaves the new view at
+  // xterm's default 80x24, which `connect()` then sends to a PTY that is not
+  // (memory: frontend-terminal-quirks). While the commit view covers the pane
+  // area the whole render is therefore refused and the pane area is left
+  // exactly as it was; `refreshPaneArea()` replays it the moment the grid is
+  // back (main.ts calls it on the same 'screen' notification that unhides it).
+  if (gridHidden()) return;
   const v = st.activeView();
   if (v === null) {
     renderEmpty();
@@ -349,13 +418,16 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       // Attention may predate the attach (BEL while the session had no view
       // on screen): the FOCUSED pane acks it the moment it learns of it —
       // applyFocus ran before this frame arrived and could not know.
+      // A focused pane under the commit view is not ON SCREEN: the badge
+      // must survive until the grid is back (the deferred applyFocus acks it).
       const v = st.activeView();
       if (
         info.attention &&
         v !== null &&
         v.id === renderedViewId &&
         v.focused === s.index &&
-        document.hasFocus()
+        document.hasFocus() &&
+        !gridHidden()
       ) {
         clearAttentionIfPending(s);
       }
@@ -368,8 +440,14 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
     },
     onAttention: () => {
       const v = st.activeView();
-      if (v !== null && v.id === renderedViewId && v.focused === s.index && document.hasFocus()) {
-        // Attention arrived on the focused pane: acknowledge immediately.
+      if (
+        v !== null &&
+        v.id === renderedViewId &&
+        v.focused === s.index &&
+        document.hasFocus() &&
+        !gridHidden()
+      ) {
+        // Attention arrived on the focused, VISIBLE pane: acknowledge at once.
         ackSeen(s, sessionId);
       } else {
         st.setAttention(sessionId, true);
@@ -382,7 +460,10 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       updateNote(s);
       st.notify('conn');
     },
-    onDims: (cols, rows) => st.setSessionDims(sessionId, cols, rows),
+    onDims: (cols, rows) => {
+      lastGoodDims = { cols, rows };
+      st.setSessionDims(sessionId, cols, rows);
+    },
   };
 }
 

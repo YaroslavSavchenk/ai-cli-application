@@ -267,9 +267,22 @@ export class SessionHistory {
    */
   list(): HistoryEntry[] {
     this.pruneUnsaid();
+    // `lastUsedAt` is an ISO string with millisecond resolution, so two
+    // sessions created inside the same millisecond tie — and a comparator that
+    // returns 0 there leaves the order to the array, i.e. to how the file
+    // happened to be written. The insertion index breaks the tie the same way
+    // the timestamp would have: the entry appended LATER was created later, so
+    // it sorts first. Deterministic newest-first, always.
+    const seq = new Map<HistoryEntry, number>(this.#entries.map((e, i) => [e, i]));
     const listed = this.#entries
       .filter((e) => e.ended !== null)
-      .sort((a, b) => (a.lastUsedAt < b.lastUsedAt ? 1 : a.lastUsedAt > b.lastUsedAt ? -1 : 0))
+      .sort((a, b) =>
+        a.lastUsedAt < b.lastUsedAt
+          ? 1
+          : a.lastUsedAt > b.lastUsedAt
+            ? -1
+            : (seq.get(b) ?? 0) - (seq.get(a) ?? 0),
+      )
       .map((e) => ({ ...e, args: [...e.args], ended: e.ended === null ? null : { ...e.ended } }));
     // THE diagnostic for "the drawer's HISTORY section is empty": it says
     // whether the store had nothing, or had only live entries, or pruned them.

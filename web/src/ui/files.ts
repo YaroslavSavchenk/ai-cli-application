@@ -13,8 +13,9 @@
  * that session's own name when it has no project: the panel always says what
  * it is about). Everything else comes from `ui/files-mock.ts` until parts B2
  * (`git diff --numstat`) and B3 (`git log`). No fake interaction is wired for
- * it: folders open and close (a real, local decision), file rows and commit
- * rows are inert until the editor (A6) and the commit view (A6) exist.
+ * it beyond what parts A5 and A6 can honestly do: folders open and close, a
+ * file row opens that file in the editor (A6, mock text), a commit row opens
+ * the full commit view (A6, mock diff).
  *
  * VISIBILITY. `state.leftPanel === 'files'` is the user's wish and survives a
  * session-less moment; `st.filesPanelVisible()` adds "there is a live session"
@@ -26,7 +27,8 @@
  */
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
-import { folderIcon } from './icons.ts';
+import { caretLeftIcon, folderIcon } from './icons.ts';
+import type { CommitEntry } from './files-model.ts';
 import {
   badgeFor,
   buildTree,
@@ -35,7 +37,14 @@ import {
   summaryText,
   treeRows,
 } from './files-model.ts';
-import { MOCK_BRANCH, MOCK_COMMITS, MOCK_FILES, MOCK_OPEN_FOLDERS } from './files-mock.ts';
+import { blockDomId, filesChangedText } from './commit-model.ts';
+import {
+  MOCK_BRANCH,
+  MOCK_COMMITS,
+  MOCK_FILES,
+  MOCK_OPEN_FOLDERS,
+  mockCommitByHash,
+} from './files-mock.ts';
 
 type Tab = 'files' | 'commits';
 
@@ -46,7 +55,15 @@ export interface FilesPanel {
   render(): void;
 }
 
-export function initFilesPanel(host: HTMLElement): FilesPanel {
+/**
+ * `onLeaveScreen` hands the keyboard back to the focused terminal after the
+ * panel closed a surface the user was standing in (the commit view's
+ * `All commits`). It is INJECTED rather than imported for the same reason
+ * ui/panes.ts takes its launch opener that way — and here it also keeps this
+ * module free of `ui/panes.ts`, whose import graph reaches @xterm/xterm, so
+ * the panel stays drivable under `node --test`.
+ */
+export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): FilesPanel {
   // Local to the panel instance: which tab is up and which folders are open.
   // Neither is server state and neither survives a reload — the tree itself is
   // still mocked, so persisting a set of folder names would persist fiction.
@@ -82,7 +99,12 @@ export function initFilesPanel(host: HTMLElement): FilesPanel {
 
   const body = el('div', 'files-body');
 
-  root.append(hd, summary, body);
+  // The Commits tab's SELECTED state (a commit is open): a back control, the
+  // message and the commit's meta line, above the per-file rows in the body.
+  const selHd = el('div', 'files-selhd');
+  selHd.hidden = true;
+
+  root.append(hd, summary, selHd, body);
 
   // ---- the drag edge --------------------------------------------------------
   const grip = el('div', 'files-grip');
@@ -183,7 +205,18 @@ export function initFilesPanel(host: HTMLElement): FilesPanel {
 
   function sig(): string {
     if (!st.filesPanelVisible()) return 'hidden';
-    return `${tab}|${headerName()}|${Array.from(openFolders).sort().join(',')}`;
+    // The panel also reacts to the two A6 screens: an open commit turns the
+    // Commits tab into its selected state (with the same collapse set the
+    // view uses), and the editor's active tab highlights its row in the tree.
+    const collapsed = Array.from(st.state.commitCollapsed).sort().join(',');
+    return [
+      tab,
+      headerName(),
+      Array.from(openFolders).sort().join(','),
+      st.state.openCommit ?? '',
+      collapsed,
+      st.state.editor.active ?? '',
+    ].join('|');
   }
 
   function render(): void {
@@ -222,6 +255,11 @@ export function initFilesPanel(host: HTMLElement): FilesPanel {
     // ONE render site for the placeholder line, so B2/B3 remove it by deleting
     // `placeholderNote` and this one argument.
     body.replaceChildren(placeholderNote(), ...(tab === 'files' ? fileRows() : commitRows()));
+    // The selected state has its own header block above the body (the back
+    // control, the message and the meta line); it is the same commit the full
+    // view shows, so the two can never disagree.
+    selHd.replaceChildren(...selectedHeader());
+    selHd.hidden = selHd.children.length === 0;
 
     if (focusKey !== null) {
       root.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`)?.focus();
@@ -245,7 +283,7 @@ export function initFilesPanel(host: HTMLElement): FilesPanel {
     );
   }
 
-  /** The tree: folder rows toggle, file rows are inert until the editor (A6). */
+  /** The tree: folder rows toggle, file rows open that file in the editor (A6). */
   function fileRows(): HTMLElement[] {
     const rows: HTMLElement[] = [];
     for (const r of treeRows(buildTree(MOCK_FILES), openFolders)) {
@@ -261,10 +299,17 @@ export function initFilesPanel(host: HTMLElement): FilesPanel {
         b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
         row = b;
       } else {
-        // A5 renders files, it does not open them: clicking one does nothing
-        // until the editor lands in part A6. A dead button would be a lie to
-        // the keyboard, so a file row is a plain row with a hover.
-        row = el('div', 'files-row is-file');
+        // A6: a file row opens that file in the editor column. The text it
+        // shows is still `ui/files-mock.ts` until part B4 — the editor says so
+        // in its own quiet line.
+        const b = button('files-row is-file', '', () => {
+          st.openEditorTab(st.editorFileId(r.path), r.name, r.path);
+        });
+        b.setAttribute('data-k', `ffile:${r.path}`);
+        // The row of the file the editor is showing keeps a ground, so the
+        // tree says where the editor is (v3: `editorActive === 'f:' + path`).
+        b.classList.toggle('is-open', st.state.editor.active === st.editorFileId(r.path));
+        row = b;
       }
       row.style.paddingLeft = `${r.indent}px`;
       row.classList.toggle('is-busy', r.busy);
@@ -302,16 +347,77 @@ export function initFilesPanel(host: HTMLElement): FilesPanel {
   }
 
   /**
-   * The commits list. Rows are INERT in A5 on purpose: clicking a commit opens
-   * the full-screen commit view, and that view is part A6 — a row that lit up
-   * and did nothing would be worse than a row that does not invite the click.
+   * The Commits tab's SELECTED state (A6): the header block above the body.
+   * Empty — and hidden — unless a commit is open. `All commits` closes the
+   * whole view, exactly like the view's own `Back to sessions`: one commit is
+   * open or none is, and the panel and the view are two windows on that one
+   * fact.
+   */
+  function selectedHeader(): HTMLElement[] {
+    const c = openCommit();
+    // Only the Commits tab turns into the selected state. Switching to Files
+    // while a commit is open leaves the VIEW open and shows the tree — the
+    // reference gates the panel on the tab, never the view (and the view's own
+    // `Back to sessions` is always there).
+    if (c === null || tab !== 'commits') return [];
+    const back = button('files-back', '', () => {
+      st.closeCommitView();
+      onLeaveScreen();
+    });
+    back.setAttribute('data-k', 'commit:all');
+    back.append(caretLeftIcon(), el('span', '', 'All commits'));
+
+    const meta = el('div', 'commit-meta');
+    meta.append(
+      el('span', 'commit-hash', c.hash),
+      el('span', '', c.author),
+      el('span', '', c.when),
+    );
+    return [back, el('div', 'files-selmsg', c.message), meta];
+  }
+
+  /** The open commit, when the mock knows it. */
+  function openCommit(): CommitEntry | null {
+    return mockCommitByHash(st.state.openCommit);
+  }
+
+  /**
+   * The Commits tab's body: the list, or — while a commit is open — that
+   * commit's files, each row folding its own diff block in the view.
    */
   function commitRows(): HTMLElement[] {
+    const open = openCommit();
+    if (open !== null) {
+      const rows: HTMLElement[] = [
+        el('div', 'files-branch', filesChangedText(open.files.length)),
+      ];
+      for (const f of open.files) {
+        const collapsed = st.commitFileCollapsed(open.hash, f.path);
+        const row = button('commit-file', '', () => st.toggleCommitFile(open.hash, f.path));
+        row.setAttribute('data-k', `cfile:${f.path}`);
+        row.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        // The block it expands lives in the commit VIEW, a different region of
+        // the screen — so the row names it by id instead of leaving
+        // `aria-expanded` pointing at nothing.
+        row.setAttribute('aria-controls', blockDomId(open.hash, f.path));
+        row.classList.toggle('is-collapsed', collapsed);
+        // The PATH is the row (a commit's files are not a tree), so it is mono
+        // and it truncates at its FRONT — the file name is what identifies it.
+        row.append(
+          el('span', 'commit-fpath', f.path),
+          el('span', 'files-num is-add', `+${f.add}`),
+          el('span', 'files-num is-del', `-${f.del}`),
+        );
+        rows.push(row);
+      }
+      return rows;
+    }
     const rows: HTMLElement[] = [
       el('div', 'files-branch', commitsHeaderText(MOCK_BRANCH, MOCK_COMMITS.length)),
     ];
     for (const c of MOCK_COMMITS) {
-      const row = el('div', 'commit-row');
+      const row = button('commit-row', '', () => st.openCommitView(c.hash));
+      row.setAttribute('data-k', `commit:${c.hash}`);
       row.append(el('span', 'commit-msg', c.message));
       const meta = el('div', 'commit-meta');
       meta.append(

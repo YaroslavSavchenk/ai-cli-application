@@ -24,6 +24,18 @@ import type {
   UpdateStatus,
 } from '../../shared/protocol.ts';
 import { log } from './log.ts';
+import {
+  activeTab,
+  closeTab,
+  fileTabId,
+  openTab,
+  setActive,
+  type EditorState,
+  type EditorTab,
+} from './ui/editor-model.ts';
+import { collapseKey } from './ui/commit-model.ts';
+
+export type { EditorTab } from './ui/editor-model.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -38,7 +50,22 @@ export type DrawerView = 'sessions' | 'projects' | null;
  * the user closed it.
  */
 export type LeftPanel = 'files' | null;
-export type ChangeKind = 'sessions' | 'projects' | 'ui' | 'drawer' | 'panel' | 'conn';
+/**
+ * `'screen'` (Nocturne A6) is its own kind rather than another `'panel'`: it
+ * means "something else than the panes occupies the pane area" (the commit
+ * view is open, or the editor column appeared), and `ui/panes.ts` must be able
+ * to IGNORE it — a pane rebuild against a hidden grid is exactly the
+ * measure-while-invisible trap that downgrades xterm's WebGL renderer. The
+ * chrome that owns the layout listens; the panes do not.
+ */
+export type ChangeKind =
+  | 'sessions'
+  | 'projects'
+  | 'ui'
+  | 'drawer'
+  | 'panel'
+  | 'screen'
+  | 'conn';
 
 export const MAX_PANES = 4;
 const MAX_VIEWS = 16;
@@ -81,6 +108,31 @@ interface AppState {
   leftPanel: LeftPanel;
   /** Files panel width in px, FILES_W_MIN..FILES_W_MAX (drag its right edge). */
   filesWidth: number;
+  /**
+   * The commit whose full view covers the pane area (Nocturne A6), by short
+   * hash; null = the panes are on screen. NOT persisted: it is a place the
+   * user is standing, not a preference, and a reload that reopened a commit
+   * view over a running session would hide the terminal for no reason.
+   */
+  openCommit: string | null;
+  /**
+   * Which file blocks inside the open commit are COLLAPSED (`<hash>:<path>`).
+   * Collapsed rather than expanded, so a commit opens with its whole diff
+   * visible — the reference's own default. Not persisted, like the view.
+   */
+  commitCollapsed: Set<string>;
+  /**
+   * The editor column (Nocturne A6): the open tabs and which one is up. Empty
+   * = no editor at all. Not persisted — until part B4 the contents are
+   * `ui/files-mock.ts`, and persisting a list of files that were never read
+   * would persist fiction.
+   */
+  editor: EditorState;
+  /**
+   * Unsaved editor text per tab id. A tab with an entry here is DIRTY (the
+   * amber dot); Save removes it. B4 turns Save into a disk write.
+   */
+  edits: Map<string, string>;
   /** Presence ping round-trip in ms; null until measured / while disconnected. */
   wsLatencyMs: number | null;
   /** Backend boot time (GET /api/runtime startedAt); null until fetched. */
@@ -139,6 +191,10 @@ export const state: AppState = {
   drawer: null,
   leftPanel: 'files',
   filesWidth: FILES_W_DEFAULT,
+  openCommit: null,
+  commitCollapsed: new Set(),
+  editor: { tabs: [], active: null },
+  edits: new Map(),
   wsLatencyMs: null,
   serverStartedAt: null,
   serverCommit: null,
@@ -923,6 +979,140 @@ export function aliveSessionCount(): number {
  */
 export function filesPanelVisible(): boolean {
   return state.leftPanel === 'files' && aliveSessionCount() > 0;
+}
+
+// --------------------------------------------------------------------------
+// The pane area's other occupants (Nocturne A6): the commit view, the editor
+// --------------------------------------------------------------------------
+//
+// Neither is persisted and neither owns a session. They decide WHAT FILLS THE
+// MIDDLE ROW, which is why every change here notifies `'screen'` and why the
+// chrome — never the panes themselves — reads it.
+
+/** Open the full commit view over the pane area. */
+export function openCommitView(hash: string): void {
+  if (state.openCommit === hash) return;
+  state.openCommit = hash;
+  // A newly opened commit starts fully expanded: the collapse set is per
+  // `<hash>:<path>`, so stale keys from an earlier commit can never hide a
+  // block in this one, and dropping them keeps the set from growing forever.
+  state.commitCollapsed = new Set();
+  notify('screen');
+}
+
+/** Close it: the panes come back. Safe to call when nothing is open. */
+export function closeCommitView(): void {
+  if (state.openCommit === null) return;
+  state.openCommit = null;
+  state.commitCollapsed = new Set();
+  notify('screen');
+}
+
+/** Is this file's diff block folded away inside the open commit? */
+export function commitFileCollapsed(hash: string, path: string): boolean {
+  return state.commitCollapsed.has(collapseKey(hash, path));
+}
+
+/** Fold / unfold one file's diff block (the panel row and the block agree). */
+export function toggleCommitFile(hash: string, path: string): void {
+  const key = collapseKey(hash, path);
+  if (state.commitCollapsed.has(key)) state.commitCollapsed.delete(key);
+  else state.commitCollapsed.add(key);
+  notify('screen');
+}
+
+/**
+ * Open a file or a diff in the editor, or raise the tab already open under
+ * that id. `label` is a file NAME; `path` is what the tab is about.
+ */
+export function openEditorTab(id: string, label: string, path: string, hash?: string): void {
+  const tab: EditorTab = hash === undefined ? { id, label, path } : { id, label, path, hash };
+  state.editor = openTab(state.editor, tab);
+  notify('screen');
+}
+
+/** The id a file at `path` opens under — one spelling for every caller. */
+export function editorFileId(path: string): string {
+  return fileTabId(path);
+}
+
+/**
+ * Close a tab. Its unsaved text is dropped with it.
+ *
+ * KNOWN GAP, part B4: there is no "you have unsaved changes" confirmation,
+ * because until B4 nothing was ever read from disk and nothing can be written
+ * to it — a modal about losing placeholder text would be theatre. The amber
+ * dot on the tab is the whole warning in A6; B4 adds the confirm together with
+ * the real file write.
+ *
+ * The tab close is only the FIRST of four doors typed text falls out of, and
+ * B4 has to cover all four: closing the tab (here), reloading the page and
+ * closing the window (nothing in `state.edits` is persisted — by design, see
+ * the field's own note), and the backend's grace timer ending the app after
+ * the last window closed. A confirm on the tab alone would make the other
+ * three feel like a bug rather than the same known gap.
+ */
+export function closeEditorTab(id: string): void {
+  const next = closeTab(state.editor, id);
+  if (next === state.editor) return;
+  state.editor = next;
+  state.edits.delete(id);
+  notify('screen');
+}
+
+/** Raise an open tab. */
+export function setEditorActive(id: string): void {
+  const next = setActive(state.editor, id);
+  if (next.active === state.editor.active) return;
+  state.editor = next;
+  notify('screen');
+}
+
+/**
+ * Record what the user typed. NO notify: the textarea already shows the text,
+ * and a rebuild per keystroke would take the caret with it — the editor
+ * updates its own gutter and Save button in place and asks for a chrome
+ * rebuild only when the DIRTY flag flips (ui/editor.ts).
+ */
+export function setEdit(id: string, text: string): void {
+  state.edits.set(id, text);
+}
+
+/** Is this tab holding unsaved text? */
+export function editorDirty(id: string | null): boolean {
+  return id !== null && state.edits.has(id);
+}
+
+/** The unsaved text of a tab, or undefined when it has none. */
+export function editText(id: string): string | undefined {
+  return state.edits.get(id);
+}
+
+/**
+ * Save: forget the unsaved text and hand it back, so the CALLER writes it
+ * where it belongs. In A6 that is the mock map in `ui/files-mock.ts`; part B4
+ * makes the same call site a backend write. Saving a clean tab returns null
+ * and changes nothing.
+ */
+export function saveEdit(id: string): string | null {
+  const text = state.edits.get(id);
+  if (text === undefined) return null;
+  state.edits.delete(id);
+  notify('screen');
+  return text;
+}
+
+/** The tab the editor body is showing, or null when there is no editor. */
+export function activeEditorTab(): EditorTab | null {
+  return activeTab(state.editor);
+}
+
+/**
+ * Is the editor column on screen: it has at least one tab AND no commit view
+ * is covering the pane area (the two never share it — v3).
+ */
+export function editorVisible(): boolean {
+  return state.editor.tabs.length > 0 && state.openCommit === null;
 }
 
 export function closeDrawer(): void {

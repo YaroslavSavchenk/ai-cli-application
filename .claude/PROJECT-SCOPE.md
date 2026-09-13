@@ -529,6 +529,37 @@ multi-pane layouts on top.
   the data is placeholder, the project name is real. Sessions panel
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
   "Side by side", "Continue" / "Start again", armed "End" / "Forget".
+  Since Nocturne A6 (2026-09-13) the commit rows and the tree's file rows
+  are live: a commit opens the commit view, a file opens an editor tab.
+- **Commit view and Editor** (Nocturne A6, landed 2026-09-13; visual, mock
+  content until B3/B4): two more columns in the middle row, mounted as
+  flex siblings in the order Projects, Files, commit view, editor, pane
+  grid, Sessions. The **commit view** replaces the pane area (the grid is
+  `hidden`; terminals are NOT disposed and `panes.render()` refuses to
+  build or reconcile while the grid is hidden — a deferred render runs on
+  return): card on neutral-900, "Back to sessions", title, author initial
+  avatar, "committed <when>", `main` chip, hash chip, an inert "Open on
+  GitHub" until B3 knows a remote, `N files changed +A -D` with a
+  five-block bar, one collapsible block per file with a unified diff and
+  "Open file" / "Changes". The Files panel's Commits tab shows the
+  selected commit (message, meta, per-file rows that fold the view's
+  blocks, "All commits"). The **editor** column shows when it has tabs and
+  no commit is open; the pane grid then takes `flex: 0 0 46%` and every
+  pane refits through the one fit → ws resize seam. Tabs per file (amber
+  dot when unsaved, ×), path + Save/Saved for file tabs, "Changes in
+  <hash>" for read-only diff tabs, a line-number gutter + textarea on the
+  terminal ground (the diff's own number column is 44 px). Unsaved text lives only in memory (a tab close, reload, window
+  close or backend grace drops it without a confirm — B4 owes the
+  confirm and the disk write). The pane chords (Ctrl+Alt+arrows) and the
+  tab-switch chords (Ctrl+Alt+1..9) are ignored while a commit view is up. Esc closes the commit view
+  (rank: after every dialog, before drawers and the Files panel) and hands
+  the keyboard to the terminal. New `ChangeKind` `'screen'` = something
+  other than the panes fills the pane area; the pane module ignores it.
+  Code surfaces (editor, diff, paths) draw plain glyphs — no font
+  ligatures — like the terminal. Each surface carries one quiet "Example
+  …" line until the real data lands. Placement of the editor LEFT of the
+  panes follows the v3 HTML (README-v3 says "right of the terminal"); a
+  one-line flip of the mount order changes it.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.

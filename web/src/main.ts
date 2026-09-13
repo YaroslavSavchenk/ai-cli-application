@@ -30,12 +30,14 @@ import type { UiPrefs } from '../../shared/protocol.ts';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initPanes, requestTerminalFocus } from './ui/panes.ts';
+import { initPanes, refreshPaneArea, requestTerminalFocus } from './ui/panes.ts';
 import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initFilesPanel } from './ui/files.ts';
+import { initCommitView } from './ui/commit-view.ts';
+import { initEditor } from './ui/editor.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
@@ -463,10 +465,21 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const filesAside = el('aside', 'drawer files-panel');
   filesAside.hidden = true;
   filesAside.setAttribute('aria-label', 'Files');
+  // The pane area's two other occupants (Nocturne A6), in the v3 DOM order:
+  // the commit view REPLACES the panes (the grid is hidden while it is up) and
+  // the editor stands BESIDE them (the grid keeps 46% of the row). Both are
+  // flex siblings for the same reason the drawers are: their width is the
+  // grid's missing width, so the fit -> ws `resize` chain does the rest.
+  const commitAside = el('section', 'screen-commit');
+  commitAside.hidden = true;
+  commitAside.setAttribute('aria-label', 'Commit');
+  const editorAside = el('section', 'screen-editor');
+  editorAside.hidden = true;
+  editorAside.setAttribute('aria-label', 'Editor');
   const grid = el('div', 'grid');
   const sessAside = el('aside', 'drawer drawer-sess');
   sessAside.hidden = true;
-  main.append(projAside, filesAside, grid, sessAside);
+  main.append(projAside, filesAside, commitAside, editorAside, grid, sessAside);
 
   // ---- bottom strip + statusline + modal host --------------------------------
   const strip = el('nav', 'tabstrip');
@@ -503,7 +516,36 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   });
   const sessionsDrawer = initSessionsDrawer(sessAside);
   const projectsDrawer = initProjectsDrawer(projAside);
-  const filesPanel = initFilesPanel(filesAside);
+  const filesPanel = initFilesPanel(filesAside, requestTerminalFocus);
+  const editor = initEditor(editorAside);
+  // Two hand-overs, because the commit view can leave in two directions: back
+  // to the panes (the keyboard goes to the focused terminal) or INTO the
+  // editor it just opened a file in (the keyboard goes to that file).
+  const commitView = initCommitView(commitAside, requestTerminalFocus, () => editor.focusBody());
+
+  /**
+   * WHO OCCUPIES THE PANE AREA. One owner for the two flags, and it is
+   * subscribed BEFORE ui/panes.ts on purpose: when a commit view closes, the
+   * grid must already be visible again by the time the panes are asked to
+   * render, or the rebuild they refuse while hidden would be refused for good.
+   */
+  function applyScreenLayout(): void {
+    const commitOpen = st.state.openCommit !== null;
+    const wasHidden = grid.hidden;
+    commitAside.hidden = !commitOpen;
+    editorAside.hidden = !st.editorVisible();
+    // `is-narrow` is the v3 `flex: 0 0 46%` — a REAL layout change, so every
+    // pane refits and every PTY hears about it through the one seam.
+    grid.classList.toggle('is-narrow', st.editorVisible());
+    grid.hidden = commitOpen;
+    commitView.render();
+    editor.render();
+    // The panes are measurable again: run the render they refused while the
+    // commit view covered them.
+    if (wasHidden && !grid.hidden) refreshPaneArea();
+  }
+  st.subscribe(applyScreenLayout);
+
   // Last: its first render needs the grid mounted and sized. The dialog
   // opener is injected to avoid a panes ↔ launch import cycle.
   initPanes(grid, () => openLaunchDialog());
@@ -544,6 +586,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     projectsDrawer.render();
     filesPanel.render();
   });
+  applyScreenLayout();
   updateChrome();
   tabs.render();
   status.render();
@@ -555,6 +598,19 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && !e.metaKey && !e.getModifierState('AltGraph')) {
       const k = e.key;
+      const paneChord =
+        k === 'ArrowLeft' ||
+        k === 'ArrowRight' ||
+        k === 'ArrowUp' ||
+        k === 'ArrowDown' ||
+        (k.length === 1 && k >= '1' && k <= '9');
+      // Nocturne A6: while the commit view covers the pane area, these chords
+      // would move focus between and swap sessions inside panes NOBODY CAN
+      // SEE, or switch to a tab whose panes are just as covered (Ctrl+Alt+
+      // 1..9). They are left alone until the view is closed
+      // (Escape, or either back control); the chords that open something of
+      // their own — the launch dialog, the shortcuts overlay — still work.
+      if (paneChord && st.state.openCommit !== null) return;
       if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
         e.preventDefault();
         const dir =
@@ -586,9 +642,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       return;
     }
     if (e.key === 'Escape' && !fromTerminal(e.target)) {
-      // Priority: overlay, then popover, then dialogs, then drawer (only
-      // when the drawer actually holds focus — Esc elsewhere belongs to
-      // whatever has it).
+      // Priority: overlay, then popover, then dialogs, then the commit view
+      // (A6: it covers the whole pane area), then drawer/panel (only when the
+      // drawer actually holds focus — Esc elsewhere belongs to whatever has
+      // it).
       if (shortcuts.isOpen()) {
         e.preventDefault();
         shortcuts.close();
@@ -611,6 +668,16 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       } else if (isLaunchDialogOpen()) {
         e.preventDefault();
         closeLaunchDialog();
+      } else if (st.state.openCommit !== null && !isEditable(e.target)) {
+        // Ranked below every dialog and ABOVE the drawer/panel arms: the
+        // commit view is the largest surface under the modals — it covers the
+        // whole pane area — so Esc peels it before a side drawer, and it needs
+        // no focus test for the same reason (there is no terminal behind it to
+        // steal the key from). A field anywhere else still keeps its own Esc.
+        e.preventDefault();
+        st.closeCommitView();
+        // The screen it covered is back; the keyboard goes with it.
+        requestTerminalFocus();
       } else if (st.state.drawer !== null && focusInOrFree(projAside, sessAside)) {
         e.preventDefault();
         st.closeDrawer();
