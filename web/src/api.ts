@@ -369,7 +369,7 @@ export function putPrefs(body: UiPrefs): Promise<OkResponse> {
 
 /**
  * Merge-on-write for the shared prefs bag. `/api/prefs` PUT replaces the WHOLE
- * object, so two writers (the theme popover writing `theme`, the settings
+ * object, so two writers (ui/theme.ts writing `theme`, the settings
  * panel writing `statusLine`) must never PUT a stale bag or they drop each
  * other's keys. This reads the current bag, shallow-merges `patch` at the top
  * level, and PUTs the result. Last-write-wins per top-level key (documented,

@@ -4,11 +4,11 @@
  * real in `tests/ui-launch-dialog.test.ts`; the argv vocabulary in
  * `tests/ui-launch-args.test.ts`. What is left for a source pin:
  *
- *   1. PRIMITIVES ONLY. The A4 brief: new CSS is written against the Nocturne
- *      primitives, never the Legacy alias layer that part A8 deletes. So every
- *      `var(--x)` in the dialog's `ns-` block must be declared ABOVE the
- *      `LEGACY ALIAS LAYER` marker in tokens.css — or be one of the few named
- *      exceptions below, each with its reason.
+ *   1. TOKENS ONLY. The A4 brief: new CSS is written against the Nocturne
+ *      primitives, never the Legacy alias layer — which part A8 has since
+ *      deleted, names and all. So every `var(--x)` in the dialog's `ns-` block
+ *      must be declared in tokens.css; a name that is not is a typo that
+ *      resolves to nothing at runtime.
  *   2. NO HARDCODED COLOR in the block (tokens.css: "Never hardcode a color
  *      outside this file").
  *   3. CLASS PARITY. Every `ns-` class launch.ts puts on an element has a rule,
@@ -25,13 +25,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from './helpers.ts';
+import { declaredTokens, usedTokens } from './tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
 const APP_CSS = read(join(STYLES, 'app.css'));
-const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 const LAUNCH = read(join(UI, 'launch.ts'));
 
 const BLOCK_START = '/* ---- New session dialog (Nocturne A4)';
@@ -43,59 +43,31 @@ const NS_CSS = start === -1 || end === -1 ? '' : APP_CSS.slice(start, end);
 /** Comments out: a comment may NAME what the rules may not use. */
 const NS_RULES = NS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
-const LEGACY_MARK = 'LEGACY ALIAS LAYER';
-const legacyAt = TOKENS_CSS.indexOf(LEGACY_MARK);
+/** The whole token vocabulary — A8 phase 2 left exactly one set. */
+const DECLARED = declaredTokens();
 
-/** Custom properties declared in tokens.css, split at the Legacy alias marker. */
-function declared(src: string): Set<string> {
-  return new Set([...src.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1] as string));
-}
-const PRIMITIVES = declared(TOKENS_CSS.slice(0, legacyAt));
-const LEGACY_LAYER = declared(TOKENS_CSS.slice(legacyAt));
-
-/**
- * Tokens the block uses that are declared BELOW the Legacy marker. Each is a
- * structural or type value with no primitive twin today; A8 must keep (or
- * re-home) exactly these when it deletes the alias layer. A new entry here is a
- * deliberate act, not a way to reach for a Legacy colour.
- */
-const BELOW_MARKER_ALLOWED: Record<string, string> = {
-  '--line': 'the 1px hairline width; Nocturne has no border-width primitive',
-  '--tick': 'the 2px focus-ring width; Nocturne has no outline-width primitive',
-  '--font-sans': 'the Inter stack A1 declared; no font primitive above the marker',
-  '--font-mono': 'the JetBrains Mono stack A1 declared; no font primitive above the marker',
-};
-
-test('non-vacuity: the A4 block and the token split are really being read', () => {
+test('non-vacuity: the A4 block and the token vocabulary are really being read', () => {
   assert.notEqual(start, -1, `app.css must carry the "${BLOCK_START}" section`);
   assert.notEqual(end, -1, `the block must still be followed by "${BLOCK_END}"`);
   assert.ok(NS_RULES.length > 3000, 'the ns- block looks empty');
   assert.ok(NS_RULES.includes('.ns-modal'), 'the block must style .ns-modal');
-  assert.notEqual(legacyAt, -1, `tokens.css must still carry the "${LEGACY_MARK}" marker`);
-  assert.ok(PRIMITIVES.has('--color-accent') && PRIMITIVES.has('--space-4'), 'primitives parsed');
-  assert.ok(LEGACY_LAYER.has('--text-mute') && LEGACY_LAYER.has('--edge'), 'legacy names parsed');
+  assert.ok(DECLARED.has('--color-accent') && DECLARED.has('--space-4'), 'tokens parsed');
+  assert.ok(DECLARED.size >= 100, `non-vacuity: ${DECLARED.size} tokens declared`);
 });
 
-test('primitives only: every var() in the ns- block is a Nocturne primitive or a named exception', () => {
-  const used = [...new Set([...NS_RULES.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1] as string))];
+test('tokens only: every var() in the ns- block is declared in tokens.css', () => {
+  const used = [...new Set(usedTokens(NS_RULES))];
   assert.ok(used.length >= 10, `non-vacuity: found ${used.length} tokens`);
-  const offenders = used.filter((t) => !PRIMITIVES.has(t) && !(t in BELOW_MARKER_ALLOWED));
+  const offenders = used.filter((t) => !DECLARED.has(t));
   assert.deepEqual(
     offenders,
     [],
-    'the New session dialog must not reach into the Legacy alias layer (A8 deletes it). Offenders: ' +
-      offenders.join(', '),
+    'a var() naming no declared token resolves to nothing at runtime. Offenders: ' + offenders.join(', '),
   );
-  // Every token used must exist at all (a typo'd var() silently falls back).
-  for (const t of used) assert.ok(PRIMITIVES.has(t) || LEGACY_LAYER.has(t), `${t} is declared nowhere`);
 });
 
-test('the below-marker exceptions are real and still used (no stale entry)', () => {
-  for (const [t, why] of Object.entries(BELOW_MARKER_ALLOWED)) {
-    assert.ok(LEGACY_LAYER.has(t), `${t} is not below the marker any more — drop the exception`);
-    assert.ok(NS_RULES.includes(`var(${t})`), `${t} is no longer used by the block — drop the exception`);
-    assert.ok(why.length > 10, t);
-  }
+test('non-vacuity: the block still consumes a token (the 1px hairline), so the scan is not empty', () => {
+  assert.ok(NS_RULES.includes('var(--line)'), 'the block must still wear the 1px hairline width');
 });
 
 test('no hardcoded color in the ns- block', () => {
@@ -103,8 +75,8 @@ test('no hardcoded color in the ns- block', () => {
   assert.deepEqual(hits, [], 'colors come from tokens.css only');
 });
 
-test('--color-scrim is a semantics token (above the marker) and the dialog scrim consumes it', () => {
-  assert.ok(PRIMITIVES.has('--color-scrim'), '--color-scrim must be declared above the Legacy marker');
+test('--color-scrim is a semantics token and the dialog scrim consumes it', () => {
+  assert.ok(DECLARED.has('--color-scrim'), '--color-scrim must be declared in tokens.css');
   assert.match(NS_RULES, /\.ns-scrim\s*\{[^}]*background:\s*var\(--color-scrim\)/);
 });
 

@@ -1,6 +1,7 @@
 /**
  * Shortcuts overlay — a keyboard reference, opened by `?` (outside inputs),
- * Ctrl+Alt+/ or the topbar `?` button. Every chord listed here has a visible
+ * Ctrl+Alt+/ or the statusline's `Keyboard shortcuts` button (the topbar `?`
+ * went with the Nocturne chrome, A2). Every chord listed here has a visible
  * UI control (and every drag has a keyboard/button path); plain keys are
  * never intercepted (they belong to the TUI).
  *
@@ -48,13 +49,13 @@ const ROWS: Row[] = [
     keys: ['ctrl+shift+v', 'shift+insert'],
     what: 'paste the clipboard into the terminal',
     ui: "the browser's own paste",
-    note: 'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
+    note: 'Plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys.',
   },
   {
     keys: ['ctrl+shift+c', 'ctrl+insert'],
     what: 'copy the selection',
     ui: 'select with the mouse, then press the keys',
-    note: 'plain ctrl+c stays the interrupt; with nothing selected these keys do nothing',
+    note: 'Plain ctrl+c stays the interrupt; with nothing selected these keys do nothing.',
   },
   { keys: ['ctrl+click a link'], gesture: true, what: 'open it in your browser', ui: 'links printed in the terminal' },
   { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: 'Keyboard shortcuts in the statusline' },
@@ -67,21 +68,27 @@ export interface ShortcutsOverlay {
   isOpen(): boolean;
 }
 
-export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
-  const scrim = el('div', 'modal-scrim');
+export function initShortcuts(modalHost: HTMLElement, refocus: () => void): ShortcutsOverlay {
+  // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
+  // it (OPEN_FOCUS_OWNER_SELECTOR), and it carries the layer and the flat
+  // Nocturne backdrop. `sc-scrim` adds this overlay's own top anchor.
+  const scrim = el('div', 'modal-scrim sc-scrim');
   scrim.hidden = true;
-  const modal = el('div', 'modal modal-shortcuts');
+  const modal = el('div', 'sc-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', 'keyboard shortcuts');
 
-  const hd = el('header', 'modal-hd');
-  const x = button('drawer-x', '×', close);
+  const hd = el('header', 'sc-hd');
+  const x = button('sc-x', '×', close);
   x.setAttribute('aria-label', 'close shortcuts');
-  hd.append(el('span', 'drawer-label', 'Shortcuts'), el('span', 'drawer-gap'), x);
+  hd.append(el('span', 'sc-title', 'Keyboard shortcuts'), x);
 
   const table = el('div', 'sc-table');
   for (const r of ROWS) {
+    // One ITEM per entry — the row and the caption that explains it are one
+    // thing, so the hairline between entries never cuts between them.
+    const item = el('div', 'sc-item');
     const row = el('div', 'sc-row');
     const keys = el('span', 'sc-keys');
     r.keys.forEach((k, i) => {
@@ -89,12 +96,13 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
       keys.append(r.gesture === true ? el('span', 'sc-gesture', k) : el('kbd', '', k));
     });
     row.append(keys, el('span', 'sc-what', r.what), el('span', 'sc-ui', r.ui));
-    table.append(row);
-    if (r.note !== undefined) table.append(el('div', 'sc-cap', r.note));
+    item.append(row);
+    if (r.note !== undefined) item.append(el('div', 'sc-cap', r.note));
+    table.append(item);
   }
   const note = el('p', 'sc-note');
   note.textContent =
-    'everything else goes to the terminal — plain ctrl+c/v, arrows and esc are never intercepted. app chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes.';
+    'Everything else goes to the terminal: plain ctrl+c/v, arrows and esc are never intercepted. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes.';
 
   modal.append(hd, table, note);
   scrim.append(modal);
@@ -116,7 +124,12 @@ export function initShortcuts(modalHost: HTMLElement): ShortcutsOverlay {
   function close(): void {
     if (scrim.hidden) return;
     scrim.hidden = true;
-    restoreTo?.focus();
+    // Return the keyboard where it came from — opening from a terminal
+    // restores the terminal; otherwise fall back to the focused pane.
+    // (`<body>` is where focus sits when nothing is focused: focusing it back
+    // is a no-op and would leave the typed keys reaching no PTY.)
+    if (restoreTo !== null && restoreTo !== document.body && restoreTo.isConnected) restoreTo.focus();
+    else refocus();
     restoreTo = null;
   }
 

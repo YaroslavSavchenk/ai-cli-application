@@ -1,12 +1,12 @@
 /**
  * Consumed since A7 (2026-09-13) by ui/term-colours-model.ts (presets are GROUNDS×RAMPS index pairs); KEPT — part B9 wires the Terminal colours page to ui/theme.ts.
  *
- * Pure data + logic behind the terminal theme popover (ui/theme.ts):
+ * Pure data + logic behind the terminal colours (ui/theme.ts):
  * the palette tables and the validation/comparison helpers for the
  * persisted selection. Entry 0 of each table is the DEFAULT and carries the
  * Nocturne palette since 2026-09-10; the remaining entries are the Legacy
- * UI's handoff tables, kept so persisted indexes keep their meaning until
- * the popover is removed (Nocturne part A8). Deliberately DOM-free — no
+ * UI's handoff tables, kept so persisted indexes keep their meaning now that
+ * part A8 has deleted the popover that rendered them. Deliberately DOM-free — no
  * xterm, no document — so it stays importable under `node --test`; theme.ts
  * remains the sole owner of applying a theme to :root and the live
  * terminals.
@@ -30,7 +30,8 @@ export interface Ramp {
  * and since 2026-09-10 it is the Nocturne ground `--color-term`
  * (oklch(0.16 0.015 275) = #0b0d14), replacing the Legacy UI's charcoal in
  * place so persisted indexes stay valid. The rest are the Legacy handoff's
- * "Terminal backgrounds" — exact values; the whole popover goes away in A8.
+ * "Terminal backgrounds" — exact values; the popover that rendered them was
+ * deleted in A8, the tables stay for part B9.
  */
 export const GROUNDS: Ground[] = [
   { name: 'nocturne', hex: '#0b0d14' },

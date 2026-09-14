@@ -13,7 +13,8 @@
  * and the 26px statusline. Heights and colors live in tokens.css.
  *
  * A2 removed two top-bar controls: the Theme button (Nocturne is the only
- * theme; ui/theme.ts is unwired since A2 and part B9 re-wires it) and the `?` help
+ * theme; A8 deleted its popover and part B9 wires what is left of
+ * ui/theme.ts to the Terminal colours Settings page) and the `?` help
  * button (the shortcuts overlay stays reachable through the `?` key, the
  * statusline's "Keyboard shortcuts" button and the settings panel).
  *
@@ -205,7 +206,7 @@ function createBootPanel(): BootPanel {
       const zone = el('div', 'boot-fatal');
       zone.append(
         el('div', 'boot-fatal-msg', m),
-        button('btn is-primary', 'reload', () => location.reload()),
+        button('btn-accent', 'Reload', () => location.reload()),
       );
       panel.append(zone);
     },
@@ -225,10 +226,10 @@ async function boot(root: HTMLDivElement): Promise<void> {
   const panel = createBootPanel();
   // Steps registered up front; each resolves on its own real event. They run
   // concurrently — serializing them would stretch real time for chrome.
-  const stepToken = panel.step('token check');
-  const stepHydrate = panel.step('hydrate sessions');
-  const stepWs = panel.step('attach ws');
-  const stepFont = panel.step('terminal font');
+  const stepToken = panel.step('Reaching the background service');
+  const stepHydrate = panel.step('Loading projects and sessions');
+  const stepWs = panel.step('Opening the live connection');
+  const stepFont = panel.step('Loading the terminal font');
 
   // Terminal font BEFORE any terminal: a TerminalView built while JetBrains
   // Mono is still in flight measures the FALLBACK face, and keeps its glyphs
@@ -256,7 +257,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // spinning row.
   void fontReady.then((result) => {
     if (result === 'timeout' || result === 'failed' || result === 'unparseable') {
-      stepFont.fail('did not arrive — terminals start with a substitute font');
+      stepFont.fail('It did not arrive. Terminals start with a substitute font.');
     } else {
       stepFont.ok();
     }
@@ -278,7 +279,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
       if (wsFirst) {
         wsFirst = false;
         if (ms !== null) stepWs.ok();
-        else stepWs.fail('presence socket closed — reconnecting in background');
+        else stepWs.fail('The connection closed. Trying again in the background.');
       }
       st.setWsLatency(ms);
       if (ms !== null) st.setBackendReachable(true);
@@ -301,7 +302,8 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // `.then().catch()`, not `.then(ok, err)`: a throw INSIDE the success path
   // (the boot log line once threw a ReferenceError on an unstamped bundle)
   // must land in the catch and settle the step — the two-argument form let it
-  // escape as an unhandled rejection and left 'token check' pending forever.
+  // escape as an unhandled rejection and left the first boot row pending
+  // forever.
   void api
     .getRuntime()
     .then((r) => {
@@ -332,7 +334,8 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // (the status-line checklist) is joined into the SAME hydrate wait — no extra boot-panel step,
   // no reordering — but wrapped in its own .catch so a prefs-fetch failure
   // never fails hydrate or blocks the UI (the status-line checklist then keeps
-  // its defaults; A2 unwired the theme popover, so no theme rides along).
+  // its defaults; A2 unwired the theme popover and A8 deleted it, so no theme
+  // rides along until part B9).
   let projects;
   let sessions;
   let prefs: UiPrefs | undefined;
@@ -345,7 +348,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
   } catch (err) {
     log.error(`boot failed: hydrate ${err instanceof Error ? err.message : String(err)}`);
     panel.fatal(
-      'backend unreachable — the server may have restarted (tokens rotate per run); relaunch from the launcher, then reload.',
+      'The app cannot reach the background service. It may have restarted — start the app again from its shortcut, then reload this page.',
     );
     stepHydrate.fail(err instanceof Error ? err.message : String(err));
     return;
@@ -370,7 +373,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
     // step that is fine, over an app that never mounted. Pin it instead.
     const m = err instanceof Error ? err.message : String(err);
     log.error(`boot failed: shell ${m}`);
-    panel.fatal('the app could not start. reload to try again.');
+    panel.fatal('The app could not start. Reload to try again.');
     return;
   }
   // The shell is up and usable. From here the ws row is the only thing that
@@ -379,7 +382,7 @@ async function boot(root: HTMLDivElement): Promise<void> {
   window.setTimeout(() => {
     if (wsFirst) {
       wsFirst = false;
-      stepWs.fail('presence socket is still connecting');
+      stepWs.fail('Still connecting.');
       log.warn('boot: presence socket had not answered when the app finished starting');
     }
   }, BOOT_WS_GRACE_MS);
@@ -510,7 +513,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // ONE overlay instance; A2 dropped the topbar `?` button, so its openers are
   // the `?` key, Ctrl+Alt+/, the statusline's Keyboard shortcuts button and
   // the settings panel's `all shortcuts` link.
-  const shortcuts = initShortcuts(modalHost);
+  const shortcuts = initShortcuts(modalHost, requestTerminalFocus);
   const status = initStatusline(statusline, {
     openShortcuts: () => shortcuts.toggle(),
   });
@@ -642,7 +645,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
       return;
     }
     if (e.key === 'Escape' && !fromTerminal(e.target)) {
-      // Priority: overlay, then popover, then dialogs, then the commit view
+      // Priority: overlay, then dialogs, then the commit view
       // (A6: it covers the whole pane area), then drawer/panel (only when the
       // drawer actually holds focus — Esc elsewhere belongs to whatever has
       // it).
@@ -807,12 +810,12 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
 
 /**
  * The moment between "this page's token was rejected" and "the replacement
- * backend answered": a boot overlay, verbatim — same brand, same ink-well card,
- * same single spinning step row. It is not a metaphor for the boot state, it IS
+ * backend answered": a boot overlay, verbatim — same brand, same card, same
+ * single spinning step row. It is not a metaphor for the boot state, it IS
  * one; the page is about to load again. Removed only if the probe fails, so the
  * panel underneath is not hidden behind it.
  */
-const RECONNECT_LABEL = 'Backend restarted — reconnecting…';
+const RECONNECT_LABEL = 'The background service restarted. Reconnecting…';
 let takeover: HTMLElement | null = null;
 
 function showReconnectTakeover(): void {
@@ -851,15 +854,9 @@ function hideReconnectTakeover(): void {
  */
 function renderRestartPanel(root: HTMLDivElement): void {
   const box = el('div', 'boot-err');
-  box.append(el('div', 'boot-err-hd', 'backend restarted — reload'));
-  box.append(
-    el(
-      'div',
-      'boot-err-msg',
-      'the auth token rotated with the restart, so this page can no longer reach the server. reload to reattach.',
-    ),
-  );
-  box.append(button('btn is-primary', 'reload', () => location.reload()));
+  box.append(el('div', 'boot-err-hd', 'The background service restarted'));
+  box.append(el('div', 'boot-err-msg', 'This page can no longer reach it. Reload to attach again.'));
+  box.append(button('btn-accent', 'Reload', () => location.reload()));
   root.replaceChildren(box);
 }
 

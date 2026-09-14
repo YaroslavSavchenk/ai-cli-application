@@ -1,11 +1,11 @@
 /**
  * Projects drawer (handoff §6, left, 272px). Rows list projects by NAME —
  * the path shows only here, as faint mono metadata (everywhere else in the
- * UI a project is its name). Each row: name, `+` (opens the launch dialog
- * pre-set to this project), `×` (armed two-step remove), the path, and a
+ * UI a project is its name). Each row: name, `Session` (opens the launch
+ * dialog pre-set to this project), `×` (armed two-step remove), the path, and a
  * meta line (`N active sessions` in green, else `no active sessions`).
  *
- * `+ add` in the header opens the New Project dialog (Phase 2a: blank-create
+ * `Add project` in the header opens the New Project dialog (Phase 2a: blank-create
  * + clone, wired to the real backend). The old inline add-project form and its
  * directory-browser modal were REPLACED by that dialog — the dialog owns the
  * folder picker now (web/src/ui/newproject.ts + picker.ts).
@@ -28,17 +28,15 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
 
   const hd = el('header', 'drawer-hd');
   hd.append(el('span', 'drawer-label', 'Projects'), el('span', 'drawer-gap'));
-  const addBtn = button('chip-btn is-go', '+ add', () => openNewProjectDialog());
-  addBtn.title = 'new project (create locally or clone a repo)';
+  const addBtn = button('row-btn', 'Add project', () => openNewProjectDialog());
+  addBtn.title = 'New project: create a folder or clone a repository';
   addBtn.setAttribute('aria-haspopup', 'dialog');
   const close = button('drawer-x', '×', () => st.closeDrawer());
   close.setAttribute('aria-label', 'close projects panel');
-  close.title = 'close panel (esc)';
+  close.title = 'Close this panel. Esc closes it too.';
   hd.append(addBtn, close);
 
   const body = el('div', 'drawer-body');
-  const listHost = el('div', 'proj-list');
-  body.append(listHost);
   root.append(hd, body);
   host.append(root);
 
@@ -108,17 +106,17 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
         : null;
     const rows: HTMLElement[] = [];
     if (st.state.projects.length === 0) {
-      rows.push(el('div', 'drawer-empty', 'no projects — + add one'));
+      rows.push(el('div', 'drawer-empty', 'No projects yet. Add one with Add project.'));
     }
     for (const p of st.state.projects) {
       const row = el('div', 'proj-row');
       const line = el('div', 'proj-line');
       line.append(el('span', 'proj-name', p.name), el('span', 'drawer-gap'));
-      const add = button('chip-btn is-go', '+', () => openLaunchDialog({ projectId: p.id }));
+      const add = button('row-btn', 'Session', () => openLaunchDialog({ projectId: p.id }));
       add.setAttribute('data-k', `pnew:${p.id}`);
       add.setAttribute('aria-label', `new session in ${p.name}`);
-      add.title = 'new session in this project';
-      const del = button('chip-btn is-x', armed.isArmed(p.id) ? 'sure?' : '×', () => {
+      add.title = 'New session here';
+      const del = button('row-x', armed.isArmed(p.id) ? 'sure?' : '×', () => {
         if (
           armed.trigger(p.id, () => {
             lastSig = '';
@@ -131,7 +129,7 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
       if (armed.isArmed(p.id)) del.dataset.armed = '1';
       del.setAttribute('data-k', `pdel:${p.id}`);
       del.setAttribute('aria-label', `remove project ${p.name}`);
-      del.title = 'remove project (asks to confirm; sessions keep running)';
+      del.title = 'Remove this project. It asks first; sessions keep running.';
       line.append(add, del);
       row.append(line);
       row.append(el('div', 'proj-path', p.path)); // secondary metadata: allowed here only
@@ -145,9 +143,9 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
       );
       rows.push(row);
     }
-    listHost.replaceChildren(...rows);
+    body.replaceChildren(...rows);
     if (focusKey !== null) {
-      listHost.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`)?.focus();
+      body.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`)?.focus();
     }
   }
 

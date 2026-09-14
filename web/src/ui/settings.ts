@@ -183,7 +183,7 @@ export function initSettings(
 ): SettingsPanel {
   // ---- scrim + card --------------------------------------------------------
   // `.modal-scrim` stays on the scrim for its z-layer: the restart confirmation
-  // opens OVER this panel and claims a higher one (app.css, .restart-scrim).
+  // opens OVER this panel and claims a higher one (app.css, .rs-scrim).
   const scrim = el('div', 'modal-scrim sg-scrim');
   scrim.hidden = true;
   const modal = el('div', 'sg-modal');

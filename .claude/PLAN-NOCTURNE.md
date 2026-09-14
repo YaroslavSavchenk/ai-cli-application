@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design_handoff_session_manager, v3)
 
-Status (2026-09-13): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed and user-checked in the Windows dev window ("ziet er goed uit"). A4b landed 2026-09-13 and user-verified on Windows ("alles werkt keurig"). A5 landed 2026-09-13 (user: "file systeem ziet er goed uit"; live data stays B2/B3 after A8 — user's call 2026-09-13). A6 landed 2026-09-13 and user-verified on Windows ("alles goed"). Decision 10 settled 2026-09-13; A7 landed 2026-09-13 and user-verified on Windows 2026-09-14 ("al good"; Settings five pages incl. Terminal colours mock, Add-a-project dialog, folder picker). Next: A8 — each part only on the user's "begin aan <id>".
+Status (2026-09-13): A1, A2, A3 landed and user-verified on Windows (plus a fix round: copy chord, add existing folder). A4 landed and user-checked in the Windows dev window ("ziet er goed uit"). A4b landed 2026-09-13 and user-verified on Windows ("alles werkt keurig"). A5 landed 2026-09-13 (user: "file systeem ziet er goed uit"; live data stays B2/B3 after A8 — user's call 2026-09-13). A6 landed 2026-09-13 and user-verified on Windows ("alles goed"). Decision 10 settled 2026-09-13; A7 landed 2026-09-13 and user-verified on Windows 2026-09-14 ("al good"; Settings five pages incl. Terminal colours mock, Add-a-project dialog, folder picker). A8 landed 2026-09-14 (alias layer deleted, every screen compared against v3, verify-terminal 1–9 PASS; Windows look of the boot card / shortcuts overlay / toast / restart confirmation / projects drawer owed to the user's dev window) — **Track A complete**. Next: Track B, B1 first (order kept per the user's 2026-09-13 call) — each part only on the user's "begin aan <id>".
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -81,6 +81,7 @@ Fixed rules for every part:
 ### A8. UI gate
 - Side-by-side compare against the HTML for every screen; frontend-designer anti-generic check; full `/verify-terminal`; janitor pass removing dead styles from the old theme. Milestone commit + release notes draft.
 - Before deleting the `LEGACY ALIAS LAYER` block: `--line`, `--tick`, `--font-sans`, `--font-mono` (used by the A3 pane block and the A4 `ns-` dialog block) must move above the marker.
+- DONE 2026-09-14 (A8 landed): 0 alias references remain; the `LEGACY ALIAS LAYER` block and marker are deleted (tokens.css = 144 tokens in 8 sections), guarded by `tests/ui-a8-tokens.test.ts`. The paragraph below is the pre-A8 warning, kept as history.
 - Size warning (scope review of A7, 2026-09-13): after A7 (incl. the folder-picker rewrite) about 406 non-exception alias references remain in `app.css` (shortcuts overlay, shared `launch-*` chrome (only `update.ts` still wears it), restart confirmation, Files panel, shared form bits, boot overlay, A5 panels, sessions rows, update notice, theme popover, base, topbar). A8 is a migration part, not a delete-the-block afternoon: each of those surfaces moves onto primitives first (or is removed with its feature), then the block goes. The dead-after-A7 `launch-*` rules, `.btn-go`, `.launch-scrim` and token `--ls-field` were already dropped in A7's hygiene pass; the seven `launch-*` names `update.ts` still sets are the block's only remaining users.
 
 ---
@@ -117,7 +118,7 @@ Fixed rules for every part:
 - Exact shape is OPEN DECISION 10.
 
 ### B8. Cleanup + memory
-- Janitor; remove remaining Legacy UI code (the theme popover UI — not the `theme.ts` machinery B9 reuses — old tokens, `design-mocks/`, v2 handoff files); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
+- Janitor; remove remaining Legacy UI code (`design-mocks/`, v2 handoff files — the theme popover UI and the old alias tokens were already removed in A8, 2026-09-14; the `theme.ts` machinery B9 reuses stays); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
 
 ---
 

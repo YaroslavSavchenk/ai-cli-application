@@ -1,6 +1,18 @@
 /*
  * Design tokens — the single source of truth for every color, size and
- * timing in the UI.
+ * timing in the UI. Eight sections, nothing else: the Nocturne primitives,
+ * the three semantics, the terminal palette, the file-type badge table, type,
+ * app structure, motion, z-index. Since part A8 (2026-09-14) every token here
+ * has a reader in the UI, with ONE stated exception: the handoff primitives
+ * named in the allow-list of `tests/ui-a8-tokens.test.ts` (--color-divider,
+ * --color-accent-2 and its scale, --color-neutral-100, four --color-accent-*
+ * steps), which stay because the "Nocturne primitives" block below is the
+ * handoff's own file transcribed whole. The alias block that re-pointed the
+ * old Legacy role names (--text, --edge, --acc, --s-*, --fs-*, --r-*, ...) at
+ * Nocturne values through parts A1-A7 is deleted, and so are those names. The
+ * Legacy UI itself is preserved as git tag `legacy-ui`. Reach for a primitive:
+ * a tint or a hover is an inline color-mix() at the use site, a one-off size a
+ * literal px, and neither belongs in this file.
  *
  * Since 2026-09-10 the palette and type are NOCTURNE: a dark indigo-neutral
  * instrument panel. The design source is
@@ -11,16 +23,17 @@
  * it. Elevation is a 1px edge plus ambient dark — no heavy shadows. Radii
  * are 4/8/14. Inter carries the chrome, JetBrains Mono the terminal and
  * every data value. The previous palette ("steam blend", 2026-07-20 handoff)
- * is the Legacy UI, preserved as git tag `legacy-ui`.
+ * was the Legacy UI's.
  *
  * The xterm.js theme is built at runtime from the --xt-* properties below
  * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
  * and the app palette are ONE system. Because xterm's parser only
  * understands #rgb[a] / #rrggbb[aa] / rgb() / rgba() reliably, every --xt-*
  * value is a plain hex or rgba — never oklch() or color-mix(). The theme
- * popover (ui/theme.ts) overrides --term-bg and the neutral --xt-* text
- * slots inline on :root; ANSI status hues are semantic and never themed.
- * Never hardcode a color outside this file.
+ * popover is gone since A8; part B9's Terminal colours Settings page will
+ * override --term-bg and the neutral --xt-* text slots inline on :root,
+ * through the machinery kept in ui/theme.ts. ANSI status hues are semantic
+ * and never themed. Never hardcode a color outside this file.
  */
 :root {
   /* ══ Nocturne primitives ══════════════════════════════════════════════════
@@ -104,102 +117,35 @@
      dialog backdrop (session-manager-v3.html, the launch dialog's scrim,
      rgba(10,11,20,.6)). Darker than --color-bg, and flat: no blur.         */
   --color-scrim: rgb(10 11 20 / 0.6);
-
-  /* ══ LEGACY ALIAS LAYER ═══════════════════════════════════════════════════
-     The role tokens below are the LEGACY UI's names, kept only so the whole
-     app recolours to Nocturne without touching app.css (3583 lines, zero
-     hardcoded hex — keep it that way). Their values are Nocturne. Parts
-     A2-A7 migrate components off these names onto the primitives above; A8
-     DELETES this block. Do not add a new alias here — reach for a primitive.
-     ═════════════════════════════════════════════════════════════════════ */
-
-  /* ---- surfaces ------------------------------------------------------------ */
-  --bg-app: var(--color-bg);
-  --bg-deep: var(--color-term);
-  --term-bg: #0b0d14; /* terminal ground — plain hex on purpose: themable
-                         (ui/theme.ts writes it inline — unwired since A2,
-                         B9 re-wires it) and read by --xt-bg.
-                         SURVIVES A8 (plan B9, terminal colours in Settings):
-                         the whole terminal card paints from this, xterm's own
-                         #000 viewport included (app.css, "the black band")   */
-  --well: var(--color-term); /* static ink well: inputs, kbd, previews — the
-                                default ground's color but never themed      */
-  --surface: var(--color-surface);
-  --surface-panehd: var(--color-neutral-900); /* pane card (README-v3)        */
-  --surface-status: var(--color-bg);
-  --surface-hover: color-mix(in srgb, var(--color-text) 7%, var(--color-surface));
-  --surface-active: color-mix(in srgb, var(--color-text) 14%, var(--color-surface));
-  /* Darkening scrim — Nocturne defines none; must be DARKER than --color-bg
-     (a neutral-900 mix is lighter and brightens the page behind a modal).
-     Legacy was rgba(8, 10, 14, .55).                                        */
-  --scrim: rgb(0 0 0 / 0.55);
-
-  /* ---- borders ------------------------------------------------------------ */
-  --edge: var(--color-divider);
-  --edge-strong: var(--color-neutral-800);
-  --edge-mid: color-mix(in srgb, var(--color-text) 10%, transparent);
-  --edge-soft: color-mix(in srgb, var(--color-text) 8%, transparent);
-  --edge-accent: var(--color-accent);
-  --edge-hover: color-mix(in srgb, var(--color-text) 45%, transparent);
-
-  /* ---- text ramp ----------------------------------------------------------- */
-  --text: var(--color-text);
-  --text-hd: var(--color-neutral-200);
-  --text-2: var(--color-neutral-400);
-  --text-mute: var(--color-neutral-500);
-  --text-dim: var(--color-neutral-600);
-  --text-faint: var(--color-neutral-700);
-
-  /* ---- interactive accent (Nocturne blurple) ------------------------------ */
-  --acc: var(--color-accent);
-  --acc-glow: color-mix(in srgb, var(--color-accent) 45%, transparent);
-  --acc-tint: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  --acc-sel: color-mix(in srgb, var(--color-accent) 30%, transparent);
-
-  /* ---- status: exclusive meanings ------------------------------------------ */
-  --ok: var(--color-ok);
-  --ok-text: oklch(0.8 0.13 150);
-  --ok-tint: oklch(0.72 0.14 150 / 0.08);
-  --ok-tint-hover: oklch(0.72 0.14 150 / 0.18);
-  --ok-glow: oklch(0.72 0.14 150 / 0.3);
-  --attn: var(--color-attn);
-  --attn-tint: var(--color-attn-tint);
-  --danger: var(--color-danger);
-  --danger-mut: oklch(0.55 0.12 25);
-  --danger-edge: oklch(0.7 0.16 25 / 0.4);
+  /* Green fill at 8%: the "go" chip when it is on or hovered, and an added
+     line in a unified diff. Green is never a button ground — A8 deleted the
+     Legacy green button; a primary action is the accent OUTLINE.           */
+  --color-ok-tint: oklch(0.72 0.14 150 / 0.08);
+  /* Danger as quiet INK, not a fill: a crashed run's meta line, where the
+     word alone is easy to miss in a dense list.                            */
+  --color-danger-mut: oklch(0.55 0.12 25);
   /* Removed-line ground in a unified diff (Nocturne A6) — the exact mirror of
-     --ok-tint above, and the reference's own value. No existing token carried
-     it: --danger-edge is the same hue at /.4, four times too loud under text. */
-  --danger-tint: oklch(0.7 0.16 25 / 0.08);
-  --danger-ink: #ffffff;
-  --exit: var(--color-neutral-700);
+     the ok tint above, and the reference's own value.                      */
+  --color-danger-tint: oklch(0.7 0.16 25 / 0.08);
 
-  /* ---- former gradients ----------------------------------------------------
-     Nocturne's interface has no gradients; the three sanctioned handoff
-     gradients collapse to flat grounds. Every use site is a `background:`
-     shorthand, so a flat color is valid there. */
-  --grad-topbar: var(--color-surface);
-  --grad-panearea: var(--color-bg);
-  --grad-dialoghd: var(--color-surface);
-
-  /* ---- elevation by role --------------------------------------------------- */
-  --sh-pane: var(--shadow-sm);
-  --sh-popover: var(--shadow-md);
-  --sh-dialog: var(--shadow-lg);
-  --sh-ghost: var(--shadow-md);
-
-  /* ---- xterm palette --------------------------------------------------------
-     Plain hex / rgba only (see the header). Neutral slots follow the
-     Nocturne text ramp (out/cmd/dim); the theme popover overrides exactly
-     these on :root. The ANSI hues are the README-v3 semantics converted to
-     sRGB: green oklch(0.72 0.14 150), yellow oklch(0.85 0.12 80), red
-     oklch(0.7 0.16 25), plus blue/magenta/cyan on the same lightness band. */
+  /* ══ Terminal palette ═════════════════════════════════════════════════════
+     The ground plus the xterm.js theme. Plain hex / rgba only (see the
+     header). Neutral slots follow the Nocturne text ramp (out/cmd/dim); part
+     B9's Terminal colours Settings page overrides exactly these on :root. The
+     ANSI hues are the README-v3 semantics converted to sRGB: green
+     oklch(0.72 0.14 150), yellow oklch(0.85 0.12 80), red oklch(0.7 0.16 25),
+     plus blue/magenta/cyan on the same lightness band. */
+  --term-bg: #0b0d14; /* terminal ground — plain hex on purpose: themable by
+                         the Terminal colours Settings page in part B9 via
+                         ui/theme.ts, and read by --xt-bg. The whole terminal
+                         card paints from this, xterm's own #000 viewport
+                         included (app.css, "the black band")                */
   --xt-bg: var(--term-bg);
   --xt-fg: #cfd3e5;             /* neutral-300 — v3 "out"                     */
   --xt-cursor: #e9e9ed;         /* --color-text — v3 "cmd"                    */
   --xt-cursor-accent: var(--term-bg);
-  --xt-selection: rgba(145, 132, 217, 0.3); /* = --acc-sel, spelled rgba()
-                                               because xterm parses it       */
+  --xt-selection: rgba(145, 132, 217, 0.3); /* = the accent at 30%, spelled
+                                               rgba() because xterm parses it */
   --xt-white: #cfd3e5;          /* out                                        */
   --xt-bright-white: #f3f5fe;   /* neutral-100 — v3 "bold"                    */
   --xt-bright-black: #75798c;   /* neutral-600 — v3 "dim"                     */
@@ -217,7 +163,7 @@
   --xt-bright-magenta: #d1b9ff;
   --xt-bright-cyan: #89dae3;
 
-  /* ---- file-type badge chips (Files panel, A5) -------------------------------
+  /* ══ File-type badge chips (Files panel, A5) ══════════════════════════════
      A DATA table, not a role palette: one background/ink pair per file-type
      family, transcribed from the v3 reference's own map. oklch() is safe for
      every one of them — they are chrome marks and never reach xterm's theme
@@ -250,54 +196,22 @@
   --badge-plain-bg: var(--color-neutral-900);
   --badge-plain-fg: var(--color-neutral-500);
 
-  /* ---- type ------------------------------------------------------------------
+  /* ══ Type ═════════════════════════════════════════════════════════════════
      Inter (bundled latin-subset variable woff2, 400-700) carries chrome;
      JetBrains Mono (bundled woff2 400/500/700, official release) leads the
      mono stack and carries the terminal and everything that is data. */
   --font-sans: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", "IBM Plex Mono",
     ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs-ui: 12px;        /* topbar buttons, dialog copy                        */
-  --fs-row: 13px;       /* drawer row names, empty-state buttons              */
-  --fs-label: 11px;     /* section headers (600, ls 1.4px), pane project      */
-  --fs-tab: 11.5px;     /* tab names (mono)                                   */
-  --fs-name: 12px;      /* session names (mono)                               */
-  --fs-status: 10.5px;  /* statusline, hints, paths (mono)                    */
-  --fs-tag: 9.5px;      /* model/permission tags, split badge (mono)          */
-  --fs-micro: 10px;     /* drawer section labels (mono, ls 1px)               */
-  --fs-term: 12.5px;    /* terminal body (handoff)                            */
-  --fs-title: 14px;     /* dialog title                                       */
-  --ls-wordmark: 1.6px;
-  --ls-label: 1.4px;
-  --ls-title: 0.8px;    /* dialog title                                       */
 
-  /* ---- radius by role (Nocturne 4/8/14) --------------------------------------- */
-  --r-tab: var(--radius-md);
-  --r-card: var(--radius-lg);   /* pane cards, dialogs                        */
-  --r-card-sm: var(--radius-md);
-  --r-box: var(--radius-md);
-  --r-btn: var(--radius-md);
-  --r-input: var(--radius-sm);
-  --r-field: var(--radius-md);
-  --r-pill: 13px;       /* fully round chips — a role, not a corner radius    */
-
-  /* ---- spacing scale ------------------------------------------------------- */
-  --s-1: 2px;
-  --s-2: 4px;
-  --s-3: 6px;
-  --s-4: 8px;
-  --s-5: 10px;
-  --s-6: 12px;
-  --s-7: 14px;
-  --s-8: 18px;
-
-  /* ---- structure ------------------------------------------------------------ */
+  /* ══ App structure (app-owned; the handoff has no primitives for these) ═══
+     Chrome heights, column widths and the three hairline widths every
+     Nocturne block already shares. Sizes only — no colour lives here. */
   --topbar-h: 48px;     /* A2: the v3 instrument strip                       */
   --tab-h: 32px;        /* A2: v3 tab chip (was 30px, Legacy)                 */
   --status-h: 26px;     /* A2: v3 statusline                                  */
   --panehd-h: 38px;     /* A3: v3 pane header (was 30px, Legacy)              */
   --panelhd-h: 44px;    /* A5: v3 panel header (Files, drawers)               */
-  --modalhd-h: 34px;    /* shortcuts overlay header                           */
   --drawer-proj-w: 272px;
   --drawer-sess-w: 300px; /* A5: v3 sessions panel                            */
   --files-row-h: 26px;  /* A5: Files tree row                                 */
@@ -310,37 +224,35 @@
   --edit-tab-h: 28px;   /* A6: editor tab chip inside the 38px tab strip      */
   --avatar-w: 20px;     /* A6: author initial in the commit view header       */
   --ctl-h-row: 24px;    /* A5: row buttons (Side by side, Continue, end)      */
+  --fs-term: 12.5px;    /* terminal body (handoff) — the ONE font size read at
+                           runtime: ui/terminal.ts builds the xterm font spec
+                           from it and --font-mono, so it is structure, not a
+                           Legacy type-scale step                            */
   --line: 1px;
   --tick: 2px;          /* active-tab glow bar, insertion caret               */
   --dot: 7px;           /* status dots                                        */
   --ctl-h: 30px;        /* topbar controls (A2: v3 height, was 26px)          */
-  --ctl-h-lg: 30px;     /* dialog footer buttons, empty-state buttons         */
-  --field-h: 32px;      /* launch-* dialog inputs/selects                     */
-  --chip-h: 20px;       /* row buttons (+ × split ⇱)                          */
-  --popover-w: 268px;
-  --toast-w: 336px;      /* update toast card                                */
-  --toast-bottom: 70px;  /* clears the tab strip (~35px) + statusline (23px) */
-  --restart-list-h: 132px; /* ~6 dense rows before the confirmation scrolls  */
-  --modal-w: 560px;
-  --modal-w-wide: 680px;
-  --modal-w-narrow: 420px; /* one-question dialogs (restart confirmation)    */
   --panel-w: 460px;     /* boot / restart takeover panel                      */
-  --sc-keys-w: 210px;   /* shortcuts overlay keys column                      */
-  --dlg-pad-x: 20px;    /* dialog horizontal padding (handoff §8)             */
-  --dlg-gap: 16px;      /* dialog body stack gap + header padding             */
+  --sc-key-col: 210px;  /* A8: shortcuts overlay keys column (the grid column
+                           and the indent its captions hang under)           */
+  --toast-w: 336px;      /* update toast card                                */
+  /* the toast clears the two chrome strips it sits above, measured from their
+     own rules: .tabstrip is 2 x --space-2 + --tab-h + its top hairline (it has
+     no height of its own), .statusline is --status-h with its hairline INSIDE
+     that height (border-box). 70.2px today.                                 */
+  --toast-bottom: calc(var(--tab-h) + 2 * var(--space-2) + var(--line) + var(--status-h));
 
-  /* ---- motion (handoff set, <=.2s + sanctioned pulses/spin) ------------------- */
+  /* ══ Motion (handoff set, <=.2s + sanctioned pulses/spin) ═════════════════ */
   --t-btn: 0.15s;       /* control color/border transitions                   */
   --t-fade: 0.2s;       /* fadeUp: dialogs, popover, new content              */
-  --t-slide: 0.18s;     /* drawer slide-in                                    */
+  --t-slide: 0.16s;     /* drawer slide-in (v3's own slideL/slideR number)    */
   --t-pulse: 1.6s;      /* attention pulse (sanctioned, infinite)             */
   --t-pulse-edit: 1.2s; /* A5 edited-file pulse (README-v3's own number)      */
   --t-spin: 0.7s;       /* boot-step spinner (sanctioned, handoff §10)        */
 
-  /* ---- z ---------------------------------------------------------------------- */
-  --z-popover: 45;
+  /* ══ z-index ══════════════════════════════════════════════════════════════ */
   --z-toast: 46;   /* update toast: over the panes, under every dialog    */
-  --z-modal: 50;   /* modal scrims: launch dialog, dir browser, shortcuts */
+  --z-modal: 50;   /* modal scrims: every dialog, panel and overlay       */
   --z-modal-top: 51; /* a dialog that can open OVER another one (restart)  */
   --z-overlay: 60; /* boot overlay covers even open modals                */
   --z-ghost: 70;   /* drag ghost rides above everything                   */

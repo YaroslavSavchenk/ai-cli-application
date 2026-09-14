@@ -7,11 +7,11 @@
  * in `tests/scaffold.test.ts` / `tests/ui-api-auth.test.ts`. What is left for a
  * source pin:
  *
- *   1. PRIMITIVES ONLY. Every `var(--x)` in the `pk-` block must be declared
- *      ABOVE the `LEGACY ALIAS LAYER` marker in tokens.css — or be one of the
- *      four named exceptions, each with its reason. (The Legacy block this
- *      replaced reached for --s-*, --edge-*, --acc*, --ok*, --text-* and
- *      --fs-*: it was the last Legacy dialog left over a Nocturne one.)
+ *   1. TOKENS ONLY. Every `var(--x)` in the `pk-` block must be declared in
+ *      tokens.css. (The Legacy block this replaced reached for --s-*, --edge-*,
+ *      --acc*, --ok*, --text-* and --fs-*: it was the last Legacy dialog left
+ *      over a Nocturne one. Part A8 deleted that alias layer, names and all, so
+ *      this is now a typo guard.)
  *   2. NO HARDCODED COLOR in the block (tokens.css: "Never hardcode a color
  *      outside this file").
  *   3. CLASS PARITY. Every `pk-` class picker.ts puts on an element has a rule,
@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from './helpers.ts';
+import { declaredTokens, usedTokens } from './tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
@@ -52,58 +53,32 @@ const PK_RULES = PK_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 /** The whole stylesheet without comments, for "this rule is really gone" checks. */
 const APP_RULES = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
-const LEGACY_MARK = 'LEGACY ALIAS LAYER';
-const legacyAt = TOKENS_CSS.indexOf(LEGACY_MARK);
+/** The whole token vocabulary — A8 phase 2 left exactly one set. */
+const DECLARED = declaredTokens();
 
-/** Custom properties declared in tokens.css, split at the Legacy alias marker. */
-function declared(src: string): Set<string> {
-  return new Set([...src.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1] as string));
-}
-const PRIMITIVES = declared(TOKENS_CSS.slice(0, legacyAt));
-const LEGACY_LAYER = declared(TOKENS_CSS.slice(legacyAt));
-
-/**
- * Tokens the block uses that are declared BELOW the Legacy marker — the same
- * four the A3 pane, the A4 `ns-` dialog and the A7 `sg-`/`ap-` blocks need.
- * Each is a structural or type value with no primitive twin today; A8 must keep
- * (or re-home) exactly these when it deletes the alias layer.
- */
-const BELOW_MARKER_ALLOWED: Record<string, string> = {
-  '--line': 'the 1px hairline width; Nocturne has no border-width primitive',
-  '--tick': 'the 2px focus-ring width; Nocturne has no outline-width primitive',
-  '--font-mono': 'the JetBrains Mono stack A1 declared; no font primitive above the marker',
-};
-
-test('non-vacuity: the pk- block and the token split are really being read', () => {
+test('non-vacuity: the pk- block and the token vocabulary is really being read', () => {
   assert.notEqual(start, -1, `app.css must carry the "${BLOCK_START}" section`);
   assert.notEqual(end, -1, `the block must still be followed by "${BLOCK_END}"`);
   assert.ok(PK_RULES.length > 2000, 'the pk- block looks empty');
   assert.ok(PK_RULES.includes('.pk-modal'), 'the block must style .pk-modal');
-  assert.notEqual(legacyAt, -1, `tokens.css must still carry the "${LEGACY_MARK}" marker`);
-  assert.ok(PRIMITIVES.has('--color-accent') && PRIMITIVES.has('--space-4'), 'primitives parsed');
-  assert.ok(LEGACY_LAYER.has('--text-mute') && LEGACY_LAYER.has('--edge'), 'legacy names parsed');
+  assert.ok(DECLARED.has('--color-accent') && DECLARED.has('--space-4'), 'tokens parsed');
+  assert.ok(DECLARED.size >= 100, `non-vacuity: ${DECLARED.size} tokens declared`);
 });
 
-test('primitives only: every var() in the pk- block is a Nocturne primitive or a named exception', () => {
-  const used = [...new Set([...PK_RULES.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1] as string))];
+test('tokens only: every var() in the pk- block is declared in tokens.css', () => {
+  const used = [...new Set(usedTokens(PK_RULES))];
   assert.ok(used.length >= 10, `non-vacuity: found ${used.length} tokens`);
-  const offenders = used.filter((t) => !PRIMITIVES.has(t) && !(t in BELOW_MARKER_ALLOWED));
+  const offenders = used.filter((t) => !DECLARED.has(t));
   assert.deepEqual(
     offenders,
     [],
-    'the folder picker must not reach into the Legacy alias layer (A8 deletes it). Offenders: ' +
+    'a var() naming no declared token resolves to nothing at runtime. Offenders: ' +
       offenders.join(', '),
   );
-  // Every token used must exist at all (a typo'd var() silently falls back).
-  for (const t of used) assert.ok(PRIMITIVES.has(t) || LEGACY_LAYER.has(t), `${t} is declared nowhere`);
 });
 
-test('the below-marker exceptions are real and still used (no stale entry)', () => {
-  for (const [t, why] of Object.entries(BELOW_MARKER_ALLOWED)) {
-    assert.ok(LEGACY_LAYER.has(t), `${t} is not below the marker any more — drop the exception`);
-    assert.ok(PK_RULES.includes(`var(${t})`), `${t} is no longer used by the block — drop the exception`);
-    assert.ok(why.length > 10, t);
-  }
+test('non-vacuity: the block still consumes a token (the 1px hairline), so the scan is not empty', () => {
+  assert.ok(PK_RULES.includes('var(--line)'), 'the block must still wear the 1px hairline width');
 });
 
 test('no hardcoded color in the pk- block', () => {

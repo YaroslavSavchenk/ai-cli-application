@@ -83,7 +83,7 @@ namespace AiSessionManager
 
         // Nocturne design tokens, written exactly as in web/src/styles/tokens.css
         // so the two stay diffable: --color-bg (caption), --color-neutral-200
-        // (what --text-hd aliases), --color-neutral-800 (the --shadow-sm edge).
+        // (heading ink), --color-neutral-800 (the --shadow-sm edge).
         // ToColorRef converts.
         private const int TokenBgApp = 0x161826;
         private const int TokenTextHd = 0xE4E7F5;

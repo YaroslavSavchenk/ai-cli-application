@@ -1,11 +1,16 @@
 /*
- * App styles — the Legacy UI's structure, recoloured to Nocturne by the
- * alias layer in tokens.css (2026-09-10; parts A2-A7 migrate this file onto
- * the Nocturne primitives). Shell: topbar, pane area with floating terminal
- * cards, BOTTOM tab strip with an accent bar, 23px mono statusline. Inter
- * for chrome, JetBrains Mono for data and the terminal. Every color comes
- * from tokens.css — no hex here; the three --grad-* tokens are flat
- * Nocturne grounds now (the interface has no gradients).
+ * App styles — the app shell, its panels and screens, plus the prefixed
+ * dialog and overlay blocks: ns- New session, sg- Settings, ap-/gh- Add a
+ * project, pk- folder picker, sc- shortcuts, ut-/rs- update and restart.
+ * Part A8 (2026-09-14) finished the Nocturne migration: every rule in this
+ * file is written against tokens.css directly — --color-* for colour, inline
+ * color-mix() for a tint or a hover, --space-* or a literal px for spacing,
+ * --radius-*, --shadow-*, plus the structural names (--line, --tick, --dot,
+ * the two font stacks, the chrome heights and column widths, motion, z). The
+ * Legacy alias layer is gone; a name that is not in tokens.css is a typo.
+ * Shell: topbar, pane area with floating terminal cards, BOTTOM tab strip
+ * with an accent bar, 26px mono statusline. Inter for chrome, JetBrains Mono
+ * for data and the terminal. No colour literal lives here.
  */
 
 /* ---- base ---------------------------------------------------------------- */
@@ -27,10 +32,10 @@ body,
 }
 
 body {
-  background: var(--bg-app);
-  color: var(--text);
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: var(--fs-row);
+  font-size: 13px;
   line-height: 1.45;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -60,7 +65,7 @@ body {
 }
 
 ::selection {
-  background: var(--acc-sel);
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 button {
@@ -83,54 +88,44 @@ input,
 select,
 .proj-path,
 .proj-meta,
-.sc-gesture,
-.theme-note,
 .logo-glyph,
 kbd {
   font-family: var(--font-mono);
 }
 
+/* The field ground is the terminal's own, never themed: an input is an ink
+   well, and 4px/8px are the exact numbers the field height is built on. */
 input,
 select {
-  font-size: var(--fs-name);
-  color: var(--text);
-  background: var(--well);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-input);
-  padding: var(--s-2) var(--s-4);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-term);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
   width: 100%;
 }
 
 input::placeholder {
-  color: var(--text-faint);
+  color: var(--color-neutral-700);
 }
 
 input:focus,
 select:focus {
-  border-color: var(--edge-accent);
+  border-color: var(--color-accent);
 }
 
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: var(--tick) solid var(--acc);
+  outline: var(--tick) solid var(--color-accent);
   outline-offset: 1px;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--edge-hover) transparent;
-}
-
-/* Section label. A2 dropped the letterspaced CAPS: Nocturne's copy rules
-   want sentence case, and a label that shouts is decoration. */
-.drawer-label,
-.theme-lb,
-.boot-err-hd {
-  font-size: var(--fs-label);
-  font-weight: 600;
-  color: var(--text-dim);
+  scrollbar-color: color-mix(in srgb, var(--color-text) 45%, transparent) transparent;
 }
 
 /* ---- status dots: green running / pulsing amber attention / neutral exited - */
@@ -157,22 +152,22 @@ select:focus-visible,
   background: var(--color-neutral-700);
 }
 
-/* Shared state-colour helpers (drawer rows, GitHub facts). Still on the
-   alias names — the surfaces that use them are migrated in A5 and A7. */
+/* Shared state-colour helpers (drawer rows, GitHub facts): one word wearing
+   its own meaning, never a fill. */
 .is-warn {
-  color: var(--text-mute);
+  color: var(--color-neutral-500);
 }
 
 .is-ok {
-  color: var(--ok);
+  color: var(--color-ok);
 }
 
 .is-attn {
-  color: var(--attn);
+  color: var(--color-attn);
 }
 
 .is-danger {
-  color: var(--danger);
+  color: var(--color-danger);
 }
 
 /* ---- keyframes (handoff motion set) ---------------------------------------- */
@@ -217,6 +212,17 @@ select:focus-visible,
   }
   50% {
     opacity: 0.3;
+  }
+}
+
+/* the shared dialog scrim's fade — one vocabulary for every modal (ns-, sc-,
+   sg-, rs-) */
+@keyframes scrimFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -433,9 +439,13 @@ select:focus-visible,
   background: var(--color-accent-800);
 }
 
-/* The Nocturne pair, first used by the pane area's empty state (A3): an
-   outlined-accent primary — the same statement the top bar's New session
-   makes, never a fill — and a quiet neutral second choice. */
+/* The Nocturne button pair, first used by the pane area's empty state (A3)
+   and since A8 the app's ONLY shared button: an outlined-accent primary — the
+   same statement the top bar's New session makes, never a fill — and a quiet
+   neutral second choice. Every dialog footer, the update toast, the restart
+   confirmation and the two boot takeovers wear these two; the Legacy `.btn`
+   family (ghost / green "go" / accent tint / link) was deleted in A8 once the
+   last module stopped setting it. */
 .btn-accent,
 .btn-quiet {
   height: 34px;
@@ -1008,7 +1018,7 @@ select:focus-visible,
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-neutral-700);
+  background: transparent;
 }
 
 .pane-agent-dot.is-running {
@@ -1017,6 +1027,10 @@ select:focus-visible,
 
 .pane-agent-dot.is-attention {
   background: var(--color-attn);
+}
+
+.pane-agent-dot.is-finished {
+  background: var(--color-neutral-700);
 }
 
 .pane-agent-name {
@@ -1089,77 +1103,6 @@ select:focus-visible,
   margin-top: var(--space-2);
 }
 
-/* ---- shared form bits (settings + the launch-* dialogs) -------------------- */
-
-/* ghost button (dialog cancel, browse, modal actions) */
-.btn {
-  height: var(--ctl-h);
-  padding: 0 var(--s-6);
-  font-size: var(--fs-ui);
-  font-weight: 500;
-  background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-mute);
-  white-space: nowrap;
-}
-
-.btn:hover {
-  color: var(--text);
-  border-color: var(--edge-hover);
-}
-
-.btn:disabled {
-  color: var(--text-faint);
-  border-color: var(--edge-mid);
-  cursor: default;
-}
-
-/* green "go" variant of .btn (launch, add, reload, choose directory) */
-.btn.is-primary {
-  background: var(--ok-tint);
-  border-color: var(--ok);
-  color: var(--ok-text);
-  font-weight: 600;
-}
-
-.btn.is-primary:hover {
-  background: var(--ok-tint-hover);
-  box-shadow: 0 0 18px var(--ok-glow); /* sanctioned "go" glow */
-}
-
-.btn.is-primary:disabled {
-  background: transparent;
-  color: var(--text-faint);
-  border-color: var(--edge-mid);
-  box-shadow: none;
-}
-
-/* accent-blue primary variant of .btn — a CONFIRM (settings "Done"), not a
-   "go": green stays reserved for actions that spend something (spawn, clone,
-   add). Same token recipe as the accent chip / .gh-repo-act.is-clone; no new
-   tokens, no glow (glow is the green go-family's). */
-.btn.is-acc {
-  background: var(--acc-tint);
-  border-color: var(--acc);
-  color: var(--acc);
-  font-weight: 600;
-}
-
-.btn.is-acc:hover {
-  background: var(--acc-sel);
-}
-
-.btn-link {
-  color: var(--acc);
-  text-decoration: underline;
-  padding: 0;
-}
-
-.btn-link:hover {
-  color: var(--text);
-}
-
 /* ---- panels (Nocturne A5, v3 §2): flex siblings, slide-in .18s --------------
    Projects, Files and Sessions are structural columns of the middle row, not
    floating surfaces: they sit on the app ground, separated from the pane area
@@ -1210,6 +1153,15 @@ select:focus-visible,
   padding: 0 var(--space-6);
 }
 
+/* Section label ("Projects", "Sessions"). A2 dropped the letterspaced CAPS:
+   Nocturne's copy rules want sentence case, and a label that shouts is
+   decoration. */
+.drawer-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
 .drawer-gap {
   flex: 1;
 }
@@ -1244,7 +1196,7 @@ select:focus-visible,
 .drawer-empty {
   padding: var(--space-3) var(--space-4);
   color: var(--color-neutral-600);
-  font-size: var(--fs-ui);
+  font-size: 12px;
 }
 
 /* Section labels ("Running now", "Earlier"): quiet sentence-case words, no
@@ -1284,63 +1236,12 @@ select:focus-visible,
   font-weight: 600;
 }
 
-
-/* small chip buttons in the projects drawer's rows and header (+ add, +, ×) */
-.chip-btn {
-  flex: none;
-  height: var(--chip-h);
-  min-width: var(--chip-h);
-  padding: 0 var(--s-3);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-mute);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: 1;
-}
-
-.chip-btn:hover {
-  border-color: var(--edge-hover);
-  color: var(--text);
-}
-
-.chip-btn.is-go {
-  color: var(--ok-text);
-}
-
-.chip-btn.is-go:hover,
-.chip-btn.is-go.is-on {
-  border-color: var(--ok);
-  background: var(--ok-tint);
-}
-
-.chip-btn.is-x {
-  color: var(--text-dim);
-}
-
-.chip-btn.is-x:hover {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-/* armed two-step confirm: red fill, unmistakable */
-.chip-btn[data-armed='1'],
-.tab-x[data-armed='1'] {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: var(--danger-ink);
-  font-weight: 600;
-}
-
-/* ---- sessions panel rows (Nocturne A5) --------------------------------------
+/* ---- sessions panel rows (Nocturne A5) — and the projects drawer rows -------
    Two lines, no card: line one is the session (dot, name, its two actions),
    line two is the quiet fact about it, indented under the name. Nothing here
    is filled — the only ground is the neutral-900 hover — and the only colour
-   is state: green running, amber waiting, neutral finished, danger armed. */
+   is state: green running, amber waiting, neutral finished, danger armed.
+   The projects drawer rows at the end of this section wear the same idiom. */
 
 .sess-row {
   display: flex;
@@ -1388,7 +1289,7 @@ select:focus-visible,
 .sess-name {
   flex: 1;
   min-width: 0;
-  font-size: var(--fs-row);
+  font-size: 13px;
   font-weight: 500;
   color: var(--color-text);
   white-space: nowrap;
@@ -1474,7 +1375,7 @@ select:focus-visible,
 
 .sess-meta {
   padding-left: calc(var(--dot-row) + var(--space-2));
-  font-size: var(--fs-name);
+  font-size: 12px;
   color: var(--color-neutral-500);
   white-space: nowrap;
   overflow: hidden;
@@ -1492,7 +1393,7 @@ select:focus-visible,
 /* a crashed run keeps the danger colour on its meta line — the word alone is
    easy to miss in a dense list */
 .sess-meta.is-danger {
-  color: var(--danger-mut);
+  color: var(--color-danger-mut);
 }
 
 /* history entries sit INSIDE their folder: one indent step, so the folder
@@ -1530,7 +1431,7 @@ select:focus-visible,
 
 .hist-folder {
   min-width: 0;
-  font-size: var(--fs-name);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1543,51 +1444,50 @@ select:focus-visible,
   color: var(--color-neutral-600);
 }
 
-/* projects drawer rows + inline add form */
+/* projects drawer rows: the same two-line idiom. The drawer's header owns
+   `Add project`; the inline add form it replaced is long gone. */
 
 .proj-row {
   display: flex;
   flex-direction: column;
-  gap: var(--s-1);
-  padding: var(--s-4) var(--s-5);
-  border: var(--line) solid transparent;
-  border-radius: var(--r-btn);
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
 }
 
 .proj-row:hover {
-  background: var(--surface-hover);
-  border-color: var(--edge);
+  background: var(--color-neutral-900);
 }
 
 .proj-line {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
+  gap: var(--space-2);
 }
 
 .proj-name {
-  font-size: var(--fs-row);
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .proj-path {
-  font-size: var(--fs-status);
-  color: var(--text-dim);
+  font-size: 11px;
+  color: var(--color-neutral-600);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .proj-meta {
-  font-size: var(--fs-status);
-  color: var(--text-faint);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
 }
 
 .proj-meta.is-on {
-  color: var(--ok);
+  color: var(--color-ok);
 }
 
 /* ---- Files panel (Nocturne A5, v3 §"Files panel") ---------------------------
@@ -1639,7 +1539,7 @@ select:focus-visible,
   margin-bottom: -1px;
   background: transparent;
   color: var(--color-neutral-500);
-  font-size: var(--fs-row);
+  font-size: 13px;
 }
 
 .files-tab:hover {
@@ -1668,7 +1568,7 @@ select:focus-visible,
   gap: var(--space-3);
   padding: var(--space-3) var(--space-6);
   border-bottom: var(--line) solid var(--color-neutral-900);
-  font-size: var(--fs-name);
+  font-size: 12px;
   color: var(--color-neutral-500);
 }
 
@@ -1687,7 +1587,7 @@ select:focus-visible,
 }
 
 .files-sum .files-num {
-  font-size: var(--fs-name);
+  font-size: 12px;
 }
 
 .files-num.is-add {
@@ -1887,7 +1787,7 @@ select:focus-visible,
 }
 
 .commit-msg {
-  font-size: var(--fs-row);
+  font-size: 13px;
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
@@ -2043,10 +1943,15 @@ body.is-resizing-col {
   color: var(--color-text);
 }
 
-/* the armed confirm keeps its own width */
+/* armed two-step confirm: red fill, unmistakable, and its own width — the
+   confirm label is wider than the × it replaces */
 .tab-x[data-armed='1'] {
   width: auto;
   padding: 0 var(--space-2);
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-ink-on-danger);
+  font-weight: 600;
 }
 
 .tab-new {
@@ -2199,272 +2104,227 @@ body.is-dnd * {
   color: var(--color-text);
 }
 
-/* ---- theme popover (handoff §9) ---------------------------------------------- */
-
-.theme-pop {
-  position: fixed;
-  z-index: var(--z-popover);
-  width: var(--popover-w);
-  padding: var(--s-7);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-6);
-  background: var(--surface);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-card-sm);
-  box-shadow: var(--sh-popover); /* sanctioned: handoff popover shadow */
-  animation: fadeUp var(--t-btn) ease;
-}
-
-.theme-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: var(--s-4);
-}
-
-.theme-sw {
-  height: 30px;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-}
-
-.theme-sw:hover {
-  border-color: var(--acc);
-}
-
-.theme-sw.is-sel {
-  border-color: var(--acc);
-  box-shadow: 0 0 0 var(--line) var(--acc); /* selected ring, 1px */
-}
-
-.theme-sw-fg {
-  font-family: var(--font-mono);
-  font-size: var(--fs-name);
-}
-
-.theme-scan {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  font-size: var(--fs-ui);
-  color: var(--text-mute);
-  cursor: pointer;
-}
-
-.theme-scan input {
-  width: auto;
-  accent-color: var(--acc);
-}
-
-.theme-note {
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
-}
-
-/* ---- modal (directory browser) + overlay (shortcuts) ---------------------- */
+/* ---- the shared dialog scrim -------------------------------------------------
+   ONE scrim rule for every dialog in the app. It is also the app's definition
+   of "a dialog is open": ui/keys.ts finds an open owner of the keyboard by
+   this class (OPEN_FOCUS_OWNER_SELECTOR / FOCUS_OWNER_SELECTOR), so every
+   dialog wears it beside its own prefix (`modal-scrim ns-scrim`, `sg-`, `ap-`,
+   `pk-`, `sc-`, `rs-`) and each of those adds only its anchor and its layer. */
 
 .modal-scrim {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  background: var(--scrim);
+  background: var(--color-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: 10vh;
 }
 
-.modal {
-  width: min(var(--modal-w), 92vw);
-  max-height: 76vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-card);
-  overflow: hidden;
-  box-shadow: var(--sh-dialog); /* sanctioned: handoff dialog shadow */
-  animation: fadeUp var(--t-slide) ease;
+/* ---- shortcuts overlay (Nocturne A8) ----------------------------------------
+   The keyboard reference, opened by the statusline button, `?` or ctrl+alt+/.
+   The v3 handoff draws no such surface, so it is built in the idiom the landed
+   Nocturne dialogs set (`ns-`, `sg-`, `ap-`, `pk-`): a surface card on the flat
+   scrim, 16/500 title with a 28px close control, hairline-separated rows, and
+   one structural accent — the focus ring. Nothing here is filled.
+
+   It is a TABLE, not a form: three columns, all three information. What you
+   press (mono key chips, the same chips the Settings Keyboard page draws, so
+   the excerpt and the full list read as one vocabulary), what it does (Inter,
+   the brightest ink in the row), and where the same thing lives in the UI
+   (Inter, quiet — every chord here has a visible control). A row whose
+   existence needs a reason carries ONE caption under it, aligned under the
+   `what` column; the standing note about everything the app does NOT take sits
+   in the footer, where a footnote belongs.
+
+   Written against the primitives only: --color-*, --space-*, --radius-*,
+   --shadow-*, plus the structural --line / --tick / --font-sans / --font-mono
+   and the layer tokens. */
+
+.modal-scrim.sc-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), 6vh) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
 }
 
-.modal-hd {
-  height: var(--modalhd-h);
+.sc-modal {
+  width: 640px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer note can
+     never be pushed below the window edge; the table scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.sc-scrim,
+  .sc-modal {
+    animation: none;
+  }
+}
+
+.sc-hd {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding-left: var(--s-7);
-  border-bottom: var(--line) solid var(--edge-mid);
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
 }
 
-.modal-ft {
+.sc-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sc-x {
+  width: 28px;
+  height: 28px;
   flex: none;
   display: flex;
-  gap: var(--s-3);
-  padding: var(--s-6) var(--s-7);
-  border-top: var(--line) solid var(--edge-mid);
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
 }
 
-/* shortcuts table */
-
-.modal-shortcuts {
-  width: min(var(--modal-w-wide), 92vw);
+.sc-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
 }
 
 .sc-table {
-  padding: var(--s-4) 0;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: 0 var(--space-8);
+}
+
+/* the hairline and the row rhythm belong to the ITEM, so a row and its caption
+   stay one thing */
+.sc-item {
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sc-item:last-child {
+  border-bottom: none;
 }
 
 .sc-row {
   display: grid;
-  grid-template-columns: var(--sc-keys-w) 1fr 1fr;
-  gap: var(--s-4);
-  padding: var(--s-2) var(--s-7);
+  grid-template-columns: var(--sc-key-col) 1fr 1fr;
+  gap: var(--space-4);
   align-items: baseline;
 }
 
 .sc-keys {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s-2);
   align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-kbd {
-  font-size: var(--fs-label);
-  padding: 0 var(--s-2);
-  border: var(--line) solid var(--edge-strong);
-  border-bottom-width: var(--tick); /* tactile key face, not a shadow */
-  border-radius: var(--r-input);
-  background: var(--well);
-  color: var(--text);
+/* the key chip — the same recipe as the Settings Keyboard page's .sg-kbd */
+.sc-keys kbd {
+  padding: 3px 8px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
   white-space: nowrap;
 }
 
-/* mouse-gesture sentences in the keys column: plain text that wraps inside
-   --sc-keys-w — the nowrap <kbd> chip is for short chords only. */
-.sc-gesture {
-  min-width: 0;
-  font-size: var(--fs-label);
-  color: var(--text);
+.sc-or {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
 }
 
-.sc-or {
-  color: var(--text-faint);
-  font-size: var(--fs-label);
+/* a mouse gesture is a sentence, not a chord: plain wrapping Inter, never a
+   nowrap chip (the same rule the Settings page's .sg-gesture states) */
+.sc-gesture {
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-neutral-500);
 }
 
 .sc-what {
-  color: var(--text);
-  font-size: var(--fs-ui);
+  font-size: 12px;
+  color: var(--color-neutral-300);
 }
 
 .sc-ui {
-  color: var(--text-mute);
-  font-size: var(--fs-label);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
 }
 
-/* the ONE caption under a shortcuts row (the paste chord's reason): aligned
-   under the `what` column, same grammar as .sg-cap — a caption sits
-   with its row, not in a footnote nobody reads */
+/* the ONE caption a row may carry (paste, copy): aligned under the `what`
+   column, because a caption sits with its row and not in a footnote nobody
+   reads. The keys column + the grid gap = the indent. */
 .sc-cap {
-  padding: 0 var(--s-7) var(--s-3) calc(var(--s-7) + var(--sc-keys-w) + var(--s-4));
-  font-size: var(--fs-status);
-  color: var(--text-faint);
+  padding: var(--space-1) 0 0 calc(var(--sc-key-col) + var(--space-4));
+  font-size: 11px;
+  color: var(--color-neutral-500);
   line-height: 1.4;
 }
 
 .sc-note {
-  padding: var(--s-6) var(--s-7);
-  border-top: var(--line) solid var(--edge-mid);
-  color: var(--text-mute);
-  font-size: var(--fs-label);
-}
-
-/* ---- shared dialog chrome (the Legacy launch-* names) ------------------------
-   These launch-* rules no longer style the New session dialog — Nocturne A4
-   moved it onto its own `ns-` block (below, on the primitives). They stay
-   because the restart/update dialogs (`update.ts`) still wear them; part A8
-   migrates or deletes what is left. */
-
-.launch-gap {
-  flex: 1;
-}
-
-.launch-hd {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-6);
-  padding: var(--dlg-gap) var(--dlg-pad-x);
-  background: var(--grad-dialoghd); /* flat Nocturne surface (A1) */
-  border-bottom: var(--line) solid var(--edge-mid);
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  line-height: 1.5;
 }
 
-.launch-tile {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-deep);
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-box);
+/* one structural focus ring for every control in the overlay (the A4 rule) */
+.sc-modal button:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
 }
 
-.launch-tile .logo-glyph {
-  font-size: var(--fs-label);
-}
-
-.launch-titles {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  min-width: 0;
-}
-
-.launch-title {
-  font-size: var(--fs-title);
-  font-weight: 600;
-  letter-spacing: var(--ls-title);
-  color: var(--text);
-}
-
-.launch-sub {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
-}
-
-.launch-x {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: var(--line) solid var(--edge-strong);
-  border-radius: var(--r-btn);
-  color: var(--text-dim);
-  font-size: var(--fs-row);
-  line-height: 1;
-}
-
-.launch-x:hover {
-  border-color: var(--danger);
-  color: var(--danger);
+/* narrow window: three columns become one stack, so no cell is squeezed under
+   its own words */
+@media (max-width: 680px) {
+  .sc-hd,
+  .sc-table,
+  .sc-note {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .sc-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+  .sc-cap {
+    padding-left: 0;
+  }
 }
 
 /* ---- New session dialog (Nocturne A4) ---------------------------------------
    The v3 modal, written against the Nocturne primitives (--color-*,
-   --space-*, --radius-*, --shadow-*) plus four structural tokens that are
-   declared below the LEGACY ALIAS LAYER marker in tokens.css and have no
+   --space-*, --radius-*, --shadow-*) plus four structural tokens that have no
    primitive twin: --line, --tick, --font-sans, --font-mono (the A3 pane block
-   uses the same four). No Legacy colour or spacing alias. When part A8 deletes
-   the alias layer it must keep these four, or move them above the marker
-   (tests/ui-launch-a4.test.ts, BELOW_MARKER_ALLOWED). Type sizes are the v3
+   uses the same four). No Legacy colour or spacing alias — A8 deleted that
+   layer, and every name here is a real declaration in tokens.css
+   (tests/ui-launch-a4.test.ts). Type sizes are the v3
    markup's own literals. One accent rule: the SELECTED card's outline and the
    Start session outline; nothing else in the dialog is blurple except the
    focus ring. Danger red belongs to exactly one card, No prompts.
@@ -2483,7 +2343,7 @@ kbd {
   align-items: flex-start;
   padding: max(var(--space-6), calc(50vh - 319px)) var(--space-6) var(--space-6);
   background: var(--color-scrim);
-  animation: nsFade 0.14s ease;
+  animation: scrimFade 0.14s ease;
 }
 
 .ns-modal {
@@ -2500,15 +2360,6 @@ kbd {
   box-shadow: var(--shadow-lg);
   color: var(--color-text);
   animation: fadeUp 0.18s ease;
-}
-
-@keyframes nsFade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2914,10 +2765,11 @@ kbd {
    Nocturne A7: the v3 settings modal (session-manager-v3.html lines 561-640) —
    640 wide, a 170px LEFT NAV of page names beside one scrolling page. Written
    against the Nocturne primitives (--color-*, --space-*, --radius-*,
-   --shadow-*) plus the four structural tokens declared below the LEGACY ALIAS
-   LAYER marker in tokens.css that have no primitive twin: --line, --tick,
-   --font-sans, --font-mono (the A3 pane block and the A4 dialog use the same
-   four). No Legacy colour or spacing alias — part A8 deletes those.
+   --shadow-*) plus the four structural tokens that have no primitive twin:
+   --line, --tick, --font-sans, --font-mono (the A3 pane block and the A4
+   dialog use the same four; A8 phase 0 re-homed them into the Nocturne
+   sections, phase 2 deleted the alias block they used to sit under). No
+   Legacy colour or spacing alias — part A8 deleted those.
    `tests/ui-settings-a7.test.ts` pins all of it.
 
    Grammar, shared with the New session dialog: rows are hairline-separated
@@ -2939,9 +2791,9 @@ kbd {
   align-items: flex-start;
   padding: max(var(--space-6), 6vh) var(--space-6) var(--space-6);
   background: var(--color-scrim);
-  /* nsFade + fadeUp: the two dialog keyframes A4 and the handoff motion set
-     already declare — one fade vocabulary for every modal in the app. */
-  animation: nsFade 0.14s ease;
+  /* scrimFade + fadeUp: the two dialog keyframes the keyframes section
+     declares — one fade vocabulary for every modal in the app. */
+  animation: scrimFade 0.14s ease;
 }
 
 .sg-modal {
@@ -3355,6 +3207,7 @@ kbd {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--color-neutral-300);
+  white-space: nowrap;
 }
 
 /* a mouse sentence is not a key: plain text, never a chip (overlay rule) */
@@ -3634,8 +3487,8 @@ kbd {
    against the Nocturne primitives (--color-*, --space-*, --radius-*,
    --shadow-*) plus the four structural tokens the A3 pane and A4 dialog blocks
    also use and that have no primitive twin: --line, --tick, --font-sans,
-   --font-mono (declared below the LEGACY ALIAS LAYER marker in tokens.css; A8
-   must keep or re-home them — tests/ui-addproject-a7.test.ts pins that). No
+   --font-mono (all four are plain tokens.css declarations since A8 deleted the
+   alias layer — tests/ui-addproject-a7.test.ts pins that). No
    Legacy colour or spacing alias, no hardcoded colour. Type sizes are the v3
    markup's own literals.
 
@@ -3664,10 +3517,11 @@ kbd {
   align-items: flex-start;
   padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
   background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
 }
 
 .ap-modal {
-  width: 560px;
+  width: 580px;
   max-width: 100%;
   /* 100% = the scrim's box minus its top-anchor padding, so the footer can
      never be pushed below the window edge; the body scrolls instead */
@@ -3683,6 +3537,7 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .modal-scrim.ap-scrim,
   .ap-modal {
     animation: none;
   }
@@ -4670,6 +4525,7 @@ kbd {
   align-items: flex-start;
   padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
   background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
 }
 
 .pk-modal {
@@ -4689,6 +4545,7 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .modal-scrim.pk-scrim,
   .pk-modal {
     animation: none;
   }
@@ -5006,8 +4863,19 @@ kbd {
 }
 
 /* ---- boot overlay (honest steps; handoff §10 visual language) ---------------
-   Mounts only when boot outlives ~150ms; each row's mark is REAL state:
-   spinner while its promise is pending, green ✓ resolved, red × failed. */
+   Nocturne A8. The app's first frame is the terminal's own ground with ONE
+   instrument card on it — the same card the New session dialog is (surface,
+   radius-lg, a hairline ring instead of a shadow), carrying the top bar's
+   brand row as its header and the boot steps as its body. Mounts only when
+   boot outlives ~150ms, so a warm localhost start shows nothing.
+
+   Every row's mark is REAL state: the accent-topped ring spins only while its
+   own promise is pending, a green check means resolved, a red × failed, and a
+   failed row puts the reason underneath it in mono. Nothing is staged, no
+   percentage is invented, and the card never moves after it lands.
+
+   The same three elements serve the reconnect takeover (one row) and the
+   fatal zone (a danger edge, one sentence, one Reload). */
 
 .boot-overlay {
   position: fixed;
@@ -5016,151 +4884,174 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-deep);
+  padding: var(--space-6);
+  background: var(--color-term);
 }
 
 .boot-panel {
   width: min(var(--panel-w), 92vw);
   display: flex;
   flex-direction: column;
-  gap: var(--s-8);
-}
-
-.boot-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--s-6);
-}
-
-.boot-brand .logo-tile {
-  width: 26px;
-  height: 26px;
-}
-
-.boot-brand .logo-glyph {
-  font-size: var(--fs-label);
-}
-
-/* the same wordmark as the top bar's (.wordmark): no tracking, no caps —
-   the boot and reconnect panels show the app's name, not a Legacy label. */
-.boot-brand-name {
-  font-size: var(--fs-row);
-  font-weight: 600;
-  color: var(--text-hd);
-}
-
-.boot-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-  padding: var(--s-7) var(--s-8);
-  background: var(--well);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-card-sm);
-  font-family: var(--font-mono);
-  font-size: var(--fs-tab);
-}
-
-.boot-step {
-  display: flex;
-  align-items: center;
-  gap: var(--s-5);
-  color: var(--text);
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   animation: fadeUp var(--t-fade) ease;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .boot-panel,
+  .boot-step,
+  .boot-err {
+    animation: none;
+  }
+}
+
+/* the top bar's own brand, at the top bar's proportions (24px tile, --space-3) */
+.boot-brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.boot-brand-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* the steps, on the header's hairline */
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* mark column + words; a failed row's reason takes a second line of its own */
+.boot-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-400);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+/* settled and fine: the row steps back so the pending one reads first */
 .boot-step.is-done {
-  color: var(--text-mute);
+  color: var(--color-neutral-600);
 }
 
 .boot-mark {
-  flex: none;
-  width: 12px;
-  text-align: center;
+  grid-column: 1;
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
   line-height: 1;
 }
 
 .boot-mark.is-spin {
-  width: 10px;
-  height: 10px;
-  border: var(--line) solid var(--edge-strong);
-  border-top-color: var(--acc);
+  width: 11px;
+  height: 11px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: spin var(--t-spin) linear infinite;
 }
 
 .boot-mark.is-ok {
-  color: var(--ok);
+  color: var(--color-ok);
 }
 
 .boot-mark.is-err {
-  color: var(--danger);
+  color: var(--color-danger);
 }
 
-/* The label never wraps: a message beside it (a failed row) takes the slack,
-   not the two-word label (A4b, "terminal font" broke onto two lines). */
+/* The reason sits on its own line, so the label has the whole column and
+   nothing squeezes it onto two lines (A4b, where the message shared the row
+   and broke "terminal font" in half). */
 .boot-lb {
-  flex: none;
-  white-space: nowrap;
+  grid-column: 2;
+  min-width: 0;
 }
 
 .boot-msg {
-  color: var(--danger);
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-danger);
   overflow-wrap: anywhere;
 }
+
+/* ---- boot / restart takeover panels ----------------------------------------
+   Boot cannot continue (a fatal inside the card) or this page can no longer
+   reach the service it was served by (the standalone card). Same card, same
+   words-first order; the ONE alarm mark either one takes is a --color-danger
+   top edge. The action is the app-wide accent outline (.btn-accent), never a
+   filled or glowing button. */
 
 .boot-fatal {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--s-5);
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  border-top: var(--tick) solid var(--color-danger);
 }
 
 .boot-fatal-msg {
-  color: var(--text-mute);
-  font-size: var(--fs-ui);
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
 }
-
-/* ---- boot / restart takeover panels ---------------------------------------- */
 
 .boot-err {
   margin: 20vh auto 0;
-  max-width: var(--panel-w);
-  padding: var(--s-8);
-  background: var(--surface);
-  border: var(--line) solid var(--edge-strong);
-  border-top: var(--tick) solid var(--danger);
-  border-radius: var(--r-card-sm);
+  width: min(var(--panel-w), 92vw);
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
   align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8);
+  background: var(--color-surface);
+  border-top: var(--tick) solid var(--color-danger);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   animation: fadeUp var(--t-fade) ease;
 }
 
 .boot-err-hd {
-  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
 }
 
 .boot-err-msg {
-  color: var(--text-mute);
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
   overflow-wrap: anywhere;
 }
 
-/* ---- update notice + backend restart (2026-09-06) ---------------------------
-   Three surfaces, one idea: a new version is on disk and the running backend
-   is not it. They speak the app's EXISTING attention grammar — the amber
-   --attn family, already the only colour that means "this needs you" (tab
-   badge, sessions count, the settings relaunch notice) — so nothing new had
-   to be invented and nothing competes with the terminal for the eye.
-   No new colours, no gradients, no blur. */
+/* ---- update notice: the topbar pill and the toast ---------------------------
+   Two surfaces, one idea: a newer version exists and the running backend is not
+   it. Both speak the attention hue (--color-attn) — already the only colour in
+   this app that means "this needs you" — as an OUTLINE and a rule, never a
+   fill, so nothing competes with the terminal for the eye. The third surface,
+   the confirmation, is the `rs-` block below. */
 
 /* the topbar pill: the persistent half of the notice, immediately after the
-   connection dot. Same amber recipe as .tb-attn, sized as a labelled control
-   rather than a count badge, and NOT pulsing: the count badge pulses because
-   a session is waiting for a human right now; an available update is patient. */
-/* A2: the same outlined idiom as the rest of the bar, in the attention hue —
-   it is a notice, so it never fills. */
+   connection dot. Same outlined idiom as the rest of the bar, and NOT pulsing:
+   the tab badge pulses because a session is waiting for a human right now; an
+   available update is patient. */
 .tb-update {
   height: 20px;
   padding: 0 var(--space-2);
@@ -5179,220 +5070,359 @@ kbd {
   background: var(--color-attn-tint);
 }
 
-/* the toast: bottom-right, above the tab strip, where no pane content and no
-   tab lives. Amber left rule = the same "attention" mark the settings notice
-   wears; --sh-popover is the shadow the theme popover already casts. */
-.toast {
+/* the toast (Nocturne A8): bottom-right, above the tab strip and the
+   statusline, where no pane content and no tab lives. A surface card on the
+   dialog grammar — 1px edge, radius-md, the popover shadow — with ONE
+   attention mark: the 2px left rule. The card is never amber; the hue states
+   the kind of news, the words state the news. */
+.ut-toast {
   position: fixed;
-  right: var(--s-8);
+  right: var(--space-6);
   bottom: var(--toast-bottom);
   z-index: var(--z-toast);
   width: var(--toast-w);
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
-  padding: var(--s-6) var(--s-7);
-  background: var(--surface);
-  border: var(--line) solid var(--edge-strong);
-  border-left: 2px solid var(--attn);
-  border-radius: var(--r-card-sm);
-  box-shadow: var(--sh-popover); /* sanctioned: handoff popover shadow */
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface);
+  border: var(--line) solid var(--color-neutral-800);
+  border-left: var(--tick) solid var(--color-attn);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   animation: fadeUp var(--t-fade) ease;
 }
 
-.toast-hd {
+@media (prefers-reduced-motion: reduce) {
+  .ut-toast {
+    animation: none;
+  }
+}
+
+.ut-hd {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
-.toast-title {
-  font-size: var(--fs-row);
+.ut-title {
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--color-text);
 }
 
-.toast-x {
-  width: 18px;
-  height: 18px;
+.ut-x {
+  width: 20px;
+  height: 20px;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--r-input);
-  color: var(--text-dim);
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 14px;
   line-height: 1;
 }
 
-.toast-x:hover {
-  color: var(--text);
-  background: var(--surface-hover);
+.ut-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
 }
 
-.toast-body {
-  font-size: var(--fs-ui);
-  color: var(--text-2);
+.ut-body {
+  font-size: 12px;
+  color: var(--color-neutral-400);
   line-height: 1.45;
 }
 
-/* the server's own words for WHY, in the mono "one fact" voice — secondary,
+/* the backend's own words for WHY, in the mono "one fact" voice — secondary,
    never an instruction */
-.toast-reason {
+.ut-reason {
   font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-dim);
+  font-size: 11px;
+  color: var(--color-neutral-600);
   overflow-wrap: anywhere;
 }
 
-.toast-actions {
+.ut-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--s-3);
+  gap: var(--space-3);
 }
 
-/* ---- restart confirmation --------------------------------------------------
-   The shared dialog chrome (.modal-scrim / .modal / .launch-hd). Narrower than
-   the launch dialog: it asks one question. */
+/* the dialog buttons, one size down: a toast is not a dialog footer */
+.ut-actions .btn-accent,
+.ut-actions .btn-quiet {
+  height: 28px;
+  padding: 0 var(--space-4);
+  font-size: 12px;
+}
 
-/* the ONE dialog that can open over another one (the `Restart service` button
-   on the Settings `Background service` page opens it), so it needs a layer of
-   its own — DOM order alone would put
-   it underneath, since the notice module is wired before settings. */
-.restart-scrim {
+/* ---- restart / update confirmation (Nocturne A8) ----------------------------
+   The one question with consequences, on the same dialog grammar as the New
+   session dialog and the folder picker: a 420-wide surface card, top-anchored
+   like `pk-`, 16/500 title with a one-line sub, hairline footer, and exactly
+   one accent — the outlined commitment (the shared .btn-accent) plus the focus
+   ring. It is the ONE dialog that can open over another one (Settings ->
+   Background service -> Restart service), so its scrim claims --z-modal-top.
+
+   Three states in one card, never a fifth colour: the QUESTION (what is about
+   to close, listed on --color-bg sunk into the card, where data goes), the
+   WAIT (a spinner and the phase in words — honest, and a real percentage only
+   while bytes are actually moving), and the OUTCOME (a refusal, which touched
+   nothing and wears the attention note; or a failure, which is danger ink). */
+
+.modal-scrim.rs-scrim {
   z-index: var(--z-modal-top);
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
 }
 
-.restart-modal {
-  width: min(var(--modal-w-narrow), 92vw);
-}
-
-.restart-body {
-  padding: var(--s-8) var(--dlg-pad-x);
+.rs-modal {
+  width: 420px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the body scrolls instead */
+  max-height: min(88vh, 100%);
   display: flex;
   flex-direction: column;
-  gap: var(--s-5);
-  overflow-y: auto;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
 }
 
-.restart-lead {
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.rs-scrim,
+  .rs-modal {
+    animation: none;
+  }
+}
+
+.rs-hd {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.rs-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rs-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.rs-sub {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.rs-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rs-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.rs-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-8) var(--space-6);
+}
+
+.rs-lead {
   margin: 0;
-  font-size: var(--fs-ui);
-  color: var(--text);
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
   line-height: 1.5;
 }
 
-/* what is about to close: dense mono rows in the ink well, the same
-   "data, not chrome" treatment the drawer gives session names */
-.restart-list {
+/* what is about to close: dense mono rows sunk into the app ground, the same
+   "data, not chrome" treatment the sessions panel gives session names. ~6 rows
+   before it scrolls. */
+.rs-list {
   margin: 0;
-  padding: var(--s-4) var(--s-5);
-  max-height: var(--restart-list-h);
+  max-height: 132px;
   overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
   list-style: none;
-  background: var(--well);
-  border: var(--line) solid var(--edge-mid);
-  border-radius: var(--r-field);
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
 }
 
-.restart-row {
+.rs-row {
   display: flex;
   align-items: baseline;
-  padding: var(--s-1) 0;
+  padding: 2px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.restart-row-name {
-  color: var(--text);
+.rs-name {
+  font-family: var(--font-mono);
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.restart-row-proj {
-  color: var(--text-dim);
+.rs-proj {
+  color: var(--color-neutral-500);
 }
 
-.restart-more {
-  font-family: var(--font-mono);
-  font-size: var(--fs-status);
-  color: var(--text-faint);
+.rs-more {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
 }
 
-/* the Start from "The last conversation in this project" footnote
-   (CONTINUE_NOTE) — an attention note, same rule idiom as .sg-notice,
-   only rendered when it actually applies */
-.restart-note {
-  padding: var(--s-4) var(--s-5);
-  background: var(--well);
-  border-left: 2px solid var(--attn);
-  border-radius: var(--r-field);
-  font-size: var(--fs-label);
-  color: var(--text-dim);
+/* a note about what the user is about to meet (a conversation that cannot be
+   pinned, dependencies the preflight will refuse): the attention rule on the
+   app ground, the same grammar the toast uses. Never a fill. */
+.rs-note {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-left: var(--tick) solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
   line-height: 1.5;
 }
 
 /* in flight: the boot panel's spinner, because this IS the same kind of wait */
-.restart-progress {
+.rs-progress {
   display: flex;
   align-items: center;
-  gap: var(--s-5);
-  padding: var(--s-4) 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-name);
-  color: var(--text-2);
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
 }
 
-.restart-spin {
+.rs-spin {
   flex: none;
   width: 10px;
   height: 10px;
-  border: var(--line) solid var(--edge-strong);
-  border-top-color: var(--acc);
+  border: var(--line) solid var(--color-neutral-800);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: spin var(--t-spin) linear infinite; /* sanctioned: handoff §10 */
+}
+
+/* the phase in words — the news. It can be a long sentence in a 420 card. */
+.rs-step {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* the download percent, beside the phase and never instead of it. Its own rule
    for one reason: TABULAR figures. It changes once a second for minutes, and
    proportional digits make the whole line twitch left and right while it
    counts — motion that carries no information, which this app does not do. */
-.restart-pct {
-  color: var(--text-dim);
+.rs-pct {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
   font-variant-numeric: tabular-nums;
 }
 
-.restart-fail {
-  font-size: var(--fs-ui);
-  color: var(--danger);
+.rs-fail {
+  font-size: 12.5px;
+  color: var(--color-danger);
   line-height: 1.5;
 }
 
 /* a REFUSAL is not a failure. The preflight said no and touched nothing: the
-   backend still serves this page and every session is alive, so the red of
-   "it did not come back" would be a lie. It wears the attention idiom
-   instead — .restart-note's amber rule on the ink well, the same grammar the
-   toast and the tab badge use for "this needs you". No new colour. */
-.restart-fail.is-refused {
-  padding: var(--s-4) var(--s-5);
-  background: var(--well);
-  border-left: 2px solid var(--attn);
-  border-radius: var(--r-field);
-  color: var(--text-2);
+   backend still serves this page and every session is alive, so the red of "it
+   did not come back" would be a lie. It wears the attention idiom instead —
+   .rs-note's rule on the app ground, the same grammar the toast and the tab
+   badge use for "this needs you". No new colour. */
+.rs-fail.is-refused {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-left: var(--tick) solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
 }
 
-.restart-ft {
+.rs-ft {
+  flex: none;
+  display: flex;
   align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the spacer that keeps the quiet verb left and the loud ones right */
+.rs-gap {
+  flex: 1;
 }
 
 /* the manual fallback after a refused update: the quiet verb on the left of a
-   footer of bordered buttons (the existing flex-1 spacer keeps Close and Try
-   again anchored right). Same treatment as the settings panel's own text link —
-   drop to the control size so it never outweighs what it sits beside. */
-.restart-ft .btn-link {
-  font-size: var(--fs-ui);
+   footer of outlined buttons. Same treatment as the Settings panel's own text
+   link (.sg-link) — a link is a word, never a button. */
+.rs-link {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-accent-300);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rs-link:hover {
+  color: var(--color-text);
+}
+
+/* one structural focus ring for every control in the dialog (the A4 rule) */
+.rs-modal button:focus-visible,
+.rs-modal [tabindex]:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window */
+@media (max-width: 460px) {
+  .rs-hd,
+  .rs-body,
+  .rs-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
 }
 
 /* ═══ Nocturne A6 — the commit view and the editor ═══════════════════════════
@@ -5543,7 +5573,7 @@ kbd {
 
 .commit-vhash {
   padding: 3px 8px;
-  font-size: var(--fs-name);
+  font-size: 12px;
   color: var(--color-neutral-400);
 }
 
@@ -5560,7 +5590,7 @@ kbd {
 /* a real button that says it is unavailable: the disabled LOOK, never the
    disabled attribute (a screen reader must still reach its explanation) */
 .commit-gh {
-  font-size: var(--fs-name);
+  font-size: 12px;
   color: var(--color-neutral-600);
   cursor: default;
 }
@@ -5573,7 +5603,7 @@ kbd {
    it is the whole point of the state */
 .commit-missing {
   padding: var(--space-6) var(--space-4);
-  font-size: var(--fs-row);
+  font-size: 13px;
   color: var(--color-neutral-500);
 }
 
@@ -5703,11 +5733,11 @@ kbd {
 }
 
 .diff-line[data-kind='add'] {
-  background: var(--ok-tint);
+  background: var(--color-ok-tint);
 }
 
 .diff-line[data-kind='del'] {
-  background: var(--danger-tint);
+  background: var(--color-danger-tint);
 }
 
 .diff-n {
@@ -5777,7 +5807,7 @@ kbd {
 }
 
 .files-selmsg {
-  font-size: var(--fs-row);
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
 }
@@ -5900,7 +5930,7 @@ kbd {
   justify-content: center;
   border-radius: var(--radius-sm);
   color: var(--color-neutral-600);
-  font-size: var(--fs-name);
+  font-size: 12px;
 }
 
 .editor-x:hover {
@@ -5934,7 +5964,7 @@ kbd {
   border: var(--line) solid var(--color-neutral-800);
   border-radius: var(--radius-sm);
   color: var(--color-neutral-600);
-  font-size: var(--fs-name);
+  font-size: 12px;
 }
 
 /* only a file with unsaved text offers the accent — `Saved` is a statement */

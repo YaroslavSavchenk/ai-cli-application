@@ -11,10 +11,10 @@
  *      `.sg-tcprev`) — and, the other way round, a `sg-`/`ap-`/`gh-`/`pk-` rule
  *      anywhere in app.css that no module sets any more. Checked here over the
  *      WHOLE stylesheet and the WHOLE of web/src.
- *   2. The below-the-marker token budget as ONE number: each block test carries
- *      its own allow-list, so a fifth Legacy token could be admitted by editing
- *      one of them. The union of all three blocks must be exactly the four
- *      tokens part A8 has to keep or re-home.
+ *   2. The token vocabulary as ONE check: a single block test could be relaxed
+ *      on its own, so the union of all three blocks is pinned here too. Since
+ *      part A8 deleted the Legacy alias layer there is one vocabulary left, and
+ *      a name outside it resolves to nothing at runtime.
  *   3. The `.status-*` family half (a) deleted, and the four Legacy rules the
  *      folder-picker restyle deleted (follow-up c): zero users anywhere under
  *      web/src (not only ui/*.ts + main.ts) and no rule left in app.css.
@@ -23,34 +23,20 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { projectRoot } from './helpers.ts';
-
-const WEB_SRC = join(projectRoot, 'web', 'src');
-const APP_CSS_PATH = join(WEB_SRC, 'styles', 'app.css');
-const APP_CSS = readFileSync(APP_CSS_PATH, 'utf8');
-const TOKENS_CSS = readFileSync(join(WEB_SRC, 'styles', 'tokens.css'), 'utf8');
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  APP_CSS,
+  TOKENS_CSS,
+  WEB_SRC,
+  declaredTokens,
+  frontendFiles,
+} from './tokens-helpers.ts';
 /** Comments hold prose that NAMES classes and tokens; only rules count. */
 const APP_RULES = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Every .ts under web/src, plus the one hand-written HTML page. */
-function frontendFiles(): { name: string; src: string }[] {
-  const out: { name: string; src: string }[] = [];
-  const walk = (dir: string): void => {
-    for (const e of readdirSync(dir)) {
-      const p = join(dir, e);
-      if (statSync(p).isDirectory()) walk(p);
-      else if (e.endsWith('.ts')) out.push({ name: relative(projectRoot, p), src: readFileSync(p, 'utf8') });
-    }
-  };
-  walk(WEB_SRC);
-  const html = join(projectRoot, 'web', 'index.html');
-  out.push({ name: relative(projectRoot, html), src: readFileSync(html, 'utf8') });
-  return out;
-}
-
-const FILES = frontendFiles();
+const FILES = frontendFiles(['.ts']);
 
 const PREFIXED = /^(?:sg|ap|gh|pk)-[a-z0-9-]+$/;
 
@@ -154,14 +140,9 @@ test('class parity over the WHOLE stylesheet: no unstyled class, no dead rule, w
   );
 });
 
-test('the three A7 blocks together reach exactly FOUR below-marker tokens (A8 must keep these)', () => {
-  const legacyAt = TOKENS_CSS.indexOf('LEGACY ALIAS LAYER');
-  assert.notEqual(legacyAt, -1, 'tokens.css must still carry the LEGACY ALIAS LAYER marker');
-  const declared = (src: string): Set<string> =>
-    new Set([...src.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1] as string));
-  const primitives = declared(TOKENS_CSS.slice(0, legacyAt));
-  const legacy = declared(TOKENS_CSS.slice(legacyAt));
-  assert.ok(primitives.size >= 20 && legacy.size >= 10, `non-vacuity: ${primitives.size}/${legacy.size}`);
+test('the three A7 blocks name no token that tokens.css does not declare', () => {
+  const declared = declaredTokens();
+  assert.ok(declared.size >= 100, `non-vacuity: ${declared.size} tokens declared`);
 
   const slice = (from: string, to: string): string => {
     const a = APP_CSS.indexOf(from);
@@ -186,13 +167,12 @@ test('the three A7 blocks together reach exactly FOUR below-marker tokens (A8 mu
     for (const m of b.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) used.add(m[1] as string);
   }
   assert.ok(used.size >= 15, `non-vacuity: ${used.size} tokens used by the three blocks`);
-  const belowMarker = [...used].filter((t) => !primitives.has(t)).sort();
+  const undeclared = [...used].filter((t) => !declared.has(t)).sort();
   assert.deepEqual(
-    belowMarker,
-    ['--font-mono', '--font-sans', '--line', '--tick'],
-    'the A7 blocks may reach below the marker for these four only',
+    undeclared,
+    [],
+    'every token the A7 blocks use is declared in tokens.css; a name that is not resolves to nothing',
   );
-  for (const t of used) assert.ok(primitives.has(t) || legacy.has(t), `${t} is declared nowhere`);
 });
 
 test('the .status-* family half (a) deleted has zero users left in app.css or anywhere under web/src', () => {

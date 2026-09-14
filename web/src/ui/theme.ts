@@ -1,18 +1,22 @@
 /**
- * UNWIRED since A2; the popover UI goes in A8, the apply/persist/refresh machinery is KEPT and part B9 reconnects it to the Terminal colours Settings page.
+ * Terminal colours — the machinery, with no UI of its own.
  *
- * Terminal theme popover (Legacy UI, handoff §9; removed in Nocturne part
- * A8): anchored under the topbar Theme button, two INDEPENDENT 5-column
- * swatch grids — 10 terminal grounds × 10 text ramps — plus the scanline
- * toggle (default OFF). Entry 0 of both grids is the Nocturne default.
+ * UNWIRED: nothing imports this module yet. The Legacy theme popover that
+ * used to own it (a topbar button, two swatch grids, a scanline toggle) was
+ * unwired in Nocturne A2 and DELETED in A8, together with its `.theme-*`
+ * rules. What is left is exactly the part part B9 needs: load the stored
+ * choice, apply it, reconcile it with the server copy, persist a new one.
+ * B9 wires `initTheme()` into main.ts's boot (before `initPanes`, so
+ * terminals are born themed) and hands the Terminal colours Settings page
+ * the `apply()` it returns.
  *
- * Implementation contract: selections write the existing --term-bg / --xt-*
+ * Implementation contract: a selection writes the existing --term-bg / --xt-*
  * custom properties inline on :root, so themeFromTokens() in ui/terminal.ts
  * remains the single ITheme source. refreshAllTerminalThemes() then updates
  * every LIVE terminal in place, and pane cards follow the ground via
  * var(--term-bg). Ramp mapping: out -> xterm foreground/white, cmd ->
  * brightWhite + cursor (bold/bright), dim -> brightBlack (faint). Status
- * colors (green/amber/red ANSI + dots) are semantic and NEVER themed.
+ * colours (green/amber/red ANSI + dots) are semantic and NEVER themed.
  *
  * Persisted under its own localStorage key — deliberately separate from the
  * UI-arrangement schema (no version bump there).
@@ -30,8 +34,12 @@
  * /api/prefs (read-modify-write: only the `theme` member is replaced, so
  * unknown keys — future settings — survive). Two windows changing the theme
  * concurrently is last-write-wins on the server; acceptable, not solved here.
+ *
+ * `UiTheme.scan` (the Legacy scanline flag) is still read and written so a
+ * stored bag survives a round trip untouched, but nothing renders it: A8
+ * dropped the `scanlines-on` class, which no stylesheet ever defined. Whether
+ * the protocol field stays is part B9's call, not A8's.
  */
-import { el, button } from './util.ts';
 import { refreshAllTerminalThemes } from './terminal.ts';
 import type { UiPrefs, UiTheme } from '../../../shared/protocol.ts';
 import { updatePrefs } from '../api.ts';
@@ -48,9 +56,6 @@ import {
 } from './theme-model.ts';
 
 const STORAGE_KEY = 'ai-sm:theme:v1';
-
-/** The "Aa" text-ramp swatches always render over the Nocturne ground. */
-const SWATCH_GROUND = '#0b0d14';
 
 function loadState(): ThemeState {
   let parsed: unknown = null;
@@ -81,19 +86,21 @@ function apply(s: ThemeState): void {
   root.style.setProperty('--xt-bright-white', r.cmd);
   root.style.setProperty('--xt-cursor', r.cmd);
   root.style.setProperty('--xt-bright-black', r.dim);
-  root.classList.toggle('scanlines-on', s.scan);
   refreshAllTerminalThemes();
 }
 
-export interface ThemePopover {
-  toggle(): void;
-  close(): void;
-  isOpen(): boolean;
+/** What a caller (part B9's Terminal colours page) gets to do. */
+export interface ThemeControl {
+  /** Apply a new selection, persist it locally and on the server. */
+  apply(next: ThemeState): void;
+  /** The selection in force right now (a copy — the state stays private). */
+  current(): ThemeState;
 }
 
 /**
- * Build the popover (hidden) and apply the persisted theme immediately —
- * main.ts calls this BEFORE initPanes so terminals are born themed.
+ * Apply the persisted theme and return the one control the Settings page
+ * drives. Call it BEFORE the first terminal exists, so terminals are born
+ * themed.
  *
  * `serverPrefs` is the prefs bag main.ts already fetched (as part of its
  * boot hydrate, GET /api/prefs — undefined if that fetch failed, which is
@@ -103,11 +110,7 @@ export interface ThemePopover {
  * `statusLine`) via api.updatePrefs's merge-on-write (GET current bag →
  * shallow-merge only `theme` → PUT), not by holding this bag.
  */
-export function initTheme(
-  host: HTMLElement,
-  anchor: HTMLElement,
-  serverPrefs?: UiPrefs,
-): ThemePopover {
+export function initTheme(serverPrefs?: UiPrefs): ThemeControl {
   const state = loadState();
   apply(state); // Local cache first — no flash of default.
 
@@ -146,103 +149,18 @@ export function initTheme(
     });
   }
 
-  const pop = el('div', 'theme-pop');
-  pop.hidden = true;
-  pop.setAttribute('role', 'dialog');
-  pop.setAttribute('aria-label', 'terminal theme');
-
-  const bgButtons: HTMLButtonElement[] = [];
-  const fgButtons: HTMLButtonElement[] = [];
-
-  function markSelected(): void {
-    bgButtons.forEach((b, i) => {
-      b.classList.toggle('is-sel', i === state.bg);
-      b.setAttribute('aria-pressed', i === state.bg ? 'true' : 'false');
-    });
-    fgButtons.forEach((b, i) => {
-      b.classList.toggle('is-sel', i === state.fg);
-      b.setAttribute('aria-pressed', i === state.fg ? 'true' : 'false');
-    });
-  }
-
-  function pick(kind: 'bg' | 'fg', i: number): void {
-    if (kind === 'bg') state.bg = i;
-    else state.fg = i;
-    persist();
-    apply(state);
-    markSelected();
-  }
-
-  pop.append(el('div', 'theme-lb', 'TERMINAL BACKGROUND'));
-  const bgGrid = el('div', 'theme-grid');
-  GROUNDS.forEach((g, i) => {
-    const b = button('theme-sw', '', () => pick('bg', i));
-    b.style.background = g.hex; // swatch IS the data — the one sanctioned inline color
-    b.title = g.name;
-    b.setAttribute('aria-label', `terminal background: ${g.name}`);
-    bgButtons.push(b);
-    bgGrid.append(b);
-  });
-  pop.append(bgGrid);
-
-  pop.append(el('div', 'theme-lb', 'TEXT COLOR'));
-  const fgGrid = el('div', 'theme-grid');
-  RAMPS.forEach((r, i) => {
-    const b = button('theme-sw theme-sw-fg', 'Aa', () => pick('fg', i));
-    b.style.background = SWATCH_GROUND;
-    b.style.color = r.out; // "Aa" in the ramp's out shade, per handoff
-    b.title = r.name;
-    b.setAttribute('aria-label', `text color: ${r.name}`);
-    fgButtons.push(b);
-    fgGrid.append(b);
-  });
-  pop.append(fgGrid);
-
-  const scanRow = el('label', 'theme-scan');
-  const scanCb = el('input') as HTMLInputElement;
-  scanCb.type = 'checkbox';
-  scanCb.checked = state.scan;
-  scanRow.append(scanCb, el('span', '', 'scanlines'));
-  scanCb.addEventListener('change', () => {
-    state.scan = scanCb.checked;
-    persist();
-    apply(state);
-  });
-  pop.append(scanRow);
-
-  pop.append(el('div', 'theme-note', 'background and text are independent · status colors stay'));
-
-  markSelected();
-  host.append(pop);
-
-  function onDocDown(e: PointerEvent): void {
-    if (!(e.target instanceof Node)) return;
-    if (pop.contains(e.target) || anchor.contains(e.target)) return;
-    close();
-  }
-
-  function open(): void {
-    if (!pop.hidden) return;
-    const r = anchor.getBoundingClientRect();
-    pop.style.top = `${Math.round(r.bottom + 6)}px`;
-    pop.style.right = `${Math.round(window.innerWidth - r.right)}px`;
-    pop.hidden = false;
-    anchor.setAttribute('aria-expanded', 'true');
-    document.addEventListener('pointerdown', onDocDown, true);
-    (bgButtons[state.bg] ?? bgButtons[0])?.focus();
-  }
-
-  function close(): void {
-    if (pop.hidden) return;
-    pop.hidden = true;
-    anchor.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('pointerdown', onDocDown, true);
-    anchor.focus();
-  }
-
   return {
-    toggle: () => (pop.hidden ? open() : close()),
-    close,
-    isOpen: () => !pop.hidden,
+    apply(next: ThemeState): void {
+      const clamped = clampTheme(next as unknown as Record<string, unknown>);
+      if (themeEquals(clamped, state)) return;
+      state.bg = clamped.bg;
+      state.fg = clamped.fg;
+      state.scan = clamped.scan;
+      persist();
+      apply(state);
+    },
+    current(): ThemeState {
+      return { bg: state.bg, fg: state.fg, scan: state.scan };
+    },
   };
 }

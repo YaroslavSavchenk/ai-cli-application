@@ -61,8 +61,8 @@ export const TERMINAL_SELECTOR = '.term-host';
 
 /**
  * Surfaces that OWN the keyboard while they are up: any dialog (the launch,
- * new-project, restart, shortcuts and folder-picker modals, the settings panel
- * and the theme popover all carry `role="dialog"`), the two drawers, and the
+ * new-project, restart, shortcuts and folder-picker modals and the settings
+ * panel all carry `role="dialog"`), the two drawers, and the
  * boot/reconnect overlay. Focus inside one of these is deliberate — the
  * terminal does not get to take it back.
  */

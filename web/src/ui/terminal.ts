@@ -87,12 +87,13 @@ function clampDim(v: number | undefined, fallback: number): number {
   return Math.min(DIM_MAX, Math.max(DIM_MIN, Math.trunc(v)));
 }
 
-/** Every mounted TerminalView — the theme popover refreshes them in place. */
+/** Every mounted TerminalView — a theme change refreshes them in place. */
 const liveViews = new Set<TerminalView>();
 
 /**
  * Re-read the --xt-* tokens and apply to ALL live terminals. Called by
- * ui/theme.ts after it writes ground/ramp overrides onto :root — the tokens
+ * ui/theme.ts after it writes ground/ramp overrides onto :root (part B9's
+ * Terminal colours page is what drives that) — the tokens
  * file stays the single ITheme source; nothing else may hand xterm a theme.
  */
 export function refreshAllTerminalThemes(): void {

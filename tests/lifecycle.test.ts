@@ -349,7 +349,17 @@ test('history: every end reason is listed and persists across runs; SIGKILL stam
     const survivor = offeredC.find((e) => e.id === s2.id);
     assert.equal(survivor?.ended?.reason, 'shutdown');
     assert.equal(survivor?.title, 'survivor');
-    assert.equal(offeredC[0]?.id, s2.id, 'the newest entry sorts first');
+    // The message carries the stamps the order is made of: this assertion
+    // failed once during the A8 test gate (2026-09-14, one run in fifteen) and
+    // `expected <uuid>, got <uuid>` said nothing about WHY — whether two
+    // entries tied on the millisecond, or a stamp was older than it should be.
+    assert.equal(
+      offeredC[0]?.id,
+      s2.id,
+      `the newest entry sorts first; order was ${JSON.stringify(
+        offeredC.map((e) => ({ id: e.id, lastUsedAt: e.lastUsedAt, createdAt: e.createdAt, ended: e.ended?.at })),
+      )}, newest is ${s2.id} (created ${s2.createdAt})`,
+    );
 
     // Forget one: unknown id 404, real id ok exactly once, disk updated.
     const unknown = await api(c, 'DELETE', '/api/history/no-such-id');

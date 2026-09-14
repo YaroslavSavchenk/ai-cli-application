@@ -200,16 +200,6 @@ const ALLOWED: Record<string, { text: string; why: string }[]> = {
     },
     { text: '·', why: 'unknown file-type badge mark (aria-hidden chip), never text' },
   ],
-  // ui/theme.ts is the Legacy theme popover. A2 unwired it (main.ts no longer
-  // calls initTheme) and part A8 deletes the file; its copy can never reach a
-  // screen while nothing imports it, which the test below proves rather than
-  // assumes.
-  'ui/theme.ts': [
-    {
-      text: 'background and text are independent · status colors stay',
-      why: 'unwired Legacy theme popover — no importer; deleted in part A8',
-    },
-  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -283,9 +273,10 @@ test('the separator allowlist has no stale entries, and ui/theme.ts really is un
       assert.ok(e.why.length > 10, `every allowlist entry states a reason: ${e.text}`);
     }
   }
-  // The theme entry is excused ONLY because nothing renders that popover. The
-  // moment a module imports it again, its Legacy copy is on screen and this
-  // must fail instead of silently excusing it.
+  // ui/theme.ts carried the last excused literal until part A8 deleted the
+  // popover DOM with it. What is left of the module renders nothing, and
+  // nothing imports it — which this proves rather than assumes, because part
+  // B9 wires it back in and its copy will be on screen from that moment.
   const importers = FILES.filter(
     (f) => f !== 'ui/theme.ts' && /from '\.{1,2}(\/ui)?\/theme\.ts'/.test(src(f)),
   );

@@ -140,7 +140,7 @@ test('the top bar holds exactly the Nocturne row, in order, and no help button',
 test('there is exactly ONE overlay instance — the key, the button, the statusline and settings share it', () => {
   assert.ok(MAIN.includes("import { initShortcuts } from './ui/shortcuts.ts';"), 'the import must still be there');
   assert.equal(count(MAIN, 'initShortcuts('), 1, 'expected exactly one construction of the overlay');
-  assert.equal(count(MAIN, 'const shortcuts = initShortcuts(modalHost);'), 1);
+  assert.equal(count(MAIN, 'const shortcuts = initShortcuts(modalHost, requestTerminalFocus);'), 1);
   // The two openers main.ts owns, each on the same handle.
   assert.ok(
     MAIN.includes('openShortcuts: () => shortcuts.toggle(),'),
@@ -248,5 +248,7 @@ test('the overlay answers "why not ctrl+v?" on the paste row itself, not only in
   assert.ok(text.includes('ctrl+v'), `the note must name the key the user pressed: ${text}`);
   assert.ok(text.includes('terminal'), `the note must say where ctrl+v goes: ${text}`);
   // And the note has to be rendered, not merely declared.
-  assert.match(SHORTCUTS, /if \(r\.note !== undefined\) table\.append\(el\('div', 'sc-cap', r\.note\)\);/);
+  // A8 moved the row and its caption into one `sc-item`, so the hairline
+  // between entries can never cut a row away from its own explanation.
+  assert.match(SHORTCUTS, /if \(r\.note !== undefined\) item\.append\(el\('div', 'sc-cap', r\.note\)\);/);
 });

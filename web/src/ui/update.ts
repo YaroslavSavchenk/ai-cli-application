@@ -9,10 +9,10 @@
  *
  *   TOAST — bottom-right, above the tab strip. It arrives where nothing else
  *     lives, so it never covers a terminal's active area or the tab a user is
- *     reaching for; the terminal stays the hero. Amber left rule (the app's
- *     existing attention semantics — no new colour), the surface card and the
- *     popover shadow already used by the theme popover. It goes away for good
- *     on `Later`, for THIS reason.
+ *     reaching for; the terminal stays the hero. Its own `ut-` card (Nocturne
+ *     A8) on the dialog grammar, with ONE attention mark: the left rule. The
+ *     card is never amber — the hue says which KIND of news this is, the words
+ *     say the news. It goes away for good on `Later`, for THIS reason.
  *
  *   PILL — the topbar, immediately after the connection dot. That cluster is
  *     already where APP-level state lives (connected/offline, GitHub); the tab
@@ -20,11 +20,12 @@
  *     persistent target there would move as tabs are added and compete with a
  *     drop zone. One place, next to the other app-level readout.
  *
- *   CONFIRMATION — the shared dialog chrome (`modal-scrim` / `modal` /
- *     `launch-hd`), because it is a decision with consequences and the app has
- *     exactly one visual grammar for those. Its `Restart` is accent-blue, not
- *     red: red is reserved for the "No prompts" launch mode, and this action is
- *     recoverable — every closed session is in History.
+ *   CONFIRMATION — the `rs-` dialog (Nocturne A8) on the shared `modal-scrim`,
+ *     built in the same grammar as the New session dialog and the folder
+ *     picker, because it is a decision with consequences and the app has
+ *     exactly one visual language for those. Its `Restart` is the accent
+ *     OUTLINE, not red: red is reserved for the "No prompts" launch mode, and
+ *     this action is recoverable — every closed session is in History.
  *
  * ONE BUTTON, ONE FLOW (phase E, 2026-09-09 — the user's ask: "a notification
  * and one button, like other apps"). The same three surfaces carry BOTH kinds
@@ -136,7 +137,7 @@ const COPY = {
   // opener the settings panel's `Check for updates` uses, so there is exactly
   // one address in the frontend and one sanctioned way out of the window.
   downloadSelf: 'Download it yourself',
-  downloadSelfTip: 'opens the releases page in your browser',
+  downloadSelfTip: 'Opens the releases page in your browser.',
   // The preflight runs while every session is still alive and usable, so the
   // dialog is not a cell: this puts it away without stopping anything.
   hide: 'Hide',
@@ -205,67 +206,68 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   pill.setAttribute('aria-haspopup', 'dialog');
 
   // ---- toast ---------------------------------------------------------------
-  const toast = el('div', 'toast');
+  const toast = el('div', 'ut-toast');
   toast.hidden = true;
   toast.setAttribute('role', 'status');
   toast.setAttribute('aria-live', 'polite');
-  const toastX = button('toast-x', '×', () => dismissToast());
+  const toastX = button('ut-x', '×', () => dismissToast());
   toastX.setAttribute('aria-label', 'dismiss');
-  const toastHd = el('div', 'toast-hd');
-  toastHd.append(el('span', 'toast-title', COPY.toastTitle), el('span', 'launch-gap'), toastX);
-  const toastReason = el('div', 'toast-reason');
-  const toastBody = el('div', 'toast-body', COPY.toastBody);
-  const toastActions = el('div', 'toast-actions');
+  const toastHd = el('div', 'ut-hd');
+  toastHd.append(el('span', 'ut-title', COPY.toastTitle), toastX);
+  const toastReason = el('div', 'ut-reason');
+  const toastBody = el('div', 'ut-body', COPY.toastBody);
+  const toastActions = el('div', 'ut-actions');
   // ONE accent button whose word follows the reason: `Update` when the release
   // is still online, `Restart now` when the newer version is already here. Two
   // buttons would ask the user to know the difference; the app knows it.
-  const toastGo = button('btn is-acc', COPY.toastGo, () => {
+  const toastGo = button('btn-accent', COPY.toastGo, () => {
     log.info(`update toast: ${notice.reason === null ? 'restart' : noticeVerb(notice.reason)} chosen`);
     openConfirm('toast');
   });
-  toastActions.append(button('btn', COPY.toastLater, () => dismissToast()), toastGo);
+  toastActions.append(button('btn-quiet', COPY.toastLater, () => dismissToast()), toastGo);
   toast.append(toastHd, toastBody, toastReason, toastActions);
   modalHost.append(toast);
 
   // ---- confirmation dialog -------------------------------------------------
-  // Plain `modal-scrim`, never a blurred one: this dialog can open on top of
-  // the settings panel, and two blurred scrims stacked read as a smeared
-  // mistake rather than as depth (the Legacy `launch-scrim` blur is gone
-  // since A7; every Nocturne dialog uses the flat --color-scrim).
-  const scrim = el('div', 'modal-scrim restart-scrim');
+  // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
+  // it, and it carries the flat Nocturne backdrop (never a blurred one — this
+  // dialog can open on top of the settings panel, and two blurred scrims
+  // stacked read as a smear rather than as depth). `rs-scrim` adds the top
+  // anchor and the one layer above every other dialog.
+  const scrim = el('div', 'modal-scrim rs-scrim');
   scrim.hidden = true;
-  const modal = el('div', 'modal restart-modal');
+  const modal = el('div', 'rs-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', 'restart the background service');
 
-  const hd = el('header', 'launch-hd');
-  const tile = el('div', 'launch-tile');
-  tile.setAttribute('aria-hidden', 'true');
-  tile.append(el('span', 'logo-glyph', '>_'));
-  const titles = el('div', 'launch-titles');
-  const titleEl = el('div', 'launch-title', COPY.dialogTitle);
-  const subEl = el('div', 'launch-sub', COPY.dialogSub);
+  // The v3 dialog header: the question, one line of consequence under it, and
+  // a close control. No tile, no glyph — the New session dialog and the folder
+  // picker dropped theirs in A4/A7 and this is the same grammar.
+  const hd = el('header', 'rs-hd');
+  const titles = el('div', 'rs-titles');
+  const titleEl = el('div', 'rs-title', COPY.dialogTitle);
+  const subEl = el('div', 'rs-sub', COPY.dialogSub);
   titles.append(titleEl, subEl);
-  const hdX = button('launch-x', '×', () => closeConfirm());
+  const hdX = button('rs-x', '×', () => closeConfirm());
   hdX.setAttribute('aria-label', 'cancel');
-  hd.append(tile, titles, el('span', 'launch-gap'), hdX);
+  hd.append(titles, hdX);
 
-  const body = el('div', 'restart-body');
+  const body = el('div', 'rs-body');
   // The update flow's first line — what the button is about to fetch — above
   // the sentence about what it costs. Same lead treatment, no new class.
-  const leadUpdate = el('p', 'restart-lead');
-  const bodyText = el('p', 'restart-lead');
-  const list = el('ul', 'restart-list');
-  const moreEl = el('div', 'restart-more');
-  const contNote = el('div', 'restart-note');
+  const leadUpdate = el('p', 'rs-lead');
+  const bodyText = el('p', 'rs-lead');
+  const list = el('ul', 'rs-list');
+  const moreEl = el('div', 'rs-more');
+  const contNote = el('div', 'rs-note');
   contNote.setAttribute('role', 'note');
   // Same note idiom, different job: this one warns about the refusal the
   // pending reason is going to produce (dependencies), so it is rendered above
   // the buttons the user is about to press.
-  const depsNote = el('div', 'restart-note');
+  const depsNote = el('div', 'rs-note');
   depsNote.setAttribute('role', 'note');
-  const progress = el('div', 'restart-progress');
+  const progress = el('div', 'rs-progress');
   progress.hidden = true;
   // The phase is the news ("Downloading…" -> "Verifying…" -> "Installing…" ->
   // "Preparing the new version…" -> "Reconnecting…") and is announced politely
@@ -273,37 +275,40 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   // for minutes, so its own span turns announcements off inside this region —
   // a screen reader hears five phases, not four hundred numbers.
   progress.setAttribute('aria-live', 'polite');
-  const spinner = el('span', 'restart-spin');
+  const spinner = el('span', 'rs-spin');
   spinner.setAttribute('aria-hidden', 'true');
-  const progressText = el('span', 'restart-progress-lb');
+  const progressText = el('span', 'rs-step');
   // Focusable by script only. The busy phase hides cancel/confirm/×, so without
   // this the modal holds nothing focusable: focus would fall back to <body>
   // BEHIND an aria-modal scrim, where Tab walks the page the dialog is blocking
   // and a screen reader reads nothing at all.
   progressText.tabIndex = -1;
-  const progressPct = el('span', 'restart-pct');
+  const progressPct = el('span', 'rs-pct');
   progressPct.setAttribute('aria-live', 'off');
   progressPct.hidden = true;
   progress.append(spinner, progressText, progressPct);
-  const failure = el('div', 'restart-fail');
+  const failure = el('div', 'rs-fail');
   failure.hidden = true;
   failure.setAttribute('role', 'alert');
   body.append(leadUpdate, bodyText, list, moreEl, contNote, depsNote, progress, failure);
 
-  const ft = el('footer', 'modal-ft restart-ft');
-  const cancelBtn = button('btn', COPY.cancel, () => closeConfirm());
-  const confirmBtn = button('btn is-acc', COPY.confirm, () => {
+  // The Nocturne dialog footer: the quiet second choices are the shared
+  // `.btn-quiet` outline, the one commitment is `.btn-accent` — the same pair
+  // the New session dialog and the folder picker wear.
+  const ft = el('footer', 'rs-ft');
+  const cancelBtn = button('btn-quiet', COPY.cancel, () => closeConfirm());
+  const confirmBtn = button('btn-accent', COPY.confirm, () => {
     void startFlow();
   });
-  const closeBtn = button('btn', COPY.close, () => closeConfirm());
+  const closeBtn = button('btn-quiet', COPY.close, () => closeConfirm());
   closeBtn.hidden = true;
   // Only while the PREFLIGHT is out: it dismisses the dialog, never the flow.
-  const hideBtn = button('btn', COPY.hide, () => closeConfirm());
+  const hideBtn = button('btn-quiet', COPY.hide, () => closeConfirm());
   hideBtn.hidden = true;
   // Only on the REFUSED phase: after a refusal the backend is still there, so
   // trying again once the cause is fixed is a real action — unlike after a
   // failure, where there is nothing left on this origin to ask.
-  const retryBtn = button('btn is-acc', COPY.retry, () => {
+  const retryBtn = button('btn-accent', COPY.retry, () => {
     void startFlow();
   });
   retryBtn.hidden = true;
@@ -311,13 +316,13 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   // honest next move is the one a user would make anyway — get it themselves.
   // The quiet verb on the left, the loud ones on the right, exactly like the
   // settings panel's row; same opener, same single address.
-  const dlBtn = button('btn-link', COPY.downloadSelf, () => {
+  const dlBtn = button('rs-link', COPY.downloadSelf, () => {
     log.info('update refused: opening the releases page in the browser');
     openReleasesPage();
   });
   dlBtn.title = COPY.downloadSelfTip;
   dlBtn.hidden = true;
-  ft.append(dlBtn, cancelBtn, el('span', 'drawer-gap'), hideBtn, closeBtn, retryBtn, confirmBtn);
+  ft.append(dlBtn, cancelBtn, el('span', 'rs-gap'), hideBtn, closeBtn, retryBtn, confirmBtn);
 
   modal.append(hd, body, ft);
   scrim.append(modal);
@@ -433,10 +438,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     bodyText.textContent = confirmBody(summary.count);
     list.replaceChildren(
       ...summary.rows.map((r) => {
-        const li = el('li', 'restart-row');
-        li.append(el('span', 'restart-row-name', r.name));
+        const li = el('li', 'rs-row');
+        li.append(el('span', 'rs-name', r.name));
         if (r.project !== null) {
-          li.append(el('span', 'restart-row-proj', `, ${r.project}`));
+          li.append(el('span', 'rs-proj', `, ${r.project}`));
         }
         return li;
       }),
@@ -469,7 +474,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     depsNote.hidden = !confirming || depsWarn === null;
     progress.hidden = next !== 'busy';
     failure.hidden = !ended;
-    failure.className = next === 'refused' ? 'restart-fail is-refused' : 'restart-fail';
+    failure.className = next === 'refused' ? 'rs-fail is-refused' : 'rs-fail';
     // The preflight is interruptible-looking but not interruptible: the dialog
     // can go away, the flow cannot. `reconnecting` stays locked — by then the
     // old process is gone and there is nothing behind the dialog to go back to.

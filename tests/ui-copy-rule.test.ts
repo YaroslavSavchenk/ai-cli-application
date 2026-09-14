@@ -265,7 +265,7 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['ui/settings.ts', 'all shortcuts'],
     [
       'ui/shortcuts.ts',
-      'plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys',
+      'Plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys.',
     ],
     // 2026-09-10: the copy chord's row, in both places it is stated, and the
     // New Project dialog's add-an-existing-folder copy.
@@ -273,7 +273,7 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['ui/shortcuts.ts', 'copy the selection'],
     [
       'ui/shortcuts.ts',
-      'plain ctrl+c stays the interrupt; with nothing selected these keys do nothing',
+      'Plain ctrl+c stays the interrupt; with nothing selected these keys do nothing.',
     ],
     ['ui/newproject.ts', 'Add this folder'],
     ['ui/newproject.ts', 'This folder already exists. It is added as it is.'],
@@ -410,6 +410,7 @@ test('the exact strings the 2026-07-25 copy pass removed never come back', () =>
     // explanation is the info popover's PERM_HELP. (The v3 command preview is
     // covered by '$ claude' above and by the shape scan.)
     'Runs on the server and keeps going when you switch tabs.',
+    'Runs in the background service and keeps going when you switch tabs.',
     'Approve every action first',
     'File edits run without asking',
     'Plans, never changes files',

@@ -4,8 +4,9 @@
  *
  * A1 replaced the Legacy UI ("steam blend") palette and chrome typeface with
  * Nocturne: `web/src/styles/tokens.css` transcribes the primitives from the
- * design handoff's own stylesheet, a LEGACY ALIAS LAYER re-points the old
- * role names at them so `app.css` never had to change, and the same ground
+ * design handoff's own stylesheet, an alias block re-pointed the old Legacy
+ * role names at them so `app.css` did not have to change in one go (part A8
+ * migrated every use site and deleted it), and the same ground
  * colour is repeated in four places OUTSIDE CSS (the pre-bundle inline style
  * in `web/index.html`, its `theme-color` meta, `web/public/manifest.json`,
  * and the WebView2 host's DWM caption constants in C#). Those repetitions
@@ -25,7 +26,11 @@
  *      network and every url() it names exists, Barlow is gone, Inter's
  *      license is committed;
  *   e. the four out-of-CSS copies of the ground colour equal `--color-bg`;
- *   f. the C# host's three DWM constants equal their tokens.
+ *   f. the C# host's three DWM constants equal their tokens;
+ *   i. (A8) the alias block is DELETED, and every token that had to outlive
+ *      it — the terminal palette, the badge table, the two font stacks, the
+ *      hairline widths, motion and z — is still declared, while the alias
+ *      names themselves never come back.
  *
  * Deliberately NOT here: whether the colours look right. That is
  * `/frontend-designer` plus `.claude/skills/verify-terminal/SKILL.md`.
@@ -183,7 +188,7 @@ test('A1 (a): tokens.css carries every Nocturne primitive from the handoff, with
   // Parser sanity: if either side silently produced nothing, every assertion
   // below would pass vacuously.
   assert.ok(handoff.size >= 40, `only ${handoff.size} primitives in ${rel(HANDOFF_FIXTURE)}`);
-  assert.ok(tokens.size >= 150, `only parsed ${tokens.size} declarations out of ${rel(TOKENS_CSS)}`);
+  assert.ok(tokens.size >= 140, `only parsed ${tokens.size} declarations out of ${rel(TOKENS_CSS)}`);
 
   const problems: string[] = [];
   let compared = 0;
@@ -418,18 +423,20 @@ test('A1 (f): the C# host DWM constants equal their tokens (a mismatch is a whit
 });
 
 // ---------------------------------------------------------------------------
-// g. the terminal ground and ramp the theme popover defaults to
+// g. the terminal ground and ramp the colour tables default to
 // ---------------------------------------------------------------------------
 
 /**
- * A1 also moved entry 0 of both popover tables (`ui/theme-model.ts`) to
- * Nocturne IN PLACE, so persisted indexes keep their meaning. Entry 0 is what
+ * A1 also moved entry 0 of both tables (`ui/theme-model.ts`) to Nocturne IN
+ * PLACE, so persisted indexes keep their meaning. Entry 0 is what
  * `clampTheme` falls back to, i.e. what every user without a stored choice
  * sees — and it is a fourth and fifth copy of colours that live in tokens.css.
- * The popover itself goes away in part A8; until then a retuned token with a
- * stale entry 0 means the default theme silently stops matching the app.
+ * A8 deleted the popover that used to render them; the tables and the
+ * apply/persist machinery in `ui/theme.ts` stay for part B9's Terminal colours
+ * page, so a retuned token with a stale entry 0 still means the default theme
+ * silently stops matching the app.
  */
-test('A1 (g): the theme popover default (GROUNDS[0], RAMPS[0], the swatch ground) is the Nocturne palette', async () => {
+test('A1 (g): the colour-table default (GROUNDS[0], RAMPS[0]) is the Nocturne palette', async () => {
   const { GROUNDS, RAMPS } = await import('../web/src/ui/theme-model.ts');
   const tokens = tokenDecls();
   const hexOf = (name: string) => resolveToken(name, tokens).toLowerCase();
@@ -440,15 +447,20 @@ test('A1 (g): the theme popover default (GROUNDS[0], RAMPS[0], the swatch ground
   assert.equal(RAMPS[0]!.dim.toLowerCase(), hexOf('--xt-bright-black'), 'RAMPS[0].dim must be the --xt-bright-black slot it writes');
   assert.equal(RAMPS[0]!.out.toLowerCase(), hexOf('--xt-white'), '--xt-white and --xt-fg are the same "out" step');
 
-  // theme.ts owns the DOM, so it cannot be imported here; its one constant is
-  // read as text instead.
+  // theme.ts touches the DOM, so it cannot be imported here; the slots it
+  // writes are read as text instead — they are the contract between the
+  // tables above and ui/terminal.ts's themeFromTokens().
   const themeTs = read(join(WEB_SRC, 'ui', 'theme.ts'));
-  const swatch = /const SWATCH_GROUND\s*=\s*'([^']+)'/.exec(themeTs);
-  assert.ok(swatch, 'web/src/ui/theme.ts: SWATCH_GROUND constant not found');
+  for (const slot of ['--term-bg', '--xt-fg', '--xt-white', '--xt-bright-white', '--xt-cursor', '--xt-bright-black']) {
+    assert.ok(
+      themeTs.includes(`setProperty('${slot}'`),
+      `web/src/ui/theme.ts must still write ${slot} onto :root (part B9 drives exactly this)`,
+    );
+  }
   assert.equal(
-    swatch[1]!.toLowerCase(),
-    hexOf('--term-bg'),
-    'the "Aa" ramp swatches render over SWATCH_GROUND, which must be the real terminal ground',
+    themeTs.includes('SWATCH_GROUND'),
+    false,
+    'the swatch constant belonged to the deleted popover',
   );
 });
 
@@ -516,4 +528,53 @@ test('A1 (h): the --xt-* ANSI hues are the semantic oklch tokens converted to sR
     oklchToHex(Number(tm[1]), Number(tm[2]), Number(tm[3])),
     '--term-bg (what xterm paints) must be --color-term (what the app paints behind it) in sRGB',
   );
+});
+
+// ---------------------------------------------------------------------------
+// i. A8 — the alias layer is GONE and every survivor came through it
+// ---------------------------------------------------------------------------
+
+/**
+ * Parts A1-A7 recoloured the Legacy UI through an alias layer at the bottom of
+ * tokens.css; A8 migrated every use site and deleted the block, its marker and
+ * its 84 names. The risk this pins is the other half of that delete: a family
+ * the UI still reads (the terminal palette, the badge table, the two font
+ * stacks, motion, z, the hairlines) going out WITH it. Nothing but a survivor's
+ * presence in the file says it made it — a deleted one is not an error, it is a
+ * terminal with no palette and chrome with no typeface.
+ */
+test('A8 (i): the alias layer is deleted and every surviving token family is still declared', () => {
+  const raw = read(TOKENS_CSS);
+  assert.equal(
+    raw.includes('LEGACY ALIAS LAYER'),
+    false,
+    `${rel(TOKENS_CSS)}: the alias block was deleted in A8 phase 2 — its marker may not come back`,
+  );
+
+  const real = tokenDecls();
+  assert.ok(real.size > 100, `only ${real.size} declarations`);
+  assert.ok(real.has('--color-bg'), 'the primitives are still here');
+
+  // The survivor families, each named by pattern AND by one concrete member.
+  const FAMILIES: [RegExp, number][] = [
+    [/^--color-/, 30],
+    [/^--xt-/, 20],
+    [/^--badge-/, 20],
+    [/^--space-/, 6],
+    [/^--radius-/, 3],
+    [/^--shadow-/, 3],
+    [/^--t-/, 6],
+    [/^--z-/, 5],
+  ];
+  for (const [re, least] of FAMILIES) {
+    const n = [...real.keys()].filter((t) => re.test(t)).length;
+    assert.ok(n >= least, `only ${n} tokens match ${String(re)} — a family went out with the alias block`);
+  }
+  for (const name of ['--term-bg', '--xt-bg', '--xt-bright-cyan', '--badge-ts-bg', '--badge-plain-fg', '--font-sans', '--font-mono', '--fs-term', '--line', '--tick', '--dot', '--t-btn', '--t-spin', '--z-toast', '--z-ghost', '--panel-w', '--topbar-h']) {
+    assert.ok(real.has(name), `${name} outlives the alias layer and must still be declared`);
+  }
+  // And the names that DID go: a Legacy alias may not be re-declared quietly.
+  for (const name of ['--text-mute', '--edge', '--acc', '--s-4', '--fs-row', '--r-btn', '--well', '--bg-app']) {
+    assert.equal(real.has(name), false, `${name} is a deleted Legacy alias — it may not come back`);
+  }
 });

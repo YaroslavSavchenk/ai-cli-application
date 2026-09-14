@@ -266,6 +266,24 @@ export class FakeElement extends FakeNode {
   click(): void {
     dispatch(this, 'click');
   }
+  /**
+   * Nearest self-or-ancestor matching the selector. Beyond `matches()`'s
+   * shapes it understands the bare `[hidden]` that `ui/update.ts` asks for
+   * (`back.closest('[hidden]')`): `hidden` is a PROPERTY on this double, as it
+   * is on a real HTMLElement, and the question that call asks is "is anything
+   * on the way up hidden".
+   */
+  closest(sel: string): FakeElement | null {
+    const parts = sel.split(',').map((s) => s.trim());
+    let x: FakeElement | null = this;
+    while (x !== null) {
+      for (const p of parts) {
+        if (p === '[hidden]' ? x.hidden : matches(x, p)) return x;
+      }
+      x = x.parentNode;
+    }
+    return null;
+  }
   /** Only the shapes the UI modules ask for: `[attr="value"]` and `.class`. */
   querySelector(sel: string): FakeElement | null {
     return this.querySelectorAll(sel)[0] ?? null;

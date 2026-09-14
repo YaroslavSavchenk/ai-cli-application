@@ -258,8 +258,9 @@ multi-pane layouts on top.
   to the web content on window activation (the WebView2 control does not
   do that by itself after an Alt-Tab) and grants clipboard-read to the
   launch origin only (all other permissions denied silently). Its **window chrome is dark** (added 2026-07-24): DWM caption /
-  text / border colors + immersive dark mode, matching the `--bg-app`,
-  `--text-hd` and `--edge` tokens, because the DWM-drawn caption is outside
+  text / border colors + immersive dark mode, matching the `--color-bg`,
+  `--color-neutral-200` and `--color-neutral-800` tokens (the Legacy alias
+  names `--bg-app`/`--text-hd`/`--edge` died in Nocturne A8, 2026-09-14), because the DWM-drawn caption is outside
   the page and showed a white bar above the dark UI when maximized. The
   user chose this **DWM-coloring route over a frameless window with a
   custom in-page title strip**; frameless stays available as a later

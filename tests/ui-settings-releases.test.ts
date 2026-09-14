@@ -162,7 +162,7 @@ test('phase E: the update dialog’s manual fallback is the SAME opener, on a re
   assert.match(UPDATE, /import \{ openReleasesPage \} from '\.\/releases\.ts';/);
   assert.match(
     UPDATE,
-    /const dlBtn = button\('btn-link', COPY\.downloadSelf, \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
+    /const dlBtn = button\('rs-link', COPY\.downloadSelf, \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
     'the fallback is a text button whose click calls the shared opener',
   );
   // Same quiet-verb idiom as the settings panel, and only on a refused UPDATE:
@@ -178,8 +178,13 @@ test('phase E: the update dialog’s manual fallback is the SAME opener, on a re
     assert.equal(/https?:\/\//.test(text), false, `no address in UI copy: ${text}`);
     assert.equal(text.includes('github.com'), false, `no host name in UI copy: ${text}`);
   }
-  // Reused class, no new visual language for it.
-  assert.match(CSS, /\.restart-ft \.btn-link \{\n\s*font-size: var\(--fs-ui\);\n\}/);
+  // Same visual language as the settings panel's own text link: an underlined
+  // accent-300 word at the control size, never a second button weight. Nocturne
+  // A8 renamed the Legacy `btn-link` to the dialog's own `rs-link` (the
+  // `.btn-link` rule was built from the alias layer A8 deletes).
+  assert.match(CSS, /\.rs-link \{[^}]*color: var\(--color-accent-300\);/);
+  assert.match(CSS, /\.rs-link \{[^}]*font-size: 12\.5px;/);
+  assert.match(CSS, /\.rs-link \{[^}]*text-decoration: underline;/);
 });
 
 test('the link exists ONLY in installed mode — a developer clone is never told to download one', () => {

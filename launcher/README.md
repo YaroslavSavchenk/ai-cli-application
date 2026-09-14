@@ -354,7 +354,7 @@ above the dark UI. On every handle creation the host applies
 `DwmSetWindowAttribute`: immersive dark mode (attribute `20`, falling back to
 the legacy `19`) plus caption / text / border colors taken straight from
 `web/src/styles/tokens.css` — caption `--color-bg` `#161826`, text
-`--color-neutral-200` `#E4E7F5` (what `--text-hd` aliases), border
+`--color-neutral-200` `#E4E7F5`, border
 `--color-neutral-800` `#3F424D`. The three color attributes need **Windows 11 build
 22000+**; on Windows 10 they fail harmlessly and the caption stays in plain
 dark mode. Every failure path is non-fatal and logged — this is cosmetic and

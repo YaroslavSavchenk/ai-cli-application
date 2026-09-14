@@ -340,7 +340,7 @@ test('the font wait is a boot-panel row of its own, and can never reject into bo
   // And the wait must happen while the overlay is still up: the panel only
   // removes itself when every registered step has settled, so the wait needs
   // its own row — otherwise up to FONT_WAIT_MS passes on an empty page.
-  const row = main.indexOf("panel.step('terminal font')");
+  const row = main.indexOf("panel.step('Loading the terminal font')");
   assert.ok(row > 0, 'the wait must be an honest boot-panel row');
   assert.ok(
     row < main.indexOf('const fontReady ='),

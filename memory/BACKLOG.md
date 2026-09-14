@@ -183,7 +183,7 @@ app window first so one backend at a time owns runtime.json.
 ## From Nocturne A4 (2026-09-10)
 
 - [ ] **(user)** Two permission vocabularies: the app says `Always ask / Auto edits / Read only / No prompts` (`PERM_SHORT`), Claude Code's in-terminal status line from `server/statusline.mjs` `MODE_LABELS` says `always ask / auto-edits / plan / never ask` (pinned by `tests/statusline-script.test.ts`), mirrored by the Settings sample (`web/src/ui/settings.ts:95`) and the New Project select (`never ask (dangerous)`, `web/src/ui/newproject.ts:228`). Align in A7 (Settings + Add a project) or record the terminal line as exempt.
-- [ ] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sit below the `LEGACY ALIAS LAYER` marker in `tokens.css` — move them above the marker before the alias block is deleted.
+- [x] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sat below the `LEGACY ALIAS LAYER` marker — done 2026-09-14 (A8 phase 0 re-homed them; the alias block is deleted, see [[2026-09-14-nocturne-a8]]).
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
 - [x] Windows-side: the A4 dialog in the real WebView2 host — user-checked 2026-09-10 ("ziet er goed uit") and again 2026-09-13 with A4b.
 - [x] Windows-side (A6) — user tested the dev window 2026-09-13: "alles goed".
@@ -199,7 +199,22 @@ app window first so one backend at a time owns runtime.json.
 - [ ] Nothing clamps `filesWidth` when the WINDOW shrinks under it (520 + 300 px of chrome in a 1000 px window leaves ~18 cols) — optional clamp on window resize.
 - [x] Windows-side (A4b) — user tested the dev window 2026-09-13: "alles werkt keurig" (no black frame, JetBrains Mono on the first pane, TUIs fine after resize).
 
+## From Nocturne A8 (2026-09-14)
+
+- [ ] **To finish A8 (2026-09-14, session ended mid-check):** (1) the user checks the Windows dev window (build `web/dist` is current): boot card, `?` shortcuts overlay (Esc returns typing to the terminal), update toast + Settings → Background service → Restart service confirmation over Settings (Cancel), projects drawer `Add project` / `Session` rows, New session dialog with NO sub-line; (2) the user's "al good" then closes A8 in the plan status line and the state memory. (The CDP re-check on the final build already passed: overlay focus on all three routes, smoke 1/2/4/7, drawer, dialog.)
+- [ ] Flake (1 in 30 full-suite runs during the A8 gate): `tests/lifecycle.test.ts` "history: every end reason is listed …" — `the newest entry sorts first` failed once; not the A6 ms-tie (insertion-index tie-break exists), the only mechanism constructed is a backwards clock step between processes under load. The assertion now dumps every entry's stamps; next occurrence says whether it was a tie or a backwards stamp. Not reproduced in 25 isolated runs.
+- [ ] Boot overlay / takeover panels are source-scan only: `createBootPanel()` in `web/src/main.ts` is module-private, so rows, marks and the Reload takeovers cannot be driven through `tests/fake-dom.ts`; exporting it (source change) would let a DOM test pin them.
+- [ ] `ui/update.ts` update half (`downloading/verifying/installing`, real `%`, `Download it yourself` on a refused update) has no DOM test: needs a timer pump in `tests/fake-dom.ts` (the double records timers, never fires them).
+- [ ] `data-*`-keyed styling (`.grid[data-layout]`, `.pane-drop[data-zone]`, `.files-badge[data-kind]`, `[data-armed]`) has no guard that the value set the modules write matches the value set app.css styles — same class of bug as "a rule nothing sets".
+- [ ] Shortcuts overlay row cells stay lowercase fragments (byte-pinned by `ui-shortcuts-table` + mirrored in `settings.ts` `KEY_ROWS`); capitalising them is one change across both + 2 tests.
+- [ ] B9 may replace the invented-but-unwired `initTheme(serverPrefs?) → { apply, current }` shape in `web/src/ui/theme.ts`; `--z-popover` was deleted (its only user was the popover) — re-add a rung if a popover returns.
+- [ ] The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
+- [ ] C# constant NAMES `TokenBgApp` / `TokenTextHd` / `TokenEdge` in `launcher/host/AiSessionManagerHost.cs` echo dead alias names (values correct, pinned by `nocturne-tokens` A1 (f)); rename when the host is next rebuilt.
+
 ## Queued ideas (not decided)
+
+- Persist the verify-terminal CDP driver (Playwright's bare Chromium `~/.cache/ms-playwright/chromium-1228` + `ws`, `libnspr4`/`libnss3` unpacked locally, force a tiny `Page.captureScreenshot` before reading `.xterm-rows` because headless throttles rAF, clear `DevToolsActivePort`/`SingletonLock` before relaunch, `top` for `htop`) under `scripts/` so each part's gate stops rebuilding it from scratch — three sessions have now written it into a throwaway scratch dir (A3, A4b, A8).
+
 
 - [x] Drop the "Continue last conversation" checkbox? — done in Nocturne A4 (2026-09-10): Start from select.
 - [ ] Should HISTORY list Claude conversations not launched by the app?
