@@ -22,6 +22,13 @@
  * The link row is a MOUSE gesture, not a chord: a plain click on a link a
  * program printed does nothing, and ctrl (or cmd) is the second gesture that
  * opens it — so the table has to say so, or the feature is invisible.
+ *
+ * GESTURE ROWS NAME THEIR TWIN (A10). Every drag in this app has a keyboard
+ * equivalent, and the drags are the affordances a user cannot discover by
+ * looking — so a gesture row's right-hand column is that twin: the chord, or
+ * the visible control that does the same thing. A gesture row with nothing
+ * there would be a control that exists only under a pointer, which this
+ * project forbids.
  */
 import { el, button, trapTab } from './util.ts';
 
@@ -37,12 +44,19 @@ interface Row {
 
 const ROWS: Row[] = [
   { keys: ['ctrl+alt+←↑↓→'], what: 'move pane focus in the active tab', ui: 'click a pane' },
-  { keys: ['ctrl+alt+shift+←↑↓→'], what: 'move session between panes of its view (swap)', ui: 'drag a pane header onto a pane' },
+  { keys: ['ctrl+alt+shift+←↑↓→'], what: 'move the focused pane (swap)', ui: 'drag a pane header onto a pane' },
   { keys: ['ctrl+alt+1…9'], what: 'switch tab', ui: 'tab strip' },
   { keys: ['ctrl+alt+shift+pgup/pgdn'], what: 'move the active tab left / right (reorder)', ui: 'drag a tab along the strip' },
+  { keys: ['ctrl+alt+enter'], what: 'open the focused row in the Files panel beside the focused pane', ui: 'drag a file row onto a pane edge' },
+  { keys: ['ctrl+alt+w'], what: 'close the focused file pane', ui: '× in the file pane header' },
   { keys: ['ctrl+alt+t'], what: 'launch a new session (dialog)', ui: 'New session, or + in the tab strip' },
-  { keys: ['drag a tab onto a pane or tab'], gesture: true, what: 'merge its sessions into that view (split)', ui: 'split in the sessions panel' },
+  { keys: ['drag a tab onto a pane or tab'], gesture: true, what: 'merge its panes into that view (split)', ui: 'split in the sessions panel' },
+  { keys: ['drag a tab along the strip'], gesture: true, what: 'reorder the tabs', ui: 'ctrl+alt+shift+pgup/pgdn' },
+  { keys: ['drag a pane header onto another pane'], gesture: true, what: 'swap the two panes', ui: 'ctrl+alt+shift+←↑↓→' },
   { keys: ['drag a pane header to the tab strip'], gesture: true, what: 'extract the session to its own tab', ui: 'Own tab in the pane header' },
+  { keys: ['drag a file row onto a pane edge'], gesture: true, what: 'open that file in a split beside that pane', ui: 'ctrl+alt+enter' },
+  { keys: ['drag a file row onto a tab'], gesture: true, what: 'open that file in that tab', ui: 'switch to that tab (ctrl+alt+1…9) with a pane focused, then click the row' },
+  { keys: ['drag a file row onto the middle of a file pane'], gesture: true, what: 'replace that file with the dropped one', ui: 'ctrl+alt+w on that pane, then click the row' },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split, enter resets it', ui: 'drag the divider, double-click resets it' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
   {

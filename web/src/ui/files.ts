@@ -14,9 +14,16 @@
  * decision 2026-09-15) — when no session is focused or alive.
  * Everything else comes from `ui/files-mock.ts` until parts B2
  * (`git diff --numstat`) and B3 (`git log`). No fake interaction is wired for
- * it beyond what parts A5 and A6 can honestly do: folders open and close, a
- * file row opens that file in the editor (A6, mock text), a commit row opens
- * the full commit view (A6, mock diff).
+ * it beyond what parts A5, A6 and A10 can honestly do: folders open and close,
+ * a file row opens that file as a PANE of its root folder's tab (A10, mock
+ * text), a commit row opens the full commit view (A6, mock diff).
+ *
+ * WHICH TAB A FILE LANDS IN (A10). The panel's `subject()` answers it, through
+ * the pure `rootForSubject()`: `Home` -> the Home tab, a focused session with a
+ * project -> that project's folder tab, anything else -> `Home` (the A10 gap
+ * part B2 closes with the real file-browser root). Every row is also a pointer
+ * drag source, and its keyboard twin is ctrl+alt+enter — a control that exists
+ * only under a pointer is forbidden here.
  *
  * VISIBILITY. `state.leftPanel === 'files'` is the user's wish;
  * `st.filesPanelVisible()` adds "the Projects drawer is not borrowing the left
@@ -30,7 +37,10 @@
  */
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
+import { armDrag, flashOpenResult } from './dnd.ts';
+import { rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
+import type { SessionInfo } from '../../../shared/protocol.ts';
 import type { CommitEntry } from './files-model.ts';
 import {
   badgeFor,
@@ -61,6 +71,14 @@ const NUDGE_PX = 16;
  * is a tooltip on a control, not a sentence about the app.
  */
 const NO_REPO_TITLE = 'No repository at Home';
+
+/**
+ * What a file row promises, on hover and to a screen reader. It names the
+ * keyboard twin of the drag, because the drag is the only affordance that is
+ * otherwise invisible (PROJECT-SCOPE: no control may exist only under a
+ * pointer).
+ */
+const ROW_TITLE = 'Open in a pane. Drag it onto a pane edge to split, or press ctrl+alt+enter.';
 
 export interface FilesPanel {
   render(): void;
@@ -183,35 +201,108 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   // ---- what the header says -------------------------------------------------
 
   /**
-   * What the panel is about, as ONE lookup: the session of the focused pane of
-   * the active tab. Its PROJECT NAME is the header (never a path); a session
-   * without a project has nothing else honest to show there, so the session's
-   * own name stands in.
+   * What the panel is about, as ONE lookup. Three readers hang off it: the
+   * header (`headerName`), the Commits tab's availability (`repoKnown`) and —
+   * since A10 — the ROOT a clicked file opens into (`rootForSubject`), so the
+   * name in the header and the tab the file lands in can never disagree.
    *
-   * `home` is the second thing the panel needs from exactly this lookup: at
-   * `Home` there is no repository (user decision 2026-09-15), and a header and
-   * a Commits tab that disagreed about that would be two answers to one
-   * question — hence one subject, two readers (`headerName`, `repoKnown`).
+   * Order:
+   *   1. the focused pane is a FILE or a DIFF -> its TAB's folder. Without this
+   *      the header would flip to an unrelated project the moment the user
+   *      focuses the file they just opened (the tab's own session, if any, is
+   *      not what that pane is about). A ROOTLESS tab (a file dropped on a
+   *      terminal pane's edge) has no folder, so it is about its OWN first
+   *      session — never about a session in some other tab — and `Home` when
+   *      it holds none.
+   *   2. the focused pane is a live session -> its project NAME (never a path);
+   *      a session without a project has nothing else honest to show, so its
+   *      own name stands in — and its ROOT is Home (A10 gap, closed by B2).
+   *   3. nothing focused / nothing alive -> the first live session, then `Home`.
    */
-  function subject(): { name: string; home: boolean } {
+  function subject(): { name: string; home: boolean; projectId: string | null } {
     const v = st.activeView();
-    const id = v === null ? undefined : v.sessions[v.focused];
-    const info = id === undefined ? undefined : st.state.sessions.get(id);
-    if (info !== undefined && info.status !== 'exited') {
-      return { name: st.projectName(info.projectId) ?? info.title, home: false };
+    const slot = v === null ? undefined : v.slots[v.focused];
+    if (v !== null && slot !== undefined && slot.kind !== 'session' && v.root !== null) {
+      if (v.root.kind === 'home') return { name: 'Home', home: true, projectId: null };
+      const name = st.projectName(v.root.id);
+      // A project deleted under an open folder tab has no name left to print;
+      // fall through to the session rules rather than invent one.
+      if (name !== null && name !== '') return { name, home: false, projectId: v.root.id };
     }
+    if (v !== null && slot !== undefined && slot.kind !== 'session' && v.root === null) {
+      // A file or diff pane in a plain session tab: no folder to follow, so
+      // the tab's OWN first session answers for it. The global fallback below
+      // would name a session from an unrelated tab, and send the next file to
+      // that project's folder.
+      const own = st.sessionIds(v)[0];
+      const info = own === undefined ? undefined : st.state.sessions.get(own);
+      if (info !== undefined) return ofSession(info);
+      return { name: 'Home', home: true, projectId: null };
+    }
+    const id = slot !== undefined && slot.kind === 'session' ? slot.id : undefined;
+    const info = id === undefined ? undefined : st.state.sessions.get(id);
+    if (info !== undefined && info.status !== 'exited') return ofSession(info);
     // The focused pane's session is gone (absent from state, or kept there
     // with `status === 'exited'` — state.ts markExited flips it in place and
     // reconcileViews keeps the dead pane on purpose), so this is a normal
     // state, not an impossible one. A headerless tree says nothing about
     // nothing — fall back to the first session still alive.
     for (const s of st.state.sessions.values()) {
-      if (s.status !== 'exited') return { name: st.projectName(s.projectId) ?? s.title, home: false };
+      if (s.status !== 'exited') return ofSession(s);
     }
     // Nothing is running: the panel's default root, the user's home directory,
     // said as a NAME (the header rule forbids `~` and `/home/...`) until part
     // B2 makes the panel live.
-    return { name: 'Home', home: true };
+    return { name: 'Home', home: true, projectId: null };
+  }
+
+  /**
+   * A session as a subject. `projectId` is only carried when the project is
+   * really there: a name the panel cannot print is not a folder a file can be
+   * opened into either, and the honest fallback for both is `Home`.
+   */
+  function ofSession(info: SessionInfo): { name: string; home: boolean; projectId: string | null } {
+    const name = st.projectName(info.projectId);
+    if (name !== null && name !== '') return { name, home: false, projectId: info.projectId ?? null };
+    return { name: info.title, home: false, projectId: null };
+  }
+
+  /** The tab a file clicked in this panel belongs to (pure rule, slots-model). */
+  function currentRoot(): st.ViewRoot {
+    const s = subject();
+    return rootForSubject({ home: s.home, projectId: s.projectId });
+  }
+
+  /**
+   * Is this file on screen anywhere? ANY view, not just the active one: the
+   * class is a statement about the FILE ("you are looking at this"), and a file
+   * open in another folder tab is still open. `editorFileId(path)` is exactly
+   * the `slotKey` of a file slot, so this asks the model's own question.
+   */
+  function pathIsOpen(path: string): boolean {
+    const key = st.editorFileId(path);
+    return st.state.views.some((v) => v.slots.some((slot) => st.slotKey(slot) === key));
+  }
+
+  /**
+   * ctrl+alt+enter — the keyboard twin of dragging a row onto a pane EDGE:
+   * open the file in a split beside the focused pane. An empty tab has no pane
+   * to split, so the file simply lands in it; a pane with no side free says so
+   * through the one shared refusal mapping (ui/dnd.ts), so the chord and the
+   * drag can never explain the same refusal differently.
+   */
+  function openBeside(path: string, name: string): void {
+    const v = st.activeView();
+    if (v === null || v.slots.length === 0) {
+      flashOpenResult(st.openFile(currentRoot(), path, name));
+      return;
+    }
+    const where = st.dropZonesFor(v, v.focused, 1)[0];
+    if (where === undefined) {
+      flashOpenResult(v.slots.length >= st.MAX_PANES ? 'full' : 'no-zone');
+      return;
+    }
+    flashOpenResult(st.openFileAt(v.id, v.focused, where, path));
   }
 
   function headerName(): string {
@@ -245,10 +336,16 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
 
   function sig(): string {
     if (!st.filesPanelVisible()) return 'hidden';
-    // The panel also reacts to the two A6 screens: an open commit turns the
-    // Commits tab into its selected state (with the same collapse set the
-    // view uses), and the editor's active tab highlights its row in the tree.
+    // The panel also reacts to what is on the other screens: an open commit
+    // turns the Commits tab into its selected state (with the same collapse set
+    // the view uses), and every file that is a PANE somewhere keeps its row
+    // grounded (A10 — the A5/A6 editor-tab read is gone with the editor).
     const collapsed = Array.from(st.state.commitCollapsed).sort().join(',');
+    const openFiles = st.state.views
+      .flatMap((v) => v.slots.map((slot) => st.slotKey(slot)))
+      .filter((k) => k.startsWith('f:'))
+      .sort()
+      .join(',');
     return [
       tab,
       headerName(),
@@ -259,7 +356,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       Array.from(openFolders).sort().join(','),
       st.state.openCommit ?? '',
       collapsed,
-      st.state.editor.active ?? '',
+      openFiles,
     ].join('|');
   }
 
@@ -352,7 +449,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     );
   }
 
-  /** The tree: folder rows toggle, file rows open that file in the editor (A6). */
+  /** The tree: folder rows toggle, file rows open that file as a pane (A10). */
   function fileRows(): HTMLElement[] {
     const rows: HTMLElement[] = [];
     for (const r of treeRows(buildTree(MOCK_FILES), openFolders)) {
@@ -368,16 +465,33 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
         row = b;
       } else {
-        // A6: a file row opens that file in the editor column. The text it
-        // shows is still `ui/files-mock.ts` until part B4 — the editor says so
-        // in its own quiet line.
+        // A10: a file row opens that file as a PANE of its root folder's tab.
+        // The text it shows is still `ui/files-mock.ts` until part B4 — the
+        // file pane says so in its own quiet line.
         const b = button('files-row is-file', '', () => {
-          st.openEditorTab(st.editorFileId(r.path), r.name, r.path);
+          st.openFile(currentRoot(), r.path, r.name);
         });
         b.setAttribute('data-k', `ffile:${r.path}`);
-        // The row of the file the editor is showing keeps a ground, so the
-        // tree says where the editor is (v3: `editorActive === 'f:' + path`).
-        b.classList.toggle('is-open', st.state.editor.active === st.editorFileId(r.path));
+        b.title = ROW_TITLE;
+        // The row of a file that is on screen keeps a ground, so the tree says
+        // where the panes are standing.
+        b.classList.toggle('is-open', pathIsOpen(r.path));
+        // Pointer twin: drag the row onto a pane edge / centre / tab chip.
+        // `null`, not `'button'`: the row IS the button, so an ignore selector
+        // of `'button'` would match the row itself and arm nothing.
+        armDrag(b, null, () => ({ kind: 'file', path: r.path, label: r.name }));
+        // Keyboard twin, owned HERE rather than in main.ts: it acts on the row
+        // that has the focus, which is this module's business and nothing the
+        // window handler can see. It stops propagating so the window chord
+        // handler never sees a key this row already spent.
+        b.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' || !e.ctrlKey || !e.altKey || e.metaKey) return;
+          // AltGr reports as ctrl+alt on European layouts (frontend-terminal-quirks).
+          if (e.getModifierState('AltGraph')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          openBeside(r.path, r.name);
+        });
         row = b;
       }
       row.style.paddingLeft = `${r.indent}px`;

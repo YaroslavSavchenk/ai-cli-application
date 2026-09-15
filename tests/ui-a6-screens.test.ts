@@ -1,16 +1,20 @@
 /**
- * The two A6 screens driven through the REAL modules on the shared DOM double:
- * `web/src/ui/commit-view.ts` and `web/src/ui/editor.ts`, against the REAL
- * `web/src/state.ts`, `ui/util.ts`, `ui/icons.ts`, the two A6 models and
+ * The commit view (Nocturne A6, re-pointed by A10) driven through the REAL
+ * `web/src/ui/commit-view.ts` on the shared DOM double, against the REAL
+ * `web/src/state.ts`, `ui/util.ts`, `ui/icons.ts`, the A6 models and
  * `ui/files-mock.ts`.
  *
- * WHY, next to `ui-commit-model.test.ts` / `ui-editor-model.test.ts`. Those
- * pin the arithmetic; this file pins the PLUMBING, which is where the silent
- * regressions live: a back button that closes nothing, a file block whose fold
- * state disagrees with the Files panel row that folded it, a × that raises the
- * tab it was meant to close, a textarea rebuilt on every keystroke (the caret
- * would jump), a Save that writes nowhere, a diff tab that renders an editable
- * field. Every one of those keeps the model tests green.
+ * WHY, next to `ui-commit-model.test.ts`. That file pins the arithmetic; this
+ * one pins the PLUMBING, which is where the silent regressions live: a back
+ * button that closes nothing, a file block whose fold state disagrees with the
+ * Files panel row that folded it, an `Open file` that opens nothing, a screen
+ * that leaves the keyboard on <body>. Every one of those keeps the model tests
+ * green.
+ *
+ * THE EDITOR HALF OF THIS FILE IS GONE WITH THE EDITOR COLUMN (part A10): a
+ * file is a PANE now, so its body is pinned in `tests/ui-file-pane.test.ts`,
+ * its chrome in `tests/ui-pane-a10.test.ts` and its tab chip in
+ * `tests/ui-tabs-a10.test.ts`.
  *
  * Plus the shell wiring in `web/src/main.ts` and the pane-area guard in
  * `web/src/ui/panes.ts`, read from the source — main.ts's import graph reaches
@@ -18,8 +22,8 @@
  * the wiring it names fails it.
  *
  * NOT claimed (browser work, `.claude/skills/verify-terminal/SKILL.md`):
- * layout, colour, the 46% split actually reflowing a PTY, focus policy,
- * scrolling, screen-reader output.
+ * layout, colour, a pane really reflowing a PTY, focus policy, scrolling,
+ * screen-reader output.
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -39,30 +43,37 @@ import {
 const dom = installDom();
 const here = dirname(fileURLToPath(import.meta.url));
 
-interface Tab {
-  id: string;
-  label: string;
-  path: string;
+interface Slot {
+  kind: 'session' | 'file' | 'diff';
+  id?: string;
+  path?: string;
   hash?: string;
+}
+interface View {
+  id: string;
+  root: { kind: 'home' } | { kind: 'project'; id: string } | null;
+  slots: Slot[];
+  focused: number;
 }
 interface StateModule {
   state: {
     openCommit: string | null;
     commitCollapsed: Set<string>;
-    editor: { tabs: Tab[]; active: string | null };
     edits: Map<string, string>;
+    views: View[];
+    activeViewId: string;
   };
   subscribe(fn: (kind: string) => void): void;
   openCommitView(hash: string): void;
   closeCommitView(): void;
   toggleCommitFile(hash: string, path: string): void;
   commitFileCollapsed(hash: string, path: string): boolean;
-  openEditorTab(id: string, label: string, path: string, hash?: string): void;
-  closeEditorTab(id: string): void;
+  activeView(): View | null;
+  openFile(root: { kind: 'home' }, path: string, label: string): string;
+  openDiff(root: { kind: 'home' }, hash: string, path: string): string;
+  closeSlot(viewId: string, index: number): boolean;
   editorFileId(path: string): string;
   editorDirty(id: string | null): boolean;
-  editorVisible(): boolean;
-  setEditorActive(id: string): void;
   setEdit(id: string, text: string): void;
   saveEdit(id: string): string | null;
 }
@@ -72,11 +83,10 @@ const CV = (await import(new URL('../web/src/ui/commit-view.ts', import.meta.url
   initCommitView(
     host: unknown,
     onLeaveScreen: () => void,
-    onOpenEditor: () => void,
+    onOpenPane: () => void,
   ): { render(): void };
-};
-const ED = (await import(new URL('../web/src/ui/editor.ts', import.meta.url).href)) as {
-  initEditor(host: unknown): { render(): void; focusBody(): void };
+  /** The one diff renderer, shared with a diff PANE (ui/file-pane.ts). */
+  diffBody(hash: string, path: string): FakeElement;
 };
 const MODEL = (await import(new URL('../web/src/ui/commit-model.ts', import.meta.url).href)) as {
   blockDomId(hash: string, path: string): string;
@@ -98,37 +108,38 @@ const F0 = C0.files[0] as { path: string; add: number; del: number };
 const F1 = C0.files[1] as { path: string; add: number; del: number };
 
 const commitHost = dom.doc.createElement('section');
-const editorHost = dom.doc.createElement('section');
-dom.body.append(commitHost, editorHost);
+dom.body.append(commitHost);
 
+/** The view leaves in two directions; main.ts points both at the pane area. */
 let handBacks = 0;
-const editor = ED.initEditor(editorHost);
+let paneHandovers = 0;
 const view = CV.initCommitView(
   commitHost,
   () => {
     handBacks += 1;
   },
-  () => editor.focusBody(),
+  () => {
+    paneHandovers += 1;
+  },
 );
 
-/** The shell's own dispatch: both screens re-render on every change. */
+/** The shell's own dispatch: the screen re-renders on every change. */
 st.subscribe(() => {
   view.render();
-  editor.render();
 });
 
 const commitRoot = commitHost.children[0] as FakeElement;
-const editorRoot = editorHost.children[0] as FakeElement;
 
 beforeEach(() => {
   st.state.openCommit = null;
   st.state.commitCollapsed = new Set();
-  st.state.editor = { tabs: [], active: null };
   st.state.edits = new Map();
+  st.state.views = [];
+  st.state.activeViewId = '';
   handBacks = 0;
+  paneHandovers = 0;
   dom.doc.activeElement = dom.body;
   view.render();
-  editor.render();
 });
 
 // ---------------------------------------------------------------------------
@@ -265,231 +276,85 @@ test('opening another commit starts with every block open again', () => {
   assert.deepEqual(textsOf(commitRoot, 'diff-path'), second.files.map((f) => f.path));
 });
 
-// The ORDER is open-then-close since the fixer's round (one layout pass); this
-// test states the END STATE both orders share, and the order itself is pinned
-// by 'both openers open the tab BEFORE closing the view' below.
-test('`Open file` leaves the view closed and the file open in the editor', () => {
+// The ORDER is open-then-close (one layout pass); this test states the END
+// STATE both orders share, and the order itself is pinned by 'both openers
+// open the pane BEFORE closing the view' below.
+test('`Open file` leaves the view closed and the file open as a PANE of its folder tab', () => {
   st.openCommitView(C0.hash);
   (byKey(commitRoot, `diffopen:${F1.path}`) as FakeElement).click();
-  assert.equal(st.state.openCommit, null, 'the editor lives in the row the view was covering');
-  assert.deepEqual(
-    st.state.editor.tabs.map((t) => [t.id, t.label, t.path]),
-    [[`f:${F1.path}`, F1.path.split('/').pop(), F1.path]],
-  );
-  assert.equal(st.editorVisible(), true);
-  assert.equal(handBacks, 0, 'the keyboard belongs to the editor here, not to a terminal');
+  assert.equal(st.state.openCommit, null, 'the pane lives in the row the view was covering');
+  const v = st.activeView() as View;
+  assert.deepEqual(v.root, { kind: 'home' }, 'no session, no project: the file lands at Home');
+  assert.deepEqual(v.slots, [{ kind: 'file', path: F1.path }]);
+  assert.equal(handBacks, 0, 'this is not the way BACK; it is the way into the file');
+  assert.equal(paneHandovers, 1, 'and the keyboard goes with it');
 });
 
-test('`Open file` hands the keyboard to the text it just opened', () => {
-  // The button is destroyed with the screen it stood on; without the hand-over
-  // `document.activeElement` is <body> and the next keystroke reaches nothing.
-  st.openCommitView(C0.hash);
-  (byKey(commitRoot, `diffopen:${F1.path}`) as FakeElement).click();
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  assert.notEqual(ta, null, 'non-vacuity: the file really opened');
-  assert.equal(dom.doc.activeElement, ta, 'the keyboard is in the file, not on <body>');
-});
-
-test('`Changes` hands the keyboard to the editor (a diff has no field to land in)', () => {
-  st.openCommitView(C0.hash);
-  (byKey(commitRoot, `diffchanges:${C0.hash}:${F0.path}`) as FakeElement).click();
-  assert.equal(byClass(editorRoot, 'editor-text').length, 0, 'non-vacuity: nothing to type into');
-  assert.equal(
-    editorRoot.contains(dom.doc.activeElement),
-    true,
-    'so the tab chip takes the keyboard instead of <body>',
-  );
-  assert.equal(dom.doc.activeElement, byKey(editorRoot, `etab:d:${C0.hash}:${F0.path}`));
-});
-
-test('both openers open the tab BEFORE closing the view — one layout pass, not two', () => {
-  // Closing first rebuilds every pane at full width and then shrinks them to
-  // 46% a moment later: one extra dispose/attach and a full scrollback replay
-  // per pane. With the tab opened first the grid is still hidden, so nothing
-  // moves until the single pass that unhides and narrows it.
-  const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
-  for (const key of ['diffopen', 'diffchanges']) {
-    const from = src.indexOf(`const ${key === 'diffopen' ? 'openFile' : 'changes'} = button(`);
-    assert.notEqual(from, -1, `non-vacuity: the ${key} handler was found`);
-    const body = src.slice(from, src.indexOf('});', from));
-    assert.ok(
-      body.indexOf('st.openEditorTab(') < body.indexOf('st.closeCommitView()'),
-      `${key}: the tab is opened before the view closes`,
-    );
-    assert.ok(body.includes('onOpenEditor()'), `${key}: and the keyboard follows it`);
-  }
-});
-
-test('`Changes` opens the read-only diff tab for that file in that commit', () => {
+test('`Changes` opens the read-only diff pane for that file in that commit', () => {
   st.openCommitView(C0.hash);
   (byKey(commitRoot, `diffchanges:${C0.hash}:${F0.path}`) as FakeElement).click();
   assert.equal(st.state.openCommit, null);
-  assert.deepEqual(st.state.editor.tabs, [
-    { id: `d:${C0.hash}:${F0.path}`, label: F0.path.split('/').pop(), path: F0.path, hash: C0.hash },
+  assert.deepEqual((st.activeView() as View).slots, [
+    { kind: 'diff', hash: C0.hash, path: F0.path },
   ]);
+  assert.equal(paneHandovers, 1, 'a diff has no field to land in, so the pane takes the keyboard');
 });
 
-// ---------------------------------------------------------------------------
-// The editor
-// ---------------------------------------------------------------------------
-
-test('with no tabs the editor draws nothing', () => {
-  assert.equal(st.editorVisible(), false);
-  assert.equal(byClass(editorRoot, 'editor-tab').length, 0);
-  assert.equal(byClass(editorRoot, 'editor-text').length, 0);
+test('a full tab keeps the screen and says so, instead of closing for a pane it never opened', () => {
+  st.openCommitView(C0.hash);
+  // Four panes already: the fifth cannot land anywhere.
+  st.state.views = [
+    {
+      id: 'home',
+      root: { kind: 'home' },
+      slots: ['one', 'two', 'three', 'four'].map((n) => ({ kind: 'file' as const, path: `full/${n}.ts` })),
+      focused: 0,
+    },
+  ];
+  st.state.activeViewId = 'home';
+  (byKey(commitRoot, `diffopen:${F1.path}`) as FakeElement).click();
+  assert.equal(st.state.openCommit, C0.hash, 'the screen is still up');
+  assert.equal(paneHandovers, 0, 'and nothing took the keyboard away from it');
+  assert.equal((st.activeView() as View).slots.length, 4, 'no fifth pane was opened');
 });
 
-test('a file tab: the name on the chip, the path and Save on the right, gutter and text below', () => {
-  st.openEditorTab(st.editorFileId('web/src/Pane.tsx'), 'Pane.tsx', 'web/src/Pane.tsx');
-  assert.deepEqual(textsOf(editorRoot, 'editor-tab-pick'), ['Pane.tsx']);
-  assert.equal(textsOf(editorRoot, 'editor-path')[0], 'web/src/Pane.tsx');
-
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  assert.equal(ta.tagName, 'TEXTAREA', 'a real field, so every browser editing key works');
-  assert.equal(ta.value, MOCK.mockFileContent('web/src/Pane.tsx'));
-  const gutter = byClass(editorRoot, 'editor-gutter')[0] as FakeElement;
-  assert.equal(
-    gutter.textContent.split('\n').length,
-    ta.value.split('\n').length,
-    'one number per line',
-  );
-  assert.equal(gutter.getAttribute('aria-hidden'), 'true');
-
-  // Clean file: the button is a statement, and it does nothing.
-  const save = byKey(editorRoot, 'esave') as FakeElement;
-  assert.equal(save.textContent, 'Saved');
-  assert.equal(save.disabled, true);
-});
-
-test('the editor says, quietly and once, that the content is an example', () => {
-  st.openEditorTab(st.editorFileId('web/src/App.tsx'), 'App.tsx', 'web/src/App.tsx');
-  assert.deepEqual(textsOf(editorRoot, 'editor-note'), [
-    'Example content until the editor reads your files.',
-  ]);
-  const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'editor.ts'), 'utf8');
-  assert.equal(src.split('placeholderNote(').length - 1, 2, 'one definition, one call site');
-});
-
-test('typing marks the tab dirty, grows the gutter, and does NOT rebuild the textarea', () => {
-  st.openEditorTab(st.editorFileId('web/src/App.tsx'), 'App.tsx', 'web/src/App.tsx');
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  assert.equal(byClass(editorRoot, 'editor-dirty').length, 0);
-
-  ta.value = 'one\ntwo\nthree';
-  dispatch(ta, 'input');
-  assert.equal(st.editorDirty('f:web/src/App.tsx'), true);
-  assert.equal(byClass(editorRoot, 'editor-dirty').length, 1, 'the amber dot is the whole warning');
-  assert.equal((byClass(editorRoot, 'editor-gutter')[0] as FakeElement).textContent, '1\n2\n3');
-  assert.equal(byKey(editorRoot, 'etext'), ta, 'the caret would jump if this were rebuilt');
-  assert.equal((byKey(editorRoot, 'esave') as FakeElement).textContent, 'Save');
-  assert.equal((byKey(editorRoot, 'esave') as FakeElement).disabled, false);
-
-  // A second keystroke changes nothing structural either.
-  ta.value = 'one\ntwo\nthree\nfour';
-  dispatch(ta, 'input');
-  assert.equal(byKey(editorRoot, 'etext'), ta);
-  assert.equal((byClass(editorRoot, 'editor-gutter')[0] as FakeElement).textContent, '1\n2\n3\n4');
-});
-
-test('Save writes the text back and the button becomes a statement again', () => {
-  const path = 'web/src/store.ts';
-  const before = MOCK.mockFileContent(path) ?? '';
-  st.openEditorTab(st.editorFileId(path), 'store.ts', path);
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  ta.value = 'saved by the test\n';
-  dispatch(ta, 'input');
-  (byKey(editorRoot, 'esave') as FakeElement).click();
-
-  assert.equal(st.editorDirty(`f:${path}`), false);
-  assert.equal(MOCK.mockFileContent(path), 'saved by the test\n', 'it reaches the mock map');
-  assert.equal((byKey(editorRoot, 'esave') as FakeElement).textContent, 'Saved');
-  assert.equal(byClass(editorRoot, 'editor-dirty').length, 0);
-
-  // A second Save with nothing to write is a no-op, not a second write.
-  (byKey(editorRoot, 'esave') as FakeElement).click();
-  assert.equal(MOCK.mockFileContent(path), 'saved by the test\n');
-
-  // Re-opening the tab shows what was saved.
-  st.closeEditorTab(`f:${path}`);
-  st.openEditorTab(st.editorFileId(path), 'store.ts', path);
-  assert.equal((byKey(editorRoot, 'etext') as FakeElement).value, 'saved by the test\n');
-
-  MOCK.saveMockFile(path, before); // leave the module as we found it
-});
-
-test('every tab control is a real button with a name, and the × does not raise the tab', () => {
-  st.openEditorTab(st.editorFileId('a/one.ts'), 'one.ts', 'a/one.ts');
-  st.openEditorTab(st.editorFileId('a/two.ts'), 'two.ts', 'a/two.ts');
-  const pick = byKey(editorRoot, 'etab:f:a/one.ts') as FakeElement;
-  const close = byKey(editorRoot, 'eclose:f:a/two.ts') as FakeElement;
-  assert.equal(pick.tagName, 'BUTTON');
-  assert.equal(close.tagName, 'BUTTON');
-  assert.equal(close.getAttribute('aria-label'), 'Close two.ts');
-  assert.equal(pick.getAttribute('aria-pressed'), 'false');
-
-  close.click();
-  assert.deepEqual(st.state.editor.tabs.map((t) => t.id), ['f:a/one.ts']);
-  assert.equal(st.state.editor.active, 'f:a/one.ts', 'closing the active tab lands on the first left');
-  assert.equal(textsOf(editorRoot, 'editor-path')[0], 'a/one.ts', 'and the body followed it');
-});
-
-test('picking a tab swaps the body; closing the last one empties the editor', () => {
-  st.openEditorTab(st.editorFileId('a/one.ts'), 'one.ts', 'a/one.ts');
-  st.openEditorTab(st.editorFileId('a/two.ts'), 'two.ts', 'a/two.ts');
-  (byKey(editorRoot, 'etab:f:a/one.ts') as FakeElement).click();
-  assert.equal(st.state.editor.active, 'f:a/one.ts');
-  assert.equal((byKey(editorRoot, 'etab:f:a/one.ts') as FakeElement).getAttribute('aria-pressed'), 'true');
-  assert.equal(
-    (byKey(editorRoot, 'etab:f:a/one.ts') as FakeElement).parentNode?.classList.contains('is-on'),
-    true,
-    'the active tab sits on the terminal ground',
-  );
-
-  (byKey(editorRoot, 'eclose:f:a/one.ts') as FakeElement).click();
-  (byKey(editorRoot, 'eclose:f:a/two.ts') as FakeElement).click();
-  assert.equal(st.editorVisible(), false);
-  assert.equal(byClass(editorRoot, 'editor-tab').length, 0);
-  assert.equal(byClass(editorRoot, 'editor-text').length, 0, 'no stale body behind a hidden column');
-});
-
-test('closing a dirty tab drops its unsaved text (A6 has no confirm — part B4 does)', () => {
-  const path = 'web/src/TabStrip.tsx';
-  st.openEditorTab(st.editorFileId(path), 'TabStrip.tsx', path);
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  ta.value = 'typed but never saved\n';
-  dispatch(ta, 'input');
-  assert.equal(st.state.edits.size, 1);
-  (byKey(editorRoot, `eclose:f:${path}`) as FakeElement).click();
-  assert.equal(st.state.edits.size, 0, 'the edit goes with the tab it belonged to');
-
-  // The gap is written down where the next part will find it, and it names all
-  // FOUR doors typed text falls out of — a confirm on the tab alone would make
-  // the other three read as bugs.
-  const src = readFileSync(join(here, '..', 'web', 'src', 'state.ts'), 'utf8');
-  assert.match(src, /KNOWN GAP, part B4[\s\S]*unsaved changes/);
-  const gap = src.slice(src.indexOf('KNOWN GAP, part B4'), src.indexOf('export function closeEditorTab'));
-  for (const door of ['reload', 'clos', 'grace']) {
-    assert.ok(gap.includes(door), `the known gap names the ${door} door too`);
+test('both openers open the pane BEFORE closing the view — one layout pass, not two', () => {
+  // The pane area is covered while the pane is added, so ui/panes.ts refuses
+  // to build anything; closing the view then unhides the grid and the deferred
+  // render draws the new layout ONCE. The other order builds the panes twice.
+  const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  for (const [key, opener, call] of [
+    ['diffopen', 'openFile', 'st.openFile('],
+    ['diffchanges', 'changes', 'st.openDiff('],
+  ] as [string, string, string][]) {
+    const from = src.indexOf(`const ${opener} = button(`);
+    assert.notEqual(from, -1, `non-vacuity: the ${key} handler was found`);
+    const body = src.slice(from, src.indexOf('});', from));
+    assert.ok(
+      body.indexOf(call) < body.indexOf('st.closeCommitView()'),
+      `${key}: the pane is opened before the view closes`,
+    );
+    assert.ok(body.includes('onOpenPane()'), `${key}: and the keyboard follows it`);
   }
 });
 
-test('a diff tab is read-only: diff rows, the commit it belongs to, and no field at all', () => {
-  st.openEditorTab(`d:${C0.hash}:${F0.path}`, 'ws.ts', F0.path, C0.hash);
-  assert.equal(byClass(editorRoot, 'editor-text').length, 0, 'a diff cannot be typed into');
-  assert.equal(byClass(editorRoot, 'editor-gutter').length, 0);
-  assert.equal(byKey(editorRoot, 'esave'), null, 'and there is nothing to save');
-  assert.equal(textsOf(editorRoot, 'editor-meta')[0], `Changes in ${C0.hash}`);
-  assert.ok(byClass(editorRoot, 'diff-line').length > 3, 'it renders the same rows the view does');
-});
-
-test('an open commit view hides the editor, and closing it brings the editor back', () => {
-  st.openEditorTab(st.editorFileId('a/one.ts'), 'one.ts', 'a/one.ts');
-  assert.equal(st.editorVisible(), true);
+test('a file from a commit lands in the tab the view was standing over', () => {
+  // The root is the ACTIVE tab's own (the Files panel that opened this commit
+  // was reading the same tab); a project tab keeps its files together.
+  st.state.views = [
+    { id: 'home', root: { kind: 'home' }, slots: [], focused: 0 },
+    { id: 'proj', root: { kind: 'project', id: 'p1' }, slots: [], focused: 0 },
+  ];
+  st.state.activeViewId = 'proj';
   st.openCommitView(C0.hash);
-  assert.equal(st.editorVisible(), false, 'the two never share the pane area');
-  st.closeCommitView();
-  assert.equal(st.editorVisible(), true);
-  assert.equal(textsOf(editorRoot, 'editor-path')[0], 'a/one.ts', 'with the same tab up');
+  (byKey(commitRoot, `diffopen:${F1.path}`) as FakeElement).click();
+  assert.equal(st.state.activeViewId, 'proj');
+  assert.deepEqual((st.activeView() as View).slots, [{ kind: 'file', path: F1.path }]);
+  assert.deepEqual(
+    st.state.views.map((v) => v.slots.length),
+    [0, 1],
+    'and Home was left alone',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -499,20 +364,24 @@ test('an open commit view hides the editor, and closing it brings the editor bac
 const MAIN = readFileSync(join(here, '..', 'web', 'src', 'main.ts'), 'utf8');
 const PANES = readFileSync(join(here, '..', 'web', 'src', 'ui', 'panes.ts'), 'utf8');
 
-test('main.ts builds both screens as flex siblings of the grid, in the v3 order', () => {
+test('main.ts builds the commit screen as a flex sibling of the grid, and NO editor column', () => {
   assert.ok(MAIN.includes('function buildShell'), 'non-vacuity: main.ts still builds the shell');
-  assert.match(MAIN, /const editor = initEditor\(editorAside\);/);
-  // Two hand-overs: back to the terminal, or INTO the editor a file was just
-  // opened in (the button that was clicked goes away with the screen).
+  // Both hand-overs land in the pane area since A10: back to the panes, or into
+  // the pane a file was just opened in. The focused pane knows which it is.
   assert.match(
     MAIN,
-    /const commitView = initCommitView\(commitAside, requestTerminalFocus, \(\) => editor\.focusBody\(\)\);/,
+    /const commitView = initCommitView\(commitAside, requestTerminalFocus, requestTerminalFocus\);/,
   );
   assert.match(
     MAIN,
-    /main\.append\(projAside, filesAside, commitAside, editorAside, grid, sessAside\);/,
-    'the editor stands BEFORE the panes (v3 DOM order), both inside the middle row',
+    /main\.append\(projAside, filesAside, commitAside, grid, sessAside\);/,
+    'the middle row is Projects, Files, the commit screen, the panes and Sessions',
   );
+  // The editor column is gone with part A10: a file is a pane, and the grid
+  // keeps the whole row (the user's complaint about the half-width panes).
+  for (const dead of ['initEditor', 'editorAside', 'is-narrow', 'editorVisible']) {
+    assert.equal(MAIN.includes(dead), false, `${dead} died with the editor column`);
+  }
 });
 
 test('ONE owner decides who occupies the pane area, and it runs BEFORE the panes do', () => {
@@ -526,8 +395,6 @@ test('ONE owner decides who occupies the pane area, and it runs BEFORE the panes
 
   const body = MAIN.slice(MAIN.indexOf('function applyScreenLayout'), layout);
   assert.match(body, /commitAside\.hidden = !commitOpen;/);
-  assert.match(body, /editorAside\.hidden = !st\.editorVisible\(\);/);
-  assert.match(body, /grid\.classList\.toggle\('is-narrow', st\.editorVisible\(\)\);/);
   assert.match(body, /grid\.hidden = commitOpen;/);
   assert.match(body, /if \(wasHidden && !grid\.hidden\) refreshPaneArea\(\);/);
   assert.match(MAIN, /applyScreenLayout\(\);\n\s*updateChrome\(\);/, 'and once at boot');
@@ -544,7 +411,7 @@ test('the panes refuse to render at all against a hidden grid — the WebGL trap
   assert.match(PANES, /function gridHidden\(\): boolean \{[\s\S]*grid\.hidden !== false;/);
   assert.match(PANES, /export function refreshPaneArea\(\): void \{\s*render\(\);/, 'the replay is the first thing refreshPaneArea does');
   const render = PANES.slice(PANES.indexOf('function render(): void'), PANES.indexOf('function renderEmpty'));
-  assert.ok(render.length > 200 && render.length < 2000, 'non-vacuity: the render function was found');
+  assert.ok(render.length > 200 && render.length < 3000, 'non-vacuity: the render function was found');
   assert.equal(render.split('if (gridHidden()) return;').length - 1, 1, 'exactly one guard');
   assert.match(
     render,
@@ -586,7 +453,7 @@ test('a hidden grid acknowledges NO attention badge on a live BEL or an info fra
   const onInfo = /onInfo: \(info: SessionInfo\) => \{[\s\S]*?clearAttentionIfPending\(s\);/.exec(src);
   assert.ok(onInfo, 'onInfo ack block found');
   assert.match(onInfo[0], /document\.hasFocus\(\) &&\s*!gridHidden\(\)/, 'info-frame ack is gated on a visible grid');
-  const onAttn = /onAttention: \(\) => \{[\s\S]*?ackSeen\(s, sessionId\);/.exec(src);
+  const onAttn = /onAttention: \(\) => \{[\s\S]*?ackSeen\(pay, sessionId\);/.exec(src);
   assert.ok(onAttn, 'onAttention ack block found');
   assert.match(onAttn[0], /document\.hasFocus\(\) &&\s*!gridHidden\(\)/, 'live BEL ack is gated on a visible grid');
 });
@@ -617,22 +484,25 @@ test('a hidden grid is never MEASURED for a new PTY either (scope review R3)', (
     PANES.indexOf('export function focusedPaneDims'),
     PANES.indexOf('function render(): void'),
   );
-  assert.ok(dims.length > 100 && dims.length < 1200, 'non-vacuity: the function was found');
-  assert.match(dims, /if \(gridHidden\(\)\) \{/);
+  assert.ok(dims.length > 100 && dims.length < 1600, 'non-vacuity: the function was found');
+  assert.match(dims, /if \(!gridHidden\(\) &&/, 'a hidden grid is never measured');
   assert.match(dims, /st\.state\.sessions\.get\(id\)/, 'the focused session states its own size');
   assert.match(dims, /info\.status === 'running'/, 'and only a running one is believed');
   assert.match(dims, /return lastGoodDims \?\? \{ cols: 80, rows: 24 \};/, 'then the last good dims');
   assert.ok(
-    dims.indexOf('if (gridHidden()) {') < dims.indexOf('proposeDims()'),
+    dims.indexOf('gridHidden()') < dims.indexOf('proposeDims()'),
     'nothing is measured before the guard',
   );
   // And `lastGoodDims` is fed from the one place a view reports its size.
   assert.match(PANES, /onDims: \(cols, rows\) => \{\s*lastGoodDims = \{ cols, rows \};/);
 });
 
-test('the grid gives up 46% of the row to the editor, in CSS, not in JS pixels', () => {
+test('nothing narrows the grid any more — the panes keep the whole row (A10)', () => {
   const css = readFileSync(join(here, '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
-  assert.match(css, /\.grid\.is-narrow \{\s*flex: 0 0 46%;/);
+  assert.equal(css.includes('is-narrow'), false, 'the 46% rule died with the editor column');
+  assert.equal(css.includes('.editor-'), false, 'and so did the whole editor family');
+  // Non-vacuity: the pane area itself is definitely still styled here.
+  assert.match(css, /\.grid \{/);
 });
 
 test('Escape closes the commit view, ranked under the dialogs and over the drawers', () => {
@@ -660,7 +530,7 @@ test('the pane chords stand down while the commit view covers the panes', () => 
   assert.match(block, /if \(paneChord && st\.state\.openCommit !== null\) return;/);
   // It has to stand BEFORE the three calls it guards, or it guards nothing.
   const guard = block.indexOf('if (paneChord && st.state.openCommit !== null) return;');
-  for (const call of ['st.moveFocus(', 'st.moveSession(', 'st.setActiveViewIndex(']) {
+  for (const call of ['st.moveFocus(', 'st.movePane(', 'st.setActiveViewIndex(']) {
     const at = block.indexOf(call);
     assert.notEqual(at, -1, `non-vacuity: ${call} is in this block`);
     assert.ok(guard < at, `${call} runs after the guard`);
@@ -687,7 +557,7 @@ test('`paneChord` names EVERY chord that moves a pane, the digits included', () 
     MAIN.indexOf('if (e.ctrlKey && e.altKey'),
     MAIN.indexOf("if (e.key === '?'", at),
   );
-  const guarded = ['st.moveFocus(', 'st.moveSession(', 'st.setActiveViewIndex('];
+  const guarded = ['st.moveFocus(', 'st.movePane(', 'st.setActiveViewIndex('];
   for (const call of guarded) {
     const keyFor = call === 'st.setActiveViewIndex(' ? "k >= '1' && k <= '9'" : "k === 'ArrowLeft'";
     assert.ok(block.includes(keyFor), `${call} is reached by a key the set names`);
@@ -698,15 +568,15 @@ test('neither screen is persisted: the UI bag writes the same keys it did in A5'
   const src = readFileSync(join(here, '..', 'web', 'src', 'state.ts'), 'utf8');
   const save = src.slice(src.indexOf('function saveUi'), src.indexOf('function loadUi'));
   assert.ok(save.length > 200, 'non-vacuity: saveUi was found');
-  for (const key of ['openCommit', 'editor', 'edits', 'commitCollapsed']) {
+  for (const key of ['openCommit', 'edits', 'commitCollapsed']) {
     assert.equal(save.includes(key), false, `${key} is a place the user stands, not a preference`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// Gate additions (test-engineer, A6): the state contract behind the two
-// screens — which change notifies, what a re-open keeps, whose edit is dropped,
-// and the truth table that decides whether the editor column exists at all.
+// Gate additions (test-engineer, A6; re-pointed by A10): the state contract
+// behind this screen — which change notifies, what a re-open keeps, and whose
+// unsaved text a close drops.
 // ---------------------------------------------------------------------------
 
 /** Everything `notify()` emitted since `kinds.length = 0`. */
@@ -715,21 +585,10 @@ st.subscribe((k) => {
   kinds.push(k);
 });
 
-test('editorVisible: tabs AND no commit — the full truth table', () => {
-  assert.equal(st.editorVisible(), false, 'no tabs, no commit');
-  st.openCommitView(C0.hash);
-  assert.equal(st.editorVisible(), false, 'no tabs, a commit');
-  st.openEditorTab(st.editorFileId('a/one.ts'), 'one.ts', 'a/one.ts');
-  assert.equal(st.editorVisible(), false, 'tabs, but the commit covers the row');
-  st.closeCommitView();
-  assert.equal(st.editorVisible(), true, 'tabs, no commit');
-  st.closeEditorTab('f:a/one.ts');
-  assert.equal(st.editorVisible(), false, 'the last tab took the column with it');
-});
-
-test('every pane-area change notifies `screen`, and a keystroke notifies NOTHING', () => {
-  // The kind is what main.ts's one layout owner listens on; a change that
-  // stayed silent would leave the grid hidden with nothing over it.
+test('the commit view notifies `screen`, a pane notifies `ui`, and a keystroke notifies NOTHING', () => {
+  // `screen` is what main.ts's one layout owner listens on (a change that
+  // stayed silent would leave the grid hidden with nothing over it); a pane is
+  // ordinary pane-area chrome, so it rides `ui` like every other tab change.
   const only = (fn: () => void): string[] => {
     kinds.length = 0;
     fn();
@@ -738,18 +597,19 @@ test('every pane-area change notifies `screen`, and a keystroke notifies NOTHING
   assert.deepEqual(only(() => st.openCommitView(C0.hash)), ['screen']);
   assert.deepEqual(only(() => st.toggleCommitFile(C0.hash, F0.path)), ['screen']);
   assert.deepEqual(only(() => st.closeCommitView()), ['screen']);
-  assert.deepEqual(only(() => st.openEditorTab('f:a/one.ts', 'one.ts', 'a/one.ts')), ['screen']);
-  assert.deepEqual(only(() => st.openEditorTab('f:a/two.ts', 'two.ts', 'a/two.ts')), ['screen']);
-  assert.deepEqual(only(() => st.setEditorActive('f:a/one.ts')), ['screen']);
-  assert.deepEqual(only(() => st.setEditorActive('f:a/one.ts')), [], 'raising the raised tab is a no-op');
-  assert.deepEqual(only(() => st.setEditorActive('f:ghost.ts')), [], 'and an unknown id changes nothing');
+  // Creating the Home tab is itself a `ui` change; count what OPENING costs,
+  // not what the first-ever tab costs.
+  st.openFile({ kind: 'home' }, 'seed/first.ts', 'first.ts');
+  assert.deepEqual(only(() => st.openFile({ kind: 'home' }, 'a/one.ts', 'one.ts')), ['ui']);
+  assert.deepEqual(only(() => st.openDiff({ kind: 'home' }, C0.hash, 'a/one.ts')), ['ui']);
   // A keystroke must not notify: a chrome rebuild per character would take the
-  // caret with it (ui/editor.ts updates the gutter in place instead).
+  // caret with it (ui/file-pane.ts updates the gutter in place instead).
   assert.deepEqual(only(() => st.setEdit('f:a/one.ts', 'typed')), []);
-  assert.deepEqual(only(() => st.saveEdit('f:a/one.ts')), ['screen'], 'saving is a chrome change');
-  assert.deepEqual(only(() => st.saveEdit('f:a/one.ts')), [], 'saving a clean tab changes nothing');
-  assert.deepEqual(only(() => st.closeEditorTab('f:a/one.ts')), ['screen']);
-  assert.deepEqual(only(() => st.closeEditorTab('f:a/one.ts')), [], 'closing a closed tab is a no-op');
+  assert.deepEqual(only(() => st.saveEdit('f:a/one.ts')), ['ui'], 'saving is a chrome change');
+  assert.deepEqual(only(() => st.saveEdit('f:a/one.ts')), [], 'saving a clean file changes nothing');
+  const home = st.state.views[0] as View;
+  assert.deepEqual(only(() => st.closeSlot(home.id, 0)), ['ui']);
+  assert.deepEqual(only(() => st.closeSlot(home.id, 9)), [], 'closing nothing is a no-op');
 });
 
 test('re-opening the SAME commit keeps the folds; a different one starts fresh', () => {
@@ -783,75 +643,22 @@ test('closing the commit view empties the fold set — a closed view remembers n
   assert.equal(st.commitFileCollapsed(C0.hash, F0.path), false);
 });
 
-test('closing a tab drops ONLY its own unsaved text', () => {
-  st.openEditorTab(st.editorFileId('a/one.ts'), 'one.ts', 'a/one.ts');
-  st.openEditorTab(st.editorFileId('a/two.ts'), 'two.ts', 'a/two.ts');
+test('closing a file pane leaves every other file’s unsaved text alone', () => {
+  st.openFile({ kind: 'home' }, 'a/one.ts', 'one.ts');
+  st.openFile({ kind: 'home' }, 'a/two.ts', 'two.ts');
   st.setEdit('f:a/one.ts', 'one typed');
   st.setEdit('f:a/two.ts', 'two typed');
+  const home = st.state.views[0] as View;
+  const two = home.slots.findIndex((s) => s.path === 'a/two.ts');
+  assert.notEqual(two, -1, 'non-vacuity: both files are panes of the Home tab');
 
-  st.closeEditorTab('f:a/two.ts');
-  assert.equal(st.editorDirty('f:a/two.ts'), false, 'the closed tab took its edit with it');
-  assert.equal(st.editorDirty('f:a/one.ts'), true, 'and left the other one alone');
+  st.closeSlot(home.id, two);
+  assert.equal(st.editorDirty('f:a/one.ts'), true, 'the other file is untouched');
   assert.equal(st.state.edits.get('f:a/one.ts'), 'one typed');
-});
-
-test('unsaved text survives a trip through another tab — the edit beats the mock', () => {
-  const path = 'web/src/Pane.tsx';
-  st.openEditorTab(st.editorFileId(path), 'Pane.tsx', path);
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  ta.value = 'half-typed, never saved\n';
-  dispatch(ta, 'input');
-
-  st.openEditorTab(st.editorFileId('web/src/App.tsx'), 'App.tsx', 'web/src/App.tsx');
-  assert.equal(
-    (byKey(editorRoot, 'etext') as FakeElement).value,
-    MOCK.mockFileContent('web/src/App.tsx'),
-    'the other tab shows its own text',
-  );
-  st.setEditorActive(`f:${path}`);
-  assert.equal(
-    (byKey(editorRoot, 'etext') as FakeElement).value,
-    'half-typed, never saved\n',
-    'coming back shows what was typed, not what the mock still says',
-  );
-  assert.equal((MOCK.mockFileContent(path) ?? '').startsWith('half-typed'), false, 'nothing was written');
-  assert.equal((byKey(editorRoot, 'esave') as FakeElement).textContent, 'Save');
-  assert.equal(byClass(editorRoot, 'editor-dirty').length, 1, 'and the dot came back with it');
-});
-
-test('Save writes the ACTIVE tab and nothing else', () => {
-  const a = 'web/src/store.ts';
-  const b = 'server/ws.ts';
-  const beforeA = MOCK.mockFileContent(a) ?? '';
-  const beforeB = MOCK.mockFileContent(b) ?? '';
-  st.openEditorTab(st.editorFileId(a), 'store.ts', a);
-  st.openEditorTab(st.editorFileId(b), 'ws.ts', b);
-  st.setEdit(st.editorFileId(a), 'A was typed\n');
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  ta.value = 'B was typed\n';
-  dispatch(ta, 'input');
-
-  (byKey(editorRoot, 'esave') as FakeElement).click();
-  assert.equal(MOCK.mockFileContent(b), 'B was typed\n', 'the tab that was up is the tab that was written');
-  assert.equal(MOCK.mockFileContent(a), beforeA, 'the other tab is untouched on disk');
-  assert.equal(st.editorDirty(st.editorFileId(a)), true, 'and it is still dirty');
-
-  MOCK.saveMockFile(a, beforeA);
-  MOCK.saveMockFile(b, beforeB);
-});
-
-test('a diff tab is never dirty and never saveable, whatever is in the edit map', () => {
-  const id = `d:${C0.hash}:${F0.path}`;
-  st.openEditorTab(id, 'ws.ts', F0.path, C0.hash);
-  assert.equal(byKey(editorRoot, 'esave'), null);
-  assert.equal(byClass(editorRoot, 'editor-text').length, 0);
-  // The diff body is the commit view's own renderer, so the two can never
-  // disagree about what changed in that file.
-  const rows = byClass(editorRoot, 'diff-line').length;
-  st.closeEditorTab(id);
-  st.openCommitView(C0.hash);
-  const inBlock = byClass(byClass(commitRoot, 'diff-block')[0] as FakeElement, 'diff-line').length;
-  assert.equal(rows, inBlock, 'one renderer, one answer');
+  // The closed file was on no other pane, so its text goes with it
+  // (PROJECT-SCOPE: dropped when the LAST pane showing that file closes).
+  // Still no confirm before B4 owns the disk write; the amber dot is the warning.
+  assert.equal(st.state.edits.has('f:a/two.ts'), false);
 });
 
 test('the keyboard lands on the way out when a commit opens, and stays put while folding', () => {
@@ -873,17 +680,6 @@ test('the keyboard lands on the way out when a commit opens, and stays put while
   const focused = dom.doc.activeElement;
   view.render();
   assert.equal(dom.doc.activeElement, focused);
-});
-
-test('the editor tab strip hands the keyboard back to the control that was pressed', () => {
-  st.openEditorTab(st.editorFileId('a/one.ts'), 'one.ts', 'a/one.ts');
-  st.openEditorTab(st.editorFileId('a/two.ts'), 'two.ts', 'a/two.ts');
-  const pick = byKey(editorRoot, 'etab:f:a/one.ts') as FakeElement;
-  pick.focus();
-  pick.click();
-  const after = byKey(editorRoot, 'etab:f:a/one.ts') as FakeElement;
-  assert.notEqual(after, pick, 'non-vacuity: the strip really was rebuilt');
-  assert.equal(dom.doc.activeElement, after);
 });
 
 test('every commit the list can open really draws — no hash opens a blank screen', () => {
@@ -909,8 +705,8 @@ test('a diff is asked for BY COMMIT: the renderer takes the hash, not only the p
   const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
   assert.match(src, /export function diffBody\(hash: string, path: string\): HTMLElement/);
   assert.match(src, /diffBody\(c\.hash, f\.path\)/, 'the view passes the commit it draws');
-  const ed = readFileSync(join(here, '..', 'web', 'src', 'ui', 'editor.ts'), 'utf8');
-  assert.match(ed, /diffBody\(active\.hash \?\? '', active\.path\)/, 'and so does the diff tab');
+  const fp = readFileSync(join(here, '..', 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  assert.match(fp, /diffBody\(hash, path\)/, 'and so does the diff PANE (A10)');
 
   const shared = MOCK.MOCK_COMMITS.filter((c) => c.files.some((f) => f.path === 'server/ws.ts'));
   assert.ok(shared.length >= 2, `non-vacuity: one path in ${shared.length} commits`);
@@ -972,27 +768,21 @@ test('each file block carries the id the Files panel row points `aria-controls` 
 
 test('a path with no example text draws ONE note — never a numbered diff row', () => {
   // `mockFileContent` answers null for a path it knows nothing about; a
-  // sentence rendered as a `+` line would read as content of that file.
+  // sentence rendered as a `+` line would read as content of that file. (The
+  // FILE half of this rule is pinned in `tests/ui-file-pane.test.ts`.)
   const path = 'server/nothing-here.ts';
   assert.equal(MOCK.mockFileContent(path), null, 'non-vacuity: the mock really has no text');
-  st.openEditorTab(`d:${C0.hash}:${path}`, 'nothing-here.ts', path, C0.hash);
-  assert.equal(byClass(editorRoot, 'diff-line').length, 0, 'not one diff row');
-  assert.deepEqual(textsOf(editorRoot, 'diff-note'), ['There is no example content for this file yet.']);
-});
-
-test('a FILE with no example text offers a note instead of a field, and no Save', () => {
-  const path = 'server/nothing-here.ts';
-  st.openEditorTab(st.editorFileId(path), 'nothing-here.ts', path);
-  assert.equal(byClass(editorRoot, 'editor-text').length, 0, 'nothing to type into');
-  assert.equal(byClass(editorRoot, 'editor-gutter').length, 0, 'and no numbers beside it');
-  assert.equal(byKey(editorRoot, 'esave'), null, 'a Save that writes a sentence would be a lie');
-  assert.deepEqual(textsOf(editorRoot, 'editor-empty'), [
-    'There is no example content for this file yet.',
-  ]);
-  // The tab is still a real tab: it opens, it is named, and it closes.
-  assert.deepEqual(textsOf(editorRoot, 'editor-path'), [path]);
-  (byKey(editorRoot, `eclose:f:${path}`) as FakeElement).click();
-  assert.equal(st.editorVisible(), false);
+  const c = MOCK.MOCK_COMMITS.find((x) => x.files.some((f) => f.path === path));
+  if (c === undefined) {
+    // No mock commit touches an unknown path, so the note is proven through the
+    // renderer itself — the same function the view calls per block.
+    const body = CV.diffBody(C0.hash, path);
+    assert.equal(byClass(body, 'diff-line').length, 0, 'not one diff row');
+    assert.deepEqual(textsOf(body, 'diff-note'), ['There is no example content for this file yet.']);
+    return;
+  }
+  st.openCommitView(c.hash);
+  assert.deepEqual(textsOf(commitRoot, 'diff-note'), ['There is no example content for this file yet.']);
 });
 
 test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-system rule', () => {
@@ -1009,9 +799,9 @@ test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-s
   );
   const rule = css.slice(css.lastIndexOf('/*', at), css.indexOf('}', at));
   for (const sel of [
-    '.editor-text',
-    '.editor-gutter',
-    '.editor-path',
+    '.pane-text',
+    '.pane-gutter',
+    '.pane-dhash',
     '.diff-t',
     '.diff-path',
     '.commit-fpath',
@@ -1024,9 +814,9 @@ test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-s
   assert.match(rule, /DESIGN-SYSTEM RULE[\s\S]*like the terminal/, 'and it says what it is');
 });
 
-test('every class the two screens render has a rule in app.css (a typo is an invisible block)', () => {
-  // Both screens, in every state they have: an open commit, a file tab and a
-  // read-only diff tab.
+test('every class the commit screen renders has a rule in app.css (a typo is an invisible block)', () => {
+  // Every state it has: an open commit, a folded block, and the unresolvable
+  // hash. (The file and diff PANES are covered by `tests/ui-file-pane.test.ts`.)
   const seen = new Set<string>();
   const collect = (root: FakeElement): void => {
     for (const el of [root, ...descendants(root)]) {
@@ -1038,14 +828,9 @@ test('every class the two screens render has a rule in app.css (a typo is an inv
   st.toggleCommitFile(C0.hash, F0.path);
   collect(commitRoot);
   st.closeCommitView();
-  st.openEditorTab(st.editorFileId('web/src/Pane.tsx'), 'Pane.tsx', 'web/src/Pane.tsx');
-  collect(editorRoot);
-  const ta = byKey(editorRoot, 'etext') as FakeElement;
-  ta.value = 'dirty\n';
-  dispatch(ta, 'input');
-  collect(editorRoot);
-  st.openEditorTab(`d:${C0.hash}:${F0.path}`, 'ws.ts', F0.path, C0.hash);
-  collect(editorRoot);
+  st.openCommitView('deadbee');
+  collect(commitRoot);
+  st.closeCommitView();
 
   assert.ok(seen.size > 25, `non-vacuity: ${seen.size} classes were collected`);
   const css = readFileSync(join(here, '..', 'web', 'src', 'styles', 'app.css'), 'utf8');

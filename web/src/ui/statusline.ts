@@ -67,7 +67,9 @@ export function render(): void {
   nodes.push(el('span', 'status-seg', `${sessions} ${sessions === 1 ? 'session' : 'sessions'}`));
 
   const v = st.activeView();
-  const panes = v === null ? 0 : v.sessions.length;
+  // Every pane of the active tab, whatever it shows: since part A10 a pane is
+  // a terminal, a file or a diff, and the readout counts PANES.
+  const panes = v === null ? 0 : v.slots.length;
   nodes.push(el('span', 'status-seg', `${panes} ${panes === 1 ? 'pane' : 'panes'}`));
 
   const attn = st.attentionCount();

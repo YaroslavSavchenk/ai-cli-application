@@ -58,10 +58,9 @@ interface StateModule {
     sessions: Map<string, SessionInfo>;
     openCommit: string | null;
     commitCollapsed: Set<string>;
-    editor: { tabs: { id: string; label: string; path: string; hash?: string }[]; active: string | null };
     edits: Map<string, string>;
     projects: Project[];
-    views: { id: string; sessions: string[]; focused: number }[];
+    views: ViewLike[];
     activeViewId: string;
     drawer: string | null;
     leftPanel: 'files' | null;
@@ -82,6 +81,27 @@ interface StateModule {
   closeCommitView(): void;
   commitFileCollapsed(hash: string, path: string): boolean;
   editorFileId(path: string): string;
+  slotKey(s: PaneSlot): string;
+  activeView(): ViewLike | null;
+  openFile(root: ViewRoot, path: string, label: string): string;
+  openFileAt(viewId: string, slot: number, where: string, path: string): string;
+  dropZonesFor(v: ViewLike, slot: number, count: number): string[];
+  MAX_PANES: number;
+}
+
+/** The A10 slot model, restated here so this file never imports the browser graph. */
+type PaneSlot =
+  | { kind: 'session'; id: string }
+  | { kind: 'file'; path: string }
+  | { kind: 'diff'; hash: string; path: string };
+type ViewRoot = { kind: 'home' } | { kind: 'project'; id: string };
+interface ViewLike {
+  id: string;
+  root: ViewRoot | null;
+  slots: PaneSlot[];
+  focused: number;
+  l3?: 'L' | 'R';
+  split?: { col: number; row: number };
 }
 interface FilesModule {
   initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
@@ -172,7 +192,6 @@ beforeEach(() => {
   handBacks = 0;
   st.state.openCommit = null;
   st.state.commitCollapsed = new Set();
-  st.state.editor = { tabs: [], active: null };
   st.state.edits = new Map();
   dom.doc.activeElement = dom.body;
 });
@@ -441,8 +460,8 @@ test('a dead focused pane does not blank the header — it names what is left, o
   // `s1` ends; the ACTIVE view keeps its pane, `s2` is still running.
   st.setSessions([mkSession('s2', { title: 'notes' })]);
   st.state.views = [
-    { id: 'v1', sessions: ['s1'], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
-  ] as never;
+    { id: 'v1', root: null, slots: [{ kind: 'session', id: 's1' }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+  ];
   st.state.activeViewId = 'v1';
   panel.render();
   assert.equal(st.filesPanelVisible(), true, 'non-vacuity: the panel is still up');
@@ -471,7 +490,7 @@ test('the amber pulse is on the edited file and every folder above it, and nowhe
   assert.deepEqual(busy, ['web', 'src', 'TSXPane.tsx+4-2'], 'the spine of the one edited file');
 });
 
-test('a folder row toggles its subtree; a file row opens that file in the editor (A6)', () => {
+test('a folder row toggles its subtree; a file row opens that file as a PANE (A10)', () => {
   liveSession();
   const server = byKey(root, 'fdir:server') as FakeElement;
   assert.equal(server.tagName, 'BUTTON');
@@ -489,22 +508,21 @@ test('a folder row toggles its subtree; a file row opens that file in the editor
   (byKey(root, 'fdir:server') as FakeElement).click();
   assert.equal(byClass(root, 'files-row').length, before, 'and come back');
 
-  // A6 turned the inert row into a real opener: it is a button, it opens the
-  // file's editor tab, and the row of the file the editor shows keeps a ground.
+  // A10 turned the A6 editor-tab opener into a PANE opener: the file lands in
+  // the tab of its root folder — here the focused session's project.
   const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
   assert.equal(file.tagName, 'BUTTON', 'a row that opens a file is a button, not a hover');
   file.click();
-  assert.deepEqual(
-    st.state.editor.tabs.map((t) => [t.id, t.label, t.path]),
-    [['f:web/src/Pane.tsx', 'Pane.tsx', 'web/src/Pane.tsx']],
-    'the tab is keyed by path and labelled with the NAME',
-  );
-  assert.equal(st.state.editor.active, 'f:web/src/Pane.tsx');
+  const v = st.activeView() as ViewLike;
+  assert.deepEqual(v.root, { kind: 'project', id: 'p1' }, 'the project of the focused session');
+  assert.deepEqual(v.slots, [{ kind: 'file', path: 'web/src/Pane.tsx' }]);
+  assert.equal(st.state.activeViewId, v.id, 'and the app goes there');
+
   panel.render();
   assert.equal(
     (byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement).classList.contains('is-open'),
     true,
-    'the tree says where the editor is standing',
+    'the tree says where the panes are standing',
   );
   assert.equal(
     (byKey(root, 'ffile:web/src/store.ts') as FakeElement).classList.contains('is-open'),
@@ -512,9 +530,236 @@ test('a folder row toggles its subtree; a file row opens that file in the editor
     'and only there',
   );
 
-  // Opening the same file twice must not stack a second tab.
+  // Opening the same file twice must not spend a second pane on a copy.
   (byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement).click();
-  assert.equal(st.state.editor.tabs.length, 1, 'the id is the dedupe key');
+  assert.equal((st.activeView() as ViewLike).slots.length, 1, 'the path is the dedupe key');
+});
+
+// ---------------------------------------------------------------------------
+// A file row as a source: click, drag, chord (Nocturne A10)
+// ---------------------------------------------------------------------------
+
+/** The panes of the tab the app is standing in. */
+function slotsNow(): PaneSlot[] {
+  return (st.activeView() as ViewLike).slots;
+}
+
+/** Is this file a pane anywhere at all? */
+function anyFileSlot(): boolean {
+  return st.state.views.some((v) => v.slots.some((slot) => slot.kind === 'file'));
+}
+
+/**
+ * Force a rebuild. The panel repaints on a SIGNATURE, so a test that pokes
+ * `state.views` directly (instead of going through an action that notifies)
+ * must drop the cache the way hiding and re-showing the panel does.
+ */
+function repaint(): void {
+  st.state.leftPanel = null;
+  panel.render();
+  st.state.leftPanel = 'files';
+  panel.render();
+}
+
+test('with nothing running, a file row opens into the Home tab — never a nameless one', () => {
+  st.state.leftPanel = 'files';
+  panel.render();
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home', 'non-vacuity: the Home subject');
+
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  const v = st.activeView() as ViewLike;
+  assert.deepEqual(v.root, { kind: 'home' });
+  assert.equal(st.state.views[0]?.id, v.id, 'Home is the fixed first tab');
+  assert.deepEqual(v.slots, [{ kind: 'file', path: 'web/src/store.ts' }]);
+});
+
+test('a session WITHOUT a project sends its files to Home (the A10 gap B2 closes)', () => {
+  st.setProjects([]);
+  st.setSessions([mkSession('s9', { title: 'scratch shell', command: 'bash' })]);
+  st.state.leftPanel = 'files';
+  panel.render();
+  assert.equal(textsOf(root, 'files-proj')[0], 'scratch shell', 'non-vacuity: not the Home subject');
+
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  assert.deepEqual((st.activeView() as ViewLike).root, { kind: 'home' });
+});
+
+test('a file row is a pointer drag source — and says so, naming its keyboard twin', async () => {
+  liveSession();
+  const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
+  assert.match(file.title, /ctrl\+alt\+enter/, `the row must name its twin: ${file.title}`);
+  assert.match(file.title, /Drag/);
+
+  // A drag past the threshold must NOT also fire the row's click (ui/dnd.ts
+  // swallows it), so the file does not open twice and in the wrong place.
+  dispatch(file, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 4 });
+  assert.equal(file.classList.contains('is-dragging'), false, 'not yet: 0px is not a drag');
+  dispatch(dom.body, 'pointermove', { clientX: 60, clientY: 40, pointerId: 4 });
+  assert.equal(file.classList.contains('is-dragging'), true, 'the row recedes once picked up');
+  assert.equal(byClass(dom.body, 'drag-ghost').length, 1, 'one ghost, carrying the name');
+  assert.equal(byClass(dom.body, 'drag-ghost')[0]?.textContent, 'Pane.tsx', 'a NAME, never a path');
+
+  dispatch(dom.body, 'pointerup', { clientX: 60, clientY: 40, pointerId: 4 });
+  assert.equal(byClass(dom.body, 'drag-ghost').length, 0, 'the ghost goes with the gesture');
+  assert.equal(file.classList.contains('is-dragging'), false);
+  assert.equal(anyFileSlot(), false, 'a drag onto nothing opens nothing');
+  // ui/dnd.ts swallows the click that a finished drag would otherwise fire,
+  // for 80ms of REAL time. Wait it out, or the next test's click is eaten.
+  await new Promise((r) => setTimeout(r, 90));
+});
+
+test('ctrl+alt+enter on a focused row splits the focused pane — the twin of the edge drop', () => {
+  liveSession();
+  // One pane in the project tab: the only split it offers is left/right.
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  const v = st.activeView() as ViewLike;
+  assert.equal(v.slots.length, 1, 'non-vacuity: one pane to split');
+
+  const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
+  file.focus();
+  const e = dispatch(file, 'keydown', { key: 'Enter', ctrlKey: true, altKey: true });
+  assert.equal(e.defaultPrevented, true, 'the row owns the chord, so nothing else may act on it');
+  assert.deepEqual(slotsNow(), [
+    { kind: 'file', path: 'web/src/Pane.tsx' },
+    { kind: 'file', path: 'web/src/store.ts' },
+  ], 'the new file took the left half of the pane it split');
+});
+
+test('the chord is ctrl+alt+enter only: AltGr, plain Enter and ctrl+enter are left alone', () => {
+  liveSession();
+  const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
+  file.focus();
+  for (const init of [
+    { key: 'Enter' },
+    { key: 'Enter', ctrlKey: true },
+    { key: 'Enter', altKey: true },
+    // AltGr reports as ctrl+alt on European layouts: taking it would make a
+    // keyboard character untypeable (frontend-terminal-quirks).
+    { key: 'Enter', ctrlKey: true, altKey: true, altGraph: true },
+    { key: 'w', ctrlKey: true, altKey: true },
+  ]) {
+    const e = dispatch(file, 'keydown', init);
+    assert.equal(e.defaultPrevented, false, `${JSON.stringify(init)} is not this row's key`);
+  }
+  assert.equal(anyFileSlot(), false, 'and nothing opened');
+});
+
+test('`is-open` follows the PANES, in any tab — and goes away with the pane', () => {
+  liveSession();
+  const isOpen = (path: string): boolean =>
+    (byKey(root, `ffile:${path}`) as FakeElement).classList.contains('is-open');
+  assert.equal(isOpen('web/src/Pane.tsx'), false, 'non-vacuity: nothing is open yet');
+
+  (byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement).click();
+  panel.render();
+  assert.equal(isOpen('web/src/Pane.tsx'), true);
+
+  // Another tab entirely: the row still says the file is on screen, because it
+  // is. The class is about the FILE, not about which tab is in front.
+  st.state.views.push({ id: 'v-other', root: null, slots: [], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } });
+  st.state.activeViewId = 'v-other';
+  repaint();
+  assert.equal(isOpen('web/src/Pane.tsx'), true, 'open somewhere is open');
+});
+
+test('the header follows the VIEW root while a FILE pane is focused, not the tab\'s session', () => {
+  // The trap this closes: a folder tab holding a file pane beside a terminal
+  // from another project would flip the header to that project the moment the
+  // file pane took the focus — a tree headed by a folder it is not about.
+  st.setProjects([project('p1', 'api'), project('p2', 'tools')]);
+  st.setSessions([mkSession('s1', { projectId: 'p2' })]);
+  st.state.views = [
+    {
+      id: 'vf',
+      root: { kind: 'project', id: 'p1' },
+      slots: [{ kind: 'file', path: 'web/src/Pane.tsx' }, { kind: 'session', id: 's1' }],
+      focused: 0,
+      l3: 'L',
+      split: { col: 0.5, row: 0.5 },
+    },
+  ];
+  st.state.activeViewId = 'vf';
+  st.state.leftPanel = 'files';
+  repaint();
+  assert.equal(textsOf(root, 'files-proj')[0], 'api', "the FILE pane's tab, not the terminal's project");
+
+  // Focus the terminal instead: now the session's project is the subject.
+  (st.state.views[0] as ViewLike).focused = 1;
+  repaint();
+  assert.equal(textsOf(root, 'files-proj')[0], 'tools');
+});
+
+test('a DIFF pane is about its tab too, and Home reads Home', () => {
+  st.setProjects([project('p1', 'api')]);
+  st.setSessions([mkSession('s1', { projectId: 'p1' })]);
+  st.state.views = [
+    {
+      id: 'vh',
+      root: { kind: 'home' },
+      slots: [{ kind: 'diff', hash: 'a1b2c3d', path: 'web/src/Pane.tsx' }],
+      focused: 0,
+      l3: 'L',
+      split: { col: 0.5, row: 0.5 },
+    },
+  ];
+  st.state.activeViewId = 'vh';
+  st.state.leftPanel = 'files';
+  repaint();
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home');
+  assert.equal(
+    (byKey(root, 'ftab:commits') as FakeElement).disabled,
+    true,
+    'and Home has no repository, however the panel got there',
+  );
+});
+
+test('a file pane in a ROOTLESS tab is about THAT tab session, not the first alive anywhere', () => {
+  // A file reaches a plain session tab by a drop on a terminal pane edge, or by
+  // ctrl+alt+enter. The tab has no folder, so the fallback used to name the
+  // first live session ANYWHERE — an unrelated project in the header, and the
+  // next file opened into that project's folder.
+  st.setProjects([project('p1', 'api'), project('p2', 'tools')]);
+  st.setSessions([mkSession('s2', { projectId: 'p1' }), mkSession('s1', { projectId: 'p2' })]);
+  st.state.views = [
+    { id: 'vo', root: null, slots: [{ kind: 'session', id: 's2' }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+    {
+      id: 'vf',
+      root: null,
+      slots: [{ kind: 'file', path: 'web/src/Pane.tsx' }, { kind: 'session', id: 's1' }],
+      focused: 0,
+      l3: 'L',
+      split: { col: 0.5, row: 0.5 },
+    },
+  ];
+  st.state.activeViewId = 'vf';
+  st.state.leftPanel = 'files';
+  repaint();
+  assert.equal(
+    textsOf(root, 'files-proj')[0],
+    'tools',
+    "the tab's own session — `api` is another tab's story",
+  );
+
+  // And the header and the landing tab can never disagree: the next row opens
+  // into the folder the header names.
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  assert.deepEqual((st.activeView() as ViewLike).root, { kind: 'project', id: 'p2' });
+});
+
+test('a file pane in a rootless tab with NO session of its own reads Home', () => {
+  st.setProjects([project('p1', 'api')]);
+  st.setSessions([mkSession('s2', { projectId: 'p1' })]);
+  st.state.views = [
+    { id: 'vo', root: null, slots: [{ kind: 'session', id: 's2' }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+    { id: 'vf', root: null, slots: [{ kind: 'file', path: 'web/src/Pane.tsx' }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+  ];
+  st.state.activeViewId = 'vf';
+  st.state.leftPanel = 'files';
+  repaint();
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home', 'no folder and no session: Home, not `api`');
+
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  assert.deepEqual((st.activeView() as ViewLike).root, { kind: 'home' });
 });
 
 test('every file row carries a colour-family badge, including the ones behind a closed folder', () => {
@@ -825,13 +1070,21 @@ test('main.ts renders the panel on every state change AND once at boot', () => {
 });
 
 test('the Files aside is a flex sibling BEFORE the grid — that is what resizes the panes', () => {
-  // A6 added two more occupants of the same row (the commit view and the
-  // editor); the Files panel keeps its place directly after the projects
-  // drawer, and everything up to the grid is still a flex SIBLING of it.
-  assert.match(
-    MAIN,
-    /main\.append\(projAside, filesAside, commitAside, editorAside, grid, sessAside\);/,
-  );
+  // The middle row's occupants change with the parts (A6 added the commit
+  // view and an editor column; A10 took the editor away again), so what is
+  // pinned is the INVARIANT and not the cast: ONE `main.append(...)` call,
+  // the Files aside inside it, after the projects drawer and before the grid.
+  // That order is what makes opening the panel narrow the grid for real, and
+  // therefore what drives the fit -> ws `resize` chain.
+  const call = /main\.append\(([^)]*)\);/.exec(MAIN);
+  assert.notEqual(call, null, 'the middle row must still be appended in one call');
+  const order = (call?.[1] ?? '').split(',').map((s) => s.trim());
+  assert.ok(order.length >= 4, `non-vacuity: parsed ${order.join(' ')}`);
+  const at = (name: string): number => order.indexOf(name);
+  assert.ok(at('projAside') >= 0 && at('filesAside') >= 0 && at('grid') >= 0, order.join(' '));
+  assert.ok(at('projAside') < at('filesAside'), 'the Files panel sits after the projects drawer');
+  assert.ok(at('filesAside') < at('grid'), 'and BEFORE the grid — a sibling, never an overlay');
+  assert.ok(at('grid') < at('sessAside'), 'the sessions drawer stays on the right');
 });
 
 test('the Files button is a live toggle, not the disabled placeholder A2 shipped', () => {

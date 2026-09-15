@@ -31,14 +31,13 @@ import type { UiPrefs } from '../../shared/protocol.ts';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initPanes, refreshPaneArea, requestTerminalFocus } from './ui/panes.ts';
+import { initPanes, killSession, refreshPaneArea, requestTerminalFocus } from './ui/panes.ts';
 import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import { initFilesPanel } from './ui/files.ts';
 import { initCommitView } from './ui/commit-view.ts';
-import { initEditor } from './ui/editor.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
@@ -469,21 +468,18 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const filesAside = el('aside', 'drawer files-panel');
   filesAside.hidden = true;
   filesAside.setAttribute('aria-label', 'Files');
-  // The pane area's two other occupants (Nocturne A6), in the v3 DOM order:
-  // the commit view REPLACES the panes (the grid is hidden while it is up) and
-  // the editor stands BESIDE them (the grid keeps 46% of the row). Both are
-  // flex siblings for the same reason the drawers are: their width is the
-  // grid's missing width, so the fit -> ws `resize` chain does the rest.
+  // The pane area's other occupant (Nocturne A6): the commit view REPLACES the
+  // panes (the grid is hidden while it is up). It is a flex sibling for the
+  // same reason the drawers are. The A6 EDITOR COLUMN is gone with part A10 —
+  // a file is a pane now, so the grid keeps the whole row and never gives up
+  // 46% of it to a column beside it (the user's complaint).
   const commitAside = el('section', 'screen-commit');
   commitAside.hidden = true;
   commitAside.setAttribute('aria-label', 'Commit');
-  const editorAside = el('section', 'screen-editor');
-  editorAside.hidden = true;
-  editorAside.setAttribute('aria-label', 'Editor');
   const grid = el('div', 'grid');
   const sessAside = el('aside', 'drawer drawer-sess');
   sessAside.hidden = true;
-  main.append(projAside, filesAside, commitAside, editorAside, grid, sessAside);
+  main.append(projAside, filesAside, commitAside, grid, sessAside);
 
   // ---- bottom strip + statusline + modal host --------------------------------
   const strip = el('nav', 'tabstrip');
@@ -510,7 +506,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.
   initGithub(); // one status fetch → the GitHub chip is honest from first paint.
-  const tabs = initTabs(strip);
+  // The strip ends sessions and opens the launch dialog through injected
+  // functions: importing either module from `ui/tabs.ts` would pull
+  // @xterm/xterm into a module that has to stay drivable under `node --test`.
+  const tabs = initTabs(strip, { killSession, openLaunch: () => openLaunchDialog() });
   // ONE overlay instance; A2 dropped the topbar `?` button, so its openers are
   // the `?` key, Ctrl+Alt+/, the statusline's Keyboard shortcuts button and
   // the settings panel's `all shortcuts` link.
@@ -521,11 +520,11 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const sessionsDrawer = initSessionsDrawer(sessAside);
   const projectsDrawer = initProjectsDrawer(projAside);
   const filesPanel = initFilesPanel(filesAside, requestTerminalFocus);
-  const editor = initEditor(editorAside);
   // Two hand-overs, because the commit view can leave in two directions: back
-  // to the panes (the keyboard goes to the focused terminal) or INTO the
-  // editor it just opened a file in (the keyboard goes to that file).
-  const commitView = initCommitView(commitAside, requestTerminalFocus, () => editor.focusBody());
+  // to the panes, or INTO the pane it just opened a file in. Both land in the
+  // pane area, and the focused pane knows how to take the keyboard itself —
+  // a file pane focuses its text, a diff its header, a session its terminal.
+  const commitView = initCommitView(commitAside, requestTerminalFocus, requestTerminalFocus);
 
   /**
    * WHO OCCUPIES THE PANE AREA. One owner for the two flags, and it is
@@ -537,13 +536,8 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     const commitOpen = st.state.openCommit !== null;
     const wasHidden = grid.hidden;
     commitAside.hidden = !commitOpen;
-    editorAside.hidden = !st.editorVisible();
-    // `is-narrow` is the v3 `flex: 0 0 46%` — a REAL layout change, so every
-    // pane refits and every PTY hears about it through the one seam.
-    grid.classList.toggle('is-narrow', st.editorVisible());
     grid.hidden = commitOpen;
     commitView.render();
-    editor.render();
     // The panes are measurable again: run the render they refused while the
     // commit view covered them.
     if (wasHidden && !grid.hidden) refreshPaneArea();
@@ -617,6 +611,8 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         k === 'ArrowRight' ||
         k === 'ArrowUp' ||
         k === 'ArrowDown' ||
+        k === 'w' ||
+        k === 'W' ||
         (k.length === 1 && k >= '1' && k <= '9');
       // Nocturne A6: while the commit view covers the pane area, these chords
       // would move focus between and swap sessions inside panes NOBODY CAN
@@ -629,10 +625,18 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         e.preventDefault();
         const dir =
           k === 'ArrowLeft' ? 'left' : k === 'ArrowRight' ? 'right' : k === 'ArrowUp' ? 'up' : 'down';
-        // +shift moves the focused SESSION to the neighbor pane of its view
-        // (swap); without shift only focus moves.
-        if (e.shiftKey) st.moveSession(dir);
+        // +shift moves the focused PANE to the neighbor pane of its view
+        // (swap, kind-blind since A10: a file trades places with a terminal);
+        // without shift only focus moves.
+        if (e.shiftKey) st.movePane(dir);
         else st.moveFocus(dir);
+      } else if (k === 'w' || k === 'W') {
+        // A10: close the focused FILE or DIFF pane. A session pane is refused
+        // by state.ts — ending a session is a different act with its own
+        // confirmation (the A3 rule), so there is nothing to special-case here.
+        e.preventDefault();
+        const v = st.activeView();
+        if (v !== null) st.closeSlot(v.id, v.focused);
       } else if (k.length === 1 && k >= '1' && k <= '9') {
         e.preventDefault();
         st.setActiveViewIndex(Number(k) - 1);

@@ -95,7 +95,7 @@ interface StateModule {
   state: {
     sessions: Map<string, SessionInfo>;
     projects: Project[];
-    views: { id: string; sessions: string[]; focused: number }[];
+    views: { id: string; root: { kind: string } | null; slots: { kind: string; id?: string }[]; focused: number }[];
     activeViewId: string;
     drawer: string | null;
     history: HistoryEntry[];
@@ -103,7 +103,8 @@ interface StateModule {
   setSessions(list: SessionInfo[]): void;
   setProjects(list: Project[]): void;
   setHistory(list: HistoryEntry[]): void;
-  viewOfSession(id: string): { id: string; sessions: string[] } | undefined;
+  viewOfSession(id: string): { id: string; slots: { kind: string; id?: string }[] } | undefined;
+  sessionIds(v: { slots: { kind: string; id?: string }[] }): string[];
 }
 interface SessionsModule {
   initSessionsDrawer(host: unknown): { render(): void };
@@ -228,34 +229,41 @@ test('clicking the row takes you to that session and puts the keyboard in the te
 test('"Side by side" really merges the session into the active tab', () => {
   st.setSessions([mkSession('s1', { projectId: 'p1' }), mkSession('s2', { projectId: 'p1' })]);
   draw();
-  const first = st.state.views[0];
-  st.state.activeViewId = first?.id ?? '';
+  // A10: `Home` is views[0] and it is empty, so the tab under test is the one
+  // that HOLDS s1 — never "the first tab".
+  const first = st.viewOfSession('s1');
+  assert.ok(first !== undefined, 'non-vacuity: s1 got a tab of its own');
+  st.state.activeViewId = first.id;
   const btn = byKey(root, 'split:s2') as FakeElement;
   assert.equal(btn.textContent, 'Side by side');
   assert.equal(btn.getAttribute('aria-label'), 'show s2 next to the current session');
 
   btn.click();
-  assert.deepEqual(st.state.views[0]?.sessions, ['s1', 's2'], 'one tab, two panes');
-  assert.equal(st.state.views.length, 1, 'and the session left its own tab');
+  assert.deepEqual(st.sessionIds(first), ['s1', 's2'], 'one tab, two panes');
+  assert.equal(st.state.views.length, 2, 'Home plus the merged tab: s2 left its own');
   assert.equal(H.focusRequests, 1);
 });
 
 test('"Side by side" on a full tab says so instead of silently doing nothing', () => {
   const ids = ['s1', 's2', 's3', 's4', 's5'];
   st.setSessions(ids.map((id) => mkSession(id, { projectId: 'p1' })));
-  const first = st.state.views[0];
+  const first = st.viewOfSession('s1');
+  assert.ok(first !== undefined, 'non-vacuity: s1 got a tab of its own');
   for (const id of ['s2', 's3', 's4']) {
-    const v = st.state.views.find((x) => x.sessions.includes(id));
-    if (v !== undefined && first !== undefined) {
-      first.sessions.push(id);
-      st.state.views.splice(st.state.views.indexOf(v), 1);
+    const v = st.viewOfSession(id);
+    if (v !== undefined) {
+      first.slots.push({ kind: 'session', id });
+      st.state.views.splice(
+        st.state.views.findIndex((x) => x.id === v.id),
+        1,
+      );
     }
   }
-  st.state.activeViewId = first?.id ?? '';
+  st.state.activeViewId = first.id;
   draw();
   (byKey(root, 'split:s5') as FakeElement).click();
   assert.deepEqual(H.flashes, ['This tab is full. It can show 4 panes.']);
-  assert.equal(first?.sessions.length, 4);
+  assert.equal(first.slots.length, 4);
 });
 
 test('ending a session takes TWO clicks, and the first one only arms it', () => {

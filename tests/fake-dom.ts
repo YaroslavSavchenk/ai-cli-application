@@ -24,6 +24,9 @@ export interface FakeEvent {
   type: string;
   key: string;
   shiftKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
   button: number;
   clientX: number;
   clientY: number;
@@ -33,11 +36,22 @@ export interface FakeEvent {
   cancelBubble: boolean;
   preventDefault(): void;
   stopPropagation(): void;
+  /**
+   * Always false here. The app's chord handlers ask it for `AltGraph` only
+   * (AltGr reports as ctrl+alt on European layouts), and "this is a real
+   * ctrl+alt" is the state every test wants; a test that needs the AltGr case
+   * passes `altGraph: true`.
+   */
+  getModifierState(name: string): boolean;
 }
 
 export interface EventInit {
   key?: string;
   shiftKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  altGraph?: boolean;
   button?: number;
   clientX?: number;
   clientY?: number;
@@ -75,6 +89,19 @@ export class FakeText extends FakeNode {
 }
 
 const FOCUSABLE_TAGS = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
+
+/** Just enough of a DOMRect for the arithmetic the UI modules do. */
+export interface FakeRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Place an element, so `elementFromPoint` and the drop geometry can see it. */
+export function setRect(n: FakeElement, r: FakeRect): void {
+  n.rect = r;
+}
 
 /**
  * `element.style`: a plain property bag that ALSO answers `setProperty` —
@@ -132,6 +159,13 @@ export class FakeElement extends FakeNode {
   placeholder = '';
   autocomplete = '';
   readonly captured = new Set<number>();
+  /**
+   * Layout, as a value a test sets: there is no engine here, so a module that
+   * hit-tests (ui/dnd.ts: `elementFromPoint` + `getBoundingClientRect`) is
+   * handed the geometry it would have measured. `null` = never laid out, which
+   * is what a real detached node reports as all-zero.
+   */
+  rect: FakeRect | null = null;
   #tabIndex: number | null = null;
   #value: string | null = null;
 
@@ -225,6 +259,12 @@ export class FakeElement extends FakeNode {
     this.#value = v;
   }
 
+  /** The set rect, or an all-zero one (a node no test placed has no box). */
+  getBoundingClientRect(): FakeRect & { right: number; bottom: number } {
+    const r = this.rect ?? { left: 0, top: 0, width: 0, height: 0 };
+    return { ...r, right: r.left + r.width, bottom: r.top + r.height };
+  }
+
   // ---- pointer capture ----------------------------------------------------
   setPointerCapture(id: number): void {
     this.captured.add(id);
@@ -284,29 +324,51 @@ export class FakeElement extends FakeNode {
     }
     return null;
   }
-  /** Only the shapes the UI modules ask for: `[attr="value"]` and `.class`. */
+  /**
+   * The shapes the UI modules ask for: a tag, `.class`, `[attr]`,
+   * `[attr="value"]`, any of those concatenated (`.tab[data-view-id]`), a
+   * comma list, and a descendant chain (`.grid .pane[data-slot="0"]`).
+   */
   querySelector(sel: string): FakeElement | null {
     return this.querySelectorAll(sel)[0] ?? null;
   }
   querySelectorAll(sel: string): FakeElement[] {
-    const parts = sel.split(',').map((s) => s.trim());
-    const all = descendants(this);
+    const groups = sel.split(',').map((s) => splitDescendants(s.trim()));
     const out: FakeElement[] = [];
-    for (const n of all) {
-      if (parts.some((p) => matches(n, p)) && !out.includes(n)) out.push(n);
+    for (const n of descendants(this)) {
+      if (groups.some((g) => matchesChain(n, g)) && !out.includes(n)) out.push(n);
     }
     return out;
   }
 }
 
-function matches(n: FakeElement, sel: string): boolean {
-  const attr = /^\[([a-zA-Z-]+)="(.*)"\]$/.exec(sel);
-  if (attr !== null) {
-    // CSS.escape'd values arrive here (`data-k="fdir\:web"`); the escape is a
-    // selector-syntax detail, the attribute itself never carried it.
-    const want = (attr[2] as string).replace(/\\(.)/g, '$1');
-    return n.getAttribute(attr[1] as string) === want;
+/**
+ * `a b c` -> ['a','b','c'], leaving an escaped space alone (CSS.escape turns
+ * a space inside an attribute value into `\\ `).
+ */
+function splitDescendants(sel: string): string[] {
+  return sel.split(/(?<!\\)\s+/).filter((p) => p !== '');
+}
+
+/** The last part must match `n`, every earlier part some ancestor, in order. */
+function matchesChain(n: FakeElement, parts: string[]): boolean {
+  let i = parts.length - 1;
+  if (i < 0 || !matches(n, parts[i] as string)) return false;
+  let x = n.parentNode;
+  for (i -= 1; i >= 0; i -= 1) {
+    while (x !== null && !matches(x, parts[i] as string)) x = x.parentNode;
+    if (x === null) return false;
+    x = x.parentNode;
   }
+  return true;
+}
+
+/** One simple selector: a tag, `.class`, `[attr]` or `[attr="value"]`. */
+const SIMPLE = /^(?:([a-zA-Z]+)|\.([\w-]+)|\[([a-zA-Z-]+)(?:="((?:\\.|[^"\\])*)")?\])/;
+
+function matches(n: FakeElement, sel: string): boolean {
+  // The two `:not(...)` shapes stay special-cased: they are the only ones the
+  // UI asks for, and a general negation parser would be a browser.
   const notDisabled = /^([a-zA-Z]+):not\(\[disabled\]\)$/.exec(sel);
   if (notDisabled !== null) {
     return n.tagName === (notDisabled[1] as string).toUpperCase() && !n.disabled;
@@ -314,8 +376,24 @@ function matches(n: FakeElement, sel: string): boolean {
   if (sel === '[tabindex]:not([tabindex="-1"])') {
     return n.hasAttribute('tabindex') && n.getAttribute('tabindex') !== '-1';
   }
-  if (sel.startsWith('.')) return n.classList.contains(sel.slice(1));
-  return n.tagName === sel.toUpperCase();
+  let rest = sel;
+  let any = false;
+  while (rest !== '') {
+    const m = SIMPLE.exec(rest);
+    if (m === null) return false;
+    any = true;
+    if (m[1] !== undefined && n.tagName !== m[1].toUpperCase()) return false;
+    if (m[2] !== undefined && !n.classList.contains(m[2])) return false;
+    if (m[3] !== undefined) {
+      const have = n.getAttribute(m[3]);
+      if (have === null) return false;
+      // CSS.escape'd values arrive here (`data-k="fdir\:web"`); the escape is
+      // a selector-syntax detail, the attribute itself never carried it.
+      if (m[4] !== undefined && have !== m[4].replace(/\\(.)/g, '$1')) return false;
+    }
+    rest = rest.slice(m[0].length);
+  }
+  return any;
 }
 
 export function descendants(root: FakeElement): FakeElement[] {
@@ -337,6 +415,17 @@ export interface FakeDocument extends FakeTarget {
    * CONSTRUCTION time — without it the Add-a-project dialog cannot be built here.
    */
   createTextNode(data: string): FakeText;
+  /** Document-wide queries, delegated to the body (ui/dnd.ts asks for these). */
+  querySelector(sel: string): FakeElement | null;
+  querySelectorAll(sel: string): FakeElement[];
+  /**
+   * Hit-testing without a layout engine: the LAST element in document order
+   * whose set rect contains the point — "last" because a later sibling paints
+   * over an earlier one, which is the only stacking rule the drag layer needs
+   * (`ui/dnd.ts` resolves its target through this). Elements a test never
+   * placed have no rect and are never hit.
+   */
+  elementFromPoint(x: number, y: number): FakeElement | null;
 }
 
 export interface FakeWindow extends FakeTarget {
@@ -373,6 +462,9 @@ export function dispatch(target: FakeElement, type: string, init: EventInit = {}
     type,
     key: init.key ?? '',
     shiftKey: init.shiftKey ?? false,
+    ctrlKey: init.ctrlKey ?? false,
+    altKey: init.altKey ?? false,
+    metaKey: init.metaKey ?? false,
     button: init.button ?? 0,
     clientX: init.clientX ?? 0,
     clientY: init.clientY ?? 0,
@@ -385,6 +477,9 @@ export function dispatch(target: FakeElement, type: string, init: EventInit = {}
     },
     stopPropagation() {
       this.cancelBubble = true;
+    },
+    getModifierState(name: string): boolean {
+      return name === 'AltGraph' && init.altGraph === true;
     },
   };
   const ancestors: FakeTarget[] = [];
@@ -475,6 +570,17 @@ export function installDom(): Dom {
     createElement: (tag: string) => new FakeElement(tag),
     createElementNS: (_ns: string, tag: string) => new FakeElement(tag),
     createTextNode: (data: string) => new FakeText(data),
+    querySelector: (sel: string) => body.querySelector(sel),
+    querySelectorAll: (sel: string) => body.querySelectorAll(sel),
+    elementFromPoint: (x: number, y: number) => {
+      let hit: FakeElement | null = null;
+      for (const n of descendants(body)) {
+        const r = n.rect;
+        if (r === null) continue;
+        if (x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height) hit = n;
+      }
+      return hit;
+    },
   }) as FakeDocument;
   doc = d;
   win = w;
@@ -484,6 +590,9 @@ export function installDom(): Dom {
   g.window = w;
   g.Node = FakeNode;
   g.HTMLElement = FakeElement;
+  // `ui/dnd.ts` narrows an elementFromPoint hit with `instanceof Element`
+  // before it reads `closest()`; without the global that check throws.
+  g.Element = FakeElement;
   g.localStorage = storage;
   // `ui/github.ts` clears with the BARE globals (`clearInterval(timer)`), so the
   // fake ids must reach the same bookkeeping as `window.clearInterval`.

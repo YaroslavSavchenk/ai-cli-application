@@ -259,6 +259,13 @@ export class TerminalView {
           k.startsWith('Arrow') ||
           k === 't' ||
           k === 'T' ||
+          // A10: ctrl+alt+w belongs to the app (it closes the focused file
+          // pane; on a terminal pane it does nothing and is swallowed — user
+          // decision 9). ctrl+alt+enter is NOT here: it lives on a focused
+          // Files ROW, which cannot have focus while a terminal does, so
+          // taking it would swallow a key for nothing.
+          k === 'w' ||
+          k === 'W' ||
           k === '/' ||
           (e.shiftKey && (k === 'PageUp' || k === 'PageDown')) ||
           (k.length === 1 && k >= '1' && k <= '9')

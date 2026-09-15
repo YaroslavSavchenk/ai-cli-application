@@ -3,7 +3,7 @@
  * `web/src/styles/app.css` that carry the shared dialog scrim, the shortcuts
  * overlay (`sc-`), the update toast (`ut-`), the restart/update confirmation
  * (`rs-`), and the A5/A6 panel and screen blocks (panels, sessions rows, Files
- * panel, commits list, drag edge, commit view, diff, editor) — plus the three
+ * panel, commits list, drag edge, commit view, diff, file pane) — plus the three
  * modules that paint them.
  *
  * What it pins:
@@ -73,7 +73,10 @@ const MINE = [
   'commit view: one collapsible file',
   'the diff itself',
   "the Files panel's selected-commit state",
-  'editor',
+  // Nocturne A10 deleted the `editor` section with the editor column itself:
+  // a file is a PANE now, and its styling lives in the pane blocks
+  // (`file pane (Nocturne A10)`), which are Developer A's.
+  'file pane (Nocturne A10)',
 ];
 
 const mySections = (): ReturnType<typeof sectionsNamed> => sectionsNamed(MINE);

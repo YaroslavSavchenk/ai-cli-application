@@ -502,15 +502,30 @@ multi-pane layouts on top.
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
   and dragging one tab onto another forms a split view. **Implemented
-  2026-07-19**: every session lives in exactly one view (= tab) holding 1–4
-  panes; drag a tab onto a tab/pane to merge into a split, drag a pane
-  header to the strip to extract, drag along the strip to reorder — every
-  drag has a keyboard/button equivalent (see the shortcuts overlay). The
-  arrangement is client-local, persisted as localStorage schema v2 with
-  migration from v1 (since Nocturne A5, 2026-09-13, the same v2 bag also
-  carries the Files panel's wish and width — the reader ignores unknown
-  keys, so no bump). Either way, sessions exist independently of
-  tabs/panes/splits.
+  2026-07-19**: every session lives in exactly one view (= tab); since
+  Nocturne A10 (2026-09-15, user decisions) a view holds 0–4 SLOTS, each a
+  session, a file or a read-only diff, mixed freely; a fixed `Home` tab
+  (root = the user's home) is always first in the strip, never draggable,
+  never closable, and may stand empty; a file opened from the Files panel
+  becomes a pane in the tab of its root folder (`Home` or the project's
+  tab, created on demand; a project tab closes with its last pane unless it
+  still holds a terminal). Drag a tab onto a tab/pane to merge into a
+  split, drag a pane header to the strip to extract (sessions only), drag
+  along the strip to reorder, drag a Files row onto a pane edge to open it
+  in a split, onto the centre of a file pane to replace it (the centre of a
+  terminal pane refuses), onto a folder tab's chip to append, onto the
+  empty pane area of an empty tab to open or merge there — every drag
+  has a keyboard/button equivalent (see the shortcuts overlay;
+  Ctrl+Alt+Enter on a focused Files row opens it beside the focused pane,
+  Ctrl+Alt+W closes the focused file or diff pane and does nothing on a
+  terminal). The arrangement is client-local, persisted as localStorage
+  schema v2 with migration from v1 (since Nocturne A5, 2026-09-13, the
+  same v2 bag also carries the Files panel's wish and width; since A10 each
+  view carries `root` and `slots` holding SESSION slots only — file and
+  diff slots are not persisted before B4, `sessions: string[]` is still
+  read as legacy, and the reader ignores unknown keys, so no bump; a
+  pre-A10 build reading a post-A10 bag drops every view). Either way,
+  sessions exist independently of tabs/panes/splits.
 - **Files panel** (Nocturne A5, landed 2026-09-13; visual, mocked until
   B2/B3): a third middle-row column left of the pane grid (after the
   Projects drawer), flex sibling like the drawers so opening or dragging it
@@ -523,8 +538,9 @@ multi-pane layouts on top.
   without a project keeps the mock until B3 decides repo detection);
   header shows the
   focused session's project name (its title when it has no project); when
-  the focused session has exited, the first session still alive anywhere;
-  `Home` when nothing is alive. Resizable 200–520 px by its right edge (pointer, arrow keys,
+  the focused pane is a file or diff, the tab's root folder (since A10);
+  when the focused session has exited, the first session still alive
+  anywhere; `Home` when nothing is alive. Resizable 200–520 px by its right edge (pointer, arrow keys,
   home/enter/double-click resets to 300). Shown whenever the wish is on
   and the Projects drawer is closed — a session is NOT a condition (user
   decision 2026-09-15, deviates from v3's `alive.length > 0`: the panel is
@@ -545,11 +561,13 @@ multi-pane layouts on top.
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
   "Side by side", "Continue" / "Start again", armed "End" / "Forget".
   Since Nocturne A6 (2026-09-13) the commit rows and the tree's file rows
-  are live: a commit opens the commit view, a file opens an editor tab.
-- **Commit view and Editor** (Nocturne A6, landed 2026-09-13; visual, mock
-  content until B3/B4): two more columns in the middle row, mounted as
-  flex siblings in the order Projects, Files, commit view, editor, pane
-  grid, Sessions. The **commit view** replaces the pane area (the grid is
+  are live: a commit opens the commit view, a file opens a pane in the tab
+  of its root folder (A10 replaced the A6 editor column).
+- **Commit view and file panes** (Nocturne A6, landed 2026-09-13; file
+  panes since A10, 2026-09-15; mock content until B3/B4): the commit view
+  is one more column in the middle row, mounted as a flex sibling in the
+  order Projects, Files, commit view, pane grid, Sessions. The **commit
+  view** replaces the pane area (the grid is
   `hidden`; terminals are NOT disposed and `panes.render()` refuses to
   build or reconcile while the grid is hidden — a deferred render runs on
   return): card on neutral-900, "Back to sessions", title, author initial
@@ -558,23 +576,27 @@ multi-pane layouts on top.
   five-block bar, one collapsible block per file with a unified diff and
   "Open file" / "Changes". The Files panel's Commits tab shows the
   selected commit (message, meta, per-file rows that fold the view's
-  blocks, "All commits"). The **editor** column shows when it has tabs and
-  no commit is open; the pane grid then takes `flex: 0 0 46%` and every
-  pane refits through the one fit → ws resize seam. Tabs per file (amber
-  dot when unsaved, ×), path + Save/Saved for file tabs, "Changes in
-  <hash>" for read-only diff tabs, a line-number gutter + textarea on the
-  terminal ground (the diff's own number column is 44 px). Unsaved text lives only in memory (a tab close, reload, window
-  close or backend grace drops it without a confirm — B4 owes the
-  confirm and the disk write). The pane chords (Ctrl+Alt+arrows) and the
-  tab-switch chords (Ctrl+Alt+1..9) are ignored while a commit view is up. Esc closes the commit view
+  blocks, "All commits"). A **file pane** is a pane like a terminal (same
+  card, same header height, the terminal ground): header = file name +
+  amber dot when unsaved + `×` (a `×` on a FILE pane does not touch the
+  A3 rule, which is about ending sessions), body = line-number gutter +
+  textarea, under it one hairline strip with the "Example …" line and
+  Save/Saved; a **diff pane** ("Changes in <hash>", from the commit view)
+  is read-only, no Save. Opening a file never narrows the grid: the pane
+  area stays full width, the file is one of its panes. Unsaved text lives
+  only in memory, keyed by path so the same file in two panes shares it;
+  it is dropped when the last pane showing that file closes, on reload,
+  window close or backend grace, without a confirm (B4 owes the confirm
+  and the disk write). The pane chords (Ctrl+Alt+arrows, Ctrl+Alt+W) and
+  the tab-switch chords (Ctrl+Alt+1..9) are ignored while a commit view is
+  up. Esc closes the commit view
   (rank: after every dialog, before drawers and the Files panel) and hands
   the keyboard to the terminal. New `ChangeKind` `'screen'` = something
   other than the panes fills the pane area; the pane module ignores it.
   Code surfaces (editor, diff, paths) draw plain glyphs — no font
   ligatures — like the terminal. Each surface carries one quiet "Example
-  …" line until the real data lands. Placement of the editor LEFT of the
-  panes follows the v3 HTML (README-v3 says "right of the terminal"); a
-  one-line flip of the mount order changes it.
+  …" line until the real data lands. Esc inside a file pane's textarea
+  belongs to the textarea and closes nothing.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
@@ -743,7 +765,11 @@ multi-pane layouts on top.
 - **Resize must propagate**: pane resize → xterm.js fit addon → `pty.resize()`,
   or TUIs render garbage.
 - Keyboard input goes **to the terminal** (Ctrl+C etc. must reach the PTY);
-  app-level shortcuts must not collide with TUI keybindings. The app takes
+  app-level shortcuts must not collide with TUI keybindings. A focused
+  terminal forwards every key to the PTY except the app's Ctrl+Alt family
+  (arrows, digits, t, /, Shift+PageUp/PageDown, and since A10 w —
+  Ctrl+Alt+W on a terminal pane does nothing and is swallowed, recorded
+  2026-09-15). The app takes
   exactly four extra chords: `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses

@@ -6,12 +6,16 @@
  * - CLIENT state (views) is the local arrangement, persisted to localStorage
  *   (schema v2) and rehydrated with pruning against the server's sessions.
  *
- * Interaction model (decided 2026-07-19): EVERY SESSION LIVES IN EXACTLY ONE
- * VIEW, and every view is a tab. A view holds 1..4 sessions in a split; a
- * fresh session is a single-pane view. Views dissolve when their last
- * session leaves (zero views = the empty state); sessions unknown to any
- * view get a tab created for them. New sessions come from the launch dialog
- * (R3) — there is no launcher view kind anymore.
+ * Interaction model (decided 2026-07-19, widened by user decision 2026-09-15):
+ * EVERY SESSION LIVES IN EXACTLY ONE VIEW, and every view is a tab. A view
+ * holds 0..4 SLOTS in a split, and a slot is a terminal, a file or a read-only
+ * diff — they mix freely inside one tab. A fresh session is a single-pane
+ * rootless view. A ROOTED view (Home, or one folder/project) may stand EMPTY;
+ * a rootless view dissolves when its last slot leaves, and a project-rooted one
+ * is removed when a close empties it. `Home` is a real view, always the first
+ * tab, and is never closed, dissolved or moved. Sessions unknown to any view
+ * get a tab created for them. New sessions come from the launch dialog (R3) —
+ * there is no launcher view kind anymore.
  *
  * Change notification is a flat pub/sub of coarse ChangeKinds; views decide
  * what to re-render.
@@ -24,18 +28,8 @@ import type {
   UpdateStatus,
 } from '../../shared/protocol.ts';
 import { log } from './log.ts';
-import {
-  activeTab,
-  closeTab,
-  fileTabId,
-  openTab,
-  setActive,
-  type EditorState,
-  type EditorTab,
-} from './ui/editor-model.ts';
+import { diffTabId, fileTabId } from './ui/editor-model.ts';
 import { collapseKey } from './ui/commit-model.ts';
-
-export type { EditorTab } from './ui/editor-model.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -58,7 +52,7 @@ export type LeftPanel = 'files' | null;
 /**
  * `'screen'` (Nocturne A6) is its own kind rather than another `'panel'`: it
  * means "something else than the panes occupies the pane area" (the commit
- * view is open, or the editor column appeared), and `ui/panes.ts` must be able
+ * view covers it), and `ui/panes.ts` must be able
  * to IGNORE it — a pane rebuild against a hidden grid is exactly the
  * measure-while-invisible trap that downgrades xterm's WebGL renderer. The
  * chrome that owns the layout listens; the panes do not.
@@ -78,7 +72,23 @@ const STORAGE_KEY = 'ai-sm:ui:v2';
 const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
 
 /**
- * A view = a tab. `sessions` is the slot order; the visual placement of a
+ * What one pane shows (A10, user decision 2026-09-15). The three kinds mix
+ * freely inside one tab: a file may sit beside a terminal.
+ */
+export type PaneSlot =
+  | { kind: 'session'; id: string }
+  | { kind: 'file'; path: string }
+  | { kind: 'diff'; hash: string; path: string };
+
+/**
+ * What a tab is ABOUT. `{kind:'home'}` is the fixed first tab; a project root
+ * is one folder tab named after the project (never after its path). `null` is
+ * a plain session tab — the one a new session still gets for itself.
+ */
+export type ViewRoot = { kind: 'home' } | { kind: 'project'; id: string };
+
+/**
+ * A view = a tab. `slots` is the slot order; the visual placement of a
  * slot index is fixed per count (and l3 for count 3):
  *   1: [full]                    2: [left, right]
  *   3 L: [tall-left, top-right, bottom-right]
@@ -87,14 +97,40 @@ const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
  */
 export interface ViewState {
   id: string;
-  /** Session ids by slot — always 1..4 entries (empty views dissolve). */
-  sessions: string[];
-  /** Focused slot index (< sessions.length). */
+  /** What the tab is about; null = a plain session tab. */
+  root: ViewRoot | null;
+  /** Panes by slot — 0..4. A ROOTED view may stand empty; a rootless one dissolves. */
+  slots: PaneSlot[];
+  /** Focused slot index (< slots.length; 0 on an empty view). */
   focused: number;
   /** Tall-pane side for count 3; kept (harmless) at other counts. */
   l3: L3;
   /** Divider fractions (first column / first row share), SPLIT_MIN..SPLIT_MAX. */
   split: { col: number; row: number };
+}
+
+/**
+ * The identity of a slot — and, for a file, the key its unsaved text lives
+ * under in `state.edits`. File and diff keys are EXACTLY `fileTabId(path)` and
+ * `diffTabId(hash, path)`, so the same file open in two panes shares one entry
+ * (user decision 2026-09-15: free mixing, one text per file).
+ */
+export function slotKey(s: PaneSlot): string {
+  if (s.kind === 'session') return `s:${s.id}`;
+  if (s.kind === 'file') return fileTabId(s.path);
+  return diffTabId(s.hash, s.path);
+}
+
+/** The session ids a view holds, in slot order (file/diff slots are skipped). */
+export function sessionIds(v: ViewState): string[] {
+  const out: string[] = [];
+  for (const s of v.slots) if (s.kind === 'session') out.push(s.id);
+  return out;
+}
+
+/** Is this tab about a folder (Home or a project) rather than a bare session? */
+export function isFolderView(v: ViewState): boolean {
+  return v.root !== null;
 }
 
 interface AppState {
@@ -128,15 +164,12 @@ interface AppState {
    */
   commitCollapsed: Set<string>;
   /**
-   * The editor column (Nocturne A6): the open tabs and which one is up. Empty
-   * = no editor at all. Not persisted — until part B4 the contents are
-   * `ui/files-mock.ts`, and persisting a list of files that were never read
-   * would persist fiction.
-   */
-  editor: EditorState;
-  /**
-   * Unsaved editor text per tab id. A tab with an entry here is DIRTY (the
-   * amber dot); Save removes it. B4 turns Save into a disk write.
+   * Unsaved file text per SLOT KEY — `f:<path>` for a file pane (A10 replaced
+   * the editor column by panes, so the key is the file, not a tab). A pane with
+   * an entry here is DIRTY (the amber dot); Save removes it, and two panes
+   * showing the same file share the one entry. Not persisted: until part B4
+   * nothing was ever read from disk, and persisting text that was never a file
+   * would persist fiction. B4 turns Save into a disk write.
    */
   edits: Map<string, string>;
   /** Presence ping round-trip in ms; null until measured / while disconnected. */
@@ -199,7 +232,6 @@ export const state: AppState = {
   filesWidth: FILES_W_DEFAULT,
   openCommit: null,
   commitCollapsed: new Set(),
-  editor: { tabs: [], active: null },
   edits: new Map(),
   wsLatencyMs: null,
   serverStartedAt: null,
@@ -240,13 +272,46 @@ function clampSplit(v: unknown): number {
     : 0.5;
 }
 
-function newSessionView(sessionId: string): ViewState {
+function newView(root: ViewRoot | null, slots: PaneSlot[]): ViewState {
   return {
     id: crypto.randomUUID(),
-    sessions: [sessionId],
+    root,
+    slots,
     focused: 0,
     l3: 'L',
     split: { col: 0.5, row: 0.5 },
+  };
+}
+
+function newSessionView(sessionId: string): ViewState {
+  return newView(null, [{ kind: 'session', id: sessionId }]);
+}
+
+/**
+ * What one view looks like in storage: its root and ONLY its session slots.
+ * File and diff slots are dropped on purpose (user decision 10, 2026-09-15) —
+ * until part B4 their text was never read from disk, so a reload that
+ * resurrected them would resurrect placeholder content.
+ *
+ * `focused` is remapped onto the slots that survive, so a tab whose focused
+ * pane was a file does not come back focused on someone else's terminal.
+ */
+function persistView(v: ViewState): Record<string, unknown> {
+  const kept: PaneSlot[] = [];
+  let focused = 0;
+  for (let i = 0; i < v.slots.length; i++) {
+    const s = v.slots[i] as PaneSlot;
+    if (s.kind !== 'session') continue;
+    if (i <= v.focused) focused = kept.length;
+    kept.push(s);
+  }
+  return {
+    id: v.id,
+    root: v.root,
+    slots: kept,
+    focused: Math.min(focused, Math.max(0, kept.length - 1)),
+    l3: v.l3,
+    split: v.split,
   };
 }
 
@@ -255,7 +320,7 @@ export function saveUi(): void {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        views: state.views,
+        views: state.views.map(persistView),
         active: state.activeViewId,
         // The left panel rides in the SAME bag as the pane splits: same chrome,
         // same gesture, so a dragged width survives a reload the way a split
@@ -270,33 +335,73 @@ export function saveUi(): void {
   }
 }
 
-/**
- * Validate one stored v2 view. `seen` enforces the global invariant that a
- * session id appears in at most one view (first occurrence wins). Views
- * without sessions are dropped — this is also the migration for pre-R3 v2
- * blobs, whose launcher views (kind: 'launcher', zero sessions) simply
- * vanish; the schema key stays v2.
- */
-function validateView(raw: unknown, seen: Set<string>): ViewState | null {
+/** Load-time bookkeeping shared by every stored view of one blob. */
+interface LoadCtx {
+  /** Session ids already claimed: a session appears in at most one view. */
+  seen: Set<string>;
+  /** A Home view was already decoded — there is exactly one. */
+  home: boolean;
+}
+
+/** Decode a stored root. Anything else (absent, garbage) is a plain session tab. */
+function validateRoot(raw: unknown, ctx: LoadCtx): ViewRoot | null {
   if (raw === null || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const sessions: string[] = [];
-  if (Array.isArray(o.sessions)) {
-    for (const s of o.sessions) {
-      if (typeof s === 'string' && s !== '' && !seen.has(s) && sessions.length < MAX_PANES) {
-        seen.add(s);
-        sessions.push(s);
+  if (o.kind === 'home') {
+    if (ctx.home) return null; // a second Home is not a Home
+    ctx.home = true;
+    return { kind: 'home' };
+  }
+  if (o.kind === 'project' && typeof o.id === 'string' && o.id !== '') {
+    return { kind: 'project', id: o.id };
+  }
+  return null;
+}
+
+/**
+ * Validate one stored v2 view: its root, and its SESSION slots. A view without
+ * slots is dropped unless it is Home — which is the fixed first tab and is
+ * allowed to stand empty.
+ * // B4: file slots persist; drop this exception.
+ *
+ * This is also the migration for two older shapes under the same v2 key (the
+ * reader has always ignored what it does not know): pre-R3 launcher views
+ * (kind: 'launcher', zero sessions) simply vanish, and a pre-A10 blob's
+ * `sessions: string[]` is read as session slots, so an arrangement made before
+ * A10 survives the upgrade.
+ */
+function validateView(raw: unknown, ctx: LoadCtx): ViewState | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const root = validateRoot(o.root, ctx);
+  const slots: PaneSlot[] = [];
+  const addSession = (id: unknown): void => {
+    if (typeof id !== 'string' || id === '' || ctx.seen.has(id)) return;
+    if (slots.length >= MAX_PANES) return;
+    ctx.seen.add(id);
+    slots.push({ kind: 'session', id });
+  };
+  if (Array.isArray(o.slots)) {
+    for (const s of o.slots) {
+      // Only session slots are ever written (see persistView); anything else in
+      // the bag is a hand-edit or a future build's blob, and conjuring a file
+      // pane out of it would conjure its contents too.
+      if (s !== null && typeof s === 'object' && (s as Record<string, unknown>).kind === 'session') {
+        addSession((s as Record<string, unknown>).id);
       }
     }
+  } else if (Array.isArray(o.sessions)) {
+    for (const s of o.sessions) addSession(s);
   }
-  if (sessions.length === 0) return null; // empty (incl. old launcher views): drop
+  if (slots.length === 0 && root?.kind !== 'home') return null;
   const focusedRaw = typeof o.focused === 'number' ? Math.trunc(o.focused) : 0;
-  const focused = Math.min(Math.max(0, focusedRaw), sessions.length - 1);
+  const focused = Math.min(Math.max(0, focusedRaw), Math.max(0, slots.length - 1));
   const id = typeof o.id === 'string' && o.id !== '' ? o.id : crypto.randomUUID();
   const splitRaw = (o.split ?? null) as Record<string, unknown> | null;
   return {
     id,
-    sessions,
+    root,
+    slots,
     focused,
     l3: o.l3 === 'R' ? 'R' : 'L',
     split: { col: clampSplit(splitRaw?.col), row: clampSplit(splitRaw?.row) },
@@ -305,9 +410,11 @@ function validateView(raw: unknown, seen: Set<string>): ViewState | null {
 
 /**
  * v1 -> v2 migration: each v1 tab (fixed layout, 4 pane slots) becomes a
- * view whose sessions are the tab's visible occupied slots in order; empty
- * v1 tabs are dropped (there is no launcher view kind anymore). Ids are
- * kept so `active` maps across.
+ * rootless view whose slots are the tab's visible occupied sessions in order;
+ * empty v1 tabs are dropped (there is no launcher view kind anymore). Ids are
+ * kept so `active` maps across. A v1 blob predates roots entirely, so every
+ * migrated view is a plain session tab and `Home` is added afterwards by
+ * `ensureHomeView()`.
  */
 function migrateV1(parsed: unknown, seen: Set<string>): { views: ViewState[]; active: unknown } {
   const views: ViewState[] = [];
@@ -338,7 +445,8 @@ function migrateV1(parsed: unknown, seen: Set<string>): { views: ViewState[]; ac
         const splitRaw = (tab.split ?? null) as Record<string, unknown> | null;
         views.push({
           id: typeof tab.id === 'string' && tab.id !== '' ? tab.id : crypto.randomUUID(),
-          sessions,
+          root: null,
+          slots: sessions.map((id) => ({ kind: 'session', id })),
           focused: Math.max(0, focusedSession !== null ? sessions.indexOf(focusedSession) : 0),
           l3: 'L',
           split: { col: clampSplit(splitRaw?.col), row: clampSplit(splitRaw?.row) },
@@ -355,7 +463,7 @@ function migrateV1(parsed: unknown, seen: Set<string>): { views: ViewState[]; ac
  * every server session has a view.
  */
 export function loadUi(): void {
-  const seen = new Set<string>();
+  const ctx: LoadCtx = { seen: new Set<string>(), home: false };
   let views: ViewState[] = [];
   let active: unknown = null;
 
@@ -374,7 +482,7 @@ export function loadUi(): void {
     const o = parsed as Record<string, unknown>;
     if (Array.isArray(o.views)) {
       for (const v of o.views) {
-        const vv = validateView(v, seen);
+        const vv = validateView(v, ctx);
         if (vv !== null && views.length < MAX_VIEWS) views.push(vv);
       }
     }
@@ -392,7 +500,7 @@ export function loadUi(): void {
       v1 = null;
     }
     if (v1 !== null) {
-      const m = migrateV1(v1, seen);
+      const m = migrateV1(v1, ctx.seen);
       views = m.views;
       active = m.active;
     }
@@ -409,8 +517,10 @@ export function loadUi(): void {
       ? active
       : (views[0]?.id ?? '');
   reconcileViews();
-  // Zero views is a legal state (the handoff's empty state): the launch
-  // dialog opens on demand instead of a launcher tab being ever-present.
+  // Zero SLOTS is the legal empty state (the handoff's): the launch dialog
+  // opens on demand instead of a launcher tab being ever-present. Zero VIEWS
+  // is not a state anymore — Home is always there, possibly empty.
+  ensureHomeView();
   normalizeActive();
   saveUi();
 }
@@ -424,39 +534,81 @@ function normalizeActive(): void {
   }
 }
 
+/** Is this the fixed Home tab — the one that is never closed, dissolved or moved? */
+function isHome(v: ViewState): boolean {
+  return v.root?.kind === 'home';
+}
+
+/**
+ * `Home` exists and is `state.views[0]` (user decision 2026-09-15, decision 4:
+ * always present, always first, never draggable, never closable, never
+ * dissolved — it may stand empty). Called at the top of `reconcileViews()` and
+ * again in `loadUi()`; idempotent, and it never notifies — the callers own
+ * their one save + notify.
+ *
+ * Returns whether it had to change anything.
+ */
+export function ensureHomeView(): boolean {
+  const idx = state.views.findIndex(isHome);
+  if (idx === 0) return false;
+  if (idx > 0) {
+    const [home] = state.views.splice(idx, 1);
+    state.views.unshift(home as ViewState);
+    return true;
+  }
+  state.views.unshift(newView({ kind: 'home' }, []));
+  return true;
+}
+
+/**
+ * The lowest strip position anything may be inserted at: nothing is ever
+ * placed before `Home`.
+ */
+function firstMovableIndex(): number {
+  return state.views.length > 0 && isHome(state.views[0] as ViewState) ? 1 : 0;
+}
+
 // --------------------------------------------------------------------------
 // View geometry: slot insertion / removal for the fixed split shapes
 // --------------------------------------------------------------------------
 
+/** Index of a slot inside a view, by KEY — never by `indexOf` on a raw string. */
+function indexOfSlot(v: ViewState, key: string): number {
+  return v.slots.findIndex((s) => slotKey(s) === key);
+}
+
 /**
- * Insert sessions into a view at (slot, zone). Single-id inserts split the
- * dropped-on pane; multi-id (merging a split tab) and 'fill' append in
- * order. The caller has already checked capacity and detached the ids from
- * other views. Focus lands on the first inserted session.
+ * Insert panes into a view at (slot, zone). Kind-blind: a file splits a
+ * terminal's pane exactly the way a terminal splits it. A single insert splits
+ * the dropped-on pane; multi-item (merging a split tab) and 'fill' append in
+ * order. The caller has already checked capacity and detached the items from
+ * other views. Focus lands on the first inserted pane.
  */
-function insertSessions(v: ViewState, slot: number, zone: Zone, ids: string[]): void {
-  const first = ids[0];
+function insertSlots(v: ViewState, slot: number, zone: Zone, items: PaneSlot[]): void {
+  const first = items[0];
   if (first === undefined) return;
-  const s = v.sessions;
+  const s = v.slots;
   const n = s.length;
-  if (ids.length > 1 || zone === 'fill' || n + ids.length > MAX_PANES) {
-    v.sessions = [...s, ...ids].slice(0, MAX_PANES);
+  if (n === 0 || items.length > 1 || zone === 'fill' || n + items.length > MAX_PANES) {
+    // n === 0 is a ROOTED view standing empty (A10): there is no pane to split,
+    // so the first one simply lands.
+    v.slots = [...s, ...items].slice(0, MAX_PANES);
   } else if (n === 1) {
-    v.sessions = zone === 'left' ? [first, s[0] as string] : [s[0] as string, first];
+    v.slots = zone === 'left' ? [first, s[0] as PaneSlot] : [s[0] as PaneSlot, first];
   } else if (n === 2) {
-    const [a, b] = s as [string, string];
+    const [a, b] = s as [PaneSlot, PaneSlot];
     if (slot === 0) {
       // Split the left pane vertically: tall pane moves to the right column.
       v.l3 = 'R';
-      v.sessions = zone === 'top' ? [first, a, b] : [a, first, b];
+      v.slots = zone === 'top' ? [first, a, b] : [a, first, b];
     } else {
       v.l3 = 'L';
-      v.sessions = zone === 'top' ? [a, first, b] : [a, b, first];
+      v.slots = zone === 'top' ? [a, first, b] : [a, b, first];
     }
   } else {
     // n === 3: only the tall pane can split (into the 2x2).
-    const [a, b, c] = s as [string, string, string];
-    v.sessions =
+    const [a, b, c] = s as [PaneSlot, PaneSlot, PaneSlot];
+    v.slots =
       v.l3 === 'L'
         ? zone === 'top'
           ? [first, b, a, c]
@@ -465,42 +617,42 @@ function insertSessions(v: ViewState, slot: number, zone: Zone, ids: string[]): 
           ? [a, first, b, c]
           : [a, c, b, first];
   }
-  v.focused = Math.max(0, v.sessions.indexOf(first));
+  v.focused = Math.max(0, indexOfSlot(v, slotKey(first)));
 }
 
-/** Remove the session at `slot`, remapping the 2x2 into the right 3-variant. */
+/** Remove the pane at `slot`, remapping the 2x2 into the right 3-variant. */
 function removeAtSlot(v: ViewState, slot: number): void {
-  const s = v.sessions;
-  const focusId = s[v.focused] ?? null;
+  const s = v.slots;
+  const focusKey = s[v.focused] !== undefined ? slotKey(s[v.focused] as PaneSlot) : null;
   if (s.length === 4) {
-    const [a, b, c, d] = s as [string, string, string, string];
+    const [a, b, c, d] = s as [PaneSlot, PaneSlot, PaneSlot, PaneSlot];
     // Removing from the left column leaves the right column stacked (L);
     // removing from the right column leaves the left column stacked (R).
     if (slot === 0) {
-      v.sessions = [c, b, d];
+      v.slots = [c, b, d];
       v.l3 = 'L';
     } else if (slot === 2) {
-      v.sessions = [a, b, d];
+      v.slots = [a, b, d];
       v.l3 = 'L';
     } else if (slot === 1) {
-      v.sessions = [a, c, d];
+      v.slots = [a, c, d];
       v.l3 = 'R';
     } else {
-      v.sessions = [a, c, b];
+      v.slots = [a, c, b];
       v.l3 = 'R';
     }
   } else {
-    v.sessions = s.filter((_, i) => i !== slot);
+    v.slots = s.filter((_, i) => i !== slot);
   }
-  const keep = focusId !== null ? v.sessions.indexOf(focusId) : -1;
-  v.focused = keep >= 0 ? keep : Math.min(Math.max(0, slot), Math.max(0, v.sessions.length - 1));
+  const keep = focusKey !== null ? indexOfSlot(v, focusKey) : -1;
+  v.focused = keep >= 0 ? keep : Math.min(Math.max(0, slot), Math.max(0, v.slots.length - 1));
 }
 
-/** Drop-zone kinds available on a slot of a view for a drag of `count` sessions. */
+/** Drop-zone kinds available on a slot of a view for a drag of `count` panes. */
 export function dropZonesFor(v: ViewState, slot: number, count: number): Zone[] {
-  const n = v.sessions.length;
-  // Views always hold ≥1 session (validateView/reconcileViews dissolve
-  // empties) — defensive guard only: no sessions, nothing to anchor zones to.
+  const n = v.slots.length;
+  // A ROOTED view may stand empty (A10) — there is no pane to anchor a zone to,
+  // and its empty state takes the drop instead.
   if (n === 0) return [];
   if (n + count > MAX_PANES) return [];
   if (count > 1) return ['fill'];
@@ -515,13 +667,19 @@ export function dropZonesFor(v: ViewState, slot: number, count: number): Zone[] 
 // --------------------------------------------------------------------------
 
 export function viewOfSession(sessionId: string): ViewState | undefined {
-  return state.views.find((v) => v.sessions.includes(sessionId));
+  const key = slotKey({ kind: 'session', id: sessionId });
+  return state.views.find((v) => indexOfSlot(v, key) !== -1);
 }
 
-/** Remove a view; views may reach zero (the empty state). Keeps active valid. */
+/**
+ * Remove a view. `Home` is refused: it is the fixed first tab and stands empty
+ * rather than disappearing (user decision 2026-09-15, decision 4). Keeps
+ * active valid.
+ */
 function dissolveView(id: string): void {
   const idx = state.views.findIndex((v) => v.id === id);
   if (idx === -1) return;
+  if (isHome(state.views[idx] as ViewState)) return;
   state.views.splice(idx, 1);
   if (state.views.length === 0) {
     state.activeViewId = '';
@@ -530,33 +688,41 @@ function dissolveView(id: string): void {
   }
 }
 
-/** Pull a session out of whatever view holds it; dissolve the view if emptied. */
+/**
+ * Pull a session out of whatever view holds it. A ROOTLESS view emptied this
+ * way dissolves (today's rule); a rooted one stays — the folder tab is about
+ * the folder, not about what happens to be open in it.
+ */
 function detachFromViews(sessionId: string): void {
   const v = viewOfSession(sessionId);
   if (v === undefined) return;
-  removeAtSlot(v, v.sessions.indexOf(sessionId));
-  if (v.sessions.length === 0) dissolveView(v.id);
+  removeAtSlot(v, indexOfSlot(v, slotKey({ kind: 'session', id: sessionId })));
+  if (v.slots.length === 0 && v.root === null) dissolveView(v.id);
 }
 
 /**
- * Reconcile views with server sessions: prune ids the server no longer has
- * (skipping `skipViewId` — the active view's slots are left to their sockets,
- * which surface a structural "gone" note instead of silently vanishing), and
- * give any unassigned session its own tab (not activated). Returns whether
- * anything structural changed.
+ * Reconcile views with server sessions: prune SESSION slots the server no
+ * longer has (skipping `skipViewId` — the active view's slots are left to
+ * their sockets, which surface a structural "gone" note instead of silently
+ * vanishing), and give any unassigned session its own tab (not activated).
+ * Returns whether anything structural changed.
+ *
+ * File and diff slots are never touched here: a path is not a session id, and
+ * a terminal exiting is no reason for the file beside it to vanish. A ROOTED
+ * view emptied this way is not dissolved either.
  */
 export function reconcileViews(skipViewId?: string): boolean {
-  let changed = false;
+  let changed = ensureHomeView();
   for (const v of [...state.views]) {
     if (v.id === skipViewId) continue;
-    for (let i = v.sessions.length - 1; i >= 0; i--) {
-      const id = v.sessions[i] as string;
-      if (!state.sessions.has(id)) {
+    for (let i = v.slots.length - 1; i >= 0; i--) {
+      const s = v.slots[i] as PaneSlot;
+      if (s.kind === 'session' && !state.sessions.has(s.id)) {
         removeAtSlot(v, i);
         changed = true;
       }
     }
-    if (v.sessions.length === 0) {
+    if (v.slots.length === 0 && v.root === null) {
       dissolveView(v.id);
       changed = true;
     }
@@ -682,16 +848,24 @@ export function activeView(): ViewState | null {
   return v ?? state.views[0] ?? null;
 }
 
-/** Visible pane count of a view (1..4). */
+/**
+ * Visible pane count of a view (1..4). A view with ZERO slots has no layout to
+ * speak of — the caller draws its empty state instead and never asks.
+ */
 export function viewLayout(v: ViewState): Layout {
-  return Math.min(MAX_PANES, Math.max(1, v.sessions.length)) as Layout;
+  return Math.min(MAX_PANES, Math.max(1, v.slots.length)) as Layout;
 }
 
-/** Structural tab close (no killing — callers kill sessions first if asked to). */
+/**
+ * Structural tab close (no killing — callers kill sessions first if asked to).
+ * `Home` is never closed (user decision 2026-09-15, decision 4).
+ */
 export function closeView(id: string): void {
-  if (!state.views.some((v) => v.id === id)) return;
+  const v = state.views.find((x) => x.id === id);
+  if (v === undefined || isHome(v)) return;
   log.debug(`tab closed: view=${id}`);
   dissolveView(id);
+  pruneOrphanEdits();
   saveUi();
   notify('ui');
 }
@@ -714,7 +888,7 @@ export function setActiveViewIndex(i: number): void {
 export function focusSession(sessionId: string): void {
   const v = viewOfSession(sessionId);
   if (v === undefined) return;
-  v.focused = v.sessions.indexOf(sessionId);
+  v.focused = Math.max(0, indexOfSlot(v, slotKey({ kind: 'session', id: sessionId })));
   state.activeViewId = v.id;
   saveUi();
   notify('ui');
@@ -722,7 +896,8 @@ export function focusSession(sessionId: string): void {
 
 /**
  * Keyboard twin of the reorder drag (ctrl+alt+shift+pgup/pgdn): move the
- * active tab one strip position left/right. No-op at the strip ends.
+ * active tab one strip position left/right. No-op at the strip ends, and on
+ * `Home` — which never moves and never lets another tab past it.
  */
 export function moveActiveViewBy(delta: -1 | 1): void {
   const from = state.views.findIndex((v) => v.id === state.activeViewId);
@@ -730,12 +905,17 @@ export function moveActiveViewBy(delta: -1 | 1): void {
   reorderView(state.activeViewId, delta === -1 ? from - 1 : from + 2);
 }
 
-/** Move a view to a new strip position (tab drag onto strip space). */
+/**
+ * Move a view to a new strip position (tab drag onto strip space). `Home`
+ * itself never moves, and no view is ever placed before it.
+ */
 export function reorderView(id: string, toIndex: number): void {
   const from = state.views.findIndex((v) => v.id === id);
   if (from === -1) return;
-  let to = Math.min(Math.max(0, toIndex), state.views.length);
+  if (isHome(state.views[from] as ViewState)) return;
+  let to = Math.min(Math.max(firstMovableIndex(), toIndex), state.views.length);
   if (to > from) to--;
+  if (to < firstMovableIndex()) to = firstMovableIndex();
   if (to === from) return;
   const [v] = state.views.splice(from, 1);
   state.views.splice(to, 0, v as ViewState);
@@ -746,20 +926,23 @@ export function reorderView(id: string, toIndex: number): void {
 export type MergeResult = 'ok' | 'full' | 'no';
 
 /**
- * Drag-to-split: dissolve view `sourceId` and insert its sessions into view
+ * Drag-to-split: dissolve view `sourceId` and insert its panes into view
  * `targetId` at (slot, zone). 'full' when the result would exceed 4 panes.
+ * `Home` is never the SOURCE — it is never dissolved, and emptying it by drag
+ * would leave the user's fixed first tab blank without them closing anything.
  */
 export function mergeViews(targetId: string, sourceId: string, slot: number, zone: Zone): MergeResult {
   const target = state.views.find((v) => v.id === targetId);
   const source = state.views.find((v) => v.id === sourceId);
   if (target === undefined || source === undefined || targetId === sourceId) return 'no';
-  if (target.sessions.length + source.sessions.length > MAX_PANES) return 'full';
-  const ids = [...source.sessions];
-  source.sessions = [];
+  if (isHome(source)) return 'no';
+  if (target.slots.length + source.slots.length > MAX_PANES) return 'full';
+  const items = [...source.slots];
+  source.slots = [];
   dissolveView(source.id);
-  insertSessions(target, slot, zone, ids);
+  insertSlots(target, slot, zone, items);
   if (state.activeViewId === sourceId) state.activeViewId = target.id;
-  log.debug(`split merge: view=${target.id} panes=${target.sessions.length} (absorbed view=${sourceId})`);
+  log.debug(`split merge: view=${target.id} panes=${target.slots.length} (absorbed view=${sourceId})`);
   saveUi();
   notify('ui');
   return 'ok';
@@ -768,38 +951,41 @@ export function mergeViews(targetId: string, sourceId: string, slot: number, zon
 /**
  * Move one session into another view (pane-header drop on a tab; the
  * drawer's keyboard "split into view" path uses the active view). Appends.
+ * Its SOURCE may be Home — a session leaving Home is an ordinary move; it is
+ * the Home VIEW that never goes anywhere.
  */
 export function moveSessionToView(sessionId: string, targetId: string): MergeResult {
   const target = state.views.find((v) => v.id === targetId);
   const source = viewOfSession(sessionId);
   if (target === undefined || !state.sessions.has(sessionId)) return 'no';
   if (source !== undefined && source.id === targetId) return 'no';
-  if (target.sessions.length + 1 > MAX_PANES) return 'full';
+  if (target.slots.length + 1 > MAX_PANES) return 'full';
   const sourceWasActive = source !== undefined && source.id === state.activeViewId;
   detachFromViews(sessionId);
-  insertSessions(target, 0, 'fill', [sessionId]);
+  insertSlots(target, 0, 'fill', [{ kind: 'session', id: sessionId }]);
   // Moving the active view's only session dissolves it — follow the session.
   if (sourceWasActive && !state.views.some((v) => v.id === state.activeViewId)) {
     state.activeViewId = target.id;
   }
-  log.debug(`split move: session=${sessionId} into view=${target.id} panes=${target.sessions.length}`);
+  log.debug(`split move: session=${sessionId} into view=${target.id} panes=${target.slots.length}`);
   saveUi();
   notify('ui');
   return 'ok';
 }
 
 /**
- * Extract: a session leaves its (multi-session) view and becomes its own tab
- * again, inserted at `atIndex` (default: right after its old view). No-op for
- * a session already alone in its view.
+ * Extract: a session leaves its (multi-pane) view and becomes its own tab
+ * again, inserted at `atIndex` (default: right after its old view, never
+ * before `Home`). No-op for a session that is already the only pane of its
+ * view — including in Home, which it may leave like any other view.
  */
 export function extractSession(sessionId: string, atIndex?: number): void {
   const v = viewOfSession(sessionId);
-  if (v === undefined || v.sessions.length <= 1) return;
-  removeAtSlot(v, v.sessions.indexOf(sessionId));
+  if (v === undefined || v.slots.length <= 1) return;
+  removeAtSlot(v, indexOfSlot(v, slotKey({ kind: 'session', id: sessionId })));
   const nv = newSessionView(sessionId);
   const idx = atIndex ?? state.views.findIndex((x) => x.id === v.id) + 1;
-  state.views.splice(Math.min(Math.max(0, idx), state.views.length), 0, nv);
+  state.views.splice(Math.min(Math.max(firstMovableIndex(), idx), state.views.length), 0, nv);
   log.debug(`split extract: session=${sessionId} left view=${v.id} into its own tab`);
   saveUi();
   notify('ui');
@@ -808,11 +994,185 @@ export function extractSession(sessionId: string, atIndex?: number): void {
 /** Exited-banner relaunch: swap the old session id for the new one in place. */
 export function replaceSessionInView(viewId: string, slot: number, newId: string): void {
   const v = state.views.find((x) => x.id === viewId);
-  if (v === undefined || slot < 0 || slot >= v.sessions.length) return;
+  if (v === undefined || slot < 0 || slot >= v.slots.length) return;
+  // Only a session pane relaunches: a file pane has no session to replace.
+  if ((v.slots[slot] as PaneSlot).kind !== 'session') return;
   detachFromViews(newId); // uniqueness: upsertSession may have auto-tabbed it
-  v.sessions[slot] = newId;
+  v.slots[slot] = { kind: 'session', id: newId };
   saveUi();
   notify('ui');
+}
+
+// --------------------------------------------------------------------------
+// Files as panes (A10, user decision 2026-09-15)
+// --------------------------------------------------------------------------
+//
+// A file opens FULL in the pane area, as a pane of the tab that belongs to its
+// ROOT FOLDER — `Home`, or the project. Everything here is structural: it
+// moves panes around, it never reads or writes a file, and it never decides
+// anything about a session.
+
+/** What an open-a-file request answered. */
+export type OpenFileResult =
+  /** The file is on screen, focused, in an active tab. */
+  | 'ok'
+  /** The target tab already shows 4 panes. */
+  | 'full'
+  /** The centre of a TERMINAL pane: it splits at an edge, it never replaces. */
+  | 'session-centre'
+  /** No such view, or no such pane in it. */
+  | 'no-view'
+  /** That pane cannot split this way (the short pane of a 3-split, or a full tab). */
+  | 'no-zone';
+
+/**
+ * The tab for a root: the one that already has it, or a new one. Home is
+ * `state.views[0]` by construction; a project tab is appended. Notifies only
+ * when it had to create something.
+ */
+export function viewForRoot(root: ViewRoot): ViewState {
+  if (root.kind === 'home') {
+    if (ensureHomeView()) {
+      saveUi();
+      notify('ui');
+    }
+    return state.views[0] as ViewState;
+  }
+  const found = state.views.find((v) => v.root?.kind === 'project' && v.root.id === root.id);
+  if (found !== undefined) return found;
+  const v = newView({ kind: 'project', id: root.id }, []);
+  state.views.push(v);
+  log.debug(`folder tab opened: view=${v.id} project=${root.id}`);
+  saveUi();
+  notify('ui');
+  return v;
+}
+
+/**
+ * Open a file as a pane of its root's tab, and go there. `label` is the name
+ * the caller drew in its row — it says what the user clicked in the log; the
+ * pane's own title is derived from the path (`slotTitle`), so no path can
+ * reach a label by this route.
+ *
+ * A file already open in that tab is RAISED rather than opened twice: the
+ * second click on a row must not spend the tab's last pane on a copy. (An
+ * explicit split — `openFileAt` — may still put the same file in two panes;
+ * they share one entry in `state.edits`.)
+ */
+export function openFile(root: ViewRoot, path: string, label: string): OpenFileResult {
+  const v = viewForRoot(root);
+  const key = fileTabId(path);
+  const open = indexOfSlot(v, key);
+  if (open === -1) {
+    if (v.slots.length >= MAX_PANES) return 'full';
+    insertSlots(v, 0, 'fill', [{ kind: 'file', path }]);
+    log.debug(`file pane opened: view=${v.id} panes=${v.slots.length} name=${label}`);
+  } else {
+    v.focused = open;
+  }
+  state.activeViewId = v.id;
+  saveUi();
+  notify('ui');
+  return 'ok';
+}
+
+/**
+ * Open the READ-ONLY changes to one file in one commit, as a pane of its
+ * root's tab (user decision 8, 2026-09-15: the A6 `Changes in <hash>` screen
+ * survives as the third pane kind). The twin of `openFile`, and deliberately a
+ * separate door: a diff has no unsaved text, no Save and no `f:` key, so the
+ * two never share a code path that could give one the other's rights.
+ *
+ * Added in part A10 phase 1A, next to the phase 0 model: the commit view's
+ * `Changes` button had nowhere else to go.
+ */
+export function openDiff(root: ViewRoot, hash: string, path: string): OpenFileResult {
+  const v = viewForRoot(root);
+  const open = indexOfSlot(v, diffTabId(hash, path));
+  if (open === -1) {
+    if (v.slots.length >= MAX_PANES) return 'full';
+    insertSlots(v, 0, 'fill', [{ kind: 'diff', hash, path }]);
+    log.debug(`diff pane opened: view=${v.id} panes=${v.slots.length} commit=${hash}`);
+  } else {
+    v.focused = open;
+  }
+  state.activeViewId = v.id;
+  saveUi();
+  notify('ui');
+  return 'ok';
+}
+
+/**
+ * Open a file at a PANE: `'replace'` puts it in that pane's place (the centre
+ * of a file pane), a zone splits that pane (its edges). The centre of a
+ * TERMINAL pane is refused — `'session-centre'` is what the caller flashes
+ * "drop on an edge to split" for (user decision 7, 2026-09-15).
+ */
+export function openFileAt(
+  viewId: string,
+  slot: number,
+  where: Zone | 'replace',
+  path: string,
+): OpenFileResult {
+  const v = state.views.find((x) => x.id === viewId);
+  if (v === undefined) return 'no-view';
+  const target = v.slots[slot];
+  if (target === undefined) return 'no-view';
+  if (where === 'replace') {
+    if (target.kind === 'session') return 'session-centre';
+    v.slots[slot] = { kind: 'file', path };
+    v.focused = slot;
+    // The replaced pane may have been the last one showing its file.
+    pruneOrphanEdits();
+  } else {
+    if (v.slots.length + 1 > MAX_PANES) return 'full';
+    if (!dropZonesFor(v, slot, 1).includes(where)) return 'no-zone';
+    insertSlots(v, slot, where, [{ kind: 'file', path }]);
+  }
+  state.activeViewId = v.id;
+  log.debug(`file pane placed: view=${v.id} slot=${slot} at=${where} panes=${v.slots.length}`);
+  saveUi();
+  notify('ui');
+  return 'ok';
+}
+
+/**
+ * Forget the unsaved text of every file no pane shows any more (PROJECT-SCOPE:
+ * it is dropped when the LAST pane showing that file closes — the same file in
+ * two panes keeps sharing until both are gone). Called at the END of every
+ * path that removes slots, never midway through a move, where slots are out of
+ * one view on their way into another.
+ */
+function pruneOrphanEdits(): void {
+  const live = new Set<string>();
+  for (const v of state.views) {
+    for (const s of v.slots) if (s.kind === 'file') live.add(slotKey(s));
+  }
+  for (const key of [...state.edits.keys()]) if (!live.has(key)) state.edits.delete(key);
+}
+
+/**
+ * Close ONE pane — a file or a diff. A session pane is refused here: ending a
+ * session is a different act with its own confirmation (the A3 rule), and
+ * `removeSessionEverywhere` is the door for it.
+ *
+ * A PROJECT-rooted tab left with no panes at all is removed with its last file
+ * (user decision 6, 2026-09-15) — unless a terminal is still in it, which is
+ * simply "it still has a pane". `Home` stays, empty. Focus lands on a pane
+ * that exists.
+ */
+export function closeSlot(viewId: string, index: number): boolean {
+  const v = state.views.find((x) => x.id === viewId);
+  if (v === undefined) return false;
+  const slot = v.slots[index];
+  if (slot === undefined || slot.kind === 'session') return false;
+  removeAtSlot(v, index);
+  if (v.slots.length === 0 && !isHome(v)) dissolveView(v.id);
+  pruneOrphanEdits();
+  log.debug(`file pane closed: view=${v.id} panes=${v.slots.length}`);
+  saveUi();
+  notify('ui');
+  return true;
 }
 
 // --------------------------------------------------------------------------
@@ -834,7 +1194,7 @@ export function focusPane(i: number): void {
  *   2: [0|1]     3L: [0|1/2] (0 tall)     3R: [0/1|2] (2 tall)     4: [0|1 / 2|3]
  */
 function neighbors(v: ViewState): Partial<Record<Dir, number>>[] {
-  const n = v.sessions.length;
+  const n = v.slots.length;
   if (n === 2) return [{ right: 1 }, { left: 0 }];
   if (n === 3) {
     return v.l3 === 'L'
@@ -860,25 +1220,26 @@ export function moveFocus(dir: Dir): void {
 }
 
 /**
- * Ctrl+Alt+Shift+Arrow: move the focused session to the neighbor pane WITHIN
- * its view (swap when occupied — panes always are). Focus follows.
+ * Ctrl+Alt+Shift+Arrow: move the FOCUSED PANE to the neighbor pane WITHIN its
+ * view (swap when occupied — panes always are). Kind-blind: a file and a
+ * terminal trade places like two terminals. Focus follows the moved pane.
  */
-export function moveSession(dir: Dir): void {
+export function movePane(dir: Dir): void {
   const v = activeView();
-  if (v === null || v.sessions[v.focused] === undefined) return;
+  if (v === null || v.slots[v.focused] === undefined) return;
   const target = neighbors(v)[v.focused]?.[dir];
   if (target !== undefined) swapPanes(v.id, v.focused, target);
 }
 
-/** Swap two pane slots' sessions (chord move + header drag onto a pane). */
+/** Swap two pane slots (chord move + header drag onto a pane). Kind-blind. */
 export function swapPanes(viewId: string, from: number, to: number): void {
   const v = state.views.find((v) => v.id === viewId);
   if (v === undefined || from === to) return;
-  const n = v.sessions.length;
+  const n = v.slots.length;
   if (from < 0 || to < 0 || from >= n || to >= n) return;
-  const a = v.sessions[from] as string;
-  v.sessions[from] = v.sessions[to] as string;
-  v.sessions[to] = a;
+  const a = v.slots[from] as PaneSlot;
+  v.slots[from] = v.slots[to] as PaneSlot;
+  v.slots[to] = a;
   if (v.id === state.activeViewId) v.focused = to;
   saveUi();
   notify('ui');
@@ -906,14 +1267,21 @@ export function setSplit(axis: 'col' | 'row', f: number, commit: boolean): numbe
 // Aggregates + drawer
 // --------------------------------------------------------------------------
 
+/** Is a SESSION in this tab waiting for an answer? Files never ask for one. */
 export function viewAttention(v: ViewState): boolean {
-  return v.sessions.some((id) => state.sessions.get(id)?.attention === true);
+  return sessionIds(v).some((id) => state.sessions.get(id)?.attention === true);
 }
 
-/** Tab status accent: amber attention > green running > gray exited. */
-export function viewStatus(v: ViewState): 'attn' | 'run' | 'exit' {
+/**
+ * Tab status accent: amber attention > green running > gray exited, and
+ * `'none'` for a tab holding no session at all (Home, or a folder tab showing
+ * only files) — a status dot there would report on nothing.
+ */
+export function viewStatus(v: ViewState): 'attn' | 'run' | 'exit' | 'none' {
+  const ids = sessionIds(v);
+  if (ids.length === 0) return 'none';
   if (viewAttention(v)) return 'attn';
-  const infos = v.sessions.map((id) => state.sessions.get(id));
+  const infos = ids.map((id) => state.sessions.get(id));
   if (infos.some((s) => s?.status === 'running')) return 'run';
   return 'exit';
 }
@@ -1006,12 +1374,14 @@ export function filesPanelVisible(): boolean {
 }
 
 // --------------------------------------------------------------------------
-// The pane area's other occupants (Nocturne A6): the commit view, the editor
+// The pane area's other occupant (Nocturne A6): the commit view
 // --------------------------------------------------------------------------
 //
-// Neither is persisted and neither owns a session. They decide WHAT FILLS THE
-// MIDDLE ROW, which is why every change here notifies `'screen'` and why the
-// chrome — never the panes themselves — reads it.
+// It is not persisted and it owns no session. It decides WHAT FILLS THE MIDDLE
+// ROW — something OTHER than the panes — which is why every change here
+// notifies `'screen'` and why the chrome, never the panes themselves, reads
+// it. Since A10 the editor column is NOT in this group: a file is a pane, so
+// opening one notifies `'ui'` like any other pane change.
 
 /** Open the full commit view over the pane area. */
 export function openCommitView(hash: string): void {
@@ -1045,98 +1415,58 @@ export function toggleCommitFile(hash: string, path: string): void {
   notify('screen');
 }
 
-/**
- * Open a file or a diff in the editor, or raise the tab already open under
- * that id. `label` is a file NAME; `path` is what the tab is about.
- */
-export function openEditorTab(id: string, label: string, path: string, hash?: string): void {
-  const tab: EditorTab = hash === undefined ? { id, label, path } : { id, label, path, hash };
-  state.editor = openTab(state.editor, tab);
-  notify('screen');
-}
-
-/** The id a file at `path` opens under — one spelling for every caller. */
-export function editorFileId(path: string): string {
-  return fileTabId(path);
-}
+// --------------------------------------------------------------------------
+// Unsaved file text (A6, rekeyed by A10): one entry per FILE, not per pane
+// --------------------------------------------------------------------------
 
 /**
- * Close a tab. Its unsaved text is dropped with it.
- *
- * KNOWN GAP, part B4: there is no "you have unsaved changes" confirmation,
- * because until B4 nothing was ever read from disk and nothing can be written
- * to it — a modal about losing placeholder text would be theatre. The amber
- * dot on the tab is the whole warning in A6; B4 adds the confirm together with
- * the real file write.
- *
- * The tab close is only the FIRST of four doors typed text falls out of, and
- * B4 has to cover all four: closing the tab (here), reloading the page and
- * closing the window (nothing in `state.edits` is persisted — by design, see
- * the field's own note), and the backend's grace timer ending the app after
- * the last window closed. A confirm on the tab alone would make the other
- * three feel like a bug rather than the same known gap.
- */
-export function closeEditorTab(id: string): void {
-  const next = closeTab(state.editor, id);
-  if (next === state.editor) return;
-  state.editor = next;
-  state.edits.delete(id);
-  notify('screen');
-}
-
-/** Raise an open tab. */
-export function setEditorActive(id: string): void {
-  const next = setActive(state.editor, id);
-  if (next.active === state.editor.active) return;
-  state.editor = next;
-  notify('screen');
-}
-
-/**
- * Record what the user typed. NO notify: the textarea already shows the text,
- * and a rebuild per keystroke would take the caret with it — the editor
- * updates its own gutter and Save button in place and asks for a chrome
- * rebuild only when the DIRTY flag flips (ui/editor.ts).
+ * Record what the user typed, under the slot key `f:<path>`. NO notify: the
+ * textarea already shows the text, and a rebuild per keystroke would take the
+ * caret with it — the file pane updates its own gutter and Save button in
+ * place and asks for a chrome rebuild only when the DIRTY flag flips.
  */
 export function setEdit(id: string, text: string): void {
   state.edits.set(id, text);
 }
 
-/** Is this tab holding unsaved text? */
+/** Is this file holding unsaved text? */
 export function editorDirty(id: string | null): boolean {
   return id !== null && state.edits.has(id);
 }
 
-/** The unsaved text of a tab, or undefined when it has none. */
+/** The unsaved text of a file, or undefined when it has none. */
 export function editText(id: string): string | undefined {
   return state.edits.get(id);
 }
 
 /**
  * Save: forget the unsaved text and hand it back, so the CALLER writes it
- * where it belongs. In A6 that is the mock map in `ui/files-mock.ts`; part B4
- * makes the same call site a backend write. Saving a clean tab returns null
- * and changes nothing.
+ * where it belongs. Until part B4 that is the mock map in `ui/files-mock.ts`;
+ * B4 makes the same call site a backend write. Saving a clean file returns
+ * null and changes nothing.
+ *
+ * KNOWN GAP, part B4: there is no "you have unsaved changes" confirmation,
+ * because until B4 nothing was ever read from disk and nothing can be written
+ * to it — a modal about losing placeholder text would be theatre. The amber
+ * dot on the pane header is the whole warning; B4 adds the confirm together
+ * with the real file write, and has to cover all four doors the text falls out
+ * of: closing the last pane showing the file (`pruneOrphanEdits`), reloading
+ * the page, closing the window, and the backend's grace timer ending the app
+ * after the last window closed.
  */
 export function saveEdit(id: string): string | null {
   const text = state.edits.get(id);
   if (text === undefined) return null;
   state.edits.delete(id);
-  notify('screen');
+  // 'ui', not 'screen' (A10): a file is a PANE now, so what the save changed is
+  // the pane header's dot and the tab chip — both of them pane-area chrome.
+  notify('ui');
   return text;
 }
 
-/** The tab the editor body is showing, or null when there is no editor. */
-export function activeEditorTab(): EditorTab | null {
-  return activeTab(state.editor);
-}
-
-/**
- * Is the editor column on screen: it has at least one tab AND no commit view
- * is covering the pane area (the two never share it — v3).
- */
-export function editorVisible(): boolean {
-  return state.editor.tabs.length > 0 && state.openCommit === null;
+/** The key a file at `path` is edited under — one spelling for every caller. */
+export function editorFileId(path: string): string {
+  return fileTabId(path);
 }
 
 export function closeDrawer(): void {

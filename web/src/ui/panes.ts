@@ -1,20 +1,33 @@
 /**
- * Pane grid for the ACTIVE view (= tab). A view holds 1..4 sessions in a
- * fixed split shape (see state.ts for the slot maps). Sessions exist
- * independently of views — this module only attaches/detaches xterm views.
- * Zero views renders the centered empty state; new sessions come from the
- * launch dialog (ui/launch.ts).
+ * Pane grid for the ACTIVE view (= tab). A view holds 0..4 SLOTS in a fixed
+ * split shape (see state.ts for the slot maps), and since Nocturne part A10 a
+ * slot is one of three things: a terminal, a file, or a read-only diff. They
+ * mix freely inside one tab — a file may sit beside a running session.
  *
- * Terminals exist only for the active view's slots; switching tabs or
- * changing the split shape disposes and re-attaches (the server replays the
- * full buffer).
+ * Sessions exist independently of views; this module only attaches and
+ * detaches xterm views. Terminals exist only for the active view's SESSION
+ * slots; switching tabs or changing the split shape disposes and re-attaches
+ * (the server replays the full buffer). A slot that merely changes CONTENT is
+ * converted in place (`reconcileSlot`), so swapping a file with the terminal
+ * beside it re-attaches nothing.
  *
  * A pane (Nocturne part A3) is a neutral-900 card holding, top to bottom: a
- * 38px header (state dot, session name, project NAME, state pill, "Own tab"
- * in a split), the exited/lost banner when there is one, and the terminal
- * card — the xterm mount on the terminal ground, with a thin status bar
- * under it (label + mono value pairs, ui/pane-status-model.ts) and the
- * background-agents table (ui/pane-agents.ts, empty in A3) below that.
+ * 38px header, the exited/lost banner when there is one, and the body on the
+ * terminal ground. What those two hold depends on the kind:
+ *
+ *   session  header: state dot, session name, project NAME, state pill,
+ *            "Own tab" in a split. Body: the xterm mount, a thin status bar
+ *            (ui/pane-status-model.ts) and the background-agents table
+ *            (ui/pane-agents.ts, empty in A3).
+ *   file     header: the file's name, an amber dot while it is unsaved, and
+ *            `×`. Body: ui/file-pane.ts (line numbers, the text, Save).
+ *   diff     header: the file's name, `Changes in <hash>`, and `×`. Body: the
+ *            A6 unified diff, read-only.
+ *
+ * A `×` on a FILE or DIFF pane does not break the A3 no-close rule: that rule
+ * is about ENDING SESSIONS, which is still only possible from the tab strip
+ * and the Sessions panel, both of which ask to confirm. Closing a file pane
+ * kills nothing.
  *
  * The status bar is NOT the 2026-07-26 telemetry strip that was removed: it
  * states only what the app already knows (argv model, argv permission mode,
@@ -23,9 +36,10 @@
  * one is the app's view of the session, the other is the session's view of
  * itself.
  *
- * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while a
- * tab is dragged over it (drag-to-split). Pane headers are drag sources:
- * onto another pane = swap, onto the tab strip = extract to its own tab.
+ * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while
+ * something is dragged over it. Pane headers are drag sources — a file
+ * header as much as a session header: onto another pane = swap, onto the tab
+ * strip = extract (sessions only).
  */
 import type { CreateSessionRequest, SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
@@ -39,16 +53,18 @@ import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
 import { paneStatusItems } from './pane-status-model.ts';
 import { renderAgents, type AgentRow } from './pane-agents.ts';
+import { diffPaneBody, filePaneBody, type PaneBody } from './file-pane.ts';
+import { fileName, slotTitle } from './slots-model.ts';
 
 /** How often the status bar's `Time` value is refreshed (the statusline's rate). */
 const STATUS_TICK_MS = 15_000;
 
-interface Slot {
-  index: number;
-  root: HTMLElement;
+/** Everything a SESSION pane owns beyond the shared chrome. */
+interface SessionPayload {
+  kind: 'session';
+  id: string;
   termHost: HTMLElement;
   view: TerminalView | null;
-  sessionId: string | null;
   conn: ConnState | null;
   exitCode: number | null;
   dead: boolean;
@@ -58,13 +74,57 @@ interface Slot {
   state: HTMLElement;
   connChip: HTMLElement;
   extractBtn: HTMLButtonElement;
-  note: HTMLElement;
   statusBar: HTMLElement;
   agentsHost: HTMLElement;
   /** Last rendered status-bar / agents content, so a tick that changed
       nothing does not rebuild the DOM under the user's pointer. */
   statusSig: string;
   agentsSig: string;
+}
+
+/** Everything a FILE pane owns beyond the shared chrome. */
+interface FilePayload {
+  kind: 'file';
+  path: string;
+  body: PaneBody;
+  /** The amber "unsaved" mark in the header; hidden while the file is clean. */
+  dirtyDot: HTMLElement;
+  /** The same fact in words, for a screen reader (the dot is a shape). */
+  dirtyWord: HTMLElement;
+}
+
+/** Everything a read-only DIFF pane owns beyond the shared chrome. */
+interface DiffPayload {
+  kind: 'diff';
+  hash: string;
+  path: string;
+  body: PaneBody;
+  /** `Changes in <hash>` — the header chip, and where the keyboard lands. */
+  chip: HTMLElement;
+}
+
+type Payload = SessionPayload | FilePayload | DiffPayload;
+
+/**
+ * One pane: the chrome that survives every content change, plus the payload of
+ * whatever it is showing right now. The chrome is what makes an in-place
+ * conversion possible — the card stays attached to the grid, so the terminals
+ * in the OTHER panes are never touched when this one changes kind.
+ */
+interface Slot {
+  index: number;
+  /** The `.pane` card; attached to the grid for as long as the layout holds. */
+  root: HTMLElement;
+  /** The 38px header; its children are per kind, the element itself is not. */
+  hd: HTMLElement;
+  /** The body on the terminal ground; its children are per kind. */
+  body: HTMLElement;
+  /** `slotKey()` of what this pane shows, '' while it shows nothing. */
+  key: string;
+  /** The exited/lost banner. Session-only content, chrome-owned so a
+      conversion never reorders the card's children. */
+  note: HTMLElement;
+  pay: Payload | null;
 }
 
 let grid: HTMLElement;
@@ -77,8 +137,8 @@ let renderedCount = -1;
 let renderedL3: st.L3 = 'L';
 let lastFocusKey = '';
 /**
- * The last cols/rows any TerminalView measured for itself. Only read while the
- * pane grid is hidden and the focused slot has no running session to ask —
+ * The last cols/rows any TerminalView measured for itself. Only read when the
+ * focused pane cannot be measured — a hidden grid, or a file in that pane —
  * see `focusedPaneDims()`.
  */
 let lastGoodDims: { cols: number; rows: number } | null = null;
@@ -93,24 +153,30 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
-      // No panes to reconcile without an active view: the grid is showing the
-      // empty state, whose copy is static (renderEmpty draws two buttons and
-      // no count), so this call only MOUNTS it if it is not up yet.
-      if (st.activeView() === null) {
+      // Nothing to reconcile while the grid shows its empty state, whose copy
+      // is static (renderEmpty draws two buttons and no count), so this call
+      // only MOUNTS it if it is not up yet.
+      const v = st.activeView();
+      if (v === null || v.slots.length === 0) {
         render();
         return;
       }
+      // A file pane hears nothing from the server: only session panes have a
+      // header, a banner and a status bar that a session list can change.
       for (const s of slots) {
-        updateHeader(s);
-        updateNote(s);
-        updateStatus(s);
+        if (s.pay?.kind !== 'session') continue;
+        updateHeader(s, s.pay);
+        updateNote(s, s.pay);
+        updateStatus(s.pay);
       }
     }
   });
   // The status bar's `Time` value ages; nothing else in a pane ticks. One
   // timer for the whole grid, at the statusline's rate.
   window.setInterval(() => {
-    for (const s of slots) updateStatus(s);
+    for (const s of slots) {
+      if (s.pay?.kind === 'session') updateStatus(s.pay);
+    }
   }, STATUS_TICK_MS);
   // Regaining window focus while a pane with attention is focused clears it.
   window.addEventListener('focus', () => {
@@ -164,33 +230,60 @@ export function refreshPaneArea(): void {
   if (s !== undefined) clearAttentionIfPending(s);
 }
 
-/** Focus the terminal of the focused slot (used after drawer/tab focus moves). */
+/**
+ * Hand the keyboard to the focused pane — whatever it is showing. The name is
+ * the app's oldest: nine call sites (drawers, dialogs, the commit view, the
+ * shortcuts overlay) say "give the keyboard back to the panes", and which kind
+ * of pane is focused is this module's business, not theirs.
+ */
 export function requestTerminalFocus(): void {
   const s = focusedSlot();
-  if (s !== undefined && s.view !== null && s.sessionId !== null) s.view.focus();
+  if (s === undefined || s.pay === null) return;
+  if (s.pay.kind === 'session') s.pay.view?.focus();
+  else if (s.pay.kind === 'file') s.pay.body.focus();
+  // A read-only diff has nothing to type into: the keyboard lands on the
+  // header chip, which is what the pane is (the A6 rule for a diff tab).
+  else s.pay.chip.focus();
 }
 
 /**
  * Measured cols/rows of the focused pane (sizes launch + relaunch POSTs).
  *
- * A HIDDEN grid is `display: none` and therefore unmeasurable: `proposeDims()`
- * would fall through to its 80x24 clamp fallback and the new PTY would write
- * its first screenful wrapped at 80 columns. The attach reconcile fixes the
- * size afterwards, but never that scrollback — and `New session` (top bar,
- * Ctrl+Alt+T) and the Sessions drawer's resume both stay reachable while the
- * commit view covers the panes. So while the grid is hidden the answer comes
- * from what the app already knows the pane is: the focused session's own live
- * size, else the last size any TerminalView reported, else the same fallback.
+ * Two states make the focused pane unmeasurable, and 80x24 is the wrong answer
+ * to both:
+ *
+ * - A HIDDEN grid is `display: none` (the commit view covers it), so
+ *   `proposeDims()` would fall through to its 80x24 clamp fallback and the new
+ *   PTY would write its first screenful wrapped at 80 columns. The attach
+ *   reconcile fixes the size afterwards, but never that scrollback.
+ * - The focused pane holds a FILE or a diff (A10). A file has no cols and no
+ *   rows at all, and `New session` is reachable from a focused textarea.
+ *
+ * So: the focused session's own live size, else a SESSION pane of this very
+ * tab (it is the size the new pane will get), else the last size any
+ * TerminalView reported, and only then the fallback.
  */
 export function focusedPaneDims(): { cols: number; rows: number } {
   const s = focusedSlot();
-  if (gridHidden()) {
-    const id = s?.sessionId ?? null;
-    const info = id === null ? undefined : st.state.sessions.get(id);
-    if (info !== undefined && info.status === 'running') return { cols: info.cols, rows: info.rows };
-    return lastGoodDims ?? { cols: 80, rows: 24 };
+  if (!gridHidden() && s?.pay?.kind === 'session' && s.pay.view !== null) {
+    return s.pay.view.proposeDims();
   }
-  return s !== undefined && s.view !== null ? s.view.proposeDims() : { cols: 80, rows: 24 };
+  const id = s?.pay?.kind === 'session' ? s.pay.id : null;
+  const info = id === null ? undefined : st.state.sessions.get(id);
+  if (info !== undefined && info.status === 'running') return { cols: info.cols, rows: info.rows };
+  if (!gridHidden()) {
+    // A file is focused: a measurable terminal in the same tab is a better
+    // answer than anything remembered.
+    for (const other of slots) {
+      if (other.pay?.kind === 'session' && other.pay.view !== null) return other.pay.view.proposeDims();
+    }
+  }
+  for (const other of slots) {
+    if (other.pay?.kind !== 'session') continue;
+    const live = st.state.sessions.get(other.pay.id);
+    if (live !== undefined && live.status === 'running') return { cols: live.cols, rows: live.rows };
+  }
+  return lastGoodDims ?? { cols: 80, rows: 24 };
 }
 
 // --------------------------------------------------------------------------
@@ -199,7 +292,7 @@ export function focusedPaneDims(): { cols: number; rows: number } {
 
 function render(): void {
   // EVERY path below can construct a TerminalView (a rebuild does, and so does
-  // a reconcile whose slot changed session), and xterm must open on an
+  // a reconcile whose slot changed kind or session), and xterm must open on an
   // attached, MEASURABLE node — opening or measuring one on a hidden grid can
   // permanently downgrade the WebGL renderer and leaves the new view at
   // xterm's default 80x24, which `connect()` then sends to a PTY that is not
@@ -209,24 +302,36 @@ function render(): void {
   // back (main.ts calls it on the same 'screen' notification that unhides it).
   if (gridHidden()) return;
   const v = st.activeView();
-  if (v === null) {
-    renderEmpty();
+  // `Home` is always a view (A10), so `null` is only the moment before
+  // `loadUi()` has run. It and an EMPTY tab draw the same thing.
+  if (v === null || v.slots.length === 0) {
+    renderEmpty(v);
     return;
   }
-  const count = v.sessions.length;
+  const count = v.slots.length;
   if (v.id !== renderedViewId || count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
     rebuild(v, count);
   } else {
-    for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
+    // NOT a rebuild when a slot merely changed CONTENT: a rebuild disposes and
+    // re-attaches every terminal in the tab, and a swap of two panes would
+    // then cost an attach (and a full replay) for the sessions that never
+    // moved. `reconcileSlot` converts one pane in place instead.
+    for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
   }
   applyFocus();
 }
 
 /**
- * Empty state (zero views ⇔ zero sessions), Nocturne A3: a centred column of
- * words and two ways forward — "New session" (the launch dialog, same
- * outlined accent as the top bar's) and "Open history" (the sessions drawer,
- * where every earlier session can be picked up). No illustration, no tile.
+ * Empty state, Nocturne A3 + A10: a centred column of words and two ways
+ * forward — "New session" (the launch dialog, same outlined accent as the top
+ * bar's) and "Open history" (the sessions drawer, where every earlier session
+ * can be picked up). No illustration, no tile.
+ *
+ * Since A10 an empty pane area means an empty TAB, and that is normally only
+ * `Home`: a project folder tab is removed with its last pane and a rootless
+ * one dissolves (a folder tab CAN stand empty for one other reason — its
+ * sessions were pruned because the server no longer has them). Home says one
+ * extra line, because it is where the Files panel's rows land.
  *
  * Two lines the reference has are deliberately absent: the grace countdown
  * ("the background service stops in N seconds") — the backend only counts
@@ -234,10 +339,11 @@ function render(): void {
  * very reason it is not running — and a history count on the second button,
  * which would need the drawer's list to be honest about what it opens.
  */
-function renderEmpty(): void {
-  const sig = '__empty';
+function renderEmpty(v: st.ViewState | null): void {
+  const home = v !== null && v.root?.kind === 'home';
+  const sig = home ? '__empty-home' : '__empty';
   if (renderedViewId === sig) return;
-  for (const s of slots) s.view?.dispose();
+  for (const s of slots) teardown(s);
   slots = [];
   renderedViewId = sig;
   renderedCount = -1;
@@ -258,11 +364,14 @@ function renderEmpty(): void {
     button('btn-quiet', 'Open history', () => st.openDrawer('sessions')),
   );
   box.append(hd, sub, row);
+  if (home) {
+    box.append(el('div', 'empty-sub', 'A file you open in the Files panel opens here too.'));
+  }
   grid.replaceChildren(box);
 }
 
 function rebuild(v: st.ViewState, count: number): void {
-  for (const s of slots) s.view?.dispose();
+  for (const s of slots) teardown(s);
   slots = [];
   renderedViewId = v.id;
   renderedCount = count;
@@ -273,11 +382,11 @@ function rebuild(v: st.ViewState, count: number): void {
   else delete grid.dataset.l3;
   grid.replaceChildren();
   applySplit(v);
-  // createSessionSlot appends its root to the grid BEFORE constructing the
-  // TerminalView — xterm must open on an attached, measurable node.
-  for (let i = 0; i < count; i++) slots.push(createSessionSlot(i));
+  // createSlot appends its card to the grid; reconcileSlot fills it AFTER
+  // that — xterm must open on an attached, measurable node.
+  for (let i = 0; i < count; i++) slots.push(createSlot(i));
   buildDividers(v);
-  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.sessions[i] ?? null);
+  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
 }
 
 // --------------------------------------------------------------------------
@@ -301,7 +410,7 @@ function applySplitNow(): void {
 }
 
 function buildDividers(v: st.ViewState): void {
-  const n = v.sessions.length;
+  const n = v.slots.length;
   if (n >= 2) grid.append(makeDivider('col', v, null));
   // 3 panes: the row divider only spans the stacked column (L = right, R = left).
   if (n >= 3) grid.append(makeDivider('row', v, n === 3 ? v.l3 : null));
@@ -383,35 +492,183 @@ function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | 
   return d;
 }
 
-function reconcileSlot(index: number, sessionId: string | null): void {
+/**
+ * Bring one pane in line with what the view says it should show — IN PLACE.
+ *
+ * The card, its header element and its body element survive; only their
+ * contents change. That is the whole point: a rebuild would dispose every
+ * TerminalView in the tab and attach them all again, so swapping a file with
+ * the terminal beside it would cost the untouched sessions an attach and a
+ * full replay (verify-terminal check 8).
+ *
+ * ORDER, for a session leaving a pane: `dispose()` FIRST, then empty the
+ * mount. Emptying the host under a live TerminalView leaves xterm's observer
+ * and renderer attached to nodes that are no longer in the document.
+ */
+function reconcileSlot(index: number, slot: st.PaneSlot | null): void {
   const s = slots[index];
   if (s === undefined) return;
-  if (s.sessionId === sessionId) {
-    updateHeader(s);
-    updateNote(s);
-    updateStatus(s);
+  const key = slot === null ? '' : st.slotKey(slot);
+  if (key === s.key && s.pay !== null) {
+    // Same content: refresh what the world may have changed under it.
+    if (s.pay.kind === 'session') {
+      updateHeader(s, s.pay);
+      updateNote(s, s.pay);
+      updateStatus(s.pay);
+    } else if (s.pay.kind === 'file') {
+      updateFileHeader(s.pay);
+      s.pay.body.update();
+    }
     return;
   }
-  s.sessionId = sessionId;
-  s.conn = null;
-  s.exitCode = null;
-  s.dead = false;
-  if (sessionId !== null) {
-    // Reuse a never-connected terminal (it measured this very container);
-    // otherwise start clean.
-    if (s.view === null || s.view.connected) {
-      s.view?.dispose();
-      s.termHost.replaceChildren();
-      s.view = new TerminalView(s.termHost);
-    }
-    s.view.connect(sessionId, slotEvents(s, sessionId));
-  }
-  updateHeader(s);
-  updateNote(s);
-  updateStatus(s);
+  teardown(s);
+  s.key = key;
+  if (slot === null) return;
+  if (slot.kind === 'session') buildSessionPane(s, slot.id);
+  else if (slot.kind === 'file') buildFilePane(s, slot.path);
+  else buildDiffPane(s, slot.hash, slot.path);
 }
 
-function slotEvents(s: Slot, sessionId: string): TerminalEvents {
+/** Give up whatever this pane was showing. The card itself stays. */
+function teardown(s: Slot): void {
+  const pay = s.pay;
+  s.pay = null;
+  s.key = '';
+  s.note.hidden = true;
+  if (pay === null) return;
+  if (pay.kind === 'session') {
+    // Dispose BEFORE emptying the mount: the view's observer and renderer are
+    // attached to the nodes below it.
+    pay.view?.dispose();
+    pay.termHost.replaceChildren();
+  }
+  s.hd.replaceChildren();
+  s.body.replaceChildren();
+}
+
+// --------------------------------------------------------------------------
+// The three pane kinds
+// --------------------------------------------------------------------------
+
+function buildSessionPane(s: Slot, sessionId: string): void {
+  // A3 header (38px): dot, session name, project NAME, spacer, state pill,
+  // (conn chip while degraded), "Own tab" when the tab holds more than one
+  // pane. Ending a session is NOT here — it lives on the tab × and in the
+  // sessions drawer, both of which confirm; a one-click kill on every pane
+  // header would be the only destructive control on this surface. The whole
+  // header is the drag source — keyboard twins: ctrl+alt+shift+arrows (swap)
+  // and the "Own tab" button (extract).
+  const dot = el('span', 'dot pane-dot');
+  dot.setAttribute('aria-hidden', 'true');
+  const title = el('span', 'pane-title');
+  const proj = el('span', 'pane-proj');
+  const state = el('span', 'pane-state');
+  const connChip = el('span', 'pane-conn');
+  connChip.hidden = true;
+  const extractBtn = button('pane-pop', 'Own tab');
+  extractBtn.title = 'Move to its own tab';
+  s.hd.replaceChildren(dot, title, proj, el('span', 'pane-gap'), state, connChip, extractBtn);
+  s.hd.title = 'Drag onto a pane to swap them, or onto the tab strip to give it its own tab.';
+
+  // The terminal card: the xterm mount fills it, the status bar and the
+  // agents table sit under it on the same terminal ground.
+  const termWrap = el('div', 'pane-termwrap');
+  const termHost = el('div', 'term-host');
+  termWrap.append(termHost);
+  const statusBar = el('div', 'pane-status');
+  statusBar.hidden = true;
+  const agentsHost = el('div', 'pane-agents-host');
+  s.body.replaceChildren(termWrap, statusBar, agentsHost);
+
+  const pay: SessionPayload = {
+    kind: 'session',
+    id: sessionId,
+    termHost,
+    view: null,
+    conn: null,
+    exitCode: null,
+    dead: false,
+    dot,
+    proj,
+    title,
+    state,
+    connChip,
+    extractBtn,
+    statusBar,
+    agentsHost,
+    // A sentinel no signature can equal, so the FIRST update always renders.
+    statusSig: '\u0000',
+    agentsSig: '\u0000',
+  };
+  s.pay = pay;
+
+  extractBtn.addEventListener('click', () => st.extractSession(sessionId));
+
+  // The mount is attached (the card has been in the grid since the rebuild),
+  // so xterm can measure itself.
+  pay.view = new TerminalView(termHost);
+  pay.view.connect(sessionId, slotEvents(s, pay, sessionId));
+
+  updateHeader(s, pay);
+  updateNote(s, pay);
+  updateStatus(pay);
+}
+
+function buildFilePane(s: Slot, path: string): void {
+  const title = el('span', 'pane-title', fileName(path));
+  title.title = path;
+  const dirtyDot = el('span', 'pane-dirty');
+  dirtyDot.setAttribute('aria-hidden', 'true');
+  dirtyDot.hidden = true;
+  // The dot is a shape; the same fact in words, for a reader that cannot see it.
+  const dirtyWord = el('span', 'sr-only');
+  // Closing a FILE pane ends nothing: the A3 no-close rule is about ending
+  // sessions, and this × puts a file away.
+  const close = button('pane-x', '×', () => {
+    st.closeSlot(renderedViewId, s.index);
+  });
+  close.setAttribute('aria-label', `Close ${fileName(path)}`);
+  close.title = 'Close this file (ctrl+alt+w)';
+  s.hd.replaceChildren(title, dirtyDot, dirtyWord, el('span', 'pane-gap'), close);
+  s.hd.title = 'Drag onto a pane to swap them.';
+
+  const pay: FilePayload = {
+    kind: 'file',
+    path,
+    dirtyDot,
+    dirtyWord,
+    body: filePaneBody(path, () => {
+      // The dirty flag FLIPPED: this header's dot, the tab chip and the
+      // Sessions-panel-free rest of the chrome all read it from state.
+      st.notify('ui');
+    }),
+  };
+  s.pay = pay;
+  s.body.replaceChildren(pay.body.root);
+  updateFileHeader(pay);
+}
+
+function buildDiffPane(s: Slot, hash: string, path: string): void {
+  const title = el('span', 'pane-title', fileName(path));
+  title.title = path;
+  // The chip says WHICH commit these changes belong to (the A6 wording), and
+  // it is where the keyboard lands: a read-only body has nothing to focus.
+  const chip = el('span', 'pane-dhash', slotTitle({ kind: 'diff', hash, path }));
+  chip.tabIndex = -1;
+  const close = button('pane-x', '×', () => {
+    st.closeSlot(renderedViewId, s.index);
+  });
+  close.setAttribute('aria-label', `Close changes to ${fileName(path)}`);
+  close.title = 'Close these changes (ctrl+alt+w)';
+  s.hd.replaceChildren(title, chip, el('span', 'pane-gap'), close);
+  s.hd.title = 'Drag onto a pane to swap them.';
+
+  const pay: DiffPayload = { kind: 'diff', hash, path, chip, body: diffPaneBody(hash, path) };
+  s.pay = pay;
+  s.body.replaceChildren(pay.body.root);
+}
+
+function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEvents {
   return {
     onInfo: (info: SessionInfo) => {
       st.upsertSession(info);
@@ -433,10 +690,10 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
       }
     },
     onExit: (exitCode) => {
-      s.exitCode = exitCode;
+      pay.exitCode = exitCode;
       st.markExited(sessionId, exitCode);
-      updateNote(s);
-      updateStatus(s);
+      updateNote(s, pay);
+      updateStatus(pay);
     },
     onAttention: () => {
       const v = st.activeView();
@@ -448,16 +705,16 @@ function slotEvents(s: Slot, sessionId: string): TerminalEvents {
         !gridHidden()
       ) {
         // Attention arrived on the focused, VISIBLE pane: acknowledge at once.
-        ackSeen(s, sessionId);
+        ackSeen(pay, sessionId);
       } else {
         st.setAttention(sessionId, true);
       }
     },
     onConn: (conn) => {
-      s.conn = conn;
-      if (conn === 'dead') s.dead = true;
-      updateHeader(s);
-      updateNote(s);
+      pay.conn = conn;
+      if (conn === 'dead') pay.dead = true;
+      updateHeader(s, pay);
+      updateNote(s, pay);
       st.notify('conn');
     },
     onDims: (cols, rows) => {
@@ -471,25 +728,28 @@ function applyFocus(): void {
   const v = st.activeView();
   if (v === null) return;
   for (const s of slots) s.root.classList.toggle('focused', s.index === v.focused);
-  const key = `${v.id}:${v.focused}`;
+  const s = slots[v.focused];
+  // The KEY is part of the focus identity: a pane whose content was replaced
+  // (a file dropped on a terminal, a swap) has to take the keyboard again,
+  // even though the tab and the slot index did not move.
+  const key = `${v.id}:${v.focused}:${s?.key ?? ''}`;
   if (key === lastFocusKey) return;
   lastFocusKey = key;
-  const s = slots[v.focused];
   if (s === undefined) return;
-  if (s.view !== null && s.sessionId !== null) s.view.focus();
-  else s.root.focus();
+  if (s.pay === null) s.root.focus();
+  else requestTerminalFocus();
   clearAttentionIfPending(s);
 }
 
 function clearAttentionIfPending(s: Slot): void {
-  if (s.sessionId === null) return;
-  const info = st.state.sessions.get(s.sessionId);
-  if (info !== undefined && info.attention) ackSeen(s, s.sessionId);
+  if (s.pay?.kind !== 'session') return;
+  const info = st.state.sessions.get(s.pay.id);
+  if (info !== undefined && info.attention) ackSeen(s.pay, s.pay.id);
 }
 
-function ackSeen(s: Slot, sessionId: string): void {
+function ackSeen(pay: SessionPayload, sessionId: string): void {
   // Both channels per spec; both are idempotent server-side.
-  s.view?.sendSeen();
+  pay.view?.sendSeen();
   void api.markSeen(sessionId).catch(() => {});
   st.setAttention(sessionId, false);
 }
@@ -498,7 +758,7 @@ function ackSeen(s: Slot, sessionId: string): void {
 // Slot DOM
 // --------------------------------------------------------------------------
 
-/** Drop-zone overlay revealed by ui/dnd.ts while a tab is dragged over the pane. */
+/** Drop-zone overlay revealed by ui/dnd.ts while a drag hovers this pane. */
 function buildDropOverlay(): HTMLElement {
   const drop = el('div', 'pane-drop');
   drop.hidden = true;
@@ -508,88 +768,43 @@ function buildDropOverlay(): HTMLElement {
   return drop;
 }
 
-function createSessionSlot(index: number): Slot {
+/**
+ * The chrome of one pane, empty: the card, the header, the banner, the body
+ * and the drop overlay. What it SHOWS arrives through `reconcileSlot`, so the
+ * card is already attached to the grid by the time a TerminalView is built on
+ * it (xterm must open on an attached, measurable node).
+ */
+function createSlot(index: number): Slot {
   const root = el('section', 'pane');
   root.tabIndex = -1;
   root.dataset.slot = String(index);
-
-  // A3 header (38px): dot, session name, project NAME, spacer, state pill,
-  // (conn chip while degraded), "Own tab" when the tab holds more than one
-  // pane. Ending a session is NOT here — it lives on the tab × and in the
-  // sessions drawer, both of which confirm; a one-click kill on every pane
-  // header would be the only destructive control on this surface. The whole
-  // header is the drag source — keyboard twins: ctrl+alt+shift+arrows (swap)
-  // and the "Own tab" button (extract).
   const hd = el('header', 'pane-hd');
-  const dot = el('span', 'dot pane-dot');
-  dot.setAttribute('aria-hidden', 'true');
-  const title = el('span', 'pane-title');
-  const proj = el('span', 'pane-proj');
-  const gap = el('span', 'pane-gap');
-  const state = el('span', 'pane-state');
-  const connChip = el('span', 'pane-conn');
-  connChip.hidden = true;
-  const extractBtn = button('pane-pop', 'Own tab');
-  extractBtn.title = 'Move to its own tab';
-  hd.append(dot, title, proj, gap, state, connChip, extractBtn);
-  hd.title = 'Drag onto a pane to swap them, or onto the tab strip to give it its own tab.';
-
   const note = el('div', 'pane-note');
   note.hidden = true;
-
-  // The terminal card: the xterm mount fills it, the status bar and the
-  // agents table sit under it on the same terminal ground, and the rounded
-  // corners are the card's own (overflow hidden).
   const body = el('div', 'pane-body');
-  const termWrap = el('div', 'pane-termwrap');
-  const termHost = el('div', 'term-host');
-  termWrap.append(termHost);
-  const statusBar = el('div', 'pane-status');
-  statusBar.hidden = true;
-  const agentsHost = el('div', 'pane-agents-host');
-  body.append(termWrap, statusBar, agentsHost);
-
   root.append(hd, note, body, el('div', 'pane-foot'), buildDropOverlay());
   root.addEventListener('mousedown', () => st.focusPane(index), true);
-  grid.append(root); // Attach before TerminalView so xterm opens on a live node.
+  grid.append(root);
 
-  const slot: Slot = {
-    index,
-    root,
-    termHost,
-    view: new TerminalView(termHost),
-    sessionId: null,
-    conn: null,
-    exitCode: null,
-    dead: false,
-    dot,
-    proj,
-    title,
-    state,
-    connChip,
-    extractBtn,
-    note,
-    statusBar,
-    agentsHost,
-    // A sentinel no signature can equal, so the FIRST update always renders.
-    statusSig: '\u0000',
-    agentsSig: '\u0000',
-  };
+  const slot: Slot = { index, root, hd, body, key: '', note, pay: null };
 
-  extractBtn.addEventListener('click', () => {
-    if (slot.sessionId !== null) st.extractSession(slot.sessionId);
-  });
-
-  // Header drag: onto another pane = swap; onto the tab strip = extract.
+  // Header drag: onto another pane = swap; onto the tab strip = extract (a
+  // file has no own tab to be extracted into — ui/dnd.ts answers null for it).
+  // Armed ONCE, on the header element that survives every conversion.
   armDrag(hd, 'button', () => {
-    if (slot.sessionId === null) return null;
-    const info = st.state.sessions.get(slot.sessionId);
+    if (slot.pay === null) return null;
+    const label =
+      slot.pay.kind === 'session'
+        ? slotTitle({ kind: 'session', id: slot.pay.id }, st.state.sessions.get(slot.pay.id)?.title)
+        : slot.pay.kind === 'file'
+          ? slotTitle({ kind: 'file', path: slot.pay.path })
+          : slotTitle({ kind: 'diff', hash: slot.pay.hash, path: slot.pay.path });
     return {
       kind: 'pane',
       viewId: renderedViewId,
       slot: index,
-      sessionId: slot.sessionId,
-      label: info?.title ?? '…',
+      slotKey: slot.key,
+      label,
     };
   });
 
@@ -613,34 +828,41 @@ export async function killSession(id: string): Promise<void> {
   }
 }
 
-function updateHeader(s: Slot): void {
-  if (s.sessionId === null) return;
-  const info = st.state.sessions.get(s.sessionId);
+function updateHeader(s: Slot, pay: SessionPayload): void {
+  const info = st.state.sessions.get(pay.id);
   // Projects are named, never pathed (PROJECT-SCOPE); a session without one
   // shows nothing at all rather than a folder.
   const pname = st.projectName(info?.projectId);
-  s.proj.textContent = pname ?? '';
-  s.title.textContent = info?.title ?? s.sessionId.slice(0, 8);
+  pay.proj.textContent = pname ?? '';
+  pay.title.textContent = info?.title ?? pay.id.slice(0, 8);
   const attention = info !== undefined && info.attention;
   const running = info === undefined || info.status === 'running';
   // Dot and pill are one readout: green Working, pulsing amber Needs your
   // answer, neutral Finished. The exit code rides in the pill's title (and
   // on the banner) — a code is not a state word.
-  s.dot.className = `dot pane-dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+  pay.dot.className = `dot pane-dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
   const stateText = attention ? 'Needs your answer' : running ? 'Working' : 'Finished';
-  s.state.textContent = stateText;
-  s.state.className = `pane-state ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
-  const code = info?.exitCode ?? s.exitCode;
-  s.state.title = !running && code !== null && code !== undefined ? `Finished, code ${code}` : stateText;
-  if (s.conn === null || s.conn === 'live') {
-    s.connChip.hidden = true;
+  pay.state.textContent = stateText;
+  pay.state.className = `pane-state ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+  const code = info?.exitCode ?? pay.exitCode;
+  pay.state.title =
+    !running && code !== null && code !== undefined ? `Finished, code ${code}` : stateText;
+  if (pay.conn === null || pay.conn === 'live') {
+    pay.connChip.hidden = true;
   } else {
-    s.connChip.hidden = false;
-    s.connChip.textContent = s.conn === 'dead' ? 'Lost' : 'Reconnecting';
-    s.connChip.className = `pane-conn ${s.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
+    pay.connChip.hidden = false;
+    pay.connChip.textContent = pay.conn === 'dead' ? 'Lost' : 'Reconnecting';
+    pay.connChip.className = `pane-conn ${pay.conn === 'dead' ? 'is-danger' : 'is-warn'}`;
   }
   // Alone in its view, a session already IS its own tab.
-  s.extractBtn.hidden = renderedCount <= 1;
+  pay.extractBtn.hidden = renderedCount <= 1;
+}
+
+/** The one thing a file header states beyond its name: is it unsaved? */
+function updateFileHeader(pay: FilePayload): void {
+  const dirty = st.editorDirty(st.editorFileId(pay.path));
+  pay.dirtyDot.hidden = !dirty;
+  pay.dirtyWord.textContent = dirty ? 'Unsaved changes' : '';
 }
 
 /**
@@ -649,18 +871,18 @@ function updateHeader(s: Slot): void {
  * put in them: `paneStatusItems` returns [] for anything but the known agent,
  * so a plain shell's pane is terminal edge to terminal edge.
  */
-function updateStatus(s: Slot): void {
-  const info = s.sessionId !== null ? st.state.sessions.get(s.sessionId) : undefined;
+function updateStatus(pay: SessionPayload): void {
+  const info = st.state.sessions.get(pay.id);
   const items = paneStatusItems(info, Date.now());
   // The 15 s tick calls this for every slot; most ticks change nothing (Time
   // moves once a minute at most). Rebuilding then would throw away live DOM
   // — a text selection inside the bar, the row the pointer is over — for no
   // pixel change, so the rendered content is compared first.
   const statusSig = items.map((i) => `${i.k}=${i.v}:${i.tone}`).join('\n');
-  if (statusSig !== s.statusSig) {
-    s.statusSig = statusSig;
-    s.statusBar.hidden = items.length === 0;
-    s.statusBar.replaceChildren(
+  if (statusSig !== pay.statusSig) {
+    pay.statusSig = statusSig;
+    pay.statusBar.hidden = items.length === 0;
+    pay.statusBar.replaceChildren(
       ...items.map((it) => {
         const cell = el('span', 'pane-status-item');
         cell.append(
@@ -676,41 +898,35 @@ function updateStatus(s: Slot): void {
   // which is exactly once, by the same signature rule.
   const rows: AgentRow[] = [];
   const agentsSig = rows.map((r) => JSON.stringify(r)).join('\n');
-  if (agentsSig !== s.agentsSig) {
-    s.agentsSig = agentsSig;
+  if (agentsSig !== pay.agentsSig) {
+    pay.agentsSig = agentsSig;
     const table = renderAgents(rows);
-    s.agentsHost.replaceChildren(...(table === null ? [] : [table]));
+    pay.agentsHost.replaceChildren(...(table === null ? [] : [table]));
   }
 }
 
-function updateNote(s: Slot): void {
-  if (s.sessionId === null) {
-    s.note.hidden = true;
-    return;
-  }
-  if (s.dead) {
+function updateNote(s: Slot, pay: SessionPayload): void {
+  if (pay.dead) {
     // Reconnect exhausted and the server does not know the session anymore.
     s.note.hidden = false;
     s.note.className = 'pane-note is-dead';
     s.note.replaceChildren(
       el('span', 'pane-note-text', 'This session is gone from the server'),
-      button('pane-note-btn', 'Close pane', () => {
-        if (s.sessionId !== null) st.removeSessionEverywhere(s.sessionId);
-      }),
+      button('pane-note-btn', 'Close pane', () => st.removeSessionEverywhere(pay.id)),
     );
     return;
   }
-  if (s.exitCode !== null) {
+  if (pay.exitCode !== null) {
     // Structural exited banner; the buffer below stays readable.
     s.note.hidden = false;
-    s.note.className = `pane-note ${s.exitCode === 0 ? 'is-exit' : 'is-exit-err'}`;
-    const relaunchBtn = button('pane-note-btn is-primary', 'Start it again', () => void relaunch(s));
+    s.note.className = `pane-note ${pay.exitCode === 0 ? 'is-exit' : 'is-exit-err'}`;
+    const relaunchBtn = button('pane-note-btn is-primary', 'Start it again', () =>
+      void relaunch(s, pay),
+    );
     const delBtn = button('pane-note-btn', 'End session');
-    armButton(delBtn, 'Sure?', () => {
-      if (s.sessionId !== null) void killSession(s.sessionId);
-    });
+    armButton(delBtn, 'Sure?', () => void killSession(pay.id));
     s.note.replaceChildren(
-      el('span', 'pane-note-text', `Finished, code ${s.exitCode}`),
+      el('span', 'pane-note-text', `Finished, code ${pay.exitCode}`),
       relaunchBtn,
       delBtn,
     );
@@ -735,9 +951,8 @@ function updateNote(s: Slot): void {
  * would find no entry, fall back to the create path, and silently FORK the
  * conversation onto a new pinned id. A failing fetch keeps today's behaviour.
  */
-async function relaunch(s: Slot): Promise<void> {
-  const oldId = s.sessionId;
-  if (oldId === null) return;
+async function relaunch(s: Slot, pay: SessionPayload): Promise<void> {
+  const oldId = pay.id;
   const info = st.state.sessions.get(oldId);
   if (info === undefined) return;
   const viewId = renderedViewId; // Captured: the user may switch tabs mid-await.
@@ -788,4 +1003,3 @@ async function relaunch(s: Slot): Promise<void> {
     if (err instanceof api.ApiError && err.status === 404) st.removeSessionEverywhere(oldId);
   }
 }
-

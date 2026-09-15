@@ -317,3 +317,171 @@ test('the copy row answers the two things a terminal user must trust, on the row
   // And the footer no longer claims paste is the only other thing the app takes.
   assert.ok(src.includes('the paste and copy chords above are the only other keys the app takes'));
 });
+
+// ---------------------------------------------------------------------------
+// The ctrl+alt reservation, three ways (Nocturne A10)
+// ---------------------------------------------------------------------------
+//
+// A ctrl+alt chord only works if THREE files agree, and two of them are easy to
+// forget:
+//
+//   1. someone handles it — `web/src/main.ts`'s window handler, or the module
+//      that owns it (`web/src/ui/files.ts` owns ctrl+alt+enter, because it acts
+//      on the Files row that has the focus);
+//   2. `web/src/ui/terminal.ts` lets it THROUGH — xterm's custom key handler
+//      swallows every ctrl+alt chord it does not allow-list, so a focused
+//      terminal would eat the chord and print its bytes instead. ONE chord is
+//      exempt: ctrl+alt+enter acts on a focused Files ROW, which cannot hold
+//      the focus while a terminal does, so allow-listing it would take a key
+//      away from the PTY for nothing;
+//   3. this overlay LISTS it — the app's only promise about which keystrokes
+//      it takes.
+//
+// A10 added two chords (ctrl+alt+w, ctrl+alt+enter) and the first of them is
+// handled in main.ts while the second is not, so the scan reads both files.
+
+const MAIN_TS = join(REPO_ROOT, 'web', 'src', 'main.ts');
+const FILES_TS = join(REPO_ROOT, 'web', 'src', 'ui', 'files.ts');
+const TERMINAL_TS = join(REPO_ROOT, 'web', 'src', 'ui', 'terminal.ts');
+
+/**
+ * The chord vocabulary of a block of code, as table spellings. `Arrow*` is one
+ * entry (`←↑↓→`), `1`..`9` is one (`1…9`), and the PageUp/PageDown pair is one
+ * (`pgup/pgdn`) — exactly the way the overlay writes them.
+ */
+function chordsIn(src: string): string[] {
+  const out = new Set<string>();
+  if (/k\.startsWith\('Arrow'\)|k === 'ArrowLeft'/.test(src)) out.add('←↑↓→');
+  if (/k >= '1' && k <= '9'/.test(src)) out.add('1…9');
+  if (/k === 'PageUp'/.test(src)) out.add('pgup/pgdn');
+  for (const m of src.matchAll(/k === '([^']+)'|e\.key !== '([^']+)'/g)) {
+    const k = (m[1] ?? m[2]) as string;
+    if (k.startsWith('Arrow') || k === 'PageUp' || k === 'PageDown') continue;
+    if (k.length === 1 && k >= '1' && k <= '9') continue;
+    out.add(k.toLowerCase());
+  }
+  return [...out].sort();
+}
+
+/** The `ctrl && alt` block of main.ts's window keydown handler. */
+function mainChordBlock(): string {
+  const src = readFileSync(MAIN_TS, 'utf8');
+  const from = src.indexOf("if (e.ctrlKey && e.altKey && !e.metaKey");
+  assert.notEqual(from, -1, 'non-vacuity: main.ts must still reserve ctrl+alt');
+  const to = src.indexOf("if (e.key === '?'", from);
+  assert.notEqual(to, -1, 'non-vacuity: the end of the block was not found');
+  return src.slice(from, to);
+}
+
+/** xterm's ctrl+alt passthrough allow-list in ui/terminal.ts. */
+function terminalAllowlist(): string {
+  const src = readFileSync(TERMINAL_TS, 'utf8');
+  const from = src.indexOf('e.ctrlKey &&\n        e.altKey &&');
+  assert.notEqual(from, -1, 'non-vacuity: the ctrl+alt branch of the key handler was not found');
+  const to = src.indexOf('return true;', from);
+  assert.notEqual(to, -1);
+  return src.slice(from, to);
+}
+
+/** ui/files.ts owns ctrl+alt+enter on a focused row. */
+function filesChordBlock(): string {
+  const src = readFileSync(FILES_TS, 'utf8');
+  const from = src.indexOf("b.addEventListener('keydown'");
+  assert.notEqual(from, -1, 'non-vacuity: the Files row must still own a chord');
+  return src.slice(from, from + 600);
+}
+
+test('the app HANDLES exactly the ctrl+alt chords the overlay lists — no more, no fewer', () => {
+  const handled = new Set([...chordsIn(mainChordBlock()), ...chordsIn(filesChordBlock())]);
+  assert.ok(handled.size >= 6, `non-vacuity: parsed ${[...handled].join(' ')}`);
+  // Everything the table promises on ctrl+alt, as the same vocabulary.
+  const listed = new Set(
+    ROWS.filter((r) => !r.gesture)
+      .flatMap((r) => r.keys)
+      .filter((k) => k.startsWith('ctrl+alt+'))
+      .map((k) => k.replace(/^ctrl\+alt\+(shift\+)?/, '')),
+  );
+  assert.deepEqual(
+    [...handled].filter((k) => !listed.has(k)).sort(),
+    [],
+    'a chord the app takes but the overlay does not list is an undiscoverable key',
+  );
+  assert.deepEqual(
+    [...listed].filter((k) => !handled.has(k)).sort(),
+    [],
+    'a chord the overlay promises but nothing handles is a lie',
+  );
+});
+
+test('every chord the app handles is also let THROUGH by the terminal allow-list', () => {
+  // The bug this catches is invisible in every other test: a focused terminal
+  // eats the chord and the TUI receives its bytes.
+  const allow = terminalAllowlist();
+  const allowed = new Set(chordsIn(allow));
+  const handled = new Set([...chordsIn(mainChordBlock()), ...chordsIn(filesChordBlock())]);
+  assert.ok(allowed.size >= 6, `non-vacuity: parsed ${[...allowed].join(' ')}`);
+  // The ONE exemption: ctrl+alt+enter acts on a focused Files ROW, which can
+  // never have the focus while a terminal has it — so the allow-list taking it
+  // would swallow a key for nothing instead of leaving it to the PTY.
+  const EXEMPT = new Set(['enter']);
+  assert.deepEqual(
+    [...handled].filter((k) => !allowed.has(k) && !EXEMPT.has(k)).sort(),
+    [],
+    'a chord the terminal swallows never reaches the app',
+  );
+  // A10's two new chords, named outright — the whole reason this test exists.
+  assert.ok(allowed.has('w'), 'ctrl+alt+w must pass the terminal');
+  assert.equal(
+    allowed.has('enter'),
+    false,
+    'ctrl+alt+enter is a Files-row chord: a focused terminal has nothing to do with it',
+  );
+  // And the allow-list takes nothing the app does not handle: every key it
+  // lets through is a key the terminal no longer gets.
+  assert.deepEqual(
+    [...allowed].filter((k) => !handled.has(k)).sort(),
+    [],
+    'the terminal must not give up a key nothing acts on',
+  );
+});
+
+test('the two A10 chords are on the table, each on one row, with a control beside it', () => {
+  for (const chord of ['ctrl+alt+enter', 'ctrl+alt+w']) {
+    const rows = ROWS.filter((r) => r.keys.includes(chord));
+    assert.equal(rows.length, 1, `expected one row for ${chord}, found ${rows.length}`);
+    assert.equal((rows[0] as TableRow).gesture, false, `${chord} is a chord, not a gesture`);
+  }
+});
+
+test('EVERY gesture row names its twin: a chord, or a control the user can see', () => {
+  // PROJECT-SCOPE: no control may exist only under a pointer. A drag row whose
+  // right-hand column said nothing would be exactly that.
+  const src = readFileSync(SHORTCUTS, 'utf8');
+  const start = src.indexOf('const ROWS');
+  const block = src.slice(start, src.indexOf('\n];', start));
+  const uis = [...block.matchAll(/\{\s*keys:\s*\[([^\]]*)\][^}]*?gesture:\s*true[^}]*?ui:\s*(['"])((?:\\.|(?!\2).)*)\2/g)];
+  assert.ok(uis.length >= 5, `non-vacuity: parsed ${uis.length} gesture rows`);
+  assert.equal(uis.length, ROWS.filter((r) => r.gesture).length, 'every gesture row was parsed');
+  for (const m of uis) {
+    const ui = (m[3] ?? '').trim();
+    assert.notEqual(ui, '', `a gesture with no twin: ${m[1] ?? ''}`);
+  }
+  // The three A10 drags each name a KEYBOARD twin, not just "somewhere else".
+  const twinOf = (k: string): string =>
+    (ROWS.find((r) => r.gesture && r.keys.includes(k)) as TableRow | undefined) === undefined
+      ? ''
+      : (block.match(new RegExp(`keys: \\['${k.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}'\\][^}]*?ui: '([^']*)'`))?.[1] ?? '');
+  assert.equal(twinOf('drag a file row onto a pane edge'), 'ctrl+alt+enter');
+  assert.equal(twinOf('drag a pane header onto another pane'), 'ctrl+alt+shift+←↑↓→');
+  assert.equal(twinOf('drag a tab along the strip'), 'ctrl+alt+shift+pgup/pgdn');
+});
+
+test('the swap row is about a PANE now, not about a session (A10 made it kind-blind)', () => {
+  const row = ROWS.find((r) => r.keys.includes('ctrl+alt+shift+←↑↓→')) as TableRow;
+  assert.equal(row.what, 'move the focused pane (swap)');
+  assert.equal(
+    readFileSync(SHORTCUTS, 'utf8').includes('move session between panes'),
+    false,
+    'a file pane swaps with a terminal, so the old wording is no longer true',
+  );
+});

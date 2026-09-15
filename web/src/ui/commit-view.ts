@@ -39,31 +39,54 @@ import {
   syntheticDiff,
   type CommitFileChange,
 } from './commit-model.ts';
-import { diffTabId } from './editor-model.ts';
 import {
   MOCK_BRANCH,
   NO_EXAMPLE_CONTENT,
   mockCommitByHash,
   mockFileContent,
 } from './files-mock.ts';
+import { rootForSubject } from './slots-model.ts';
 import { caretGlyph } from './files-model.ts';
+import { flash } from './statusline.ts';
 import type { CommitEntry } from './files-model.ts';
 
 export interface CommitView {
   render(): void;
 }
 
+/** The one thing that can stop a file from opening: the tab is already full. */
+const TAB_FULL = 'This tab is full. It can show 4 panes.';
+
 /**
- * `onLeaveScreen` hands the keyboard back to the focused terminal once the
- * panes are on screen again; `onOpenEditor` hands it to the editor column that
- * just took the view's place. Both are injected, not imported: `ui/panes.ts`
- * pulls in @xterm/xterm, `ui/editor.ts` imports this module, and this one has
- * to stay drivable under `node --test`.
+ * WHICH TAB a file from this commit opens in. The view stands over the pane
+ * area of the ACTIVE tab, and the Files panel that opened it was reading that
+ * same tab — so the root is the tab's own (`Home`, or its project), and for a
+ * plain session tab it is the project of the session in the focused pane.
+ * A session without a project lands at `Home`; part B2 closes that gap with
+ * the real file-browser root (the A10 gap, plan decision 9).
+ */
+function commitRoot(): st.ViewRoot {
+  const v = st.activeView();
+  if (v !== null && v.root !== null) return v.root;
+  const slot = v === null ? undefined : v.slots[v.focused];
+  const info = slot?.kind === 'session' ? st.state.sessions.get(slot.id) : undefined;
+  return rootForSubject({ home: info === undefined, projectId: info?.projectId ?? null });
+}
+
+/**
+ * The view leaves in two directions, and both end in the pane area: `Back to
+ * sessions` returns to the panes it covered (`onLeaveScreen`), while
+ * `Open file` / `Changes` open a PANE and go there (`onOpenPane`). Since part
+ * A10 both are `requestTerminalFocus` — the focused pane is a file, a diff or
+ * a terminal and knows how to take the keyboard itself — but they stay two
+ * arguments because they are two acts, and main.ts is where that is decided.
+ * They are injected, not imported: `ui/panes.ts` pulls in @xterm/xterm and
+ * this module has to stay drivable under `node --test`.
  */
 export function initCommitView(
   host: HTMLElement,
   onLeaveScreen: () => void,
-  onOpenEditor: () => void,
+  onOpenPane: () => void,
 ): CommitView {
   const root = el('section', 'commit-view');
   const card = el('div', 'commit-card');
@@ -239,15 +262,20 @@ export function initCommitView(
 
     const openFile = button('diff-act', 'Open file', () => {
       // Open FIRST, close second. Both orders end in the same screen, but this
-      // one costs ONE layout pass: while the view is still up the editor is
-      // not visible, so no pane moves; closing it then unhides the grid and
-      // narrows it in the same pass. The other order rebuilds every pane at
-      // full width and shrinks it again a moment later.
-      st.openEditorTab(st.editorFileId(f.path), fileName(f.path), f.path);
+      // one costs ONE layout pass: the pane area is still covered while the
+      // pane is added, so `ui/panes.ts` refuses to build anything; closing the
+      // view then unhides the grid and the deferred render draws the new
+      // layout once. The other order builds the panes twice.
+      if (st.openFile(commitRoot(), f.path, fileName(f.path)) !== 'ok') {
+        // The tab has no room: say so and stay, rather than closing this
+        // screen for a pane that was never opened.
+        flash(TAB_FULL);
+        return;
+      }
       st.closeCommitView();
       // This button went away with the view that held it; without the
       // hand-over the keyboard falls to <body>.
-      onOpenEditor();
+      onOpenPane();
     });
     openFile.setAttribute('data-k', `diffopen:${f.path}`);
     openFile.setAttribute('aria-label', `Open file ${f.path}`);
@@ -257,9 +285,12 @@ export function initCommitView(
     // that reaches that state: the same changes, in a tab, beside the file.
     const changes = button('diff-act', 'Changes', () => {
       // Same order, same reason as `Open file` above.
-      st.openEditorTab(diffTabId(c.hash, f.path), fileName(f.path), f.path, c.hash);
+      if (st.openDiff(commitRoot(), c.hash, f.path) !== 'ok') {
+        flash(TAB_FULL);
+        return;
+      }
       st.closeCommitView();
-      onOpenEditor();
+      onOpenPane();
     });
     changes.setAttribute('data-k', `diffchanges:${c.hash}:${f.path}`);
     changes.setAttribute('aria-label', `Changes to ${f.path} in this commit`);

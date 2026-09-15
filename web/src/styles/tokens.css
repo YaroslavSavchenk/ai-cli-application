@@ -221,7 +221,6 @@
   --dot-row: 8px;       /* A5: status dot in a Sessions panel row             */
   --diff-gut-w: 44px;   /* A6: diff line-number column (commit view + editor) */
   --diff-sign-w: 16px;  /* A6: the +/- column beside it                       */
-  --edit-tab-h: 28px;   /* A6: editor tab chip inside the 38px tab strip      */
   --avatar-w: 20px;     /* A6: author initial in the commit view header       */
   --ctl-h-row: 24px;    /* A5: row buttons (Side by side, Continue, end)      */
   --fs-term: 12.5px;    /* terminal body (handoff) — the ONE font size read at

@@ -214,3 +214,60 @@ test('opened FROM a control, closing still restores that control and calls no fa
   assert.equal(dom.doc.activeElement, opener, 'focus goes back where it came from');
   assert.equal(refocusCalls - before, 0, 'a real restore target never reaches the fallback');
 });
+
+// ---------------------------------------------------------------------------
+// What A10 added to the table, as rendered (Nocturne A10)
+// ---------------------------------------------------------------------------
+
+test('the two A10 chords are rendered chips, each in its own item, with a control beside it', () => {
+  openFromOpener();
+  const items = byClass(modal, 'sc-item');
+  for (const chord of ['ctrl+alt+enter', 'ctrl+alt+w']) {
+    const hits = items.filter((i) => textsOf(i, 'sc-keys').join(' ').includes(chord));
+    assert.equal(hits.length, 1, `expected one item for ${chord}, found ${hits.length}`);
+    const item = hits[0] as FakeElement;
+    const kbds = descendants(item).filter((n) => n.tagName === 'KBD');
+    assert.deepEqual(kbds.map((n) => n.textContent), [chord], `${chord} renders as one chip`);
+    assert.notEqual(textsOf(item, 'sc-what')[0], '', `${chord} must say what it does`);
+    assert.notEqual(textsOf(item, 'sc-ui')[0], '', `${chord} must name a control`);
+  }
+  overlay.close();
+});
+
+test('every rendered GESTURE row carries a twin in its right-hand column', () => {
+  // PROJECT-SCOPE: no control may exist only under a pointer. A drag row with
+  // an empty twin column would be exactly that, and would render as one.
+  openFromOpener();
+  const items = byClass(modal, 'sc-item');
+  const gestureItems = items.filter((i) => byClass(i, 'sc-gesture').length > 0);
+  assert.ok(gestureItems.length >= 5, `non-vacuity: ${gestureItems.length} gesture rows rendered`);
+  for (const item of gestureItems) {
+    const what = textsOf(item, 'sc-gesture').join(' / ');
+    assert.notEqual(textsOf(item, 'sc-ui')[0] ?? '', '', `a gesture with no twin: ${what}`);
+  }
+  // And the three A10 drags name a CHORD, spelled the way the table spells one.
+  const twin = (gesture: string): string => {
+    const item = gestureItems.find((i) => textsOf(i, 'sc-gesture').includes(gesture));
+    assert.ok(item !== undefined, `the ${gesture} row must be rendered`);
+    return textsOf(item as FakeElement, 'sc-ui')[0] ?? '';
+  };
+  assert.equal(twin('drag a file row onto a pane edge'), 'ctrl+alt+enter');
+  assert.equal(twin('drag a pane header onto another pane'), 'ctrl+alt+shift+←↑↓→');
+  assert.equal(twin('drag a tab along the strip'), 'ctrl+alt+shift+pgup/pgdn');
+  overlay.close();
+});
+
+test('a gesture twin that names a chord is NOT rendered as a key chip (it is the other column)', () => {
+  // The `sc-ui` column is prose, not a control: rendering it as a <kbd> would
+  // make the table read as if the gesture itself were a key.
+  openFromOpener();
+  const chips = descendants(modal).filter((n) => n.tagName === 'KBD').map((n) => n.textContent);
+  const uis = textsOf(modal, 'sc-ui');
+  assert.ok(uis.includes('ctrl+alt+enter'), 'non-vacuity: a chord really is a twin somewhere');
+  assert.equal(
+    chips.filter((c) => c === 'ctrl+alt+enter').length,
+    1,
+    'exactly one chip for it: its own row',
+  );
+  overlay.close();
+});
