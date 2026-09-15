@@ -267,7 +267,14 @@ export class TerminalView {
           k === 'w' ||
           k === 'W' ||
           k === '/' ||
-          (e.shiftKey && (k === 'PageUp' || k === 'PageDown')) ||
+          // A10b: shifted pgup/pgdn reorders the tabs, unshifted switches the
+          // file tab of the focused editor pane — both are the app's, so the
+          // qualifier that used to leave the unshifted pair to the PTY is gone.
+          k === 'PageUp' ||
+          k === 'PageDown' ||
+          // A10b: ctrl+alt+m moves the active file tab to the next pane.
+          k === 'm' ||
+          k === 'M' ||
           (k.length === 1 && k >= '1' && k <= '9')
         ) {
           return false;

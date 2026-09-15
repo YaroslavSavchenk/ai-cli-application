@@ -24,9 +24,26 @@
  *   targets simply do not light up for it.
  * FILE-ROW drag (source: a row of the Files panel):
  *   - onto a pane edge   -> split that pane and open the file there;
- *   - onto a pane centre -> replace it (a TERMINAL pane refuses: decision 7);
+ *   - onto a pane centre -> open it as a TAB of that editor pane (A10b: it
+ *     never replaces what is already in the strip; a TERMINAL pane refuses,
+ *     user decision 7);
  *   - onto a tab chip    -> open it as a pane of that folder tab;
  *   - onto the EMPTY STATE of an empty active tab -> the same, for that tab.
+ * FILE-TAB drag (source: one chip of an editor pane's strip, A10b):
+ *   - onto a pane EDGE           -> that tab leaves for a NEW editor pane
+ *     there (the only gesture that makes a split, user decision 2); a pane
+ *     whose LAST tab leaves frees its own pane, so the split can cost nothing;
+ *   - onto the centre of ANOTHER editor pane -> the tab MOVES into that strip
+ *     (the whole pane lights up, because the whole pane takes it);
+ *   - onto the centre of a TERMINAL pane -> refused, with the same sentence a
+ *     file row gets there;
+ *   - onto its OWN pane's centre, the tab strip, another chip or the empty
+ *     state -> nothing at all: reordering a strip and dropping a tab on the
+ *     strip were not built (orchestrator default 4, A10b), and a target that
+ *     lights up for an act that does not exist is worse than no target.
+ *   The spec carries the pane's `slotKey` AND the tab's own id, so a strip
+ *   rebuilt under the drag resolves to nothing instead of to whatever moved
+ *   into that position.
  *
  * The ghost is pointer-events:none so hit-testing sees through it. Every
  * drop action also has a keyboard/button path (see the shortcuts overlay).
@@ -35,6 +52,7 @@ import * as st from '../state.ts';
 import { el } from './util.ts';
 import { flash } from './statusline.ts';
 import { zoneForPoint, type DropWhere } from './slots-model.ts';
+import { tabIdOf } from './editor-model.ts';
 
 const THRESHOLD_PX = 5;
 /** Outer fraction of a tab that means "reorder next to it" instead of "merge into it". */
@@ -49,7 +67,23 @@ const TAB_EDGE_FRACTION = 0.25;
 export type DragSpec =
   | { kind: 'tab'; viewId: string; label: string }
   | { kind: 'pane'; viewId: string; slot: number; slotKey: string; label: string }
-  | { kind: 'file'; path: string; label: string };
+  | { kind: 'file'; path: string; label: string }
+  /**
+   * One chip of an editor pane's strip (A10b). It names the pane twice (index
+   * + `slotKey`) for the reason above, and the TAB twice for the same reason:
+   * `tab` is the strip position it was picked up at, `tabId` is what was
+   * there. Both are re-resolved at every hit-test (`filetabSource`), so a
+   * strip rebuilt mid-drag stops the gesture instead of moving a stranger.
+   */
+  | {
+      kind: 'filetab';
+      viewId: string;
+      slot: number;
+      slotKey: string;
+      tab: number;
+      tabId: string;
+      label: string;
+    };
 
 type Target =
   /** `empty`: the target tab stands empty, so its empty state took the drop, not its chip. */
@@ -63,6 +97,17 @@ type Target =
   | { t: 'open-file'; viewId: string; slot: number; where: DropWhere; ok: boolean }
   /** A file onto a tab chip, or onto the empty state of an empty tab: append to that folder tab. */
   | { t: 'open-file-tab'; viewId: string; ok: boolean; empty?: boolean }
+  /**
+   * A file TAB onto a pane's EDGE: it leaves for a new editor pane there.
+   * `zone` is null when the pane offers no split at all (the short pane of a
+   * 3-split, a full tab) — then `ok` is false, nothing is drawn, and the drop
+   * flashes the same refusal the keyboard twin does.
+   */
+  | { t: 'open-tab-split'; viewId: string; slot: number; zone: st.Zone | null; ok: boolean }
+  /** A file TAB onto the centre of ANOTHER editor pane: it moves into that strip. */
+  | { t: 'move-tab'; viewId: string; slot: number }
+  /** A file TAB onto the centre of a TERMINAL pane (user decision 7, same as a row). */
+  | { t: 'reject-session' }
   | { t: 'reject-full' }
   | null;
 
@@ -81,13 +126,19 @@ const OPEN_LABEL: Record<DropWhere, string> = {
   bottom: 'Open below',
 };
 
+/** What the whole-pane box says when a file tab is about to move into that strip. */
+const MOVE_TAB_LABEL = 'Move it here';
+
 /**
  * The centre of a TERMINAL pane is not a target (user decision 7,
- * 2026-09-15): a running session is not something a file may quietly take the
- * place of, and the edges are right there.
+ * 2026-09-15): a terminal shows a running program, not files, and the edges
+ * are right there. ONE sentence for both doors — a file ROW dropped there and
+ * a file TAB dragged there are the same mistake, so they get the same answer
+ * (A10b: it no longer says "replaced", because since A10b a centre drop on an
+ * editor pane ADDS a tab and replaces nothing).
  */
 const REJECT_SESSION_CENTRE =
-  'A terminal pane cannot be replaced by a file. Drop on an edge to split.';
+  'A terminal pane cannot hold files. Drop on an edge to split.';
 
 /** The pane cannot split the way it was asked to — the short pane of a 3-split. */
 const REJECT_NO_ROOM = 'There is no room beside this pane.';
@@ -210,6 +261,9 @@ function begin(e: PointerEvent): void {
   document.body.append(ghost);
   drag.ghost = ghost;
   document.body.classList.add('is-dnd');
+  // The source recedes: a tab chip, a Files row or a pane header. A file TAB
+  // dims its CHIP only — the pane it was picked up from is not going anywhere,
+  // and dimming it would say it was.
   drag.sourceEl.classList.add('is-dragging');
   if (drag.spec.kind === 'pane') {
     drag.sourceEl.closest('.pane')?.classList.add('is-dragging');
@@ -261,9 +315,10 @@ function stripInsertIndex(strip: Element, x: number): number {
 }
 
 /**
- * The session a PANE drag is about, or null when it picked up a file or a
- * diff. `slotKey` is the identity check: an index whose occupant changed under
- * the drag is not the pane the user grabbed.
+ * The session a PANE drag is about, or null when it picked up an EDITOR pane
+ * (A10b: the one kind that is not a session). `slotKey` is the identity check:
+ * an index whose occupant changed under the drag is not the pane the user
+ * grabbed.
  */
 function paneSessionId(spec: DragSpec): string | null {
   if (spec.kind !== 'pane') return null;
@@ -272,10 +327,72 @@ function paneSessionId(spec: DragSpec): string | null {
   return st.slotKey(slot) === spec.slotKey ? slot.id : null;
 }
 
-/** Is this file already a pane of that view? Then opening it costs no pane. */
+/**
+ * Is this file already a TAB of that view? Then opening it costs no pane — it
+ * is raised where it stands (A10b; before the strips it was a pane of its own,
+ * and the question was about `slotKey`).
+ */
 function fileIsIn(v: st.ViewState, path: string): boolean {
-  const key = st.slotKey({ kind: 'file', path });
-  return v.slots.some((s) => st.slotKey(s) === key);
+  const id = tabIdOf({ kind: 'file', path });
+  return v.slots.some((s) => st.slotTabIds(s).includes(id));
+}
+
+/** Where a file-tab drag started, as it stands NOW — or null if it moved away. */
+interface FiletabSource {
+  view: st.ViewState;
+  /** The source pane's CURRENT index (panes are remapped by every 2x2 change). */
+  slot: number;
+  /** The tab's CURRENT position in that strip. */
+  tabIndex: number;
+  /** Does the source pane keep other tabs? Its last tab leaving frees the pane. */
+  keepsOthers: boolean;
+}
+
+/**
+ * Resolve a file-tab spec against the live model, by KEY and by TAB ID — never
+ * by the two indices it also carries. A pane that was closed, a tab that was
+ * closed, or a strip that was rebuilt under the drag all answer null, and a
+ * null source is a drag with no target anywhere (no visuals, no drop).
+ */
+function filetabSource(spec: DragSpec): FiletabSource | null {
+  if (spec.kind !== 'filetab') return null;
+  const view = viewById(spec.viewId);
+  if (view === undefined) return null;
+  const slot = view.slots.findIndex((s) => st.slotKey(s) === spec.slotKey);
+  const pane = view.slots[slot];
+  if (pane === undefined || pane.kind !== 'editor') return null;
+  const tabIndex = pane.tabs.findIndex((t) => tabIdOf(t) === spec.tabId);
+  if (tabIndex === -1) return null;
+  return { view, slot, tabIndex, keepsOthers: pane.tabs.length > 1 };
+}
+
+/**
+ * The zones a file-tab drop may really land in on pane `slot` — measured on the
+ * view AS THE DROP WILL LEAVE IT, not as it stands now. A pane whose LAST tab
+ * leaves frees its own pane, so the split is one pane smaller than the picture
+ * (`state.ts moveTabToSplit` decides on exactly that probe); a pane that keeps
+ * other tabs stays, and the live view answers.
+ *
+ * Two cases answer "no zone at all" rather than guess:
+ *   - the pane the tab is LEAVING, when it leaves nothing behind: it is about
+ *     to disappear, so there is no pane there to land beside;
+ *   - a 2x2 tab whose source pane is about to die: state.ts re-shapes a 2x2
+ *     into a 3-split with its own remap (which pane becomes the tall one), and
+ *     mirroring that rule here would be a second copy of the layout model
+ *     inside the drag layer. `moveTabToSplit` would take it (its capacity rule
+ *     allows a 5th pane when the source frees one), but the act is a pane
+ *     MOVE wearing a file tab's clothes — the pane chords are the door for
+ *     that — so neither the drag nor ctrl+alt+m offers it, and the tab is
+ *     refused with the capacity sentence instead. Recorded, not hidden.
+ * Everything else is exactly `dropZonesFor`, so the bands the pointer feels
+ * and the zones the drop accepts can never drift apart.
+ */
+function splitZonesFor(v: st.ViewState, src: FiletabSource, slot: number): st.Zone[] {
+  if (src.keepsOthers) return st.dropZonesFor(v, slot, 1);
+  if (slot === src.slot) return [];
+  if (v.slots.length === st.MAX_PANES) return [];
+  const probe: st.ViewState = { ...v, slots: v.slots.filter((_, i) => i !== src.slot) };
+  return st.dropZonesFor(probe, slot > src.slot ? slot - 1 : slot, 1);
 }
 
 function resolve(x: number, y: number): Target {
@@ -354,7 +471,13 @@ function resolve(x: number, y: number): Target {
       return {
         t: 'open-file-tab',
         viewId: v.id,
-        ok: fileIsIn(v, spec.path) || v.slots.length < st.MAX_PANES,
+        // A10b: a tab holding an editor pane always has room — the file
+        // becomes a TAB there and costs no pane. The rule here must be the
+        // one the drop itself uses, or the drag says no and the release says yes.
+        ok:
+          fileIsIn(v, spec.path) ||
+          v.slots.some((s) => s.kind === 'editor') ||
+          v.slots.length < st.MAX_PANES,
       };
     }
     if (emptyEl !== null) {
@@ -386,6 +509,43 @@ function resolve(x: number, y: number): Target {
       };
     }
     return null;
+  }
+
+  if (spec.kind === 'filetab') {
+    const src = filetabSource(spec);
+    // The pane was closed, the tab was closed, or the strip was rebuilt under
+    // the drag: the gesture is about something that is no longer there.
+    if (src === null) return null;
+    // Gestures that were deliberately not built (orchestrator default 4,
+    // A10b) and therefore never light up: a strip — its own (a reorder) or
+    // another pane's — a tab chip, the bottom tab strip (giving the file a tab
+    // of its own) and the empty state. Its own pane's centre joins them a few
+    // lines down. A target that lights up for an act that does not exist is
+    // worse than no target at all.
+    if (hit.closest('.pane-tabs') !== null) return null;
+    if (strip !== null || tabEl !== null || emptyEl !== null) return null;
+    if (paneEl === null) return null;
+    const active = st.activeView();
+    // The grid draws the ACTIVE view only, so a chip carrying another view's id
+    // has nothing here to aim at.
+    if (active === null || active.id !== spec.viewId) return null;
+    const slot = Number(paneEl.dataset.slot);
+    const target = active.slots[slot];
+    if (target === undefined) return null;
+    const r = paneEl.getBoundingClientRect();
+    const where = zoneForPoint(r, splitZonesFor(active, src, slot), x, y);
+    if (where === 'replace' || where === 'fill') {
+      // The CENTRE: the whole pane takes the tab, because the whole pane is
+      // what it joins.
+      if (target.kind === 'session') return { t: 'reject-session' };
+      if (slot === src.slot) return null; // its own pane: it is already there
+      return { t: 'move-tab', viewId: active.id, slot };
+    }
+    // An EDGE. `null` is an edge this drop cannot honour — a full tab, the
+    // short pane of a 3-split, or the tab's own pane with nothing else in it —
+    // and it refuses out loud, the way the chord does, instead of quietly
+    // doing something else.
+    return { t: 'open-tab-split', viewId: active.id, slot, zone: where, ok: where !== null };
   }
 
   // Pane-header drag.
@@ -423,7 +583,11 @@ function showPaneDrop(slot: number, zone: string, label: string): void {
   const paneEl = document.querySelector(`.grid .pane[data-slot="${slot}"]`);
   const host = paneEl?.querySelector<HTMLElement>('.pane-drop');
   if (host === undefined || host === null) return;
-  host.dataset.zone = zone;
+  // An EMPTY zone means the WHOLE pane takes the drop (a file tab moving into
+  // that strip) — the same shape A9's Explorer drop uses. The box is placed by
+  // this attribute, so it has to be GONE, not empty.
+  if (zone === '') delete host.dataset.zone;
+  else host.dataset.zone = zone;
   const lb = host.querySelector('.pane-drop-lb');
   if (lb !== null) lb.textContent = label;
   host.hidden = false;
@@ -479,6 +643,21 @@ function setTarget(target: Target, x: number): void {
       else ghost?.classList.add('is-invalid');
       break;
     }
+    case 'open-tab-split': {
+      // A refusal shows the ghost turning invalid and NO box, exactly as a
+      // file row's refusal does: a box would promise a split that is not
+      // coming.
+      if (target.ok && target.zone !== null) showPaneDrop(target.slot, target.zone, OPEN_LABEL[target.zone]);
+      else ghost?.classList.add('is-invalid');
+      break;
+    }
+    case 'move-tab':
+      // No zone: the whole pane lights up, because the whole pane takes it.
+      showPaneDrop(target.slot, '', MOVE_TAB_LABEL);
+      break;
+    case 'reject-session':
+      ghost?.classList.add('is-invalid');
+      break;
     case 'swap': {
       document
         .querySelector(`.grid .pane[data-slot="${target.slot}"]`)
@@ -574,9 +753,41 @@ function drop(d: Drag): void {
     }
     case 'open-file': {
       if (spec.kind !== 'file') return;
-      flashOpenResult(st.openFileAt(target.viewId, target.slot, target.where, spec.path));
+      // `'replace'` is the pane's CENTRE, and on an editor pane that ADDS the
+      // file to the strip (A10b) — the word is the drop layer's name for the
+      // middle, not a promise to throw anything away.
+      flashOpenResult(
+        st.openTabAt(target.viewId, target.slot, target.where, { kind: 'file', path: spec.path }),
+      );
       break;
     }
+    case 'open-tab-split': {
+      if (spec.kind !== 'filetab') return;
+      const src = filetabSource(spec);
+      if (src === null) return;
+      if (!target.ok || target.zone === null) {
+        // Say the same thing the chord says. A tab that is full only has room
+        // when the source pane dies with the tab, and then there IS a zone.
+        flashOpenResult(src.view.slots.length >= st.MAX_PANES ? 'full' : 'no-zone');
+        return;
+      }
+      flashOpenResult(
+        st.moveTabToSplit(target.viewId, src.slot, src.tabIndex, target.slot, target.zone),
+      );
+      break;
+    }
+    case 'move-tab': {
+      if (spec.kind !== 'filetab') return;
+      const src = filetabSource(spec);
+      if (src === null) return;
+      flashOpenResult(st.moveTab(target.viewId, src.slot, src.tabIndex, target.slot));
+      break;
+    }
+    case 'reject-session':
+      // ONE mapping for both doors: the file row and the file tab get the same
+      // sentence for the same mistake.
+      flashOpenResult('session-centre');
+      break;
     case 'open-file-tab': {
       if (spec.kind !== 'file') return;
       const v = viewById(target.viewId);

@@ -34,7 +34,7 @@ marks, 1 px edges instead of shadows, radii 4/8/14. The previous look
   Keyboard, **Terminal colours** (*mock until B9* — presets plus a custom
   ground and text colour, terminal only), Background service (version,
   uptime, Check for updates, Restart service).
-- Commit view over the pane area and an editor column (*mock until B3/B4*).
+- Commit view over the pane area and editor panes with file tabs in the tab strip (*mock until B3/B4*).
 - Shortcuts overlay, update toast, restart confirmation and the boot
   overlay redesigned in the same language.
 

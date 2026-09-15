@@ -257,6 +257,46 @@ test('every rendered GESTURE row carries a twin in its right-hand column', () =>
   overlay.close();
 });
 
+// ---------------------------------------------------------------------------
+// What A10b added to the table, as rendered (Nocturne A10b)
+// ---------------------------------------------------------------------------
+
+test('the file-tab chords render as chips, each in its own item, each with a control', () => {
+  openFromOpener();
+  const items = byClass(modal, 'sc-item');
+  for (const chord of ['ctrl+alt+pgup/pgdn', 'ctrl+alt+m']) {
+    const hits = items.filter((i) =>
+      descendants(i).some((n) => n.tagName === 'KBD' && n.textContent === chord),
+    );
+    assert.equal(hits.length, 1, `expected one item for ${chord}, found ${hits.length}`);
+    const item = hits[0] as FakeElement;
+    assert.notEqual(textsOf(item, 'sc-what')[0], '', `${chord} must say what it does`);
+    assert.notEqual(textsOf(item, 'sc-ui')[0], '', `${chord} must name a control`);
+  }
+  // The unshifted pair and the shifted pair are two chips, not one: they are
+  // different chords on the same keys.
+  const chips = descendants(modal)
+    .filter((n) => n.tagName === 'KBD')
+    .map((n) => n.textContent);
+  assert.equal(chips.filter((c) => c === 'ctrl+alt+pgup/pgdn').length, 1);
+  assert.equal(chips.filter((c) => c === 'ctrl+alt+shift+pgup/pgdn').length, 1);
+  overlay.close();
+});
+
+test('the two file-tab drags render as sentences, and both name ctrl+alt+m', () => {
+  openFromOpener();
+  const items = byClass(modal, 'sc-item');
+  const twin = (gesture: string): string => {
+    const item = items.find((i) => textsOf(i, 'sc-gesture').includes(gesture));
+    assert.ok(item !== undefined, `the ${gesture} row must be rendered`);
+    return textsOf(item as FakeElement, 'sc-ui')[0] ?? '';
+  };
+  assert.equal(twin('drag a file tab onto a pane edge'), 'ctrl+alt+m');
+  assert.equal(twin('drag a file tab onto another editor pane'), 'ctrl+alt+m');
+  assert.equal(twin('drag a file row onto an editor pane'), 'click the row');
+  overlay.close();
+});
+
 test('a gesture twin that names a chord is NOT rendered as a key chip (it is the other column)', () => {
   // The `sc-ui` column is prose, not a control: rendering it as a <kbd> would
   // make the table read as if the gesture itself were a key.

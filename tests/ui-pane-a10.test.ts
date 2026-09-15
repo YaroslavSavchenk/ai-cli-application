@@ -1,7 +1,7 @@
 /**
- * Nocturne part A10 — the STRUCTURAL facts of a pane that may be a terminal, a
- * file or a read-only diff, pinned by source inspection (`.claude/PLAN-A10.md`
- * §2 and §5).
+ * Nocturne part A10, re-tabbed by A10b — the STRUCTURAL facts of a pane that
+ * may be a terminal or an EDITOR holding a strip of file/diff tabs, pinned by
+ * source inspection (`.claude/PLAN-A10.md` §2/§5, `.claude/PLAN-A10b.md` §2).
  *
  * WHY SOURCE AND NOT DOM. `web/src/ui/panes.ts` imports @xterm/xterm, a
  * browser bundle: importing it under `node --test` throws before the first
@@ -12,16 +12,21 @@
  *   1. `gridHidden()` is still the FIRST statement of `render()` — the A6
  *      WebGL trap, now with one more construction site (a slot that changes
  *      KIND builds a TerminalView too).
- *   2. A slot leaving a pane DISPOSES its view before the mount is emptied,
- *      and the conversion happens IN PLACE — a rebuild would re-attach every
- *      other terminal in the tab (verify-terminal check 8).
+ *   2. A slot leaving a pane DISPOSES its view (a terminal) or its parked tab
+ *      bodies (an editor) before the elements are emptied, and the conversion
+ *      happens IN PLACE — a rebuild would re-attach every other terminal in
+ *      the tab (verify-terminal check 8). Since A10b the rebuild key must NOT
+ *      carry tab ids either, or raising a file would re-attach the terminal
+ *      beside it.
  *   3. `focusedPaneDims()` never answers 80x24 just because a FILE is focused
  *      (the A6 regression, one door further along).
- *   4. `requestTerminalFocus()` knows all three kinds; its nine callers do not
- *      have to.
+ *   4. `requestTerminalFocus()` knows both kinds; its nine callers do not have
+ *      to — and an editor pane decides for ITSELF where the keyboard goes.
  *   5. The session-only work (header, banner, status bar, the 15 s tick) skips
  *      panes that hold no session.
- *   6. The `×` on a file pane closes the PANE and ends nothing.
+ *   6. The `×` on an editor pane closes the PANE and ends nothing; the strip's
+ *      own DOM lives in `ui/editor-pane.ts` and NONE of it is left here (the
+ *      module `tests/ui-editor-pane.test.ts` really drives).
  *   7. `ui/keys.ts` is unchanged where A10 could have broken it: the pane area
  *      must not become a screen-level focus owner (memory:
  *      files-panel-focus-owner-trap) and a textarea is an editable target.
@@ -41,6 +46,7 @@ const read = (p: string): string => readFileSync(p, 'utf8');
 const PANES = read(join(UI, 'panes.ts'));
 const KEYS = read(join(UI, 'keys.ts'));
 const FILE_PANE = read(join(UI, 'file-pane.ts'));
+const EDITOR_PANE = read(join(UI, 'editor-pane.ts'));
 const MAIN = read(join(projectRoot, 'web', 'src', 'main.ts'));
 
 /** Source with comments removed — a comment may DISCUSS what code may not do. */
@@ -67,9 +73,15 @@ test('non-vacuity: this really reads the A10 pane module, and it really needs xt
     'panes.ts reaches @xterm/xterm through ui/terminal.ts — which is why this file is a source scan',
   );
   assert.match(read(join(UI, 'terminal.ts')), /from '@xterm\/xterm'/);
-  for (const name of ['function reconcileSlot', 'function teardown', 'function buildFilePane']) {
+  for (const name of ['function reconcileSlot', 'function teardown', 'function buildEditorPane']) {
     assert.ok(PANES_CODE.includes(name), `panes.ts must define ${name}`);
   }
+  assert.ok(EDITOR_PANE.length > 4000, 'editor-pane.ts looks empty');
+  assert.equal(
+    EDITOR_PANE.includes("from './panes.ts'"),
+    false,
+    'editor-pane.ts must stay node-safe: importing panes.ts drags @xterm/xterm in with it',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -107,12 +119,30 @@ test('a slot that changes KIND is converted in place — never through a rebuild
     'the rebuild signature is the LAYOUT, not the contents',
   );
   assert.match(render, /reconcileSlot\(i, v\.slots\[i\] \?\? null\)/, 'contents go through reconcileSlot');
+  // A10b: and the key carries no TAB id either. Raising a file in one strip
+  // would otherwise change the signature of the TAB and re-attach (and replay)
+  // every terminal sitting beside it — PLAN-A10b §2, verify-terminal §5.
+  for (const forbidden of ['tabIdOf', 'slotTabIds', 'activeTabOf', '.tabs', '.active =', 'slotKey']) {
+    assert.equal(
+      render.includes(forbidden),
+      false,
+      `${forbidden} in render()'s rebuild decision makes a tab switch cost a full re-attach`,
+    );
+  }
   const rec = fn(PANES, 'function reconcileSlot(index: number, slot: st.PaneSlot | null): void {');
   assert.match(rec, /const key = slot === null \? '' : st\.slotKey\(slot\);/, 'identity is the slot KEY');
   assert.match(rec, /if \(key === s\.key/, 'an unchanged pane is refreshed, not rebuilt');
-  for (const build of ['buildSessionPane(', 'buildFilePane(', 'buildDiffPane(']) {
+  for (const build of ['buildSessionPane(', 'buildEditorPane(']) {
     assert.ok(rec.includes(build), `reconcileSlot must be able to build a ${build} pane`);
   }
+  // THE BRANCH THAT MAKES A TAB CHEAP: a strip that gained, lost or raised a
+  // tab has the SAME slot key (the pane's own `e:<n>`), so the pane is updated
+  // in place instead of torn down and built again.
+  assert.match(
+    rec,
+    /s\.pay\.kind === 'editor'[\s\S]*?s\.pay\.pane\.update\(slot, renderedViewId, index\);/,
+    'an editor pane whose key did not change is UPDATED, never rebuilt',
+  );
 });
 
 test('a terminal leaving a pane is DISPOSED before its mount is emptied', () => {
@@ -125,6 +155,22 @@ test('a terminal leaving a pane is DISPOSED before its mount is emptied', () => 
   assert.equal(t.includes('s.root.remove()'), false, 'the card is chrome; it stays');
   assert.match(t, /s\.hd\.replaceChildren\(\);/);
   assert.match(t, /s\.body\.replaceChildren\(\);/);
+});
+
+test('an EDITOR pane leaving gives up its parked bodies first — same order, same reason', () => {
+  const t = fn(PANES, 'function teardown(s: Slot): void {');
+  const dispose = t.indexOf('pay.pane.dispose();');
+  const hd = t.indexOf('s.hd.replaceChildren();');
+  const body = t.indexOf('s.body.replaceChildren();');
+  assert.ok(dispose !== -1, 'the editor branch really disposes');
+  assert.ok(dispose < hd && dispose < body, 'a pane converted back would resurrect stale textareas');
+  // The session branch is untouched by A10b: the `else` may never swallow it.
+  assert.match(
+    t,
+    /if \(pay\.kind === 'session'\)[\s\S]*pay\.view\?\.dispose\(\);[\s\S]*\} else \{[\s\S]*pay\.pane\.dispose\(\);/,
+    'two branches, one per kind',
+  );
+  assert.equal(EDITOR_PANE.includes('bodies.clear();'), true, 'and dispose() really empties the Map');
 });
 
 // ---------------------------------------------------------------------------
@@ -179,23 +225,44 @@ test('focusedPaneDims asks the TERMINALS first — no early bail may jump the qu
 // 4. One name, three kinds
 // ---------------------------------------------------------------------------
 
-test('requestTerminalFocus keeps its name and knows all three kinds', () => {
+test('requestTerminalFocus keeps its name and knows BOTH kinds', () => {
   const f = fn(PANES, 'export function requestTerminalFocus(): void {');
   assert.match(f, /if \(s\.pay\.kind === 'session'\) s\.pay\.view\?\.focus\(\);/);
-  assert.match(f, /s\.pay\.kind === 'file'.*s\.pay\.body\.focus\(\);/s, 'a file pane focuses its text');
-  assert.match(f, /s\.pay\.chip\.focus\(\);/, 'a read-only diff focuses its header chip');
-  // file-pane.ts is the other half of the file branch.
+  // An editor pane decides for itself: the text of the active file, or that
+  // tab's chip when it is a read-only diff. panes.ts does not know what a tab
+  // is, so there is exactly ONE editor branch here and no kind test inside it.
+  assert.match(f, /s\.pay\.pane\.focus\(\);/, 'the editor pane is asked, not inspected');
+  assert.equal(f.includes("kind === 'file'"), false, 'no slot kind called `file` survives A10b');
+  assert.equal(f.includes("kind === 'diff'"), false, 'nor one called `diff`');
+  // editor-pane.ts is the other half of both branches; file-pane.ts of the first.
+  assert.match(
+    EDITOR_PANE,
+    /if \(tab\.kind === 'diff'\) chips\.get\(id\)\?\.querySelector<HTMLElement>\('\.pane-tab-pick'\)\?\.focus\(\);\s*\n\s*else bodies\.get\(id\)\?\.focus\(\);/,
+    'a diff lands on its chip, a file in its text',
+  );
   assert.match(FILE_PANE, /function focus\(\): void \{\s*textarea\?\.focus\(\);/);
 });
 
-test('the focus key carries the slot KEY, so a replaced pane takes the keyboard', () => {
+test('the focus key carries the slot KEY and the ACTIVE TAB, and bails on the strip', () => {
   const f = fn(PANES, 'function applyFocus(): void {');
   assert.match(
     f,
-    /const key = `\$\{v\.id\}:\$\{v\.focused\}:\$\{s\?\.key \?\? ''\}`;/,
-    'tab + index alone cannot tell a swap from a no-op',
+    /const key = `\$\{v\.id\}:\$\{v\.focused\}:\$\{s\?\.key \?\? ''\}:\$\{active === null \? '' : tabIdOf\(active\)\}`;/,
+    'raising another file is a content change and must re-hand the keyboard',
   );
+  assert.match(f, /const active = model === undefined \? null : st\.activeTabOf\(model\);/);
   assert.match(f, /if \(key === lastFocusKey\) return;/);
+  // A KEYSTROKE notifies 'ui' and must NOT re-hand the keyboard: the dirty bit
+  // is deliberately absent from the key.
+  assert.equal(f.includes('editorDirty'), false, 'a dirty flip is not a focus change');
+  // And the keyboard already inside the strip stays there: arrowing across the
+  // chips must not be thrown into the textarea.
+  assert.match(
+    f,
+    /const holds = s\.pay\?\.kind === 'editor' && s\.pay\.pane\.holdsFocus\(\);/,
+    'the guard exists',
+  );
+  assert.match(f, /else if \(!holds\) requestTerminalFocus\(\);/, 'and it really gates the call');
 });
 
 // ---------------------------------------------------------------------------
@@ -215,31 +282,85 @@ test('the session list and the 15 s tick skip panes that hold no session', () =>
 });
 
 // ---------------------------------------------------------------------------
-// 6. The × on a file pane, and the rule it does not break
+// 6. The × on an editor pane, the rule it does not break, and the strip DOM
+//    that is NOT here
 // ---------------------------------------------------------------------------
 
-test('a file pane’s × closes the PANE through state.ts, and says why that is allowed', () => {
-  const build = fn(PANES, 'function buildFilePane(s: Slot, path: string): void {');
-  assert.match(build, /st\.closeSlot\(renderedViewId, s\.index\)/, 'state.ts refuses a session slot');
-  assert.equal(build.includes('killSession'), false, 'a file pane never ends anything');
+test('an editor pane’s × closes the PANE through state.ts, and says why that is allowed', () => {
+  // The × itself moved into ui/editor-pane.ts with the rest of the header; the
+  // RULE did not move, so both halves are read.
+  assert.match(
+    EDITOR_PANE,
+    /const closePane = button\('pane-x', '×', \(\) => \{\s*\n\s*if \(slot !== null\) st\.closeSlot\(viewId, slotIndex\);/,
+    'state.ts refuses a session slot; this × can only ever close an editor pane',
+  );
+  assert.equal(EDITOR_PANE.includes('killSession'), false, 'an editor pane never ends anything');
   assert.match(
     PANES,
-    /A3 no-close rule: that rule\n \* is about ENDING SESSIONS/,
+    /A3 no-close rule: that rule is\n \* about ENDING SESSIONS/,
     'the reason the × is allowed here is written down where the pane is built',
   );
-  const diff = fn(PANES, 'function buildDiffPane(s: Slot, hash: string, path: string): void {');
-  assert.match(diff, /st\.closeSlot\(renderedViewId, s\.index\)/);
-  assert.equal(diff.includes('textarea'), false, 'a diff pane has no field');
+  // And the tab × is the OTHER closer: one tab, never the pane.
+  assert.match(EDITOR_PANE, /button\('pane-x', '×', \(\) => st\.closeTab\(viewId, slotIndex, i\)\)/);
 });
 
-test('a pane drag carries the slot key, and a file header is a drag source too', () => {
+test('buildEditorPane hands the chrome over and then only states the model', () => {
+  const build = fn(PANES, 'function buildEditorPane(s: Slot, slot: st.EditorSlot, index: number): void {');
+  assert.match(build, /const pane = editorPane\(s\.hd, s\.body\);/, 'the two elements that survive');
+  assert.match(build, /s\.pay = \{ kind: 'editor', id: slot\.id, pane \};/);
+  // The payload is keyed on the SLOT's own id, never on the tab it is showing:
+  // a pane whose active tab changed is the same pane.
+  assert.equal(build.includes('tabIdOf'), false, 'a payload id derived from a tab is the A10 bug');
+  assert.match(build, /pane\.update\(slot, renderedViewId, index\);/);
+});
+
+test('no chip-building DOM is left in panes.ts — the strip belongs to editor-pane.ts', () => {
+  // Two copies of a strip is the alias trap one level down: the one that is
+  // not driven by `tests/ui-editor-pane.test.ts` rots silently.
+  for (const gone of [
+    'pane-tab',
+    'pane-dirty',
+    'pane-dhash',
+    'open files',
+    'filePaneBody',
+    'diffPaneBody',
+    'buildFilePane',
+    'buildDiffPane',
+    'updateFileHeader',
+  ]) {
+    assert.equal(PANES.includes(gone), false, `${gone} must live in ui/editor-pane.ts, not here`);
+  }
+  // Nor may panes.ts reach into the strip's model.
+  assert.equal(PANES_CODE.includes('.tabs'), false, 'panes.ts never walks a strip');
+  // Non-vacuity: those names really exist — in the module that owns them.
+  for (const there of ['pane-tab', 'pane-dirty', 'open files', 'filePaneBody', 'diffPaneBody']) {
+    assert.ok(EDITOR_PANE.includes(there), `non-vacuity: editor-pane.ts must hold ${there}`);
+  }
+});
+
+test('a pane drag carries the slot key, and an editor header is a drag source too', () => {
   const create = fn(PANES, 'function createSlot(index: number): Slot {');
   assert.match(create, /armDrag\(hd, 'button', \(\) => \{/, 'the HEADER is the handle, for every kind');
   assert.match(create, /kind: 'pane',/);
   assert.match(create, /slotKey: slot\.key,/, 'the drop needs to know WHAT was picked up');
   assert.match(create, /viewId: renderedViewId,/);
-  // Armed once, on the element that survives a conversion.
-  assert.equal(PANES_CODE.split('armDrag(').length - 1, 1, 'exactly one armDrag call site');
+  // The label comes from the MODEL, so an editor pane is named after the tab it
+  // is showing without this module knowing what a tab is.
+  assert.match(create, /const label = slotTitle\(live,/, 'slotTitle is the one naming rule');
+  // Armed once HERE, on the element that survives a conversion. The chips arm
+  // their own, on a descendant, so the gesture on a chip is the chip's — and
+  // `ignore: 'button'` keeps the header off every control in the strip.
+  assert.equal(PANES_CODE.split('armDrag(').length - 1, 1, 'exactly one armDrag call site in panes.ts');
+  assert.equal(
+    code(EDITOR_PANE).split('armDrag(').length - 1,
+    1,
+    'and exactly one in editor-pane.ts: the chip',
+  );
+  assert.match(
+    EDITOR_PANE,
+    /armDrag\(chip, '\.pane-x', \(\) => \(slot === null \? null : fileTabSpec\(viewId, slot, slotIndex, i\)\)\)/,
+    'the chip is the source and its own × is not',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -273,7 +394,7 @@ test('a textarea is an editable target — the file pane keeps the keys it is ty
 // 8. main.ts: the two chords A10 added, and the one Escape it did NOT add
 // ---------------------------------------------------------------------------
 
-test('ctrl+alt+w closes the focused PANE, ends nothing, and stands down under the commit view', () => {
+test('ctrl+alt+w closes the ACTIVE TAB, ends nothing, and stands down under the commit view', () => {
   const at = MAIN.indexOf('if (e.ctrlKey && e.altKey');
   assert.notEqual(at, -1, 'non-vacuity: the chord block was found');
   const block = MAIN.slice(at, MAIN.indexOf("if (e.key === '?'", at));
@@ -290,16 +411,25 @@ test('ctrl+alt+w closes the focused PANE, ends nothing, and stands down under th
   assert.ok(guard !== -1 && arm !== -1, 'non-vacuity: guard and arm were found');
   assert.ok(guard < arm, 'the guard stands before the arm it guards');
   const body = block.slice(arm, block.indexOf('} else if', arm + 8));
+  // A10b (orchestrator default 4): the chord closes the tab the user is
+  // looking at, and only its LAST tab takes the pane with it — that ladder is
+  // state.ts's (`closeActiveTab` -> `closeTab` -> `closeSlot`), so main.ts
+  // must not reach past it and close the pane itself.
   assert.match(
     body,
-    /const v = st\.activeView\(\);\s*\n\s*if \(v !== null\) st\.closeSlot\(v\.id, v\.focused\);/,
-    'it closes the FOCUSED pane of the ACTIVE view, through state.ts',
+    /const v = st\.activeView\(\);\s*\n\s*if \(v !== null\) st\.closeActiveTab\(v\.id, v\.focused\);/,
+    'it closes the active tab of the FOCUSED pane of the ACTIVE view, through state.ts',
   );
   assert.equal(body.includes('killSession'), false, 'the chord never ends a session');
   assert.equal(
     body.includes('closeView'),
     false,
     'and it never closes a tab: state.ts decides what an emptied tab costs',
+  );
+  assert.equal(
+    body.includes('closeSlot'),
+    false,
+    'nor the pane: only the last tab leaving may cost one',
   );
   // state.ts refuses a session slot (tests/ui-state.test.ts: "closeSlot: a
   // SESSION pane is refused"), which is why no arm here special-cases a kind.

@@ -2,7 +2,9 @@
  * Commit view (Nocturne part A6) — one commit, full width, over the pane area.
  *
  * PLACE IN THE SHELL. It is a flex sibling of the pane grid in the middle row,
- * between the Files panel and the editor column, and while it is up the grid
+ * between the Files panel and the pane grid (the A6 editor column it once sat
+ * beside is gone: since A10b the files live in an EDITOR PANE of the grid
+ * itself), and while it is up the grid
  * is `hidden` (main.ts owns that flag, see `applyScreenLayout`). Nothing here
  * touches a terminal: the panes are not disposed, only invisible, and
  * `ui/panes.ts` refuses to rebuild against a grid it cannot measure — which is
@@ -263,12 +265,17 @@ export function initCommitView(
     const openFile = button('diff-act', 'Open file', () => {
       // Open FIRST, close second. Both orders end in the same screen, but this
       // one costs ONE layout pass: the pane area is still covered while the
-      // pane is added, so `ui/panes.ts` refuses to build anything; closing the
+      // tab is added, so `ui/panes.ts` refuses to build anything; closing the
       // view then unhides the grid and the deferred render draws the new
       // layout once. The other order builds the panes twice.
+      //
+      // Since A10b this ADDS A TAB to the tab's editor pane (and raises it
+      // when the file is already open there) instead of taking a pane of its
+      // own — `st.openFile` decides that, and this call did not change.
       if (st.openFile(commitRoot(), f.path, fileName(f.path)) !== 'ok') {
-        // The tab has no room: say so and stay, rather than closing this
-        // screen for a pane that was never opened.
+        // The tab has no room for a new PANE and no editor pane to add a tab
+        // to: say so and stay, rather than closing this screen for a file that
+        // was never opened.
         flash(TAB_FULL);
         return;
       }
@@ -305,7 +312,9 @@ export function initCommitView(
 }
 
 /**
- * The unified diff itself — the one renderer the editor's diff tab reuses.
+ * The unified diff itself — the one renderer a DIFF TAB of an editor pane
+ * reuses (ui/file-pane.ts `diffPaneBody`), so this screen and that pane can
+ * never disagree about what a commit changed.
  *
  * THE HASH IS PART OF WHAT A DIFF IS: `server/ws.ts` is in two of the mock's
  * commits, and B3's `git show <hash> -- <path>` answers differently for each.

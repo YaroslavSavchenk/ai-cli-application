@@ -43,11 +43,23 @@ import {
 const dom = installDom();
 const here = dirname(fileURLToPath(import.meta.url));
 
+type EditorTab = { kind: 'file'; path: string } | { kind: 'diff'; hash: string; path: string };
+/**
+ * A10b: a pane is a terminal or an EDITOR holding a strip of file/diff tabs.
+ * The commit view's two openers go through `st.openFile` / `st.openDiff`, so
+ * what they produce is an editor SLOT whose strip holds the tab — never a
+ * `file` slot, which no longer exists.
+ */
 interface Slot {
-  kind: 'session' | 'file' | 'diff';
+  kind: 'session' | 'editor';
   id?: string;
-  path?: string;
-  hash?: string;
+  tabs?: EditorTab[];
+  active?: number;
+}
+
+/** The tabs of every editor pane of a view, in pane then strip order. */
+function tabsOf(v: View): EditorTab[] {
+  return v.slots.flatMap((s) => s.tabs ?? []);
 }
 interface View {
   id: string;
@@ -72,6 +84,7 @@ interface StateModule {
   openFile(root: { kind: 'home' }, path: string, label: string): string;
   openDiff(root: { kind: 'home' }, hash: string, path: string): string;
   closeSlot(viewId: string, index: number): boolean;
+  closeTab(viewId: string, slot: number, tabIndex: number): boolean;
   editorFileId(path: string): string;
   editorDirty(id: string | null): boolean;
   setEdit(id: string, text: string): void;
@@ -285,7 +298,8 @@ test('`Open file` leaves the view closed and the file open as a PANE of its fold
   assert.equal(st.state.openCommit, null, 'the pane lives in the row the view was covering');
   const v = st.activeView() as View;
   assert.deepEqual(v.root, { kind: 'home' }, 'no session, no project: the file lands at Home');
-  assert.deepEqual(v.slots, [{ kind: 'file', path: F1.path }]);
+  assert.equal(v.slots.length, 1, 'ONE editor pane (A10b: a file is a tab, not a pane)');
+  assert.deepEqual(tabsOf(v), [{ kind: 'file', path: F1.path }]);
   assert.equal(handBacks, 0, 'this is not the way BACK; it is the way into the file');
   assert.equal(paneHandovers, 1, 'and the keyboard goes with it');
 });
@@ -294,7 +308,7 @@ test('`Changes` opens the read-only diff pane for that file in that commit', () 
   st.openCommitView(C0.hash);
   (byKey(commitRoot, `diffchanges:${C0.hash}:${F0.path}`) as FakeElement).click();
   assert.equal(st.state.openCommit, null);
-  assert.deepEqual((st.activeView() as View).slots, [
+  assert.deepEqual(tabsOf(st.activeView() as View), [
     { kind: 'diff', hash: C0.hash, path: F0.path },
   ]);
   assert.equal(paneHandovers, 1, 'a diff has no field to land in, so the pane takes the keyboard');
@@ -302,12 +316,15 @@ test('`Changes` opens the read-only diff pane for that file in that commit', () 
 
 test('a full tab keeps the screen and says so, instead of closing for a pane it never opened', () => {
   st.openCommitView(C0.hash);
-  // Four panes already: the fifth cannot land anywhere.
+  // A10b narrowed this state to ONE shape: four panes AND not one of them an
+  // editor. With an editor pane anywhere in the tab the file is a TAB of it and
+  // costs no pane, so four terminals is the only way a file still has nowhere
+  // to go — and it is the state where the screen must stay up.
   st.state.views = [
     {
       id: 'home',
       root: { kind: 'home' },
-      slots: ['one', 'two', 'three', 'four'].map((n) => ({ kind: 'file' as const, path: `full/${n}.ts` })),
+      slots: ['one', 'two', 'three', 'four'].map((n) => ({ kind: 'session' as const, id: `s:${n}` })),
       focused: 0,
     },
   ];
@@ -349,7 +366,7 @@ test('a file from a commit lands in the tab the view was standing over', () => {
   st.openCommitView(C0.hash);
   (byKey(commitRoot, `diffopen:${F1.path}`) as FakeElement).click();
   assert.equal(st.state.activeViewId, 'proj');
-  assert.deepEqual((st.activeView() as View).slots, [{ kind: 'file', path: F1.path }]);
+  assert.deepEqual(tabsOf(st.activeView() as View), [{ kind: 'file', path: F1.path }]);
   assert.deepEqual(
     st.state.views.map((v) => v.slots.length),
     [0, 1],
@@ -643,22 +660,26 @@ test('closing the commit view empties the fold set — a closed view remembers n
   assert.equal(st.commitFileCollapsed(C0.hash, F0.path), false);
 });
 
-test('closing a file pane leaves every other file’s unsaved text alone', () => {
+test('closing an editor pane leaves every other file’s unsaved text alone', () => {
   st.openFile({ kind: 'home' }, 'a/one.ts', 'one.ts');
   st.openFile({ kind: 'home' }, 'a/two.ts', 'two.ts');
   st.setEdit('f:a/one.ts', 'one typed');
   st.setEdit('f:a/two.ts', 'two typed');
   const home = st.state.views[0] as View;
-  const two = home.slots.findIndex((s) => s.path === 'a/two.ts');
-  assert.notEqual(two, -1, 'non-vacuity: both files are panes of the Home tab');
+  // A10b: the second file is a TAB of the first file's pane, so closing that
+  // ONE pane takes both files off the screen — and only the text of files no
+  // tab shows any more is dropped.
+  assert.equal(home.slots.length, 1, 'non-vacuity: both files are tabs of ONE Home pane');
+  assert.equal(tabsOf(home).length, 2);
 
-  st.closeSlot(home.id, two);
+  st.closeTab(home.id, 0, tabsOf(home).findIndex((t) => t.path === 'a/two.ts'));
   assert.equal(st.editorDirty('f:a/one.ts'), true, 'the other file is untouched');
   assert.equal(st.state.edits.get('f:a/one.ts'), 'one typed');
   // The closed file was on no other pane, so its text goes with it
   // (PROJECT-SCOPE: dropped when the LAST pane showing that file closes).
   // Still no confirm before B4 owns the disk write; the amber dot is the warning.
   assert.equal(st.state.edits.has('f:a/two.ts'), false);
+  assert.deepEqual(tabsOf(st.state.views[0] as View), [{ kind: 'file', path: 'a/one.ts' }]);
 });
 
 test('the keyboard lands on the way out when a commit opens, and stays put while folding', () => {
@@ -801,7 +822,10 @@ test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-s
   for (const sel of [
     '.pane-text',
     '.pane-gutter',
-    '.pane-dhash',
+    // Nocturne A10b: the A6 `.pane-dhash` header chip is gone with the file /
+    // diff pane headers. What prints a path segment and a commit hash now is
+    // the file-tab chip's label, so IT is what has to be in the rule.
+    '.pane-tab-pick',
     '.diff-t',
     '.diff-path',
     '.commit-fpath',

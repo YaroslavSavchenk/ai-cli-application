@@ -508,6 +508,93 @@ test('EVERY gesture row names its twin: a chord, or a control the user can see',
   assert.equal(twinOf('drag a tab along the strip'), 'ctrl+alt+shift+pgup/pgdn');
 });
 
+// ---------------------------------------------------------------------------
+// The file-tab chords (Nocturne A10b)
+// ---------------------------------------------------------------------------
+
+test('the three A10b chords are on the table, each on exactly one row, each with a control', () => {
+  for (const chord of ['ctrl+alt+pgup/pgdn', 'ctrl+alt+m', 'ctrl+alt+w']) {
+    const rows = ROWS.filter((r) => r.keys.includes(chord));
+    assert.equal(rows.length, 1, `expected one row for ${chord}, found ${rows.length}`);
+    assert.equal((rows[0] as TableRow).gesture, false, `${chord} is a chord, not a gesture`);
+  }
+  // The unshifted pair and the shifted pair are two different chords on the
+  // same keys, and the table must say which is which.
+  const cycle = ROWS.find((r) => r.keys.includes('ctrl+alt+pgup/pgdn')) as TableRow;
+  const reorder = ROWS.find((r) => r.keys.includes('ctrl+alt+shift+pgup/pgdn')) as TableRow;
+  assert.match(cycle.what, /file tab/, cycle.what);
+  assert.match(reorder.what, /tab left \/ right/, reorder.what);
+  // ctrl+alt+w closes a TAB since A10b, and its last tab takes the pane.
+  const close = ROWS.find((r) => r.keys.includes('ctrl+alt+w')) as TableRow;
+  assert.match(close.what, /active file tab/, close.what);
+  assert.match(close.what, /closes its pane/, close.what);
+});
+
+test('main.ts tests the SHIFTED pgup/pgdn branch before the unshifted one', () => {
+  // They are the same two keys. If the unshifted branch came first it would
+  // swallow the reorder chord, and the tab-strip drag would lose its twin —
+  // with every other test in this file still green.
+  const block = mainChordBlock();
+  const shifted = block.indexOf("(k === 'PageUp' || k === 'PageDown') && e.shiftKey");
+  const plain = block.indexOf("} else if (k === 'PageUp' || k === 'PageDown') {");
+  assert.notEqual(shifted, -1, 'non-vacuity: the reorder branch was not found');
+  assert.notEqual(plain, -1, 'non-vacuity: the tab-cycle branch was not found');
+  assert.ok(shifted < plain, 'the shifted branch must be tested first');
+  // …and it must still be REACHABLE: a qualifier bolted onto that condition
+  // would drop every shift+pgup/pgdn into the tab-cycle branch below it, with
+  // the order above still green.
+  assert.match(
+    block,
+    /\} else if \(\(k === 'PageUp' \|\| k === 'PageDown'\) && e\.shiftKey\) \{/,
+    'the reorder branch takes the two keys and the shift, and nothing else',
+  );
+  // And both act: one moves the TAB, the other the file tab inside a pane.
+  assert.match(block, /moveActiveViewBy/);
+  assert.match(block, /cycleTab/);
+  // ctrl+alt+m moves the active tab, and falls back to a split.
+  assert.match(block, /moveTabToSplit/);
+  // ctrl+alt+w closes the TAB, not the pane (A10b).
+  assert.match(block, /closeActiveTab/);
+  assert.equal(/st\.closeSlot\(/.test(block), false, 'the chord closes a tab now, not a whole pane');
+});
+
+test('the terminal allow-list passes pgup/pgdn UNQUALIFIED, and m with it', () => {
+  // The A10 allow-list took pgup/pgdn only WITH shift. The unshifted pair is
+  // an app chord now, so the qualifier has to be gone — otherwise a focused
+  // terminal eats the tab switch and prints its bytes instead.
+  const allow = terminalAllowlist();
+  assert.match(allow, /k === 'PageUp' \|\|\n\s*k === 'PageDown'/);
+  assert.equal(
+    /e\.shiftKey && \(k === 'PageUp'/.test(allow),
+    false,
+    'a shift qualifier would leave the unshifted chord to the PTY',
+  );
+  assert.match(allow, /k === 'm' \|\|\n\s*k === 'M'/);
+});
+
+test('the two file-tab drags each name ctrl+alt+m, and the file-row drop names the click', () => {
+  const src = readFileSync(SHORTCUTS, 'utf8');
+  const block = src.slice(src.indexOf('const ROWS'), src.indexOf('\n];', src.indexOf('const ROWS')));
+  const twinOf = (k: string): string =>
+    block.match(new RegExp(`keys: \\['${k}'\\][^}]*?ui: '([^']*)'`))?.[1] ?? '';
+  assert.equal(twinOf('drag a file tab onto a pane edge'), 'ctrl+alt+m');
+  assert.equal(twinOf('drag a file tab onto another editor pane'), 'ctrl+alt+m');
+  assert.equal(twinOf('drag a file row onto an editor pane'), 'click the row');
+  // The gesture that A10b replaced must be gone: a centre drop ADDS a tab now.
+  assert.equal(src.includes('replace that file with the dropped one'), false);
+  for (const g of [
+    'drag a file tab onto a pane edge',
+    'drag a file tab onto another editor pane',
+    'drag a file row onto an editor pane',
+  ]) {
+    assert.equal(
+      (ROWS.find((r) => r.keys.includes(g)) as TableRow).gesture,
+      true,
+      `${g} is a mouse sentence, not a chip`,
+    );
+  }
+});
+
 test('the swap row is about a PANE now, not about a session (A10 made it kind-blind)', () => {
   const row = ROWS.find((r) => r.keys.includes('ctrl+alt+shift+←↑↓→')) as TableRow;
   assert.equal(row.what, 'move the focused pane (swap)');

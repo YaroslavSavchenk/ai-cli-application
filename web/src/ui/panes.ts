@@ -1,8 +1,9 @@
 /**
  * Pane grid for the ACTIVE view (= tab). A view holds 0..4 SLOTS in a fixed
- * split shape (see state.ts for the slot maps), and since Nocturne part A10 a
- * slot is one of three things: a terminal, a file, or a read-only diff. They
- * mix freely inside one tab — a file may sit beside a running session.
+ * split shape (see state.ts for the slot maps), and since Nocturne part A10b a
+ * slot is one of TWO things: a terminal, or an EDITOR holding a strip of file
+ * and read-only diff tabs. They mix freely inside one tab — files may sit
+ * beside a running session.
  *
  * Sessions exist independently of views; this module only attaches and
  * detaches xterm views. Terminals exist only for the active view's SESSION
@@ -19,15 +20,17 @@
  *            "Own tab" in a split. Body: the xterm mount, a thin status bar
  *            (ui/pane-status-model.ts) and the background-agents table
  *            (ui/pane-agents.ts, empty in A3).
- *   file     header: the file's name, an amber dot while it is unsaved, and
- *            `×`. Body: ui/file-pane.ts (line numbers, the text, Save).
- *   diff     header: the file's name, `Changes in <hash>`, and `×`. Body: the
- *            A6 unified diff, read-only.
+ *   editor   header: one chip per open file — its name, an amber dot while it
+ *            is unsaved, its own `×` — then the pane's `×`. Body: the ACTIVE
+ *            chip's body (ui/file-pane.ts: line numbers, the text, Save; or
+ *            the A6 unified diff, read-only). All of it lives in
+ *            ui/editor-pane.ts, which this module only drives: `update`,
+ *            `focus`, `holdsFocus`, `dispose`.
  *
- * A `×` on a FILE or DIFF pane does not break the A3 no-close rule: that rule
- * is about ENDING SESSIONS, which is still only possible from the tab strip
- * and the Sessions panel, both of which ask to confirm. Closing a file pane
- * kills nothing.
+ * A `×` on an EDITOR pane does not break the A3 no-close rule: that rule is
+ * about ENDING SESSIONS, which is still only possible from the tab strip and
+ * the Sessions panel, both of which ask to confirm. Closing a file — or the
+ * pane it sits in — kills nothing.
  *
  * The status bar is NOT the 2026-07-26 telemetry strip that was removed: it
  * states only what the app already knows (argv model, argv permission mode,
@@ -37,9 +40,11 @@
  * itself.
  *
  * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while
- * something is dragged over it. Pane headers are drag sources — a file
+ * something is dragged over it. Pane headers are drag sources — an editor
  * header as much as a session header: onto another pane = swap, onto the tab
- * strip = extract (sessions only).
+ * strip = extract (sessions only). A CHIP inside an editor header is its own,
+ * smaller drag source (the tab moves, not the pane), and it is armed on a
+ * descendant, so it always wins the gesture over the header it sits in.
  */
 import type { CreateSessionRequest, SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
@@ -53,8 +58,9 @@ import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
 import { paneStatusItems } from './pane-status-model.ts';
 import { renderAgents, type AgentRow } from './pane-agents.ts';
-import { diffPaneBody, filePaneBody, type PaneBody } from './file-pane.ts';
-import { fileName, slotTitle } from './slots-model.ts';
+import { editorPane, type EditorPane } from './editor-pane.ts';
+import { tabIdOf } from './editor-model.ts';
+import { slotTitle } from './slots-model.ts';
 
 /** How often the status bar's `Time` value is refreshed (the statusline's rate). */
 const STATUS_TICK_MS = 15_000;
@@ -82,28 +88,19 @@ interface SessionPayload {
   agentsSig: string;
 }
 
-/** Everything a FILE pane owns beyond the shared chrome. */
-interface FilePayload {
-  kind: 'file';
-  path: string;
-  body: PaneBody;
-  /** The amber "unsaved" mark in the header; hidden while the file is clean. */
-  dirtyDot: HTMLElement;
-  /** The same fact in words, for a screen reader (the dot is a shape). */
-  dirtyWord: HTMLElement;
+/**
+ * Everything an EDITOR pane owns beyond the shared chrome — which is one
+ * object: `ui/editor-pane.ts` owns the chips, the parked bodies and the
+ * keyboard inside them. `id` is the slot's own `e:<n>` (= `s.key`), NOT the
+ * id of whatever tab is up: a pane whose active tab changed is the same pane.
+ */
+interface EditorPayload {
+  kind: 'editor';
+  id: string;
+  pane: EditorPane;
 }
 
-/** Everything a read-only DIFF pane owns beyond the shared chrome. */
-interface DiffPayload {
-  kind: 'diff';
-  hash: string;
-  path: string;
-  body: PaneBody;
-  /** `Changes in <hash>` — the header chip, and where the keyboard lands. */
-  chip: HTMLElement;
-}
-
-type Payload = SessionPayload | FilePayload | DiffPayload;
+type Payload = SessionPayload | EditorPayload;
 
 /**
  * One pane: the chrome that survives every content change, plus the payload of
@@ -161,8 +158,8 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
         render();
         return;
       }
-      // A file pane hears nothing from the server: only session panes have a
-      // header, a banner and a status bar that a session list can change.
+      // An editor pane hears nothing from the server: only session panes have
+      // a header, a banner and a status bar that a session list can change.
       for (const s of slots) {
         if (s.pay?.kind !== 'session') continue;
         updateHeader(s, s.pay);
@@ -240,10 +237,10 @@ export function requestTerminalFocus(): void {
   const s = focusedSlot();
   if (s === undefined || s.pay === null) return;
   if (s.pay.kind === 'session') s.pay.view?.focus();
-  else if (s.pay.kind === 'file') s.pay.body.focus();
-  // A read-only diff has nothing to type into: the keyboard lands on the
-  // header chip, which is what the pane is (the A6 rule for a diff tab).
-  else s.pay.chip.focus();
+  // An editor pane decides for itself where the keyboard belongs: the text of
+  // the active file, or that tab's chip when it is a read-only diff (there is
+  // nothing in such a body to type into).
+  else s.pay.pane.focus();
 }
 
 /**
@@ -256,8 +253,8 @@ export function requestTerminalFocus(): void {
  *   `proposeDims()` would fall through to its 80x24 clamp fallback and the new
  *   PTY would write its first screenful wrapped at 80 columns. The attach
  *   reconcile fixes the size afterwards, but never that scrollback.
- * - The focused pane holds a FILE or a diff (A10). A file has no cols and no
- *   rows at all, and `New session` is reachable from a focused textarea.
+ * - The focused pane is an EDITOR (A10/A10b). Files have no cols and no rows
+ *   at all, and `New session` is reachable from a focused textarea.
  *
  * So: the focused session's own live size, else a SESSION pane of this very
  * tab (it is the size the new pane will get), else the last size any
@@ -272,8 +269,8 @@ export function focusedPaneDims(): { cols: number; rows: number } {
   const info = id === null ? undefined : st.state.sessions.get(id);
   if (info !== undefined && info.status === 'running') return { cols: info.cols, rows: info.rows };
   if (!gridHidden()) {
-    // A file is focused: a measurable terminal in the same tab is a better
-    // answer than anything remembered.
+    // An editor pane is focused: a measurable terminal in the same tab is a
+    // better answer than anything remembered.
     for (const other of slots) {
       if (other.pay?.kind === 'session' && other.pay.view !== null) return other.pay.view.proposeDims();
     }
@@ -515,9 +512,12 @@ function reconcileSlot(index: number, slot: st.PaneSlot | null): void {
       updateHeader(s, s.pay);
       updateNote(s, s.pay);
       updateStatus(s.pay);
-    } else if (s.pay.kind === 'file') {
-      updateFileHeader(s.pay);
-      s.pay.body.update();
+    } else if (s.pay.kind === 'editor' && slot !== null && slot.kind === 'editor') {
+      // THE BRANCH THAT MAKES A TAB CHEAP. Adding, closing or raising a tab
+      // leaves the pane's key untouched (it is the slot's own `e:<n>`), so the
+      // strip and the body change and nothing else in the tab is disturbed —
+      // no teardown, no caret lost, no terminal re-attached beside it.
+      s.pay.pane.update(slot, renderedViewId, index);
     }
     return;
   }
@@ -525,8 +525,7 @@ function reconcileSlot(index: number, slot: st.PaneSlot | null): void {
   s.key = key;
   if (slot === null) return;
   if (slot.kind === 'session') buildSessionPane(s, slot.id);
-  else if (slot.kind === 'file') buildFilePane(s, slot.path);
-  else buildDiffPane(s, slot.hash, slot.path);
+  else buildEditorPane(s, slot, index);
 }
 
 /** Give up whatever this pane was showing. The card itself stays. */
@@ -541,13 +540,18 @@ function teardown(s: Slot): void {
     // attached to the nodes below it.
     pay.view?.dispose();
     pay.termHost.replaceChildren();
+  } else {
+    // Same order, same reason: the parked bodies go before the header and the
+    // body they were built in, or a pane converted back to an editor would
+    // resurrect textareas state.ts has already dropped.
+    pay.pane.dispose();
   }
   s.hd.replaceChildren();
   s.body.replaceChildren();
 }
 
 // --------------------------------------------------------------------------
-// The three pane kinds
+// The two pane kinds
 // --------------------------------------------------------------------------
 
 function buildSessionPane(s: Slot, sessionId: string): void {
@@ -614,58 +618,20 @@ function buildSessionPane(s: Slot, sessionId: string): void {
   updateStatus(pay);
 }
 
-function buildFilePane(s: Slot, path: string): void {
-  const title = el('span', 'pane-title', fileName(path));
-  title.title = path;
-  const dirtyDot = el('span', 'pane-dirty');
-  dirtyDot.setAttribute('aria-hidden', 'true');
-  dirtyDot.hidden = true;
-  // The dot is a shape; the same fact in words, for a reader that cannot see it.
-  const dirtyWord = el('span', 'sr-only');
-  // Closing a FILE pane ends nothing: the A3 no-close rule is about ending
-  // sessions, and this × puts a file away.
-  const close = button('pane-x', '×', () => {
-    st.closeSlot(renderedViewId, s.index);
-  });
-  close.setAttribute('aria-label', `Close ${fileName(path)}`);
-  close.title = 'Close this file (ctrl+alt+w)';
-  s.hd.replaceChildren(title, dirtyDot, dirtyWord, el('span', 'pane-gap'), close);
-  s.hd.title = 'Drag onto a pane to swap them.';
-
-  const pay: FilePayload = {
-    kind: 'file',
-    path,
-    dirtyDot,
-    dirtyWord,
-    body: filePaneBody(path, () => {
-      // The dirty flag FLIPPED: this header's dot, the tab chip and the
-      // Sessions-panel-free rest of the chrome all read it from state.
-      st.notify('ui');
-    }),
-  };
-  s.pay = pay;
-  s.body.replaceChildren(pay.body.root);
-  updateFileHeader(pay);
-}
-
-function buildDiffPane(s: Slot, hash: string, path: string): void {
-  const title = el('span', 'pane-title', fileName(path));
-  title.title = path;
-  // The chip says WHICH commit these changes belong to (the A6 wording), and
-  // it is where the keyboard lands: a read-only body has nothing to focus.
-  const chip = el('span', 'pane-dhash', slotTitle({ kind: 'diff', hash, path }));
-  chip.tabIndex = -1;
-  const close = button('pane-x', '×', () => {
-    st.closeSlot(renderedViewId, s.index);
-  });
-  close.setAttribute('aria-label', `Close changes to ${fileName(path)}`);
-  close.title = 'Close these changes (ctrl+alt+w)';
-  s.hd.replaceChildren(title, chip, el('span', 'pane-gap'), close);
-  s.hd.title = 'Drag onto a pane to swap them.';
-
-  const pay: DiffPayload = { kind: 'diff', hash, path, chip, body: diffPaneBody(hash, path) };
-  s.pay = pay;
-  s.body.replaceChildren(pay.body.root);
+/**
+ * An EDITOR pane: the header becomes a file-tab strip and the body shows the
+ * active tab. Everything inside both belongs to `ui/editor-pane.ts`; this
+ * module hands it the two elements that survive a conversion and then only
+ * tells it what the model says.
+ *
+ * The header `title` is the PANE's drag, not the strip's: a chip carries its
+ * own (ui/editor-pane.ts) and says so on itself.
+ */
+function buildEditorPane(s: Slot, slot: st.EditorSlot, index: number): void {
+  const pane = editorPane(s.hd, s.body);
+  s.hd.title = 'Drag onto a pane to swap them. Drag one file tab to move just that file.';
+  s.pay = { kind: 'editor', id: slot.id, pane };
+  pane.update(slot, renderedViewId, index);
 }
 
 function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEvents {
@@ -731,13 +697,22 @@ function applyFocus(): void {
   const s = slots[v.focused];
   // The KEY is part of the focus identity: a pane whose content was replaced
   // (a file dropped on a terminal, a swap) has to take the keyboard again,
-  // even though the tab and the slot index did not move.
-  const key = `${v.id}:${v.focused}:${s?.key ?? ''}`;
+  // even though the tab and the slot index did not move. Since A10b it also
+  // carries the ACTIVE TAB id — raising another file is a content change and
+  // must re-hand the keyboard, while a KEYSTROKE (which notifies 'ui' on the
+  // dirty flip) must not.
+  const model = v.slots[v.focused];
+  const active = model === undefined ? null : st.activeTabOf(model);
+  const key = `${v.id}:${v.focused}:${s?.key ?? ''}:${active === null ? '' : tabIdOf(active)}`;
   if (key === lastFocusKey) return;
   lastFocusKey = key;
   if (s === undefined) return;
+  // The keyboard is ALREADY inside this pane's tab strip (the user clicked a
+  // chip, or arrowed across them): moving it into the textarea would take the
+  // strip away mid-gesture.
+  const holds = s.pay?.kind === 'editor' && s.pay.pane.holdsFocus();
   if (s.pay === null) s.root.focus();
-  else requestTerminalFocus();
+  else if (!holds) requestTerminalFocus();
   clearAttentionIfPending(s);
 }
 
@@ -788,17 +763,20 @@ function createSlot(index: number): Slot {
 
   const slot: Slot = { index, root, hd, body, key: '', note, pay: null };
 
-  // Header drag: onto another pane = swap; onto the tab strip = extract (a
-  // file has no own tab to be extracted into — ui/dnd.ts answers null for it).
-  // Armed ONCE, on the header element that survives every conversion.
+  // Header drag: onto another pane = swap; onto the tab strip = extract (an
+  // editor pane has no own tab to be extracted into — ui/dnd.ts answers null
+  // for it). Armed ONCE, on the header element that survives every conversion,
+  // and it IGNORES buttons: every control an editor header puts in the strip
+  // is one, so the pane drag never fires on a chip, and the chip's own
+  // `armDrag` (a descendant, therefore first) wins the rest of the gesture.
   armDrag(hd, 'button', () => {
     if (slot.pay === null) return null;
-    const label =
-      slot.pay.kind === 'session'
-        ? slotTitle({ kind: 'session', id: slot.pay.id }, st.state.sessions.get(slot.pay.id)?.title)
-        : slot.pay.kind === 'file'
-          ? slotTitle({ kind: 'file', path: slot.pay.path })
-          : slotTitle({ kind: 'diff', hash: slot.pay.hash, path: slot.pay.path });
+    // The name comes from the MODEL, so an editor pane is called after the tab
+    // it is showing right now (`slotTitle`) without this module knowing what a
+    // tab is.
+    const live = st.activeView()?.slots[index];
+    if (live === undefined) return null;
+    const label = slotTitle(live, live.kind === 'session' ? st.state.sessions.get(live.id)?.title : undefined);
     return {
       kind: 'pane',
       viewId: renderedViewId,
@@ -856,13 +834,6 @@ function updateHeader(s: Slot, pay: SessionPayload): void {
   }
   // Alone in its view, a session already IS its own tab.
   pay.extractBtn.hidden = renderedCount <= 1;
-}
-
-/** The one thing a file header states beyond its name: is it unsaved? */
-function updateFileHeader(pay: FilePayload): void {
-  const dirty = st.editorDirty(st.editorFileId(pay.path));
-  pay.dirtyDot.hidden = !dirty;
-  pay.dirtyWord.textContent = dirty ? 'Unsaved changes' : '';
 }
 
 /**

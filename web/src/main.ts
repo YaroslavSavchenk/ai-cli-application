@@ -32,7 +32,7 @@ import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initPanes, killSession, refreshPaneArea, requestTerminalFocus } from './ui/panes.ts';
-import { initStatusline } from './ui/statusline.ts';
+import { flash, initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
@@ -46,6 +46,7 @@ import {
 } from './ui/files.ts';
 import { initFileDrop, installDropGuard } from './ui/filedrop.ts';
 import { initCommitView } from './ui/commit-view.ts';
+import { flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
@@ -628,6 +629,22 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     if (a === null || a === document.body) fallback.focus();
   }
 
+  /**
+   * The next EDITOR pane of a view after `from`, wrapping, or -1 when there is
+   * no other one. ctrl+alt+m walks the panes in the order they are drawn, so
+   * pressing it repeatedly carries the tab around the tab and back home.
+   */
+  /** ctrl+alt+m on a pane whose only tab is the one being moved. */
+const ALONE_IN_PANE = 'This file is already alone in its pane.';
+
+function nextEditorSlot(v: st.ViewState, from: number): number {
+    for (let i = 1; i < v.slots.length; i += 1) {
+      const j = (from + i) % v.slots.length;
+      if (v.slots[j]?.kind === 'editor') return j;
+    }
+    return -1;
+  }
+
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && !e.metaKey && !e.getModifierState('AltGraph')) {
       const k = e.key;
@@ -638,6 +655,12 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         k === 'ArrowDown' ||
         k === 'w' ||
         k === 'W' ||
+        // A10b: the file-tab chords act on the FOCUSED EDITOR PANE, which is
+        // just as covered by the commit view as the rest of the grid. The
+        // SHIFTED pgup/pgdn is a tab-strip chord and stays available.
+        ((k === 'PageUp' || k === 'PageDown') && !e.shiftKey) ||
+        k === 'm' ||
+        k === 'M' ||
         (k.length === 1 && k >= '1' && k <= '9');
       // Nocturne A6: while the commit view covers the pane area, these chords
       // would move focus between and swap sessions inside panes NOBODY CAN
@@ -656,20 +679,59 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         if (e.shiftKey) st.movePane(dir);
         else st.moveFocus(dir);
       } else if (k === 'w' || k === 'W') {
-        // A10: close the focused FILE or DIFF pane. A session pane is refused
-        // by state.ts — ending a session is a different act with its own
-        // confirmation (the A3 rule), so there is nothing to special-case here.
+        // A10b: close the ACTIVE TAB of the focused editor pane; its LAST tab
+        // takes the pane with it (user decision 3). A terminal pane answers
+        // false and nothing happens — ending a session is a different act with
+        // its own confirmation (the A3 rule).
         e.preventDefault();
         const v = st.activeView();
-        if (v !== null) st.closeSlot(v.id, v.focused);
+        if (v !== null) st.closeActiveTab(v.id, v.focused);
       } else if (k.length === 1 && k >= '1' && k <= '9') {
         e.preventDefault();
         st.setActiveViewIndex(Number(k) - 1);
       } else if ((k === 'PageUp' || k === 'PageDown') && e.shiftKey) {
         // Keyboard twin of the tab-reorder drag (shift = "move", like the
-        // arrow chords). Unshifted ctrl+alt+pgup/pgdn stays untouched.
+        // arrow chords). TESTED FIRST: the unshifted pair below is a different
+        // chord on the same keys, and the shifted one must never fall into it.
         e.preventDefault();
         st.moveActiveViewBy(k === 'PageUp' ? -1 : 1);
+      } else if (k === 'PageUp' || k === 'PageDown') {
+        // A10b: previous / next FILE TAB of the focused editor pane, wrapping.
+        // (`[` and `]` — the usual pair — are AltGr characters on NL/BE/DE
+        // layouts, so they cannot be reached under ctrl+alt at all.) A focused
+        // terminal answers false and the keystroke does nothing.
+        e.preventDefault();
+        st.cycleTab(k === 'PageUp' ? -1 : 1);
+      } else if (k === 'm' || k === 'M') {
+        // A10b, the keyboard twin of dragging a chip onto a pane: move the
+        // active file tab to the NEXT editor pane of this tab, and when there
+        // is no other one, into a new split beside the focused pane. Both
+        // refusals come out of the one shared mapping, so the chord and the
+        // drag can never explain the same "no" differently — including the
+        // honest "no room" a pane's ONLY tab gets when it is asked to split
+        // beside the pane it is already alone in.
+        e.preventDefault();
+        const v = st.activeView();
+        const s = v === null ? undefined : v.slots[v.focused];
+        if (v === null || s === undefined || s.kind !== 'editor') return;
+        const to = nextEditorSlot(v, v.focused);
+        if (to !== -1) {
+          flashOpenResult(st.moveTab(v.id, v.focused, s.active, to));
+          return;
+        }
+        // A pane's only tab has nowhere to go: no other editor pane, and a
+        // split beside its own pane would leave that pane empty. The drag twin
+        // says the same by lighting nothing, so the chord says it in words.
+        if (s.tabs.length < 2) {
+          flash(ALONE_IN_PANE);
+          return;
+        }
+        const zone = st.dropZonesFor(v, v.focused, 1)[0];
+        if (zone === undefined) {
+          flashOpenResult(v.slots.length >= st.MAX_PANES ? 'full' : 'no-zone');
+          return;
+        }
+        flashOpenResult(st.moveTabToSplit(v.id, v.focused, s.active, v.focused, zone));
       } else if (k === 't' || k === 'T') {
         e.preventDefault();
         openLaunchDialog();

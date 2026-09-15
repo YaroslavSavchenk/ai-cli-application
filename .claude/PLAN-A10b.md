@@ -1,7 +1,9 @@
 # A10b — Editor pane with file tabs: implementation spec
 
 Status: DECIDED 2026-09-15 (user's correction on the A10 Windows check,
-confirmed with a mockup); build starts after A9 lands (shared files). Part
+confirmed with a mockup); Phases 0/1A/1B landed 2026-09-15 (parked once on
+`wip/a10b` for a usage limit, resumed the same night); review + fix cycle
+done; verify-terminal in progress. Part
 A10b of `PLAN-NOCTURNE.md`. Written by the orchestrator from the Plan agent's
 design; line numbers drift — cite by function name, verify by reading.
 

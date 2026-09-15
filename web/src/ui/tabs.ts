@@ -1,13 +1,16 @@
 /**
- * Tab strip (Nocturne A2, rebuilt for A10) — every view is a tab, and a tab is
+ * Tab strip (Nocturne A2, rebuilt for A10, re-tabbed by A10b) — every view is a
+ * tab, and a tab is
  * about a FOLDER (`Home`, or a project) or about the sessions it holds.
  *
  * A tab: a 7px state dot (pulsing amber = a session in it is waiting for you,
  * green = working, neutral = finished, NOTHING at all when the tab holds no
  * session), the name, an amber dot when a file in it has unsaved text, a count
- * pill when the tab holds more than one pane, the words "Needs you" when a
- * session awaits input, and `×`. The active tab is the only filled one. After
- * the tabs: `+` (opens the launch dialog) and the right-aligned drag hint.
+ * pill when the tab holds more than one PANE (never a tab count: since A10b
+ * one editor pane can hold four files and it is still one pane), the words
+ * "Needs you" when a session awaits input, and `×`. The active tab is the only
+ * filled one. After the tabs: `+` (opens the launch dialog) and the
+ * right-aligned drag hint.
  *
  * `Home` is the fixed first tab (user decision 4, 2026-09-15): no `×`, no drag
  * handle, never moved. Everything else is draggable (see ui/dnd.ts): drag onto
@@ -15,7 +18,7 @@
  * Every drag has a keyboard/button equivalent (shortcuts overlay).
  *
  * WHAT `×` COSTS. A tab holding sessions ENDS them, so it keeps the armed
- * two-step confirm. A folder tab holding only files and diffs kills nothing —
+ * two-step confirm. A folder tab holding only editor panes kills nothing —
  * the panes go away, and the unsaved text goes with them for good (the amber
  * dot is the only warning until part B4 adds the confirm), so no armed
  * two-step stands in the way: nothing running is ended.
@@ -28,6 +31,7 @@ import * as st from '../state.ts';
 import { el, button, ArmedSet } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { slotTitle, viewLabel } from './slots-model.ts';
+import { tabIdOf } from './editor-model.ts';
 
 const armed = new ArmedSet();
 
@@ -47,26 +51,40 @@ export function tabLabel(v: st.ViewState): string {
   return viewLabel(v.root, (id) => st.projectName(id), v.slots.map(titleOf));
 }
 
+/**
+ * What one pane is called on the chip. An EDITOR pane is called after the tab
+ * it is showing (`slotTitle` reads the strip), so raising another file inside
+ * a pane renames a plain session tab with it — a folder tab keeps its folder's
+ * name whatever its panes show.
+ */
 function titleOf(slot: st.PaneSlot): string {
   return slot.kind === 'session'
     ? slotTitle(slot, st.state.sessions.get(slot.id)?.title)
     : slotTitle(slot);
 }
 
-/** Does any FILE pane of this tab hold unsaved text? */
+/**
+ * Does any file OPEN IN THIS TAB hold unsaved text? Every tab of every editor
+ * pane, not just the ones on screen: a file two chips deep in a strip is as
+ * unsaved as the one being looked at, and the chip is the only place that says
+ * so from another tab. The key is the TAB's id (`tabIdOf`, the `state.edits`
+ * spelling) — never the pane's `slotKey`, which is its own `e:<n>`.
+ */
 function viewDirty(v: st.ViewState): boolean {
-  return v.slots.some((s) => s.kind === 'file' && st.editorDirty(st.slotKey(s)));
+  return v.slots.some(
+    (s) => s.kind === 'editor' && s.tabs.some((t) => st.editorDirty(tabIdOf(t))),
+  );
 }
 
 /**
  * End every session of the view. The view dissolves when the last one goes —
- * unless it is a folder tab, which is about its folder and stays. File and
- * diff panes are not ended: they are closed with the tab itself.
+ * unless it is a folder tab, which is about its folder and stays. Editor panes
+ * are not ended: they are closed, with every file in them, by the tab itself.
  */
 async function killView(v: st.ViewState, deps: TabDeps): Promise<void> {
   for (const id of st.sessionIds(v)) await deps.killSession(id);
-  // The tab itself goes with them. Whatever is left in it is a file or a diff,
-  // and closing a tab puts those away without ending anything; a session that
+  // The tab itself goes with them. Whatever is left in it is an editor pane,
+  // and closing a tab puts its files away without ending anything; a session that
   // could NOT be killed (the server refused) keeps its tab, which is the one
   // state where this must not close. `Home` refuses, as decision 4 asks.
   const still = st.state.views.find((x) => x.id === v.id);
@@ -82,7 +100,10 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
   function render(): void {
     // Signature check so 3s polls don't rebuild (and steal focus from) the
     // strip. It carries the root, the pane KINDS and the dirty flag, because
-    // all three change what a chip draws without changing its name.
+    // all three change what a chip draws without changing its name. The
+    // LABEL covers the rest: raising another file inside an editor pane is a
+    // new `tabLabel` for a plain session tab, and no change at all for a
+    // folder tab, which is named after its folder.
     const sig = st.state.views
       .map(
         (v) =>

@@ -837,19 +837,6 @@ select:focus-visible,
   background: var(--color-attn);
 }
 
-/* which commit a diff pane shows: a hash is data, so it is set in mono */
-.pane-dhash {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--color-neutral-500);
-}
-
-.pane-dhash:focus-visible {
-  outline: var(--tick) solid var(--color-accent);
-  outline-offset: 2px;
-}
-
 /* close THIS pane. It ends nothing: the × that ends sessions lives on the tab
    chip and in the Sessions panel, and both ask first. */
 .pane-x {
@@ -868,6 +855,88 @@ select:focus-visible,
 .pane-x:hover {
   background: var(--color-neutral-800);
   color: var(--color-text);
+}
+
+/* ---- editor pane tabs (Nocturne A10b) -------------------------------------
+   The file-tab strip that fills an EDITOR pane's header: one chip per open
+   file or diff, then the pane's own `×`.
+
+   DIRECTION: the tab strip's own idiom, one size down. A chip here is
+   geometrically the `.tab` chip of the top strip (1px border, --radius-sm,
+   a neutral label that goes --color-text when it is the one on screen) at
+   26px instead of --tab-h, so "a strip of tabs inside a tab" needs no second
+   visual language — and the ACTIVE chip is filled with --term-bg, the ground
+   of the body it opens, which is the only thing in this header that states
+   WHICH file the pane is showing. Everything else recedes.
+
+   No new token: 26px is a literal because the header is 38px and the chip is
+   what is left of it after the header's own padding — an arithmetic fact of
+   this one strip, not a value any other surface shares. */
+
+.pane-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  /* Both are load-bearing: without min-width:0 the strip refuses to shrink
+     and pushes the pane's own × out of the card; without the scroll, a fifth
+     file would have nowhere to be. */
+  min-width: 0;
+  overflow-x: auto;
+  /* The global thin scrollbar would eat 4 of the 38px and sit under the
+     chips; the chips ellipsis long before this scrolls, and the keyboard
+     scrolls the strip by focusing a chip. */
+  scrollbar-width: none;
+}
+
+.pane-tab {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  min-width: 0;
+  max-width: 180px;
+  padding-right: var(--space-1);
+  background: transparent;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+  user-select: none;
+  touch-action: none; /* a chip is a pointer-drag source (the tab moves) */
+}
+
+.pane-tab:hover {
+  background: var(--color-neutral-800);
+}
+
+/* the file this pane is SHOWING: filled with the ground of its own body */
+.pane-tab.is-on {
+  background: var(--term-bg);
+  border-color: var(--color-neutral-800);
+  color: var(--color-text);
+}
+
+/* dragged out of the strip: the CHIP dims, never the pane — the pane stays */
+.pane-tab.is-dragging {
+  opacity: 0.6;
+}
+
+.pane-tab-pick {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  color: inherit;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the unsaved mark sits between the name and the ×, where the eye already is */
+.pane-tab .pane-dirty {
+  margin-right: var(--space-1);
 }
 
 /* exited / dead banner: full-width structural strip, buffer stays readable */
@@ -1234,7 +1303,7 @@ select:focus-visible,
    prints code or a path is listed here, once.                                */
 .pane-text,
 .pane-gutter,
-.pane-dhash,
+.pane-tab-pick,
 .diff-t,
 .diff-path,
 .commit-fpath,

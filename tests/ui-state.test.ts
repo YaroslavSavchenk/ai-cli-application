@@ -2,11 +2,12 @@
  * `web/src/state.ts` — client-local view arrangement + persistence, and the
  * conn-state setters feeding the R2 statusline/topbar dot.
  *
- * Since A10 (user decision 2026-09-15) a view holds 0..4 SLOTS — a terminal, a
- * file or a read-only diff, mixed freely — and `Home` is a real view that is
- * always `state.views[0]`. The half of this file that used to say "sessions"
- * says "slots" now, and the rules that only A10 introduced (roots, file panes,
- * what survives a reload) are at the bottom.
+ * Since A10 (user decision 2026-09-15) a view holds 0..4 SLOTS and `Home` is a
+ * real view that is always `state.views[0]`; since A10b a slot is a terminal
+ * or an EDITOR PANE holding a strip of file/diff TABS, and the two mix freely.
+ * The half of this file that used to say "sessions" says "slots" now, and the
+ * rules A10/A10b introduced (roots, editor panes, the strip, what survives a
+ * reload) are at the bottom.
  *
  * `state.ts` itself is DOM-free except for the Web Storage global, which
  * plain `node --test` does not provide (only behind
@@ -54,6 +55,8 @@ const st = await import('../web/src/state.ts');
 // loaded after the localStorage shim above.
 type ViewState = import('../web/src/state.ts').ViewState;
 type PaneSlot = import('../web/src/state.ts').PaneSlot;
+type EditorSlot = import('../web/src/state.ts').EditorSlot;
+type EditorTab = import('../web/src/state.ts').EditorTab;
 type ViewRoot = import('../web/src/state.ts').ViewRoot;
 
 function mkSession(id: string): SessionInfo {
@@ -102,9 +105,31 @@ function addView(root: ViewRoot | null, slots: PaneSlot[], id: string = crypto.r
   return v;
 }
 
+const E = await import('../web/src/ui/editor-model.ts');
+
 const sess = (id: string): PaneSlot => ({ kind: 'session', id });
-const file = (path: string): PaneSlot => ({ kind: 'file', path });
+const ftab = (path: string): EditorTab => ({ kind: 'file', path });
+const dtab = (hash: string, path: string): EditorTab => ({ kind: 'diff', hash, path });
+/** An editor pane holding these files as tabs (A10b: files are TABS, not panes). */
+const ed = (...paths: string[]): EditorSlot => st.newEditorSlot(paths.map(ftab));
+/** An editor pane holding these tabs verbatim (for diffs, or a chosen active). */
+const edTabs = (...tabs: EditorTab[]): EditorSlot => st.newEditorSlot(tabs);
 const keys = (v: ViewState): string[] => v.slots.map((s: PaneSlot) => st.slotKey(s));
+/**
+ * A view's PANES, readable: a session's key, or the tab ids of an editor pane.
+ * Editor slot keys are a page-lifetime counter (`e:<n>`), so a test that named
+ * them would break every time another test opened a pane first — the shape a
+ * reader cares about is "which panes, holding which tabs".
+ */
+const shape = (v: ViewState): (string | string[])[] =>
+  v.slots.map((s: PaneSlot) => (s.kind === 'session' ? st.slotKey(s) : st.slotTabIds(s)));
+/** The strip of one editor pane, by slot index. */
+const strip = (v: ViewState, slot: number): string[] => st.slotTabIds(v.slots[slot] as PaneSlot);
+/** Which tab that pane is showing. */
+const activeId = (v: ViewState, slot: number): string | null => {
+  const t = st.activeTabOf(v.slots[slot] as PaneSlot);
+  return t === null ? null : E.tabIdOf(t);
+};
 
 before(() => {
   resetState();
@@ -366,43 +391,72 @@ test("viewStatus: no attention, none running -> 'exit' (never 'new' — no launc
 test("viewStatus: a tab with no session in it is 'none' — a dot there would report on nothing", () => {
   // A10: Home stands empty, and a folder tab may show only files.
   assert.equal(st.viewStatus(mkView([], { kind: 'home' })), 'none');
-  assert.equal(st.viewStatus(mkView([file('web/src/main.ts')], { kind: 'project', id: 'p1' })), 'none');
-  assert.equal(st.viewStatus(mkView([{ kind: 'diff', hash: '474d891', path: 'server/ws.ts' }])), 'none');
+  assert.equal(st.viewStatus(mkView([ed('web/src/main.ts')], { kind: 'project', id: 'p1' })), 'none');
+  assert.equal(st.viewStatus(mkView([edTabs(dtab('474d891', 'server/ws.ts'))])), 'none');
   // One terminal beside the files and the dot is back.
   const s = mkSession('s1');
   st.state.sessions.set(s.id, s);
-  assert.equal(st.viewStatus(mkView([file('a.ts'), sess('s1')])), 'run');
+  assert.equal(st.viewStatus(mkView([ed('a.ts'), sess('s1')])), 'run');
 });
 
 test('viewAttention reads SESSIONS only — a file never asks for anything', () => {
   const attn = mkSession('s1');
   attn.attention = true;
   st.state.sessions.set(attn.id, attn);
-  assert.equal(st.viewAttention(mkView([file('a.ts')])), false);
-  assert.equal(st.viewAttention(mkView([file('a.ts'), sess('s1')])), true);
-  assert.deepEqual(st.sessionIds(mkView([file('a.ts'), sess('s1'), file('b.ts')])), ['s1']);
+  assert.equal(st.viewAttention(mkView([ed('a.ts')])), false);
+  assert.equal(st.viewAttention(mkView([ed('a.ts'), sess('s1')])), true);
+  assert.deepEqual(st.sessionIds(mkView([ed('a.ts'), sess('s1'), ed('b.ts')])), ['s1']);
 });
 
 // ===========================================================================
 // A10 (user decision 2026-09-15): slots, roots, Home, files as panes
 // ===========================================================================
 
-test('slotKey: a file/diff key is BYTE-IDENTICAL to fileTabId/diffTabId', async () => {
-  // This is the `state.edits` contract: the key a pane is drawn under and the
+test('slotTabIds / editorFileId: a TAB id is BYTE-IDENTICAL to fileTabId/diffTabId', () => {
+  // This is the `state.edits` contract: the key a tab is drawn under and the
   // key its unsaved text lives under are ONE string, or two panes on one file
   // would hold two different texts.
-  const E = await import('../web/src/ui/editor-model.ts');
   for (const path of ['web/src/main.ts', 'LICENSE', 'a b/c:d.ts', '']) {
-    assert.equal(st.slotKey(file(path)), E.fileTabId(path));
+    assert.deepEqual(st.slotTabIds(ed(path)), [E.fileTabId(path)]);
+    assert.equal(st.editorFileId(path), E.fileTabId(path), 'one spelling for every caller');
   }
-  for (const [hash, path] of [
-    ['474d891', 'server/ws.ts'],
-    ['55c9be7', 'a/b.ts'],
-  ] as const) {
-    assert.equal(st.slotKey({ kind: 'diff', hash, path }), E.diffTabId(hash, path));
-  }
+  assert.deepEqual(st.slotTabIds(edTabs(dtab('474d891', 'server/ws.ts'))), [
+    E.diffTabId('474d891', 'server/ws.ts'),
+  ]);
+  assert.deepEqual(st.slotTabIds(ed('a.ts', 'b.ts')), ['f:a.ts', 'f:b.ts'], 'in strip order');
+  assert.deepEqual(st.slotTabIds(sess('s1')), [], 'a terminal holds no tabs');
+});
+
+test('slotKey: a pane KEY is its own identity — a session id, or the pane\'s generated e:<n>', () => {
+  // TAB ID != SLOT KEY (A10b). `ui/panes.ts` keys its live panes by this: a key
+  // derived from the active tab would make every tab add/close/switch look like
+  // a different pane — teardown, caret lost, focus stolen.
   assert.equal(st.slotKey(sess('s1')), 's:s1');
-  assert.equal(st.editorFileId('a.ts'), st.slotKey(file('a.ts')), 'one spelling for every caller');
+  const a = ed('a.ts');
+  const b = ed('a.ts');
+  assert.match(st.slotKey(a), /^e:\d+$/);
+  assert.notEqual(st.slotKey(a), st.slotKey(b), 'two panes on the SAME file are two panes');
+  assert.notEqual(st.slotKey(a), 'f:a.ts', 'a pane key is never a tab id');
+  assert.equal(st.activeTabOf(sess('s1')), null, 'a terminal shows no tab');
+  assert.deepEqual(st.activeTabOf(ed('a.ts', 'b.ts')), ftab('a.ts'), 'a fresh pane shows its first');
+});
+
+test('slotKey is STABLE across a tab being added, switched and closed', () => {
+  // The mutant this kills: `slotKey` derived from the active tab. Every string
+  // below is compared BYTE-IDENTICAL to the one taken before the strip moved.
+  st.initServer([], []);
+  st.loadUi();
+  assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
+  const v = home();
+  const key = st.slotKey(v.slots[0] as PaneSlot);
+
+  assert.equal(st.openFile({ kind: 'home' }, 'b.ts', 'b.ts'), 'ok');
+  assert.equal(st.slotKey(v.slots[0] as PaneSlot), key, 'adding a tab did not make a new pane');
+  assert.equal(st.setActiveTab(v.id, 0, 0), true);
+  assert.equal(st.slotKey(v.slots[0] as PaneSlot), key, 'nor did switching to another tab');
+  assert.equal(st.closeTab(v.id, 0, 1), true);
+  assert.equal(st.slotKey(v.slots[0] as PaneSlot), key, 'nor did closing one');
+  assert.deepEqual(strip(v, 0), ['f:a.ts'], 'precondition: the strip really did change');
 });
 
 test('ensureHomeView: Home is created once, kept first, and never duplicated', () => {
@@ -437,7 +491,7 @@ test('ensureHomeView: a strip that already has tabs gets Home IN FRONT of them',
   assert.equal(h.root?.kind, 'home', 'the home root resolves to the Home TAB, not to whatever is first');
   assert.equal(h.id, home().id);
   assert.equal(st.openFile({ kind: 'home' }, 'a/one.ts', 'one.ts'), 'ok');
-  assert.deepEqual(keys(home()), ['f:a/one.ts'], 'and that is where a file row lands');
+  assert.deepEqual(shape(home()), [['f:a/one.ts']], 'and that is where a file row lands');
   assert.deepEqual(keys(st.state.views[1] as ViewState), ['s:s1'], 'never in the session tab beside it');
 });
 
@@ -462,35 +516,106 @@ test('viewForRoot: finds the folder tab it already made, and makes one only once
   assert.equal(st.state.views[0]?.id, home().id, 'and a new folder tab never lands before Home');
 });
 
-test('openFile: lands in its root tab, focused, active — and a second click RAISES it', () => {
+test('openFile: the FIRST file makes one editor pane; the SECOND is a TAB in it', () => {
+  // User decision 1 (A10b): files must NOT each become their own pane. The
+  // pane count is the whole point — this is the bug the user corrected A10 on.
   st.initServer([], []);
   st.loadUi();
   assert.equal(st.openFile({ kind: 'home' }, 'web/src/main.ts', 'main.ts'), 'ok');
-  assert.deepEqual(keys(home()), ['f:web/src/main.ts']);
+  assert.equal(home().slots.length, 1, 'one pane');
+  assert.deepEqual(strip(home(), 0), ['f:web/src/main.ts']);
   assert.equal(home().focused, 0);
   assert.equal(st.state.activeViewId, home().id);
 
   assert.equal(st.openFile({ kind: 'home' }, 'web/src/ui/panes.ts', 'panes.ts'), 'ok');
-  assert.deepEqual(keys(home()), ['f:web/src/main.ts', 'f:web/src/ui/panes.ts']);
-  assert.equal(home().focused, 1, 'focus lands on the file the user just opened');
-
-  // The same row again: raised, not opened twice — the second click must not
-  // spend one of the four panes on a copy.
-  assert.equal(st.openFile({ kind: 'home' }, 'web/src/main.ts', 'main.ts'), 'ok');
-  assert.deepEqual(keys(home()), ['f:web/src/main.ts', 'f:web/src/ui/panes.ts']);
+  assert.equal(home().slots.length, 1, 'STILL one pane — the second file is a tab');
+  assert.deepEqual(strip(home(), 0), ['f:web/src/main.ts', 'f:web/src/ui/panes.ts']);
+  assert.equal(activeId(home(), 0), 'f:web/src/ui/panes.ts', 'the new tab is the one on screen');
   assert.equal(home().focused, 0);
 });
 
-test('openFile: a fifth pane is refused, and the tab is left exactly as it was', () => {
+test('openFile: the same path RAISES the tab it is already on — never a second copy', () => {
   st.initServer([], []);
   st.loadUi();
-  for (const p of ['a.ts', 'b.ts', 'c.ts', 'd.ts']) {
-    assert.equal(st.openFile({ kind: 'home' }, p, p), 'ok');
-  }
-  assert.equal(home().slots.length, st.MAX_PANES);
-  const before = keys(home());
-  assert.equal(st.openFile({ kind: 'home' }, 'e.ts', 'e.ts'), 'full');
-  assert.deepEqual(keys(home()), before, 'a rejection changes nothing');
+  for (const p of ['a.ts', 'b.ts', 'c.ts']) assert.equal(st.openFile({ kind: 'home' }, p, p), 'ok');
+  const before = strip(home(), 0);
+  assert.equal(activeId(home(), 0), 'f:c.ts');
+
+  assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
+  assert.deepEqual(strip(home(), 0), before, 'the strip is exactly as long as it was');
+  assert.equal(activeId(home(), 0), 'f:a.ts', 'and `active` moved to it');
+});
+
+test('openFile: a file open in a NON-FOCUSED pane is raised THERE, pane focus and all', () => {
+  // The raise-vs-add branch, on the arrangement that tells them apart: the tab
+  // is in another pane of the same tab, and the focused pane is a different one.
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('c.ts')]);
+  v.focused = 1;
+  (v.slots[0] as EditorSlot).active = 0;
+
+  assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'b.ts', 'b.ts'), 'ok');
+  assert.equal(v.slots.length, 2, 'no pane was made');
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:b.ts'], ['f:c.ts']], 'and no tab was added');
+  assert.equal(v.focused, 0, 'the pane holding it takes the focus');
+  assert.equal(activeId(v, 0), 'f:b.ts', 'and it is the tab on screen there');
+});
+
+test('openFile: a focused TERMINAL sends the tab to the view’s FIRST editor pane', () => {
+  // Never a split off the terminal: the terminal is the hero, and the user
+  // asked for the file, not for a smaller shell.
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1'), ed('b.ts')]);
+  v.focused = 1;
+
+  assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'new.ts', 'new.ts'), 'ok');
+  assert.equal(v.slots.length, 3, 'the pane count did not move');
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:new.ts'], 's:s1', ['f:b.ts']], 'the FIRST editor pane');
+  assert.equal(v.focused, 0, 'and the keyboard follows the file');
+  assert.equal(activeId(v, 0), 'f:new.ts');
+});
+
+test('openFile: a NEW file lands in the FOCUSED editor pane, never in the first one', () => {
+  // `targetEditorIndex`: the FOCUSED editor pane wins, and only a focused
+  // TERMINAL falls back to the first one. Without the focused branch every new
+  // file would pile into pane 0 while the user was working in pane 1 — a bug
+  // the raise-it-where-it-is tests cannot see, because the file is NEW.
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts')]);
+  v.focused = 1;
+
+  assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'new.ts', 'new.ts'), 'ok');
+  assert.equal(v.slots.length, 2, 'no pane was made');
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:b.ts', 'f:new.ts']], 'the FOCUSED pane took it');
+  assert.equal(v.focused, 1, 'and the keyboard stayed where the user was');
+  assert.equal(activeId(v, 1), 'f:new.ts');
+
+  // The same view, the other pane focused: the tab follows the focus.
+  v.focused = 0;
+  assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'other.ts', 'other.ts'), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:other.ts'], ['f:b.ts', 'f:new.ts']]);
+});
+
+test('openFile: with NO editor pane and four panes up, it is refused and nothing changes', () => {
+  st.initServer([], [mkSession('s1'), mkSession('s2'), mkSession('s3'), mkSession('s4')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), sess('s2'), sess('s3'), sess('s4')]);
+  const before = shape(v);
+  assert.equal(v.slots.length, st.MAX_PANES, 'precondition: the tab is full of terminals');
+
+  assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'a.ts', 'a.ts'), 'full');
+  assert.deepEqual(shape(v), before, 'a rejection changes nothing');
+
+  // One editor pane among them and there is room again — in its strip.
+  st.state.views = st.state.views.filter((x) => x.id !== v.id);
+  const w = addView({ kind: 'project', id: 'p2' }, [sess('s1'), ed('a.ts'), sess('s2'), sess('s3')]);
+  w.focused = 3;
+  assert.equal(st.openFile({ kind: 'project', id: 'p2' }, 'b.ts', 'b.ts'), 'ok');
+  assert.equal(w.slots.length, st.MAX_PANES, 'still four panes');
+  assert.deepEqual(strip(w, 1), ['f:a.ts', 'f:b.ts']);
 });
 
 test('openFile: a project root opens its own folder tab and activates it', () => {
@@ -499,13 +624,50 @@ test('openFile: a project root opens its own folder tab and activates it', () =>
   assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'server/ws.ts', 'ws.ts'), 'ok');
   const v = st.state.views[1] as ViewState;
   assert.deepEqual(v.root, { kind: 'project', id: 'p1' });
-  assert.deepEqual(keys(v), ['f:server/ws.ts']);
+  assert.deepEqual(shape(v), [['f:server/ws.ts']]);
   assert.equal(st.state.activeViewId, v.id);
   assert.deepEqual(home().slots, [], 'and Home is not where it went');
 });
 
-test('openFileAt: every (count, zone) the pane can offer — and nothing it cannot', () => {
-  // The matrix `dropZonesFor` describes IS what openFileAt accepts: the drag
+test('openDiff: a read-only diff is a TAB of the same pane, and the same one raises', () => {
+  st.initServer([], []);
+  st.loadUi();
+  assert.equal(st.openFile({ kind: 'home' }, 'server/ws.ts', 'ws.ts'), 'ok');
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.equal(home().slots.length, 1, 'one pane, two tabs');
+  assert.deepEqual(strip(home(), 0), ['f:server/ws.ts', 'd:474d891:server/ws.ts']);
+  assert.equal(activeId(home(), 0), 'd:474d891:server/ws.ts');
+
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.deepEqual(strip(home(), 0), ['f:server/ws.ts', 'd:474d891:server/ws.ts'], 'raised');
+  // The same file in another commit is a different tab.
+  assert.equal(st.openDiff({ kind: 'home' }, '55c9be7', 'server/ws.ts'), 'ok');
+  assert.equal(strip(home(), 0).length, 3);
+});
+
+test('openDiff then openFile of the SAME path: two tabs, because they are two ids', () => {
+  // The raise is keyed on the TAB ID, not on the path: the read-only changes
+  // in a commit and the editable file are two different things to look at, and
+  // `f:` / `d:` are two different `state.edits` keys.
+  st.initServer([], []);
+  st.loadUi();
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.equal(st.openFile({ kind: 'home' }, 'server/ws.ts', 'ws.ts'), 'ok');
+  assert.equal(home().slots.length, 1, 'still ONE pane');
+  assert.deepEqual(strip(home(), 0), ['d:474d891:server/ws.ts', 'f:server/ws.ts'], 'two tabs');
+  assert.equal(activeId(home(), 0), 'f:server/ws.ts', 'the file the user just asked for is up');
+  // And neither of the two raises the other.
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.deepEqual(strip(home(), 0), ['d:474d891:server/ws.ts', 'f:server/ws.ts']);
+  assert.equal(activeId(home(), 0), 'd:474d891:server/ws.ts');
+});
+
+// ---------------------------------------------------------------------------
+// openTabAt — the drop zones (A10b renamed it from openFileAt on purpose)
+// ---------------------------------------------------------------------------
+
+test('openTabAt: every (count, zone) the pane can offer — and nothing it cannot', () => {
+  // The matrix `dropZonesFor` describes IS what openTabAt accepts: the drag
   // layer reads the first and calls the second, so a disagreement between them
   // is a file that lands somewhere the drop indicator never pointed at.
   for (let count = 1; count <= st.MAX_PANES; count++) {
@@ -513,15 +675,15 @@ test('openFileAt: every (count, zone) the pane can offer — and nothing it cann
       for (const l3 of ['L', 'R'] as const) {
         for (const zone of ['left', 'right', 'top', 'bottom', 'fill'] as const) {
           resetState();
-          const v = addView(null, Array.from({ length: count }, (_, i) => file(`f${i}.ts`)));
+          const v = addView(null, Array.from({ length: count }, (_, i) => ed(`f${i}.ts`)));
           v.l3 = l3;
           const offered = st.dropZonesFor(v, slot, 1);
-          const result = st.openFileAt(v.id, slot, zone, 'new.ts');
+          const result = st.openTabAt(v.id, slot, zone, ftab('new.ts'));
           const label = `count=${count} slot=${slot} l3=${l3} zone=${zone}`;
           if (offered.includes(zone)) {
             assert.equal(result, 'ok', label);
             assert.equal(v.slots.length, count + 1, label);
-            assert.equal(st.slotKey(v.slots[v.focused] as PaneSlot), 'f:new.ts', `focus: ${label}`);
+            assert.deepEqual(strip(v, v.focused), ['f:new.ts'], `focus: ${label}`);
           } else {
             assert.equal(result, count === st.MAX_PANES ? 'full' : 'no-zone', label);
             assert.equal(v.slots.length, count, `unchanged: ${label}`);
@@ -532,35 +694,315 @@ test('openFileAt: every (count, zone) the pane can offer — and nothing it cann
   }
 });
 
-test('openFileAt: the CENTRE of a file pane replaces it; the centre of a terminal is refused', () => {
-  // User decision 7 (2026-09-15): edges split, the centre of a terminal pane
-  // flashes "drop on an edge to split" instead of losing the terminal.
+test('openTabAt: the CENTRE of an editor pane ADDS a tab (and raises); a terminal refuses', () => {
+  // Orchestrator default 4 (A10b): a pane full of the user's other files is
+  // not something a drop may throw away, so the centre never replaces.
   st.initServer([], [mkSession('s1')]);
   st.loadUi();
-  const v = addView({ kind: 'project', id: 'p1' }, [file('a.ts'), sess('s1')]);
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1')]);
 
-  assert.equal(st.openFileAt(v.id, 1, 'replace', 'new.ts'), 'session-centre');
-  assert.deepEqual(keys(v), ['f:a.ts', 's:s1'], 'the terminal is still there');
+  assert.equal(st.openTabAt(v.id, 1, 'replace', ftab('new.ts')), 'session-centre');
+  assert.deepEqual(shape(v), [['f:a.ts'], 's:s1'], 'the terminal is still there');
 
-  assert.equal(st.openFileAt(v.id, 0, 'replace', 'new.ts'), 'ok');
-  assert.deepEqual(keys(v), ['f:new.ts', 's:s1'], 'a file pane takes the new file in place');
+  assert.equal(st.openTabAt(v.id, 0, 'replace', ftab('new.ts')), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:new.ts'], 's:s1'], 'a.ts was NOT thrown away');
+  assert.equal(v.slots.length, 2, 'and it cost no pane');
   assert.equal(v.focused, 0);
-  assert.equal(v.slots.length, 2, 'replacing costs no pane');
+  assert.equal(activeId(v, 0), 'f:new.ts');
 
-  // Replace works on a FULL tab too, for the same reason.
-  const full = addView(null, [file('a.ts'), file('b.ts'), file('c.ts'), file('d.ts')]);
-  assert.equal(st.openFileAt(full.id, 3, 'replace', 'new.ts'), 'ok');
-  assert.deepEqual(keys(full), ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:new.ts']);
+  // The same file again on the same centre: raised, not doubled.
+  assert.equal(st.openTabAt(v.id, 0, 'replace', ftab('a.ts')), 'ok');
+  assert.deepEqual(strip(v, 0), ['f:a.ts', 'f:new.ts']);
+  assert.equal(activeId(v, 0), 'f:a.ts');
+
+  // The centre works on a FULL tab too, for the same reason.
+  const full = addView(null, [ed('a.ts'), ed('b.ts'), ed('c.ts'), ed('d.ts')]);
+  assert.equal(st.openTabAt(full.id, 3, 'replace', ftab('new.ts')), 'ok');
+  assert.deepEqual(shape(full), [['f:a.ts'], ['f:b.ts'], ['f:c.ts'], ['f:d.ts', 'f:new.ts']]);
 });
 
-test('openFileAt: an unknown view or an unknown pane is `no-view`, never a guess', () => {
+test('openTabAt: an unknown view or an unknown pane is `no-view`, never a guess', () => {
   st.initServer([], []);
   st.loadUi();
-  const v = addView(null, [file('a.ts')]);
-  assert.equal(st.openFileAt('nope', 0, 'replace', 'new.ts'), 'no-view');
-  assert.equal(st.openFileAt(v.id, 3, 'left', 'new.ts'), 'no-view');
-  assert.equal(st.openFileAt(v.id, -1, 'replace', 'new.ts'), 'no-view');
-  assert.deepEqual(keys(v), ['f:a.ts']);
+  const v = addView(null, [ed('a.ts')]);
+  assert.equal(st.openTabAt('nope', 0, 'replace', ftab('new.ts')), 'no-view');
+  assert.equal(st.openTabAt(v.id, 3, 'left', ftab('new.ts')), 'no-view');
+  assert.equal(st.openTabAt(v.id, -1, 'replace', ftab('new.ts')), 'no-view');
+  assert.deepEqual(shape(v), [['f:a.ts']]);
+});
+
+// ---------------------------------------------------------------------------
+// Moving a tab: to another pane, and out into a split of its own
+// ---------------------------------------------------------------------------
+
+test('moveTab: the tab lands in the target strip and leaves the source', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('c.ts')]);
+  st.state.activeViewId = v.id;
+
+  assert.equal(st.moveTab(v.id, 0, 1, 1), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:c.ts', 'f:b.ts']]);
+  assert.equal(activeId(v, 1), 'f:b.ts', 'the tab the user dragged is the one showing');
+  assert.equal(v.focused, 1, 'and the keyboard is in the pane they dropped on');
+  assert.equal(activeId(v, 0), 'f:a.ts', 'the source clamped onto a tab it still has');
+});
+
+test('moveTab: a target already holding that file RAISES it — it never shows it twice', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts', 'c.ts')]);
+  (v.slots[1] as EditorSlot).active = 1;
+
+  assert.equal(st.moveTab(v.id, 0, 1, 1), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:b.ts', 'f:c.ts']], 'no duplicate in the target');
+  assert.equal(activeId(v, 1), 'f:b.ts', 'the copy that was already there is raised');
+});
+
+test('moveTab: a raise in the target still empties the source of that tab, and clamps it', () => {
+  // The raise branch is the one that can quietly do nothing: the target
+  // already has the file, so a mover that stopped there would leave a second
+  // copy behind in the SOURCE strip — and the source's `active`, which was on
+  // the tab that left, has to come back onto a tab that exists.
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts', 'c.ts')]);
+  const from = v.slots[0] as EditorSlot;
+  from.active = 1; // the tab being dragged is the one on screen in the source
+
+  assert.equal(st.moveTab(v.id, 0, 1, 1), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:b.ts', 'f:c.ts']], 'gone from the source, not doubled');
+  assert.equal(from.active, 0, 'the source clamped onto the tab it still has');
+  assert.equal(activeId(v, 0), 'f:a.ts');
+  assert.equal(activeId(v, 1), 'f:b.ts', 'and the target raised the copy it already had');
+  assert.equal(v.focused, 1, 'the keyboard is in the pane the tab went to');
+});
+
+test('moveTab: a source emptied of tabs loses its PANE, and the target is found by key', () => {
+  // The 2x2 remap moves slot indices under the mover — holding the target by
+  // index instead of by key lands the tab in a stranger's pane.
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts'), ed('c.ts'), ed('d.ts')]);
+  st.state.activeViewId = v.id;
+  const targetKey = st.slotKey(v.slots[3] as PaneSlot);
+
+  assert.equal(st.moveTab(v.id, 0, 0, 3), 'ok');
+  assert.equal(v.slots.length, 3, 'the emptied pane is gone');
+  assert.deepEqual(shape(v), [['f:c.ts'], ['f:b.ts'], ['f:d.ts', 'f:a.ts']], 'the 2x2 remap');
+  assert.equal(st.slotKey(v.slots[v.focused] as PaneSlot), targetKey, 'focus on the TARGET pane');
+  assert.equal(activeId(v, v.focused), 'f:a.ts');
+});
+
+test('moveTab: a dirty file’s text survives the move — the prune runs once, at the END', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts')]);
+  const a = st.editorFileId('a.ts');
+  st.setEdit(a, 'typed in a');
+
+  assert.equal(st.moveTab(v.id, 0, 0, 1), 'ok');
+  assert.deepEqual(shape(v), [['f:b.ts', 'f:a.ts']], 'one pane left, holding both');
+  assert.equal(st.editText(a), 'typed in a', 'the tab moved, it did not close');
+});
+
+test('moveTab: a bad slot, the same slot, or a terminal is refused and changes nothing', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1')]);
+  const before = shape(v);
+  assert.equal(st.moveTab('nope', 0, 0, 1), 'no-view');
+  assert.equal(st.moveTab(v.id, 0, 0, 0), 'no-view', 'a tab does not move to its own pane');
+  assert.equal(st.moveTab(v.id, 0, 0, 1), 'no-view', 'a terminal holds no tabs');
+  assert.equal(st.moveTab(v.id, 1, 0, 0), 'no-view', 'and it has none to give');
+  assert.equal(st.moveTab(v.id, 0, 9, 1), 'no-view', 'nor does tab 9 exist');
+  assert.deepEqual(shape(v), before);
+});
+
+test('moveTabToSplit: a source that KEEPS tabs needs a free pane — a full tab is `full`', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [
+    ed('a.ts', 'x.ts'),
+    ed('b.ts'),
+    ed('c.ts'),
+    ed('d.ts'),
+  ]);
+  st.state.activeViewId = v.id;
+  const before = shape(v);
+  assert.equal(st.moveTabToSplit(v.id, 0, 0, 2, 'top'), 'full');
+  assert.deepEqual(shape(v), before, 'a rejection changes nothing');
+});
+
+test('moveTabToSplit: a ONE-TAB source on a full tab is fine — its own pane pays for the split', () => {
+  // The capacity rule the mutant gets wrong: the pane count does not change,
+  // because the source pane leaves as the new one arrives.
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts'), ed('c.ts'), ed('d.ts')]);
+  st.state.activeViewId = v.id;
+
+  assert.equal(st.moveTabToSplit(v.id, 0, 0, 2, 'top'), 'ok');
+  assert.equal(v.slots.length, st.MAX_PANES, 'four panes before, four panes after');
+  // Removing slot 0 of the 2x2 leaves [c, b, d] (l3 L, c tall); splitting c at
+  // the top puts the new pane first.
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:b.ts'], ['f:c.ts'], ['f:d.ts']]);
+  assert.equal(v.focused, 0, 'focus is on the NEW pane, after the remap');
+  assert.deepEqual(strip(v, v.focused), ['f:a.ts']);
+});
+
+test('moveTabToSplit: `no-zone` is measured on the view the drop will leave behind', () => {
+  st.initServer([], []);
+  st.loadUi();
+  // Three panes, tall pane on the left (l3 L): only slot 0 can still split.
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'x.ts'), ed('b.ts'), ed('c.ts')]);
+  st.state.activeViewId = v.id;
+  const before = shape(v);
+  assert.equal(st.moveTabToSplit(v.id, 0, 0, 1, 'top'), 'no-zone', 'the short pane offers nothing');
+  assert.deepEqual(shape(v), before);
+  assert.equal(st.moveTabToSplit(v.id, 0, 0, 0, 'top'), 'ok', 'its own pane’s edge is a split');
+  // n=3, l3 L: the tall pane splitting at the top makes the new pane slot 0,
+  // and the source (now x.ts alone) keeps the tall column's other half.
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:b.ts'], ['f:x.ts'], ['f:c.ts']]);
+
+  // A pane's ONLY tab dragged to that same pane's edge has nowhere to go.
+  const w = addView({ kind: 'project', id: 'p2' }, [ed('z.ts')]);
+  assert.equal(st.moveTabToSplit(w.id, 0, 0, 0, 'left'), 'no-zone');
+  assert.deepEqual(shape(w), [['f:z.ts']]);
+});
+
+test('moveTabToSplit: an unknown view, pane or tab is refused', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), sess('s1')]);
+  const before = shape(v);
+  assert.equal(st.moveTabToSplit('nope', 0, 0, 1, 'top'), 'no-view');
+  assert.equal(st.moveTabToSplit(v.id, 1, 0, 0, 'top'), 'no-view', 'a terminal has no tabs');
+  assert.equal(st.moveTabToSplit(v.id, 0, 5, 1, 'top'), 'no-view');
+  assert.equal(st.moveTabToSplit(v.id, 0, 0, 7, 'top'), 'no-view');
+  assert.deepEqual(shape(v), before);
+});
+
+// ---------------------------------------------------------------------------
+// Closing, raising and cycling tabs
+// ---------------------------------------------------------------------------
+
+test('closeTab: `active` clamps to the tab that is left, and the pane stays', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts')]);
+  const s = v.slots[0] as EditorSlot;
+  s.active = 2; // the LAST tab is the one on screen
+
+  assert.equal(st.closeTab(v.id, 0, 2), true);
+  assert.equal(v.slots.length, 1, 'the pane is still there');
+  assert.deepEqual(strip(v, 0), ['f:a.ts', 'f:b.ts']);
+  assert.equal(s.active, 1, 'active stepped back onto the new last tab');
+  assert.equal(activeId(v, 0), 'f:b.ts');
+
+  // Closing a tab BEFORE the active one clamps the same way (min(active, len-1)).
+  s.active = 1;
+  assert.equal(st.closeTab(v.id, 0, 0), true);
+  assert.deepEqual(strip(v, 0), ['f:b.ts']);
+  assert.equal(s.active, 0);
+});
+
+test('closeTab: the LAST tab takes the pane with it, down the closeSlot ladder', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+
+  // Home keeps standing, empty (user decision 4).
+  assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
+  assert.equal(st.closeTab(home().id, 0, 0), true);
+  assert.deepEqual(home().slots, []);
+  assert.equal(st.state.views[0]?.root?.kind, 'home');
+
+  // A project tab with nothing else in it goes with its last tab (decision 3/6).
+  const p = addView({ kind: 'project', id: 'p1' }, [ed('b.ts')]);
+  assert.equal(st.closeTab(p.id, 0, 0), true);
+  assert.equal(st.state.views.some((x) => x.id === p.id), false, 'the emptied project tab is gone');
+
+  // …unless a terminal is still in it.
+  const q = addView({ kind: 'project', id: 'p2' }, [ed('d.ts'), sess('s1')]);
+  assert.equal(st.closeTab(q.id, 0, 0), true);
+  assert.deepEqual(shape(q), ['s:s1']);
+  assert.equal(st.state.views.some((x) => x.id === q.id), true);
+
+  // A ROOTLESS tab dissolves, like it always has.
+  const r = addView(null, [ed('e.ts')]);
+  assert.equal(st.closeTab(r.id, 0, 0), true);
+  assert.equal(st.state.views.some((x) => x.id === r.id), false);
+});
+
+test('closeTab / closeActiveTab: a terminal, a bad index and an unknown view are refused', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), ed('a.ts', 'b.ts')]);
+  assert.equal(st.closeTab(v.id, 0, 0), false, 'a terminal pane has no tabs to close');
+  assert.equal(st.closeTab(v.id, 1, 5), false);
+  assert.equal(st.closeTab(v.id, 1, -1), false);
+  assert.equal(st.closeTab('nope', 0, 0), false);
+  assert.equal(st.closeActiveTab(v.id, 0), false, 'and ctrl+alt+w does nothing on a terminal');
+  assert.deepEqual(shape(v), ['s:s1', ['f:a.ts', 'f:b.ts']]);
+
+  (v.slots[1] as EditorSlot).active = 0;
+  assert.equal(st.closeActiveTab(v.id, 1), true);
+  assert.deepEqual(shape(v), ['s:s1', ['f:b.ts']], 'it closes the tab that is on screen');
+});
+
+test('setActiveTab: raises a tab by index, and is silent when it is already up', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts')]);
+  assert.equal(st.setActiveTab(v.id, 0, 1), true);
+  assert.equal(activeId(v, 0), 'f:b.ts');
+  assert.equal(st.setActiveTab(v.id, 0, 1), false, 'the same tab again is not a change');
+  assert.equal(st.setActiveTab(v.id, 0, 4), false);
+  assert.equal(st.setActiveTab(v.id, 0, -1), false);
+  assert.equal(st.setActiveTab('nope', 0, 0), false);
+  assert.equal(activeId(v, 0), 'f:b.ts');
+});
+
+test('cycleTab: ctrl+alt+PageUp/PageDown wraps both ways, and stands down on a terminal', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts'), sess('s1')]);
+  st.state.activeViewId = v.id;
+  v.focused = 0;
+
+  assert.equal(st.cycleTab(1), true);
+  assert.equal(activeId(v, 0), 'f:b.ts');
+  assert.equal(st.cycleTab(1), true);
+  assert.equal(activeId(v, 0), 'f:c.ts');
+  assert.equal(st.cycleTab(1), true);
+  assert.equal(activeId(v, 0), 'f:a.ts', 'forward off the end wraps to the first');
+  assert.equal(st.cycleTab(-1), true);
+  assert.equal(activeId(v, 0), 'f:c.ts', 'and back off the front wraps to the last');
+
+  v.focused = 1;
+  assert.equal(st.cycleTab(1), false, 'the chord belongs to the strip, not to the grid');
+  assert.equal(activeId(v, 0), 'f:c.ts');
+
+  // A single-tab pane has nothing to cycle to.
+  const w = addView({ kind: 'project', id: 'p2' }, [ed('z.ts')]);
+  st.state.activeViewId = w.id;
+  assert.equal(st.cycleTab(1), false);
+});
+
+test('cycleTab: a pane with ONE tab is a no-op — the chord answers false and nothing moves', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('only.ts')]);
+  st.state.activeViewId = v.id;
+  v.focused = 0;
+  // `collectKinds` is declared further down; a function declaration is hoisted.
+  const { kinds } = collectKinds();
+
+  assert.equal(st.cycleTab(1), false);
+  assert.equal(st.cycleTab(-1), false);
+  assert.equal(activeId(v, 0), 'f:only.ts', 'the one tab is still the one on screen');
+  assert.equal((v.slots[0] as EditorSlot).active, 0);
+  assert.deepEqual(kinds, [], 'and nothing was redrawn for a chord that did nothing');
 });
 
 test('closeSlot: an emptied PROJECT tab goes, Home stays, and focus lands on a pane that exists', () => {
@@ -573,17 +1015,17 @@ test('closeSlot: an emptied PROJECT tab goes, Home stays, and focus lands on a p
   assert.deepEqual(home().slots, []);
   assert.equal(st.state.views[0]?.root?.kind, 'home', 'Home is still the first tab');
 
-  // A project tab with only files: the last one closes the tab (decision 6).
-  const p = addView({ kind: 'project', id: 'p1' }, [file('b.ts'), file('c.ts')]);
+  // A project tab with only editor panes: the last one closes the tab (decision 6).
+  const p = addView({ kind: 'project', id: 'p1' }, [ed('b.ts'), ed('c.ts', 'd.ts')]);
   p.focused = 1;
-  assert.equal(st.closeSlot(p.id, 1), true);
-  assert.deepEqual(keys(p), ['f:b.ts']);
+  assert.equal(st.closeSlot(p.id, 1), true, 'a pane closes WITH ALL ITS TABS');
+  assert.deepEqual(shape(p), [['f:b.ts']]);
   assert.equal(p.focused, 0, 'focus clamps onto the pane that is left');
   assert.equal(st.closeSlot(p.id, 0), true);
   assert.equal(st.state.views.some((v) => v.id === p.id), false, 'the emptied project tab is gone');
 
   // …unless it still holds a terminal.
-  const q = addView({ kind: 'project', id: 'p2' }, [file('d.ts'), sess('s1')]);
+  const q = addView({ kind: 'project', id: 'p2' }, [ed('d.ts'), sess('s1')]);
   assert.equal(st.closeSlot(q.id, 0), true);
   assert.deepEqual(keys(q), ['s:s1']);
   assert.equal(st.state.views.some((v) => v.id === q.id), true, 'a terminal keeps the tab open');
@@ -594,9 +1036,9 @@ test('closeSlot: a SESSION pane is refused — ending a session is a different a
   // says so too rather than trusting every caller to remember.
   st.initServer([], [mkSession('s1')]);
   st.loadUi();
-  const v = addView(null, [sess('s1'), file('a.ts')]);
+  const v = addView(null, [sess('s1'), ed('a.ts')]);
   assert.equal(st.closeSlot(v.id, 0), false);
-  assert.deepEqual(keys(v), ['s:s1', 'f:a.ts']);
+  assert.deepEqual(shape(v), ['s:s1', ['f:a.ts']]);
   assert.equal(st.closeSlot(v.id, 9), false, 'and an index that is not a pane is a no-op');
   assert.equal(st.closeSlot('nope', 0), false);
 });
@@ -604,7 +1046,7 @@ test('closeSlot: a SESSION pane is refused — ending a session is a different a
 test('closeSlot: a ROOTLESS tab emptied of files dissolves, like it always has', () => {
   st.initServer([], []);
   st.loadUi();
-  const v = addView(null, [file('a.ts')]);
+  const v = addView(null, [ed('a.ts')]);
   assert.equal(st.closeSlot(v.id, 0), true);
   assert.equal(st.state.views.some((x) => x.id === v.id), false);
 });
@@ -631,11 +1073,11 @@ test('closing the ONLY pane of a dirty file drops its unsaved text', () => {
 });
 
 test('the same file in TWO panes keeps its text until BOTH are gone', () => {
-  // Free mixing (decision 3): one text per FILE, shared by every pane showing
+  // Free mixing (decision 3): one text per FILE, shared by every TAB showing
   // it — so the first close is not the last word.
   st.initServer([], []);
   st.loadUi();
-  const v = addView({ kind: 'project', id: 'p1' }, [file('a.ts'), file('a.ts')]);
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('a.ts')]);
   const id = st.editorFileId('a.ts');
   st.setEdit(id, 'typed');
 
@@ -648,26 +1090,56 @@ test('the same file in TWO panes keeps its text until BOTH are gone', () => {
   assert.equal(st.state.edits.size, 0);
 });
 
-test('openFileAt on the CENTRE of a dirty file pane drops the text it replaced', () => {
+test('openTabAt on the CENTRE of a dirty pane keeps BOTH texts — it replaces nothing', () => {
+  // A10b turned the centre into an ADD (orchestrator default 4). The A10 test
+  // this replaces asserted the opposite, and the difference is the user's
+  // unsaved typing: nothing here orphans a file, so nothing is pruned.
   st.initServer([], []);
   st.loadUi();
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
   const v = home();
-  const gone = st.editorFileId('a.ts');
-  const kept = st.editorFileId('b.ts');
-  st.setEdit(gone, 'typed in a');
-  st.setEdit(kept, 'typed in b');
+  const a = st.editorFileId('a.ts');
+  const b = st.editorFileId('b.ts');
+  st.setEdit(a, 'typed in a');
+  st.setEdit(b, 'typed in b');
 
-  assert.equal(st.openFileAt(v.id, 0, 'replace', 'b.ts'), 'ok');
-  assert.deepEqual(keys(v), ['f:b.ts']);
-  assert.equal(st.editorDirty(gone), false, 'the replaced file is on no pane any more');
-  assert.equal(st.editText(kept), 'typed in b', 'the file that took its place keeps its own text');
+  assert.equal(st.openTabAt(v.id, 0, 'replace', ftab('b.ts')), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:b.ts']]);
+  assert.equal(st.editText(a), 'typed in a', 'the file that was there is still open');
+  assert.equal(st.editText(b), 'typed in b', 'and so is the one that joined it');
+
+  // Closing the tab is what drops the text — the LAST tab showing that file.
+  assert.equal(st.closeTab(v.id, 0, 0), true);
+  assert.equal(st.editorDirty(a), false, 'no tab anywhere, so no text anywhere');
+  assert.equal(st.editText(b), 'typed in b');
+});
+
+test('pruneOrphanEdits walks TABS: text dies with the last tab, not with the pane', () => {
+  // The A10 version of this rule walked SLOTS. A pane with two files in it
+  // would have pruned neither or both.
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts')]);
+  const a = st.editorFileId('a.ts');
+  const b = st.editorFileId('b.ts');
+  st.setEdit(a, 'typed in a');
+  st.setEdit(b, 'typed in b');
+
+  assert.equal(st.closeTab(v.id, 0, 0), true, 'a.ts leaves the first strip');
+  assert.equal(st.editorDirty(a), false, 'it was on no other tab');
+  assert.equal(st.editText(b), 'typed in b', 'b.ts is still open twice');
+
+  assert.equal(st.closeSlot(v.id, 1), true, 'the second pane goes, tabs and all');
+  assert.equal(st.editText(b), 'typed in b', 'the first strip still shows it');
+  assert.equal(st.closeSlot(v.id, 0), true);
+  assert.equal(st.editorDirty(b), false);
+  assert.equal(st.state.edits.size, 0, 'and the map does not grow forever');
 });
 
 test('closing a TAB drops the unsaved text of every file it held', () => {
   st.initServer([], []);
   st.loadUi();
-  const v = addView({ kind: 'project', id: 'p1' }, [file('a.ts'), file('b.ts')]);
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts')]);
   const a = st.editorFileId('a.ts');
   const b = st.editorFileId('b.ts');
   st.setEdit(a, 'typed a');
@@ -677,7 +1149,7 @@ test('closing a TAB drops the unsaved text of every file it held', () => {
   assert.equal(st.openFile({ kind: 'home' }, 'b.ts', 'b.ts'), 'ok');
   st.closeView(v.id);
   assert.equal(st.state.views.some((x) => x.id === v.id), false, 'the tab is gone');
-  assert.equal(st.editorDirty(a), false, 'its only pane went with the tab');
+  assert.equal(st.editorDirty(a), false, 'its only tab went with the tab strip');
   assert.equal(st.editText(b), 'typed b', 'the other tab still shows b.ts');
 });
 
@@ -685,11 +1157,11 @@ test('merging a tab into another keeps the unsaved text of the file in transit',
   // `mergeViews` empties the source and dissolves it BEFORE the slots land in
   // the target: for that instant the file is on no pane at all. A prune run
   // from `dissolveView` would eat text the user is still looking at — which is
-  // why the prune lives in closeSlot/closeView/openFileAt and nowhere else.
+  // why the prune lives in closeSlot/closeView/the tab movers and nowhere else.
   st.initServer([], []);
   st.loadUi();
-  const src = addView({ kind: 'project', id: 'p1' }, [file('a.ts')]);
-  const dst = addView({ kind: 'project', id: 'p2' }, [file('b.ts')]);
+  const src = addView({ kind: 'project', id: 'p1' }, [ed('a.ts')]);
+  const dst = addView({ kind: 'project', id: 'p2' }, [ed('b.ts')]);
   const a = st.editorFileId('a.ts');
   const b = st.editorFileId('b.ts');
   st.setEdit(a, 'typed in a');
@@ -697,7 +1169,7 @@ test('merging a tab into another keeps the unsaved text of the file in transit',
 
   assert.equal(st.mergeViews(dst.id, src.id, 0, 'right'), 'ok');
   assert.equal(st.state.views.some((x) => x.id === src.id), false, 'the source tab dissolved');
-  assert.deepEqual(keys(dst), ['f:b.ts', 'f:a.ts'], 'both files are panes of the target');
+  assert.deepEqual(shape(dst), [['f:b.ts'], ['f:a.ts']], 'both panes are the target’s now');
   assert.equal(st.editorDirty(a), true, 'the file moved, it did not close');
   assert.equal(st.editText(a), 'typed in a', 'and it still holds exactly what was typed');
   assert.equal(st.editText(b), 'typed in b', 'the file it merged into is untouched');
@@ -706,32 +1178,39 @@ test('merging a tab into another keeps the unsaved text of the file in transit',
 test('movePane: a file and a terminal trade places, and focus follows the moved pane', () => {
   st.initServer([], [mkSession('s1')]);
   st.loadUi();
-  const v = addView({ kind: 'project', id: 'p1' }, [file('a.ts'), sess('s1')]);
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), sess('s1')]);
   st.state.activeViewId = v.id;
   v.focused = 0;
+  const editorKey = st.slotKey(v.slots[0] as PaneSlot);
 
   st.movePane('right');
-  assert.deepEqual(keys(v), ['s:s1', 'f:a.ts'], 'kind-blind: the file swapped with the terminal');
+  assert.deepEqual(shape(v), ['s:s1', ['f:a.ts', 'f:b.ts']], 'kind-blind, tabs and all');
   assert.equal(v.focused, 1, 'focus follows the pane that moved, not the slot it left');
+  assert.equal(st.slotKey(v.slots[1] as PaneSlot), editorKey, 'and it is the SAME pane');
 
   st.movePane('left');
-  assert.deepEqual(keys(v), ['f:a.ts', 's:s1']);
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:b.ts'], 's:s1']);
   assert.equal(v.focused, 0);
 
   // No neighbour in that direction: nothing moves.
   st.movePane('up');
-  assert.deepEqual(keys(v), ['f:a.ts', 's:s1']);
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:b.ts'], 's:s1']);
+
+  // swapPanes is the same door, called by index.
+  st.swapPanes(v.id, 0, 1);
+  assert.deepEqual(shape(v), ['s:s1', ['f:a.ts', 'f:b.ts']]);
+  assert.equal(st.slotKey(v.slots[1] as PaneSlot), editorKey);
 });
 
 test('reconcileViews: the server forgot a session — its pane goes, the files beside it stay', () => {
   st.initServer([], [mkSession('s1')]);
   st.loadUi();
-  const v = addView({ kind: 'project', id: 'p1' }, [file('a.ts'), sess('gone'), file('b.ts')]);
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('gone'), ed('b.ts')]);
   const rootless = addView(null, [sess('gone2')]);
 
   st.reconcileViews();
 
-  assert.deepEqual(keys(v), ['f:a.ts', 'f:b.ts'], 'a path is not a session id');
+  assert.deepEqual(shape(v), [['f:a.ts'], ['f:b.ts']], 'a path is not a session id');
   assert.equal(st.state.views.some((x) => x.id === v.id), true);
   assert.equal(st.state.views.some((x) => x.id === rootless.id), false, 'a rootless tab still dissolves');
 
@@ -754,8 +1233,8 @@ test('reconcileViews: an unassigned server session still gets its own tab, after
 test('reorderView / moveActiveViewBy never displace Home', () => {
   st.initServer([], []);
   st.loadUi();
-  const a = addView(null, [file('a.ts')], 'v-a');
-  const b = addView(null, [file('b.ts')], 'v-b');
+  const a = addView(null, [ed('a.ts')], 'v-a');
+  const b = addView(null, [ed('b.ts')], 'v-b');
   const ids = () => st.state.views.map((v) => (v.root?.kind === 'home' ? 'HOME' : v.id));
 
   st.reorderView(a.id, 0);
@@ -814,11 +1293,11 @@ test('mergeViews: Home is never the source — it is never dissolved', () => {
 test('moveSessionToView: a terminal joins a folder tab, and the folder tab keeps its files', () => {
   st.initServer([], [mkSession('s1')]);
   st.loadUi();
-  const p = addView({ kind: 'project', id: 'p1' }, [file('a.ts')]);
+  const p = addView({ kind: 'project', id: 'p1' }, [ed('a.ts')]);
   const src = st.viewOfSession('s1') as ViewState;
 
   assert.equal(st.moveSessionToView('s1', p.id), 'ok');
-  assert.deepEqual(keys(p), ['f:a.ts', 's:s1'], 'free mixing: a file beside a terminal');
+  assert.deepEqual(shape(p), [['f:a.ts'], 's:s1'], 'free mixing: files beside a terminal');
   assert.equal(st.state.views.some((v) => v.id === src.id), false, 'the emptied session tab dissolved');
 });
 
@@ -830,8 +1309,8 @@ test('save/load: session slots and splits survive a reload; file slots do not; H
   st.initServer([], [mkSession('s1'), mkSession('s2')]);
   st.loadUi();
   const v = st.viewOfSession('s1') as ViewState;
-  v.slots = [sess('s1'), file('a.ts'), sess('s2')];
-  v.focused = 1; // a FILE pane is focused
+  v.slots = [sess('s1'), ed('a.ts', 'b.ts'), sess('s2')];
+  v.focused = 1; // an EDITOR pane is focused
   v.l3 = 'R';
   v.split = { col: 0.3, row: 0.7 };
   st.state.views = st.state.views.filter((x) => x.id === home().id || x.id === v.id);
@@ -845,7 +1324,7 @@ test('save/load: session slots and splits survive a reload; file slots do not; H
 
   assert.equal(st.state.views[0]?.root?.kind, 'home', 'Home is recreated at index 0');
   const back = st.state.views.find((x) => x.id === v.id) as ViewState;
-  assert.deepEqual(keys(back), ['s:s1', 's:s2'], 'the file pane is not persisted (user decision 10)');
+  assert.deepEqual(keys(back), ['s:s1', 's:s2'], 'the editor pane is not persisted (decision 10)');
   assert.deepEqual(back.split, { col: 0.3, row: 0.7 }, 'the dragged divider is still where it was');
   assert.equal(back.l3, 'R');
   assert.equal(back.focused, 0, 'focus is remapped onto a pane that survived');
@@ -854,6 +1333,8 @@ test('save/load: session slots and splits survive a reload; file slots do not; H
   // And the bag itself holds no path at all.
   const bag = memoryStorage.getItem(STORAGE_KEY) as string;
   assert.ok(!bag.includes('a.ts'), 'no file path reaches storage before part B4');
+  assert.ok(!bag.includes('b.ts'), 'not the other tab of that pane either');
+  assert.ok(!bag.includes('editor'), 'and no editor slot is written at all');
 });
 
 test('save/load: a folder tab with a terminal comes back; a file-only one does not; Home always does', () => {
@@ -862,9 +1343,9 @@ test('save/load: a folder tab with a terminal comes back; a file-only one does n
   // s1 arrived in its own auto-tab; this test wants it in the folder tab, and
   // a session lives in exactly ONE view.
   st.state.views = [home()];
-  const withTerm = addView({ kind: 'project', id: 'p1' }, [file('a.ts'), sess('s1')], 'v-term');
-  addView({ kind: 'project', id: 'p2' }, [file('b.ts')], 'v-files');
-  home().slots = [file('c.ts')];
+  const withTerm = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1')], 'v-term');
+  addView({ kind: 'project', id: 'p2' }, [ed('b.ts')], 'v-files');
+  home().slots = [ed('c.ts')];
   const homeId = home().id;
   st.saveUi();
 
@@ -903,7 +1384,7 @@ test('save/load: a second Home in the bag is not a second Home', () => {
   assert.equal(home().id, 'h1');
 });
 
-test('save/load: a stored FILE slot is ignored — a reload never conjures a file pane', () => {
+test('save/load: a stored EDITOR (or legacy file) slot is ignored — no pane is conjured', () => {
   st.initServer([], [mkSession('s1')]);
   memoryStorage.setItem(
     STORAGE_KEY,
@@ -912,7 +1393,13 @@ test('save/load: a stored FILE slot is ignored — a reload never conjures a fil
         {
           id: 'v1',
           root: { kind: 'project', id: 'p1' },
-          slots: [{ kind: 'file', path: 'a.ts' }, sess('s1')],
+          slots: [
+            // A hand-edited bag, and an A10-era one: neither may resurrect text
+            // that was never read from disk.
+            { kind: 'editor', id: 'e:99', tabs: [{ kind: 'file', path: 'a.ts' }], active: 0 },
+            { kind: 'file', path: 'legacy.ts' },
+            sess('s1'),
+          ],
           focused: 0,
           l3: 'L',
           split: { col: 0.5, row: 0.5 },
@@ -941,7 +1428,7 @@ function collectKinds(): { kinds: string[] } {
   return { kinds };
 }
 
-test("openFile / openFileAt / closeSlot / movePane all notify 'ui' — a file is a PANE now", () => {
+test("every tab and pane mutator notifies 'ui' — an editor pane is a PANE", () => {
   // Not 'screen': that kind means "something OTHER than the panes fills the
   // pane area" (the commit view), and `ui/panes.ts` ignores it on purpose. A
   // file pane that announced itself with 'screen' would never be drawn.
@@ -954,14 +1441,26 @@ test("openFile / openFileAt / closeSlot / movePane all notify 'ui' — a file is
     return [...new Set(kinds)];
   };
 
+  const h = () => home().id;
   assert.deepEqual(only(() => st.openFile({ kind: 'home' }, 'a.ts', 'a.ts')), ['ui']);
-  assert.deepEqual(only(() => st.openFileAt(home().id, 0, 'left', 'b.ts')), ['ui']);
+  assert.deepEqual(only(() => st.openFile({ kind: 'home' }, 'b.ts', 'b.ts')), ['ui'], 'a tab add');
+  assert.deepEqual(only(() => st.openDiff({ kind: 'home' }, '474d891', 'a.ts')), ['ui']);
+  assert.deepEqual(only(() => st.setActiveTab(h(), 0, 0)), ['ui']);
+  assert.deepEqual(only(() => st.cycleTab(1)), ['ui']);
+  assert.deepEqual(only(() => st.openTabAt(h(), 0, 'left', ftab('c.ts'))), ['ui']);
+  assert.deepEqual(only(() => st.moveTab(h(), 1, 0, 0)), ['ui']);
+  assert.deepEqual(only(() => st.moveTabToSplit(h(), 0, 0, 0, 'top')), ['ui']);
   assert.deepEqual(only(() => st.movePane('right')), ['ui']);
-  assert.deepEqual(only(() => st.closeSlot(home().id, 0)), ['ui']);
+  assert.deepEqual(only(() => st.closeTab(h(), 0, 0)), ['ui']);
+  assert.deepEqual(only(() => st.closeSlot(h(), 0)), ['ui']);
   assert.deepEqual(only(() => st.openFile({ kind: 'project', id: 'p1' }, 'c.ts', 'c.ts')), ['ui']);
   // A rejection is silent: nothing changed, so nothing re-renders.
-  assert.deepEqual(only(() => st.openFileAt('nope', 0, 'left', 'd.ts')), []);
+  assert.deepEqual(only(() => st.openTabAt('nope', 0, 'left', ftab('d.ts'))), []);
+  assert.deepEqual(only(() => st.moveTab('nope', 0, 0, 1)), []);
+  assert.deepEqual(only(() => st.moveTabToSplit('nope', 0, 0, 1, 'left')), []);
+  assert.deepEqual(only(() => st.closeTab('nope', 0, 0)), []);
   assert.deepEqual(only(() => st.closeSlot('nope', 0)), []);
+  assert.deepEqual(only(() => st.cycleTab(1)), [], 'and so is a chord with no editor pane up');
 });
 
 test("saveEdit notifies 'ui' (the dot it clears lives on a pane header) and a clean file is silent", () => {

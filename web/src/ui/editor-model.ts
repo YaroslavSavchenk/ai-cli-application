@@ -1,20 +1,24 @@
 /**
- * File-pane model (Nocturne part A6, pruned by A10) — the arithmetic behind a
- * file shown in a pane, with no DOM and no state import, so `node --test` can
- * drive it.
+ * File-tab model (Nocturne part A6, pruned by A10, re-tabbed by A10b) — the
+ * arithmetic behind a file shown in an editor pane, with no DOM and no runtime
+ * state import, so `node --test` can drive it.
  *
- * A pane showing a file or a diff is identified by an ID, and the ID says
+ * A file or a diff open in a strip is identified by an ID, and the ID says
  * which:
  *   `f:<path>`            a file, editable, saveable
  *   `d:<hash>:<path>`     the changes to that file in that commit, read-only
- * That id is `slotKey()` for those two pane kinds (state.ts) and the key their
- * unsaved text lives under in `state.edits` — so the same file open in two
- * panes shares one text (user decision 2026-09-15: a file is a PANE now, not a
- * tab in an editor column, and panes mix freely with terminals).
+ * That id is the key its unsaved text lives under in `state.edits` — so the
+ * same file open in two panes shares one text.
+ *
+ * It is NOT the pane's identity: an editor pane's `slotKey()` is its own
+ * generated `e:<n>` (state.ts), because a key derived from the active tab
+ * would make every tab add / close / switch look like a different pane.
+ * TAB ID ≠ SLOT KEY.
  *
  * Every function here is pure, so the rules — what an id means, how many lines
  * the gutter draws, what the Save button says — are testable without a browser.
  */
+import type { EditorTab } from '../state.ts';
 
 export type TabKind = 'file' | 'diff';
 
@@ -31,6 +35,15 @@ export function fileTabId(path: string): string {
 /** The id a commit's per-file diff pane is opened under. */
 export function diffTabId(hash: string, path: string): string {
   return `d:${hash}:${path}`;
+}
+
+/**
+ * The id of a tab — `fileTabId` / `diffTabId` by another name, so that every
+ * caller holding an `EditorTab` has ONE spelling of the `state.edits` key and
+ * none of them re-derives it from the parts.
+ */
+export function tabIdOf(t: EditorTab): string {
+  return t.kind === 'file' ? fileTabId(t.path) : diffTabId(t.hash, t.path);
 }
 
 /**

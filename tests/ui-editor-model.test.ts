@@ -16,10 +16,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+type EditorTab = import('../web/src/state.ts').EditorTab;
+
 const E = (await import(new URL('../web/src/ui/editor-model.ts', import.meta.url).href)) as {
   tabKind(id: string): 'file' | 'diff';
   fileTabId(path: string): string;
   diffTabId(hash: string, path: string): string;
+  tabIdOf(t: EditorTab): string;
   gutterText(text: string): string;
   saveLabel(dirty: boolean): string;
 };
@@ -51,6 +54,28 @@ test('the SAME file always gives the same id — which is what makes two panes s
   // never assumed.
   assert.equal(E.fileTabId('f:weird'), 'f:f:weird');
   assert.equal(E.tabKind(E.fileTabId('f:weird')), 'file');
+});
+
+test('tabIdOf is BYTE-IDENTICAL to fileTabId / diffTabId — one spelling of the edits key', () => {
+  // A10b: every caller holds an `EditorTab` now, so the id has to come from one
+  // place. A second spelling here would give one pane's text a key no other
+  // pane looks under — the alias trap, in the map the user's typing lives in.
+  for (const path of ['web/src/main.ts', 'LICENSE', 'a b/c:d.ts', '', 'f:weird']) {
+    assert.equal(E.tabIdOf({ kind: 'file', path }), E.fileTabId(path), `file: ${path}`);
+    assert.equal(E.tabKind(E.tabIdOf({ kind: 'file', path })), 'file');
+  }
+  for (const [hash, path] of [
+    ['474d891', 'server/ws.ts'],
+    ['55c9be7', 'a/b.ts'],
+  ] as const) {
+    assert.equal(E.tabIdOf({ kind: 'diff', hash, path }), E.diffTabId(hash, path));
+    assert.equal(E.tabKind(E.tabIdOf({ kind: 'diff', hash, path })), 'diff');
+  }
+  // The same file as a file tab and as a diff tab are two different tabs.
+  assert.notEqual(
+    E.tabIdOf({ kind: 'file', path: 'server/ws.ts' }),
+    E.tabIdOf({ kind: 'diff', hash: '474d891', path: 'server/ws.ts' }),
+  );
 });
 
 test('the editor-column API is gone: a file is a pane, not a tab in a column', () => {

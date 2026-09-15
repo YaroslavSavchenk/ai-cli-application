@@ -456,12 +456,17 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   /**
    * Is this file on screen anywhere? ANY view, not just the active one: the
    * class is a statement about the FILE ("you are looking at this"), and a file
-   * open in another folder tab is still open. `editorFileId(path)` is exactly
-   * the `slotKey` of a file slot, so this asks the model's own question.
+   * open in another folder tab is still open.
+   *
+   * A10b: it walks the TABS of every pane. A file is not a pane any more — it
+   * is one chip in an editor pane's strip — and `slotKey` answers that pane's
+   * own `e:<n>`, which no path can ever equal. (That is exactly what this line
+   * asked before, and it had gone silently dead: `editorFileId` is the TAB id,
+   * never a slot key.)
    */
   function pathIsOpen(path: string): boolean {
-    const key = st.editorFileId(path);
-    return st.state.views.some((v) => v.slots.some((slot) => st.slotKey(slot) === key));
+    const id = st.editorFileId(path);
+    return st.state.views.some((v) => v.slots.some((slot) => st.slotTabIds(slot).includes(id)));
   }
 
   /**
@@ -482,7 +487,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       flashOpenResult(v.slots.length >= st.MAX_PANES ? 'full' : 'no-zone');
       return;
     }
-    flashOpenResult(st.openFileAt(v.id, v.focused, where, path));
+    flashOpenResult(st.openTabAt(v.id, v.focused, where, { kind: 'file', path }));
   }
 
   function headerName(): string {
@@ -518,11 +523,13 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     if (!st.filesPanelVisible()) return 'hidden';
     // The panel also reacts to what is on the other screens: an open commit
     // turns the Commits tab into its selected state (with the same collapse set
-    // the view uses), and every file that is a PANE somewhere keeps its row
-    // grounded (A10 — the A5/A6 editor-tab read is gone with the editor).
+    // the view uses), and the open files ground their rows.
     const collapsed = Array.from(st.state.commitCollapsed).sort().join(',');
+    // Every file that is a TAB somewhere keeps its row grounded (A10b: the
+    // question moved from the pane's key to the strip's contents, and a diff
+    // tab paints no row, so only `f:` ids are part of this picture).
     const openFiles = st.state.views
-      .flatMap((v) => v.slots.map((slot) => st.slotKey(slot)))
+      .flatMap((v) => v.slots.flatMap((slot) => st.slotTabIds(slot)))
       .filter((k) => k.startsWith('f:'))
       .sort()
       .join(',');

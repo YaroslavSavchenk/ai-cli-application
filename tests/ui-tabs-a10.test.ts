@@ -1,6 +1,6 @@
 /**
- * The tab strip after Nocturne part A10, driven through the REAL
- * `web/src/ui/tabs.ts` on the shared DOM double, against the REAL
+ * The tab strip after Nocturne part A10, re-tabbed by A10b, driven through the
+ * REAL `web/src/ui/tabs.ts` on the shared DOM double, against the REAL
  * `web/src/state.ts` and `ui/slots-model.ts`.
  *
  * A10 gave a tab three new facts to state, and every one of them is a way to
@@ -8,20 +8,25 @@
  *
  *   1. WHAT IT IS ABOUT. `Home` is `Home`, a folder tab prints the PROJECT'S
  *      NAME and never its path (PROJECT-SCOPE, 2026-07-25), and a plain
- *      session tab still joins its panes' names.
- *   2. WHAT IS IN IT. The count pill counts PANES, not sessions (a tab can be
- *      four files); an amber dot says a file in it is unsaved; the status dot
- *      is ABSENT when the tab holds no session at all, because a state dot
- *      there would be a readout of nothing.
+ *      session tab still joins its panes' names — an EDITOR pane being named
+ *      after the file it is SHOWING (A10b), so raising another chip inside it
+ *      renames the tab with it.
+ *   2. WHAT IS IN IT. The count pill counts PANES, not sessions and not file
+ *      tabs (since A10b one editor pane can hold four files and is still one
+ *      pane); an amber dot says a file in it is unsaved — ANY file in ANY
+ *      strip, not only the ones on screen; the status dot is ABSENT when the
+ *      tab holds no session at all, because a state dot there would be a
+ *      readout of nothing.
  *   3. WHAT `×` COSTS. A tab holding sessions ENDS them and keeps the armed
- *      two-step; a tab holding only files kills nothing and closes on one
- *      click. `Home` has no `×` and no drag handle at all (user decision 4).
+ *      two-step; a tab holding only editor panes kills nothing and closes on
+ *      one click. `Home` has no `×` and no drag handle (user decision 4).
  *
  * `killSession` and the launch dialog are INJECTED into `initTabs`, so this
  * runner never reaches @xterm/xterm.
  *
  * NOT claimed (browser work): layout, colour, the drag itself (ui/dnd.ts, and
- * `tests/ui-dnd-a10.test.ts`).
+ * `tests/ui-dnd-a10.test.ts`), and the strip INSIDE an editor pane's header
+ * (`tests/ui-editor-pane.test.ts`).
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,11 +34,23 @@ import { byClass, byKey, descendants, installDom, type FakeElement } from './fak
 
 const dom = installDom();
 
-interface Slot {
-  kind: 'session' | 'file' | 'diff';
-  id?: string;
-  path?: string;
-  hash?: string;
+type EditorTab = { kind: 'file'; path: string } | { kind: 'diff'; hash: string; path: string };
+type Slot =
+  | { kind: 'session'; id: string }
+  | { kind: 'editor'; id: string; tabs: EditorTab[]; active: number };
+
+const file = (path: string): EditorTab => ({ kind: 'file', path });
+const diff = (hash: string, path: string): EditorTab => ({ kind: 'diff', hash, path });
+
+/**
+ * ONE editor pane holding `tabs`. The id is the pane's own `e:<n>` — never
+ * derived from a tab (TAB ID ≠ SLOT KEY, A10b), so these fixtures cannot
+ * accidentally make the strip read like the A10 one-file-per-pane world.
+ */
+let editorSeq = 0;
+function editor(tabs: EditorTab[], active = 0): Slot {
+  editorSeq += 1;
+  return { kind: 'editor', id: `e:t${editorSeq}`, tabs, active };
 }
 interface View {
   id: string;
@@ -54,6 +71,10 @@ interface StateModule {
   setSessions(list: unknown[]): void;
   setProjects(list: unknown[]): void;
   slotKey(s: Slot): string;
+  /** The `state.edits` key of a file — the TAB's id, never the pane's. */
+  editorFileId(path: string): string;
+  /** Write the unsaved text out (B4 owes the disk); returns it, or null. */
+  saveEdit(id: string): string | null;
 }
 interface TabsModule {
   initTabs(
@@ -155,7 +176,7 @@ test('non-vacuity: the strip really renders, with the `+` and the hint', () => {
 test('a tab is named after its ROOT: Home, the project NAME, or its panes', () => {
   st.setSessions([session('s1', { title: 'build' }), session('s2', { title: 'tests' })]);
   draw([
-    view({ id: 'home', root: { kind: 'home' }, slots: [{ kind: 'file', path: 'web/src/main.ts' }] }),
+    view({ id: 'home', root: { kind: 'home' }, slots: [editor([file('web/src/main.ts')])] }),
     view({ id: 'proj', root: { kind: 'project', id: 'p1' }, slots: [{ kind: 'session', id: 's1' }] }),
     view({ id: 'plain', root: null, slots: [{ kind: 'session', id: 's1' }, { kind: 'session', id: 's2' }] }),
   ]);
@@ -167,35 +188,75 @@ test('a tab is named after its ROOT: Home, the project NAME, or its panes', () =
   assert.equal(strip.textContent.includes('/home/tester/api'), false);
 });
 
-test('a file pane is named on the chip too, by its file name and nothing else', () => {
-  draw([
-    view({ id: 'plain', root: null, slots: [{ kind: 'file', path: 'web/src/ui/panes.ts' }] }),
-  ]);
+test('an editor pane is named on the chip by the tab it is SHOWING, and nothing else', () => {
+  // A10b: the strip inside the pane decides the name outside it. A chip that
+  // named the FIRST tab would go stale the moment the user raised another
+  // file, and a chip that joined all of them would print a path's worth of
+  // words on a 32px surface.
+  const pane = editor([file('web/src/ui/panes.ts'), file('web/src/state.ts')], 1);
+  draw([view({ id: 'plain', root: null, slots: [pane] })]);
+  assert.deepEqual(
+    byClass(strip, 'tab-label').map((n) => n.textContent),
+    ['state.ts'],
+  );
+  // Raise the other chip: the tab is renamed with it, and the strip really
+  // redraws (the signature carries the label).
+  (pane as { active: number }).active = 0;
+  tabs.render();
   assert.deepEqual(
     byClass(strip, 'tab-label').map((n) => n.textContent),
     ['panes.ts'],
   );
+  // A read-only diff is named after its commit, the A6 wording.
+  const dv = editor([diff('a1b2c3d', 'web/src/main.ts')]);
+  draw([view({ id: 'plain2', root: null, slots: [dv] })]);
+  assert.deepEqual(
+    byClass(strip, 'tab-label').map((n) => n.textContent),
+    ['Changes in a1b2c3d'],
+  );
+  // And no path ever reaches the strip.
+  assert.equal(strip.textContent.includes('web/src'), false);
 });
 
-test('the count pill counts PANES — four files are four panes', () => {
+test('the count pill counts PANES — four files in ONE strip are ONE pane', () => {
+  // A10b, user decision 4: the pill keeps counting panes. Counting tabs would
+  // say "4" for a tab that shows a single editor pane, which is a readout of
+  // something the user cannot see on screen.
+  st.setSessions([session('s1')]);
   draw([
     view({
       id: 'home',
       root: { kind: 'home' },
       slots: [
-        { kind: 'file', path: 'a/one.ts' },
-        { kind: 'file', path: 'a/two.ts' },
-        { kind: 'diff', hash: 'a1b2c3d', path: 'a/two.ts' },
+        editor([
+          file('a/one.ts'),
+          file('a/two.ts'),
+          diff('a1b2c3d', 'a/two.ts'),
+          file('a/three.ts'),
+        ]),
+      ],
+    }),
+  ]);
+  assert.equal(byClass(strip, 'tab-count').length, 0, 'one pane needs no pill at all');
+
+  draw([
+    view({
+      id: 'home',
+      root: { kind: 'home' },
+      slots: [
+        editor([file('a/one.ts'), file('a/two.ts')]),
+        editor([file('a/three.ts')]),
+        { kind: 'session', id: 's1' },
       ],
     }),
   ]);
   const pill = byClass(strip, 'tab-count')[0] as FakeElement;
-  assert.equal(pill.textContent, '3');
+  assert.equal(pill.textContent, '3', 'two editor panes and a terminal are three panes');
   assert.equal(pill.title, '3 panes in this tab');
 });
 
 test('no session in the tab, no status dot — a dot there would report on nothing', () => {
-  draw([view({ id: 'home', root: { kind: 'home' }, slots: [{ kind: 'file', path: 'a/one.ts' }] })]);
+  draw([view({ id: 'home', root: { kind: 'home' }, slots: [editor([file('a/one.ts')])] })]);
   assert.equal(byClass(strip, 'dot').length, 0, 'a file has no state to report');
 
   st.setSessions([session('s1')]);
@@ -206,18 +267,44 @@ test('no session in the tab, no status dot — a dot there would report on nothi
 });
 
 test('an unsaved file puts the amber mark on the chip, in words as well as a shape', () => {
-  const slot: Slot = { kind: 'file', path: 'web/src/main.ts' };
-  draw([view({ id: 'home', root: { kind: 'home' }, slots: [slot] })]);
+  // The dirty file is the tab that is NOT on screen: `viewDirty` walks every
+  // TAB of every editor pane, because a file two chips deep is as unsaved as
+  // the one being looked at — and this chip is the only place that says so
+  // from another tab.
+  const pane = editor([file('web/src/main.ts'), file('web/src/state.ts')], 1);
+  draw([view({ id: 'home', root: { kind: 'home' }, slots: [pane] })]);
   assert.equal(byClass(strip, 'tab-dirty').length, 0, 'a clean file wears no mark');
 
-  st.state.edits.set(st.slotKey(slot), 'typed');
-  draw([view({ id: 'home', root: { kind: 'home' }, slots: [slot] })]);
+  st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
+  draw([view({ id: 'home', root: { kind: 'home' }, slots: [pane] })]);
   assert.equal(byClass(strip, 'tab-dirty').length, 1);
   assert.deepEqual(
     byClass(strip, 'sr-only').map((n) => n.textContent),
     ['Unsaved changes'],
     'the dot is a shape; the state is also in words',
   );
+  // And the key it reads is the TAB's id, never the pane's `e:<n>`.
+  st.state.edits = new Map([[st.slotKey(pane), 'typed under the PANE key']]);
+  draw([view({ id: 'home', root: { kind: 'home' }, slots: [pane] })]);
+  assert.equal(byClass(strip, 'tab-dirty').length, 0, 'a pane key is not an edits key');
+});
+
+test('Save on the ONLY unsaved tab takes the amber mark off the chip again', () => {
+  // `viewDirty` is a question about the TABS, asked on every render: the mark
+  // has to come off the moment the text is written, or a saved file keeps
+  // claiming it is unsaved until something else redraws the strip.
+  const PATH = 'web/src/state.ts';
+  const pane = editor([file('web/src/main.ts'), file(PATH)], 1);
+  const views = (): View[] => [view({ id: 'home', root: { kind: 'home' }, slots: [pane] })];
+  st.state.edits.set(st.editorFileId(PATH), 'typed');
+  draw(views());
+  assert.equal(byClass(strip, 'tab-dirty').length, 1, 'non-vacuity: the mark is up');
+
+  assert.equal(st.saveEdit(st.editorFileId(PATH)), 'typed', 'the text was written');
+  draw(views());
+  assert.equal(byClass(strip, 'tab-dirty').length, 0, 'and the chip stops claiming otherwise');
+  assert.deepEqual(byClass(strip, 'sr-only').map((n) => n.textContent), [],
+    'in words as well: nothing says "Unsaved changes" any more');
 });
 
 test('Home has no × and no drag handle at all', () => {
@@ -252,7 +339,7 @@ test('× on a tab holding only files closes it in ONE click, and ends nothing', 
     view({
       id: 'proj',
       root: { kind: 'project', id: 'p1' },
-      slots: [{ kind: 'file', path: 'web/src/main.ts' }],
+      slots: [editor([file('web/src/main.ts'), diff('a1b2c3d', 'web/src/main.ts')])],
     }),
   ]);
   const x = byKey(strip, 'tabx:proj') as FakeElement;
@@ -297,7 +384,7 @@ test('a folder tab that still holds a session keeps the armed confirm', async ()
     view({
       id: 'proj',
       root: { kind: 'project', id: 'p1' },
-      slots: [{ kind: 'file', path: 'a/one.ts' }, { kind: 'session', id: 's1' }],
+      slots: [editor([file('a/one.ts')]), { kind: 'session', id: 's1' }],
     }),
   ]);
   const x = () => byKey(strip, 'tabx:proj') as FakeElement;
@@ -316,14 +403,13 @@ test('× on a MIXED tab ends only the sessions, and the tab goes with its files'
     id: 'mixed',
     root: { kind: 'project', id: 'p1' },
     slots: [
-      { kind: 'file', path: 'web/src/main.ts' },
+      editor([file('web/src/main.ts'), diff('a1b2c3d', 'web/src/main.ts')]),
       { kind: 'session', id: 's1' },
-      { kind: 'diff', hash: 'a1b2c3d', path: 'web/src/main.ts' },
     ],
   });
   draw([view({ id: 'home', root: { kind: 'home' }, slots: [] }), mixed]);
   killEffect = (id) => {
-    mixed.slots = mixed.slots.filter((s) => s.id !== id);
+    mixed.slots = mixed.slots.filter((s) => !(s.kind === 'session' && s.id === id));
   };
 
   const x = () => byKey(strip, 'tabx:mixed') as FakeElement;
@@ -334,7 +420,7 @@ test('× on a MIXED tab ends only the sessions, and the tab goes with its files'
   x().click();
   await settle();
 
-  assert.deepEqual(killed, ['s1'], 'exactly the sessions — the file and the diff end nothing');
+  assert.deepEqual(killed, ['s1'], 'exactly the sessions — the editor pane ends nothing');
   assert.deepEqual(
     st.state.views.map((v) => v.id),
     ['home'],
@@ -365,18 +451,16 @@ test('a session the server REFUSED to end keeps its tab open', async () => {
 });
 
 test('the same unsaved file in two tabs marks BOTH chips — the text belongs to the file', () => {
-  const slot: Slot = { kind: 'file', path: 'web/src/main.ts' };
-  draw([
-    view({ id: 'home', root: { kind: 'home' }, slots: [slot] }),
-    view({ id: 'proj', root: { kind: 'project', id: 'p1' }, slots: [{ ...slot }] }),
-  ]);
+  const PATH = 'web/src/main.ts';
+  const both = (): View[] => [
+    view({ id: 'home', root: { kind: 'home' }, slots: [editor([file(PATH)])] }),
+    view({ id: 'proj', root: { kind: 'project', id: 'p1' }, slots: [editor([file(PATH)])] }),
+  ];
+  draw(both());
   assert.equal(byClass(strip, 'tab-dirty').length, 0, 'non-vacuity: nothing is unsaved yet');
 
-  st.state.edits.set(st.slotKey(slot), 'typed once');
-  draw([
-    view({ id: 'home', root: { kind: 'home' }, slots: [slot] }),
-    view({ id: 'proj', root: { kind: 'project', id: 'p1' }, slots: [{ ...slot }] }),
-  ]);
+  st.state.edits.set(st.editorFileId(PATH), 'typed once');
+  draw(both());
   assert.equal(byClass(strip, 'tab-dirty').length, 2, 'one entry in state.edits, two chips saying so');
   assert.deepEqual(
     byClass(strip, 'sr-only').map((n) => n.textContent),
@@ -389,15 +473,14 @@ test('every class the strip renders has a rule in app.css', async () => {
   const { readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { projectRoot } = await import('./helpers.ts');
-  const slot: Slot = { kind: 'file', path: 'web/src/main.ts' };
   st.setSessions([session('s1', { attention: true })]);
-  st.state.edits.set(st.slotKey(slot), 'typed');
+  st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
   draw([
-    view({ id: 'home', root: { kind: 'home' }, slots: [slot] }),
+    view({ id: 'home', root: { kind: 'home' }, slots: [editor([file('web/src/main.ts')])] }),
     view({
       id: 'plain',
       root: null,
-      slots: [{ kind: 'session', id: 's1' }, { kind: 'file', path: 'a/two.ts' }],
+      slots: [{ kind: 'session', id: 's1' }, editor([file('a/two.ts')])],
     }),
   ]);
   const seen = new Set<string>();

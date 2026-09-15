@@ -18,11 +18,20 @@ import {
   fileName,
   rootForSubject,
   slotTitle,
+  tabTitle,
   viewLabel,
   zoneForPoint,
   type Rect,
 } from '../web/src/ui/slots-model.ts';
-import type { PaneSlot } from '../web/src/state.ts';
+import type { EditorTab, PaneSlot } from '../web/src/state.ts';
+
+/** An editor pane holding `tabs`, showing `active` (A10b shape, made by hand). */
+const editor = (tabs: EditorTab[], active = 0): PaneSlot => ({
+  kind: 'editor',
+  id: 'e:1',
+  tabs,
+  active,
+});
 
 // A 400x200 pane at the origin: every fraction below is a round number in it.
 const PANE: Rect = { left: 0, top: 0, width: 400, height: 200 };
@@ -78,19 +87,39 @@ test('viewLabel: no label is ever a path, whatever the lookup answers', () => {
   for (const l of labels) assert.ok(!l.includes('/'), `no path separator in "${l}"`);
 });
 
-test('slotTitle: a file pane prints the LAST SEGMENT and nothing else', () => {
-  const slot: PaneSlot = { kind: 'file', path: 'web/src/ui/panes.ts' };
-  assert.equal(slotTitle(slot), 'panes.ts');
-  assert.equal(slotTitle({ kind: 'file', path: 'LICENSE' }), 'LICENSE');
-  assert.equal(slotTitle({ kind: 'file', path: '/a/b//c.ts' }), 'c.ts');
-  assert.ok(!slotTitle(slot).includes('/'));
+test('tabTitle: a file chip prints the LAST SEGMENT, a diff chip says which commit', () => {
+  assert.equal(tabTitle({ kind: 'file', path: 'web/src/ui/panes.ts' }), 'panes.ts');
+  assert.equal(tabTitle({ kind: 'file', path: 'LICENSE' }), 'LICENSE');
+  assert.equal(tabTitle({ kind: 'file', path: '/a/b//c.ts' }), 'c.ts');
+  assert.equal(tabTitle({ kind: 'diff', hash: '474d891', path: 'server/ws.ts' }), 'Changes in 474d891');
+  for (const t of [
+    { kind: 'file', path: 'web/src/ui/panes.ts' },
+    { kind: 'diff', hash: '474d891', path: 'server/ws.ts' },
+  ] as EditorTab[]) {
+    assert.ok(!tabTitle(t).includes('/'), 'no path separator reaches a chip');
+  }
 });
 
-test('slotTitle: a diff pane says which commit, a session pane says its own name', () => {
-  assert.equal(
-    slotTitle({ kind: 'diff', hash: '474d891', path: 'server/ws.ts' }),
-    'Changes in 474d891',
-  );
+test('slotTitle: an editor pane is called after the tab it is SHOWING', () => {
+  // A10b: the pane header and the tab chip both follow the strip, so switching
+  // tabs renames the pane — the one thing that tells the user which file the
+  // keyboard is in.
+  const tabs: EditorTab[] = [
+    { kind: 'file', path: 'web/src/ui/panes.ts' },
+    { kind: 'file', path: 'LICENSE' },
+    { kind: 'diff', hash: '474d891', path: 'server/ws.ts' },
+  ];
+  assert.equal(slotTitle(editor(tabs, 0)), 'panes.ts');
+  assert.equal(slotTitle(editor(tabs, 1)), 'LICENSE');
+  assert.equal(slotTitle(editor(tabs, 2)), 'Changes in 474d891');
+  assert.equal(slotTitle(editor(tabs, 0)), tabTitle(tabs[0] as EditorTab), 'one rule, not two');
+  // Out of range is not a crash and not a path: the model never produces it,
+  // and a hand-built slot still gets a label.
+  assert.equal(slotTitle(editor(tabs, 9)), 'Changes in 474d891');
+  assert.equal(slotTitle(editor([], 0)), '…');
+});
+
+test('slotTitle: a session pane says its own name', () => {
   const s: PaneSlot = { kind: 'session', id: 's1' };
   assert.equal(slotTitle(s, 'Session Manager'), 'Session Manager');
   // A session the browser has not heard about yet: the strip's own stand-in,

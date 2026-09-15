@@ -107,18 +107,20 @@ interface StateModule {
   commitFileCollapsed(hash: string, path: string): boolean;
   editorFileId(path: string): string;
   slotKey(s: PaneSlot): string;
+  slotTabIds(s: PaneSlot): string[];
+  newEditorSlot(tabs: EditorTab[]): PaneSlot;
   activeView(): ViewLike | null;
   openFile(root: ViewRoot, path: string, label: string): string;
-  openFileAt(viewId: string, slot: number, where: string, path: string): string;
+  openTabAt(viewId: string, slot: number, where: string, tab: EditorTab): string;
   dropZonesFor(v: ViewLike, slot: number, count: number): string[];
   MAX_PANES: number;
 }
 
-/** The A10 slot model, restated here so this file never imports the browser graph. */
+/** The A10b slot model, restated here so this file never imports the browser graph. */
+type EditorTab = { kind: 'file'; path: string } | { kind: 'diff'; hash: string; path: string };
 type PaneSlot =
   | { kind: 'session'; id: string }
-  | { kind: 'file'; path: string }
-  | { kind: 'diff'; hash: string; path: string };
+  | { kind: 'editor'; id: string; tabs: EditorTab[]; active: number };
 type ViewRoot = { kind: 'home' } | { kind: 'project'; id: string };
 interface ViewLike {
   id: string;
@@ -128,6 +130,11 @@ interface ViewLike {
   l3?: 'L' | 'R';
   split?: { col: number; row: number };
 }
+/** An editor pane holding these files, in strip order, the first one active. */
+function ed(...paths: string[]): PaneSlot {
+  return st.newEditorSlot(paths.map((path) => ({ kind: 'file', path })));
+}
+
 interface FilesModule {
   initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
   /** Part A9: where a drop, a paste or the header button would copy to. */
@@ -540,14 +547,15 @@ test('a folder row toggles its subtree; a file row opens that file as a PANE (A1
   (byKey(root, 'fdir:server') as FakeElement).click();
   assert.equal(byClass(root, 'files-row').length, before, 'and come back');
 
-  // A10 turned the A6 editor-tab opener into a PANE opener: the file lands in
-  // the tab of its root folder — here the focused session's project.
+  // A10b: the file lands as a TAB of the editor pane of its root folder's tab
+  // — here the focused session's project (A10 opened a pane per file; the user
+  // asked for one pane with a strip instead).
   const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
   assert.equal(file.tagName, 'BUTTON', 'a row that opens a file is a button, not a hover');
   file.click();
   const v = st.activeView() as ViewLike;
   assert.deepEqual(v.root, { kind: 'project', id: 'p1' }, 'the project of the focused session');
-  assert.deepEqual(v.slots, [{ kind: 'file', path: 'web/src/Pane.tsx' }]);
+  assert.deepEqual(shapeOf(v), ['*web/src/Pane.tsx']);
   assert.equal(st.state.activeViewId, v.id, 'and the app goes there');
 
   panel.render();
@@ -562,9 +570,15 @@ test('a folder row toggles its subtree; a file row opens that file as a PANE (A1
     'and only there',
   );
 
-  // Opening the same file twice must not spend a second pane on a copy.
+  // Opening the same file twice must not spend a second pane — or a second
+  // CHIP — on a copy: the second click RAISES what is already open (A10b).
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  assert.deepEqual(shapeOf(st.activeView()), ['web/src/Pane.tsx *web/src/store.ts'],
+    'the second file is a TAB of the same pane, and it is the one showing');
   (byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement).click();
-  assert.equal((st.activeView() as ViewLike).slots.length, 1, 'the path is the dedupe key');
+  assert.equal((st.activeView() as ViewLike).slots.length, 1, 'still one pane');
+  assert.deepEqual(shapeOf(st.activeView()), ['*web/src/Pane.tsx web/src/store.ts'],
+    'and the first file was raised where it stood, never opened twice');
 });
 
 // ---------------------------------------------------------------------------
@@ -576,9 +590,27 @@ function slotsNow(): PaneSlot[] {
   return (st.activeView() as ViewLike).slots;
 }
 
-/** Is this file a pane anywhere at all? */
+/**
+ * A view's panes as one readable picture: a session id, or the file tabs of an
+ * editor pane in strip order, the ACTIVE one starred (A10b: a file is a TAB of
+ * a pane, not a pane).
+ */
+function shapeOf(v: ViewLike | null): string[] {
+  if (v === null) return [];
+  return v.slots.map((s) =>
+    s.kind === 'session'
+      ? `session ${s.id}`
+      : s.tabs
+          .map((t, i) => `${i === s.active ? '*' : ''}${t.kind === 'file' ? t.path : `${t.hash}:${t.path}`}`)
+          .join(' '),
+  );
+}
+
+/** Is this file open ANYWHERE at all — as a tab of any pane of any tab? */
 function anyFileSlot(): boolean {
-  return st.state.views.some((v) => v.slots.some((slot) => slot.kind === 'file'));
+  return st.state.views.some((v) =>
+    v.slots.some((slot) => st.slotTabIds(slot).some((id) => id.startsWith('f:'))),
+  );
 }
 
 /**
@@ -602,7 +634,7 @@ test('with nothing running, a file row opens into the Home tab — never a namel
   const v = st.activeView() as ViewLike;
   assert.deepEqual(v.root, { kind: 'home' });
   assert.equal(st.state.views[0]?.id, v.id, 'Home is the fixed first tab');
-  assert.deepEqual(v.slots, [{ kind: 'file', path: 'web/src/store.ts' }]);
+  assert.deepEqual(shapeOf(v), ['*web/src/store.ts']);
 });
 
 test('a session WITHOUT a project sends its files to Home (the A10 gap B2 closes)', () => {
@@ -651,10 +683,9 @@ test('ctrl+alt+enter on a focused row splits the focused pane — the twin of th
   file.focus();
   const e = dispatch(file, 'keydown', { key: 'Enter', ctrlKey: true, altKey: true });
   assert.equal(e.defaultPrevented, true, 'the row owns the chord, so nothing else may act on it');
-  assert.deepEqual(slotsNow(), [
-    { kind: 'file', path: 'web/src/Pane.tsx' },
-    { kind: 'file', path: 'web/src/store.ts' },
-  ], 'the new file took the left half of the pane it split');
+  assert.deepEqual(shapeOf(st.activeView()), ['*web/src/Pane.tsx', '*web/src/store.ts'],
+    'the new file took the left half of the pane it split — its OWN editor pane');
+  assert.equal(slotsNow().length, 2, 'the chord splits; it never adds to the strip');
 });
 
 test('the chord is ctrl+alt+enter only: AltGr, plain Enter and ctrl+enter are left alone', () => {
@@ -676,7 +707,10 @@ test('the chord is ctrl+alt+enter only: AltGr, plain Enter and ctrl+enter are le
   assert.equal(anyFileSlot(), false, 'and nothing opened');
 });
 
-test('`is-open` follows the PANES, in any tab — and goes away with the pane', () => {
+test('`is-open` follows the TABS, in any tab, active chip or not (A10b)', () => {
+  // The A10 spelling of this asked whether the file was a PANE (`slotKey`).
+  // Since A10b a file is a CHIP in a strip and a pane's key is its own `e:<n>`,
+  // so that question could never say yes again — a silently dead class.
   liveSession();
   const isOpen = (path: string): boolean =>
     (byKey(root, `ffile:${path}`) as FakeElement).classList.contains('is-open');
@@ -686,12 +720,30 @@ test('`is-open` follows the PANES, in any tab — and goes away with the pane', 
   panel.render();
   assert.equal(isOpen('web/src/Pane.tsx'), true);
 
+  // A second file joins the same strip. The first one is no longer the ACTIVE
+  // chip, and it is still open — the class is about the file being on screen's
+  // strip, not about which chip is up.
+  (byKey(root, 'ffile:web/src/store.ts') as FakeElement).click();
+  panel.render();
+  assert.deepEqual(shapeOf(st.activeView()), ['web/src/Pane.tsx *web/src/store.ts']);
+  assert.equal(isOpen('web/src/Pane.tsx'), true, 'a background chip is open too');
+  assert.equal(isOpen('web/src/store.ts'), true);
+  assert.equal(isOpen('web/src/TabStrip.tsx'), false, 'and only the files that are really open');
+
   // Another tab entirely: the row still says the file is on screen, because it
   // is. The class is about the FILE, not about which tab is in front.
   st.state.views.push({ id: 'v-other', root: null, slots: [], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } });
   st.state.activeViewId = 'v-other';
   repaint();
   assert.equal(isOpen('web/src/Pane.tsx'), true, 'open somewhere is open');
+
+  // And it goes away with the strip: the panel must never ground a row for a
+  // file nothing shows.
+  const owner = st.state.views.find((v) => v.slots.some((x) => x.kind === 'editor')) as ViewLike;
+  owner.slots = owner.slots.filter((x) => x.kind !== 'editor');
+  repaint();
+  assert.equal(isOpen('web/src/Pane.tsx'), false);
+  assert.equal(isOpen('web/src/store.ts'), false);
 });
 
 test('the header follows the VIEW root while a FILE pane is focused, not the tab\'s session', () => {
@@ -704,7 +756,7 @@ test('the header follows the VIEW root while a FILE pane is focused, not the tab
     {
       id: 'vf',
       root: { kind: 'project', id: 'p1' },
-      slots: [{ kind: 'file', path: 'web/src/Pane.tsx' }, { kind: 'session', id: 's1' }],
+      slots: [ed('web/src/Pane.tsx'), { kind: 'session', id: 's1' }],
       focused: 0,
       l3: 'L',
       split: { col: 0.5, row: 0.5 },
@@ -728,7 +780,7 @@ test('a DIFF pane is about its tab too, and Home reads Home', () => {
     {
       id: 'vh',
       root: { kind: 'home' },
-      slots: [{ kind: 'diff', hash: 'a1b2c3d', path: 'web/src/Pane.tsx' }],
+      slots: [st.newEditorSlot([{ kind: 'diff', hash: 'a1b2c3d', path: 'web/src/Pane.tsx' }])],
       focused: 0,
       l3: 'L',
       split: { col: 0.5, row: 0.5 },
@@ -757,7 +809,7 @@ test('a file pane in a ROOTLESS tab is about THAT tab session, not the first ali
     {
       id: 'vf',
       root: null,
-      slots: [{ kind: 'file', path: 'web/src/Pane.tsx' }, { kind: 'session', id: 's1' }],
+      slots: [ed('web/src/Pane.tsx'), { kind: 'session', id: 's1' }],
       focused: 0,
       l3: 'L',
       split: { col: 0.5, row: 0.5 },
@@ -783,7 +835,7 @@ test('a file pane in a rootless tab with NO session of its own reads Home', () =
   st.setSessions([mkSession('s2', { projectId: 'p1' })]);
   st.state.views = [
     { id: 'vo', root: null, slots: [{ kind: 'session', id: 's2' }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
-    { id: 'vf', root: null, slots: [{ kind: 'file', path: 'web/src/Pane.tsx' }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+    { id: 'vf', root: null, slots: [ed('web/src/Pane.tsx')], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
   ];
   st.state.activeViewId = 'vf';
   st.state.leftPanel = 'files';
@@ -1409,7 +1461,7 @@ test('a FILE pane in a rootless tab borrows the tab s own first session, as the 
   const v = st.state.views.find((x) => x.slots.length > 0) as ViewLike;
   st.state.activeViewId = v.id;
   v.root = null;
-  v.slots.push({ kind: 'file', path: 'web/src/App.tsx' });
+  v.slots.push(ed('web/src/App.tsx'));
   const filePane = dom.doc.createElement('section');
   filePane.dataset.slot = String(v.slots.length - 1);
   assert.deepEqual(F.destinationOfPane(filePane), { dest: 'api' }, 'the tab s own session names it');
