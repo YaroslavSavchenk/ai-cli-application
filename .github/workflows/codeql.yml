@@ -3,10 +3,15 @@
 # Security → Code scanning alerts; a pull request gets them as checks.
 #
 # Runs on every push to main, every pull request, and once a week (the
-# query packs move even when the code does not). The C# host is a single
-# source file compiled by csc.exe on Windows (launcher/build-host.ps1), so
-# it is scanned without a build (`build-mode: none`) -- there is no .NET
-# project for a runner to build.
+# query packs move even when the code does not).
+#
+# The TypeScript and the workflows are scanned without a build. The C# host
+# is a single source file compiled by the in-box .NET Framework csc.exe on
+# Windows (launcher/build-host.ps1, the same step release.yml runs), so it
+# gets a manual build on a Windows runner: CodeQL's tracer watches that
+# csc.exe call and sees every referenced assembly (WinForms, WebView2).
+# Without the build (`build-mode: none`) the scan resolved only 56 % of the
+# calls and GitHub flagged the analysis quality as low.
 #
 # Same rules as the other workflows (tests/release-workflow.test.ts): every
 # action pinned to a commit SHA, no permissions by default, checkout without
@@ -47,8 +52,6 @@ jobs:
             build-mode: none
           - language: actions
             build-mode: none
-          - language: csharp
-            build-mode: none
 
     steps:
       - name: Check out the repository
@@ -66,3 +69,40 @@ jobs:
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           category: /language:${{ matrix.language }}
+
+  analyze-csharp:
+    name: analyze (csharp)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    # `powershell` is Windows PowerShell 5.1, which build-host.ps1 is written for.
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          languages: csharp
+          build-mode: manual
+
+      # No .NET SDK: build-host.ps1 compiles with
+      # C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe (in-box on the
+      # windows-latest image) after downloading the pinned Microsoft.Web.WebView2
+      # NuGet package and verifying its size + SHA-256.
+      - name: Build the native host (traced)
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File launcher/build-host.ps1
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          category: /language:csharp

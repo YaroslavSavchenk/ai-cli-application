@@ -460,23 +460,35 @@ test('a dispatch that is not a tag builds a version nobody can mistake for a rel
 
 // --- code scanning ---------------------------------------------------------
 
-test('codeql.yml scans the three languages without a build, and only it may upload results', () => {
-  for (const language of ['javascript-typescript', 'actions', 'csharp']) {
+test('codeql.yml scans TypeScript and the workflows without a build, C# with a traced build, and only it may upload results', () => {
+  for (const language of ['javascript-typescript', 'actions']) {
     assert.match(
       codeqlYml,
       new RegExp(`^ {10}- language: ${language}\\n {12}build-mode: none$`, 'm'),
       `codeql.yml must scan ${language} with build-mode: none`,
     );
   }
-  assert.match(codeqlYml, /^ {6}security-events: write/m, 'the analyze job uploads SARIF');
+  // The C# host needs its references resolved: a manual build on Windows with
+  // the same script release.yml uses, between init and analyze.
+  const csharp = jobBlock(codeqlYml, 'analyze-csharp');
+  assert.match(csharp, /^ {4}runs-on: windows-latest$/m, 'the C# scan builds on Windows');
+  assert.match(csharp, /^ {10}languages: csharp\n {10}build-mode: manual$/m, 'C# is initialized for a manual build');
+  const order = ['codeql-action/init@', 'launcher/build-host.ps1', 'codeql-action/analyze@'].map((needle) =>
+    csharp.indexOf(needle),
+  );
+  assert.ok(order.every((i) => i >= 0), `the C# job must init, build the host, then analyze: ${order.join(', ')}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'init, then build-host.ps1, then analyze — in that order');
+  assert.ok(!/language: csharp\n {12}build-mode: none/.test(codeqlYml), 'C# must not ALSO be scanned without a build');
+  const uploads = codeqlYml.split('\n').filter((l) => /^ {6}security-events: write/.test(l));
+  assert.equal(uploads.length, 2, 'both analyze jobs upload SARIF, nothing else does');
   for (const [name, source] of ALL) {
     if (name === 'codeql.yml') continue;
     assert.ok(!/security-events/.test(source), `${name} must not ask for security-events`);
   }
   // init and analyze must come from the same pinned release of the action.
   const refs = [...codeqlYml.matchAll(/uses: github\/codeql-action\/(init|analyze)@([0-9a-f]{40})/g)];
-  assert.equal(refs.length, 2, 'exactly one init and one analyze step');
-  assert.equal(refs[0]![2], refs[1]![2], 'init and analyze are pinned to the same commit');
+  assert.equal(refs.length, 4, 'an init and an analyze step per job');
+  assert.equal(new Set(refs.map((r) => r[2])).size, 1, 'every init and analyze is pinned to the same commit');
 });
 
 test('ci.yml still calls the reusable workflow, unchanged', () => {
