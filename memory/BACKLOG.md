@@ -245,6 +245,56 @@ buried in `server.log`.
   page / open the updater directly, and whether a "hide until the next
   Claude Code version" dismissal is wanted.
 
+## For other users (from the 2026-09-15 honest score, 5/10)
+
+What stands between "works on the author's machine" and "someone else
+installs it and stays". Already planned elsewhere and NOT repeated here:
+live Files/Commits/Editor (B2/B3/B4), real copy from Explorer (A9b), the
+CLI compatibility guard (section above), the second-machine smoke and the
+replay cost (section below).
+
+- [ ] **(user) Code signing for Setup.exe and the host exe.** Every new
+  version trips SmartScreen ("More info → Run anyway") and some AV
+  quarantines unsigned installers outright. Options, cheapest first:
+  SignPath.io (free for open source, signing in CI via their GitHub
+  integration), Azure Trusted Signing (~$10/month, needs an Azure
+  account + identity validation), a classic OV/EV certificate (hundreds
+  per year, EV needs a hardware token). Decision = which one, and whether
+  the user wants their legal name on the certificate (it becomes public).
+  Implementation after the decision: a signing step in `release.yml`
+  between build and package, `signtool verify` in the verify step,
+  SHA256SUMS stays.
+- [ ] **(user) Worktree-per-task and a diff / PR flow.** The reason people
+  pick Conductor or Claude Squad: each agent in its own git worktree,
+  review the diff in-app, open the PR from there. Not in the Nocturne
+  plan at all. Decide whether this app wants to be that (a new track
+  after C1: "New session → in a worktree" option, worktree list per
+  project, diff view reusing B4's diff tabs, "Open PR" via the existing
+  GitHub connection) or stays a session manager on top of the user's own
+  branches. Big enough that it needs its own plan document.
+- [ ] **Contributor surface**: `CONTRIBUTING.md` (how to run, test,
+  `/dev-flow` in one paragraph, what a PR must pass), `.github/
+  ISSUE_TEMPLATE/` bug + feature (bug asks for the app version, Claude
+  Code version, WSL distro, `server.log` excerpt), a
+  `PULL_REQUEST_TEMPLATE.md` that points at the checks. Cheap, and the
+  security policy already points people at the repo.
+- [ ] **README for someone who is not the author**: the current one is
+  internal in tone (decision dates, memory paths). Split: a short public
+  top (what it is, screenshot, install in three steps, requirements,
+  known limits, where to report) and move the operator detail below a
+  fold or into `docs/`. Add one real screenshot of the Nocturne UI.
+- [ ] **Portability inputs, not assumptions**: the launcher derives distro
+  and path from its own location; the bundle pins Node. What is still
+  assumed: `bash` as the login shell, `git` on PATH inside WSL, `claude`
+  on PATH for the WSL user, systemd absent or present. Each becomes a
+  boot-card check with a one-line fix hint instead of a late failure
+  (the second-machine smoke below is where these surface first).
+- [ ] **First-run experience**: after Setup, the first window shows an
+  empty project list and nothing else. Add-a-project is the only door;
+  a first-run card ("add a folder, pick Claude Code, start") with the
+  Claude Code login state visible (the CLI's own `claude` login is a
+  prerequisite nobody is told about).
+
 ## Engineering-quality debt (from the 2026-09-15 honest score, 7/10)
 
 Named by the orchestrator when the user asked for a critical score; the
