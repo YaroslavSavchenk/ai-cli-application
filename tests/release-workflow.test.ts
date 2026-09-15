@@ -27,11 +27,13 @@ const read = (name: string): string => readFileSync(join(WORKFLOWS, name), 'utf8
 const verifyYml = read('verify.yml');
 const ciYml = read('ci.yml');
 const releaseYml = read('release.yml');
+const codeqlYml = read('codeql.yml');
 
 const ALL: ReadonlyArray<readonly [string, string]> = [
   ['verify.yml', verifyYml],
   ['ci.yml', ciYml],
   ['release.yml', releaseYml],
+  ['codeql.yml', codeqlYml],
 ];
 
 /**
@@ -91,6 +93,7 @@ test('runBlocks finds both spellings and stops at the next key', () => {
 test('every workflow has at least one run block (the extractor is not vacuous)', () => {
   for (const [name, source] of ALL) {
     if (name === 'ci.yml') continue; // ci.yml only calls the reusable workflow
+    if (name === 'codeql.yml') continue; // codeql.yml is actions only (init + analyze)
     assert.ok(runBlocks(source).length > 0, `${name} has no run: block`);
   }
 });
@@ -454,6 +457,27 @@ test('a dispatch that is not a tag builds a version nobody can mistake for a rel
 });
 
 // --- the shell scripts the workflows call ----------------------------------
+
+// --- code scanning ---------------------------------------------------------
+
+test('codeql.yml scans the three languages without a build, and only it may upload results', () => {
+  for (const language of ['javascript-typescript', 'actions', 'csharp']) {
+    assert.match(
+      codeqlYml,
+      new RegExp(`^ {10}- language: ${language}\\n {12}build-mode: none$`, 'm'),
+      `codeql.yml must scan ${language} with build-mode: none`,
+    );
+  }
+  assert.match(codeqlYml, /^ {6}security-events: write/m, 'the analyze job uploads SARIF');
+  for (const [name, source] of ALL) {
+    if (name === 'codeql.yml') continue;
+    assert.ok(!/security-events/.test(source), `${name} must not ask for security-events`);
+  }
+  // init and analyze must come from the same pinned release of the action.
+  const refs = [...codeqlYml.matchAll(/uses: github\/codeql-action\/(init|analyze)@([0-9a-f]{40})/g)];
+  assert.equal(refs.length, 2, 'exactly one init and one analyze step');
+  assert.equal(refs[0]![2], refs[1]![2], 'init and analyze are pinned to the same commit');
+});
 
 test('ci.yml still calls the reusable workflow, unchanged', () => {
   assert.match(ciYml, /uses: \.\/\.github\/workflows\/verify\.yml/);

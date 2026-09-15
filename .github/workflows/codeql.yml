@@ -1,0 +1,68 @@
+# Code scanning with CodeQL: the backend and frontend TypeScript, the
+# workflows themselves, and the C# native host. Findings land under
+# Security → Code scanning alerts; a pull request gets them as checks.
+#
+# Runs on every push to main, every pull request, and once a week (the
+# query packs move even when the code does not). The C# host is a single
+# source file compiled by csc.exe on Windows (launcher/build-host.ps1), so
+# it is scanned without a build (`build-mode: none`) -- there is no .NET
+# project for a runner to build.
+#
+# Same rules as the other workflows (tests/release-workflow.test.ts): every
+# action pinned to a commit SHA, no permissions by default, checkout without
+# persisted credentials, no `${{ }}` inside a run: block.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays 06:17 UTC; an off-the-hour minute spreads load on GitHub's side.
+    - cron: '17 6 * * 1'
+
+# Nothing by default; each job asks for exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read # workflow run metadata for the upload
+      contents: read
+      security-events: write # upload the SARIF results
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+          - language: csharp
+            build-mode: none
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          category: /language:${{ matrix.language }}
