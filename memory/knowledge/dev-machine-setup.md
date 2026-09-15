@@ -49,7 +49,7 @@ while the installed backend is healthy just **reattaches to the installed
 backend** (health check wins) — the dev build never starts. For a dev
 window beside the installed app: set `AI_SM_DATA_DIR` to another dir that
 matches the launcher pattern (`~/.ai-session-manager-dev`), then run
-`\\wsl.localhost\Ubuntu-24.04\home\sava\projects\ai-cli-application\launcher\launch.cmd`.
+`\\wsl.localhost\<distro>\home\you\projects\ai-cli-application\launcher\launch.cmd`.
 The repo has no built native host (`launcher/host/build/` needs
 `build-host.ps1` on Windows), so the dev window opens as the Edge `--app`
 fallback — fine for a look check, DWM caption colours excepted.
