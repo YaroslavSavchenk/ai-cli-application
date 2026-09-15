@@ -7,6 +7,11 @@
 # The three jobs surface as the checks `verify / typecheck + build`,
 # `verify / backend test suite` and `verify / linux bundle`.
 #
+# It can also be run by hand ("Run workflow" in the Actions tab, or
+# `gh workflow run verify.yml --ref <branch>`) to verify a work-in-progress
+# branch that has no pull request before it is squashed onto main. A manual
+# run proves the same thing as CI; it publishes nothing.
+#
 # Two facts that explain the shape below:
 #   - node-pty 1.1.0 ships NO linux-x64 prebuild, so `npm ci` compiles it from
 #     source here (node-gyp); the ubuntu-latest image supplies the toolchain it
@@ -23,6 +28,7 @@ name: Verify
 
 on:
   workflow_call:
+  workflow_dispatch:
 
 # Nothing by default; each job asks for exactly what it needs.
 permissions: {}
