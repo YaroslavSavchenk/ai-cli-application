@@ -48,6 +48,14 @@ a branch off `main`, new files only, `node_modules` symlinked (add to
 `.git/info/exclude`: a symlink is not matched by `node_modules/`). Handoff
 folders stay untracked like `design_handoff_session_manager/` (public repo;
 the prototype runtime `support.js` is third-party, no licence header).
+**CI lesson (run 60, after the merge):** a test that reads a handoff file
+at module load fails the WHOLE file on the runner, where the folder does
+not exist — read it inside the one test that needs it and `t.skip` when
+absent, exactly like `nocturne-tokens.test.ts` does for `_ds/`
+(`.git/info/exclude` hides the folder from `git status` too, so nothing
+warns). Run 61 then hit a pre-existing race in `restart.test.ts` (an
+`env > file` dump polled by `existsSync` — the redirection creates the
+file before `env` writes; now written to `.tmp` and renamed). Run 62 green.
 `--virtual-time-budget` screenshots of CSS entrance animations are flaky —
 real-time CDP after a wait is reliable. Chromium 1228 lives in
 `chrome-linux64/`, needs `LD_LIBRARY_PATH` for libnss3/libnspr4.
