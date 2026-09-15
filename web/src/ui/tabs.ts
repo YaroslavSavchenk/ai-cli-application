@@ -102,7 +102,10 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
     const nodes: HTMLElement[] = [];
     st.state.views.forEach((v, i) => {
       const home = v.root?.kind === 'home';
-      const wrap = el('div', `tab${v.id === st.state.activeViewId ? ' is-active' : ''}`);
+      const wrap = el(
+        'div',
+        `tab${v.id === st.state.activeViewId ? ' is-active' : ''}${home ? ' is-home' : ''}`,
+      );
       wrap.dataset.viewId = v.id;
 
       const sel = button('tab-sel', '', () => st.setActiveView(v.id));

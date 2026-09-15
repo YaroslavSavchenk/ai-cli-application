@@ -2080,6 +2080,12 @@ body.is-resizing-col {
   font-size: 13px;
 }
 
+/* Home has no × after its label, so the room the × would take goes to the
+   right padding instead: the word sits in the middle of its chip. */
+.tab.is-home .tab-sel {
+  padding-right: var(--space-4);
+}
+
 .tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3260,20 +3266,21 @@ body.is-dnd * {
 .sg-prevbar {
   flex: none;
   display: flex;
+  flex-wrap: wrap; /* every item stays whole; the bar grows a row instead of clipping */
   align-items: center;
-  gap: var(--space-6);
-  height: 32px;
-  padding: 0 var(--space-4);
+  gap: var(--space-2) var(--space-6);
+  min-height: 32px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
   font-size: 11.5px;
   white-space: nowrap;
-  overflow: hidden;
 }
 
 .sg-previtem {
   flex: none;
   display: flex;
+  align-items: baseline; /* Inter label and mono value share one baseline */
   gap: var(--space-2);
 }
 
