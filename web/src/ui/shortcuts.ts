@@ -57,6 +57,12 @@ const ROWS: Row[] = [
   { keys: ['drag a file row onto a pane edge'], gesture: true, what: 'open that file in a split beside that pane', ui: 'ctrl+alt+enter' },
   { keys: ['drag a file row onto a tab'], gesture: true, what: 'open that file in that tab', ui: 'switch to that tab (ctrl+alt+1…9) with a pane focused, then click the row' },
   { keys: ['drag a file row onto the middle of a file pane'], gesture: true, what: 'replace that file with the dropped one', ui: 'ctrl+alt+w on that pane, then click the row' },
+  {
+    keys: ['drag files from Explorer onto a folder or a pane'],
+    gesture: true,
+    what: 'copy them into that folder',
+    ui: 'Copy files here… under the panel header, ctrl+alt+c on a folder row, or paste with files on the clipboard',
+  },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split, enter resets it', ui: 'drag the divider, double-click resets it' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
   {
@@ -73,7 +79,7 @@ const ROWS: Row[] = [
   },
   { keys: ['ctrl+click a link'], gesture: true, what: 'open it in your browser', ui: 'links printed in the terminal' },
   { keys: ['?', 'ctrl+alt+/'], what: 'this overlay', ui: 'Keyboard shortcuts in the statusline' },
-  { keys: ['esc'], what: 'close a panel or dialog, or cancel a drag', ui: '× buttons' },
+  { keys: ['esc'], what: 'close a panel or dialog, or cancel a tab or pane drag', ui: '× buttons' },
 ];
 
 export interface ShortcutsOverlay {

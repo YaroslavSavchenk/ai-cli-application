@@ -2252,7 +2252,53 @@ body.is-resizing-col {
   color: var(--color-danger);
 }
 
-body.is-dnd {
+/* files dragged in from Explorer (Nocturne A9) — the same block, because they
+   are the same act seen from the other side, and app.css carries exactly one
+   "drag & drop" section (pinned by tests/ui-a8-chrome.test.ts).
+   Same grammar as the in-app drags above, one rule short of it: an external
+   drag is an OS gesture, so the cursor stays the OS's (no `grabbing`) and only
+   the selection is frozen. NOTHING here changes layout — outlines and the
+   absolutely positioned `.pane-drop` overlay only. A border or a padding
+   change would resize the pane grid mid-drag, every TerminalView's
+   ResizeObserver would fire and the PTYs would be resized for a highlight. */
+
+/* a folder row, and the panel's own non-folder area: the `.empty-state.is-drop`
+   recipe, inset so the row keeps its 26px and the panel keeps its width */
+.files-row.is-dir.is-drop,
+.files-view.is-drop {
+  outline: var(--line) dashed var(--color-accent);
+  outline-offset: calc(-1 * var(--line));
+  background: var(--color-accent-900);
+}
+
+/* the twin of the drag: its own quiet line under the panel header, on the
+   tree's own left indent so it stands where the rows it copies into stand */
+.files-copy {
+  flex: none;
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.files-copy-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--files-row-h);
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 12px;
+  text-align: left;
+}
+
+.files-copy-btn:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+body.is-dnd,
+body.is-filedrag {
   user-select: none;
 }
 
@@ -5635,6 +5681,250 @@ body.is-dnd * {
   .rs-hd,
   .rs-body,
   .rs-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+/* ---- drop dialog (Nocturne A9): fd- ------------------------------------------
+   What the app says after files and folders are dropped on it from Explorer.
+   The dialog grammar is the one every Nocturne dialog already wears (`ns-`,
+   `ap-`, `pk-`, `rs-`): a surface card top-anchored on the flat scrim, a
+   16/500 title with a one-line sub, a hairline footer, and exactly one accent
+   — the outlined answer, plus the focus ring. Nothing is filled and nothing is
+   red: Replace is a choice the user aimed at, not a danger, so it wears the
+   same quiet outline as Skip and the accent falls on the answer that can lose
+   no file.
+
+   The one thing of its own is the LIST, which is also the progress. A dropped
+   name is data, so it is mono on the app ground — the treatment the restart
+   confirmation gives the sessions it is about to end — and the outcome word is
+   chrome: quiet, right-aligned, one column, so three of them read as a column
+   and not as three sentences. A row that has not resolved yet says nothing and
+   dims; that dimming is the only motion in the card, and it carries what a
+   spinner could not — which item is next. A failed row is danger INK on the
+   same ground, never a fill.                                                 */
+
+.modal-scrim.fd-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 220px)) var(--space-6) var(--space-6);
+  animation: scrimFade 0.14s ease;
+}
+
+.fd-modal {
+  width: 460px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the list scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.fd-scrim,
+  .fd-modal {
+    animation: none;
+  }
+}
+
+.fd-hd {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.fd-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* the state of the drop, in words: the question, then what is being copied,
+   then what happened. It is a sentence and may wrap. */
+.fd-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.fd-sub {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.fd-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.fd-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.fd-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-8) var(--space-6);
+}
+
+/* what is being copied: dense rows sunk into the app ground, the same "data,
+   not chrome" treatment the restart confirmation gives its session list.
+   ~7 rows before it scrolls. */
+.fd-list {
+  margin: 0;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  list-style: none;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.fd-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 3px 0;
+}
+
+.fd-rowtext {
+  min-width: 0;
+}
+
+.fd-name {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* why a row reads the way it does: the name it was saved under, the limit it
+   was over. Under the name, quiet, never beside it. */
+.fd-note {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+/* the outcome word, in its own column on the right */
+.fd-state {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+}
+
+.fd-state[data-state='skipped'] {
+  color: var(--color-neutral-600);
+}
+
+/* danger as INK, the way a crashed run is written in the sessions panel: the
+   row failed, the card did not. */
+.fd-state[data-state='failed'] {
+  color: var(--color-danger-mut);
+}
+
+/* not its turn yet: the name recedes and the outcome column is empty, so the
+   list reads top-down as it settles */
+.fd-row.is-pending .fd-name {
+  color: var(--color-neutral-600);
+}
+
+/* the count under the list. Mono and tabular, like every other figure that
+   changes while you watch it. */
+.fd-progress {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-step {
+  min-width: 0;
+}
+
+/* The count is focusable by SCRIPT only (tabindex -1, so Tab never reaches it)
+   and only because the busy card hides every button and focus may not fall to
+   <body> behind an aria-modal scrim. The browser's own ring around it reads as
+   a text field nobody can type in, so it is taken off here and nowhere else:
+   every control a keyboard can actually reach keeps the structural ring below. */
+.fd-step:focus,
+.fd-step:focus-visible {
+  outline: none;
+}
+
+/* the placeholder marker: nothing is copied until part B10 can write files.
+   The quietest line in the card, and the same one the Files panel, the commit
+   view and a file pane already wear. */
+.fd-honest {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  line-height: 1.5;
+}
+
+.fd-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the spacer that keeps the way out on the left and the answers on the right */
+.fd-gap {
+  flex: 1;
+}
+
+/* one structural focus ring for every control in the dialog (the A4 rule).
+   The progress line is the exception: it is focusable by SCRIPT only (-1, so
+   Tab never reaches it) and only because the busy card hides every button, and
+   Chromium draws :focus-visible around it when the dialog hands it the
+   keyboard — a ring around a count, which reads as a text field nobody can
+   type in. */
+.fd-modal button:focus-visible,
+.fd-modal [tabindex]:focus-visible:not(.fd-step) {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window */
+@media (max-width: 460px) {
+  .fd-hd,
+  .fd-body,
+  .fd-ft {
     padding-left: var(--space-6);
     padding-right: var(--space-6);
   }

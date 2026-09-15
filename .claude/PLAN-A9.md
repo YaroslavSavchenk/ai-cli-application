@@ -1,6 +1,6 @@
 # A9 — Drop files and folders from Windows Explorer (visual half, mock transport)
 
-Status: DECIDED 2026-09-15 (user); Phase 0 started 2026-09-15. Part A9 of
+Status: DECIDED 2026-09-15 (user); Phases 0/1/2 landed 2026-09-15; fix cycle 2 in progress. Part A9 of
 `PLAN-NOCTURNE.md` (B10 = the functional half: real upload endpoint under the
 user's home, path checks, limits, security review, copy-to-clipboard via the
 native host). Written by the orchestrator from the Plan agent's design; line
@@ -56,7 +56,8 @@ numbers drift — verify by reading.
   `preventDefault()`, acts only on a resolved target. Non-`Files` drags whose
   target is inside `.term-host` are cancelled (decision 5), nothing else.
 - Ending: on `drop`; on a `dragleave` outside the viewport (`relatedTarget
-  === null`); and a 300 ms watchdog stamped by `dragover`. No enter/leave
+  === null`); and a 700 ms watchdog stamped by `dragover` (the HTML DnD model
+  re-fires `dragover` only every ~350 ms while the pointer is still). No enter/leave
   counting. Escape does NOT cancel an OS drag — the overlay must not claim it.
 - In-app pointer drags and external drags never meet: no `draggable` anywhere
   (pinned), plus `dnd.ts` exports `isDragging()` and filedrop ignores every

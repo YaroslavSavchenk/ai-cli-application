@@ -132,6 +132,11 @@ Fixed rules for every part:
 - Functional (B4 extends): real file read/write behind the panes; drag of a file onto a terminal pane's edge splits with a real file.
 - DECIDED 2026-09-15 (user, orchestrator's advice): last file pane closed → a project folder tab closes unless it still holds a terminal, `Home` never; a file dropped on the CENTRE of a terminal pane is rejected (edges split); `Home` is always first in the strip and not draggable; the A6 `Changes in <hash>` diff stays as a third pane kind. Orchestrator defaults: new sessions keep their own tab; file from a project-less session → `Home`; chords = existing swap/reorder/switch + ctrl+alt+enter (open in split) + ctrl+alt+w (close file pane). Full spec: `.claude/PLAN-A10.md`. Started 2026-09-15 ("begin aan A10").
 
+### A10b. Editor pane with file tabs (added 2026-09-15, user's correction on the A10 Windows check)
+- User: files must NOT each become their own pane; after the first file is open, the next ones show as TABS inside that editor pane (as the A6 editor column had), and a split appears only when such a file tab is dragged to the pane's left/right edge. Confirmed model 2026-09-15: ONE editor pane per group with an inner file-tab strip (file tabs + read-only diff tabs, dirty dot, ×); clicking a Files row adds a tab to the FOCUSED editor pane of the root's folder tab (creates the editor pane when there is none, raises the tab when already open); drag a file tab to a pane edge → a second editor pane (split), onto another editor pane → the tab moves there; terminal panes stay mixable beside editor panes (1/2/4 as now). `Home` tab and the other A10 decisions stand. Keyboard twins: ctrl+alt+enter (Files row → open in a split) stays; add tab cycling in the pane and a "move tab to the next pane" chord (design decides; every drag keeps a twin).
+- Model: `PaneSlot` `file`/`diff` → `{kind:'editor', tabs: EditorTab[], active: number}`; `state.edits` keyed by path unchanged; persistence still session slots only before B4.
+- Started 2026-09-15 (design), built after A9 lands (shared files).
+
 ### A11. Commits tab only where a repository can be (added 2026-09-15, user's ask, small)
 - With the Files panel headed `Home` (no session, no project) the Commits tab must not be viewable: no repository is known there. Tab disabled (with a title saying why) and the panel falls back to the Files tab when it was on Commits. A session without a project keeps the A5 mock until B3 decides repo detection. Done first, before A10.
 
@@ -154,5 +159,5 @@ Fixed rules for every part:
 11. ~~Files panel MEANING (ask before B2)~~ DECIDED 2026-09-15 (user, the orchestrator's advice): the Files panel becomes a real FILE BROWSER — root = the user's home directory, the project root when a session is focused; the v3 git-changes list survives as a second tab (`Changes`) beside `Files` and `Commits`. Same day: the panel opens without a session (header `Home`), and only one left panel at a time — the Projects drawer hides Files while open (Files returns when it closes). Both deviate from v3 on purpose. Original question: git-changes panel per project, a file browser rooted at home, or both (tabs).
 
 ## Suggested order
-A1 → A2 → A3 → A4 → A4b → A5 → A6 → A7 → A8, then A11 → A10 → A9 (user's 2026-09-15 priorities) → B1 → B5 → B2 → B10 → B3 → B4 → B6 → B9 → B7 → B8.
+A1 → A2 → A3 → A4 → A4b → A5 → A6 → A7 → A8, then A11 → A10 → A9 → A10b (user's 2026-09-15 priorities) → B1 → B5 → B2 → B10 → B3 → B4 → B6 → B9 → B7 → B8.
 B5 early because it unblocks real use of the new dialog; B2–B4 form one git/editor cluster.

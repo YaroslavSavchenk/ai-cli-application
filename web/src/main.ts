@@ -36,7 +36,15 @@ import { initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
-import { initFilesPanel } from './ui/files.ts';
+import {
+  destinationOfActiveView,
+  destinationOfPane,
+  filesPanelDestination,
+  initFilesPanel,
+  listingFor,
+  pasteDestination,
+} from './ui/files.ts';
+import { initFileDrop, installDropGuard } from './ui/filedrop.ts';
 import { initCommitView } from './ui/commit-view.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
@@ -62,7 +70,8 @@ import {
 } from './ui/update.ts';
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
-import { focusOwnerOpen, isEditableTarget, shouldRefocusTerminal } from './ui/keys.ts';
+import { dropDialogEscape, isDropDialogOpen, openDropDialog } from './ui/drop-dialog.ts';
+import { focusOwnerOpen, isEditableTarget, isTerminalTarget, shouldRefocusTerminal } from './ui/keys.ts';
 import { loadTerminalFont, watchTerminalFont } from './ui/terminal.ts';
 import type { FontWaitResult } from './ui/font-ready.ts';
 import { startPresence } from './ws.ts';
@@ -222,6 +231,12 @@ function createBootPanel(): BootPanel {
 const BUILD_ID: string = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'unstamped';
 
 async function boot(root: HTMLDivElement): Promise<void> {
+  // FIRST, before the boot panel and before any await: until the shell exists
+  // nothing else in this page refuses a file drop, and an un-refused one
+  // navigates the browser away from the app. A boot that never finishes (a
+  // failed hydrate leaves the boot panel up for good) keeps this guard for
+  // ever; a boot that does finish hands over inside initFileDrop.
+  installDropGuard();
   const panel = createBootPanel();
   // Steps registered up front; each resolves on its own real event. They run
   // concurrently — serializing them would stretch real time for chrome.
@@ -520,6 +535,16 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   const sessionsDrawer = initSessionsDrawer(sessAside);
   const projectsDrawer = initProjectsDrawer(projAside);
   const filesPanel = initFilesPanel(filesAside, requestTerminalFocus);
+  // A9: the window's own HTML5 drop channel, after the panel exists — three of
+  // its deps are that panel's own `subject()`, so it may not be wired first.
+  initFileDrop({
+    openDialog: openDropDialog,
+    listingFor,
+    destinationOfPane,
+    destinationOfActiveView,
+    filesPanelDestination,
+    pasteDestination,
+  });
   // Two hand-overs, because the commit view can leave in two directions: back
   // to the panes, or INTO the pane it just opened a file in. Both land in the
   // pane area, and the focused pane knows how to take the keyboard itself —
@@ -680,6 +705,9 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         // Topmost: the folder picker can open OVER the Add a project dialog.
         e.preventDefault();
         closeFolderPicker();
+      } else if (isDropDialogOpen()) {
+        e.preventDefault();
+        dropDialogEscape();
       } else if (isNewProjectDialogOpen()) {
         e.preventDefault();
         closeNewProjectDialog();
@@ -887,9 +915,13 @@ function isEditable(t: EventTarget | null): boolean {
   return t instanceof HTMLElement && isEditableTarget(t);
 }
 
-/** True when the event originates inside an xterm instance — its keys are sacred. */
+/**
+ * True when the event originates inside an xterm instance — its keys are
+ * sacred. The `.term-host` test itself lives in ui/keys.ts, which is the one
+ * place it may live (the external-drop layer asks the same question).
+ */
 function fromTerminal(t: EventTarget | null): boolean {
-  return t instanceof HTMLElement && t.closest('.term-host') !== null;
+  return t instanceof HTMLElement && isTerminalTarget(t);
 }
 
 /** Focus is inside one of the containers, or nowhere interesting (body/null). */

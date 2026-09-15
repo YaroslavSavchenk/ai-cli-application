@@ -91,8 +91,11 @@ function spell(e: KeyChord): string {
 }
 
 const ROWS = readRows();
-const pasteRows = ROWS.filter((r) => r.what.includes('paste'));
-const copyRows = ROWS.filter((r) => r.what.includes('copy'));
+// KEYBOARD rows only: since A9 a GESTURE row says `copy them into that folder`
+// (dragging files in from Explorer), which is an act, not a chord — the two
+// rows these lists are about are the ones that take a keystroke off the TUI.
+const pasteRows = ROWS.filter((r) => !r.gesture && r.what.includes('paste'));
+const copyRows = ROWS.filter((r) => !r.gesture && r.what.includes('copy'));
 
 /**
  * Every chord in the plausible space (all 16 ctrl/shift/alt/meta combinations
@@ -330,15 +333,19 @@ test('the copy row answers the two things a terminal user must trust, on the row
 //      on the Files row that has the focus);
 //   2. `web/src/ui/terminal.ts` lets it THROUGH — xterm's custom key handler
 //      swallows every ctrl+alt chord it does not allow-list, so a focused
-//      terminal would eat the chord and print its bytes instead. ONE chord is
-//      exempt: ctrl+alt+enter acts on a focused Files ROW, which cannot hold
-//      the focus while a terminal does, so allow-listing it would take a key
-//      away from the PTY for nothing;
+//      terminal would eat the chord and print its bytes instead. TWO chords are
+//      exempt, both of them Files-ROW chords: ctrl+alt+enter (open the file
+//      beside the focused pane) and ctrl+alt+c (copy files into the focused
+//      FOLDER row, A9). A row cannot hold the focus while a terminal does, so
+//      allow-listing either would take a key away from the PTY for nothing;
 //   3. this overlay LISTS it — the app's only promise about which keystrokes
-//      it takes.
+//      it takes. A row-level chord may be listed in the `ui` (twin) column of
+//      the gesture it doubles — that is where ctrl+alt+c lives, beside the
+//      Explorer drop it replaces — so the scan reads that column too.
 //
 // A10 added two chords (ctrl+alt+w, ctrl+alt+enter) and the first of them is
-// handled in main.ts while the second is not, so the scan reads both files.
+// handled in main.ts while the second is not, so the scan reads both files;
+// A9 added ctrl+alt+c on a folder row, so files.ts now owns TWO of them.
 
 const MAIN_TS = join(REPO_ROOT, 'web', 'src', 'main.ts');
 const FILES_TS = join(REPO_ROOT, 'web', 'src', 'ui', 'files.ts');
@@ -383,24 +390,42 @@ function terminalAllowlist(): string {
   return src.slice(from, to);
 }
 
-/** ui/files.ts owns ctrl+alt+enter on a focused row. */
+/** ui/files.ts owns ctrl+alt+enter on a file row and ctrl+alt+c on a folder row. */
 function filesChordBlock(): string {
   const src = readFileSync(FILES_TS, 'utf8');
-  const from = src.indexOf("b.addEventListener('keydown'");
-  assert.notEqual(from, -1, 'non-vacuity: the Files row must still own a chord');
-  return src.slice(from, from + 600);
+  const blocks: string[] = [];
+  // EVERY row-level handler, not just the first: the folder row's chord was
+  // added above the file row's, and a scan that read one block would have
+  // silently stopped seeing the other.
+  for (let i = src.indexOf("b.addEventListener('keydown'"); i !== -1; i = src.indexOf("b.addEventListener('keydown'", i + 1)) {
+    blocks.push(src.slice(i, i + 600));
+  }
+  assert.equal(blocks.length, 2, `non-vacuity: the Files rows own two chords, parsed ${blocks.length}`);
+  return blocks.join('\n');
 }
 
 test('the app HANDLES exactly the ctrl+alt chords the overlay lists — no more, no fewer', () => {
   const handled = new Set([...chordsIn(mainChordBlock()), ...chordsIn(filesChordBlock())]);
   assert.ok(handled.size >= 6, `non-vacuity: parsed ${[...handled].join(' ')}`);
-  // Everything the table promises on ctrl+alt, as the same vocabulary.
+  // Everything the table promises on ctrl+alt, as the same vocabulary. The
+  // twin column counts as a promise: a chord that acts on a focused ROW has no
+  // chord row of its own (it is the keyboard half of a gesture), and
+  // ctrl+alt+c is listed exactly there.
   const listed = new Set(
-    ROWS.filter((r) => !r.gesture)
-      .flatMap((r) => r.keys)
+    [
+      ...ROWS.filter((r) => !r.gesture).flatMap((r) => r.keys),
+      ...[...readFileSync(SHORTCUTS, 'utf8').matchAll(/ui: '([^']*)'/g)].flatMap((m) =>
+        [...(m[1] ?? '').matchAll(/\bctrl\+alt\+([a-z]+)\b/g)]
+          .map((c) => c[0])
+          // `ctrl+alt+shift+…` twins are named on their own chord rows; this
+          // column only has to answer for chords that have no row of their own.
+          .filter((c) => !c.endsWith('+shift')),
+      ),
+    ]
       .filter((k) => k.startsWith('ctrl+alt+'))
       .map((k) => k.replace(/^ctrl\+alt\+(shift\+)?/, '')),
   );
+  assert.ok(listed.has('c'), 'non-vacuity: the twin column really was read');
   assert.deepEqual(
     [...handled].filter((k) => !listed.has(k)).sort(),
     [],
@@ -420,10 +445,12 @@ test('every chord the app handles is also let THROUGH by the terminal allow-list
   const allowed = new Set(chordsIn(allow));
   const handled = new Set([...chordsIn(mainChordBlock()), ...chordsIn(filesChordBlock())]);
   assert.ok(allowed.size >= 6, `non-vacuity: parsed ${[...allowed].join(' ')}`);
-  // The ONE exemption: ctrl+alt+enter acts on a focused Files ROW, which can
-  // never have the focus while a terminal has it — so the allow-list taking it
-  // would swallow a key for nothing instead of leaving it to the PTY.
-  const EXEMPT = new Set(['enter']);
+  // The exemptions: both act on a focused Files ROW — ctrl+alt+enter on a file
+  // row, ctrl+alt+c on a folder row (A9: copy files into THAT folder) — and a
+  // row can never have the focus while a terminal has it, so the allow-list
+  // taking either would swallow a key for nothing instead of leaving it to the
+  // PTY.
+  const EXEMPT = new Set(['enter', 'c']);
   assert.deepEqual(
     [...handled].filter((k) => !allowed.has(k) && !EXEMPT.has(k)).sort(),
     [],
@@ -435,6 +462,11 @@ test('every chord the app handles is also let THROUGH by the terminal allow-list
     allowed.has('enter'),
     false,
     'ctrl+alt+enter is a Files-row chord: a focused terminal has nothing to do with it',
+  );
+  assert.equal(
+    allowed.has('c'),
+    false,
+    'ctrl+alt+c is a Files folder-row chord: a focused terminal has nothing to do with it',
   );
   // And the allow-list takes nothing the app does not handle: every key it
   // lets through is a key the terminal no longer gets.

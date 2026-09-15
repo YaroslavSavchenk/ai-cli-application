@@ -12,11 +12,12 @@
  *      tokens.css, the same check the A4 and A7 block tests make for their own
  *      blocks. Phase 2 deleted the alias layer, so this is a typo guard: a
  *      var() naming no token resolves to nothing at runtime.
- *   2. CLASS PARITY for the three new prefixes over the WHOLE stylesheet and
- *      the WHOLE of web/src: every `sc-`/`ut-`/`rs-` class a module assigns has
- *      a rule, every such rule has a setter, and the prefix belongs to exactly
- *      one module (the overlay's to ui/shortcuts.ts, the other two to
- *      ui/update.ts).
+ *   2. CLASS PARITY for the dialog prefixes over the WHOLE stylesheet and the
+ *      WHOLE of web/src: every `sc-`/`ut-`/`rs-`/`fd-` class a module assigns
+ *      has a rule, every such rule has a setter, and the prefix belongs to
+ *      exactly one module (the overlay's to ui/shortcuts.ts, the next two to
+ *      ui/update.ts, and `fd-` — the A9 drop dialog, which joined this family
+ *      in part A9 — to ui/drop-dialog.ts).
  *   3. THE RETIRED NAMES — the Legacy `modal*` family, the seven `launch-*`
  *      rules the confirmation still wore, and the old `restart-*` / `toast-*`
  *      sets — have zero users: no rule in app.css, no assignment anywhere in
@@ -50,6 +51,7 @@ import {
 
 const SHORTCUTS_TS = readFileSync(join(WEB_SRC, 'ui', 'shortcuts.ts'), 'utf8');
 const UPDATE_TS = readFileSync(join(WEB_SRC, 'ui', 'update.ts'), 'utf8');
+const DROP_DIALOG_TS = readFileSync(join(WEB_SRC, 'ui', 'drop-dialog.ts'), 'utf8');
 
 /** Every .ts under web/src, plus the one hand-written HTML page. */
 const FILES = frontendFiles(['.ts']);
@@ -105,7 +107,14 @@ function assignedClasses(src: string): string[] {
   return out;
 }
 
-const PREFIXED = /^(?:sc|ut|rs)-[a-z0-9-]+$/;
+/**
+ * The dialog-and-panel prefixes this file is the parity guard for. `fd-` (the
+ * A9 drop dialog) joined the family in part A9: it is one more dialog on the
+ * same scrim and the same button pair, so it is checked by the same three
+ * rules rather than by a second copy of them. Its own DOM behaviour is
+ * `tests/ui-a9-drop-dialog.test.ts`.
+ */
+const PREFIXED = /^(?:sc|ut|rs|fd)-[a-z0-9-]+$/;
 
 // ---------------------------------------------------------------------------
 
@@ -140,7 +149,7 @@ test('tokens only: every var() in the dialog and panel sections is declared in t
   assert.deepEqual(offenders, [], `a rule reads a token that is declared nowhere:\n  ${offenders.join('\n  ')}`);
 });
 
-test('class parity for sc-, ut- and rs-: no unstyled class, no dead rule, one owner per prefix', () => {
+test('class parity for sc-, ut-, rs- and fd-: no unstyled class, no dead rule, one owner per prefix', () => {
   const inTs = new Map<string, string[]>();
   for (const f of FILES) {
     for (const c of assignedClasses(f.src)) {
@@ -151,7 +160,7 @@ test('class parity for sc-, ut- and rs-: no unstyled class, no dead rule, one ow
     }
   }
   const inCss = new Set<string>();
-  for (const m of APP_RULES.matchAll(/\.((?:sc|ut|rs)-[a-z0-9-]+)/g)) inCss.add(m[1] as string);
+  for (const m of APP_RULES.matchAll(/\.((?:sc|ut|rs|fd)-[a-z0-9-]+)/g)) inCss.add(m[1] as string);
   assert.ok(inTs.size >= 20 && inCss.size >= 20, `non-vacuity: ts ${inTs.size}, css ${inCss.size}`);
 
   const unstyled = [...inTs.keys()]
@@ -174,6 +183,7 @@ test('class parity for sc-, ut- and rs-: no unstyled class, no dead rule, one ow
   assert.deepEqual([...(owners.get('sc') as Set<string>)], ['web/src/ui/shortcuts.ts']);
   assert.deepEqual([...(owners.get('ut') as Set<string>)], ['web/src/ui/update.ts']);
   assert.deepEqual([...(owners.get('rs') as Set<string>)], ['web/src/ui/update.ts']);
+  assert.deepEqual([...(owners.get('fd') as Set<string>)], ['web/src/ui/drop-dialog.ts']);
 });
 
 test('the retired Legacy dialog chrome has zero users: no rule, no assignment', () => {
@@ -243,6 +253,7 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
   assert.match(body, /background:\s*var\(--color-scrim\)/, 'the scrim is the flat Nocturne backdrop');
   const wearers = FILES.filter((f) => assignedClasses(f.src).includes('modal-scrim')).map((f) => f.name);
   assert.deepEqual(wearers.sort(), [
+    'web/src/ui/drop-dialog.ts',
     'web/src/ui/launch.ts',
     'web/src/ui/newproject.ts',
     'web/src/ui/picker.ts',
@@ -253,6 +264,7 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
   // The two new scrims wear it beside their own prefix, in that order.
   assert.ok(SHORTCUTS_TS.includes("el('div', 'modal-scrim sc-scrim')"));
   assert.ok(UPDATE_TS.includes("el('div', 'modal-scrim rs-scrim')"));
+  assert.ok(DROP_DIALOG_TS.includes("el('div', 'modal-scrim fd-scrim')"));
   // The confirmation is the ONE dialog that opens over another one.
   assert.match(APP_RULES, /\.modal-scrim\.rs-scrim\s*\{[^}]*z-index:\s*var\(--z-modal-top\)/);
   // The toast sits over the panes and under every dialog.

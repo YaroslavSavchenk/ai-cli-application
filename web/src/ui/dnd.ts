@@ -106,6 +106,19 @@ interface Drag {
 
 let drag: Drag | null = null;
 
+/**
+ * Is a POINTER drag in flight? The window's HTML5 `dragover`/`drop` belongs to
+ * real files from Explorer (ui/filedrop.ts, part A9), and the two channels must
+ * never both act on one gesture: a browser that synthesises an HTML5 drag from
+ * a pointer drag we are already handling would light two sets of visuals and
+ * drop twice. `armDrag` counts from POINTERDOWN, not from the 5px threshold —
+ * the answer has to be "hands off" for the whole gesture, including the few
+ * pixels before it becomes a drag.
+ */
+export function isDragging(): boolean {
+  return drag !== null;
+}
+
 /** Swallow the click that follows a completed/cancelled drag. */
 let suppressClicksUntil = 0;
 document.addEventListener(

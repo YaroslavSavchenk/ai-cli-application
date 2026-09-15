@@ -52,6 +52,31 @@ const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.ur
 const MODEL = (await import(new URL('../web/src/ui/commit-model.ts', import.meta.url).href)) as {
   blockDomId(hash: string, path: string): string;
 };
+// Part A9: the row-level copy chord goes through this module's picker seam, so
+// the panel is driven against the REAL filedrop layer with the chooser (and the
+// dialog) injected — exactly the seam `tests/ui-filedrop.test.ts` uses.
+const FD = (await import(new URL('../web/src/ui/filedrop.ts', import.meta.url).href)) as FileDropModule;
+interface DropReq {
+  dest: string;
+  items: { name: string; dir: boolean; bytes: number | null }[];
+  listing: readonly string[];
+}
+interface FileDropModule {
+  initFileDrop(deps: Record<string, unknown>): void;
+}
+/** Every drop the panel handed on, in order. */
+const dropped: DropReq[] = [];
+FD.initFileDrop({
+  openDialog: (req: DropReq) => dropped.push(req),
+  listingFor: (dest: string) => F.listingFor(dest),
+  destinationOfPane: (el: unknown) => F.destinationOfPane(el),
+  destinationOfActiveView: () => F.destinationOfActiveView(),
+  filesPanelDestination: () => F.filesPanelDestination(),
+  pasteDestination: () => F.pasteDestination(),
+  openPicker: (take: (files: readonly { name: string; size?: number }[]) => void) =>
+    take([{ name: 'shot.png', size: 7 }]),
+  flash: () => {},
+});
 
 interface StateModule {
   state: {
@@ -105,6 +130,12 @@ interface ViewLike {
 }
 interface FilesModule {
   initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
+  /** Part A9: where a drop, a paste or the header button would copy to. */
+  pasteDestination(): string | null;
+  filesPanelDestination(): string | null;
+  destinationOfActiveView(): string | null;
+  destinationOfPane(paneEl: unknown): { dest: string } | { dest: null; why: 'session' | 'tab' };
+  listingFor(dest: string): readonly string[];
 }
 interface ModelModule {
   buildTree(files: readonly { path: string }[]): unknown[];
@@ -190,6 +221,7 @@ beforeEach(() => {
   grip.setAttribute('aria-valuenow', String(st.FILES_W_DEFAULT));
   kinds.length = 0;
   handBacks = 0;
+  dropped.length = 0;
   st.state.openCommit = null;
   st.state.commitCollapsed = new Set();
   st.state.edits = new Map();
@@ -1053,7 +1085,10 @@ const MAIN = readFileSync(join(here, '..', 'web', 'src', 'main.ts'), 'utf8');
 
 test('main.ts constructs the panel — on the aside it just created', () => {
   assert.ok(MAIN.includes('function buildShell'), 'non-vacuity: main.ts still builds the shell');
-  assert.match(MAIN, /import \{ initFilesPanel \} from '\.\/ui\/files\.ts';/);
+  // Since A9 the module also hands main.ts the destination NAMES the drop
+  // layer asks for, so the import is a list — `initFilesPanel` must still be
+  // in it, whatever else joined it.
+  assert.match(MAIN, /import \{[^}]*\binitFilesPanel\b[^}]*\} from '\.\/ui\/files\.ts';/s);
   assert.match(
     MAIN,
     /const filesPanel = initFilesPanel\(filesAside, requestTerminalFocus\);/,
@@ -1127,7 +1162,7 @@ test('Escape closes the panel only when the focus is inside it', () => {
   const from = MAIN.indexOf("e.key === 'Escape'");
   assert.notEqual(from, -1, 'non-vacuity: the Escape branch was found');
   const branch = MAIN.slice(from, MAIN.indexOf('// ---- reliability'));
-  assert.ok(branch.length > 200 && branch.length < 3000, 'non-vacuity: and it is the handler, not the file');
+  assert.ok(branch.length > 200 && branch.length < 4000, 'non-vacuity: and it is the handler, not the file');
   assert.match(branch, /filesAside\.contains\(document\.activeElement\)/);
   assert.match(branch, /st\.toggleLeftPanel\('files'\)/);
 });
@@ -1193,4 +1228,205 @@ test('every colour family the model can emit is defined in tokens.css and mapped
   }
   assert.deepEqual(missing, [], 'a badge family with no colours is an invisible mark');
   assert.match(app, /\.files-badge \{[^}]*background: var\(--badge-plain-bg\)/s, 'the base chip IS plain');
+});
+
+// ---------------------------------------------------------------------------
+// The twin of the Explorer drag, and the destination NAMES (part A9)
+// ---------------------------------------------------------------------------
+
+test('the panel carries a real `Copy files here…` button whose title names the destination', () => {
+  liveSession();
+  const btn = byKey(root, 'fcopy') as FakeElement;
+  assert.ok(btn !== null, 'the drag has a visible twin — a gesture-only affordance is forbidden');
+  assert.equal(btn.tagName, 'BUTTON');
+  assert.equal(btn.textContent, 'Copy files here…');
+  assert.equal(btn.title, 'Copy files into api', 'the live destination, by NAME');
+  // It is not inside the tree body: it must stay put while the tree scrolls and
+  // while the Commits tab hides the summary row.
+  assert.equal(byClass(root, 'files-copy')[0]?.contains(btn), true);
+  assert.equal(body.contains(btn), false);
+});
+
+test('focusing a folder row moves the destination to that folder, and the title with it', () => {
+  liveSession();
+  const btn = byKey(root, 'fcopy') as FakeElement;
+  const dir = byKey(root, 'fdir:web/src') as FakeElement;
+  assert.ok(dir !== null, 'non-vacuity: the mock tree really has that folder row');
+
+  dir.focus();
+  assert.equal(F.pasteDestination(), 'src', 'its own name, never its path');
+  assert.equal(btn.title, 'Copy files into src');
+
+  // Focus back out of the panel entirely: the panel s own root answers again.
+  const outside = dom.doc.createElement('button');
+  dom.body.append(outside);
+  outside.focus();
+  assert.equal(F.pasteDestination(), 'api');
+  assert.equal(btn.title, 'Copy files into api');
+  outside.remove();
+});
+
+test('the copy button keeps the folder the keyboard came from — it has no other twin', () => {
+  // Clicking or tabbing to `Copy files here…` takes the focus off the folder
+  // row, and the folder-row destination has NO button of its own: a
+  // destination read from `document.activeElement` at click time would copy
+  // into the panel root the title stopped promising a moment ago.
+  liveSession();
+  const btn = byKey(root, 'fcopy') as FakeElement;
+  const dir = byKey(root, 'fdir:web/src') as FakeElement;
+  dir.focus();
+  assert.equal(F.pasteDestination(), 'src', 'non-vacuity: the row really took it');
+
+  btn.focus();
+  assert.equal(F.pasteDestination(), 'src', 'the destination survives the gesture that uses it');
+  assert.equal(btn.title, 'Copy files into src', 'and the title keeps its word');
+
+  // Anywhere else INSIDE the panel keeps it too: the tabs, the header.
+  const tab = byKey(root, 'ftab:files') as FakeElement;
+  tab.focus();
+  assert.equal(F.pasteDestination(), 'src');
+
+  // Only leaving the panel clears it.
+  const outside = dom.doc.createElement('button');
+  dom.body.append(outside);
+  outside.focus();
+  assert.equal(F.pasteDestination(), 'api', 'the panel s own root again');
+  outside.remove();
+});
+
+/**
+ * Drop the panel's remembered folder row, the way the app does: focus leaving
+ * the panel altogether. The memory is module state in `ui/files.ts` and
+ * survives a `render()`, so a test that focused a row hands it back.
+ */
+function clearRowMemory(): void {
+  const outside = dom.doc.createElement('button');
+  dom.body.append(outside);
+  outside.focus();
+  outside.remove();
+}
+
+test('ctrl+alt+c on a focused FOLDER row copies into THAT folder', () => {
+  // The strip button sits BEFORE the tree and every row here is a <button>, so
+  // no amount of tabbing aims that one button at a nested folder: forward Tab
+  // from a row never reaches it, and Shift+Tab walks back through other folder
+  // rows, each of which re-notes itself as the destination. The row-level twin
+  // is the only keyboard way to copy into `src` at all.
+  liveSession();
+  const dir = byKey(root, 'fdir:web/src') as FakeElement;
+  assert.ok(dir !== null, 'non-vacuity: the mock tree really has that folder row');
+  assert.equal(dir.title, 'Open or close it. Copy files into it with ctrl+alt+c.', 'the row names its own chord');
+
+  dir.focus();
+  const e = dispatch(dir, 'keydown', { key: 'c', ctrlKey: true, altKey: true });
+  assert.equal(e.defaultPrevented, true);
+  assert.equal(e.cancelBubble, true, 'a key this row spent never reaches the window chord handler');
+  assert.equal(dropped.length, 1, 'the picker seam ran and handed its files on');
+  const req = dropped[0] as DropReq;
+  assert.equal(req.dest, 'src', 'its own name, never its path');
+  assert.deepEqual(req.items, [{ name: 'shot.png', dir: false, bytes: 7 }]);
+  assert.deepEqual(req.listing, F.listingFor('src'), 'the folder s own listing asks the conflict question');
+  clearRowMemory();
+});
+
+test('the folder-row chord keeps its AltGr guard, and a FILE row has nothing to do with it', () => {
+  liveSession();
+  // AltGr reports as ctrl+alt on European layouts: typing a character may
+  // never open a file chooser.
+  const dir = byKey(root, 'fdir:web/src') as FakeElement;
+  dir.focus();
+  const altGr = dispatch(dir, 'keydown', { key: 'c', ctrlKey: true, altKey: true, altGraph: true });
+  assert.equal(altGr.defaultPrevented, false);
+  assert.deepEqual(dropped, []);
+
+  // A FILE row copies nothing: a file is not a destination, and its own chord
+  // (ctrl+alt+enter) is a different act.
+  const file = byKey(root, 'ffile:web/src/Pane.tsx') as FakeElement;
+  file.focus();
+  const onFile = dispatch(file, 'keydown', { key: 'c', ctrlKey: true, altKey: true });
+  assert.equal(onFile.defaultPrevented, false);
+  assert.deepEqual(dropped, []);
+  clearRowMemory();
+});
+
+test('with nothing running the destination is `Home`, exactly as the header reads', () => {
+  panel.render();
+  assert.equal(byClass(root, 'files-proj')[0]?.textContent, 'Home');
+  assert.equal(F.filesPanelDestination(), 'Home');
+  assert.equal(F.pasteDestination(), 'Home');
+  assert.equal((byKey(root, 'fcopy') as FakeElement).title, 'Copy files into Home');
+});
+
+test('a SESSION pane s destination: its session s project, else its tab s folder, else nothing', () => {
+  liveSession();
+  // The panes on screen are the ACTIVE view's, so that is the view a pane
+  // element is asked about; the session's own tab is not the Home tab.
+  const v = st.state.views.find((x) => x.slots.length > 0) as ViewLike;
+  assert.ok(v !== undefined, 'non-vacuity: the session really got a view');
+  st.state.activeViewId = v.id;
+  const pane = dom.doc.createElement('section');
+  pane.dataset.slot = '0';
+
+  // The ORDER a session pane answers in is the header's own (`subject()`): the
+  // session's project first, whatever the tab is rooted at. The two used to
+  // disagree — the header read `api` while the ghost over this very pane said
+  // `Home` — and one screen may only carry one name.
+  v.root = { kind: 'home' };
+  assert.equal(F.filesPanelDestination(), 'api', 'non-vacuity: the header names the project');
+  assert.deepEqual(F.destinationOfPane(pane), { dest: 'api' });
+
+  v.root = { kind: 'project', id: 'p1' };
+  assert.equal(F.destinationOfActiveView(), 'api');
+  assert.deepEqual(F.destinationOfPane(pane), { dest: 'api' });
+
+  // A plain session tab: the session s own project answers for its pane.
+  v.root = null;
+  assert.equal(F.destinationOfActiveView(), null);
+  assert.deepEqual(F.destinationOfPane(pane), { dest: 'api' });
+
+  // A session with no project falls back to the folder its TAB is rooted at —
+  // the drop lands where the tab already says it is.
+  st.setSessions([mkSession('s1')]);
+  v.root = { kind: 'home' };
+  assert.deepEqual(F.destinationOfPane(pane), { dest: 'Home' });
+
+  st.setProjects([project('p1', 'api')]);
+  v.root = { kind: 'project', id: 'p1' };
+  assert.deepEqual(F.destinationOfPane(pane), { dest: 'api' }, 'the rooted tab names it');
+
+  // Neither a project nor a rooted tab: no folder this app may name (user
+  // decision 4, 2026-09-15), so it is not a target and the drop layer says so
+  // instead of guessing a path.
+  v.root = null;
+  assert.deepEqual(F.destinationOfPane(pane), { dest: null, why: 'session' });
+});
+
+test('a FILE pane in a rootless tab borrows the tab s own first session, as the header does', () => {
+  // The panel header already answers this case (`subject()`); a pane that
+  // answered null instead would flash a sentence about a session that is not
+  // in that pane at all.
+  liveSession();
+  const v = st.state.views.find((x) => x.slots.length > 0) as ViewLike;
+  st.state.activeViewId = v.id;
+  v.root = null;
+  v.slots.push({ kind: 'file', path: 'web/src/App.tsx' });
+  const filePane = dom.doc.createElement('section');
+  filePane.dataset.slot = String(v.slots.length - 1);
+  assert.deepEqual(F.destinationOfPane(filePane), { dest: 'api' }, 'the tab s own session names it');
+
+  // Nothing in the tab to borrow a folder from: the refusal is about the TAB.
+  st.setSessions([mkSession('s1')]);
+  assert.deepEqual(F.destinationOfPane(filePane), { dest: null, why: 'tab' });
+});
+
+test('a destination s listing is the folder s own top-level names', () => {
+  // The conflict question is asked against this and nothing else, so it may
+  // never carry paths or a recursive walk.
+  assert.deepEqual(F.listingFor('src'), ['App.tsx', 'Pane.tsx', 'TabStrip.tsx', 'store.ts']);
+  // Anything that is not a folder in the tree is the ROOT of it (`Home`, a
+  // project s name) — the A9 mock stands in for the real listing until B2.
+  const top = F.listingFor('Home');
+  assert.deepEqual(top, ['web', 'server', 'launcher', 'shared', 'README.md', 'LICENSE']);
+  assert.deepEqual(F.listingFor('api'), top);
+  assert.ok(top.every((n) => !n.includes('/')), 'names, never paths');
 });

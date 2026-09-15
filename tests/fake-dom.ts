@@ -32,6 +32,16 @@ export interface FakeEvent {
   clientY: number;
   pointerId: number;
   target: FakeNode | null;
+  /**
+   * The element a pointer moved INTO, on a `dragleave`. `null` is the only
+   * value that means "it left the window", which is exactly the test
+   * `ui/filedrop.ts` makes (PLAN-A9 §1: no enter/leave counting).
+   */
+  relatedTarget: FakeNode | null;
+  /** Drag payload (`makeDataTransfer`), or null on an event that carries none. */
+  dataTransfer: FakeDataTransfer | null;
+  /** Paste payload — the same shape, since only `files` is ever read. */
+  clipboardData: FakeDataTransfer | null;
   defaultPrevented: boolean;
   cancelBubble: boolean;
   preventDefault(): void;
@@ -56,6 +66,78 @@ export interface EventInit {
   clientX?: number;
   clientY?: number;
   pointerId?: number;
+  relatedTarget?: FakeNode | null;
+  dataTransfer?: FakeDataTransfer | null;
+  clipboardData?: FakeDataTransfer | null;
+}
+
+// ---------------------------------------------------------------------------
+// Drag payloads (part A9)
+// ---------------------------------------------------------------------------
+
+/** What `webkitGetAsEntry()` answers: a NAME and whether it is a folder. */
+export interface FakeEntry {
+  name: string;
+  isDirectory: boolean;
+}
+
+/** What `getAsFile()` answers, and what a `files` list holds. */
+export interface FakeFile {
+  name: string;
+  size?: number;
+}
+
+export interface FakeDataTransferItem {
+  kind: string;
+  type: string;
+  webkitGetAsEntry(): FakeEntry | null;
+  getAsFile(): FakeFile | null;
+}
+
+/**
+ * A `DataTransfer` double. `dropEffect` is MUTABLE on purpose: it is how the
+ * drop layer states validity ('copy' vs 'none'), so a test reads back what the
+ * module wrote.
+ */
+export interface FakeDataTransfer {
+  types: string[];
+  dropEffect: string;
+  effectAllowed: string;
+  items: FakeDataTransferItem[];
+  files: FakeFile[];
+}
+
+export interface DataTransferInit {
+  /** Defaults to `['Files']` when items or files are given, `[]` otherwise. */
+  types?: string[];
+  /** Top-level things being dragged. `dir` makes it a folder (no size). */
+  items?: { name: string; dir?: boolean; size?: number; kind?: string }[];
+  /** A plain file list (a paste, the native chooser). */
+  files?: FakeFile[];
+  /**
+   * The DRAGOVER phase, as Chromium really behaves: `types` is all there is,
+   * and `webkitGetAsEntry()` / `getAsFile()` answer null until `drop`
+   * (measured, PLAN-A9 "Facts checked").
+   */
+  blind?: boolean;
+}
+
+export function makeDataTransfer(init: DataTransferInit = {}): FakeDataTransfer {
+  const blind = init.blind === true;
+  const items: FakeDataTransferItem[] = (init.items ?? []).map((it) => ({
+    kind: it.kind ?? 'file',
+    type: '',
+    webkitGetAsEntry: () =>
+      blind || it.kind === 'string' ? null : { name: it.name, isDirectory: it.dir === true },
+    getAsFile: () =>
+      blind || it.dir === true || it.kind === 'string'
+        ? null
+        : { name: it.name, size: it.size ?? 0 },
+  }));
+  const files: FakeFile[] = init.files ?? [];
+  const types =
+    init.types ?? (items.length > 0 || files.length > 0 ? ['Files'] : []);
+  return { types, dropEffect: 'none', effectAllowed: 'all', items, files };
 }
 
 export class FakeTarget {
@@ -366,7 +448,15 @@ function matchesChain(n: FakeElement, parts: string[]): boolean {
 /** One simple selector: a tag, `.class`, `[attr]` or `[attr="value"]`. */
 const SIMPLE = /^(?:([a-zA-Z]+)|\.([\w-]+)|\[([a-zA-Z-]+)(?:="((?:\\.|[^"\\])*)")?\])/;
 
+const NOT_HIDDEN = ':not([hidden])';
+
 function matches(n: FakeElement, sel: string): boolean {
+  // `.modal-scrim:not([hidden])` — "a dialog that is UP" (ui/keys.ts
+  // OPEN_MODAL_SELECTOR): every scrim is built once and kept, so `hidden` is
+  // the whole question. Stripped here and asked as the property it is.
+  if (sel.endsWith(NOT_HIDDEN)) {
+    return !n.hidden && matches(n, sel.slice(0, -NOT_HIDDEN.length));
+  }
   // The two `:not(...)` shapes stay special-cased: they are the only ones the
   // UI asks for, and a general negation parser would be a browser.
   const notDisabled = /^([a-zA-Z]+):not\(\[disabled\]\)$/.exec(sel);
@@ -429,6 +519,12 @@ export interface FakeDocument extends FakeTarget {
 }
 
 export interface FakeWindow extends FakeTarget {
+  /**
+   * The viewport, as a value a test sets: `ui/filedrop.ts` asks whether a
+   * `dragleave` really left the window, and there is no layout here to ask.
+   */
+  innerWidth: number;
+  innerHeight: number;
   setTimeout(fn: () => void, ms: number): number;
   clearTimeout(id: number): void;
   /**
@@ -470,6 +566,9 @@ export function dispatch(target: FakeElement, type: string, init: EventInit = {}
     clientY: init.clientY ?? 0,
     pointerId: init.pointerId ?? 1,
     target,
+    relatedTarget: init.relatedTarget ?? null,
+    dataTransfer: init.dataTransfer ?? null,
+    clipboardData: init.clipboardData ?? null,
     defaultPrevented: false,
     cancelBubble: false,
     preventDefault() {
@@ -541,6 +640,8 @@ export function installDom(): Dom {
   const intervals: { fn: () => void; ms: number; id: number }[] = [];
   let nextTimer = 1;
   const w = Object.assign(new FakeTarget(), {
+    innerWidth: 1600,
+    innerHeight: 900,
     timers,
     intervals,
     setTimeout(fn: () => void, ms: number): number {
@@ -577,6 +678,11 @@ export function installDom(): Dom {
       for (const n of descendants(body)) {
         const r = n.rect;
         if (r === null) continue;
+        // A `hidden` element has no box, so the real elementFromPoint never
+        // answers one — and the app hides whole panels that way (main.ts:
+        // `filesAside.hidden = !filesShown`). Without this a test could only
+        // pretend a panel is away by taking its geometry off it.
+        if (!n.rendered) continue;
         if (x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height) hit = n;
       }
       return hit;

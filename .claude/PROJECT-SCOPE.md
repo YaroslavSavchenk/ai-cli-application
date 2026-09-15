@@ -514,7 +514,10 @@ multi-pane layouts on top.
   along the strip to reorder, drag a Files row onto a pane edge to open it
   in a split, onto the centre of a file pane to replace it (the centre of a
   terminal pane refuses), onto a folder tab's chip to append, onto the
-  empty pane area of an empty tab to open or merge there — every drag
+  empty pane area of an empty tab to open or merge there; files from
+  Windows Explorer onto a folder row, the panel, a pane or an empty tab
+  (A9; a TEXT drag from another program onto a terminal is cancelled so
+  nothing reaches the PTY unbracketed — user decision 2026-09-15) — every drag
   has a keyboard/button equivalent (see the shortcuts overlay;
   Ctrl+Alt+Enter on a focused Files row opens it beside the focused pane,
   Ctrl+Alt+W closes the focused file or diff pane and does nothing on a
@@ -557,7 +560,33 @@ multi-pane layouts on top.
   carries one quiet "Example data until the panel reads your …" line —
   the data is placeholder, the header name is real (a project, a session
   title, or `Home`). The panel's future shape (file browser rooted at home,
-  Changes tab, drop target) is plan decision 11 + parts A9/B10. Sessions panel
+  Changes tab) is plan decision 11 + B2. Since A9 (2026-09-15) the panel and
+  the pane area are DROP TARGETS for files and folders dragged from Windows
+  Explorer: a folder row (its own name), the panel's non-folder area (the
+  panel's root), a pane (a terminal pane: its session's project, else the
+  tab's root folder, else not a target with "This session has no project
+  folder yet."; a file or diff pane: the tab's root folder, else the tab's
+  first session's project, else "This tab has no project folder yet." —
+  the same order the Files header uses, so one screen never names two
+  folders), or the empty pane area of an empty tab. The destination is
+  always a NAME, never a path; a cursor-following ghost says "Copy N items
+  into <name>" (or "Copy files into <name>" when the browser states no
+  count) or "Drop on a folder or a pane."; a window-level guard cancels
+  file drops from the first line of boot, so a stray drop can never
+  navigate the app away; nothing
+  changes layout during a drag (outlines and the pane overlay only). After
+  the drop one dialog per drop: conflicts Explorer-style (Skip · Replace ·
+  Keep both, the choice covers every conflict of that drop, Esc = Skip),
+  then per-item Copied / Skipped / Failed rows, then one result sentence.
+  Transport is MOCK until B10 (limits 200 items, 50 MiB per file are
+  sentences only) and every state carries the quiet "Example …" /
+  "Nothing is copied yet …" line. The keyboard/button twin is the
+  permanent "Copy files here…" strip under the panel header (native file
+  chooser; it remembers the folder row that last held the keyboard),
+  Ctrl+Alt+C on a focused folder row (the picker for that folder), and
+  pasting with files on the clipboard; all use the same
+  destination rule as the drag (focused folder row, else the panel root,
+  else the active tab's root). Sessions panel
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
   "Side by side", "Continue" / "Start again", armed "End" / "Forget".
   Since Nocturne A6 (2026-09-13) the commit rows and the tree's file rows
@@ -773,7 +802,8 @@ multi-pane layouts on top.
   exactly four extra chords: `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
-  itself), and `Ctrl+Shift+C` and `Ctrl+Insert` copy the terminal selection
+  itself; since A9 a paste that carries FILES is taken only when the target
+  is neither a terminal nor an editable field, and opens the drop dialog), and `Ctrl+Shift+C` and `Ctrl+Insert` copy the terminal selection
   (2026-09-10, user report "ik mag niks kopieren vanuit de sessies") — taken
   ONLY while a selection exists; with nothing selected they are left alone
   (xterm sends no bytes for either chord anyway), and plain Ctrl+C always

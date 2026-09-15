@@ -87,6 +87,33 @@ export const OPEN_FOCUS_OWNER_SELECTOR =
   '.modal-scrim:not([hidden]), .drawer:not(.files-panel):not([hidden]), .boot-overlay';
 
 /**
+ * Is a MODAL dialog up right now? Narrower than `OPEN_FOCUS_OWNER_SELECTOR` on
+ * purpose, and deliberately NOT the same question (part A9): a dialog is a
+ * surface the user must answer before anything else can happen, so while one
+ * is up nothing in the window may take an external file drop. The drawers and
+ * the Files panel are NOT in it — they are side panels the panes live beside,
+ * and an open Projects drawer must not turn every pane into a dead drop
+ * target.
+ *
+ * Existence is not enough (every dialog's scrim is built once and kept), so
+ * `:not([hidden])` is the whole test, exactly as the focus-owner selector
+ * asks it of the same scrims.
+ */
+export const OPEN_MODAL_SELECTOR = '.modal-scrim:not([hidden])';
+
+/**
+ * Is this element (or an ancestor) an xterm mount? The companion of
+ * `isEditableTarget`, and the one place the `.term-host` test lives: the
+ * window-level handlers in main.ts and the external-drop layer
+ * (ui/filedrop.ts) both have to leave a terminal's own keys and drops alone,
+ * and two copies of this line could drift apart.
+ */
+export function isTerminalTarget(t: FocusTarget | null): boolean {
+  if (t === null) return false;
+  return t.closest(TERMINAL_SELECTOR) !== null;
+}
+
+/**
  * Is a surface that owns the keyboard OPEN?
  *
  * ONE rule for the whole app (2026-09-08 fix): the earlier pre-check in

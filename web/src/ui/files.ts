@@ -38,10 +38,11 @@
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
 import { armDrag, flashOpenResult } from './dnd.ts';
-import { rootForSubject } from './slots-model.ts';
+import { copyIntoText, openCopyFilesPicker, type PaneDest } from './filedrop.ts';
+import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
 import type { SessionInfo } from '../../../shared/protocol.ts';
-import type { CommitEntry } from './files-model.ts';
+import type { CommitEntry, TreeNode } from './files-model.ts';
 import {
   badgeFor,
   buildTree,
@@ -80,8 +81,154 @@ const NO_REPO_TITLE = 'No repository at Home';
  */
 const ROW_TITLE = 'Open in a pane. Drag it onto a pane edge to split, or press ctrl+alt+enter.';
 
+/**
+ * The keyboard/button twin of dragging files in from Explorer (part A9, plan
+ * decision 6). It is the only way to reach that act without a pointer coming
+ * from another program, so it is a real, visible, focusable control — and its
+ * `title` names the folder it would copy into, which is the one thing a drag
+ * says that a button otherwise would not.
+ */
+const COPY_LABEL = 'Copy files here…';
+
+/**
+ * A folder row's own title. The copy strip sits BEFORE the tree and every row
+ * here is a `<button>`, so no amount of tabbing aims that button at a nested
+ * folder: the row carries the chord that does (ctrl+alt+c copies into THIS
+ * folder), and says so where the user already is.
+ */
+const DIR_TITLE = 'Open or close it. Copy files into it with ctrl+alt+c.';
+
 export interface FilesPanel {
   render(): void;
+}
+
+/**
+ * WHERE THE DESTINATION NAMES COME FROM (part A9). Four questions — what is
+ * this panel about, what is that folder row called, what is a pane's folder,
+ * what would a paste use — are answered HERE, by the one `subject()` the
+ * header already prints, and handed to `ui/filedrop.ts` as injected deps. Two
+ * modules answering them separately is how a ghost ends up promising `Home`
+ * over a pane that belongs to a project.
+ *
+ * The panel is a singleton in the shell; this is the same idiom `ui/picker.ts`
+ * uses for the one open folder picker.
+ */
+let live: { subject(): Subject; focusedFolderName(): string | null } | null = null;
+
+/** What the panel is about: a NAME, whether it is `Home`, and the project behind it. */
+interface Subject {
+  name: string;
+  home: boolean;
+  projectId: string | null;
+}
+
+/** The panel's own root — its non-folder area, as a name. Null with no panel. */
+export function filesPanelDestination(): string | null {
+  return live === null ? null : live.subject().name;
+}
+
+/**
+ * Where a paste — and the `Copy files here…` button — would copy to: the
+ * folder row the keyboard last stood on inside the panel (the button that asks
+ * this took the focus off it), else the panel's own root, else the active
+ * tab's root (the panel can be closed while a drop still has to go somewhere).
+ */
+export function pasteDestination(): string | null {
+  if (live !== null) {
+    const folder = live.focusedFolderName();
+    if (folder !== null) return folder;
+    return live.subject().name;
+  }
+  return destinationOfActiveView();
+}
+
+/** The ACTIVE tab's root, as a name: `Home`, a project's name, else null. */
+export function destinationOfActiveView(): string | null {
+  return rootName(st.activeView());
+}
+
+/**
+ * A pane's destination, in the SAME order the panel header (`subject()`)
+ * answers in — one screen, one name. A SESSION pane is about its session, so
+ * its project comes first and the tab's folder is only the fallback; anything
+ * else in the pane area (a file, a diff, an empty slot) is about its TAB, so
+ * the tab's folder comes first and the tab's own first session is the
+ * fallback. Answering the tab's folder first for a session pane made the
+ * header read `api` while the ghost over that very pane said `Home`.
+ *
+ * A session with neither a project nor a rooted tab has no folder this app is
+ * allowed to name (user decision 4, 2026-09-15: the app may not print a path),
+ * so it answers nothing plus the REASON, and the drop layer turns that into
+ * the sentence it flashes.
+ */
+export function destinationOfPane(paneEl: HTMLElement): PaneDest {
+  const v = st.activeView();
+  if (v === null) return { dest: null, why: 'tab' };
+  const root = rootName(v);
+  const slot = v.slots[Number(paneEl.dataset.slot)];
+  if (slot === undefined) return root === null ? { dest: null, why: 'tab' } : { dest: root };
+  if (slot.kind === 'session') {
+    const own = projectOf(slot.id);
+    if (own !== null) return { dest: own };
+    if (root !== null) return { dest: root };
+    return { dest: null, why: 'session' };
+  }
+  if (root !== null) return { dest: root };
+  // A file or a diff in a plain session tab: no folder to follow, so the
+  // tab's OWN first session answers for it, exactly as `subject()` does for
+  // the header above it. Nothing there to borrow from is a TAB without a
+  // folder, not a session without a project.
+  const first = st.sessionIds(v)[0];
+  const name = first === undefined ? null : projectOf(first);
+  return name === null ? { dest: null, why: 'tab' } : { dest: name };
+}
+
+/**
+ * A session's project as a NAME, or null when it has none left to name. An
+ * EXITED session answers nothing here, exactly as `subject()` skips it for
+ * the header: the pane and the header must never name two folders.
+ */
+function projectOf(id: string): string | null {
+  const info = st.state.sessions.get(id);
+  if (info !== undefined && info.status === 'exited') return null;
+  const name = info === undefined ? null : st.projectName(info.projectId);
+  return name === null || name === '' ? null : name;
+}
+
+/** A view's root as a NAME. A project deleted under an open tab has none left. */
+function rootName(v: st.ViewState | null): string | null {
+  if (v === null || v.root === null) return null;
+  if (v.root.kind === 'home') return 'Home';
+  const name = st.projectName(v.root.id);
+  return name === null || name === '' ? null : name;
+}
+
+/**
+ * The TOP-LEVEL names already in a destination — the only input the conflict
+ * question takes.
+ *
+ * MOCK, like the tree it reads: `buildTree(MOCK_FILES)` is what the panel
+ * draws, so dropping `README.md` on the root or `Pane.tsx` on `src` really does
+ * show the conflict dialog, and nothing claims to know a folder the panel has
+ * never listed. A destination that is not a folder IN that tree — `Home`, a
+ * project's name — is the tree's ROOT. Part B2 replaces this with the real
+ * listing of the real folder, and the signature does not change.
+ */
+export function listingFor(dest: string): readonly string[] {
+  const roots = buildTree(MOCK_FILES);
+  const found = findDir(roots, dest);
+  return (found ?? roots).map((n) => n.name);
+}
+
+/** Depth-first search for a folder by NAME; its children, or null. */
+function findDir(nodes: readonly TreeNode[], name: string): TreeNode[] | null {
+  for (const n of nodes) {
+    if (!n.dir) continue;
+    if (n.name === name) return n.children;
+    const deeper = findDir(n.children, name);
+    if (deeper !== null) return deeper;
+  }
+  return null;
 }
 
 /**
@@ -133,7 +280,40 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   const selHd = el('div', 'files-selhd');
   selHd.hidden = true;
 
-  root.append(hd, summary, selHd, body);
+  // ---- the twin of the Explorer drag (A9) ----------------------------------
+  // Its own hairline-free strip directly under the header, NOT a third control
+  // squeezed into that 44px row: at 200px the header already holds two tabs and
+  // the panel's only live datum (the project name), and a 110px button there
+  // would ellipsise that name away. On its own line it also lines up with the
+  // rows it copies into, and it stays put when the Commits tab hides the
+  // summary row below it.
+  const copyRow = el('div', 'files-copy');
+  const copyBtn = button('files-copy-btn', COPY_LABEL, () => openCopyFilesPicker());
+  copyBtn.setAttribute('data-k', 'fcopy');
+  copyRow.append(copyBtn);
+
+  root.append(hd, copyRow, summary, selHd, body);
+
+  /**
+   * The button's promise, kept live: it names the folder `pasteDestination()`
+   * would use, which changes when a folder row takes the focus, when the panel
+   * changes subject, and when the focus leaves the panel again. `focusin` is
+   * listened for on the DOCUMENT because focus moving OUT of the panel is not
+   * an event the panel itself ever sees.
+   */
+  function syncCopyTitle(): void {
+    const dest = pasteDestination();
+    copyBtn.title = dest === null ? '' : copyIntoText(dest);
+  }
+  document.addEventListener('focusin', (e) => {
+    noteFocus(e.target);
+    syncCopyTitle();
+  });
+  // The destination questions the drop layer asks are answered against THIS
+  // panel (there is one), through the same `subject()` the header prints — set
+  // before the first title, so the button never starts out naming the fallback.
+  live = { subject, focusedFolderName };
+  syncCopyTitle();
 
   // ---- the drag edge --------------------------------------------------------
   const grip = el('div', 'files-grip');
@@ -408,6 +588,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       }
     }
     projName.textContent = headerName();
+    syncCopyTitle();
 
     if (tab === 'files') {
       const totals = diffSummary(MOCK_FILES);
@@ -463,6 +644,20 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         });
         b.setAttribute('data-k', `fdir:${r.path}`);
         b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
+        b.title = DIR_TITLE;
+        // The ROW-LEVEL twin of dropping files on this folder, owned here for
+        // the same reason ctrl+alt+enter is: it acts on the row that has the
+        // focus, and the strip button above cannot be aimed at it with the
+        // keyboard at all. Same idiom, same AltGr guard, same stopPropagation
+        // so the window chord handler never sees a key this row spent.
+        b.addEventListener('keydown', (e) => {
+          if ((e.key !== 'c' && e.key !== 'C') || !e.ctrlKey || !e.altKey || e.metaKey) return;
+          // AltGr reports as ctrl+alt on European layouts (frontend-terminal-quirks).
+          if (e.getModifierState('AltGraph')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          openCopyFilesPicker(r.name);
+        });
         row = b;
       } else {
         // A10: a file row opens that file as a PANE of its root folder's tab.
@@ -624,4 +819,54 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   }
 
   return { render };
+}
+
+/**
+ * The folder row that LAST held the keyboard while the focus was still inside
+ * the panel, or null. It is a memory and not a reading of
+ * `document.activeElement` because the destination has to survive the very
+ * gesture that uses it: clicking (or tabbing to) `Copy files here…` takes the
+ * focus off the folder row, and a destination that collapsed to the panel root
+ * at that moment would copy somewhere else than the button's title promised.
+ * Focus leaving the panel altogether does clear it — then the promise is the
+ * panel's own root again.
+ */
+let lastRow: HTMLElement | null = null;
+
+/**
+ * Keep that memory. Anywhere INSIDE the panel (a folder row, the copy button,
+ * the tabs, the header) keeps it; a folder row replaces it; anything outside
+ * the panel drops it.
+ */
+function noteFocus(target: EventTarget | null): void {
+  const t = target instanceof HTMLElement ? target : null;
+  if (t === null || t.closest('.files-view') === null) {
+    lastRow = null;
+    return;
+  }
+  const row = t.closest<HTMLElement>('.files-row.is-dir');
+  if (row !== null) lastRow = row;
+}
+
+/**
+ * The name of the folder row this element sits in, when it does. A folder row
+ * is a button carrying `data-k="fdir:<path>"`, and only the last segment of
+ * that path is ever a destination NAME.
+ */
+function folderNameOf(t: HTMLElement): string | null {
+  const row = t.closest<HTMLElement>('.files-row.is-dir');
+  if (row === null) return null;
+  const key = row.getAttribute('data-k') ?? '';
+  if (!key.startsWith('fdir:')) return null;
+  const path = key.slice('fdir:'.length);
+  return path === '' ? null : fileName(path);
+}
+
+function focusedFolderName(): string | null {
+  // A row the tree rebuilt under the memory is no row at all: it is detached,
+  // nothing on screen carries that promise any more, and the panel's own root
+  // answers again. Removing an element never fires a focus event, so this is
+  // the only moment the staleness can be noticed.
+  if (lastRow !== null && lastRow.closest('.files-view') === null) lastRow = null;
+  return lastRow === null ? null : folderNameOf(lastRow);
 }
