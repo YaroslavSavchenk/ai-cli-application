@@ -1,7 +1,7 @@
 ---
 type: backlog
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-09-15
 tags: [backlog, todo, open]
 ---
 # Backlog — still to do (living note)
@@ -210,6 +210,40 @@ app window first so one backend at a time owns runtime.json.
 - [ ] B9 may replace the invented-but-unwired `initTheme(serverPrefs?) → { apply, current }` shape in `web/src/ui/theme.ts`; `--z-popover` was deleted (its only user was the popover) — re-add a rung if a popover returns.
 - [ ] The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
 - [ ] C# constant NAMES `TokenBgApp` / `TokenTextHd` / `TokenEdge` in `launcher/host/AiSessionManagerHost.cs` echo dead alias names (values correct, pinned by `nocturne-tokens` A1 (f)); rename when the host is next rebuilt.
+
+## Claude Code CLI compatibility guard (user's ask 2026-09-15, not started)
+
+The app depends on documented `claude` CLI flags and behaviour
+(`--session-id`, `--resume <id>`, `--settings`, `--effort`, the transcript
+location under `~/.claude/projects/`; scope doc: **≥ 2.1.263**, "no version
+probe exists"). Anthropic changing any of that breaks the integration
+silently: a launch that exits at once, a history entry that never resumes,
+a statusline that stays empty. The user wants this VISIBLE in the app, not
+buried in `server.log`.
+
+- [ ] **Version probe at boot**: run `claude --version` once (argv, no
+  shell), cache it in `GET /api/runtime` (`claudeVersion`, null when the
+  binary is missing), compare against a `SUPPORTED_CLAUDE` range baked
+  into the build (minimum = the verified floor; maximum = the newest
+  version this app version was tested with).
+- [ ] **Show it**: boot card row + Settings → Background service fact
+  "Claude Code X.Y.Z (tested up to A.B.C)"; outside the range a persistent
+  notice in the Nocturne idiom — older than the floor: "update Claude
+  Code"; newer than tested: "this app was tested up to A.B.C; if launches
+  fail, check for an app update or wait for a patch" with the existing
+  updater's "Check for updates" as the action. Never block launching; the
+  user decides.
+- [ ] **Runtime breakage detection**, since a version number alone proves
+  nothing: a claude-kind session that exits within ~2 s with a non-zero
+  code (or whose first output matches the CLI's own usage/unknown-option
+  error) is flagged on the pane and the notice above appears with the
+  captured first line. Same for a `--resume` that the CLI refuses.
+- [ ] **Release discipline**: every app release records the Claude Code
+  version it was verified against (release notes + the baked maximum);
+  bump the floor only when a flag the app relies on changes.
+- [ ] **(user)** whether the notice may also point at the GitHub releases
+  page / open the updater directly, and whether a "hide until the next
+  Claude Code version" dismissal is wanted.
 
 ## Queued ideas (not decided)
 
