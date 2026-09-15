@@ -129,7 +129,7 @@ multi-pane layouts on top.
   changed (a → b)` (git HEAD moved since boot), `frontend build missing`
   (no `web/dist`, no entry bundle, or no `build-id.json`), `frontend
   rebuilt` (dist newer than `startedAt` / entry bundle renamed), `frontend
-  source changed` (web/src, web/index.html, web/public, vite.config.ts or
+  source changed` (web/src, web/index.html, web/mascot.html, web/public, vite.config.ts or
   shared/ newer than `web/dist/build-id.json`), `server files edited`.
   **Installed mode (2026-09-08) emits exactly one reason instead of these
   six: `a new version is installed`** — `<app>/current` resolves to a
@@ -629,6 +629,17 @@ multi-pane layouts on top.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
+- **Peek mascot (user's ask 2026-09-15; the LAST step of the Nocturne
+  redesign, `.claude/PLAN-NOCTURNE.md` C1).** The user's own pixel-art
+  Claude (`design_handoff_claude_peek_mascot/`, 1:1) peeks around the right
+  edge of the MONITOR — outside the app window, over fullscreen games and
+  video too — one mascot per session waiting for an answer, max 3, with a
+  Settings toggle. Phase 1 landed 2026-09-15: a standalone count-driven page
+  (`web/mascot.html`, transparent background) not yet wired to sessions.
+  Later phases: count = attention count (BEL), a transparent always-on-top
+  tool window in the WebView2 host, `prefs.json` toggle. Open decisions
+  12–15 in the plan (monitor, click behaviour, count semantics, the
+  exclusive-fullscreen limit) are the user's.
 - **App settings panel — GO given 2026-07-20; contents REVERSED 2026-07-25
   (user decision).** A checklist-style settings surface persisted
   server-side in `prefs.json` via `/api/prefs`. The 2026-07-20 "decided

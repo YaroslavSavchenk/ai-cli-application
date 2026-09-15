@@ -18,6 +18,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chmodSync,
+  existsSync,
   lutimesSync,
   mkdirSync,
   mkdtempSync,
@@ -280,6 +281,7 @@ function repoFixture(root: string): void {
   writeFileSync(join(root, 'web', 'src', 'main.ts'), 'ui\n');
   writeFileSync(join(root, 'web', 'src', 'ui', 'drawer.ts'), 'ui\n');
   writeFileSync(join(root, 'web', 'index.html'), '<!doctype html>\n');
+  writeFileSync(join(root, 'web', 'mascot.html'), '<!doctype html>\n');
   mkdirSync(join(root, 'web', 'public'), { recursive: true });
   writeFileSync(join(root, 'web', 'public', 'favicon.ico'), 'icon\n');
   writeFileSync(join(root, 'vite.config.ts'), 'config\n');
@@ -336,6 +338,7 @@ function ageFixture(root: string): void {
     ['node_modules', '.package-lock.json'],
     ['vite.config.ts'],
     ['web', 'index.html'],
+    ['web', 'mascot.html'],
     ['web', 'src', 'main.ts'],
     ['web', 'src', 'ui', 'drawer.ts'],
     ['web', 'public', 'favicon.ico'],
@@ -612,6 +615,10 @@ test('update check: a frontend source newer than the BUILD reads `frontend sourc
     ['web', 'src', 'main.ts'],
     ['web', 'src', 'ui', 'drawer.ts'],
     ['web', 'index.html'],
+    // The SECOND vite entry (the peek-mascot page): an unhashed entry document
+    // outside web/src, so only this rule can ever see a `git pull` that moves
+    // it alone.
+    ['web', 'mascot.html'],
     ['web', 'public', 'favicon.ico'],
     ['vite.config.ts'],
     ['shared', 'protocol.ts'],
@@ -791,5 +798,39 @@ test("the repo's own web/dist agrees with itself: build-id.json is the literal c
     !bundle.includes('__BUILD' + '_ID__'),
     `${info.asset} still holds the bare __BUILD_ID__ identifier: the define did not run ` +
       '(a build started from web/ instead of the repo root)',
+  );
+});
+
+test("the repo's own web/dist ships the mascot page beside the app page", (t) => {
+  // Two rollup inputs (vite.config.ts): `index` and `mascot`. The risk this
+  // pins is not that the page renders — it is that a SECOND entry changes what
+  // "a frontend build" looks like to the server: readWebBuild picks the entry
+  // bundle by `assets/index-*.js`, and the restart preflight refuses a build
+  // whose entry it cannot find. A mascot chunk that ever sorted into that slot
+  // would make every restart serve the wrong bundle.
+  const dist = join(projectRoot, 'web', 'dist');
+  const info = readWebBuild(dist);
+  if (info.buildId === null || info.asset === null) {
+    t.skip(`no built frontend in ${dist} — run \`npm run build\``);
+    return;
+  }
+  for (const name of ['index.html', 'mascot.html', 'build-id.json']) {
+    assert.ok(existsSync(join(dist, name)), `web/dist/${name} is missing from the build`);
+  }
+  assert.match(info.asset, /^assets\/index-.*\.js$/, 'the app entry is still the index bundle');
+
+  const mascot = readFileSync(join(dist, 'mascot.html'), 'utf8');
+  const script = /<script[^>]+src="\/?(assets\/[^"]+\.js)"/.exec(mascot);
+  assert.notEqual(script, null, 'mascot.html loads no bundle at all');
+  assert.match(script![1]!, /^assets\/mascot-.*\.js$/, 'the mascot page must load its OWN chunk');
+  assert.ok(
+    !mascot.includes('/src/mascot/main.ts'),
+    'mascot.html still points at the source entry: it was copied, not built',
+  );
+
+  const index = readFileSync(join(dist, 'index.html'), 'utf8');
+  assert.ok(
+    !index.includes('mascot'),
+    'the app page must not pull in the mascot page (separate entries, separate bundles)',
   );
 });

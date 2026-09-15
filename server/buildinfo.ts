@@ -361,7 +361,10 @@ export function createUpdateChecker(opts: UpdateCheckOptions): () => UpdateCheck
     const frontendMs = Math.max(
       maxMtimeMsDeep(join(webDir, 'src'), { left: scanLimit }),
       maxMtimeMsDeep(join(webDir, 'public'), { left: scanLimit }),
+      // Both unhashed entry documents: web/index.html and web/mascot.html (the
+      // peek-mascot page is a second vite entry and lives outside web/src).
       mtimeMsOf(join(webDir, 'index.html')),
+      mtimeMsOf(join(webDir, 'mascot.html')),
       mtimeMsOf(join(opts.repoRoot, 'vite.config.ts')),
       mtimeMsOf(join(webDir, 'vite.config.ts')), // the re-export shim
       // Shared types are compiled INTO the bundle, so an edit there is first of

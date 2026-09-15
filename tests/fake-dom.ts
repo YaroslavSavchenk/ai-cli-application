@@ -264,6 +264,16 @@ export class FakeElement extends FakeNode {
       this.children.push(node);
     }
   }
+  /**
+   * The DOM's older one-node form of `append`, returning the node it appended.
+   * `createElementNS(...)` + `appendChild(...)` is the idiom every hand-built
+   * SVG uses (`web/src/mascot/view.ts` draws its pixel art that way), so the
+   * double answers both spellings.
+   */
+  appendChild<T extends FakeNode>(node: T): T {
+    this.append(node);
+    return node;
+  }
   replaceChildren(...nodes: (FakeNode | string)[]): void {
     for (const c of this.children) c.parentNode = null;
     this.children = [];

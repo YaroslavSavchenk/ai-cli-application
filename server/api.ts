@@ -1233,10 +1233,18 @@ export function createRequestHandler(
 
   // --- Static frontend ------------------------------------------------------
   async function serveStatic(pathname: string, res: ServerResponse): Promise<void> {
-    if (pathname === '/' || pathname === '/index.html') {
+    // The two UNHASHED entry documents: `index.html` (the app) and
+    // `mascot.html` (the peek-mascot page, a second vite entry). Both are
+    // `no-store`, because both name HASHED asset bundles that disappear on the
+    // next build — a heuristically cached copy would ask for an asset that is
+    // gone and render nothing, with no error anywhere. Only index.html carries
+    // the auth-token placeholder; the mascot page needs no credential and gets
+    // none.
+    if (pathname === '/' || pathname === '/index.html' || pathname === '/mascot.html') {
+      const entry = pathname === '/mascot.html' ? 'mascot.html' : 'index.html';
       try {
-        const html = await readFile(join(webDistDir, 'index.html'), 'utf8');
-        const page = html.replaceAll('__AUTH_TOKEN__', token);
+        const html = await readFile(join(webDistDir, entry), 'utf8');
+        const page = entry === 'index.html' ? html.replaceAll('__AUTH_TOKEN__', token) : html;
         responseBytes.set(res, Buffer.byteLength(page));
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
