@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -57,13 +58,18 @@ function buildIdFile(): Plugin {
   };
 }
 
+/**
+ * The frontend root. Absolute, not 'web': vite resolves a relative root
+ * against process.cwd(), and this file is also re-exported by
+ * web/vite.config.ts so a `vite build` run from inside web/ still gets the
+ * `define` below. A bundle built without it ships the bare `__BUILD_ID__`
+ * identifier (2026-09-08: ReferenceError in the boot path, 'token check' hung
+ * forever). Every entry below is resolved against it for the same reason.
+ */
+const WEB_ROOT = fileURLToPath(new URL('./web', import.meta.url));
+
 export default defineConfig({
-  // Absolute, not 'web': vite resolves a relative root against process.cwd(),
-  // and this file is also re-exported by web/vite.config.ts so a `vite build`
-  // run from inside web/ still gets the `define` below. A bundle built without
-  // it ships the bare `__BUILD_ID__` identifier (2026-09-08: ReferenceError in
-  // the boot path, 'token check' hung forever).
-  root: fileURLToPath(new URL('./web', import.meta.url)),
+  root: WEB_ROOT,
   define: {
     __BUILD_ID__: JSON.stringify(BUILD_ID),
   },
@@ -72,5 +78,18 @@ export default defineConfig({
     // Relative to `root`, so this is web/dist.
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      // Two pages: the app shell, and the standalone mascot overlay page
+      // (web/dist/mascot.html — the backend serves any file under web/dist,
+      // so it needs no server change). Absolute paths, resolved against the
+      // same WEB_ROOT: a relative input is resolved against process.cwd() and
+      // breaks a build started from inside web/. The app's entry chunk keeps
+      // its `assets/index-*.js` name, which is what server/buildinfo.ts looks
+      // for; the mascot's is `assets/mascot-*.js`.
+      input: {
+        index: resolve(WEB_ROOT, 'index.html'),
+        mascot: resolve(WEB_ROOT, 'mascot.html'),
+      },
+    },
   },
 });

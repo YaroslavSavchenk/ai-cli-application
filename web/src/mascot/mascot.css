@@ -1,0 +1,113 @@
+/*
+ * Claude peek mascot — the whole stylesheet of the mascot page. Imported only
+ * by web/src/mascot/main.ts; it deliberately does NOT pull in tokens.css or
+ * app.css. The page ships alone in a transparent, always-on-top overlay
+ * window at the edge of the monitor, so it stays tiny and self-contained, and
+ * the mascot's five colours are its own (design handoff §Design Tokens), not
+ * app tokens.
+ *
+ * The keyframes below are VERBATIM from
+ * `design_handoff_claude_peek_mascot/README.md` §Keyframes — high fidelity,
+ * final. Do not retime, re-ease or "improve" them.
+ */
+
+/* ---- stage --------------------------------------------------------------- */
+
+/*
+ * The screen edge is the wall: mascots sit at a negative `right` so the
+ * viewport clips part of every body. `overflow:hidden` on the page (set in
+ * mascot.html) is what makes that clip, so it is not optional.
+ */
+.pm-stage {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  width: 220px;
+  height: 340px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Position layer: pose placement, the entrance animation, the .7s move. */
+.pm-pos {
+  position: absolute;
+  width: 100px;
+  height: 120px;
+  transition:
+    bottom 0.7s cubic-bezier(0.3, 1.4, 0.5, 1),
+    right 0.7s ease;
+  pointer-events: auto;
+}
+
+/* Tilt layer: the pose's static lean, hinged at the mascot's feet. */
+.pm-tilt {
+  width: 100px;
+  height: 120px;
+  transform-origin: 80% 100%;
+}
+
+/* Reaction layer: idle bob, strain, or a click reaction — and the hit area. */
+.pm-react {
+  width: 100px;
+  height: 120px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transform-origin: center bottom;
+}
+
+/* The art overflows its own box while squeezing and waving. */
+.pm-art {
+  overflow: visible;
+}
+
+/* ---- keyframes (verbatim from the handoff) -------------------------------- */
+
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes slideIn { from { transform: translateX(130%); } to { transform: translateX(0); } }
+@keyframes climb { 0% { transform: translate(60px, 150px) rotate(20deg); } 35% { transform: translate(30px, 110px) rotate(10deg); } 55% { transform: translate(28px, 60px) rotate(-6deg); } 75% { transform: translate(8px, 20px) rotate(8deg); } 88% { transform: translate(0, -8px) rotate(0); } 100% { transform: translate(0,0) rotate(0); } }
+@keyframes squeeze { 0% { transform: translateX(130%) scale(.55, 1.45); } 25% { transform: translateX(40px) scale(.55, 1.45) rotate(-4deg); } 35% { transform: translateX(44px) scale(.5, 1.5) rotate(3deg); } 45% { transform: translateX(28px) scale(.55, 1.45) rotate(-5deg); } 55% { transform: translateX(32px) scale(.5, 1.5) rotate(4deg); } 65% { transform: translateX(14px) scale(.6, 1.4) rotate(-3deg); } 75% { transform: translateX(16px) scale(.55, 1.45) rotate(2deg); } 86% { transform: translateX(0) scale(1.2, .8) rotate(0); } 93% { transform: translateX(0) scale(.92, 1.1); } 100% { transform: translateX(0) scale(1); } }
+@keyframes strain { 0%,100% { transform: translate(0,0) scale(1.04,.94) rotate(-1deg); } 20% { transform: translate(1px,1px) scale(1.05,.93) rotate(1deg); } 40% { transform: translate(-1px,0) scale(1.04,.94) rotate(-1deg); } 60% { transform: translate(1px,1px) scale(1.06,.92) rotate(.5deg); } 80% { transform: translate(-1px,1px) scale(1.04,.94) rotate(-.5deg); } }
+@keyframes shove { 0%,100% { transform: translate(0,0); } 30% { transform: translate(3px,-2px); } 50% { transform: translate(-2px,1px); } 70% { transform: translate(3px,-3px); } 85% { transform: translate(-1px,0); } }
+@keyframes laugh { 0% { transform: translateY(0) scale(1) rotate(0); } 12% { transform: translateY(-6px) scale(1.06,.94) rotate(-3deg); } 24% { transform: translateY(0) scale(.97,1.04) rotate(2deg); } 36% { transform: translateY(-5px) scale(1.06,.94) rotate(-2deg); } 48% { transform: translateY(0) scale(.98,1.03) rotate(2deg); } 60% { transform: translateY(-4px) scale(1.05,.95) rotate(-2deg); } 72% { transform: translateY(0) scale(.98,1.02) rotate(1deg); } 84% { transform: translateY(-2px) scale(1.02,.98) rotate(-1deg); } 100% { transform: translateY(0) scale(1) rotate(0); } }
+@keyframes wave { 0% { transform: rotate(0); } 15% { transform: rotate(-50deg); } 30% { transform: rotate(-20deg); } 45% { transform: rotate(-55deg); } 60% { transform: rotate(-20deg); } 75% { transform: rotate(-50deg); } 100% { transform: rotate(0); } }
+@keyframes waveBody { 0%,100% { transform: rotate(0); } 30% { transform: rotate(3deg) translateX(-2px); } 70% { transform: rotate(3deg) translateX(-2px); } }
+
+/* ---- demo strip (only with ?demo; never shipped to the overlay) ----------- */
+
+/*
+ * Dev-only control strip: a count readout and two buttons, plain and
+ * unstyled beyond legibility on the app's own background. It exists so the
+ * page can be driven by hand before anything wires it to pending inputs.
+ */
+.pm-demo {
+  position: fixed;
+  left: 24px;
+  top: 24px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #e8e6e1;
+}
+
+.pm-demo button {
+  padding: 6px 12px;
+  border: 1px solid #3a3d52;
+  border-radius: 6px;
+  background: #21243a;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pm-demo button:hover {
+  border-color: #d97757;
+}
+
+.pm-demo button:focus-visible {
+  outline: 2px solid #d97757;
+  outline-offset: 2px;
+}

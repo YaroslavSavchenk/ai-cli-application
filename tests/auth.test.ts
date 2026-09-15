@@ -159,3 +159,29 @@ test('static / serves the token-injected page (no-store) and traversal is blocke
     );
   }
 });
+
+test('static: the mascot page is served as itself, with no token in it', async () => {
+  // A SECOND page (web/mascot.html, a second vite entry) reaches the browser
+  // through the same unhashed-entry branch as `/`, but only `/` and
+  // `/index.html` get the token-injection treatment. Two things are pinned:
+  // the page is reachable at all (a build that forgot the second rollup input
+  // would 404 here), and it carries no credential, because it needs none — it
+  // calls no API.
+  const page = await rawRequest(server.port, { path: '/mascot.html' });
+  assert.equal(page.status, 200, 'web/dist/mascot.html must be served');
+  assert.match(String(page.headers['content-type'] ?? ''), /^text\/html/);
+  assert.ok(!page.body.includes(server.token), 'the mascot page must never carry the app token');
+  assert.ok(!page.body.includes('__AUTH_TOKEN__'), 'and must not ask for one either');
+});
+
+test('static: both unhashed entry documents are no-store (a cached one points at a deleted asset)', async () => {
+  // index.html and mascot.html are the only two documents served under a name
+  // that does not change between builds, and each names a HASHED bundle. If a
+  // browser (or WebView2) heuristically caches one, the next restart deletes
+  // the asset it names and the page renders blank with no error anywhere.
+  for (const path of ['/', '/mascot.html']) {
+    const res = await rawRequest(server.port, { path });
+    assert.equal(res.status, 200, `${path} must be served`);
+    assert.equal(res.headers['cache-control'], 'no-store', `${path} must be no-store`);
+  }
+});

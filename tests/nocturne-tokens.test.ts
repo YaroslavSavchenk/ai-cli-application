@@ -7,9 +7,11 @@
  * design handoff's own stylesheet, an alias block re-pointed the old Legacy
  * role names at them so `app.css` did not have to change in one go (part A8
  * migrated every use site and deleted it), and the same ground
- * colour is repeated in four places OUTSIDE CSS (the pre-bundle inline style
+ * colour is repeated in five places OUTSIDE CSS (the pre-bundle inline style
  * in `web/index.html`, its `theme-color` meta, `web/public/manifest.json`,
- * and the WebView2 host's DWM caption constants in C#). Those repetitions
+ * the WebView2 host's DWM caption constants in C#, and `DEMO_BG` in
+ * `web/src/mascot/main.ts` — the mascot page loads no stylesheet of ours on
+ * purpose, so it cannot read the token). Those repetitions
  * are the fragile part: nothing at build time relates them, so a later part
  * that retunes `--color-bg` would leave a white/blue caption bar or a flash
  * of the old colour with no error anywhere. These tests are that relation.
@@ -25,7 +27,7 @@
  *   d. app.css holds zero hex literals, fonts.css fetches nothing over the
  *      network and every url() it names exists, Barlow is gone, Inter's
  *      license is committed;
- *   e. the four out-of-CSS copies of the ground colour equal `--color-bg`;
+ *   e. the five out-of-CSS copies of the ground colour equal `--color-bg`;
  *   f. the C# host's three DWM constants equal their tokens;
  *   i. (A8) the alias block is DELETED, and every token that had to outlive
  *      it — the terminal palette, the badge table, the two font stacks, the
@@ -52,6 +54,7 @@ const APP_CSS = join(projectRoot, 'web', 'src', 'styles', 'app.css');
 const FONTS_CSS = join(projectRoot, 'web', 'src', 'styles', 'fonts.css');
 const INDEX_HTML = join(projectRoot, 'web', 'index.html');
 const MANIFEST_JSON = join(projectRoot, 'web', 'public', 'manifest.json');
+const MASCOT_MAIN = join(projectRoot, 'web', 'src', 'mascot', 'main.ts');
 const HOST_CS = join(projectRoot, 'launcher', 'host', 'AiSessionManagerHost.cs');
 const FONT_DIR = join(projectRoot, 'web', 'src', 'assets', 'fonts');
 const WEB_SRC = join(projectRoot, 'web', 'src');
@@ -370,7 +373,7 @@ test('A1 (d3): Barlow is gone and Inter ships with its license', () => {
 });
 
 // ---------------------------------------------------------------------------
-// e. the pre-bundle ground colour, in all four places it is repeated
+// e. the pre-bundle ground colour, in all five places it is repeated
 // ---------------------------------------------------------------------------
 
 test('A1 (e): index.html and manifest.json repeat --color-bg exactly (no flash of the wrong ground)', () => {
@@ -395,6 +398,14 @@ test('A1 (e): index.html and manifest.json repeat --color-bg exactly (no flash o
   const manifest = JSON.parse(read(MANIFEST_JSON)) as Record<string, unknown>;
   assert.equal(norm(String(manifest.background_color)), norm(bg), `${rel(MANIFEST_JSON)}: background_color must equal --color-bg`);
   assert.equal(norm(String(manifest.theme_color)), norm(bg), `${rel(MANIFEST_JSON)}: theme_color must equal --color-bg`);
+
+  const demoBg = /const DEMO_BG = '([^']+)';/.exec(read(MASCOT_MAIN));
+  assert.ok(demoBg, `${rel(MASCOT_MAIN)}: no \`const DEMO_BG = '…';\``);
+  assert.equal(
+    norm(demoBg[1]!),
+    norm(bg),
+    `${rel(MASCOT_MAIN)}'s DEMO_BG is the demo page's ground — that page deliberately loads none of our stylesheets, so it cannot read the token and this copy must equal --color-bg`,
+  );
 });
 
 // ---------------------------------------------------------------------------
