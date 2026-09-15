@@ -8,18 +8,21 @@
  * existing debounced fit -> ws `resize` chain tells the PTY its new cols/rows.
  * Nothing here talks to a terminal; the seam does the work.
  *
- * WHAT IS REAL AND WHAT IS NOT. The only live datum in this panel is the
- * project name in its header — the project of the FOCUSED pane's session (and
- * that session's own name when it has no project: the panel always says what
- * it is about). Everything else comes from `ui/files-mock.ts` until parts B2
+ * WHAT IS REAL AND WHAT IS NOT. The header is the only live datum in this
+ * panel: the FOCUSED session's project name, that session's own title when it
+ * has no project, and `Home` — the panel's default root until part B2 (user
+ * decision 2026-09-15) — when no session is focused or alive.
+ * Everything else comes from `ui/files-mock.ts` until parts B2
  * (`git diff --numstat`) and B3 (`git log`). No fake interaction is wired for
  * it beyond what parts A5 and A6 can honestly do: folders open and close, a
  * file row opens that file in the editor (A6, mock text), a commit row opens
  * the full commit view (A6, mock diff).
  *
- * VISIBILITY. `state.leftPanel === 'files'` is the user's wish and survives a
- * session-less moment; `st.filesPanelVisible()` adds "there is a live session"
- * and is the only thing main.ts consults.
+ * VISIBILITY. `state.leftPanel === 'files'` is the user's wish;
+ * `st.filesPanelVisible()` adds "the Projects drawer is not borrowing the left
+ * side" and is the only thing main.ts consults. A session is NOT a condition:
+ * the panel opens with nothing running and the header then reads `Home` (user
+ * decision 2026-09-15, deviates from v3, which also required a live session).
  *
  * WIDTH. 200..520px, dragged on the right edge with pointer capture, nudged
  * with the arrow keys — the same contract the pane split dividers already use,
@@ -180,16 +183,21 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     const v = st.activeView();
     const id = v === null ? undefined : v.sessions[v.focused];
     const info = id === undefined ? undefined : st.state.sessions.get(id);
-    if (info !== undefined) return st.projectName(info.projectId) ?? info.title;
-    // The focused pane's session is gone while the panel is still up: the
-    // ACTIVE view keeps its dead pane on purpose (state.ts reconcileViews), so
-    // this is a normal state, not an impossible one. A headerless tree says
-    // nothing about nothing — fall back to the first session still alive, and
-    // failing that say plainly that there is none.
+    if (info !== undefined && info.status !== 'exited') {
+      return st.projectName(info.projectId) ?? info.title;
+    }
+    // The focused pane's session is gone (absent from state, or kept there
+    // with `status === 'exited'` — state.ts markExited flips it in place and
+    // reconcileViews keeps the dead pane on purpose), so this is a normal
+    // state, not an impossible one. A headerless tree says nothing about
+    // nothing — fall back to the first session still alive.
     for (const s of st.state.sessions.values()) {
       if (s.status !== 'exited') return st.projectName(s.projectId) ?? s.title;
     }
-    return 'No session';
+    // Nothing is running: the panel's default root, the user's home directory,
+    // said as a NAME (the header rule forbids `~` and `/home/...`) until part
+    // B2 makes the panel live.
+    return 'Home';
   }
 
   function setTab(next: Tab): void {
@@ -278,7 +286,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       'p',
       'files-note',
       tab === 'files'
-        ? 'Example data until the panel reads your project.'
+        ? 'Example data until the panel reads your files.'
         : 'Example data until the panel reads your commits.',
     );
   }

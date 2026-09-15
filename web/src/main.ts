@@ -410,9 +410,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   brand.append(logo, el('div', 'wordmark', 'Session Manager'));
 
   const toggles = el('div', 'tb-toggles');
-  // Files (A5): a real toggle. It records the wish even with no session alive
-  // — the panel is about a running session, so it shows itself the moment one
-  // exists, and the button says so in its title meanwhile.
+  // Files (A5): a real toggle, and it needs no session — the panel opens on an
+  // empty app and its header reads `Home`. Only ONE left panel is on screen at
+  // a time: opening Files closes the Projects drawer, and an open Projects
+  // drawer hides Files without forgetting that the user wants it.
   const filesBtn = button('tb-btn', 'Files', () => st.toggleLeftPanel('files'));
   const projectsBtn = button('tb-btn', 'Projects', () => st.toggleDrawer('projects'));
   projectsBtn.title = 'Projects';
@@ -560,17 +561,16 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     projAside.hidden = st.state.drawer !== 'projects';
     sessAside.hidden = st.state.drawer !== 'sessions';
     const filesOn = st.state.leftPanel === 'files';
-    const filesLive = st.aliveSessionCount() > 0;
     const filesShown = st.filesPanelVisible();
     filesAside.hidden = !filesShown;
-    // `is-on` is the WISH (the filled look the reference keeps while no session
-    // runs); `aria-pressed` is what is actually ON SCREEN — a screen reader
-    // must not be told a panel is open that is not.
+    // `is-on` is the WISH (the filled look the reference keeps while the
+    // Projects drawer covers the left side); `aria-pressed` is what is actually
+    // ON SCREEN — a screen reader must not be told a panel is open that is not.
     filesBtn.classList.toggle('is-on', filesOn);
     filesBtn.setAttribute('aria-pressed', filesShown ? 'true' : 'false');
-    // The sentence belongs to the wanted-but-not-yet-shown state only: a
-    // persisted closed wish must not promise a panel that will not open.
-    filesBtn.title = filesOn && !filesLive ? 'Opens when a session is running' : 'Files';
+    // The sentence belongs to the wanted-but-hidden state only: it says where
+    // the panel went, and pressing the button brings it straight back.
+    filesBtn.title = filesOn && !filesShown ? 'Hidden while Projects is open' : 'Files';
     sessionsBtn.classList.toggle('is-on', st.state.drawer === 'sessions');
     sessionsBtn.setAttribute('aria-pressed', st.state.drawer === 'sessions' ? 'true' : 'false');
     projectsBtn.classList.toggle('is-on', st.state.drawer === 'projects');
@@ -598,6 +598,17 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   filesPanel.render();
 
   // ---- global keyboard -----------------------------------------------------
+
+  // The Files panel and the drawers can be open with no session at all, and
+  // then `requestTerminalFocus()` is a silent no-op (ui/panes.ts: no slot has
+  // a view), so closing one would drop the keyboard on <body> and typing would
+  // go nowhere until the next window activation — hand it to a visible control.
+  function handBackKeyboard(fallback: HTMLElement): void {
+    requestTerminalFocus();
+    const a = document.activeElement;
+    if (a === null || a === document.body) fallback.focus();
+  }
+
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && !e.metaKey && !e.getModifierState('AltGraph')) {
       const k = e.key;
@@ -683,11 +694,14 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         requestTerminalFocus();
       } else if (st.state.drawer !== null && focusInOrFree(projAside, sessAside)) {
         e.preventDefault();
+        const wasProjects = st.state.drawer === 'projects';
         st.closeDrawer();
         // The surface that held the focus just went away; without this the
         // focus falls to <body> and typing goes nowhere until the next window
-        // activation.
-        requestTerminalFocus();
+        // activation. With no session (the Files panel is up from the first
+        // paint, so an empty app reaches this arm) the drawer's own toggle
+        // takes the keyboard.
+        handBackKeyboard(wasProjects ? projectsBtn : sessionsBtn);
       } else if (
         st.state.leftPanel !== null &&
         document.activeElement !== null &&
@@ -697,7 +711,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
         // particular must not make the Files panel disappear under the user.
         e.preventDefault();
         st.toggleLeftPanel('files');
-        requestTerminalFocus();
+        handBackKeyboard(filesBtn);
       }
     }
   });

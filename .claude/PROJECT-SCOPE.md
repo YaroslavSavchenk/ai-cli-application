@@ -518,16 +518,26 @@ multi-pane layouts on top.
   (summary row, tree with folder icons and per-extension badges, per-file
   +/-, amber pulse on files being edited and their ancestor folders) and
   Commits (message, hash, author, relative time, +/-); header shows the
-  focused session's project name. Resizable 200–520 px by its right edge
-  (pointer, arrow keys, home/enter/double-click resets to 300). Shown when
-  the wish is on AND a session is alive (auto-opens with the first
-  session); the Files toggle closes the Projects drawer when it opens
-  (v3 semantics); Esc closes it only when focus is inside it and hands the
-  keyboard back to the terminal. It is NOT a keyboard owner: an open Files
-  panel never blocks the window-activation refocus of the terminal
+  focused session's project name (its title when it has no project); when
+  the focused session has exited, the first session still alive anywhere;
+  `Home` when nothing is alive. Resizable 200–520 px by its right edge (pointer, arrow keys,
+  home/enter/double-click resets to 300). Shown whenever the wish is on
+  and the Projects drawer is closed — a session is NOT a condition (user
+  decision 2026-09-15, deviates from v3's `alive.length > 0`: the panel is
+  up from the first paint, "you always start at home"). Only ONE left
+  panel at a time (user decision 2026-09-15, deviates from v3): the Files
+  toggle closes the Projects drawer when it opens, the Projects drawer
+  HIDES Files while it is open without touching the wish (Files returns
+  when it closes), and pressing Files while hidden behind Projects closes
+  Projects and shows Files. Esc closes it only when focus is inside it and
+  hands the keyboard back to the terminal (with no terminal, to a visible
+  control, never `<body>`). It is NOT a keyboard owner: an open Files panel
+  never blocks the window-activation refocus of the terminal
   (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2/B3 land, each tab
   carries one quiet "Example data until the panel reads your …" line —
-  the data is placeholder, the project name is real. Sessions panel
+  the data is placeholder, the header name is real (a project, a session
+  title, or `Home`). The panel's future shape (file browser rooted at home,
+  Changes tab, drop target) is plan decision 11 + parts A9/B10. Sessions panel
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
   "Side by side", "Continue" / "Start again", armed "End" / "Forget".
   Since Nocturne A6 (2026-09-13) the commit rows and the tree's file rows

@@ -11,9 +11,10 @@
  *      mock module is replaced by `git diff --numstat`, and every rule below
  *      still has to hold.
  *   2. `web/src/state.ts` — the width clamp (200..520), the toggle semantics
- *      (opening Files closes the Projects drawer; a drawer never touches
- *      Files) and the visibility rule (`leftPanel === 'files'` AND a session
- *      that has not exited).
+ *      (opening Files closes the Projects drawer; a drawer never writes the
+ *      wish) and the visibility rule (`leftPanel === 'files'` AND the Projects
+ *      drawer is not open — only ONE left panel at a time, and no session is
+ *      required; user decision 2026-09-15, deviates from v3).
  *
  * The mock module is checked too, but only for the things that would make the
  * panel lie about itself: it must carry the numbers the summary row prints and
@@ -312,21 +313,60 @@ test('toggling Files leaves the SESSIONS drawer alone (it is on the other side)'
   assert.equal(st.state.drawer, 'sessions');
 });
 
-test('toggling a drawer never touches the Files panel (v3: only Files closes Projects)', () => {
+test('a drawer never touches the WISH — but Projects HIDES Files while it is open', () => {
+  // User decision 2026-09-15: only one left panel at a time. Projects borrows
+  // the left side; it does not take the wish with it, so closing it gives the
+  // user their default panel back instead of costing them one.
   st.state.leftPanel = 'files';
   st.toggleDrawer('projects');
   assert.equal(st.state.drawer, 'projects');
   assert.equal(st.state.leftPanel, 'files', 'the wish survives; the layout is the user`s to make');
+  assert.equal(st.filesPanelVisible(), false, 'two left panels at once is what this forbids');
+
+  st.closeDrawer();
+  assert.equal(st.state.leftPanel, 'files');
+  assert.equal(st.filesPanelVisible(), true, 'closing Projects brings Files back by itself');
+
   st.toggleDrawer('sessions');
   assert.equal(st.state.leftPanel, 'files');
+  assert.equal(st.filesPanelVisible(), true, 'the Sessions drawer is on the other side');
   st.closeDrawer();
   assert.equal(st.state.leftPanel, 'files');
 });
 
-test('visibility = the user wants it AND a session is alive', () => {
+test('openDrawer(projects) hides Files exactly like the toggle does', () => {
   st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  st.openDrawer('projects');
+  assert.equal(st.filesPanelVisible(), false);
+  assert.equal(st.state.leftPanel, 'files', 'and it never writes the wish');
+  st.openDrawer('projects');
+  assert.equal(st.filesPanelVisible(), false, 'opening it twice is still once');
+  st.closeDrawer();
+  assert.equal(st.filesPanelVisible(), true);
+});
+
+test('pressing Files while it is hidden behind Projects SHOWS it (wish kept)', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = 'projects';
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.drawer, null, 'the drawer that was covering it steps aside');
+  assert.equal(st.state.leftPanel, 'files', 'the wish is never flipped off by a button the user cannot see');
+  assert.equal(st.filesPanelVisible(), true);
+
+  // And from there the same button still closes it.
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, null);
+  assert.equal(st.filesPanelVisible(), false);
+});
+
+test('visibility = the user wants it AND Projects is not covering the left side', () => {
+  // No session is involved: user decision 2026-09-15 dropped that condition,
+  // so the panel is up on an empty app (its header then reads Home).
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
   assert.equal(st.aliveSessionCount(), 0);
-  assert.equal(st.filesPanelVisible(), false, 'nothing to be about yet');
+  assert.equal(st.filesPanelVisible(), true, 'the panel opens with nothing running');
 
   st.initServer([], [mkSession('s1')]);
   assert.equal(st.aliveSessionCount(), 1);
@@ -336,13 +376,13 @@ test('visibility = the user wants it AND a session is alive', () => {
   assert.equal(st.filesPanelVisible(), false, 'closed is closed, session or no session');
 });
 
-test('an EXITED session does not keep the panel open, and the toggle still records the wish', () => {
+test('an EXITED session does not close the panel, and the toggle still records the wish', () => {
   st.initServer([], [mkSession('s1', 'exited'), mkSession('s2', 'exited')]);
-  assert.equal(st.aliveSessionCount(), 0);
+  assert.equal(st.aliveSessionCount(), 0, 'non-vacuity: nothing is alive');
   st.state.leftPanel = null;
   st.toggleLeftPanel('files');
   assert.equal(st.state.leftPanel, 'files', 'the button always answers');
-  assert.equal(st.filesPanelVisible(), false, 'but the panel stays away until something runs');
+  assert.equal(st.filesPanelVisible(), true, 'and the panel it opens stays open');
 });
 
 test('the panel starts WANTED, so it appears by itself with the first session', () => {
@@ -583,14 +623,43 @@ test('setFilesWidth notifies the chrome on a COMMIT and stays silent during the 
   assert.deepEqual(kinds, ['panel'], 'committing is the default');
 });
 
-test('toggleLeftPanel: closing Files leaves the Projects drawer alone', () => {
+test('toggleLeftPanel: closing Files leaves every drawer alone', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = 'sessions';
+  kinds.length = 0;
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, null);
+  assert.equal(st.state.drawer, 'sessions', 'closing Files is not a layout change on the left');
+  assert.deepEqual(kinds, ['panel']);
+});
+
+test('toggleLeftPanel: pressing Files while Projects covers it announces both changes', () => {
+  // The wish is already 'files', so nothing about it changes — what the press
+  // does is take the left side back, and both halves of that are announced.
   st.state.leftPanel = 'files';
   st.state.drawer = 'projects';
   kinds.length = 0;
   st.toggleLeftPanel('files');
-  assert.equal(st.state.leftPanel, null);
-  assert.equal(st.state.drawer, 'projects', 'only OPENING Files takes the left side');
-  assert.deepEqual(kinds, ['panel']);
+  assert.deepEqual(kinds, ['drawer', 'panel']);
+  assert.equal(st.state.leftPanel, 'files');
+  assert.equal(st.state.drawer, null);
+});
+
+test('a drawer change is ONE notify: main.ts re-renders the chrome on every kind', () => {
+  // Hiding and showing the Files panel through the Projects drawer needs no
+  // extra 'panel' notify — main.ts subscribes one kind-agnostic listener that
+  // runs updateChrome() and filesPanel.render() for any change.
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  kinds.length = 0;
+  st.toggleDrawer('projects');
+  assert.deepEqual(kinds, ['drawer']);
+  kinds.length = 0;
+  st.closeDrawer();
+  assert.deepEqual(kinds, ['drawer']);
+  kinds.length = 0;
+  st.openDrawer('projects');
+  assert.deepEqual(kinds, ['drawer']);
 });
 
 test('toggleLeftPanel: opening Files over the Projects drawer announces both changes', () => {
@@ -619,7 +688,8 @@ test('toggleLeftPanel: over the Sessions drawer it is one change too (other side
   assert.equal(st.state.drawer, 'sessions');
 });
 
-test('aliveSessionCount counts what has not exited, and the panel follows it', () => {
+test('aliveSessionCount counts what has not exited — and the panel no longer follows it', () => {
+  st.state.drawer = null;
   st.initServer([], [mkSession('a'), mkSession('b', 'exited'), mkSession('c')]);
   assert.equal(st.aliveSessionCount(), 2);
   st.state.leftPanel = 'files';
@@ -627,10 +697,107 @@ test('aliveSessionCount counts what has not exited, and the panel follows it', (
 
   st.state.sessions = new Map([['b', mkSession('b', 'exited')]]);
   assert.equal(st.aliveSessionCount(), 0);
-  assert.equal(st.filesPanelVisible(), false, 'the last live session leaving takes the panel with it');
+  assert.equal(
+    st.filesPanelVisible(),
+    true,
+    'the last live session leaving does NOT take the panel with it (user decision 2026-09-15)',
+  );
 
   st.state.sessions = new Map();
   st.state.leftPanel = null;
   st.initServer([], [mkSession('d')]);
   assert.equal(st.filesPanelVisible(), false, 'a live session does not re-open a panel the user closed');
+});
+
+// ---------------------------------------------------------------------------
+// The left side, closed: the states a wrong `opening` clause or a stray
+// saveUi() would break. Added by the test gate (2026-09-15).
+// ---------------------------------------------------------------------------
+
+test('toggleDrawer(projects) twice is a round trip: Files is hidden, then back, wish untouched', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  assert.equal(st.filesPanelVisible(), true, 'non-vacuity: it starts on screen');
+
+  st.toggleDrawer('projects');
+  assert.equal(st.state.drawer, 'projects');
+  assert.equal(st.filesPanelVisible(), false);
+
+  st.toggleDrawer('projects');
+  assert.equal(st.state.drawer, null, 'the same button closes what it opened');
+  assert.equal(st.state.leftPanel, 'files', 'and the wish rode through both presses');
+  assert.equal(st.filesPanelVisible(), true, 'peeking at Projects never costs the user their panel');
+});
+
+test('toggleLeftPanel: with NO drawer open the Files button still CLOSES Files', () => {
+  // Regression guard for the `|| state.drawer === 'projects'` clause in
+  // `opening`: widen it by a character and the panel becomes unclosable.
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, null, 'the toggle is still a toggle');
+  assert.equal(st.state.drawer, null);
+  assert.equal(st.filesPanelVisible(), false);
+
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, 'files', 'and it opens again from there');
+  assert.equal(st.filesPanelVisible(), true);
+});
+
+test('toggleLeftPanel over the SESSIONS drawer closes Files and leaves the drawer standing', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = 'sessions';
+  assert.equal(st.filesPanelVisible(), true, 'non-vacuity: the two share the screen');
+  st.toggleLeftPanel('files');
+  assert.equal(st.state.leftPanel, null, 'only PROJECTS makes a press mean "show me"');
+  assert.equal(st.state.drawer, 'sessions');
+  assert.equal(st.filesPanelVisible(), false);
+});
+
+test('a persisted closed wish survives loadUi — and Projects opening and closing never opens it', () => {
+  memoryStorage.setItem(
+    'ai-sm:ui:v2',
+    JSON.stringify({ views: [], active: null, leftPanel: null, filesWidth: 420 }),
+  );
+  st.loadUi();
+  assert.equal(st.state.leftPanel, null, 'a literal null is the user closing it');
+  assert.equal(st.state.filesWidth, 420, 'non-vacuity: the same bag was really read');
+  assert.equal(st.filesPanelVisible(), false);
+
+  st.toggleDrawer('projects');
+  assert.equal(st.filesPanelVisible(), false);
+  st.toggleDrawer('projects');
+  assert.equal(st.state.drawer, null);
+  assert.equal(st.state.leftPanel, null, 'the drawer path never invents a wish');
+  assert.equal(st.filesPanelVisible(), false, 'closed stays closed with the left side free');
+});
+
+test('the drawer path does not WRITE the wish: no saveUi on open, close or openDrawer', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  st.saveUi();
+  const written = JSON.parse(memoryStorage.getItem('ai-sm:ui:v2') as string) as Record<string, unknown>;
+  assert.equal(written.leftPanel, 'files', 'non-vacuity: saveUi really wrote the wish');
+  // A key saveUi never emits: any re-write by the drawer path erases it.
+  memoryStorage.setItem('ai-sm:ui:v2', JSON.stringify({ ...written, gateMark: 'drawer-path' }));
+
+  st.toggleDrawer('projects');
+  st.closeDrawer();
+  st.openDrawer('projects');
+  st.closeDrawer();
+
+  const after = JSON.parse(memoryStorage.getItem('ai-sm:ui:v2') as string) as Record<string, unknown>;
+  assert.equal(after.gateMark, 'drawer-path', 'storage was not rewritten, so saveUi was not called');
+  assert.equal(after.leftPanel, 'files');
+  assert.equal(st.state.leftPanel, 'files');
+  assert.equal(st.filesPanelVisible(), true);
+});
+
+test('toggleLeftPanel DOES persist the wish (the counterweight to the drawer path)', () => {
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  st.saveUi();
+  st.toggleLeftPanel('files');
+  const after = JSON.parse(memoryStorage.getItem('ai-sm:ui:v2') as string) as Record<string, unknown>;
+  assert.equal(after.leftPanel, null, 'closing the panel is the user speaking, and it survives a reload');
 });

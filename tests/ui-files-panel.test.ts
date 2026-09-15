@@ -72,6 +72,8 @@ interface StateModule {
   FILES_W_MAX: number;
   FILES_W_DEFAULT: number;
   setSessions(list: SessionInfo[]): void;
+  markExited(id: string, exitCode: number): void;
+  aliveSessionCount(): number;
   setProjects(list: Project[]): void;
   subscribe(fn: (kind: string) => void): void;
   toggleLeftPanel(p: 'files'): void;
@@ -296,11 +298,76 @@ test('double-clicking the grip resets the width', () => {
 // What it renders
 // ---------------------------------------------------------------------------
 
-test('with no live session the panel renders nothing at all', () => {
+test('with no session at all the panel is still up, headed Home', () => {
+  // User decision 2026-09-15: the Files panel no longer waits for a session.
   st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  panel.render();
+  assert.equal(st.filesPanelVisible(), true);
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home', 'a name, never a path');
+  assert.ok(byClass(root, 'files-row').length >= 10, 'and the tree is really drawn');
+});
+
+test('exited sessions with no pane of their own leave the header on Home', () => {
+  // Added by the test gate (2026-09-15). `setSessions([])` is not the only
+  // empty world: sessions that ENDED stay in state (state.ts markExited keeps
+  // them and their pane). With no view focused, the alive-scan finds nothing.
+  st.setProjects([project('p1', 'api')]);
+  st.setSessions([
+    mkSession('s1', { projectId: 'p1', status: 'exited' }),
+    mkSession('s2', { title: 'notes', status: 'exited' }),
+  ]);
+  st.state.views = [];
+  st.state.activeViewId = '';
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  panel.render();
+  assert.equal(st.filesPanelVisible(), true, 'no session is a condition any more');
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home', 'nothing alive, so nothing to name');
+  assert.ok(byClass(root, 'files-row').length >= 10, 'and the tree is drawn all the same');
+});
+
+test('a focused pane whose session EXITED, with nothing else alive, is headed Home', () => {
+  // Added by the test gate (2026-09-15). The real path: state.ts markExited
+  // flips status in place and reconcileViews KEEPS the dead pane, so after the
+  // last session quits the focused pane still points at an exited session.
+  // Until this change the panel was hidden in exactly that state; now it is on
+  // screen, and the brief says the header reads `Home` when nothing is alive.
+  st.setProjects([project('p1', 'api')]);
+  st.setSessions([mkSession('s1', { projectId: 'p1' })]);
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  panel.render();
+  assert.equal(textsOf(root, 'files-proj')[0], 'api', 'non-vacuity: it starts on the live one');
+
+  st.markExited('s1', 0);
+  panel.render();
+  assert.equal(st.filesPanelVisible(), true, 'the panel survives the exit');
+  assert.equal(st.aliveSessionCount(), 0, 'non-vacuity: nothing is running');
+  assert.equal(
+    textsOf(root, 'files-proj')[0],
+    'Home',
+    'a dead session is not what a mock file tree is about',
+  );
+});
+
+test('the Projects drawer takes the left side, and closing it gives the panel back', () => {
+  liveSession();
+  assert.equal(textsOf(root, 'files-proj')[0], 'api', 'non-vacuity: the panel is up');
+
+  // Projects opens: only one left panel at a time. The panel stops rebuilding
+  // (the chrome hides its aside) but nothing about the wish is written.
+  st.state.drawer = 'projects';
+  st.setProjects([project('p1', 'renamed')]);
   panel.render();
   assert.equal(st.filesPanelVisible(), false);
-  assert.equal(body.children.length, 0, 'no tree is built for a session that does not exist');
+  assert.equal(st.state.leftPanel, 'files', 'the drawer never writes the wish');
+  assert.equal(textsOf(root, 'files-proj')[0], 'api', 'a hidden panel does not rebuild itself');
+
+  st.state.drawer = null;
+  panel.render();
+  assert.equal(st.filesPanelVisible(), true, 'closing Projects brings Files back by itself');
+  assert.equal(textsOf(root, 'files-proj')[0], 'renamed', 'and it repaints what it missed');
 });
 
 test('a live session fills the panel: the summary the model computes, then the tree', () => {
@@ -381,12 +448,16 @@ test('a dead focused pane does not blank the header — it names what is left, o
   assert.equal(st.filesPanelVisible(), true, 'non-vacuity: the panel is still up');
   assert.equal(textsOf(root, 'files-proj')[0], 'notes', 'the first session still alive');
 
-  // The last rung. With nothing alive the chrome hides the panel entirely
-  // (`filesPanelVisible()` is the same "is anything running" question), so it
-  // cannot be reached through render() — it is the guard that keeps the header
-  // from ever being empty, and it must stay a sentence rather than ''.
+  // The last rung. Since the panel no longer needs a session (user decision
+  // 2026-09-15) this state is on screen, not theoretical: the header falls
+  // back to the panel's default root, said as a NAME.
+  st.setSessions([]);
+  panel.render();
+  assert.equal(st.filesPanelVisible(), true, 'the panel survives the last session');
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home');
+
   const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
-  assert.match(src, /return 'No session';/);
+  assert.match(src, /return 'Home';/);
   assert.equal(/return '';/.test(src), false, 'a blank header is never an answer');
 });
 
@@ -481,7 +552,7 @@ test('both tabs say, quietly and first, that what is under them is not the real 
   // that from reading as a report about their files.
   liveSession();
   assert.deepEqual(textsOf(root, 'files-note'), [
-    'Example data until the panel reads your project.',
+    'Example data until the panel reads your files.',
   ]);
   assert.equal(
     (body.children[0] as FakeElement).classList.contains('files-note'),
@@ -693,6 +764,23 @@ test('the chrome hides the panel through filesPanelVisible(), never through the 
   assert.match(MAIN, /filesBtn\.classList\.toggle\('is-on', filesOn\);/);
 });
 
+test('the button title names the ONE state the panel is wanted but not on screen', () => {
+  // User decision 2026-09-15: no session is required any more, so the only way
+  // a wanted panel is off screen is the Projects drawer standing in its place.
+  // Source-read, like the rest of this block: main.ts imports @xterm/xterm, so
+  // there is no DOM harness that can run updateChrome() under `node --test`.
+  assert.match(
+    MAIN,
+    /filesBtn\.title = filesOn && !filesShown \? 'Hidden while Projects is open' : 'Files';/,
+  );
+  assert.equal(
+    MAIN.includes('Opens when a session is running'),
+    false,
+    'the old sentence promised a panel that now needs no session',
+  );
+  assert.equal(MAIN.includes('filesLive'), false, 'and the alive-session read it hung on is gone');
+});
+
 test('Escape closes the panel only when the focus is inside it', () => {
   const from = MAIN.indexOf("e.key === 'Escape'");
   assert.notEqual(from, -1, 'non-vacuity: the Escape branch was found');
@@ -713,8 +801,28 @@ test('Escape hands the keyboard back to the terminal, in BOTH branches that clos
   const drawerArm = arms.find((a) => a.includes('st.closeDrawer();'));
   const filesArm = arms.find((a) => a.includes("st.toggleLeftPanel('files');"));
   assert.ok(drawerArm !== undefined && filesArm !== undefined, 'non-vacuity: both arms were found');
-  assert.match(drawerArm, /st\.closeDrawer\(\);[\s\S]*requestTerminalFocus\(\);/);
-  assert.match(filesArm, /st\.toggleLeftPanel\('files'\);[\s\S]*requestTerminalFocus\(\);/);
+  assert.match(
+    drawerArm,
+    /st\.closeDrawer\(\);[\s\S]*handBackKeyboard\(wasProjects \? projectsBtn : sessionsBtn\);/,
+  );
+  // The Files arm goes through `handBackKeyboard`, which calls
+  // requestTerminalFocus() and, when no terminal took the key (the panel is
+  // reachable with no session at all), focuses a visible control instead.
+  assert.match(filesArm, /st\.toggleLeftPanel\('files'\);[\s\S]*handBackKeyboard\(filesBtn\);/);
+  assert.match(
+    MAIN,
+    /function handBackKeyboard\(fallback: HTMLElement\): void \{[\s\S]*requestTerminalFocus\(\);[\s\S]*fallback\.focus\(\);/,
+  );
+  // The GUARD, not just the call. main.ts bootstraps the whole app on import
+  // and `handBackKeyboard` is a closure-local, so no DOM harness can reach it
+  // and this source pin is the only thing standing between the helper and an
+  // inverted condition — which would steal the keyboard back FROM a terminal
+  // that did take it, the exact bug the helper exists to avoid. Measured: with
+  // `a !== null && a !== document.body` the whole suite stayed green.
+  assert.match(
+    MAIN,
+    /const a = document\.activeElement;\s*\n\s*if \(a === null \|\| a === document\.body\) fallback\.focus\(\);/,
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -45,9 +45,14 @@ export type Zone = 'left' | 'right' | 'top' | 'bottom' | 'fill';
 export type L3 = 'L' | 'R';
 export type DrawerView = 'sessions' | 'projects' | null;
 /**
- * The LEFT panel (Nocturne A5). It is not a drawer: it has its own toggle, its
- * own width, and it is only VISIBLE while a session is alive — `null` means
- * the user closed it.
+ * The LEFT panel (Nocturne A5). It is not a drawer: it has its own toggle and
+ * its own width. `null` means the user closed it; `'files'` means the user
+ * wants it, and it is on screen unless the Projects drawer is borrowing the
+ * left side (`filesPanelVisible()` is the whole rule).
+ *
+ * A session is NOT a condition: the panel opens with nothing running, and its
+ * header then reads `Home` (user decision 2026-09-15, deviates from v3, whose
+ * rule was `leftPanel === 'files' && alive.length > 0`).
  */
 export type LeftPanel = 'files' | null;
 /**
@@ -102,8 +107,9 @@ interface AppState {
   drawer: DrawerView;
   /**
    * Which left panel the user wants (Nocturne A5). Defaults to 'files', so the
-   * panel APPEARS by itself the first time a session runs (README-v3: "auto-opens
-   * when a session runs") — `filesPanelVisible()` is the whole rule.
+   * panel is up from the first paint — with or without a session.
+   * `filesPanelVisible()` is the whole rule; opening the Projects drawer hides
+   * the panel without touching this wish, so closing the drawer brings it back.
    */
   leftPanel: LeftPanel;
   /** Files panel width in px, FILES_W_MIN..FILES_W_MAX (drag its right edge). */
@@ -918,6 +924,15 @@ export function attentionCount(): number {
   return n;
 }
 
+/**
+ * Toggle a drawer. Opening 'projects' HIDES the Files panel for as long as it
+ * is open (`filesPanelVisible()`), and closing it brings Files back — the wish
+ * itself is never written here, so peeking at Projects can never cost the user
+ * their default panel. One `'drawer'` notify is enough for both: main.ts
+ * subscribes ONE kind-agnostic listener that runs `updateChrome()` and
+ * `filesPanel.render()` on every change, so a second `'panel'` notify would
+ * only rebuild the same chrome twice.
+ */
 export function toggleDrawer(view: Exclude<DrawerView, null>): void {
   state.drawer = state.drawer === view ? null : view;
   notify('drawer');
@@ -932,13 +947,18 @@ export function openDrawer(view: Exclude<DrawerView, null>): void {
 }
 
 /**
- * Toggle the Files panel. Opening it CLOSES the projects drawer (v3
- * semantics): both live on the left, and two left panels at once leaves the
- * terminal — the hero — a strip. Closing Files leaves every drawer alone, and
- * so does toggling a drawer.
+ * Toggle the Files panel. Opening it CLOSES the projects drawer: both live on
+ * the left, and two left panels at once leaves the terminal — the hero — a
+ * strip. Only ONE left panel is ever on screen (user decision 2026-09-15,
+ * deviates from v3, which let the two sit side by side).
+ *
+ * That is why "opening" is not just `leftPanel !== panel`: while Projects is
+ * covering a wanted Files panel, the button the user presses must SHOW Files
+ * (close Projects, keep the wish) rather than flip a wish they cannot see off.
+ * Closing Files leaves every drawer alone.
  */
 export function toggleLeftPanel(panel: Exclude<LeftPanel, null>): void {
-  const opening = state.leftPanel !== panel;
+  const opening = state.leftPanel !== panel || state.drawer === 'projects';
   state.leftPanel = opening ? panel : null;
   if (opening && state.drawer === 'projects') {
     state.drawer = null;
@@ -965,7 +985,7 @@ export function setFilesWidth(px: number, commit = true): number {
   return w;
 }
 
-/** Sessions that have not exited — the v3 `alive` list, used by the panel rule. */
+/** Sessions that have not exited — the v3 `alive` list. */
 export function aliveSessionCount(): number {
   let n = 0;
   for (const s of state.sessions.values()) if (s.status !== 'exited') n += 1;
@@ -973,12 +993,16 @@ export function aliveSessionCount(): number {
 }
 
 /**
- * Is the Files panel on screen: the user wants it AND there is something for
- * it to be about. With no live session it stays hidden, and its toggle still
- * records the wish (v3: `leftPanel === 'files' && alive.length > 0`).
+ * Is the Files panel on screen: the user wants it AND the Projects drawer is
+ * not borrowing the left side. A session is not part of the question — the
+ * panel opens with nothing running and its header says `Home` (user decision
+ * 2026-09-15, deviates from v3's `leftPanel === 'files' && alive.length > 0`).
+ *
+ * The drawer hides it without touching the wish, so closing Projects brings
+ * the panel back by itself.
  */
 export function filesPanelVisible(): boolean {
-  return state.leftPanel === 'files' && aliveSessionCount() > 0;
+  return state.leftPanel === 'files' && state.drawer !== 'projects';
 }
 
 // --------------------------------------------------------------------------
