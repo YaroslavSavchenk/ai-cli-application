@@ -53,3 +53,6 @@ installer/payload/
 
 # Personal Claude Code hook scripts (referenced from settings.local.json)
 .claude/hooks/
+
+# agent worktrees (Claude Code isolation)
+.claude/worktrees/
