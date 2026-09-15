@@ -29,7 +29,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   FakeElement,
@@ -48,7 +48,10 @@ type Model = InstanceType<typeof MascotModel>;
 type View = InstanceType<typeof MascotView>;
 
 const REPO = new URL('..', import.meta.url);
-const README = readFileSync(fileURLToPath(new URL('design_handoff_claude_peek_mascot/README.md', REPO)), 'utf8');
+// The handoff is a local design asset, excluded from git (.git/info/exclude,
+// like design_handoff_session_manager) — the keyframe parity test skips
+// where it is absent (CI) instead of failing the whole file at import.
+const README_PATH = fileURLToPath(new URL('design_handoff_claude_peek_mascot/README.md', REPO));
 const CSS = readFileSync(fileURLToPath(new URL('web/src/mascot/mascot.css', REPO)), 'utf8');
 
 // ---------------------------------------------------------------------------
@@ -533,8 +536,12 @@ test('destroy takes the whole stage out of the page', () => {
 // The stylesheet against the handoff
 // ---------------------------------------------------------------------------
 
-test('every keyframe block is the handoff\'s, character for character', () => {
-  const wanted = README.split('\n').filter((l) => l.startsWith('@keyframes'));
+test('every keyframe block is the handoff\'s, character for character', (t) => {
+  if (!existsSync(README_PATH)) {
+    t.skip('design_handoff_claude_peek_mascot/README.md is not present (local design asset, excluded from git) — keyframe parity cannot be checked here');
+    return;
+  }
+  const wanted = readFileSync(README_PATH, 'utf8').split('\n').filter((l) => l.startsWith('@keyframes'));
   const shipped = CSS.split('\n').filter((l) => l.startsWith('@keyframes'));
   assert.equal(wanted.length, 10, 'the handoff lists ten');
   for (const line of wanted) {
