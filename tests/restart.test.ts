@@ -3080,7 +3080,10 @@ test('a PTY session never inherits the handoff variables — they describe the B
     await createSession(server, {
       cwd: '/tmp',
       command: 'bash',
-      args: ['-lc', `env > ${envFile}; sleep 30`],
+      // Written under a temporary name and renamed: the redirection creates
+      // the file before `env` has written a byte, and the poll below would
+      // otherwise read an empty file on a loaded runner (CI run 61).
+      args: ['-lc', `env > ${envFile}.tmp && mv ${envFile}.tmp ${envFile}; sleep 30`],
       title: 'env-probe',
       cols: 80,
       rows: 24,
