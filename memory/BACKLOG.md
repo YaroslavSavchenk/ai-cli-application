@@ -245,6 +245,46 @@ buried in `server.log`.
   page / open the updater directly, and whether a "hide until the next
   Claude Code version" dismissal is wanted.
 
+## Engineering-quality debt (from the 2026-09-15 honest score, 7/10)
+
+Named by the orchestrator when the user asked for a critical score; the
+user asked for them on the list. None is urgent; each is a janitor-sized
+pass or a test-engineer brief, not a feature.
+
+- [ ] **Split the colossi**: `tests/restart.test.ts` (3993 lines) into
+  preflight / standby handoff / installed-mode / env files;
+  `web/src/state.ts` (1810) into views+slots, tabs, persistence (v2 bag),
+  editor tabs; `tests/ui-state.test.ts` (1740) follows the split. Behaviour
+  identical, suite count identical, one commit per split.
+- [ ] **Text pins → behaviour pins**: an inventory of tests that assert on
+  prose or config text (regexes over workflow YAML in
+  `release-workflow.test.ts`, "sentence X is in the scope doc", copy
+  strings in `ui-copy-separators`) and, per case, either keep it as a
+  deliberate contract test (documented why) or replace it with a test of
+  the behaviour the text describes. Goal: a refactor of wording never
+  needs a test edit unless the promise changed.
+- [ ] **Control-byte guard before commit**: raw NUL bytes reached
+  `editor-pane.ts` twice (A10, A10b); the suite catches them but only at
+  test time. Add a `pre-commit` hook (or a `npm run check:bytes` step in
+  `verify.yml`'s check job) that greps staged text files for bytes < 0x20
+  outside tab/LF/CR, so the blob never enters a WIP branch at all.
+- [ ] **Mock data out of production code**: `files-mock.ts` and the 43
+  mock markers across `state.ts`, `files.ts`, `commit-*.ts`,
+  `drop-*.ts`, `settings.ts` exist because B2/B3 are not live yet. When
+  B2/B3 land, delete the mock module and every marker in the same change;
+  until then, a test asserts the count only goes DOWN.
+- [ ] **Scrollback replay on a pane-count change** (A10 cost, seen at
+  ~1 MB per terminal in the A10b verify): re-attach only the slots whose
+  pane geometry actually changed, or cap the replay to the visible
+  viewport plus a bounded tail with the rest fetched on scroll.
+- [ ] **Editor panes across a reload**: persist `EditorSlot` tabs in the v2
+  bag (planned for B4; noted here so the reload check in verify-terminal
+  stops being a known miss).
+- [ ] **Second-machine smoke**: the app has only ever run on the author's
+  machine. One run of Setup.exe + launch + a claude session on a clean
+  Windows VM (fresh WSL distro, default Node absent), documented as a
+  release-checklist step.
+
 ## Queued ideas (not decided)
 
 - Persist the verify-terminal CDP driver (Playwright's bare Chromium `~/.cache/ms-playwright/chromium-1228` + `ws`, `libnspr4`/`libnss3` unpacked locally, force a tiny `Page.captureScreenshot` before reading `.xterm-rows` because headless throttles rAF, clear `DevToolsActivePort`/`SingletonLock` before relaunch, `top` for `htop`) under `scripts/` so each part's gate stops rebuilding it from scratch — three sessions have now written it into a throwaway scratch dir (A3, A4b, A8).
