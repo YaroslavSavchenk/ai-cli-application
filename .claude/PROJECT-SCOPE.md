@@ -517,7 +517,11 @@ multi-pane layouts on top.
   refits every pane through the one fit → ws resize seam. Tabs Files
   (summary row, tree with folder icons and per-extension badges, per-file
   +/-, amber pulse on files being edited and their ancestor folders) and
-  Commits (message, hash, author, relative time, +/-); header shows the
+  Commits (message, hash, author, relative time, +/-; DISABLED with the
+  title "No repository at Home" while the header reads `Home`, the panel
+  falling back to Files — user decision 2026-09-15, part A11; a session
+  without a project keeps the mock until B3 decides repo detection);
+  header shows the
   focused session's project name (its title when it has no project); when
   the focused session has exited, the first session still alive anywhere;
   `Home` when nothing is alive. Resizable 200–520 px by its right edge (pointer, arrow keys,

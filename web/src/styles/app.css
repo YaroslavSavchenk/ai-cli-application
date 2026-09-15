@@ -1542,13 +1542,21 @@ select:focus-visible,
   font-size: 13px;
 }
 
-.files-tab:hover {
+.files-tab:hover:not(:disabled) {
   color: var(--color-text);
 }
 
 .files-tab.is-on {
   border-bottom-color: var(--color-accent);
   color: var(--color-text);
+}
+
+/* no repository behind the panel (`Home`): the same disabled look the modal
+   tabs already wear (.ap-tab:disabled) — dimmer text, no pointer promise, and
+   no hover or focus state that would suggest it still leads anywhere */
+.files-tab:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
 }
 
 /* what the panel is about: the project's NAME, never its path */

@@ -457,7 +457,9 @@ test('a dead focused pane does not blank the header — it names what is left, o
   assert.equal(textsOf(root, 'files-proj')[0], 'Home');
 
   const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
-  assert.match(src, /return 'Home';/);
+  // A11 turned the lookup into one `subject()` the header and `repoKnown()`
+  // both read; the constant it falls back to is still the guard here.
+  assert.match(src, /name: 'Home', home: true/);
   assert.equal(/return '';/.test(src), false, 'a blank header is never an answer');
 });
 
@@ -602,6 +604,93 @@ test('the Commits tab swaps the body and hides the summary; both tabs say which 
   files.click();
   assert.equal(summary.hidden, false);
   assert.ok(byClass(root, 'files-row').length > 0, 'and the tree comes back');
+});
+
+// ---------------------------------------------------------------------------
+// The Commits tab at Home (Nocturne A11)
+// ---------------------------------------------------------------------------
+
+test('with nothing alive there is no repository, so the Commits tab is not viewable', () => {
+  // User decision 2026-09-15: the panel is up from the first paint, headed
+  // `Home` — and a home folder is not a repository, so a commit list there
+  // would be a view on nothing.
+  st.state.leftPanel = 'files';
+  st.state.drawer = null;
+  panel.render();
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home', 'non-vacuity: this is the Home state');
+
+  const commits = byKey(root, 'ftab:commits') as FakeElement;
+  const files = byKey(root, 'ftab:files') as FakeElement;
+  assert.equal(commits.disabled, true, 'really disabled, not merely dimmed');
+  assert.equal(commits.getAttribute('aria-disabled'), 'true');
+  assert.equal(commits.title, 'No repository at Home', 'and it says why, on hover and aloud');
+  assert.equal(files.disabled, false, 'the tree is still there to look at');
+  assert.equal(files.getAttribute('aria-pressed'), 'true');
+});
+
+test('the last session exiting takes the Commits tab away under the user, and lands on Files', () => {
+  liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  assert.equal(
+    (byKey(root, 'ftab:commits') as FakeElement).getAttribute('aria-pressed'),
+    'true',
+    'non-vacuity: the panel really is standing on Commits',
+  );
+  assert.equal((byKey(root, 'ftab:commits') as FakeElement).disabled, false);
+
+  st.markExited('s1', 0);
+  panel.render();
+  assert.equal(textsOf(root, 'files-proj')[0], 'Home');
+  assert.equal(st.aliveSessionCount(), 0, 'non-vacuity: nothing is running');
+
+  const commits = byKey(root, 'ftab:commits') as FakeElement;
+  const files = byKey(root, 'ftab:files') as FakeElement;
+  assert.equal(commits.disabled, true);
+  assert.equal(commits.getAttribute('aria-disabled'), 'true');
+  assert.equal(commits.title, 'No repository at Home');
+  assert.equal(commits.getAttribute('aria-pressed'), 'false', 'the panel did not stay on it');
+  assert.equal(files.getAttribute('aria-pressed'), 'true');
+  assert.equal(files.classList.contains('is-on'), true);
+  assert.ok(byClass(root, 'files-row').length >= 10, 'and the tree is what it fell back to');
+  assert.equal(byClass(root, 'commit-row').length, 0, 'no commit list survives the fall back');
+});
+
+test('a session appearing again gives the Commits tab back, title and all', () => {
+  st.state.leftPanel = 'files';
+  panel.render();
+  assert.equal(
+    (byKey(root, 'ftab:commits') as FakeElement).disabled,
+    true,
+    'non-vacuity: it starts unavailable',
+  );
+
+  liveSession();
+  const commits = byKey(root, 'ftab:commits') as FakeElement;
+  assert.equal(commits.disabled, false);
+  assert.equal(commits.getAttribute('aria-disabled'), null, 'the reason is gone with the state');
+  assert.equal(commits.title, '');
+
+  commits.click();
+  assert.equal(commits.getAttribute('aria-pressed'), 'true', 'and it leads somewhere again');
+  assert.equal(textsOf(root, 'files-branch')[0], 'main, 5 commits');
+  (byKey(root, 'ftab:files') as FakeElement).click(); // the tab is panel-local state
+});
+
+test('clicking the disabled Commits tab switches nothing (the fake DOM still fires it)', () => {
+  // fake-dom's click() dispatches whatever the button's `disabled` says — a
+  // real browser fires nothing — so this pins the panel's own guard, which is
+  // what keeps a stray programmatic click out of a view on nothing.
+  st.state.leftPanel = 'files';
+  panel.render();
+  const commits = byKey(root, 'ftab:commits') as FakeElement;
+  assert.equal(commits.disabled, true, 'non-vacuity: the guard is the subject here');
+
+  commits.click();
+  assert.equal(commits.getAttribute('aria-pressed'), 'false');
+  assert.equal(commits.classList.contains('is-on'), false);
+  assert.equal((byKey(root, 'ftab:files') as FakeElement).getAttribute('aria-pressed'), 'true');
+  assert.ok(byClass(root, 'files-row').length >= 10, 'still the tree');
+  assert.equal(byClass(root, 'commit-row').length, 0);
 });
 
 // ---------------------------------------------------------------------------

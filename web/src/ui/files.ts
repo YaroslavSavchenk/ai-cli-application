@@ -54,6 +54,14 @@ type Tab = 'files' | 'commits';
 /** Arrow-key step for the width, in px — the keyboard twin of the edge drag. */
 const NUDGE_PX = 16;
 
+/**
+ * Why the Commits tab is unavailable at `Home` (user decision 2026-09-15): the
+ * panel's default root is the home folder, and a home folder is not a
+ * repository, so there is no commit history to look at. A fragment, because it
+ * is a tooltip on a control, not a sentence about the app.
+ */
+const NO_REPO_TITLE = 'No repository at Home';
+
 export interface FilesPanel {
   render(): void;
 }
@@ -175,16 +183,22 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   // ---- what the header says -------------------------------------------------
 
   /**
-   * The session the panel is about: the focused pane of the active tab. Its
-   * PROJECT NAME is the header (never a path); a session without a project has
-   * nothing else honest to show there, so the session's own name stands in.
+   * What the panel is about, as ONE lookup: the session of the focused pane of
+   * the active tab. Its PROJECT NAME is the header (never a path); a session
+   * without a project has nothing else honest to show there, so the session's
+   * own name stands in.
+   *
+   * `home` is the second thing the panel needs from exactly this lookup: at
+   * `Home` there is no repository (user decision 2026-09-15), and a header and
+   * a Commits tab that disagreed about that would be two answers to one
+   * question — hence one subject, two readers (`headerName`, `repoKnown`).
    */
-  function headerName(): string {
+  function subject(): { name: string; home: boolean } {
     const v = st.activeView();
     const id = v === null ? undefined : v.sessions[v.focused];
     const info = id === undefined ? undefined : st.state.sessions.get(id);
     if (info !== undefined && info.status !== 'exited') {
-      return st.projectName(info.projectId) ?? info.title;
+      return { name: st.projectName(info.projectId) ?? info.title, home: false };
     }
     // The focused pane's session is gone (absent from state, or kept there
     // with `status === 'exited'` — state.ts markExited flips it in place and
@@ -192,16 +206,34 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     // state, not an impossible one. A headerless tree says nothing about
     // nothing — fall back to the first session still alive.
     for (const s of st.state.sessions.values()) {
-      if (s.status !== 'exited') return st.projectName(s.projectId) ?? s.title;
+      if (s.status !== 'exited') return { name: st.projectName(s.projectId) ?? s.title, home: false };
     }
     // Nothing is running: the panel's default root, the user's home directory,
     // said as a NAME (the header rule forbids `~` and `/home/...`) until part
     // B2 makes the panel live.
-    return 'Home';
+    return { name: 'Home', home: true };
+  }
+
+  function headerName(): string {
+    return subject().name;
+  }
+
+  /**
+   * Is there a repository behind this panel? Only "not Home" — a session
+   * WITHOUT a project still counts, and keeps showing the mock commits exactly
+   * as it does today; real repo detection belongs to part B3 and is not
+   * invented here.
+   */
+  function repoKnown(): boolean {
+    return !subject().home;
   }
 
   function setTab(next: Tab): void {
     if (tab === next) return;
+    // Defence in depth for the disabled Commits tab: the button carries
+    // `disabled`, so a browser fires no click on it, but the tab must be
+    // unreachable by construction and not by the DOM's good manners.
+    if (next === 'commits' && !repoKnown()) return;
     tab = next;
     lastSig = '';
     render();
@@ -220,6 +252,10 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     return [
       tab,
       headerName(),
+      // The tab's own availability is a rendered state, so it belongs in the
+      // signature: without it the last session exiting would leave an enabled
+      // Commits tab on a panel headed `Home`.
+      repoKnown() ? 'repo' : 'home',
       Array.from(openFolders).sort().join(','),
       st.state.openCommit ?? '',
       collapsed,
@@ -230,6 +266,14 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   function render(): void {
     if (!st.filesPanelVisible()) {
       lastSig = 'hidden';
+      return;
+    }
+    // The repository went away under the panel (the last session exited, the
+    // header fell back to `Home`): the Commits tab is about to be disabled, so
+    // the panel cannot keep standing on it. setTab does the flip and the
+    // repaint; the signature below then matches and this pass stops here.
+    if (tab === 'commits' && !repoKnown()) {
+      setTab('files');
       return;
     }
     const s = sig();
@@ -244,10 +288,27 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         ? document.activeElement.getAttribute('data-k')
         : null;
 
+    const repo = repoKnown();
     for (const [k, b] of tabBtns) {
       const on = k === tab;
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      // Commits at `Home` is not a poorer view, it is no view: the control is
+      // really disabled (not just dimmed) and says why on hover and to a
+      // screen reader.
+      const off = k === 'commits' && !repo;
+      // Disabling the focused element drops the keyboard on <body> (the
+      // browser blurs it, and a disabled button cannot be refocused below), so
+      // the Files tab takes the focus first: always enabled, always visible.
+      if (off && document.activeElement === b) tabBtns.get('files')?.focus();
+      b.disabled = off;
+      if (off) {
+        b.setAttribute('aria-disabled', 'true');
+        b.title = NO_REPO_TITLE;
+      } else {
+        b.removeAttribute('aria-disabled');
+        b.title = '';
+      }
     }
     projName.textContent = headerName();
 
@@ -360,6 +421,12 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
    * whole view, exactly like the view's own `Back to sessions`: one commit is
    * open or none is, and the panel and the view are two windows on that one
    * fact.
+   *
+   * A commit view that is ALREADY open when the repository goes away (the last
+   * session exits) is left standing: it is a full screen with its own
+   * `Back to sessions`, closing it under the user would take away the thing
+   * they are reading. What the disabled tab removes is the way to open the
+   * NEXT one — the panel flips to Files and the commit list is out of reach.
    */
   function selectedHeader(): HTMLElement[] {
     const c = openCommit();
