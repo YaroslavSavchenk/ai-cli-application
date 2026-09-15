@@ -295,6 +295,57 @@ replay cost (section below).
   Claude Code login state visible (the CLI's own `claude` login is a
   prerequisite nobody is told about).
 
+## Optimisation round — AFTER feature-complete (user's call 2026-09-15)
+
+The user's rule: finish the functionality first (Track B, C1, the guards
+above), then one dedicated optimisation pass over the whole app. Nothing
+here is a defect and nothing here blocks a part; do not pick these up
+piecemeal unless a part makes one trivial. Measured 2026-09-15 where a
+number exists.
+
+- [ ] **Scrollback replay on a pane-count change**: a split or close
+  re-attaches every terminal in the view and replays its scrollback
+  (server ring = `SCROLLBACK_MAX_BYTES` 1 MiB per session, seen at
+  1,048,052 bytes in the A10b verify). Re-attach only the slots whose
+  geometry changed, or replay the viewport plus a bounded tail and fetch
+  the rest on scroll.
+- [ ] **Editor panes across a reload**: `EditorSlot` tabs are not in the
+  v2 persistence bag, so a reload drops open files (B4 may land this
+  anyway; if not, it belongs here).
+- [ ] **Frontend bundle**: `index-*.js` is 660 kB (Vite warns above
+  500 kB). xterm.js + the WebGL addon are the bulk; split the GitHub /
+  Settings / update surfaces into lazy chunks, keep the terminal path in
+  the entry. Measure boot time on the WebView2 host before and after.
+- [ ] **Polling → push**: the UI polls `/api/sessions` (`POLL_MS`) and
+  `/api/runtime` (`RUNTIME_POLL_MS`) on timers; C1 phase 2 adds a second
+  poller in the mascot overlay. One backend events channel (a WS beside
+  presence, or SSE) that pushes session/attention/runtime changes; the
+  pollers become a fallback. Cuts idle CPU and makes the attention badge
+  and the mascot instant.
+- [ ] **Server log volume**: 10 MiB per rotated generation, three
+  generations on the author's machine after a week, ~15k lines in the
+  live file. "Log everything" stays the rule (decision 2026-09-06), but
+  audit which `debug` lines fire per keystroke/frame (WS data, presence
+  pings) and move those behind a level or a sampling counter so the log
+  keeps its diagnostic value without a scroll of noise.
+- [ ] **Terminal render path**: profile xterm.js with the WebGL renderer
+  on the WebView2 host during `find / | head -5000` (verify check 8) and
+  during a 4-pane layout with all four streaming; confirm the fit/resize
+  path does not run more than once per layout change (A10 rebuild key);
+  check `SCROLLBACK_LINES` 5000 × 4 panes memory on the client.
+- [ ] **Backend startup**: the first start after a Windows boot is the
+  slowest (launcher waits up to 90 s). Measure where the time goes (WSL
+  VM boot vs `node` vs node-pty load vs history load) and report it in
+  the boot card rather than a spinner; anything the app itself owns
+  (history.json parse, git probes per project) goes lazy.
+- [ ] **Test suite wall time**: ~36 s for 2093 tests, most in
+  `restart.test.ts` and `lifecycle.test.ts` spawning real backends. Share
+  a backend per file where the test does not mutate lifecycle; keep the
+  spawning tests but run them last so a failure elsewhere reports early.
+- [ ] **Memory per idle session**: measure RSS of the backend with 0, 4,
+  12 sessions idle for an hour (ring buffers, history, node-pty handles);
+  set a documented expectation in the README's requirements.
+
 ## Engineering-quality debt (from the 2026-09-15 honest score, 7/10)
 
 Named by the orchestrator when the user asked for a critical score; the
@@ -323,13 +374,6 @@ pass or a test-engineer brief, not a feature.
   `drop-*.ts`, `settings.ts` exist because B2/B3 are not live yet. When
   B2/B3 land, delete the mock module and every marker in the same change;
   until then, a test asserts the count only goes DOWN.
-- [ ] **Scrollback replay on a pane-count change** (A10 cost, seen at
-  ~1 MB per terminal in the A10b verify): re-attach only the slots whose
-  pane geometry actually changed, or cap the replay to the visible
-  viewport plus a bounded tail with the rest fetched on scroll.
-- [ ] **Editor panes across a reload**: persist `EditorSlot` tabs in the v2
-  bag (planned for B4; noted here so the reload check in verify-terminal
-  stops being a known miss).
 - [ ] **Second-machine smoke**: the app has only ever run on the author's
   machine. One run of Setup.exe + launch + a claude session on a clean
   Windows VM (fresh WSL distro, default Node absent), documented as a
