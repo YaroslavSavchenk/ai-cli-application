@@ -7,13 +7,15 @@
  * since-last-commit summary, the per-extension badge table, and the plural
  * copy the two tabs print. What does NOT live here: anything that reads or
  * writes app state (the open-folder set is passed in), and the data itself
- * (`ui/files-mock.ts` today, `git diff --numstat` + `git log` in parts B2/B3).
+ * (the Changes tab's real `git diff --numstat` since part B2, through
+ * `ui/fs-model.ts`'s `changesToFiles`; the Commits tab is still
+ * `ui/files-mock.ts` until `git log` lands in part B3).
  *
- * THE INPUT SHAPE IS THE FUTURE ONE. `FileChange[]` is a flat list of paths
- * with `add`/`del`/`editing` — exactly what a numstat walk produces — and the
- * tree is derived, so B2 replaces the mock module and nothing here changes.
- * Input ORDER is preserved (no sorting): git already returns a stable order
- * and inventing one here would be a decision B2 has to make with real data.
+ * THE INPUT SHAPE WAS THE FUTURE ONE, AND IT HELD. `FileChange[]` is a flat
+ * list of paths with `add`/`del`/`editing` — exactly what a numstat walk
+ * produces — and the tree is derived, so B2 replaced the mock data without
+ * changing one line here. Input ORDER is preserved (no sorting): git already
+ * returns a stable order, and the panel renders exactly that order.
  *
  * The badge colours are `oklch()`. That is safe on purpose: they are CSS-only
  * marks in the chrome and never reach xterm's theme parser (tokens.css header,
@@ -23,7 +25,7 @@
 
 import type { CommitFileChange } from './commit-model.ts';
 
-/** One changed (or merely listed) file, as B2's `git diff --numstat` walk will hand it over. */
+/** One changed (or merely listed) file, as B2's `git diff --numstat` walk hands it over. */
 export interface FileChange {
   /** Repo-relative path with `/` separators, e.g. `web/src/main.ts`. */
   path: string;
@@ -31,7 +33,12 @@ export interface FileChange {
   add?: number;
   /** Removed lines since the last commit; absent = no diff. */
   del?: number;
-  /** The session is editing this file right now (B2: tool events). Pulses amber. */
+  /**
+   * The session is editing this file right now. Pulses amber. NOTHING SETS IT
+   * since B2: which files a session is touching is plan open decision 3, the
+   * user's to settle, so the pulse stays dark rather than guessing
+   * (`ui/fs-model.ts` `changesToFiles` leaves it unset).
+   */
   editing?: boolean;
 }
 

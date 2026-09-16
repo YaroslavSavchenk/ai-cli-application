@@ -425,8 +425,7 @@ export function initFilesPanel(
   // holds it, paints it and spends the Escape key on it.
   //
   // It sits here, beside `openFolders`, for the same reason that set does: it
-  // is not server state, it is not persisted (the tree is still a mock, so a
-  // remembered path would be remembered fiction), and no module outside this
+  // is not server state, it is not persisted, and no module outside this
   // panel renders it. `state.ts` and the localStorage schema do not change by
   // one line for it.
   //

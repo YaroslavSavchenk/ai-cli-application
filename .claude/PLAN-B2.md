@@ -1,6 +1,6 @@
 # B2 + A9c — The Files panel reads the real file system, and rows can create files
 
-Status: DECIDED 2026-09-16 (user); Phase 0 + Brief A started 2026-09-16. Parts B2 and A9c of
+Status: DECIDED 2026-09-16 (user); LANDED 2026-09-16 (Phase 0 `14fb911`, Brief A `5cfee81`, Brief B `c8416e3`, Brief C `15bff78`); Windows check owed to the user. Parts B2 and A9c of
 `PLAN-NOCTURNE.md` (plan decision 11 + the A9c note), pulled forward out of the
 Track B order on the user's ask after the A9b check. It makes the panel that A5
 drew, A6/A10/A10b wired and A9/A9b made a drop target stand on real data, and it

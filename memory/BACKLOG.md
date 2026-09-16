@@ -195,7 +195,7 @@ app window first so one backend at a time owns runtime.json.
 - [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
 - [ ] ~~Windows-side (A5, 2026-09-13):~~ (verified, see above) Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
 - [ ] `prefers-reduced-motion` guard for the two pulses (`--t-pulse` dot, `--t-pulse-edit` file rows) — scope-reviewer note 2026-09-13.
-- [ ] B2/B3: delete `placeholderNote()` in `web/src/ui/files.ts` (one function, one call site) when real data lands; B2 must revisit `buildTree` limits (path as file AND folder; duplicate path) if the source is not numstat.
+- [ ] B3: delete `placeholderNote()` in `web/src/ui/files.ts` (one function, one call site) when the Commits tab reads real data. (The `buildTree` half is CLOSED by B2, 2026-09-16: the source is `git diff --numstat` plus `git status --porcelain` for untracked, and the revisit landed as the trailing-slash rule — an untracked directory is one `sub/` row, so it becomes a childless folder node with no caret.)
 - [ ] Nothing clamps `filesWidth` when the WINDOW shrinks under it (520 + 300 px of chrome in a 1000 px window leaves ~18 cols) — optional clamp on window resize.
 - [x] Windows-side (A4b) — user tested the dev window 2026-09-13: "alles werkt keurig" (no black frame, JetBrains Mono on the first pane, TUIs fine after resize).
 
