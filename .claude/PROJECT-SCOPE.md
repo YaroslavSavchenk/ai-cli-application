@@ -566,7 +566,8 @@ multi-pane layouts on top.
   when it closes), and pressing Files while hidden behind Projects closes
   Projects and shows Files. Esc closes it only when focus is inside it and
   hands the keyboard back to the terminal (with no terminal, to a visible
-  control, never `<body>`). It is NOT a keyboard owner: an open Files panel
+  control, never `<body>`); since A9b a first Esc clears a folder
+  selection instead, the next one closes. It is NOT a keyboard owner: an open Files panel
   never blocks the window-activation refocus of the terminal
   (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2/B3 land, each tab
   carries one quiet "Example data until the panel reads your …" line —
@@ -593,12 +594,15 @@ multi-pane layouts on top.
   Transport is MOCK until B10 (limits 200 items, 50 MiB per file are
   sentences only) and every state carries the quiet "Example …" /
   "Nothing is copied yet …" line. The keyboard/button twin is the
-  permanent "Copy files here…" strip under the panel header (native file
-  chooser; it remembers the folder row that last held the keyboard),
-  Ctrl+Alt+C on a focused folder row (the picker for that folder), and
-  pasting with files on the clipboard; all use the same
-  destination rule as the drag (focused folder row, else the panel root,
-  else the active tab's root). Sessions panel
+  permanent copy strip under the panel header (native file chooser; it
+  reads "Copy files here…", or "Copy files into <folder>…" once a folder is
+  selected), Ctrl+Alt+C on a focused folder row (the picker for that
+  folder), and pasting with files on the clipboard; all use the same
+  destination rule as the drag (the SELECTED folder first — A9b, 2026-09-16:
+  one click on a folder row selects it and toggles it, the selection stays
+  visible after the focus leaves the panel, Escape inside the panel or
+  hiding the panel clears it — then the focused folder row, else the panel
+  root, else the active tab's root). Sessions panel
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
   "Side by side", "Continue" / "Start again", armed "End" / "Forget".
   Since Nocturne A6 (2026-09-13) the commit rows and the tree's file rows
@@ -829,11 +833,18 @@ multi-pane layouts on top.
   Ctrl+Alt+PageUp/PageDown and Ctrl+Alt+M do nothing and are swallowed,
   recorded 2026-09-15; Ctrl+Alt+M's bytes equal Alt+Enter's, which stays
   untouched). The app takes
-  exactly four extra chords: `Ctrl+Shift+V` and `Shift+Insert` paste the
+  exactly four extra chords (plus, since A9b, the files-only paste EVENT
+  described below — an event, not a chord): `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
-  itself; since A9 a paste that carries FILES is taken only when the target
-  is neither a terminal nor an editable field, and opens the drop dialog), and `Ctrl+Shift+C` and `Ctrl+Insert` copy the terminal selection
+  itself; a paste that carries FILES is taken — and opens the drop dialog —
+  when the target is neither a terminal nor an editable field (A9), OR when
+  a folder is selected in the Files panel, a focused terminal included
+  (A9b, user decision 2026-09-16: files carry no text, so the terminal
+  loses nothing; the app then also stops propagation so xterm's own paste
+  handler never types a stray `text/plain` into the PTY); a text paste is
+  never the app's; inside a terminal only plain Ctrl+V can carry files,
+  because Ctrl+Shift+V and Shift+Insert are served from `readText()`), and `Ctrl+Shift+C` and `Ctrl+Insert` copy the terminal selection
   (2026-09-10, user report "ik mag niks kopieren vanuit de sessies") — taken
   ONLY while a selection exists; with nothing selected they are left alone
   (xterm sends no bytes for either chord anyway), and plain Ctrl+C always

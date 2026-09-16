@@ -5,9 +5,9 @@
  * UI control (and every drag has a keyboard/button path); plain keys are
  * never intercepted (they belong to the TUI).
  *
- * Two rows have no app control at all, and they are also the only two carrying
- * a `note` — every other chord is a shortcut for a control the user can see,
- * while these two answer a question the user actually asked:
+ * THREE rows carry a `note` (A9b added the third) — every other entry is a
+ * shortcut for a control the user can see, while these three answer a question
+ * the user actually asked:
  *
  *   - paste (2026-09-08): its non-keyboard twin is the browser's own paste,
  *     which reaches the terminal unchanged — the chords exist because a Windows
@@ -18,6 +18,11 @@
  *     Its note says the two things a terminal user has to be able to trust:
  *     plain ctrl+c is still the interrupt, and with nothing selected these
  *     keys do nothing.
+ *   - pasting FILES (2026-09-16, A9b): the first two are chord rows with no app
+ *     control; this one is a GESTURE row whose note states a limit instead —
+ *     inside a terminal only plain ctrl+v ever carries files, because the two
+ *     paste chords above are served from the text clipboard, which can never
+ *     see a file list.
  *
  * The link row is a MOUSE gesture, not a chord: a plain click on a link a
  * program printed does nothing, and ctrl (or cmd) is the second gesture that
@@ -38,7 +43,7 @@ interface Row {
   gesture?: boolean;
   what: string;
   ui: string;
-  /** One line under the row, for the chords whose existence needs a reason (paste, copy). */
+  /** One line under the row, for the three entries whose existence or limit needs a reason (paste, copy, pasting files). */
   note?: string;
 }
 
@@ -65,7 +70,27 @@ const ROWS: Row[] = [
     keys: ['drag files from Explorer onto a folder or a pane'],
     gesture: true,
     what: 'copy them into that folder',
+    // `Copy files here…` is spelled out rather than interpolated from
+    // `COPY_LABEL` (ui/files-select-model.ts): this table is read as SOURCE by
+    // tests/ui-shortcuts-table.test.ts, whose scans match `ui: '…'` and would
+    // both go vacuous on a template literal — and a `${…}` hole in this column
+    // could hide a chord the overlay claims. One wording, two spellings, and
+    // the strip's own label still has exactly one definition.
     ui: 'Copy files here… under the panel header, ctrl+alt+c on a folder row, or paste with files on the clipboard',
+  },
+  {
+    keys: ['click a folder row'],
+    gesture: true,
+    what: 'select it and open or close it',
+    ui: 'enter on the focused row',
+  },
+  // A9b brief 2 restores the right-click row here, once a contextmenu listener and the menu-key chord exist.
+  {
+    keys: ['paste with files on the clipboard'],
+    gesture: true,
+    what: 'copy them into the selected folder',
+    ui: 'Copy files here… under the panel header, or ctrl+alt+c on a folder row',
+    note: "Inside a terminal that is plain ctrl+v; the other paste keys stay the terminal's.",
   },
   { keys: ['←→ / ↑↓ on a divider'], what: 'nudge the split, enter resets it', ui: 'drag the divider, double-click resets it' },
   { keys: ['click a session row'], what: 'go to its tab', ui: 'rows in the sessions panel' },
@@ -73,7 +98,7 @@ const ROWS: Row[] = [
     keys: ['ctrl+shift+v', 'shift+insert'],
     what: 'paste the clipboard into the terminal',
     ui: "the browser's own paste",
-    note: 'Plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys.',
+    note: 'Plain ctrl+v goes to the program running in the terminal (unless the clipboard carries files), so pasting text needs its own keys.',
   },
   {
     keys: ['ctrl+shift+c', 'ctrl+insert'],
@@ -126,7 +151,7 @@ export function initShortcuts(modalHost: HTMLElement, refocus: () => void): Shor
   }
   const note = el('p', 'sc-note');
   note.textContent =
-    'Everything else goes to the terminal: plain ctrl+c/v, arrows and esc are never intercepted. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes.';
+    "Everything else goes to the terminal: arrows and esc are never intercepted, and plain ctrl+c/v go straight to it — unless the clipboard carries files and a folder is selected, which is the one paste the app keeps for itself. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes.";
 
   modal.append(hd, table, note);
   scrim.append(modal);

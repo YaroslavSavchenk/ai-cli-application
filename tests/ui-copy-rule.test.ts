@@ -265,7 +265,7 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['ui/settings.ts', 'all shortcuts'],
     [
       'ui/shortcuts.ts',
-      'Plain ctrl+v goes to the program running in the terminal, so pasting needs its own keys.',
+      'Plain ctrl+v goes to the program running in the terminal (unless the clipboard carries files), so pasting text needs its own keys.',
     ],
     // 2026-09-10: the copy chord's row, in both places it is stated, and the
     // New Project dialog's add-an-existing-folder copy.

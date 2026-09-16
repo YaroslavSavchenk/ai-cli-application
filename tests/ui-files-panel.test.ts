@@ -73,6 +73,7 @@ FD.initFileDrop({
   destinationOfActiveView: () => F.destinationOfActiveView(),
   filesPanelDestination: () => F.filesPanelDestination(),
   pasteDestination: () => F.pasteDestination(),
+  selectedFolder: () => F.selectedFolder(),
   openPicker: (take: (files: readonly { name: string; size?: number }[]) => void) =>
     take([{ name: 'shot.png', size: 7 }]),
   flash: () => {},
@@ -139,6 +140,8 @@ interface FilesModule {
   initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
   /** Part A9: where a drop, a paste or the header button would copy to. */
   pasteDestination(): string | null;
+  /** Part A9b: the folder the user chose, as a NAME. */
+  selectedFolder(): string | null;
   filesPanelDestination(): string | null;
   destinationOfActiveView(): string | null;
   destinationOfPane(paneEl: unknown): { dest: string } | { dest: null; why: 'session' | 'tab' };
@@ -233,6 +236,11 @@ beforeEach(() => {
   st.state.commitCollapsed = new Set();
   st.state.edits = new Map();
   dom.doc.activeElement = dom.body;
+  // A9b: activating a folder row SELECTS it, and a selection outlives every
+  // rebuild on purpose — so a row a previous test clicked would still be the
+  // paste destination here. Escape on the panel root is the app's own way to
+  // clear it (and does nothing when nothing is selected).
+  dispatch(root, 'keydown', { key: 'Escape' });
 });
 
 // ---------------------------------------------------------------------------

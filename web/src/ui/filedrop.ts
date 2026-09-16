@@ -44,7 +44,7 @@ import { isEditableTarget, isTerminalTarget, OPEN_MODAL_SELECTOR } from './keys.
 import { fileName } from './slots-model.ts';
 import { el } from './util.ts';
 import { DROP_HINT, MAX_ITEMS, destLine, hasFiles, tooMany, type DropItem } from './drop-model.ts';
-import { copyIntoText } from './files-select-model.ts';
+import { copyIntoText, takesPaste } from './files-select-model.ts';
 
 /**
  * How long after the last `dragover` the visuals give up on their own. The
@@ -139,6 +139,14 @@ export interface FileDropDeps {
   filesPanelDestination(): string | null;
   /** The Files folder row the keyboard last stood on, else the panel root, else the active tab's root. */
   pasteDestination(): string | null;
+  /**
+   * The folder the user CHOSE in the Files panel, as a name, else null (A9b).
+   * It is read for one question only — may this `paste` be taken away from a
+   * focused terminal or a focused field? — because that is the only thing the
+   * chosen folder changes here; where the files then go is `pasteDestination()`,
+   * which already answers the selection first.
+   */
+  selectedFolder(): string | null;
   /**
    * Open the native file chooser and hand over what was chosen. Injected so
    * tests can drive the twin button without a real `<input type=file>`; the
@@ -533,21 +541,56 @@ function onDrop(e: DragEvent): void {
 
 /**
  * Files on the clipboard, pasted into the app itself — the keyboard twin of
- * the drop. A terminal and a text field keep their own paste: ctrl+v in a
- * terminal is the program's (PROJECT-SCOPE's keyboard rule) and a field's
- * paste is its own, whatever happens to be on the clipboard beside the files.
+ * the drop.
+ *
+ * The app listens for the `paste` EVENT, never for a chord, and `takesPaste`
+ * (the frozen rule in `ui/files-select-model.ts`) decides whether the event is
+ * ours at all. Its four sentences, restated where they act:
+ *
+ *   - a TEXT-ONLY clipboard is never ours, so a terminal's paste and a field's
+ *     paste stay entirely their own and the PTY loses nothing, ever;
+ *   - FILES plus a CHOSEN folder is ours from anywhere — a focused terminal
+ *     and a focused field included (A9b user decision 2) — because files carry
+ *     no text, so nothing was going to be typed, and the copy strip has been
+ *     saying where they land the whole time;
+ *   - FILES with nothing chosen is the A9 rule exactly: outside terminals and
+ *     editables the fallback chain answers, inside one nothing happens at all;
+ *   - a modal up means nothing in the window takes a paste.
+ *
+ * WHY stopPropagation(), and why on the capture phase. `preventDefault()`
+ * alone leaves xterm's own textarea `paste` handler to run behind us; an
+ * Explorer clipboard that happens to carry `text/plain` beside its files would
+ * then type that text into the PTY unbracketed — the very accident A9
+ * decision 5 exists to prevent. An event this module has taken is nobody
+ * else's.
+ *
+ * KNOWN LIMIT (`.claude/PLAN-A9B.md` §2, said out loud in the shortcuts
+ * overlay): inside a focused terminal only plain ctrl+v can carry files.
+ * `ui/terminal.ts` takes ctrl+shift+v and shift+insert itself and serves them
+ * from `navigator.clipboard.readText()`, which cannot see a file list — and
+ * that module is a terminal seam A9b does not touch.
  */
 function onPaste(e: ClipboardEvent): void {
   const d = deps;
   if (d === null) return;
   const files = e.clipboardData?.files;
-  if (files === undefined || files === null || files.length === 0) return;
   const t = e.target instanceof HTMLElement ? e.target : null;
-  if (isTerminalTarget(t) || isEditableTarget(t)) return;
-  if (modalOpen()) return;
+  const ours = takesPaste({
+    files: files !== undefined && files !== null && files.length > 0,
+    selected: d.selectedFolder() !== null,
+    inTerminal: isTerminalTarget(t),
+    inEditable: isEditableTarget(t),
+    modalOpen: modalOpen(),
+  });
+  if (!ours || files === undefined || files === null) return;
   const dest = d.pasteDestination();
   if (dest === null) return;
   e.preventDefault();
+  e.stopPropagation();
+  // `document.activeElement` at PASTE time: the dialog hands the keyboard back
+  // to it when it closes (ui/drop-dialog.ts `restore`), so a terminal the
+  // paste came from is typing again the moment the card is gone. Nothing here
+  // moves the focus, so there is nothing to undo.
   offer(dest, itemsOfFiles(files), activeEl());
 }
 

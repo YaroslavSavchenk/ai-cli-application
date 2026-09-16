@@ -162,7 +162,13 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
   const items = byClass(modal, 'sc-item');
   assert.ok(items.length >= 10, `non-vacuity: ${items.length} items`);
   const withCaption = items.filter((i) => byClass(i, 'sc-cap').length > 0);
-  assert.equal(withCaption.length, 2, 'exactly the paste and the copy row carry a caption');
+  // A9b (2026-09-16) added the third: the files-on-the-clipboard gesture row,
+  // whose caption states the terminal limit (only plain ctrl+v carries files).
+  assert.equal(
+    withCaption.length,
+    3,
+    'exactly the paste row, the copy row and the files-paste row carry a caption',
+  );
   for (const item of withCaption) {
     const row = byClass(item, 'sc-row')[0];
     assert.ok(row !== undefined, 'a caption without its row is the bug the wrapper prevents');
@@ -174,6 +180,77 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
   }
   // Every caption in the whole overlay belongs to an item: none floats loose.
   assert.equal(byClass(modal, 'sc-cap').length, withCaption.length);
+  overlay.close();
+});
+
+test('the two A9b gestures are on the overlay, each once, each naming its twin', () => {
+  // MEASURED (gate, 2026-09-16): deleting the note-less row (`click a folder
+  // row`) left the ENTIRE suite green — the caption count below only ever held
+  // the other one. PROJECT-SCOPE's rule is that no control exists only under a
+  // pointer, so each row is pinned together WITH the twin it promises.
+  // The right-click row is NOT here: brief 1 ships no contextmenu listener and
+  // no isContextMenuChord caller, so the overlay may not promise that gesture.
+  openFromOpener();
+  const want: readonly (readonly [string, string, string])[] = [
+    ['click a folder row', 'select it and open or close it', 'enter on the focused row'],
+    [
+      'paste with files on the clipboard',
+      'copy them into the selected folder',
+      'Copy files here… under the panel header, or ctrl+alt+c on a folder row',
+    ],
+  ];
+  const gestures = textsOf(modal, 'sc-gesture');
+  const items = byClass(modal, 'sc-item');
+  for (const [g, what, ui] of want) {
+    assert.equal(gestures.filter((t) => t === g).length, 1, `exactly one row for: ${g}`);
+    const item = items.find((i) => textsOf(i, 'sc-gesture').includes(g));
+    assert.ok(item !== undefined, `no item for: ${g}`);
+    assert.equal(textsOf(item, 'sc-what')[0], what, g);
+    assert.equal(textsOf(item, 'sc-ui')[0], ui, `a gesture with no twin the user can reach: ${g}`);
+    assert.equal(
+      descendants(item).filter((n) => n.tagName === 'KBD').length,
+      0,
+      `a mouse sentence must never render as a key chip: ${g}`,
+    );
+  }
+  // Exactly one of the two carries a caption, and it is the one stating the
+  // terminal limit: inside a terminal only PLAIN ctrl+v can carry files,
+  // because ui/terminal.ts serves the other two paste keys from the text
+  // clipboard, which cannot see a file list.
+  const capped = want.filter(([g]) => {
+    const item = items.find((i) => textsOf(i, 'sc-gesture').includes(g));
+    return item !== undefined && byClass(item, 'sc-cap').length > 0;
+  });
+  assert.deepEqual(
+    capped.map(([g]) => g),
+    ['paste with files on the clipboard'],
+  );
+  const pasteItem = items.find((i) =>
+    textsOf(i, 'sc-gesture').includes('paste with files on the clipboard'),
+  ) as FakeElement;
+  assert.match(textsOf(pasteItem, 'sc-cap')[0] ?? '', /plain ctrl\+v/);
+  overlay.close();
+});
+
+test('the closing sentence stopped claiming plain ctrl+v is never intercepted (A9b)', () => {
+  // The A8 wording — "plain ctrl+c/v, arrows and esc are never intercepted" —
+  // became a LIE the moment a file paste with a folder selected became the
+  // app's (PLAN-A9B §2, user decision 2). MEASURED (gate, 2026-09-16):
+  // restoring that sentence verbatim left the entire suite green, so the one
+  // sentence the overlay ends on had no test at all.
+  openFromOpener();
+  const note = byClass(modal, 'sc-note')[0];
+  assert.ok(note !== undefined, 'non-vacuity: the overlay still ends on a sentence');
+  const text = note.textContent;
+  assert.ok(text.length > 100, `non-vacuity: ${text.length} chars`);
+  assert.equal(
+    /plain ctrl\+c\/v, arrows and esc are never intercepted/.test(text),
+    false,
+    'the A8 wording is false since A9b',
+  );
+  assert.match(text, /files/, 'the exception must name what is on the clipboard');
+  assert.match(text, /selected/, 'and that it needs a chosen folder');
+  assert.match(text, /ctrl\+alt/, 'while the ctrl+alt reservation still stands');
   overlay.close();
 });
 

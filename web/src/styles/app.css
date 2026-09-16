@@ -1998,6 +1998,35 @@ select:focus-visible,
   color: var(--color-text);
 }
 
+/* the CHOSEN folder (Nocturne A9b): the row files land in when you paste, so
+   it has to be readable from across the window without being a block of
+   colour. The accent grammar of this app — an outline and a small mark, never
+   a fill — as a faint accent ground plus a 2px accent tick on the LEADING
+   edge, drawn with `box-shadow: inset` on purpose: a border or a padding would
+   move the tree by a pixel, and a pixel of panel width is a resize of every
+   PTY in the grid. The same `--color-accent-900` wash the A9 drop target
+   wears, because "this folder is the destination" is one idea whether the
+   files arrive by drag or by keyboard.
+
+   PRECEDENCE BY SPECIFICITY, not by order (`.files-view` is the extra class):
+   `.files-row.is-open` lives at the far end of this file, in the A10 block, so
+   no amount of ordering inside this section could ever beat it — and both it
+   and `:hover` are NEUTRAL grounds that a chosen row must outrank. The focus
+   ring and the A9 drop highlight are `outline`, a different property, so all
+   three coexist; the busy pulse is an opacity animation and keeps running over
+   the lot. */
+.files-view .files-row.is-sel {
+  background: var(--color-accent-900);
+  box-shadow: inset var(--tick) 0 0 0 var(--color-accent);
+}
+
+/* full ink for the name, the top of the ramp above — placed BEFORE the busy
+   rule so an amber file being edited right now keeps saying so: information
+   colour outranks selection ink. */
+.files-row.is-sel .files-name {
+  color: var(--color-text);
+}
+
 .files-row.is-busy .files-name {
   color: var(--color-attn);
 }
@@ -2348,9 +2377,12 @@ body.is-resizing-col {
 }
 
 .files-copy-btn {
-  display: flex;
-  align-items: center;
+  /* block + line-height, not flex: `text-overflow: ellipsis` never draws its
+     glyph on an anonymous flex item, and this button holds bare text. */
+  display: block;
+  line-height: var(--files-row-h);
   width: 100%;
+  min-width: 0;
   height: var(--files-row-h);
   padding: 0 var(--space-3);
   border: none;
@@ -2359,6 +2391,13 @@ body.is-resizing-col {
   color: var(--color-neutral-500);
   font-size: 12px;
   text-align: left;
+  /* A9b: the label is no longer a constant — it names the chosen folder — so it
+     gets the `.files-name` recipe. A long name must never wrap inside the 26px
+     box or push the panel's min-content width out: the pane grid would narrow
+     and every terminal's ResizeObserver would resize its PTY. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .files-copy-btn:hover {

@@ -43,6 +43,7 @@ import {
   initFilesPanel,
   listingFor,
   pasteDestination,
+  selectedFolder,
 } from './ui/files.ts';
 import { initFileDrop, installDropGuard } from './ui/filedrop.ts';
 import { initCommitView } from './ui/commit-view.ts';
@@ -545,6 +546,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     destinationOfActiveView,
     filesPanelDestination,
     pasteDestination,
+    selectedFolder,
   });
   // Two hand-overs, because the commit view can leave in two directions: back
   // to the panes, or INTO the pane it just opened a file in. Both land in the

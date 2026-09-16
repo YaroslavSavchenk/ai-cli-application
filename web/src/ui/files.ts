@@ -38,7 +38,17 @@
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
 import { armDrag, flashOpenResult } from './dnd.ts';
-import { copyIntoText, openCopyFilesPicker, type PaneDest } from './filedrop.ts';
+import { openCopyFilesPicker, type PaneDest } from './filedrop.ts';
+import {
+  afterEscape,
+  afterPanelHidden,
+  afterRowActivate,
+  COPY_LABEL,
+  copyIntoText,
+  copyStripLabel,
+  selectedName,
+  type Selection,
+} from './files-select-model.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
 import type { SessionInfo } from '../../../shared/protocol.ts';
@@ -82,15 +92,6 @@ const NO_REPO_TITLE = 'No repository at Home';
 const ROW_TITLE = 'Open in a pane. Drag it onto a pane edge to split, or press ctrl+alt+enter.';
 
 /**
- * The keyboard/button twin of dragging files in from Explorer (part A9, plan
- * decision 6). It is the only way to reach that act without a pointer coming
- * from another program, so it is a real, visible, focusable control — and its
- * `title` names the folder it would copy into, which is the one thing a drag
- * says that a button otherwise would not.
- */
-const COPY_LABEL = 'Copy files here…';
-
-/**
  * A folder row's own title. The copy strip sits BEFORE the tree and every row
  * here is a `<button>`, so no amount of tabbing aims that button at a nested
  * folder: the row carries the chord that does (ctrl+alt+c copies into THIS
@@ -113,7 +114,11 @@ export interface FilesPanel {
  * The panel is a singleton in the shell; this is the same idiom `ui/picker.ts`
  * uses for the one open folder picker.
  */
-let live: { subject(): Subject; focusedFolderName(): string | null } | null = null;
+let live: {
+  subject(): Subject;
+  focusedFolderName(): string | null;
+  selectedFolder(): string | null;
+} | null = null;
 
 /** What the panel is about: a NAME, whether it is `Home`, and the project behind it. */
 interface Subject {
@@ -135,11 +140,31 @@ export function filesPanelDestination(): string | null {
  */
 export function pasteDestination(): string | null {
   if (live !== null) {
+    // A9b, first rung: the SELECTED folder. It is the only one of the two that
+    // says out loud where files will land (the copy strip names it), so it
+    // wins over the focus memory always — including a paste arriving from a
+    // focused terminal, which has no focus memory of its own.
+    const chosen = live.selectedFolder();
+    if (chosen !== null) return chosen;
     const folder = live.focusedFolderName();
     if (folder !== null) return folder;
     return live.subject().name;
   }
   return destinationOfActiveView();
+}
+
+/**
+ * The SELECTED folder, as a NAME (never a path), or null when nothing is
+ * selected, when the selected path has no last segment to speak about, or
+ * when there is no panel on screen to have a selection at all.
+ *
+ * `ui/filedrop.ts` reads it for one question only: may a `paste` be taken
+ * away from a focused terminal or a focused field (`takesPaste`)? Which is
+ * exactly why a HIDDEN panel answers null — a destination nobody can see must
+ * never silently accept files.
+ */
+export function selectedFolder(): string | null {
+  return live === null ? null : live.selectedFolder();
 }
 
 /** The ACTIVE tab's root, as a name: `Home`, a project's name, else null. */
@@ -246,7 +271,59 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   let tab: Tab = 'files';
   const openFolders = new Set<string>(MOCK_OPEN_FOLDERS);
 
+  // ---- selection -----------------------------------------------------------
+  //
+  // The ONE folder the user chose (part A9b, user decision 1, 2026-09-16), as
+  // a PATH because that is what identifies a row across a rebuild. Every
+  // decision about it lives in `ui/files-select-model.ts`; this region only
+  // holds it, paints it and spends the Escape key on it.
+  //
+  // It sits here, beside `openFolders`, for the same reason that set does: it
+  // is not server state, it is not persisted (the tree is still a mock, so a
+  // remembered path would be remembered fiction), and no module outside this
+  // panel renders it. `state.ts` and the localStorage schema do not change by
+  // one line for it.
+  //
+  // WHY IT SURVIVES EVERYTHING. It is part of `sig()` and `rebuild()` paints
+  // `is-sel` from the path, so a folder toggle, a subject change, a tab switch
+  // and every other repaint leave it exactly where it was — including a
+  // selected folder whose ANCESTOR was collapsed, which draws no row but keeps
+  // naming itself in the copy strip.
+  let selected: Selection = null;
+
   const root = el('section', 'files-view');
+
+  /**
+   * Escape, spent on the selection BEFORE `main.ts`'s ladder can see it.
+   *
+   * Bubble phase on the panel root, exactly like the row chords above it
+   * (ctrl+alt+enter, ctrl+alt+c): a surface-local state is the surface's own
+   * business, and the ladder — whose Files arm closes the whole panel — stays
+   * untouched. With nothing selected this does NOT stop the key, so the next
+   * Escape closes the panel as it always did.
+   */
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || selected === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selected = afterEscape(selected);
+    lastSig = '';
+    render();
+  });
+
+  /**
+   * The selection as a NAME, for the three readers outside this region: the
+   * copy strip's title, `pasteDestination()` and `selectedFolder()`.
+   *
+   * A panel that is not on screen answers NOTHING even before the render pass
+   * that clears the selection has run — `afterPanelHidden` is the state, this
+   * is the guarantee, and the guarantee is what a paste arriving from a
+   * focused terminal actually asks.
+   */
+  function currentSelectedName(): string | null {
+    if (!st.filesPanelVisible()) return null;
+    return selectedName(selected);
+  }
 
   // ---- header: the two tabs, then the name of what we are looking at -------
   const hd = el('header', 'files-hd');
@@ -295,25 +372,32 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   root.append(hd, copyRow, summary, selHd, body);
 
   /**
-   * The button's promise, kept live: it names the folder `pasteDestination()`
-   * would use, which changes when a folder row takes the focus, when the panel
-   * changes subject, and when the focus leaves the panel again. `focusin` is
-   * listened for on the DOCUMENT because focus moving OUT of the panel is not
-   * an event the panel itself ever sees.
+   * The button's promise, kept live. Two halves since A9b:
+   *
+   *   - its VISIBLE label answers the selection (`Copy files here…` with
+   *     nothing selected, `Copy files into src…` with a folder chosen), which
+   *     is what makes the destination obvious without hovering anything;
+   *   - its `title` keeps naming the folder `pasteDestination()` would really
+   *     use, which also changes when a folder row takes the focus, when the
+   *     panel changes subject, and when the focus leaves the panel again.
+   *
+   * `focusin` is listened for on the DOCUMENT because focus moving OUT of the
+   * panel is not an event the panel itself ever sees.
    */
-  function syncCopyTitle(): void {
+  function syncCopyStrip(): void {
+    copyBtn.textContent = copyStripLabel(selected);
     const dest = pasteDestination();
     copyBtn.title = dest === null ? '' : copyIntoText(dest);
   }
   document.addEventListener('focusin', (e) => {
     noteFocus(e.target);
-    syncCopyTitle();
+    syncCopyStrip();
   });
   // The destination questions the drop layer asks are answered against THIS
   // panel (there is one), through the same `subject()` the header prints — set
   // before the first title, so the button never starts out naming the fallback.
-  live = { subject, focusedFolderName };
-  syncCopyTitle();
+  live = { subject, focusedFolderName, selectedFolder: currentSelectedName };
+  syncCopyStrip();
 
   // ---- the drag edge --------------------------------------------------------
   const grip = el('div', 'files-grip');
@@ -541,6 +625,9 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       // Commits tab on a panel headed `Home`.
       repoKnown() ? 'repo' : 'home',
       Array.from(openFolders).sort().join(','),
+      // A9b: the chosen folder is drawn (`is-sel`) and spoken (the copy
+      // strip), so a change to it has to repaint the panel like any other.
+      selected ?? '',
       st.state.openCommit ?? '',
       collapsed,
       openFiles,
@@ -550,6 +637,11 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   function render(): void {
     if (!st.filesPanelVisible()) {
       lastSig = 'hidden';
+      // The panel left the screen (the Files toggle, or the Projects drawer
+      // borrowing the left column): the chosen folder goes with it. A9b lets a
+      // selection take a paste away from a focused TERMINAL, and a destination
+      // nobody can see must never do that.
+      selected = afterPanelHidden(selected);
       return;
     }
     // The repository went away under the panel (the last session exited, the
@@ -595,7 +687,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       }
     }
     projName.textContent = headerName();
-    syncCopyTitle();
+    syncCopyStrip();
 
     if (tab === 'files') {
       const totals = diffSummary(MOCK_FILES);
@@ -644,6 +736,11 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       let row: HTMLElement;
       if (r.dir) {
         const b = button('files-row is-dir', '', () => {
+          // ONE gesture, TWO effects, in this order (A9b user decision 1): the
+          // row becomes the chosen folder, and THEN it opens or closes exactly
+          // as it always did. A re-click keeps it chosen — the toggle is what
+          // flips, the selection is not.
+          selected = afterRowActivate(selected, r.path);
           if (openFolders.has(r.path)) openFolders.delete(r.path);
           else openFolders.add(r.path);
           lastSig = '';
@@ -651,6 +748,16 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         });
         b.setAttribute('data-k', `fdir:${r.path}`);
         b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
+        // The chosen folder, painted from the PATH and not from a live element
+        // — which is what makes it survive this very rebuild. A file row is
+        // never selected, so the class is set on folder rows only.
+        const isSel = selected === r.path;
+        b.classList.toggle('is-sel', isSel);
+        // The class is colour; `aria-current` is the same fact for a screen
+        // reader. REMOVED, never `'false'`: an absent attribute is the honest
+        // "not the current destination".
+        if (isSel) b.setAttribute('aria-current', 'true');
+        else b.removeAttribute('aria-current');
         b.title = DIR_TITLE;
         // The ROW-LEVEL twin of dropping files on this folder, owned here for
         // the same reason ctrl+alt+enter is: it acts on the row that has the

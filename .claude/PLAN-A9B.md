@@ -368,7 +368,11 @@ No line of the fit → ws resize seam, `TerminalView`, the ctrl+alt allowlist or
    bracketed (both the browser's own ctrl+v and the ctrl+shift+v chord);
 2. a FILES paste (plain ctrl+v) while a terminal is focused with a folder
    selected: the A9 dialog opens, `server.log` shows NO input bytes for that
-   session, and the terminal has the keyboard again once the card closes;
+   session — not even a ^V: xterm hands plain ctrl+v to the browser as a
+   paste and writes no byte of its own (Brief 1 measured the no-selection
+   case as 12 bytes = an empty bracketed paste, no 0x16; the final gate
+   measures the taken case explicitly, scope review Brief 1) — and the
+   terminal has the keyboard again once the card closes;
 3. a FILES paste with a terminal focused and NO selection: nothing at all
    happens, and the PTY still receives the plain ctrl+v byte exactly as before;
 4. `server.log` shows no `resize` line while the menu opens, flips near an edge
