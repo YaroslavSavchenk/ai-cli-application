@@ -581,7 +581,11 @@ multi-pane layouts on top.
   git changes become a `Changes` tab fed by `git diff --numstat` +
   `git status --porcelain -z`, polled every 5 s only while that tab is
   visible; `Commits` stays mock until B3) and give the row menu `New file`
-  / `New folder` (inline name row, real creation). Backend (landed with
+  / `New folder` / `Refresh` (inline name row at the child indent, Enter
+  creates for real, Escape or blur cancels, the refusal is a second row in
+  danger ink) plus a panel-ROOT menu (Copy files here…, New file, New
+  folder, Refresh) on a right-click of the tree's background or the menu
+  chord with the focus in the panel — Files tab only. Backend (landed with
   Brief A): `GET /api/fs/entries`, `POST /api/fs/create`,
   `GET /api/git/changes`, all token-gated, all confined to a realpath
   boundary = the user's HOME or any REGISTERED project's path — a registered
@@ -625,7 +629,8 @@ multi-pane layouts on top.
   root, else the active tab's root). A right-click on a row (or the
   ContextMenu key / Shift+F10 on the focused row) opens a Nocturne context
   menu — a new primitive, `ui/context-menu.ts`, not a modal: folder rows
-  offer Open or Close, Copy, Paste, Copy files here…; file rows Open, Open
+  offer Open or Close, Copy, Paste, Copy files here…, and since A9c
+  (2026-09-16) New file, New folder, Refresh; file rows Open, Open
   beside, Copy. Copy and Paste stay visibly disabled with a one-line reason
   until B10 (a page cannot read files from the OS clipboard outside a paste
   event, nor put files on it; the Windows host does both). A right-click
@@ -863,9 +868,10 @@ multi-pane layouts on top.
   recorded 2026-09-15; Ctrl+Alt+M's bytes equal Alt+Enter's, which stays
   untouched). The app takes
   exactly four extra chords (plus, since A9b, the files-only paste EVENT
-  described below — an event, not a chord — and, on a FOCUSED Files-panel
-  row only, the ContextMenu key / Shift+F10 that open the row's menu; a
-  terminal never sees those two taken): `Ctrl+Shift+V` and `Shift+Insert` paste the
+  described below — an event, not a chord — and, while the keyboard is
+  INSIDE the Files panel, the ContextMenu key / Shift+F10 that open the
+  row's menu on a focused row or the panel's own menu elsewhere in it
+  (A9c, 2026-09-16); a terminal never sees those two taken): `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
   itself; a paste that carries FILES is taken — and opens the drop dialog —

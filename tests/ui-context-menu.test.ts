@@ -139,6 +139,7 @@ interface ModelModule {
   PASTE_NOTE: string;
   MENU_MARGIN: number;
   itemsFor(row: { dir: boolean; name: string; open: boolean }): { label: string }[];
+  itemsForRoot(name: string): { label: string }[];
   menuPosition(
     at: { x: number; y: number },
     size: { w: number; h: number },
@@ -377,12 +378,170 @@ test('every row says it opens a menu: aria-haspopup on folder AND file rows', as
   }
 });
 
-test('a right-click ANYWHERE else is not even prevented — the system menu opens as it does today', async () => {
+// ---------------------------------------------------------------------------
+// The ROOT menu (part A9c, §6a): the panel's own background
+// ---------------------------------------------------------------------------
+
+test('a right-click on the TREE BODY opens the root menu, named after the folder the header prints', async () => {
+  await liveSession();
+  for (const [what, el] of [
+    ['the tree body', byClass(root, 'files-body')[0] as FakeElement],
+  ] as [string, FakeElement][]) {
+    assert.ok(el !== undefined, `non-vacuity: ${what} is on screen`);
+    const e = dispatch(el, 'contextmenu', { clientX: 12, clientY: 40 });
+    assert.equal(e.defaultPrevented, true, `the system menu must not open over ours on ${what}`);
+    assert.equal(
+      menuEl()?.getAttribute('aria-label'),
+      'actions for api',
+      `${what}: the NAME the header prints, never a path`,
+    );
+    assert.deepEqual(
+      labels(),
+      M.itemsForRoot('api').map((i) => i.label),
+      `${what}: the entries are the model s, in its order`,
+    );
+    CM.closeRowMenu();
+  }
+});
+
+test('the rest of the panel keeps the SYSTEM menu: header, tabs, copy strip, grip', async () => {
+  // `.files-view` is the whole panel, and only the list that draws the rows IS
+  // the folder. The header carries the project's NAME, the tabs and the copy
+  // strip are ordinary controls, the grip is a separator — a right-click there
+  // is the system's business (select the name, inspect the control), and A9c
+  // taking it would be a menu about a folder offered on top of something else.
+  await liveSession();
+  for (const [what, el] of [
+    ['the panel root', root],
+    ['the header', byClass(root, 'files-hd')[0] as FakeElement],
+    ['the project name', byClass(root, 'files-proj')[0] as FakeElement],
+    ['the Files tab button', byKey(root, 'ftab:files') as FakeElement],
+    ['the Commits tab button', byKey(root, 'ftab:commits') as FakeElement],
+    ['the copy strip', byClass(root, 'files-copy')[0] as FakeElement],
+    ['the copy button', byKey(root, 'fcopy') as FakeElement],
+    ['the width grip', byClass(root, 'files-grip')[0] as FakeElement],
+  ] as [string, FakeElement][]) {
+    assert.ok(el !== undefined && el !== null, `non-vacuity: ${what} is on screen`);
+    const e = dispatch(el, 'contextmenu', { clientX: 10, clientY: 10 });
+    assert.equal(e.defaultPrevented, false, `the app took the right-click on ${what}`);
+    assert.equal(menuEl(), undefined, `a menu opened on ${what}`);
+  }
+  // Non-vacuity: the tree body right beside them really does answer.
+  const e = dispatch(byClass(root, 'files-body')[0] as FakeElement, 'contextmenu', {
+    clientX: 12,
+    clientY: 40,
+  });
+  assert.equal(e.defaultPrevented, true);
+  assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for api');
+});
+
+test('the root menu is NOT the row menu: no Open, no Close, no Copy, no Paste', async () => {
+  await liveSession();
+  dispatch(byClass(root, 'files-body')[0] as FakeElement, 'contextmenu', { clientX: 12, clientY: 40 });
+  assert.deepEqual(labels(), ['Copy files here…', 'New file', 'New folder', 'Refresh']);
+  assert.equal(items().filter((b) => b.getAttribute('aria-disabled') === 'true').length, 0);
+});
+
+test('a right-click on a row is still the ROW s menu — the background rule never swallows one', async () => {
+  await liveSession();
+  rightClick(row('web'));
+  assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for web');
+  CM.closeRowMenu();
+  // A STATE row is neither: it has no key to act on, so the event is left alone
+  // and the system menu opens, exactly as it did before A9c.
+  const state = byClass(root, 'is-state')[0];
+  if (state !== undefined) {
+    const e = dispatch(state, 'contextmenu', { clientX: 12, clientY: 40 });
+    assert.equal(e.defaultPrevented, false, 'a sentence is not a place to create things in');
+    assert.equal(menuEl(), undefined);
+  }
+});
+
+test('the chord opens the root menu when the focus is INSIDE the panel and not on a row', async () => {
+  await liveSession();
+  for (const init of [{ key: 'ContextMenu' }, { key: 'F10', shiftKey: true }]) {
+    const btn = byKey(root, 'fcopy') as FakeElement;
+    btn.focus();
+    const e = dispatch(btn, 'keydown', init);
+    assert.equal(e.defaultPrevented, true, `${init.key} must be owned by the panel`);
+    assert.equal(e.cancelBubble, true, 'and spent there, so no window handler sees it');
+    assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for api');
+    // Escape hands the keyboard back to the control it was opened from.
+    dispatch(items()[0] as FakeElement, 'keydown', { key: 'Escape' });
+    assert.equal(dom.doc.activeElement, byKey(root, 'fcopy'));
+  }
+});
+
+test('the chord OUTSIDE the panel is never the panel s — a terminal keeps its own menu key', async () => {
+  // The hard constraint (PROJECT-SCOPE): the app takes the ContextMenu key and
+  // shift+f10 ONLY while the keyboard is inside the Files panel. Everywhere
+  // else they belong to whatever has the focus — a terminal above all, where
+  // the menu key is the TUI's, and where losing it would be a key the PTY
+  // never sees. The listener lives on the panel's own root for exactly this
+  // reason; a window listener would take all four surfaces below.
+  await liveSession();
+  for (const [what, el] of [
+    ['a pane', pane],
+    ['a terminal', term],
+    ['the tab strip', strip],
+    ['the statusline', status],
+    ['the page body', dom.body],
+  ] as [string, FakeElement][]) {
+    for (const init of [{ key: 'ContextMenu' }, { key: 'F10', shiftKey: true }]) {
+      assert.ok(el !== undefined, `non-vacuity: ${what} is on screen`);
+      const e = dispatch(el, 'keydown', init);
+      assert.equal(e.defaultPrevented, false, `${what}: the panel took ${init.key}`);
+      assert.equal(e.cancelBubble, false, `${what}: the panel spent ${init.key}`);
+      assert.equal(menuEl(), undefined, `${what}: the panel opened its menu over somebody else s surface`);
+    }
+  }
+  // Non-vacuity: the same two keys INSIDE the panel really do open it.
+  (byKey(root, 'fcopy') as FakeElement).focus();
+  dispatch(byKey(root, 'fcopy') as FakeElement, 'keydown', { key: 'ContextMenu' });
+  assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for api');
+  CM.closeRowMenu();
+});
+
+test('the root menu is the Files tab s: on Changes the right-click is left to the system', async () => {
+  await liveSession();
+  const changesTab = byKey(root, 'ftab:changes') as FakeElement;
+  assert.equal(changesTab.disabled, false, 'non-vacuity: the fixture root is a repository');
+  changesTab.click();
+  await settle();
+  const e = dispatch(byClass(root, 'files-body')[0] as FakeElement, 'contextmenu', {
+    clientX: 12,
+    clientY: 40,
+  });
+  assert.equal(e.defaultPrevented, false, 'that tab lists a repository, not this folder');
+  assert.equal(menuEl(), undefined);
+  (byKey(root, 'ftab:files') as FakeElement).click();
+  await settle();
+});
+
+test('Copy files here… on the root menu aims at the ROOT, not at the chosen folder', async () => {
+  await liveSession();
+  row('web/src').click();
+  await settle();
+  assert.equal(destName(F.selectedFolder()), 'src', 'non-vacuity: a folder is chosen');
+  dispatch(byClass(root, 'files-body')[0] as FakeElement, 'contextmenu', { clientX: 12, clientY: 40 });
+  activate('Copy files here…');
+  assert.equal(picked.length, 1, 'the native chooser, once');
+  (picked[0] as (f: { name: string }[]) => void)([{ name: 'a.txt' }]);
+  await settle();
+  assert.deepEqual(
+    offered[0]?.dest,
+    { path: PROJ, name: 'api' },
+    'the panel s own root: the NAME the header prints, the PATH part B10 posts to',
+  );
+});
+
+test('a right-click OUTSIDE the panel is not even prevented — the system menu opens as it does today', async () => {
+  // Part A9c took the panel's own background for the ROOT menu (§6a), and
+  // nothing else: every surface below is somebody else's, and a terminal's in
+  // particular is xterm's own arrangement (its `contextmenu` handler puts the
+  // selection in the helper textarea so the system Copy and Paste act on it).
   await liveSession();
   const elsewhere: [string, FakeElement][] = [
-    ['the panel background', byClass(root, 'files-copy')[0] as FakeElement],
-    ['the tree body', byClass(root, 'files-body')[0] as FakeElement],
-    ['the panel root', root],
     ['a pane', pane],
     ['a terminal', term],
     ['the tab strip', strip],
@@ -394,13 +553,6 @@ test('a right-click ANYWHERE else is not even prevented — the system menu open
     assert.equal(e.defaultPrevented, false, `the app took the right-click on ${what}`);
     assert.equal(menuEl(), undefined, `a menu opened on ${what}`);
   }
-});
-
-test('the copy strip is not a row either: a right-click on it opens nothing', async () => {
-  await liveSession();
-  const e = dispatch(byKey(root, 'fcopy') as FakeElement, 'contextmenu', {});
-  assert.equal(e.defaultPrevented, false);
-  assert.equal(menuEl(), undefined);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,9 @@
 /**
- * Row context-menu model (Nocturne part A9b, user decision 3, 2026-09-16,
- * `.claude/PLAN-A9B.md` §3 and §5) — what a right-click on a Files-panel row
- * offers, what the menu is called for a screen reader, where it opens so it is
- * always whole on screen, and where the arrow keys go next.
+ * Context-menu model (Nocturne part A9b user decision 3, widened by part A9c,
+ * `.claude/PLAN-A9B.md` §3 and §5, `.claude/PLAN-B2.md` §6a) — what a
+ * right-click on a Files-panel row offers, what the background of that panel
+ * offers, what each menu is called for a screen reader, where it opens so it
+ * is always whole on screen, and where the arrow keys go next.
  *
  * No DOM, no state, no browser. The geometry in particular HAS to be pure:
  * `tests/fake-dom.ts` measures nothing (`getBoundingClientRect` answers only
@@ -12,9 +13,10 @@
  *
  * Copy rules this file enforces, not just follows:
  * - LABELS ARE PLAIN WORDS (PROJECT-SCOPE, 2026-07-25): `Open`, `Close`,
- *   `Copy`, `Paste`, `Open beside`. No commands, no flags, no key names, no
- *   icons, no counts, no separator — four entries and three entries are short
- *   enough to read as a list.
+ *   `Copy`, `Paste`, `Open beside`, `New file`, `New folder`, `Refresh`. No
+ *   commands, no flags, no key names, no icons, no counts, no separator — a
+ *   list this short reads as a list, and nothing on it is a plural of
+ *   something else.
  * - HONESTY ABOUT WHAT IS NOT BUILT: `Copy` and `Paste` are visible and
  *   DISABLED until part B10, each carrying one plain sentence saying why. A
  *   page cannot put files on the operating system's clipboard, and cannot read
@@ -27,7 +29,16 @@
 import { COPY_LABEL } from './files-select-model.ts';
 
 /** What one entry does when it is chosen. */
-export type MenuAction = 'toggle' | 'open' | 'open-beside' | 'copy' | 'paste' | 'copy-files';
+export type MenuAction =
+  | 'toggle'
+  | 'open'
+  | 'open-beside'
+  | 'copy'
+  | 'paste'
+  | 'copy-files'
+  | 'new-file'
+  | 'new-folder'
+  | 'refresh';
 
 /** One entry of the menu. */
 export interface MenuItem {
@@ -76,9 +87,10 @@ export const MENU_MARGIN = 8;
  *
  * A FOLDER offers what the row itself does (`Open`/`Close` — the same toggle
  * the primary click performs, named instead of guessed at), the two clipboard
- * entries that are not built yet, and the destination gesture that IS built:
- * `Copy files here…`, the same words as the copy strip's own button, because
- * they do the same thing to the same folder.
+ * entries that are not built yet, the destination gesture that IS built
+ * (`Copy files here…`, the same words as the copy strip's own button, because
+ * they do the same thing to the same folder) and — since A9c — the three that
+ * make or re-read its contents (`makeEntries`).
  *
  * A FILE offers the two ways the app can already show it — in the focused
  * editor pane, or beside it — plus `Copy`. It offers no `Paste`: files do not
@@ -92,6 +104,7 @@ export function itemsFor(row: RowSubject): MenuItem[] {
       { action: 'copy', label: 'Copy', enabled: false, note: COPY_NOTE },
       { action: 'paste', label: 'Paste', enabled: false, note: PASTE_NOTE },
       { action: 'copy-files', label: COPY_LABEL, enabled: true },
+      ...makeEntries(),
     ];
   }
   return [
@@ -102,12 +115,67 @@ export function itemsFor(row: RowSubject): MenuItem[] {
 }
 
 /**
+ * The three entries a FOLDER answers and a file cannot (part A9c, §6a): make
+ * something in it, or read it again.
+ *
+ * NO ELLIPSIS on `New file` and `New folder`, and that is a statement rather
+ * than a shortening: the app's `…` means "a dialog follows" (`Copy files
+ * here…`, and the launch dialog's own buttons), and these two open NO dialog —
+ * they put a name row in the tree, in the folder they were chosen on. An
+ * ellipsis here would promise the one thing §6b refuses to build.
+ *
+ * `Refresh` is the honest name for what the panel already does on every
+ * expand: ask that folder again. It carries no key name, because it has no
+ * chord — the menu is the whole affordance.
+ */
+function makeEntries(): MenuItem[] {
+  return [
+    { action: 'new-file', label: 'New file', enabled: true },
+    { action: 'new-folder', label: 'New folder', enabled: true },
+    { action: 'refresh', label: 'Refresh', enabled: true },
+  ];
+}
+
+/**
+ * The entries for the panel's ROOT — the menu a right-click on the tree's
+ * background opens (§6a), and the keyboard twin of it.
+ *
+ * It is the FOLDER list minus the two entries that need a row to act on: the
+ * root has no row, so there is nothing to `Open`/`Close` (it is the whole
+ * tree, always open), and `Copy` would have to put the root itself on a
+ * clipboard nobody can read yet. What is left is everything that is about the
+ * folder's CONTENTS, which is exactly what the background of a file tree is
+ * about.
+ *
+ * `name` is the root's own name — the one the header prints — and it is
+ * deliberately NOT spent on a label: `Copy files here…` is the copy strip's
+ * own words for the same gesture, and repeating a name that is already on
+ * screen twice over would be the menu talking about itself. It names the MENU
+ * instead (`rootMenuLabel`), which is where a screen reader needs it, and the
+ * parameter is kept so both halves of one menu are asked for the same way.
+ */
+export function itemsForRoot(name: string): MenuItem[] {
+  void name;
+  return [{ action: 'copy-files', label: COPY_LABEL, enabled: true }, ...makeEntries()];
+}
+
+/**
  * The menu's accessible name: `actions for src`. Lower case and plain, so a
  * screen reader reads it as the continuation of the row it was opened from
  * rather than as a title nobody asked for.
  */
 export function menuLabel(row: RowSubject): string {
   return `actions for ${row.name}`;
+}
+
+/**
+ * The ROOT menu's accessible name: `actions for api` — the same sentence shape
+ * a row's menu carries, over the name the header is already printing. A screen
+ * reader hears the two menus as one vocabulary, and the root is named the way
+ * the panel names it out loud, never by its path.
+ */
+export function rootMenuLabel(name: string): string {
+  return `actions for ${name}`;
 }
 
 /**

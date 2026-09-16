@@ -621,8 +621,16 @@ test('a finished drag swallows the click that follows it', async () => {
   probe.click();
   assert.equal(clicks, 0, 'the post-drag click is swallowed');
 
-  // It is a short window, not a mode: 80ms later clicks work again.
-  await new Promise((r) => setTimeout(r, 90));
+  // It is a short window, not a mode: once it is over, clicks work again.
+  //
+  // WAITS ON THE CLOCK `dnd.ts` READS. The swallow is `Date.now() + 80`, and a
+  // timer is scheduled on the MONOTONIC clock — the two can disagree by a few
+  // milliseconds on this host, which made a single `setTimeout(90)` return
+  // while `Date.now()` still said the window was open (observed once in a full
+  // `npm run test:ui`, 2026-09-16). Turning the wait into a poll of the same
+  // clock the code under test uses removes the race instead of widening it.
+  const open = Date.now() + 100;
+  while (Date.now() < open) await new Promise((r) => setTimeout(r, 10));
   probe.click();
   assert.equal(clicks, 1);
   probe.remove();

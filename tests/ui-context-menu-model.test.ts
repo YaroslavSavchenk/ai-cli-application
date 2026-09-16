@@ -24,7 +24,9 @@ import {
   MENU_MARGIN,
   PASTE_NOTE,
   itemsFor,
+  itemsForRoot,
   menuLabel,
+  rootMenuLabel,
   menuPosition,
   nextItem,
   type MenuItem,
@@ -58,6 +60,9 @@ test('itemsFor: a CLOSED folder offers Open, and a closed one is what a folder u
     'copy:Copy:off',
     'paste:Paste:off',
     'copy-files:Copy files here…:on',
+    'new-file:New file:on',
+    'new-folder:New folder:on',
+    'refresh:Refresh:on',
   ]);
 });
 
@@ -67,6 +72,9 @@ test('itemsFor: an OPEN folder offers Close — the entry NAMES what the click w
     'copy:Copy:off',
     'paste:Paste:off',
     'copy-files:Copy files here…:on',
+    'new-file:New file:on',
+    'new-folder:New folder:on',
+    'refresh:Refresh:on',
   ]);
   // One entry, one action: `Open` and `Close` are the SAME toggle, so the DOM
   // half has one branch to wire, not two.
@@ -121,9 +129,10 @@ test('a DISABLED entry carries its note; an ENABLED one carries none', () => {
     }
   }
   // Non-vacuity, and the count of what is not built yet: Copy on all three
-  // rows, Paste on the two folders.
+  // rows, Paste on the two folders. Everything A9c added is enabled — an entry
+  // that creates something either works or is not on the menu.
   assert.equal(disabled, 5);
-  assert.equal(enabled, 6);
+  assert.equal(enabled, 12);
 });
 
 test('the disabled entries are exactly Copy (everywhere) and Paste (folders only), with their own sentence each', () => {
@@ -158,7 +167,87 @@ test('itemsFor hands out a FRESH list and fresh entries every call', () => {
     'copy:Copy:off',
     'paste:Paste:off',
     'copy-files:Copy files here…:on',
+    'new-file:New file:on',
+    'new-folder:New folder:on',
+    'refresh:Refresh:on',
   ]);
+  // The three A9c entries come out of ONE private helper shared by both menus
+  // (`makeEntries`), which is exactly where a shared array would hide: poison
+  // the root menu's copy and the folder's must be untouched.
+  const r = itemsForRoot('api');
+  const tail = r[r.length - 1];
+  if (tail !== undefined) tail.label = 'poisoned';
+  assert.deepEqual(
+    shape(itemsForRoot('api')),
+    ['copy-files:Copy files here…:on', 'new-file:New file:on', 'new-folder:New folder:on', 'refresh:Refresh:on'],
+  );
+  assert.equal(itemsFor(folder())[6]?.label, 'Refresh', 'and the row menu is not poisoned either');
+});
+
+// ---------------------------------------------------------------------------
+// The ROOT menu (part A9c, §6a)
+// ---------------------------------------------------------------------------
+
+test('itemsForRoot: the folder list minus the two entries that need a row', () => {
+  assert.deepEqual(shape(itemsForRoot('api')), [
+    'copy-files:Copy files here…:on',
+    'new-file:New file:on',
+    'new-folder:New folder:on',
+    'refresh:Refresh:on',
+  ]);
+  // The root has no row to open or close, and nothing to put on a clipboard
+  // that cannot be written to yet.
+  for (const action of ['toggle', 'open', 'open-beside', 'copy', 'paste']) {
+    assert.equal(
+      itemsForRoot('api').some((i) => i.action === action),
+      false,
+      `the root menu must not offer ${action}`,
+    );
+  }
+  // Every entry on it is enabled: there is no note to read, because there is
+  // nothing on it that cannot work.
+  for (const i of itemsForRoot('api')) {
+    assert.equal(i.enabled, true, i.action);
+    assert.equal(i.note, undefined, i.action);
+  }
+});
+
+test('itemsForRoot: the NAME never reaches a label, however odd the name is', () => {
+  // The root is named out loud in the menu's accessible name and nowhere else:
+  // a label that interpolated it would print `Home` twice on one screen, and —
+  // with a project called `web/src` — would put something path-shaped on an
+  // entry (the copy rule this whole module exists to keep).
+  for (const name of ['api', 'Home', 'Session Manager', 'web/src']) {
+    for (const i of itemsForRoot(name)) assert.equal(i.label.includes(name), false, i.label);
+  }
+  assert.deepEqual(
+    itemsForRoot('Home').map((i) => i.label),
+    itemsForRoot('api').map((i) => i.label),
+    'the entries do not depend on the name at all',
+  );
+});
+
+test('the root menu and a folder row say the SAME words for the same three things', () => {
+  const rowTail = itemsFor(folder()).slice(-3);
+  const rootTail = itemsForRoot('api').slice(-3);
+  assert.deepEqual(shape(rowTail), shape(rootTail));
+  assert.deepEqual(shape(rowTail), [
+    'new-file:New file:on',
+    'new-folder:New folder:on',
+    'refresh:Refresh:on',
+  ]);
+  // NO ELLIPSIS: `…` is this app's mark for "a dialog follows", and §6b's name
+  // row is not a dialog. `Copy files here…` keeps its own, because it opens the
+  // file chooser.
+  for (const i of rowTail) assert.equal(i.label.includes('…'), false, i.label);
+});
+
+test('rootMenuLabel: the root is named the way the header names it, never by a path', () => {
+  assert.equal(rootMenuLabel('api'), 'actions for api');
+  assert.equal(rootMenuLabel('Home'), 'actions for Home');
+  assert.equal(rootMenuLabel('Session Manager'), 'actions for Session Manager');
+  // One vocabulary with the row menu, so a screen reader hears one app.
+  assert.equal(rootMenuLabel('src'), menuLabel(folder({ name: 'src' })));
 });
 
 test('menuLabel: the menu is named after the row it belongs to', () => {
@@ -171,9 +260,13 @@ test('no label, note or menu name carries a path, a flag or a decorative separat
   const strings = [
     menuLabel(folder()),
     menuLabel(file()),
+    rootMenuLabel('api'),
     ...[folder({ open: true }), folder({ open: false }), file()].flatMap((r) =>
       itemsFor(r).flatMap((i) => [i.label, i.note ?? '']),
     ),
+    // A9c: the root menu's own words go through the same sweep — there are two
+    // menus now, and one copy rule.
+    ...itemsForRoot('api').flatMap((i) => [i.label, i.note ?? '']),
   ];
   assert.ok(strings.length >= 20, `non-vacuity: only ${strings.length} strings swept`);
   for (const s of strings) {

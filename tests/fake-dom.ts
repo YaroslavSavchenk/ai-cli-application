@@ -249,6 +249,15 @@ export class FakeElement extends FakeNode {
   type = '';
   placeholder = '';
   autocomplete = '';
+  /**
+   * `<input>` state the UI modules really set (A9c: the Files panel's name row
+   * makes its input read-only while the create is in flight, and turns the
+   * spell checker off because a file name is not prose). Plain properties,
+   * exactly as on a real HTMLInputElement, so a test reads back what the module
+   * wrote — `value` is the accessor further down.
+   */
+  readOnly = false;
+  spellcheck = true;
   readonly captured = new Set<number>();
   /**
    * Layout, as a value a test sets: there is no engine here, so a module that
@@ -401,8 +410,17 @@ export class FakeElement extends FakeNode {
     getDoc().activeElement = this;
     dispatch(this, 'focusin');
   }
+  /**
+   * Give the keyboard up, and SAY SO: a real element fires `blur` when it
+   * loses the focus, and a module can hang behaviour off that (A9c: the Files
+   * panel's name row cancels when the keyboard leaves it). The event does not
+   * bubble in a browser; this double has one dispatch, and the handlers that
+   * read it are on the element itself.
+   */
   blur(): void {
-    if (getDoc().activeElement === this) getDoc().activeElement = getBody();
+    if (getDoc().activeElement !== this) return;
+    getDoc().activeElement = getBody();
+    dispatch(this, 'blur');
   }
   click(): void {
     dispatch(this, 'click');

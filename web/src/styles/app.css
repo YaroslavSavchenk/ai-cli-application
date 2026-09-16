@@ -2061,6 +2061,46 @@ select:focus-visible,
   color: var(--color-attn);
 }
 
+/* the NAME ROW (Nocturne A9c): naming a new file or folder happens in the
+   tree, at the indent the thing will live at — never in a dialog. It is the
+   tree's own row with its name turned into an ink well: same 26px rhythm, same
+   caret spacer and same mark, so the rows above and below it do not move by a
+   pixel while it is there. (A row that changed the panel's WIDTH would fire
+   every pane's ResizeObserver and resize every PTY in the grid — the A9 rule,
+   which is also why the input carries no border and no padding of its own: the
+   field ground the base `input` rule paints would otherwise make this row
+   taller than every other one.)
+
+   The refusal underneath is the same row again, one sentence, in the ink this
+   app refuses in everywhere (`.is-state.is-err` above uses the same token for
+   the same job). */
+.files-row.is-new {
+  cursor: text;
+}
+
+.files-newname {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  /* THE TREE'S FACE, NOT THE FIELD'S. The base `input` rule sets the mono
+     face (Nocturne: mono carries DATA, chrome is Inter), which inside a tree
+     of Inter names reads as a different kind of thing in the same column. The
+     name being typed is the same name that will be drawn one repaint later,
+     so it is the same face and the same 12.5px as `.files-name` — and the size
+     is restated rather than inherited so the row's height cannot move with it. */
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.files-row.is-newerr .files-name {
+  color: var(--color-danger);
+}
+
 /* ---- commits list (a row opens the commit view since A6) -------------------
    `.files-branch` is shared with the Changes tab, which names its REPOSITORY
    and branch on the same quiet line (part B2 §7). */

@@ -164,10 +164,12 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
   const withCaption = items.filter((i) => byClass(i, 'sc-cap').length > 0);
   // A9b (2026-09-16) added the third: the files-on-the-clipboard gesture row,
   // whose caption states the terminal limit (only plain ctrl+v carries files).
+  // A9c added the fourth: the row-menu gesture, whose caption says the menu now
+  // CREATES things — a menu nobody opens is a feature nobody has.
   assert.equal(
     withCaption.length,
-    3,
-    'exactly the paste row, the copy row and the files-paste row carry a caption',
+    4,
+    'exactly the paste row, the copy row, the files-paste row and the row-menu row carry a caption',
   );
   for (const item of withCaption) {
     const row = byClass(item, 'sc-row')[0];
@@ -215,18 +217,29 @@ test('the three A9b gestures are on the overlay, each once, each naming its twin
       `a mouse sentence must never render as a key chip: ${g}`,
     );
   }
-  // Exactly one of the three carries a caption, and it is the one stating the
-  // terminal limit: inside a terminal only PLAIN ctrl+v can carry files,
+  // TWO of the three carry a caption since A9c: the files-paste row states the
+  // terminal limit (inside a terminal only PLAIN ctrl+v can carry files,
   // because ui/terminal.ts serves the other two paste keys from the text
-  // clipboard, which cannot see a file list.
+  // clipboard, which cannot see a file list), and the row-menu row says what
+  // the menu grew — the two entries that create a file or a folder, on a
+  // folder row and on the panel's background alike.
   const capped = want.filter(([g]) => {
     const item = items.find((i) => textsOf(i, 'sc-gesture').includes(g));
     return item !== undefined && byClass(item, 'sc-cap').length > 0;
   });
   assert.deepEqual(
     capped.map(([g]) => g),
-    ['paste with files on the clipboard'],
+    ['right-click a row in the Files panel', 'paste with files on the clipboard'],
   );
+  // A9c's own row, named and pinned: the panel's BACKGROUND answers the same
+  // menu, with the same keyboard twin — a control that exists only under a
+  // pointer is forbidden here.
+  const bg = items.find((i) =>
+    textsOf(i, 'sc-gesture').includes("right-click the Files panel's background"),
+  );
+  assert.ok(bg !== undefined, 'the background gesture must be on the overlay');
+  assert.equal(textsOf(bg, 'sc-what')[0], 'its actions');
+  assert.equal(textsOf(bg, 'sc-ui')[0], 'the menu key or shift+f10 with the focus in the panel');
   const pasteItem = items.find((i) =>
     textsOf(i, 'sc-gesture').includes('paste with files on the clipboard'),
   ) as FakeElement;

@@ -5,9 +5,9 @@
  * UI control (and every drag has a keyboard/button path); plain keys are
  * never intercepted (they belong to the TUI).
  *
- * THREE rows carry a `note` (A9b added the third) — every other entry is a
- * shortcut for a control the user can see, while these three answer a question
- * the user actually asked:
+ * FOUR rows carry a `note` (A9b added the third, A9c the fourth) — every other
+ * entry is a shortcut for a control the user can see, while these four answer a
+ * question the user actually asked:
  *
  *   - paste (2026-09-08): its non-keyboard twin is the browser's own paste,
  *     which reaches the terminal unchanged — the chords exist because a Windows
@@ -23,6 +23,10 @@
  *     inside a terminal only plain ctrl+v ever carries files, because the two
  *     paste chords above are served from the text clipboard, which can never
  *     see a file list.
+ *   - the Files row menu (2026-09-16, A9c): the menu grew the two entries that
+ *     CREATE something, and a menu nobody opens is a feature nobody has — so
+ *     the row that lists the gesture says what is now behind it, and that the
+ *     panel's background answers the same menu for the folder it is listing.
  *
  * The link row is a MOUSE gesture, not a chord: a plain click on a link a
  * program printed does nothing, and ctrl (or cmd) is the second gesture that
@@ -43,7 +47,7 @@ interface Row {
   gesture?: boolean;
   what: string;
   ui: string;
-  /** One line under the row, for the three entries whose existence or limit needs a reason (paste, copy, pasting files). */
+  /** One line under the row, for the four entries whose existence, limit or contents need a reason (paste, copy, pasting files, the Files row menu). */
   note?: string;
 }
 
@@ -89,6 +93,13 @@ const ROWS: Row[] = [
     gesture: true,
     what: 'its actions',
     ui: 'the menu key or shift+f10',
+    note: 'A folder row also offers New file and New folder, and so does the background.',
+  },
+  {
+    keys: ["right-click the Files panel's background"],
+    gesture: true,
+    what: 'its actions',
+    ui: 'the menu key or shift+f10 with the focus in the panel',
   },
   {
     keys: ['paste with files on the clipboard'],
@@ -156,7 +167,7 @@ export function initShortcuts(modalHost: HTMLElement, refocus: () => void): Shor
   }
   const note = el('p', 'sc-note');
   note.textContent =
-    "Everything else goes to the terminal: arrows and esc are never intercepted, and plain ctrl+c/v go straight to it — unless the clipboard carries files and a folder is selected, which is the one paste the app keeps for itself. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes — plus the menu key or shift+f10, only while a row in the Files panel has the keyboard.";
+    "Everything else goes to the terminal: arrows and esc are never intercepted, and plain ctrl+c/v go straight to it — unless the clipboard carries files and a folder is selected, which is the one paste the app keeps for itself. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes — plus the menu key or shift+f10, only while the keyboard is inside the Files panel.";
 
   modal.append(hd, table, note);
   scrim.append(modal);

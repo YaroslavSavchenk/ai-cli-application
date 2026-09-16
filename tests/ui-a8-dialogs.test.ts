@@ -319,9 +319,13 @@ test('the overlay keeps its three columns, its key chips and the caption under t
   for (const k of ['ctrl+shift+v', 'shift+insert', 'ctrl+shift+c', 'ctrl+insert', 'ctrl+click a link']) {
     assert.ok(SHORTCUTS_TS.includes(`'${k}'`), `the overlay must still list ${k}`);
   }
-  // Each of the two chord rows keeps its one-line why, as a sentence.
+  // Each row that carries a one-line why keeps it, as a sentence. Three are
+  // spelled with single quotes (paste, copy, and — since A9c — the Files row
+  // menu, whose note names the two entries that CREATE something); the
+  // files-on-the-clipboard note is double-quoted because it holds an
+  // apostrophe, so this scan has never counted it.
   const notes = [...SHORTCUTS_TS.matchAll(/note: '([^']*)'/g)].map((m) => m[1] as string);
-  assert.equal(notes.length, 2, `expected the paste and copy notes, found ${notes.length}`);
+  assert.equal(notes.length, 3, `expected the paste, copy and row-menu notes, found ${notes.length}`);
   for (const n of notes) {
     assert.match(n, /^[A-Z]/, `a caption is a plain sentence: ${n}`);
     assert.match(n, /\.$/, `a caption is a plain sentence: ${n}`);

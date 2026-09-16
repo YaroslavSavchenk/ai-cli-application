@@ -60,7 +60,13 @@ import {
   copyStripLabel,
   type Selection,
 } from './files-select-model.ts';
-import { itemsFor, menuLabel, type MenuAction } from './context-menu-model.ts';
+import {
+  itemsFor,
+  itemsForRoot,
+  menuLabel,
+  rootMenuLabel,
+  type MenuAction,
+} from './context-menu-model.ts';
 import { closeRowMenu, openRowMenu } from './context-menu.ts';
 import { isContextMenuChord } from './keys.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
@@ -85,13 +91,17 @@ import {
   LOADING_TEXT,
   NO_CHANGES_TEXT,
   changesToFiles,
+  createRowIndex,
   destinationOf,
   fsRows,
   isUnder,
   joinPath,
+  nameProblem,
+  nameProblemText,
   truncatedText,
   type Destination,
   type FolderState,
+  type FsRow,
 } from './fs-model.ts';
 import { blockDomId, filesChangedText } from './commit-model.ts';
 import { MOCK_BRANCH, MOCK_COMMITS, mockCommitByHash } from './files-mock.ts';
@@ -131,6 +141,17 @@ function noRepoTitle(name: string): string {
  * server sentence to render, so the panel says what it knows in its own voice.
  */
 const UNREACHABLE_TEXT = 'The app could not reach the service.';
+
+/**
+ * What the name row says when a create failed and the failure carried no
+ * sentence of its own (part A9c, §6b). Every refusal the server writes is
+ * rendered VERBATIM instead — a name that is already taken, a folder that is
+ * no longer there, a permission — and this is the one case where there is no
+ * server sentence to render: a dropped connection, or a body the app cannot
+ * read. It says what the app knows ("it did not happen") and nothing it does
+ * not, and it never names the path or the name that was typed.
+ */
+const CREATE_FAILED_TEXT = 'The app could not create it.';
 
 /**
  * What a file row promises, on hover and to a screen reader. It names the
@@ -634,6 +655,9 @@ export function initFilesPanel(
     for (const p of [...openFolders]) if (!isUnder(p, next)) openFolders.delete(p);
     for (const p of [...listings.keys()]) if (!isUnder(p, next)) listings.delete(p);
     if (selected !== null && !isUnder(selected, next)) selected = null;
+    // A9c: a name row belongs to ONE folder in ONE tree. The root moved under
+    // it, so there is nothing left for it to be inside of (§6b).
+    dropCreate('root');
     changes = null;
     changesError = null;
     changesRoot = null;
@@ -887,6 +911,28 @@ export function initFilesPanel(
    * Escape closes the panel as it always did.
    */
   root.addEventListener('keydown', (e) => {
+    // The ROOT menu's keyboard twin (A9c, §6a), on the SAME listener and with
+    // the same ownership rule as the row chord: the focus is inside the panel
+    // and NOT on a row, so nothing else in the app is looking at this key — a
+    // focused terminal never reaches here at all. A row (or the name row's own
+    // input, which lives inside one) keeps its own chord, which is why this
+    // arm steps aside for anything wearing `.files-row`.
+    //
+    // IT IS WIDER THAN THE POINTER'S RULE ON PURPOSE. A right-click answers
+    // only inside the tree body (the list is the folder; the header, the tabs
+    // and the copy strip keep the system menu). Nothing inside that list is
+    // focusable except the rows themselves, which own the chord — so a
+    // keyboard rule that narrow would leave the gesture with no keyboard twin
+    // at all, and this project forbids a control that exists only under a
+    // pointer.
+    if (isContextMenuChord(e)) {
+      const t = e.target instanceof Element ? e.target : null;
+      if (t !== null && t.closest('.files-row') !== null) return;
+      if (!openRootMenuAt(pointOf(t))) return;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.key !== 'Escape' || selected === null) return;
     e.preventDefault();
     e.stopPropagation();
@@ -939,7 +985,22 @@ export function initFilesPanel(
     // at all and was not even prevented, so the system menu appeared instead.
     const t = e.target instanceof Element ? e.target : null;
     const row = t === null ? null : t.closest<HTMLElement>('.files-row');
-    if (row === null) return;
+    // NOT A ROW: the panel's own background, which since A9c answers the ROOT
+    // menu (§6a) — the folder the header names, the folder the tree lists. It
+    // is taken only when there IS something to offer (the Files tab, a known
+    // root); otherwise the event is left alone and the system menu opens,
+    // exactly as it did before.
+    if (row === null) {
+      // THE TREE BODY, not the whole panel. `.files-view` also holds the
+      // header (the project's name), the three tabs, the copy strip and the
+      // width grip — real controls with text of their own, and a right-click
+      // there is the system's business (select the name, inspect the button).
+      // The list that draws the rows is the only surface that IS the folder.
+      if (t === null || t.closest('.files-body') === null) return;
+      if (!openRootMenuAt({ x: e.clientX, y: e.clientY })) return;
+      e.preventDefault();
+      return;
+    }
     // The KEY decides, not the class. Three kinds of thing wear `.files-row`:
     // a tree row (`fdir:`/`ffile:`), a STATE row (`Loading…`, a refusal — no
     // key at all), and a `Changes` row (`gdir:`/`gfile:`, a repo-relative
@@ -971,6 +1032,10 @@ export function initFilesPanel(
     const path = key.slice(dir ? 'fdir:'.length : 'ffile:'.length);
     if (path === '') return;
 
+    // A9c: any menu opening cancels a name row (§6b). It is done FIRST, so the
+    // repaint below is the one that removes it and the menu is anchored to the
+    // rows the user will actually see under it.
+    dropCreate('menu');
     const before = selected;
     selected = afterMenuOpen(selected, { dir, path });
     if (selected !== before) {
@@ -1003,7 +1068,64 @@ export function initFilesPanel(
     else if (action === 'open') st.openFile(currentRoot(), path, name);
     else if (action === 'open-beside') openBeside(path, name);
     else if (action === 'copy-files') openCopyFilesPicker({ path, name });
+    // A9c: the three a FOLDER answers. `itemsFor` puts none of them on a file
+    // row, so `path` is always a folder by the time they arrive here.
+    else if (action === 'new-file') startCreate(path, 'file');
+    else if (action === 'new-folder') startCreate(path, 'folder');
+    else if (action === 'refresh') fetchFolder(path);
     // 'copy' and 'paste' are disabled entries: the menu never chooses them.
+  }
+
+  /**
+   * The ROOT menu (A9c, §6a): the same card, opened on the panel's background
+   * by a right-click or by the chord, over the folder the header names.
+   *
+   * IT IS THE FILES TAB'S. `Changes` and `Commits` list something else
+   * entirely (a repository's diff, its commits), and the name row this menu
+   * can start is drawn by `fileRows()`, which those tabs never call — a create
+   * begun there would be state with nothing on screen. A root nobody has
+   * learned yet has no path to create in either. In both cases the event is
+   * left alone, so the SYSTEM menu opens instead of nothing at all.
+   *
+   * Answers whether it opened, because the caller is what decides to take the
+   * gesture away from the browser.
+   */
+  function openRootMenuAt(at: { x: number; y: number }): boolean {
+    if (tab !== 'files') return false;
+    const dest = rootDestination();
+    if (dest === null) return false;
+    dropCreate('menu');
+    const back =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.closest('.files-view') !== null
+        ? document.activeElement
+        : null;
+    openRowMenu({
+      items: itemsForRoot(dest.name),
+      at,
+      label: rootMenuLabel(dest.name),
+      returnFocus: back,
+      onChoose: (action) => runRootAction(action, dest),
+    });
+    return true;
+  }
+
+  /**
+   * What the root menu's entries do. Every one of them is the same call a row
+   * makes, aimed at the root instead — the menu is never a second
+   * implementation of anything (the A9b rule).
+   */
+  function runRootAction(action: MenuAction, dest: Destination): void {
+    if (action === 'copy-files') openCopyFilesPicker(dest);
+    else if (action === 'new-file') startCreate(dest.path, 'file');
+    else if (action === 'new-folder') startCreate(dest.path, 'folder');
+    else if (action === 'refresh') refreshRoot();
+  }
+
+  /** Where a keyboard-opened menu hangs from: the focused thing's leading edge and bottom. */
+  function pointOf(t: Element | null): { x: number; y: number } {
+    const r = (t ?? root).getBoundingClientRect();
+    return { x: r.left, y: r.bottom };
   }
 
   /**
@@ -1026,6 +1148,371 @@ export function initFilesPanel(
       const r = b.getBoundingClientRect();
       openRowMenuFor(key, { x: r.left, y: r.bottom });
     });
+  }
+
+  // ---- creating a file or a folder ------------------------------------------
+  //
+  // `New file` / `New folder`, from the row menu or the root menu (part A9c,
+  // `.claude/PLAN-B2.md` §6b). One inline row in the tree, never a dialog.
+  //
+  // WHY A ROW AND NOT A MODAL. The answer to "what is this called?" belongs
+  // exactly where the thing will be: at the child indent of the folder that
+  // will hold it, between the rows it will sit among. A modal would take the
+  // tree away to ask about it, and — the harder rule — a dialog is a layout
+  // change this panel must never make: the scrim and the card are `position:
+  // fixed`, but a panel that reflowed by a pixel would fire every pane's
+  // ResizeObserver and resize every PTY in the grid (the A9 rule). The name
+  // row is exactly `--files-row-h` tall and changes no width at all.
+  //
+  // VALIDATION IS INLINE TOO. The five client rules are `fs-model.ts`'s
+  // `nameProblem` — the server's own `isSafeSegment`, mirrored — so an empty
+  // name or a slash costs no request; everything else is the SERVER's
+  // sentence, rendered verbatim under the input (§1d), with the typed text and
+  // the keyboard left exactly where they were. No alert, no toast, no modal:
+  // the question and its answer stay in one place.
+  //
+  // ONE AT A TIME, and it is cancelled by everything that takes the tree away
+  // from under it: Escape, the input losing the keyboard, a tab switch, a root
+  // change, the panel leaving the screen, and any menu opening.
+
+  /** The name row on screen, or nothing. `error` is the sentence under it. */
+  let creating: { dir: string; kind: 'file' | 'folder'; error: string | null } | null = null;
+  /**
+   * What is typed, kept OUTSIDE the input: a repaint replaces the element (a
+   * listing lands, a 409 draws the sentence), and a text that lived only in
+   * the DOM would be lost by the very render that has to show what went wrong.
+   * `rebuild()` reads the live value into this before it replaces anything.
+   */
+  let createText = '';
+  /** The request is out: the input is read-only and the row wears `.is-busy`. */
+  let createBusy = false;
+  /**
+   * Bumped by every start and every cancel. An answer whose token no longer
+   * matches belongs to a create the user has already walked away from, so it
+   * neither selects, nor opens, nor paints a refusal at anybody.
+   */
+  let createToken = 0;
+  /** The `data-k` the keyboard came from, so a cancel can hand it back. */
+  let createReturn: string | null = null;
+  /** The live input, while one is on screen. */
+  let nameInput: HTMLInputElement | null = null;
+  /**
+   * The same value, read through a call. `paint()` clears `nameInput` before
+   * it rebuilds and `insertNameRow()` sets it again from inside that rebuild,
+   * which the compiler cannot see — so it narrows the variable to `never` at
+   * the end of the pass. This is the read that says "ask again now".
+   */
+  function liveNameInput(): HTMLInputElement | null {
+    return nameInput;
+  }
+  /** The name row takes the keyboard on the repaint that created it. */
+  let focusName = false;
+  /**
+   * The row a landed create puts the keyboard on, and the folder whose listing
+   * has to arrive before that row exists. Cleared when the row is focused —
+   * or when that folder answered without it, which is the honest end of a
+   * promise the tree cannot keep (a cap, a filter, a file created and removed).
+   */
+  let focusCreated: { key: string; dir: string } | null = null;
+  /** True while `rebuild()` is replacing rows (a removal must not read as a blur). */
+  let rebuilding = false;
+
+  /**
+   * Begin naming something in `dir`.
+   *
+   * THE FOLDER IS OPENED FIRST (§6b): a name row inside a closed folder would
+   * be a promise about a place the user cannot see. It is fetched when it has
+   * never answered, exactly as a click on its caret would — the row lands at
+   * the top of whatever that folder turns out to hold. The ROOT has no row and
+   * no caret, so it is neither opened nor fetched.
+   */
+  function startCreate(dir: string, kind: 'file' | 'folder'): void {
+    const rootP = currentPath;
+    if (rootP === null) return;
+    clearCreate();
+    if (dir !== rootP && !openFolders.has(dir)) {
+      openFolders.add(dir);
+      fetchFolder(dir);
+    }
+    creating = { dir, kind, error: null };
+    createReturn = activeKey();
+    focusName = true;
+    lastSig = '';
+    render();
+  }
+
+  /** The `data-k` of the focused control, while the focus is inside the panel. */
+  function activeKey(): string | null {
+    const a = document.activeElement;
+    if (!(a instanceof HTMLElement) || a.closest('.files-view') === null) return null;
+    return a.getAttribute('data-k');
+  }
+
+  /** Forget the create. STATE ONLY — the caller decides about painting. */
+  function clearCreate(): void {
+    creating = null;
+    createText = '';
+    createBusy = false;
+    createToken += 1;
+    nameInput = null;
+    focusName = false;
+  }
+
+  /**
+   * The four cancels that are somebody else's gesture (§6b): a menu opening, a
+   * tab switch, a root change, the panel leaving the screen. Only the menu
+   * repaints from here — `setTab` renders right after its own call, and the
+   * other two are already INSIDE a render pass, which a second render would
+   * re-enter.
+   */
+  function dropCreate(why: 'menu' | 'tab' | 'root' | 'hidden'): void {
+    if (creating === null) return;
+    clearCreate();
+    lastSig = '';
+    if (why === 'menu') render();
+  }
+
+  /**
+   * Escape and the input losing the keyboard: forget it, repaint, and hand the
+   * keyboard back where it came from.
+   *
+   * BLUR CANCELS, it does not commit (§6b). A half-typed name that created a
+   * file because the user clicked somewhere else would be the one gesture in
+   * this panel that writes to the filesystem without being asked twice.
+   *
+   * `giveKeyboardBack` is the whole difference between the two callers. ESCAPE
+   * passes true: the keyboard goes back to the row the menu was opened from —
+   * or, when that row is gone (or the menu was opened on the background with a
+   * pointer), to the copy strip's button, which is always on screen. It must
+   * land INSIDE the panel, because the Escape ladder's next rung is this
+   * panel's own listener and a keyboard dropped on `<body>` would skip
+   * straight to closing the panel. BLUR passes false: the browser is already
+   * moving the keyboard somewhere the user chose, and pulling it back into the
+   * tree from inside that transfer is how a keystroke meant for a PTY ends up
+   * on a Files row.
+   */
+  function cancelCreate(giveKeyboardBack: boolean): void {
+    if (creating === null) return;
+    const back = createReturn;
+    clearCreate();
+    lastSig = '';
+    render();
+    // ONLY ESCAPE MOVES THE KEYBOARD. A blur is the browser ALREADY moving it
+    // somewhere the user chose — a terminal, another window, the tab strip —
+    // and focusing a Files row from inside that transfer is how a keystroke
+    // meant for a PTY lands on a tree row instead.
+    if (!giveKeyboardBack) return;
+    const el =
+      back === null ? null : root.querySelector<HTMLElement>(`[data-k="${CSS.escape(back)}"]`);
+    (el ?? copyBtn).focus();
+  }
+
+  /**
+   * Enter: validate, then post exactly once.
+   *
+   * THE CLIENT RULES COST NO REQUEST. `nameProblem` is the server's own
+   * `isSafeSegment`, mirrored in `fs-model.ts`, so an empty name, a slash, an
+   * all-dots name, a control character and a name over 255 are answered here —
+   * the server would refuse all five, and asking it would only make the answer
+   * slower.
+   *
+   * EVERYTHING ELSE IS THE SERVER'S ANSWER, verbatim when it is one of its own
+   * sentences (§1d — a name that is taken, a folder that moved, a permission),
+   * and the app's own one-liner when there is no sentence to render. The text
+   * and the keyboard stay put, because the next thing the user does is edit
+   * the name they just typed.
+   */
+  function commitCreate(): void {
+    if (creating === null || createBusy) return;
+    const { dir, kind } = creating;
+    const name = nameInput === null ? createText : nameInput.value;
+    createText = name;
+    const bad = nameProblem(name);
+    if (bad !== null) {
+      creating = { dir, kind, error: nameProblemText(bad) };
+      lastSig = '';
+      render();
+      return;
+    }
+    createBusy = true;
+    creating = { dir, kind, error: null };
+    lastSig = '';
+    render();
+    const token = createToken;
+    const gen = generation;
+    fs.create(dir, name, kind)
+      .then((res) => {
+        // THE ROOT decides whether this answer concerns the panel at all: a
+        // folder in a tree nobody is looking at is not re-read.
+        if (gen !== generation) return;
+        // THE TOKEN decides whether it is still the user's QUESTION. It is
+        // not — they cancelled, or started another one — so none of the four
+        // effects below fire. The folder is still re-read: the thing EXISTS
+        // now, and a tree that kept pretending it did not would hand the next
+        // attempt a refusal about a name nothing on screen explains.
+        if (token !== createToken) {
+          fetchFolder(dir);
+          bump();
+          return;
+        }
+        clearCreate();
+        const path = res.path;
+        const leaf = fileName(path);
+        // A FOLDER is the thing you just made a place for: it becomes the
+        // chosen folder (so the copy strip already names it) and it is opened,
+        // which is what makes its one empty state honest. A FILE is a thing
+        // you made to write in, so it opens in a pane, exactly as clicking its
+        // row would.
+        if (kind === 'folder') {
+          selected = path;
+          openFolders.add(path);
+          fetchFolder(path);
+        } else {
+          st.openFile(currentRoot(), path, leaf);
+        }
+        // The keyboard follows the thing that was made — but its row does not
+        // exist until the folder answers again, so this is a promise the next
+        // rebuilds keep.
+        focusCreated = { key: `${kind === 'folder' ? 'fdir' : 'ffile'}:${path}`, dir };
+        fetchFolder(dir);
+        bump();
+      })
+      .catch((err: unknown) => {
+        if (token !== createToken || gen !== generation) return;
+        createBusy = false;
+        creating = { dir, kind, error: createMessage(err) };
+        lastSig = '';
+        render();
+        // The repaint replaced the input; the fresh one takes the keyboard
+        // back with the text still in it.
+        nameInput?.focus();
+      });
+  }
+
+  /** The sentence a failed create renders: the server's own, or the app's. */
+  function createMessage(err: unknown): string {
+    if (err !== null && typeof err === 'object') {
+      const e = err as { message?: unknown };
+      if (typeof e.message === 'string' && isSentence(e.message)) return e.message;
+    }
+    return CREATE_FAILED_TEXT;
+  }
+
+  /**
+   * `Refresh` on the ROOT (§6a): read the root again and DROP every listing
+   * cached under it, so nothing on screen can be older than this gesture.
+   *
+   * The folders that are OPEN are then asked for again in the same breath —
+   * dropping their cache without re-asking would leave the visible tree
+   * showing `Loading…` for folders nobody is going to expand a second time.
+   * Closed folders keep no cache at all and are read when they are next
+   * opened, which is the panel's normal rule.
+   */
+  function refreshRoot(): void {
+    const rootP = currentPath;
+    if (rootP === null) return;
+    for (const p of [...listings.keys()]) if (p !== rootP && isUnder(p, rootP)) listings.delete(p);
+    fetchFolder(rootP);
+    for (const p of openFolders) if (p !== rootP && isUnder(p, rootP)) fetchFolder(p);
+    bump();
+  }
+
+  /**
+   * The name row itself, spliced into the rows a render has already built
+   * (§6b). `createRowIndex` decides where: right after the folder's own row,
+   * or at the very top for the root — and -1 when that folder is not on screen
+   * at all (a listing that changed under the menu, a folder that closed), in
+   * which case the create is dropped rather than drawn somewhere arbitrary.
+   *
+   * It is a `<div>`, like every other row that is not a button, carrying the
+   * caret's own spacer so the input starts where a name starts, the folder
+   * mark or the neutral badge so the KIND is visible before a single letter is
+   * typed, and the input itself. The refusal is a second row directly beneath
+   * it, the same height, in the ink this app refuses in everywhere.
+   */
+  function insertNameRow(rows: HTMLElement[], model: readonly FsRow[], rootP: string): void {
+    const c = creating;
+    if (c === null) return;
+    // THE FOLDER MUST STILL BE OPEN. `startCreate` opened it, and the primary
+    // click on its row can close it again — a name row at the child indent
+    // under a shut folder would name a place the tree is no longer showing. The
+    // root is the exception: it has no row and no caret, so it is never shut.
+    if (c.dir !== rootP && !openFolders.has(c.dir)) {
+      clearCreate();
+      return;
+    }
+    const at = createRowIndex(model, c.dir, rootP);
+    if (at === -1) {
+      clearCreate();
+      return;
+    }
+    const depth = at === 0 ? 0 : (model[at - 1]?.depth ?? 0) + 1;
+    const row = el('div', 'files-row is-new');
+    row.style.paddingLeft = `${rowIndent(depth)}px`;
+    // In flight: the same opacity pulse a busy row already wears, and NO
+    // height change — a row that grew mid-request would move the tree under
+    // the pointer.
+    row.classList.toggle('is-busy', createBusy);
+    const caret = el('span', 'files-caret', '');
+    caret.setAttribute('aria-hidden', 'true');
+    row.append(caret);
+    if (c.kind === 'folder') {
+      const ic = folderIcon();
+      ic.classList.add('files-folder');
+      row.append(ic);
+    } else {
+      // The plain badge: a file with no name yet has no type to claim.
+      const badge = el('span', 'files-badge', '');
+      badge.setAttribute('aria-hidden', 'true');
+      row.append(badge);
+    }
+    const input = el('input', 'files-newname');
+    input.type = 'text';
+    // The field IS the label: there is no visible caption to point at, so the
+    // accessible name says what is being named and what kind of thing it is.
+    input.setAttribute('aria-label', c.kind === 'folder' ? 'new folder name' : 'new file name');
+    // A file name is not prose: no squiggles, no capital first letter on a
+    // phone keyboard, and no history dropdown over the tree.
+    input.spellcheck = false;
+    input.setAttribute('autocapitalize', 'off');
+    input.autocomplete = 'off';
+    input.value = createText;
+    input.readOnly = createBusy;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        commitCreate();
+        return;
+      }
+      if (e.key !== 'Escape') return;
+      // STOPPED, always: the panel's own Escape would otherwise clear the
+      // selection in the same keystroke, and the ladder (§6b) is one effect
+      // per press — the name row first, the selection next, the panel last.
+      // The keyboard goes back INSIDE the panel, because that is the rung the
+      // next press has to reach.
+      e.preventDefault();
+      e.stopPropagation();
+      cancelCreate(true);
+    });
+    input.addEventListener('blur', () => {
+      // A rebuild replaces this element; in a real browser that can fire a
+      // blur for a node nobody left. Both guards answer the same question —
+      // "is this still the input the user is standing in?"
+      if (rebuilding || !input.isConnected) return;
+      // `false`: the keyboard is already on its way somewhere the user picked.
+      cancelCreate(false);
+    });
+    row.append(input);
+    nameInput = input;
+    const out: HTMLElement[] = [row];
+    if (c.error !== null) {
+      const err = el('div', 'files-row is-newerr');
+      err.style.paddingLeft = `${rowIndent(depth)}px`;
+      err.append(el('span', 'files-name', c.error));
+      out.push(err);
+    }
+    rows.splice(at, 0, ...out);
   }
 
   // ---- header: the three tabs, then the name of what we are looking at -----
@@ -1323,6 +1810,9 @@ export function initFilesPanel(
     // `disabled`, so a browser fires no click on them, but a tab must be
     // unreachable by construction and not by the DOM's good manners.
     if (!tabAvailable(next)) return;
+    // The name row is drawn by the Files tab and by nothing else, so leaving
+    // that tab is leaving it (§6b).
+    dropCreate('tab');
     wish = next;
     tab = visibleTab();
     // Opening `Changes` re-asks straight away — the answer behind it may be
@@ -1368,6 +1858,12 @@ export function initFilesPanel(
       // A9b: the chosen folder is drawn (`is-sel`) and spoken (the copy
       // strip), so a change to it has to repaint the panel like any other.
       selected ?? '',
+      // A9c: the name row, its kind, its folder, its refusal and whether the
+      // request is out. The TEXT is deliberately not here — it lives in the
+      // input between repaints, and a signature that changed on every
+      // keystroke would rebuild the tree under the cursor.
+      creating === null ? '' : `${creating.kind}:${creating.dir}:${creating.error ?? ''}`,
+      createBusy ? 'busy' : '',
       st.state.openCommit ?? '',
       collapsed,
       openFiles,
@@ -1386,6 +1882,10 @@ export function initFilesPanel(
       // other `closeRowMenu()` lives, so an open card would float over a panel
       // that is no longer on screen.
       closeRowMenu();
+      // And the name row with it (A9c, §6b): a half-typed name over a panel
+      // nobody can see would come back on the next toggle as a question the
+      // user has long stopped asking.
+      dropCreate('hidden');
       selected = afterPanelHidden(selected);
       // A panel nobody can see may not hold a timer: the poll is dropped here
       // and armed again by the render that brings the panel back.
@@ -1422,6 +1922,53 @@ export function initFilesPanel(
     // first — every other state here survives the rebuild, this one may not.
     // (The SELECTION does survive it: it is painted from the path.)
     closeRowMenu();
+    rebuilding = true;
+    try {
+      paint();
+    } finally {
+      rebuilding = false;
+    }
+  }
+
+  /**
+   * May this panel move the keyboard right now (A9c)?
+   *
+   * Yes when nothing holds it (`<body>`, or nothing at all), when it is
+   * already inside this panel, or when it is inside the EDITOR pane a created
+   * file just opened — the app moved it there itself, so following the new row
+   * is still one gesture. No when anything else has it, a terminal above all:
+   * a pane hosting a PTY (`.term-host`) is the one place a stolen focus costs
+   * keystrokes.
+   */
+  function keyboardIsOurs(): boolean {
+    const a = document.activeElement;
+    if (a === null || a === document.body) return true;
+    if (!(a instanceof HTMLElement)) return false;
+    // A node that is no longer in the document is the name row's OWN input,
+    // which this very repaint removed: nobody is typing into it, and a browser
+    // that has already dropped the focus to `<body>` would answer above.
+    if (!a.isConnected) return true;
+    if (a.closest('.files-view') !== null) return true;
+    return a.closest('.pane') !== null && a.closest('.term-host') === null;
+  }
+
+  /**
+   * The rebuild itself. Split out so `rebuilding` is raised for every path out
+   * of it — the name row's `blur` handler reads that flag, and a repaint that
+   * threw halfway would otherwise leave it raised for good, which is a create
+   * that can never be cancelled by clicking away from it again.
+   */
+  function paint(): void {
+    // A9c: the typed name lives in the element that is about to be replaced.
+    // It is read out BEFORE anything is removed, so a repaint (a listing
+    // landing, a refusal being drawn) never costs the user their text.
+    if (creating !== null && nameInput !== null && nameInput.isConnected) {
+      createText = nameInput.value;
+    }
+    const hadName =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.classList.contains('files-newname');
+    nameInput = null;
     const focusKey =
       document.activeElement instanceof HTMLElement
         ? document.activeElement.getAttribute('data-k')
@@ -1480,6 +2027,38 @@ export function initFilesPanel(
     selHd.replaceChildren(...selectedHeader());
     selHd.hidden = selHd.children.length === 0;
 
+    // WHERE THE KEYBOARD LANDS, in the order the gestures happened (A9c).
+    //
+    // 1. the row a create just made, as soon as its folder has answered with
+    //    it. Until that answer lands there is no such row, so the promise is
+    //    carried across repaints — and dropped the moment the refetch is over
+    //    without it, so it can never steal the keyboard later.
+    if (focusCreated !== null) {
+      const made = root.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusCreated.key)}"]`);
+      const dir = focusCreated.dir;
+      if (made !== null) {
+        focusCreated = null;
+        // ONLY IF THE KEYBOARD IS STILL OURS. The listing lands a moment after
+        // the create, and in that moment the user may have clicked into a
+        // terminal: moving the focus onto a tree row then would take the next
+        // keystrokes away from a PTY.
+        if (keyboardIsOurs()) {
+          made.focus();
+          return;
+        }
+      } else if (!inFlight.has(dir)) {
+        focusCreated = null;
+      }
+    }
+    // 2. the name row: on the repaint that created it, and on every repaint
+    //    that replaced it while it had the keyboard (a refusal being drawn).
+    const fresh = liveNameInput();
+    if (fresh !== null && (focusName || hadName)) {
+      focusName = false;
+      fresh.focus();
+      return;
+    }
+    // 3. whatever had it before this rebuild, by key.
     if (focusKey !== null) {
       root.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`)?.focus();
     }
@@ -1515,7 +2094,11 @@ export function initFilesPanel(
     }
     const errs = errorTexts();
     const rows: HTMLElement[] = [];
-    for (const r of fsRows(rootP, openFolders, listings)) {
+    // The model is walked ONCE and kept: the name row is placed by index
+    // (`createRowIndex`), and an element list built from a second walk could
+    // be a different tree than the one that index was computed against.
+    const model = fsRows(rootP, openFolders, listings);
+    for (const r of model) {
       let row: HTMLElement;
       if (r.kind === 'state') {
         rows.push(stateRow(r.name, r.indent, errs.has(r.name)));
@@ -1617,6 +2200,8 @@ export function initFilesPanel(
       row.append(el('span', 'files-name', r.name));
       rows.push(row);
     }
+    // One element per model row above, so the model's index IS this list's.
+    insertNameRow(rows, model, rootP);
     return rows;
   }
 

@@ -14,7 +14,11 @@
  * in flight until `release()` (the `Loading…` row, the late answer for a root
  * we left), `holdIf()` keeps ONE call in flight and reads its answer at CALL
  * time (the stale answer that differs from the fresh one for the same path),
- * and `setChanges` decides what git says per root.
+ * and `setChanges` decides what git says per root. Part A9c adds the create
+ * side: `createCalls` records every `{dir, name, kind}` posted (so "exactly
+ * once" and "no request at all" are both readable), `failCreate()` arms the
+ * refusal the next one answers with, and `holdCreate()` keeps one in flight
+ * while the listings around it keep answering.
  *
  * TIME. There is none: `settle()` turns the microtask queue, which is all the
  * panel's `then -> catch -> finally -> render` chain needs. fake-dom's timers
@@ -135,6 +139,13 @@ export function repoAnswer(over: Partial<Changes> = {}): Changes {
   return { isRepo: true, repoRoot: PROJ, branch: 'main', files: CHANGED, truncated: 0, ...over };
 }
 
+/** One create the fake was asked for (A9c) — what was posted, in order. */
+export interface CreateCall {
+  dir: string;
+  name: string;
+  kind: 'file' | 'folder';
+}
+
 export interface Fixture {
   gateway: Gateway;
   /** The listing tree, so a test can add or remove a folder. */
@@ -143,6 +154,22 @@ export interface Fixture {
   entryCalls: (string | undefined)[];
   /** Every git call, by root. */
   changeCalls: string[];
+  /**
+   * Every create the panel posted, in order (A9c). "Exactly once" and "no
+   * request at all for a name the client rules already refuse" are both read
+   * from this list, so a create that fired twice or fired early is a failure
+   * with a diff, not a silence.
+   */
+  createCalls: CreateCall[];
+  /**
+   * What the NEXT create answers, when a test wants it to fail: the 409 a name
+   * that is taken really gets, or anything else with a message. Cleared by
+   * `reset()`, never by the call — a test that arms it decides how long it
+   * lasts.
+   */
+  createFails: FakeApiError | null;
+  /** Arm the failure above (a 409 and its sentence, by default). */
+  failCreate(err?: FakeApiError): void;
   /** Paths that answer a refusal instead of a listing. */
   failWith: Map<string, FakeApiError>;
   /** What git says for a root. Replaceable per test. */
@@ -150,6 +177,13 @@ export interface Fixture {
   setChanges(fn: (root: string) => Changes | FakeApiError): void;
   /** Hold every answer until `release()` — the mid-flight states. */
   hold(): void;
+  /**
+   * Hold every CREATE until `releaseCreate()`, and nothing else. The tree's own
+   * listings must keep answering while one is held: the in-flight name row is
+   * asserted against a tree that is fully painted around it.
+   */
+  holdCreate(): void;
+  releaseCreate(): void;
   /**
    * Hold only the calls this picks, and read each held answer AT CALL TIME —
    * which is what a slow network really does: the server read that folder
@@ -196,8 +230,11 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
 
   const entryCalls: (string | undefined)[] = [];
   const changeCalls: string[] = [];
+  const createCalls: CreateCall[] = [];
   const failWith = new Map<string, FakeApiError>();
   let held: (() => void)[] | null = null;
+  /** Creates waiting for `releaseCreate()` — the in-flight row (A9c §6b). */
+  let heldCreate: (() => void)[] | null = null;
   /** Answers already READ, waiting for `release()` (`holdIf`). */
   const delayed: (() => void)[] = [];
   let holdPred: ((call: Call) => boolean) | null = null;
@@ -231,13 +268,26 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
     tree,
     entryCalls,
     changeCalls,
+    createCalls,
     failWith,
+    createFails: null,
+    failCreate(err = new FakeApiError(409, 'That name is already taken.')) {
+      fx.createFails = err;
+    },
     changesFor: (root) => (root === PROJ ? repoAnswer() : NO_REPO),
     setChanges(fn) {
       fx.changesFor = fn;
     },
     hold() {
       held = [];
+    },
+    holdCreate() {
+      heldCreate = [];
+    },
+    releaseCreate() {
+      const queue = heldCreate ?? [];
+      heldCreate = null;
+      for (const fn of queue) fn();
     },
     holdIf(pred) {
       holdPred = pred;
@@ -259,8 +309,11 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
       fillTree();
       entryCalls.length = 0;
       changeCalls.length = 0;
+      createCalls.length = 0;
+      fx.createFails = null;
       failWith.clear();
       held = null;
+      heldCreate = null;
       holdPred = null;
       delayed.length = 0;
       fx.changesFor = (root) => (root === PROJ ? repoAnswer() : NO_REPO);
@@ -285,8 +338,32 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
           gate({ kind: 'entries', path }, compute, resolve, reject);
         });
       },
-      create(dir: string, name: string) {
-        return Promise.resolve({ path: `${dir}/${name}` });
+      /**
+       * One create (A9c). It RECORDS first and answers second, so a test can
+       * see a request that should never have gone out even when the answer is
+       * the one it wanted anyway.
+       *
+       * On success the new entry is put in the TREE as well: the panel refetches
+       * the folder straight away, and a fake that answered a path it then
+       * listed without would make "the keyboard lands on the new row"
+       * untestable. `hold()` and `holdIf()` do not gate it — nothing in §6b
+       * needs a create to be in flight across a render except the busy state,
+       * which `holdCreate` below serves on its own terms.
+       */
+      create(dir: string, name: string, kind: 'file' | 'folder') {
+        createCalls.push({ dir, name, kind });
+        const bad = fx.createFails;
+        if (bad !== null) return Promise.reject(bad);
+        const path = `${dir}/${name}`;
+        const rows = tree.get(dir);
+        if (rows !== undefined && !rows.some((e) => e.name === name)) {
+          rows.push({ name, dir: kind === 'folder' });
+        }
+        if (kind === 'folder' && !tree.has(path)) tree.set(path, []);
+        if (heldCreate === null) return Promise.resolve({ path });
+        return new Promise<{ path: string }>((resolve) => {
+          heldCreate?.push(() => resolve({ path }));
+        });
       },
       changes(root: string) {
         changeCalls.push(root);
