@@ -1,64 +1,24 @@
 /**
- * PLACEHOLDER CONTENT for the Files panel (Nocturne part A5).
+ * PLACEHOLDER CONTENT for the Files panel (Nocturne part A5), what is left of
+ * it after part B2.
  *
- * Nothing in this module is real. The panel is built visually first (plan
- * `.claude/PLAN-NOCTURNE.md`, part A5: "All data mocked/static"), and the two
- * parts that replace it are already named:
+ * The FILE TREE is gone from this module: the panel lists a real folder
+ * through the backend since B2, and the `Changes` tab draws real
+ * `git diff --numstat` rows. What is still placeholder, and the part that
+ * replaces each half:
  *
- *   - part B2 — the file list and its numbers come from `git diff --numstat`
- *     for the active project, and `editing` comes from what the session is
- *     touching (open decision 3, the user's to make).
- *   - part B3 — the commits come from `git log` for the same project.
- *
- * The shapes below are therefore the shapes those parts will produce
- * (`ui/files-model.ts`), so landing them is a swap of this module's exports,
- * not a rewrite of the panel. The file list is deliberately FLAT: the tree is
- * derived, exactly as it will be from a numstat walk.
+ *   - FILE CONTENTS (`mockFileContent` / `saveMockFile`) — part B4 reads and
+ *     writes the real file. Two readers are left: a commit view's diff blocks
+ *     and the editor's in-memory edit map.
+ *   - COMMITS (`MOCK_COMMITS`, `mockCommitByHash`, `MOCK_BRANCH`) — part B3
+ *     reads `git log`. The Commits tab carries the one honesty line left in
+ *     the panel until then.
  *
  * Content is the v3 reference's own mock (`session-manager-v3.html`), with the
- * author changed to this repo's. The ONE live datum the panel shows is the
- * project name in its header, which comes from real state.
+ * author changed to this repo's.
  */
 import { commitTotals, pathSeed, syntheticDiff, type CommitFileChange } from './commit-model.ts';
-import type { CommitEntry, FileChange } from './files-model.ts';
-
-/**
- * Placeholder until B2. Order is the reference's; the model preserves it.
- *
- * The rows that CARRY numbers get them from `counted()` — the same count of
- * the same synthetic diff the commit view and the editor's Changes tab draw,
- * so no screen ever states a size another screen contradicts. The numberless
- * rows stay numberless on purpose: they are "listed but unchanged", which is a
- * different fact from "+0 -0". `MOCK_FILES` is built after `counted()` is
- * declared, at the bottom of this module.
- */
-export const MOCK_FILES: FileChange[] = [];
-
-/** The paths in MOCK_FILES, in the reference's order; `true` = carries numbers. */
-const MOCK_FILE_ROWS: readonly (readonly [string, boolean])[] = [
-  ['web/src/App.tsx', true],
-  ['web/src/Pane.tsx', true],
-  ['web/src/TabStrip.tsx', false],
-  ['web/src/store.ts', true],
-  ['web/DESIGN.md', false],
-  ['web/package.json', false],
-  ['server/pty-pool.ts', true],
-  ['server/ws.ts', false],
-  ['server/presence.ts', false],
-  ['launcher/launch.ps1', false],
-  ['launcher/make-icon.mjs', false],
-  ['shared/protocol.ts', true],
-  ['README.md', false],
-  // No extension the badge table knows: this is the row that renders the
-  // neutral unknown-type chip, so the panel really shows every chip it can.
-  ['LICENSE', false],
-];
-
-/** The one file the panel draws as being edited right now (the amber pulse). */
-const MOCK_EDITING = 'web/src/Pane.tsx';
-
-/** Placeholder until B2 — which folders start open. */
-export const MOCK_OPEN_FOLDERS: string[] = ['web', 'web/src', 'server'];
+import type { CommitEntry } from './files-model.ts';
 
 /**
  * PLACEHOLDER FILE CONTENTS for the editor and the commit view (part A6).
@@ -347,9 +307,7 @@ function withCounts(paths: readonly string[]): {
 /**
  * Placeholder until B3. Newest first, as `git log` returns them. Only the
  * words and the paths are written here; every number comes from `withCounts`,
- * so the Commits row, the view's header and the diff under it always agree —
- * and `MOCK_FILES` is counted the same way, so the Files tab's "since last
- * commit" numbers are the same kind of number about a different set of files.
+ * so the Commits row, the view's header and the diff under it always agree.
  */
 export const MOCK_COMMITS: CommitEntry[] = [
   {
@@ -400,15 +358,3 @@ export function mockCommitByHash(hash: string | null): CommitEntry | null {
 
 /** Placeholder until B3 — the branch the commits list is on. */
 export const MOCK_BRANCH = 'main';
-
-// `MOCK_FILES` is filled here, not at its declaration: `counted()` reads
-// `mockFileContent()`, which reads the map declared between the two.
-for (const [path, numbered] of MOCK_FILE_ROWS) {
-  const editing = path === MOCK_EDITING ? { editing: true } : {};
-  if (!numbered) {
-    MOCK_FILES.push({ path, ...editing });
-    continue;
-  }
-  const { add, del } = counted(path);
-  MOCK_FILES.push({ path, add, del, ...editing });
-}

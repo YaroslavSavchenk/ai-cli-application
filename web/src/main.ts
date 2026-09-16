@@ -536,11 +536,22 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   });
   const sessionsDrawer = initSessionsDrawer(sessAside);
   const projectsDrawer = initProjectsDrawer(projAside);
-  const filesPanel = initFilesPanel(filesAside, requestTerminalFocus);
+  // B2: the panel reads the real filesystem through an INJECTED gateway. This
+  // is the only module allowed to know that those three questions are HTTP —
+  // `ui/files.ts` never imports `./api.ts`, which is what keeps it drivable
+  // under `node --test` against a plain fake.
+  const filesPanel = initFilesPanel(filesAside, requestTerminalFocus, {
+    entries: api.fsEntries,
+    create: api.fsCreate,
+    changes: api.gitChanges,
+  });
   // A9: the window's own HTML5 drop channel, after the panel exists — three of
   // its deps are that panel's own `subject()`, so it may not be wired first.
   initFileDrop({
-    openDialog: openDropDialog,
+    // B2 threads a real `{ path, name }` through the drop layer; the dialog is
+    // unchanged and still takes the NAME, which is the only half of a
+    // destination that may ever be drawn.
+    openDialog: (req) => openDropDialog({ ...req, dest: req.dest.name }),
     listingFor,
     destinationOfPane,
     destinationOfActiveView,

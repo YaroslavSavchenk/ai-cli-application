@@ -110,13 +110,30 @@ test('a file body is the numbers, the text and Save — on the pane, not in a co
   assert.equal(save.disabled, true);
 });
 
-test('the honesty line is drawn once, from one function, in both states', () => {
+test('the honesty line belongs to the MOCK branch only (part B2)', () => {
+  // The real-file branch needs no such line — it says outright that the app
+  // cannot read the file. The other branch is still fiction: a commit view's
+  // `Open file` hands over a mock commit path, `ui/files-mock.ts` has text for
+  // it, and the pane draws a textarea with a Save. A field full of invented
+  // source with nothing saying so is the one thing placeholder data must not
+  // do, so the line stays exactly there until part B4.
   assert.deepEqual(textsOf(mount(PATH), 'pane-fnote'), [
     'Example content until the app reads your files.',
   ]);
-  assert.deepEqual(textsOf(mount(NO_TEXT), 'pane-fnote'), [
-    'Example content until the app reads your files.',
-  ]);
+  assert.deepEqual(textsOf(mount(NO_TEXT), 'pane-fnote'), [], 'the real branch has nothing to apologise for');
+  const src = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  assert.equal(
+    src.split('placeholderNote(').length - 1,
+    2,
+    'one definition, one call site — part B4 deletes both',
+  );
+});
+
+test('a file opened from the panel has an absolute path, and no text to show for it', () => {
+  // The real B2 shape: `/home/you/web/src/Pane.tsx`, not `web/src/Pane.tsx`.
+  const root = mount('/home/you/web/src/Pane.tsx');
+  assert.equal(field(root), null, 'nothing to type into until part B4');
+  assert.deepEqual(textsOf(root, 'pane-fempty'), ['The app cannot read this file yet.']);
 });
 
 test('the FIRST keystroke flips the pane to unsaved — and only the first', () => {
@@ -166,7 +183,8 @@ test('a path with no example text draws a note — no field, no numbers, no Save
   assert.equal(field(root), null, 'nothing to type into');
   assert.equal(byClass(root, 'pane-gutter').length, 0, 'and no numbers beside it');
   assert.equal(byClass(root, 'pane-save').length, 0, 'a Save that writes a sentence would be a lie');
-  assert.deepEqual(textsOf(root, 'pane-fempty'), ['There is no example content for this file yet.']);
+  assert.deepEqual(textsOf(root, 'pane-fempty'), ['The app cannot read this file yet.']);
+  assert.equal(byClass(root, 'pane-fbar').length, 0, 'and no empty strip of chrome under it');
 });
 
 test('unsaved text beats the mock when the same file opens in a second pane', () => {

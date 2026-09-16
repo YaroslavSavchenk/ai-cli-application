@@ -51,6 +51,10 @@ import {
   FakeElement,
   type FakeNode,
 } from './fake-dom.ts';
+import { PROJ, makeFixture, settle, type Gateway } from './fs-fixture.ts';
+
+/** The real panel against the fake backend of part B2 (`tests/fs-fixture.ts`). */
+const fx = makeFixture();
 import { APP_CSS, declaredTokens, frontendFiles, stripComments, usedTokens } from './tokens-helpers.ts';
 
 const dom = installDom();
@@ -101,17 +105,27 @@ interface StateModule {
   setProjects(list: Project[]): void;
   subscribe(fn: (kind: string) => void): void;
   activeView(): ViewLike | null;
+  openFile(root: ViewRoot, path: string, label: string): string;
   filesPanelVisible(): boolean;
   slotTabIds(slot: unknown): string[];
 }
+interface Dest {
+  path: string;
+  name: string;
+}
 interface FilesModule {
-  initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
-  selectedFolder(): string | null;
-  listingFor(dest: string): readonly string[];
+  initFilesPanel(host: unknown, onLeaveScreen: () => void, fs: Gateway): { render(): void };
+  selectedFolder(): Dest | null;
+  listingFor(dest: Dest): Promise<readonly string[]>;
   destinationOfPane(paneEl: unknown): unknown;
-  destinationOfActiveView(): string | null;
-  filesPanelDestination(): string | null;
-  pasteDestination(): string | null;
+  destinationOfActiveView(): Dest | null;
+  filesPanelDestination(): Dest | null;
+  pasteDestination(): Dest | null;
+}
+
+/** The NAME half of a destination: what A9b showed, and what these tests read. */
+function destName(d: Dest | null): string | null {
+  return d === null ? null : d.name;
 }
 interface FileDropModule {
   initFileDrop(deps: Record<string, unknown>): void;
@@ -141,10 +155,10 @@ interface ViewLike {
 
 /** The drop layer, wired so the copy-files entry has a real path to follow. */
 const picked: ((files: { name: string; size?: number }[]) => void)[] = [];
-const offered: { dest: string; items: unknown[] }[] = [];
+const offered: { dest: Dest; items: unknown[] }[] = [];
 FD.initFileDrop({
-  openDialog: (req: { dest: string; items: unknown[] }) => offered.push(req),
-  listingFor: (dest: string) => F.listingFor(dest),
+  openDialog: (req: { dest: Dest; items: unknown[] }) => offered.push(req),
+  listingFor: (dest: Dest) => F.listingFor(dest),
   destinationOfPane: (el: unknown) => F.destinationOfPane(el),
   destinationOfActiveView: () => F.destinationOfActiveView(),
   filesPanelDestination: () => F.filesPanelDestination(),
@@ -157,7 +171,7 @@ FD.initFileDrop({
 const host = dom.doc.createElement('aside');
 host.className = 'drawer files-panel';
 dom.body.append(host);
-const panel = F.initFilesPanel(host, () => {});
+const panel = F.initFilesPanel(host, () => {}, fx.gateway);
 const root = host.children[0] as FakeElement;
 st.subscribe(() => panel.render());
 
@@ -202,37 +216,63 @@ function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 function project(id: string, name: string): Project {
-  return { id, name, path: `/home/you/${name}`, createdAt: new Date().toISOString() } as Project;
+  return { id, name, path: `/work/${name}`, createdAt: new Date().toISOString() } as Project;
 }
 
 /** A live session in a project — the panel's normal world, header `api`. */
-function liveSession(): void {
+async function liveSession(): Promise<void> {
   st.setProjects([project('p1', 'api')]);
   st.setSessions([mkSession('s1', { projectId: 'p1' })]);
+  focusSession('s1');
   st.state.leftPanel = 'files';
   panel.render();
+  await settle();
+  await openTree();
 }
 
-const row = (path: string): FakeElement => byKey(root, `fdir:${path}`) as FakeElement;
-const fileRow = (path: string): FakeElement => byKey(root, `ffile:${path}`) as FakeElement;
+/**
+ * Stand in the session's own tab, the way launching one does. Since part B2
+ * (user decision 2026-09-16) the panel follows the FOCUSED pane and nothing
+ * else: with the fixed `Home` tab active it shows HOME, however many sessions
+ * are running in other tabs.
+ */
+function focusSession(id: string): void {
+  const v = st.state.views.find((x) =>
+    x.slots.some((s) => (s as { kind: string; id?: string }).kind === 'session' && (s as { id: string }).id === id),
+  );
+  if (v !== undefined) st.state.activeViewId = v.id;
+}
+
+const row = (path: string): FakeElement => byKey(root, `fdir:${PROJ}/${path}`) as FakeElement;
+const fileRow = (path: string): FakeElement => byKey(root, `ffile:${PROJ}/${path}`) as FakeElement;
 const menuEl = (): FakeElement | undefined => byClass(dom.body, 'cm-menu')[0];
 const items = (): FakeElement[] => byClass(dom.body, 'cm-item');
 const labels = (): string[] => textsOf(dom.body, 'cm-label');
 /** Every row wearing the chosen-folder class, by `data-k`. */
 const selectedRows = (): string[] =>
-  byClass(root, 'is-sel').map((n) => n.getAttribute('data-k') ?? '');
+  byClass(root, 'is-sel').map((n) => (n.getAttribute('data-k') ?? '').replace(`:${PROJ}/`, ':'));
 
 /** Right-click a row, at a point. */
 function rightClick(el: FakeElement, x = 40, y = 120): ReturnType<typeof dispatch> {
   return dispatch(el, 'contextmenu', { clientX: x, clientY: y });
 }
 
-const MOCK_OPEN = ['web', 'web/src', 'server'];
-function resetTree(): void {
-  for (const path of MOCK_OPEN) {
+/**
+ * The tree these tests expect: since part B2 nothing is open until somebody
+ * opens it, and the panel's open set is instance state that outlives one test,
+ * so it is restored the way a user would — one click per folder, each awaiting
+ * its listing, and the selection those clicks made cleared afterwards.
+ */
+const OPEN_AT_START = ['web', 'web/src', 'server'];
+async function openTree(): Promise<void> {
+  for (const path of OPEN_AT_START) {
     const r = row(path);
-    if (r !== null && r.getAttribute('aria-expanded') === 'false') r.click();
+    if (r !== null && r.getAttribute('aria-expanded') === 'false') {
+      r.click();
+      await settle();
+    }
   }
+  dispatch(root, 'keydown', { key: 'Escape' });
 }
 
 beforeEach(() => {
@@ -256,8 +296,8 @@ beforeEach(() => {
   offered.length = 0;
   ladderSaw = 0;
   dom.doc.activeElement = dom.body;
+  fx.reset();
   panel.render();
-  resetTree();
   dispatch(root, 'keydown', { key: 'Escape' }); // clear whatever was chosen
 });
 
@@ -269,8 +309,8 @@ afterEach(() => {
 // Where it opens, and where it must not
 // ---------------------------------------------------------------------------
 
-test('a right-click on a FOLDER row opens the menu with that folder s entries', () => {
-  liveSession();
+test('a right-click on a FOLDER row opens the menu with that folder s entries', async () => {
+  await liveSession();
   assert.ok(row('web') !== null, 'non-vacuity: the mock tree has a `web` folder row');
   const e = rightClick(row('web'));
   assert.equal(e.defaultPrevented, true, 'the system menu must not open over ours');
@@ -287,7 +327,7 @@ test('a right-click on a FOLDER row opens the menu with that folder s entries', 
   for (const it of items()) assert.equal(it.getAttribute('role'), 'menuitem');
 });
 
-test('a right-click on the folder MARK inside the row opens it too (an SVG is not an HTMLElement)', () => {
+test('a right-click on the folder MARK inside the row opens it too (an SVG is not an HTMLElement)', async () => {
   // MEASURED in a real browser (headless Edge, 2026-09-16, part A9b brief 2):
   // the delegated listener narrowed its target with `instanceof HTMLElement`,
   // and an `SVGElement` is not one — so a right-click landing on the folder
@@ -296,7 +336,7 @@ test('a right-click on the folder MARK inside the row opens it too (an SVG is no
   // `tests/fake-dom.ts` marks everything `createElementNS` makes and answers
   // `false` for `instanceof HTMLElement` — so the behaviour below fails on its
   // own, and the source guard is pinned beside it.
-  liveSession();
+  await liveSession();
   const mark = byClass(row('web'), 'files-folder')[0] as FakeElement;
   assert.ok(mark !== undefined, 'non-vacuity: the row really carries a folder mark');
   const e = dispatch(mark, 'contextmenu', { clientX: 20, clientY: 120 });
@@ -309,8 +349,8 @@ test('a right-click on the folder MARK inside the row opens it too (an SVG is no
   );
 });
 
-test('a right-click on a FILE row opens the file entries', () => {
-  liveSession();
+test('a right-click on a FILE row opens the file entries', async () => {
+  await liveSession();
   rightClick(fileRow('README.md'));
   assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for README.md');
   assert.deepEqual(
@@ -319,11 +359,11 @@ test('a right-click on a FILE row opens the file entries', () => {
   );
 });
 
-test('every row says it opens a menu: aria-haspopup on folder AND file rows', () => {
+test('every row says it opens a menu: aria-haspopup on folder AND file rows', async () => {
   // The house rule, 7 for 7 before this one (main.ts, projects.ts, github.ts,
   // settings.ts twice, statusline.ts, update.ts): a control that opens a popup
   // advertises it. A row opens `role="menu"`, so the value is `menu`.
-  liveSession();
+  await liveSession();
   const rows = byClass(root, 'files-row');
   assert.ok(rows.length >= 4, `non-vacuity: ${rows.length} rows`);
   assert.ok(rows.some((r) => r.classList.contains('is-dir')), 'non-vacuity: folder rows');
@@ -337,10 +377,10 @@ test('every row says it opens a menu: aria-haspopup on folder AND file rows', ()
   }
 });
 
-test('a right-click ANYWHERE else is not even prevented — the system menu opens as it does today', () => {
-  liveSession();
+test('a right-click ANYWHERE else is not even prevented — the system menu opens as it does today', async () => {
+  await liveSession();
   const elsewhere: [string, FakeElement][] = [
-    ['the panel background', byClass(root, 'files-note')[0] as FakeElement],
+    ['the panel background', byClass(root, 'files-copy')[0] as FakeElement],
     ['the tree body', byClass(root, 'files-body')[0] as FakeElement],
     ['the panel root', root],
     ['a pane', pane],
@@ -356,8 +396,8 @@ test('a right-click ANYWHERE else is not even prevented — the system menu open
   }
 });
 
-test('the copy strip is not a row either: a right-click on it opens nothing', () => {
-  liveSession();
+test('the copy strip is not a row either: a right-click on it opens nothing', async () => {
+  await liveSession();
   const e = dispatch(byKey(root, 'fcopy') as FakeElement, 'contextmenu', {});
   assert.equal(e.defaultPrevented, false);
   assert.equal(menuEl(), undefined);
@@ -367,12 +407,12 @@ test('the copy strip is not a row either: a right-click on it opens nothing', ()
 // What a right-click does to the selection
 // ---------------------------------------------------------------------------
 
-test('a right-click on a folder row SELECTS it and does NOT toggle it', () => {
-  liveSession();
+test('a right-click on a folder row SELECTS it and does NOT toggle it', async () => {
+  await liveSession();
   assert.equal(row('web').getAttribute('aria-expanded'), 'true', 'non-vacuity: `web` starts open');
   rightClick(row('web'));
   assert.deepEqual(selectedRows(), ['fdir:web'], 'Explorer s behaviour: the row is chosen');
-  assert.equal(F.selectedFolder(), 'web');
+  assert.equal(destName(F.selectedFolder()), 'web');
   assert.equal(
     row('web').getAttribute('aria-expanded'),
     'true',
@@ -380,8 +420,8 @@ test('a right-click on a folder row SELECTS it and does NOT toggle it', () => {
   );
 });
 
-test('a right-click on a FILE row selects nothing, and leaves the chosen folder alone', () => {
-  liveSession();
+test('a right-click on a FILE row selects nothing, and leaves the chosen folder alone', async () => {
+  await liveSession();
   row('server').click();
   assert.deepEqual(selectedRows(), ['fdir:server'], 'non-vacuity: something is chosen');
   CM.closeRowMenu();
@@ -389,18 +429,18 @@ test('a right-click on a FILE row selects nothing, and leaves the chosen folder 
   assert.deepEqual(selectedRows(), ['fdir:server'], 'right-clicking a file is not a way to lose it');
 });
 
-test('the selection a right-click makes is PAINTED — the repaint really happens', () => {
+test('the selection a right-click makes is PAINTED — the repaint really happens', async () => {
   // The gesture changes the selection and NOTHING else, so only `sig()`
   // reading the selection makes the row repaint (pinned as source in
   // tests/ui-files-select.test.ts; this is the behaviour behind it).
-  liveSession();
+  await liveSession();
   rightClick(row('web/src'));
   assert.deepEqual(selectedRows(), ['fdir:web/src']);
-  assert.equal((byKey(root, 'fdir:web/src') as FakeElement).getAttribute('aria-current'), 'true');
+  assert.equal(row('web/src').getAttribute('aria-current'), 'true');
 });
 
-test('the menu is anchored to the row the repaint LEFT behind, so Escape can hand the keyboard back', () => {
-  liveSession();
+test('the menu is anchored to the row the repaint LEFT behind, so Escape can hand the keyboard back', async () => {
+  await liveSession();
   rightClick(row('web'));
   const fresh = row('web');
   assert.equal(fresh.isConnected, true, 'non-vacuity: the row survived the repaint');
@@ -412,8 +452,8 @@ test('the menu is anchored to the row the repaint LEFT behind, so Escape can han
 // The keyboard twin
 // ---------------------------------------------------------------------------
 
-test('the ContextMenu key and shift+F10 on a focused row open the menu — and nothing else does', () => {
-  liveSession();
+test('the ContextMenu key and shift+F10 on a focused row open the menu — and nothing else does', async () => {
+  await liveSession();
   for (const init of [{ key: 'ContextMenu' }, { key: 'F10', shiftKey: true }]) {
     const r = row('web');
     r.focus();
@@ -426,8 +466,8 @@ test('the ContextMenu key and shift+F10 on a focused row open the menu — and n
   }
 });
 
-test('plain F10, the ctrl variants and AltGr leave the row alone', () => {
-  liveSession();
+test('plain F10, the ctrl variants and AltGr leave the row alone', async () => {
+  await liveSession();
   const noes: Record<string, unknown>[] = [
     { key: 'F10' },
     { key: 'F10', shiftKey: true, ctrlKey: true },
@@ -445,8 +485,8 @@ test('plain F10, the ctrl variants and AltGr leave the row alone', () => {
   }
 });
 
-test('the keyboard opens it at the row s leading edge and bottom', () => {
-  liveSession();
+test('the keyboard opens it at the row s leading edge and bottom', async () => {
+  await liveSession();
   const r = row('server');
   setRect(r, { left: 12, top: 300, width: 260, height: 26 });
   r.focus();
@@ -456,7 +496,7 @@ test('the keyboard opens it at the row s leading edge and bottom', () => {
   assert.equal(menuEl()?.style.top, `${want.y}px`);
 });
 
-test('the browser s OWN contextmenu after the chord is swallowed by the menu itself', () => {
+test('the browser s OWN contextmenu after the chord is swallowed by the menu itself', async () => {
   // Windows sends WM_CONTEXTMENU off the APPS key even when the keydown was
   // prevented, and by then the keyboard is on the first entry — so the event's
   // target is INSIDE the card, which lives on `document.body`, where
@@ -464,7 +504,7 @@ test('the browser s OWN contextmenu after the chord is swallowed by the menu its
   // `closest('.files-row')` would be null, the listener would return without
   // preventing anything, and the SYSTEM menu would open on top of ours. The
   // menu's own listener is therefore where the guard lives.
-  liveSession();
+  await liveSession();
   const r = row('web');
   r.focus();
   dispatch(r, 'keydown', { key: 'ContextMenu' });
@@ -483,8 +523,8 @@ test('the browser s OWN contextmenu after the chord is swallowed by the menu its
   assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for server');
 });
 
-test('a FILE row answers the chord too', () => {
-  liveSession();
+test('a FILE row answers the chord too', async () => {
+  await liveSession();
   const r = fileRow('web/src/Pane.tsx');
   r.focus();
   dispatch(r, 'keydown', { key: 'ContextMenu' });
@@ -495,8 +535,8 @@ test('a FILE row answers the chord too', () => {
 // Roving focus
 // ---------------------------------------------------------------------------
 
-test('the first entry holds the keyboard on open, and it is the only tab stop', () => {
-  liveSession();
+test('the first entry holds the keyboard on open, and it is the only tab stop', async () => {
+  await liveSession();
   rightClick(row('web'));
   const list = items();
   assert.ok(list.length >= 3, `non-vacuity: ${list.length} entries`);
@@ -508,8 +548,8 @@ test('the first entry holds the keyboard on open, and it is the only tab stop', 
   );
 });
 
-test('the arrows wrap in both directions, Home and End jump, disabled entries included', () => {
-  liveSession();
+test('the arrows wrap in both directions, Home and End jump, disabled entries included', async () => {
+  await liveSession();
   rightClick(row('web'));
   const list = items();
   const n = list.length;
@@ -539,8 +579,8 @@ test('the arrows wrap in both directions, Home and End jump, disabled entries in
   );
 });
 
-test('an arrow inside the menu is spent there — nothing behind it reads it', () => {
-  liveSession();
+test('an arrow inside the menu is spent there — nothing behind it reads it', async () => {
+  await liveSession();
   rightClick(row('web'));
   const e = dispatch(dom.doc.activeElement as FakeElement, 'keydown', { key: 'ArrowDown' });
   assert.equal(e.defaultPrevented, true);
@@ -562,8 +602,8 @@ function activate(label: string): void {
   dispatch(dom.doc.activeElement as FakeElement, 'keydown', { key: 'Enter' });
 }
 
-test('Close on an open folder closes it — the same toggle the primary click performs', () => {
-  liveSession();
+test('Close on an open folder closes it — the same toggle the primary click performs', async () => {
+  await liveSession();
   rightClick(row('web'));
   assert.deepEqual(labels()[0], 'Close', 'non-vacuity: the folder is open, so the entry says Close');
   activate('Close');
@@ -577,20 +617,20 @@ test('Close on an open folder closes it — the same toggle the primary click pe
   assert.equal(row('web').getAttribute('aria-expanded'), 'true');
 });
 
-test('Open on a file row opens it as a tab of its root folder s tab', () => {
-  liveSession();
+test('Open on a file row opens it as a tab of its root folder s tab', async () => {
+  await liveSession();
   rightClick(fileRow('web/src/store.ts'));
   activate('Open');
   const v = st.activeView() as ViewLike;
   assert.deepEqual(
     v.slots.map((s) => st.slotTabIds(s)),
-    [['f:web/src/store.ts']],
-    'one editor pane, holding that file',
+    [[`f:${PROJ}/web/src/store.ts`]],
+    'one editor pane, holding that file at its ABSOLUTE path (part B2)',
   );
 });
 
-test('Open beside splits the focused pane — the menu s half of ctrl+alt+enter', () => {
-  liveSession();
+test('Open beside splits the focused pane — the menu s half of ctrl+alt+enter', async () => {
+  await liveSession();
   fileRow('web/src/store.ts').click();
   assert.equal((st.activeView() as ViewLike).slots.length, 1, 'non-vacuity: one pane to split');
   rightClick(fileRow('web/src/Pane.tsx'));
@@ -598,19 +638,26 @@ test('Open beside splits the focused pane — the menu s half of ctrl+alt+enter'
   assert.equal((st.activeView() as ViewLike).slots.length, 2, 'the file took a split beside it');
 });
 
-test('Copy files here… opens the chooser for THAT folder, not for the panel s root', () => {
-  liveSession();
-  assert.equal(F.pasteDestination(), 'api', 'non-vacuity: the panel s own root is `api`');
+test('Copy files here… opens the chooser for THAT folder, not for the panel s root', async () => {
+  await liveSession();
+  assert.equal(destName(F.pasteDestination()), 'api', 'non-vacuity: the panel s own root is `api`');
   rightClick(row('web/src'));
   activate('Copy files here…');
   assert.equal(picked.length, 1, 'the native chooser, once');
   (picked[0] as (f: { name: string }[]) => void)([{ name: 'a.txt' }]);
+  // One listing later: since part B2 the conflict question is asked against
+  // the REAL folder before the dialog opens.
+  await settle();
   assert.equal(offered.length, 1);
-  assert.equal(offered[0]?.dest, 'src', 'a NAME, and the row s own folder');
+  assert.deepEqual(
+    offered[0]?.dest,
+    { path: `${PROJ}/web/src`, name: 'src' },
+    'the row s own folder: the NAME it shows, the PATH part B10 posts to',
+  );
 });
 
-test('a DISABLED entry is aria-disabled, carries its sentence, and does nothing at all', () => {
-  liveSession();
+test('a DISABLED entry is aria-disabled, carries its sentence, and does nothing at all', async () => {
+  await liveSession();
   rightClick(row('web'));
   const list = items();
   const off = list.filter((b) => b.getAttribute('aria-disabled') === 'true');
@@ -634,7 +681,7 @@ test('a DISABLED entry is aria-disabled, carries its sentence, and does nothing 
   assert.equal(row('web').getAttribute('aria-expanded'), 'true', 'and nothing toggled');
 });
 
-test('Enter and Space are spent on the menu: prevented, and never read behind it', () => {
+test('Enter and Space are spent on the menu: prevented, and never read behind it', async () => {
   // A `<button>`'s own activation IS the default action of these keys (Enter on
   // keydown, Space on keyup), so without `preventDefault()` a real browser
   // activates the entry a SECOND time — one keystroke, two actions — and
@@ -642,7 +689,7 @@ test('Enter and Space are spent on the menu: prevented, and never read behind it
   // the menu already spent. The fake DOM activates nothing by itself, which is
   // why both are asserted on the event and not on the effect. MEASURED (gate,
   // 2026-09-16): dropping both lines left the whole suite green.
-  liveSession();
+  await liveSession();
   rightClick(row('web'));
   const e = dispatch(items()[0] as FakeElement, 'keydown', { key: 'Enter' });
   assert.equal(e.defaultPrevented, true, 'a browser would activate the entry twice');
@@ -660,8 +707,8 @@ test('Enter and Space are spent on the menu: prevented, and never read behind it
   assert.ok(menuEl() !== undefined, 'and the menu is still up');
 });
 
-test('every word the menu renders is plain: no path, no key name, no product name', () => {
-  liveSession();
+test('every word the menu renders is plain: no path, no key name, no product name', async () => {
+  await liveSession();
   rightClick(row('web/src'));
   const said = [...labels(), ...textsOf(dom.body, 'cm-sub'), menuEl()?.getAttribute('aria-label') ?? ''];
   assert.ok(said.length >= 5, `non-vacuity: ${said.length} strings`);
@@ -676,8 +723,8 @@ test('every word the menu renders is plain: no path, no key name, no product nam
 // Everything that closes it
 // ---------------------------------------------------------------------------
 
-test('Escape closes it, returns the keyboard to the row, and never reaches main.ts s ladder', () => {
-  liveSession();
+test('Escape closes it, returns the keyboard to the row, and never reaches main.ts s ladder', async () => {
+  await liveSession();
   row('web').focus();
   dispatch(row('web'), 'keydown', { key: 'ContextMenu' });
   ladderSaw = 0;
@@ -690,8 +737,8 @@ test('Escape closes it, returns the keyboard to the row, and never reaches main.
   assert.equal(st.state.leftPanel, 'files', 'the panel is still there');
 });
 
-test('a press outside closes it; a press inside does not', () => {
-  liveSession();
+test('a press outside closes it; a press inside does not', async () => {
+  await liveSession();
   rightClick(row('web'));
   dispatch(items()[0] as FakeElement, 'pointerdown', {});
   assert.ok(menuEl() !== undefined, 'a press on the menu is not a press outside it');
@@ -700,8 +747,8 @@ test('a press outside closes it; a press inside does not', () => {
   assert.equal(e.defaultPrevented, false, 'and the press still does whatever it does');
 });
 
-test('the keyboard moving anywhere else closes it', () => {
-  liveSession();
+test('the keyboard moving anywhere else closes it', async () => {
+  await liveSession();
   rightClick(row('web'));
   const outside = dom.doc.createElement('button');
   dom.body.append(outside);
@@ -710,8 +757,8 @@ test('the keyboard moving anywhere else closes it', () => {
   outside.remove();
 });
 
-test('a scroll, a window resize and the window losing focus each close it', () => {
-  liveSession();
+test('a scroll, a window resize and the window losing focus each close it', async () => {
+  await liveSession();
   for (const type of ['scroll', 'resize', 'blur']) {
     rightClick(row('web'));
     assert.ok(menuEl() !== undefined, `non-vacuity: open before ${type}`);
@@ -720,27 +767,28 @@ test('a scroll, a window resize and the window losing focus each close it', () =
   }
 });
 
-test('a rebuild of the panel closes it — the row it points at is about to be replaced', () => {
-  liveSession();
+test('a rebuild of the panel closes it — the row it points at is about to be replaced', async () => {
+  await liveSession();
   rightClick(row('web'));
   assert.ok(menuEl() !== undefined, 'non-vacuity');
-  // A new subject is the panel's own way of forcing a rebuild.
-  st.setProjects([project('p1', 'api'), project('p2', 'nocturne')]);
-  st.setSessions([mkSession('s2', { projectId: 'p2' })]);
+  // A file opening somewhere is a rebuild of every row (it is part of `sig()`)
+  // and touches neither the root nor the selection — which is exactly the pair
+  // this test is about.
+  st.openFile({ kind: 'project', id: 'p1' }, `${PROJ}/README.md`, 'README.md');
   panel.render();
   assert.equal(menuEl(), undefined);
   assert.deepEqual(selectedRows(), ['fdir:web'], 'the SELECTION survives the rebuild; the menu never does');
 });
 
-test('opening a second menu leaves exactly one on screen', () => {
-  liveSession();
+test('opening a second menu leaves exactly one on screen', async () => {
+  await liveSession();
   rightClick(row('web'));
   rightClick(row('server'));
   assert.equal(byClass(dom.body, 'cm-menu').length, 1);
   assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for server');
 });
 
-test('a second right-click on the SAME row replaces the menu — the primitive does that, not rebuild()', () => {
+test('a second right-click on the SAME row replaces the menu — the primitive does that, not rebuild()', async () => {
   // The test above right-clicks a DIFFERENT row, which changes the selection,
   // repaints the tree and closes the menu through `rebuild()` -> `closeRowMenu()`
   // BEFORE the second one opens. MEASURED (gate, 2026-09-16): deleting the
@@ -748,7 +796,7 @@ test('a second right-click on the SAME row replaces the menu — the primitive d
   // because that rebuild was quietly doing the primitive's job. A second
   // right-click on the row that is ALREADY chosen changes nothing and rebuilds
   // nothing, so only the primitive can answer.
-  liveSession();
+  await liveSession();
   rightClick(row('web'));
   const winOne = dom.win.handlers.length;
   const docOne = dom.doc.handlers.length;
@@ -762,8 +810,8 @@ test('a second right-click on the SAME row replaces the menu — the primitive d
   assert.equal(dom.doc.activeElement, items()[0], 'which holds the keyboard');
 });
 
-test('every listener goes with the menu: no leak, no stale Escape', () => {
-  liveSession();
+test('every listener goes with the menu: no leak, no stale Escape', async () => {
+  await liveSession();
   const win = () => dom.win.handlers.length;
   const doc = () => dom.doc.handlers.length;
   const baseWin = win();
@@ -792,11 +840,11 @@ test('every listener goes with the menu: no leak, no stale Escape', () => {
   assert.equal(byClass(dom.body, 'cm-menu').length, 0, 'and no card was left behind');
 });
 
-test('hiding the panel takes the menu with it', () => {
+test('hiding the panel takes the menu with it', async () => {
   // `render()`'s hidden branch returns BEFORE `rebuild()`, which is the only
   // other place that closes the menu — so without a close of its own the card
   // would float over a panel that is no longer on screen.
-  liveSession();
+  await liveSession();
   const baseWin = dom.win.handlers.length;
   const baseDoc = dom.doc.handlers.length;
   rightClick(row('web'));
@@ -819,8 +867,8 @@ test('hiding the panel takes the menu with it', () => {
 // Geometry: menuPosition is what the DOM applies
 // ---------------------------------------------------------------------------
 
-test('the point the DOM applies is menuPosition s, flipped and clamped at the far corner', () => {
-  liveSession();
+test('the point the DOM applies is menuPosition s, flipped and clamped at the far corner', async () => {
+  await liveSession();
   dom.win.innerWidth = 1600;
   dom.win.innerHeight = 900;
   rightClick(row('web'), 1500, 850);
@@ -830,8 +878,8 @@ test('the point the DOM applies is menuPosition s, flipped and clamped at the fa
   assert.equal(menuEl()?.style.top, '754px');
 });
 
-test('a point with room takes it unchanged, and a tiny viewport clamps to the margin', () => {
-  liveSession();
+test('a point with room takes it unchanged, and a tiny viewport clamps to the margin', async () => {
+  await liveSession();
   rightClick(row('web'), 120, 200);
   assert.equal(menuEl()?.style.left, '120px');
   assert.equal(menuEl()?.style.top, '200px');
@@ -846,8 +894,8 @@ test('a point with room takes it unchanged, and a tiny viewport clamps to the ma
   assert.equal(menuEl()?.style.top, `${M.MENU_MARGIN}px`);
 });
 
-test('the module reads the viewport from the window, not from a constant', () => {
-  liveSession();
+test('the module reads the viewport from the window, not from a constant', async () => {
+  await liveSession();
   dom.win.innerWidth = 700;
   dom.win.innerHeight = 500;
   rightClick(row('web'), 600, 450);
@@ -857,10 +905,10 @@ test('the module reads the viewport from the window, not from a constant', () =>
   assert.notEqual(want.x, 600, 'non-vacuity: this narrower window really moves the menu');
 });
 
-test('the card is fixed to the viewport, so opening it moves no pixel of the layout', () => {
+test('the card is fixed to the viewport, so opening it moves no pixel of the layout', async () => {
   // A width change anywhere in the shell fires every pane's ResizeObserver and
   // resizes every PTY behind it (the A9 rule). The menu lives on the BODY.
-  liveSession();
+  await liveSession();
   rightClick(row('web'));
   assert.equal((menuEl() as FakeElement).parentNode, dom.body, 'the body, never the panel');
   const rule = /\.cm-menu\s*\{([^}]*)\}/.exec(stripComments(APP_CSS))?.[1] ?? '';
@@ -875,8 +923,8 @@ test('the card is fixed to the viewport, so opening it moves no pixel of the lay
 const MENU_SRC = frontendFiles(['.ts']).find((f) => f.name === 'web/src/ui/context-menu.ts')?.src ?? '';
 const FILES_SRC = frontendFiles(['.ts']).find((f) => f.name === 'web/src/ui/files.ts')?.src ?? '';
 
-test('the menu is NOT a dialog: no scrim, no aria-modal, no tab trap', () => {
-  liveSession();
+test('the menu is NOT a dialog: no scrim, no aria-modal, no tab trap', async () => {
+  await liveSession();
   rightClick(row('web'));
   const box = menuEl() as FakeElement;
   assert.equal(box.classList.contains('modal-scrim'), false);
@@ -1056,7 +1104,7 @@ test('--z-menu is declared once, sits between the toast and the modals, and is r
   assert.match(stripComments(cmSection()), /z-index: var\(--z-menu\)/);
 });
 
-test('the menu wears the row s own rhythm and the popover s elevation — and no icon, no separator', () => {
+test('the menu wears the row s own rhythm and the popover s elevation — and no icon, no separator', async () => {
   const block = stripComments(cmSection());
   assert.match(block, /min-height: var\(--files-row-h\)/, 'the tree s own 26px row');
   assert.match(block, /background: var\(--color-bg\)/);
@@ -1071,7 +1119,7 @@ test('the menu wears the row s own rhythm and the popover s elevation — and no
   // The accent is an outline and a small mark, never a fill (Nocturne rule).
   assert.deepEqual([...block.matchAll(/background:\s*var\(--color-accent\)/g)].map((m) => m[0]), []);
   // No icon and no separator element: the module renders text only.
-  liveSession();
+  await liveSession();
   rightClick(row('web'));
   const drawn = descendants(menuEl() as FakeElement);
   assert.deepEqual(

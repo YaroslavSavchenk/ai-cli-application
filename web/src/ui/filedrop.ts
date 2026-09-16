@@ -46,6 +46,15 @@ import { fileName } from './slots-model.ts';
 import { el } from './util.ts';
 import { DROP_HINT, MAX_ITEMS, destLine, hasFiles, tooMany, type DropItem } from './drop-model.ts';
 import { copyIntoText, takesPaste } from './files-select-model.ts';
+import type { Destination } from './fs-model.ts';
+
+/**
+ * A real folder: the NAME every visible string here is built from, and the
+ * PATH part B10's upload will post to. Re-exported (part B2, §4b) so the
+ * readers that learned the type from this module keep working unchanged;
+ * `ui/fs-model.ts` owns the definition.
+ */
+export type { Destination };
 
 /**
  * How long after the last `dragover` the visuals give up on their own. The
@@ -80,6 +89,15 @@ function paneLabel(dest: string): string {
 }
 
 /**
+ * Everything drawn or spoken about a destination reads its NAME — the ghost,
+ * the pane box, the dialog, the strip button's label and title. ONE accessor,
+ * so "a path never reaches a label" is a rule with a single place to break.
+ */
+function nameOf(dest: Destination): string {
+  return dest.name;
+}
+
+/**
  * `Copy files into src` — the wording of the twin button's title, and what the
  * ghost says when the browser will not tell us how many items are being
  * dragged. ONE definition, so the button and the ghost can never promise
@@ -102,12 +120,15 @@ export interface FileLike {
  * a session without a project, or a tab that has no folder at all. The
  * sentences themselves live here; `ui/files.ts` answers which case it is.
  */
-export type PaneDest = { dest: string } | { dest: null; why: 'session' | 'tab' };
+export type PaneDest = { dest: Destination } | { dest: null; why: 'session' | 'tab' };
 
 /** What `openDialog` is handed for one drop, paste or pick. */
 export interface DropRequest {
-  /** The destination, as a NAME. */
-  dest: string;
+  /**
+   * The destination. The dialog renders `dest.name` and nothing else; part
+   * B10 posts `dest.path`.
+   */
+  dest: Destination;
   /** The TOP-LEVEL things being copied. */
   items: DropItem[];
   /** The destination's own top-level names, for the conflict question. */
@@ -126,20 +147,24 @@ export interface DropRequest {
 export interface FileDropDeps {
   /** Ask the drop dialog (ui/drop-dialog.ts) about this drop. */
   openDialog(req: DropRequest): void;
-  /** The destination folder's own top-level names (the conflict input). */
-  listingFor(dest: string): readonly string[];
+  /**
+   * The destination folder's own top-level names (the conflict input), read
+   * from the REAL folder at drop time — so it is a PROMISE, not a lookup, and
+   * `offer()` awaits it before the dialog opens.
+   */
+  listingFor(dest: Destination): Promise<readonly string[]>;
   /**
    * A pane's destination, in the Files header's own order: a terminal pane's
    * session project, else its tab's folder; an editor pane's tab folder, else
    * the tab's first session's project; else the reason it has none.
    */
   destinationOfPane(paneEl: HTMLElement): PaneDest;
-  /** The ACTIVE tab's root name — what the empty pane area stands for. */
-  destinationOfActiveView(): string | null;
-  /** The Files panel's own root name (its non-folder area). */
-  filesPanelDestination(): string | null;
+  /** The ACTIVE tab's root — what the empty pane area stands for. */
+  destinationOfActiveView(): Destination | null;
+  /** The Files panel's own root (its non-folder area). */
+  filesPanelDestination(): Destination | null;
   /** The CHOSEN folder (A9b), else the Files folder row the keyboard last stood on, else the panel root, else the active tab's root. */
-  pasteDestination(): string | null;
+  pasteDestination(): Destination | null;
   /**
    * The folder the user CHOSE in the Files panel, as a name, else null (A9b).
    * It is read for one question only — may this `paste` be taken away from a
@@ -147,7 +172,7 @@ export interface FileDropDeps {
    * chosen folder changes here; where the files then go is `pasteDestination()`,
    * which already answers the selection first.
    */
-  selectedFolder(): string | null;
+  selectedFolder(): Destination | null;
   /**
    * Open the native file chooser and hand over what was chosen. Injected so
    * tests can drive the twin button without a real `<input type=file>`; the
@@ -171,7 +196,7 @@ let deps: FileDropDeps | null = null;
  * nagging).
  */
 type Target =
-  | { t: 'row' | 'panel' | 'pane' | 'empty'; el: HTMLElement; dest: string }
+  | { t: 'row' | 'panel' | 'pane' | 'empty'; el: HTMLElement; dest: Destination }
   | { t: 'none'; why: string | null };
 
 const NOTHING: Target = { t: 'none', why: null };
@@ -204,12 +229,15 @@ function resolveTarget(x: number, y: number): Target {
 
   const row = hit.closest<HTMLElement>('.files-row.is-dir');
   if (row !== null) {
-    // `data-k="fdir:web/src"` — the row's path; only its last segment is ever
-    // shown, and a folder row without one is not a target we can name.
+    // `data-k="fdir:/home/you/web/src"` — the row's real path; only its last
+    // segment is ever shown. A folder row of the `Changes` tab carries a
+    // `cdir:` key over a repo-relative path, which is not a place anything can
+    // be copied into: it falls through to the panel's own root below rather
+    // than becoming a silent dead zone in the middle of the panel.
     const key = row.getAttribute('data-k') ?? '';
     const path = key.startsWith('fdir:') ? key.slice('fdir:'.length) : '';
     const name = path === '' ? '' : fileName(path);
-    return name === '' ? NOTHING : { t: 'row', el: row, dest: name };
+    if (name !== '') return { t: 'row', el: row, dest: { path, name } };
   }
 
   const panel = hit.closest<HTMLElement>('.files-view');
@@ -278,7 +306,9 @@ function paint(target: Target, count: number, x: number, y: number): void {
   begin();
   positionGhost(x, y);
   const key =
-    target.t === 'none' ? `none:${count}` : `${target.t}:${target.dest}:${count}:${elementKey(target.el)}`;
+    target.t === 'none'
+      ? `none:${count}`
+      : `${target.t}:${target.dest.path}:${count}:${elementKey(target.el)}`;
   if (key === painted) return;
   painted = key;
   clearVisuals();
@@ -286,8 +316,8 @@ function paint(target: Target, count: number, x: number, y: number): void {
     const onTarget = target.t !== 'none';
     ghost.textContent = onTarget
       ? count > 0
-        ? destLine(count, target.dest)
-        : copyIntoText(target.dest)
+        ? destLine(count, nameOf(target.dest))
+        : copyIntoText(nameOf(target.dest))
       : DROP_HINT;
     ghost.classList.toggle('is-invalid', !onTarget);
   }
@@ -299,7 +329,7 @@ function paint(target: Target, count: number, x: number, y: number): void {
     // the whole card and the label says the one thing it will do.
     delete drop.dataset.zone;
     const label = drop.querySelector('.pane-drop-lb');
-    if (label !== null) label.textContent = paneLabel(target.dest);
+    if (label !== null) label.textContent = paneLabel(nameOf(target.dest));
     drop.hidden = false;
     box = drop;
     return;
@@ -435,9 +465,21 @@ function activeEl(): HTMLElement | null {
 /**
  * The one door to the dialog: every path (drop, paste, button) arrives here
  * with a destination and its items, so the limit is checked once and the
- * listing is looked up once.
+ * listing is read once.
+ *
+ * ASYNC since part B2: the conflict listing is a real request against the real
+ * destination folder, made at THIS moment rather than read from a cache
+ * (§4b — a stale listing is the one lie that decides whether a file is
+ * overwritten). Both refusals still answer without a single request, and
+ * `returnFocus` is captured by the caller BEFORE the await, so the dialog
+ * gives the keyboard back to the element the drop came from and not to
+ * whatever has it a network round trip later.
  */
-function offer(dest: string, items: DropItem[], returnFocus: HTMLElement | null): void {
+async function offer(
+  dest: Destination,
+  items: DropItem[],
+  returnFocus: HTMLElement | null,
+): Promise<void> {
   const d = deps;
   if (d === null) return;
   if (tooMany(items.length)) {
@@ -447,7 +489,8 @@ function offer(dest: string, items: DropItem[], returnFocus: HTMLElement | null)
   // A drop the browser described as nothing at all is not a refusal to
   // announce — there is nothing the user could do differently.
   if (items.length === 0) return;
-  d.openDialog({ dest, items, listing: d.listingFor(dest), returnFocus });
+  const listing = await d.listingFor(dest);
+  d.openDialog({ dest, items, listing, returnFocus });
 }
 
 // ---------------------------------------------------------------------------
@@ -537,7 +580,7 @@ function onDrop(e: DragEvent): void {
     say(TOO_MANY);
     return;
   }
-  offer(target.dest, readItems(dt), returnFocus);
+  void offer(target.dest, readItems(dt), returnFocus);
 }
 
 /**
@@ -592,7 +635,7 @@ function onPaste(e: ClipboardEvent): void {
   // to it when it closes (ui/drop-dialog.ts `restore`), so a terminal the
   // paste came from is typing again the moment the card is gone. Nothing here
   // moves the focus, so there is nothing to undo.
-  offer(dest, itemsOfFiles(files), activeEl());
+  void offer(dest, itemsOfFiles(files), activeEl());
 }
 
 // ---------------------------------------------------------------------------
@@ -630,14 +673,14 @@ function nativePicker(take: (files: readonly FileLike[]) => void): void {
  * keyboard user can reach the button or the folder they mean, never both — the
  * chord is how a nested folder is aimed at at all.
  */
-export function openCopyFilesPicker(into?: string): void {
+export function openCopyFilesPicker(into?: Destination): void {
   const d = deps;
   if (d === null) return;
   const dest = into ?? d.pasteDestination();
   if (dest === null) return;
   const returnFocus = activeEl();
   (d.openPicker ?? nativePicker)((files) => {
-    offer(dest, itemsOfFiles(files), returnFocus);
+    void offer(dest, itemsOfFiles(files), returnFocus);
   });
 }
 

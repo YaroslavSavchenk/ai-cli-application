@@ -13,11 +13,13 @@
  *    selection and the scroll position; a rebuild on `input` throws all three
  *    away. Typing updates the gutter in place and asks the chrome for a
  *    redraw only when the DIRTY flag actually FLIPS.
- * 2. A PATH THE MOCK HAS NO TEXT FOR IS A NOTE, NOT AN EMPTY FIELD — and it
- *    gets no Save, because there would be nothing to write.
- * 3. ONE HONESTY LINE, FROM ONE FUNCTION (`placeholderNote`). Part B4 deletes
- *    that function and its call site together with `ui/files-mock.ts`.
- * 4. CODE SURFACES DRAW PLAIN GLYPHS (`font-variant-ligatures: none`, one
+ * 2. A FILE WITH NO TEXT TO SHOW IS A NOTE, NOT AN EMPTY FIELD — and it gets
+ *    no Save, because there would be nothing to write. Since part B2 that is
+ *    EVERY file opened from the Files panel: the paths are real and the app
+ *    cannot read a file until part B4, which is what the note says. The OTHER
+ *    branch (a mock commit path, opened from the commit view) still draws
+ *    `ui/files-mock.ts` text, so it keeps its own quiet line saying so.
+ * 3. CODE SURFACES DRAW PLAIN GLYPHS (`font-variant-ligatures: none`, one
  *    shared rule in app.css): the terminal in the pane beside this one renders
  *    none, and `==` must not be readable as `===`.
  *
@@ -28,7 +30,30 @@ import * as st from '../state.ts';
 import { el, button } from './util.ts';
 import { diffBody } from './commit-view.ts';
 import { gutterText, saveLabel } from './editor-model.ts';
-import { NO_EXAMPLE_CONTENT, mockFileContent, saveMockFile } from './files-mock.ts';
+import { mockFileContent, saveMockFile } from './files-mock.ts';
+
+/**
+ * What a file pane says instead of a REAL file's text (part B2, §5). Every
+ * file opened from the Files panel takes this branch: the path is absolute,
+ * the app cannot read a file until part B4, and that is exactly what this
+ * says — not "coming soon", which is a promise with no date, and no longer
+ * "there is no example content", which promised example content for a file
+ * that is now real. It dies in B4 with the module that reads files.
+ */
+const CANNOT_READ = 'The app cannot read this file yet.';
+
+/**
+ * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B4). The OTHER branch is
+ * still fiction: a commit view's `Open file` hands over a mock commit path,
+ * `ui/files-mock.ts` has text for it, and the pane then shows a textarea with
+ * a Save that writes into that same map. A field full of invented source with
+ * nothing saying so is the one thing placeholder data must not do, so the
+ * line the real-file branch no longer needs is still owed here. One function,
+ * one call site.
+ */
+function placeholderNote(): HTMLElement {
+  return el('span', 'pane-fnote', 'Example content until the app reads your files.');
+}
 
 /** One pane body: its root node, how to hand it the keyboard, how to refresh it. */
 export interface PaneBody {
@@ -37,15 +62,6 @@ export interface PaneBody {
   focus(): void;
   /** Redraw the parts that are not the text itself (the Save button). */
   update(): void;
-}
-
-/**
- * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B4). The text comes from
- * `ui/files-mock.ts` and Save writes back into that same map; no file is read
- * from disk and none is written to it. One function, one call site.
- */
-function placeholderNote(): HTMLElement {
-  return el('span', 'pane-fnote', 'Example content until the app reads your files.');
 }
 
 /**
@@ -71,8 +87,7 @@ export function filePaneBody(path: string, onDirtyFlip: () => void): PaneBody {
     // Nothing to edit: one sentence, no field, no numbers beside it — and no
     // Save, which would write a sentence into a file. Part B4 replaces this
     // whole branch with a real read error.
-    root.append(el('p', 'pane-fempty', NO_EXAMPLE_CONTENT));
-    bar.append(placeholderNote());
+    root.append(el('p', 'pane-fempty', CANNOT_READ));
   } else {
     const code = el('div', 'pane-code');
     const g = el('div', 'pane-gutter', gutterText(text));
@@ -98,7 +113,9 @@ export function filePaneBody(path: string, onDirtyFlip: () => void): PaneBody {
     bar.append(placeholderNote(), el('span', 'pane-gap'), btn);
     update();
   }
-  root.append(bar);
+  // A bar with nothing in it is a strip of chrome that says nothing: the REAL
+  // file has no Save to put there and nothing to warn about.
+  if (bar.children.length > 0) root.append(bar);
 
   function onEdit(value: string): void {
     const wasDirty = st.editorDirty(id);

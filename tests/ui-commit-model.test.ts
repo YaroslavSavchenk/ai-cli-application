@@ -33,7 +33,6 @@ const M = (await import(new URL('../web/src/ui/commit-model.ts', import.meta.url
 };
 
 const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as {
-  MOCK_FILES: { path: string; add?: number; del?: number }[];
   MOCK_COMMITS: {
     hash: string;
     add: number;
@@ -440,33 +439,6 @@ test('the five-block bar really varies down the commits list — at least three 
   );
 });
 
-test('MOCK_FILES numbers come from the SAME derivation — one source for every number', () => {
-  // The Files tab's "+A -D since last commit" and the commits list are on the
-  // same screen; a row counted by hand is a row that contradicts the other
-  // panel. Rows that carry NO numbers stay numberless: "listed but unchanged"
-  // is a different fact from "+0 -0".
-  const numbered = MOCK.MOCK_FILES.filter((f) => f.add !== undefined || f.del !== undefined);
-  assert.ok(numbered.length >= 4, `non-vacuity: ${numbered.length} rows carry numbers`);
-  for (const f of numbered) {
-    const rows = M.syntheticDiff(MOCK.mockFileContent(f.path) ?? '', M.pathSeed(f.path));
-    assert.equal(f.add, rows.filter((r) => r.kind === 'add').length, `+${f.path}`);
-    assert.equal(f.del, rows.filter((r) => r.kind === 'del').length, `-${f.path}`);
-  }
-  for (const f of MOCK.MOCK_FILES) {
-    if (f.add !== undefined || f.del !== undefined) continue;
-    assert.equal(f.add, undefined, `${f.path} is listed but unchanged`);
-    assert.equal(f.del, undefined, `${f.path} is listed but unchanged`);
-  }
-  // And no uncommitted row may dwarf the largest commit in the list — the
-  // incoherence R1 named.
-  const biggest = Math.max(...MOCK.MOCK_COMMITS.map((c) => c.add + c.del));
-  for (const f of numbered) {
-    assert.ok(
-      (f.add ?? 0) + (f.del ?? 0) <= biggest,
-      `${f.path} (${f.add}/${f.del}) is bigger than the biggest commit (${biggest})`,
-    );
-  }
-});
 
 test('a block id disambiguates paths that SANITISE to the same string (scope review R6)', () => {
   // `a/b.ts` and `a-b.ts` both squash to `a-b-ts`; two blocks with one id make

@@ -20,9 +20,10 @@
  *
  * NOTHING IS COPIED. Part A9 is the visual half; the real write, its path
  * checks and its limits are part B10. That is a promise the card must make
- * itself rather than leave to a release note, so all three states carry a line
- * from `honestyLine()` — the question says its conflicts are examples, the
- * copy says nothing is written. ONE function, ONE call site, marked, so B10
+ * itself rather than leave to a release note, so the two COPYING states carry
+ * a line from `honestyLine()` saying nothing is written. The question carries
+ * none since part B2: its conflicts are the destination folder's real
+ * contents, read at drop time. ONE function, ONE call site, marked, so B10
  * deletes the mock by deleting what the marker names.
  *
  * WHAT THIS MODULE OWNS AND WHAT IT DOES NOT. It owns the card and the mock
@@ -79,21 +80,21 @@ const STATE_WORD: Record<Outcome, string> = {
  */
 const STEP_MS = 60;
 
-/** What the question is pretending: the conflicts come from the mocked tree. */
-const HONEST_ASKING = 'Example conflicts until the app reads your folder.';
-
 /** What the copy and its result are pretending: nothing is written at all. */
 const HONEST_COPYING =
   'Nothing is copied yet. This is what the copy will look like until the app can write files.';
 
 /**
- * The sentence that keeps the mock honest, in every one of the three states —
- * the question's conflicts are as made up as the copy that follows it. ONE
- * function with exactly one call site so part B10 can delete the promise and
- * the pretence together.
+ * The sentence that keeps the mock honest — in the two states that still are
+ * one. Since part B2 the CONFLICTS are real: `ui/filedrop.ts` reads the
+ * destination folder's own top-level names at drop time, so the question is
+ * about files that are really there and had nothing left to apologise for.
+ * What is still pretending is the copy, and only the copy. ONE function with
+ * exactly one call site so part B10 can delete the promise and the pretence
+ * together.
  */
 function honestyLine(phase: Phase): string {
-  return phase === 'conflicts' ? HONEST_ASKING : HONEST_COPYING;
+  return phase === 'conflicts' ? '' : HONEST_COPYING;
 }
 
 /** How far one answer reaches, when it reaches further than one item. */
@@ -236,6 +237,9 @@ export function openDropDialog(req: DropRequest): void {
     progress.hidden = next !== 'copying';
     // PLACEHOLDER MARKER — DELETE WITH THE MOCK (B10)
     honest.textContent = honestyLine(next);
+    // The question has no line of its own any more (its conflicts are real
+    // since B2), and an empty paragraph would still take its margin.
+    honest.hidden = honest.textContent === '';
     skipBtn.hidden = !asking;
     replaceBtn.hidden = !asking;
     keepBtn.hidden = !asking;

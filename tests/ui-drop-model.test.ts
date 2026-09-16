@@ -38,8 +38,6 @@ import {
   type DropItem,
   type ItemResult,
 } from '../web/src/ui/drop-model.ts';
-import { buildTree } from '../web/src/ui/files-model.ts';
-import { MOCK_FILES } from '../web/src/ui/files-mock.ts';
 
 const file = (name: string, bytes = 1024): DropItem => ({ name, dir: false, bytes });
 const folder = (name: string): DropItem => ({ name, dir: true, bytes: null });
@@ -469,13 +467,12 @@ test('resultText: results that do not say file-or-folder are counted as items', 
 // The mock's own demo path (what the dialog will actually show until B10)
 // ---------------------------------------------------------------------------
 
-test('the mock listing makes README.md and web the demo conflicts at the root', () => {
-  // `buildTree(MOCK_FILES)` is the listing brief 2 hands in for the panel
-  // root; the plan claims dropping `README.md` or `web` there opens the
-  // dialog. Proven against the real mock, not a fixture.
-  const listing = buildTree(MOCK_FILES).map((n) => n.name);
-  assert.ok(listing.includes('README.md'), `non-vacuity: ${listing.join(', ')}`);
-  assert.ok(listing.includes('web'));
+test('a real listing makes README.md and web the conflicts at the root', () => {
+  // Since part B2 the listing is the REAL `GET /api/fs/entries` answer for the
+  // destination, read at drop time — a plain array of top-level names, which
+  // is all `conflictsOf` ever cared about. `ui-files-panel.test.ts` pins where
+  // it comes from; this pins what is done with it.
+  const listing = ['README.md', 'web', 'server', 'package.json'];
   const items = [file('README.md'), folder('web'), file('brand-new.md')];
   assert.deepEqual(conflictsOf(items, listing), ['README.md', 'web']);
   assert.equal(conflictTitle(conflictsOf(items, listing), 'Home'), '2 items already exist in Home');

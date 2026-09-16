@@ -575,7 +575,9 @@ multi-pane layouts on top.
   the data is placeholder, the header name is real (a project, a session
   title, or `Home`). **B2 + A9c (started 2026-09-16, `.claude/PLAN-B2.md`)**
   turn the panel into a REAL file browser (root = the user's home, or the
-  focused session's project root; lazy per-folder listings, no poll; the
+  focused session's project root — with NOTHING focused the root is home,
+  user decision 2026-09-16, replacing A5's "first live session anywhere"
+  header rule for the panel; lazy per-folder listings, no poll; the
   git changes become a `Changes` tab fed by `git diff --numstat` +
   `git status --porcelain -z`, polled every 5 s only while that tab is
   visible; `Commits` stays mock until B3) and give the row menu `New file`

@@ -39,7 +39,7 @@ import {
   treeRows,
   type FileChange,
 } from '../web/src/ui/files-model.ts';
-import { MOCK_BRANCH, MOCK_COMMITS, MOCK_FILES, MOCK_OPEN_FOLDERS } from '../web/src/ui/files-mock.ts';
+import { MOCK_BRANCH, MOCK_COMMITS } from '../web/src/ui/files-mock.ts';
 
 // state.ts touches localStorage inside function bodies; same shim as tests/ui-state.test.ts.
 class MemoryStorage {
@@ -248,17 +248,32 @@ test('badgeFor: an unknown type, a dotfile and a file with no extension all get 
 // The mock (placeholder until B2/B3) — it may be fake, it may not be dishonest
 // ---------------------------------------------------------------------------
 
-test('the mock file list is flat, and the summary it produces is the one the panel prints', () => {
-  assert.ok(MOCK_FILES.length >= 10, 'non-vacuity: the placeholder tree has content');
-  const s = diffSummary(MOCK_FILES);
-  assert.deepEqual(s, { add: 26, del: 10, files: 5 });
-  assert.equal(summaryText(s.files), 'since last commit in 5 files');
-  // Every folder the mock says is open must exist in the tree it builds from,
-  // or the panel opens with a set of names that mean nothing.
-  const rows = treeRows(buildTree(MOCK_FILES), new Set(MOCK_OPEN_FOLDERS));
+/**
+ * The shape part B2's `Changes` tab really hands this renderer: a flat list of
+ * repo-relative paths, numbers only where git has them. It replaces the
+ * `MOCK_FILES` this test used to read (part B2 deleted that half of
+ * `ui/files-mock.ts`), and it is declared HERE because the arithmetic below is
+ * about the renderer, not about anybody's data.
+ */
+const FIXTURE: FileChange[] = [
+  { path: 'web/src/App.tsx', add: 12, del: 4 },
+  { path: 'web/src/Pane.tsx', add: 8, del: 6, editing: true },
+  { path: 'web/src/TabStrip.tsx' },
+  { path: 'server/ws.ts', add: 6, del: 0 },
+  { path: 'README.md' },
+];
+
+test('a flat change list becomes the tree the panel draws, and the summary it prints', () => {
+  const s = diffSummary(FIXTURE);
+  assert.deepEqual(s, { add: 26, del: 10, files: 3 });
+  assert.equal(summaryText(s.files), 'since last commit in 3 files');
+  // Every folder the caller says is open must exist in the tree built from the
+  // same list, or the panel opens with a set of names that mean nothing.
+  const open = ['web', 'web/src', 'server'];
+  const rows = treeRows(buildTree(FIXTURE), new Set(open));
   const dirs = new Set(rows.filter((r) => r.dir).map((r) => r.path));
-  for (const f of MOCK_OPEN_FOLDERS) assert.ok(dirs.has(f), `open folder ${f} is in the tree`);
-  assert.ok(rows.some((r) => r.busy), 'the placeholder shows the amber pulse at least once');
+  for (const f of open) assert.ok(dirs.has(f), `open folder ${f} is in the tree`);
+  assert.ok(rows.some((r) => r.busy), 'an edited file pulses, and so does the spine above it');
 });
 
 test('the mock commits carry this repo`s author and a plural-correct header', () => {
@@ -800,4 +815,37 @@ test('toggleLeftPanel DOES persist the wish (the counterweight to the drawer pat
   st.toggleLeftPanel('files');
   const after = JSON.parse(memoryStorage.getItem('ai-sm:ui:v2') as string) as Record<string, unknown>;
   assert.equal(after.leftPanel, null, 'closing the panel is the user speaking, and it survives a reload');
+});
+
+test('an untracked DIRECTORY (git`s `sub/`) is a folder row with no children', () => {
+  // MEASURED against this repository (part B2, 2026-09-16): `git status
+  // --porcelain` reports an untracked directory as ONE row with a trailing
+  // slash — `b2check-tmp/` — and says nothing about what is inside it. A naive
+  // split makes that a FILE row called `b2check-tmp`, which claims a file that
+  // does not exist; an empty-named leaf is worse still.
+  const roots = buildTree([{ path: 'sub/' }, { path: 'web/new-dir/' }, { path: 'a.ts', add: 1 }]);
+  assert.deepEqual(
+    roots.map((n) => [n.path, n.dir, n.children.length]),
+    [
+      ['sub', true, 0],
+      ['web', true, 1],
+      ['a.ts', false, 0],
+    ],
+  );
+  const web = roots[1] as { children: { path: string; dir: boolean }[] };
+  assert.deepEqual(web.children.map((c) => [c.path, c.dir]), [['web/new-dir', true]]);
+
+  // It draws as a folder row with NO caret and no numbers: there is nothing
+  // under it to disclose, and a disclosure mark that opens onto an empty tree
+  // is a promise the data cannot keep. The folder that DOES hold something
+  // keeps its caret.
+  const rows = treeRows(roots, new Set(['sub']));
+  assert.deepEqual(
+    rows.map((r) => [r.path, r.dir, r.caret, r.hasDiff]),
+    [
+      ['sub', true, '', false],
+      ['web', true, '▸', false],
+      ['a.ts', false, '', true],
+    ],
+  );
 });

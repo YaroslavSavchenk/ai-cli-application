@@ -1,6 +1,7 @@
 /**
- * Files panel (Nocturne part A5) — the left panel: what changed in the active
- * project since its last commit, and the commits before that.
+ * Files panel (Nocturne part A5, live since part B2) — the left panel: the
+ * real file tree of the folder the app is standing in, what that folder's
+ * repository has changed since its last commit, and the commits before that.
  *
  * PLACE IN THE SHELL. It is a flex sibling of the pane grid, exactly like the
  * two drawers, because that is what makes opening it a REAL layout change:
@@ -8,22 +9,29 @@
  * existing debounced fit -> ws `resize` chain tells the PTY its new cols/rows.
  * Nothing here talks to a terminal; the seam does the work.
  *
- * WHAT IS REAL AND WHAT IS NOT. The header is the only live datum in this
- * panel: the FOCUSED session's project name, that session's own title when it
- * has no project, and `Home` — the panel's default root until part B2 (user
- * decision 2026-09-15) — when no session is focused or alive.
- * Everything else comes from `ui/files-mock.ts` until parts B2
- * (`git diff --numstat`) and B3 (`git log`). No fake interaction is wired for
- * it beyond what parts A5, A6, A10 and A9b can honestly do: folders open and
- * close and the clicked folder becomes the CHOSEN one files land in (A9b), a
- * file row opens that file as a PANE of its root folder's tab (A10, mock
- * text), a commit row opens the full commit view (A6, mock diff), and every
- * row answers a context menu (A9b, `ui/context-menu.ts`).
+ * WHAT IS REAL AND WHAT IS NOT (part B2). The `Files` tab is a real browser of
+ * a real folder and the `Changes` tab is the real `git` answer for the
+ * repository behind it; both arrive through an INJECTED `FsGateway`, never
+ * through an import of `../api.ts`, so this module stays drivable under
+ * `node --test` with a plain fake object. Only `Commits` is still
+ * `ui/files-mock.ts` (part B3) and it is the one surface left carrying the
+ * quiet "Example data until …" line. File CONTENT is part B4: a file row
+ * opens a pane, and that pane says it cannot read the file yet.
  *
- * WHICH TAB A FILE LANDS IN (A10). The panel's `subject()` answers it, through
- * the pure `rootForSubject()`: `Home` -> the Home tab, a focused session with a
- * project -> that project's folder tab, anything else -> `Home` (the A10 gap
- * part B2 closes with the real file-browser root). Every row is also a pointer
+ * HOW THE TREE LOADS (PLAN-B2 §3). Lazy per folder on expand,
+ * cache-then-revalidate (a folder that already answered never flashes
+ * `Loading…` again), one request per path at a time, and a GENERATION counter
+ * so a slow listing of the folder we just left can never paint over the one we
+ * are in. No poll and no watcher: a listing is re-read when the user expands,
+ * creates or refreshes. The `Changes` tab is the exception and polls every
+ * `CHANGES_POLL_MS` — but only while it is the visible tab AND the panel is on
+ * screen, because that tab exists to watch a session change files.
+ *
+ * WHICH FOLDER IS THE ROOT (§4a). `subject()` answers both the NAME the header
+ * prints and the PATH the tree lists, in one walk, so the two can never name
+ * different folders: a focused file/diff pane -> its tab's folder, a focused
+ * session -> its project's path or its own working directory, nothing ->
+ * `Home` (the path the first listing told us). Every row is also a pointer
  * drag source, and its keyboard twin is ctrl+alt+enter; the row menu's twin is
  * the ContextMenu key or shift+f10 — a control that exists only under a
  * pointer is forbidden here.
@@ -50,7 +58,6 @@ import {
   COPY_LABEL,
   copyIntoText,
   copyStripLabel,
-  selectedName,
   type Selection,
 } from './files-select-model.ts';
 import { itemsFor, menuLabel, type MenuAction } from './context-menu-model.ts';
@@ -58,37 +65,72 @@ import { closeRowMenu, openRowMenu } from './context-menu.ts';
 import { isContextMenuChord } from './keys.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
-import type { SessionInfo } from '../../../shared/protocol.ts';
-import type { CommitEntry, TreeNode } from './files-model.ts';
+import type {
+  FsCreateResponse,
+  FsEntriesResponse,
+  GitChangesResponse,
+  SessionInfo,
+} from '../../../shared/protocol.ts';
+import type { CommitEntry } from './files-model.ts';
 import {
   badgeFor,
   buildTree,
   commitsHeaderText,
   diffSummary,
+  rowIndent,
   summaryText,
   treeRows,
 } from './files-model.ts';
-import { blockDomId, filesChangedText } from './commit-model.ts';
 import {
-  MOCK_BRANCH,
-  MOCK_COMMITS,
-  MOCK_FILES,
-  MOCK_OPEN_FOLDERS,
-  mockCommitByHash,
-} from './files-mock.ts';
+  LOADING_TEXT,
+  NO_CHANGES_TEXT,
+  changesToFiles,
+  destinationOf,
+  fsRows,
+  isUnder,
+  joinPath,
+  truncatedText,
+  type Destination,
+  type FolderState,
+} from './fs-model.ts';
+import { blockDomId, filesChangedText } from './commit-model.ts';
+import { MOCK_BRANCH, MOCK_COMMITS, mockCommitByHash } from './files-mock.ts';
 
-type Tab = 'files' | 'commits';
+type Tab = 'files' | 'changes' | 'commits';
 
 /** Arrow-key step for the width, in px — the keyboard twin of the edge drag. */
 const NUDGE_PX = 16;
 
 /**
- * Why the Commits tab is unavailable at `Home` (user decision 2026-09-15): the
- * panel's default root is the home folder, and a home folder is not a
- * repository, so there is no commit history to look at. A fragment, because it
+ * How often the `Changes` tab re-asks git, while it is the VISIBLE tab and the
+ * panel is on screen (PLAN-B2 §7). The one poll part B2 adds: that tab exists
+ * to watch a session change files, so a listing one gesture old — which is
+ * right for the tree — would be the wrong promise here. Every other second is
+ * slower than a human reads a diff and cheap beside the caps the backend puts
+ * on the git call itself.
+ */
+const CHANGES_POLL_MS = 5000;
+
+/**
+ * Why `Changes` and `Commits` are unavailable here: the folder the panel is
+ * standing in is not inside a git repository (or has not answered yet). Since
+ * B2 this is a REAL probe (`GitChangesResponse.isRepo`), not A11's "the header
+ * reads Home" stopgap, so a home folder that IS a repository offers both tabs
+ * and a project registered outside one offers neither. A fragment, because it
  * is a tooltip on a control, not a sentence about the app.
  */
-const NO_REPO_TITLE = 'No repository at Home';
+function noRepoTitle(name: string): string {
+  return `No repository at ${name}`;
+}
+
+/**
+ * What a folder row says when the answer never arrived at all (a dead backend,
+ * a dropped connection). Every other failure renders the SERVER's own sentence
+ * verbatim (PLAN-B2 §1d) — the picker's rule: honest states only, the
+ * backend's own reason inline — and this is the one case where there is no
+ * server sentence to render, so the panel says what it knows in its own voice.
+ */
+const UNREACHABLE_TEXT = 'The app could not reach the service.';
 
 /**
  * What a file row promises, on hover and to a screen reader. It names the
@@ -106,8 +148,32 @@ const ROW_TITLE = 'Open in a pane. Drag it onto a pane edge to split, or press c
  */
 const DIR_TITLE = 'Open or close it. Copy files into it with ctrl+alt+c. Right-click for its actions.';
 
+/**
+ * A CHANGED file row's title (the `Changes` tab). It names one thing because
+ * the row does one thing: its path belongs to the repository, not to the
+ * folder the panel lists, so it is no drag source, answers no chord and opens
+ * no menu.
+ */
+const CHANGED_ROW_TITLE = 'Open in a pane.';
+
 export interface FilesPanel {
   render(): void;
+}
+
+/**
+ * The backend, INJECTED (PLAN-B2 §9). This module deliberately does not import
+ * `../api.ts`: the same discipline that keeps `ui/panes.ts` out of it (its
+ * import graph reaches @xterm/xterm) keeps the panel drivable under
+ * `node --test` against a plain fake object, and it is `main.ts` — the one
+ * module that is allowed to know about HTTP — that hands the real one over.
+ */
+export interface FsGateway {
+  /** One folder's listing. The path is OMITTED exactly once: to learn where home is. */
+  entries(path?: string): Promise<FsEntriesResponse>;
+  /** One empty file or one folder (part A9c). */
+  create(dir: string, name: string, kind: 'file' | 'folder'): Promise<FsCreateResponse>;
+  /** What the repository at (or above) this folder has changed since its last commit. */
+  changes(root: string): Promise<GitChangesResponse>;
 }
 
 /**
@@ -123,20 +189,38 @@ export interface FilesPanel {
  */
 let live: {
   subject(): Subject;
-  focusedFolderName(): string | null;
-  selectedFolder(): string | null;
+  rootDestination(): Destination | null;
+  selectedFolder(): Destination | null;
+  homePath(): string | null;
+  entries(path: string): Promise<FsEntriesResponse>;
 } | null = null;
 
-/** What the panel is about: a NAME, whether it is `Home`, and the project behind it. */
+/**
+ * What the panel is about: a NAME, whether it is `Home`, the project behind
+ * it, and — since B2 — the real PATH that name stands for. One walk answers
+ * all four (`subject()` below), which is what makes the header, the tree, the
+ * drop destinations and the tab a file opens into agree by construction.
+ */
 interface Subject {
   name: string;
   home: boolean;
   projectId: string | null;
+  /** Absolute path, or null while the home folder has not been learned yet. */
+  path: string | null;
 }
 
-/** The panel's own root — its non-folder area, as a name. Null with no panel. */
-export function filesPanelDestination(): string | null {
-  return live === null ? null : live.subject().name;
+// ---- destinations ---------------------------------------------------------
+//
+// Four questions — what is this panel about, what is that folder row called,
+// what is a pane's folder, what would a paste use — answered HERE, by the one
+// `subject()` the header already prints, and handed to `ui/filedrop.ts` as
+// injected deps. Since B2 each answer is a `Destination`: the NAME the UI is
+// allowed to show and the real PATH part B10's upload will post to. Not one
+// visible string changes — every renderer reads `.name`.
+
+/** The panel's own root — its non-folder area. Null with no panel on screen. */
+export function filesPanelDestination(): Destination | null {
+  return live === null ? null : live.rootDestination();
 }
 
 /**
@@ -146,7 +230,7 @@ export function filesPanelDestination(): string | null {
  * own root, else the active tab's root (the panel can be closed while a drop
  * still has to go somewhere).
  */
-export function pasteDestination(): string | null {
+export function pasteDestination(): Destination | null {
   if (live !== null) {
     // A9b, first rung: the SELECTED folder. It is the only one of the two that
     // says out loud where files will land (the copy strip names it), so it
@@ -154,9 +238,10 @@ export function pasteDestination(): string | null {
     // focused terminal, which has no focus memory of its own.
     const chosen = live.selectedFolder();
     if (chosen !== null) return chosen;
-    const folder = live.focusedFolderName();
+    const folder = focusedFolderDest();
     if (folder !== null) return folder;
-    return live.subject().name;
+    const root = live.rootDestination();
+    if (root !== null) return root;
   }
   return destinationOfActiveView();
 }
@@ -171,13 +256,13 @@ export function pasteDestination(): string | null {
  * exactly why a HIDDEN panel answers null — a destination nobody can see must
  * never silently accept files.
  */
-export function selectedFolder(): string | null {
+export function selectedFolder(): Destination | null {
   return live === null ? null : live.selectedFolder();
 }
 
-/** The ACTIVE tab's root, as a name: `Home`, a project's name, else null. */
-export function destinationOfActiveView(): string | null {
-  return rootName(st.activeView());
+/** The ACTIVE tab's root: `Home`, a project, else null. */
+export function destinationOfActiveView(): Destination | null {
+  return rootDest(st.activeView());
 }
 
 /**
@@ -189,21 +274,25 @@ export function destinationOfActiveView(): string | null {
  * fallback. Answering the tab's folder first for a session pane made the
  * header read `api` while the ghost over that very pane said `Home`.
  *
- * A session with neither a project nor a rooted tab has no folder this app is
- * allowed to name (user decision 4, 2026-09-15: the app may not print a path),
- * so it answers nothing plus the REASON, and the drop layer turns that into
- * the sentence it flashes.
+ * A session with neither a project, nor a rooted tab, nor even a working
+ * directory has no folder this app can name at all, so it answers nothing plus
+ * the REASON and the drop layer turns that into the sentence it flashes. Its
+ * WORKING DIRECTORY is the new last rung (B2, §4b): HISTORY already groups
+ * such a session under that folder's last segment, so the app is not inventing
+ * a name here, it is finally able to say the one it already uses.
  */
 export function destinationOfPane(paneEl: HTMLElement): PaneDest {
   const v = st.activeView();
   if (v === null) return { dest: null, why: 'tab' };
-  const root = rootName(v);
+  const root = rootDest(v);
   const slot = v.slots[Number(paneEl.dataset.slot)];
   if (slot === undefined) return root === null ? { dest: null, why: 'tab' } : { dest: root };
   if (slot.kind === 'session') {
     const own = projectOf(slot.id);
     if (own !== null) return { dest: own };
     if (root !== null) return { dest: root };
+    const cwd = cwdOf(slot.id);
+    if (cwd !== null) return { dest: cwd };
     return { dest: null, why: 'session' };
   }
   if (root !== null) return { dest: root };
@@ -212,56 +301,72 @@ export function destinationOfPane(paneEl: HTMLElement): PaneDest {
   // the header above it. Nothing there to borrow from is a TAB without a
   // folder, not a session without a project.
   const first = st.sessionIds(v)[0];
-  const name = first === undefined ? null : projectOf(first);
-  return name === null ? { dest: null, why: 'tab' } : { dest: name };
+  const dest = first === undefined ? null : projectOf(first);
+  return dest === null ? { dest: null, why: 'tab' } : { dest };
 }
 
 /**
- * A session's project as a NAME, or null when it has none left to name. An
- * EXITED session answers nothing here, exactly as `subject()` skips it for
+ * A session's project as a destination, or null when it has none left to name.
+ * An EXITED session answers nothing here, exactly as `subject()` skips it for
  * the header: the pane and the header must never name two folders.
  */
-function projectOf(id: string): string | null {
+function projectOf(id: string): Destination | null {
   const info = st.state.sessions.get(id);
-  if (info !== undefined && info.status === 'exited') return null;
-  const name = info === undefined ? null : st.projectName(info.projectId);
-  return name === null || name === '' ? null : name;
+  if (info === undefined || info.status === 'exited') return null;
+  return projectDest(info.projectId);
 }
 
-/** A view's root as a NAME. A project deleted under an open tab has none left. */
-function rootName(v: st.ViewState | null): string | null {
+/**
+ * A session's own working directory, named by its LAST SEGMENT. Only ever
+ * reached for a live session with no project and no rooted tab; an exited one
+ * answers nothing, for the same reason its project does not.
+ */
+function cwdOf(id: string): Destination | null {
+  const info = st.state.sessions.get(id);
+  if (info === undefined || info.status === 'exited') return null;
+  const cwd = info.cwd;
+  if (cwd === '') return null;
+  const name = fileName(cwd);
+  return name === '' ? null : { path: cwd, name };
+}
+
+/** A registered project as a destination. A project deleted under a tab has none. */
+function projectDest(id: string | undefined): Destination | null {
+  if (id === undefined) return null;
+  const p = st.state.projects.find((x) => x.id === id);
+  if (p === undefined || p.name === '' || p.path === '') return null;
+  return { path: p.path, name: p.name };
+}
+
+/** A view's root as a destination. `Home` needs the home path to be known. */
+function rootDest(v: st.ViewState | null): Destination | null {
   if (v === null || v.root === null) return null;
-  if (v.root.kind === 'home') return 'Home';
-  const name = st.projectName(v.root.id);
-  return name === null || name === '' ? null : name;
+  if (v.root.kind === 'home') {
+    const home = live === null ? null : live.homePath();
+    return home === null ? null : { path: home, name: 'Home' };
+  }
+  return projectDest(v.root.id);
 }
 
 /**
  * The TOP-LEVEL names already in a destination — the only input the conflict
- * question takes.
+ * question takes — read from the REAL folder at drop time (§4b).
  *
- * MOCK, like the tree it reads: `buildTree(MOCK_FILES)` is what the panel
- * draws, so dropping `README.md` on the root or `Pane.tsx` on `src` really does
- * show the conflict dialog, and nothing claims to know a folder the panel has
- * never listed. A destination that is not a folder IN that tree — `Home`, a
- * project's name — is the tree's ROOT. Part B2 replaces this with the real
- * listing of the real folder, and the signature does not change.
+ * It deliberately does NOT read the panel's cache: the destination is usually
+ * a folder nobody expanded, and a conflict answer from a stale listing is the
+ * one place a stale listing IS a lie, because it decides whether a file is
+ * overwritten. A listing that FAILS answers an empty list rather than throwing:
+ * a drop must not be lost because a folder could not be read, and "no known
+ * conflicts" is the non-destructive reading of not knowing.
  */
-export function listingFor(dest: string): readonly string[] {
-  const roots = buildTree(MOCK_FILES);
-  const found = findDir(roots, dest);
-  return (found ?? roots).map((n) => n.name);
-}
-
-/** Depth-first search for a folder by NAME; its children, or null. */
-function findDir(nodes: readonly TreeNode[], name: string): TreeNode[] | null {
-  for (const n of nodes) {
-    if (!n.dir) continue;
-    if (n.name === name) return n.children;
-    const deeper = findDir(n.children, name);
-    if (deeper !== null) return deeper;
+export async function listingFor(dest: Destination): Promise<readonly string[]> {
+  if (live === null) return [];
+  try {
+    const res = await live.entries(dest.path);
+    return res.entries.map((e) => e.name);
+  } catch {
+    return [];
   }
-  return null;
 }
 
 /**
@@ -272,12 +377,24 @@ function findDir(nodes: readonly TreeNode[], name: string): TreeNode[] | null {
  * module free of `ui/panes.ts`, whose import graph reaches @xterm/xterm, so
  * the panel stays drivable under `node --test`.
  */
-export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): FilesPanel {
-  // Local to the panel instance: which tab is up and which folders are open.
-  // Neither is server state and neither survives a reload — the tree itself is
-  // still mocked, so persisting a set of folder names would persist fiction.
+export function initFilesPanel(
+  host: HTMLElement,
+  onLeaveScreen: () => void,
+  fs: FsGateway,
+): FilesPanel {
+  // Local to the panel instance: which tab is up, which folders are open, and
+  // what each open folder answered. None of it is server state and none of it
+  // survives a reload — a remembered set of absolute paths would be a promise
+  // about a filesystem that moved on.
+  //
+  // TWO TABS, NOT ONE. `wish` is what the user CHOSE; `tab` is what is on
+  // screen. They differ only while the wished tab has no repository behind it
+  // — and the difference is what keeps a root change from throwing the user
+  // out of `Changes`: between two repositories the answer is unknown for a
+  // moment (`setRoot` drops the old one), and "unknown" is not "no".
+  let wish: Tab = 'files';
   let tab: Tab = 'files';
-  const openFolders = new Set<string>(MOCK_OPEN_FOLDERS);
+  const openFolders = new Set<string>();
 
   // ---- selection -----------------------------------------------------------
   //
@@ -298,6 +415,465 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   // selected folder whose ANCESTOR was collapsed, which draws no row but keeps
   // naming itself in the copy strip.
   let selected: Selection = null;
+
+  // ---- the tree ------------------------------------------------------------
+  //
+  // One cache (`listings`), one open set, one generation counter, and the pure
+  // `fsRows()` walk over the three of them (PLAN-B2 §3). Everything about WHAT
+  // a tree looks like mid-flight lives in `ui/fs-model.ts`; what lives here is
+  // WHEN a request goes out and what happens to its answer.
+  //
+  // CACHE-THEN-REVALIDATE. Expanding a folder always starts a request, but a
+  // folder that already answered keeps its rows on screen while the new answer
+  // travels — so re-expanding never flashes `Loading…`, and the listing is
+  // never more than one gesture old.
+  //
+  // THE GENERATION IS THE SAFETY CATCH. Every request remembers the generation
+  // it was made in; `setRoot()` bumps it. A slow listing of the folder the user
+  // just left therefore lands in a dead branch instead of painting rows from
+  // one folder into the tree of another.
+
+  /** What each folder answered, keyed by ABSOLUTE path. */
+  const listings = new Map<string, FolderState>();
+  /** Path -> the generation of the request in flight for it (the dedupe). */
+  const inFlight = new Map<string, number>();
+  /** Bumped by every root change; an answer from an older one is dropped. */
+  let generation = 0;
+  /**
+   * Bumped by every answer that changed something. It is part of `sig()`
+   * because the tree is data the panel cannot otherwise see change: without it
+   * a listing arriving for an already-open folder would repaint nothing.
+   */
+  let dataVersion = 0;
+
+  /**
+   * The sentence a failed request puts in the row.
+   *
+   * An `ApiError` carries the SERVER's own constant sentence (§1d) and a
+   * `status`, which is how this tells it apart from a fetch that never reached
+   * anything — duck-typed rather than `instanceof`, because importing
+   * `../api.ts` here is exactly what the injected gateway exists to avoid.
+   *
+   * AND THE SHAPE IS CHECKED, not only the origin. `request()` invents
+   * `HTTP <status>` when a body carries no `error` at all, and an older
+   * backend answers its own vocabulary (`not found`, `permission denied` —
+   * the picker's words, lowercase fragments meant for a different surface).
+   * Either would land in a tree row as a sentence the app never wrote. So a
+   * message is rendered only if it LOOKS like §1d: one line, an uppercase
+   * start, a full stop, and no `HTTP` in it. Everything else is the app's own
+   * "we did not get an answer", which is the truth in every one of those
+   * cases.
+   */
+  function messageOf(err: unknown): string {
+    if (err !== null && typeof err === 'object') {
+      const e = err as { status?: unknown; message?: unknown };
+      if (typeof e.status === 'number' && typeof e.message === 'string' && isSentence(e.message)) {
+        return e.message;
+      }
+    }
+    return UNREACHABLE_TEXT;
+  }
+
+  /** Does this read like one of the server's own constant sentences (§1d)? */
+  function isSentence(text: string): boolean {
+    if (text.length < 2 || text.length > 160) return false;
+    if (/[\n\r\t]/.test(text)) return false;
+    if (text.includes('HTTP')) return false;
+    if (!text.endsWith('.')) return false;
+    const first = text[0] as string;
+    return first === first.toUpperCase() && first !== first.toLowerCase();
+  }
+
+  /** An answer changed something: repaint, whatever the signature said before. */
+  function bump(): void {
+    dataVersion += 1;
+    lastSig = '';
+    render();
+  }
+
+  /**
+   * Ask for ONE folder's contents. Never repaints synchronously: it is called
+   * from inside a render pass (the root) as well as from a click (an expand),
+   * and a render that re-enters itself is a loop waiting for a slow network.
+   */
+  function fetchFolder(path: string): void {
+    const gen = generation;
+    if (inFlight.get(path) === gen) return;
+    inFlight.set(path, gen);
+    const cached = listings.get(path);
+    // A cached `ready` stays on screen while the new answer travels; a cached
+    // ERROR does not — it is the one state that must not outlive the retry.
+    if (cached === undefined || cached.k === 'error') listings.set(path, { k: 'loading' });
+    dataVersion += 1;
+    fs.entries(path)
+      .then((res) => {
+        if (gen !== generation) return;
+        listings.set(path, { k: 'ready', entries: res.entries, truncated: res.truncated });
+      })
+      .catch((err: unknown) => {
+        if (gen !== generation) return;
+        listings.set(path, { k: 'error', message: messageOf(err) });
+      })
+      .finally(() => {
+        if (inFlight.get(path) === gen) inFlight.delete(path);
+        if (gen !== generation) return;
+        bump();
+      });
+  }
+
+  /**
+   * Open or close one folder. ONE definition, shared by the primary click and
+   * the menu's `Open`/`Close` entry, so the named entry can never drift from
+   * the gesture it is the name of. Opening one always asks for it again.
+   */
+  function toggleFolder(path: string): void {
+    if (openFolders.has(path)) openFolders.delete(path);
+    else {
+      openFolders.add(path);
+      fetchFolder(path);
+    }
+    lastSig = '';
+    render();
+  }
+
+  /**
+   * The error sentences currently in the cache. A state row carries only its
+   * text (`FsRow` has no tone — it is a pure model and a colour is not a fact
+   * about a tree), so this is how the renderer tells the SERVER's sentence
+   * from `Loading…` without re-deriving either: the message it would paint in
+   * danger ink is, by definition, one that some folder is failing with.
+   */
+  function errorTexts(): Set<string> {
+    const out = new Set<string>();
+    for (const s of listings.values()) if (s.k === 'error') out.add(s.message);
+    return out;
+  }
+
+  /**
+   * A state row: `Loading…`, `Empty folder`, the server's own sentence, or the
+   * quiet note about the rows a cap left out.
+   *
+   * A `<div>`, never a button: there is nothing to press, and a control that
+   * does nothing is worse than a line of text. It is exactly `--files-row-h`
+   * tall and sits at the indent of the folder it belongs to, so the rows that
+   * replace it land in the same place and NOTHING moves — a row that changed
+   * the panel's width would fire every pane's ResizeObserver and resize every
+   * PTY in the grid. `.files-name` gives it the same ellipsis rule as a name,
+   * so a long server sentence can never widen the panel either.
+   */
+  function stateRow(text: string, indent: number, danger: boolean): HTMLElement {
+    const row = el('div', 'files-row is-state');
+    row.classList.toggle('is-err', danger);
+    row.style.paddingLeft = `${indent}px`;
+    row.append(el('span', 'files-name', text));
+    return row;
+  }
+
+  // ---- the root ------------------------------------------------------------
+  //
+  // The folder the tree lists (§4a). It is `subject().path` — the same walk
+  // that answers the NAME the header prints — so the panel can never list one
+  // folder while calling itself another.
+  //
+  // HOME IS LEARNED, NOT GUESSED. The app knows no absolute paths of its own:
+  // the FIRST listing, the one asked for with no path at all, answers with the
+  // home folder's real path and that is what `Home` means from then on. Until
+  // it lands the tree honestly says `Loading…`.
+
+  /** The home folder's absolute path, once the first listing has said so. */
+  let homePath: string | null = null;
+  /** The home probe has gone out (and, on failure, the sentence it came back with). */
+  let homeAsked = false;
+  let homeError: string | null = null;
+  /** The root the tree is currently showing, or null before the first one. */
+  let currentPath: string | null = null;
+  /** Was the panel on screen at the last render (a return re-reads the root). */
+  let wasVisible = false;
+
+  /** Where the tree is rooted right now: `subject()`'s path (§4a). */
+  function rootPath(): string | null {
+    return subject().path;
+  }
+
+  /** The panel's own root as a destination — the name the header prints, its path. */
+  function rootDestination(): Destination | null {
+    const path = rootPath();
+    if (path === null) return null;
+    return { path, name: subject().name };
+  }
+
+  /** The one request that has no path: it teaches the app where home is. */
+  function learnHome(): void {
+    if (homeAsked) return;
+    homeAsked = true;
+    fs.entries()
+      .then((res) => {
+        homePath = res.path;
+        homeError = null;
+        listings.set(res.path, { k: 'ready', entries: res.entries, truncated: res.truncated });
+      })
+      .catch((err: unknown) => {
+        homeError = messageOf(err);
+      })
+      .finally(() => {
+        bump();
+      });
+  }
+
+  /**
+   * The root changed under the panel (§4a). `openFolders`, `listings` and the
+   * selection are keyed by absolute path, so most of them simply stop
+   * matching — but "stop matching" is not enough for the SELECTION, which
+   * would keep naming a folder nobody can see while the copy strip promised
+   * files to it. So this prunes all three explicitly, bumps the generation so
+   * no answer for the old root can paint, and asks for the new one.
+   */
+  function setRoot(next: string): void {
+    currentPath = next;
+    generation += 1;
+    for (const p of [...openFolders]) if (!isUnder(p, next)) openFolders.delete(p);
+    for (const p of [...listings.keys()]) if (!isUnder(p, next)) listings.delete(p);
+    if (selected !== null && !isUnder(selected, next)) selected = null;
+    changes = null;
+    changesError = null;
+    changesRoot = null;
+    dataVersion += 1;
+    fetchFolder(next);
+    fetchChanges(next);
+  }
+
+  /**
+   * Keep the root and the panel's first listing in step with `subject()`.
+   * Called at the top of every visible render: the root changes for reasons
+   * this panel never hears about directly (a pane took the focus, a session
+   * exited, a project was deleted).
+   */
+  function syncRoot(): boolean {
+    const want = rootPath();
+    if (want === null) {
+      learnHome();
+      return false;
+    }
+    if (want !== currentPath) {
+      setRoot(want);
+      return true;
+    }
+    if (!listings.has(want)) fetchFolder(want);
+    return false;
+  }
+
+  // ---- changes -------------------------------------------------------------
+  //
+  // The `Changes` tab (§7): `git diff --numstat` plus the untracked set, for
+  // the REPOSITORY the root sits in — which may be an ancestor of the root
+  // (a project registered at `web/` inside a repository), so the tab's own
+  // line names that repository rather than pretending the two are the same
+  // folder.
+  //
+  // It is also the PROBE. `isRepo` decides whether `Changes` and `Commits`
+  // exist at all, so one request goes out per root whatever tab is up; the 5 s
+  // poll is armed only while this tab is the visible one.
+
+  /** The last answer for the current root, or null while none has arrived. */
+  let changes: GitChangesResponse | null = null;
+  /** The sentence the last attempt failed with, or null. */
+  let changesError: string | null = null;
+  /** The root that answer belongs to (never rendered — a path is not a label). */
+  let changesRoot: string | null = null;
+  /** The generation whose changes request is in flight, or null. */
+  let changesFlight: number | null = null;
+  /** The Changes tree's OWN open set: repo-relative paths, not the Files tab's. */
+  const changesOpen = new Set<string>();
+  /** The poll, armed only while this tab is visible. */
+  let pollId: number | null = null;
+
+  function fetchChanges(root: string): void {
+    // Dedupe WITHIN a generation — a poll tick over a slow git call is
+    // skipped — but never across one: a root change must always get its own
+    // answer, or the tab that asks "is this a repository" is never told.
+    const gen = generation;
+    if (changesFlight === gen) return;
+    changesFlight = gen;
+    fs.changes(root)
+      .then((res) => {
+        if (gen !== generation) return;
+        changes = res;
+        changesError = null;
+        changesRoot = root;
+      })
+      .catch((err: unknown) => {
+        if (gen !== generation) return;
+        changes = null;
+        changesError = messageOf(err);
+        changesRoot = root;
+      })
+      .finally(() => {
+        if (changesFlight === gen) changesFlight = null;
+        if (gen !== generation) return;
+        bump();
+      });
+  }
+
+  /**
+   * Arm or drop the poll. The timer exists only while the Changes tab is the
+   * visible tab AND the panel is on screen, so a hidden panel and every other
+   * tab cost nothing at all; a tick while a request is still in flight is
+   * skipped by `fetchChanges` itself.
+   */
+  function syncPoll(): void {
+    const want = st.filesPanelVisible() && tab === 'changes' && currentPath !== null;
+    if (want && pollId === null) {
+      pollId = window.setInterval(() => {
+        if (currentPath !== null) fetchChanges(currentPath);
+      }, CHANGES_POLL_MS);
+      return;
+    }
+    if (!want && pollId !== null) {
+      window.clearInterval(pollId);
+      pollId = null;
+    }
+  }
+
+  /**
+   * Is there a repository behind this panel? The REAL probe since B2: the last
+   * git answer for this root — `true`, `false`, or NULL while no answer for
+   * this root has arrived. The third value is the whole point (see `tab` /
+   * `wish` above): the two are not the same fact.
+   */
+  function isRepo(): boolean | null {
+    return changes === null ? null : changes.isRepo;
+  }
+
+  /**
+   * Is there a repository, as far as anyone can say right now? Unknown reads
+   * as no HERE, because this answers whether a tab can be CHOSEN, and a tab
+   * that leads to `Loading…` is not a choice yet. While it is unknown the two
+   * tabs stay disabled with the same title they carry when the answer is "no"
+   * — a third, transient tooltip for the second it takes to ask would be noise.
+   */
+  function repoKnown(): boolean {
+    return isRepo() === true;
+  }
+
+  /** Is this tab reachable at all? `Files` always; the other two need a repository. */
+  function tabAvailable(t: Tab): boolean {
+    return t === 'files' || repoKnown();
+  }
+
+  /**
+   * Which tab is ON SCREEN, given what the user wished for and what git has
+   * said. The fallback to `Files` needs a DEFINITE `isRepo: false`: a root
+   * change nulls the answer, and falling back on "not yet" would take the
+   * Changes tab away from anyone moving between two repositories — the tab
+   * they are watching, lost for the width of one git call.
+   */
+  function visibleTab(): Tab {
+    if (wish === 'files') return 'files';
+    return isRepo() === false ? 'files' : wish;
+  }
+
+  /**
+   * The Changes tab's own header line: the REPOSITORY's name and the branch it
+   * is on. The name, never the path — and it is said out loud precisely
+   * because the repository can be an ancestor of the folder the Files tab
+   * lists, which is the one place this panel would otherwise have two
+   * different subjects on one screen. A detached head has no branch to name,
+   * so the line is just the repository.
+   */
+  function changesHeaderText(): string {
+    const root = changes === null ? null : changes.repoRoot;
+    const repo = root === null ? '' : fileName(root);
+    const branch = changes === null ? null : changes.branch;
+    if (repo === '') return branch ?? '';
+    return branch === null ? repo : `${repo}, ${branch}`;
+  }
+
+  /**
+   * The Changes tab's body: the same `buildTree` + `treeRows` renderer the A5
+   * tree has always used, over `changesToFiles()` — one tree vocabulary in
+   * this panel, not two. Rows carry their own `gdir:`/`gfile:` keys — `g` for
+   * git, and deliberately NOT `c…`, which the Commits tab already spends on
+   * its per-file rows: `rebuild()` restores the keyboard by `data-k`, so two
+   * tabs sharing a key would land the focus on the other tab's row. The drop
+   * layer (which resolves a folder row by its `fdir:` path) can never mistake
+   * a repo-relative path for a real one either.
+   */
+  function changeRows(): HTMLElement[] {
+    if (changesError !== null) return [stateRow(changesError, rowIndent(0), true)];
+    if (changes === null) return [stateRow(LOADING_TEXT, rowIndent(0), false)];
+    if (!changes.isRepo) return [];
+    const out: HTMLElement[] = [el('div', 'files-branch', changesHeaderText())];
+    if (changes.files.length === 0) {
+      out.push(stateRow(NO_CHANGES_TEXT, rowIndent(0), false));
+      return out;
+    }
+    const repoRoot = changes.repoRoot;
+    for (const r of treeRows(buildTree(changesToFiles(changes.files)), changesOpen)) {
+      let row: HTMLElement;
+      if (r.dir) {
+        const b = button('files-row is-dir', '', () => {
+          if (changesOpen.has(r.path)) changesOpen.delete(r.path);
+          else changesOpen.add(r.path);
+          lastSig = '';
+          render();
+        });
+        b.setAttribute('data-k', `gdir:${r.path}`);
+        b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
+        row = b;
+      } else {
+        // A changed file opens exactly like a file in the tree beside it: the
+        // path is repo-relative, so it is made absolute against the repository
+        // it belongs to and never against the panel's own root.
+        const b = button('files-row is-file', '', () => {
+          if (repoRoot === null) return;
+          st.openFile(currentRoot(), joinPath(repoRoot, r.path), r.name);
+        });
+        b.setAttribute('data-k', `gfile:${r.path}`);
+        // Its OWN title, naming only what it does. A changed file row is not a
+        // drag source, has no ctrl+alt+enter and opens no menu (its path is
+        // repo-relative — nothing in the drop layer or the row menu can act on
+        // it), so promising the tree row's three affordances would be three
+        // lies on one control.
+        b.title = CHANGED_ROW_TITLE;
+        row = b;
+      }
+      row.style.paddingLeft = `${r.indent}px`;
+      row.classList.toggle('is-busy', r.busy);
+
+      const caret = el('span', 'files-caret', r.caret);
+      caret.setAttribute('aria-hidden', 'true');
+      row.append(caret);
+
+      if (r.dir) {
+        const ic = folderIcon();
+        ic.classList.add('files-folder');
+        if (r.open) ic.classList.add('is-open');
+        row.append(ic);
+      } else {
+        const badge = el('span', 'files-badge', badgeFor(r.name).label);
+        badge.dataset.kind = badgeFor(r.name).kind;
+        badge.setAttribute('aria-hidden', 'true');
+        row.append(badge);
+      }
+
+      const name = el('span', 'files-name', r.name);
+      if (!r.dir) name.classList.toggle('has-diff', r.hasDiff);
+      row.append(name);
+
+      if (r.hasDiff) {
+        row.append(
+          el('span', 'files-num is-add', `+${r.add}`),
+          el('span', 'files-num is-del', `-${r.del}`),
+        );
+      }
+      out.push(row);
+    }
+    if (changes.truncated > 0) {
+      out.push(stateRow(truncatedText(changes.truncated), rowIndent(0), false));
+    }
+    return out;
+  }
+
 
   const root = el('section', 'files-view');
 
@@ -328,9 +904,15 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
    * is the guarantee, and the guarantee is what a paste arriving from a
    * focused terminal actually asks.
    */
-  function currentSelectedName(): string | null {
+  function currentSelectedDest(): Destination | null {
     if (!st.filesPanelVisible()) return null;
-    return selectedName(selected);
+    if (selected === null || selected === '') return null;
+    const root = rootPath();
+    if (root === null) return null;
+    // Never the root itself: only folder ROWS are selectable and the root has
+    // no row — but `destinationOf` is the one place a name is derived from a
+    // path, so the panel asks it rather than deriving a second one here.
+    return destinationOf(selected, root, subject().name);
   }
 
   // ---- the row menu ---------------------------------------------------------
@@ -358,9 +940,18 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     const t = e.target instanceof Element ? e.target : null;
     const row = t === null ? null : t.closest<HTMLElement>('.files-row');
     if (row === null) return;
+    // The KEY decides, not the class. Three kinds of thing wear `.files-row`:
+    // a tree row (`fdir:`/`ffile:`), a STATE row (`Loading…`, a refusal — no
+    // key at all), and a `Changes` row (`gdir:`/`gfile:`, a repo-relative
+    // path nothing here can act on). Only the first has actions, so only the
+    // first may take the event: preventing before this check left the other
+    // two with no app menu AND no system menu — a right-click that did
+    // nothing at all.
+    const key = row.getAttribute('data-k') ?? '';
+    if (!key.startsWith('fdir:') && !key.startsWith('ffile:')) return;
     // Only now: the system menu must not open over ours.
     e.preventDefault();
-    openRowMenuFor(row.getAttribute('data-k') ?? '', { x: e.clientX, y: e.clientY });
+    openRowMenuFor(key, { x: e.clientX, y: e.clientY });
   });
 
   /**
@@ -411,7 +1002,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     if (action === 'toggle') toggleFolder(path);
     else if (action === 'open') st.openFile(currentRoot(), path, name);
     else if (action === 'open-beside') openBeside(path, name);
-    else if (action === 'copy-files') openCopyFilesPicker(name);
+    else if (action === 'copy-files') openCopyFilesPicker({ path, name });
     // 'copy' and 'paste' are disabled entries: the menu never chooses them.
   }
 
@@ -437,26 +1028,15 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     });
   }
 
-  /**
-   * Open or close one folder. ONE definition, shared by the primary click and
-   * the menu's `Open`/`Close` entry, so the named entry can never drift from
-   * the gesture it is the name of.
-   */
-  function toggleFolder(path: string): void {
-    if (openFolders.has(path)) openFolders.delete(path);
-    else openFolders.add(path);
-    lastSig = '';
-    render();
-  }
-
-  // ---- header: the two tabs, then the name of what we are looking at -------
+  // ---- header: the three tabs, then the name of what we are looking at -----
   const hd = el('header', 'files-hd');
   const tabsRow = el('div', 'files-tabs');
   tabsRow.setAttribute('role', 'group');
-  tabsRow.setAttribute('aria-label', 'files or commits');
+  tabsRow.setAttribute('aria-label', 'files, changes or commits');
   const tabBtns = new Map<Tab, HTMLButtonElement>();
   for (const t of [
     { k: 'files' as const, label: 'Files' },
+    { k: 'changes' as const, label: 'Changes' },
     { k: 'commits' as const, label: 'Commits' },
   ]) {
     const b = button('files-tab', t.label, () => setTab(t.k));
@@ -467,7 +1047,10 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   const projName = el('span', 'files-proj');
   hd.append(tabsRow, el('span', 'drawer-gap'), projName);
 
-  // ---- files tab: summary hairline + the tree ------------------------------
+  // ---- the changes tab's summary hairline, and the body --------------------
+  // The summary belongs to `Changes` since B2: `+A -D since last commit in N
+  // files` is a fact about a REPOSITORY, and the Files tab browses a folder,
+  // which has no commits to be since.
   const summary = el('div', 'files-sum');
   const sumAdd = el('span', 'files-num is-add');
   const sumDel = el('span', 'files-num is-del');
@@ -511,7 +1094,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   function syncCopyStrip(): void {
     copyBtn.textContent = copyStripLabel(selected);
     const dest = pasteDestination();
-    copyBtn.title = dest === null ? '' : copyIntoText(dest);
+    copyBtn.title = dest === null ? '' : copyIntoText(dest.name);
   }
   document.addEventListener('focusin', (e) => {
     noteFocus(e.target);
@@ -520,7 +1103,13 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   // The destination questions the drop layer asks are answered against THIS
   // panel (there is one), through the same `subject()` the header prints — set
   // before the first title, so the button never starts out naming the fallback.
-  live = { subject, focusedFolderName, selectedFolder: currentSelectedName };
+  live = {
+    subject,
+    rootDestination,
+    selectedFolder: currentSelectedDest,
+    homePath: () => homePath,
+    entries: (path: string) => fs.entries(path),
+  };
   syncCopyStrip();
 
   // ---- the drag edge --------------------------------------------------------
@@ -604,18 +1193,32 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
    *      it holds none.
    *   2. the focused pane is a live session -> its project NAME (never a path);
    *      a session without a project has nothing else honest to show, so its
-   *      own name stands in — and its ROOT is Home (A10 gap, closed by B2).
-   *   3. nothing focused / nothing alive -> the first live session, then `Home`.
+   *      own name stands in — and its folder is that session's own working
+   *      directory (B2 closes the A10 gap: the tree lists the folder the
+   *      session is running in, and the header says the session's name for it).
+   *   3. NOTHING FOCUSED -> `Home`. Full stop (user decision 2026-09-16, §4a).
+   *      Until B2 the last rung was "the first live session anywhere", which
+   *      was harmless while the panel drew a mock: it only chose a NAME. Now
+   *      it would choose a FOLDER, and a Home tab with a session running in
+   *      another tab would list that session's project — a tree about
+   *      something the user is not looking at. A session's project appears
+   *      when one of its panes is focused, which is exactly when it is what
+   *      the screen is about.
+   *
+   * Since B2 it also answers the PATH that name stands for (§4a), because the
+   * header and the tree must be two views of one folder and not two lookups
+   * that happen to agree. `Home`'s path is the one the first listing taught us,
+   * so it is null for as long as that answer is in flight.
    */
-  function subject(): { name: string; home: boolean; projectId: string | null } {
+  function subject(): Subject {
     const v = st.activeView();
     const slot = v === null ? undefined : v.slots[v.focused];
     if (v !== null && slot !== undefined && slot.kind !== 'session' && v.root !== null) {
-      if (v.root.kind === 'home') return { name: 'Home', home: true, projectId: null };
-      const name = st.projectName(v.root.id);
+      if (v.root.kind === 'home') return atHome();
+      const p = projectDest(v.root.id);
       // A project deleted under an open folder tab has no name left to print;
       // fall through to the session rules rather than invent one.
-      if (name !== null && name !== '') return { name, home: false, projectId: v.root.id };
+      if (p !== null) return { name: p.name, home: false, projectId: v.root.id, path: p.path };
     }
     if (v !== null && slot !== undefined && slot.kind !== 'session' && v.root === null) {
       // A file or diff pane in a plain session tab: no folder to follow, so
@@ -625,34 +1228,43 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       const own = st.sessionIds(v)[0];
       const info = own === undefined ? undefined : st.state.sessions.get(own);
       if (info !== undefined) return ofSession(info);
-      return { name: 'Home', home: true, projectId: null };
+      return atHome();
     }
     const id = slot !== undefined && slot.kind === 'session' ? slot.id : undefined;
     const info = id === undefined ? undefined : st.state.sessions.get(id);
     if (info !== undefined && info.status !== 'exited') return ofSession(info);
-    // The focused pane's session is gone (absent from state, or kept there
-    // with `status === 'exited'` — state.ts markExited flips it in place and
-    // reconcileViews keeps the dead pane on purpose), so this is a normal
-    // state, not an impossible one. A headerless tree says nothing about
-    // nothing — fall back to the first session still alive.
-    for (const s of st.state.sessions.values()) {
-      if (s.status !== 'exited') return ofSession(s);
-    }
-    // Nothing is running: the panel's default root, the user's home directory,
-    // said as a NAME (the header rule forbids `~` and `/home/...`) until part
-    // B2 makes the panel live.
-    return { name: 'Home', home: true, projectId: null };
+    // Nothing focused — an empty tab, the fixed `Home` tab, or a focused pane
+    // whose session has exited (state.ts markExited flips it in place and
+    // reconcileViews keeps the dead pane on purpose). All three are the same
+    // answer since B2: HOME. The panel lists a folder now, and borrowing a
+    // session from another tab to pick one would put a tree on screen about
+    // something nobody is looking at.
+    return atHome();
+  }
+
+  /** The home folder as a subject: the one name whose path had to be learned. */
+  function atHome(): Subject {
+    return { name: 'Home', home: true, projectId: null, path: homePath };
   }
 
   /**
    * A session as a subject. `projectId` is only carried when the project is
    * really there: a name the panel cannot print is not a folder a file can be
-   * opened into either, and the honest fallback for both is `Home`.
+   * opened into either. Its PATH is the project's, else the session's own
+   * working directory — which is a real folder the app already knows and
+   * already names this way in HISTORY.
    */
-  function ofSession(info: SessionInfo): { name: string; home: boolean; projectId: string | null } {
-    const name = st.projectName(info.projectId);
-    if (name !== null && name !== '') return { name, home: false, projectId: info.projectId ?? null };
-    return { name: info.title, home: false, projectId: null };
+  function ofSession(info: SessionInfo): Subject {
+    const p = projectDest(info.projectId);
+    if (p !== null) {
+      return { name: p.name, home: false, projectId: info.projectId ?? null, path: p.path };
+    }
+    return {
+      name: info.title,
+      home: false,
+      projectId: null,
+      path: info.cwd === '' ? homePath : info.cwd,
+    };
   }
 
   /** The tab a file clicked in this panel belongs to (pure rule, slots-model). */
@@ -702,25 +1314,23 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     return subject().name;
   }
 
-  /**
-   * Is there a repository behind this panel? Only "not Home" — a session
-   * WITHOUT a project still counts, and keeps showing the mock commits exactly
-   * as it does today; real repo detection belongs to part B3 and is not
-   * invented here.
-   */
-  function repoKnown(): boolean {
-    return !subject().home;
-  }
-
   function setTab(next: Tab): void {
-    if (tab === next) return;
-    // Defence in depth for the disabled Commits tab: the button carries
-    // `disabled`, so a browser fires no click on it, but the tab must be
+    // The WISH is what a press changes — pressing `Files` while the panel was
+    // bounced there is not a no-op: it says "I want Files", and the wished tab
+    // stops coming back when its repository does.
+    if (wish === next) return;
+    // Defence in depth for the two disabled tabs: the buttons carry
+    // `disabled`, so a browser fires no click on them, but a tab must be
     // unreachable by construction and not by the DOM's good manners.
-    if (next === 'commits' && !repoKnown()) return;
-    tab = next;
+    if (!tabAvailable(next)) return;
+    wish = next;
+    tab = visibleTab();
+    // Opening `Changes` re-asks straight away — the answer behind it may be
+    // five seconds old, and this is the gesture that says "show me now".
+    if (next === 'changes' && currentPath !== null) fetchChanges(currentPath);
     lastSig = '';
     render();
+    syncPoll();
   }
 
   // ---- rendering -------------------------------------------------------------
@@ -748,7 +1358,13 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       // signature: without it the last session exiting would leave an enabled
       // Commits tab on a panel headed `Home`.
       repoKnown() ? 'repo' : 'home',
+      // The data itself: every listing and every git answer bumps this, which
+      // is the only way a repaint can know that a folder it is already showing
+      // has just answered.
+      String(dataVersion),
+      currentPath ?? '',
       Array.from(openFolders).sort().join(','),
+      Array.from(changesOpen).sort().join(','),
       // A9b: the chosen folder is drawn (`is-sel`) and spoken (the copy
       // strip), so a change to it has to repaint the panel like any other.
       selected ?? '',
@@ -761,6 +1377,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   function render(): void {
     if (!st.filesPanelVisible()) {
       lastSig = 'hidden';
+      wasVisible = false;
       // The panel left the screen (the Files toggle, or the Projects drawer
       // borrowing the left column): the chosen folder goes with it. A9b lets a
       // selection take a paste away from a focused TERMINAL, and a destination
@@ -770,16 +1387,30 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       // that is no longer on screen.
       closeRowMenu();
       selected = afterPanelHidden(selected);
+      // A panel nobody can see may not hold a timer: the poll is dropped here
+      // and armed again by the render that brings the panel back.
+      syncPoll();
       return;
     }
-    // The repository went away under the panel (the last session exited, the
-    // header fell back to `Home`): the Commits tab is about to be disabled, so
-    // the panel cannot keep standing on it. setTab does the flip and the
-    // repaint; the signature below then matches and this pass stops here.
-    if (tab === 'commits' && !repoKnown()) {
-      setTab('files');
-      return;
+    // Back on screen: re-read the root (cache-then-revalidate, so the rows that
+    // are already there stay put) and re-ask git. A home folder we never
+    // learned is asked for again — that probe is the only one with no second
+    // chance of its own. A root that MOVED in the same pass has just been
+    // fetched by `setRoot`, so it is not asked for twice.
+    const returning = !wasVisible;
+    wasVisible = true;
+    if (returning && homePath === null) homeAsked = false;
+    const moved = syncRoot();
+    if (returning && !moved && currentPath !== null) {
+      fetchFolder(currentPath);
+      fetchChanges(currentPath);
     }
+    // Which tab is on screen is decided here, on every pass: `Files` while the
+    // wished one has no repository behind it (a DEFINITE no — see
+    // `visibleTab`), the wished one again the moment one answers. The wish
+    // itself is never touched by this, so a root change cannot spend it.
+    tab = visibleTab();
+    syncPoll();
     const s = sig();
     if (s === lastSig) return;
     lastSig = s;
@@ -796,15 +1427,17 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         ? document.activeElement.getAttribute('data-k')
         : null;
 
-    const repo = repoKnown();
+    const title = noRepoTitle(headerName());
     for (const [k, b] of tabBtns) {
       const on = k === tab;
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
-      // Commits at `Home` is not a poorer view, it is no view: the control is
-      // really disabled (not just dimmed) and says why on hover and to a
-      // screen reader.
-      const off = k === 'commits' && !repo;
+      // A tab with no repository behind it is not a poorer view, it is no
+      // view: the control is really disabled (not just dimmed) and says why on
+      // hover and to a screen reader. The same title covers "there is no
+      // repository here" and "we have not been told yet" on purpose — a third,
+      // transient tooltip would be noise for the second it takes to ask.
+      const off = !tabAvailable(k);
       // Disabling the focused element drops the keyboard on <body> (the
       // browser blurs it, and a disabled button cannot be refocused below), so
       // the Files tab takes the focus first: always enabled, always visible.
@@ -812,7 +1445,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       b.disabled = off;
       if (off) {
         b.setAttribute('aria-disabled', 'true');
-        b.title = NO_REPO_TITLE;
+        b.title = title;
       } else {
         b.removeAttribute('aria-disabled');
         b.title = '';
@@ -821,18 +1454,26 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
     projName.textContent = headerName();
     syncCopyStrip();
 
-    if (tab === 'files') {
-      const totals = diffSummary(MOCK_FILES);
+    // The summary belongs to the repository, so it is drawn for the Changes
+    // tab only — and not for a clean tree, where `+0 -0 … in 0 files` would
+    // say the same thing as the sentence under it, twice.
+    const files = changes !== null && changes.isRepo ? changes.files : [];
+    if (tab === 'changes' && files.length > 0) {
+      const totals = diffSummary(changesToFiles(files));
       sumAdd.textContent = `+${totals.add}`;
       sumDel.textContent = `-${totals.del}`;
-      sumText.textContent = summaryText(totals.files);
+      // Every changed file counts, not only the ones carrying numbers: an
+      // untracked file has no diff to count and is still one of the files
+      // this repository has changed.
+      sumText.textContent = summaryText(files.length);
       summary.hidden = false;
     } else {
       summary.hidden = true;
     }
-    // ONE render site for the placeholder line, so B2/B3 remove it by deleting
-    // `placeholderNote` and this one argument.
-    body.replaceChildren(placeholderNote(), ...(tab === 'files' ? fileRows() : commitRows()));
+    // The placeholder line belongs to `Commits` alone now: it is the last
+    // surface in this panel still drawing `ui/files-mock.ts`. Part B3 deletes
+    // `placeholderNote` and this one argument together.
+    body.replaceChildren(...(tab === 'commits' ? [placeholderNote(), ...commitRows()] : []), ...(tab === 'files' ? fileRows() : []), ...(tab === 'changes' ? changeRows() : []));
     // The selected state has its own header block above the body (the back
     // control, the message and the meta line); it is the same commit the full
     // view shows, so the two can never disagree.
@@ -845,28 +1486,42 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   }
 
   /**
-   * PLACEHOLDER MARKER — DELETE WITH THE MOCK. Everything below the header is
-   * `ui/files-mock.ts`, and it carries the user's real project name, so without
-   * this line the panel reads as a report about their repository. Part B2 (the
-   * file list) and B3 (the commits) each remove their own sentence, and when
-   * both are gone this function and its single call site go with them.
+   * PLACEHOLDER MARKER — DELETE WITH THE MOCK. The Commits tab is the last
+   * surface in this panel drawing `ui/files-mock.ts`, under the user's real
+   * project name, so without this line it reads as a report about their
+   * repository. Part B3 removes the sentence, this function and its single
+   * call site together.
    */
   function placeholderNote(): HTMLElement {
-    return el(
-      'p',
-      'files-note',
-      tab === 'files'
-        ? 'Example data until the panel reads your files.'
-        : 'Example data until the panel reads your commits.',
-    );
+    return el('p', 'files-note', 'Example data until the panel reads your commits.');
   }
 
-  /** The tree: folder rows toggle, file rows open that file as a pane (A10). */
+  /**
+   * The tree (B2): the REAL folder, from the cache and the open set through
+   * the pure `fsRows()` walk. Folder rows toggle (and ask for their contents),
+   * file rows open that file as a pane (A10), and every state the network puts
+   * the tree in is a row of its own at the right indent.
+   *
+   * The root's own states replace the whole body — `fsRows` emits exactly one
+   * state row at depth 0 for them, so there is no second code path for "the
+   * tree could not load" and no empty panel with nothing in it.
+   */
   function fileRows(): HTMLElement[] {
+    const rootP = currentPath;
+    if (rootP === null) {
+      // Home has not answered yet (or could not). There is no tree to draw and
+      // no folder to name, so the body is the one honest row.
+      return [stateRow(homeError ?? LOADING_TEXT, rowIndent(0), homeError !== null)];
+    }
+    const errs = errorTexts();
     const rows: HTMLElement[] = [];
-    for (const r of treeRows(buildTree(MOCK_FILES), openFolders)) {
+    for (const r of fsRows(rootP, openFolders, listings)) {
       let row: HTMLElement;
-      if (r.dir) {
+      if (r.kind === 'state') {
+        rows.push(stateRow(r.name, r.indent, errs.has(r.name)));
+        continue;
+      }
+      if (r.kind === 'dir') {
         const b = button('files-row is-dir', '', () => {
           // ONE gesture, TWO effects, in this order (A9b user decision 1): the
           // row becomes the chosen folder, and THEN it opens or closes exactly
@@ -902,14 +1557,14 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
           if (e.getModifierState('AltGraph')) return;
           e.preventDefault();
           e.stopPropagation();
-          openCopyFilesPicker(r.name);
+          openCopyFilesPicker({ path: r.path, name: r.name });
         });
         armRowMenuChord(b, `fdir:${r.path}`);
         row = b;
       } else {
         // A10: a file row opens that file as a PANE of its root folder's tab.
-        // The text it shows is still `ui/files-mock.ts` until part B4 — the
-        // file pane says so in its own quiet line.
+        // The path is absolute since B2; the pane cannot read the file until
+        // part B4 and says so in its own quiet line.
         const b = button('files-row is-file', '', () => {
           st.openFile(currentRoot(), r.path, r.name);
         });
@@ -939,13 +1594,12 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         row = b;
       }
       row.style.paddingLeft = `${r.indent}px`;
-      row.classList.toggle('is-busy', r.busy);
 
       const caret = el('span', 'files-caret', r.caret);
       caret.setAttribute('aria-hidden', 'true');
       row.append(caret);
 
-      if (r.dir) {
+      if (r.kind === 'dir') {
         const ic = folderIcon();
         ic.classList.add('files-folder');
         if (r.open) ic.classList.add('is-open');
@@ -958,16 +1612,9 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
         row.append(badge);
       }
 
-      const name = el('span', 'files-name', r.name);
-      if (!r.dir) name.classList.toggle('has-diff', r.hasDiff);
-      row.append(name);
-
-      if (r.hasDiff) {
-        row.append(
-          el('span', 'files-num is-add', `+${r.add}`),
-          el('span', 'files-num is-del', `-${r.del}`),
-        );
-      }
+      // No `+N -N` here any more: a browser knows what is IN a folder, not
+      // what a repository has changed. Those numbers moved to `Changes`.
+      row.append(el('span', 'files-name', r.name));
       rows.push(row);
     }
     return rows;
@@ -1098,24 +1745,29 @@ function noteFocus(target: EventTarget | null): void {
 }
 
 /**
- * The name of the folder row this element sits in, when it does. A folder row
- * is a button carrying `data-k="fdir:<path>"`, and only the last segment of
- * that path is ever a destination NAME.
+ * The folder row this element sits in, as a destination. A folder row of the
+ * TREE is a button carrying `data-k="fdir:<absolute path>"` — the path is what
+ * part B10 posts to, its last segment is the only part ever shown. A folder
+ * row of the `Changes` tab carries a `gdir:` key over a REPO-RELATIVE path, so
+ * it deliberately answers nothing: a relative path is not a place to copy
+ * files into, and the panel's own root answers for it instead.
  */
-function folderNameOf(t: HTMLElement): string | null {
+function folderDestOf(t: HTMLElement): Destination | null {
   const row = t.closest<HTMLElement>('.files-row.is-dir');
   if (row === null) return null;
   const key = row.getAttribute('data-k') ?? '';
   if (!key.startsWith('fdir:')) return null;
   const path = key.slice('fdir:'.length);
-  return path === '' ? null : fileName(path);
+  if (path === '') return null;
+  const name = fileName(path);
+  return name === '' ? null : { path, name };
 }
 
-function focusedFolderName(): string | null {
+function focusedFolderDest(): Destination | null {
   // A row the tree rebuilt under the memory is no row at all: it is detached,
   // nothing on screen carries that promise any more, and the panel's own root
   // answers again. Removing an element never fires a focus event, so this is
   // the only moment the staleness can be noticed.
   if (lastRow !== null && lastRow.closest('.files-view') === null) lastRow = null;
-  return lastRow === null ? null : folderNameOf(lastRow);
+  return lastRow === null ? null : folderDestOf(lastRow);
 }

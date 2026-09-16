@@ -134,19 +134,29 @@ export function rowIndent(depth: number): number {
  * seen twice reuses its node. A folder's `add`/`del` are the sums beneath it
  * and its `editing` is true when ANY descendant is being edited — which is
  * what makes the amber pulse climb the spine without a second walk.
+ *
+ * A TRAILING SLASH MEANS A FOLDER (part B2, decided from the measured shape of
+ * `git status --porcelain`): an untracked DIRECTORY arrives as ONE row,
+ * `sub/`, because git reports the directory and not the files under it. So the
+ * last segment of such a path is a folder node with NO children — which is
+ * exactly what git said: something new is there, and nothing about what is
+ * inside it. Splitting naively would have made it a FILE row called `sub`,
+ * claiming a file that does not exist; giving it invented children would claim
+ * knowledge nobody has.
  */
 export function buildTree(files: readonly FileChange[]): TreeNode[] {
   const roots: TreeNode[] = [];
   const byPath = new Map<string, TreeNode>();
 
   for (const f of files) {
+    const marked = f.path.endsWith('/');
     const segments = f.path.split('/').filter((s) => s !== '');
     if (segments.length === 0) continue;
     let parentChildren = roots;
     let prefix = '';
     for (let i = 0; i < segments.length; i += 1) {
       const name = segments[i] as string;
-      const last = i === segments.length - 1;
+      const last = i === segments.length - 1 && !marked;
       prefix = prefix === '' ? name : `${prefix}/${name}`;
       let node = byPath.get(prefix);
       if (node === undefined) {
@@ -180,6 +190,11 @@ export function treeRows(
     const indent = rowIndent(depth);
     if (n.dir) {
       const open = openFolders.has(n.path);
+      // A folder with NOTHING under it gets no caret: since part B2 one exists
+      // — git reports an untracked DIRECTORY as a single `sub/` row and says
+      // nothing about its contents — and a disclosure mark that opens onto an
+      // empty tree is a promise the data cannot keep.
+      const foldable = n.children.length > 0;
       out.push({
         path: n.path,
         name: n.name,
@@ -187,7 +202,7 @@ export function treeRows(
         indent,
         dir: true,
         open,
-        caret: caretGlyph(open),
+        caret: foldable ? caretGlyph(open) : '',
         hasDiff: false,
         add: 0,
         del: 0,

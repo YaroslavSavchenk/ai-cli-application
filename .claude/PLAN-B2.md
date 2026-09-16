@@ -457,7 +457,13 @@ it, a new `rootPath(): string | null`:
 2. the focused pane is a live session → its project's `Project.path`, else that
    session's `cwd` (a real folder the app already knows; HISTORY already groups
    project-less sessions by its last segment);
-3. nothing focused / nothing alive → the home path;
+3. nothing focused → the home path. DECIDED 2026-09-16 (user, the
+   orchestrator's advice, after the Brief B scope review): on the fixed `Home`
+   tab with no focused pane the panel shows HOME, not the project of "the
+   first session still alive anywhere" (the A5 header rule) — since B2 that
+   rule would decide a whole tree, and the user's own home would be
+   unreachable while any session lives. The header follows the same root.
+   A session's project shows as soon as one of its panes is focused;
 4. the home path is not known yet (the first `GET /api/fs/entries` has not
    answered) → null, and the tree shows `Loading…`.
 

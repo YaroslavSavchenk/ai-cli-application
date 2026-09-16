@@ -38,6 +38,10 @@ import { fileURLToPath } from 'node:url';
 import type { Project, SessionInfo } from '../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, type FakeElement } from './fake-dom.ts';
 import { APP_CSS, stripComments } from './tokens-helpers.ts';
+import { HOME, PROJ, makeFixture, settle, type Gateway } from './fs-fixture.ts';
+
+/** The real panel against the fake backend of part B2 (`tests/fs-fixture.ts`). */
+const fx = makeFixture();
 
 const dom = installDom();
 
@@ -71,14 +75,23 @@ interface StateModule {
   filesPanelVisible(): boolean;
   setActiveView(id: string): void;
 }
+interface Dest {
+  path: string;
+  name: string;
+}
 interface FilesModule {
-  initFilesPanel(host: unknown, onLeaveScreen: () => void): { render(): void };
-  pasteDestination(): string | null;
-  selectedFolder(): string | null;
-  filesPanelDestination(): string | null;
-  destinationOfActiveView(): string | null;
+  initFilesPanel(host: unknown, onLeaveScreen: () => void, fs: Gateway): { render(): void };
+  pasteDestination(): Dest | null;
+  selectedFolder(): Dest | null;
+  filesPanelDestination(): Dest | null;
+  destinationOfActiveView(): Dest | null;
   destinationOfPane(paneEl: unknown): unknown;
-  listingFor(dest: string): readonly string[];
+  listingFor(dest: Dest): Promise<readonly string[]>;
+}
+
+/** The NAME half of a destination: what A9b showed, and what these tests read. */
+function destName(d: Dest | null): string | null {
+  return d === null ? null : d.name;
 }
 interface FileDropModule {
   initFileDrop(deps: Record<string, unknown>): void;
@@ -99,7 +112,7 @@ interface ViewLike {
 // chooser and the dialog are injected, exactly as the A9 tests inject them.
 FD.initFileDrop({
   openDialog: () => {},
-  listingFor: (dest: string) => F.listingFor(dest),
+  listingFor: (dest: Dest) => F.listingFor(dest),
   destinationOfPane: (el: unknown) => F.destinationOfPane(el),
   destinationOfActiveView: () => F.destinationOfActiveView(),
   filesPanelDestination: () => F.filesPanelDestination(),
@@ -112,7 +125,7 @@ FD.initFileDrop({
 const host = dom.doc.createElement('aside');
 host.className = 'drawer files-panel';
 dom.body.append(host);
-const panel = F.initFilesPanel(host, () => {});
+const panel = F.initFilesPanel(host, () => {}, fx.gateway);
 const root = host.children[0] as FakeElement;
 st.subscribe(() => panel.render());
 
@@ -153,38 +166,69 @@ function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 function project(id: string, name: string): Project {
-  return { id, name, path: `/home/you/${name}`, createdAt: new Date().toISOString() } as Project;
+  return { id, name, path: `/work/${name}`, createdAt: new Date().toISOString() } as Project;
 }
+
+/** Which folder the panel is rooted at right now — the row keys are absolute. */
+let rootNow = PROJ;
 
 /** A live session in a project — the panel's normal world, header `api`. */
-function liveSession(): void {
+async function liveSession(): Promise<void> {
+  rootNow = PROJ;
   st.setProjects([project('p1', 'api')]);
   st.setSessions([mkSession('s1', { projectId: 'p1' })]);
+  focusSession('s1');
   st.state.leftPanel = 'files';
   panel.render();
-}
-
-const copyBtn = (): FakeElement => byKey(root, 'fcopy') as FakeElement;
-const row = (path: string): FakeElement => byKey(root, `fdir:${path}`) as FakeElement;
-const fileRow = (path: string): FakeElement => byKey(root, `ffile:${path}`) as FakeElement;
-/** Every row currently wearing the chosen-folder class, by its `data-k`. */
-function selectedRows(): string[] {
-  return byClass(root, 'is-sel').map((n) => n.getAttribute('data-k') ?? '');
+  await settle();
+  await openTree();
 }
 
 /**
- * The mock tree's own starting shape (`MOCK_OPEN_FOLDERS`), restored between
- * tests. `openFolders` is module-instance state with no reset seam — which is
- * exactly right for the app and a trap for a file whose tests each expect the
- * tree they see at first paint — so it is restored the way a user would, by
- * activating the rows that are in the wrong state.
+ * Stand in the session's own tab, the way launching one does. Since part B2
+ * (user decision 2026-09-16) the panel follows the FOCUSED pane and nothing
+ * else: with the fixed `Home` tab active it shows HOME, however many sessions
+ * are running in other tabs.
  */
-const MOCK_OPEN = ['web', 'web/src', 'server'];
-function resetTree(): void {
-  for (const path of MOCK_OPEN) {
+function focusSession(id: string): void {
+  const v = st.state.views.find((x) =>
+    x.slots.some((s) => (s as { kind: string; id?: string }).kind === 'session' && (s as { id: string }).id === id),
+  );
+  if (v !== undefined) st.state.activeViewId = v.id;
+}
+
+const copyBtn = (): FakeElement => byKey(root, 'fcopy') as FakeElement;
+const row = (path: string): FakeElement => byKey(root, `fdir:${rootNow}/${path}`) as FakeElement;
+const fileRow = (path: string): FakeElement =>
+  byKey(root, `ffile:${rootNow}/${path}`) as FakeElement;
+/**
+ * Every row currently wearing the chosen-folder class, by its `data-k` with
+ * the root's prefix cut — the expectations stay the relative paths they were,
+ * and the parity of the absolute keys is pinned in `ui-files-panel.test.ts`.
+ */
+function selectedRows(): string[] {
+  return byClass(root, 'is-sel').map((n) =>
+    (n.getAttribute('data-k') ?? '').replace(`:${rootNow}/`, ':'),
+  );
+}
+
+/**
+ * The tree these tests expect at first paint. Since part B2 nothing is open
+ * until somebody opens it (a panel that guessed which real folders to expand
+ * would be guessing about a filesystem), and `openFolders` is instance state
+ * with no reset seam — right for the app, a trap for a file whose tests each
+ * start from the same picture — so it is restored the way a user would.
+ */
+const OPEN_AT_START = ['web', 'web/src', 'server'];
+async function openTree(): Promise<void> {
+  for (const path of OPEN_AT_START) {
     const r = row(path);
-    if (r !== null && r.getAttribute('aria-expanded') === 'false') r.click();
+    if (r !== null && r.getAttribute('aria-expanded') === 'false') {
+      r.click();
+      await settle();
+    }
   }
+  dispatch(root, 'keydown', { key: 'Escape' });
 }
 
 beforeEach(() => {
@@ -202,8 +246,8 @@ beforeEach(() => {
   st.state.history = [];
   ladderClosed = 0;
   dom.doc.activeElement = dom.body;
+  fx.reset();
   panel.render();
-  resetTree();
   // Clear whatever the previous test (or `resetTree`) chose — through the
   // app's own Escape, not by reaching into the module.
   dispatch(root, 'keydown', { key: 'Escape' });
@@ -213,8 +257,8 @@ beforeEach(() => {
 // One gesture, two effects
 // ---------------------------------------------------------------------------
 
-test('clicking a folder row selects it AND toggles it, in that order', () => {
-  liveSession();
+test('clicking a folder row selects it AND toggles it, in that order', async () => {
+  await liveSession();
   const web = row('web');
   assert.ok(web !== null, 'non-vacuity: the mock tree has a `web` folder row');
   const openBefore = web.getAttribute('aria-expanded');
@@ -231,30 +275,30 @@ test('clicking a folder row selects it AND toggles it, in that order', () => {
   assert.equal(row('web').getAttribute('aria-expanded'), 'true');
 });
 
-test('choosing another folder replaces the first — single selection, always', () => {
-  liveSession();
+test('choosing another folder replaces the first — single selection, always', async () => {
+  await liveSession();
   row('web').click();
   row('server').click();
   assert.deepEqual(selectedRows(), ['fdir:server']);
-  assert.equal(F.selectedFolder(), 'server', 'a NAME, never a path');
+  assert.equal(destName(F.selectedFolder()), 'server', 'a NAME, never a path');
 });
 
-test('a FILE row selects nothing, and does not disturb the chosen folder', () => {
-  liveSession();
+test('a FILE row selects nothing, and does not disturb the chosen folder', async () => {
+  await liveSession();
   row('web').click();
   const file = fileRow('README.md');
   assert.ok(file !== null, 'non-vacuity: the mock tree has a README row');
   file.click();
   assert.deepEqual(selectedRows(), ['fdir:web'], 'opening a file is not a way to lose your folder');
-  assert.equal(F.selectedFolder(), 'web');
+  assert.equal(destName(F.selectedFolder()), 'web');
 });
 
-test('the row is a BUTTON, so enter and space are the gesture s keyboard twin for free', () => {
+test('the row is a BUTTON, so enter and space are the gesture s keyboard twin for free', async () => {
   // The fake DOM has no activation behaviour, so what is checkable here is the
   // element KIND — a `<button>` the browser activates on Enter and on Space —
   // plus that a plain Enter is left alone by the row's own handlers (they take
   // ctrl+alt+enter only), which is what lets that activation happen at all.
-  liveSession();
+  await liveSession();
   const web = row('web');
   assert.equal(web.tagName, 'BUTTON');
   assert.equal(web.type, 'button');
@@ -271,15 +315,18 @@ test('the row is a BUTTON, so enter and space are the gesture s keyboard twin fo
 // It survives every repaint
 // ---------------------------------------------------------------------------
 
-test('the selection survives a plain rebuild, a folder toggle and a subject change', () => {
-  liveSession();
+test('the selection survives a plain rebuild, a folder toggle and a subject change', async () => {
+  await liveSession();
   row('web/src').click();
   assert.deepEqual(selectedRows(), ['fdir:web/src']);
 
-  // A rebuild forced the way the panel forces one (a fresh subject).
-  st.setProjects([project('p1', 'api'), project('p2', 'nocturne')]);
-  st.setSessions([mkSession('s2', { projectId: 'p2' })]);
+  // A rebuild forced the way the panel forces one: a fresh subject in the SAME
+  // folder (part B2 — a subject change that MOVES the root prunes a selection
+  // outside it, which `ui-files-panel.test.ts` pins; this is the other half).
+  st.setSessions([mkSession('s1', { projectId: 'p1' }), mkSession('s2', { projectId: 'p1', title: 'second' })]);
+  focusSession('s2');
   panel.render();
+  await settle();
   assert.deepEqual(selectedRows(), ['fdir:web/src'], 'a new subject is not a new selection');
 
   // Another folder toggling open or closed rebuilds every row.
@@ -288,48 +335,68 @@ test('the selection survives a plain rebuild, a folder toggle and a subject chan
   assert.deepEqual(selectedRows(), ['fdir:server'], 'the last activated row is the chosen one');
 });
 
-test('a collapsed ANCESTOR keeps the selection: no row is drawn, the strip still names it', () => {
-  liveSession();
+test('a collapsed ANCESTOR keeps the selection: no row is drawn, the strip still names it', async () => {
+  await liveSession();
   row('web/src').click();
-  assert.equal(F.selectedFolder(), 'src');
+  assert.equal(destName(F.selectedFolder()), 'src');
   // Close its parent: the chosen row is not rendered at all any more.
   row('web').click();
   assert.equal(row('web/src'), null, 'non-vacuity: the chosen row really left the tree');
-  assert.equal(F.selectedFolder(), 'web', 'the parent activation chose the parent');
+  assert.equal(destName(F.selectedFolder()), 'web', 'the parent activation chose the parent');
 
   // The other half of the claim, with the selection made on the CHILD and the
   // parent closed without activating it: the path is still a real folder.
   row('web').click(); // open again
   row('web/src').click();
   assert.deepEqual(selectedRows(), ['fdir:web/src']);
-  assert.equal(F.selectedFolder(), 'src');
+  assert.equal(destName(F.selectedFolder()), 'src');
 });
 
-test('the selection survives a tab switch (the panel changes subject, not choice)', () => {
+test('a tab switch inside one folder keeps the choice; one that moves the root drops it', async () => {
+  // Since part B2 the tabs are rooted at REAL folders, so this is two claims:
+  // switching between two tabs of the same project changes the subject and not
+  // the choice, and switching to a tab rooted somewhere else takes the chosen
+  // folder away — a destination nobody can see may never take a paste.
   st.setProjects([project('p1', 'api'), project('p2', 'nocturne')]);
-  st.setSessions([mkSession('s1', { projectId: 'p1' }), mkSession('s2', { projectId: 'p2' })]);
+  st.setSessions([
+    mkSession('s1', { projectId: 'p1' }),
+    mkSession('s1b', { projectId: 'p1', title: 'second' }),
+    mkSession('s2', { projectId: 'p2' }),
+  ]);
   st.state.views = [
     { id: 'v1', root: { kind: 'project', id: 'p1' }, slots: [{ kind: 'session', id: 's1' }], focused: 0 },
+    { id: 'v1b', root: { kind: 'project', id: 'p1' }, slots: [{ kind: 'session', id: 's1b' }], focused: 0 },
     { id: 'v2', root: { kind: 'project', id: 'p2' }, slots: [{ kind: 'session', id: 's2' }], focused: 0 },
   ];
   st.state.activeViewId = 'v1';
   st.state.leftPanel = 'files';
+  rootNow = PROJ;
   panel.render();
-  assert.equal(F.filesPanelDestination(), 'api', 'non-vacuity: the header really reads the tab');
+  await settle();
+  await openTree();
+  assert.equal(destName(F.filesPanelDestination()), 'api', 'non-vacuity: the header reads the tab');
 
   row('web/src').click();
+  await settle();
+  st.state.activeViewId = 'v1b';
+  panel.render();
+  await settle();
+  assert.deepEqual(selectedRows(), ['fdir:web/src'], 'same folder, same choice');
+
   st.state.activeViewId = 'v2';
   panel.render();
-  assert.equal(F.filesPanelDestination(), 'nocturne', 'non-vacuity: the subject really changed');
-  assert.deepEqual(selectedRows(), ['fdir:web/src'], 'and the chosen folder did not');
+  await settle();
+  assert.equal(destName(F.filesPanelDestination()), 'nocturne', 'the root really moved');
+  assert.deepEqual(selectedRows(), [], 'and the chosen folder is not under it any more');
+  assert.equal(F.selectedFolder(), null);
 });
 
 // ---------------------------------------------------------------------------
 // Escape, and the ladder behind it
 // ---------------------------------------------------------------------------
 
-test('Escape clears the selection and does NOT close the panel; the second Escape closes it', () => {
-  liveSession();
+test('Escape clears the selection and does NOT close the panel; the second Escape closes it', async () => {
+  await liveSession();
   const web = row('web');
   web.click();
   web.focus();
@@ -351,16 +418,16 @@ test('Escape clears the selection and does NOT close the panel; the second Escap
   assert.equal(st.filesPanelVisible(), false);
 });
 
-test('Escape with nothing chosen is not even prevented — it belongs to whatever is behind it', () => {
-  liveSession();
+test('Escape with nothing chosen is not even prevented — it belongs to whatever is behind it', async () => {
+  await liveSession();
   row('web').focus();
   const e = dispatch(row('web'), 'keydown', { key: 'Escape' });
   assert.equal(e.defaultPrevented, false);
   assert.equal(e.cancelBubble, false);
 });
 
-test('a key that is not Escape is never taken by the selection listener', () => {
-  liveSession();
+test('a key that is not Escape is never taken by the selection listener', async () => {
+  await liveSession();
   row('web').click();
   const e = dispatch(row('web'), 'keydown', { key: 'a' });
   assert.equal(e.defaultPrevented, false);
@@ -387,26 +454,26 @@ test('the mirrored ladder arm is the one main.ts really has (so this file tests 
 // A panel nobody can see holds no destination
 // ---------------------------------------------------------------------------
 
-test('hiding the panel clears the selection — an invisible destination may not take a paste', () => {
-  liveSession();
+test('hiding the panel clears the selection — an invisible destination may not take a paste', async () => {
+  await liveSession();
   row('web').click();
-  assert.equal(F.selectedFolder(), 'web');
+  assert.equal(destName(F.selectedFolder()), 'web');
 
   // The Projects drawer borrowing the left column is the other way it goes
   // away; `filesPanelVisible()` is the one seam both go through.
   st.state.drawer = 'projects';
   panel.render();
   assert.equal(st.filesPanelVisible(), false, 'non-vacuity: the panel really is off screen');
-  assert.equal(F.selectedFolder(), null);
+  assert.equal(destName(F.selectedFolder()), null);
 
   st.state.drawer = null;
   panel.render();
   assert.equal(st.filesPanelVisible(), true);
-  assert.equal(F.selectedFolder(), null, 'it does not come back with the panel');
+  assert.equal(destName(F.selectedFolder()), null, 'it does not come back with the panel');
   assert.deepEqual(selectedRows(), []);
 });
 
-test('a panel that is off screen answers NOTHING, even before the render that clears it', () => {
+test('a panel that is off screen answers NOTHING, even before the render that clears it', async () => {
   // Two DIFFERENT guarantees, and only one of them is `afterPanelHidden`.
   // `selectedFolder()` is read straight out of a `paste` handler, which can
   // fire in the window between the state change and the panel s own render
@@ -414,14 +481,14 @@ test('a panel that is off screen answers NOTHING, even before the render that cl
   // happened yet. MEASURED (gate, 2026-09-16): deleting the
   // `filesPanelVisible()` guard from `currentSelectedName()` leaves the whole
   // suite green, because every other test renders first.
-  liveSession();
+  await liveSession();
   row('web').click();
-  assert.equal(F.selectedFolder(), 'web', 'non-vacuity: something is chosen');
+  assert.equal(destName(F.selectedFolder()), 'web', 'non-vacuity: something is chosen');
 
   // The Projects drawer takes the left column. NO render() call follows.
   st.state.drawer = 'projects';
   assert.equal(st.filesPanelVisible(), false, 'non-vacuity: the panel really is off screen');
-  assert.equal(F.selectedFolder(), null, 'an invisible destination may not take a paste');
+  assert.equal(destName(F.selectedFolder()), null, 'an invisible destination may not take a paste');
   assert.notEqual(F.pasteDestination(), 'web', 'and it may not answer the destination either');
 
   st.state.drawer = null;
@@ -455,20 +522,20 @@ test('the selection is part of sig(), so a change to it alone repaints the tree'
   assert.match(body, /\bselected\b/, 'a selection change must invalidate the signature');
 });
 
-test('the Files toggle closing the panel clears it too', () => {
-  liveSession();
+test('the Files toggle closing the panel clears it too', async () => {
+  await liveSession();
   row('server').click();
   st.toggleLeftPanel('files');
   panel.render();
-  assert.equal(F.selectedFolder(), null);
+  assert.equal(destName(F.selectedFolder()), null);
 });
 
 // ---------------------------------------------------------------------------
 // What the strip says, and where a paste goes
 // ---------------------------------------------------------------------------
 
-test('the copy strip names the chosen folder, and its title keeps the full sentence', () => {
-  liveSession();
+test('the copy strip names the chosen folder, and its title keeps the full sentence', async () => {
+  await liveSession();
   assert.equal(copyBtn().textContent, SEL.COPY_LABEL, 'nothing chosen: the A9 wording');
   assert.equal(copyBtn().title, SEL.copyIntoText('api'));
 
@@ -481,36 +548,36 @@ test('the copy strip names the chosen folder, and its title keeps the full sente
   assert.equal(copyBtn().title, SEL.copyIntoText('api'));
 });
 
-test('pasteDestination() answers the SELECTION first, before the focus memory', () => {
-  liveSession();
+test('pasteDestination() answers the SELECTION first, before the focus memory', async () => {
+  await liveSession();
   // The A9 chain still works on its own: a folder row holding the keyboard.
   row('server').focus();
-  assert.equal(F.pasteDestination(), 'server', 'non-vacuity: the focus memory really answers');
+  assert.equal(destName(F.pasteDestination()), 'server', 'non-vacuity: the focus memory really answers');
 
   // Now choose a DIFFERENT folder and leave the keyboard where it is.
   row('web/src').click();
   row('server').focus();
-  assert.equal(F.pasteDestination(), 'src', 'the chosen folder wins, always');
-  assert.equal(F.selectedFolder(), 'src');
+  assert.equal(destName(F.pasteDestination()), 'src', 'the chosen folder wins, always');
+  assert.equal(destName(F.selectedFolder()), 'src');
 
   // Focus outside the panel entirely: the selection still answers, which is
   // what makes a paste from a focused terminal land somewhere honest.
   const outside = dom.doc.createElement('button');
   dom.body.append(outside);
   outside.focus();
-  assert.equal(F.pasteDestination(), 'src');
+  assert.equal(destName(F.pasteDestination()), 'src');
   outside.remove();
 });
 
-test('with the panel off screen the selection answers nothing, and the A9 fallback returns', () => {
-  liveSession();
+test('with the panel off screen the selection answers nothing, and the A9 fallback returns', async () => {
+  await liveSession();
   row('web/src').click();
   st.state.drawer = 'projects';
   panel.render();
-  assert.equal(F.selectedFolder(), null);
+  assert.equal(destName(F.selectedFolder()), null);
   // `pasteDestination()` falls through to the panel's own root, exactly as it
   // did before A9b — the panel object still exists, it is only hidden.
-  assert.equal(F.pasteDestination(), 'api');
+  assert.equal(destName(F.pasteDestination()), 'api');
   st.state.drawer = null;
   panel.render();
 });
@@ -519,7 +586,7 @@ test('with the panel off screen the selection answers nothing, and the A9 fallba
 // The class and its rule
 // ---------------------------------------------------------------------------
 
-test('`is-sel` has a rule behind it, and the panel really sets it (class parity)', () => {
+test('`is-sel` has a rule behind it, and the panel really sets it (class parity)', async () => {
   // Either half alone passes while the feature is invisible: a class nothing
   // styles paints nothing, and a rule nothing sets is dead CSS. Measured:
   // deleting the rule leaves every DOM assertion in this file green.
@@ -531,17 +598,17 @@ test('`is-sel` has a rule behind it, and the panel really sets it (class parity)
   const files = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
   assert.match(files, /classList\.toggle\('is-sel'/, 'the panel must be the setter');
 
-  liveSession();
+  await liveSession();
   row('web').click();
   assert.deepEqual(selectedRows(), ['fdir:web'], 'and it really lands on the row');
 });
 
-test('the chosen row says so to a screen reader too: aria-current on it, absent everywhere else', () => {
+test('the chosen row says so to a screen reader too: aria-current on it, absent everywhere else', async () => {
   // `is-sel` is COLOUR. Every other `is-sel` setter in the app pairs the class
   // with an ARIA state (term-colours.ts aria-checked, settings.ts
   // aria-selected, launch.ts aria-checked), and without one the destination of
   // the next paste exists for sighted users only.
-  liveSession();
+  await liveSession();
   const dirs = (): FakeElement[] =>
     byClass(root, 'files-row').filter((n) => (n.getAttribute('data-k') ?? '').startsWith('fdir:'));
   assert.ok(dirs().length >= 3, `non-vacuity: ${dirs().length} folder rows`);
@@ -552,7 +619,7 @@ test('the chosen row says so to a screen reader too: aria-current on it, absent 
   row('web').click();
   assert.equal(row('web').getAttribute('aria-current'), 'true');
   for (const d of dirs()) {
-    if (d.getAttribute('data-k') === 'fdir:web') continue;
+    if (d.getAttribute('data-k') === `fdir:${rootNow}/web`) continue;
     // ABSENT, not `'false'`: an attribute that is not there is the honest
     // "not the current destination".
     assert.equal(d.getAttribute('aria-current'), null, `${d.getAttribute('data-k') ?? ''} is not chosen`);

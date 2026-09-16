@@ -152,7 +152,12 @@ function reset(): void {
 const rendered = (): string => card().modal.textContent;
 
 const HONEST = 'Nothing is copied yet. This is what the copy will look like until the app can write files.';
-/** State 1's own quiet line: its conflicts come from the mocked tree. */
+/**
+ * The sentence state 1 used to carry, GONE since part B2: the conflicts are
+ * the destination folder's real top-level names now (`ui/filedrop.ts` reads
+ * them at drop time), so the question has nothing left to apologise for. Kept
+ * as a constant because the tests below assert it is nowhere any more.
+ */
 const HONEST_ASKING = 'Example conflicts until the app reads your folder.';
 
 // ===========================================================================
@@ -185,10 +190,11 @@ test('more than one conflict: the count, and the sentence that says how far the 
   assert.deepEqual(texts('fd-title'), ['3 items already exist in src']);
   assert.equal(one('fd-sub').hidden, false);
   assert.deepEqual(texts('fd-sub'), ['The choice applies to all 3.']);
-  // The question pretends too: `README.md already exists in src` is read out
-  // of the MOCK tree, so the card says which of its words are examples.
-  assert.equal(one('fd-honest').hidden, false, 'the question carries its own honesty line');
-  assert.deepEqual(texts('fd-honest'), [HONEST_ASKING]);
+  // The question does NOT pretend any more (part B2): `a.md already exists in
+  // src` is read out of the REAL folder, so the card carries no line about it
+  // — and an empty paragraph would still take its margin, so it is hidden.
+  assert.equal(one('fd-honest').hidden, true, 'a real conflict needs no apology');
+  assert.deepEqual(texts('fd-honest'), ['']);
 });
 
 test('the card is a dialog, on the scrim ui/keys.ts finds an open one by', () => {
@@ -550,7 +556,11 @@ test('the honesty line has ONE function and ONE marked call site', () => {
   const code = MODULE_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   assert.equal(code.split('honestyLine(').length - 1, 2, 'one declaration, one call');
   assert.ok(MODULE_SRC.includes(HONEST), 'the copying sentence lives behind that function');
-  assert.ok(MODULE_SRC.includes(HONEST_ASKING), 'and so does the question s');
+  assert.equal(
+    MODULE_SRC.includes(HONEST_ASKING),
+    false,
+    'the question s sentence is DELETED, not merely unrendered: its conflicts are real since B2',
+  );
 });
 
 test('the Escape ladder in main.ts ranks the drop dialog after the folder picker', () => {

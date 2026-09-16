@@ -1810,6 +1810,8 @@ select:focus-visible,
   text-overflow: ellipsis;
 }
 
+/* the Changes tab's summary hairline (it left the Files tab in part B2: a
+   folder listing has no commits to be since) */
 .files-sum {
   flex: none;
   display: flex;
@@ -1872,6 +1874,34 @@ select:focus-visible,
 
 .files-row:hover {
   background: var(--color-neutral-900);
+}
+
+/* A STATE OF THE TREE, not a thing in it (part B2): `Loading…`, `Empty
+   folder`, the server's own refusal, or the quiet note about rows a cap left
+   out. It is a <div>, so it takes no hover ground and no focus ring — there is
+   nothing to press — but it is exactly as tall as the rows around it and it
+   carries a `.files-name`, so the answer that replaces it lands in the same
+   place and a long sentence ellipsises instead of widening the panel. (A
+   width change here would fire every pane's ResizeObserver and resize every
+   PTY in the grid.) Its indent is inline, like every other row's. */
+.files-row.is-state {
+  cursor: default;
+  color: var(--color-neutral-600);
+}
+
+.files-row.is-state .files-name {
+  color: var(--color-neutral-600);
+}
+
+/* a row that cannot be pressed must not light up under the pointer either */
+.files-row.is-state:hover {
+  background: transparent;
+}
+
+/* the SERVER's own sentence about a folder it would not read: the one state in
+   this tree that is a refusal, in the ink this app refuses in everywhere */
+.files-row.is-state.is-err .files-name {
+  color: var(--color-danger);
 }
 
 /* a file the session is editing, and every folder holding one */
@@ -2031,7 +2061,9 @@ select:focus-visible,
   color: var(--color-attn);
 }
 
-/* ---- commits list (a row opens the commit view since A6) ------------------- */
+/* ---- commits list (a row opens the commit view since A6) -------------------
+   `.files-branch` is shared with the Changes tab, which names its REPOSITORY
+   and branch on the same quiet line (part B2 §7). */
 
 .files-branch {
   padding: var(--space-2) var(--space-3);
@@ -2039,10 +2071,11 @@ select:focus-visible,
   color: var(--color-neutral-600);
 }
 
-/* The placeholder marker at the top of either tab, while the panel still shows
-   `ui/files-mock.ts` under the user's real project name. Quietest thing in the
-   panel: the branch line's own size and ink, and the body's own row padding so
-   it lines up with the rows it is about. Goes away with parts B2/B3. */
+/* The placeholder marker at the top of the Commits tab, the last surface in
+   this panel still showing `ui/files-mock.ts` under the user's real project
+   name. Quietest thing in the panel: the branch line's own size and ink, and
+   the body's own row padding so it lines up with the rows it is about. Goes
+   away with part B3. */
 .files-note {
   padding: var(--space-2) var(--space-3);
   font-size: 11.5px;
