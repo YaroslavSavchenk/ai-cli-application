@@ -45,56 +45,56 @@ const say = (s: string): string => {
 // ---------------------------------------------------------------------------
 
 test('afterRowActivate: a folder row activation selects that path', () => {
-  assert.equal(afterRowActivate(null, '/home/sava/projects/web'), '/home/sava/projects/web');
+  assert.equal(afterRowActivate(null, '/home/you/projects/web'), '/home/you/projects/web');
 });
 
 test('afterRowActivate: activating another row replaces the selection (single selection only)', () => {
-  assert.equal(afterRowActivate('/home/sava/web', '/home/sava/server'), '/home/sava/server');
+  assert.equal(afterRowActivate('/home/you/web', '/home/you/server'), '/home/you/server');
 });
 
 test('afterRowActivate: a RE-activation keeps the row selected — the toggle flips, the selection does not', () => {
   // User decision 1: one click selects the folder AND toggles it open/closed.
   // The toggle is the caller's second effect; clicking the same row twice must
   // not leave the copy strip with no destination to name.
-  const sel = afterRowActivate(null, '/home/sava/web');
-  assert.equal(afterRowActivate(sel, '/home/sava/web'), '/home/sava/web');
-  assert.equal(afterRowActivate(afterRowActivate(sel, '/home/sava/web'), '/home/sava/web'), '/home/sava/web');
+  const sel = afterRowActivate(null, '/home/you/web');
+  assert.equal(afterRowActivate(sel, '/home/you/web'), '/home/you/web');
+  assert.equal(afterRowActivate(afterRowActivate(sel, '/home/you/web'), '/home/you/web'), '/home/you/web');
 });
 
 test('afterRowActivate: the activated path is the answer, whatever was selected before', () => {
   // A total function: the previous selection is READ BY NOTHING, so no state can
   // creep into the one gesture that decides where files land (mutation gate,
   // 2026-09-16 — a guard that answered `sel` for some paths survived otherwise).
-  for (const sel of [null, '/home/sava/web', '/', ''] as Selection[]) {
-    for (const path of ['/home/sava/server', '/home/sava/web', '/', '']) {
+  for (const sel of [null, '/home/you/web', '/', ''] as Selection[]) {
+    for (const path of ['/home/you/server', '/home/you/web', '/', '']) {
       assert.equal(afterRowActivate(sel, path), path, `${String(sel)} -> ${path}`);
     }
   }
 });
 
 test('afterMenuOpen: a context menu on a FOLDER row selects it (Explorer’s behaviour)', () => {
-  assert.equal(afterMenuOpen(null, { dir: true, path: '/home/sava/web' }), '/home/sava/web');
+  assert.equal(afterMenuOpen(null, { dir: true, path: '/home/you/web' }), '/home/you/web');
   assert.equal(
-    afterMenuOpen('/home/sava/server', { dir: true, path: '/home/sava/web' }),
-    '/home/sava/web',
+    afterMenuOpen('/home/you/server', { dir: true, path: '/home/you/web' }),
+    '/home/you/web',
   );
 });
 
 test('afterMenuOpen: a context menu on a FILE row leaves the selection exactly as it was', () => {
-  assert.equal(afterMenuOpen(null, { dir: false, path: '/home/sava/web/main.ts' }), null);
+  assert.equal(afterMenuOpen(null, { dir: false, path: '/home/you/web/main.ts' }), null);
   assert.equal(
-    afterMenuOpen('/home/sava/server', { dir: false, path: '/home/sava/web/main.ts' }),
-    '/home/sava/server',
+    afterMenuOpen('/home/you/server', { dir: false, path: '/home/you/web/main.ts' }),
+    '/home/you/server',
   );
 });
 
 test('afterEscape clears, from any state', () => {
-  assert.equal(afterEscape('/home/sava/web'), null);
+  assert.equal(afterEscape('/home/you/web'), null);
   assert.equal(afterEscape(null), null);
 });
 
 test('afterPanelHidden clears — a destination nobody can see must not take a paste from a terminal', () => {
-  assert.equal(afterPanelHidden('/home/sava/web'), null);
+  assert.equal(afterPanelHidden('/home/you/web'), null);
   assert.equal(afterPanelHidden(null), null);
 });
 
@@ -103,17 +103,17 @@ test('afterPanelHidden clears — a destination nobody can see must not take a p
 // ---------------------------------------------------------------------------
 
 test('selectedName: the last segment of a nested path, and nothing else of it', () => {
-  assert.equal(selectedName('/home/sava/projects/ai-cli-application/web/src'), 'src');
-  assert.equal(selectedName('/home/sava/web'), 'web');
+  assert.equal(selectedName('/home/you/projects/ai-cli-application/web/src'), 'src');
+  assert.equal(selectedName('/home/you/web'), 'web');
   assert.equal(selectedName('/home'), 'home');
   assert.equal(selectedName('src'), 'src');
   assert.equal(selectedName('web/src'), 'src');
-  assert.equal(selectedName('/home/sava/Session Manager'), 'Session Manager');
+  assert.equal(selectedName('/home/you/Session Manager'), 'Session Manager');
 });
 
 test('selectedName: a trailing slash is not a segment', () => {
-  assert.equal(selectedName('/home/sava/web/'), 'web');
-  assert.equal(selectedName('/home/sava/web///'), 'web');
+  assert.equal(selectedName('/home/you/web/'), 'web');
+  assert.equal(selectedName('/home/you/web///'), 'web');
 });
 
 test('selectedName: a root path, an empty string and no selection have no name', () => {
@@ -142,8 +142,8 @@ test('copyStripLabel: nothing selected says the constant', () => {
 });
 
 test('copyStripLabel: a selection is NAMED — the destination stops being invisible', () => {
-  assert.equal(say(copyStripLabel('/home/sava/projects/web/src')), 'Copy files into src…');
-  assert.equal(say(copyStripLabel('/home/sava/web')), 'Copy files into web…');
+  assert.equal(say(copyStripLabel('/home/you/projects/web/src')), 'Copy files into src…');
+  assert.equal(say(copyStripLabel('/home/you/web')), 'Copy files into web…');
   assert.equal(say(copyStripLabel('Session Manager')), 'Copy files into Session Manager…');
 });
 
@@ -151,7 +151,7 @@ test('copyStripLabel: the label and the title are ONE wording, the label merely 
   // `ui/files.ts` keeps the full sentence as the button's `title`; the visible
   // label is that sentence plus the ellipsis every "opens a chooser" control
   // in this app carries.
-  assert.equal(copyStripLabel('/home/sava/web'), `${copyIntoText('web')}…`);
+  assert.equal(copyStripLabel('/home/you/web'), `${copyIntoText('web')}…`);
 });
 
 test('copyStripLabel: a selection that cannot be NAMED falls back to the constant (honesty rule)', () => {
@@ -242,8 +242,8 @@ test('no produced string carries a path separator, however deep the selected pat
     null,
     '/',
     '',
-    '/home/sava/projects/ai-cli-application/web/src/ui',
-    '/home/sava/Session Manager/',
+    '/home/you/projects/ai-cli-application/web/src/ui',
+    '/home/you/Session Manager/',
   ];
   const strings = [...PRODUCED];
   for (const p of paths) {

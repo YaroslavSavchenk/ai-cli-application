@@ -109,8 +109,8 @@ export function afterPanelHidden(sel: Selection): Selection {
  * when the path names no folder that can be spoken about — the empty string,
  * and a root path (`/`), which has no last segment at all.
  *
- * Trailing slashes are stripped first, so `/home/sava/src/` and
- * `/home/sava/src` are one folder with one name. Nothing else is interpreted:
+ * Trailing slashes are stripped first, so `/home/you/src/` and
+ * `/home/you/src` are one folder with one name. Nothing else is interpreted:
  * the tree hands out the paths, this only reads them.
  */
 export function selectedName(sel: Selection): string | null {
