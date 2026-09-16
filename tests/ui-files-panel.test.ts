@@ -1375,7 +1375,7 @@ test('ctrl+alt+c on a focused FOLDER row copies into THAT folder', () => {
   liveSession();
   const dir = byKey(root, 'fdir:web/src') as FakeElement;
   assert.ok(dir !== null, 'non-vacuity: the mock tree really has that folder row');
-  assert.equal(dir.title, 'Open or close it. Copy files into it with ctrl+alt+c.', 'the row names its own chord');
+  assert.equal(dir.title, 'Open or close it. Copy files into it with ctrl+alt+c. Right-click for its actions.', 'the row names its own chord');
 
   dir.focus();
   const e = dispatch(dir, 'keydown', { key: 'c', ctrlKey: true, altKey: true });

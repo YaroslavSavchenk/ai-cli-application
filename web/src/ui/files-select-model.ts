@@ -7,10 +7,10 @@
  * `paste` event belongs to the app at all.
  *
  * No DOM, no state, no browser: every value a rule needs is handed in, so
- * `node --test` drives all of it and the panel (brief 1) can be rewired
- * without re-deciding any of these questions. The selection itself is to live
- * as module-instance state in `ui/files.ts` (brief 1) — it is not server state,
- * it is not persisted, and `state.ts` does not change by one line for it.
+ * `node --test` drives all of it and the panel can be rewired without
+ * re-deciding any of these questions. The selection itself lives as
+ * module-instance state in `ui/files.ts` — it is not server state, it is not
+ * persisted, and `state.ts` does not change by one line for it.
  *
  * NOTHING HERE COPIES ANYTHING (part B10 owns the real write, and the host
  * clipboard with it). `takesPaste` decides only whether the app takes the

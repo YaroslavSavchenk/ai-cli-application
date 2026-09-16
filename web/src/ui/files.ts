@@ -14,16 +14,19 @@
  * decision 2026-09-15) — when no session is focused or alive.
  * Everything else comes from `ui/files-mock.ts` until parts B2
  * (`git diff --numstat`) and B3 (`git log`). No fake interaction is wired for
- * it beyond what parts A5, A6 and A10 can honestly do: folders open and close,
- * a file row opens that file as a PANE of its root folder's tab (A10, mock
- * text), a commit row opens the full commit view (A6, mock diff).
+ * it beyond what parts A5, A6, A10 and A9b can honestly do: folders open and
+ * close and the clicked folder becomes the CHOSEN one files land in (A9b), a
+ * file row opens that file as a PANE of its root folder's tab (A10, mock
+ * text), a commit row opens the full commit view (A6, mock diff), and every
+ * row answers a context menu (A9b, `ui/context-menu.ts`).
  *
  * WHICH TAB A FILE LANDS IN (A10). The panel's `subject()` answers it, through
  * the pure `rootForSubject()`: `Home` -> the Home tab, a focused session with a
  * project -> that project's folder tab, anything else -> `Home` (the A10 gap
  * part B2 closes with the real file-browser root). Every row is also a pointer
- * drag source, and its keyboard twin is ctrl+alt+enter — a control that exists
- * only under a pointer is forbidden here.
+ * drag source, and its keyboard twin is ctrl+alt+enter; the row menu's twin is
+ * the ContextMenu key or shift+f10 — a control that exists only under a
+ * pointer is forbidden here.
  *
  * VISIBILITY. `state.leftPanel === 'files'` is the user's wish;
  * `st.filesPanelVisible()` adds "the Projects drawer is not borrowing the left
@@ -101,7 +104,7 @@ const ROW_TITLE = 'Open in a pane. Drag it onto a pane edge to split, or press c
  * folder: the row carries the chord that does (ctrl+alt+c copies into THIS
  * folder), and says so where the user already is.
  */
-const DIR_TITLE = 'Open or close it. Copy files into it with ctrl+alt+c.';
+const DIR_TITLE = 'Open or close it. Copy files into it with ctrl+alt+c. Right-click for its actions.';
 
 export interface FilesPanel {
   render(): void;
@@ -137,10 +140,11 @@ export function filesPanelDestination(): string | null {
 }
 
 /**
- * Where a paste — and the `Copy files here…` button — would copy to: the
- * folder row the keyboard last stood on inside the panel (the button that asks
- * this took the focus off it), else the panel's own root, else the active
- * tab's root (the panel can be closed while a drop still has to go somewhere).
+ * Where a paste — and the copy strip's button — would copy to: the SELECTED
+ * folder (A9b), else the folder row the keyboard last stood on inside the
+ * panel (the button that asks this took the focus off it), else the panel's
+ * own root, else the active tab's root (the panel can be closed while a drop
+ * still has to go somewhere).
  */
 export function pasteDestination(): string | null {
   if (live !== null) {
@@ -1070,9 +1074,9 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
  * The folder row that LAST held the keyboard while the focus was still inside
  * the panel, or null. It is a memory and not a reading of
  * `document.activeElement` because the destination has to survive the very
- * gesture that uses it: clicking (or tabbing to) `Copy files here…` takes the
- * focus off the folder row, and a destination that collapsed to the panel root
- * at that moment would copy somewhere else than the button's title promised.
+ * gesture that uses it: clicking (or tabbing to) the copy strip's button takes
+ * the focus off the folder row, and a destination that collapsed to the panel
+ * root at that moment would copy somewhere else than the button promised.
  * Focus leaving the panel altogether does clear it — then the promise is the
  * panel's own root again.
  */

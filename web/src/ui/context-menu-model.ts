@@ -7,8 +7,8 @@
  * No DOM, no state, no browser. The geometry in particular HAS to be pure:
  * `tests/fake-dom.ts` measures nothing (`getBoundingClientRect` answers only
  * the rect a test set), so a menu that positioned itself by reading the
- * document could not be tested at all. The DOM half (brief 2) measures once
- * after appending and applies the point this function returns.
+ * document could not be tested at all. The DOM half (`ui/context-menu.ts`)
+ * measures once after appending and applies the point this function returns.
  *
  * Copy rules this file enforces, not just follows:
  * - LABELS ARE PLAIN WORDS (PROJECT-SCOPE, 2026-07-25): `Open`, `Close`,

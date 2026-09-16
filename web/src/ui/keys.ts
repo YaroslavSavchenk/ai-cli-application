@@ -20,8 +20,8 @@
  *      (the only key that fires the browser's own copy is Ctrl+C, which
  *      xterm turns into ^C for the program — 2026-09-10 user report.)
  *   7. `isContextMenuChord` — is this keystroke the keyboard twin of a
- *      right-click? (Nocturne A9b: the Files panel's rows are to answer a
- *      context menu — brief 2 wires it on the row — and every gesture in this
+ *      right-click? (Nocturne A9b: the Files panel's rows answer a context
+ *      menu — `ui/files.ts` wires it on the row — and every gesture in this
  *      app has a keyboard equivalent.)
  *
  * Callers pass a STRUCTURAL view of the event/element (`FocusTarget`,
@@ -236,8 +236,8 @@ export function isCopyChord(e: KeyChord): boolean {
 /**
  * The keyboard twin of a right-click: the dedicated `ContextMenu` key, and
  * Shift+F10 for the keyboards that do not have one. Both are what every
- * desktop application answers, so the Files panel's rows (Nocturne A9b) are to
- * answer them too — a gesture with no keyboard equivalent is not shipped here.
+ * desktop application answers, so the Files panel's rows (Nocturne A9b) answer
+ * them too — a gesture with no keyboard equivalent is not shipped here.
  *
  * Ctrl, Alt and Meta all disqualify, AltGr included (it reports as ctrl+alt on
  * European layouts, so `getModifierState` is honoured exactly as the paste and
@@ -247,9 +247,9 @@ export function isCopyChord(e: KeyChord): boolean {
  * shift+ContextMenu still means the menu.
  *
  * Taking the keystroke is the caller's second decision, as always: `ui/files.ts`
- * will answer it on the ROW (brief 2), with `preventDefault()` +
- * `stopPropagation()`, exactly as its ctrl+alt row chords already do — which is
- * what keeps a focused terminal's own keys untouched.
+ * answers it on the ROW, with `preventDefault()` + `stopPropagation()`, exactly
+ * as its ctrl+alt row chords already do — which is what keeps a focused
+ * terminal's own keys untouched.
  */
 export function isContextMenuChord(e: KeyChord): boolean {
   if (e.type !== undefined && e.type !== 'keydown') return false;

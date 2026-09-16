@@ -2,7 +2,8 @@
  * External file drop (Nocturne part A9, user decisions 2026-09-15) — the layer
  * that lets files and folders dragged out of Windows Explorer land somewhere in
  * this app, plus its two keyboard/button twins: pasting files from the
- * clipboard, and the Files panel's `Copy files here…` button.
+ * clipboard, and the Files panel's copy strip button (`Copy files here…`, or
+ * `Copy files into <folder>…` once a folder is chosen — A9b).
  *
  * NOTHING HERE COPIES ANYTHING. A9 is the visual half: this module resolves a
  * destination, says so while the pointer moves, and hands the drop to the
@@ -137,7 +138,7 @@ export interface FileDropDeps {
   destinationOfActiveView(): string | null;
   /** The Files panel's own root name (its non-folder area). */
   filesPanelDestination(): string | null;
-  /** The Files folder row the keyboard last stood on, else the panel root, else the active tab's root. */
+  /** The CHOSEN folder (A9b), else the Files folder row the keyboard last stood on, else the panel root, else the active tab's root. */
   pasteDestination(): string | null;
   /**
    * The folder the user CHOSE in the Files panel, as a name, else null (A9b).
@@ -617,16 +618,17 @@ function nativePicker(take: (files: readonly FileLike[]) => void): void {
 }
 
 /**
- * `Copy files here…` in the Files-panel header (ui/files.ts owns the button;
- * this owns what it does). It acts on the SAME destination the paste does, and
- * reads it at CLICK time — the button's title said that name a moment ago and
- * has to keep its word.
+ * The copy strip's button under the Files-panel header (ui/files.ts owns the
+ * button; this owns what it does). It acts on the SAME destination the paste
+ * does, and reads it at CLICK time — the button's label and title said that
+ * name a moment ago and have to keep their word.
  *
  * `into` names a destination outright, for the row-level twin: ctrl+alt+c on a
- * focused FOLDER row copies into THAT folder. The strip button sits before the
- * tree and every row is a button, so a keyboard user can reach the button or
- * the folder they mean, never both — the chord is how a nested folder is aimed
- * at at all.
+ * focused FOLDER row copies into THAT folder, and the row menu's
+ * `Copy files here…` entry does the same for the row it was opened on (A9b).
+ * The strip button sits before the tree and every row is a button, so a
+ * keyboard user can reach the button or the folder they mean, never both — the
+ * chord is how a nested folder is aimed at at all.
  */
 export function openCopyFilesPicker(into?: string): void {
   const d = deps;
