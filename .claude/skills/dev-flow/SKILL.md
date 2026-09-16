@@ -118,6 +118,10 @@ Lean rules (user, 2026-09-16 — cut duplication, never review depth):
    2026-09-16: 32 agents, each spending 4–6 min re-reading the same docs.
 10. **Test-gates probe at most ~10 high-value mutants** with targeted tests
     and never run the full suite; the orchestrator runs it once per phase.
+    EXCEPTION (user, 2026-09-16, "verliezen wij kwaliteit?"): code on a hard
+    constraint — path boundaries, spawning and argument handling, the PTY
+    and resize seam, keyboard capture, auth — keeps the FULL mutation
+    probe. The cap is for UI surfaces only.
 11. **`/verify-terminal` runs once per PART, at the end**, and only the checks
     the part's seams touch; per-brief browser checks stay with the developer
     under rule 8.
