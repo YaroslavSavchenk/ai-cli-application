@@ -44,6 +44,7 @@ import { isEditableTarget, isTerminalTarget, OPEN_MODAL_SELECTOR } from './keys.
 import { fileName } from './slots-model.ts';
 import { el } from './util.ts';
 import { DROP_HINT, MAX_ITEMS, destLine, hasFiles, tooMany, type DropItem } from './drop-model.ts';
+import { copyIntoText } from './files-select-model.ts';
 
 /**
  * How long after the last `dragover` the visuals give up on their own. The
@@ -82,10 +83,12 @@ function paneLabel(dest: string): string {
  * ghost says when the browser will not tell us how many items are being
  * dragged. ONE definition, so the button and the ghost can never promise
  * different things about the same destination.
+ *
+ * It MOVED to `ui/files-select-model.ts` in part A9b, where the selection that
+ * now names the destination lives, and is re-exported here so every reader
+ * that learned it from this module keeps working unchanged.
  */
-export function copyIntoText(dest: string): string {
-  return `Copy files into ${dest}`;
-}
+export { copyIntoText };
 
 /** A file, reduced to what an item needs. A real `File` satisfies it. */
 export interface FileLike {

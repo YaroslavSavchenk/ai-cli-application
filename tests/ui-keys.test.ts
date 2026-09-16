@@ -1,11 +1,11 @@
 /**
- * `web/src/ui/keys.ts` — the three pure decisions the app makes about raw
- * browser input. All DOM-free by construction (a real `HTMLElement` /
+ * `web/src/ui/keys.ts` — the pure decisions the app makes about raw browser
+ * input. All DOM-free by construction (a real `HTMLElement` /
  * `KeyboardEvent` merely satisfies the structural types), so plain
  * `node --test` covers exactly the logic the browser runs; this file is also
  * the guard that keeps that module importable without a document.
  *
- * The bug behind all three (user report, 2026-09-08): inside a Claude Code
+ * The bug behind the first four (user report, 2026-09-08): inside a Claude Code
  * pane, `/login` prints an OAuth link and a "paste the code here" field. The
  * link opened the Windows browser, and on returning to the app window the
  * field took NO input — not typed, not pasted. The PTY side was proven fine.
@@ -17,6 +17,7 @@ import {
   OPEN_FOCUS_OWNER_SELECTOR,
   TERMINAL_SELECTOR,
   focusOwnerOpen,
+  isContextMenuChord,
   isCopyChord,
   isEditableTarget,
   isLinkActivation,
@@ -463,6 +464,87 @@ test('shift+insert is paste, not copy; ctrl+insert is copy, not paste', () => {
   // And the letter pair: ctrl+shift+c never pastes, ctrl+shift+v never copies.
   assert.equal(isPasteChord(chord({ key: 'c', ctrlKey: true, shiftKey: true })), false);
   assert.equal(isCopyChord(chord({ key: 'v', ctrlKey: true, shiftKey: true })), false);
+});
+
+// ---------------------------------------------------------------------------
+// isContextMenuChord (Nocturne A9b) — the keyboard twin of a right-click on a
+// Files-panel row. Every drag and every pointer gesture in this app has one;
+// this is the one for the row menu. (Whether the keystroke is SWALLOWED is
+// files.ts's decision, on the ROW, which is what keeps a focused terminal's
+// own keys untouched.)
+// ---------------------------------------------------------------------------
+
+test('isContextMenuChord: the dedicated ContextMenu key', () => {
+  assert.equal(isContextMenuChord(chord({ key: 'ContextMenu' })), true);
+});
+
+test('isContextMenuChord: shift+F10, for the keyboards without that key', () => {
+  assert.equal(isContextMenuChord(chord({ key: 'F10', shiftKey: true })), true);
+});
+
+test('isContextMenuChord: PLAIN F10 is not ours — on its own it is a key a TUI may read', () => {
+  assert.equal(isContextMenuChord(chord({ key: 'F10' })), false);
+});
+
+test('isContextMenuChord: ctrl, alt or meta disqualifies both spellings', () => {
+  for (const mod of ['ctrlKey', 'altKey', 'metaKey'] as const) {
+    assert.equal(isContextMenuChord(chord({ key: 'ContextMenu', [mod]: true })), false, mod);
+    assert.equal(
+      isContextMenuChord(chord({ key: 'F10', shiftKey: true, [mod]: true })),
+      false,
+      mod,
+    );
+  }
+});
+
+test('isContextMenuChord: AltGr (ctrl+alt on European layouts) never counts', () => {
+  const menu = chord({ key: 'ContextMenu' });
+  assert.equal(isContextMenuChord({ ...menu, getModifierState: (k: string) => k === 'AltGraph' }), false);
+  assert.equal(isContextMenuChord({ ...menu, getModifierState: () => false }), true);
+  const f10 = chord({ key: 'F10', shiftKey: true });
+  assert.equal(isContextMenuChord({ ...f10, getModifierState: (k: string) => k === 'AltGraph' }), false);
+  assert.equal(isContextMenuChord({ ...f10, getModifierState: () => false }), true);
+});
+
+test('isContextMenuChord: shift is not read for the dedicated key — that keyboard still means the menu', () => {
+  assert.equal(isContextMenuChord(chord({ key: 'ContextMenu', shiftKey: true })), true);
+});
+
+test('isContextMenuChord: no other key opens a menu', () => {
+  for (const key of ['F9', 'F11', 'Menu', 'Enter', ' ', 'c', 'v', 'Insert', 'Escape']) {
+    assert.equal(isContextMenuChord(chord({ key })), false, key);
+    assert.equal(isContextMenuChord(chord({ key, shiftKey: true })), false, `shift+${key}`);
+  }
+});
+
+test('isContextMenuChord: only keydown — keyup/keypress must not open a second menu', () => {
+  for (const type of ['keyup', 'keypress']) {
+    assert.equal(isContextMenuChord(chord({ key: 'ContextMenu', type })), false, type);
+    assert.equal(isContextMenuChord(chord({ key: 'F10', shiftKey: true, type })), false, type);
+  }
+  // An event object without a type (a hand-built chord) is still judged on its keys.
+  assert.equal(
+    isContextMenuChord({ key: 'ContextMenu', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false }),
+    true,
+  );
+});
+
+test('isContextMenuChord never collides with the copy and paste chords', () => {
+  for (const e of [
+    chord({ key: 'ContextMenu' }),
+    chord({ key: 'F10', shiftKey: true }),
+  ]) {
+    assert.equal(isCopyChord(e), false, e.key);
+    assert.equal(isPasteChord(e), false, e.key);
+  }
+  for (const e of [
+    chord({ key: 'v', ctrlKey: true, shiftKey: true }),
+    chord({ key: 'Insert', shiftKey: true }),
+    chord({ key: 'c', ctrlKey: true, shiftKey: true }),
+    chord({ key: 'Insert', ctrlKey: true }),
+  ]) {
+    assert.equal(isContextMenuChord(e), false, e.key);
+  }
 });
 
 // ---------------------------------------------------------------------------

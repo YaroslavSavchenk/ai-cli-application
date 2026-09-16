@@ -19,6 +19,10 @@
  *   6. `isCopyChord` — is this keystroke the app's explicit copy chord?
  *      (the only key that fires the browser's own copy is Ctrl+C, which
  *      xterm turns into ^C for the program — 2026-09-10 user report.)
+ *   7. `isContextMenuChord` — is this keystroke the keyboard twin of a
+ *      right-click? (Nocturne A9b: the Files panel's rows are to answer a
+ *      context menu — brief 2 wires it on the row — and every gesture in this
+ *      app has a keyboard equivalent.)
  *
  * Callers pass a STRUCTURAL view of the event/element (`FocusTarget`,
  * `KeyChord`, `MouseChord`, `DocumentLike`), which a real `HTMLElement` /
@@ -227,4 +231,30 @@ export function isCopyChord(e: KeyChord): boolean {
   if (e.getModifierState?.('AltGraph') === true) return false;
   if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) return true;
   return e.ctrlKey && !e.shiftKey && e.key === 'Insert';
+}
+
+/**
+ * The keyboard twin of a right-click: the dedicated `ContextMenu` key, and
+ * Shift+F10 for the keyboards that do not have one. Both are what every
+ * desktop application answers, so the Files panel's rows (Nocturne A9b) are to
+ * answer them too — a gesture with no keyboard equivalent is not shipped here.
+ *
+ * Ctrl, Alt and Meta all disqualify, AltGr included (it reports as ctrl+alt on
+ * European layouts, so `getModifierState` is honoured exactly as the paste and
+ * copy chords honour it). PLAIN F10 is not ours — on its own it is a menu-bar
+ * key that a TUI may well read, and Shift is what makes the pair deliberate.
+ * Shift is not read for the dedicated key: a keyboard that reports
+ * shift+ContextMenu still means the menu.
+ *
+ * Taking the keystroke is the caller's second decision, as always: `ui/files.ts`
+ * will answer it on the ROW (brief 2), with `preventDefault()` +
+ * `stopPropagation()`, exactly as its ctrl+alt row chords already do — which is
+ * what keeps a focused terminal's own keys untouched.
+ */
+export function isContextMenuChord(e: KeyChord): boolean {
+  if (e.type !== undefined && e.type !== 'keydown') return false;
+  if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  if (e.getModifierState?.('AltGraph') === true) return false;
+  if (e.key === 'ContextMenu') return true;
+  return e.shiftKey && e.key === 'F10';
 }
