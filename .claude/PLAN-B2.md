@@ -1006,10 +1006,12 @@ fixtures; whether `tests/fake-dom.ts` round-trips an `<input>`'s `value`,
 ## Open decisions (the user's)
 
 1. **What `Changes` means when the panel root is INSIDE a repository but is not
-   its top level** (a project registered at `web/` in this repo): B2 shows the
-   whole repository's changes, because that is what `git` answers and what the
-   summary sentence "since the last commit" is about. The alternative — filter
-   to the panel root's subtree — is a real product choice. Asked 2026-09-16.
+   its top level** (a project registered at `web/` in this repo): DECIDED
+   2026-09-16 (user, the orchestrator's advice) — the WHOLE repository's
+   changes, because that is what `git` answers and what the summary sentence
+   "since the last commit" is about; the tab's header names the repository.
+   Rejected: filtering to the panel root's subtree (an extra rule, and a count
+   that no longer matches what git reports).
 2. **Open decision 3 (the amber pulse) stays open.** Nothing sets `editing`, so
    the pulse never shows; the CSS hook and the `busy` field are kept untouched
    for whenever the source is chosen.
