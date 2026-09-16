@@ -90,3 +90,19 @@ Trivial changes (typo, comment, config tweak) skip the machinery: developer
 agent + `scope-reviewer` only, or just do it inline and say so. Don't
 ceremonialize a one-liner; don't skip review on anything that touches
 session lifetimes, spawning, or the protocol.
+
+Lean rules (user, 2026-09-16 — cut duplication, never review depth):
+
+1. **One fix round per phase.** Collect every reviewer's findings (scope,
+   security, test) first, then ONE fixer/developer pass.
+2. **One test-gate per phase.** The mutation probe runs once, after that fix
+   pass; fixer changes are verified by the orchestrator with targeted tests
+   and a diff read, not another gate.
+3. **No scope re-review for comment/doc-only fixes** — the orchestrator reads
+   the diff.
+4. **Reviewer briefs name the relevant spec sections**, not "read the whole
+   spec and the scope doc".
+5. **Readers first, mutation gate after.** The test-engineer's mutation probe
+   never runs in parallel with anyone reading or editing the same files.
+6. **Design decisions are asked BEFORE the developer starts** (in the Plan
+   step), not after a review surfaces them.
