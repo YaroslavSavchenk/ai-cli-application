@@ -112,3 +112,12 @@ Lean rules (user, 2026-09-16 — cut duplication, never review depth):
 8. **Browser verification is scoped to the claims unit tests cannot cover**
    (resize storm, real listings, real events), with at most three
    screenshots — not a tour of the feature.
+9. **Briefs carry the relevant spec text INLINE** (the sections, pasted),
+   plus the one scope-doc bullet that applies — an agent must not need to
+   read a 1000-line plan and the whole scope doc to start. Measured
+   2026-09-16: 32 agents, each spending 4–6 min re-reading the same docs.
+10. **Test-gates probe at most ~10 high-value mutants** with targeted tests
+    and never run the full suite; the orchestrator runs it once per phase.
+11. **`/verify-terminal` runs once per PART, at the end**, and only the checks
+    the part's seams touch; per-brief browser checks stay with the developer
+    under rule 8.
