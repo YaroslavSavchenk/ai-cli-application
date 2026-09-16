@@ -10,6 +10,8 @@
     "build": "vite build",
     "release": "bash scripts/release.sh",
     "test": "node --test --test-timeout=120000 tests/*.test.ts",
+    "test:ui": "node --test --test-timeout=120000 tests/ui-*.test.ts",
+    "test:server": "node --test --test-timeout=120000 $(ls tests/*.test.ts | grep -v /ui-)",
     "typecheck": "tsc -p tsconfig.server.json && tsc -p web/tsconfig.json"
   },
   "dependencies": {

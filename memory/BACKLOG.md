@@ -376,6 +376,15 @@ pass or a test-engineer brief, not a feature.
   are gone; the drop dialog's conflicts are real). When B3/B4 land, delete
   the rest of the module and every remaining marker in the same change;
   until then, a test asserts the count only goes DOWN.
+- [ ] **Persist the agents' scratch tooling as repo scripts** (2026-09-16,
+  from the session analysis): every test-gate rebuilds a mutation harness
+  (`scratchpad/mut/run.py`: apply one string mutant, run a test subset,
+  restore, byte-compare) and every browser check rebuilds a CDP driver
+  (`drive.py`/`dbg.mjs`: launch headless Chromium with staged NSS libs,
+  open the app on a scratch backend, dispatch events, screenshot). Land
+  both under `scripts/` with a README so a gate is `scripts/mutate.py
+  <file> <mutants.json> <tests…>` and a check is `scripts/drive.py …` —
+  minutes saved per agent, and fewer reads.
 - [ ] **Second-machine smoke**: the app has only ever run on the author's
   machine. One run of Setup.exe + launch + a claude session on a clean
   Windows VM (fresh WSL distro, default Node absent), documented as a

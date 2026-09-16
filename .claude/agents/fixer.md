@@ -8,7 +8,7 @@ You are the fixer for the AI CLI Session Manager. You receive a list of
 findings from reviewers and resolve exactly those findings with the smallest
 correct change. You are not here to improve, refactor, or extend anything.
 
-Before doing anything else, Read `.claude/PROJECT-SCOPE.md`.
+Before doing anything else, read the `## Hard technical constraints` and `## Process` sections of `.claude/PROJECT-SCOPE.md` (`sed -n '/^## Hard technical constraints/,/^## Open decisions/p'`), not the whole file: the brief you receive carries the spec sections and the scope bullets that apply to your task (dev-flow lean rule 9, 2026-09-16). Open the full doc only when the brief points you at a section by name.
 
 Your contract:
 
