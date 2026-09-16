@@ -110,7 +110,10 @@ OUT of scope, said here so nobody reads it into the briefs:
   numbers are a property of a repository, not of a folder, so §7 moves them —
   and the `.files-sum` summary row — to the `Changes` tab. `files-model.ts`
   (`buildTree`, `treeRows`, `diffSummary`, `summaryText`, `badgeFor`,
-  `caretGlyph`) is UNCHANGED by B2: its input shape `FileChange[]` was written
+  `caretGlyph`) is UNCHANGED by B2 (Phase 0 amendment: it gained ONE export,
+  `rowIndent(depth)`, so both trees share one indent arithmetic — the `▸` glyph
+  is allowlisted by that file's name and a value import both ways would be a
+  cycle, so the vocabulary stays there and `fs-model.ts` imports it): its input shape `FileChange[]` was written
   as "exactly what a numstat walk produces", and that is what B2 hands it.
 - **The row keys are `data-k="fdir:<path>"` / `"ffile:<path>"`** and three
   modules parse them by prefix: `files.ts` (`openRowMenuFor`, `folderNameOf`)
@@ -807,8 +810,8 @@ passes the real one in its INIT region, one line.
 ## 10. Phases
 
 - **Phase 0 — MODEL** (`terminal-ui`, alone, parallel with Brief A):
-  `web/src/ui/fs-model.ts` + `tests/ui-fs-model.test.ts`. No DOM, no CSS, no
-  api, no state.
+  `web/src/ui/fs-model.ts` + `tests/ui-fs-model.test.ts` (+ `rowIndent` exported
+  from `files-model.ts`). No DOM, no CSS, no api, no state. LANDED 2026-09-16.
 - **Brief A — BACKEND** (`backend-pty`, parallel with Phase 0):
   `shared/protocol.ts` (the five new interfaces), `server/fsbrowse.ts`
   (`resolveUnderHome`, `listEntries`, `createEntry`, `compareEntries`, the new

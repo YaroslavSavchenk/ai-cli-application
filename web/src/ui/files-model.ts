@@ -115,6 +115,16 @@ export function caretGlyph(open: boolean): '▾' | '▸' {
 const ROW_INDENT_BASE = 8;
 const ROW_INDENT_STEP = 14;
 
+/**
+ * How far in a row at `depth` sits, in px. GEOMETRY, like `caretGlyph` beside
+ * it, and exported for the same reason: part B2's live file tree
+ * (`ui/fs-model.ts` `fsRows`) draws in the SAME panel as this module's rows,
+ * so the two must be one arithmetic and not two copies that agree today.
+ */
+export function rowIndent(depth: number): number {
+  return ROW_INDENT_BASE + depth * ROW_INDENT_STEP;
+}
+
 // ---------------------------------------------------------------------------
 // Tree
 // ---------------------------------------------------------------------------
@@ -167,7 +177,7 @@ export function treeRows(
 ): TreeRow[] {
   const out: TreeRow[] = [];
   for (const n of nodes) {
-    const indent = ROW_INDENT_BASE + depth * ROW_INDENT_STEP;
+    const indent = rowIndent(depth);
     if (n.dir) {
       const open = openFolders.has(n.path);
       out.push({
