@@ -894,6 +894,34 @@ function buildFixture(): { root: string; dist: string; lines: string[] } {
   return { root, dist, lines: [] };
 }
 
+test('web build: the DURATION is measured on a monotonic clock, never the wall clock', () => {
+  // A SOURCE PIN, and it says why it is one: the thing it defends is a wall
+  // clock that jumps BACKWARD. This host is WSL2, whose clock is resynced
+  // against the Windows host and was measured moving ~1.9 s back inside a ten
+  // second window (2026-09-16) — a real `-1795ms` was logged for a build. No
+  // test can cause that jump: the process cannot move the system clock, and the
+  // one seam that could fake it (WebBuildOptions.now) is the branch that is NOT
+  // the default, so exercising it would prove nothing about the default. What
+  // is checkable is that the default branch reads a clock that cannot go
+  // backwards, and that nothing later re-reads the wall clock for the same
+  // number.
+  const src = readFileSync(join(projectRoot, 'server', 'webbuild.ts'), 'utf8');
+  const fn = /function elapsedMs\([\s\S]*?\n\}/.exec(src);
+  assert.ok(fn !== null, 'server/webbuild.ts still measures the duration through elapsedMs()');
+  const body = fn[0];
+  assert.match(body, /process\.hrtime\.bigint\(\)/, 'the default branch is the monotonic clock');
+  assert.equal(
+    /Date\.now\(\)/.test(body),
+    false,
+    'and the wall clock appears nowhere in the duration path',
+  );
+  // The seam survives for a test that wants a fake clock, and only there.
+  assert.match(body, /if \(now !== undefined\)/, 'opts.now is still honoured when it is given');
+  // The duration the log line prints comes from that stopwatch and nothing else.
+  assert.match(src, /const elapsed = elapsedMs\(opts\.now\);/, 'one stopwatch, started once');
+  assert.match(src, /const ms = elapsed\(\);/, 'and read once, through it');
+});
+
 test('web build: a good build is STAGED, then swapped in, and dist-next is gone afterwards', async () => {
   const fx = buildFixture();
   const nextDir = join(fx.root, 'web', 'dist-next');

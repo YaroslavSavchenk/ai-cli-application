@@ -10,8 +10,11 @@ import type {
   CloneProjectRequest,
   CreateProjectRequest,
   CreateSessionRequest,
+  FsCreateResponse,
+  FsEntriesResponse,
   FsListResponse,
   FsMkdirResponse,
+  GitChangesResponse,
   GithubCloneRequest,
   GithubCreateRepoRequest,
   GithubRepo,
@@ -399,6 +402,39 @@ export async function updatePrefs(patch: UiPrefs, drop: readonly string[] = []):
 export function fsList(path?: string): Promise<FsListResponse> {
   const suffix = path !== undefined && path !== '' ? `?path=${encodeURIComponent(path)}` : '';
   return request<FsListResponse>(`/api/fs/list${suffix}`);
+}
+
+// ---------------------------------------------------------------------------
+// The Files panel's file system (B2). These three are CONFINED server-side to
+// your home OR the path of a project you registered (user decision
+// 2026-09-16); fsList/fsMkdir above browse the whole machine for the project
+// picker. Same token + Origin/Host gate, same `{ error }` shape — and the
+// server's sentence is written for the user, so the panel renders it verbatim
+// (a folder outside all of them says `This folder is outside your home
+// folder.`, one sentence for both kinds of anchor).
+// ---------------------------------------------------------------------------
+
+/** One folder's entries (files and folders). `path` omitted = your home folder. */
+export function fsEntries(path?: string): Promise<FsEntriesResponse> {
+  const suffix = path !== undefined && path !== '' ? `?path=${encodeURIComponent(path)}` : '';
+  return request<FsEntriesResponse>(`/api/fs/entries${suffix}`);
+}
+
+/** Create ONE empty file or ONE folder `name` inside the existing folder `dir`; 201. */
+export function fsCreate(
+  dir: string,
+  name: string,
+  kind: 'file' | 'folder',
+): Promise<FsCreateResponse> {
+  return request<FsCreateResponse>('/api/fs/create', {
+    method: 'POST',
+    body: JSON.stringify({ dir, name, kind }),
+  });
+}
+
+/** What the repository at (or above) `root` has changed since its last commit. */
+export function gitChanges(root: string): Promise<GitChangesResponse> {
+  return request<GitChangesResponse>(`/api/git/changes?root=${encodeURIComponent(root)}`);
 }
 
 // ---------------------------------------------------------------------------

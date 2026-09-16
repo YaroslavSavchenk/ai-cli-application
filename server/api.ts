@@ -26,6 +26,7 @@ import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'no
 import type {
   ClientLogEntry,
   ClientLogRequest,
+  FsCreateRequest,
   CloneProjectRequest,
   CreateProjectRequest,
   CreateSessionRequest,
@@ -46,7 +47,18 @@ import { SessionManager } from './sessions.ts';
 import { SessionHistory } from './history.ts';
 import { resumeSpawn } from './conversation.ts';
 import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
-import { listDirs, mkdirIn, FsBrowseError } from './fsbrowse.ts';
+import {
+  createEntry,
+  listEntries,
+  listDirs,
+  mkdirIn,
+  FsBrowseError,
+  FS_CREATE_FAILED,
+  FS_NAME_NOT_ALLOWED,
+  FS_PATH_BAD,
+  FS_READ_FAILED,
+} from './fsbrowse.ts';
+import { changesFor, GIT_READ_FAILED } from './git.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { RestartRunner } from './restart.ts';
 import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE, type UpdateRunner } from './update-install.ts';
@@ -285,6 +297,23 @@ export function createRequestHandler(
   const { token, projects, prefs, sessions, history, github, webDistDir, log } = deps;
   const httpLog = scoped(log, 'http');
   const clientLog = scoped(log, 'client');
+  /**
+   * The Files panel's own lines (B2). WHAT MAY BE WRITTEN, exactly: a listing
+   * logs the route, the status and a COUNT — never an entry name; a create logs
+   * the KIND and the outcome — never the name the user typed; a git call logs
+   * the subcommand and the exit status — never stderr and never a path out of
+   * git's output. Directories are not secret (server/sessions.ts already logs
+   * `spawned … in <cwd>`); what a user TYPES is, exactly like PTY bytes.
+   */
+  const fsLog = scoped(log, 'fs');
+  const gitLog = scoped(log, 'git');
+  /**
+   * The registered project roots, as the Files panel's boundary anchors (user
+   * decision 2026-09-16). Read from the store on EVERY request and never
+   * cached: an anchor list that outlives a `DELETE /api/projects/:id` is a
+   * boundary that disagrees with projects.json.
+   */
+  const projectAnchors = (): string[] => projects.list().map((p) => p.path);
 
   // Global (all clients) client-log budget: a fixed window, so a runaway page
   // cannot fill the disk. The SAME window machinery the access log uses — one
@@ -1039,6 +1068,111 @@ export function createRequestHandler(
       return;
     }
 
+    // --- Filesystem: one folder's entries (the Files panel) -----------------
+    //
+    // CONFINED TO HOME OR A REGISTERED PROJECT ROOT, unlike /api/fs/list and
+    // /api/fs/mkdir above. Deliberate asymmetry, documented at both sites: the
+    // picker's job is to choose a folder anywhere on the machine (a project
+    // about to be registered is not registered yet), the panel's job is to
+    // browse what is yours. server/fsbrowse.ts resolveUnderAllowed() is the
+    // boundary, and the anchor list is read from the store PER REQUEST — a
+    // project registered a second ago counts, and a deleted one stops
+    // counting.
+    if (pathname === '/api/fs/entries') {
+      if (method === 'GET') {
+        const requested = url.searchParams.get('path') ?? undefined;
+        try {
+          const body = listEntries(requested, projectAnchors());
+          fsLog(
+            'debug',
+            `GET /api/fs/entries -> 200, ${body.entries.length} entries` +
+              (body.truncated > 0 ? `, ${body.truncated} not shown` : ''),
+          );
+          sendJson(res, 200, body);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            fsLog('debug', `GET /api/fs/entries -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            // errorClass + FRAMES, never describeError: an errno message quotes
+            // the path it failed on, and a create's would quote the NAME.
+            fsLog('error', `fs entries failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, FS_READ_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Filesystem: create one empty file or one folder (A9c) --------------
+    if (pathname === '/api/fs/create') {
+      if (method === 'POST') {
+        const body = (await readJsonBody(req)) as Partial<FsCreateRequest>;
+        if (typeof body.dir !== 'string') {
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        if (typeof body.name !== 'string') {
+          sendError(res, 400, FS_NAME_NOT_ALLOWED);
+          return;
+        }
+        if (body.kind !== 'file' && body.kind !== 'folder') {
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        const kind = body.kind;
+        try {
+          const created = createEntry(body.dir, body.name, kind, projectAnchors());
+          fsLog('info', `POST /api/fs/create ${kind} -> 201`);
+          sendJson(res, 201, created);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            fsLog('info', `POST /api/fs/create ${kind} -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            fsLog('error', `fs create failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, FS_CREATE_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Git: what changed since the last commit (the Changes tab) ----------
+    if (pathname === '/api/git/changes') {
+      if (method === 'GET') {
+        const root = url.searchParams.get('root');
+        if (root === null) {
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        try {
+          const body = await changesFor(root, gitLog, projectAnchors());
+          gitLog(
+            'debug',
+            `GET /api/git/changes -> 200, repo=${body.isRepo}, ${body.files.length} files` +
+              (body.truncated > 0 ? `, ${body.truncated} not shown` : ''),
+          );
+          sendJson(res, 200, body);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            gitLog('debug', `GET /api/git/changes -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            gitLog('error', `git changes failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, GIT_READ_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
     // --- Sessions -----------------------------------------------------------
     if (pathname === '/api/sessions') {
       if (method === 'GET') {
@@ -1330,7 +1464,12 @@ export function createRequestHandler(
         route.startsWith('/assets/') ||
         status === 304 ||
         (route === '/api/client-log' && status >= 200 && status < 300) ||
-        (route === '/api/update/status' && status === 200);
+        (route === '/api/update/status' && status === 200) ||
+        // The Changes tab polls this every 5 s for as long as it is the
+        // visible tab. At info it would bury every other line in the file;
+        // anything but a 200 is still info (or error), because a refusal there
+        // is the diagnostic.
+        (route === '/api/git/changes' && status === 200);
       httpLog(status >= 500 ? 'error' : quiet ? 'debug' : 'info', parts.join(' '));
     });
 

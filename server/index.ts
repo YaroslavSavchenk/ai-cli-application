@@ -32,6 +32,7 @@ import type { RuntimeInfo } from '../shared/protocol.ts';
 import {
   resolveDataPaths,
   resolveGithubApiBase,
+  resolveHomeBoundary,
   resolveWebDistDir,
   resolveLogLevel,
   createLogger,
@@ -134,6 +135,22 @@ try {
 } catch (err) {
   log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
   throw err; // unchanged otherwise: uncaught at module eval -> stderr + exit 1.
+}
+
+// AI_SM_HOME_OVERRIDE moves the boundary the Files panel's routes are confined
+// to (server/fsbrowse.ts). Validated HERE, at boot, for its own sake: the value
+// is resolved lazily by that module, so a bad one would otherwise first be seen
+// by whichever request happened to touch it — a 500 on a listing rather than a
+// refused start. The seam is checked in the same shape as AI_SM_WEB_DIST_DIR
+// above, and the REASON reaches server.log before the throw, because a detached
+// backend's stderr is /dev/null. The resolved value is deliberately discarded:
+// resolveHomeBoundary() is a pure function of the environment and fsbrowse.ts
+// calls the same one.
+try {
+  resolveHomeBoundary();
+} catch (err) {
+  log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
+  throw err;
 }
 
 // ---------------------------------------------------------------------------

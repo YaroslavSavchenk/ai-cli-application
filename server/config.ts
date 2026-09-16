@@ -26,6 +26,7 @@ import {
   appendFileSync,
   chmodSync,
   writeFileSync,
+  realpathSync,
   renameSync,
   statSync,
   truncateSync,
@@ -89,18 +90,27 @@ export interface DataPaths {
   logFile: string;
 }
 
-/** Resolve (and create, mode 0700) the data dir. Throws on a relative AI_SM_DATA_DIR. */
-export function resolveDataPaths(): DataPaths {
+/**
+ * Where the data dir IS, without creating it or anything in it. Split out of
+ * resolveDataPaths so a second reader can ask the question without a side
+ * effect: server/fsbrowse.ts refuses to create files inside this directory
+ * (POST /api/fs/create) and must derive it from the same one definition —
+ * two copies of "AI_SM_DATA_DIR or ~/.ai-session-manager" would drift.
+ */
+export function dataDirPath(): string {
   const override = process.env['AI_SM_DATA_DIR'];
-  let dataDir: string;
   if (override !== undefined && override !== '') {
     if (!isAbsolute(override)) {
       throw new Error(`AI_SM_DATA_DIR must be an absolute path, got: ${override}`);
     }
-    dataDir = override;
-  } else {
-    dataDir = join(homedir(), '.ai-session-manager');
+    return override;
   }
+  return join(homedir(), '.ai-session-manager');
+}
+
+/** Resolve (and create, mode 0700) the data dir. Throws on a relative AI_SM_DATA_DIR. */
+export function resolveDataPaths(): DataPaths {
+  const dataDir = dataDirPath();
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   return {
     dataDir,
@@ -156,6 +166,57 @@ export function resolveWebDistDir(repoRoot: string): string {
     return override;
   }
   return join(repoRoot, 'web', 'dist');
+}
+
+/**
+ * The HOME the Files-panel routes are confined to (server/fsbrowse.ts), and the
+ * default root the panel lists — `realpathSync(homedir())` unless
+ * AI_SM_HOME_OVERRIDE overrides it.
+ *
+ * AI_SM_HOME_OVERRIDE IS A FIRST-CLASS TEST SEAM, exactly like
+ * AI_SM_WEB_DIST_DIR above and validated in the same shape: absolute, ALREADY
+ * NORMALIZED, never the root, and a directory that exists. It exists because
+ * the boundary is the security property of those routes, and a test that
+ * cannot move `home` can only test it against the developer's own — where a
+ * fixture tree, a symlink farm and a 1200-entry folder do not belong. It
+ * WIDENS NOTHING by itself: whatever it names, the routes are confined to that
+ * one directory (plus the registered project roots, which are a user decision,
+ * not this seam).
+ *
+ * Called at BOOT from server/index.ts purely so a bad value refuses the start
+ * with a reason in server.log, and lazily by server/fsbrowse.ts for the value
+ * itself: a detached backend's stderr is /dev/null, and a module that threw at
+ * IMPORT died before the logger existed and left an EMPTY log (measured
+ * 2026-09-16).
+ */
+export function resolveHomeBoundary(): string {
+  const override = process.env['AI_SM_HOME_OVERRIDE'];
+  if (override === undefined || override === '') return realpathSync(homedir());
+  if (!isAbsolute(override)) {
+    throw new Error(`AI_SM_HOME_OVERRIDE must be an absolute path, got: ${oneLine(override)}`);
+  }
+  // Same two reasons as AI_SM_WEB_DIST_DIR: the value is compared against
+  // realpaths with `startsWith(value + sep)`, which an unnormalized value
+  // ('/x/', '/x//y', '/x/../y') fails for every path under it, and `/` as a
+  // boundary would mean no boundary at all.
+  if (resolve(override) !== override || basename(override) === '') {
+    throw new Error(
+      'AI_SM_HOME_OVERRIDE must be a normalized absolute directory path ' +
+        `(no trailing separator, no '.' or '..' segment, not the root), got: ${oneLine(override)}`,
+    );
+  }
+  let real: string;
+  try {
+    real = realpathSync(override);
+    if (!statSync(real).isDirectory()) throw new Error('not a directory');
+  } catch {
+    // The errno is deliberately not echoed: it quotes the path, and this line
+    // goes to server.log.
+    throw new Error(
+      `AI_SM_HOME_OVERRIDE must name an existing directory, got: ${oneLine(override)}`,
+    );
+  }
+  return real;
 }
 
 /**

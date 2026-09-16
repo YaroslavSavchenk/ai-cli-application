@@ -249,7 +249,9 @@ export interface GitChangesResponse {
   isRepo: boolean;
   /** The repository's own root. null when isRepo is false. */
   repoRoot: string | null;
-  /** Current branch, or null on a detached head / an empty repository. */
+  /** Current branch, or null on a detached head. An EMPTY repository still names
+   *  its branch (`git branch --show-current` prints `main` with no commits —
+   *  measured by Brief A, 2026-09-16; the spec first said null). */
   branch: string | null;
   files: ChangedFile[];
   /** Files left out because the repository is larger than the cap. */
@@ -268,7 +270,11 @@ Mechanics, all argv, no shell, `GIT_TERMINAL_PROMPT=0`, cwd = the resolved root:
    get a fixture.
 4. `git status --porcelain=v1 -z --untracked-files=normal` → the status letters
    and the untracked set. `??` → `status: 'new'`, `add`/`del` null; `D` →
-   `'deleted'`; `R` → `'renamed'` (the new path is the row).
+   `'deleted'`; `R` → `'renamed'` (the new path is the row). A STAGED add
+   (`A `) keeps its numstat counts with `status: 'new'`. An untracked
+   DIRECTORY arrives as ONE row with a trailing slash (`sub/`) — kept verbatim
+   by the server (measured, Brief A); **Brief B decides how `buildTree` draws
+   a path ending in `/`** (a naive split makes an empty-named leaf).
    `--untracked-files=normal` on purpose: `all` walks into every ignored-but-
    present directory and is how a `node_modules` turns one tab into a minute of
    CPU.
@@ -310,6 +316,24 @@ sentence, full stop.
 
 ## 2. The path boundary
 
+AMENDED 2026-09-16 (user, the orchestrator's advice, after the Brief A scope
+review): the boundary is **the user's home OR the path of any project
+registered in `projects.json`** — a project the user registered at
+`/mnt/c/work/app` must show its files and its changes, not
+`This folder is outside your home folder.` Anchors = `[HOME, ...every
+Project.path]`, each realpathed; the containment test below runs against the
+list (`real === anchor || real.startsWith(anchor + sep)` for ANY anchor). The
+anchor list is read per request from the projects store (a project registered
+a second ago counts), never cached at module load. Everything else in this
+section stands, except: the home anchor is resolved LAZY and memoized through
+`server/config.ts` `resolveHomeBoundary()` (seam `AI_SM_HOME_OVERRIDE`,
+validated at boot — never at module load), the function is
+`resolveUnderAllowed`, and the three entry points take `projectPaths` as a
+REQUIRED argument (see §9). Rejected: home only (a registered project outside
+home would be half usable); an anchor floor (a project at `/` authorises only
+`/` itself because containment is `anchor + sep`; any other registered path is
+the user's own choice and IS an anchor for its whole subtree).
+
 ONE new function, in `server/fsbrowse.ts`, used by all three new routes and by
 nothing else:
 
@@ -324,7 +348,7 @@ const HOME = realpathSync(homedir());
  * own cwd — and the containment test is on the REALPATH, because `resolve()`
  * is lexical and the kernel is not.
  */
-function resolveUnderHome(raw: string): string;
+function resolveUnderHome(raw: string): string;   // as landed: resolveUnderAllowed(raw, { projects, gone, denied }), §9
 ```
 
 1. `typeof raw === 'string' && isAbsolute(raw)` else 400.
@@ -671,9 +695,9 @@ Hand the reviewer this list, not "review the diff":
    (TOCTOU — accept it for a localhost single-user service and say so, the
    window is not exploitable by anything that does not already hold the token);
    and the `wx` flag as the defence for the final component of a create.
-3. **Writes into the app's own data dir** — refused, and the reviewer decides
-   whether refusing is enough or whether `/api/fs/mkdir` (which has no boundary
-   at all) should get the same treatment as a follow-up.
+3. **Writes into the app's own data dir** — refused. DECIDED 2026-09-16 (security
+   review): refusing is enough; `/api/fs/mkdir` keeps NO boundary (it creates one
+   empty directory with a safe name and cannot overwrite or follow a symlink).
 4. **Name injection.** `isSafeSegment` is the only vocabulary; check that
    nothing downstream re-parses the name, that a name is never interpolated into
    a shell string (nothing here spawns a shell), and that a name never reaches
@@ -791,6 +815,19 @@ export function gitChanges(root: string): Promise<GitChangesResponse>;
 ```ts
 // server/fsbrowse.ts  (additions; listDirs/mkdirIn/isSafeSegment UNCHANGED)
 export function listEntries(requested: string | undefined): FsEntriesResponse;
+// Brief A as landed (+ follow-up 2026-09-16): test seam AI_SM_HOME_OVERRIDE (validated
+// at boot like AI_SM_WEB_DIST_DIR, never inherited by PTYs); the boundary is an ANCHOR
+// LIST (home + every registered project path, read per request in api.ts
+// projectAnchors()): resolveUnderAllowed(raw, { projects?, gone?, denied? }),
+// listEntries(requested, projectPaths), createEntry(dir, name, kind, projectPaths),
+// changesFor(root, log, projectPaths) — projectPaths defaults to [] (fail-safe narrow);
+// git runs with GIT_CONFIG_COUNT=1 core.fsmonitor=false and GIT_OPTIONAL_LOCKS=0; one
+// [git] log line per request; /api/git/changes 200s are debug in the access log;
+// names over 255 BYTES are 400; homeRoot() removed (the old name resolveUnderHome is
+// history). Still true: the resolver takes the 404/403 sentences (list and create
+// differ) and is exported for git.ts; changesFor takes the logger; an OMITTED ?path= is
+// home, an EMPTY ?path= is 400 (unlike /api/fs/list); a path outside every anchor that
+// does not exist answers 404 before 403.
 export function createEntry(dir: string, name: string, kind: 'file'|'folder'): FsCreateResponse;
 export function compareEntries(a: FsEntry, b: FsEntry): number;   // pure, unit-tested
 

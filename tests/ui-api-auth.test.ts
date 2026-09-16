@@ -23,6 +23,8 @@ interface FakeResponse {
 }
 
 let next: FakeResponse = { status: 200, body: {} };
+/** Every request the module made: the B2 route list is asserted against it. */
+const calls: { url: string; init: Record<string, unknown> }[] = [];
 
 const fakeWindow = {
   __AUTH__: 'TOKEN-FROM-THE-PAGE',
@@ -36,8 +38,10 @@ const fakeDocument = {
 (globalThis as Record<string, unknown>)['document'] = fakeDocument;
 (globalThis as Record<string, unknown>)['fetch'] = async (
   url: string,
+  init: Record<string, unknown> = {},
 ): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => {
   if (url === '/api/client-log') return { ok: true, status: 204, json: async () => ({}) };
+  calls.push({ url, init });
   const { status, body } = next;
   return {
     ok: status >= 200 && status < 300,
@@ -138,5 +142,64 @@ test('request(): 404/500 and a success never take the page over', async () => {
   ] satisfies FakeResponse[]) {
     const { takeover } = await callWith(res);
     assert.equal(takeover, false, `no takeover for ${JSON.stringify(res)}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B2 (2026-09-16): the three Files-panel routes. They are under /api/, so the
+// token gate is structural — what is asserted here is that the client really
+// sends the token on each of them, that a query VALUE never reaches the URL
+// unencoded, and that their filesystem 403 is an ordinary refusal the panel
+// renders (the server's own sentence) rather than a page takeover.
+// ---------------------------------------------------------------------------
+
+test('fsEntries / fsCreate / gitChanges each carry the token, and each shape their URL', async () => {
+  calls.length = 0;
+  next = { status: 200, body: { path: '/home/you', entries: [], truncated: 0 } };
+  await api.fsEntries();
+  await api.fsEntries('/home/you/my notes');
+  next = { status: 201, body: { path: '/home/you/my notes/x.txt' } };
+  await api.fsCreate('/home/you/my notes', 'x.txt', 'file');
+  next = { status: 200, body: { isRepo: false, repoRoot: null, branch: null, files: [], truncated: 0 } };
+  await api.gitChanges('/home/you/my notes');
+
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    [
+      '/api/fs/entries',
+      '/api/fs/entries?path=%2Fhome%2Fyou%2Fmy%20notes',
+      '/api/fs/create',
+      '/api/git/changes?root=%2Fhome%2Fyou%2Fmy%20notes',
+    ],
+  );
+  for (const call of calls) {
+    const headers = call.init['headers'] as Record<string, string>;
+    assert.equal(headers['x-auth-token'], 'TOKEN-FROM-THE-PAGE', `${call.url} carries the token`);
+  }
+  const create = calls[2] as { init: Record<string, unknown> };
+  assert.equal(create.init['method'], 'POST');
+  assert.equal(
+    create.init['body'],
+    JSON.stringify({ dir: '/home/you/my notes', name: 'x.txt', kind: 'file' }),
+  );
+});
+
+test("the panel's 403s are ordinary refusals: the server's sentence is thrown, the page is not taken over", async () => {
+  for (const sentence of [
+    'This folder is outside your home folder.',
+    'You do not have permission to read this folder.',
+    "The app's own folder is not a place to create files.",
+  ]) {
+    next = { status: 403, body: { error: sentence } };
+    const before = takeovers;
+    let err: unknown = null;
+    try {
+      await api.fsEntries('/home/you');
+    } catch (e) {
+      err = e;
+    }
+    assert.equal(takeovers, before, `${sentence}: no takeover`);
+    assert.ok(err instanceof api.ApiError, `${sentence}: ApiError`);
+    assert.equal(err.message, sentence, 'and the sentence reaches the panel verbatim');
   }
 });

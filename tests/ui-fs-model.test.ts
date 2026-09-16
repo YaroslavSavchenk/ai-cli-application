@@ -211,6 +211,21 @@ test('destinationOf: below the root the name is the last segment, and the path i
   });
 });
 
+test('destinationOf: a trailing slash is TRIMMED, on the root row and below it', () => {
+  // The trim is load-bearing twice over, so it gets its own claim: B10 posts
+  // `.path` to the server, and a trailing slash is the one shape
+  // resolveUnderAllowed() has never been handed; and untrimmed, the ROOT's own row
+  // would stop matching its root and would lose the name the header prints.
+  assert.deepEqual(destinationOf('/home/you/', '/home/you', 'Home'), {
+    path: '/home/you',
+    name: 'Home',
+  });
+  assert.deepEqual(destinationOf('/home/you/projects/web/', '/home/you', 'Home'), {
+    path: '/home/you/projects/web',
+    name: 'web',
+  });
+});
+
 test('truncatedText: one item is singular, everything else is plural', () => {
   assert.equal(say(truncatedText(1)), '1 more item is not shown here.');
   assert.equal(say(truncatedText(2)), '2 more items are not shown here.');

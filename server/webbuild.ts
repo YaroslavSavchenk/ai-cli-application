@@ -67,6 +67,12 @@ export interface WebBuildOptions {
   log: Logger;
   /** Seams for tests: no real vite, no real clock. */
   spawnFn?: (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
+  /**
+   * Milliseconds, for the build DURATION only. Left unset (every real run and
+   * every test today) the duration is measured with process.hrtime.bigint() —
+   * see elapsedMs. The seam is kept for a test that wants to drive a fake
+   * clock through it.
+   */
   now?: () => number;
   timeoutMs?: number;
   /**
@@ -76,6 +82,28 @@ export interface WebBuildOptions {
    * after this process is gone.
    */
   onSpawn?: (child: ChildProcess) => void;
+}
+
+/**
+ * Start a MONOTONIC stopwatch for the build duration.
+ *
+ * NOT Date.now(): this host is WSL2, whose wall clock is resynced against the
+ * Windows host and was measured jumping ~1.9 s BACKWARD inside a ten-second
+ * window (2026-09-16) — a real `-1795ms` was logged for a build, and
+ * tests/restart.test.ts flaked on it. `process.hrtime.bigint()` only moves
+ * forward, so a duration this file prints can never be negative.
+ *
+ * Only the DURATION changes. Every other clock reading in the app (mtimes,
+ * `startedAt`, the restart deadlines) is deliberately left on the wall clock:
+ * those are timestamps, not elapsed times.
+ */
+function elapsedMs(now: (() => number) | undefined): () => number {
+  if (now !== undefined) {
+    const started = now();
+    return (): number => now() - started;
+  }
+  const started = process.hrtime.bigint();
+  return (): number => Number((process.hrtime.bigint() - started) / 1_000_000n);
 }
 
 /** `<dist>-next` (the staged build) and `<dist>-prev` (the swap's backup). */
@@ -125,7 +153,6 @@ function tailCollector(max: number): {
  * REFUSED_BUILD otherwise) with `web/dist` untouched and `web/dist-next` gone.
  */
 export async function buildFrontend(opts: WebBuildOptions): Promise<FrontendBuild> {
-  const now = opts.now ?? ((): number => Date.now());
   const timeoutMs = opts.timeoutMs ?? BUILD_TIMEOUT_MS;
   const spawnFn = opts.spawnFn ?? spawn;
   const log = opts.log;
@@ -141,7 +168,7 @@ export async function buildFrontend(opts: WebBuildOptions): Promise<FrontendBuil
   }
 
   removeQuietly(nextDir);
-  const started = now();
+  const elapsed = elapsedMs(opts.now);
   log('debug', `building the frontend into ${oneLine(nextDir)}`);
 
   const tail = tailCollector(BUILD_OUTPUT_TAIL_BYTES);
@@ -222,7 +249,7 @@ export async function buildFrontend(opts: WebBuildOptions): Promise<FrontendBuil
     removeQuietly(nextDir);
     throw new RestartRefusal(REFUSED_BUILD, 'the build output is incomplete');
   }
-  const ms = now() - started;
+  const ms = elapsed();
   log(
     'debug',
     `the frontend build is staged in ${oneLine(nextDir)} (build id ${built.buildId}, ` +

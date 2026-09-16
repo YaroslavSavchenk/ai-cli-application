@@ -188,7 +188,8 @@ multi-pane layouts on top.
   re-opens it; it locks only during the reconnect gap; closing it hands
   focus back to the element it was opened from when that is still visible
   (the Settings button, the toast), else to the terminal. PTY sessions
-  inherit none of the four `AI_SM_*` handoff/seam vars. `web/dist-next/` and `web/dist-prev/` are
+  inherit none of the `AI_SM_*` handoff/seam vars (the four here plus
+  `AI_SM_HOME_OVERRIDE`, B2). `web/dist-next/` and `web/dist-prev/` are
   gitignored. UI: Settings → Background service (`Restart service`, since Nocturne A7 2026-09-13), a dismissible
   `New version available` toast, a persistent amber `Update` pill after
   dismissal, a confirmation that names the running sessions and says they
@@ -572,8 +573,25 @@ multi-pane layouts on top.
   (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2/B3 land, each tab
   carries one quiet "Example data until the panel reads your …" line —
   the data is placeholder, the header name is real (a project, a session
-  title, or `Home`). The panel's future shape (file browser rooted at home,
-  Changes tab) is plan decision 11 + B2. Since A9 (2026-09-15) the panel and
+  title, or `Home`). **B2 + A9c (started 2026-09-16, `.claude/PLAN-B2.md`)**
+  turn the panel into a REAL file browser (root = the user's home, or the
+  focused session's project root; lazy per-folder listings, no poll; the
+  git changes become a `Changes` tab fed by `git diff --numstat` +
+  `git status --porcelain -z`, polled every 5 s only while that tab is
+  visible; `Commits` stays mock until B3) and give the row menu `New file`
+  / `New folder` (inline name row, real creation). Backend (landed with
+  Brief A): `GET /api/fs/entries`, `POST /api/fs/create`,
+  `GET /api/git/changes`, all token-gated, all confined to a realpath
+  boundary = the user's HOME or any REGISTERED project's path — a registered
+  project is the user's own choice and anchors its WHOLE subtree, no floor
+  (a project at `/` anchors only `/` itself, since containment is
+  `anchor + sep`); the picker's `/api/fs/list` + `/api/fs/mkdir` stay
+  machine-wide on purpose (user decision 2026-09-16), constant error sentences, counts-not-names in
+  `server.log`, git via argv only with `core.fsmonitor` off,
+  `GIT_OPTIONAL_LOCKS=0`, stdout capped and a 5 s kill. Test seam
+  `AI_SM_HOME_OVERRIDE` (absolute, normalized, never root, existing dir;
+  refused at boot with a `server.log` line; never inherited by PTYs)
+  moves that home for route tests only. Since A9 (2026-09-15) the panel and
   the pane area are DROP TARGETS for files and folders dragged from Windows
   Explorer: a folder row (its own name), the panel's non-folder area (the
   panel's root), a pane (a terminal pane: its session's project, else the

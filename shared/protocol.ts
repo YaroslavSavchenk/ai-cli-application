@@ -929,9 +929,12 @@ export interface PongMessage {
 // ---------------------------------------------------------------------------
 //
 // Three routes, all under /api (token-gated like every other one), all
-// confined to the user's HOME directory by server/fsbrowse.ts resolveUnderHome
-// (realpath-based; the picker's /api/fs/list and /api/fs/mkdir are NOT
-// confined — they choose a project folder anywhere on the machine, on purpose).
+// confined by server/fsbrowse.ts resolveUnderAllowed to an ANCHOR LIST
+// (realpath-based): the user's HOME, plus the path of every project registered
+// in projects.json — a project the user registered outside home is theirs too
+// (user decision 2026-09-16). The picker's /api/fs/list and /api/fs/mkdir are
+// NOT confined at all — they choose a project folder anywhere on the machine,
+// and the folder about to become a project is by definition not an anchor yet.
 // Every error is a CONSTANT sentence in the server module; nothing a client
 // sent is ever echoed back.
 
@@ -953,7 +956,7 @@ export interface FsEntriesResponse {
   truncated: number;
 }
 
-/** POST /api/fs/create — one empty file or one directory, strictly under home. */
+/** POST /api/fs/create — one empty file or one directory, strictly under an anchor. */
 export interface FsCreateRequest {
   /** Absolute path of the EXISTING folder it goes in. */
   dir: string;
@@ -971,7 +974,12 @@ export interface FsCreateResponse {
 export type ChangeStatus = 'modified' | 'new' | 'deleted' | 'renamed';
 
 export interface ChangedFile {
-  /** Path relative to the REPOSITORY root, `/` separated. */
+  /**
+   * Path relative to the REPOSITORY root, `/` separated. One special shape,
+   * measured against git 2.43.0: `--untracked-files=normal` collapses a whole
+   * new folder into ONE row whose path ends in `/` (`sub/`), because walking
+   * into it is the cost that flag exists to avoid.
+   */
   path: string;
   /** null for a binary file (numstat prints `-`), and for an untracked file. */
   add: number | null;
@@ -982,9 +990,21 @@ export interface ChangedFile {
 /** GET /api/git/changes?root=<abs>. A root that is not in a repository is NOT an error. */
 export interface GitChangesResponse {
   isRepo: boolean;
-  /** The repository's own root (may be an ANCESTOR of `root`). null when isRepo is false. */
+  /**
+   * The repository's own root. null when isRepo is false.
+   *
+   * MAY LIE OUTSIDE EVERY ANCHOR. It can be an ANCESTOR of the `root` that was
+   * asked about (a project registered at `web/` inside a repository), and open
+   * decision 1 chose the WHOLE repository — so this one value can name a folder
+   * /api/fs/entries would refuse to list. It is a RESPONSE field only: it is
+   * never logged, and no listing or create takes its word for anything.
+   */
   repoRoot: string | null;
-  /** Current branch, or null on a detached head / an empty repository. */
+  /**
+   * Current branch, or null on a DETACHED head. Not null on an empty
+   * repository: `git branch --show-current` prints `main` there (measured,
+   * git 2.43.0), and answering null would be a lie about a real branch.
+   */
   branch: string | null;
   files: ChangedFile[];
   /** Files left out because the repository is larger than the cap. */

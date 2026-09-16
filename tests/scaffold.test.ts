@@ -158,7 +158,8 @@ test('POST /api/projects/clone: url + dest validation rejects dangerous inputs (
 });
 
 test('new endpoints require the token (401) and enforce Host/Origin parity (403)', async () => {
-  for (const path of ['/api/projects', '/api/projects/clone', '/api/fs/mkdir']) {
+  // /api/fs/create joined this list with B2 (2026-09-16): same gate, same parity.
+  for (const path of ['/api/projects', '/api/projects/clone', '/api/fs/mkdir', '/api/fs/create']) {
     const noToken = await rawRequest(server.port, { method: 'POST', path });
     assert.equal(noToken.status, 401, `${path} without token must be 401`);
 

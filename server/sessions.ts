@@ -385,6 +385,10 @@ const HANDOFF_ENV = [
   'AI_SM_PORT_HINT',
   'AI_SM_RESTARTED_FROM',
   'AI_SM_WEB_DIST_DIR',
+  // Not a handoff value but the same kind of seam: it moves the boundary the
+  // Files panel's routes are confined to (server/fsbrowse.ts). A PTY that
+  // inherited it would run a shell whose idea of `home` is a test fixture.
+  'AI_SM_HOME_OVERRIDE',
 ] as const;
 
 /** This process's environment as a PTY gets it: ours, minus the handoff flags. */

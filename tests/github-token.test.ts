@@ -672,7 +672,7 @@ test('the SHARED request-failure logger leaks NEITHER a body fragment NOR the qu
   const BODY_PROBE = 'ghp_BODYPROBE0123456789abcdefghijklmnop';
   const QUERY_PROBE = 'ghp_QUERYPROBE9876543210zyxwvutsrqponm';
 
-  for (const path of ['/api/projects', '/api/sessions', '/api/fs/mkdir']) {
+  for (const path of ['/api/projects', '/api/sessions', '/api/fs/mkdir', '/api/fs/create']) {
     const res = await rawRequest(server.port, {
       method: 'POST',
       path: `${path}?probe=${QUERY_PROBE}`,
