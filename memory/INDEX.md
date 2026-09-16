@@ -39,6 +39,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
+- [[author-path-guard-tracked-only]] — 2026-09-16: `tests/no-author-paths.test.ts` walks `git ls-files`, so new untracked files spelling the author's real home pass locally and fail on CI; briefs use `/home/you`, `git add -N` before the suite
 - [[dev-machine-setup]] — 2026-09-15: fresh WSL clone needs Node 24 via nvm (`start-backend.sh` sources nvm; node-pty ABI-bound to the installing node), `npm run build`, Playwright Chromium user-level; sudo list (jq, shellcheck, htop, unzip, libnss3/libnspr4/libatk-bridge); dev launcher on the default data dir REATTACHES to the installed v0.3.2 — use `AI_SM_DATA_DIR=~/.ai-session-manager-dev`
 - [[alias-layer-migration-guards]] — 2026-09-14: deleting a token alias layer = survivors up first (grep TS for runtime-read `--` names: `--fs-term`), regions in parallel, guard last (marker gone, every var() declared, every token read, retired names banned, floors); resolved-value diff per selector is the no-visual-change proof; class-parity scanners lie on `@media`-only mentions and template-literal names; `.modal-scrim` is a keys.ts contract, not a style
 - [[slots-migration-lessons]] — 2026-09-15: sessions→slots rename (tsc = checklist), rebuild key = layout not contents, dims ladder ORDER, prune shared text at the slot not the view (mergeViews transit), Home-at-0 needs a non-empty strip test, raw NUL bytes blind grep, HTML5 drag channel kept free, allowlist key nothing acts on = stolen
