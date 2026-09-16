@@ -41,6 +41,7 @@ import { armDrag, flashOpenResult } from './dnd.ts';
 import { openCopyFilesPicker, type PaneDest } from './filedrop.ts';
 import {
   afterEscape,
+  afterMenuOpen,
   afterPanelHidden,
   afterRowActivate,
   COPY_LABEL,
@@ -49,6 +50,9 @@ import {
   selectedName,
   type Selection,
 } from './files-select-model.ts';
+import { itemsFor, menuLabel, type MenuAction } from './context-menu-model.ts';
+import { closeRowMenu, openRowMenu } from './context-menu.ts';
+import { isContextMenuChord } from './keys.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
 import type { SessionInfo } from '../../../shared/protocol.ts';
@@ -323,6 +327,122 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   function currentSelectedName(): string | null {
     if (!st.filesPanelVisible()) return null;
     return selectedName(selected);
+  }
+
+  // ---- the row menu ---------------------------------------------------------
+  //
+  // A right-click on a row, and its keyboard twin (part A9b, user decision 3).
+  // The menu itself is `ui/context-menu.ts`; what lives here is WHICH gestures
+  // open it, on which rows, and what each entry then does.
+  //
+  // ONE DELEGATED LISTENER on the panel root, not one per row: the rows are
+  // rebuilt wholesale on every repaint, and a per-row listener would be
+  // re-registered a few dozen times a minute for nothing.
+  //
+  // IT ACTS INSIDE A ROW AND NOWHERE ELSE. The panel's own background, a pane,
+  // a terminal, the tab strip, the statusline, the drawers, every dialog: the
+  // event is not touched and the system menu opens exactly as it does today —
+  // which inside a terminal is xterm's own arrangement (its `contextmenu`
+  // handler puts the selection in its helper textarea so the system menu's
+  // Copy and Paste act on the terminal), and A9b leaves every byte of it alone.
+  root.addEventListener('contextmenu', (e) => {
+    // `Element`, NOT `HTMLElement`: a row holds an SVG folder mark, and an
+    // `SVGElement` is not an `HTMLElement`. MEASURED in a real browser
+    // (headless Edge, 2026-09-16): with the narrower test the right-click that
+    // landed on the folder icon — a third of the row's height — opened nothing
+    // at all and was not even prevented, so the system menu appeared instead.
+    const t = e.target instanceof Element ? e.target : null;
+    const row = t === null ? null : t.closest<HTMLElement>('.files-row');
+    if (row === null) return;
+    // Only now: the system menu must not open over ours.
+    e.preventDefault();
+    openRowMenuFor(row.getAttribute('data-k') ?? '', { x: e.clientX, y: e.clientY });
+  });
+
+  /**
+   * Open the menu for the row carrying this `data-k`, at this point.
+   *
+   * SELECTION FIRST, THEN THE MENU. A right-click on a folder row selects it
+   * (Explorer's behaviour, and what lets `Copy files here…` name a folder out
+   * loud) and does NOT toggle it — the toggle belongs to the primary click,
+   * and the menu offers `Open`/`Close` as a named entry instead. A file row
+   * selects nothing. The repaint that a new selection causes REPLACES the row
+   * element, so the menu is anchored to the row found AFTER it, and
+   * `returnFocus` is that same fresh element.
+   */
+  function openRowMenuFor(key: string, at: { x: number; y: number }): void {
+    const dir = key.startsWith('fdir:');
+    if (!dir && !key.startsWith('ffile:')) return;
+    const path = key.slice(dir ? 'fdir:'.length : 'ffile:'.length);
+    if (path === '') return;
+
+    const before = selected;
+    selected = afterMenuOpen(selected, { dir, path });
+    if (selected !== before) {
+      // The selection alone changed — no folder toggled — so nothing else
+      // would invalidate the signature and the chosen row would stay unpainted
+      // while the copy strip already named it.
+      lastSig = '';
+      render();
+    }
+    const row = root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"]`);
+    const name = fileName(path);
+    openRowMenu({
+      items: itemsFor({ dir, name, open: openFolders.has(path) }),
+      at,
+      label: menuLabel({ dir, name, open: openFolders.has(path) }),
+      returnFocus: row,
+      onChoose: (action) => runMenuAction(action, path, name),
+    });
+  }
+
+  /**
+   * What each entry does — every one of them something the panel already does
+   * by another gesture, so the menu can never become a second implementation
+   * of anything. `Copy` and `Paste` are inert until part B10 and carry their
+   * own sentence (the model's `COPY_NOTE` / `PASTE_NOTE`); they never reach
+   * this function, which is why the two arms below do nothing and say so.
+   */
+  function runMenuAction(action: MenuAction, path: string, name: string): void {
+    if (action === 'toggle') toggleFolder(path);
+    else if (action === 'open') st.openFile(currentRoot(), path, name);
+    else if (action === 'open-beside') openBeside(path, name);
+    else if (action === 'copy-files') openCopyFilesPicker(name);
+    // 'copy' and 'paste' are disabled entries: the menu never chooses them.
+  }
+
+  /**
+   * The keyboard twin, owned ON THE ROW — the same ownership rule the
+   * ctrl+alt+enter and ctrl+alt+c row chords already follow: the gesture acts
+   * on the row that has the keyboard, which is this module's business and
+   * nothing the window handler can see, and it stops propagating so no other
+   * handler reads a key this row already spent. That is also what keeps a
+   * focused TERMINAL's own menu key untouched: nothing outside this panel ever
+   * looks at it.
+   *
+   * The menu opens at the row's LEADING EDGE and BOTTOM, so it hangs off the
+   * row the way a pointer menu hangs off the pointer.
+   */
+  function armRowMenuChord(b: HTMLElement, key: string): void {
+    b.addEventListener('keydown', (e) => {
+      if (!isContextMenuChord(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const r = b.getBoundingClientRect();
+      openRowMenuFor(key, { x: r.left, y: r.bottom });
+    });
+  }
+
+  /**
+   * Open or close one folder. ONE definition, shared by the primary click and
+   * the menu's `Open`/`Close` entry, so the named entry can never drift from
+   * the gesture it is the name of.
+   */
+  function toggleFolder(path: string): void {
+    if (openFolders.has(path)) openFolders.delete(path);
+    else openFolders.add(path);
+    lastSig = '';
+    render();
   }
 
   // ---- header: the two tabs, then the name of what we are looking at -------
@@ -640,7 +760,11 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
       // The panel left the screen (the Files toggle, or the Projects drawer
       // borrowing the left column): the chosen folder goes with it. A9b lets a
       // selection take a paste away from a focused TERMINAL, and a destination
-      // nobody can see must never do that.
+      // nobody can see must never do that. The menu goes with it for the same
+      // reason: this branch returns BEFORE `rebuild()`, which is where the only
+      // other `closeRowMenu()` lives, so an open card would float over a panel
+      // that is no longer on screen.
+      closeRowMenu();
       selected = afterPanelHidden(selected);
       return;
     }
@@ -659,6 +783,10 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
   }
 
   function rebuild(): void {
+    // The menu is anchored to a row that is about to be replaced, so it goes
+    // first — every other state here survives the rebuild, this one may not.
+    // (The SELECTION does survive it: it is painted from the path.)
+    closeRowMenu();
     const focusKey =
       document.activeElement instanceof HTMLElement
         ? document.activeElement.getAttribute('data-k')
@@ -741,13 +869,13 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
           // as it always did. A re-click keeps it chosen — the toggle is what
           // flips, the selection is not.
           selected = afterRowActivate(selected, r.path);
-          if (openFolders.has(r.path)) openFolders.delete(r.path);
-          else openFolders.add(r.path);
-          lastSig = '';
-          render();
+          toggleFolder(r.path);
         });
         b.setAttribute('data-k', `fdir:${r.path}`);
         b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
+        // The row opens the A9b context menu (right-click, menu key, shift+F10),
+        // and the house rule is that every control which opens a popup says so.
+        b.setAttribute('aria-haspopup', 'menu');
         // The chosen folder, painted from the PATH and not from a live element
         // — which is what makes it survive this very rebuild. A file row is
         // never selected, so the class is set on folder rows only.
@@ -772,6 +900,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
           e.stopPropagation();
           openCopyFilesPicker(r.name);
         });
+        armRowMenuChord(b, `fdir:${r.path}`);
         row = b;
       } else {
         // A10: a file row opens that file as a PANE of its root folder's tab.
@@ -781,6 +910,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
           st.openFile(currentRoot(), r.path, r.name);
         });
         b.setAttribute('data-k', `ffile:${r.path}`);
+        b.setAttribute('aria-haspopup', 'menu');
         b.title = ROW_TITLE;
         // The row of a file that is on screen keeps a ground, so the tree says
         // where the panes are standing.
@@ -801,6 +931,7 @@ export function initFilesPanel(host: HTMLElement, onLeaveScreen: () => void): Fi
           e.stopPropagation();
           openBeside(r.path, r.name);
         });
+        armRowMenuChord(b, `ffile:${r.path}`);
         row = b;
       }
       row.style.paddingLeft = `${r.indent}px`;

@@ -602,7 +602,16 @@ multi-pane layouts on top.
   one click on a folder row selects it and toggles it, the selection stays
   visible after the focus leaves the panel, Escape inside the panel or
   hiding the panel clears it — then the focused folder row, else the panel
-  root, else the active tab's root). Sessions panel
+  root, else the active tab's root). A right-click on a row (or the
+  ContextMenu key / Shift+F10 on the focused row) opens a Nocturne context
+  menu — a new primitive, `ui/context-menu.ts`, not a modal: folder rows
+  offer Open or Close, Copy, Paste, Copy files here…; file rows Open, Open
+  beside, Copy. Copy and Paste stay visibly disabled with a one-line reason
+  until B10 (a page cannot read files from the OS clipboard outside a paste
+  event, nor put files on it; the Windows host does both). A right-click
+  selects a folder row without toggling it. Right-clicks anywhere else —
+  a terminal above all — are never touched, so the system menu (xterm's
+  own copy/paste arrangement) stays. Sessions panel
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
   "Side by side", "Continue" / "Start again", armed "End" / "Forget".
   Since Nocturne A6 (2026-09-13) the commit rows and the tree's file rows
@@ -834,7 +843,9 @@ multi-pane layouts on top.
   recorded 2026-09-15; Ctrl+Alt+M's bytes equal Alt+Enter's, which stays
   untouched). The app takes
   exactly four extra chords (plus, since A9b, the files-only paste EVENT
-  described below — an event, not a chord): `Ctrl+Shift+V` and `Shift+Insert` paste the
+  described below — an event, not a chord — and, on a FOCUSED Files-panel
+  row only, the ContextMenu key / Shift+F10 that open the row's menu; a
+  terminal never sees those two taken): `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
   itself; a paste that carries FILES is taken — and opens the drop dialog —

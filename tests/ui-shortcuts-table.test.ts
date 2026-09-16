@@ -346,6 +346,12 @@ test('the copy row answers the two things a terminal user must trust, on the row
 // A10 added two chords (ctrl+alt+w, ctrl+alt+enter) and the first of them is
 // handled in main.ts while the second is not, so the scan reads both files;
 // A9 added ctrl+alt+c on a folder row, so files.ts now owns TWO of them.
+// A9b brief 2 added a THIRD row-level keydown handler — the context-menu chord
+// (the ContextMenu key, or shift+F10) — which is deliberately NOT on ctrl+alt:
+// it is the keyboard twin of a right-click, every desktop app answers those two
+// keys, and `ui/keys.ts` isContextMenuChord rejects ctrl, alt, meta and AltGr.
+// It therefore adds nothing to the vocabulary this file reconciles, and needs
+// no seat in the terminal allow-list.
 
 const MAIN_TS = join(REPO_ROOT, 'web', 'src', 'main.ts');
 const FILES_TS = join(REPO_ROOT, 'web', 'src', 'ui', 'files.ts');
@@ -390,7 +396,10 @@ function terminalAllowlist(): string {
   return src.slice(from, to);
 }
 
-/** ui/files.ts owns ctrl+alt+enter on a file row and ctrl+alt+c on a folder row. */
+/**
+ * ui/files.ts owns ctrl+alt+enter on a file row, ctrl+alt+c on a folder row,
+ * and (A9b) the context-menu chord on both.
+ */
 function filesChordBlock(): string {
   const src = readFileSync(FILES_TS, 'utf8');
   const blocks: string[] = [];
@@ -400,7 +409,7 @@ function filesChordBlock(): string {
   for (let i = src.indexOf("b.addEventListener('keydown'"); i !== -1; i = src.indexOf("b.addEventListener('keydown'", i + 1)) {
     blocks.push(src.slice(i, i + 600));
   }
-  assert.equal(blocks.length, 2, `non-vacuity: the Files rows own two chords, parsed ${blocks.length}`);
+  assert.equal(blocks.length, 3, `non-vacuity: the Files rows own three chords, parsed ${blocks.length}`);
   return blocks.join('\n');
 }
 

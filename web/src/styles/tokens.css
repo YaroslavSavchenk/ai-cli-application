@@ -251,6 +251,7 @@
 
   /* ══ z-index ══════════════════════════════════════════════════════════════ */
   --z-toast: 46;   /* update toast: over the panes, under every dialog    */
+  --z-menu: 47;    /* row context menu: over the toast, under every dialog */
   --z-modal: 50;   /* modal scrims: every dialog, panel and overlay       */
   --z-modal-top: 51; /* a dialog that can open OVER another one (restart)  */
   --z-overlay: 60; /* boot overlay covers even open modals                */

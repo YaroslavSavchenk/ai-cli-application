@@ -236,6 +236,15 @@ export class FakeElement extends FakeNode {
   hidden = false;
   disabled = false;
   id = '';
+  /**
+   * Made by `createElementNS`, i.e. an SVG node — NOT an `HTMLElement`, which
+   * is the whole point (part A9b, brief 2): a right-click that lands on the
+   * folder mark inside a Files row has an `SVGElement` as its target, and a
+   * delegated listener narrowing with `instanceof HTMLElement` silently drops
+   * it. MEASURED in a real browser first; pinned here so the double can tell
+   * the same truth (`g.HTMLElement` below answers `false` for these).
+   */
+  svgns = false;
   title = '';
   type = '';
   placeholder = '';
@@ -679,7 +688,11 @@ export function installDom(): Dom {
     body,
     activeElement: body,
     createElement: (tag: string) => new FakeElement(tag),
-    createElementNS: (_ns: string, tag: string) => new FakeElement(tag),
+    createElementNS: (_ns: string, tag: string) => {
+      const n = new FakeElement(tag);
+      n.svgns = true;
+      return n;
+    },
     createTextNode: (data: string) => new FakeText(data),
     querySelector: (sel: string) => body.querySelector(sel),
     querySelectorAll: (sel: string) => body.querySelectorAll(sel),
@@ -705,7 +718,16 @@ export function installDom(): Dom {
   g.document = d;
   g.window = w;
   g.Node = FakeNode;
-  g.HTMLElement = FakeElement;
+  // An SVG node is an `Element` but NOT an `HTMLElement`, in a browser and now
+  // here: `instanceof HTMLElement` is how several modules narrow an event
+  // target, and narrowing that way throws away every click, drop and
+  // right-click that lands on an icon (measured in a real browser, part A9b).
+  class FakeHTMLElement {
+    static [Symbol.hasInstance](v: unknown): boolean {
+      return v instanceof FakeElement && !v.svgns;
+    }
+  }
+  g.HTMLElement = FakeHTMLElement;
   // `ui/dnd.ts` narrows an elementFromPoint hit with `instanceof Element`
   // before it reads `closest()`; without the global that check throws.
   g.Element = FakeElement;

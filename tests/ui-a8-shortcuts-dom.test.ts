@@ -183,16 +183,18 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
   overlay.close();
 });
 
-test('the two A9b gestures are on the overlay, each once, each naming its twin', () => {
+test('the three A9b gestures are on the overlay, each once, each naming its twin', () => {
   // MEASURED (gate, 2026-09-16): deleting the note-less row (`click a folder
   // row`) left the ENTIRE suite green — the caption count below only ever held
   // the other one. PROJECT-SCOPE's rule is that no control exists only under a
   // pointer, so each row is pinned together WITH the twin it promises.
-  // The right-click row is NOT here: brief 1 ships no contextmenu listener and
-  // no isContextMenuChord caller, so the overlay may not promise that gesture.
+  // The right-click row joined them in brief 2, together with the delegated
+  // `contextmenu` listener and the `isContextMenuChord` caller that make it
+  // true — and with the keyboard twin the overlay promises for it.
   openFromOpener();
   const want: readonly (readonly [string, string, string])[] = [
     ['click a folder row', 'select it and open or close it', 'enter on the focused row'],
+    ['right-click a row in the Files panel', 'its actions', 'the menu key or shift+f10'],
     [
       'paste with files on the clipboard',
       'copy them into the selected folder',
@@ -213,7 +215,7 @@ test('the two A9b gestures are on the overlay, each once, each naming its twin',
       `a mouse sentence must never render as a key chip: ${g}`,
     );
   }
-  // Exactly one of the two carries a caption, and it is the one stating the
+  // Exactly one of the three carries a caption, and it is the one stating the
   // terminal limit: inside a terminal only PLAIN ctrl+v can carry files,
   // because ui/terminal.ts serves the other two paste keys from the text
   // clipboard, which cannot see a file list.
