@@ -106,3 +106,9 @@ Lean rules (user, 2026-09-16 — cut duplication, never review depth):
    never runs in parallel with anyone reading or editing the same files.
 6. **Design decisions are asked BEFORE the developer starts** (in the Plan
    step), not after a review surfaces them.
+7. **Developers run the full suite at most twice** (once mid-way, once at
+   the end); iteration uses targeted `node --test <files>`. A full run is
+   ~40 s; ten of them are five minutes of waiting.
+8. **Browser verification is scoped to the claims unit tests cannot cover**
+   (resize storm, real listings, real events), with at most three
+   screenshots — not a tour of the feature.

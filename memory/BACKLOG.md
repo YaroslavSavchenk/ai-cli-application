@@ -191,7 +191,7 @@ app window first so one backend at a time owns runtime.json.
 - [ ] B3 owes: `syntheticDiff` → `git show <hash> -- <path>` (one diff per PATH today, so two commits sharing a file show identical rows/numbers); `DiffLine.n` → `oldNo/newNo` two-column gutter (`--diff-gut-w` sized for one); a remote datum for `Open on GitHub`.
 - [ ] B4 owes: unsaved-text confirm on all four doors (tab close, reload, window close, backend grace) + disk write; `lastGoodDims` in `panes.ts` is global not per-slot (self-corrects at attach).
 - [ ] Editor caret/scroll position is lost when a commit view opens over it (text survives) — scope note A6.
-- [ ] `MOCK_FILES` is an exported const mutated at module init (`files-mock.ts`); a future import cycle would hand an importer `[]` silently — `buildMockFiles()` returning the array removes the hazard (or B2 deletes the mock).
+- [x] ~~`MOCK_FILES` is an exported const mutated at module init~~ — B2 Brief B (2026-09-16) deleted the FILES half of `files-mock.ts`; the contents half (B4) and commits half (B3) remain, with a header comment naming their owners.
 - [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
 - [ ] ~~Windows-side (A5, 2026-09-13):~~ (verified, see above) Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
 - [ ] `prefers-reduced-motion` guard for the two pulses (`--t-pulse` dot, `--t-pulse-edit` file rows) — scope-reviewer note 2026-09-13.
@@ -369,10 +369,12 @@ pass or a test-engineer brief, not a feature.
   test time. Add a `pre-commit` hook (or a `npm run check:bytes` step in
   `verify.yml`'s check job) that greps staged text files for bytes < 0x20
   outside tab/LF/CR, so the blob never enters a WIP branch at all.
-- [ ] **Mock data out of production code**: `files-mock.ts` and the 43
+- [ ] **Mock data out of production code**: `files-mock.ts` and the
   mock markers across `state.ts`, `files.ts`, `commit-*.ts`,
-  `drop-*.ts`, `settings.ts` exist because B2/B3 are not live yet. When
-  B2/B3 land, delete the mock module and every marker in the same change;
+  `drop-*.ts`, `settings.ts` exist because B3/B4 are not live yet (B2 landed
+  2026-09-16: the FILES half of `files-mock.ts` and the Files-tab markers
+  are gone; the drop dialog's conflicts are real). When B3/B4 land, delete
+  the rest of the module and every remaining marker in the same change;
   until then, a test asserts the count only goes DOWN.
 - [ ] **Second-machine smoke**: the app has only ever run on the author's
   machine. One run of Setup.exe + launch + a claude session on a clean
