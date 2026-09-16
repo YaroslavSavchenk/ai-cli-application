@@ -923,3 +923,70 @@ export interface PongMessage {
   type: 'pong';
   t: number;
 }
+
+// ---------------------------------------------------------------------------
+// Files panel on the real file system (Nocturne B2 + A9c, .claude/PLAN-B2.md)
+// ---------------------------------------------------------------------------
+//
+// Three routes, all under /api (token-gated like every other one), all
+// confined to the user's HOME directory by server/fsbrowse.ts resolveUnderHome
+// (realpath-based; the picker's /api/fs/list and /api/fs/mkdir are NOT
+// confined — they choose a project folder anywhere on the machine, on purpose).
+// Every error is a CONSTANT sentence in the server module; nothing a client
+// sent is ever echoed back.
+
+/** GET /api/fs/entries?path=<abs> — one entry of one folder's listing. */
+export interface FsEntry {
+  /** Last path segment. UNTRUSTED display text — textContent, never innerHTML. */
+  name: string;
+  /** A directory, or a symlink that resolves to one. */
+  dir: boolean;
+}
+
+/** GET /api/fs/entries?path=<abs> (path omitted = the user's home). */
+export interface FsEntriesResponse {
+  /** The RESOLVED absolute path that was listed (the client keys its cache on it). */
+  path: string;
+  /** Folders first, then files; case-insensitive natural order; at most the cap. */
+  entries: FsEntry[];
+  /** Entries NOT in `entries` because the folder is larger than the cap. 0 normally. */
+  truncated: number;
+}
+
+/** POST /api/fs/create — one empty file or one directory, strictly under home. */
+export interface FsCreateRequest {
+  /** Absolute path of the EXISTING folder it goes in. */
+  dir: string;
+  /** A single safe path segment (server/fsbrowse.ts isSafeSegment). */
+  name: string;
+  kind: 'file' | 'folder';
+}
+
+/** 201. The created thing's absolute path. */
+export interface FsCreateResponse {
+  path: string;
+}
+
+/** GET /api/git/changes?root=<abs> — how one file differs from the last commit. */
+export type ChangeStatus = 'modified' | 'new' | 'deleted' | 'renamed';
+
+export interface ChangedFile {
+  /** Path relative to the REPOSITORY root, `/` separated. */
+  path: string;
+  /** null for a binary file (numstat prints `-`), and for an untracked file. */
+  add: number | null;
+  del: number | null;
+  status: ChangeStatus;
+}
+
+/** GET /api/git/changes?root=<abs>. A root that is not in a repository is NOT an error. */
+export interface GitChangesResponse {
+  isRepo: boolean;
+  /** The repository's own root (may be an ANCESTOR of `root`). null when isRepo is false. */
+  repoRoot: string | null;
+  /** Current branch, or null on a detached head / an empty repository. */
+  branch: string | null;
+  files: ChangedFile[];
+  /** Files left out because the repository is larger than the cap. */
+  truncated: number;
+}
