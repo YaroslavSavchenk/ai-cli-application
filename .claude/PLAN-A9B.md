@@ -1,6 +1,6 @@
 # A9b — Select a folder, paste files into it, and a row context menu (mock transport)
 
-Status: DECIDED 2026-09-16 (user); LANDED 2026-09-16 (Phase 0 `951ff90`, Brief 1 `665b28d`, Brief 2 `8873ec6`, janitor `ca9e624`); Windows check owed to the user. Part A9b of
+Status: DECIDED 2026-09-16 (user); LANDED 2026-09-16 (Phase 0 `951ff90`, Brief 1 `665b28d`, Brief 2 `8873ec6`, janitor `ca9e624`); user-verified on Windows 2026-09-16 ("alles werkt"). Part A9b of
 `PLAN-NOCTURNE.md`, extending `.claude/PLAN-A9.md` (the drop half) and standing
 on the same mock transport until B10 (real upload endpoint, host clipboard,
 security review). Written by the orchestrator from the Plan agent's design;

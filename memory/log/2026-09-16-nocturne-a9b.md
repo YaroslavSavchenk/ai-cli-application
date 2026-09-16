@@ -83,11 +83,13 @@ screen / pane header / tab strip / statusline never prevented and xterm's
 in a terminal reach xterm (`ESC[21;2~`). Headless caveat: a real OS ctrl+v
 cannot be dispatched there, the paste EVENT was synthesised.
 
-## Owed to the user (Windows)
+## Windows check
 
-Ctrl+C on files in Explorer → click a folder → Ctrl+V with a terminal
-focused; the look of the selected row and the menu in WebView2; plus the A9
-checks still open (Explorer drag, copy-strip look). A developer's environment
+**User-verified 2026-09-16 in the dev window: "alles werkt"** — A9b accepted
+(Ctrl+C in Explorer → folder click → Ctrl+V with a terminal focused; row
+menu; selected-row look). Same day the user asked for `New file` / `New
+folder` in the menu → recorded as A9c in the plan. The A9 checks (Explorer
+drag, copy-strip look) are covered by the same session. A developer's environment
 note, not a code finding: WSL2 localhost forwarding did not work on this
 machine during Brief 2 (Windows could not reach a WSL-bound port); worth a
 glance if the launcher ever fails to connect.
