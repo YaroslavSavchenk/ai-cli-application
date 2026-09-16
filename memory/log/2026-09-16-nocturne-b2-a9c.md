@@ -1,7 +1,7 @@
 ---
 type: log
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 tags: [nocturne, files, backend, security, git, frontend, testing, review, process]
 ---
 # 2026-09-16 — Nocturne B2 + A9c LANDED: the Files panel reads the real file system, rows create files and folders
@@ -100,12 +100,12 @@ Changes rows, terminal, chrome, tab strip, statusline = system menu, xterm
 moves its textarea). Ran twice: the first run was killed by the session
 limit before its backend answered ([[aborted-agents-check-tree]] applied).
 
-## Owed to the user (Windows)
+## Windows check
 
-The real home tree in the WebView2 host (dotfiles, symlinks, a big folder);
-create a file and a folder from the row menu and the root menu; the Changes
-tab against this repository with a claude session editing files; a file row
-opening a pane that says the app cannot read the file yet (B4).
+**User-verified 2026-09-17 in the dev window: "alles werkt"** — B2 + A9c
+accepted (real home tree, New file / New folder from the row and root menus,
+the 409 row, the Changes tab, a file pane saying it cannot read the file
+yet). Session ended here on the user's word.
 
 ## Next
 
