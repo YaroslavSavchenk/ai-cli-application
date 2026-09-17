@@ -30,7 +30,7 @@ export type StatusLineCfg = Required<UiStatusLine>;
  * and the terminal draw another.
  */
 const FACTORY: StatusLineCfg = {
-  enabled: true,
+  enabled: false,
   model: true,
   mode: true,
   branch: true,

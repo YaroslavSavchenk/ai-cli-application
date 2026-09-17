@@ -34,7 +34,7 @@ import type { SessionInfo } from '../shared/protocol.ts';
 
 /** The factory set, transcribed from DEFAULT_CONFIG in server/statusline.mjs. */
 const FACTORY: StatusLineCfg = {
-  enabled: true,
+  enabled: false,
   model: true,
   mode: true,
   branch: true,
@@ -46,11 +46,11 @@ const FACTORY: StatusLineCfg = {
   time: true,
 };
 
-test('statusLineDefaults() is the factory set (ON: enabled/model/mode/branch/cost/context; OFF: lines/usage), returned by value', () => {
+test('statusLineDefaults() is the factory set (ON: paneBar/model/mode/branch/cost/context/time; OFF: enabled/lines/usage), returned by value', () => {
   assert.deepEqual(statusLineDefaults(), FACTORY);
   const a = statusLineDefaults();
-  a.enabled = false;
-  assert.equal(statusLineDefaults().enabled, true, 'callers cannot mutate the shared default');
+  a.enabled = true;
+  assert.equal(statusLineDefaults().enabled, false, 'callers cannot mutate the shared default');
 });
 
 test('the factory set matches server/statusline.mjs DEFAULT_CONFIG exactly — the panel and the drawn line must agree', () => {
@@ -76,7 +76,7 @@ test('clampStatusLine with absent / garbage / wrong-shape input resolves to the 
 test('clampStatusLine fills every key: a partial bag keeps its booleans and defaults the rest', () => {
   // Turn a normally-OFF item on and a normally-ON item off; leave the rest absent.
   assert.deepEqual(clampStatusLine({ usage: true, model: false }), {
-    enabled: true,
+    enabled: false,
     model: false, // explicitly off
     mode: true,
     branch: true,
@@ -121,10 +121,10 @@ test('clampStatusLine ignores foreign keys — a bag carrying the RETIRED per-pa
 test('init / get / set: seeding, replacing and copy-on-read', () => {
   initStatusLine({ usage: true });
   assert.equal(getStatusLine().usage, true);
-  assert.equal(getStatusLine().enabled, true, 'absent members keep their factory value');
+  assert.equal(getStatusLine().enabled, false, 'absent members keep their factory value');
 
-  setStatusLine({ enabled: false }); // REPLACES, then re-clamps
-  assert.deepEqual(getStatusLine(), { ...FACTORY, enabled: false }, 'usage:true is gone, not merged');
+  setStatusLine({ enabled: true }); // REPLACES, then re-clamps
+  assert.deepEqual(getStatusLine(), { ...FACTORY, enabled: true }, 'usage:true is gone, not merged');
 
   const got = getStatusLine();
   got.branch = false;
@@ -133,7 +133,7 @@ test('init / get / set: seeding, replacing and copy-on-read', () => {
 
 test('a full explicit bag round-trips verbatim (the exact inverse of the defaults)', () => {
   const inverse: StatusLineCfg = {
-    enabled: false,
+    enabled: true,
     model: false,
     mode: false,
     branch: false,
@@ -154,8 +154,8 @@ test('statusLinePatch writes EVERY member explicitly under `statusLine` — abse
   assert.deepEqual(Object.keys(patch), ['statusLine']);
   assert.deepEqual(patch.statusLine, { ...FACTORY, usage: true, context: false });
   // The patch is a copy: mutating it must not reach the store.
-  (patch.statusLine as StatusLineCfg).enabled = false;
-  assert.equal(getStatusLine().enabled, true);
+  (patch.statusLine as StatusLineCfg).enabled = true;
+  assert.equal(getStatusLine().enabled, false);
 });
 
 test('DEAD_PREFS_KEYS names exactly the two retired bag keys', () => {

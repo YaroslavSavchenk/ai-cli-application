@@ -32,9 +32,10 @@ Status bar, fed by the payload Claude Code already hands
 
 - The checklist gets TWO switches instead of one master switch: `enabled`
   (existing: Claude's own line INSIDE the terminal) and `paneBar` (new: the
-  bar UNDER the terminal). Both default ON — the existing default is not
-  changed under the user's feet; the Settings page says in one line that both
-  on shows the values twice.
+  bar UNDER the terminal). Landed with both ON; DECIDED 2026-09-17 (user, on
+  seeing the values twice in the dev window): the bar ON, Claude's line OFF
+  by default. The Settings page says in one line that both on shows the
+  values twice.
 - `Session time` becomes a checklist row (`time`, default ON) that only the
   pane bar honours; its caption says "under the terminal only". Claude's line
   cannot show it (the payload carries no start time) and the script ignores

@@ -736,7 +736,8 @@ terminal came back with Nocturne A3 (`.pane-status`, built by
 inside the terminal. The Settings → Status bar page therefore carries two
 switches instead of one master: `Inside the terminal` (`enabled` — Claude Code's
 own line, drawn by the script) and `Under the terminal` (`paneBar` — this app's
-bar), both on by default. The item rows below them feed both, so they only dim
+bar); the bar is on and Claude's line off by default (user, 2026-09-17 — with
+both on the values stood twice, and the bar is the design's place for them). The item rows below them feed both, so they only dim
 when BOTH switches are off; with both on the same values stand twice, which the
 lead line says in one sentence rather than solving behind the user's back. One
 row is pane-bar-only: `Session time` (`time`, sample `2h 15m`, caption `under

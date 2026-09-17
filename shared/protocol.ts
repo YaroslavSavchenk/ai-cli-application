@@ -262,7 +262,11 @@ export interface UiTheme {
  * (verified against Claude Code 2.1.220) except where noted:
  */
 export interface UiStatusLine {
-  /** Master switch. Default ON. Off -> the script prints nothing (blank bar). */
+  /**
+   * Claude Code's OWN line inside the terminal. Off -> the script prints
+   * nothing (blank bar). Default OFF since 2026-09-17 (user's call): the bar
+   * under the terminal (`paneBar`) is the default place for these values.
+   */
   enabled?: boolean;
   /** `model.display_name` (falls back to `model.id`). Default ON. */
   model?: boolean;
@@ -296,8 +300,8 @@ export interface UiStatusLine {
    * Nocturne B1 (.claude/PLAN-B1.md): the app's own bar UNDER the terminal
    * (web/src/ui/pane-status-model.ts) renders the SAME item toggles above,
    * fed by the snapshot the script writes (SessionTelemetry). This switch is
-   * that bar; `enabled` is Claude's line INSIDE the terminal. Both ON (the
-   * default) shows the same values twice — the user's accepted consequence.
+   * that bar; `enabled` is Claude's line INSIDE the terminal. Both ON shows
+   * the same values twice, which is why only this one is on by default.
    * The script reads this key for one thing only: skipping its git probe when
    * neither bar would show a branch. Default ON.
    */

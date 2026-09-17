@@ -49,3 +49,14 @@ payload key was never safe), one file per session in
 (`paneBar`, the bar under the terminal) beside `enabled` (Claude's line),
 both ON by default, and a `Session time` row the pane bar alone honours.
 Spec `.claude/PLAN-B1.md`.
+
+## Default flipped 2026-09-17 (user, on the Windows check of B1)
+
+The user saw both surfaces at once in the dev window ("het staat nu dubbel
+in") and chose, from three options: **the bar under the terminal ON,
+Claude's own line OFF by default** (the orchestrator's recommendation — the
+bar is the v3 design's place for these values). `enabled` is now `false` in
+both factory tables (`server/statusline.mjs` `DEFAULT_CONFIG`,
+`ui/statusline-model.ts` FACTORY); a user who explicitly stored
+`enabled: true` keeps Claude's line. Rejected: Claude's line only (B1 off by
+default), both on (the duplicate the user objected to).

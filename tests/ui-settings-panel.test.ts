@@ -335,6 +335,11 @@ test('the preview strip shows the enabled items, and says so when there are none
   await reopen();
   const page = panelOf('status');
   const bar = byClass(page, 'sg-prevbar')[0] as FakeElement;
+  // Claude's line is off by factory default (2026-09-17): the preview opens
+  // on its empty state and fills once that switch is on.
+  assert.equal(byClass(bar, 'sg-prevempty')[0]?.textContent, 'Nothing selected, the bar is hidden');
+  row(page, 'Inside the terminal').click();
+  assert.equal(statusPatch().enabled, true);
   // The first label is the strip's own marker: the samples are invented, and
   // `$0.42` / `5h 38%` must not read as the user's own numbers.
   assert.deepEqual(textsOf(bar, 'sg-prevlb'), [
@@ -385,8 +390,11 @@ test('the items dim only when BOTH places are off — one bar left is still a ba
   const page = panelOf('status');
   const itemsWrap = byClass(page, 'sg-items')[0] as FakeElement;
 
-  row(page, 'Inside the terminal').click();
-  assert.equal(row(page, 'Model').disabled, false, 'the bar under the terminal still reads them');
+  // Factory: Claude's line OFF, the bar under the terminal ON — one place is
+  // enough to keep the items live.
+  assert.equal(row(page, 'Inside the terminal').getAttribute('aria-pressed'), 'false');
+  assert.equal(row(page, 'Under the terminal').getAttribute('aria-pressed'), 'true');
+  assert.equal(row(page, 'Model').disabled, false, 'the bar under the terminal reads them');
   assert.equal(itemsWrap.classList.contains('is-disabled'), false);
 
   row(page, 'Under the terminal').click();
@@ -398,11 +406,11 @@ test('the items dim only when BOTH places are off — one bar left is still a ba
     'both switches are persisted off',
   );
 
-  row(page, 'Under the terminal').click();
-  assert.equal(row(page, 'Model').disabled, false);
-  assert.equal(itemsWrap.classList.contains('is-disabled'), false);
   row(page, 'Inside the terminal').click();
-  assert.equal(statusPatch().enabled, true);
+  assert.equal(row(page, 'Model').disabled, false, "Claude's line alone is a place too");
+  assert.equal(itemsWrap.classList.contains('is-disabled'), false);
+  row(page, 'Under the terminal').click();
+  assert.deepEqual([statusPatch().enabled, statusPatch().paneBar], [true, true]);
 });
 
 test('every toggle repaints the panes at once — the bar must not wait for a session event', async () => {
@@ -428,7 +436,7 @@ test('a toggle writes the whole resolved config, and Reset to defaults restores 
   row(page, 'Lines changed').click();
   const on = statusPatch();
   assert.deepEqual(on, {
-    enabled: true,
+    enabled: false,
     model: true,
     mode: true,
     branch: true,
@@ -454,8 +462,8 @@ test('a toggle writes the whole resolved config, and Reset to defaults restores 
   assert.equal(back.lines, false, 'back to the factory off-state');
   assert.deepEqual(
     [back.enabled, back.paneBar, back.time],
-    [true, true, true],
-    'Reset restores BOTH places and Session time',
+    [false, true, true],
+    'Reset restores the factory places (the bar, not the line) and Session time',
   );
   assert.equal(row(page, 'Lines changed').getAttribute('aria-pressed'), 'false');
   assert.equal(row(page, 'Under the terminal').getAttribute('aria-pressed'), 'true');
@@ -468,7 +476,7 @@ test('the debug line of a write names both places', async () => {
   row(panelOf('status'), 'Model').click();
   const line = H.logs.find((l) => l.startsWith('debug prefs statusLine:'));
   assert.ok(line !== undefined, 'a write is logged');
-  assert.ok(line.includes('enabled=true'), line);
+  assert.ok(line.includes('enabled=false'), line);
   assert.ok(line.includes('paneBar=true'), line);
   assert.ok(line.includes('time=true'), line);
 });
@@ -848,7 +856,11 @@ test('a slow re-read on open never undoes a toggle the user already made', async
     'false',
     'the stored bag must not overwrite a fresh choice',
   );
-  assert.equal(row(page, 'Inside the terminal').getAttribute('aria-pressed'), 'true');
+  assert.equal(
+    row(page, 'Inside the terminal').getAttribute('aria-pressed'),
+    'false',
+    'the factory default (off) still stands, the late answer changed nothing',
+  );
   H.gate = null;
   H.prefs = {};
 });

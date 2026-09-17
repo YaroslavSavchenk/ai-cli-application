@@ -125,7 +125,13 @@ async function makeWorkspace(): Promise<{ root: string; repo: string; plain: str
   await mkdir(repo);
   await mkdir(plain);
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
-  return { root, repo, plain, prefs: join(root, 'prefs.json') };
+  const prefs = join(root, 'prefs.json');
+  // Claude's own line is OFF by factory default since 2026-09-17 (the bar
+  // under the terminal is the default place). The item tests below are about
+  // the ITEMS, so the workspace switches the line on; the defaults tests write
+  // (or omit) their own prefs.
+  await writeFile(prefs, JSON.stringify({ statusLine: { enabled: true } }));
+  return { root, repo, plain, prefs };
 }
 
 test('full payload, every toggle on: model | mode | branch | cost | lines | context | usage', async () => {
@@ -147,10 +153,22 @@ test('full payload, every toggle on: model | mode | branch | cost | lines | cont
   }
 });
 
-test('factory defaults (no prefs.json at all): lines and usage stay OFF, the rest on', async () => {
+test('factory defaults (no prefs.json at all): the line is OFF — the bar under the terminal is the default place', async () => {
   const ws = await makeWorkspace();
   try {
     const res = await runStatusline('bypassPermissions', join(ws.root, 'absent.json'), fixture(ws.repo));
+    assert.equal(res.code, 0);
+    assert.equal(res.out, '');
+  } finally {
+    await rm(ws.root, { recursive: true, force: true });
+  }
+});
+
+test('factory item set (prefs only switch the line on): lines and usage stay OFF, the rest on', async () => {
+  const ws = await makeWorkspace();
+  try {
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true } }));
+    const res = await runStatusline('bypassPermissions', ws.prefs, fixture(ws.repo));
     assert.equal(res.code, 0);
     assert.equal(res.out, 'Opus 5 | never ask | git:main | $0.42 | ctx 32%');
   } finally {
@@ -158,17 +176,23 @@ test('factory defaults (no prefs.json at all): lines and usage stay OFF, the res
   }
 });
 
-test('corrupt prefs.json falls back to the factory defaults instead of blanking the bar', async () => {
+test('corrupt prefs.json falls back to the factory defaults (line off) instead of erroring', async () => {
   const ws = await makeWorkspace();
   try {
     await writeFile(ws.prefs, '{"statusLine": {"model": tru');
     const res = await runStatusline('plan', ws.prefs, fixture(ws.repo));
     assert.equal(res.code, 0);
-    assert.equal(res.out, 'Opus 5 | plan | git:main | $0.42 | ctx 32%');
+    assert.equal(res.err, '');
+    assert.equal(res.out, '');
     // A statusLine key of the wrong TYPE is equally non-fatal.
     await writeFile(ws.prefs, JSON.stringify({ statusLine: 'yes please' }));
     const res2 = await runStatusline('default', ws.prefs, fixture(ws.repo));
-    assert.equal(res2.out, 'Opus 5 | always ask | git:main | $0.42 | ctx 32%');
+    assert.equal(res2.code, 0);
+    assert.equal(res2.out, '');
+    // A member of the wrong type keeps its default; the rest apply.
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, cost: 'no' } }));
+    const res3 = await runStatusline('default', ws.prefs, fixture(ws.repo));
+    assert.equal(res3.out, 'Opus 5 | always ask | git:main | $0.42 | ctx 32%');
   } finally {
     await rm(ws.root, { recursive: true, force: true });
   }
@@ -192,7 +216,7 @@ test('every toggle off -> empty line (the whole bar disappears)', async () => {
   try {
     await writeFile(
       ws.prefs,
-      JSON.stringify({ statusLine: { model: false, mode: false, branch: false, cost: false, lines: false, context: false, usage: false } }),
+      JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, branch: false, cost: false, lines: false, context: false, usage: false } }),
     );
     const res = await runStatusline('acceptEdits', ws.prefs, fixture(ws.repo));
     assert.equal(res.out, '');
@@ -204,7 +228,7 @@ test('every toggle off -> empty line (the whole bar disappears)', async () => {
 test('honesty: no rate_limits, non-git cwd, null context, zero cost and zero lines are all OMITTED', async () => {
   const ws = await makeWorkspace();
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { lines: true, usage: true } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, lines: true, usage: true } }));
     const payload = fixture(ws.plain);
     delete payload.rate_limits; // API-key / pre-first-response sessions have none.
     payload.cost = { total_cost_usd: 0, total_lines_added: 0, total_lines_removed: 0 };
@@ -220,7 +244,7 @@ test('honesty: no rate_limits, non-git cwd, null context, zero cost and zero lin
 test('an unknown permission mode is omitted rather than mislabelled; a payload field would win', async () => {
   const ws = await makeWorkspace();
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, branch: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, branch: false, cost: false, context: false } }));
     const bare = await runStatusline('unknown', ws.prefs, fixture(ws.repo));
     assert.equal(bare.out, '', 'no honest label for a mode we do not know');
     // Feature detection: if a future Claude Code puts the mode in the payload,
@@ -262,7 +286,7 @@ test('never speaks on bad input: empty stdin, non-JSON, a JSON array, a huge num
 test('control characters in payload strings never reach the terminal', async () => {
   const ws = await makeWorkspace();
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { branch: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, branch: false, cost: false, context: false } }));
     const payload = { ...fixture(ws.repo), model: { id: 'x', display_name: 'Opus\u001b[31m 5\u0007\n' } };
     const res = await runStatusline('default', ws.prefs, payload);
     assert.equal(res.out, 'Opus [31m 5 | always ask');
@@ -278,7 +302,7 @@ test('the branch is cached in the data dir keyed by session_id (never by pid) an
   const ws = await makeWorkspace();
   const cacheFile = join(ws.root, 'statusline-cache.json');
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
     const first = await runStatusline('default', ws.prefs, fixture(ws.repo, 'sess-cache'));
     assert.equal(first.out, 'git:main');
 
@@ -357,7 +381,7 @@ test('each item is drawn by ITS OWN toggle: one toggle on at a time draws exactl
 test('percentages are floored and clamped to 0-100 — never 132%, never a negative, never a fraction', async () => {
   const ws = await makeWorkspace();
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, branch: false, cost: false, context: true, usage: true } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, branch: false, cost: false, context: true, usage: true } }));
     const over = fixture(ws.repo, 'sess-pct-1');
     over.context_window = { used_percentage: 132.9 };
     over.rate_limits = { five_hour: { used_percentage: 100.4 }, seven_day: { used_percentage: -3 } };
@@ -410,7 +434,7 @@ test('the branch cache is capped at 64 entries — the oldest are evicted, this 
   const ws = await makeWorkspace();
   const cacheFile = join(ws.root, 'statusline-cache.json');
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
     // 80 entries, ALL fresh (nothing to prune) — so only the size cap can act.
     const now = Date.now();
     const crowded: Record<string, { at: number; branch: string; cwd: string }> = {};
@@ -439,7 +463,9 @@ test('with NO prefs path argument at all: factory defaults, and no cache file is
     const res = await runRaw(['default'], fixture(ws.repo, 'sess-noprefs'));
     assert.equal(res.code, 0);
     assert.equal(res.err, '');
-    assert.equal(res.out, 'Opus 5 | always ask | git:main | $0.42 | ctx 32%');
+    // No prefs = factory = the line off; the probe is skipped, and the point
+    // below (no cache file next to a guessed directory) holds all the more.
+    assert.equal(res.out, '');
     // No prefs path -> no data dir to cache in; the probe runs uncached rather
     // than writing a cache file next to something it guessed.
     assert.deepEqual(
@@ -458,7 +484,7 @@ test('with NO prefs path argument at all: factory defaults, and no cache file is
 test('the branch is probed in workspace.current_dir, falling back to cwd', async () => {
   const ws = await makeWorkspace();
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
     // Workspace wins: a session whose cwd is elsewhere still reports the
     // workspace's branch (this is the directory Claude Code is working in).
     const moved = fixture(ws.plain, 'sess-ws-1');
@@ -573,7 +599,7 @@ test('a POISONED cache entry is sanitized ON READ: no escape sequence reaches th
   const ws = await makeWorkspace();
   const cacheFile = join(ws.root, 'statusline-cache.json');
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
     // `plain` is NOT a repo: a miss here prints nothing at all, so anything
     // this run prints can only have come out of the cache file.
     const poison = `\u001b]0;pwned\u0007${'b'.repeat(70)}`;
@@ -599,7 +625,7 @@ test('a cache entry that CLEANS TO EMPTY is a MISS: the script probes git instea
   const ws = await makeWorkspace();
   const cacheFile = join(ws.root, 'statusline-cache.json');
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
     // Fresh timestamp, matching cwd — everything about this entry is a hit
     // EXCEPT its value, which is controls and whitespace only.
     await writeFile(
@@ -627,7 +653,7 @@ test('a NEGATIVE cache entry (branch null) is re-probed, not honoured — a non-
   const ws = await makeWorkspace();
   const cacheFile = join(ws.root, 'statusline-cache.json');
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
 
     // (a) The directory became a repo since the null was written: the answer is
     // fresh, not the remembered nothing.
@@ -668,8 +694,9 @@ test('the file the script writes IS DataPaths.statuslineCacheFile — the two mu
     process.env['AI_SM_DATA_DIR'] = dataDir;
     const paths = resolveDataPaths();
 
-    // No prefs.json is written: the factory defaults are the point of the run,
-    // the cache file is what is being located.
+    // prefs.json only switches the line on (off by factory default): the
+    // cache file is what is being located, and it lives BESIDE this file.
+    await writeFile(paths.prefsFile, JSON.stringify({ statusLine: { enabled: true } }));
     const res = await runStatusline('default', paths.prefsFile, fixture(repo, 'sess-path'));
     assert.equal(res.code, 0);
     assert.equal(res.out, 'Opus 5 | always ask | git:main | $0.42 | ctx 32%');
@@ -692,7 +719,7 @@ test('the file the script writes IS DataPaths.statuslineCacheFile — the two mu
 test('a detached HEAD reports no branch (never the word HEAD), and a non-repo cwd is silent', async () => {
   const ws = await makeWorkspace();
   try {
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { model: false, mode: false, cost: false, context: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, model: false, mode: false, cost: false, context: false } }));
     execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'x'], { cwd: ws.repo });
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ws.repo, encoding: 'utf8' }).trim();
     execFileSync('git', ['checkout', '-q', head], { cwd: ws.repo });
@@ -845,7 +872,7 @@ test('snapshot: the branch recorded is the branch on the line, and is absent whe
     assert.match(on.out, /git:main/);
     assert.equal((await readSnapshot(withBranch))['branch'], 'main', 'one probe, both consumers');
 
-    await writeFile(ws.prefs, JSON.stringify({ statusLine: { branch: false } }));
+    await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, branch: false } }));
     const off = await runWithSnapshot('default', ws.prefs, withoutBranch, fixture(ws.repo, 'sess-b2'));
     assert.doesNotMatch(off.out, /git:/);
     assert.equal(Object.hasOwn(await readSnapshot(withoutBranch), 'branch'), false);

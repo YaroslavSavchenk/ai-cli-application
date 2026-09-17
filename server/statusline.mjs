@@ -85,7 +85,9 @@ const MODE_LABELS = {
  * any member the stored `statusLine` object does not define keeps its value here.
  */
 const DEFAULT_CONFIG = {
-  enabled: true,
+  // OFF since 2026-09-17 (user's call): the bar UNDER the terminal is the
+  // default place for these values; both on would show them twice.
+  enabled: false,
   model: true,
   mode: true,
   branch: true,

@@ -762,9 +762,9 @@ multi-pane layouts on top.
   (> 0 only), Context, Usage (amber at ≥ 80 %), Time (running sessions
   only), Changed (`+a -r` when either > 0). The checklist has TWO
   switches — `Inside the terminal` (`enabled`, Claude's own line) and
-  `Under the terminal` (`paneBar`) — both ON by default, so the same
-  values stand twice until the user switches one off (accepted
-  consequence); `Session time` is a checklist row the pane bar alone
+  `Under the terminal` (`paneBar`) — the bar ON and Claude's line OFF by
+  default (user's call 2026-09-17 after seeing both: "het staat nu
+  dubbel"); both on shows the same values twice; `Session time` is a checklist row the pane bar alone
   honours. Active skill has no source and is dropped, no placeholder. An
   exited session keeps its last values; Time drops. The script reads
   `paneBar` for one thing only: skipping the git probe when nobody would
