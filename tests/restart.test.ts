@@ -3102,6 +3102,18 @@ test('a PTY session never inherits the handoff variables — they describe the B
       AI_SM_PORT_HINT: '41000',
       AI_SM_RESTARTED_FROM: '4242',
       AI_SM_WEB_DIST_DIR: web.served,
+      // The markers a Claude Code session hands its children (a backend
+      // started from inside one inherits them): a claude the app launches
+      // would otherwise believe it is a nested child and stop saving its
+      // transcript. The user's own CLAUDE_CODE_* configuration is NOT a marker
+      // and must survive.
+      CLAUDECODE: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_SESSION_ID: '00000000-0000-4000-8000-000000000000',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CLAUDE_CODE_MESSAGING_TOKEN: 'deadbeef',
+      CLAUDE_PID: '4242',
+      CLAUDE_CODE_USE_BEDROCK: '1',
     },
   });
   try {
@@ -3137,9 +3149,19 @@ test('a PTY session never inherits the handoff variables — they describe the B
       // backup of, so a backend launched from inside a session must not inherit
       // the parent's served path.
       'AI_SM_WEB_DIST_DIR',
+      'CLAUDECODE',
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_CODE_MESSAGING_TOKEN',
+      'CLAUDE_PID',
     ]) {
       assert.ok(!names.includes(banned), `${banned} must not reach a session`);
     }
+    assert.ok(
+      names.includes('CLAUDE_CODE_USE_BEDROCK'),
+      'the user\'s own CLAUDE_CODE_* configuration is not a marker and reaches the session',
+    );
   } finally {
     await server.stop();
     rmSync(outDir, { recursive: true, force: true });

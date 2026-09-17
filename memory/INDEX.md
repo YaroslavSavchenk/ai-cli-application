@@ -39,6 +39,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ## Knowledge
 
+- [[backend-from-claude-code-taints-pty-env]] — 2026-09-17: a backend started from a Claude Code terminal passed `CLAUDECODE` / `CLAUDE_CODE_CHILD_SESSION` … into every PTY, so app-launched claudes ran as nested children with transcript saving OFF (no resume); `ptyEnv()` now strips the parent markers by name, never the `CLAUDE_CODE_*` prefix (user config)
 - [[fifo-open-blocks-main-thread]] — 2026-09-17: a planted FIFO hangs a synchronous `openSync` before `isFile()` can refuse it (froze the backend AND the status-line script); `O_NOFOLLOW` is not a FIFO defence — open with `O_NONBLOCK` too, test with a real `mkfifo`
 
 - [[author-path-guard-tracked-only]] — 2026-09-16: `tests/no-author-paths.test.ts` walks `git ls-files`, so new untracked files spelling the author's real home pass locally and fail on CI; briefs use `/home/you`, `git add -N` before the suite
