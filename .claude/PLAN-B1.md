@@ -2,7 +2,8 @@
 
 Status: STARTED 2026-09-17 (user: "continue met het ontwikkelen"; the next
 part in the plan order); developed, reviewed and fixed the same day — see
-"Landed shape" below. Part B1 of `PLAN-NOCTURNE.md`; data source = open
+"Landed shape" below. LANDED `9143d32` + `75afd31` + `d5f5954`; user-verified on
+Windows 2026-09-17 ("alles werkt"). Part B1 of `PLAN-NOCTURNE.md`; data source = open
 decision 2, DECIDED 2026-09-16 by the user
 (`memory/decisions/pane-status-bar-data-source.md`). Written by the
 orchestrator; this file names functions and regions, never line numbers.
