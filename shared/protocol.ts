@@ -95,6 +95,43 @@ export interface SessionInfo {
    * it is relaunched).
    */
   statusline?: boolean;
+  /**
+   * Nocturne B1: what Claude Code last reported about this session, read from
+   * the per-session snapshot server/statusline.mjs writes into
+   * `<dataDir>/statusline-snapshots/<id>.json` (server/telemetry.ts). Absent
+   * until the first snapshot; replaced whenever it changes (the server then
+   * re-sends `info`); kept after exit — cost so far is still true then.
+   */
+  telemetry?: SessionTelemetry;
+}
+
+/**
+ * Claude Code's own report about a session, via the status-line payload
+ * (decision 2 of PLAN-NOCTURNE.md, 2026-09-16). Every value is OPTIONAL and
+ * absent when the payload had no real one (honesty rule: no zero-as-unknown).
+ * All of it crossed an untrusted file in the data dir and was sanitised by
+ * server/telemetry.ts parseSnapshot: strings control-stripped and capped at
+ * 64, numbers finite and clamped.
+ */
+export interface SessionTelemetry {
+  /** ISO-8601: when the snapshot was written. */
+  at: string;
+  /** `model.display_name` (falls back to `model.id`). */
+  model?: string;
+  /** Branch the script probed in the workspace dir; absent when its toggle is off or not a repo. */
+  branch?: string;
+  /** `cost.total_cost_usd`, only when > 0. */
+  costUsd?: number;
+  /** `cost.total_lines_added`, integer ≥ 0, only when the pair is nonzero. */
+  linesAdded?: number;
+  /** `cost.total_lines_removed`, integer ≥ 0, only when the pair is nonzero. */
+  linesRemoved?: number;
+  /** `context_window.used_percentage`, 0-100 integer. */
+  contextPct?: number;
+  /** `rate_limits.five_hour.used_percentage`, 0-100 integer. */
+  usage5hPct?: number;
+  /** `rate_limits.seven_day.used_percentage`, 0-100 integer. */
+  usage7dPct?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +292,21 @@ export interface UiStatusLine {
    * Default OFF.
    */
   usage?: boolean;
+  /**
+   * Nocturne B1 (.claude/PLAN-B1.md): the app's own bar UNDER the terminal
+   * (web/src/ui/pane-status-model.ts) renders the SAME item toggles above,
+   * fed by the snapshot the script writes (SessionTelemetry). This switch is
+   * that bar; `enabled` is Claude's line INSIDE the terminal. Both ON (the
+   * default) shows the same values twice — the user's accepted consequence.
+   * The script ignores this key. Default ON.
+   */
+  paneBar?: boolean;
+  /**
+   * `Session time` — how long the PTY has been alive. Pane bar ONLY: the
+   * payload carries no start time, so Claude's line cannot show it and the
+   * script ignores this key. Default ON.
+   */
+  time?: boolean;
 }
 
 /**

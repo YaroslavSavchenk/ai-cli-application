@@ -67,6 +67,12 @@ const DEFAULT_CONFIG = {
   lines: false,
   context: true,
   usage: false,
+  // Nocturne B1: read by the app's pane bar (web/src/ui/pane-status-model.ts),
+  // NOT by this script — `paneBar` switches that bar, `time` is its Session
+  // time item (the payload carries no start time). They live here so the
+  // panel's factory set and this table stay one list (tests/ui-statusline-model).
+  paneBar: true,
+  time: true,
 };
 
 /** Item separator. Plain ASCII pipe — see the ASCII-only rule above. */

@@ -36,9 +36,15 @@ const FACTORY: StatusLineCfg = {
   lines: false,
   context: true,
   usage: false,
+  paneBar: true,
+  time: true,
 };
 
-/** The keys of StatusLineCfg, in the order the status line draws them. */
+/**
+ * The keys of StatusLineCfg, in the order the status line draws them; the two
+ * pane-bar-only keys (`paneBar`, `time`, Nocturne B1) last — the script skips
+ * them, the pane bar (ui/pane-status-model.ts) reads them.
+ */
 const KEYS: (keyof StatusLineCfg)[] = [
   'enabled',
   'model',
@@ -48,6 +54,8 @@ const KEYS: (keyof StatusLineCfg)[] = [
   'lines',
   'context',
   'usage',
+  'paneBar',
+  'time',
 ];
 
 /**

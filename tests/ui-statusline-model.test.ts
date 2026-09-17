@@ -42,6 +42,8 @@ const FACTORY: StatusLineCfg = {
   lines: false,
   context: true,
   usage: false,
+  paneBar: true,
+  time: true,
 };
 
 test('statusLineDefaults() is the factory set (ON: enabled/model/mode/branch/cost/context; OFF: lines/usage), returned by value', () => {
@@ -82,6 +84,8 @@ test('clampStatusLine fills every key: a partial bag keeps its booleans and defa
     lines: false,
     context: true,
     usage: true, // explicitly on
+    paneBar: true,
+    time: true,
   });
 });
 
@@ -137,6 +141,8 @@ test('a full explicit bag round-trips verbatim (the exact inverse of the default
     lines: true,
     context: false,
     usage: true,
+    paneBar: false,
+    time: false,
   };
   initStatusLine(inverse);
   assert.deepEqual(getStatusLine(), inverse);
