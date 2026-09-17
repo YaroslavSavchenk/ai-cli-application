@@ -1017,6 +1017,13 @@ test('snapshot: a FIFO planted at the snapshot path never hangs the turn', async
  * so the tmp name the script will use (`<file>.<pid>.tmp`) is known BEFORE it
  * runs and something can be waiting there. Without `exec` the pid differs and
  * the test would prove nothing.
+ *
+ * The shell line is a CONSTANT; every value (paths, the node binary) travels
+ * as a positional parameter and is expanded quoted (`"$1"` … `"$5"`), never
+ * spliced into the command text — a path holding a space or a quote is still
+ * one word. CodeQL's `js/shell-command-injection-from-environment` flags any
+ * `sh -c` fed environment-derived arguments; alert #13 was dismissed as a
+ * false positive on that reading (2026-09-17).
  */
 function runWithPlantedTmp(
   snapshot: string,
