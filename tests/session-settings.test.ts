@@ -92,22 +92,25 @@ test('shellQuote: safe paths pass through, hostile ones cannot escape the quotes
 async function makeStore(dirName = 'session-settings'): Promise<{
   root: string;
   dir: string;
+  snapshotDir: string;
   store: SessionSettingsStore;
   logs: string[];
 }> {
   const root = await mkdtemp(join(tmpdir(), 'ai-sm-store-'));
   const dir = join(root, dirName);
+  const snapshotDir = join(root, 'statusline-snapshots');
   const logs: string[] = [];
   const store = new SessionSettingsStore(
     {
       dir,
+      snapshotDir,
       scriptPath: join(projectRoot, 'server', 'statusline.mjs'),
       prefsFile: join(root, 'prefs.json'),
       nodePath: process.execPath,
     },
     (level, message) => logs.push(`${level}: ${message}`),
   );
-  return { root, dir, store, logs };
+  return { root, dir, snapshotDir, store, logs };
 }
 
 test('the settings file is 0600 inside a 0700 directory — nothing else on the machine may read or replace it', async () => {
@@ -149,6 +152,7 @@ test('a data dir holding spaces and quotes is QUOTED into the shell command, nev
     const store = new SessionSettingsStore(
       {
         dir: join(awkward, 'session-settings'),
+        snapshotDir: join(awkward, 'statusline-snapshots'),
         scriptPath: join(awkward, 'statusline.mjs'),
         prefsFile: join(awkward, 'prefs.json'),
         nodePath: process.execPath,
@@ -158,14 +162,15 @@ test('a data dir holding spaces and quotes is QUOTED into the shell command, nev
     // Whole paths are single-quoted (with the embedded quote escaped); the mode
     // and the node path need no quoting and stay bare.
     const q = (p: string): string => `'${p.replaceAll("'", "'\\''")}'`;
-    const cmd = store.command('bypassPermissions');
+    const cmd = store.command('bypassPermissions', 'sess-1');
     assert.equal(
       cmd,
-      `${process.execPath} ${q(join(awkward, 'statusline.mjs'))} bypassPermissions ${q(join(awkward, 'prefs.json'))}`,
+      `${process.execPath} ${q(join(awkward, 'statusline.mjs'))} bypassPermissions ${q(join(awkward, 'prefs.json'))}` +
+        ` ${q(join(awkward, 'statusline-snapshots', 'sess-1.json'))}`,
     );
     // Round-trip through a REAL shell: word-split the command line exactly as
-    // the shell would before exec'ing it. Four words out — the hostile bytes
-    // stay inside word 2 and 4 instead of becoming commands.
+    // the shell would before exec'ing it. Five words out — the hostile bytes
+    // stay inside words 2, 4 and 5 instead of becoming commands.
     const words = execFileSync('/bin/sh', ['-c', `for a in ${cmd}; do printf '[%s]\\n' "$a"; done`], {
       encoding: 'utf8',
     })
@@ -176,6 +181,7 @@ test('a data dir holding spaces and quotes is QUOTED into the shell command, nev
       `[${awkward}/statusline.mjs]`,
       '[bypassPermissions]',
       `[${awkward}/prefs.json]`,
+      `[${awkward}/statusline-snapshots/sess-1.json]`,
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -216,6 +222,77 @@ test('resetDir() wipes whatever is in the directory and recreates it 0700', asyn
     s.store.resetDir();
     assert.deepEqual(await readdir(s.dir), [], 'nothing survives, not even a subdirectory');
     assert.equal((await stat(s.dir)).mode & 0o777, 0o700);
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The snapshot path (Nocturne B1): the script's fourth argument
+// ---------------------------------------------------------------------------
+
+test('command() ends with the session snapshot path — the LAST word, server-composed and quoted', async () => {
+  const s = await makeStore();
+  try {
+    const id = '0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09';
+    const cmd = s.store.command('plan', id);
+    const expected = join(s.snapshotDir, `${id}.json`);
+    assert.equal(s.store.snapshotFor(id), expected);
+    assert.equal(cmd.split(' ').pop(), shellQuote(expected), 'the snapshot file is the last argument');
+    // A uuid and a temp dir need no quoting; what matters is that the WORD the
+    // shell would produce is exactly the file, not two words or a substitution.
+    const words = execFileSync('/bin/sh', ['-c', `for a in ${cmd}; do printf '[%s]\n' "$a"; done`], {
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n');
+    assert.equal(words.length, 5);
+    assert.equal(words[4], `[${expected}]`);
+    // And the file the session really gets names the same path.
+    const file = s.store.write(id, 'plan') as string;
+    const body = JSON.parse(await readFile(file, 'utf8')) as { statusLine: { command: string } };
+    assert.equal(body.statusLine.command, cmd);
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
+test('snapshotFor() refuses an unusual id outright — a traversal never becomes a path word', async () => {
+  const s = await makeStore();
+  try {
+    assert.throws(() => s.store.snapshotFor('../x'), /unusual session id/);
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
+test('write() creates the snapshot directory 0700; remove() deletes BOTH files', async () => {
+  const s = await makeStore();
+  try {
+    const id = 'abc-123';
+    const file = s.store.write(id, 'default') as string;
+    assert.equal((await stat(s.snapshotDir)).mode & 0o777, 0o700, 'the script must find a 0700 dir waiting');
+    // Stand in for the script: the snapshot it would write on the first turn.
+    const snapshot = s.store.snapshotFor(id);
+    await writeFile(snapshot, JSON.stringify({ v: 1, at: Date.now(), model: 'Opus 5' }), { mode: 0o600 });
+    s.store.remove(id);
+    await assert.rejects(readFile(file, 'utf8'), /ENOENT/, 'settings file gone');
+    await assert.rejects(readFile(snapshot, 'utf8'), /ENOENT/, 'snapshot gone with the session');
+    s.store.remove(id); // Idempotent for both.
+    s.store.remove('never-existed');
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
+test('resetDir() wipes the snapshot directory too and recreates it 0700', async () => {
+  const s = await makeStore();
+  try {
+    await mkdir(s.snapshotDir, { recursive: true });
+    await writeFile(join(s.snapshotDir, 'from-a-previous-run.json'), '{"v":1,"at":1}');
+    s.store.resetDir();
+    assert.deepEqual(await readdir(s.snapshotDir), [], 'no snapshot survives a restart');
+    assert.equal((await stat(s.snapshotDir)).mode & 0o777, 0o700);
   } finally {
     await rm(s.root, { recursive: true, force: true });
   }
@@ -268,7 +345,12 @@ test('a claude session gets a per-session settings file, the exact statusLine JS
     assert.deepEqual(Object.keys(written), ['statusLine'], 'the file carries NOTHING but statusLine');
     assert.deepEqual(written['statusLine'], {
       type: 'command',
-      command: `${process.execPath} ${join(projectRoot, 'server', 'statusline.mjs')} acceptEdits ${join(server.dataDir, 'prefs.json')}`,
+      // ... prefs.json, then the session's own snapshot file (B1): the script's
+      // fourth argument, composed here and nowhere else.
+      command:
+        `${process.execPath} ${join(projectRoot, 'server', 'statusline.mjs')} acceptEdits ` +
+        `${join(server.dataDir, 'prefs.json')} ` +
+        `${join(server.dataDir, 'statusline-snapshots', `${session.id}.json`)}`,
       refreshInterval: STATUSLINE_REFRESH_SECONDS,
     });
 
@@ -307,7 +389,11 @@ test('no --permission-mode -> the settings command says `default`; an unknown on
     const bareFile = JSON.parse(
       await readFile(join(server.dataDir, 'session-settings', `${bare.id}.json`), 'utf8'),
     ) as { statusLine: { command: string } };
-    assert.equal(bareFile.statusLine.command, `${process.execPath} ${script} default ${prefs}`);
+    const snapshot = (id: string): string => join(server.dataDir, 'statusline-snapshots', `${id}.json`);
+    assert.equal(
+      bareFile.statusLine.command,
+      `${process.execPath} ${script} default ${prefs} ${snapshot(bare.id)}`,
+    );
 
     const odd = await createSession(server, {
       command: stub.bin,
@@ -319,7 +405,10 @@ test('no --permission-mode -> the settings command says `default`; an unknown on
     const oddFile = JSON.parse(
       await readFile(join(server.dataDir, 'session-settings', `${odd.id}.json`), 'utf8'),
     ) as { statusLine: { command: string } };
-    assert.equal(oddFile.statusLine.command, `${process.execPath} ${script} unknown ${prefs}`);
+    assert.equal(
+      oddFile.statusLine.command,
+      `${process.execPath} ${script} unknown ${prefs} ${snapshot(odd.id)}`,
+    );
   } finally {
     await rm(stub.dir, { recursive: true, force: true });
     await server.stop();
@@ -412,10 +501,15 @@ test('boot wipes BOTH status-line leftovers: the session-settings directory (070
   const root = await mkdtemp(join(tmpdir(), 'ai-sm-settings-boot-'));
   const dataDir = join(root, 'data');
   const settingsDir = join(dataDir, 'session-settings');
+  const snapshotDir = join(dataDir, 'statusline-snapshots');
   const cacheFile = join(dataDir, 'statusline-cache.json');
   try {
     await mkdir(settingsDir, { recursive: true });
     await writeFile(join(settingsDir, 'stale-from-last-run.json'), '{"statusLine":{}}');
+    // Same reasoning for a snapshot (B1): it describes a session that died
+    // with the previous backend, and it is just as foreign-writable as the cache.
+    await mkdir(snapshotDir, { recursive: true });
+    await writeFile(join(snapshotDir, 'sess-from-last-run.json'), '{"v":1,"at":1,"model":"zombie"}');
     await writeFile(
       cacheFile,
       JSON.stringify({ 'sess-from-last-run': { at: Date.now(), branch: 'zombie', cwd: '/tmp' } }),
@@ -425,11 +519,13 @@ test('boot wipes BOTH status-line leftovers: the session-settings directory (070
       const entries = await readdir(settingsDir);
       assert.deepEqual(entries, [], 'the previous run left nothing behind');
       assert.equal((await stat(settingsDir)).mode & 0o777, 0o700, 'directory is user-only');
+      assert.deepEqual(await readdir(snapshotDir), [], 'no snapshot survives the boot either');
+      assert.equal((await stat(snapshotDir)).mode & 0o777, 0o700, 'snapshot directory is user-only');
       await assert.rejects(readFile(cacheFile, 'utf8'), /ENOENT/, 'the branch cache is deleted at boot');
       assert.deepEqual(
         (await readdir(dataDir)).filter((f) => f.includes('statusline')),
-        [],
-        'and nothing cache-shaped is left in its place',
+        ['statusline-snapshots'],
+        'nothing cache-shaped is left in its place — only the (empty) snapshot directory',
       );
     } finally {
       await server.stop();
@@ -551,7 +647,7 @@ test('a settings-panel write reaches an ALREADY RUNNING session: the script re-r
     assert.equal(run(), 'Opus 5 | $1.50 | ctx 10%', 'two more items, no restart');
 
     assert.equal((await api(server, 'PUT', '/api/prefs', { statusLine: { ...only, enabled: false } })).status, 200);
-    assert.equal(run(), '', 'the master switch blanks the bar of a running session');
+    assert.equal(run(), '', 'switching Claude\'s own line off blanks the bar of a running session');
   } finally {
     await rm(stub.dir, { recursive: true, force: true });
     await server.stop();

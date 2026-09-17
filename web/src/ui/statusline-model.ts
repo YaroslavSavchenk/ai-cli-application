@@ -1,6 +1,8 @@
 /**
  * Config model for CLAUDE CODE'S OWN status line — the line Claude draws at the
- * bottom of its terminal, produced by `server/statusline.mjs`.
+ * bottom of its terminal, produced by `server/statusline.mjs`. Since Nocturne
+ * B1 the same config drives a SECOND place: the app's own bar under the
+ * terminal (`paneBar`, rendered from these toggles by ui/pane-status-model.ts).
  *
  * NOT to be confused with `web/src/ui/statusline.ts`, which is the APP's bottom
  * chrome bar (ws latency, session counts, uptime). This module never renders
@@ -42,8 +44,10 @@ const FACTORY: StatusLineCfg = {
 
 /**
  * The keys of StatusLineCfg, in the order the status line draws them; the two
- * pane-bar-only keys (`paneBar`, `time`, Nocturne B1) last — the script skips
- * them, the pane bar (ui/pane-status-model.ts) reads them.
+ * pane-bar keys (`paneBar`, `time`, Nocturne B1) last — the pane bar
+ * (ui/pane-status-model.ts) reads them; the script ignores `time` entirely and
+ * reads `paneBar` for one thing only (skipping its git probe when neither bar
+ * would show a branch).
  */
 const KEYS: (keyof StatusLineCfg)[] = [
   'enabled',

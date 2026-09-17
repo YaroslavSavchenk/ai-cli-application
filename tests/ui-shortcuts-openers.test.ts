@@ -146,8 +146,11 @@ test('there is exactly ONE overlay instance — the key, the button, the statusl
     MAIN.includes('openShortcuts: () => shortcuts.toggle(),'),
     'the statusline button must still open it',
   );
-  assert.ok(
-    MAIN.includes('{ openShortcuts: () => shortcuts.toggle() }'),
+  // The settings panel takes a deps OBJECT (B1 added repaintStatus to it), so
+  // the opener is matched inside that call rather than as a one-line literal.
+  assert.match(
+    MAIN,
+    /initSettings\(modalHost, settingsBtn, \{\s*openShortcuts: \(\) => shortcuts\.toggle\(\),/,
     'the settings panel must be handed the same opener',
   );
   // The bare `?` key path (outside editable targets) must keep working.

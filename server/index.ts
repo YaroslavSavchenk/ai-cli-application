@@ -64,6 +64,7 @@ import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionSettingsStore } from './session-settings.ts';
+import { TelemetryWatcher } from './telemetry.ts';
 import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
@@ -282,6 +283,7 @@ history.load({ readOnly: standbyWaiting });
 const sessionSettings = new SessionSettingsStore(
   {
     dir: paths.sessionSettingsDir,
+    snapshotDir: paths.statuslineSnapshotDir,
     scriptPath: join(serverDir, 'statusline.mjs'),
     prefsFile: paths.prefsFile,
     nodePath: process.execPath,
@@ -319,6 +321,16 @@ if (!standbyWaiting) {
   resetUpdateArtifacts();
 }
 const sessions = new SessionManager(log, history, sessionSettings);
+/**
+ * The status-line snapshots the script writes for each claude session, back
+ * into SessionInfo.telemetry (and from there to every attached client as the
+ * existing `info` message) — the pane status bar's data source, B1.
+ *
+ * Started in beginListening(), NOT here: in a standby child the wipe of the
+ * directory is deferred to `go`, and watching a directory that is about to be
+ * removed and recreated would watch the wrong inode.
+ */
+const telemetry = new TelemetryWatcher(paths.statuslineSnapshotDir, log);
 // GitHub connection. The OAuth client_id comes from env; absent/empty disables
 // only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
 // answers a clean not-available signal). The PASTED-TOKEN path and every
@@ -663,6 +675,10 @@ server.on('error', (err) => {
  * has already done by the time it reports in.
  */
 function beginListening(): void {
+  // After resetSessionArtifacts() on both paths (module load for a normal boot,
+  // the `go` handler for a standby), so the directory being watched is the one
+  // this run's sessions write into.
+  telemetry.start((id, snapshot) => sessions.setTelemetry(id, snapshot));
   server.listen(portHint, '127.0.0.1');
 }
 
@@ -698,6 +714,7 @@ const restart = new RestartController({
     // Same order as shutdown(), minus the unlink: runtime.json is about to
     // belong to the child, so removing it here would blind the launcher.
     lifecycle.stop();
+    telemetry.stop();
     releaseChecker?.stop();
     history.endAllLive('shutdown');
     sessions.destroyAll();
@@ -861,6 +878,7 @@ function shutdown(cause: string): void {
       `presence=${lifecycle.presenceCount} attached=${lifecycle.attachedCount}`,
   );
   lifecycle.stop();
+  telemetry.stop();
   releaseChecker?.stop();
   // A frontend build in flight is this process's child: it must not outlive us
   // writing into web/dist-next, and its half-written output goes with it.

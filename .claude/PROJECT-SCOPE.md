@@ -738,8 +738,37 @@ multi-pane layouts on top.
   not-yet-trusted workspace, and the moments before the first reply.
   Sessions whose client args already carry `--settings`, and non-claude
   commands, are left alone. Data-dir artifacts: `session-settings/`
-  (0700, wiped at boot) and `statusline-cache.json` (0600, a ~5 s
-  git-branch cache, wiped at boot).
+  (0700, wiped at boot), `statusline-cache.json` (0600, a ~5 s
+  git-branch cache, wiped at boot) and, since Nocturne B1,
+  `statusline-snapshots/` (0700, wiped at boot; one 0600 file per app
+  session id, written by the script, see the next bullet).
+- **Pane status bar — Nocturne B1, 2026-09-17 (decision 2 of
+  `.claude/PLAN-NOCTURNE.md`, user 2026-09-16; spec `.claude/PLAN-B1.md`).**
+  The strip under each terminal (back since A3 with Model / Mode / Time
+  from argv) renders the SAME checklist as Settings → Status bar, fed by
+  the payload Claude Code hands `server/statusline.mjs`: the server passes
+  the script a fourth argument, the absolute path of a per-session
+  snapshot (`<dataDir>/statusline-snapshots/<appSessionId>.json`, keyed by
+  the APP id — a resumed conversation's `session_id` is the old one, and
+  the app never guesses a mapping); the script writes it atomically, only
+  when the drawable values changed, regardless of whether Claude's own
+  line is on; `server/telemetry.ts` watches the directory (filename gate,
+  `O_NOFOLLOW`, regular file only, 8 KiB cap, every string
+  control-stripped and capped, every number finite and clamped — the data
+  dir is not a boundary) and hands the result to the session manager,
+  which sets `SessionInfo.telemetry` and re-sends the existing `info`
+  frame when it changed. Items, in the v3 order: Model (what Claude
+  reports beats the argv guess), Mode (argv, launch mode), Branch, Cost
+  (> 0 only), Context, Usage (amber at ≥ 80 %), Time (running sessions
+  only), Changed (`+a -r` when either > 0). The checklist has TWO
+  switches — `Inside the terminal` (`enabled`, Claude's own line) and
+  `Under the terminal` (`paneBar`) — both ON by default, so the same
+  values stand twice until the user switches one off (accepted
+  consequence); `Session time` is a checklist row the pane bar alone
+  honours. Active skill has no source and is dropped, no placeholder. An
+  exited session keeps its last values; Time drops. The script reads
+  `paneBar` for one thing only: skipping the git probe when nobody would
+  show the branch.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's
   call; shape decided the same day.** The app stops being a passive
   registrar of existing directories and can *create* projects itself, and

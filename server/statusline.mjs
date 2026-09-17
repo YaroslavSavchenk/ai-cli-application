@@ -29,7 +29,23 @@
  * miscounted cell corrupts the line Claude Code truncates.
  *
  * Usage (composed by the server, never by a client):
- *   node /abs/path/statusline.mjs <permission-mode> <abs path to prefs.json>
+ *   node /abs/path/statusline.mjs <permission-mode> <abs path to prefs.json> \
+ *        [<abs path to this session's snapshot file>]
+ *
+ * THE FOURTH ARGUMENT (Nocturne B1) is optional. When it is there we also write
+ * a per-session SNAPSHOT of the payload's drawable values to that path (0600,
+ * tmp + rename), which is how the app's OWN status bar — the one the browser
+ * draws UNDER the terminal — learns what Claude Code reports. Three rules:
+ *   - it is written REGARDLESS of `enabled`: the pane bar may be on while
+ *     Claude's own line inside the terminal is off, so the write happens before
+ *     the enabled check, not inside buildLine;
+ *   - it is written ONLY WHEN THE CONTENT CHANGED (everything but the `at`
+ *     stamp is compared against what the file already holds), so an idle
+ *     session's 2 s refresh causes no churn on disk and no needless watcher
+ *     wake-up in the backend;
+ *   - it obeys the same HONESTY RULE as the line: a value the payload does not
+ *     really carry is an ABSENT KEY, never a zero.
+ * Without the argument the script behaves exactly as it did before B1.
  *
  * <permission-mode> is one of the four values in MODE_LABELS, or anything else
  * (e.g. 'unknown') to omit the mode item. It is an ARGUMENT because the payload
@@ -43,7 +59,17 @@
  * which changes per invocation and would make the cache useless and unbounded.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** The four `--permission-mode` values the app launches with, in plain words. */
@@ -67,10 +93,12 @@ const DEFAULT_CONFIG = {
   lines: false,
   context: true,
   usage: false,
-  // Nocturne B1: read by the app's pane bar (web/src/ui/pane-status-model.ts),
-  // NOT by this script — `paneBar` switches that bar, `time` is its Session
-  // time item (the payload carries no start time). They live here so the
-  // panel's factory set and this table stay one list (tests/ui-statusline-model).
+  // Nocturne B1: drawn by the app's pane bar (web/src/ui/pane-status-model.ts).
+  // `paneBar` switches that bar; this script reads it for exactly one thing —
+  // skipping the git probe when neither bar would show a branch (see main()).
+  // `time` is the bar's Session time item and is ignored here entirely (the
+  // payload carries no start time). They live here so the panel's factory set
+  // and this table stay one list (tests/ui-statusline-model).
   paneBar: true,
   time: true,
 };
@@ -128,6 +156,11 @@ function pct(value) {
 function obj(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
 }
+
+/** Snapshot schema version — parseSnapshot in server/telemetry.ts requires 1. */
+const SNAPSHOT_VERSION = 1;
+/** Ceiling on the snapshot we read back to compare — telemetry.ts's own cap. */
+const MAX_SNAPSHOT_BYTES = 8 * 1024;
 
 /** Read the toggles fresh from prefs.json. Absent/corrupt/foreign shape -> defaults. */
 function readConfig(prefsPath) {
@@ -203,7 +236,9 @@ function probeBranch(cwd) {
 function writeCache(file, cache) {
   const tmp = `${file}.${process.pid}.tmp`;
   try {
-    writeFileSync(tmp, JSON.stringify(cache), { mode: 0o600 });
+    // 'wx': the tmp name is predictable, so a pre-planted file or dangling
+    // symlink there must fail with EEXIST instead of being written through.
+    writeFileSync(tmp, JSON.stringify(cache), { mode: 0o600, flag: 'wx' });
     renameSync(tmp, file);
   } catch {
     try {
@@ -212,6 +247,112 @@ function writeCache(file, cache) {
       // Nothing to clean up.
     }
   }
+}
+
+/**
+ * Per-session snapshot for the app's own status bar (see the fourth-argument
+ * note at the top). Same extraction helpers as the line, same honesty rule, and
+ * a write only when something drawable actually changed.
+ *
+ * `branch` is the value branchFor already returned for the line — there is
+ * deliberately no second git probe here.
+ *
+ * Every failure is swallowed: this file is a nicety, and the HARD RULE is that
+ * nothing this script does may print or fail into the user's terminal.
+ */
+function writeSnapshot(file, payload, branch) {
+  const cost = obj(payload.cost);
+  const snapshot = { v: SNAPSHOT_VERSION, at: Date.now() };
+
+  const model = obj(payload.model);
+  const name = clean(model?.display_name) || clean(model?.id);
+  if (name !== '') snapshot.model = name;
+
+  if (branch !== null && branch !== undefined) snapshot.branch = branch;
+
+  const usd = num(cost?.total_cost_usd);
+  // 0 is what a session that has not called the API yet reports: real, but it
+  // says nothing. Same call as the line makes.
+  if (usd !== null && usd > 0) snapshot.cost = usd;
+
+  const added = num(cost?.total_lines_added) ?? 0;
+  const removed = num(cost?.total_lines_removed) ?? 0;
+  if (added > 0 || removed > 0) {
+    snapshot.linesAdded = Math.round(added);
+    snapshot.linesRemoved = Math.round(removed);
+  }
+
+  // null until the first turn — omitted, never reported as 0%.
+  const context = pct(obj(payload.context_window)?.used_percentage);
+  if (context !== null) snapshot.context = context;
+
+  const limits = obj(payload.rate_limits);
+  const five = pct(obj(limits?.five_hour)?.used_percentage);
+  const seven = pct(obj(limits?.seven_day)?.used_percentage);
+  if (five !== null) snapshot.usage5h = five;
+  if (seven !== null) snapshot.usage7d = seven;
+
+  // Compare everything except the timestamp: a 2 s refresh that reports the
+  // same numbers must leave the file (and its mtime) completely alone.
+  const previous = readPrevious(file);
+  if (previous !== undefined && drawable(previous) === drawable(snapshot)) return;
+
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    // 'wx': the tmp name is predictable, so a pre-planted file or dangling
+    // symlink there must fail with EEXIST instead of being written through.
+    writeFileSync(tmp, JSON.stringify(snapshot), { mode: 0o600, flag: 'wx' });
+    renameSync(tmp, file);
+  } catch {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // Nothing to clean up.
+    }
+  }
+}
+
+/**
+ * The snapshot already on disk, or undefined for "write it" — which is what
+ * every refusal below means. Bounded, O_NOFOLLOW, regular files only: the data
+ * dir is not a boundary (any process running as this user can plant a symlink
+ * or a FIFO at this path, and a FIFO would hang the script on every 2 s tick),
+ * so the server side reads this same file the same way (#read in
+ * server/telemetry.ts).
+ */
+function readPrevious(file) {
+  let fd;
+  try {
+    // O_NONBLOCK too: a FIFO opened for reading blocks until a writer shows
+    // up, which would hang this script on every tick; the isFile() check below
+    // then refuses it. A regular file reads the same with or without the flag.
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return undefined; // No file yet, unreadable, or a symlink we refuse.
+  }
+  try {
+    if (!fstatSync(fd).isFile()) return undefined;
+    const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
+    const read = readSync(fd, buffer, 0, MAX_SNAPSHOT_BYTES + 1, 0);
+    if (read > MAX_SNAPSHOT_BYTES) return undefined;
+    return obj(JSON.parse(buffer.subarray(0, read).toString('utf8')));
+  } catch {
+    return undefined; // Not JSON, or unreadable halfway.
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      // Nothing to do about a failed close.
+    }
+  }
+}
+
+/** A snapshot's content minus `at`, key-sorted, as a comparable string. */
+function drawable(snapshot) {
+  const keys = Object.keys(snapshot)
+    .filter((key) => key !== 'at')
+    .sort();
+  return JSON.stringify(keys.map((key) => [key, snapshot[key]]));
 }
 
 /**
@@ -297,8 +438,13 @@ function permissionLabel(payload, argMode) {
   return typeof argMode === 'string' && Object.hasOwn(MODE_LABELS, argMode) ? MODE_LABELS[argMode] : null;
 }
 
-/** Build the whole line from payload + toggles. Returns '' when nothing is drawable. */
-function buildLine(payload, config, cacheFile) {
+/**
+ * Build the whole line from payload + toggles. Returns '' when nothing is drawable.
+ *
+ * `branch` is resolved by the caller (main) rather than here: the snapshot
+ * records the very same value, and the git probe must happen exactly once.
+ */
+function buildLine(payload, config, branch) {
   if (!config.enabled) return '';
   const items = [];
 
@@ -315,15 +461,7 @@ function buildLine(payload, config, cacheFile) {
     if (label !== null) items.push(label);
   }
 
-  if (config.branch) {
-    // NOT run through clean(): this is a real path handed to spawnSync as cwd,
-    // where collapsing whitespace would break a legitimate directory name. It
-    // never reaches a shell, and an unusable value just fails the probe.
-    const workspaceDir = obj(payload.workspace)?.current_dir;
-    const cwd = typeof workspaceDir === 'string' && workspaceDir !== '' ? workspaceDir : payload.cwd;
-    const branch = branchFor(payload.session_id, cwd, cacheFile);
-    if (branch !== null) items.push(`git:${branch}`);
-  }
+  if (config.branch && branch !== null) items.push(`git:${branch}`);
 
   const cost = obj(payload.cost);
 
@@ -366,6 +504,7 @@ async function main() {
   const payload = obj(JSON.parse(raw));
   if (payload === undefined) return '';
   const prefsPath = process.argv[3];
+  const snapshotFile = typeof process.argv[4] === 'string' && process.argv[4] !== '' ? process.argv[4] : undefined;
   const config = readConfig(prefsPath);
   // The cache lives beside prefs.json, i.e. in the app data dir. This
   // derivation MUST AGREE WITH `statuslineCacheFile` in server/config.ts, which
@@ -375,7 +514,24 @@ async function main() {
     typeof prefsPath === 'string' && prefsPath !== ''
       ? join(dirname(prefsPath), 'statusline-cache.json')
       : undefined;
-  return buildLine(payload, config, cacheFile);
+  // ONE git probe per invocation, shared by the line and the snapshot. It is
+  // skipped when the branch toggle is off, and also when NOBODY would show the
+  // branch: the server always passes a snapshot path, so with both bars off the
+  // probe would fork git every 2 s for a value nothing draws. The snapshot is
+  // still written in that case, just without `branch`.
+  let branch = null;
+  if (config.branch && (config.enabled || (snapshotFile !== undefined && config.paneBar))) {
+    // NOT run through clean(): this is a real path handed to spawnSync as cwd,
+    // where collapsing whitespace would break a legitimate directory name. It
+    // never reaches a shell, and an unusable value just fails the probe.
+    const workspaceDir = obj(payload.workspace)?.current_dir;
+    const cwd = typeof workspaceDir === 'string' && workspaceDir !== '' ? workspaceDir : payload.cwd;
+    branch = branchFor(payload.session_id, cwd, cacheFile);
+  }
+  // BEFORE the enabled check inside buildLine, on purpose: the pane bar is a
+  // separate switch from Claude's own line.
+  if (snapshotFile !== undefined) writeSnapshot(snapshotFile, payload, branch);
+  return buildLine(payload, config, branch);
 }
 
 try {

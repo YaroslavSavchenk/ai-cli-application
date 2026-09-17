@@ -29,10 +29,11 @@ import { basename } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
-import type { SessionInfo, ServerMessage } from '../shared/protocol.ts';
+import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
+import { sameTelemetry } from './telemetry.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
@@ -622,6 +623,30 @@ export class SessionManager {
     session.info.rows = rows;
     if (session.pty !== null) session.pty.resize(cols, rows);
     else this.#slog('debug', `${id} resize ${cols}x${rows} recorded but the pty has exited`);
+  }
+
+  /**
+   * Record what Claude Code last reported about a session (server/telemetry.ts
+   * watching the snapshot the status-line script writes) and tell the attached
+   * clients — the pane status bar under the terminal is drawn from this.
+   *
+   * Two silent no-ops, both normal:
+   *   - NO SUCH SESSION. The watcher can fire for a file whose session ended
+   *     between the write and the read, and a snapshot never creates a session.
+   *   - NOTHING CHANGED. The script already writes only on change, so this is
+   *     belt and braces — but it is what guarantees one broadcast per real
+   *     change and none for a re-read of the same file.
+   */
+  setTelemetry(id: string, telemetry: SessionTelemetry): void {
+    const session = this.#sessions.get(id);
+    if (session === undefined) {
+      this.#slog('debug', `${id} telemetry ignored: no such session`);
+      return;
+    }
+    if (sameTelemetry(session.info.telemetry, telemetry)) return;
+    session.info.telemetry = telemetry;
+    this.#slog('debug', `${id} telemetry updated (${session.clients.size} client(s) attached)`);
+    this.#broadcast(session, { type: 'info', session: { ...session.info } });
   }
 
   markSeen(id: string): boolean {

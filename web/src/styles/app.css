@@ -1102,6 +1102,13 @@ select:focus-visible,
   color: var(--color-danger);
 }
 
+/* an account window running out (B1: Usage at or above 80%). Semantic, never
+   themed — the same attention hue the statusline's own readout uses, so amber
+   means one thing everywhere in this app. */
+.pane-status-v.is-warn {
+  color: var(--color-attn);
+}
+
 /* ---- background agents (empty until part B7) -------------------------------- */
 
 .pane-agents {

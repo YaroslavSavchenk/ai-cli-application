@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 tags: [nocturne, status-bar, statusline, telemetry]
 ---
 # Pane status bar data source (open decision 2, part B1)
@@ -38,3 +38,14 @@ checklist.
   choice as-is): B1 would then be nothing but the checklist that already
   exists; the v3 design the user chose in full ([[nocturne-full-switch]])
   has the pane bar.
+
+## Implemented 2026-09-17 (B1, [[2026-09-17-nocturne-b1]])
+
+Shape as built, with the orchestrator's defaults the user has not confirmed
+one by one: the snapshot is keyed by the APP session id (a fourth argument
+to the script — a resumed conversation's `session_id` is the old id, so the
+payload key was never safe), one file per session in
+`<dataDir>/statusline-snapshots/`; the checklist gained a second switch
+(`paneBar`, the bar under the terminal) beside `enabled` (Claude's line),
+both ON by default, and a `Session time` row the pane bar alone honours.
+Spec `.claude/PLAN-B1.md`.

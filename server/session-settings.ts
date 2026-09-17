@@ -20,12 +20,17 @@
  * a shell), so it is composed exclusively from:
  *   - process.execPath and two server-known absolute paths, and
  *   - one value out of a closed five-element enum (the four `--permission-mode`
- *     values plus 'unknown').
+ *     values plus 'unknown'), and
+ *   - the session's SNAPSHOT path (Nocturne B1), which is `<snapshotDir>/<id>
+ *     .json`: a server-known directory joined with the session id the caller
+ *     already passed SAFE_ID (write() refuses anything else before it ever
+ *     reaches here, so no `..`, no separator, no space, no NUL).
  * No client-supplied byte ever reaches it. Paths are still POSIX-quoted, so a
  * data dir containing a space or a quote cannot reshape the command either.
  *
- * The whole directory is wiped at boot: sessions never survive a backend
- * restart, so a file that outlives its session is garbage by definition.
+ * BOTH directories are wiped at boot: sessions never survive a backend
+ * restart, so a settings file — or a snapshot — that outlives its session is
+ * garbage by definition.
  */
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -106,6 +111,12 @@ export function parsePermissionMode(args: readonly string[]): StatuslineMode {
 export interface SessionSettingsConfig {
   /** Directory the per-session files live in (created 0700, wiped at boot). */
   dir: string;
+  /**
+   * Directory the script writes its per-session status-line SNAPSHOT into
+   * (`<snapshotDir>/<id>.json`, created 0700, wiped at boot). It is handed to
+   * the script as its fourth argument; server/telemetry.ts watches it.
+   */
+  snapshotDir: string;
   /** Absolute path of statusline.mjs. */
   scriptPath: string;
   /** Absolute path of prefs.json — the script re-reads it on every invocation. */
@@ -125,18 +136,20 @@ export class SessionSettingsStore {
     this.#sslog = scoped(log, 'session-settings');
   }
 
-  /** Wipe and recreate the directory (0700). Called once at boot. */
+  /** Wipe and recreate both directories (0700). Called once at boot. */
   resetDir(): void {
-    try {
-      rmSync(this.#config.dir, { recursive: true, force: true });
-    } catch (err) {
-      this.#log('warn', `could not clear ${this.#config.dir}: ${describeError(err)}`);
-    }
-    try {
-      mkdirSync(this.#config.dir, { recursive: true, mode: 0o700 });
-      this.#sslog('debug', `reset ${this.#config.dir} (0700, wiped at boot)`);
-    } catch (err) {
-      this.#log('error', `could not create ${this.#config.dir}: ${describeError(err)}`);
+    for (const dir of [this.#config.dir, this.#config.snapshotDir]) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (err) {
+        this.#log('warn', `could not clear ${dir}: ${describeError(err)}`);
+      }
+      try {
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
+        this.#sslog('debug', `reset ${dir} (0700, wiped at boot)`);
+      } catch (err) {
+        this.#log('error', `could not create ${dir}: ${describeError(err)}`);
+      }
     }
   }
 
@@ -144,9 +157,34 @@ export class SessionSettingsStore {
     return join(this.#config.dir, `${id}.json`);
   }
 
-  /** The `statusLine.command` shell string for one session's mode. */
-  command(mode: StatuslineMode): string {
-    return [this.#config.nodePath, this.#config.scriptPath, mode, this.#config.prefsFile]
+  /**
+   * Where the script writes this session's status-line snapshot.
+   *
+   * Guarded like every other path this store composes: an unusual id must never
+   * become a path word, whichever caller asks (write() already checks before it
+   * calls, so nothing in the normal path changes).
+   */
+  snapshotFor(id: string): string {
+    if (!SAFE_ID.test(id)) {
+      throw new Error(`refusing to compose a snapshot path for unusual session id ${JSON.stringify(id)}`);
+    }
+    return join(this.#config.snapshotDir, `${id}.json`);
+  }
+
+  /**
+   * The `statusLine.command` shell string for one session's mode.
+   *
+   * The session id is only ever the one write() already checked against
+   * SAFE_ID — see the SECURITY note at the top of this file.
+   */
+  command(mode: StatuslineMode, id: string): string {
+    return [
+      this.#config.nodePath,
+      this.#config.scriptPath,
+      mode,
+      this.#config.prefsFile,
+      this.snapshotFor(id),
+    ]
       .map(shellQuote)
       .join(' ');
   }
@@ -165,12 +203,15 @@ export class SessionSettingsStore {
     const body = {
       statusLine: {
         type: 'command',
-        command: this.command(mode),
+        command: this.command(mode, id),
         refreshInterval: STATUSLINE_REFRESH_SECONDS,
       },
     };
     try {
       mkdirSync(this.#config.dir, { recursive: true, mode: 0o700 });
+      // The script writes its snapshot here on the very first turn, so the
+      // directory must exist by then — and with the same 0700 as the rest.
+      mkdirSync(this.#config.snapshotDir, { recursive: true, mode: 0o700 });
       writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
       this.#sslog('debug', `wrote ${file} for mode '${mode}'`);
       return file;
@@ -180,14 +221,21 @@ export class SessionSettingsStore {
     }
   }
 
-  /** Delete a session's file. Idempotent; a missing file is not an error. */
+  /**
+   * Delete a session's settings file AND its snapshot. Idempotent; a missing
+   * file is not an error. The snapshot goes with the session because it
+   * describes a conversation that no longer runs — the last values stay in
+   * memory on SessionInfo.telemetry, which is what an exited pane still shows.
+   */
   remove(id: string): void {
     if (!SAFE_ID.test(id)) return;
-    try {
-      unlinkSync(this.fileFor(id));
-      this.#sslog('debug', `removed ${this.fileFor(id)}`);
-    } catch {
-      // Already gone (exit then delete is the normal path).
+    for (const file of [this.fileFor(id), this.snapshotFor(id)]) {
+      try {
+        unlinkSync(file);
+        this.#sslog('debug', `removed ${file}`);
+      } catch {
+        // Already gone (exit then delete is the normal path).
+      }
     }
   }
 }

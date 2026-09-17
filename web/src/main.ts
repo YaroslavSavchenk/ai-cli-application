@@ -31,7 +31,13 @@ import type { UiPrefs } from '../../shared/protocol.ts';
 import * as st from './state.ts';
 import * as api from './api.ts';
 import { initTabs } from './ui/tabs.ts';
-import { initPanes, killSession, refreshPaneArea, requestTerminalFocus } from './ui/panes.ts';
+import {
+  initPanes,
+  killSession,
+  refreshPaneArea,
+  repaintStatus,
+  requestTerminalFocus,
+} from './ui/panes.ts';
 import { flash, initStatusline } from './ui/statusline.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initHistory } from './ui/history.ts';
@@ -518,7 +524,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // `openShortcuts` is deferred on purpose: the overlay is constructed AFTER
   // this panel so its scrim stacks above it (equal z-index, later in the DOM),
   // and the panel's own KEYS section opens it over itself.
-  const settings = initSettings(modalHost, settingsBtn, { openShortcuts: () => shortcuts.toggle() });
+  const settings = initSettings(modalHost, settingsBtn, {
+    openShortcuts: () => shortcuts.toggle(),
+    repaintStatus,
+  });
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.

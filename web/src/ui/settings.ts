@@ -3,8 +3,11 @@
  * `session-manager-v3.html` lines 561-640): a 170px column of page names beside
  * a scrolling page. Five pages:
  *
- *   Status bar          what Claude Code's own status line shows — LIVE, the
- *                       prefs `statusLine` key, exactly as before.
+ *   Status bar          what a session states about itself — LIVE, the prefs
+ *                       `statusLine` key. Since Nocturne B1 one checklist
+ *                       drives TWO places: Claude Code's own line inside the
+ *                       terminal (`enabled`) and the app's bar under it
+ *                       (`paneBar`, ui/pane-status-model.ts).
  *   Preferences         which tools show up and the keys they need — MOCK until
  *                       part B6; every control is inert and says so.
  *   Keyboard            the chords the app takes off the terminal, plus the
@@ -60,6 +63,15 @@ export interface SettingsPanel {
 export interface SettingsDeps {
   /** Opens the shortcuts overlay (one instance, shared with the `?` key). */
   openShortcuts(): void;
+  /**
+   * Redraws the status bar under every visible terminal (`ui/panes.ts`
+   * repaintStatus). Injected, not imported: that module pulls @xterm/xterm in,
+   * and this one has to stay drivable under `node --test`. A checklist change
+   * reaches Claude's own line by itself (the script re-reads prefs.json every
+   * couple of seconds) but nothing tells the panes, and a preference the user
+   * just clicked must not wait for the next session event to show up.
+   */
+  repaintStatus(): void;
 }
 
 /** The nav, in order. The gear always opens the first one. */
@@ -106,6 +118,12 @@ interface ItemRow {
   sample: string;
   /** Optional caption under the row: the honest scope of that item. */
   caption?: string;
+  /**
+   * The item exists under the terminal only — Claude's own line cannot draw it
+   * (the payload it is handed carries no such value), so the preview, which IS
+   * that line, leaves it out. Nocturne B1: `Session time`.
+   */
+  paneOnly?: boolean;
 }
 
 const ITEM_ROWS: ItemRow[] = [
@@ -118,6 +136,13 @@ const ITEM_ROWS: ItemRow[] = [
   },
   { key: 'branch', label: 'Git branch', sample: 'git:main' },
   { key: 'cost', label: 'Cost so far', sample: '$0.42' },
+  {
+    key: 'time',
+    label: 'Session time',
+    sample: '2h 15m',
+    caption: 'under the terminal only',
+    paneOnly: true,
+  },
   { key: 'lines', label: 'Lines changed', sample: '+128 -41' },
   { key: 'context', label: 'Context used', sample: 'ctx 62%' },
   {
@@ -274,7 +299,7 @@ export function initSettings(
     el(
       'p',
       'sg-lead',
-      'A session shows nothing until its first reply, and when Claude asks you to trust a folder it has not worked in before the line stays blank until you do.',
+      'A session shows nothing until its first reply, and when Claude asks you to trust a folder it has not worked in before the line stays blank until you do. With both on, the same values show twice.',
     ),
   );
 
@@ -291,10 +316,18 @@ export function initSettings(
   notice.append(noticeText, noticeNames);
   statusPage.append(notice);
 
-  // Master switch — its own row above the items it governs.
-  const master = checkRow('Show the status line', () => toggleKey('enabled'));
+  // The two places a status bar can be, each its own switch, in one group above
+  // the items they share (B1). Separate because they are separate things: one is
+  // drawn by Claude Code inside its terminal, the other by this app under it.
+  const inside = checkRow('Inside the terminal', () => toggleKey('enabled'));
+  const under = checkRow('Under the terminal', () => toggleKey('paneBar'));
   const masterWrap = el('div', 'sg-rows');
-  masterWrap.append(master.row);
+  masterWrap.append(
+    inside.row,
+    el('div', 'sg-cap', 'Claude Code’s own line, drawn at the bottom of the terminal'),
+    under.row,
+    el('div', 'sg-cap', 'the app’s bar below the terminal'),
+  );
   statusPage.append(masterWrap);
 
   const itemsWrap = el('div', 'sg-rows sg-items');
@@ -497,10 +530,14 @@ export function initSettings(
   /** Writes since this open — a late boot-prefs re-read must not undo them. */
   let writes = 0;
 
-  /** The bar as the enabled items will render it, or the honest empty line. */
+  /**
+   * The preview IS Claude's own line inside the terminal, so it follows
+   * `enabled` alone and skips the pane-bar-only items — showing `2h 15m` in a
+   * line that can never print it would promise the wrong thing.
+   */
   function renderPreview(): void {
     const cfg = getStatusLine();
-    const on = cfg.enabled ? ITEM_ROWS.filter((r) => cfg[r.key]) : [];
+    const on = cfg.enabled ? ITEM_ROWS.filter((r) => r.paneOnly !== true && cfg[r.key]) : [];
     if (on.length === 0) {
       preview.replaceChildren(el('span', 'sg-prevempty', 'Nothing selected, the bar is hidden'));
       return;
@@ -520,19 +557,23 @@ export function initSettings(
   /** Reflect the whole stored config onto the rows (boxes, aria, disabled). */
   function syncRows(): void {
     const cfg = getStatusLine();
-    master.row.setAttribute('aria-pressed', cfg.enabled ? 'true' : 'false');
-    master.box.textContent = cfg.enabled ? '✓' : '';
+    inside.row.setAttribute('aria-pressed', cfg.enabled ? 'true' : 'false');
+    inside.box.textContent = cfg.enabled ? '✓' : '';
+    under.row.setAttribute('aria-pressed', cfg.paneBar ? 'true' : 'false');
+    under.box.textContent = cfg.paneBar ? '✓' : '';
+    // The items feed BOTH bars, so they only stop deciding when both are gone.
+    const anyBar = cfg.enabled || cfg.paneBar;
     for (const r of ITEM_ROWS) {
       const row = rowEls.get(r.key);
       const box = boxEls.get(r.key);
       if (row === undefined || box === undefined) continue;
       row.setAttribute('aria-pressed', cfg[r.key] ? 'true' : 'false');
       box.textContent = cfg[r.key] ? '✓' : '';
-      // With the line switched off the items decide nothing; the group dims
+      // With both bars switched off the items decide nothing; the group dims
       // and stops taking input (the launch dialog's is-disabled idiom).
-      row.disabled = !cfg.enabled;
+      row.disabled = !anyBar;
     }
-    itemsWrap.classList.toggle('is-disabled', !cfg.enabled);
+    itemsWrap.classList.toggle('is-disabled', !anyBar);
     renderPreview();
   }
 
@@ -545,7 +586,7 @@ export function initSettings(
     writes++;
     const cfg = getStatusLine();
     log.debug(
-      `prefs statusLine: enabled=${cfg.enabled} ` +
+      `prefs statusLine: enabled=${cfg.enabled} paneBar=${cfg.paneBar} ` +
         ITEM_ROWS.map((r) => `${r.key}=${cfg[r.key]}`).join(' '),
     );
     void api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS).catch(() => {
@@ -557,12 +598,14 @@ export function initSettings(
     const cur = getStatusLine();
     setStatusLine({ ...cur, [key]: !cur[key] });
     syncRows();
+    deps.repaintStatus();
     persist();
   }
 
   function resetAll(): void {
     setStatusLine(statusLineDefaults());
     syncRows();
+    deps.repaintStatus();
     persist();
   }
 
@@ -629,6 +672,9 @@ export function initSettings(
         if (scrim.hidden || writes > 0) return;
         initStatusLine(bag.statusLine);
         syncRows();
+        // The re-read can change what the pane bar draws (another window turned
+        // an item off), and the panes hear nothing about a prefs read.
+        deps.repaintStatus();
       })
       .catch(() => {
         // Keep the in-memory config; nothing to say.

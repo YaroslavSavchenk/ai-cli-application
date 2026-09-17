@@ -4,8 +4,8 @@
  * Data dir: ~/.ai-session-manager/ (created 0700), overridable via the
  * AI_SM_DATA_DIR env var (must be an absolute path). Holds runtime.json,
  * projects.json, prefs.json, github.json, history.json,
- * session-settings/ (0700, wiped at boot), statusline-cache.json (0600, wiped
- * at boot) and server.log.
+ * session-settings/ (0700, wiped at boot), statusline-snapshots/ (0700, wiped
+ * at boot), statusline-cache.json (0600, wiped at boot) and server.log.
  *
  * The process runs detached — nothing may depend on stdout. All logging
  * appends to server.log in the data dir: one line per event, shaped
@@ -60,6 +60,21 @@ export interface DataPaths {
    * file found here at startup is garbage.
    */
   sessionSettingsDir: string;
+  /**
+   * Per-session status-line SNAPSHOTS written by server/statusline.mjs (mode
+   * 0600, one `<appSessionId>.json` per claude session) and read back by
+   * server/telemetry.ts, which is what puts Claude Code's own numbers
+   * (model, cost, context, usage, lines, branch) into the app's pane status
+   * bar. Created 0700 and WIPED at boot beside session-settings/, for the
+   * same reason: no session survives a restart, so a leftover snapshot
+   * describes nothing that still exists.
+   *
+   * The script does NOT derive this path — the server hands it the absolute
+   * file as the script's fourth argument (composed in
+   * SessionSettingsStore.command from a SAFE_ID-checked session id), so there
+   * is no second definition to keep in sync here.
+   */
+  statuslineSnapshotDir: string;
   /**
    * Git-branch cache written by server/statusline.mjs (mode 0600), keyed by
    * Claude Code session id. Deleted at boot by server/index.ts: no session
@@ -120,6 +135,7 @@ export function resolveDataPaths(): DataPaths {
     githubFile: join(dataDir, 'github.json'),
     historyFile: join(dataDir, 'history.json'),
     sessionSettingsDir: join(dataDir, 'session-settings'),
+    statuslineSnapshotDir: join(dataDir, 'statusline-snapshots'),
     statuslineCacheFile: join(dataDir, 'statusline-cache.json'),
     updatesDir: join(dataDir, 'updates'),
     updateCheckFile: join(dataDir, 'update-check.json'),

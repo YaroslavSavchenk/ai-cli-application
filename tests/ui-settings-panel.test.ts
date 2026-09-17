@@ -116,7 +116,7 @@ interface SettingsModule {
   initSettings(
     host: unknown,
     anchor: unknown,
-    deps: { openShortcuts(): void },
+    deps: { openShortcuts(): void; repaintStatus(): void },
   ): { open(): void; close(): void; toggle(): void; isOpen(): boolean };
 }
 interface ThemeModule {
@@ -133,9 +133,15 @@ const modalHost = dom.doc.createElement('div');
 const anchor = dom.doc.createElement('button');
 dom.body.append(modalHost, anchor);
 let shortcutsOpened = 0;
+/** `ui/panes.ts` repaintStatus, injected — counted so the pane bar's live
+ *  refresh is pinned here rather than left to a browser check. */
+let repaints = 0;
 const panel = S.initSettings(modalHost, anchor, {
   openShortcuts: () => {
     shortcutsOpened += 1;
+  },
+  repaintStatus: () => {
+    repaints += 1;
   },
 });
 const scrim = modalHost.children[0] as FakeElement;
@@ -176,6 +182,7 @@ function statusPatch(i = -1): Record<string, boolean> {
 async function reopen(): Promise<void> {
   panel.close();
   H.writes.length = 0;
+  repaints = 0;
   // The gear has focus when a user opens the panel; close() hands it back there.
   anchor.focus();
   panel.open();
@@ -279,7 +286,7 @@ test('a click on the scrim closes; a click inside the card does not', async () =
 // Status bar — the live checklist
 // ===========================================================================
 
-test('the Status bar page renders the master switch, the seven items and their captions', async () => {
+test('the Status bar page renders the two switches, the eight items and their captions', async () => {
   await reopen();
   const page = panelOf('status');
   assert.equal(byClass(page, 'sg-title')[0]?.textContent, 'Status bar');
@@ -291,18 +298,37 @@ test('the Status bar page renders the master switch, the seven items and their c
     .flatMap((g) => byClass(g, 'sg-rowlb'))
     .map((n) => n.textContent);
   assert.deepEqual(labels, [
-    'Show the status line',
+    // Nocturne B1: the two PLACES a status bar can be, then the items they share.
+    'Inside the terminal',
+    'Under the terminal',
     'Model',
     'Permission mode',
     'Git branch',
     'Cost so far',
+    'Session time',
     'Lines changed',
     'Context used',
     'Account usage',
   ]);
-  assert.equal(byClass(page, 'sg-cap').length, 2, 'two items carry an honest-scope caption');
+  assert.deepEqual(textsOf(page, 'sg-cap'), [
+    'Claude Code’s own line, drawn at the bottom of the terminal',
+    'the app’s bar below the terminal',
+    'shows the mode the session was started with',
+    'under the terminal only',
+    'works with a Claude Pro or Max account, and appears after the session’s first reply',
+  ]);
   // The sample beside a row IS the text the status line draws.
   assert.equal(byClass(row(page, 'Model'), 'sg-val')[0]?.textContent, 'opus');
+  assert.equal(byClass(row(page, 'Session time'), 'sg-val')[0]?.textContent, '2h 15m');
+});
+
+test('the lead under the preview names the both-on consequence', async () => {
+  await reopen();
+  const leads = textsOf(panelOf('status'), 'sg-lead');
+  assert.equal(
+    leads[1],
+    'A session shows nothing until its first reply, and when Claude asks you to trust a folder it has not worked in before the line stays blank until you do. With both on, the same values show twice.',
+  );
 });
 
 test('the preview strip shows the enabled items, and says so when there are none', async () => {
@@ -331,20 +357,69 @@ test('the preview strip shows the enabled items, and says so when there are none
     'and the preview agrees with the rows',
   );
 
-  row(page, 'Show the status line').click();
+  row(page, 'Inside the terminal').click();
   assert.equal(statusPatch().enabled, false);
   assert.equal(byClass(bar, 'sg-prevempty')[0]?.textContent, 'Nothing selected, the bar is hidden');
 });
 
-test('with the status line off the item rows stop taking input', async () => {
+test('the preview is Claude’s own line: it never shows Session time, and ignores the pane bar', async () => {
   await reopen();
   const page = panelOf('status');
-  row(page, 'Show the status line').click();
-  assert.equal(row(page, 'Model').disabled, true);
-  assert.ok((byClass(page, 'sg-items')[0] as FakeElement).classList.contains('is-disabled'));
-  row(page, 'Show the status line').click();
+  const bar = byClass(page, 'sg-prevbar')[0] as FakeElement;
+  assert.equal(row(page, 'Session time').getAttribute('aria-pressed'), 'true', 'it is on by default');
+  assert.equal(
+    textsOf(bar, 'sg-prevlb').includes('Session time'),
+    false,
+    'the line Claude draws is handed no start time, so it can never print one',
+  );
+  assert.equal(textsOf(bar, 'sg-prevval').includes('2h 15m'), false);
+  // Turning the pane bar off leaves that line exactly as it was.
+  const before = textsOf(bar, 'sg-prevlb');
+  row(page, 'Under the terminal').click();
+  assert.equal(statusPatch().paneBar, false);
+  assert.deepEqual(textsOf(bar, 'sg-prevlb'), before);
+});
+
+test('the items dim only when BOTH places are off — one bar left is still a bar', async () => {
+  await reopen();
+  const page = panelOf('status');
+  const itemsWrap = byClass(page, 'sg-items')[0] as FakeElement;
+
+  row(page, 'Inside the terminal').click();
+  assert.equal(row(page, 'Model').disabled, false, 'the bar under the terminal still reads them');
+  assert.equal(itemsWrap.classList.contains('is-disabled'), false);
+
+  row(page, 'Under the terminal').click();
+  assert.equal(row(page, 'Model').disabled, true, 'now there is nowhere left to draw them');
+  assert.ok(itemsWrap.classList.contains('is-disabled'));
+  assert.deepEqual(
+    [statusPatch().enabled, statusPatch().paneBar],
+    [false, false],
+    'both switches are persisted off',
+  );
+
+  row(page, 'Under the terminal').click();
   assert.equal(row(page, 'Model').disabled, false);
+  assert.equal(itemsWrap.classList.contains('is-disabled'), false);
+  row(page, 'Inside the terminal').click();
   assert.equal(statusPatch().enabled, true);
+});
+
+test('every toggle repaints the panes at once — the bar must not wait for a session event', async () => {
+  await reopen();
+  const page = panelOf('status');
+  // Opening re-reads the stored bag (another window may have changed it), and
+  // that read is a repaint reason of its own.
+  assert.equal(repaints, 1, 'the re-read on open repaints once');
+  repaints = 0;
+  row(page, 'Session time').click();
+  assert.equal(repaints, 1);
+  row(page, 'Under the terminal').click();
+  assert.equal(repaints, 2);
+  const reset = byClass(page, 'sg-textbtn').find((b) => b.textContent === 'Reset to defaults');
+  assert.ok(reset !== undefined);
+  reset.click();
+  assert.equal(repaints, 3, 'Reset to defaults is a change too');
 });
 
 test('a toggle writes the whole resolved config, and Reset to defaults restores the factory set', async () => {
@@ -361,14 +436,41 @@ test('a toggle writes the whole resolved config, and Reset to defaults restores 
     lines: true,
     context: true,
     usage: false,
+    paneBar: true,
+    time: true,
   });
   assert.equal(row(page, 'Lines changed').getAttribute('aria-pressed'), 'true');
+
+  // The two B1 keys are real members of that write, not defaults left implicit.
+  row(page, 'Session time').click();
+  assert.equal(statusPatch().time, false);
+  row(page, 'Under the terminal').click();
+  assert.equal(statusPatch().paneBar, false);
 
   const reset = byClass(page, 'sg-textbtn').find((b) => b.textContent === 'Reset to defaults');
   assert.ok(reset !== undefined, 'the page carries Reset to defaults');
   reset.click();
-  assert.equal(statusPatch().lines, false, 'back to the factory off-state');
+  const back = statusPatch();
+  assert.equal(back.lines, false, 'back to the factory off-state');
+  assert.deepEqual(
+    [back.enabled, back.paneBar, back.time],
+    [true, true, true],
+    'Reset restores BOTH places and Session time',
+  );
   assert.equal(row(page, 'Lines changed').getAttribute('aria-pressed'), 'false');
+  assert.equal(row(page, 'Under the terminal').getAttribute('aria-pressed'), 'true');
+  assert.equal(row(page, 'Session time').getAttribute('aria-pressed'), 'true');
+});
+
+test('the debug line of a write names both places', async () => {
+  await reopen();
+  H.logs.length = 0;
+  row(panelOf('status'), 'Model').click();
+  const line = H.logs.find((l) => l.startsWith('debug prefs statusLine:'));
+  assert.ok(line !== undefined, 'a write is logged');
+  assert.ok(line.includes('enabled=true'), line);
+  assert.ok(line.includes('paneBar=true'), line);
+  assert.ok(line.includes('time=true'), line);
 });
 
 test('the notice names the running sessions that cannot grow a status line, and only then', async () => {
@@ -746,7 +848,7 @@ test('a slow re-read on open never undoes a toggle the user already made', async
     'false',
     'the stored bag must not overwrite a fresh choice',
   );
-  assert.equal(row(page, 'Show the status line').getAttribute('aria-pressed'), 'true');
+  assert.equal(row(page, 'Inside the terminal').getAttribute('aria-pressed'), 'true');
   H.gate = null;
   H.prefs = {};
 });

@@ -298,7 +298,8 @@ export interface UiStatusLine {
    * fed by the snapshot the script writes (SessionTelemetry). This switch is
    * that bar; `enabled` is Claude's line INSIDE the terminal. Both ON (the
    * default) shows the same values twice — the user's accepted consequence.
-   * The script ignores this key. Default ON.
+   * The script reads this key for one thing only: skipping its git probe when
+   * neither bar would show a branch. Default ON.
    */
   paneBar?: boolean;
   /**

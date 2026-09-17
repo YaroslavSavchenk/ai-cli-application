@@ -1,7 +1,8 @@
 # B1 — The pane status bar shows what Claude Code reports
 
 Status: STARTED 2026-09-17 (user: "continue met het ontwikkelen"; the next
-part in the plan order). Part B1 of `PLAN-NOCTURNE.md`; data source = open
+part in the plan order); developed, reviewed and fixed the same day — see
+"Landed shape" below. Part B1 of `PLAN-NOCTURNE.md`; data source = open
 decision 2, DECIDED 2026-09-16 by the user
 (`memory/decisions/pane-status-bar-data-source.md`). Written by the
 orchestrator; this file names functions and regions, never line numbers.
@@ -200,8 +201,10 @@ settings.ts`, `web/src/styles/app.css`, `web/DESIGN.md`.
    - `Branch`: `telemetry.branch`.
    - `Cost`: `$` + `costUsd.toFixed(2)`, only when > 0.
    - `Context`: `${contextPct}%`.
-   - `Usage`: `${usage5hPct}% of 5h`; both present → `38% of 5h · 12% of
-     7d`; only 7d → `12% of 7d`. Tone `warn` when the shown 5h (or, without
+   - `Usage`: `${usage5hPct}% of 5h`; both present → `38% of 5h, 12% of
+     7d` (a comma, not the mock's middle dot: the A2 copy rule in
+     `tests/ui-copy-separators.test.ts` bans `·` in `web/src` literals);
+     only 7d → `12% of 7d`. Tone `warn` when the shown 5h (or, without
      it, 7d) value is ≥ 80.
    - `Time`: as today (running sessions only).
    - `Changed`: `+${linesAdded} -${linesRemoved}` when either > 0.
@@ -235,6 +238,35 @@ factory set still matches the script (already covers the new keys after
 Phase 0). A settings DOM test (pattern: `tests/ui-a7-parity.test.ts` /
 `fake-dom.ts`) — two switches, the Time row and its caption, items dim only
 when both are off, persist writes `paneBar` and `time`.
+
+## Landed shape (2026-09-17, after the review round)
+
+- Both developers ran in parallel on the Phase 0 contract; suite 2418 → 2470
+  before the fix round. Scope: PASS, no blockers. Security: no must-fix.
+- Fix round (one, lean rule 1): the script's write-on-change comparator reads
+  the existing snapshot the way the server does (`O_NOFOLLOW`, regular file
+  only, 8 KiB cap — a planted FIFO symlink hung the script every tick);
+  both atomic writers open their tmp file with `wx`; `snapshotFor()` is
+  `SAFE_ID`-guarded; the poll fallback prunes ids whose file vanished; the
+  git probe is also skipped when `paneBar` is off (the script reads that one
+  key for that one purpose; `time` stays ignored); `web/DESIGN.md` and
+  `README.md` brought in line.
+- Test gate (37 mutants) found one real defect: a named pipe planted at the
+  snapshot path blocked `openSync` in BOTH readers before `isFile()` could
+  refuse it — the backend's main thread froze, the script hung every tick.
+  Fixed with `O_NONBLOCK` on both opens (`memory/knowledge/fifo-open-blocks-main-thread.md`).
+- Accepted as-is: a snapshot written < 150 ms before the process exits is
+  unlinked before the debounce delivers it (the pane keeps the previous
+  values; `info.telemetry` is never cleared); a claude killed between the
+  tmp write and the rename leaves one `.tmp` until the boot wipe (the
+  watcher's filename gate ignores it); `paneBar` and `enabled` both default
+  ON, so a stock install shows Model/Branch/Cost/Context twice until the
+  user switches one off (the plan's rule: never change an existing default
+  under the user's feet).
+- Repaint after a checklist change goes through an injected
+  `repaintStatus()` (panes.ts → settings deps), not `notify('sessions')`:
+  no session changed, and the drawer / tab strip / statusline must not
+  re-render for a preference that concerns this bar alone.
 
 ## Review
 

@@ -11,9 +11,10 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import type { SessionInfo, ServerMessage } from '../shared/protocol.ts';
 import {
   api,
   createSession,
@@ -485,4 +486,116 @@ test('BEL terminating an OSC title sequence does not raise attention; a real bel
 
   await c.close();
   await api(server, 'DELETE', `/api/sessions/${info.id}`);
+});
+
+// ---------------------------------------------------------------------------
+// Telemetry (Nocturne B1): the status-line snapshot -> SessionInfo -> `info`
+//
+// End to end through the REAL server: the file is written exactly where the
+// script would write it (`<dataDir>/statusline-snapshots/<session id>.json`),
+// so this covers the watcher wiring in index.ts and setTelemetry together. No
+// new message type — attached clients learn about it through `info`.
+// ---------------------------------------------------------------------------
+
+/** Write a snapshot the way server/statusline.mjs does: tmp, then rename. */
+async function putSnapshot(id: string, body: Record<string, unknown>): Promise<void> {
+  const file = join(server.dataDir, 'statusline-snapshots', `${id}.json`);
+  await writeFile(`${file}.tmp`, JSON.stringify(body), { mode: 0o600 });
+  await rename(`${file}.tmp`, file);
+}
+
+/** The `info` frames a client has seen that carry telemetry. */
+function telemetryFrames(c: WsClient): SessionInfo[] {
+  return c.messages
+    .filter((m): m is Extract<ServerMessage, { type: 'info' }> => m.type === 'info')
+    .map((m) => m.session)
+    .filter((s) => s.telemetry !== undefined);
+}
+
+test('a snapshot on disk becomes SessionInfo.telemetry and one `info` broadcast per CHANGE', async () => {
+  const info = await createSession(server, { command: 'bash', args: [], cwd: workDir, cols: 80, rows: 24 });
+  const c = await WsClient.connect(wsUrl(server, info.id));
+  try {
+    const first = { v: 1, at: Date.UTC(2026, 8, 17, 10, 30, 0), model: 'Opus 5', branch: 'main', cost: 0.42, context: 62 };
+    await putSnapshot(info.id, first);
+    await waitUntil(
+      () => (telemetryFrames(c).length > 0 ? true : undefined),
+      'the info frame carrying telemetry',
+    );
+    assert.deepEqual(telemetryFrames(c)[0]?.telemetry, {
+      at: '2026-09-17T10:30:00.000Z',
+      model: 'Opus 5',
+      branch: 'main',
+      costUsd: 0.42,
+      contextPct: 62,
+    });
+    // And the REST view agrees — a client that was not attached still sees it.
+    assert.equal((await getSession(server, info.id))?.telemetry?.costUsd, 0.42);
+
+    // The same file again (what an idle session's refresh would leave behind):
+    // no change, so no second broadcast.
+    await putSnapshot(info.id, first);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(telemetryFrames(c).length, 1, 'equal telemetry is not news');
+
+    // A real change is broadcast, exactly once.
+    await putSnapshot(info.id, { ...first, at: Date.UTC(2026, 8, 17, 10, 31, 0), cost: 0.99 });
+    await waitUntil(
+      () => (telemetryFrames(c).length > 1 ? true : undefined),
+      'the second info frame',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(telemetryFrames(c).length, 2, 'one broadcast per change, not one per poll');
+    assert.equal(telemetryFrames(c)[1]?.telemetry?.costUsd, 0.99);
+  } finally {
+    c.ws.close();
+    await api(server, 'DELETE', `/api/sessions/${info.id}`);
+  }
+});
+
+test('a snapshot for an id that is not a session is ignored, and the server keeps working', async () => {
+  const info = await createSession(server, { command: 'bash', args: [], cwd: workDir, cols: 80, rows: 24 });
+  const c = await WsClient.connect(wsUrl(server, info.id));
+  try {
+    // A file whose session never existed (or ended a moment ago): no session is
+    // ever created from a snapshot, and nothing is broadcast.
+    await putSnapshot('deadbeef-0000-4000-8000-000000000000', { v: 1, at: Date.now(), model: 'Ghost' });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.deepEqual(telemetryFrames(c), []);
+
+    // The real session still gets its own telemetry afterwards.
+    await putSnapshot(info.id, { v: 1, at: Date.now(), model: 'Opus 5' });
+    await waitUntil(
+      () => (telemetryFrames(c).length > 0 ? true : undefined),
+      'telemetry for the session that does exist',
+    );
+    assert.equal(telemetryFrames(c)[0]?.telemetry?.model, 'Opus 5');
+  } finally {
+    c.ws.close();
+    await api(server, 'DELETE', `/api/sessions/${info.id}`);
+  }
+});
+
+test('telemetry survives the PTY exit: the last report is still true after the session ends', async () => {
+  const info = await createSession(server, { command: 'bash', args: [], cwd: workDir, cols: 80, rows: 24 });
+  const c = await WsClient.connect(wsUrl(server, info.id));
+  try {
+    await putSnapshot(info.id, { v: 1, at: Date.now(), model: 'Opus 5', cost: 1.25 });
+    await waitUntil(
+      () => (telemetryFrames(c).length > 0 ? true : undefined),
+      'telemetry before the exit',
+    );
+    c.send({ type: 'input', data: 'exit\n' });
+    await waitUntil(
+      () => (c.messages.some((m) => m.type === 'exit') ? true : undefined),
+      'the exit frame',
+    );
+    const after = await getSession(server, info.id);
+    assert.equal(after?.status, 'exited');
+    // Cost so far is a fact that outlives the process that spent it.
+    assert.equal(after?.telemetry?.costUsd, 1.25);
+  } finally {
+    c.ws.close();
+    await api(server, 'DELETE', `/api/sessions/${info.id}`);
+  }
 });

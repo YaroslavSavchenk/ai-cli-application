@@ -33,11 +33,13 @@
  * pane it sits in — kills nothing.
  *
  * The status bar is NOT the 2026-07-26 telemetry strip that was removed: it
- * states only what the app already knows (argv model, argv permission mode,
- * PTY age). Claude Code keeps drawing its OWN status line inside the PTY
- * (ui/statusline-model.ts, server/statusline.mjs); the two do not compete —
- * one is the app's view of the session, the other is the session's view of
- * itself.
+ * states only what the app already knows — the session's own argv (model,
+ * permission mode), its PTY age, and, since Nocturne B1, what Claude Code
+ * reported for it (SessionInfo.telemetry, by way of server/telemetry.ts).
+ * Claude Code keeps drawing its OWN status line inside the PTY
+ * (ui/statusline-model.ts, server/statusline.mjs), and since B1 both bars read
+ * the SAME checklist: with both switches on the same values stand twice, which
+ * is the user's accepted consequence rather than something to solve here.
  *
  * Every slot carries a `.pane-drop` overlay that ui/dnd.ts reveals while
  * something is dragged over it. Pane headers are drag sources — an editor
@@ -57,6 +59,7 @@ import { armDrag } from './dnd.ts';
 import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
 import { paneStatusItems } from './pane-status-model.ts';
+import { getStatusLine } from './statusline-model.ts';
 import { renderAgents, type AgentRow } from './pane-agents.ts';
 import { editorPane, type EditorPane } from './editor-pane.ts';
 import { tabIdOf } from './editor-model.ts';
@@ -225,6 +228,20 @@ export function refreshPaneArea(): void {
   if (gridHidden() || !document.hasFocus()) return;
   const s = focusedSlot();
   if (s !== undefined) clearAttentionIfPending(s);
+}
+
+/**
+ * Redraw every visible pane's status bar, for a reason no session notification
+ * carries: the Settings checklist changed (Nocturne B1). `st.notify('sessions')`
+ * would say something untrue — no session changed — and would re-render the
+ * drawer, the tab strip and the statusline for a preference that concerns this
+ * bar alone, so the settings page calls this through its injected deps instead
+ * (`main.ts`, the same reason `ui/tabs.ts` takes its verbs injected).
+ */
+export function repaintStatus(): void {
+  for (const s of slots) {
+    if (s.pay?.kind === 'session') updateStatus(s.pay);
+  }
 }
 
 /**
@@ -844,7 +861,7 @@ function updateHeader(s: Slot, pay: SessionPayload): void {
  */
 function updateStatus(pay: SessionPayload): void {
   const info = st.state.sessions.get(pay.id);
-  const items = paneStatusItems(info, Date.now());
+  const items = paneStatusItems(info, getStatusLine(), Date.now());
   // The 15 s tick calls this for every slot; most ticks change nothing (Time
   // moves once a minute at most). Rebuilding then would throw away live DOM
   // — a text selection inside the bar, the row the pointer is over — for no
@@ -858,7 +875,7 @@ function updateStatus(pay: SessionPayload): void {
         const cell = el('span', 'pane-status-item');
         cell.append(
           el('span', 'pane-status-k', it.k),
-          el('span', `pane-status-v${it.tone === 'danger' ? ' is-danger' : ''}`, it.v),
+          el('span', `pane-status-v${it.tone === 'neutral' ? '' : ` is-${it.tone}`}`, it.v),
         );
         return cell;
       }),

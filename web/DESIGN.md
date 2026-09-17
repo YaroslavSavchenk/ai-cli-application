@@ -604,8 +604,8 @@ untouched.
 (`launch-hd` + 30px `launch-tile` holding the `⚙` glyph + `Settings` + mono
 subtitle `what each session shows in its status line`), Escape / backdrop / × /
 **Done** all dismiss, Tab-trapped, focus restores to the invoker, focus enters
-the master switch on open. Footer: `Reset to defaults` left, accent-blue primary
-`Done` (`btn is-acc`) right.
+the open page's nav tab on open. Footer: `Reset to defaults` left, accent-blue
+primary `Done` (`btn is-acc`) right.
 
 **Body** — ONE `settings-sect` labelled `STATUS LINE`, in order:
 
@@ -617,8 +617,11 @@ the master switch on open. Footer: `Reset to defaults` left, accent-blue primary
    folder it has not worked in before, the line stays blank until you do.`
 2. The **relaunch notice** (`.settings-notice`, `role=note`), rendered ONLY when
    it is true — see below.
-3. The **master switch**, its own `.status-rows` group: `Show the status line`.
-4. The **seven item rows** (`.status-rows.settings-items`, `role=group`,
+3. The **two switch rows**, their own `.status-rows` group (Nocturne B1):
+   `Inside the terminal` (`enabled` — Claude Code's own line) and `Under the
+   terminal` (`paneBar` — this app's bar), each with a caption naming who draws
+   it. See the B1 paragraph in the next section.
+4. The **eight item rows** (`.status-rows.settings-items`, `role=group`,
    aria-label `status line items`), each a keyboard-reachable
    `<button class="status-row">` with the 16px checkbox square (`✓` in
    `--term-bg` on `--acc` when on) and `aria-pressed`. The right-hand
@@ -631,6 +634,7 @@ the master switch on open. Footer: `Reset to defaults` left, accent-blue primary
    | Permission mode  | `mode`    | on      | `always ask` |
    | Git branch       | `branch`  | on      | `git:main`   |
    | Cost so far      | `cost`    | on      | `$0.42`      |
+   | Session time     | `time`    | on      | `2h 15m`     |
    | Lines changed    | `lines`   | off     | `+128 -41`   |
    | Context used     | `context` | on      | `ctx 62%`    |
    | Account usage    | `usage`   | off     | `5h 38%`     |
@@ -641,11 +645,14 @@ the master switch on open. Footer: `Reset to defaults` left, accent-blue primary
    `.settings-rowcap` states the honest scope: `works with a Claude Pro or Max
    account · appears after the session's first reply`. The `Permission mode`
    row carries a rowcap too — `shows the mode the session was started with` —
-   the known-limit caption for the launch-mode-only item.
+   the known-limit caption for the launch-mode-only item. `Session time` carries
+   `under the terminal only`: Claude's own line cannot draw it (no start time in
+   the payload), so the preview strip, which IS that line, leaves it out.
 
-With the master switch off the item group takes the launch dialog's
-`is-disabled` treatment (0.45 opacity) and its buttons go `disabled` — they
-decide nothing while the line is not drawn.
+With BOTH switches off the item group takes the launch dialog's `is-disabled`
+treatment (0.45 opacity) and its buttons go `disabled` — they decide nothing
+while no bar is drawn. Either switch on keeps the items live: they feed both
+bars.
 
 **Relaunch notice** — the ONE thing a toggle cannot fix. A session only has a
 status line when the server injected its per-session settings file at spawn
@@ -674,10 +681,13 @@ statement as "the user chose this"). On open the panel re-reads the bag once and
 re-seeds the toggles — unless the user has already toggled something in that
 open, so a slow response can never undo a fresh choice.
 
-**Where the toggles are read** — NOT by the browser. `server/statusline.mjs`
-reads `prefs.json` directly on every invocation, which is what makes a toggle
-apply to already-running sessions with no restart. The factory table in
-`ui/statusline-model.ts` therefore has to stay byte-identical to
+**Where the toggles are read** — by `server/statusline.mjs`, which reads
+`prefs.json` directly on every invocation, and that is what makes a toggle apply
+to already-running sessions with no restart. Since Nocturne B1 the browser reads
+the same toggles too, for the bar UNDER the terminal only (`getStatusLine()`
+from `ui/statusline-model.ts`, handed to `ui/pane-status-model.ts` by
+`ui/panes.ts`); Claude's own line is still never drawn here. The factory table
+in `ui/statusline-model.ts` therefore has to stay byte-identical to
 `DEFAULT_CONFIG` in that script; `tests/ui-statusline-model.test.ts` parses the
 script and asserts it.
 
@@ -689,17 +699,24 @@ fire-and-forget failure tolerance stays (the in-memory value holds for the run).
 
 ## Terminal status line (drawn by the session, not by us)
 
-Replaced the app-rendered per-pane strip on 2026-07-26. There is no app DOM for
-it at all: Claude Code prints the line inside its own terminal, from
-`server/statusline.mjs`. What that means for this frontend:
+Replaced the app-rendered per-pane strip on 2026-07-26. No app DOM draws THIS
+line: Claude Code prints it inside its own terminal, from
+`server/statusline.mjs`. (A strip under the terminal exists again since Nocturne
+A3 — see the first bullet and the B1 paragraph at the end of this section.) What
+that means for this frontend:
 
-- **The pane is header + terminal.** `.pane-status`, `.pane-status-item` and the
-  `--surface-panestatus` token are gone, `ui/statusbar.ts` with them. One less
-  element in the pane's vertical flex means the terminal is 22px taller; the
-  existing ResizeObserver → FitAddon → ws-resize chain propagates that like any
-  other geometry change.
+- **The 2026-07-26 telemetry strip is gone** — `ui/statusbar.ts`, its
+  `.pane-status-item` markup and the `--surface-panestatus` token with it, and
+  with them the poll that fed them. A strip under the terminal DOES exist again:
+  Nocturne A3 brought one back as `.pane-status` (built by
+  `ui/pane-status-model.ts`), and B1 made it the configurable status bar — see
+  the B1 paragraph at the end of this section. Whenever it is hidden the pane is
+  header + terminal, one less element in the vertical flex; the existing
+  ResizeObserver → FitAddon → ws-resize chain propagates the height change like
+  any other geometry change.
 - **No telemetry poll.** The 3s `GET /api/telemetry` loop and its 1s time tick
-  are gone; nothing in the pane path polls anymore.
+  are gone; nothing in the pane path polls the server anymore (the A3 strip ages
+  its `Time` value on one local 15s timer for the whole grid, `STATUS_TICK_MS`).
 - **Order and formatting are the script's**, joined with ` | `: model · mode ·
   `git:<branch>` · `$<cost>` · `+<added> -<removed>` · `ctx <n>%` · `5h <n>% 7d
   <n>%`. The settings rows quote these verbatim as samples rather than inventing
@@ -712,6 +729,38 @@ it at all: Claude Code prints the line inside its own terminal, from
   2.1.220 sends no permission mode in the status-line payload, so a mode changed
   mid-session (shift+tab) is not reflected; the settings row carries the caption
   `shows the mode the session was started with`.
+
+**Two places, one checklist (Nocturne B1, 2026-09-17).** The strip under the
+terminal came back with Nocturne A3 (`.pane-status`, built by
+`ui/pane-status-model.ts`), and B1 makes it read the SAME checklist as the line
+inside the terminal. The Settings → Status bar page therefore carries two
+switches instead of one master: `Inside the terminal` (`enabled` — Claude Code's
+own line, drawn by the script) and `Under the terminal` (`paneBar` — this app's
+bar), both on by default. The item rows below them feed both, so they only dim
+when BOTH switches are off; with both on the same values stand twice, which the
+lead line says in one sentence rather than solving behind the user's back. One
+row is pane-bar-only: `Session time` (`time`, sample `2h 15m`, caption `under
+the terminal only`) — the payload carries no start time, so Claude's line cannot
+draw it and the preview strip, which IS that line, leaves it out. A checklist
+change repaints the panes at once through `repaintStatus()`, injected into the
+settings panel from `main.ts` (importing `ui/panes.ts` there would pull
+@xterm/xterm into a module that must stay testable without a browser).
+
+The pane bar's items, in the v3 mock's order: `Model`, `Mode`, `Branch`, `Cost`,
+`Context`, `Usage`, `Time`, `Changed`. Two sources and no third. The session's
+own argv gives `Mode`, and `Model` when nothing has been reported yet. Everything
+else is what Claude Code reported for that session — `SessionInfo.telemetry`,
+written by the script into a per-session snapshot and carried on the existing
+`info` message — so a reported model beats the argv guess, `Cost` appears only
+above zero, `Changed` only when a line really moved, and a session that has not
+replied yet simply shows fewer items. `Usage` reads `38% of 5h`, or
+`38% of 5h, 12% of 7d` when both windows are known (a comma, not the mock's
+middle dot: the A2 copy rule bans decorative separators), and it is the ONE item
+that carries colour — amber (`--color-attn`, `.pane-status-v.is-warn`) at or
+above 80%, the same attention hue the rest of the chrome uses, next to the
+existing red of a bypassed permission mode. `Active skill` is in the v3 mock and
+is NOT here: nothing reports it (user decision, 2026-09-16), and a placeholder
+would be a lie with a label on it.
 
 ## Boot panel (handoff §10 visual language, minus fiction — R3)
 
