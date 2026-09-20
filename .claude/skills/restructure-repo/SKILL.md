@@ -81,9 +81,10 @@ finds the textual ones:
 
 Present ONE table: `old → new · why · refs to update (count by class) ·
 risk`, plus "stays, because …" for what you leave. Principles: one home per
-kind of thing; a name says its content; history partitions by date
-(`log/YYYY/`), knowledge and decisions by topic only when a folder passes ~25
-notes; nothing moves for taste alone — each move must make something easier
+kind of thing; a name says its content; the work log partitions by month,
+then area (`memory/log/<YYYY-MM>/<area>/`, decided 2026-09-20); `decisions/`
+and `knowledge/` stay flat with a theme-grouped `memory/INDEX.md` (same
+decision); nothing moves for taste alone — each move must make something easier
 to find. Layout choices are the user's: ask them together, recommendation
 first, before any `git mv`. Save the approved map as
 `.claude/PLAN-RESTRUCTURE.md` (batches, order, status).

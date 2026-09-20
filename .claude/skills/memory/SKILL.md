@@ -23,11 +23,21 @@ vault via `\\wsl$\Ubuntu\home\you\projects\ai-cli-application\memory`).
 
 ```
 memory/
-  INDEX.md        ← map of content; one line per note; ALWAYS kept current
-  decisions/      ← one note per decision: status, why, alternatives rejected
-  knowledge/      ← technical learnings, gotchas, constraints with reasons
-  log/            ← work log, one note per significant session: YYYY-MM-DD-topic.md
+  INDEX.md        ← map of content; one line per note, grouped by theme
+                    (log: by month); ALWAYS kept current
+  BACKLOG.md      ← the living to-do list
+  decisions/      ← flat; one note per decision: status, why, alternatives rejected
+  knowledge/      ← flat; technical learnings, gotchas, constraints with reasons
+  log/<YYYY-MM>/<area>/   ← work log, one note per significant session:
+                    YYYY-MM-DD-topic.md. <area> is exactly one of
+                    nocturne · backend · ui · launcher · github · release
+                    (CI, installer, updater) · project (setup, repo, process)
 ```
+
+Wikilinks resolve by FILENAME, so a note's folder never appears in a link and
+every basename in the vault must stay unique. A new month or area folder is
+created by the first entry that needs it (layout decided 2026-09-20, user's
+call; procedure for any further move: `/restructure-repo`).
 
 ## Note format
 
@@ -69,7 +79,7 @@ WHY are often the most valuable content.
    [[new-note]]` and keep it — history is the point. Factually WRONG
    knowledge notes are deleted (and their index line removed).
 5. Session end (feature landed, milestone, big debugging session): one
-   `log/YYYY-MM-DD-topic.md` entry — what happened, what was decided,
+   `log/<YYYY-MM>/<area>/YYYY-MM-DD-topic.md` entry — what happened, what was decided,
    what's next. Link the notes it touched.
 
 ## What does NOT go in memory

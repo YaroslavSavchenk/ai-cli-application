@@ -1,6 +1,6 @@
 # Plan B5 — New session dialog live (Nocturne Track B)
 
-Status: LANDED 2026-09-20 (started 2026-09-18 on the user's "continue"; limit-killed at the verify gate that day; verify-terminal V1–V7 PASS 2026-09-20 plus the kill-escalation ladder in `server/sessions.ts` — see `memory/log/2026-09-20-nocturne-b5.md`). Windows check owed.
+Status: LANDED 2026-09-20 (started 2026-09-18 on the user's "continue"; limit-killed at the verify gate that day; verify-terminal V1–V7 PASS 2026-09-20 plus the kill-escalation ladder in `server/sessions.ts` — see `memory/log/2026-09/nocturne/2026-09-20-nocturne-b5.md`). Windows check owed.
 Parent: `.claude/PLAN-NOCTURNE.md` part B5. Runs through `/dev-flow` (lean
 rules 1–11), `security-auditor` mandatory (spawning, argv injection, a new
 stored credential, a new environment seam), `/verify-terminal` once at the end.

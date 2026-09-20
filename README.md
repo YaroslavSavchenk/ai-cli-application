@@ -553,6 +553,22 @@ move a clock that talks to api.github.com, and a smaller value would be a
 request flood rather than a faster test. A developer clone never checks for
 updates at all, and neither does a bundle whose version is `0.0.0-*`.
 
+## Repository layout
+
+| Path | What lives there |
+| --- | --- |
+| `server/` | The WSL-side Node backend: sessions and PTYs, HTTP + WebSocket API, history, update and restart logic, `statusline.mjs` |
+| `web/` | The browser frontend (vanilla TypeScript + Vite): `src/`, `index.html`, `mascot.html`, the design system notes in `DESIGN.md` |
+| `shared/` | `protocol.ts`, the wire contract both sides import |
+| `tests/` | The whole suite (`npm test`), fixtures in `tests/fixtures/` |
+| `launcher/` | Windows-side start scripts, the shortcut maker, the native WebView2 host in `launcher/host/` |
+| `installer/` | The Inno Setup script and its PowerShell helpers |
+| `scripts/` | `build-bundle.sh` (the Linux bundle) and `release.sh` (tagging) |
+| `.github/workflows/` | CI (`verify.yml`, `ci.yml`) and the release build |
+| `design/`, `design-mocks/` | Design sources of earlier rounds; the current handoffs sit beside them, untracked |
+| `memory/` | The project's memory, an Obsidian vault: `INDEX.md` (start here), `BACKLOG.md`, `decisions/`, `knowledge/`, and the work log in `log/<YYYY-MM>/<area>/` |
+| `.claude/` | How the project is built with Claude Code: `PROJECT-SCOPE.md` (the current truth), `PLAN-*.md` (per-part specs), `agents/`, `skills/` |
+
 ## More
 
 - Architecture, decisions, hard constraints: `.claude/PROJECT-SCOPE.md`
