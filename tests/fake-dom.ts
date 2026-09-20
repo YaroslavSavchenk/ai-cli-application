@@ -75,10 +75,83 @@ export interface EventInit {
 // Drag payloads (part A9)
 // ---------------------------------------------------------------------------
 
-/** What `webkitGetAsEntry()` answers: a NAME and whether it is a folder. */
+/**
+ * One node of a dropped TREE (part B10): a file with a size, or a folder with
+ * children. `unreadable` makes the folder's reader fail the way a folder the
+ * browser will not open really does, and `batch` caps how many entries one
+ * `readEntries()` call answers with — Chromium's is about 100, and a walk that
+ * does not loop would copy only the first batch.
+ */
+export interface FakeTreeNode {
+  name: string;
+  dir?: boolean;
+  size?: number;
+  children?: FakeTreeNode[];
+  unreadable?: boolean;
+  /** Entries per `readEntries()` call. Defaults to `READ_BATCH`. */
+  batch?: number;
+}
+
+/** What Chromium's `readEntries()` really answers with at most, per call. */
+export const READ_BATCH = 100;
+
+/**
+ * What `webkitGetAsEntry()` answers: a NAME, whether it is a folder, and —
+ * since part B10, which walks the tree — the two callback APIs the real
+ * `FileSystemEntry` carries.
+ */
 export interface FakeEntry {
   name: string;
   isDirectory: boolean;
+  isFile?: boolean;
+  file?(ok: (f: unknown) => void, fail?: (e: unknown) => void): void;
+  createReader?(): {
+    readEntries(ok: (entries: FakeEntry[]) => void, fail?: (e: unknown) => void): void;
+  };
+}
+
+/**
+ * A tree node as the browser hands it over. Callback-style on purpose: the
+ * real API is, and a walk that forgets to loop `readEntries()` has to fail
+ * here the same way it fails in Chromium.
+ */
+export function makeEntry(node: FakeTreeNode): FakeEntry {
+  const dir = node.dir === true;
+  if (!dir) {
+    return {
+      name: node.name,
+      isDirectory: false,
+      isFile: true,
+      file(ok, fail) {
+        if (node.unreadable === true) {
+          fail?.(new Error('unreadable'));
+          return;
+        }
+        ok({ name: node.name, size: node.size ?? 0 });
+      },
+    };
+  }
+  const children = node.children ?? [];
+  const per = node.batch ?? READ_BATCH;
+  return {
+    name: node.name,
+    isDirectory: true,
+    isFile: false,
+    createReader() {
+      let i = 0;
+      return {
+        readEntries(ok, fail) {
+          if (node.unreadable === true) {
+            fail?.(new Error('unreadable'));
+            return;
+          }
+          const slice = children.slice(i, i + per);
+          i += slice.length;
+          ok(slice.map(makeEntry));
+        },
+      };
+    },
+  };
 }
 
 /** What `getAsFile()` answers, and what a `files` list holds. */
@@ -110,8 +183,19 @@ export interface FakeDataTransfer {
 export interface DataTransferInit {
   /** Defaults to `['Files']` when items or files are given, `[]` otherwise. */
   types?: string[];
-  /** Top-level things being dragged. `dir` makes it a folder (no size). */
-  items?: { name: string; dir?: boolean; size?: number; kind?: string }[];
+  /**
+   * Top-level things being dragged. `dir` makes it a folder (no size), and
+   * `children` gives that folder a TREE the walk can read (part B10).
+   */
+  items?: {
+    name: string;
+    dir?: boolean;
+    size?: number;
+    kind?: string;
+    children?: FakeTreeNode[];
+    unreadable?: boolean;
+    batch?: number;
+  }[];
   /** A plain file list (a paste, the native chooser). */
   files?: FakeFile[];
   /**
@@ -128,7 +212,16 @@ export function makeDataTransfer(init: DataTransferInit = {}): FakeDataTransfer 
     kind: it.kind ?? 'file',
     type: '',
     webkitGetAsEntry: () =>
-      blind || it.kind === 'string' ? null : { name: it.name, isDirectory: it.dir === true },
+      blind || it.kind === 'string'
+        ? null
+        : makeEntry({
+            name: it.name,
+            dir: it.dir === true,
+            size: it.size ?? 0,
+            ...(it.children === undefined ? {} : { children: it.children }),
+            ...(it.unreadable === undefined ? {} : { unreadable: it.unreadable }),
+            ...(it.batch === undefined ? {} : { batch: it.batch }),
+          }),
     getAsFile: () =>
       blind || it.dir === true || it.kind === 'string'
         ? null
@@ -410,6 +503,17 @@ export class FakeElement extends FakeNode {
     getDoc().activeElement = this;
     dispatch(this, 'focusin');
   }
+  /**
+   * There is no viewport here, so this RECORDS instead of scrolling (part
+   * B10: the drop dialog scrolls each settled row into view inside its own
+   * bounded list). A test reads `scrolledInto` to see which rows asked, and
+   * with which option — which is the whole contract: `block: 'nearest'` is
+   * the minimum scroll, the one that moves nothing when the row already fits.
+   */
+  scrollIntoView(opts?: unknown): void {
+    this.scrolledInto.push(opts);
+  }
+  readonly scrolledInto: unknown[] = [];
   /**
    * Give the keyboard up, and SAY SO: a real element fires `blur` when it
    * loses the focus, and a module can hang behaviour off that (A9c: the Files

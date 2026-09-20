@@ -34,16 +34,24 @@ import {
 } from '../web/src/ui/context-menu-model.ts';
 import { COPY_LABEL } from '../web/src/ui/files-select-model.ts';
 
+/**
+ * The default row has NO host to ask (part B10): `canCopy: false` is the Edge
+ * `--app` window and every browser tab, which is also the state every
+ * assertion below was written against. The native window is the `canCopy:
+ * true` argument, and its own tests pass it.
+ */
 const folder = (o: Partial<RowSubject> = {}): RowSubject => ({
   dir: true,
   name: 'src',
   open: false,
+  canCopy: false,
   ...o,
 });
 const file = (o: Partial<RowSubject> = {}): RowSubject => ({
   dir: false,
   name: 'main.ts',
   open: false,
+  canCopy: false,
   ...o,
 });
 
@@ -106,8 +114,60 @@ test('itemsFor: the folder entry and the copy strip say the SAME words about the
 });
 
 test('the two notes are exactly the sentences the copy rules allow — no product, no path, no key name', () => {
-  assert.equal(COPY_NOTE, 'The app cannot put files on the clipboard yet.');
+  // B10 rewrote the first one: `Copy` works in the native window, so the
+  // sentence is about THIS WINDOW and no longer about the app, and it no
+  // longer says `yet` about something that is built.
+  assert.equal(COPY_NOTE, 'This window cannot put files on the clipboard.');
   assert.equal(PASTE_NOTE, 'The menu cannot read the clipboard. Paste with the keyboard instead.');
+});
+
+// ---------------------------------------------------------------------------
+// canCopy (part B10): the row menu's Copy is live in the native window only
+// ---------------------------------------------------------------------------
+
+test('canCopy true: Copy is ENABLED on a folder and on a file, and carries no note', () => {
+  for (const row of [folder({ canCopy: true }), file({ canCopy: true })]) {
+    const copy = itemsFor(row).find((i) => i.action === 'copy');
+    assert.ok(copy !== undefined, 'Copy is on both lists');
+    assert.equal(copy.enabled, true);
+    assert.equal(copy.label, 'Copy');
+    assert.equal(copy.note, undefined, 'an entry that does what it says needs no excuse');
+  }
+});
+
+test('canCopy false: Copy is visible, disabled, and says why — the only thing that changes', () => {
+  for (const row of [folder(), file()]) {
+    const copy = itemsFor(row).find((i) => i.action === 'copy');
+    assert.ok(copy !== undefined, 'a window without a host still SHOWS the entry');
+    assert.equal(copy.enabled, false);
+    assert.equal(copy.label, 'Copy');
+    assert.equal(copy.note, COPY_NOTE);
+  }
+});
+
+test('canCopy changes NOTHING else about either list', () => {
+  const sameButCopy = (row: RowSubject): string[] =>
+    itemsFor(row)
+      .filter((i) => i.action !== 'copy')
+      .map((i) => `${i.action}:${i.label}:${i.enabled ? 'on' : 'off'}:${i.note ?? ''}`);
+  assert.deepEqual(sameButCopy(folder({ canCopy: true })), sameButCopy(folder()));
+  assert.deepEqual(sameButCopy(file({ canCopy: true })), sameButCopy(file()));
+  assert.ok(sameButCopy(folder()).length >= 6, 'non-vacuity: the folder list was really read');
+  // The ROOT menu has no Copy at all and cannot grow one from this flag.
+  assert.equal(
+    itemsForRoot('src').some((i) => i.action === 'copy'),
+    false,
+  );
+});
+
+test('a Copy entry that works is still the only difference the flag can make to the disabled count', () => {
+  const off = [folder(), file()].flatMap((r) => itemsFor(r)).filter((i) => !i.enabled);
+  const on = [folder({ canCopy: true }), file({ canCopy: true })]
+    .flatMap((r) => itemsFor(r))
+    .filter((i) => !i.enabled);
+  assert.equal(off.length, 3, 'Copy on both rows, Paste on the folder');
+  assert.equal(on.length, 1, 'only Paste is left');
+  assert.equal(on[0]?.action, 'paste');
 });
 
 test('a DISABLED entry carries its note; an ENABLED one carries none', () => {

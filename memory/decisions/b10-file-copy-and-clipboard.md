@@ -41,7 +41,23 @@ nothing partial.
 - Rejected: 10000 files / 4 GiB (browser memory with thousands of `File`
   objects); no recursive limit (a `node_modules` drop runs for minutes).
 
-## Orchestrator default (recorded, not asked)
+## 4. Hide during a copy + a quiet client log (user, 2026-09-20, scope review of phase 2)
+A 2000-file drop can hold the aria-modal card for minutes; A9's inert
+Esc/×/backdrop were harmless on a 60 ms mock. Decided: `Esc` / `×` / backdrop
+HIDE the card, the copy runs on (the restart dialog's `Hide` precedent); the
+result then arrives as one statusline flash (`Copied 37 files into src. 2
+failed.`); a new drop during a run is refused (`A copy is still running.`).
+Still no cancel. And: a successful per-file upload is NOT logged in the
+browser log (200-line buffer, 200/min server budget — a 500-file drop would
+blind the log for a minute); refusals and the one `drop: …` summary line stay.
+- Rejected: keep blocking (a running Claude session untouchable for minutes);
+  log every call (the scope rule, bent for this one route like the server's
+  quiet list).
+
+## Orchestrator defaults (recorded, not asked)
+Progress counts write units (files + empty folders), not rows — `137 of
+2000`, never `0 of 1` for one dragged folder. Rejections in hooks never wedge
+the card.
 Partial failure inside a folder: the folder stays one row — `Copied`, or
 `Failed` with the note `N of M files failed`; what copied stays.
 

@@ -9,11 +9,17 @@
  * (`.claude/PLAN-A9.md` §5), so `node --test` drives all of it and the drag
  * layer (part A9 brief 2) can be tested without a browser.
  *
- * NOTHING HERE COPIES ANYTHING. The whole part is the visual half; the real
- * write lives in part B10, which is also where `MAX_ITEM_BYTES` becomes a
- * server-side check instead of a sentence. The outcomes this module plans are
- * what the copy WILL look like, which is why the dialog carries its honesty
- * line beside them.
+ * NOTHING HERE COPIES ANYTHING, and since part B10 phase 2 something else
+ * does: `ui/drop-upload.ts` executes exactly the plan this module builds, and
+ * `MAX_ITEM_BYTES` is the server's own `MAX_UPLOAD_BYTES`. The outcomes
+ * planned here are what the copy really attempts, item for item.
+ *
+ * Part B10 (user decisions D2-D4, 2026-09-20) added the rules the REAL copy
+ * needs, and nothing more: one plan (`planTargets`) that the dialog's rows and
+ * the uploader both read, the write mode each item earns (`uploadMode`), the
+ * whole-drop limits a recursive walk is measured against (`dropRefusal`), and
+ * the two notes a failure writes (`failNote`, `partialNote`). Still no DOM, no
+ * network, no state: what B10 changed is that something now acts on the plan.
  *
  * Copy rules this file enforces, not just follows:
  * - A PATH NEVER REACHES A LABEL (PROJECT-SCOPE, 2026-07-25). Every
@@ -25,19 +31,38 @@
  *   instead of `0 copied`, and appends `1 skipped.` only when something was.
  * - Plain sentences, no decorative separators.
  */
+import { MAX_UPLOAD_BYTES, type FsUploadMode } from '../../../shared/protocol.ts';
 
 /**
- * The biggest single file the mock pretends it can copy, and the number part
- * B10 enforces server-side. A file over it is planned as `failed` with the
- * note below, so the limit is visible before it is real.
+ * The biggest single file the upload route accepts. ONE number, not two: since
+ * part B10 phase 2 this IS `MAX_UPLOAD_BYTES` from the shared protocol, the
+ * constant `PUT /api/fs/upload` refuses on `content-length` with. A file over
+ * it is planned as `failed` (`larger than the copy limit`) and never sent, so
+ * the client spends no bytes learning what the server would have answered.
  */
-export const MAX_ITEM_BYTES = 50 * 1024 * 1024;
+export const MAX_ITEM_BYTES = MAX_UPLOAD_BYTES;
 
 /**
  * How many TOP-LEVEL items one drop may carry. More than this is refused
  * whole, with one sentence, before any dialog opens (`tooMany`).
  */
 export const MAX_ITEMS = 200;
+
+/**
+ * How many FILES one drop may carry in total, every folder walked to the
+ * bottom (user decision D3, 2026-09-20). Unlike `MAX_ITEM_BYTES`, which fails
+ * the one row it applies to, going over this refuses the whole drop before a
+ * single byte is read: a runaway tree is a mistake, not a copy.
+ */
+export const MAX_DROP_FILES = 2000;
+
+/**
+ * How many BYTES one drop may carry in total, the same walk summed (D3). Also
+ * a whole-drop refusal. The sentence below says `1 GB` where this constant is
+ * a gibibyte: the number the user reads is the one their file manager shows,
+ * and rounding it down would refuse drops the app accepts.
+ */
+export const MAX_DROP_BYTES = 1024 * 1024 * 1024;
 
 /** One top-level thing being dropped, as `drop` can describe it. */
 export interface DropItem {
@@ -216,51 +241,125 @@ export function keepBothName(name: string, taken: readonly string[]): string {
 // ---------------------------------------------------------------------------
 
 /**
- * What the copy WOULD do, item by item, for one drop and one conflict choice.
+ * Per-file write mode the upload route takes: `replace` is a deliberate
+ * overwrite of something already there, `new` a name that must still be free.
+ * It is the protocol's own `FsUploadMode` since part B10 phase 2 — the wire
+ * decides what a write mode is, and this module only chooses between them.
+ * Re-exported under the A9 name so every reader that learned it here keeps
+ * working, and so a plan can be read without knowing where the wire lives.
+ */
+export type UploadMode = FsUploadMode;
+
+/**
+ * One top-level item, resolved against the destination's listing and the one
+ * answer the dialog gave. The rows the list draws and the writes the copy
+ * performs read the SAME plan (user decision D2, 2026-09-20), so a row can
+ * never say one thing while the copy does another.
+ */
+export interface PlannedItem {
+  /** The thing that was dropped, unchanged. */
+  item: DropItem;
+  /** It clashed with a name in the destination's listing. */
+  conflict: boolean;
+  /**
+   * `failed` before anything is attempted is only ever a single FILE over
+   * `MAX_ITEM_BYTES` (D3): that one row fails and the rest of the drop goes
+   * on. Everything else fails later, with a note from `failNote`.
+   */
+  plan: 'upload' | 'skipped' | 'failed';
+  /** The name it lands under: its own, or the "keep both" name. */
+  target: string;
+  /** `saved as report (2).md`, `larger than the copy limit`, or nothing. */
+  note?: string;
+}
+
+/**
+ * What the copy WILL do, item by item, for one drop and one conflict choice.
  * Read top to bottom, that is the order of the questions:
  *
  *   1. It conflicts and the choice was `skip`   → `skipped`, nothing tried.
  *   2. It is a FILE over `MAX_ITEM_BYTES`       → `failed`, note the limit.
  *      (A folder carries `bytes: null` and can never fail here.)
  *   3. It conflicts and the choice was `keep-both`
- *                                               → `copied`, note `saved as …`.
+ *                                               → `upload` under a free name,
+ *                                                 note `saved as …`.
  *   4. Anything else (no conflict, or `replace`, folders included)
- *                                               → `copied`.
+ *                                               → `upload` under its own name.
  *
  * A conflict is decided against `listing` ALONE, so it always agrees with what
  * `conflictsOf` told the dialog. The names this plan hands out are still fed
  * back into the pool `keepBothName` avoids, so two items of one drop can never
- * be planned onto the same new name. A skipped or failed item takes no name.
+ * be planned onto the same new name. A skipped or failed item takes no name:
+ * its `target` stays what was dropped, and nothing reads it.
+ *
+ * What a folder's plan MEANS (D2, 2026-09-20): `replace` merges into the folder
+ * already there, file by file, `keep-both` lands the whole tree under `target`,
+ * and `skip` leaves the whole tree alone.
+ */
+export function planTargets(
+  items: readonly DropItem[],
+  listing: readonly string[],
+  choice: Choice,
+): PlannedItem[] {
+  const here = new Set(listing);
+  const taken = new Set(listing);
+  const out: PlannedItem[] = [];
+
+  for (const it of items) {
+    const conflict = here.has(it.name);
+    if (conflict && choice === 'skip') {
+      out.push({ item: it, conflict, plan: 'skipped', target: it.name });
+      continue;
+    }
+    if (!it.dir && it.bytes !== null && it.bytes > MAX_ITEM_BYTES) {
+      out.push({ item: it, conflict, plan: 'failed', target: it.name, note: TOO_BIG_NOTE });
+      continue;
+    }
+    if (conflict && choice === 'keep-both') {
+      const saved = keepBothName(it.name, [...taken]);
+      taken.add(saved);
+      out.push({ item: it, conflict, plan: 'upload', target: saved, note: `saved as ${saved}` });
+      continue;
+    }
+    taken.add(it.name);
+    out.push({ item: it, conflict, plan: 'upload', target: it.name });
+  }
+  return out;
+}
+
+/**
+ * How one planned item is WRITTEN (D2): `replace` only when the user answered
+ * `replace` and this item really clashes — every other write asks for a name
+ * that is still free, so a copy can never overwrite something nobody chose to
+ * overwrite. A `keep both` row is a `new` write under its new name.
+ */
+export function uploadMode(choice: Choice, conflict: boolean): FsUploadMode {
+  return choice === 'replace' && conflict ? 'replace' : 'new';
+}
+
+/** What a plan's `plan` is called in the list the dialog renders. */
+const PLAN_STATE: Record<PlannedItem['plan'], Outcome> = {
+  upload: 'copied',
+  skipped: 'skipped',
+  failed: 'failed',
+};
+
+/**
+ * The same plan, in the shape the A9 dialog list reads. One map over
+ * `planTargets`, nothing decided here: the two must never disagree, which is
+ * why there is only one place that decides.
  */
 export function planResults(
   items: readonly DropItem[],
   listing: readonly string[],
   choice: Choice,
 ): ItemResult[] {
-  const here = new Set(listing);
-  const taken = new Set(listing);
-  const out: ItemResult[] = [];
-
-  for (const it of items) {
-    const conflicts = here.has(it.name);
-    if (conflicts && choice === 'skip') {
-      out.push({ name: it.name, state: 'skipped', dir: it.dir });
-      continue;
-    }
-    if (!it.dir && it.bytes !== null && it.bytes > MAX_ITEM_BYTES) {
-      out.push({ name: it.name, state: 'failed', note: TOO_BIG_NOTE, dir: it.dir });
-      continue;
-    }
-    if (conflicts && choice === 'keep-both') {
-      const saved = keepBothName(it.name, [...taken]);
-      taken.add(saved);
-      out.push({ name: it.name, state: 'copied', note: `saved as ${saved}`, dir: it.dir });
-      continue;
-    }
-    taken.add(it.name);
-    out.push({ name: it.name, state: 'copied', dir: it.dir });
-  }
-  return out;
+  return planTargets(items, listing, choice).map((p) => {
+    const out: ItemResult = { name: p.item.name, state: PLAN_STATE[p.plan] };
+    if (p.note !== undefined) out.note = p.note;
+    out.dir = p.item.dir;
+    return out;
+  });
 }
 
 /**
@@ -311,4 +410,73 @@ export function resultText(results: readonly ItemResult[], dest: string): string
   if (skipped > 0) out += ` ${skipped} skipped.`;
   if (failed > 0) out += ` ${failed} failed.`;
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// The real copy (part B10)
+// ---------------------------------------------------------------------------
+
+/** Over `MAX_DROP_FILES`: the whole drop is refused, in one sentence. */
+export const TOO_MANY_FILES_SENTENCE = 'Too many files. Drop up to 2000 files at a time.';
+
+/** Over `MAX_DROP_BYTES`: the same, counted in bytes. */
+export const TOO_MANY_BYTES_SENTENCE = 'Too much at once. Drop up to 1 GB at a time.';
+
+/**
+ * Whether a walked drop is refused whole, and what is said about it (D3).
+ * `files` and `bytes` are the totals of the recursive walk, so a folder is
+ * judged by what is inside it, not by the one name that was dragged.
+ *
+ * Files are asked first: a drop that is both too many and too big is the kind
+ * where the count is the thing to fix, and a refusal names one reason.
+ *
+ * A single file over `MAX_ITEM_BYTES` is NOT a refusal — that row is planned
+ * `failed` and the rest of the drop still copies.
+ */
+export function dropRefusal(files: number, bytes: number): string | null {
+  if (files > MAX_DROP_FILES) return TOO_MANY_FILES_SENTENCE;
+  if (bytes > MAX_DROP_BYTES) return TOO_MANY_BYTES_SENTENCE;
+  return null;
+}
+
+/**
+ * What a failed row says, from the status the server answered. Every sentence
+ * is a plain reason, lower case, so it reads as the tail of a row rather than
+ * a second heading — and none of them names a status, a folder or a rule the
+ * user cannot see.
+ *
+ * A status with no reason of its own says `could not be copied`: an unknown
+ * failure is still a failure, and inventing a cause for it would be a lie.
+ */
+export function failNote(status: number): string {
+  switch (status) {
+    case 409:
+      return 'something with that name is already there';
+    case 413:
+      return TOO_BIG_NOTE;
+    case 403:
+      return 'not allowed in that folder';
+    case 404:
+      return 'that folder is no longer there';
+    case 507:
+      return 'no room left on the disk';
+    case 400:
+    case 422:
+      return 'that name is not allowed';
+    default:
+      return 'could not be copied';
+  }
+}
+
+/**
+ * A folder whose files did not all make it (D4, 2026-09-20): `3 of 12 files
+ * failed`. The folder stays ONE row — twelve rows for one dragged name would
+ * bury what was dropped — and this note is the whole story of what went wrong
+ * inside it.
+ *
+ * The noun follows the TOTAL, not the failures: `1 of 12 files failed`, and a
+ * folder holding a single file says `1 of 1 file failed`.
+ */
+export function partialNote(failed: number, total: number): string {
+  return `${failed} of ${total} ${total === 1 ? 'file' : 'files'} failed`;
 }

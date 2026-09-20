@@ -95,3 +95,71 @@ export function planCmdStart(cwd: string, distro: string | undefined): CmdStartP
   if (winPath === undefined) return { ok: false, reason: 'path shape' };
   return { ok: true, args: ['/k', 'pushd', winPath], winPath };
 }
+
+// ---------------------------------------------------------------------------
+// The CLIPBOARD form of a path (Nocturne B10, .claude/PLAN-B10.md §2)
+//
+// A SECOND, WIDER vocabulary, and the reason is the one written at the top of
+// this file: WSL_PATH_SHAPE is narrow because cmd.exe PARSES ITS OWN COMMAND
+// LINE, so a space or an `&` in a cwd would reshape that line. NOTHING parses a
+// clipboard path — the native host puts the string on Clipboard.SetFileDropList
+// as one item — so spaces, Unicode, parentheses and `&` are allowed here and
+// only what Windows itself cannot name in a path segment is refused.
+// ---------------------------------------------------------------------------
+
+/** Why a path cannot be a Windows one. Never a sentence, never logged with a path. */
+const WINDOWS_RESERVED_CHARS = /[\\/:*?"<>|]/;
+
+/**
+ * One segment Windows can name: not empty, not `.`/`..`, no reserved character,
+ * no control character (< 0x20 or 0x7F), and no trailing dot or space (Windows
+ * silently trims those, so a name ending in one would land under a DIFFERENT
+ * name than the one the user copied).
+ */
+function isClipboardSegment(segment: string): boolean {
+  if (segment === '' || segment === '.' || segment === '..') return false;
+  if (WINDOWS_RESERVED_CHARS.test(segment)) return false;
+  for (let i = 0; i < segment.length; i += 1) {
+    const code = segment.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  const last = segment[segment.length - 1];
+  return last !== '.' && last !== ' ';
+}
+
+/**
+ * The Windows form of an absolute WSL path for the CLIPBOARD, or undefined when
+ * a segment cannot be named on Windows.
+ *
+ *   /mnt/c                 -> C:\
+ *   /mnt/c/Users/My Docs   -> C:\Users\My Docs
+ *   /home/you/my notes     -> \\wsl.localhost\<distro>\home\you\my notes
+ *
+ * Same two branches as windowsPathFor: a SINGLE-LETTER second segment under
+ * /mnt is a drive (upper-cased), everything else is a UNC path into the distro.
+ * The distro is only needed by the UNC branch, so a `/mnt/c` path still maps
+ * when WSL_DISTRO_NAME is missing — unlike windowsPathFor, whose single gate
+ * exists so a cmd.exe launch has exactly one path through it.
+ */
+export function windowsPathForClipboard(
+  path: string,
+  distro: string | undefined,
+): string | undefined {
+  if (typeof path !== 'string' || !path.startsWith('/')) return undefined;
+  const segments = path.split('/').slice(1);
+  if (segments.length === 0) return undefined;
+  if (!segments.every(isClipboardSegment)) return undefined;
+  const drive = segments[1];
+  if (segments[0] === 'mnt' && drive !== undefined && /^[A-Za-z]$/.test(drive)) {
+    return `${drive.toUpperCase()}:\\${segments.slice(2).join('\\')}`;
+  }
+  if (!isDistroName(distro)) return undefined;
+  return `\\\\wsl.localhost\\${distro}\\${segments.join('\\')}`;
+}
+
+/**
+ * GET /api/fs/winpath's refusal. A CONSTANT sentence, like every other refusal
+ * this app writes: server/api.ts records it in `responseReason` for the access
+ * log, and that channel never carries anything derived from a request.
+ */
+export const FS_PATH_NOT_MAPPABLE = 'That file cannot be reached from Windows.';

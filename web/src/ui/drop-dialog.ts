@@ -18,20 +18,32 @@
  *   3. RESULT — the same list, still readable, under one sentence that says
  *      what happened, and Close.
  *
- * NOTHING IS COPIED. Part A9 is the visual half; the real write, its path
- * checks and its limits are part B10. That is a promise the card must make
- * itself rather than leave to a release note, so the two COPYING states carry
- * a line from `honestyLine()` saying nothing is written. The question carries
- * none since part B2: its conflicts are the destination folder's real
- * contents, read at drop time. ONE function, ONE call site, marked, so B10
- * deletes the mock by deleting what the marker names.
+ * THE CARD CAN BE PUT AWAY WHILE IT COPIES (user decision, 2026-09-20), the
+ * way the restart confirmation can be put away during its preflight: Escape,
+ * the `×` and the backdrop HIDE it — scrim gone, keyboard back where it came
+ * from — and the copy runs on untouched. A 2000-file drop may take minutes,
+ * and an aria-modal scrim over a running session for minutes is a session
+ * nobody can type into. Nothing is cancelled (that decision is unchanged and
+ * cannot be honest: files already on disk cannot be un-copied), nothing
+ * re-opens, and the outcome still reaches the user — as ONE statusline flash
+ * carrying the exact sentence the result state would have shown.
  *
- * WHAT THIS MODULE OWNS AND WHAT IT DOES NOT. It owns the card and the mock
- * stagger; it owns no drag, no target and no listing. `openDropDialog()` is
- * handed a destination NAME (never a path — PROJECT-SCOPE, 2026-07-25), the
- * top-level items, and the destination's own top-level names, and the rules
- * that turn those into words live DOM-free next door in `drop-model.ts`. The
- * drag layer (`ui/filedrop.ts`, part A9 brief 2) is the only caller.
+ * IT REALLY COPIES, since part B10 phase 2. The card no longer pretends and no
+ * longer says it is pretending: the stagger, the promise line and the marker
+ * that held their place are gone, and the rows settle when a real `PUT` for
+ * that item answers. A row is therefore as slow as the file it stands for,
+ * which is why the settled row is scrolled into view inside the list — in a
+ * bounded box, so nothing outside the scrim moves and no pane is resized.
+ *
+ * WHAT THIS MODULE OWNS AND WHAT IT DOES NOT. It owns the card; it owns no
+ * drag, no target, no listing, and — the point of `run` — no write.
+ * `openDropDialog()` is handed a destination NAME (never a path —
+ * PROJECT-SCOPE, 2026-07-25), the top-level items, the destination's own
+ * top-level names and a RUNNER closed over the real destination
+ * (`ui/drop-upload.ts`, built in `main.ts`), so no path can reach this module
+ * even by accident. The rules that turn any of it into words live DOM-free
+ * next door in `drop-model.ts`. The drag layer (`ui/filedrop.ts`) is the only
+ * caller.
  *
  * The dialog idiom is the folder picker's: created on open, removed on close,
  * one at a time, `.modal-scrim` kept on the scrim because `ui/keys.ts` finds an
@@ -40,12 +52,13 @@
  * like every sibling dialog's.
  */
 import { el, button, trapTab } from './util.ts';
-import { log } from '../log.ts';
+import { flash } from './statusline.ts';
+import { formatError, log } from '../log.ts';
 import {
   conflictTitle,
   conflictsOf,
   copyingHeader,
-  planResults,
+  failNote,
   progressText,
   resultText,
   type Choice,
@@ -53,6 +66,7 @@ import {
   type ItemResult,
   type Outcome,
 } from './drop-model.ts';
+import type { DropRun } from './drop-upload.ts';
 
 /** One drop, resolved: where it lands, what it carries, what is already there. */
 export interface DropRequest {
@@ -64,6 +78,12 @@ export interface DropRequest {
   listing: readonly string[];
   /** Focused again on close: the row, pane or button the drop came from. */
   returnFocus: HTMLElement | null;
+  /**
+   * The copy itself (B10), already closed over the real destination. The
+   * dialog asks it for the rows of an answer and then lets it run; what it
+   * writes, in which order, and what a failure is called are all its.
+   */
+  run: DropRun;
 }
 
 /** The word a resolved row shows on its right. */
@@ -73,30 +93,6 @@ const STATE_WORD: Record<Outcome, string> = {
   failed: 'Failed',
 };
 
-/**
- * How far apart the mock resolves its rows. Short enough that a three-item
- * drop is over before it can be read as a wait, long enough that the list is
- * visibly a sequence and not a single repaint.
- */
-const STEP_MS = 60;
-
-/** What the copy and its result are pretending: nothing is written at all. */
-const HONEST_COPYING =
-  'Nothing is copied yet. This is what the copy will look like until the app can write files.';
-
-/**
- * The sentence that keeps the mock honest — in the two states that still are
- * one. Since part B2 the CONFLICTS are real: `ui/filedrop.ts` reads the
- * destination folder's own top-level names at drop time, so the question is
- * about files that are really there and had nothing left to apologise for.
- * What is still pretending is the copy, and only the copy. ONE function with
- * exactly one call site so part B10 can delete the promise and the pretence
- * together.
- */
-function honestyLine(phase: Phase): string {
-  return phase === 'conflicts' ? '' : HONEST_COPYING;
-}
-
 /** How far one answer reaches, when it reaches further than one item. */
 function scopeLine(conflicts: number): string | null {
   return conflicts > 1 ? `The choice applies to all ${conflicts}.` : null;
@@ -105,21 +101,35 @@ function scopeLine(conflicts: number): string | null {
 /** Which of the three states the card is in. Escape means a different thing in each. */
 type Phase = 'conflicts' | 'copying' | 'result';
 
-/** A copy in flight is not cancelled by a key: the dismissal that does nothing. */
-function ignore(): void {
-  /* deliberately nothing — see `dropDialogEscape` */
-}
-
 let scrim: HTMLElement | null = null;
 let restore: HTMLElement | null = null;
 let phase: Phase = 'conflicts';
-/** The pending stagger tick, so closing the card never leaves one armed. */
-let tick: number | null = null;
+/**
+ * Which OPEN this is. A copy cannot be cancelled and the card cannot be closed
+ * while it runs, but a run's callbacks outlive nothing by accident: every one
+ * of them checks that the card it was started for is still the card on screen.
+ */
+let epoch = 0;
+/**
+ * A copy is in flight — card on screen or hidden. It is what stops a SECOND
+ * drop from starting while the first one writes (`ui/filedrop.ts` refuses one
+ * with a sentence): two runs would race the panel refresh and interleave two
+ * lists of rows in one card.
+ */
+let running = false;
 /** What Escape and the `×` do right now, installed by the open dialog. */
 let dismiss: (() => void) | null = null;
 
 export function isDropDialogOpen(): boolean {
   return scrim !== null;
+}
+
+/**
+ * Is a copy still writing? True from the moment an answer starts one until its
+ * last row is settled, whether or not the card is still on screen.
+ */
+export function isDropRunning(): boolean {
+  return running;
 }
 
 /**
@@ -129,22 +139,23 @@ export function isDropDialogOpen(): boolean {
  * decision is here, and that ladder is length-guarded
  * (`tests/ui-files-panel.test.ts`, the Escape-branch non-vacuity bound).
  *
- * It is the `×`, exactly: Skip while the question is up, Close once the copy
- * is over, and NOTHING while the copy runs — a copy in flight is not cancelled
- * by a key. Part B10, which will really be writing files by then, decides
- * whether a copy can be cancelled at all and what a half-copied folder means;
- * until it does, the honest answer to Escape here is to do nothing rather than
- * to claim a stop that never happened.
+ * It is the `×`, exactly: Skip while the question is up, HIDE while the copy
+ * runs, and Close once it is over. Hiding is not cancelling — files that
+ * already landed cannot be un-copied honestly, so a stop would either lie or
+ * delete something the user can see (B10, 2026-09-20). What goes away is the
+ * card; the copy runs on and says how it ended in one line on the statusline.
  */
 export function dropDialogEscape(): void {
   dismiss?.();
 }
 
-/** Take the card down and hand the keyboard back to whatever opened it. */
-function closeDialog(): void {
+/**
+ * Take the card off the screen and hand the keyboard back to whatever opened
+ * it. The DOM is removed rather than hidden (the idiom every dialog here
+ * uses), which also takes `trapTab`'s listener with it.
+ */
+function takeDown(): void {
   if (scrim === null) return;
-  if (tick !== null) window.clearTimeout(tick);
-  tick = null;
   dismiss = null;
   scrim.remove();
   scrim = null;
@@ -153,8 +164,28 @@ function closeDialog(): void {
   if (back !== null && back.isConnected) back.focus();
 }
 
+/** The card is over: nothing of this drop is coming back. */
+function closeDialog(): void {
+  if (scrim === null) return;
+  epoch += 1;
+  takeDown();
+}
+
+/**
+ * Put the card away while the copy keeps running (user decision, 2026-09-20).
+ * The epoch is deliberately NOT bumped: this run still owns its callbacks, and
+ * its result still has a sentence to say when it lands.
+ */
+function hideCard(): void {
+  if (scrim === null) return;
+  log.info('drop dialog hidden; the copy keeps running');
+  takeDown();
+}
+
 export function openDropDialog(req: DropRequest): void {
-  if (scrim !== null) return; // one dialog per drop, one drop at a time
+  // One dialog per drop, one drop at a time — and one RUN at a time: a copy
+  // that is still writing owns the panel refresh and the rows, hidden or not.
+  if (scrim !== null || running) return;
   const items = [...req.items];
   if (items.length === 0) return; // a drop with nothing in it has nothing to say
 
@@ -177,7 +208,7 @@ export function openDropDialog(req: DropRequest): void {
   title.id = 'fd-title';
   // The title IS the state: the question, then what is being copied, then what
   // happened. Announced politely on each change — three sentences for a whole
-  // drop. The rows below are NOT a live region: they resolve 60 ms apart and
+  // drop. The rows below are NOT a live region: they settle one per upload and
   // would read as a stutter of single words.
   title.setAttribute('aria-live', 'polite');
   const sub = el('div', 'fd-sub');
@@ -186,7 +217,7 @@ export function openDropDialog(req: DropRequest): void {
   const closeX = button('fd-x', '×', () => dismiss?.());
   hd.append(titles, closeX);
 
-  // ---- body: the list, the progress line, the promise ----------------------
+  // ---- body: the list, and the count under it ------------------------------
   const body = el('div', 'fd-body');
   const list = el('ul', 'fd-list');
   list.hidden = true;
@@ -198,8 +229,7 @@ export function openDropDialog(req: DropRequest): void {
   // <body> BEHIND an aria-modal scrim (the restart confirmation's lesson).
   step.tabIndex = -1;
   progress.append(step);
-  const honest = el('p', 'fd-honest');
-  body.append(list, progress, honest);
+  body.append(list, progress);
 
   // ---- footer --------------------------------------------------------------
   // The app's button pair, read left to right the way every other dialog is:
@@ -209,9 +239,13 @@ export function openDropDialog(req: DropRequest): void {
   const skipBtn = button('btn-quiet', 'Skip', () => choose('skip'));
   const replaceBtn = button('btn-quiet', 'Replace', () => choose('replace'));
   const keepBtn = button('btn-accent', 'Keep both', () => choose('keep-both'));
+  // `Hide` is the restart confirmation's word for the same thing, in the same
+  // quiet button, on the same side of the same spacer: the card goes, the work
+  // stays. One vocabulary for "put this away while it runs".
+  const hideBtn = button('btn-quiet', 'Hide', () => hideCard());
   const closeBtn = button('btn-quiet', 'Close', () => closeDialog());
   const ft = el('footer', 'fd-ft');
-  ft.append(skipBtn, el('span', 'fd-gap'), replaceBtn, keepBtn, closeBtn);
+  ft.append(skipBtn, el('span', 'fd-gap'), replaceBtn, keepBtn, hideBtn, closeBtn);
 
   modal.append(hd, body, ft);
   scrim.append(modal);
@@ -223,41 +257,50 @@ export function openDropDialog(req: DropRequest): void {
   // the app — the drag layer starts after it) still gets a working dialog.
   (document.querySelector('.modal-host') ?? document.body).append(scrim);
 
-  /** The rows of the copy, by item index — built when a copy starts. */
-  let rows: { row: HTMLElement; text: HTMLElement; state: HTMLElement; result: ItemResult }[] = [];
+  /**
+   * The rows of the copy, by item index — built when a copy starts. `done` is
+   * what the runner has reported; a row that never got its turn is what a
+   * failed RUN (not a failed file) has to answer for.
+   */
+  let rows: {
+    row: HTMLElement;
+    text: HTMLElement;
+    state: HTMLElement;
+    result: ItemResult;
+    done: boolean;
+  }[] = [];
 
   function showPhase(next: Phase): void {
     phase = next;
     const asking = next === 'conflicts';
     sub.hidden = asking ? sub.textContent === '' : true;
     // The question shows no LIST: a list of what is being copied would be a
-    // list of what has not been decided yet. The body still carries the one
-    // line that keeps this state honest, so it is never a blank band.
+    // list of what has not been decided yet.
     list.hidden = asking;
     progress.hidden = next !== 'copying';
-    // PLACEHOLDER MARKER — DELETE WITH THE MOCK (B10)
-    honest.textContent = honestyLine(next);
-    // The question has no line of its own any more (its conflicts are real
-    // since B2), and an empty paragraph would still take its margin.
-    honest.hidden = honest.textContent === '';
     skipBtn.hidden = !asking;
     replaceBtn.hidden = !asking;
     keepBtn.hidden = !asking;
-    ft.hidden = next === 'copying'; // nothing to decide while it runs
+    // The copying state has exactly one control, and it is not a cancel: the
+    // footer stays, carrying `Hide`.
+    hideBtn.hidden = next !== 'copying';
     closeBtn.hidden = next !== 'result';
-    closeX.hidden = next === 'copying';
-    // The glyph is one shape with two jobs; the label says which one it has.
-    closeX.setAttribute('aria-label', asking ? 'skip' : 'close');
+    closeX.hidden = false;
+    // The glyph is one shape with three jobs; the label says which one it has.
+    closeX.setAttribute('aria-label', asking ? 'skip' : next === 'copying' ? 'hide' : 'close');
     // Escape, the `×` and a press on the backdrop are ONE decision, so they are
-    // one function: Skip, Close, or (while it copies) nothing at all.
-    dismiss = asking ? () => choose('skip') : next === 'result' ? closeDialog : ignore;
+    // one function: Skip, Hide, Close.
+    dismiss = asking ? () => choose('skip') : next === 'copying' ? hideCard : closeDialog;
   }
 
   /** An answer to the question — or the only path there was, with no question. */
   function choose(choice: Choice): void {
     if (phase !== 'conflicts') return;
     log.info(`drop dialog: ${choice}`);
-    const results = planResults(items, req.listing, choice);
+    // The plan the runner is about to EXECUTE, not a second reading of it: one
+    // plan behind the rows and the writes is what keeps a row from saying one
+    // thing while the copy does another (D2).
+    const results = req.run.plan(choice);
     rows = results.map((r) => {
       const row = el('li', 'fd-row is-pending');
       const text = el('div', 'fd-rowtext');
@@ -268,39 +311,93 @@ export function openDropDialog(req: DropRequest): void {
       // that has not had its turn yet says its name and nothing else.
       const state = el('span', 'fd-state');
       row.append(text, state);
-      return { row, text, state, result: r };
+      return { row, text, state, result: r, done: false };
     });
     list.replaceChildren(...rows.map((x) => x.row));
     title.textContent = copyingHeader(items.length, req.dest);
+    // The count starts at the ROWS and is overwritten by the runner's own
+    // first `progress`, which counts files — a drop of one folder would
+    // otherwise read `0 of 1` for as long as it takes.
     step.textContent = progressText(0, rows.length, req.dest);
     showPhase('copying');
+    // The count keeps the keyboard, not `Hide`: a card that opened under the
+    // user's hands with Enter half-pressed may not put itself away. `Hide` is
+    // one Tab away, and Escape does it from anywhere.
     step.focus();
-    resolveNext(0);
+
+    // The card belongs to THIS run for as long as this run is the open card.
+    const mine = epoch;
+    running = true;
+    void req.run
+      .start(choice, {
+        settled: (index, result) => {
+          if (mine !== epoch) return;
+          settle(index, result);
+        },
+        progress: (done, total) => {
+          if (mine !== epoch || scrim === null) return;
+          step.textContent = progressText(done, total, req.dest);
+        },
+      })
+      .then((final) => finished(mine, final))
+      .catch((err: unknown) => {
+        // The RUN itself threw — not a file, the run. Whatever it managed is
+        // on disk and stays there; every row that never had its turn says the
+        // honest nothing, and the card reaches its result state instead of
+        // standing in `Copying…` for the rest of the session.
+        log.error(`drop dialog: the copy did not finish: ${formatError(err)}`);
+        for (let i = 0; i < rows.length; i += 1) {
+          const r = rows[i];
+          if (r === undefined || r.done) continue;
+          settle(i, { ...r.result, state: 'failed', note: failNote(0) });
+        }
+        finished(
+          mine,
+          rows.map((r) => r.result),
+        );
+      });
   }
 
-  /** The mock stagger: one row settles, then the next, 60 ms apart. */
-  function resolveNext(i: number): void {
-    tick = window.setTimeout(() => {
-      tick = null;
-      const row = rows[i];
-      if (row === undefined) return;
-      row.state.textContent = STATE_WORD[row.result.state];
-      row.state.setAttribute('data-state', row.result.state);
-      if (row.result.note !== undefined) row.text.append(el('div', 'fd-note', row.result.note));
-      row.row.classList.remove('is-pending');
-      const done = i + 1;
-      step.textContent = progressText(done, rows.length, req.dest);
-      if (done < rows.length) {
-        resolveNext(done);
-        return;
-      }
-      title.textContent = resultText(
-        rows.map((x) => x.result),
-        req.dest,
-      );
-      showPhase('result');
-      closeBtn.focus();
-    }, STEP_MS);
+  /**
+   * The copy is over. The card, if it is still on screen, becomes its result
+   * state; if it was HIDDEN while it ran, the same sentence arrives as one
+   * statusline flash — the result may not be swallowed just because the user
+   * put the card away.
+   */
+  function finished(mine: number, final: readonly ItemResult[]): void {
+    if (mine !== epoch) return;
+    running = false;
+    const said = resultText(final, req.dest);
+    if (scrim === null) {
+      flash(said);
+      return;
+    }
+    title.textContent = said;
+    showPhase('result');
+    closeBtn.focus();
+  }
+
+  /**
+   * One row is over: its outcome word, its reason under its name, and the
+   * dimming taken off. Then `scrollIntoView({ block: 'nearest' })` — the
+   * minimum scroll that keeps the settling edge of the list visible inside its
+   * own 168px box (`.fd-list` scrolls; the card does not resize), so a drop of
+   * 200 items still reads top-down without the user chasing it. `nearest` does
+   * nothing at all while everything fits, which is the common case.
+   */
+  function settle(index: number, result: ItemResult): void {
+    const row = rows[index];
+    if (row === undefined) return;
+    row.result = result;
+    row.done = true;
+    // A hidden card still tracks its rows (they are what a failed run has to
+    // answer for) but paints nothing: it is not on screen.
+    if (scrim === null) return;
+    row.state.textContent = STATE_WORD[result.state];
+    row.state.setAttribute('data-state', result.state);
+    if (result.note !== undefined) row.text.append(el('div', 'fd-note', result.note));
+    row.row.classList.remove('is-pending');
+    row.row.scrollIntoView?.({ block: 'nearest' });
   }
 
   // ---- open in the state this drop is actually in --------------------------

@@ -5959,7 +5959,14 @@ body.is-dnd * {
    and not as three sentences. A row that has not resolved yet says nothing and
    dims; that dimming is the only motion in the card, and it carries what a
    spinner could not — which item is next. A failed row is danger INK on the
-   same ground, never a fill.                                                 */
+   same ground, never a fill.
+
+   B10 made the copy real and took one rule away with it: the quiet paragraph
+   that used to say nothing was being written is deleted, rule and all.
+   Nothing was added in its place. A row now settles when its own upload answers, so the rhythm is the
+   disk's rather than a timer's, and the list scrolls the settled row into view
+   inside its own box — 168px, bounded, so not a pixel outside the scrim moves
+   while a drop of 200 items runs.                                            */
 
 .modal-scrim.fd-scrim {
   align-items: flex-start;
@@ -6138,16 +6145,6 @@ body.is-dnd * {
 .fd-step:focus,
 .fd-step:focus-visible {
   outline: none;
-}
-
-/* the placeholder marker: nothing is copied until part B10 can write files.
-   The quietest line in the card, and the same one the Files panel, the commit
-   view and a file pane already wear. */
-.fd-honest {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--color-neutral-600);
-  line-height: 1.5;
 }
 
 .fd-ft {

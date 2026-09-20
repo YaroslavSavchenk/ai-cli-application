@@ -214,6 +214,17 @@ function isUnder(p: string, root: string): boolean {
 }
 
 /**
+ * True when an ALREADY-RESOLVED path is the app's own data dir or under it.
+ * Exported for server/fsupload.ts (B10), which applies the same category rule
+ * to the parent it builds; createEntry() below is the other caller. NOT a
+ * security boundary — see the comment at the call site in createEntry.
+ */
+export function isUnderDataDir(real: string): boolean {
+  const data = resolvedDataDir();
+  return data !== null && isUnder(real, data);
+}
+
+/**
  * How long one project path's realpath answer is reused. The Changes tab polls
  * every 5 s and the panel lists on demand, so a whole burst of requests costs
  * ONE realpath per project instead of one each.
@@ -449,8 +460,7 @@ export function createEntry(
   if (Buffer.byteLength(name, 'utf8') > MAX_NAME_BYTES) {
     throw new FsBrowseError(400, FS_NAME_NOT_ALLOWED);
   }
-  const data = resolvedDataDir();
-  if (data !== null && isUnder(parent, data)) {
+  if (isUnderDataDir(parent)) {
     // NOT a security boundary — a caller holding the token can already POST
     // /api/fs/mkdir anywhere. It is a category rule: the folder that holds the
     // auth token, prefs.json and history.json is not a scratch pad, and an

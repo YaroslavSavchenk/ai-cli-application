@@ -1089,6 +1089,46 @@ export interface FsCreateResponse {
   path: string;
 }
 
+// ---------------------------------------------------------------------------
+// Real file upload + the Windows form of a path (Nocturne B10, .claude/PLAN-B10.md)
+// ---------------------------------------------------------------------------
+//
+// PUT /api/fs/upload?dir=<abs dest>&rel=<relative path>&mode=replace|new
+//   content-type: application/octet-stream     (415 otherwise)
+//   content-length: <n>                        (411 when absent or chunked)
+//   body: the file's bytes, verbatim           -> 201 FsUploadResponse
+//
+// ONE raw-body PUT per file, never multipart: a raw body lets the server refuse
+// on content-length BEFORE reading a byte, and a multipart parser would be a new
+// security-relevant parser in a repo with two runtime dependencies. The
+// destination goes through the SAME anchor boundary as /api/fs/create
+// (server/fsbrowse.ts resolveUnderAllowed); `rel` is split on `/` and every
+// segment passes isSafeSegment, so it can never escape the destination.
+
+/** The biggest single file the upload route accepts, in bytes. The client's
+ *  MAX_ITEM_BYTES is this constant; there is one number, not two. */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** The only body type PUT /api/fs/upload accepts. A cross-site form post cannot
+ *  set it, so it is a CSRF guard beside the Origin/Host/token gate. */
+export const UPLOAD_CONTENT_TYPE = 'application/octet-stream';
+
+/**
+ * How one uploaded file meets a name that is already taken.
+ *  - 'replace': the existing file is replaced atomically (rename over it).
+ *  - 'new':     the name must be free; 409 otherwise. The default of every
+ *               file the client did not plan as a deliberate overwrite.
+ */
+export type FsUploadMode = 'replace' | 'new';
+
+/** 201 of PUT /api/fs/upload. The bytes that really landed — no path: the
+ *  caller built it, and a field no row renders is a field that leaks for free. */
+export interface FsUploadResponse { bytes: number }
+
+/** GET /api/fs/winpath?path=<abs> — the Windows form of a path inside the
+ *  boundary, for the native host's clipboard (part B10 phase 3). */
+export interface FsWinPathResponse { windowsPath: string }
+
 /** GET /api/git/changes?root=<abs> — how one file differs from the last commit. */
 export type ChangeStatus = 'modified' | 'new' | 'deleted' | 'renamed';
 

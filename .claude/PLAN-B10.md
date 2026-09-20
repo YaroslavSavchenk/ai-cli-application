@@ -231,10 +231,19 @@ Order of operations, every one load-bearing:
    `FS_PATH_BAD` / `FS_NAME_NOT_ALLOWED`.
 2. `transfer-encoding` present → 411; `content-length` absent or not a
    non-negative integer → 411; `> MAX_UPLOAD_BYTES` → **413 before the body is
-   touched**; `content-type` not `application/octet-stream` → 415. All four answer
-   with `connection: close` and destroy the socket once the response has flushed
-   (`sendErrorAndClose()`, new in `api.ts`), so a refused 50 MiB upload does not
-   keep streaming into a server that already said no.
+   touched**; `content-type` not `application/octet-stream` → 415. EVERY refusal
+   of this route (amended 2026-09-20: not only these four — the 403/404/409
+   destination refusals are decided before the body is read too) answers
+   through `sendErrorAndClose()` (new in `api.ts`): explicit `content-length` +
+   `connection: close`, nothing more. Measured (mutation gate 2026-09-20):
+   without the explicit length Node frames the JSON chunked; without `close`
+   the socket lingers and drains the refused body; WITH `close` Node's own
+   `destroySoon()` at response finish RSTs the unread body within 1–4 ms, and
+   the response still reaches every client that keeps reading (the drop
+   client, `fetch`, does) — a client that only writes sees EPIPE whatever
+   timer sits behind it, so the 250 ms linger the developer first added was
+   dead weight and is gone. The gate's own 401/403 answer the same way when a
+   request declares a body.
 3. `parent = resolveUnderAllowed(dir, { projects: projectAnchors(), gone:
    FS_CREATE_PARENT_GONE, denied: FS_NO_CREATE_PERMISSION })` — the SAME call
    `createEntry` makes. Then `isExistingDirectory(parent)` → 404.
@@ -244,13 +253,18 @@ Order of operations, every one load-bearing:
    → 400 `FS_NAME_NOT_ALLOWED`. `..`, `.`, `` and an absolute `rel` all die here.
    Depth cap 64.
 5. Every segment but the last is created with `mkdirSync(join(...))`, EEXIST
-   tolerated, ENOTDIR → 409 `FS_ALREADY_EXISTS` (a FILE stands where a folder must
-   go — D2's merge meeting a file, reported as that item failing).
-6. **The final parent is realpathed again and re-checked against the anchors.**
-   This closes a symlinked intermediate directory: `mkdir` on an existing symlink
-   answers EEXIST and the write would then land wherever it points. The re-check is
-   a second `resolveUnderAllowed` on the built parent, and the data-dir refusal
-   (`FS_DATA_DIR_REFUSED`) is applied to THAT resolved value.
+   tolerated. A FILE standing where a folder must go (D2's merge meeting a
+   file) is answered 409 `FS_ALREADY_EXISTS` by step 6's per-level check
+   (the mkdir's own ENOTDIR arm is defensive and unreachable, gate 2026-09-20).
+6. **Every folder this route BUILDS is realpathed and re-checked against the
+   anchors AND the data-dir refusal immediately after its `mkdir`, per level —
+   not once at the end** (amended 2026-09-20 after the developer measured it:
+   `mkdir` on an existing symlink answers EEXIST, so an end-only check let
+   `rel=escape/deeper/x` create `<outside>/deeper` before the 403; the
+   security-auditor then found the same for the data dir — `dir=<dataDir>` or
+   a symlink into it created empty folders there before the 403). The data-dir
+   check runs on the anchored destination BEFORE the loop and on every built
+   level; nothing is ever created outside the boundary or inside the data dir.
 7. Temp file: `join(parentReal, '.upload-' + randomUUID().replace(/-/g,'') +
    '.part')`, opened with `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW`, mode `0o666` (the
    umask makes it the user's normal 0644 — ordinary user files, not secrets). A
@@ -322,8 +336,11 @@ a cleanup path, and it would defend nothing: a caller holding the token can alre
 ### Logging
 
 Counts and statuses only, never a name, never a byte of content, never the query's
-values. `fsLog('debug', 'PUT /api/fs/upload -> 201')` on success (debug: a
-2000-file drop must not bury `server.log`), `info` for a 4xx, `error` +
+values. The `[http]` access line is the info-level record of every request
+(route, status, ms, the constant `reason=` sentence); the `[fs]` channel adds
+`PUT /api/fs/upload -> <status>` at `debug` for a 2xx AND a 4xx (amended
+2026-09-20: a 4xx `[fs]` line at info duplicated the access line — a 2000-row
+409 storm stays ~240 KiB against the 10 MiB rotation), and ONE `error` line with
 `errorClass`/`errorFrames` (never `describeError` — an errno message quotes the
 path) for a 5xx. `/api/fs/upload` with a 2xx joins the `quiet` list in the access
 log beside `/api/client-log` and `/api/git/changes`.
@@ -360,10 +377,11 @@ and deletable by the user. **No boot sweep. The server never scans the home.**
 
 ```ts
 export interface WalkedFile { top: number; rel: string; file: File }  // rel: '' = the top-level file itself
+export interface WalkedFolder { top: number; rel: string }  // an EMPTY folder; rel '' = the top-level folder itself
 export interface WalkResult {
   items: DropItem[];            // one per TOP-LEVEL thing, the A9 shape
   files: WalkedFile[];          // every file, in top-level order then tree order
-  folders: string[];            // rel paths of folders that hold no files (empty dirs)
+  folders: WalkedFolder[];      // folders that hold no files (keyed by top: a keep-both rename applies)
   bytes: number; biggest: number; unreadable: number;
 }
 export function walkDrop(tops: readonly DroppedTop[]): Promise<WalkResult>;
@@ -408,8 +426,20 @@ export function createDropRun(args: {
 - Per top-level item the runner counts failures; the row settles as `Copied`,
   `Skipped`, or `Failed` with `partialNote(failed, total)` (D4) or `failNote(status)`
   for a single file. **What copied stays** — nothing is rolled back, ever.
-- No cancel. `Esc` during copying still does nothing, and `dropDialogEscape()`'s
-  comment stops promising that B10 will decide.
+- No cancel. **Hide (user, 2026-09-20, the scope review's finding):** `Esc`,
+  `×` and the backdrop HIDE the card while the copy runs on untouched — the
+  restart dialog's `Hide` idiom; when the run ends with the card hidden the
+  result arrives as ONE statusline flash = `resultText(rows, dest)`; with the
+  card up, the result phase paints as before. No reopen. While a run is in
+  flight a new drop / paste / picker is refused with `A copy is still
+  running.` before any walk (two runs would race the panel refresh).
+- Progress counts WRITE UNITS (files + empty folders), not rows: one dragged
+  folder of 2000 files reads `137 of 2000`, never `0 of 1` (orchestrator,
+  2026-09-20). A row still settles as one row. `logDrop`'s `failed` counts
+  failed FILES, one unit throughout.
+- A rejection anywhere (`settled` hook, `logDrop`, `refreshAfterDrop`) never
+  wedges the card: hooks run inside a try in the runner, the dialog's `.catch`
+  paints the result phase from the rows it has.
 
 ### `web/src/ui/drop-dialog.ts` — the mock dies
 
@@ -446,18 +476,28 @@ itself.
 
 `fsUpload(dir, rel, mode, body)` and `fsWinPath(path)`, both through the one place
 that builds headers and logs (`request()` gains a raw-body branch that does not
-force `content-type: application/json`). The log line stays `PUT /api/fs/upload ?…
--> 201 in 12ms` — no name, no query values. The client also writes ONE summary line
-per drop at info: `drop: 37 files, 12.4 MB, 0 failed` — counts only.
+force `content-type: application/json`). **User 2026-09-20 (scope review):** a
+2xx on `PUT /api/fs/upload` is NOT logged per call — the client buffer holds
+200 lines and the server takes 200/min, so a 500-file drop would blind the
+browser log for a minute; refusals keep their warn line (`PUT /api/fs/upload ?…
+-> 409`, no name, no query values), and the ONE summary line per drop at info,
+`drop: 37 files, 12.4 MB, 0 failed` (counts only, `failed` = files), is the
+record. Mirrors the server's quiet list for the same route.
 
 ### `web/src/ui/host-bridge.ts` (new) + the row menu's `Copy`
 
 ```ts
-export function hasHostBridge(): boolean;                    // window.chrome?.webview != null
-export function copyPathsToClipboard(paths: readonly string[]): Promise<boolean>;
+export function hasHostBridge(w?: WindowLike): boolean;                    // window.chrome?.webview != null
+export function copyPathsToClipboard(paths: readonly string[], w?: WindowLike): Promise<boolean>;
 ```
 
-`files.ts` `runMenuAction('copy', path, name)`: `fsWinPath(path)` →
+The optional window-like argument is the test seam (default the real
+`window`). `copyPathsToClipboard` resolves `false` after `REPLY_TIMEOUT_MS =
+3000` with no reply (a clipboard held by another program; Phase 3's host
+replies on both outcomes, the timeout is the belt) — the failure flash covers it.
+
+`files.ts` `runMenuAction('copy', path, name)`: `FsGateway.winPath(path)` (injected
+from `main.ts` as `api.fsWinPath` — `ui/files.ts` never imports `../api.ts`, B2 §9) →
 `copyPathsToClipboard([windowsPath])` → flash `Copied ${name} to the clipboard.` or
 `The app could not copy that to the clipboard.` `itemsFor()` takes the row subject
 with `canCopy: hasHostBridge()`; false keeps the entry visibly disabled with the
@@ -487,7 +527,14 @@ The handler, in order:
    already lives. The host re-checks SHAPE only, and refuses the whole message on
    the first failure: each path is `\\wsl.localhost\<[A-Za-z0-9._-]+>\…` or
    `<Letter>:\…`; length ≤ 4096; no char < 0x20 or 0x7F; no `/`; no `..` segment;
-   none of `* ? " < > |`; no trailing dot or space.
+   none of `* ? " < > | :` (the colon too — an NTFS alternate data stream
+   suffix; the backend refuses it in a segment as well); no trailing dot or
+   space; the distro slot is never `.` or `..` (review 2026-09-20). The
+   message cap counts UTF-16 chars (65536), a protocol sanity cap, not a
+   memory bound. The `.cs` carries `[assembly: TargetFramework(".NETFramework,
+   Version=v4.7.2")]` so the CLR's 4.6.2+ path handling applies — without it
+   every path of 260+ chars made `SetFileDropList` throw (review 2026-09-20);
+   `AreHostObjectsAllowed = false` sits beside `IsWebMessageEnabled = true`.
 4. `Clipboard.SetFileDropList(collection)` — `WebMessageReceived` fires on the UI
    thread of an `[STAThread]` process, so this is already the STA thread. Wrapped in
    try/catch with ONE retry after 100 ms (clipboard contention is the classic
@@ -500,7 +547,10 @@ Strings, not JSON, in both directions: the Framework `csc.exe` this host is buil
 with has no `System.Text.Json`, and a newline-separated message with one kind and a
 list of strings needs no parser at all. `build-host.ps1` needs no new `/reference:`
 (`StringCollection` lives in `System.dll`, which the in-box `csc.rsp` adds) — a
-one-line check on the first build. The host log records a COUNT, never a path.
+one-line check on the first build. The host log records a COUNT, never a path —
+and never an exception MESSAGE either: `SetFileDropList`'s `ArgumentException`
+interpolates the offending path, so a catch logs `ex.GetType().Name` only (the
+backend's errorClass rule; found by both reviewers 2026-09-20).
 
 **Edge `--app` fallback:** `window.chrome.webview` is undefined there, so the row
 menu's `Copy` stays visibly disabled with `This window cannot put files on the

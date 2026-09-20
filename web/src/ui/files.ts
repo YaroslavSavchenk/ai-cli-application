@@ -68,12 +68,15 @@ import {
   type MenuAction,
 } from './context-menu-model.ts';
 import { closeRowMenu, openRowMenu } from './context-menu.ts';
+import { copyPathsToClipboard, hasHostBridge } from './host-bridge.ts';
+import { flash } from './statusline.ts';
 import { isContextMenuChord } from './keys.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
 import type {
   FsCreateResponse,
   FsEntriesResponse,
+  FsWinPathResponse,
   GitChangesResponse,
   SessionInfo,
 } from '../../../shared/protocol.ts';
@@ -177,6 +180,15 @@ const DIR_TITLE = 'Open or close it. Copy files into it with ctrl+alt+c. Right-c
  */
 const CHANGED_ROW_TITLE = 'Open in a pane.';
 
+/**
+ * What `Copy` says when nothing reached the clipboard (B10). ONE sentence for
+ * every cause: a refusal from the boundary, a path with no Windows form, a
+ * host that did not answer, a clipboard another program is holding. Naming
+ * which one would name a path or a rule the user cannot see, and the next
+ * move — try again, or copy it from a terminal — is the same for all of them.
+ */
+const COPY_TO_CLIPBOARD_FAILED = 'The app could not copy that to the clipboard.';
+
 export interface FilesPanel {
   render(): void;
 }
@@ -195,6 +207,14 @@ export interface FsGateway {
   create(dir: string, name: string, kind: 'file' | 'folder'): Promise<FsCreateResponse>;
   /** What the repository at (or above) this folder has changed since its last commit. */
   changes(root: string): Promise<GitChangesResponse>;
+  /**
+   * The Windows form of one path, for the row menu's `Copy` (B10). It is a
+   * gateway call like the other three for the same reason they are: this
+   * module never imports `../api.ts`, so the panel stays drivable under
+   * `node --test` — and the MAPPING is the server's anyway, behind the same
+   * boundary every other filesystem route sits behind.
+   */
+  winPath(path: string): Promise<FsWinPathResponse>;
 }
 
 /**
@@ -214,6 +234,7 @@ let live: {
   selectedFolder(): Destination | null;
   homePath(): string | null;
   entries(path: string): Promise<FsEntriesResponse>;
+  refreshIfListed(path: string): void;
 } | null = null;
 
 /**
@@ -388,6 +409,18 @@ export async function listingFor(dest: Destination): Promise<readonly string[]> 
   } catch {
     return [];
   }
+}
+
+/**
+ * A drop is over (B10): show what landed. It re-reads the destination only
+ * when the panel already has a listing for it, so a copy into a folder nobody
+ * opened costs nothing, and it is called ONCE — per file would paint a folder
+ * filling up and would make every `.part` file in flight briefly visible.
+ *
+ * The `Changes` tab needs no help: its own 5 s poll picks the new files up.
+ */
+export function refreshAfterDrop(dest: Destination): void {
+  live?.refreshIfListed(dest.path);
 }
 
 /**
@@ -1046,10 +1079,15 @@ export function initFilesPanel(
     }
     const row = root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"]`);
     const name = fileName(path);
+    // ONE subject for both halves of the menu (B10 adds `canCopy` to it): the
+    // entries and the name a screen reader hears are answered about the same
+    // row, and the clipboard question is asked at OPEN time, which is the
+    // moment the entry's state is drawn.
+    const subject = { dir, name, open: openFolders.has(path), canCopy: hasHostBridge() };
     openRowMenu({
-      items: itemsFor({ dir, name, open: openFolders.has(path) }),
+      items: itemsFor(subject),
       at,
-      label: menuLabel({ dir, name, open: openFolders.has(path) }),
+      label: menuLabel(subject),
       returnFocus: row,
       onChoose: (action) => runMenuAction(action, path, name),
     });
@@ -1058,21 +1096,48 @@ export function initFilesPanel(
   /**
    * What each entry does — every one of them something the panel already does
    * by another gesture, so the menu can never become a second implementation
-   * of anything. `Copy` and `Paste` are inert until part B10 and carry their
-   * own sentence (the model's `COPY_NOTE` / `PASTE_NOTE`); they never reach
-   * this function, which is why the two arms below do nothing and say so.
+   * of anything. `Paste` stays inert and carries the model's `PASTE_NOTE`: a
+   * page sees files only inside a real `paste` event, which is a keystroke,
+   * and that route works today. `Copy` is live in the native window and
+   * disabled with `COPY_NOTE` anywhere else.
    */
   function runMenuAction(action: MenuAction, path: string, name: string): void {
     if (action === 'toggle') toggleFolder(path);
     else if (action === 'open') st.openFile(currentRoot(), path, name);
     else if (action === 'open-beside') openBeside(path, name);
+    else if (action === 'copy') copyToClipboard(path, name);
     else if (action === 'copy-files') openCopyFilesPicker({ path, name });
     // A9c: the three a FOLDER answers. `itemsFor` puts none of them on a file
     // row, so `path` is always a folder by the time they arrive here.
     else if (action === 'new-file') startCreate(path, 'file');
     else if (action === 'new-folder') startCreate(path, 'folder');
     else if (action === 'refresh') fetchFolder(path);
-    // 'copy' and 'paste' are disabled entries: the menu never chooses them.
+    // 'paste' is a disabled entry: the menu never chooses it.
+  }
+
+  /**
+   * `Copy` on a row (B10): the BACKEND maps the path to its Windows form (only
+   * something inside the boundary can ever reach the clipboard), the native
+   * host puts it on the clipboard as a FILE, and the statusline says which
+   * way it went — by NAME, never by path, in either sentence.
+   *
+   * A folder and a file take the identical route: `SetFileDropList` copies a
+   * folder tree the way Explorer does. Every failure — outside the boundary,
+   * unmappable, no host, a clipboard held by another program, a reply that
+   * never came — is the same sentence, because the user's next move is the
+   * same in all of them.
+   */
+  function copyToClipboard(path: string, name: string): void {
+    void (async () => {
+      let ok = false;
+      try {
+        const mapped = await fs.winPath(path);
+        ok = await copyPathsToClipboard([mapped.windowsPath]);
+      } catch {
+        ok = false;
+      }
+      flash(ok ? `Copied ${name} to the clipboard.` : COPY_TO_CLIPBOARD_FAILED);
+    })();
   }
 
   /**
@@ -1417,6 +1482,21 @@ export function initFilesPanel(
   }
 
   /**
+   * A copy landed in `path` (B10): read that folder again, but ONLY if the
+   * panel is already showing it — the root itself, or a folder the user
+   * opened. A drop into a folder nobody expanded changes nothing on screen,
+   * and asking for it would be a request for a listing that is then thrown
+   * away.
+   *
+   * Called ONCE, when the whole drop is over, which is also what keeps the
+   * in-flight `.part` files the upload route writes off the screen.
+   */
+  function refreshIfListed(path: string): void {
+    if (path !== currentPath && !openFolders.has(path)) return;
+    fetchFolder(path);
+  }
+
+  /**
    * The name row itself, spliced into the rows a render has already built
    * (§6b). `createRowIndex` decides where: right after the folder's own row,
    * or at the very top for the root — and -1 when that folder is not on screen
@@ -1595,6 +1675,7 @@ export function initFilesPanel(
     selectedFolder: currentSelectedDest,
     homePath: () => homePath,
     entries: (path: string) => fs.entries(path),
+    refreshIfListed,
   };
   syncCopyStrip();
 

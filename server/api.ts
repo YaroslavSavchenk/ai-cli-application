@@ -28,6 +28,7 @@ import type {
   ClientLogEntry,
   ClientLogRequest,
   FsCreateRequest,
+  FsWinPathResponse,
   CloneProjectRequest,
   CreateProjectRequest,
   CreateSessionRequest,
@@ -58,12 +59,15 @@ import {
   listEntries,
   listDirs,
   mkdirIn,
+  resolveUnderAllowed,
   FsBrowseError,
   FS_CREATE_FAILED,
   FS_NAME_NOT_ALLOWED,
   FS_PATH_BAD,
   FS_READ_FAILED,
 } from './fsbrowse.ts';
+import { handleUpload } from './fsupload.ts';
+import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
 import { changesFor, GIT_READ_FAILED } from './git.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { RestartRunner } from './restart.ts';
@@ -232,6 +236,50 @@ function sendJson(
 function sendError(res: ServerResponse, status: number, message: string): void {
   responseReason.set(res, message);
   sendJson(res, status, { error: message });
+}
+
+/**
+ * True when the request ANNOUNCES a body it has not sent yet. A refusal that
+ * happens before that body is read must end the connection instead of leaving
+ * Node draining it (server/api.ts refuses a 50 MiB upload on the token gate).
+ */
+function declaresBody(req: IncomingMessage): boolean {
+  if (req.headers['transfer-encoding'] !== undefined) return true;
+  const raw = req.headers['content-length'];
+  return typeof raw === 'string' && /^\d+$/.test(raw) && Number(raw) > 0;
+}
+
+/**
+ * A refusal that ENDS THE CONNECTION. It exists for PUT /api/fs/upload (B10),
+ * whose refusals are all decided before a byte of the body is read: answering
+ * one of those on a kept-alive connection would leave the client streaming up
+ * to 50 MiB into a server that has already said no, and would leave the parser
+ * holding a body it must discard before the next request.
+ *
+ * BOTH HEADERS ARE LOAD-BEARING, measured 2026-09-20:
+ *   - `connection: close` is what stops the upload. At response finish Node's
+ *     own destroySoon() tears the socket down, and the kernel answers the next
+ *     inbound segment with an RST within 1-4 ms. Without it the socket lingers
+ *     and Node drains the declared body to keep the connection reusable.
+ *   - the explicit `content-length`, because with `connection: close` Node
+ *     would otherwise frame this body CHUNKED, and a client reading a refusal
+ *     must be able to take the bytes at face value.
+ *
+ * WHO SEES THE ANSWER: a client that READS while it writes gets the response
+ * (undici delivered a 409 after 32 MiB of a 50 MiB body); a client that only
+ * writes gets EPIPE instead — at any linger, so no timer buys anything and
+ * there is none. The drop client is `fetch`, which reads.
+ */
+function sendErrorAndClose(res: ServerResponse, status: number, message: string): void {
+  responseReason.set(res, message);
+  const text = JSON.stringify({ error: message });
+  responseBytes.set(res, Buffer.byteLength(text));
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': String(Buffer.byteLength(text)),
+    connection: 'close',
+  });
+  res.end(text);
 }
 
 async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
@@ -427,7 +475,11 @@ export function createRequestHandler(
       ? req.headers.origin[0]
       : req.headers.origin;
     if (!originAllowed(origin, port)) {
-      sendError(res, 403, 'forbidden origin');
+      // A refused request that announces a body ends the connection: Node
+      // otherwise drains what a caller declared (up to a 50 MiB upload) just to
+      // keep a connection alive that this server has already refused.
+      if (declaresBody(req)) sendErrorAndClose(res, 403, 'forbidden origin');
+      else sendError(res, 403, 'forbidden origin');
       return;
     }
 
@@ -444,7 +496,10 @@ export function createRequestHandler(
       const provided = req.headers['x-auth-token'];
       const providedToken = Array.isArray(provided) ? provided[0] : provided;
       if (!tokenMatches(token, providedToken)) {
-        sendError(res, 401, 'unauthorized');
+        // Same rule as the Origin gate above: never drain a body for a caller
+        // that has already been refused.
+        if (declaresBody(req)) sendErrorAndClose(res, 401, 'unauthorized');
+        else sendError(res, 401, 'unauthorized');
         return;
       }
       // From here the caller holds the token: its log lines are never metered.
@@ -1255,6 +1310,61 @@ export function createRequestHandler(
       return;
     }
 
+    // --- Filesystem: upload ONE file (B10) ----------------------------------
+    //
+    // The whole route lives in server/fsupload.ts; what stays here is the
+    // policy this file owns — how a response is written, and the fact that
+    // every refusal of that route closes the connection (sendErrorAndClose).
+    if (pathname === '/api/fs/upload') {
+      await handleUpload(req, res, url, {
+        projects: projectAnchors,
+        log: fsLog,
+        sendJson,
+        sendErrorAndClose,
+      });
+      return;
+    }
+
+    // --- Filesystem: the WINDOWS form of a path (B10, the host's clipboard) --
+    //
+    // Same anchor boundary as a listing, so only something inside home or a
+    // registered project can ever reach the Windows clipboard. The distro comes
+    // from THIS process's environment, never from the client.
+    if (pathname === '/api/fs/winpath') {
+      if (method === 'GET') {
+        const requested = url.searchParams.get('path');
+        if (requested === null) {
+          fsLog('info', 'GET /api/fs/winpath -> 400');
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        try {
+          const real = resolveUnderAllowed(requested, { projects: projectAnchors() });
+          const windowsPath = windowsPathForClipboard(real, process.env.WSL_DISTRO_NAME);
+          if (windowsPath === undefined) {
+            fsLog('info', 'GET /api/fs/winpath -> 422');
+            sendError(res, 422, FS_PATH_NOT_MAPPABLE);
+            return;
+          }
+          fsLog('debug', 'GET /api/fs/winpath -> 200');
+          sendJson(res, 200, { windowsPath } satisfies FsWinPathResponse);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            fsLog('info', `GET /api/fs/winpath -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            // errorClass + FRAMES, never describeError: an errno message quotes
+            // the path it failed on.
+            fsLog('error', `fs winpath failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, FS_READ_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
     // --- Git: what changed since the last commit (the Changes tab) ----------
     if (pathname === '/api/git/changes') {
       if (method === 'GET') {
@@ -1598,7 +1708,11 @@ export function createRequestHandler(
         // visible tab. At info it would bury every other line in the file;
         // anything but a 200 is still info (or error), because a refusal there
         // is the diagnostic.
-        (route === '/api/git/changes' && status === 200);
+        (route === '/api/git/changes' && status === 200) ||
+        // One upload per FILE: a 2000-file drop would otherwise write 2000
+        // access lines. A refusal there is still info (or error) — that is the
+        // diagnostic.
+        (route === '/api/fs/upload' && status >= 200 && status < 300);
       httpLog(status >= 500 ? 'error' : quiet ? 'debug' : 'info', parts.join(' '));
     });
 

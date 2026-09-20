@@ -37,7 +37,13 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { byClass, installDom, dispatch, type FakeElement } from './fake-dom.ts';
 import { APP_CSS, declaredTokens, frontendFiles, mySections, stripComments, usedTokens } from './tokens-helpers.ts';
-import { MAX_ITEM_BYTES, type DropItem } from '../web/src/ui/drop-model.ts';
+import {
+  MAX_ITEM_BYTES,
+  planResults,
+  type Choice,
+  type DropItem,
+  type ItemResult,
+} from '../web/src/ui/drop-model.ts';
 
 const dom = installDom();
 
@@ -66,15 +72,98 @@ registerHooks({
   },
 });
 
+interface Hooks {
+  settled(index: number, result: ItemResult): void;
+  progress(done: number, total: number): void;
+}
+interface Run {
+  plan(choice: Choice): ItemResult[];
+  start(choice: Choice, on: Hooks): Promise<ItemResult[]>;
+  /** Failed WRITES of the run that just ended (part B10 fix round). */
+  failed(): number;
+}
 interface DialogModule {
   openDropDialog(req: {
     dest: string;
     items: DropItem[];
     listing: readonly string[];
     returnFocus: unknown;
+    run: Run;
   }): void;
   isDropDialogOpen(): boolean;
+  isDropRunning(): boolean;
   dropDialogEscape(): void;
+}
+
+/**
+ * The RUNNER the card is handed since part B10 (`ui/drop-upload.ts` in the
+ * app), driven BY HAND here: `step()` settles the next row, `finish()` settles
+ * what is left. That is the whole point of the injection — a row now settles
+ * when a real upload answers, so a test that could still walk a timer would be
+ * testing a mock that no longer exists.
+ *
+ * Its plan is the REAL `planResults`, so a row says what the model planned;
+ * `twist` rewrites one row's outcome, which is how a failure the plan would
+ * never produce (a server refusal) is put on screen.
+ */
+interface Driver {
+  run: Run;
+  /** The answer `start` was called with, and how often it was called. */
+  choice: Choice | null;
+  starts: number;
+  step(): boolean;
+  finish(): void;
+  /** The RUN itself blows up (a network that went away mid-copy). */
+  fail(err: unknown): void;
+  pending(): number;
+}
+
+function makeDriver(
+  items: DropItem[],
+  listing: readonly string[],
+  twist?: (r: ItemResult, i: number) => ItemResult,
+): Driver {
+  let hooks: Hooks | null = null;
+  let results: ItemResult[] = [];
+  let at = 0;
+  let done: ((r: ItemResult[]) => void) | null = null;
+  let blowUp: ((e: unknown) => void) | null = null;
+  const d: Driver = {
+    choice: null,
+    starts: 0,
+    run: {
+      plan: (choice) => planResults(items, listing, choice),
+      failed: () => results.filter((r) => r.state === 'failed').length,
+      start: (choice, on) => {
+        d.choice = choice;
+        d.starts += 1;
+        hooks = on;
+        results = planResults(items, listing, choice).map((r, i) => (twist === undefined ? r : twist(r, i)));
+        at = 0;
+        return new Promise<ItemResult[]>((resolve, reject) => {
+          done = resolve;
+          blowUp = reject;
+        });
+      },
+    },
+    pending: () => results.length - at,
+    step() {
+      if (hooks === null || at >= results.length) return false;
+      hooks.settled(at, results[at] as ItemResult);
+      at += 1;
+      hooks.progress(at, results.length);
+      if (at === results.length) done?.(results);
+      return true;
+    },
+    finish() {
+      while (d.step());
+    },
+    fail(err: unknown) {
+      at = results.length; // nothing more will be reported
+      blowUp?.(err);
+    },
+  };
+  return d;
 }
 
 const FD = (await import(new URL('../web/src/ui/drop-dialog.ts', import.meta.url).href)) as DialogModule;
@@ -87,6 +176,25 @@ dom.body.append(modalHost);
 /** The element a drop came from, which must get the keyboard back. */
 const opener = dom.doc.createElement('button');
 dom.body.append(opener);
+
+/**
+ * The statusline: since the fix round a card that was HIDDEN mid-copy says how
+ * the copy ended there, and nowhere else. The real module, in a host of its
+ * own — the `tests/ui-dnd-a10.test.ts` idiom.
+ */
+const statusHost = dom.doc.createElement('div');
+dom.body.append(statusHost);
+const SL = (await import(new URL('../web/src/ui/statusline.ts', import.meta.url).href)) as {
+  initStatusline(container: unknown, deps: { openShortcuts(): void }): { render(): void };
+};
+SL.initStatusline(statusHost, { openShortcuts: () => {} });
+dom.win.intervals.length = 0; // its 15 s uptime ticker is not this file's business
+const flashes: string[] = [];
+function flashText(): string {
+  const said = byClass(statusHost, 'status-flash')[0]?.textContent ?? '';
+  if (said !== '' && flashes[flashes.length - 1] !== said) flashes.push(said);
+  return said;
+}
 
 const file = (name: string, bytes = 1024): DropItem => ({ name, dir: false, bytes });
 const folder = (name: string): DropItem => ({ name, dir: true, bytes: null });
@@ -114,38 +222,49 @@ const btn = (label: string): FakeElement => {
   return hit;
 };
 
+/** The runner of the card that is open. */
+let driver: Driver = makeDriver([], []);
+
 /**
- * Fire every recorded timer, in order, until none is left. The mock stagger
- * arms the NEXT row from inside the one that just fired, so this walks the
- * whole copy; the bound is a runaway guard, never a real limit.
+ * Let the module's own promise chain land: `start()` is awaited, so the result
+ * phase arrives one microtask turn after the last row settles.
  */
-function flush(): number {
-  let fired = 0;
-  while (dom.win.timers.length > 0) {
-    const t = dom.win.timers.shift();
-    assert.ok(fired < 500, 'a timer chain that never ends');
-    t?.fn();
-    fired += 1;
-  }
-  return fired;
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+}
+
+/** Settle every row that is left, and let the card reach its result state. */
+async function finish(): Promise<void> {
+  driver.finish();
+  await settle();
 }
 
 /** Open one drop, with the opener as the element focus must return to. */
-function open(dest: string, items: DropItem[], listing: readonly string[]): void {
+function open(
+  dest: string,
+  items: DropItem[],
+  listing: readonly string[],
+  twist?: (r: ItemResult, i: number) => ItemResult,
+): void {
   opener.focus();
-  FD.openDropDialog({ dest, items, listing, returnFocus: opener });
+  driver = makeDriver(items, listing, twist);
+  FD.openDropDialog({ dest, items, listing, returnFocus: opener, run: driver.run });
 }
 
-/** Whatever the last test left: close the card, drop every pending tick. */
-function reset(): void {
+/** Whatever the last test left: answer it, let it finish, close it. */
+async function reset(): Promise<void> {
   // Escape is an ANSWER on the question (Skip), so a card left mid-question
-  // needs the whole walk: Skip, let the mock finish, Close.
-  for (let i = 0; i < 4 && FD.isDropDialogOpen(); i += 1) {
-    flush();
-    FD.dropDialogEscape();
+  // needs the whole walk: Skip, let the copy finish, Close. A card that was
+  // HIDDEN mid-copy leaves no dialog and a run that is still going, which is
+  // the other thing that must be drained before the next test.
+  for (let i = 0; i < 4 && (FD.isDropDialogOpen() || FD.isDropRunning()); i += 1) {
+    await finish();
+    if (FD.isDropDialogOpen()) FD.dropDialogEscape();
   }
   dom.win.timers.length = 0;
+  flashes.length = 0;
   assert.equal(FD.isDropDialogOpen(), false, 'reset must leave no dialog open');
+  assert.equal(FD.isDropRunning(), false, 'reset must leave no copy running');
 }
 
 /** Everything the card says right now, as one string. */
@@ -169,8 +288,8 @@ test('non-vacuity: the module is loaded and nothing is open yet', () => {
   assert.equal(modalHost.children.length, 0, 'a dialog is created on open, never at import');
 });
 
-test('one conflict: the name, no scope line, and the three Explorer verbs', () => {
-  reset();
+test('one conflict: the name, no scope line, and the three Explorer verbs', async () => {
+  await reset();
   open('src', [file('README.md'), file('notes.txt')], ['README.md']);
   assert.equal(FD.isDropDialogOpen(), true);
   assert.deepEqual(texts('fd-title'), ['README.md already exists in src']);
@@ -184,17 +303,15 @@ test('one conflict: the name, no scope line, and the three Explorer verbs', () =
   assert.equal(dom.doc.activeElement, btn('Keep both'), 'the answer that can lose no file holds the keyboard');
 });
 
-test('more than one conflict: the count, and the sentence that says how far the answer reaches', () => {
-  reset();
+test('more than one conflict: the count, and the sentence that says how far the answer reaches', async () => {
+  await reset();
   open('src', [file('a.md'), file('b.md'), file('c.md')], ['a.md', 'b.md', 'c.md']);
   assert.deepEqual(texts('fd-title'), ['3 items already exist in src']);
   assert.equal(one('fd-sub').hidden, false);
   assert.deepEqual(texts('fd-sub'), ['The choice applies to all 3.']);
-  // The question does NOT pretend any more (part B2): `a.md already exists in
-  // src` is read out of the REAL folder, so the card carries no line about it
-  // — and an empty paragraph would still take its margin, so it is hidden.
-  assert.equal(one('fd-honest').hidden, true, 'a real conflict needs no apology');
-  assert.deepEqual(texts('fd-honest'), ['']);
+  // There is no line about pretending anywhere in the card any more (B10):
+  // the conflicts were already real since B2, and the copy is real now.
+  assert.deepEqual(byClass(card().modal, 'fd-honest'), []);
 });
 
 test('the card is a dialog, on the scrim ui/keys.ts finds an open one by', () => {
@@ -211,8 +328,8 @@ test('the card is a dialog, on the scrim ui/keys.ts finds an open one by', () =>
 // 2. The three answers
 // ===========================================================================
 
-test('Keep both: the conflict is copied under a new name, the rest untouched', () => {
-  reset();
+test('Keep both: the conflict is copied under a new name, the rest untouched', async () => {
+  await reset();
   open('src', [file('README.md'), file('notes.txt')], ['README.md']);
   btn('Keep both').click();
 
@@ -223,21 +340,28 @@ test('Keep both: the conflict is copied under a new name, the rest untouched', (
   assert.deepEqual(texts('fd-state'), ['', ''], 'a row says nothing before its turn');
   assert.equal(byClass(card().modal, 'is-pending').length, 2);
   assert.deepEqual(texts('fd-step'), ['0 of 2']);
-  assert.equal(one('fd-honest').hidden, false, 'the copying state carries the promise');
-  assert.deepEqual(texts('fd-honest'), [HONEST]);
+  assert.deepEqual(byClass(card().modal, 'fd-honest'), [], 'nothing pretends any more');
+  assert.equal(driver.starts, 1, 'the ANSWER started the real copy, exactly once');
+  assert.equal(driver.choice, 'keep-both', 'and it is the answer the button carries');
   assert.equal(btn('Keep both').hidden, true, 'the question is answered');
-  assert.equal(one('fd-ft').hidden, true, 'there is nothing to decide while it copies');
-  assert.equal(one('fd-x').hidden, true);
+  assert.equal(one('fd-ft').hidden, false, 'the footer stays: the copy can be put away');
+  assert.equal(btn('Hide').hidden, false, 'and Hide is the only thing on it');
+  assert.equal(btn('Close').hidden, true);
+  assert.equal(one('fd-x').hidden, false);
+  assert.equal(one('fd-x').getAttribute('aria-label'), 'hide');
   assert.equal(dom.doc.activeElement, one('fd-step'), 'the busy card keeps the keyboard inside itself');
 
-  // One row at a time, 60 ms apart.
-  assert.equal(dom.win.timers.length, 1);
-  assert.equal(dom.win.timers[0]?.ms, 60);
-  dom.win.timers.shift()?.fn();
+  // One row at a time, and the rhythm is the RUNNER'S — no timer is armed at
+  // all: the card cannot make a row settle, only report one that did.
+  assert.deepEqual(dom.win.timers, [], 'no stagger, no timer, no mock');
+  driver.step();
   assert.deepEqual(texts('fd-state'), ['Copied', '']);
   assert.deepEqual(texts('fd-step'), ['1 of 2']);
   assert.equal(byClass(card().modal, 'is-pending').length, 1);
-  flush();
+  // The settled row asks to be scrolled into view, by the least it can be.
+  const first = byClass(card().modal, 'fd-row')[0] as FakeElement;
+  assert.deepEqual(first.scrolledInto, [{ block: 'nearest' }]);
+  await finish();
 
   // Result: one sentence, the list still readable, Close focused.
   assert.deepEqual(texts('fd-title'), ['Copied 2 files into src.']);
@@ -245,54 +369,52 @@ test('Keep both: the conflict is copied under a new name, the rest untouched', (
   assert.deepEqual(texts('fd-note'), ['saved as README (2).md'], 'the name it landed under stays with its row');
   assert.deepEqual(texts('fd-step'), ['2 of 2']);
   assert.equal(one('fd-progress').hidden, true, 'the count is only news while it counts');
-  assert.equal(one('fd-honest').hidden, false, 'the result state carries the promise too');
-  assert.deepEqual(texts('fd-honest'), [HONEST], 'the same sentence the copy made');
   assert.equal(one('fd-ft').hidden, false);
   assert.equal(btn('Close').hidden, false);
   assert.equal(dom.doc.activeElement, btn('Close'), 'the one remaining action holds the keyboard');
 });
 
-test('Replace: every item is copied and no row grows a note', () => {
-  reset();
+test('Replace: every item is copied and no row grows a note', async () => {
+  await reset();
   open('src', [file('README.md'), folder('web')], ['README.md']);
   btn('Replace').click();
   assert.deepEqual(texts('fd-title'), ['Copying 2 items into src']);
-  flush();
+  await finish();
   assert.deepEqual(texts('fd-state'), ['Copied', 'Copied']);
   assert.deepEqual(texts('fd-note'), []);
   assert.deepEqual(texts('fd-title'), ['Copied 1 file and 1 folder into src.']);
 });
 
-test('Skip: the conflict is left alone, the rest is copied, and the sentence counts both', () => {
-  reset();
+test('Skip: the conflict is left alone, the rest is copied, and the sentence counts both', async () => {
+  await reset();
   open('src', [file('README.md'), file('notes.txt')], ['README.md']);
   btn('Skip').click();
-  flush();
+  await finish();
   assert.deepEqual(texts('fd-state'), ['Skipped', 'Copied']);
   assert.equal(one('fd-state').getAttribute('data-state'), 'skipped', 'the outcome is a value, not a colour');
   assert.deepEqual(texts('fd-title'), ['Copied 1 file into src. 1 skipped.']);
 });
 
-test('a file over the copy limit fails with its reason under its name', () => {
-  reset();
+test('a file over the copy limit fails with its reason under its name', async () => {
+  await reset();
   open('Home', [file('huge.bin', MAX_ITEM_BYTES + 1), file('small.txt')], []);
   // No conflict, so no question: the card opens already copying.
   assert.deepEqual(texts('fd-title'), ['Copying 2 items into Home']);
-  flush();
+  await finish();
   assert.deepEqual(texts('fd-state'), ['Failed', 'Copied']);
   assert.deepEqual(texts('fd-note'), ['larger than the copy limit']);
   assert.equal(byClass(card().modal, 'fd-state')[0]?.getAttribute('data-state'), 'failed');
   assert.deepEqual(texts('fd-title'), ['Copied 1 file into Home. 1 failed.']);
 });
 
-test('no conflict: the card never asks a question it has no reason to ask', () => {
-  reset();
+test('no conflict: the card never asks a question it has no reason to ask', async () => {
+  await reset();
   open('Home', [file('notes.txt')], ['other.txt']);
   assert.equal(FD.isDropDialogOpen(), true);
   assert.deepEqual(texts('fd-title'), ['Copying 1 item into Home']);
-  assert.equal(one('fd-ft').hidden, true);
-  assert.equal(one('fd-honest').hidden, false);
-  flush();
+  assert.equal(btn('Hide').hidden, false, 'a copy nobody was asked about can be put away too');
+  assert.equal(driver.starts, 1, 'the copy started without a question being asked');
+  await finish();
   assert.deepEqual(texts('fd-title'), ['Copied 1 file into Home.']);
 });
 
@@ -300,28 +422,28 @@ test('no conflict: the card never asks a question it has no reason to ask', () =
 // 3. Dismissal: Escape, the ×, the backdrop
 // ===========================================================================
 
-test('Escape on the question is Skip: the copy still runs for everything that does not clash', () => {
-  reset();
+test('Escape on the question is Skip: the copy still runs for everything that does not clash', async () => {
+  await reset();
   open('src', [file('README.md'), file('notes.txt')], ['README.md']);
   FD.dropDialogEscape();
   assert.equal(FD.isDropDialogOpen(), true, 'Skip is an answer, not a way out of the whole drop');
   assert.deepEqual(texts('fd-title'), ['Copying 2 items into src']);
-  flush();
+  await finish();
   assert.deepEqual(texts('fd-state'), ['Skipped', 'Copied']);
 });
 
-test('the × on the question is Skip, and it says so to a screen reader', () => {
-  reset();
+test('the × on the question is Skip, and it says so to a screen reader', async () => {
+  await reset();
   open('src', [file('README.md')], ['README.md']);
   assert.equal(one('fd-x').getAttribute('aria-label'), 'skip');
   one('fd-x').click();
-  flush();
+  await finish();
   assert.deepEqual(texts('fd-state'), ['Skipped']);
   assert.deepEqual(texts('fd-title'), ['Nothing copied into src. 1 skipped.']);
 });
 
-test('a press on the backdrop is the same decision as the ×; a press in the card is none', () => {
-  reset();
+test('a press on the backdrop is the same decision as the ×; a press in the card is none', async () => {
+  await reset();
   open('src', [file('README.md')], ['README.md']);
   dispatch(one('fd-title'), 'mousedown');
   assert.deepEqual(texts('fd-title'), ['README.md already exists in src'], 'the card is not a dismissal');
@@ -329,16 +451,144 @@ test('a press on the backdrop is the same decision as the ×; a press in the car
   assert.deepEqual(texts('fd-title'), ['Copying 1 item into src'], 'the backdrop is Skip, like the ×');
 });
 
-test('Escape while it copies does nothing at all: a copy in flight is not cancelled by a key', () => {
-  reset();
+test('Escape while it copies HIDES the card, and the copy runs on untouched', async () => {
+  await reset();
   open('Home', [file('a.txt'), file('b.txt'), file('c.txt')], []);
-  const before = dom.win.timers.length;
+  driver.step();
+  const left = driver.pending();
   FD.dropDialogEscape();
-  assert.equal(FD.isDropDialogOpen(), true);
-  assert.deepEqual(texts('fd-title'), ['Copying 3 items into Home']);
-  assert.equal(dom.win.timers.length, before, 'nothing was cancelled and nothing was re-armed');
-  flush();
-  assert.deepEqual(texts('fd-title'), ['Copied 3 files into Home.']);
+  // The card is gone and the keyboard is back where the drop came from…
+  assert.equal(FD.isDropDialogOpen(), false, 'the scrim is removed, not merely hidden');
+  assert.equal(modalHost.children.length, 0);
+  assert.equal(dom.doc.activeElement, opener);
+  // …and NOTHING was cancelled: the run is still going, and still this one.
+  assert.equal(FD.isDropRunning(), true);
+  assert.equal(driver.pending(), left, 'a hidden card cancels nothing');
+  assert.equal(driver.starts, 1, 'and restarts nothing');
+  driver.step();
+  assert.equal(driver.pending(), left - 1, 'the runner keeps settling rows with nobody watching');
+  await finish();
+  // The result is not swallowed: it arrives as ONE statusline sentence.
+  assert.equal(flashText(), 'Copied 3 files into Home.');
+  assert.equal(FD.isDropRunning(), false);
+  assert.equal(FD.isDropDialogOpen(), false, 'and nothing re-opens');
+});
+
+test('the × and the backdrop hide it too — one decision, three ways to say it', async () => {
+  for (const put of ['x', 'backdrop'] as const) {
+    await reset();
+    open('Home', [file('a.txt'), file('b.txt')], []);
+    if (put === 'x') one('fd-x').click();
+    else dispatch(card().scrim, 'mousedown');
+    assert.equal(FD.isDropDialogOpen(), false, `${put} puts the card away`);
+    assert.equal(FD.isDropRunning(), true, `${put} leaves the copy alone`);
+    await finish();
+    assert.equal(flashText(), 'Copied 2 files into Home.', `${put}: the result still arrives`);
+  }
+});
+
+test('a HIDDEN run ends on the statusline ONLY: the card it left is not repainted and takes no keyboard', async () => {
+  // Hiding does not bump the epoch, so the run still reports to callbacks that
+  // are still live — and those callbacks must notice the card is gone. A
+  // result painted into a removed card is a sentence nobody reads, and
+  // `closeBtn.focus()` on a detached button takes the keyboard away from the
+  // pane the user went back to.
+  await reset();
+  open('Home', [file('a.txt'), file('b.txt')], []);
+  const { modal } = card();
+  const whileCopying = modal.textContent;
+  FD.dropDialogEscape();
+  assert.equal(FD.isDropDialogOpen(), false, 'the card is away');
+  assert.equal(dom.doc.activeElement, opener, 'and the keyboard went back with it');
+  await finish();
+  assert.equal(flashText(), 'Copied 2 files into Home.', 'the result arrives as one sentence, on the statusline');
+  assert.equal(modal.textContent, whileCopying, 'the card that was put away is never painted again');
+  assert.equal(dom.doc.activeElement, opener, 'and the keyboard stays where the user left it');
+  assert.equal(FD.isDropDialogOpen(), false, 'nothing re-opens');
+});
+
+test('a copy still writing owns the app: a second drop opens no card, even with the first one HIDDEN', async () => {
+  // The drag layer refuses a second drop while a copy runs, but it decides
+  // that BEFORE its walk and its listing round trip — a copy can start inside
+  // that window, and a hidden card leaves no scrim to catch the late arrival.
+  // Two runs would interleave two lists of rows in one card and race the panel
+  // refresh, so the running flag is the guard that has to hold on its own.
+  await reset();
+  open('Home', [file('a.txt'), file('b.txt')], []);
+  const first = driver;
+  FD.dropDialogEscape();
+  assert.equal(FD.isDropDialogOpen(), false, 'the first card is away');
+  assert.equal(FD.isDropRunning(), true, 'and its copy is still writing');
+  const second = makeDriver([file('c.txt')], []);
+  FD.openDropDialog({ dest: 'src', items: [file('c.txt')], listing: [], returnFocus: opener, run: second.run });
+  assert.equal(FD.isDropDialogOpen(), false, 'no second card over a copy in flight');
+  assert.equal(second.starts, 0, 'and not one write of a second drop');
+  await finish();
+  assert.equal(first.starts, 1, 'the first run was never restarted');
+  assert.equal(flashText(), 'Copied 2 files into Home.', 'and it is the one that reports');
+});
+
+test('a copy that finishes while the card is STILL UP paints the result, and flashes nothing new', async () => {
+  await reset();
+  open('src', [file('a.txt')], []);
+  const before = flashText();
+  await finish();
+  assert.deepEqual(texts('fd-title'), ['Copied 1 file into src.']);
+  assert.equal(FD.isDropDialogOpen(), true, 'the card is the answer; the statusline is not');
+  assert.equal(flashText(), before, 'the sentence is said once, in one place');
+  assert.equal(dom.doc.activeElement, btn('Close'));
+});
+
+test('a run that THROWS still ends the card: the rows it never reached say so', async () => {
+  await reset();
+  open('src', [file('a.txt'), file('b.txt'), file('c.txt')], []);
+  driver.step();
+  driver.fail(new Error('the network went away'));
+  await settle();
+  assert.deepEqual(texts('fd-state'), ['Copied', 'Failed', 'Failed']);
+  assert.deepEqual(texts('fd-note'), ['could not be copied', 'could not be copied']);
+  assert.deepEqual(texts('fd-title'), ['Copied 1 file into src. 2 failed.']);
+  assert.equal(FD.isDropRunning(), false, 'a run that threw is a run that is over');
+  assert.equal(dom.doc.activeElement, btn('Close'));
+});
+
+
+test('the count follows the runner s progress, row by row, and the rows settle in its order', async () => {
+  await reset();
+  open('Home', [file('a.txt'), file('b.txt'), file('c.txt')], []);
+  assert.deepEqual(texts('fd-step'), ['0 of 3'], 'nothing is done before anything answered');
+  driver.step();
+  assert.deepEqual(texts('fd-step'), ['1 of 3']);
+  assert.deepEqual(texts('fd-state'), ['Copied', '', '']);
+  driver.step();
+  assert.deepEqual(texts('fd-step'), ['2 of 3']);
+  assert.deepEqual(texts('fd-state'), ['Copied', 'Copied', '']);
+  assert.equal(byClass(card().modal, 'is-pending').length, 1);
+  // Every settled row asked to be scrolled into view, and only the settled ones.
+  const rows = byClass(card().modal, 'fd-row');
+  assert.deepEqual(
+    rows.map((r) => r.scrolledInto.length),
+    [1, 1, 0],
+  );
+  await finish();
+  assert.deepEqual(texts('fd-step'), ['3 of 3']);
+});
+
+test('a row the SERVER refused: the word, the reason under the name, and the sentence that counts it', async () => {
+  await reset();
+  // The runner's answer, not the plan's: a refusal is only knowable from the
+  // status a `PUT` came back with, which is exactly what the card cannot know.
+  open('src', [file('a.txt'), folder('web'), file('c.txt')], [], (r, i) => {
+    if (i === 1) return { ...r, state: 'failed', note: '3 of 12 files failed' };
+    if (i === 2) return { ...r, state: 'failed', note: 'no room left on the disk' };
+    return r;
+  });
+  await finish();
+  assert.deepEqual(texts('fd-state'), ['Copied', 'Failed', 'Failed']);
+  assert.deepEqual(texts('fd-note'), ['3 of 12 files failed', 'no room left on the disk']);
+  assert.equal(byClass(card().modal, 'fd-state')[1]?.getAttribute('data-state'), 'failed');
+  assert.deepEqual(texts('fd-title'), ['Copied 1 file into src. 2 failed.']);
+  assert.equal(dom.doc.activeElement, btn('Close'));
 });
 
 test('Escape on the result closes, and the keyboard goes back to what the drop came from', () => {
@@ -349,29 +599,36 @@ test('Escape on the result closes, and the keyboard goes back to what the drop c
   assert.equal(dom.doc.activeElement, opener, 'focus returns to the element the drop came from');
 });
 
-test('Close hands the keyboard back to the folder row the files were dropped on', () => {
+test('Close hands the keyboard back to the folder row the files were dropped on', async () => {
   // The drag layer hands over the element that had the focus when the drop
   // landed (`tests/ui-filedrop.test.ts`), which for a drop on the Files panel
   // is the folder row itself — not the button this file otherwise opens from.
-  reset();
+  await reset();
   const row = dom.doc.createElement('button');
   row.className = 'files-row is-dir';
   row.setAttribute('data-k', 'fdir:web/src');
   dom.body.append(row);
   row.focus();
-  FD.openDropDialog({ dest: 'src', items: [file('a.txt')], listing: [], returnFocus: row });
+  driver = makeDriver([file('a.txt')], []);
+  FD.openDropDialog({
+    dest: 'src',
+    items: [file('a.txt')],
+    listing: [],
+    returnFocus: row,
+    run: driver.run,
+  });
   assert.notEqual(dom.doc.activeElement, row, 'non-vacuity: the card took the keyboard first');
-  flush();
+  await finish();
   btn('Close').click();
   assert.equal(FD.isDropDialogOpen(), false);
   assert.equal(dom.doc.activeElement, row);
   row.remove();
 });
 
-test('Close is the same as Escape on the result', () => {
-  reset();
+test('Close is the same as Escape on the result', async () => {
+  await reset();
   open('Home', [file('a.txt')], []);
-  flush();
+  await finish();
   btn('Close').click();
   assert.equal(FD.isDropDialogOpen(), false);
   assert.equal(dom.doc.activeElement, opener);
@@ -381,27 +638,33 @@ test('Close is the same as Escape on the result', () => {
 // 4. isDropDialogOpen, and the two drops that open nothing
 // ===========================================================================
 
-test('isDropDialogOpen: false, true from the first paint, false again after close', () => {
-  reset();
+test('isDropDialogOpen: false, true from the first paint, false again after close', async () => {
+  await reset();
   assert.equal(FD.isDropDialogOpen(), false);
   open('Home', [file('a.txt')], []);
   assert.equal(FD.isDropDialogOpen(), true, 'true while it copies');
-  flush();
+  await finish();
   assert.equal(FD.isDropDialogOpen(), true, 'true while the result stands');
   btn('Close').click();
   assert.equal(FD.isDropDialogOpen(), false);
 });
 
-test('one dialog per drop: a second drop while one is up is ignored', () => {
-  reset();
+test('one dialog per drop: a second drop while one is up is ignored', async () => {
+  await reset();
   open('src', [file('README.md')], ['README.md']);
-  FD.openDropDialog({ dest: 'web', items: [file('other.txt')], listing: [], returnFocus: null });
+  FD.openDropDialog({
+    dest: 'web',
+    items: [file('other.txt')],
+    listing: [],
+    returnFocus: null,
+    run: makeDriver([file('other.txt')], []).run,
+  });
   assert.equal(modalHost.children.length, 1, 'one card, not two');
   assert.deepEqual(texts('fd-title'), ['README.md already exists in src'], 'the first drop still owns the card');
 });
 
-test('a drop carrying nothing opens no dialog', () => {
-  reset();
+test('a drop carrying nothing opens no dialog', async () => {
+  await reset();
   open('Home', [], []);
   assert.equal(FD.isDropDialogOpen(), false);
   assert.equal(modalHost.children.length, 0);
@@ -411,14 +674,14 @@ test('a drop carrying nothing opens no dialog', () => {
 // 5. The copy rules, read off what the card really rendered
 // ===========================================================================
 
-test('nothing the card renders carries a path, a byte count or a decorative dash', () => {
-  reset();
+test('nothing the card renders carries a path, a byte count or a decorative dash', async () => {
+  await reset();
   const said: string[] = [];
   open('src', [file('README.md'), file('huge.bin', MAX_ITEM_BYTES + 1), folder('web')], ['README.md']);
   said.push(rendered());
   btn('Keep both').click();
   said.push(rendered());
-  flush();
+  await finish();
   said.push(rendered());
   btn('Close').click();
 
@@ -546,21 +809,51 @@ test('the accent is never a fill, and the card wears the app-wide button pair', 
   }
 });
 
-test('the honesty line has ONE function and ONE marked call site', () => {
-  // Part B10 deletes the mock by deleting what the marker names; two call
-  // sites would mean one of them survives the deletion silently.
+test('the mock is GONE from web/src — asserted by ABSENCE, so it cannot come back', () => {
+  // Part B10 deleted the mock by deleting what the marker named. This is read
+  // off the SOURCE and not off the card: a rendered assertion passes just as
+  // well when the sentence is merely unreachable, and an unreachable promise
+  // that nothing is written is a promise waiting to be re-rendered.
   const marker = ['PLACEHOLDER', 'MARKER'].join(' ');
-  assert.equal(MODULE_SRC.split(`${marker} — DELETE WITH THE MOCK (B10)`).length - 1, 1);
-  // Comments NAME the function (the file header explains the rule), so only
-  // code counts: one declaration, one call, nothing else.
+  const files = frontendFiles(['.ts', '.html']);
+  assert.ok(files.length >= 20, `non-vacuity: scanned ${files.length} frontend files`);
+  const offenders: string[] = [];
+  for (const f of files) {
+    // The bare marker is a repo-wide idiom (other parts carry their own); what
+    // may not survive anywhere is B10's marker and B10's sentences.
+    for (const needle of [
+      `${marker} — DELETE WITH THE MOCK (B10)`,
+      HONEST,
+      HONEST_ASKING,
+      'Nothing is copied yet',
+    ]) {
+      if (f.src.includes(needle)) offenders.push(`${f.name}: ${needle.slice(0, 40)}`);
+    }
+  }
+  assert.equal(MODULE_SRC.includes(marker), false, 'and the card carries no marker of its own');
+  assert.deepEqual(offenders, [], `the mock survives somewhere: ${offenders.join('; ')}`);
+
+  // The three names the mock lived under, and the paragraph it was written in.
+  for (const gone of ['honestyLine', 'HONEST_COPYING', 'STEP_MS', 'fd-honest']) {
+    assert.equal(MODULE_SRC.includes(gone), false, `${gone} is still in the module`);
+  }
+  assert.equal(APP_CSS.includes('fd-honest'), false, 'and its rule is gone from the stylesheet');
+  // A row settles because an upload answered. The card owns no clock at all.
   const code = MODULE_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  assert.equal(code.split('honestyLine(').length - 1, 2, 'one declaration, one call');
-  assert.ok(MODULE_SRC.includes(HONEST), 'the copying sentence lives behind that function');
-  assert.equal(
-    MODULE_SRC.includes(HONEST_ASKING),
-    false,
-    'the question s sentence is DELETED, not merely unrendered: its conflicts are real since B2',
-  );
+  assert.ok(code.length > 1_000, 'non-vacuity: the module scan found nothing');
+  assert.equal(/setTimeout|setInterval/.test(code), false, 'no timer decides what a row says');
+});
+
+test('the card drives the RUNNER it was handed: plan, then start, and nothing of its own', () => {
+  // The module imports the runner's TYPE only — the thing itself is built in
+  // main.ts, closed over the destination's path. A dialog that imported
+  // `createDropRun` would be a dialog that knows where files go.
+  assert.match(MODULE_SRC, /import type \{ DropRun \} from '\.\/drop-upload\.ts';/);
+  const code = MODULE_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.ok(code.includes('req.run.plan(choice)'), 'the rows ARE the plan the copy will run');
+  assert.ok(code.includes('req.run\n      .start(choice'), 'and the copy is that same answer');
+  assert.equal(code.includes('planResults('), false, 'the card never plans a second time');
+  assert.ok(code.includes("scrollIntoView?.({ block: 'nearest' })"), 'the settled row is kept in view');
 });
 
 test('the Escape ladder in main.ts ranks the drop dialog after the folder picker', () => {
@@ -571,5 +864,12 @@ test('the Escape ladder in main.ts ranks the drop dialog after the folder picker
   const newproj = main.indexOf('} else if (isNewProjectDialogOpen())');
   assert.ok(pick > 0 && drop > 0 && newproj > 0, 'all three arms must exist');
   assert.ok(pick < drop && drop < newproj, 'after the folder picker, before the new-project dialog');
-  assert.match(main, /import \{ dropDialogEscape, isDropDialogOpen, openDropDialog \} from '\.\/ui\/drop-dialog\.ts';/);
+  assert.match(
+    main,
+    /import \{[^}]*\bdropDialogEscape,[^}]*\bisDropDialogOpen,[^}]*\bopenDropDialog,?[^}]*\} from '\.\/ui\/drop-dialog\.ts';/s,
+  );
+  // The fix round added the "one copy at a time" question to the same module,
+  // and the drag layer must really be wired to it.
+  assert.match(main, /\bisDropRunning,/);
+  assert.match(main, /\n\s*copyRunning: isDropRunning,\n/);
 });

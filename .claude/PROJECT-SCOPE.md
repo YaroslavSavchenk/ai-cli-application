@@ -258,7 +258,21 @@ multi-pane layouts on top.
   top-level navigation stays locked. The host also returns keyboard focus
   to the web content on window activation (the WebView2 control does not
   do that by itself after an Alt-Tab) and grants clipboard-read to the
-  launch origin only (all other permissions denied silently). Its **window chrome is dark** (added 2026-07-24): DWM caption /
+  launch origin only (all other permissions denied silently). **Since
+  Nocturne B10 (2026-09-20) the host also carries ONE page→host message
+  channel**, `WebMessageReceived`, origin-locked to the launch origin
+  before a byte of the message is read: the string `copy-files\n<windows
+  path>…` (1..100 paths, each already mapped and boundary-checked by the
+  backend's `GET /api/fs/winpath`) is shape-checked only (UNC
+  `\\wsl.localhost\<distro>\…` or `<Letter>:\…`, no control chars, no
+  `/`, no `.`/`..` segment or distro, none of `* ? " < > | :`, no trailing
+  dot or space; the whole message refused on the first bad path), put on
+  the clipboard with `Clipboard.SetFileDropList` (STA UI thread, one 100 ms
+  retry), and answered `copy-files ok <n>` / `copy-files failed`; nothing
+  is opened, resolved or executed; `host.log` records a count and an
+  exception CLASS, never a path or a message; `AreHostObjectsAllowed` is
+  off; the `.cs` targets .NET Framework 4.7.2 explicitly so paths of 260+
+  chars work. No drag OUT of the app, no clipboard READ in the host. Its **window chrome is dark** (added 2026-07-24): DWM caption /
   text / border colors + immersive dark mode, matching the `--color-bg`,
   `--color-neutral-200` and `--color-neutral-800` tokens (the Legacy alias
   names `--bg-app`/`--text-hd`/`--edge` died in Nocturne A8, 2026-09-14), because the DWM-drawn caption is outside
@@ -587,6 +601,36 @@ multi-pane layouts on top.
   escapes the ladder (same uid — it could read the key anyway); a root-owned
   member survives silently; shutdown's SIGHUP+SIGKILL in one tick loses
   in-flight shell history (UX, user's call).
+- **The upload route (Nocturne B10, 2026-09-20; spec `.claude/PLAN-B10.md`
+  §2).** `PUT /api/fs/upload?dir=<abs>&rel=<relative>&mode=replace|new`,
+  body `application/octet-stream`, ONE file per request, `content-length`
+  required (411 otherwise; 413 over 50 MiB BEFORE a byte is read), `201
+  { bytes }`. Every refusal answers with `connection: close` + an explicit
+  `content-length` (Node then RSTs the unread body within milliseconds;
+  measured, no timer). Boundary: `resolveUnderAllowed` on `dir` (the same
+  call as `/api/fs/create`), `rel` split on `/` with every segment
+  `isSafeSegment` + ≤ 255 bytes, depth ≤ 64, no `..`/empty/absolute/U+FFFD;
+  every intermediate folder the route builds is realpathed and re-checked
+  against the anchors AND the data-dir refusal right after its `mkdir` (an
+  end-only check created folders outside the boundary before the 403 —
+  measured); the bytes land in `.upload-<32 hex>.part` opened
+  `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW` in the destination and are published
+  by `rename` (replace) or `link`+`unlink` (new; EEXIST → 409, a dangling
+  symlink included) — neither follows the final component, so `Replace`
+  over a symlink replaces the LINK. Stateless: no drop id, no server-side
+  per-drop counters, no boot sweep, the server never scans the home;
+  `.part` files are not hidden from listings and `.git` is not
+  special-cased. Logging: counts and statuses only (a 2xx and a 4xx `[fs]`
+  line at debug, one `error` line with class + frames for a 5xx, never a
+  name, a query value or a byte). `GET /api/fs/winpath?path=<abs>` maps a
+  boundary-checked path to its Windows form for the host's clipboard
+  (`server/winpath.ts` `windowsPathForClipboard`: wider than the cmd.exe
+  allow-list on purpose — spaces, Unicode, `&`, parentheses pass; `\ / : *
+  ? " < > |`, control chars, `.`/`..`, a trailing dot or space do not; 422
+  when unmappable). Known limits, recorded: a `.part` orphan survives only
+  a `kill -9`; the drvfs `link()` fallback is untested here; Windows
+  reserved device names (`CON`, `NUL`) pass on Linux and are Explorer's
+  problem on paste.
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -674,7 +718,8 @@ multi-pane layouts on top.
   danger ink) plus a panel-ROOT menu (Copy files here…, New file, New
   folder, Refresh) on a right-click of the tree's background or the menu
   chord with the focus in the panel — Files tab only. Backend (landed with
-  Brief A): `GET /api/fs/entries`, `POST /api/fs/create`,
+  Brief A): `GET /api/fs/entries`, `POST /api/fs/create`, since B10
+  `PUT /api/fs/upload` and `GET /api/fs/winpath` (the upload bullet below),
   `GET /api/git/changes`, all token-gated, all confined to a realpath
   boundary = the user's HOME or any REGISTERED project's path — a registered
   project is the user's own choice and anchors its WHOLE subtree, no floor
@@ -703,9 +748,22 @@ multi-pane layouts on top.
   the drop one dialog per drop: conflicts Explorer-style (Skip · Replace ·
   Keep both, the choice covers every conflict of that drop, Esc = Skip),
   then per-item Copied / Skipped / Failed rows, then one result sentence.
-  Transport is MOCK until B10 (limits 200 items, 50 MiB per file are
-  sentences only) and every state carries the quiet "Example …" /
-  "Nothing is copied yet …" line. The keyboard/button twin is the
+  **Transport is REAL since Nocturne B10 (2026-09-20, spec
+  `.claude/PLAN-B10.md`, rationale `memory/decisions/b10-file-copy-and-clipboard.md`):**
+  the client walks dropped folders first (`readEntries` loop, depth ≤ 64),
+  refuses a drop up front over 200 top-level items, 2000 files or 1 GiB
+  (user's limits; one sentence, nothing partial), asks the ONE conflict
+  question against the real listing (folder Replace = merge, Keep both =
+  `web (2)`, Skip = the whole folder), then uploads one file at a time with
+  `PUT /api/fs/upload` (raw body, `mode=replace|new`, empty folders through
+  `POST /api/fs/create`); a single file over 50 MiB is that row's `Failed`
+  (server-enforced 413). Rows settle from real responses, progress counts
+  files; Esc / × / backdrop HIDE the card while the copy runs on and the
+  result then arrives as one statusline flash (user, 2026-09-20; no cancel);
+  a new drop during a run is refused (`A copy is still running.`). The panel
+  re-reads the destination once after the whole drop. Successful per-file
+  uploads are not logged in the browser log (one `drop: N files, X MB, F
+  failed` line is the record; user 2026-09-20). The keyboard/button twin is the
   permanent copy strip under the panel header (native file chooser; it
   reads "Copy files here…", or "Copy files into <folder>…" once a folder is
   selected), Ctrl+Alt+C on a focused folder row (the picker for that
@@ -719,9 +777,19 @@ multi-pane layouts on top.
   menu — a new primitive, `ui/context-menu.ts`, not a modal: folder rows
   offer Open or Close, Copy, Paste, Copy files here…, and since A9c
   (2026-09-16) New file, New folder, Refresh; file rows Open, Open
-  beside, Copy. Copy and Paste stay visibly disabled with a one-line reason
-  until B10 (a page cannot read files from the OS clipboard outside a paste
-  event, nor put files on it; the Windows host does both). A right-click
+  beside, Copy. Since B10 (2026-09-20) `Copy` is LIVE inside the native
+  host window only: the backend maps the row's path to its Windows form
+  (`GET /api/fs/winpath`, behind the same home/project boundary; `/mnt/<d>`
+  → `D:\…`, else `\\wsl.localhost\<distro>\…`), the page posts one
+  string `copy-files\n<path>…` through `chrome.webview.postMessage`, and
+  the host (origin-locked, shape-checked, `Clipboard.SetFileDropList`, a
+  count in `host.log` and never a path) answers `copy-files ok <n>` /
+  `copy-files failed`; in the Edge `--app` fallback the entry stays disabled
+  with `This window cannot put files on the clipboard.` `Paste` stays
+  disabled for good (a page sees files only inside a real paste event, and
+  copying the host's clipboard files would need a read-anywhere primitive
+  this app refuses to have; user's decision 2026-09-20) — the keyboard paste
+  is the door. A right-click
   selects a folder row without toggling it. Right-clicks anywhere else —
   a terminal above all — are never touched, so the system menu (xterm's
   own copy/paste arrangement) stays. Sessions panel

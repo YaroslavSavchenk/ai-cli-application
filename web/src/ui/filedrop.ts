@@ -5,12 +5,14 @@
  * clipboard, and the Files panel's copy strip button (`Copy files here…`, or
  * `Copy files into <folder>…` once a folder is chosen — A9b).
  *
- * NOTHING HERE COPIES ANYTHING. A9 is the visual half: this module resolves a
- * destination, says so while the pointer moves, and hands the drop to the
- * dialog (injected as `openDialog`, `ui/drop-dialog.ts` in the shell), which
- * pretends to copy and says out loud that it is pretending. Part B10 replaces
- * the pretending with a real upload; the events, the targets and the refusals
- * below are already the ones it will use.
+ * WHAT IT DOES AND WHERE IT STOPS. This module resolves a destination, says so
+ * while the pointer moves, WALKS what was dropped (part B10:
+ * `ui/drop-walk.ts`, from handles captured while the `drop` event is still
+ * live) and hands the result to the dialog (injected as `openDialog`,
+ * `ui/drop-dialog.ts` in the shell), which asks the conflict question and runs
+ * the real copy. It writes nothing itself and it never sees the upload; what
+ * it owns are the events, the targets and the refusals — including the two
+ * whole-drop limits (D3), which are answered here, before any request.
  *
  * WHY THE WINDOW, AND WHY CAPTURE. An un-cancelled file drop NAVIGATES the
  * browser to that file — the app would simply disappear — so `dragover` calls
@@ -44,7 +46,16 @@ import { isDragging } from './dnd.ts';
 import { isEditableTarget, isTerminalTarget, OPEN_MODAL_SELECTOR } from './keys.ts';
 import { fileName } from './slots-model.ts';
 import { el } from './util.ts';
-import { DROP_HINT, MAX_ITEMS, destLine, hasFiles, tooMany, type DropItem } from './drop-model.ts';
+import {
+  DROP_HINT,
+  MAX_ITEMS,
+  destLine,
+  dropRefusal,
+  hasFiles,
+  tooMany,
+  type DropItem,
+} from './drop-model.ts';
+import { walkDrop, type DroppedTop, type WalkResult } from './drop-walk.ts';
 import { copyIntoText, takesPaste } from './files-select-model.ts';
 import type { Destination } from './fs-model.ts';
 
@@ -82,6 +93,22 @@ const NO_PROJECT = 'This session has no project folder yet.';
  * not `session`, because there is no session in it to talk about.
  */
 const NO_TAB_PROJECT = 'This tab has no project folder yet.';
+
+/**
+ * The walk read NOTHING (B10): every directory handed over refused to be
+ * read, so there is no plan to show and no honest dialog to open. One
+ * sentence, no reason — the browser does not give one, and inventing a cause
+ * would be worse than saying what happened.
+ */
+const WALK_FAILED = 'The app could not read what was dropped.';
+
+/**
+ * A copy is already writing (B10). One drop at a time: a second run would
+ * interleave its rows with the first one's, race the panel refresh that
+ * follows a drop, and make `N of M` a count of two things at once. Said the
+ * moment the drop lands, before a single directory is opened.
+ */
+const COPY_RUNNING = 'A copy is still running.';
 
 /** What a pane's drop box says. An external drop never splits a pane. */
 function paneLabel(dest: string): string {
@@ -125,14 +152,21 @@ export type PaneDest = { dest: Destination } | { dest: null; why: 'session' | 't
 /** What `openDialog` is handed for one drop, paste or pick. */
 export interface DropRequest {
   /**
-   * The destination. The dialog renders `dest.name` and nothing else; part
-   * B10 posts `dest.path`.
+   * The destination. The dialog renders `dest.name` and nothing else; the
+   * upload (B10) posts `dest.path`, and `main.ts` is what closes the runner
+   * over it so the dialog never sees a path at all.
    */
   dest: Destination;
-  /** The TOP-LEVEL things being copied. */
+  /** The TOP-LEVEL things being copied, as the walk resolved them. */
   items: DropItem[];
   /** The destination's own top-level names, for the conflict question. */
   listing: readonly string[];
+  /**
+   * What the drop turned out to hold (B10): every file under every dropped
+   * folder, the folders that hold none, and the totals. Read once, here, and
+   * handed on — a second walk would be a second answer.
+   */
+  walk: WalkResult;
   /** Where the keyboard was, so the dialog can give it back. */
   returnFocus: HTMLElement | null;
 }
@@ -179,6 +213,13 @@ export interface FileDropDeps {
    * default really opens one.
    */
   openPicker?(take: (files: readonly FileLike[]) => void): void;
+  /**
+   * Is a copy still writing (B10)? The drop dialog owns the answer
+   * (`isDropRunning`), and a drop, a paste or a pick that arrives while it is
+   * true is refused with one sentence. Optional: a shell that never starts a
+   * copy has nothing to refuse.
+   */
+  copyRunning?(): boolean;
   /** Say a refusal. Injected only so tests can read it; the default flashes. */
   flash?(msg: string): void;
 }
@@ -413,13 +454,16 @@ function dragCount(dt: DataTransfer | null): number {
 }
 
 /**
- * The TOP-LEVEL items of a drop. `webkitGetAsEntry()` is the only thing that
- * can tell a folder from a file, and it answers from `drop` onwards only; a
- * folder's size is a recursive walk, which is B10's job, so it carries
- * `bytes: null` and can never trip the size limit.
+ * The TOP-LEVEL things of a drop, with their HANDLES — the whole reason this
+ * runs inside the `drop` handler and not a microtask later: both
+ * `webkitGetAsEntry()` and `getAsFile()` answer null once the event is over
+ * (measured, PLAN-A9 "Facts checked"), so what is not taken here cannot be
+ * taken at all. `webkitGetAsEntry()` is also the only thing that can tell a
+ * folder from a file; what is INSIDE a folder is the walk's answer
+ * (`ui/drop-walk.ts`), one turn later, from these same handles.
  */
-function readItems(dt: DataTransfer): DropItem[] {
-  const out: DropItem[] = [];
+function readTops(dt: DataTransfer): DroppedTop[] {
+  const out: DroppedTop[] = [];
   const items = dt.items as DataTransferItemList | undefined;
   if (items !== undefined && items !== null && items.length > 0) {
     for (let i = 0; i < items.length; i += 1) {
@@ -427,25 +471,28 @@ function readItems(dt: DataTransfer): DropItem[] {
       if (it === undefined) continue;
       const kind = it.kind as string | undefined;
       if (kind !== undefined && kind !== 'file') continue;
-      const entry = it.webkitGetAsEntry?.() ?? null;
-      const file = it.getAsFile?.() ?? null;
+      const entry = (it.webkitGetAsEntry?.() ?? null) as DroppedTop['entry'];
+      const file = (it.getAsFile?.() ?? null) as File | null;
       const name = entry?.name ?? file?.name ?? '';
       if (name === '') continue;
-      const dir = entry?.isDirectory === true;
-      out.push({ name, dir, bytes: dir ? null : (file?.size ?? null) });
+      out.push({ name, entry, file });
     }
     return out;
   }
-  return itemsOfFiles(dt.files ?? []);
+  return topsOfFiles(dt.files ?? []);
 }
 
-/** Files (a paste, or the native chooser) are always files — never folders. */
-function itemsOfFiles(files: ArrayLike<FileLike>): DropItem[] {
-  const out: DropItem[] = [];
+/**
+ * Files (a paste, or the native chooser) are always files — never folders: a
+ * clipboard carries no directory handle and `<input type=file multiple>`
+ * cannot select one. They walk as themselves, with no entry to read.
+ */
+function topsOfFiles(files: ArrayLike<FileLike>): DroppedTop[] {
+  const out: DroppedTop[] = [];
   for (let i = 0; i < files.length; i += 1) {
     const f = files[i] as FileLike | undefined;
     if (f === undefined || f.name === '') continue;
-    out.push({ name: f.name, dir: false, bytes: f.size ?? null });
+    out.push({ name: f.name, entry: null, file: f as unknown as File });
   }
   return out;
 }
@@ -464,33 +511,73 @@ function activeEl(): HTMLElement | null {
 
 /**
  * The one door to the dialog: every path (drop, paste, button) arrives here
- * with a destination and its items, so the limit is checked once and the
- * listing is read once.
+ * with a destination and the handles of what was dropped, so the limits are
+ * checked once, the walk happens once and the listing is read once.
  *
- * ASYNC since part B2: the conflict listing is a real request against the real
- * destination folder, made at THIS moment rather than read from a cache
- * (§4b — a stale listing is the one lie that decides whether a file is
- * overwritten). Both refusals still answer without a single request, and
- * `returnFocus` is captured by the caller BEFORE the await, so the dialog
- * gives the keyboard back to the element the drop came from and not to
- * whatever has it a network round trip later.
+ * THE ORDER IS THE DESIGN, and every step of it refuses before it costs
+ * anything:
+ *
+ *   0. A COPY THAT IS STILL RUNNING refuses the new one outright (B10): one
+ *      run at a time, or two of them race the panel refresh.
+ *   1. TOO MANY TOP-LEVEL ITEMS is a number, answered before a single
+ *      directory is opened — 10 000 dragged items must not be walked first.
+ *   2. THE WALK, once (B10): what the drop really holds, from the handles the
+ *      `drop` handler captured while the event was still live.
+ *   3. A WALK THAT READ NOTHING is said out loud rather than shown as an
+ *      empty plan.
+ *   4. THE DROP-LEVEL LIMITS (D3): over 2000 files or 1 GB the whole drop is
+ *      refused, in one sentence, with no request made and nothing partial.
+ *   5. ONLY THEN the listing — a real request against the real destination,
+ *      made at THIS moment rather than read from a cache (B2 §4b: a stale
+ *      listing is the one lie that decides whether a file is overwritten).
+ *
+ * `returnFocus` is captured by the caller BEFORE the first await, so the
+ * dialog gives the keyboard back to the element the drop came from and not to
+ * whatever has it a walk and a round trip later.
  */
 async function offer(
   dest: Destination,
-  items: DropItem[],
+  tops: DroppedTop[],
   returnFocus: HTMLElement | null,
 ): Promise<void> {
   const d = deps;
   if (d === null) return;
-  if (tooMany(items.length)) {
+  // Before anything else, including the count: a copy that is still writing
+  // owns the destination and the panel refresh that follows it.
+  if (d.copyRunning?.() === true) {
+    say(COPY_RUNNING);
+    return;
+  }
+  if (tooMany(tops.length)) {
     say(TOO_MANY);
     return;
   }
   // A drop the browser described as nothing at all is not a refusal to
   // announce — there is nothing the user could do differently.
-  if (items.length === 0) return;
+  if (tops.length === 0) return;
+
+  let walk: WalkResult;
+  try {
+    walk = await walkDrop(tops);
+  } catch {
+    say(WALK_FAILED);
+    return;
+  }
+  // Nothing readable came back, and something refused to be read: the drop
+  // exists, the app just cannot see into it.
+  if (walk.files.length === 0 && walk.folders.length === 0 && walk.unreadable > 0) {
+    say(WALK_FAILED);
+    return;
+  }
+  const refusal = dropRefusal(walk.files.length, walk.bytes);
+  if (refusal !== null) {
+    say(refusal);
+    return;
+  }
+  if (walk.items.length === 0) return;
+
   const listing = await d.listingFor(dest);
-  d.openDialog({ dest, items, listing, returnFocus });
+  d.openDialog({ dest, items: walk.items, listing, walk, returnFocus });
 }
 
 // ---------------------------------------------------------------------------
@@ -580,7 +667,7 @@ function onDrop(e: DragEvent): void {
     say(TOO_MANY);
     return;
   }
-  void offer(target.dest, readItems(dt), returnFocus);
+  void offer(target.dest, readTops(dt), returnFocus);
 }
 
 /**
@@ -635,7 +722,7 @@ function onPaste(e: ClipboardEvent): void {
   // to it when it closes (ui/drop-dialog.ts `restore`), so a terminal the
   // paste came from is typing again the moment the card is gone. Nothing here
   // moves the focus, so there is nothing to undo.
-  void offer(dest, itemsOfFiles(files), activeEl());
+  void offer(dest, topsOfFiles(files), activeEl());
 }
 
 // ---------------------------------------------------------------------------
@@ -680,7 +767,7 @@ export function openCopyFilesPicker(into?: Destination): void {
   if (dest === null) return;
   const returnFocus = activeEl();
   (d.openPicker ?? nativePicker)((files) => {
-    void offer(dest, itemsOfFiles(files), returnFocus);
+    void offer(dest, topsOfFiles(files), returnFocus);
   });
 }
 

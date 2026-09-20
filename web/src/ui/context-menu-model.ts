@@ -17,12 +17,13 @@
  *   commands, no flags, no key names, no icons, no counts, no separator — a
  *   list this short reads as a list, and nothing on it is a plural of
  *   something else.
- * - HONESTY ABOUT WHAT IS NOT BUILT: `Copy` and `Paste` are visible and
- *   DISABLED until part B10, each carrying one plain sentence saying why. A
- *   page cannot put files on the operating system's clipboard, and cannot read
- *   files off it outside a `paste` event; the Windows host does both in B10.
- *   The sentences name no product, no path and no key — the one about pasting
- *   points at the keyboard because that route really does work today (§2).
+ * - HONESTY ABOUT WHAT IS NOT BUILT: `Paste` is visible and DISABLED, with one
+ *   plain sentence saying why — a page cannot read files off the clipboard
+ *   outside a `paste` event, which is a keystroke, and that route really does
+ *   work (§2), so the sentence points at it. `Copy` became real in part B10,
+ *   in the NATIVE window only: `canCopy` answers whether this window has a
+ *   host to ask, and a window without one keeps the entry visible and disabled
+ *   with a sentence about the window, not about the app.
  * - A PATH NEVER REACHES A LABEL: `menuLabel` takes the row's NAME, and the
  *   caller is the one that reduced a path to it (`selectedName`).
  */
@@ -63,10 +64,26 @@ export interface RowSubject {
   name: string;
   /** Is this folder open right now? Decides `Open` vs `Close`. */
   open: boolean;
+  /**
+   * Can this window put files on the clipboard at all (part B10)? It is the
+   * native host's channel or nothing (`ui/host-bridge.ts` `hasHostBridge()`),
+   * and the caller answers it at menu-open time. False keeps `Copy` visible
+   * and disabled, with the sentence below.
+   */
+  canCopy: boolean;
 }
 
-/** Why `Copy` cannot work yet. One sentence, no key names, no product names. */
-export const COPY_NOTE = 'The app cannot put files on the clipboard yet.';
+/**
+ * Why `Copy` does nothing HERE. Part B10 made it real in the native window;
+ * an Edge `--app` window has no channel to a process that owns a clipboard,
+ * and there is no second-best to offer — a "Copy" that produced a path as
+ * TEXT would be a different promise, and pasting text into Explorer's file
+ * list does nothing at all.
+ *
+ * It says `This window`, not `The app`: the very same app in the native
+ * window can, and the sentence has to stay true in both.
+ */
+export const COPY_NOTE = 'This window cannot put files on the clipboard.';
 
 /**
  * Why `Paste` cannot work FROM THE MENU, and where it does work. A page only
@@ -101,7 +118,7 @@ export function itemsFor(row: RowSubject): MenuItem[] {
   if (row.dir) {
     return [
       { action: 'toggle', label: row.open ? 'Close' : 'Open', enabled: true },
-      { action: 'copy', label: 'Copy', enabled: false, note: COPY_NOTE },
+      copyEntry(row.canCopy),
       { action: 'paste', label: 'Paste', enabled: false, note: PASTE_NOTE },
       { action: 'copy-files', label: COPY_LABEL, enabled: true },
       ...makeEntries(),
@@ -110,8 +127,21 @@ export function itemsFor(row: RowSubject): MenuItem[] {
   return [
     { action: 'open', label: 'Open', enabled: true },
     { action: 'open-beside', label: 'Open beside', enabled: true },
-    { action: 'copy', label: 'Copy', enabled: false, note: COPY_NOTE },
+    copyEntry(row.canCopy),
   ];
+}
+
+/**
+ * `Copy`, in the one shape both lists use. A folder and a file are copied the
+ * identical way (`SetFileDropList` takes a tree the way Explorer does), so
+ * there is one entry and one answer to whether it works here.
+ *
+ * An ENABLED entry carries no note: the sentence exists to explain a refusal,
+ * and an entry that does what it says needs no explanation.
+ */
+function copyEntry(canCopy: boolean): MenuItem {
+  if (canCopy) return { action: 'copy', label: 'Copy', enabled: true };
+  return { action: 'copy', label: 'Copy', enabled: false, note: COPY_NOTE };
 }
 
 /**

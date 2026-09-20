@@ -49,9 +49,11 @@ import {
   initFilesPanel,
   listingFor,
   pasteDestination,
+  refreshAfterDrop,
   selectedFolder,
 } from './ui/files.ts';
-import { initFileDrop, installDropGuard } from './ui/filedrop.ts';
+import { initFileDrop, installDropGuard, type DropRequest } from './ui/filedrop.ts';
+import { createDropRun } from './ui/drop-upload.ts';
 import { initCommitView } from './ui/commit-view.ts';
 import { flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
@@ -78,12 +80,17 @@ import {
 } from './ui/update.ts';
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
-import { dropDialogEscape, isDropDialogOpen, openDropDialog } from './ui/drop-dialog.ts';
+import {
+  dropDialogEscape,
+  isDropDialogOpen,
+  isDropRunning,
+  openDropDialog,
+} from './ui/drop-dialog.ts';
 import { focusOwnerOpen, isEditableTarget, isTerminalTarget, shouldRefocusTerminal } from './ui/keys.ts';
 import { loadTerminalFont, watchTerminalFont } from './ui/terminal.ts';
 import type { FontWaitResult } from './ui/font-ready.ts';
 import { startPresence } from './ws.ts';
-import { initLogging, log } from './log.ts';
+import { formatError, initLogging, log } from './log.ts';
 import { el, button } from './ui/util.ts';
 import { gearIcon } from './ui/icons.ts';
 
@@ -553,14 +560,75 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     entries: api.fsEntries,
     create: api.fsCreate,
     changes: api.gitChanges,
+    winPath: api.fsWinPath,
   });
+
+  /**
+   * One drop, handed over (B10). THIS is the seam where a path stops: the
+   * runner is built here, closed over the real destination, and the dialog is
+   * given the destination's NAME and that runner — so the card can copy into a
+   * folder it cannot name the location of.
+   *
+   * The two things that happen once the copy is over live here too, for the
+   * same reason: the panel is refreshed ONCE (and only if it is showing that
+   * folder), and ONE line goes into the log with counts and nothing else.
+   */
+  function openDrop(req: DropRequest): void {
+    const run = createDropRun({
+      dest: req.dest,
+      items: req.items,
+      listing: req.listing,
+      walk: req.walk,
+      gateway: {
+        put: (dir, rel, mode, body) => api.fsUpload(dir, rel, mode, body).then(() => undefined),
+        // A folder that holds nothing still has to exist: the A9c create route
+        // makes one, with the identical boundary and name rules the upload has.
+        folder: (dir, name) => api.fsCreate(dir, name, 'folder').then(() => undefined),
+      },
+    });
+    openDropDialog({
+      dest: req.dest.name,
+      items: req.items,
+      listing: req.listing,
+      returnFocus: req.returnFocus,
+      run: {
+        plan: (choice) => run.plan(choice),
+        failed: () => run.failed(),
+        start: async (choice, on) => {
+          const results = await run.start(choice, on);
+          // Both of these are AFTER the copy and neither may cost the dialog
+          // its result: a throw here would reject the promise the card is
+          // waiting on, and the card would say `Copying…` for good. One line
+          // each, and the other one still runs.
+          try {
+            // Counted in FILES throughout — files carried, bytes carried,
+            // files that failed — so the three numbers of one line are one
+            // unit (a folder of 12 files that lost 3 says `3 failed`).
+            api.logDrop(req.walk.files.length, req.walk.bytes, run.failed());
+          } catch (err) {
+            log.warn(`drop: the summary line could not be written: ${formatError(err)}`);
+          }
+          try {
+            refreshAfterDrop(req.dest);
+          } catch (err) {
+            log.warn(`drop: the panel could not be refreshed: ${formatError(err)}`);
+          }
+          return results;
+        },
+      },
+    });
+  }
+
   // A9: the window's own HTML5 drop channel, after the panel exists — three of
   // its deps are that panel's own `subject()`, so it may not be wired first.
   initFileDrop({
-    // B2 threads a real `{ path, name }` through the drop layer; the dialog is
-    // unchanged and still takes the NAME, which is the only half of a
-    // destination that may ever be drawn.
-    openDialog: (req) => openDropDialog({ ...req, dest: req.dest.name }),
+    // B2 threads a real `{ path, name }` through the drop layer; the dialog
+    // takes the NAME, which is the only half of a destination that may ever be
+    // drawn, plus the runner that owns the other half.
+    openDialog: openDrop,
+    // One copy at a time (B10): a second drop while one is still writing would
+    // race this one's panel refresh, so it is refused before it is walked.
+    copyRunning: isDropRunning,
     listingFor,
     destinationOfPane,
     destinationOfActiveView,

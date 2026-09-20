@@ -14,6 +14,9 @@ import type {
   FsEntriesResponse,
   FsListResponse,
   FsMkdirResponse,
+  FsUploadMode,
+  FsUploadResponse,
+  FsWinPathResponse,
   GitChangesResponse,
   GithubCloneRequest,
   GithubCreateRepoRequest,
@@ -33,6 +36,7 @@ import type {
   ToolAvailability,
   UiPrefs,
 } from '../../shared/protocol.ts';
+import { UPLOAD_CONTENT_TYPE } from '../../shared/protocol.ts';
 import { formatError, log } from './log.ts';
 
 declare global {
@@ -113,6 +117,12 @@ export function onAuthError(fn: () => void): void {
  * and `error` would force an immediate log flush against the very backend that
  * is not answering.
  */
+/**
+ * Routes whose 2xx is not worth a line each — the `route` form, with the query
+ * already reduced to `?…`. One entry today: the per-file upload of a drop.
+ */
+const QUIET_ON_SUCCESS = new Set(['/api/fs/upload ?…']);
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? 'GET';
   // The QUERY is never logged, only its presence — exactly what the server's
@@ -124,7 +134,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const started = performance.now();
   const took = (): number => Math.round(performance.now() - started);
   const headers: Record<string, string> = { 'x-auth-token': authToken() };
-  if (init.body !== undefined) headers['content-type'] = 'application/json';
+  // A RAW body (B10's upload: a File or a Blob) is not JSON and must not be
+  // announced as any: the upload route answers 415 to anything but
+  // `application/octet-stream`, and that refusal is also what keeps a
+  // cross-site form post — which cannot set this header — off the route.
+  // Every other call in this file sends a JSON string.
+  if (typeof init.body === 'string') headers['content-type'] = 'application/json';
+  else if (init.body !== undefined && init.body !== null) headers['content-type'] = UPLOAD_CONTENT_TYPE;
   let res: Response;
   try {
     res = await fetch(path, { ...init, headers });
@@ -152,7 +168,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     else log.warn(line);
     throw new ApiError(res.status, msg);
   }
-  log.debug(`api ${method} ${route} → ${res.status} ${took()}ms`);
+  // QUIET, on success only (B10, user decision 2026-09-20): a 2000-file drop
+  // is 2000 identical `201` lines, and the server's own access log demotes the
+  // very same route for the very same reason. The per-drop summary (`logDrop`)
+  // is the record; every REFUSAL above still writes its warn line, because
+  // that is the one a reader is looking for.
+  if (!QUIET_ON_SUCCESS.has(route)) log.debug(`api ${method} ${route} → ${res.status} ${took()}ms`);
   return body as T;
 }
 
@@ -470,6 +491,54 @@ export function fsCreate(
     method: 'POST',
     body: JSON.stringify({ dir, name, kind }),
   });
+}
+
+/**
+ * Copy ONE file into `dir` under the relative path `rel` (B10). One raw-body
+ * `PUT` per file, never multipart: the server refuses on `content-length`
+ * before it reads a byte, and `fetch` sets that length itself for a `File` or
+ * `Blob` body — so the request is never chunked and a 50 MiB file streams from
+ * disk instead of sitting in either process's heap.
+ *
+ * `rel` is `/`-joined and percent-encoded whole (`encodeURIComponent` escapes
+ * the separators too, which is what keeps a name containing `/`, `&` or `#`
+ * from becoming a second path segment or a second parameter). The server
+ * splits the decoded value on `/` and puts every segment through its own name
+ * check; nothing here decides what is safe.
+ *
+ * Rejects with `ApiError(status)` on every refusal — the status is the whole
+ * vocabulary the failed row speaks (`failNote`). 201 answers `{ bytes }`.
+ */
+export function fsUpload(
+  dir: string,
+  rel: string,
+  mode: FsUploadMode,
+  body: Blob,
+): Promise<FsUploadResponse> {
+  const q = `dir=${encodeURIComponent(dir)}&rel=${encodeURIComponent(rel)}&mode=${mode}`;
+  return request<FsUploadResponse>(`/api/fs/upload?${q}`, { method: 'PUT', body });
+}
+
+/**
+ * The Windows form of a path inside the boundary (B10 phase 3's clipboard).
+ * The MAPPING is the server's: it is the half that knows the distro name and
+ * the one that can refuse a path outside home and every registered project.
+ * 422 means there is no Windows form of it at all.
+ */
+export function fsWinPath(path: string): Promise<FsWinPathResponse> {
+  return request<FsWinPathResponse>(`/api/fs/winpath?path=${encodeURIComponent(path)}`);
+}
+
+/**
+ * ONE line per drop, at info, and COUNTS ONLY (B10): how many files it
+ * carried, how big it was, how many rows failed. No name, no path, no
+ * destination — the per-request lines above already say `PUT /api/fs/upload
+ * ?… → 201`, with the query reduced to `?…` exactly as the server's own
+ * access log does.
+ */
+export function logDrop(files: number, bytes: number, failed: number): void {
+  const mb = (bytes / 1_000_000).toFixed(1);
+  log.info(`drop: ${files} files, ${mb} MB, ${failed} failed`);
 }
 
 /** What the repository at (or above) `root` has changed since its last commit. */

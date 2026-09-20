@@ -60,6 +60,8 @@ export interface Gateway {
   entries(path?: string): Promise<{ path: string; entries: Entry[]; truncated: number }>;
   create(dir: string, name: string, kind: 'file' | 'folder'): Promise<{ path: string }>;
   changes(root: string): Promise<Changes>;
+  /** The Windows form of one path, for the row menu's `Copy` (part B10). */
+  winPath(path: string): Promise<{ windowsPath: string }>;
 }
 
 /**
@@ -161,6 +163,13 @@ export interface Fixture {
    * with a diff, not a silence.
    */
   createCalls: CreateCall[];
+  /** Every path the row menu's `Copy` asked the server to map (part B10). */
+  winPathCalls: string[];
+  /**
+   * What the NEXT mapping answers, when a test wants it to fail: the 422 a path
+   * with no Windows form gets, or the 403 of a path outside the boundary.
+   */
+  winPathFails: FakeApiError | null;
   /**
    * What the NEXT create answers, when a test wants it to fail: the 409 a name
    * that is taken really gets, or anything else with a message. Cleared by
@@ -231,6 +240,7 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
   const entryCalls: (string | undefined)[] = [];
   const changeCalls: string[] = [];
   const createCalls: CreateCall[] = [];
+  const winPathCalls: string[] = [];
   const failWith = new Map<string, FakeApiError>();
   let held: (() => void)[] | null = null;
   /** Creates waiting for `releaseCreate()` — the in-flight row (A9c §6b). */
@@ -269,8 +279,10 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
     entryCalls,
     changeCalls,
     createCalls,
+    winPathCalls,
     failWith,
     createFails: null,
+    winPathFails: null,
     failCreate(err = new FakeApiError(409, 'That name is already taken.')) {
       fx.createFails = err;
     },
@@ -310,7 +322,9 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
       entryCalls.length = 0;
       changeCalls.length = 0;
       createCalls.length = 0;
+      winPathCalls.length = 0;
       fx.createFails = null;
+      fx.winPathFails = null;
       failWith.clear();
       held = null;
       heldCreate = null;
@@ -364,6 +378,13 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
         return new Promise<{ path: string }>((resolve) => {
           heldCreate?.push(() => resolve({ path }));
         });
+      },
+      winPath(path: string) {
+        winPathCalls.push(path);
+        const bad = fx.winPathFails;
+        if (bad !== null) return Promise.reject(bad);
+        // The mapping the backend really makes, in the shape the host parses.
+        return Promise.resolve({ windowsPath: `\\\\wsl.localhost\\Ubuntu${path.replace(/\//g, '\\')}` });
       },
       changes(root: string) {
         changeCalls.push(root);

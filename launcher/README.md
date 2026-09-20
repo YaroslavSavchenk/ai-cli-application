@@ -361,7 +361,7 @@ dark mode. Every failure path is non-fatal and logged — this is cosmetic and
 must never break the window. Keep the constants in sync if those tokens change.
 The Edge `--app` fallback window is unaffected and still shows a light caption.
 
-**Keyboard focus, links and the clipboard.** Four behaviours the host adds
+**Keyboard focus, links and the clipboard.** Five behaviours the host adds
 for the page:
 
 - **Focus comes back on activation.** WebView2 draws the page in its own child
@@ -392,6 +392,21 @@ for the page:
   a paste command that reads the Windows clipboard (`Ctrl+Shift+V`). Every
   other permission request, and any request from any other origin, is denied
   silently — the host answers them itself, so WebView2 never shows a prompt.
+- **Files can be put ON the Windows clipboard.** The page's `Copy` command
+  sends the host one string — `copy-files` on the first line, then one Windows
+  path per line (at most 100, the whole message at most 64 KiB) — through
+  `chrome.webview.postMessage`, and the host answers with `copy-files ok <n>`
+  or `copy-files failed`; Explorer then pastes the real files. Strings both
+  ways, no JSON. The paths arrive ALREADY mapped by the backend
+  (`GET /api/fs/winpath`, which maps only what is inside your home or a
+  registered project), so the host re-checks their **shape** and nothing else:
+  each one must start with `\\wsl.localhost\<distro>\` or `C:\`, and carry no
+  control character, no `/`, no `.`/`..` segment, none of `* ? " < > | :`, and no
+  segment ending in a dot or a space. One bad path refuses the whole message —
+  never half a copy. The channel is origin-locked to the launch origin like
+  every other handler here, and `host.log` records a COUNT and the outcome
+  word, never a path. In the Edge `--app` fallback window there is no
+  `chrome.webview`, so the page keeps its `Copy` entry visibly disabled.
 
 The host navigates only to the resolved `http://127.0.0.1:<port>/` and is
 **navigation-locked** to that origin (127.0.0.1/localhost); it monitors nothing

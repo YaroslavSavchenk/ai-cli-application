@@ -176,6 +176,8 @@ interface FilesModule {
   destinationOfActiveView(): Dest | null;
   destinationOfPane(paneEl: unknown): { dest: Dest } | { dest: null; why: 'session' | 'tab' };
   listingFor(dest: Dest): Promise<readonly string[]>;
+  /** Part B10: show what a drop landed, if the panel is showing that folder. */
+  refreshAfterDrop(dest: Dest): void;
 }
 
 
@@ -208,6 +210,33 @@ const panel = F.initFilesPanel(
   gateway,
 );
 const root = host.children[0] as FakeElement;
+
+/**
+ * The statusline, because part B10's `Copy` SAYS what happened there and
+ * nowhere else. It is the same double `tests/ui-dnd-a10.test.ts` uses: the
+ * real module, in a host of its own, read back through `.status-flash`.
+ */
+const statusHost = dom.doc.createElement('div');
+dom.body.append(statusHost);
+const SL = (await import(new URL('../web/src/ui/statusline.ts', import.meta.url).href)) as {
+  initStatusline(container: unknown, deps: { openShortcuts(): void }): { render(): void };
+};
+SL.initStatusline(statusHost, { openShortcuts: () => {} });
+// Its 15 s uptime ticker is recorded like every timer in the double, and the
+// `Changes` poll is counted by READING that list — so the statusline's own
+// interval is taken back off it here, where it is created and never used.
+dom.win.intervals.length = 0;
+
+function flashText(): string {
+  return byClass(statusHost, 'status-flash')[0]?.textContent ?? '';
+}
+
+/** Fire every recorded timer, which is what takes a flash back down. */
+function clearFlash(): void {
+  const due = [...dom.win.timers];
+  dom.win.timers.length = 0;
+  for (const t of due) t.fn();
+}
 
 /** Everything `notify()` emitted since the last reset. */
 const kinds: string[] = [];
@@ -2593,4 +2622,121 @@ test('the Home tab is HOME, whatever is running in another tab', async () => {
     'and so does the tree',
   );
   assert.deepEqual(F.filesPanelDestination(), { path: HOME, name: 'Home' });
+});
+
+// ---------------------------------------------------------------------------
+// After a copy, and the clipboard (part B10)
+// ---------------------------------------------------------------------------
+
+test('refreshAfterDrop re-reads the ROOT the copy landed in', async () => {
+  await liveSession();
+  fx.entryCalls.length = 0;
+  F.refreshAfterDrop({ path: PROJ, name: 'api' });
+  await settle();
+  assert.deepEqual(fx.entryCalls, [PROJ], 'exactly one listing, for the folder that changed');
+});
+
+test('refreshAfterDrop re-reads an OPEN folder, and asks for nothing else', async () => {
+  await liveSession();
+  fx.entryCalls.length = 0;
+  F.refreshAfterDrop({ path: `${PROJ}/web`, name: 'web' });
+  await settle();
+  assert.deepEqual(fx.entryCalls, [`${PROJ}/web`]);
+});
+
+test('a copy into a folder nobody opened costs NO request at all', async () => {
+  await liveSession();
+  fx.entryCalls.length = 0;
+  // `shared` is in the tree and has never been expanded: there is no listing
+  // of it on screen, so re-reading it would be a request thrown away.
+  F.refreshAfterDrop({ path: `${PROJ}/shared`, name: 'shared' });
+  await settle();
+  assert.deepEqual(fx.entryCalls, []);
+  // Nor does a folder of another root, or one that is not in the tree at all.
+  F.refreshAfterDrop({ path: '/somewhere/else', name: 'else' });
+  await settle();
+  assert.deepEqual(fx.entryCalls, []);
+});
+
+test('the copy that landed is on screen after ONE refresh', async () => {
+  await liveSession();
+  (fx.tree.get(`${PROJ}/web`) ?? []).push({ name: 'dropped.txt', dir: false });
+  F.refreshAfterDrop({ path: `${PROJ}/web`, name: 'web' });
+  await settle();
+  assert.ok(
+    textsOf(root, 'files-name').includes('dropped.txt'),
+    'the panel shows what the drop put there',
+  );
+});
+
+test('Copy on a row: the BACKEND maps the path, the host gets it, and the flash names the row', async () => {
+  await liveSession();
+  const win = dom.win as unknown as { chrome?: { webview: unknown } };
+  const posted: string[] = [];
+  const listeners: ((e: { data?: unknown }) => void)[] = [];
+  win.chrome = {
+    webview: {
+      postMessage: (m: string) => posted.push(m),
+      addEventListener: (_t: string, fn: (e: { data?: unknown }) => void) => listeners.push(fn),
+      removeEventListener: (_t: string, fn: (e: { data?: unknown }) => void) => {
+        const i = listeners.indexOf(fn);
+        if (i !== -1) listeners.splice(i, 1);
+      },
+    },
+  };
+  try {
+    dispatch(fileRow('README.md'), 'contextmenu', { clientX: 10, clientY: 10 });
+    const copy = byClass(dom.body, 'cm-item').find((b) => b.textContent.startsWith('Copy'));
+    assert.ok(copy !== undefined, 'non-vacuity: the menu is open and carries the entry');
+    assert.equal(copy.getAttribute('aria-disabled'), null, 'a native window can copy');
+    copy.click();
+    await settle();
+    assert.deepEqual(fx.winPathCalls, [`${PROJ}/README.md`], 'the mapping is the server s');
+    assert.deepEqual(posted, ['copy-files\n\\\\wsl.localhost\\Ubuntu\\work\\api\\README.md']);
+    for (const fn of [...listeners]) fn({ data: 'copy-files ok 1' });
+    await settle();
+    assert.equal(flashText(), 'Copied README.md to the clipboard.', 'by NAME, never by path');
+  } finally {
+    delete win.chrome;
+    clearFlash();
+  }
+});
+
+test('Copy that the host refuses says so, in one sentence, whatever went wrong', async () => {
+  await liveSession();
+  const win = dom.win as unknown as { chrome?: unknown };
+  try {
+    // No host at all: the entry is visibly disabled and nothing is asked for.
+    dispatch(fileRow('README.md'), 'contextmenu', { clientX: 10, clientY: 10 });
+    const copy = byClass(dom.body, 'cm-item').find((b) => b.textContent.startsWith('Copy'));
+    assert.equal(copy?.getAttribute('aria-disabled'), 'true');
+    assert.ok(
+      copy?.textContent.includes('This window cannot put files on the clipboard.'),
+      `the note is the one the model owns: ${copy?.textContent}`,
+    );
+    copy?.click();
+    await settle();
+    assert.deepEqual(fx.winPathCalls, [], 'a disabled entry asks the server nothing');
+    assert.equal(flashText(), '');
+
+    // A host that IS there, and a path the backend will not map (422).
+    win.chrome = {
+      webview: {
+        postMessage: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    };
+    fx.winPathFails = new FakeApiError(422, 'That file cannot be reached from Windows.');
+    dispatch(fileRow('README.md'), 'contextmenu', { clientX: 10, clientY: 10 });
+    const live = byClass(dom.body, 'cm-item').find((b) => b.textContent.startsWith('Copy'));
+    assert.equal(live?.getAttribute('aria-disabled'), null);
+    live?.click();
+    await settle();
+    assert.equal(flashText(), 'The app could not copy that to the clipboard.');
+    assert.equal(flashText().includes('/'), false, 'and it carries no path');
+  } finally {
+    delete win.chrome;
+    clearFlash();
+  }
 });
