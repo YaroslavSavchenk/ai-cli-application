@@ -16,6 +16,14 @@ Ground rules for every session:
   `/memory` skill. Recall from it before nontrivial work (`memory/INDEX.md`
   first); write back decisions, lessons, and a log entry after significant
   work.
+- **Repo layout is a standard (2026-09-20, user's call).** A new file goes
+  where `README.md` § Repository layout and the `/memory` skill's § Layout
+  say — a work-log entry at `memory/log/<YYYY-MM>/<area>/`, never loose in
+  `memory/log/`; `tests/vault-layout.test.ts` enforces the vault part. Moving,
+  renaming or regrouping files or folders goes through `/restructure-repo`
+  (reference scan, a move map the user approves, `git mv` in batches, the
+  suite as the gate) — never an ad-hoc `mv`. A new top-level folder or a new
+  log area is the user's decision.
 - UI work must follow `/frontend-designer` (hard anti-generic-design filter).
   Terminal-related changes aren't done until `/verify-terminal` passes.
 - **Standing authorization (2026-07-18): commit AND push to origin after every

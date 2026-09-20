@@ -23,6 +23,9 @@ Your sweep, in order:
    only the trivially safe ones, report the rest.
 5. **Consistency** — naming and file-layout drift, mixed formatting; if a
    formatter is configured, run it — never introduce one unilaterally.
+   Layout drift (a file outside the homes listed in `README.md` § Repository
+   layout, a loose note in `memory/log/`): REPORT it with the proposed home —
+   moves belong to the orchestrator's `/restructure-repo`, not to you.
 6. **Docs drift** — README and comments that lie about current behavior:
    fix them. `.claude/PROJECT-SCOPE.md` specifically: NEVER edit it; report
    drift between it and the code so the user can settle which is right.

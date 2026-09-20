@@ -1047,6 +1047,18 @@ vault holds the *why*, rejected alternatives, learnings, and the work log.
 Recall from it before nontrivial work; write back after decisions and
 landed features.
 
+**Repo layout is a standard (decided 2026-09-20, user's call; rationale and
+move maps in `memory/decisions/repo-layout.md`).** `README.md` § Repository
+layout is the map of where things live. The work log is
+`memory/log/<YYYY-MM>/<area>/` (areas: nocturne, backend, ui, launcher,
+github, release, project); `memory/decisions/` and `memory/knowledge/` are
+flat, with `memory/INDEX.md` grouped by theme. `tests/vault-layout.test.ts`
+enforces the vault rules (placement, unique basenames, INDEX coverage, no
+dead `memory/…md` citation in any tracked file). Every move of files or
+folders follows `.claude/skills/restructure-repo/SKILL.md`; the remaining
+batches (plans, design folders, tests and code) are in
+`.claude/PLAN-RESTRUCTURE.md` and start only after Nocturne B10 lands.
+
 ## Open decisions (do not treat as settled)
 
 Repo visibility — DONE: PUBLIC since 2026-09-09 (vault included). Branch protection — DONE 2026-09-09: ruleset `protect-main` blocks force-push + deletion on `main`, no required checks (direct pushes stay possible).
