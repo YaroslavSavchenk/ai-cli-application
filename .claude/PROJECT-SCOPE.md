@@ -480,7 +480,7 @@ multi-pane layouts on top.
   stable top so switching Tool never moves the grid under the pointer.
   First group `Tool` = a 2-per-row card radiogroup (roving tabindex, arrow
   keys): **Claude Code · Codex · Gemini CLI · Grok · Terminal · Other**.
-  **Since Nocturne B5 (2026-09-18, spec `.claude/PLAN-B5.md`) all four AI
+  **Since Nocturne B5 (2026-09-18, spec `.claude/plans/nocturne/PLAN-B5.md`) all four AI
   tools are live**; a card whose executable the backend cannot find on the
   PATH of the very environment it spawns sessions with (`GET /api/tools`,
   a stat-only probe cached 5 s, fetched on every dialog open) is inert
@@ -601,7 +601,7 @@ multi-pane layouts on top.
   escapes the ladder (same uid — it could read the key anyway); a root-owned
   member survives silently; shutdown's SIGHUP+SIGKILL in one tick loses
   in-flight shell history (UX, user's call).
-- **The upload route (Nocturne B10, 2026-09-20; spec `.claude/PLAN-B10.md`
+- **The upload route (Nocturne B10, 2026-09-20; spec `.claude/plans/nocturne/PLAN-B10.md`
   §2).** `PUT /api/fs/upload?dir=<abs>&rel=<relative>&mode=replace|new`,
   body `application/octet-stream`, ONE file per request, `content-length`
   required (411 otherwise; 413 over 50 MiB BEFORE a byte is read), `201
@@ -631,7 +631,7 @@ multi-pane layouts on top.
   a `kill -9`; the drvfs `link()` fallback is untested here; Windows
   reserved device names (`CON`, `NUL`) pass on Linux and are Explorer's
   problem on paste.
-- **The delete route (Nocturne B10a, 2026-09-20; spec `.claude/PLAN-B10A.md`
+- **The delete route (Nocturne B10a, 2026-09-20; spec `.claude/plans/nocturne/PLAN-B10a.md`
   §2; rationale `memory/decisions/b10a-multi-select-and-delete.md`) — the
   app's first delete primitive, PERMANENT (user's decision: no trash, one
   confirmation `Delete 3 items from src? This cannot be undone.` in the
@@ -731,7 +731,7 @@ multi-pane layouts on top.
   (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2/B3 land, each tab
   carries one quiet "Example data until the panel reads your …" line —
   the data is placeholder, the header name is real (a project, a session
-  title, or `Home`). **B2 + A9c (started 2026-09-16, `.claude/PLAN-B2.md`)**
+  title, or `Home`). **B2 + A9c (started 2026-09-16, `.claude/plans/nocturne/PLAN-B2.md`)**
   turn the panel into a REAL file browser (root = the user's home, or the
   focused session's project root — with NOTHING focused the root is home,
   user decision 2026-09-16, replacing A5's "first live session anywhere"
@@ -776,7 +776,7 @@ multi-pane layouts on top.
   Keep both, the choice covers every conflict of that drop, Esc = Skip),
   then per-item Copied / Skipped / Failed rows, then one result sentence.
   **Transport is REAL since Nocturne B10 (2026-09-20, spec
-  `.claude/PLAN-B10.md`, rationale `memory/decisions/b10-file-copy-and-clipboard.md`):**
+  `.claude/plans/nocturne/PLAN-B10.md`, rationale `memory/decisions/b10-file-copy-and-clipboard.md`):**
   the client walks dropped folders first (`readEntries` loop, depth ≤ 64),
   refuses a drop up front over 200 top-level items, 2000 files or 1 GiB
   (user's limits; one sentence, nothing partial), asks the ONE conflict
@@ -799,7 +799,7 @@ multi-pane layouts on top.
   the drag (the selection's destination first — A9b, 2026-09-16: one click
   on a folder row selects it and toggles it, the selection stays visible
   after the focus leaves the panel, Escape inside the panel or hiding the
-  panel clears it; **since B10a (2026-09-20, spec `.claude/PLAN-B10A.md`) the
+  panel clears it; **since B10a (2026-09-20, spec `.claude/plans/nocturne/PLAN-B10a.md`) the
   selection is MANY rows, files included**, Explorer-style: ctrl+click
   toggles, shift+click ranges over the visible rows, ctrl+a takes every
   visible row, ↑/↓ move focus, shift+↑/↓ extend, ctrl+↑/↓ move focus only,
@@ -881,7 +881,7 @@ multi-pane layouts on top.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
 - **Peek mascot (user's ask 2026-09-15; the LAST step of the Nocturne
-  redesign, `.claude/PLAN-NOCTURNE.md` C1).** The user's own pixel-art
+  redesign, `.claude/plans/PLAN-NOCTURNE.md` C1).** The user's own pixel-art
   Claude (`design_handoff_claude_peek_mascot/`, 1:1) peeks around the right
   edge of the MONITOR — outside the app window, over fullscreen games and
   video too — one mascot per session waiting for an answer, max 3, with a
@@ -946,7 +946,7 @@ multi-pane layouts on top.
   `statusline-snapshots/` (0700, wiped at boot; one 0600 file per app
   session id, written by the script, see the next bullet).
 - **Pane status bar — Nocturne B1, 2026-09-17 (decision 2 of
-  `.claude/PLAN-NOCTURNE.md`, user 2026-09-16; spec `.claude/PLAN-B1.md`).**
+  `.claude/plans/PLAN-NOCTURNE.md`, user 2026-09-16; spec `.claude/plans/nocturne/PLAN-B1.md`).**
   The strip under each terminal (back since A3 with Model / Mode / Time
   from argv) renders the SAME checklist as Settings → Status bar, fed by
   the payload Claude Code hands `server/statusline.mjs`: the server passes
@@ -1168,8 +1168,19 @@ flat, with `memory/INDEX.md` grouped by theme. `tests/vault-layout.test.ts`
 enforces the vault rules (placement, unique basenames, INDEX coverage, no
 dead `memory/…md` citation in any tracked file). Every move of files or
 folders follows `.claude/skills/restructure-repo/SKILL.md`; the remaining
-batches (plans, design folders, tests and code) are in
-`.claude/PLAN-RESTRUCTURE.md` and start only after Nocturne B10 lands.
+batches (design folders, tests and code) are in
+`.claude/plans/PLAN-RESTRUCTURE.md`.
+
+**Planning has one shape (decided 2026-09-20, user's call; conventions in
+`.claude/plans/README.md`).** A master plan is `.claude/plans/PLAN-<NAME>.md`
+and opens with a status table — the one place that says where the work
+stands; the spec of a part is `.claude/plans/<name>/PLAN-<ID>.md`, written
+before the developer starts, carrying a `Status:` line, and it never moves
+(code and tests cite specs by path). A landing updates the spec's status,
+the part's table row, the index in that README and the vault in the same
+commit. `tests/plans-layout.test.ts` enforces the layout, the status lines,
+the table-to-file agreement and that every plan citation in a tracked file
+resolves (`memory/log/` exempt: history).
 
 ## Open decisions (do not treat as settled)
 
@@ -1272,7 +1283,7 @@ self-hosted Barlow, OFL license committed beside the woff2 assets). Blend
 definition and rationale in
 `memory/decisions/anti-slop-design-direction.md`. **Superseded 2026-09-10**:
 the steam-blend skin is the *Legacy UI* (git tag `legacy-ui`), being replaced
-by the **Nocturne** design (`.claude/PLAN-NOCTURNE.md`;
+by the **Nocturne** design (`.claude/plans/PLAN-NOCTURNE.md`;
 `design_handoff_session_manager/README-v3.md`). Part A1 landed the Nocturne
 tokens and swapped the chrome typeface to self-hosted **Inter** — the Barlow
 woff2 files and its OFL are gone.)

@@ -1,6 +1,6 @@
 /**
  * Nocturne part A7 (half b) — the STYLE contract of the Add-a-project dialog,
- * pinned by source inspection (`.claude/PLAN-NOCTURNE.md` §A7), in the manner
+ * pinned by source inspection (`.claude/plans/PLAN-NOCTURNE.md` §A7), in the manner
  * of `tests/ui-launch-a4.test.ts`. The BEHAVIOUR behind the dialog is tested
  * elsewhere and unchanged by A7: the pure path/intent helpers in
  * `tests/ui-newproject*.test.ts`, the GitHub model in

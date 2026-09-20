@@ -24,6 +24,13 @@ Ground rules for every session:
   (reference scan, a move map the user approves, `git mv` in batches, the
   suite as the gate) — never an ad-hoc `mv`. A new top-level folder or a new
   log area is the user's decision.
+- **Planning has one shape (2026-09-20, user's call) — conventions in
+  `.claude/plans/README.md`.** Master plan `.claude/plans/PLAN-<NAME>.md` with
+  the status table on top (the ONE place for "where are we"); part spec
+  `.claude/plans/<name>/PLAN-<ID>.md`, written before the developer starts,
+  never moved. A landing updates spec status + table row + vault in the same
+  commit; `tests/plans-layout.test.ts` enforces it. What is next: read the
+  table in `.claude/plans/PLAN-NOCTURNE.md`.
 - UI work must follow `/frontend-designer` (hard anti-generic-design filter).
   Terminal-related changes aren't done until `/verify-terminal` passes.
 - **Standing authorization (2026-07-18): commit AND push to origin after every

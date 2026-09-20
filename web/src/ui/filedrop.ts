@@ -700,7 +700,7 @@ function onDrop(e: DragEvent): void {
  * decision 5 exists to prevent. An event this module has taken is nobody
  * else's.
  *
- * KNOWN LIMIT (`.claude/PLAN-A9B.md` §2, said out loud in the shortcuts
+ * KNOWN LIMIT (`.claude/plans/nocturne/PLAN-A9b.md` §2, said out loud in the shortcuts
  * overlay): inside a focused terminal only plain ctrl+v can carry files.
  * `ui/terminal.ts` takes ctrl+shift+v and shift+insert itself and serves them
  * from `navigator.clipboard.readText()`, which cannot see a file list — and

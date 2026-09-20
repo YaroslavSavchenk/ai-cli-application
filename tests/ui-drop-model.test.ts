@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/drop-model.ts` — the pure rules behind A9's Explorer drop
- * (user decisions 2026-09-15, `.claude/PLAN-A9.md`): how a drag counts itself,
+ * (user decisions 2026-09-15, `.claude/plans/nocturne/PLAN-A9.md`): how a drag counts itself,
  * what the dropped things are called together, which of them already exist at
  * the destination, how a "keep both" copy is named, and what the dialog says
  * while and after it pretends to copy.

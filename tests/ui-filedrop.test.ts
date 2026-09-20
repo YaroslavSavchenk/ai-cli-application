@@ -178,7 +178,7 @@ const termHost = div('term-host', { left: 810, top: 40, width: 480, height: 340 
  * editable one, and it carries xterm's own `paste` handler. `xtermPastes`
  * counts that handler: the app taking a paste here without stopping the event
  * would let xterm type any `text/plain` beside the files into the PTY
- * unbracketed (PLAN-A9B §2).
+ * unbracketed (PLAN-A9b §2).
  */
 const termTextarea = dom.doc.createElement('textarea');
 setRect(termTextarea, { left: 810, top: 40, width: 480, height: 340 });
@@ -966,7 +966,7 @@ test('a paste carrying an EMPTY file list opens nothing and stays the page s own
 });
 
 // ---------------------------------------------------------------------------
-// The A9b paste rule, through the DOM (PLAN-A9B §2)
+// The A9b paste rule, through the DOM (PLAN-A9b §2)
 // ---------------------------------------------------------------------------
 
 /**

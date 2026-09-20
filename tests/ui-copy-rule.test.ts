@@ -169,7 +169,7 @@ function shapeOf(text: string): string | null {
 const ALLOWED: Record<string, string[]> = {
   // --- argv composition / parsing: these strings ARE the CLI contract --------
   // Since Nocturne B5 this file is the ONLY place the per-tool CLI mapping may
-  // live (`.claude/PLAN-B5.md`), so the four agents' whole argv vocabulary is
+  // live (`.claude/plans/nocturne/PLAN-B5.md`), so the four agents' whole argv vocabulary is
   // listed here and nowhere else. A flag that turns up in any other module is
   // still a failure, which is exactly what this per-file list is for.
   'ui/launch-args.ts': [

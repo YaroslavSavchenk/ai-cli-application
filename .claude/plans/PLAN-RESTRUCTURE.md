@@ -1,9 +1,16 @@
-# Repo restructure — batches
+# Plan: repo restructure, in batches
 
-Status (2026-09-20): batch 1 LANDED. Batches 2–4 wait for Nocturne B10 to
-land, then each starts with its move map approved by the user. Procedure:
-`/restructure-repo`. Decisions and the batch-1 move map:
-`memory/decisions/repo-layout.md`. Baseline suite: 2594 / 0.
+Status: see the table below (updated 2026-09-20). Conventions: `.claude/plans/README.md`.
+
+| Part | What | State | Spec | Landed |
+| --- | --- | --- | --- | --- |
+| Batch 1 | The vault: work log into month/area folders, INDEX by theme | landed | — | 2026-09-20 |
+| Batch 2 | Plans into `.claude/plans/`, status table, conventions | landed | — | 2026-09-20 |
+| Batch 3 | Design sources into one home | todo — move map to the user first | — | |
+| Batch 4 | `tests/` and code dirs, through `/dev-flow` | todo — move map to the user first | — | |
+
+Procedure: `/restructure-repo`. Decisions and the move maps:
+`memory/decisions/repo-layout.md`. Suite before batch 2: 2908 / 0.
 
 User decisions (2026-09-20): docs now, code after B10 · all four areas in
 scope · work log = month then area · `decisions/` and `knowledge/` flat with
@@ -14,17 +21,19 @@ a theme-grouped INDEX.
 48 × `git mv` into `memory/log/<YYYY-MM>/<area>/`; INDEX regrouped; memory
 skill § Layout; README `## Repository layout`. Doc-only, suite as the gate.
 
-## Batch 2 — `.claude/` plans (after B10)
+## Batch 2 — plans (LANDED 2026-09-20)
 
-Proposal to put to the user: `.claude/plans/` for live plans
-(`PLAN-NOCTURNE.md`, `PLAN-RESTRUCTURE.md`, the release-notes draft) and
-`.claude/plans/landed/` for finished parts (A9, A9B, A10, A10b, B1, B2, B5,
-B10 once landed). Cost measured 2026-09-20: 49 files cite `.claude/PLAN-`,
-14 under `tests/`, 16 under `server/` `web/` `launcher/` (spec anchors in
-comments) — which is why it waits for B10. Doc and comment edits only, but
-it touches code files: run it through `/dev-flow` with the scope-reviewer.
+On the user's word after B10 and B10a had landed and the other session had
+closed. 12 x `git mv` into `.claude/plans/` (master plans, the release-notes
+draft) and `.claude/plans/nocturne/` (part specs); two renamed to the master
+plan's spelling (`PLAN-A9B` -> `PLAN-A9b`, `PLAN-B10A` -> `PLAN-B10a`); 56
+files with citations rewritten (comments and docs only; `memory/log/` keeps
+the paths of its day). The master plan got a status table in place of its
+running status paragraph; conventions in `.claude/plans/README.md`, enforced
+by `tests/plans-layout.test.ts`. Rejected: a `landed/` folder (a spec would
+change path at every landing, and code comments cite specs by path).
 
-## Batch 3 — design sources (after B10)
+## Batch 3 — design sources
 
 Four homes today: `design/` (tracked, the v1 handoff), `design-mocks/`
 (tracked; removal already scheduled in `PLAN-NOCTURNE.md` B8),
@@ -38,7 +47,7 @@ excluded; remove `design-mocks/` now or in B8. Reference class 8 applies
 (`.git/info/exclude`). 21 files cite the session-manager handoff, 8 the
 mascot's.
 
-## Batch 4 — tests and code dirs (after B10, through `/dev-flow`)
+## Batch 4 — tests and code dirs (through `/dev-flow`)
 
 `tests/` holds 128 flat files. Pins to move with it: `package.json`
 (`test`, `test:ui`, `test:server` globs), `tsconfig.server.json`, the

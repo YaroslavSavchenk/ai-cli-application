@@ -6,7 +6,7 @@
  * the dialog says while and after it pretends to copy.
  *
  * No DOM, no state, no browser: every value a rule needs is handed in
- * (`.claude/PLAN-A9.md` §5), so `node --test` drives all of it and the drag
+ * (`.claude/plans/nocturne/PLAN-A9.md` §5), so `node --test` drives all of it and the drag
  * layer (part A9 brief 2) can be tested without a browser.
  *
  * NOTHING HERE COPIES ANYTHING, and since part B10 phase 2 something else

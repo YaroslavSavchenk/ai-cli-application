@@ -3,7 +3,7 @@
 > **Note (2026-09-10) — the tokens are Nocturne now.** The design source of
 > truth is `design_handoff_session_manager/README-v3.md` plus
 > `design_handoff_session_manager/_ds/nocturne-*/styles.css`. Part A1 of the
-> Nocturne switch (`.claude/PLAN-NOCTURNE.md`) landed the tokens and the
+> Nocturne switch (`.claude/plans/PLAN-NOCTURNE.md`) landed the tokens and the
 > fonts: `web/src/styles/tokens.css` holds the Nocturne primitives (the
 > temporary alias layer for the old role-token names was deleted in part A8,
 > 2026-09-14 — every screen is on the primitives now), and the chrome face

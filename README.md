@@ -577,7 +577,7 @@ updates at all, and neither does a bundle whose version is `0.0.0-*`.
 | `.github/workflows/` | CI (`verify.yml`, `ci.yml`) and the release build |
 | `design/`, `design-mocks/` | Design sources of earlier rounds; the current handoffs sit beside them, untracked |
 | `memory/` | The project's memory, an Obsidian vault: `INDEX.md` (start here), `BACKLOG.md`, `decisions/`, `knowledge/`, and the work log in `log/<YYYY-MM>/<area>/` |
-| `.claude/` | How the project is built with Claude Code: `PROJECT-SCOPE.md` (the current truth), `PLAN-*.md` (per-part specs), `agents/`, `skills/` |
+| `.claude/` | How the project is built with Claude Code: `PROJECT-SCOPE.md` (the current truth), `plans/` (master plans with their status table, part specs per plan, conventions in `plans/README.md`), `agents/`, `skills/` |
 
 ## More
 

@@ -7,7 +7,7 @@
  * terminal card.
  *
  * A3 SHIPS IT EMPTY. Nothing in this app knows about background agents yet:
- * their data source is open decision #7 of `.claude/PLAN-NOCTURNE.md` (part
+ * their data source is open decision #7 of `.claude/plans/PLAN-NOCTURNE.md` (part
  * B7). `renderAgents([])` returns `null` and the caller renders nothing —
  * exactly like the reference, which hides the block when there are no agents.
  * Sample rows exist only in a screenshot session, never in the shipped UI.

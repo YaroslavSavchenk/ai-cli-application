@@ -8,9 +8,9 @@ tags: [nocturne, files, drop, upload, clipboard, host, security]
 
 **Status:** decided 2026-09-20 (user; all three the orchestrator's advice).
 Asked before the developer briefs (lean rule 6), while the Plan agent
-designed on the same assumptions. Part B10 of `.claude/PLAN-NOCTURNE.md`
+designed on the same assumptions. Part B10 of `.claude/plans/PLAN-NOCTURNE.md`
 (A9 = the visual half with a mock transport, landed 2026-09-15; A9b's
-context-menu `Copy` / `Paste` inert until here). Spec `.claude/PLAN-B10.md`.
+context-menu `Copy` / `Paste` inert until here). Spec `.claude/plans/nocturne/PLAN-B10.md`.
 
 ## 1. Scope — both halves, the host last
 B10 = (a) the real upload for a drop, a paste with files on the clipboard

@@ -1,6 +1,6 @@
 /**
  * WSL -> Windows path mapping for the ONE place the app needs it: opening a
- * Command Prompt in the project folder (Nocturne B5, `.claude/PLAN-B5.md`).
+ * Command Prompt in the project folder (Nocturne B5, `.claude/plans/nocturne/PLAN-B5.md`).
  *
  * `cmd.exe` launched through WSL interop refuses a UNC working directory —
  * measured 2026-09-18: "UNC paths are not supported. Defaulting to Windows
@@ -97,7 +97,7 @@ export function planCmdStart(cwd: string, distro: string | undefined): CmdStartP
 }
 
 // ---------------------------------------------------------------------------
-// The CLIPBOARD form of a path (Nocturne B10, .claude/PLAN-B10.md §2)
+// The CLIPBOARD form of a path (Nocturne B10, .claude/plans/nocturne/PLAN-B10.md §2)
 //
 // A SECOND, WIDER vocabulary, and the reason is the one written at the top of
 // this file: WSL_PATH_SHAPE is narrow because cmd.exe PARSES ITS OWN COMMAND

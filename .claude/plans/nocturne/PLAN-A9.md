@@ -1,6 +1,6 @@
 # A9 — Drop files and folders from Windows Explorer (visual half, mock transport)
 
-Status: DECIDED 2026-09-15 (user); Phases 0/1/2 landed 2026-09-15; fix cycle 2 in progress. Part A9 of
+Status: LANDED 2026-09-15 (log `2026-09-15-nocturne-a9`); earlier: DECIDED 2026-09-15 (user); Phases 0/1/2 landed 2026-09-15; fix cycle 2 in progress. Part A9 of
 `PLAN-NOCTURNE.md` (B10 = the functional half: real upload endpoint under the
 user's home, path checks, limits, security review, copy-to-clipboard via the
 native host). Written by the orchestrator from the Plan agent's design; line

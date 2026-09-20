@@ -297,7 +297,7 @@ export interface UiStatusLine {
    */
   usage?: boolean;
   /**
-   * Nocturne B1 (.claude/PLAN-B1.md): the app's own bar UNDER the terminal
+   * Nocturne B1 (.claude/plans/nocturne/PLAN-B1.md): the app's own bar UNDER the terminal
    * (web/src/ui/pane-status-model.ts) renders the SAME item toggles above,
    * fed by the snapshot the script writes (SessionTelemetry). This switch is
    * that bar; `enabled` is Claude's line INSIDE the terminal. Both ON shows
@@ -881,7 +881,7 @@ export interface CreateSessionRequest {
 // (arrays of the entity interfaces above; no wrapper object)
 
 // ---------------------------------------------------------------------------
-// Launchable tools + API keys (Nocturne B5, 2026-09-18; `.claude/PLAN-B5.md`)
+// Launchable tools + API keys (Nocturne B5, 2026-09-18; `.claude/plans/nocturne/PLAN-B5.md`)
 // ---------------------------------------------------------------------------
 //
 // The New session dialog offers tools and shells the backend may or may not be
@@ -1044,7 +1044,7 @@ export interface PongMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Files panel on the real file system (Nocturne B2 + A9c, .claude/PLAN-B2.md)
+// Files panel on the real file system (Nocturne B2 + A9c, .claude/plans/nocturne/PLAN-B2.md)
 // ---------------------------------------------------------------------------
 //
 // Three routes, all under /api (token-gated like every other one), all
@@ -1090,7 +1090,7 @@ export interface FsCreateResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Real file upload + the Windows form of a path (Nocturne B10, .claude/PLAN-B10.md)
+// Real file upload + the Windows form of a path (Nocturne B10, .claude/plans/nocturne/PLAN-B10.md)
 // ---------------------------------------------------------------------------
 //
 // PUT /api/fs/upload?dir=<abs dest>&rel=<relative path>&mode=replace|new

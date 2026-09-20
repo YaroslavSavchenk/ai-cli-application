@@ -441,7 +441,7 @@ test('copyStripLabel end to end: a selection names its destination, never its pa
 });
 
 // ---------------------------------------------------------------------------
-// takesPaste — the whole matrix, plus the four sentences of PLAN-A9B §2
+// takesPaste — the whole matrix, plus the four sentences of PLAN-A9b §2
 // ---------------------------------------------------------------------------
 
 const ctx = (o: Partial<PasteContext> = {}): PasteContext => ({
@@ -463,7 +463,7 @@ test('takesPaste: every one of the 32 contexts answers the frozen formula', () =
       inEditable: (bits & 8) !== 0,
       modalOpen: (bits & 16) !== 0,
     });
-    // PLAN-A9B §2, verbatim:
+    // PLAN-A9b §2, verbatim:
     // takesPaste = files && !modalOpen && ( (!inTerminal && !inEditable) || selected )
     const expected =
       c.files && !c.modalOpen && ((!c.inTerminal && !c.inEditable) || c.selected);

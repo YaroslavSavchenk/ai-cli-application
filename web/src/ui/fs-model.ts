@@ -1,5 +1,5 @@
 /**
- * Live-filesystem model (Nocturne part B2 + A9c, `.claude/PLAN-B2.md` §9) —
+ * Live-filesystem model (Nocturne part B2 + A9c, `.claude/plans/nocturne/PLAN-B2.md` §9) —
  * everything the Files panel decides about a REAL folder tree, with no DOM, no
  * state import and no `api.ts`, so `node --test` drives all of it.
  *
@@ -53,7 +53,7 @@ export type { FsEntry };
 
 /**
  * A real folder: the PATH the transport needs, the NAME the UI is allowed to
- * show (`.claude/PLAN-B2.md` §4b).
+ * show (`.claude/plans/nocturne/PLAN-B2.md` §4b).
  *
  * The two travel together precisely so no caller has to choose. Before B2 the
  * drop layer passed a bare name around and the transport had nothing to post

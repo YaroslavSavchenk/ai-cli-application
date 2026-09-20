@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/drop-walk.ts` — what a drop REALLY carries (Nocturne part B10
- * phase 2, `.claude/PLAN-B10.md` §3), driven DOM-free against a fake entry
+ * phase 2, `.claude/plans/nocturne/PLAN-B10.md` §3), driven DOM-free against a fake entry
  * tree.
  *
  * WHY THIS FILE EXISTS. A9 could only say `web`; B10 has to know every file

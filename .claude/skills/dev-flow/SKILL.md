@@ -105,7 +105,10 @@ Lean rules (user, 2026-09-16 — cut duplication, never review depth):
 5. **Readers first, mutation gate after.** The test-engineer's mutation probe
    never runs in parallel with anyone reading or editing the same files.
 6. **Design decisions are asked BEFORE the developer starts** (in the Plan
-   step), not after a review surfaces them.
+   step), not after a review surfaces them. The part's spec is written to
+   `.claude/plans/<name>/PLAN-<ID>.md` in the shape `.claude/plans/README.md`
+   prescribes; the landing commit sets its `Status: LANDED …` line and the
+   part's row in the master plan's status table.
 7. **Developers run the full suite at most twice** (once mid-way, once at
    the end); iteration uses targeted `node --test <files>`. A full run is
    ~40 s; ten of them are five minutes of waiting.

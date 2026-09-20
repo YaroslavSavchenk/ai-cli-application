@@ -1,6 +1,6 @@
 /**
  * PUT /api/fs/upload — the ONE real file write this app offers the browser
- * (Nocturne B10 phase 1, `.claude/PLAN-B10.md` §2). Drop, paste and
+ * (Nocturne B10 phase 1, `.claude/plans/nocturne/PLAN-B10.md` §2). Drop, paste and
  * `Copy files here…` all end here, one request per file.
  *
  *   PUT /api/fs/upload?dir=<abs dest>&rel=<relative path>&mode=replace|new

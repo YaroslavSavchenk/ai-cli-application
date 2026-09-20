@@ -9,7 +9,7 @@ tags: [nocturne, files, delete, selection, security]
 **Status:** decided 2026-09-20 (user's ask right after B10 landed: "maak het
 ook zo, zodat ik meerdere mappen, files kan selecteren en deze ook
 verwijderen. Want er is nog geen verwijderknop"). Part B10a of
-`.claude/PLAN-NOCTURNE.md`; spec `.claude/PLAN-B10A.md` (moves with the
+`.claude/plans/PLAN-NOCTURNE.md`; spec `.claude/plans/nocturne/PLAN-B10a.md` (moves with the
 repo restructure's batch 2).
 
 ## 1. Delete is PERMANENT, with one confirmation per action (user)

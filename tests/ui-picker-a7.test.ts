@@ -1,6 +1,6 @@
 /**
  * Nocturne part A7 (follow-up c) — the STYLE contract of the FOLDER PICKER,
- * pinned by source inspection (`.claude/PLAN-NOCTURNE.md` §A7), in the manner of
+ * pinned by source inspection (`.claude/plans/PLAN-NOCTURNE.md` §A7), in the manner of
  * `tests/ui-launch-a4.test.ts` and `tests/ui-addproject-a7.test.ts`. The
  * picker's behaviour is driven for real in `tests/ui-picker-dom.test.ts` (it
  * opens over the Add-a-project dialog and hands a path back) and its endpoints

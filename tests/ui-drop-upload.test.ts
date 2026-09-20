@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/drop-upload.ts` — the runner that really copies (Nocturne part
- * B10 phase 2, `.claude/PLAN-B10.md` §3), driven DOM-free against a fake
+ * B10 phase 2, `.claude/plans/nocturne/PLAN-B10.md` §3), driven DOM-free against a fake
  * gateway that records every write it is asked for.
  *
  * WHY THIS FILE EXISTS, and why it is the strictest one of the part. This

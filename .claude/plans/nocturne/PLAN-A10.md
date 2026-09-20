@@ -1,6 +1,6 @@
 # A10 — Editor as panes in the tab strip: implementation spec
 
-Status: DECIDED 2026-09-15 (user); Phases 0, 1A, 1B landed 2026-09-15; review/fix cycle 1 in progress. Part A10 of
+Status: LANDED 2026-09-15 (log `2026-09-15-nocturne-a10`); earlier: DECIDED 2026-09-15 (user); Phases 0, 1A, 1B landed 2026-09-15; review/fix cycle 1 in progress. Part A10 of
 `PLAN-NOCTURNE.md`. Written by the orchestrator from the Plan agent's design;
 line numbers are from commit `03b55c8` and DRIFT — use them as a starting
 point, verify by reading.

@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/fs-model.ts` — the pure half of part B2 + A9c
- * (`.claude/PLAN-B2.md` §3, §4, §6b, §7, §9): the rules that decide what a
+ * (`.claude/plans/nocturne/PLAN-B2.md` §3, §4, §6b, §7, §9): the rules that decide what a
  * REAL folder tree looks like on screen, where files land, and which typed
  * names are allowed to become files.
  *

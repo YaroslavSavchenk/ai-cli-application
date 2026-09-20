@@ -1,6 +1,6 @@
 /**
  * Stored API keys for the tools that read one from their environment
- * (Nocturne B5, decision 2026-09-18 in `.claude/PLAN-B5.md`): Claude Code ->
+ * (Nocturne B5, decision 2026-09-18 in `.claude/plans/nocturne/PLAN-B5.md`): Claude Code ->
  * ANTHROPIC_API_KEY, Gemini CLI -> GEMINI_API_KEY, Grok -> XAI_API_KEY. Codex
  * has no key: a key alone does not sign it in, it signs in inside the terminal.
  *

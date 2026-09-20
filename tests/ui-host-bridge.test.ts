@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/host-bridge.ts` — the page's one channel to the native window
- * (Nocturne part B10, `.claude/PLAN-B10.md` §3 + §4), driven against an
+ * (Nocturne part B10, `.claude/plans/nocturne/PLAN-B10.md` §3 + §4), driven against an
  * injected `window`-like double.
  *
  * WHY THIS FILE EXISTS. The other side of this channel is C# on Windows that

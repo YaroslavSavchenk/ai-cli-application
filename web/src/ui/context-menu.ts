@@ -1,6 +1,6 @@
 /**
  * The row context menu (Nocturne part A9b, user decision 3, 2026-09-16,
- * `.claude/PLAN-A9B.md` §3) — the app's first menu primitive, and the DOM half
+ * `.claude/plans/nocturne/PLAN-A9b.md` §3) — the app's first menu primitive, and the DOM half
  * of `ui/context-menu-model.ts`.
  *
  * DESIGN BRIEF (the direction, in one sentence): the menu is the Files row

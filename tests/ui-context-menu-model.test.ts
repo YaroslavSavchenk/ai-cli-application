@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/context-menu-model.ts` — what A9b's row context menu offers
- * (user decision 3, 2026-09-16, `.claude/PLAN-A9B.md` §3), what it is called,
+ * (user decision 3, 2026-09-16, `.claude/plans/nocturne/PLAN-A9b.md` §3), what it is called,
  * where it opens, and where the arrows go.
  *
  * WHY here and not in a DOM test: `tests/fake-dom.ts` MEASURES NOTHING —

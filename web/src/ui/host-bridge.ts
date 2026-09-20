@@ -1,5 +1,5 @@
 /**
- * The bridge to the native window (Nocturne part B10, `.claude/PLAN-B10.md`
+ * The bridge to the native window (Nocturne part B10, `.claude/plans/nocturne/PLAN-B10.md`
  * §3 + §4) — the one channel between this page and the WebView2 host that runs
  * it, and the only way anything in this app reaches the Windows clipboard.
  *

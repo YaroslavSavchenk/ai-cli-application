@@ -59,7 +59,7 @@ finds the textual ones:
    `git add -A`).
 5. **Living docs** — `CLAUDE.md`, `README.md`, `SECURITY.md`,
    `launcher/README.md`, `installer/README.md`, `web/DESIGN.md`,
-   `.claude/PROJECT-SCOPE.md`, `.claude/PLAN-*.md`, `.claude/agents/*.md`,
+   `.claude/PROJECT-SCOPE.md`, `.claude/plans/**/*.md`, `.claude/agents/*.md`,
    `.claude/skills/*/SKILL.md`, and code comments citing
    `memory/decisions/<note>.md`.
 6. **The vault** — `[[wikilinks]]` resolve by FILENAME, not path: moving a
@@ -87,7 +87,7 @@ and `knowledge/` stay flat with a theme-grouped `memory/INDEX.md` (same
 decision); nothing moves for taste alone — each move must make something easier
 to find. Layout choices are the user's: ask them together, recommendation
 first, before any `git mv`. Save the approved map as
-`.claude/PLAN-RESTRUCTURE.md` (batches, order, status).
+`.claude/plans/PLAN-RESTRUCTURE.md` (batches, order, status).
 
 ## 4. Execute — batches, lowest risk first
 
@@ -124,7 +124,7 @@ open decision in `.claude/PROJECT-SCOPE.md`.
   § Layout, agent files: all true again (grep the old paths one last time).
 - Vault: decision note `memory/decisions/repo-layout.md` (the rules chosen,
   the full old → new map, rejected layouts), a `log/` entry, INDEX lines.
-- Mark `.claude/PLAN-RESTRUCTURE.md` landed with the commit hashes.
+- Mark `.claude/plans/PLAN-RESTRUCTURE.md` landed with the commit hashes.
 
 Done = baseline counts reproduced on the final commit, `find-refs.sh` clean
 for every moved path, CI green on `origin/main`, README map current, other

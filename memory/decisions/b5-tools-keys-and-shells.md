@@ -9,8 +9,8 @@ tags: [nocturne, launch-dialog, api-keys, interop, codex, gemini, grok]
 **Status:** decided 2026-09-18 (user; all four the orchestrator's advice)
 
 Context: Nocturne part B5 makes the New session dialog live for Codex, Gemini
-CLI, Grok, Zsh and Command Prompt (`.claude/PLAN-NOCTURNE.md`; spec
-`.claude/PLAN-B5.md`). Asked at the start of the part, before the developer
+CLI, Grok, Zsh and Command Prompt (`.claude/plans/PLAN-NOCTURNE.md`; spec
+`.claude/plans/nocturne/PLAN-B5.md`). Asked at the start of the part, before the developer
 briefs (lean rule 6). Facts gathered first: `codex` 0.116.0 and — installed
 that day for the check — `gemini` 0.60.0 verified through their own `--help`;
 Grok Build (xAI's own CLI, 2026-05; `@vibe-kit/grok-cli` is stale

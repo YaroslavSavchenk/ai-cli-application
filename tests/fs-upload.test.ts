@@ -1,6 +1,6 @@
 /**
  * PUT /api/fs/upload — the real file write behind drop / paste / `Copy files
- * here…` (Nocturne B10 phase 1, `.claude/PLAN-B10.md` §2).
+ * here…` (Nocturne B10 phase 1, `.claude/plans/nocturne/PLAN-B10.md` §2).
  *
  * One real server child on a fixture `home` (AI_SM_HOME_OVERRIDE, the seam
  * tests/fs-create.test.ts and tests/fs-entries.test.ts use), so the boundary,

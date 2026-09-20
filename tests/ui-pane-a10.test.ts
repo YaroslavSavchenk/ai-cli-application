@@ -1,7 +1,7 @@
 /**
  * Nocturne part A10, re-tabbed by A10b — the STRUCTURAL facts of a pane that
  * may be a terminal or an EDITOR holding a strip of file/diff tabs, pinned by
- * source inspection (`.claude/PLAN-A10.md` §2/§5, `.claude/PLAN-A10b.md` §2).
+ * source inspection (`.claude/plans/nocturne/PLAN-A10.md` §2/§5, `.claude/plans/nocturne/PLAN-A10b.md` §2).
  *
  * WHY SOURCE AND NOT DOM. `web/src/ui/panes.ts` imports @xterm/xterm, a
  * browser bundle: importing it under `node --test` throws before the first

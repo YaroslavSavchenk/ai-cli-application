@@ -1,6 +1,6 @@
 /**
  * Context-menu model (Nocturne part A9b user decision 3, widened by part A9c,
- * `.claude/PLAN-A9B.md` §3 and §5, `.claude/PLAN-B2.md` §6a) — what a
+ * `.claude/plans/nocturne/PLAN-A9b.md` §3 and §5, `.claude/plans/nocturne/PLAN-B2.md` §6a) — what a
  * right-click on a Files-panel row offers, what the background of that panel
  * offers, what each menu is called for a screen reader, where it opens so it
  * is always whole on screen, and where the arrow keys go next.

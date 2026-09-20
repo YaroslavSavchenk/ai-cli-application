@@ -5,7 +5,7 @@ Status: LANDED 2026-09-20 (`0293848`; the user's ask the same day B10 landed:
 verwijderen. Want er is nog geen verwijderknop"; then "ga door met b10a";
 log `memory/log/2026-09/nocturne/2026-09-20-nocturne-b10a.md`; user-verified
 on Windows the same day: "alles werkt").
-Parent: `.claude/PLAN-NOCTURNE.md` part B10a. A9b (2026-09-16) gave the Files
+Parent: `.claude/plans/PLAN-NOCTURNE.md` part B10a. A9b (2026-09-16) gave the Files
 panel ONE selected folder; A9c + B2 gave it `New file` / `New folder`; B10
 (2026-09-20) gave it a real write. B10a widens the selection to many rows and
 adds the app's FIRST DELETE PRIMITIVE. Runs through `/dev-flow` (lean rules

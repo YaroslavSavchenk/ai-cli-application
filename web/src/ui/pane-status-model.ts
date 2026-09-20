@@ -11,7 +11,7 @@
  * server/statusline.mjs) and this bar UNDER it (`cfg.paneBar`); every item
  * toggle below is the same toggle the script reads. With both switches on the
  * same values stand twice — the user's accepted consequence
- * (`.claude/PLAN-B1.md`), not a bug to route around here.
+ * (`.claude/plans/nocturne/PLAN-B1.md`), not a bug to route around here.
  *
  * HONESTY RULE — the strip only ever states what the app already knows, which
  * since B1 means two sources and no third:

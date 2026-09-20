@@ -252,7 +252,7 @@ test('the three A9b gestures are on the overlay, each once, each naming its twin
 test('the closing sentence stopped claiming plain ctrl+v is never intercepted (A9b)', () => {
   // The A8 wording — "plain ctrl+c/v, arrows and esc are never intercepted" —
   // became a LIE the moment a file paste with a folder selected became the
-  // app's (PLAN-A9B §2, user decision 2). MEASURED (gate, 2026-09-16):
+  // app's (PLAN-A9b §2, user decision 2). MEASURED (gate, 2026-09-16):
   // restoring that sentence verbatim left the entire suite green, so the one
   // sentence the overlay ends on had no test at all.
   openFromOpener();

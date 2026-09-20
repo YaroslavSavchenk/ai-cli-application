@@ -6,8 +6,9 @@ tags: [repo, layout, memory, process]
 ---
 # Repo layout: where things live, and how they move
 
-**Status:** decided (2026-09-20, user's calls) — batch 1 landed the same day;
-batches 2–4 wait for Nocturne B10 to land (plan `.claude/PLAN-RESTRUCTURE.md`).
+**Status:** decided (2026-09-20, user's calls) — batches 1 (the vault) and 2
+(the plans) landed the same day; batches 3–4 each start with a move map put to
+the user (plan `.claude/plans/PLAN-RESTRUCTURE.md`).
 
 The user asked for the whole repo to be restructured "so it is clear where
 everything stands": the vault and the work log had grown into flat folders of
@@ -24,7 +25,7 @@ set the order.
    at the end.
 2. **Order: docs now, code after B10.** The vault moved on 2026-09-20. Plans,
    design sources, tests and code dirs move only after B10 lands — their
-   references sit in files B10 edits (49 files cite `.claude/PLAN-*`, 16 of
+   references sit in files B10 edits (49 files cite a plan file by path, 16 of
    them under `server/`, `web/`, `launcher/`; 21 cite the handoff dirs).
 3. **Work log: month, then area** — `memory/log/<YYYY-MM>/<area>/`, areas
    `nocturne · backend · ui · launcher · github · release · project`.
@@ -35,6 +36,19 @@ set the order.
 5. **In scope for the later batches (user: all four areas):** `.claude/`
    plans → a plans folder with a landed archive; the four design folders →
    one design home; `tests/` (128 flat files) and code dirs.
+
+6. **Planning has one shape** (the user, the same evening: restructure the
+   planning and fix how it is done). Master plan
+   `.claude/plans/PLAN-<NAME>.md`, opening with a status table — the one
+   place that says where the work stands, replacing the run-on status
+   paragraph `PLAN-NOCTURNE.md` had grown; part specs at
+   `.claude/plans/<name>/PLAN-<ID>.md`, ID spelled as the master plan spells
+   it, with a `Status:` line; a spec never moves. Conventions:
+   `.claude/plans/README.md`; the landing checklist is part of it.
+7. **Both layouts are enforced by the suite** — `tests/vault-layout.test.ts`
+   and `tests/plans-layout.test.ts` — and stated as ground rules in
+   `CLAUDE.md` and under Process in `.claude/PROJECT-SCOPE.md`. A convention
+   nobody checks drifts back within a week of parallel sessions.
 
 ## Move map — batch 1 (2026-09-20)
 
@@ -58,6 +72,21 @@ Old location for all 48: `memory/log/<file>`. New: `memory/log/<month>/<area>/<f
 Log prose is history: a path written inside an entry keeps the location of
 its day; this map translates it.
 
+## Move map — batch 2 (2026-09-20)
+
+Old location for all 12: `.claude/<file>`.
+
+- `.claude/plans/`: `PLAN-NOCTURNE.md`, `PLAN-RESTRUCTURE.md`,
+  `RELEASE-NOTES-v0.4.0-draft.md`
+- `.claude/plans/nocturne/`: `PLAN-A9.md`, `PLAN-A10.md`, `PLAN-A10b.md`,
+  `PLAN-B1.md`, `PLAN-B2.md`, `PLAN-B5.md`, `PLAN-B10.md`, and two renamed to
+  the master plan's spelling: `PLAN-A9B` → `PLAN-A9b.md`, `PLAN-B10A` →
+  `PLAN-B10a.md`
+
+56 files had their citations rewritten; in code, test and CI files that was
+50 lines, each verified to differ from its old self by the path substitution
+alone.
+
 ## Rejected alternatives
 
 - **Area, then month** (`log/nocturne/2026-09/`) — chronology across areas
@@ -70,3 +99,11 @@ its day; this map translates it.
   overview for free.
 - **Everything at once, B10 waits** — a parked feature session for a
   housekeeping job; rejected by the user.
+- **A `landed/` folder for finished part specs** — live and landed visible in
+  the tree, but a spec would change path at every landing, and 45 code and
+  test files cite specs by path: a bookkeeping event would edit `server/` and
+  `web/`. The status table shows the same thing without a move.
+- **Citing plans by bare filename everywhere** (location-free, like
+  wikilinks) — the full path was already the dominant form (110 of 150
+  citations) and is the one a reader can open; both forms are accepted and
+  both are checked.

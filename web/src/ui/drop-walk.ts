@@ -1,5 +1,5 @@
 /**
- * The walk (Nocturne part B10 phase 2, `.claude/PLAN-B10.md` §3) — what a drop
+ * The walk (Nocturne part B10 phase 2, `.claude/plans/nocturne/PLAN-B10.md` §3) — what a drop
  * REALLY carries, read out of the handles `ui/filedrop.ts` captured while the
  * `drop` event was still on the stack.
  *

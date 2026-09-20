@@ -1,6 +1,6 @@
 # A10b — Editor pane with file tabs: implementation spec
 
-Status: DECIDED 2026-09-15 (user's correction on the A10 Windows check,
+Status: LANDED 2026-09-15 (log `2026-09-15-nocturne-a10b`); earlier: DECIDED 2026-09-15 (user's correction on the A10 Windows check,
 confirmed with a mockup); Phases 0/1A/1B landed 2026-09-15 (parked once on
 `wip/a10b` for a usage limit, resumed the same night); review + fix cycle
 done; verify-terminal in progress. Part

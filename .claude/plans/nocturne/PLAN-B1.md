@@ -1,6 +1,6 @@
 # B1 — The pane status bar shows what Claude Code reports
 
-Status: STARTED 2026-09-17 (user: "continue met het ontwikkelen"; the next
+Status: LANDED 2026-09-17 (STARTED the same day, user: "continue met het ontwikkelen"; the next
 part in the plan order); developed, reviewed and fixed the same day — see
 "Landed shape" below. LANDED `9143d32` + `75afd31` + `d5f5954`; user-verified on
 Windows 2026-09-17 ("alles werkt"). Part B1 of `PLAN-NOCTURNE.md`; data source = open

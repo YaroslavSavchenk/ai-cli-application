@@ -1,7 +1,7 @@
 /**
  * Inline SVG glyphs. Nocturne's design source draws its icons from Phosphor,
  * but whether this app takes an icon PACKAGE is open decision #5 in
- * `.claude/PLAN-NOCTURNE.md` — so the handful of glyphs the chrome needs are
+ * `.claude/plans/PLAN-NOCTURNE.md` — so the handful of glyphs the chrome needs are
  * transcribed here as path data (copied verbatim from
  * `design_handoff_session_manager/session-manager-v3.html`) and built with
  * createElementNS. No dependency, no build step, no innerHTML.

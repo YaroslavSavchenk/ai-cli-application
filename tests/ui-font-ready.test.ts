@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/font-ready.ts` — WHEN the terminal's mono face is usable, and
- * what follows from that (Nocturne part A4b; `.claude/PLAN-NOCTURNE.md`).
+ * what follows from that (Nocturne part A4b; `.claude/plans/PLAN-NOCTURNE.md`).
  *
  * The defect this guards (user report from the Windows dev window,
  * 2026-09-10): nothing waited for JetBrains Mono, so a `TerminalView` built

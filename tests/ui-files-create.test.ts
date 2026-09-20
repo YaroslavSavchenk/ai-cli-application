@@ -1,6 +1,6 @@
 /**
  * `web/src/ui/files.ts` — creating a file or a folder from the Files panel
- * (Nocturne part A9c, `.claude/PLAN-B2.md` §6a and §6b), driven through the
+ * (Nocturne part A9c, `.claude/plans/nocturne/PLAN-B2.md` §6a and §6b), driven through the
  * REAL panel, the REAL row menu and the REAL `ui/fs-model.ts` on the DOM
  * double in `tests/fake-dom.ts`, against the fake `FsGateway` of
  * `tests/fs-fixture.ts`.

@@ -816,7 +816,7 @@ test('B5 inert hint: one plain string, and `Not available yet` is gone from the 
   assert.deepEqual(TOOL_CARDS.filter((t) => !isKind(t.kind)), []);
   assert.deepEqual(SHELL_CARDS.filter((c) => !isShellId(c.shell)), []);
   // The retired string may not survive anywhere in the frontend (the janitor
-  // item in .claude/PLAN-B5.md's final gate).
+  // item in .claude/plans/nocturne/PLAN-B5.md's final gate).
   const webSrc = new URL('../web/src/', import.meta.url);
   const walk = (dir: URL): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -1027,7 +1027,7 @@ test('A4 PERM_HELP: plain sentences, one per mode, naming no flag, command or CL
 // ---------------------------------------------------------------------------
 //
 // The expectations below are written out LITERALLY from the verified-contract
-// table in `.claude/PLAN-B5.md`, never derived from the code under test. Each
+// table in `.claude/plans/nocturne/PLAN-B5.md`, never derived from the code under test. Each
 // tool's order is FIXED: model, permission, effort, then the start-from tail —
 // and for Codex the tail is a SUBCOMMAND, so every option must precede it.
 

@@ -379,7 +379,7 @@ export interface PasteContext {
 }
 
 /**
- * Does this `paste` event belong to the app? (`.claude/PLAN-A9B.md` §2.)
+ * Does this `paste` event belong to the app? (`.claude/plans/nocturne/PLAN-A9b.md` §2.)
  *
  * The app never listens for a CHORD here — it listens for the EVENT, and takes
  * whichever keystroke the browser turned into one. Read as four sentences:

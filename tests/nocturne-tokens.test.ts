@@ -1,6 +1,6 @@
 /**
  * Nocturne part A1 contract — the design-token layer, pinned so it cannot
- * drift (landed 2026-09-10; plan `.claude/PLAN-NOCTURNE.md` §A1).
+ * drift (landed 2026-09-10; plan `.claude/plans/PLAN-NOCTURNE.md` §A1).
  *
  * A1 replaced the Legacy UI ("steam blend") palette and chrome typeface with
  * Nocturne: `web/src/styles/tokens.css` transcribes the primitives from the

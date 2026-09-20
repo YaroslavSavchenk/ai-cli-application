@@ -8,7 +8,7 @@ tags: [nocturne, status-bar, statusline, telemetry]
 
 **Status:** decided 2026-09-16 (user; the orchestrator's advice)
 
-Context: Nocturne part B1 (`.claude/PLAN-NOCTURNE.md`) renders a configurable
+Context: Nocturne part B1 (`.claude/plans/PLAN-NOCTURNE.md`) renders a configurable
 status bar under each terminal with Model, Permission mode, Git branch, Cost,
 Context, Account usage, Active skill, Session time, Lines changed. Since A3
 the pane bar states only what the app knows from argv (Model, Mode, Time);
@@ -48,7 +48,7 @@ payload key was never safe), one file per session in
 `<dataDir>/statusline-snapshots/`; the checklist gained a second switch
 (`paneBar`, the bar under the terminal) beside `enabled` (Claude's line),
 both ON by default, and a `Session time` row the pane bar alone honours.
-Spec `.claude/PLAN-B1.md`.
+Spec `.claude/plans/nocturne/PLAN-B1.md`.
 
 ## Default flipped 2026-09-17 (user, on the Windows check of B1)
 

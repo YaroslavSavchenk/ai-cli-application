@@ -1,6 +1,6 @@
 /**
  * Nocturne part A4 — the STYLE contract of the New session dialog, pinned by
- * source inspection (`.claude/PLAN-NOCTURNE.md` §A4). Behaviour is driven for
+ * source inspection (`.claude/plans/PLAN-NOCTURNE.md` §A4). Behaviour is driven for
  * real in `tests/ui-launch-dialog.test.ts`; the argv vocabulary in
  * `tests/ui-launch-args.test.ts`. What is left for a source pin:
  *

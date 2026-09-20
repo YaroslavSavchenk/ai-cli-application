@@ -1,6 +1,6 @@
 /**
  * Which launchable executables this backend can actually find (Nocturne B5,
- * `.claude/PLAN-B5.md`): the New session dialog draws a tool card as inert
+ * `.claude/plans/nocturne/PLAN-B5.md`): the New session dialog draws a tool card as inert
  * ("Not installed") instead of offering a launch that would fail in the PTY.
  *
  * THE PROBE NEVER SPAWNS ANYTHING. It is a PATH lookup — regular file (symlinks

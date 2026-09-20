@@ -1724,7 +1724,7 @@ export function initFilesPanel(
   // ---- creating a file or a folder ------------------------------------------
   //
   // `New file` / `New folder`, from the row menu or the root menu (part A9c,
-  // `.claude/PLAN-B2.md` §6b). One inline row in the tree, never a dialog.
+  // `.claude/plans/nocturne/PLAN-B2.md` §6b). One inline row in the tree, never a dialog.
   //
   // WHY A ROW AND NOT A MODAL. The answer to "what is this called?" belongs
   // exactly where the thing will be: at the child indent of the folder that

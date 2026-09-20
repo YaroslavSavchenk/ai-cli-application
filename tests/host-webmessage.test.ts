@@ -1,6 +1,6 @@
 /**
  * The page -> host message channel that puts FILES on the Windows clipboard
- * (Nocturne B10 phase 3, plan `.claude/PLAN-B10.md` §4).
+ * (Nocturne B10 phase 3, plan `.claude/plans/nocturne/PLAN-B10.md` §4).
  *
  * WHAT THIS TEST IS. A source-shape test over the TEXT of
  * `launcher/host/AiSessionManagerHost.cs`, the idiom

@@ -11,7 +11,7 @@ tags: [nocturne, terminal, colours, settings]
 Context: the user amended [[nocturne-full-switch]] on 2026-09-10 so that
 terminal colour customisation returns inside Nocturne as a Settings page
 (A7 visual, B9 live) instead of the Legacy popover. The exact shape was open
-decision 10 in `.claude/PLAN-NOCTURNE.md`, to be asked before A7.
+decision 10 in `.claude/plans/PLAN-NOCTURNE.md`, to be asked before A7.
 
 Decided:
 - (a) **Presets + custom ground and text.** A handful of named schemes,

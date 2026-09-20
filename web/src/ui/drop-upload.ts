@@ -1,5 +1,5 @@
 /**
- * The copy itself (Nocturne part B10 phase 2, `.claude/PLAN-B10.md` §3) — the
+ * The copy itself (Nocturne part B10 phase 2, `.claude/plans/nocturne/PLAN-B10.md` §3) — the
  * runner that turns one walked drop and one conflict answer into real writes,
  * and into the rows the dialog paints while they happen.
  *

@@ -25,7 +25,7 @@
  *
  * 2026-09-18 (Nocturne B5): three more agents (Codex, Gemini CLI, Grok) and two
  * more shells (Zsh, Command Prompt). THIS FILE IS THE ONLY PLACE THE PER-TOOL
- * CLI MAPPING MAY LIVE (`.claude/PLAN-B5.md`, "Verified CLI contracts"): every
+ * CLI MAPPING MAY LIVE (`.claude/plans/nocturne/PLAN-B5.md`, "Verified CLI contracts"): every
  * flag, subcommand and CLI value each tool takes is written once, here, and the
  * UI above it only ever handles ids and labels. Each tool's argv order is FIXED
  * — model, permission, effort, then the start-from tail — and pinned byte-exact
@@ -347,7 +347,7 @@ export function continueFromStart(v: string): boolean {
 // handles the ids and labels below; nothing else in `web/src` may spell a flag,
 // a subcommand or a CLI value for these tools.
 //
-// Sources, all checked 2026-09-18 (`.claude/PLAN-B5.md`): `codex --help`
+// Sources, all checked 2026-09-18 (`.claude/plans/nocturne/PLAN-B5.md`): `codex --help`
 // (0.116.0 — the current 0.155 retired `untrusted`/`on-failure`, so only the
 // two approval values valid in BOTH are used), `gemini --help` (0.60.0),
 // docs.x.ai/build for Grok Build (NOT installed locally — its argv is from the
