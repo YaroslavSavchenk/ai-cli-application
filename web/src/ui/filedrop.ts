@@ -3,7 +3,8 @@
  * that lets files and folders dragged out of Windows Explorer land somewhere in
  * this app, plus its two keyboard/button twins: pasting files from the
  * clipboard, and the Files panel's copy strip button (`Copy files here…`, or
- * `Copy files into <folder>…` once a folder is chosen — A9b).
+ * `Copy files into <folder>…` once a row is chosen — A9b, many rows since
+ * B10a).
  *
  * WHAT IT DOES AND WHERE IT STOPS. This module resolves a destination, says so
  * while the pointer moves, WALKS what was dropped (part B10:
@@ -200,13 +201,14 @@ export interface FileDropDeps {
   destinationOfActiveView(): Destination | null;
   /** The Files panel's own root (its non-folder area). */
   filesPanelDestination(): Destination | null;
-  /** The CHOSEN folder (A9b), else the Files folder row the keyboard last stood on, else the panel root, else the active tab's root. */
+  /** The ANCHOR's folder (A9b, widened by B10a), else the Files folder row the keyboard last stood on, else the panel root, else the active tab's root. */
   pasteDestination(): Destination | null;
   /**
-   * The folder the user CHOSE in the Files panel, as a name, else null (A9b).
+   * The ANCHOR's folder in the Files panel — the selected folder itself, or a
+   * selected file's parent (A9b, widened by B10a) — as a name, else null.
    * It is read for one question only — may this `paste` be taken away from a
    * focused terminal or a focused field? — because that is the only thing the
-   * chosen folder changes here; where the files then go is `pasteDestination()`,
+   * chosen row changes here; where the files then go is `pasteDestination()`,
    * which already answers the selection first.
    */
   selectedFolder(): Destination | null;

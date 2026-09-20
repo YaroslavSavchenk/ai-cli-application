@@ -309,15 +309,17 @@ export function filesPanelDestination(): Destination | null {
 }
 
 /**
- * Where a paste — and the copy strip's button — would copy to: the SELECTED
- * folder (A9b), else the folder row the keyboard last stood on inside the
+ * Where a paste — and the copy strip's button — would copy to: the ANCHOR's
+ * folder (A9b, widened by B10a — the selected folder itself, or a selected
+ * file's parent), else the folder row the keyboard last stood on inside the
  * panel (the button that asks this took the focus off it), else the panel's
  * own root, else the active tab's root (the panel can be closed while a drop
  * still has to go somewhere).
  */
 export function pasteDestination(): Destination | null {
   if (live !== null) {
-    // A9b, first rung: the SELECTED folder. It is the only one of the two that
+    // A9b, widened by B10a, first rung: the ANCHOR's folder. It is the only
+    // one of the two that
     // says out loud where files will land (the copy strip names it), so it
     // wins over the focus memory always — including a paste arriving from a
     // focused terminal, which has no focus memory of its own.
@@ -332,9 +334,10 @@ export function pasteDestination(): Destination | null {
 }
 
 /**
- * The SELECTED folder, as a NAME (never a path), or null when nothing is
- * selected, when the selected path has no last segment to speak about, or
- * when there is no panel on screen to have a selection at all.
+ * The ANCHOR's folder, as a NAME (never a path) — the selected folder itself,
+ * or a selected file's parent since B10a — or null when nothing is selected,
+ * when that path has no last segment to speak about, or when there is no panel
+ * on screen to have a selection at all.
  *
  * `ui/filedrop.ts` reads it for one question only: may a `paste` be taken
  * away from a focused terminal or a focused field (`takesPaste`)? Which is

@@ -232,7 +232,9 @@ differently — see [Updating](#updating) above.)
   question per drop when names clash. If the app dies in the middle of a copy,
   an in-flight `.upload-….part` file may be left behind — it is safe to
   delete. `Copy` in a row's menu puts that file or folder on the Windows
-  clipboard (native window only), ready to paste in Explorer.
+  clipboard (native window only), ready to paste in Explorer. Several rows can
+  be selected at once (ctrl-click, shift-click) and deleted for good — the app
+  asks once, and nothing goes to a recycle bin.
 
 ## Run it (Windows + WSL2)
 

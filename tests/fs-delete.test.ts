@@ -202,9 +202,13 @@ test("recursive rm does not follow a symlink INSIDE the deleted tree", async () 
 });
 
 test('the anchors themselves — home and a registered project root — are never deletable', async () => {
-  // To even REACH the anchor check for home, its parent must be inside the
-  // boundary: registering the fixture root as a project makes it one. Without
-  // that, deleting home is an ordinary outside-home 403 (pinned below).
+  // Home itself is refused with the ANCHOR sentence whether or not its parent
+  // is inside the boundary: the anchors are compared lexically BEFORE the
+  // parent is resolved (the B10a verify pass found the outside-home sentence
+  // answering for `<home>` in the normal layout). Pinned first, then the
+  // fixture root is registered so the rest of the table has a parent anchor.
+  assert.deepEqual(await del(home), [{ ok: false, status: 403, error: FS_DELETE_ANCHOR }]);
+  assert.ok(existsSync(home), 'home is still there (unregistered parent)');
   const rootProject = await api(server, 'POST', '/api/projects', { name: 'Root', path: root });
   assert.equal(rootProject.status, 201, JSON.stringify(rootProject.body));
   const outsideProject = await api(server, 'POST', '/api/projects', { name: 'Outside', path: outside });

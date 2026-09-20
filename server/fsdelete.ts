@@ -258,6 +258,11 @@ async function deleteOne(
     if (!isSafeSegment(name) || Buffer.byteLength(name, 'utf8') > MAX_NAME_BYTES) {
       throw new FsBrowseError(400, FS_NAME_NOT_ALLOWED);
     }
+    // The anchors THEMSELVES, lexically, before the parent is resolved: the
+    // home folder's parent lies outside the boundary, so resolving it first
+    // would answer "outside your home folder" for the one path the anchor
+    // sentence exists for (found by the B10a verify-terminal pass).
+    if (anchors.includes(lex)) throw new FsBrowseError(403, FS_DELETE_ANCHOR);
     let parentReal: string;
     try {
       parentReal = resolveUnderAllowed(dirname(lex), {
