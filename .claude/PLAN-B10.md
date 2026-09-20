@@ -1,8 +1,8 @@
 # Plan B10 — Real file copy into the WSL file system, and copy-to-clipboard via the host (Nocturne Track B)
 
 Status: LANDED 2026-09-20 (`5779d23`; started the same day on the user's "ga door
-met b10", next in the plan order after B5; verify-terminal 11/11 PASS; the host
-build + Explorer paste are the user's Windows check). Parent: `.claude/PLAN-NOCTURNE.md` part A9 + B10. A9 (2026-09-15) and A9b
+met b10", next in the plan order after B5; verify-terminal 11/11 PASS; user-verified
+on Windows the same day: "alles werkt"). Parent: `.claude/PLAN-NOCTURNE.md` part A9 + B10. A9 (2026-09-15) and A9b
 (2026-09-16) built the visual half on a mock transport; A9c + B2 (2026-09-16) made
 the Files panel a real browser. B10 replaces the pretence with a real write, and
 makes the A9b context-menu `Copy` live through the native host. Runs through
