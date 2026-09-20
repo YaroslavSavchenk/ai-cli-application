@@ -47,6 +47,14 @@ interface TableRow {
   /** `gesture: true` in the literal — a mouse sentence, not a keyboard chord. */
   gesture: boolean;
   what: string;
+  /**
+   * The third column: where the SAME thing lives in the UI, or the keyboard
+   * twin of a mouse gesture. Parsed since B10a, because a gesture row whose
+   * twin column is empty is a control that exists only under a pointer.
+   */
+  ui: string;
+  /** The one-line caption under the row, for the rows that carry one. */
+  note: string | null;
 }
 
 /** Parse the `ROWS` literal out of shortcuts.ts. */
@@ -58,10 +66,22 @@ function readRows(): TableRow[] {
   assert.notEqual(end, -1, 'the ROWS table must still end with a `];` line');
   const block = src.slice(start, end);
   const out: TableRow[] = [];
-  const rowRe = /\{\s*keys:\s*\[([^\]]*)\]([^}]*?)what:\s*(['"])((?:\\.|(?!\3).)*)\3/g;
+  const rowRe =
+    /\{\s*keys:\s*\[([^\]]*)\]([^}]*?)what:\s*(['"])((?:\\.|(?!\3).)*)\3([^}]*)/g;
   for (const m = { v: rowRe.exec(block) }; m.v !== null; m.v = rowRe.exec(block)) {
     const keys = [...(m.v[1] ?? '').matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)].map((k) => k[2] as string);
-    out.push({ keys, gesture: (m.v[2] ?? '').includes('gesture: true'), what: m.v[4] as string });
+    const tail = m.v[5] ?? '';
+    const read = (field: string): string | null => {
+      const hit = new RegExp(`${field}:\\s*(['"])((?:\\\\.|(?!\\1).)*)\\1`).exec(tail);
+      return hit === null ? null : (hit[2] as string);
+    };
+    out.push({
+      keys,
+      gesture: (m.v[2] ?? '').includes('gesture: true'),
+      what: m.v[4] as string,
+      ui: read('ui') ?? '',
+      note: read('note'),
+    });
   }
   return out;
 }
@@ -135,6 +155,11 @@ test('the shortcuts table parses (non-vacuity: rows, keys, and known entries are
     ROWS.some((r) => r.keys.includes('ctrl+alt+t')),
     'the launch-dialog row must be in the table',
   );
+  // The `ui` and `note` columns really parse (B10a added both to this reader):
+  // a silent '' would make every claim about a keyboard twin vacuous.
+  assert.ok(ROWS.every((r) => r.ui !== ''), `a row with no UI twin: ${ROWS.find((r) => r.ui === '')?.what}`);
+  assert.ok(ROWS.some((r) => r.note !== null), 'no caption parsed at all');
+  assert.ok(ROWS.some((r) => r.note === null), 'every row parsed as captioned — the field is not being read');
 });
 
 test('the overlay lists the paste chords on exactly ONE row, and it lists exactly two', () => {
@@ -200,6 +225,35 @@ test('the paste and copy rows are the ONLY rows outside the ctrl+alt reservation
     outside.map((r) => r.what),
     ['paste the clipboard into the terminal', 'copy the selection'],
   );
+});
+
+test('the overlay lists the two Files-panel selection gestures and the Delete key (B10a)', () => {
+  // A selection you can only build with a pointer would break this project's
+  // "no control exists only under a pointer" rule, so the row that lists the
+  // two mouse gestures MUST name their keyboard twins in the `ui` column.
+  const sel = ROWS.filter((r) => r.keys.includes('ctrl+click a row'));
+  assert.equal(sel.length, 1, `expected one selection row, found ${sel.length}`);
+  const row = sel[0] as TableRow;
+  assert.deepEqual(row.keys, ['ctrl+click a row', 'shift+click a row']);
+  assert.equal(row.gesture, true, 'a mouse sentence must render as a gesture, not a <kbd> chip');
+  assert.equal(row.what, 'add one row to the selection, or select the range');
+  assert.equal(row.ui, 'ctrl+space on the focused row, or shift+↑↓');
+
+  // The Delete key, with the one sentence the overlay OWES the reader: there
+  // is no undo and no recycle bin behind this key.
+  const del = ROWS.filter((r) => r.keys.includes('delete'));
+  assert.equal(del.length, 1, `expected one delete row, found ${del.length}`);
+  const d = del[0] as TableRow;
+  assert.equal(d.gesture, false, 'a key is a chip, not a sentence');
+  assert.equal(d.what, 'delete the selected rows for good');
+  assert.equal(d.ui, 'Delete in the row menu', 'the same act has a visible control');
+  assert.equal(
+    d.note,
+    'There is no undo and nothing goes to a recycle bin; the app asks once first.',
+  );
+  // It takes no modifier, so it is outside the ctrl+alt reservation only in
+  // the way a single non-printing key is — like esc.
+  assert.equal(d.keys.length, 1);
 });
 
 test('the gesture flag really parses (non-vacuity: some rows carry it, some do not)', () => {

@@ -165,11 +165,13 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
   // A9b (2026-09-16) added the third: the files-on-the-clipboard gesture row,
   // whose caption states the terminal limit (only plain ctrl+v carries files).
   // A9c added the fourth: the row-menu gesture, whose caption says the menu now
-  // CREATES things — a menu nobody opens is a feature nobody has.
+  // CREATES things — a menu nobody opens is a feature nobody has. B10a added
+  // the fifth: the Delete key, whose caption is the one sentence the overlay
+  // OWES the reader — there is no undo and no recycle bin behind it.
   assert.equal(
     withCaption.length,
-    4,
-    'exactly the paste row, the copy row, the files-paste row and the row-menu row carry a caption',
+    5,
+    'the paste row, the copy row, the files-paste row, the row-menu row and the delete row',
   );
   for (const item of withCaption) {
     const row = byClass(item, 'sc-row')[0];

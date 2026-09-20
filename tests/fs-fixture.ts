@@ -56,12 +56,17 @@ export interface Changes {
   files: Changed[];
   truncated: number;
 }
+/** One item's fate in a delete answer, index-keyed to the request (B10a). */
+export type DeleteResult = { ok: true } | { ok: false; status: number; error: string };
+
 export interface Gateway {
   entries(path?: string): Promise<{ path: string; entries: Entry[]; truncated: number }>;
   create(dir: string, name: string, kind: 'file' | 'folder'): Promise<{ path: string }>;
   changes(root: string): Promise<Changes>;
   /** The Windows form of one path, for the row menu's `Copy` (part B10). */
   winPath(path: string): Promise<{ windowsPath: string }>;
+  /** Delete these paths for good (part B10a): one batch, one answer per path. */
+  delete(paths: string[]): Promise<{ results: DeleteResult[] }>;
 }
 
 /**
@@ -166,6 +171,22 @@ export interface Fixture {
   /** Every path the row menu's `Copy` asked the server to map (part B10). */
   winPathCalls: string[];
   /**
+   * Every delete the panel posted, as the exact list it sent, in order (B10a).
+   * "One request per confirmed action", "in tree order" and "nothing was sent
+   * at all" are all read from this.
+   */
+  deleteCalls: string[][];
+  /**
+   * What the NEXT delete answers per path — `null` is the default "every one
+   * of them went". A REJECTION (the request itself refused) is `deleteFails`.
+   */
+  deleteAnswer: ((path: string, index: number) => DeleteResult) | null;
+  /** The next delete REJECTS with this (a 413, a dead backend). */
+  deleteFails: FakeApiError | null;
+  /** Hold the next delete until `releaseDelete()` — the in-flight state. */
+  holdDelete(): void;
+  releaseDelete(): void;
+  /**
    * What the NEXT mapping answers, when a test wants it to fail: the 422 a path
    * with no Windows form gets, or the 403 of a path outside the boundary.
    */
@@ -241,6 +262,9 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
   const changeCalls: string[] = [];
   const createCalls: CreateCall[] = [];
   const winPathCalls: string[] = [];
+  const deleteCalls: string[][] = [];
+  /** Deletes waiting for `releaseDelete()` (the `is-busy` rows, the second Delete). */
+  let heldDelete: (() => void)[] | null = null;
   const failWith = new Map<string, FakeApiError>();
   let held: (() => void)[] | null = null;
   /** Creates waiting for `releaseCreate()` — the in-flight row (A9c §6b). */
@@ -280,9 +304,20 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
     changeCalls,
     createCalls,
     winPathCalls,
+    deleteCalls,
     failWith,
     createFails: null,
     winPathFails: null,
+    deleteAnswer: null,
+    deleteFails: null,
+    holdDelete() {
+      heldDelete = [];
+    },
+    releaseDelete() {
+      const queue = heldDelete ?? [];
+      heldDelete = null;
+      for (const fn of queue) fn();
+    },
     failCreate(err = new FakeApiError(409, 'That name is already taken.')) {
       fx.createFails = err;
     },
@@ -323,8 +358,12 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
       changeCalls.length = 0;
       createCalls.length = 0;
       winPathCalls.length = 0;
+      deleteCalls.length = 0;
       fx.createFails = null;
       fx.winPathFails = null;
+      fx.deleteAnswer = null;
+      fx.deleteFails = null;
+      heldDelete = null;
       failWith.clear();
       held = null;
       heldCreate = null;
@@ -386,6 +425,30 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
         // The mapping the backend really makes, in the shape the host parses.
         return Promise.resolve({ windowsPath: `\\\\wsl.localhost\\Ubuntu${path.replace(/\//g, '\\')}` });
       },
+      /**
+       * One batch delete (B10a). It RECORDS the exact list first and answers
+       * second, so a request that should never have gone out is visible even
+       * when its answer would have been the one the test wanted.
+       *
+       * A path that really goes is taken out of the TREE as well — its own
+       * listing and its entry in its parent's — because the panel re-reads
+       * every affected parent afterwards and a fake that kept answering the
+       * deleted name would make "it is gone" untestable.
+       */
+      delete(paths: string[]) {
+        deleteCalls.push([...paths]);
+        const bad = fx.deleteFails;
+        if (bad !== null) return Promise.reject(bad);
+        const results = paths.map((path, i) => {
+          const r: DeleteResult = fx.deleteAnswer?.(path, i) ?? { ok: true };
+          if (r.ok) removeFromTree(path);
+          return r;
+        });
+        if (heldDelete === null) return Promise.resolve({ results });
+        return new Promise<{ results: DeleteResult[] }>((resolve) => {
+          heldDelete?.push(() => resolve({ results }));
+        });
+      },
       changes(root: string) {
         changeCalls.push(root);
         return new Promise((resolve, reject) => {
@@ -398,6 +461,24 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
       },
     },
   };
+  /** Take one path out of the served tree: its own listing, and its row. */
+  function removeFromTree(path: string): void {
+    for (const key of [...tree.keys()]) {
+      if (key === path || key.startsWith(`${path}/`)) tree.delete(key);
+    }
+    const cut = path.lastIndexOf('/');
+    if (cut <= 0) return;
+    const parent = path.slice(0, cut);
+    const name = path.slice(cut + 1);
+    const rows = tree.get(parent);
+    if (rows === undefined) return;
+    const at = rows.findIndex((e) => e.name === name);
+    // A copy, never a splice of the SHARED row array: `TREE_SHAPE` hands the
+    // same array to every root, and splicing it would delete the row under
+    // every other root as well (and keep it deleted for the next test).
+    if (at !== -1) tree.set(parent, rows.filter((_, i) => i !== at));
+  }
+
   return fx;
 }
 

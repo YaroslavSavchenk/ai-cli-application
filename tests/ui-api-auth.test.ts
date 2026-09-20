@@ -184,6 +184,39 @@ test('fsEntries / fsCreate / gitChanges each carry the token, and each shape the
   );
 });
 
+test('fsDelete: ONE POST to /api/fs/delete, the paths under `paths`, and the token (B10a)', async () => {
+  // The app's only irreversible request. What it is addressed to and what it
+  // carries is pinned here because everything else about a delete is the
+  // panel's: a wrong route or a wrong body key is a request the server refuses
+  // wholesale, which the panel renders as "nothing was deleted" — a silent
+  // feature loss no other test in this suite would see.
+  calls.length = 0;
+  next = {
+    status: 200,
+    body: {
+      results: [{ ok: true }, { ok: false, status: 404, error: 'That item is no longer there.' }],
+    },
+  };
+  const res = await api.fsDelete(['/home/you/a.txt', '/home/you/web']);
+
+  assert.equal(calls.length, 1, 'one confirmed act, one request — never one per item');
+  const call = calls[0] as { url: string; init: Record<string, unknown> };
+  assert.equal(call.url, '/api/fs/delete');
+  assert.equal(call.init['method'], 'POST');
+  assert.equal(
+    call.init['body'],
+    JSON.stringify({ paths: ['/home/you/a.txt', '/home/you/web'] }),
+    'the paths travel under `paths`, in the order the tree drew them',
+  );
+  const headers = call.init['headers'] as Record<string, string>;
+  assert.equal(headers['x-auth-token'], 'TOKEN-FROM-THE-PAGE');
+  assert.deepEqual(
+    res.results.map((r) => r.ok),
+    [true, false],
+    'the answer is index-keyed and reaches the caller as it came',
+  );
+});
+
 test("the panel's 403s are ordinary refusals: the server's sentence is thrown, the page is not taken over", async () => {
   for (const sentence of [
     'This folder is outside your home folder.',

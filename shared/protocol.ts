@@ -1129,6 +1129,43 @@ export interface FsUploadResponse { bytes: number }
  *  boundary, for the native host's clipboard (part B10 phase 3). */
 export interface FsWinPathResponse { windowsPath: string }
 
+// ---------------------------------------------------------------------------
+// Permanent delete (Nocturne B10a) — POST /api/fs/delete
+// ---------------------------------------------------------------------------
+//
+// The app's FIRST delete primitive. PERMANENT: no trash, no undo (user
+// decision 2026-09-20, memory/decisions/b10a-multi-select-and-delete.md), so
+// the ONE confirmation the client shows before it calls this is the only stop.
+//
+// ONE REQUEST PER CONFIRMED ACTION: the client asks once, the user confirms
+// once, and the whole selection travels in a single POST. The BATCH is the unit
+// of transport, never of outcome: each path is judged and deleted
+// independently, in request order, and a failure never stops the ones after it.
+// The request is therefore a 200 whenever it is WELL-FORMED — a partial batch is
+// an ordinary answer, not an error — and `results` is INDEX-KEYED to `paths`,
+// carrying a status and a constant sentence per item. NO PATH COMES BACK: the
+// caller built the list, and a field no row renders is a field that leaks for
+// free.
+//
+// The boundary is server/fsbrowse.ts resolveUnderAllowed, exactly as for
+// /api/fs/create and /api/fs/upload (home + every registered project root),
+// plus two refusals this route adds: an ANCHOR itself (the panel root, a
+// project root) is never deletable, and neither is the app's own data dir. A
+// symlink is UNLINKED, never followed: the link goes, whatever it points at.
+
+/** Paths one POST /api/fs/delete may carry. */
+export const MAX_DELETE_ITEMS = 100;
+
+/** POST /api/fs/delete body: absolute paths inside the boundary, in any order. */
+export interface FsDeleteRequest { paths: string[] }
+
+/** One item's fate, index-keyed to the request (no path comes back). */
+export type FsDeleteResult = { ok: true } | { ok: false; status: number; error: string };
+
+/** 200 of POST /api/fs/delete — always 200 when the REQUEST is well-formed;
+ *  each item carries its own status, so a partial batch is an ordinary answer. */
+export interface FsDeleteResponse { results: FsDeleteResult[] }
+
 /** GET /api/git/changes?root=<abs> — how one file differs from the last commit. */
 export type ChangeStatus = 'modified' | 'new' | 'deleted' | 'renamed';
 

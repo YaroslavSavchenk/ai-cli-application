@@ -294,7 +294,9 @@ afterEach(() => {
 test('a FOLDER row offers New file and New folder; a FILE row offers neither', async () => {
   await liveSession();
   rightClick(dirRow('web'));
-  assert.deepEqual(labels().slice(-3), ['New file', 'New folder', 'Refresh']);
+  // `Delete` is the last entry since B10a, so the three A9c entries are the
+  // ones before it.
+  assert.deepEqual(labels().slice(-4, -1), ['New file', 'New folder', 'Refresh']);
   CM.closeRowMenu();
   rightClick(fileRow('README.md'));
   for (const label of ['New file', 'New folder', 'Refresh']) {

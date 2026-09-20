@@ -225,6 +225,21 @@ export function isUnderDataDir(real: string): boolean {
 }
 
 /**
+ * The REVERSE test: the app's own data dir is `real` itself or lies UNDER it.
+ *
+ * Added by B10a (server/fsdelete.ts). Deleting is the one operation where
+ * containment runs both ways: `isUnderDataDir` stops a write INSIDE the data
+ * dir, but only this one stops `rm -r` on a FOLDER THAT CONTAINS it. With a
+ * custom AI_SM_DATA_DIR nested two levels under home (`<home>/dd/data`),
+ * deleting `<home>/dd` would otherwise take the auth token, prefs.json,
+ * history.json and runtime.json with it.
+ */
+export function isDataDirUnder(real: string): boolean {
+  const data = resolvedDataDir();
+  return data !== null && isUnder(data, real);
+}
+
+/**
  * How long one project path's realpath answer is reused. The Changes tab polls
  * every 5 s and the panel lists on demand, so a whole burst of requests costs
  * ONE realpath per project instead of one each.

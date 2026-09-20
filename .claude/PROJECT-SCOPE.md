@@ -631,6 +631,32 @@ multi-pane layouts on top.
   a `kill -9`; the drvfs `link()` fallback is untested here; Windows
   reserved device names (`CON`, `NUL`) pass on Linux and are Explorer's
   problem on paste.
+- **The delete route (Nocturne B10a, 2026-09-20; spec `.claude/PLAN-B10A.md`
+  §2; rationale `memory/decisions/b10a-multi-select-and-delete.md`) — the
+  app's first delete primitive, PERMANENT (user's decision: no trash, one
+  confirmation `Delete 3 items from src? This cannot be undone.` in the
+  page).** `POST /api/fs/delete { paths }`, ONE request per confirmed
+  action, ≤ 100 items (413 above with nothing touched), body through
+  `readJsonBodySafe` (512 KiB), `200 { results }` index-keyed — per item
+  `{ ok: true }` or `{ ok: false, status, error }` with a CONSTANT sentence,
+  no path back. Per item: absolute + NUL-free, the name through
+  `isSafeSegment` + 255 bytes, the PARENT through `resolveUnderAllowed`
+  (realpath + anchors — an intermediate symlink is judged by its real
+  location), refused: a target that IS or CONTAINS an anchor (home, a
+  project root — the parent of a project root too), the data dir as parent,
+  target or container; then one asynchronous `rm(recursive)` on the lexical
+  `join(parentReal, name)` — the final component is never resolved, so a
+  symlink is unlinked and its target untouched, wherever it points, and
+  links inside a tree are not followed; a child under an ancestor deleted
+  in the same request answers ok. Async because `rmSync` on 20k files
+  blocked every PTY for 400 ms (measured). Logging: one `[fs] POST
+  /api/fs/delete -> 200, 3 ok, 1 failed` line at info, per-item debug by
+  index, a 5xx with class + frames only (rm's messages quote the path
+  twice). Known limits, recorded: a mount point under home is walked and
+  deleted (`rm` has no one-file-system flag); the TOCTOU window
+  `fsbrowse.ts` records; a token holder could always `rm -rf` through a
+  shell — the boundary adds no privilege, it keeps the irreversible verb
+  inside home + projects and away from the anchors and the data dir.
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -720,6 +746,7 @@ multi-pane layouts on top.
   chord with the focus in the panel — Files tab only. Backend (landed with
   Brief A): `GET /api/fs/entries`, `POST /api/fs/create`, since B10
   `PUT /api/fs/upload` and `GET /api/fs/winpath` (the upload bullet below),
+  since B10a `POST /api/fs/delete` (the delete bullet below),
   `GET /api/git/changes`, all token-gated, all confined to a realpath
   boundary = the user's HOME or any REGISTERED project's path — a registered
   project is the user's own choice and anchors its WHOLE subtree, no floor
@@ -765,19 +792,31 @@ multi-pane layouts on top.
   uploads are not logged in the browser log (one `drop: N files, X MB, F
   failed` line is the record; user 2026-09-20). The keyboard/button twin is the
   permanent copy strip under the panel header (native file chooser; it
-  reads "Copy files here…", or "Copy files into <folder>…" once a folder is
-  selected), Ctrl+Alt+C on a focused folder row (the picker for that
-  folder), and pasting with files on the clipboard; all use the same
-  destination rule as the drag (the SELECTED folder first — A9b, 2026-09-16:
-  one click on a folder row selects it and toggles it, the selection stays
-  visible after the focus leaves the panel, Escape inside the panel or
-  hiding the panel clears it — then the focused folder row, else the panel
-  root, else the active tab's root). A right-click on a row (or the
+  reads "Copy files here…", or "Copy files into <folder>…" once a row is
+  selected — the ANCHOR row's own folder, or a selected FILE's parent),
+  Ctrl+Alt+C on a focused folder row (the picker for that folder), and
+  pasting with files on the clipboard; all use the same destination rule as
+  the drag (the selection's destination first — A9b, 2026-09-16: one click
+  on a folder row selects it and toggles it, the selection stays visible
+  after the focus leaves the panel, Escape inside the panel or hiding the
+  panel clears it; **since B10a (2026-09-20, spec `.claude/PLAN-B10A.md`) the
+  selection is MANY rows, files included**, Explorer-style: ctrl+click
+  toggles, shift+click ranges over the visible rows, ctrl+a takes every
+  visible row, ↑/↓ move focus, shift+↑/↓ extend, ctrl+↑/↓ move focus only,
+  ctrl+space / ctrl+enter toggle the focused row, the last-touched row is
+  the ANCHOR — then the focused folder row, else the panel root, else the
+  active tab's root). A right-click on a row (or the
   ContextMenu key / Shift+F10 on the focused row) opens a Nocturne context
   menu — a new primitive, `ui/context-menu.ts`, not a modal: folder rows
-  offer Open or Close, Copy, Paste, Copy files here…, and since A9c
-  (2026-09-16) New file, New folder, Refresh; file rows Open, Open
-  beside, Copy. Since B10 (2026-09-20) `Copy` is LIVE inside the native
+  offer Open or Close, Copy, Paste, Copy files here…, since A9c
+  (2026-09-16) New file, New folder, Refresh, and since B10a — behind the
+  menu's ONE hairline, in danger ink, the only entry that cannot be taken
+  back — Delete; file rows Open, Open beside, Copy, ──, Delete. An ANCHOR
+  row (the panel root, the home folder, a registered project root) has NO
+  Delete at all, not a disabled one. `Copy` and `Delete` act on the whole
+  selection when the clicked row is in it, else on that row (Explorer's
+  rule); the menu's accessible label then reads `actions for 3 selected
+  items`. Since B10 (2026-09-20) `Copy` is LIVE inside the native
   host window only: the backend maps the row's path to its Windows form
   (`GET /api/fs/winpath`, behind the same home/project boundary; `/mnt/<d>`
   → `D:\…`, else `\\wsl.localhost\<distro>\…`), the page posts one
@@ -790,7 +829,8 @@ multi-pane layouts on top.
   copying the host's clipboard files would need a read-anywhere primitive
   this app refuses to have; user's decision 2026-09-20) — the keyboard paste
   is the door. A right-click
-  selects a folder row without toggling it. Right-clicks anywhere else —
+  selects a row (folder or file) without toggling it, and leaves a
+  selection alone when the row is already in it. Right-clicks anywhere else —
   a terminal above all — are never touched, so the system menu (xterm's
   own copy/paste arrangement) stays. Sessions panel
   (right, 300 px) restyled in the same part: "Running now" / "Earlier",
@@ -1063,12 +1103,16 @@ multi-pane layouts on top.
   described below — an event, not a chord — and, while the keyboard is
   INSIDE the Files panel, the ContextMenu key / Shift+F10 that open the
   row's menu on a focused row or the panel's own menu elsewhere in it
-  (A9c, 2026-09-16); a terminal never sees those two taken): `Ctrl+Shift+V` and `Shift+Insert` paste the
+  (A9c, 2026-09-16), and since B10a (2026-09-20) Delete, ctrl+a, ↑/↓,
+  shift+↑/↓, ctrl+↑/↓, ctrl+space and ctrl+enter — all on the panel root's
+  own bubble-phase listener, so a focused terminal never sees any of them
+  taken): `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —
   xterm sends it to the program in the terminal, which Claude Code uses
   itself; a paste that carries FILES is taken — and opens the drop dialog —
   when the target is neither a terminal nor an editable field (A9), OR when
-  a folder is selected in the Files panel, a focused terminal included
+  a row is selected in the Files panel (a file's parent is then the
+  destination, B10a), a focused terminal included
   (A9b, user decision 2026-09-16: files carry no text, so the terminal
   loses nothing; the app then also stops propagation so xterm's own paste
   handler never types a stray `text/plain` into the PTY); a text paste is

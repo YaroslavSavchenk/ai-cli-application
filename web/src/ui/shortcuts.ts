@@ -102,6 +102,18 @@ const ROWS: Row[] = [
     ui: 'the menu key or shift+f10 with the focus in the panel',
   },
   {
+    keys: ['ctrl+click a row', 'shift+click a row'],
+    gesture: true,
+    what: 'add one row to the selection, or select the range',
+    ui: 'ctrl+space on the focused row, or shift+↑↓',
+  },
+  {
+    keys: ['delete'],
+    what: 'delete the selected rows for good',
+    ui: 'Delete in the row menu',
+    note: 'There is no undo and nothing goes to a recycle bin; the app asks once first.',
+  },
+  {
     keys: ['paste with files on the clipboard'],
     gesture: true,
     what: 'copy them into the selected folder',

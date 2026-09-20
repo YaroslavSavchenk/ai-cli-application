@@ -54,12 +54,40 @@ import {
   afterEscape,
   afterMenuOpen,
   afterPanelHidden,
+  afterRange,
   afterRowActivate,
+  afterSelectAll,
+  afterToggle,
   COPY_LABEL,
   copyIntoText,
   copyStripLabel,
+  destinationPath,
+  EMPTY,
+  keyIsDir,
+  keyPath,
+  prunedTo,
+  rowKey,
+  size as selectionSize,
+  without,
   type Selection,
 } from './files-select-model.ts';
+import {
+  copiedFlash,
+  DELETE_RUNNING,
+  deleteQuestion,
+  deleteSubLine,
+  deletedFlash,
+  failedKeys,
+  itemsFor as actItemsFor,
+  parentsOf,
+  pathsOf,
+  TOO_MANY_TO_COPY,
+  TOO_MANY_TO_DELETE,
+  type DeleteItem,
+} from './delete-model.ts';
+import { openDeleteDialog } from './delete-dialog.ts';
+import { isDropRunning } from './drop-dialog.ts';
+import { COPY_RUNNING } from './filedrop.ts';
 import {
   itemsFor,
   itemsForRoot,
@@ -70,11 +98,14 @@ import {
 import { closeRowMenu, openRowMenu } from './context-menu.ts';
 import { copyPathsToClipboard, hasHostBridge } from './host-bridge.ts';
 import { flash } from './statusline.ts';
-import { isContextMenuChord } from './keys.ts';
+import { isContextMenuChord, isEditableTarget, OPEN_MODAL_SELECTOR } from './keys.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
+import { MAX_DELETE_ITEMS } from '../../../shared/protocol.ts';
 import type {
   FsCreateResponse,
+  FsDeleteResponse,
+  FsDeleteResult,
   FsEntriesResponse,
   FsWinPathResponse,
   GitChangesResponse,
@@ -100,6 +131,7 @@ import {
   isUnder,
   joinPath,
   nameProblem,
+  parentPath,
   nameProblemText,
   truncatedText,
   type Destination,
@@ -215,6 +247,17 @@ export interface FsGateway {
    * boundary every other filesystem route sits behind.
    */
   winPath(path: string): Promise<FsWinPathResponse>;
+  /**
+   * Delete these paths for good (B10a). ONE request per confirmed action — the
+   * user is asked once, so the whole selection travels in one call — and the
+   * answer is index-keyed to the list that was sent: `results[i]` is about
+   * `paths[i]`, each with its own `ok`.
+   *
+   * PERMANENT: nothing here goes to a trash. The confirmation in
+   * `ui/delete-dialog.ts` is the only stop before this call, and a REJECTION
+   * means the request itself was refused and nothing was touched.
+   */
+  delete(paths: string[]): Promise<FsDeleteResponse>;
 }
 
 /**
@@ -452,10 +495,12 @@ export function initFilesPanel(
 
   // ---- selection -----------------------------------------------------------
   //
-  // The ONE folder the user chose (part A9b, user decision 1, 2026-09-16), as
-  // a PATH because that is what identifies a row across a rebuild. Every
-  // decision about it lives in `ui/files-select-model.ts`; this region only
-  // holds it, paints it and spends the Escape key on it.
+  // WHICH ROWS ARE CHOSEN (part A9b, user decision 1, 2026-09-16; MANY of them
+  // since B10a, 2026-09-20), as row KEYS (`fdir:`/`ffile:` + path) because a
+  // key is what identifies a row across a rebuild and what tells a folder
+  // apart from a file. Every decision about it lives in
+  // `ui/files-select-model.ts`; this region only holds it, paints it, spends
+  // the Escape key on it and acts on it.
   //
   // It sits here, beside `openFolders`, for the same reason that set does: it
   // is not server state, it is not persisted, and no module outside this
@@ -463,11 +508,29 @@ export function initFilesPanel(
   // one line for it.
   //
   // WHY IT SURVIVES EVERYTHING. It is part of `sig()` and `rebuild()` paints
-  // `is-sel` from the path, so a folder toggle, a subject change, a tab switch
-  // and every other repaint leave it exactly where it was — including a
-  // selected folder whose ANCESTOR was collapsed, which draws no row but keeps
-  // naming itself in the copy strip.
-  let selected: Selection = null;
+  // `is-sel` from the keys, so a folder toggle, a subject change, a tab switch
+  // and every other repaint leave it exactly where it was — including a chosen
+  // row whose ANCESTOR was collapsed, which draws no row but is still part of
+  // what the next Delete or Copy is about (`actEntries`).
+  let selected: Selection = EMPTY;
+  /**
+   * The rows of the delete that is in flight, by key — `is-busy` while it
+   * runs, and the "one batch at a time" guard (a second answer could not be
+   * matched against the right list of items). Null when nothing is running.
+   */
+  let deleting: Set<string> | null = null;
+  /**
+   * Where the keyboard goes after a confirmed delete, once the row it was
+   * standing on really leaves the tree (`gone`), in preference order
+   * (`candidates`). Null when nothing is pending.
+   *
+   * It is a PROMISE kept by `paint()`, exactly like `focusCreated`, because
+   * the row does not disappear with the answer: it disappears with the
+   * listing the answer triggers, one or more repaints later. Without it a
+   * keyboard-only delete (Delete, then Enter on the confirmation) ends with
+   * the focus on `<body>`, where no key in this app reaches anything.
+   */
+  let focusAfterDelete: { gone: ReadonlySet<string>; candidates: string[] } | null = null;
 
   // ---- the tree ------------------------------------------------------------
   //
@@ -686,7 +749,7 @@ export function initFilesPanel(
     generation += 1;
     for (const p of [...openFolders]) if (!isUnder(p, next)) openFolders.delete(p);
     for (const p of [...listings.keys()]) if (!isUnder(p, next)) listings.delete(p);
-    if (selected !== null && !isUnder(selected, next)) selected = null;
+    selected = prunedTo(selected, next);
     // A9c: a name row belongs to ONE folder in ONE tree. The root moved under
     // it, so there is nothing left for it to be inside of (§6b).
     dropCreate('root');
@@ -965,13 +1028,164 @@ export function initFilesPanel(
       e.stopPropagation();
       return;
     }
-    if (e.key !== 'Escape' || selected === null) return;
+    if (e.key === 'Escape') {
+      // Nothing chosen: the key is NOT spent here, so the ladder's Files arm
+      // closes the panel exactly as it always did.
+      if (selectionSize(selected) === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      selected = afterEscape(selected);
+      lastSig = '';
+      render();
+      return;
+    }
+    // The name row's own input keeps every key of its own (a Delete inside a
+    // half-typed name is an edit, not a filesystem act).
+    if (isEditableTarget(e.target instanceof HTMLElement ? e.target : null)) return;
+    if (onSelectionKey(e)) return;
+  });
+
+  // ---- the keyboard, inside the panel (part B10a) ---------------------------
+  //
+  // Arrow keys, ctrl+a, ctrl+space and Delete, on the SAME bubble-phase
+  // listener above and with the same ownership rule as every row chord here:
+  // the focus is inside this panel, so a focused terminal never sees any of
+  // them and no window handler is looking. They stop propagating, so nothing
+  // behind the panel reads a key the tree already spent.
+  //
+  // WHY THE TREE HAS ARROW KEYS AT ALL (orchestrator's call, 2026-09-20): it
+  // had none, and a selection you can only build with a pointer would fail
+  // this project's "no control exists only under a pointer" rule the moment
+  // ctrl+click became the way to choose a second row.
+  //
+  // NO WRAP on the arrows, unlike the context menu's roving focus: a tree is a
+  // place, and falling off its end back to the top is how a keyboard user
+  // deletes a row they never looked at.
+
+  /**
+   * One of this panel's own keys, or not. Answers whether the key was spent.
+   */
+  function onSelectionKey(e: KeyboardEvent): boolean {
+    if (tab !== 'files') return false;
+    if (e.metaKey || e.getModifierState('AltGraph')) return false;
+    if (e.key === 'Delete' && !e.ctrlKey && !e.altKey) {
+      // A dialog up means the window is not the panel's: its own confirmation
+      // is exactly such a dialog, so this is also what stops a second Delete
+      // from stacking a second question on the first one.
+      if (document.querySelector(OPEN_MODAL_SELECTOR) !== null) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      // Shift is ignored on purpose: this delete IS the permanent one, so
+      // Explorer's "shift means skip the recycle bin" has nothing to add.
+      runDelete(activeTreeKey(), activeRowEl());
+      return true;
+    }
+    if ((e.key === 'a' || e.key === 'A') && e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Every VISIBLE row — the only reading of "all" the user can see.
+      selected = afterSelectAll(selected, visibleKeys());
+      lastSig = '';
+      render();
+      return true;
+    }
+    if ((e.key === ' ' || e.key === 'Enter') && e.ctrlKey && !e.altKey && !e.shiftKey) {
+      const key = activeTreeKey();
+      if (key === null) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      selected = afterToggle(selected, key);
+      lastSig = '';
+      render();
+      return true;
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return false;
+    if (e.altKey) return false;
+    const keys = visibleKeys();
+    const from = keys.indexOf(activeTreeKey() ?? '');
+    // The keyboard is not on a tree row (the tabs, the copy strip, the width
+    // grip): those controls keep their own arrow keys, and the grip's are a
+    // width nudge.
+    if (from === -1) return false;
+    const to = Math.min(Math.max(from + (e.key === 'ArrowDown' ? 1 : -1), 0), keys.length - 1);
+    const next = keys[to];
+    if (next === undefined) return false;
     e.preventDefault();
     e.stopPropagation();
-    selected = afterEscape(selected);
+    // THE FOCUS MOVES FIRST, and the repaint then restores it by `data-k`
+    // (`paint()`): a selection painted before the focus moved would rebuild
+    // the rows under the old one and hand the keyboard back to it.
+    focusRow(next);
+    if (e.shiftKey && !e.ctrlKey) {
+      selected = afterRange(selected, next, keys);
+      lastSig = '';
+      render();
+    }
+    return true;
+  }
+
+  /**
+   * The mouse half of the same rules (Explorer's): shift ranges, ctrl toggles,
+   * and a plain click chooses this row alone AND does what the row does — open
+   * a file, open or close a folder.
+   *
+   * A modified click does NOT activate. That is the whole reason this is one
+   * function: ctrl+clicking five rows must not open five panes, and
+   * shift+clicking a range must not collapse the folder at either end.
+   */
+  function onRowClick(e: MouseEvent, key: string, activate: () => void): void {
+    if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      selected = afterRange(selected, key, visibleKeys());
+      lastSig = '';
+      render();
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      selected = afterToggle(selected, key);
+      lastSig = '';
+      render();
+      return;
+    }
+    selected = afterRowActivate(selected, key);
+    activate();
+    // A file row's `activate` opens a pane and repaints through state.ts; a
+    // folder's `toggleFolder` renders itself. Neither knows about the
+    // selection, so the repaint that PAINTS it is forced here.
     lastSig = '';
     render();
-  });
+  }
+
+  /** The tree's rows that are really on screen, in tree order (top to bottom). */
+  function visibleKeys(): string[] {
+    const out: string[] = [];
+    for (const node of root.querySelectorAll<HTMLElement>('.files-body .files-row')) {
+      const key = node.getAttribute('data-k') ?? '';
+      // Only the TREE's own rows: a `Changes` row (`gdir:`/`gfile:`) carries a
+      // repo-relative path nothing here can act on, and a state row has no key.
+      if (keyPath(key) !== '') out.push(key);
+    }
+    return out;
+  }
+
+  /** The tree row the keyboard is standing on, or null. */
+  function activeTreeKey(): string | null {
+    const el = activeRowEl();
+    if (el === null) return null;
+    const key = el.getAttribute('data-k') ?? '';
+    return keyPath(key) === '' ? null : key;
+  }
+
+  /** That row as an element — where a menu hangs from and where focus returns. */
+  function activeRowEl(): HTMLElement | null {
+    const a = document.activeElement;
+    if (!(a instanceof HTMLElement) || a.closest('.files-view') === null) return null;
+    return a.closest<HTMLElement>('.files-row');
+  }
+
+  /** Move the keyboard to one row, by key. */
+  function focusRow(key: string): void {
+    root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"]`)?.focus();
+  }
 
   /**
    * The selection as a NAME, for the three readers outside this region: the
@@ -984,13 +1198,17 @@ export function initFilesPanel(
    */
   function currentSelectedDest(): Destination | null {
     if (!st.filesPanelVisible()) return null;
-    if (selected === null || selected === '') return null;
+    // ONE row of the selection decides, and it is the ANCHOR — the row the
+    // user touched last (`destinationPath`: the folder itself, or a file's
+    // parent). A set of rows spread over several folders has no other honest
+    // answer, and B10a is the part that made a FILE row selectable at all.
+    const dest = destinationPath(selected);
+    if (dest === null || dest === '') return null;
     const root = rootPath();
     if (root === null) return null;
-    // Never the root itself: only folder ROWS are selectable and the root has
-    // no row — but `destinationOf` is the one place a name is derived from a
-    // path, so the panel asks it rather than deriving a second one here.
-    return destinationOf(selected, root, subject().name);
+    // `destinationOf` is the one place a name is derived from a path, so the
+    // panel asks it rather than deriving a second one here.
+    return destinationOf(dest, root, subject().name);
   }
 
   // ---- the row menu ---------------------------------------------------------
@@ -1069,7 +1287,10 @@ export function initFilesPanel(
     // rows the user will actually see under it.
     dropCreate('menu');
     const before = selected;
-    selected = afterMenuOpen(selected, { dir, path });
+    // Explorer's rule, in the model: a row ALREADY IN the selection leaves it
+    // alone (right-clicking one of five chosen rows asks about all five); any
+    // other row becomes the selection, and the anchor.
+    selected = afterMenuOpen(selected, key);
     if (selected !== before) {
       // The selection alone changed — no folder toggled — so nothing else
       // would invalidate the signature and the chosen row would stay unpainted
@@ -1079,17 +1300,25 @@ export function initFilesPanel(
     }
     const row = root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"]`);
     const name = fileName(path);
-    // ONE subject for both halves of the menu (B10 adds `canCopy` to it): the
-    // entries and the name a screen reader hears are answered about the same
-    // row, and the clipboard question is asked at OPEN time, which is the
-    // moment the entry's state is drawn.
-    const subject = { dir, name, open: openFolders.has(path), canCopy: hasHostBridge() };
+    // ONE subject for both halves of the menu (B10 adds `canCopy`, B10a
+    // `deletable` and `count`): the entries and the name a screen reader hears
+    // are answered about the same row, and the clipboard, anchor and count
+    // questions are asked at OPEN time, which is the moment the entries are
+    // drawn.
+    const subject = {
+      dir,
+      name,
+      open: openFolders.has(path),
+      canCopy: hasHostBridge(),
+      deletable: !isAnchor(path),
+      count: actCount(key),
+    };
     openRowMenu({
       items: itemsFor(subject),
       at,
       label: menuLabel(subject),
       returnFocus: row,
-      onChoose: (action) => runMenuAction(action, path, name),
+      onChoose: (action) => runMenuAction(action, key, path, name),
     });
   }
 
@@ -1101,11 +1330,15 @@ export function initFilesPanel(
    * and that route works today. `Copy` is live in the native window and
    * disabled with `COPY_NOTE` anywhere else.
    */
-  function runMenuAction(action: MenuAction, path: string, name: string): void {
+  function runMenuAction(action: MenuAction, key: string, path: string, name: string): void {
     if (action === 'toggle') toggleFolder(path);
     else if (action === 'open') st.openFile(currentRoot(), path, name);
     else if (action === 'open-beside') openBeside(path, name);
-    else if (action === 'copy') copyToClipboard(path, name);
+    // The two acts that are about the SELECTION when the row they were chosen
+    // on is part of it (B10a) — the menu hands the row's key over and
+    // `itemsFor` answers which rows the act really covers.
+    else if (action === 'copy') copyToClipboard(key, name);
+    else if (action === 'delete') runDelete(key, activeRowEl());
     else if (action === 'copy-files') openCopyFilesPicker({ path, name });
     // A9c: the three a FOLDER answers. `itemsFor` puts none of them on a file
     // row, so `path` is always a folder by the time they arrive here.
@@ -1127,17 +1360,288 @@ export function initFilesPanel(
    * never came — is the same sentence, because the user's next move is the
    * same in all of them.
    */
-  function copyToClipboard(path: string, name: string): void {
+  function copyToClipboard(key: string, name: string): void {
+    const items = actItems(key);
+    if (items.length === 0) return;
+    // The client's own cap, said BEFORE any request: a selection that is too
+    // large is told so instead of watching a hundred round trips go out.
+    if (items.length > MAX_DELETE_ITEMS) {
+      flash(TOO_MANY_TO_COPY);
+      return;
+    }
     void (async () => {
-      let ok = false;
-      try {
-        const mapped = await fs.winPath(path);
-        ok = await copyPathsToClipboard([mapped.windowsPath]);
-      } catch {
-        ok = false;
+      // ONE mapping per path, in order (orchestrator's call, 2026-09-20: no
+      // batch route for ≤ 100 loopback calls). A path with no Windows form
+      // leaves a gap, and the gap is what the `2 of 3` sentence counts.
+      const mapped: string[] = [];
+      for (const item of items) {
+        try {
+          const res = await fs.winPath(item.path);
+          mapped.push(res.windowsPath);
+        } catch {
+          // Counted by its absence; the sentence never says which one.
+        }
       }
-      flash(ok ? `Copied ${name} to the clipboard.` : COPY_TO_CLIPBOARD_FAILED);
+      let ok = false;
+      if (mapped.length > 0) {
+        try {
+          ok = await copyPathsToClipboard(mapped);
+        } catch {
+          ok = false;
+        }
+      }
+      if (!ok) {
+        flash(COPY_TO_CLIPBOARD_FAILED);
+        return;
+      }
+      flash(copiedFlash(mapped.length, items.length, name));
     })();
+  }
+
+    // ---- delete (part B10a) ----------------------------------------------------
+  //
+  // The app's first destructive act, and the only one with no way back: no
+  // trash, no undo (user decision 2026-09-20). Everything about WHICH rows an
+  // act covers, what the question says and which rows survive a partial
+  // failure is `ui/delete-model.ts`; what lives here is the guards, the
+  // request and what the tree does with the answer.
+  //
+  // WHAT THE ACT COVERS, exactly: `itemsFor` is handed an entry for EVERY
+  // chosen row — the visible rows in tree order first, then any chosen row
+  // whose parent has since been COLLAPSED (orchestrator's choice of the two
+  // offered: hand in entries for all selected keys rather than prune the
+  // selection on collapse). Closing a folder hides rows; it is not a way to
+  // change what the user already chose, and the question counts what will
+  // really be deleted.
+
+  /** Which rows an act on this row covers (Explorer's rule), anchors dropped. */
+  function actItems(clicked: string | null): DeleteItem[] {
+    return actItemsFor({
+      clicked,
+      selection: [...selected.keys],
+      visible: actEntries(),
+      // A `Copy` may cover an anchor (copying your project folder is fine); a
+      // delete may not, and `runDelete` passes the real question.
+      undeletable: () => false,
+    });
+  }
+
+  /** The same count, for the menu's accessible name. */
+  function actCount(clicked: string): number {
+    return actItems(clicked).length;
+  }
+
+  /**
+   * Every row an act could be about, as `{ key, item }` in the order the
+   * request will carry: the visible tree rows first (top to bottom, so an
+   * ancestor precedes its children), then the chosen rows that are not on
+   * screen right now.
+   */
+  function actEntries(): { key: string; item: DeleteItem }[] {
+    const out: { key: string; item: DeleteItem }[] = [];
+    const seen = new Set<string>();
+    for (const key of visibleKeys()) {
+      seen.add(key);
+      out.push({ key, item: itemOf(key) });
+    }
+    for (const key of selected.keys) {
+      if (seen.has(key) || keyPath(key) === '') continue;
+      out.push({ key, item: itemOf(key) });
+    }
+    return out;
+  }
+
+  /**
+   * One row as an act's item. Everything it needs is IN the key — the path,
+   * whether it is a folder — plus the two names the question and the refresh
+   * read, which are derived from the path and never from the tree cache: a row
+   * inside a collapsed folder has no cache entry and is still deletable.
+   */
+  function itemOf(key: string): DeleteItem {
+    const path = keyPath(key);
+    const parent = parentPath(path);
+    return {
+      path,
+      name: fileName(path),
+      dir: keyIsDir(key),
+      parentName: fileName(parent),
+      parentPath: parent,
+    };
+  }
+
+  /**
+   * Is this path an ANCHOR — something the app refuses to delete, and the
+   * server refuses too (`server/fsdelete.ts`, `FS_DELETE_ANCHOR`)? The folder
+   * the panel is standing in, the home folder, and every registered project.
+   *
+   * BEST EFFORT, and it says so: the server is the authority, and a row that
+   * is offered `Delete` can still come back with a refusal sentence. What this
+   * buys is that the menu does not offer an act the app knows will fail, and
+   * that a select-all followed by Delete cannot ask about the tree's own root.
+   */
+  function isAnchor(path: string): boolean {
+    if (path === '') return true;
+    if (currentPath !== null && path === currentPath) return true;
+    if (homePath !== null && path === homePath) return true;
+    return st.state.projects.some((p) => p.path === path);
+  }
+
+  /**
+   * The act itself: which rows, then ONE question, then one request.
+   *
+   * The guards, in order — a copy that is still writing owns the same folders
+   * and the same refresh; a delete already in flight owns the rows (a second
+   * answer could not be matched against the right list of items); and nothing
+   * deletable is NOTHING AT ALL, not a sentence: a Delete on the panel's own
+   * root is a key that does not apply, and the app does not narrate those.
+   */
+  function runDelete(clicked: string | null, back: HTMLElement | null): void {
+    if (tab !== 'files') return;
+    if (isDropRunning()) {
+      flash(COPY_RUNNING);
+      return;
+    }
+    if (deleting !== null) {
+      flash(DELETE_RUNNING);
+      return;
+    }
+    const items = actItemsFor({
+      clicked,
+      selection: [...selected.keys],
+      visible: actEntries(),
+      undeletable: isAnchor,
+    });
+    if (items.length === 0) return;
+    if (items.length > MAX_DELETE_ITEMS) {
+      flash(TOO_MANY_TO_DELETE);
+      return;
+    }
+    openDeleteDialog({
+      question: deleteQuestion(items),
+      sub: deleteSubLine(items),
+      returnFocus: back,
+      onConfirm: () => sendDelete(items),
+    });
+  }
+
+  /**
+   * The request. ONE batch for the whole question (B10a): one confirmation,
+   * one POST, one line in the log — and one list of items the index-keyed
+   * answer is read against.
+   *
+   * Nothing is removed from the tree optimistically. The rows dim, and what
+   * replaces them is what the folder really answers afterwards.
+   */
+  function sendDelete(items: readonly DeleteItem[]): void {
+    if (deleting !== null) return;
+    deleting = new Set(items.map((i) => rowKey(i.path, i.dir)));
+    lastSig = '';
+    render();
+    fs.delete(pathsOf(items))
+      .then((res) => {
+        finishDelete(items, res.results);
+      })
+      .catch(() => {
+        // The REQUEST was refused (the cap, the body limit, the token gate) or
+        // never arrived: nothing was deleted, and an empty result list is how
+        // `failedKeys` reads exactly that.
+        finishDelete(items, []);
+      });
+  }
+
+  /**
+   * The answer. Five effects, in this order: the cache under a folder that is
+   * GONE is dropped, every affected parent is re-read ONCE (the B10 rule — and
+   * `refreshIfListed` skips a folder nobody opened), the rows that really went
+   * leave the selection, the statusline says what happened, and the panel
+   * repaints — with a promise about where the keyboard lands when the row it
+   * was standing on is one of the rows that went.
+   *
+   * THE FAILURES STAY SELECTED. After a partial delete they are what is still
+   * there, and leaving them chosen is how the panel says which ones without
+   * naming a path.
+   */
+  function finishDelete(items: readonly DeleteItem[], results: readonly FsDeleteResult[]): void {
+    deleting = null;
+    // The rows as they are RIGHT NOW: nothing is removed optimistically, so
+    // this is still the tree the user was looking at when they confirmed, and
+    // it is what "the row after the one that went" is measured in.
+    const before = visibleKeys();
+    const failed = new Set(failedKeys(items, results));
+    const gone = items.filter((i) => !failed.has(rowKey(i.path, i.dir)));
+    const done = gone.map((i) => rowKey(i.path, i.dir));
+    // A FOLDER that is gone takes its whole subtree's cache with it: the open
+    // set and the listings are keyed by absolute path, and a folder created
+    // again under the same name would otherwise be drawn pre-expanded over a
+    // dead listing — and every root `Refresh` would re-ask for a path that is
+    // not there (the same prune `setRoot` does for a root change).
+    for (const item of gone) {
+      if (!item.dir) continue;
+      for (const p of [...openFolders]) if (isUnder(p, item.path)) openFolders.delete(p);
+      for (const p of [...listings.keys()]) if (isUnder(p, item.path)) listings.delete(p);
+    }
+    for (const parent of parentsOf(items)) refreshIfListed(parent);
+    selected = without(selected, done);
+    // WHERE THE KEYBOARD GOES when the row it is standing on is about to
+    // disappear — the `focusCreated` promise, inverted. It is a promise rather
+    // than a `focus()` because the row is still on screen at this moment: it
+    // goes when the parent's new listing lands, one or more repaints later.
+    focusAfterDelete = done.length === 0 ? null : { gone: new Set(done), candidates: survivors(before, new Set(done), items) };
+    flash(deleteSaid(items, results, done.length));
+    bump();
+  }
+
+  /**
+   * Where the keyboard should land once these rows are gone, in preference
+   * order: the nearest row BELOW the last one that went, then the nearest row
+   * ABOVE it, then the parent folders of the rows that went (a row of their
+   * own, unless the parent is the panel root, which has none).
+   *
+   * Only keys are collected; whether each still exists is asked at the moment
+   * the promise is kept, because a folder's whole subtree leaves the tree with
+   * it and a listing may have changed in between.
+   */
+  function survivors(
+    before: readonly string[],
+    gone: ReadonlySet<string>,
+    items: readonly DeleteItem[],
+  ): string[] {
+    let last = -1;
+    before.forEach((key, i) => {
+      if (gone.has(key)) last = i;
+    });
+    const out: string[] = [];
+    for (let i = last + 1; i < before.length; i += 1) {
+      const key = before[i];
+      if (key !== undefined && !gone.has(key)) out.push(key);
+    }
+    for (let i = last - 1; i >= 0; i -= 1) {
+      const key = before[i];
+      if (key !== undefined && !gone.has(key)) out.push(key);
+    }
+    for (const item of items) out.push(rowKey(item.parentPath, true));
+    return out;
+  }
+
+  /**
+   * What the statusline says. The model's count sentence — except for the one
+   * case where the SERVER has something better to say: a single item that
+   * failed, whose own sentence says WHY (it is no longer there, it is in use,
+   * there is no permission). Rendered only if it reads like one of the
+   * server's own constant sentences, the same gate every other refusal in this
+   * panel passes through (§1d); anything else is the app's own wording.
+   */
+  function deleteSaid(
+    items: readonly DeleteItem[],
+    results: readonly FsDeleteResult[],
+    ok: number,
+  ): string {
+    const first = items[0];
+    const said = deletedFlash(ok, items.length, items.length === 1 ? (first?.name ?? null) : null);
+    if (ok > 0 || items.length !== 1) return said;
+    const r = results[0];
+    if (r !== undefined && !r.ok && isSentence(r.error)) return r.error;
+    return said;
   }
 
   /**
@@ -1428,7 +1932,7 @@ export function initFilesPanel(
         // you made to write in, so it opens in a pane, exactly as clicking its
         // row would.
         if (kind === 'folder') {
-          selected = path;
+          selected = afterRowActivate(selected, rowKey(path, true));
           openFolders.add(path);
           fetchFolder(path);
         } else {
@@ -1437,7 +1941,7 @@ export function initFilesPanel(
         // The keyboard follows the thing that was made — but its row does not
         // exist until the folder answers again, so this is a promise the next
         // rebuilds keep.
-        focusCreated = { key: `${kind === 'folder' ? 'fdir' : 'ffile'}:${path}`, dir };
+        focusCreated = { key: rowKey(path, kind === 'folder'), dir };
         fetchFolder(dir);
         bump();
       })
@@ -1658,7 +2162,9 @@ export function initFilesPanel(
    * panel is not an event the panel itself ever sees.
    */
   function syncCopyStrip(): void {
-    copyBtn.textContent = copyStripLabel(selected);
+    // The ANCHOR's folder, named — never a count: the strip is about WHERE
+    // files land, and how many rows are chosen says nothing about that.
+    copyBtn.textContent = copyStripLabel(destinationPath(selected));
     const dest = pasteDestination();
     copyBtn.title = dest === null ? '' : copyIntoText(dest.name);
   }
@@ -1935,9 +2441,15 @@ export function initFilesPanel(
       currentPath ?? '',
       Array.from(openFolders).sort().join(','),
       Array.from(changesOpen).sort().join(','),
-      // A9b: the chosen folder is drawn (`is-sel`) and spoken (the copy
-      // strip), so a change to it has to repaint the panel like any other.
-      selected ?? '',
+      // A9b, widened by B10a: every chosen row is drawn (`is-sel`,
+      // `aria-current`) and the ANCHOR is spoken (the copy strip), so a change
+      // to either has to repaint the panel like any other. Sorted, because a
+      // set has no order and the signature must not depend on one.
+      [...selected.keys].sort().join(','),
+      selected.anchor ?? '',
+      // The rows of a delete in flight wear `is-busy`, and the guard that
+      // refuses a second one is this same value.
+      deleting === null ? '' : [...deleting].sort().join(','),
       // A9c: the name row, its kind, its folder, its refusal and whether the
       // request is out. The TEXT is deliberately not here — it lives in the
       // input between repaints, and a signature that changed on every
@@ -1967,6 +2479,9 @@ export function initFilesPanel(
       // user has long stopped asking.
       dropCreate('hidden');
       selected = afterPanelHidden(selected);
+      // …and with it the promise about where a delete would put the keyboard:
+      // it is about rows on a screen nobody is looking at any more.
+      focusAfterDelete = null;
       // A panel nobody can see may not hold a timer: the poll is dropped here
       // and armed again by the render that brings the panel back.
       syncPoll();
@@ -2140,7 +2655,35 @@ export function initFilesPanel(
     }
     // 3. whatever had it before this rebuild, by key.
     if (focusKey !== null) {
-      root.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`)?.focus();
+      const back = root.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`);
+      if (back !== null) {
+        // The keyboard is standing on a row that is still here, so a pending
+        // delete promise is about some other row and is dropped: it may never
+        // move the focus away from a row the user walked to themselves.
+        if (focusAfterDelete !== null && !focusAfterDelete.gone.has(focusKey)) {
+          focusAfterDelete = null;
+        }
+        back.focus();
+        return;
+      }
+      // 4. the row the keyboard was on is GONE, and this delete promised where
+      //    to go next (B10a): the nearest surviving row, else the Files tab —
+      //    always a real control, never `<body>`, where no key reaches
+      //    anything until the next window activation.
+      const promise = focusAfterDelete;
+      if (promise !== null && promise.gone.has(focusKey)) {
+        focusAfterDelete = null;
+        for (const key of promise.candidates) {
+          const row = root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"]`);
+          if (row !== null) {
+            row.focus();
+            return;
+          }
+        }
+        // An empty tree has no row to stand on; the tab that is always there
+        // takes the keyboard instead.
+        tabBtns.get('files')?.focus();
+      }
     }
   }
 
@@ -2184,30 +2727,22 @@ export function initFilesPanel(
         rows.push(stateRow(r.name, r.indent, errs.has(r.name)));
         continue;
       }
+      const key = rowKey(r.path, r.kind === 'dir');
       if (r.kind === 'dir') {
-        const b = button('files-row is-dir', '', () => {
-          // ONE gesture, TWO effects, in this order (A9b user decision 1): the
-          // row becomes the chosen folder, and THEN it opens or closes exactly
-          // as it always did. A re-click keeps it chosen — the toggle is what
-          // flips, the selection is not.
-          selected = afterRowActivate(selected, r.path);
-          toggleFolder(r.path);
-        });
-        b.setAttribute('data-k', `fdir:${r.path}`);
+        const b = button('files-row is-dir', '');
+        // ONE gesture, TWO effects, in this order (A9b user decision 1): the
+        // row becomes the chosen row, and THEN it opens or closes exactly as
+        // it always did. A re-click keeps it chosen — the toggle is what
+        // flips, the selection is not. ctrl and shift do NEITHER of the two
+        // (B10a): they only change the selection, because a ctrl+click that
+        // also collapsed the folder would move every row under the pointer
+        // in the middle of the gesture.
+        b.addEventListener('click', (e) => onRowClick(e, key, () => toggleFolder(r.path)));
+        b.setAttribute('data-k', key);
         b.setAttribute('aria-expanded', r.open ? 'true' : 'false');
         // The row opens the A9b context menu (right-click, menu key, shift+F10),
         // and the house rule is that every control which opens a popup says so.
         b.setAttribute('aria-haspopup', 'menu');
-        // The chosen folder, painted from the PATH and not from a live element
-        // — which is what makes it survive this very rebuild. A file row is
-        // never selected, so the class is set on folder rows only.
-        const isSel = selected === r.path;
-        b.classList.toggle('is-sel', isSel);
-        // The class is colour; `aria-current` is the same fact for a screen
-        // reader. REMOVED, never `'false'`: an absent attribute is the honest
-        // "not the current destination".
-        if (isSel) b.setAttribute('aria-current', 'true');
-        else b.removeAttribute('aria-current');
         b.title = DIR_TITLE;
         // The ROW-LEVEL twin of dropping files on this folder, owned here for
         // the same reason ctrl+alt+enter is: it acts on the row that has the
@@ -2222,16 +2757,22 @@ export function initFilesPanel(
           e.stopPropagation();
           openCopyFilesPicker({ path: r.path, name: r.name });
         });
-        armRowMenuChord(b, `fdir:${r.path}`);
+        armRowMenuChord(b, key);
         row = b;
       } else {
         // A10: a file row opens that file as a PANE of its root folder's tab.
         // The path is absolute since B2; the pane cannot read the file until
         // part B4 and says so in its own quiet line.
-        const b = button('files-row is-file', '', () => {
-          st.openFile(currentRoot(), r.path, r.name);
-        });
-        b.setAttribute('data-k', `ffile:${r.path}`);
+        const b = button('files-row is-file', '');
+        // Since B10a a file row is CHOSEN by a plain click as well as opened —
+        // it is something the user can now delete and copy — and ctrl/shift
+        // choose it without opening anything at all.
+        b.addEventListener('click', (e) =>
+          onRowClick(e, key, () => {
+            st.openFile(currentRoot(), r.path, r.name);
+          }),
+        );
+        b.setAttribute('data-k', key);
         b.setAttribute('aria-haspopup', 'menu');
         b.title = ROW_TITLE;
         // The row of a file that is on screen keeps a ground, so the tree says
@@ -2253,10 +2794,25 @@ export function initFilesPanel(
           e.stopPropagation();
           openBeside(r.path, r.name);
         });
-        armRowMenuChord(b, `ffile:${r.path}`);
+        armRowMenuChord(b, key);
         row = b;
       }
       row.style.paddingLeft = `${r.indent}px`;
+      // The chosen rows, painted from the KEYS and not from live elements —
+      // which is what makes a selection survive this very rebuild. Folders and
+      // files alike since B10a, and there may be many of them at once.
+      const isSel = selected.keys.has(key);
+      row.classList.toggle('is-sel', isSel);
+      // The class is colour; `aria-current` is the same fact for a screen
+      // reader. REMOVED, never `'false'`: an absent attribute is the honest
+      // "not chosen". (The tree carries no `role="tree"` and no
+      // `aria-multiselectable` — recorded limitation, B10a — so this attribute
+      // and the menu's counted label are how a selection is spoken at all.)
+      if (isSel) row.setAttribute('aria-current', 'true');
+      else row.removeAttribute('aria-current');
+      // A row whose delete is in flight wears the same opacity pulse the busy
+      // name row does: no height change, so nothing on screen moves.
+      row.classList.toggle('is-busy', deleting !== null && deleting.has(key));
 
       const caret = el('span', 'files-caret', r.caret);
       caret.setAttribute('aria-hidden', 'true');

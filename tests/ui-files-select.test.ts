@@ -283,14 +283,18 @@ test('choosing another folder replaces the first — single selection, always', 
   assert.equal(destName(F.selectedFolder()), 'server', 'a NAME, never a path');
 });
 
-test('a FILE row selects nothing, and does not disturb the chosen folder', async () => {
+test('a FILE row is CHOSEN too (B10a), and the destination becomes its PARENT', async () => {
+  // A9b: a file row selected nothing, because a selection was only ever a
+  // paste destination. B10a: a file is something the user can delete and copy,
+  // so it is chosen like any other row — and the anchor's FOLDER is then where
+  // files land (`destinationPath`), which is the folder the file is in.
   await liveSession();
   row('web').click();
   const file = fileRow('README.md');
   assert.ok(file !== null, 'non-vacuity: the mock tree has a README row');
   file.click();
-  assert.deepEqual(selectedRows(), ['fdir:web'], 'opening a file is not a way to lose your folder');
-  assert.equal(destName(F.selectedFolder()), 'web');
+  assert.deepEqual(selectedRows(), ['ffile:README.md'], 'a plain click chooses this row alone');
+  assert.equal(destName(F.selectedFolder()), 'api', 'the file s parent — the panel root here');
 });
 
 test('the row is a BUTTON, so enter and space are the gesture s keyboard twin for free', async () => {

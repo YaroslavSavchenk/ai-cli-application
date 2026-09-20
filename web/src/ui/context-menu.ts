@@ -9,8 +9,13 @@
  * `--color-bg` card with the popover's hairline-and-ambient elevation
  * (`--shadow-md`, `--radius-md`, `fadeUp .14s`), so it reads as a continuation
  * of the tree the pointer is standing in rather than as a floating widget
- * borrowed from somewhere else. No icons, no separators, no check marks, no
- * counts: four entries and three entries are a list, not a toolbar.
+ * borrowed from somewhere else. No icons, no check marks, no counts: four
+ * entries and three entries are a list, not a toolbar.
+ *
+ * ONE SEPARATOR EXISTS (B10a), and only above `Delete`: a 1px neutral hairline
+ * with the block's own spacing around it, drawn because that entry is the only
+ * one in the app that cannot be taken back. It is appended to the CARD, never
+ * to the entry list, so the roving focus is exactly what it was.
  *
  * WHAT IT IS NOT. Not a modal: no scrim, no `.modal-scrim` (which is how
  * `ui/keys.ts` recognises a dialog — a menu that wore it would make every pane
@@ -108,6 +113,10 @@ export function openRowMenu(req: RowMenuRequest): void {
     const b = button('cm-item', '', () => choose(item, req.onChoose));
     b.setAttribute('role', 'menuitem');
     b.tabIndex = i === 0 ? 0 : -1;
+    // The one entry that cannot be taken back (B10a: `Delete`) is danger INK
+    // on the same ground as every other entry — never a red fill, which would
+    // turn a list into a warning.
+    if (item.danger === true) b.classList.add('is-danger');
     b.append(el('span', 'cm-label', item.label));
     if (!item.enabled) {
       // `aria-disabled`, NEVER the `disabled` attribute (user decision 3): the
@@ -118,7 +127,14 @@ export function openRowMenu(req: RowMenuRequest): void {
     }
     return b;
   });
-  box.append(...entries);
+  // The hairline above a `separated` entry is appended to the BOX, never to
+  // `entries` (B10a): the roving focus walks `entries`, so a separator that
+  // was one would be an arrow stop with nothing to activate. It is a
+  // `role="separator"` div, which is what a menu's own grouping mark is.
+  req.items.forEach((item, i) => {
+    if (item.separated === true) box.append(separator());
+    box.append(entries[i] as HTMLButtonElement);
+  });
 
   box.addEventListener('keydown', onMenuKey);
   document.body.append(box);
@@ -189,6 +205,18 @@ export function openRowMenu(req: RowMenuRequest): void {
   // The user went to another window (Explorer, to copy the files they came
   // here for): a menu waiting behind it is a menu they will not expect back.
   on(window, 'blur', closeRowMenu, false);
+}
+
+/**
+ * The hairline between the ordinary entries and the one that cannot be undone.
+ * A `<div role="separator">`, not a `<hr>`: it carries no focus, no label and
+ * no margin of its own beyond the block's, and a screen reader hears it as the
+ * grouping mark it is.
+ */
+function separator(): HTMLElement {
+  const sep = el('div', 'cm-sep');
+  sep.setAttribute('role', 'separator');
+  return sep;
 }
 
 /** Register a listener and remember how to remove it. */

@@ -106,8 +106,12 @@ const WALK_FAILED = 'The app could not read what was dropped.';
  * interleave its rows with the first one's, race the panel refresh that
  * follows a drop, and make `N of M` a count of two things at once. Said the
  * moment the drop lands, before a single directory is opened.
+ *
+ * EXPORTED since B10a: the Files panel refuses a DELETE with the same sentence
+ * while a copy runs (a delete under a copy would race the same folders and the
+ * same refresh), and one refusal must have one wording.
  */
-const COPY_RUNNING = 'A copy is still running.';
+export const COPY_RUNNING = 'A copy is still running.';
 
 /** What a pane's drop box says. An external drop never splits a pane. */
 function paneLabel(dest: string): string {

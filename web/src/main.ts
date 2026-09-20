@@ -86,6 +86,7 @@ import {
   isDropRunning,
   openDropDialog,
 } from './ui/drop-dialog.ts';
+import { deleteDialogEscape, isDeleteDialogOpen } from './ui/delete-dialog.ts';
 import { focusOwnerOpen, isEditableTarget, isTerminalTarget, shouldRefocusTerminal } from './ui/keys.ts';
 import { loadTerminalFont, watchTerminalFont } from './ui/terminal.ts';
 import type { FontWaitResult } from './ui/font-ready.ts';
@@ -561,6 +562,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     create: api.fsCreate,
     changes: api.gitChanges,
     winPath: api.fsWinPath,
+    delete: api.fsDelete,
   });
 
   /**
@@ -857,6 +859,11 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
         // Topmost: the folder picker can open OVER the Add a project dialog.
         e.preventDefault();
         closeFolderPicker();
+      } else if (isDeleteDialogOpen()) {
+        // Topmost of the two file dialogs: the confirmation can open while the
+        // drop dialog is hidden mid-copy. Escape is its Cancel, exactly.
+        e.preventDefault();
+        deleteDialogEscape();
       } else if (isDropDialogOpen()) {
         e.preventDefault();
         dropDialogEscape();

@@ -1226,7 +1226,6 @@ test('the chord is ctrl+alt+enter only: AltGr, plain Enter and ctrl+enter are le
   file.focus();
   for (const init of [
     { key: 'Enter' },
-    { key: 'Enter', ctrlKey: true },
     { key: 'Enter', altKey: true },
     // AltGr reports as ctrl+alt on European layouts: taking it would make a
     // keyboard character untypeable (frontend-terminal-quirks).
@@ -1236,6 +1235,11 @@ test('the chord is ctrl+alt+enter only: AltGr, plain Enter and ctrl+enter are le
     const e = dispatch(file, 'keydown', init);
     assert.equal(e.defaultPrevented, false, `${JSON.stringify(init)} is not this row's key`);
   }
+  // ctrl+enter left this list in B10a: it is the panel's own "add this row to
+  // the selection" (the twin of ctrl+space and of a ctrl+click), so it IS
+  // taken — and it still opens nothing.
+  const toggle = dispatch(file, 'keydown', { key: 'Enter', ctrlKey: true });
+  assert.equal(toggle.defaultPrevented, true, 'ctrl+enter chooses the focused row');
   assert.equal(anyFileSlot(), false, 'and nothing opened');
 });
 

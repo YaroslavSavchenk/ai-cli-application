@@ -15,6 +15,7 @@ import type {
   FsListResponse,
   FsMkdirResponse,
   FsUploadMode,
+  FsDeleteResponse,
   FsUploadResponse,
   FsWinPathResponse,
   GitChangesResponse,
@@ -527,6 +528,27 @@ export function fsUpload(
  */
 export function fsWinPath(path: string): Promise<FsWinPathResponse> {
   return request<FsWinPathResponse>(`/api/fs/winpath?path=${encodeURIComponent(path)}`);
+}
+
+/**
+ * Delete these paths for good (B10a). ONE request per confirmed action: the
+ * user is asked once, so the whole selection travels in a single POST and one
+ * line reaches the log.
+ *
+ * PERMANENT — no trash, no undo (user decision 2026-09-20). The confirmation
+ * in `ui/delete-dialog.ts` is the only stop before this call.
+ *
+ * It answers 200 whenever the REQUEST was well formed, with `results`
+ * index-keyed to `paths`: each item carries its own `ok`, and a partial batch
+ * is an ordinary answer rather than an error. A REJECTION therefore means the
+ * request itself was refused (over the cap, over the body limit, the token or
+ * the Origin gate) and nothing was touched at all.
+ */
+export function fsDelete(paths: string[]): Promise<FsDeleteResponse> {
+  return request<FsDeleteResponse>('/api/fs/delete', {
+    method: 'POST',
+    body: JSON.stringify({ paths }),
+  });
 }
 
 /**

@@ -138,7 +138,13 @@ interface ModelModule {
   COPY_NOTE: string;
   PASTE_NOTE: string;
   MENU_MARGIN: number;
-  itemsFor(row: { dir: boolean; name: string; open: boolean }): { label: string }[];
+  itemsFor(row: {
+    dir: boolean;
+    name: string;
+    open: boolean;
+    deletable?: boolean;
+    count?: number;
+  }): { label: string }[];
   itemsForRoot(name: string): { label: string }[];
   menuPosition(
     at: { x: number; y: number },
@@ -322,7 +328,9 @@ test('a right-click on a FOLDER row opens the menu with that folder s entries', 
   assert.equal(box.getAttribute('aria-label'), 'actions for web', 'a NAME, never a path');
   assert.deepEqual(
     labels(),
-    M.itemsFor({ dir: true, name: 'web', open: true }).map((i) => i.label),
+    M.itemsFor({ dir: true, name: 'web', open: true, deletable: true, count: 1 }).map(
+      (i) => i.label,
+    ),
     'the entries are the model s, in its order',
   );
   for (const it of items()) assert.equal(it.getAttribute('role'), 'menuitem');
@@ -356,7 +364,9 @@ test('a right-click on a FILE row opens the file entries', async () => {
   assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for README.md');
   assert.deepEqual(
     labels(),
-    M.itemsFor({ dir: false, name: 'README.md', open: false }).map((i) => i.label),
+    M.itemsFor({ dir: false, name: 'README.md', open: false, deletable: true, count: 1 }).map(
+      (i) => i.label,
+    ),
   );
 });
 
@@ -572,13 +582,17 @@ test('a right-click on a folder row SELECTS it and does NOT toggle it', async ()
   );
 });
 
-test('a right-click on a FILE row selects nothing, and leaves the chosen folder alone', async () => {
+test('a right-click on a FILE row CHOOSES it (B10a) — a file is something you can now act on', async () => {
+  // A9b left a file row unselected because the selection was only a paste
+  // destination. Since B10a it is also what a Delete and a Copy are about, so
+  // the menu is opened on the row it is about — Explorer's rule, in
+  // `afterMenuOpen`.
   await liveSession();
   row('server').click();
   assert.deepEqual(selectedRows(), ['fdir:server'], 'non-vacuity: something is chosen');
   CM.closeRowMenu();
   rightClick(fileRow('README.md'));
-  assert.deepEqual(selectedRows(), ['fdir:server'], 'right-clicking a file is not a way to lose it');
+  assert.deepEqual(selectedRows(), ['ffile:README.md']);
 });
 
 test('the selection a right-click makes is PAINTED — the repaint really happens', async () => {
@@ -725,6 +739,34 @@ test('the arrows wrap in both directions, Home and End jump, disabled entries in
   assert.equal(at(), 0);
   // The roving tabindex follows the keyboard, or Tab would re-enter at the top.
   key('End');
+  assert.deepEqual(
+    list.map((b) => b.tabIndex),
+    [...list.slice(0, n - 1).map(() => -1), 0],
+  );
+});
+
+test('the hairline above Delete is NOT an arrow stop — the keyboard steps over it, both ways', async () => {
+  await liveSession();
+  rightClick(row('web'));
+  const list = items();
+  const n = list.length;
+  const at = (): number => list.findIndex((b) => b === dom.doc.activeElement);
+  const key = (k: string): void => {
+    dispatch(dom.doc.activeElement as FakeElement, 'keydown', { key: k });
+  };
+  // Non-vacuity: this menu really ends in the one `separated` entry (B10a), so
+  // the step this test is about — the entry above it, and back — exists.
+  assert.equal(labels()[n - 1], 'Delete');
+  assert.equal(byClass(menuEl() as FakeElement, 'cm-sep').length, 1, 'one hairline, above Delete');
+
+  key('End');
+  assert.equal(at(), n - 1, 'End lands on Delete itself');
+  key('ArrowUp');
+  assert.equal(at(), n - 2, 'and one step up is the ENTRY above it, never the hairline');
+  key('ArrowDown');
+  assert.equal(at(), n - 1, 'and one step back down is Delete again');
+  // The roving tab stop is on that entry too: a separator that had become one
+  // would be the app's only tab stop with nothing to activate.
   assert.deepEqual(
     list.map((b) => b.tabIndex),
     [...list.slice(0, n - 1).map(() => -1), 0],
@@ -1139,15 +1181,16 @@ test('main.ts s Escape ladder knows nothing about the menu', () => {
 });
 
 test('the right-click s selection is the MODEL s rule, not a second copy of it', () => {
-  // `afterMenuOpen()` is where "a right-click chooses a FOLDER row, a file row
-  // chooses nothing" is decided, and tests/ui-files-select-model.test.ts is
-  // where it is tested. Inlining the same rule here is behaviour-identical
-  // TODAY — MEASURED (gate, 2026-09-16): `selected = dir ? path : selected`
-  // left the whole suite green — so this is a SOURCE pin and says so: it is
-  // the second place that would have to change when the rule does.
+  // `afterMenuOpen()` is where "a row already in the selection keeps the whole
+  // selection, any other row becomes it" is decided, and
+  // tests/ui-files-select-model.test.ts is where it is tested. Inlining the
+  // same rule here is behaviour-identical TODAY — MEASURED (gate,
+  // 2026-09-16): `selected = dir ? path : selected` left the whole suite
+  // green — so this is a SOURCE pin and says so: it is the second place that
+  // would have to change when the rule does.
   assert.match(
     FILES_SRC,
-    /selected = afterMenuOpen\(selected, \{ dir, path \}\)/,
+    /selected = afterMenuOpen\(selected, key\)/,
     'the menu s selection must go through the model',
   );
 });
@@ -1270,13 +1313,19 @@ test('the menu wears the row s own rhythm and the popover s elevation — and no
   assert.match(block, /outline: var\(--tick\) solid var\(--color-accent\)/, 'the base focus ring');
   // The accent is an outline and a small mark, never a fill (Nocturne rule).
   assert.deepEqual([...block.matchAll(/background:\s*var\(--color-accent\)/g)].map((m) => m[0]), []);
-  // No icon and no separator element: the module renders text only.
+  // No icon: the module renders text, and ONE hairline. The separator above
+  // `Delete` is B10a's single amendment to A9b's "no separators" rule — it is
+  // a `div.cm-sep`, it carries no words, and it is the only DIV in the card.
   await liveSession();
   rightClick(row('web'));
   const drawn = descendants(menuEl() as FakeElement);
   assert.deepEqual(
     [...new Set(drawn.map((n) => n.tagName))].sort(),
-    ['BUTTON', 'SPAN'],
-    'buttons and their words, nothing else',
+    ['BUTTON', 'DIV', 'SPAN'],
+    'buttons, their words, and the one hairline',
   );
+  const seps = drawn.filter((n) => n.className === 'cm-sep');
+  assert.equal(seps.length, 1, 'exactly one, and only above Delete');
+  assert.equal(seps[0]?.textContent, '', 'a hairline says nothing');
+  assert.match(stripComments(cmSection()), /\.cm-sep\s*\{[^}]*background: var\(--color-neutral-800\)/);
 });

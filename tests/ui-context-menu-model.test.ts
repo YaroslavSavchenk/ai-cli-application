@@ -39,12 +39,18 @@ import { COPY_LABEL } from '../web/src/ui/files-select-model.ts';
  * `--app` window and every browser tab, which is also the state every
  * assertion below was written against. The native window is the `canCopy:
  * true` argument, and its own tests pass it.
+ *
+ * B10a adds two more: the default row IS deletable (an ordinary row inside the
+ * tree) and the act covers exactly it (`count: 1`). The anchor and the
+ * many-rows cases pass their own values.
  */
 const folder = (o: Partial<RowSubject> = {}): RowSubject => ({
   dir: true,
   name: 'src',
   open: false,
   canCopy: false,
+  deletable: true,
+  count: 1,
   ...o,
 });
 const file = (o: Partial<RowSubject> = {}): RowSubject => ({
@@ -52,6 +58,8 @@ const file = (o: Partial<RowSubject> = {}): RowSubject => ({
   name: 'main.ts',
   open: false,
   canCopy: false,
+  deletable: true,
+  count: 1,
   ...o,
 });
 
@@ -71,6 +79,7 @@ test('itemsFor: a CLOSED folder offers Open, and a closed one is what a folder u
     'new-file:New file:on',
     'new-folder:New folder:on',
     'refresh:Refresh:on',
+    'delete:Delete:on',
   ]);
 });
 
@@ -83,6 +92,7 @@ test('itemsFor: an OPEN folder offers Close — the entry NAMES what the click w
     'new-file:New file:on',
     'new-folder:New folder:on',
     'refresh:Refresh:on',
+    'delete:Delete:on',
   ]);
   // One entry, one action: `Open` and `Close` are the SAME toggle, so the DOM
   // half has one branch to wire, not two.
@@ -95,6 +105,7 @@ test('itemsFor: a FILE offers the two ways the app can show it, plus Copy — an
     'open:Open:on',
     'open-beside:Open beside:on',
     'copy:Copy:off',
+    'delete:Delete:on',
   ]);
   assert.equal(
     itemsFor(file()).some((i) => i.action === 'paste'),
@@ -191,9 +202,11 @@ test('a DISABLED entry carries its note; an ENABLED one carries none', () => {
   // Non-vacuity, and the count of what this window cannot do: Copy on all
   // three rows (`canCopy: false` here), Paste on the two folders. Everything
   // A9c added is enabled — an entry that creates something either works or is
-  // not on the menu.
+  // not on the menu — and so is B10a's `Delete`, one per row: an anchor is
+  // offered NO delete rather than a greyed one, so a disabled `Delete` does
+  // not exist anywhere in this app.
   assert.equal(disabled, 5);
-  assert.equal(enabled, 12);
+  assert.equal(enabled, 15);
 });
 
 test('the disabled entries are exactly Copy (everywhere) and Paste (folders only), with their own sentence each', () => {
@@ -219,6 +232,7 @@ test('itemsFor hands out a FRESH list and fresh entries every call', () => {
     'open:Open:on',
     'open-beside:Open beside:on',
     'copy:Copy:off',
+    'delete:Delete:on',
   ]);
   const f = itemsFor(folder());
   const last = f[f.length - 1];
@@ -231,6 +245,7 @@ test('itemsFor hands out a FRESH list and fresh entries every call', () => {
     'new-file:New file:on',
     'new-folder:New folder:on',
     'refresh:Refresh:on',
+    'delete:Delete:on',
   ]);
   // The three A9c entries come out of ONE private helper shared by both menus
   // (`makeEntries`), which is exactly where a shared array would hide: poison
@@ -289,7 +304,9 @@ test('itemsForRoot: the NAME never reaches a label, however odd the name is', ()
 });
 
 test('the root menu and a folder row say the SAME words for the same three things', () => {
-  const rowTail = itemsFor(folder()).slice(-3);
+  // The folder row's LAST entry is `Delete` since B10a and the root has none
+  // (it is an anchor), so the three shared entries are the ones before it.
+  const rowTail = itemsFor(folder()).slice(-4, -1);
   const rootTail = itemsForRoot('api').slice(-3);
   assert.deepEqual(shape(rowTail), shape(rootTail));
   assert.deepEqual(shape(rowTail), [
@@ -301,6 +318,73 @@ test('the root menu and a folder row say the SAME words for the same three thing
   // row is not a dialog. `Copy files here…` keeps its own, because it opens the
   // file chooser.
   for (const i of rowTail) assert.equal(i.label.includes('…'), false, i.label);
+});
+
+// ---------------------------------------------------------------------------
+// deletable, danger, separated and the counted label (part B10a)
+// ---------------------------------------------------------------------------
+
+test('Delete is the LAST entry of both lists, enabled, danger, and behind a separator', () => {
+  for (const row of [folder(), file()]) {
+    const items = itemsFor(row);
+    const last = items[items.length - 1] as MenuItem;
+    assert.equal(last.action, 'delete');
+    assert.equal(last.label, 'Delete', 'a plain word — the COUNT belongs to the question');
+    assert.equal(last.enabled, true);
+    assert.equal(last.note, undefined, 'an entry that does what it says needs no excuse');
+    assert.equal(last.danger, true);
+    assert.equal(last.separated, true);
+    // The one amendment to A9b's "no separators": exactly one entry asks for a
+    // hairline, and it is this one.
+    assert.deepEqual(
+      items.filter((i) => i.separated === true).map((i) => i.action),
+      ['delete'],
+    );
+    assert.deepEqual(
+      items.filter((i) => i.danger === true).map((i) => i.action),
+      ['delete'],
+    );
+  }
+});
+
+test('an ANCHOR row is offered NO Delete at all — not a greyed one, and no hairline with it', () => {
+  // The panel's own root and every registered project folder: the server
+  // refuses them (`server/fsdelete.ts`, FS_DELETE_ANCHOR), so the app does not
+  // offer an act it knows will fail. A disabled `Delete` would read as "maybe
+  // next time"; `Copy` and `Paste` are disabled because the act exists and
+  // cannot run in THIS WINDOW, which is a different sentence.
+  for (const row of [folder({ deletable: false }), file({ deletable: false })]) {
+    const items = itemsFor(row);
+    assert.equal(items.some((i) => i.action === 'delete'), false);
+    assert.equal(items.some((i) => i.separated === true), false, 'no entry, no hairline');
+  }
+  // And the ROOT menu never carries it: the root IS an anchor.
+  assert.equal(itemsForRoot('api').some((i) => i.action === 'delete'), false);
+});
+
+test('deletable changes NOTHING else about either list', () => {
+  const withoutDelete = (row: RowSubject): string[] =>
+    itemsFor(row)
+      .filter((i) => i.action !== 'delete')
+      .map((i) => `${i.action}:${i.label}:${i.enabled ? 'on' : 'off'}:${i.note ?? ''}`);
+  assert.deepEqual(withoutDelete(folder()), withoutDelete(folder({ deletable: false })));
+  assert.deepEqual(withoutDelete(file()), withoutDelete(file({ deletable: false })));
+});
+
+test('menuLabel NAMES THE COUNT when the act covers more than the row it opened on', () => {
+  assert.equal(menuLabel(folder({ name: 'src', count: 1 })), 'actions for src');
+  assert.equal(menuLabel(folder({ name: 'src', count: 3 })), 'actions for 3 selected items');
+  assert.equal(menuLabel(file({ name: 'main.ts', count: 12 })), 'actions for 12 selected items');
+  // A count of 2 is already plural, and 0 (which no caller can build) reads as
+  // the row's own name rather than as a sentence about nothing.
+  assert.equal(menuLabel(file({ name: 'main.ts', count: 2 })), 'actions for 2 selected items');
+  assert.equal(menuLabel(file({ name: 'main.ts', count: 0 })), 'actions for main.ts');
+  // No path, no count in any ENTRY label — the label is the only counted
+  // string on this menu.
+  for (const i of itemsFor(folder({ count: 3 }))) {
+    assert.equal(/\d/.test(i.label), false, `a count in a label: ${i.label}`);
+    assert.equal(i.label.includes('/'), false, `a path in a label: ${i.label}`);
+  }
 });
 
 test('rootMenuLabel: the root is named the way the header names it, never by a path', () => {

@@ -66,6 +66,7 @@ import {
   FS_PATH_BAD,
   FS_READ_FAILED,
 } from './fsbrowse.ts';
+import { handleDelete } from './fsdelete.ts';
 import { handleUpload } from './fsupload.ts';
 import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
 import { changesFor, GIT_READ_FAILED } from './git.ts';
@@ -1321,6 +1322,26 @@ export function createRequestHandler(
         log: fsLog,
         sendJson,
         sendErrorAndClose,
+      });
+      return;
+    }
+
+    // --- Filesystem: PERMANENT delete of a selection (B10a) -----------------
+    //
+    // The app's first delete primitive; the whole route (boundary, anchor and
+    // data-dir refusals, per-item outcomes) lives in server/fsdelete.ts. What
+    // stays here is this file's own policy: how a response is written, how a
+    // body is read SAFELY (readJsonBodySafe never lets a parse error — which
+    // quotes the body — escape), and that a refusal taken before the body is
+    // read closes the connection.
+    if (pathname === '/api/fs/delete') {
+      await handleDelete(req, res, {
+        projects: projectAnchors,
+        log: fsLog,
+        sendJson,
+        sendError,
+        sendErrorAndClose,
+        readJson: readJsonBodySafe,
       });
       return;
     }

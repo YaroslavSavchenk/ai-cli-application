@@ -441,13 +441,15 @@ select:focus-visible,
 
 /* The Nocturne button pair, first used by the pane area's empty state (A3)
    and since A8 the app's ONLY shared button: an outlined-accent primary — the
-   same statement the top bar's New session makes, never a fill — and a quiet
-   neutral second choice. Every dialog footer, the update toast, the restart
-   confirmation and the two boot takeovers wear these two; the Legacy `.btn`
+   same statement the top bar's New session makes, never a fill — a quiet
+   neutral second choice, and (B10a) an outlined DANGER answer. Every dialog
+   footer, the update toast, the restart confirmation and the two boot
+   takeovers wear them; the Legacy `.btn`
    family (ghost / green "go" / accent tint / link) was deleted in A8 once the
    last module stopped setting it. */
 .btn-accent,
-.btn-quiet {
+.btn-quiet,
+.btn-danger {
   height: 34px;
   padding: 0 var(--space-6);
   background: transparent;
@@ -471,6 +473,24 @@ select:focus-visible,
 
 .btn-quiet:hover {
   border-color: var(--color-neutral-600);
+}
+
+/* The third member (Nocturne B10a): the answer that cannot be taken back. Same
+   height, padding, radius and weight as the other two — it is a button in the
+   same footer, not a bigger one — with the accent swapped for danger.
+
+   IT IS NEVER A FILL. --color-ink-on-danger stays reserved for the one red
+   GROUND in the app (the dead-pane banner); a filled red button here would be
+   the loudest thing on screen pointing at the irreversible answer, and it would
+   break the app's own grammar: a primary action is an OUTLINE. The hover is the
+   same 8% danger tint a removed line in a diff is written on. */
+.btn-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.btn-danger:hover {
+  background: var(--color-danger-tint);
 }
 
 /* ---- middle row: drawers + pane area ---------------------------------------- */
@@ -2035,8 +2055,13 @@ select:focus-visible,
   color: var(--color-text);
 }
 
-/* the CHOSEN folder (Nocturne A9b): the row files land in when you paste, so
-   it has to be readable from across the window without being a block of
+/* the CHOSEN rows (Nocturne A9b, widened by B10a): what a paste, a Copy or a
+   Delete is about. FILES wear it too since B10a, and there may be MANY of them
+   at once — which is exactly why the recipe did not change: three chosen rows
+   are the one chosen row three times over, not a second visual language with
+   check boxes and a column of its own (a column would change the row's width,
+   and a pixel of panel width is a resize of every PTY in the grid).
+   It has to be readable from across the window without being a block of
    colour. The accent grammar of this app — an outline and a small mark, never
    a fill — as a faint accent ground plus a 2px accent tick on the LEADING
    edge, drawn with `box-shadow: inset` on purpose: a border or a padding would
@@ -6183,6 +6208,104 @@ body.is-dnd * {
   }
 }
 
+/* ---- delete confirmation (Nocturne B10a): dd- --------------------------------
+   The ONE stop before bytes are gone for good — no trash, no undo, no recycle
+   bin behind it.
+
+   THE DIRECTION: the drop dialog's card with everything that is not the
+   question taken away. Same scrim, same surface, same radius and elevation,
+   same footer rhythm — and then nothing else: no header strip, no `×`, no
+   list, no progress, no icon. A question, at most one line under it, two
+   buttons. The smallest card in the app, because it asks the only question in
+   the app that cannot be asked again.
+
+   DANGER IS INK AND AN OUTLINE, NEVER A FILL. `Delete` is `.btn-danger` (the
+   shared button block): the same box as `Cancel` with the danger hue on its
+   border and its label. A filled red button would be the loudest thing on the
+   screen pointing at the irreversible answer — and --color-ink-on-danger stays
+   reserved for the one red GROUND in this app, the dead-pane banner.
+
+   THE WAY OUT IS ON THE LEFT and holds the keyboard (ui/delete-dialog.ts
+   focuses Cancel): every other dialog here focuses the safe answer, and here
+   the safe answer is Cancel. Escape and the backdrop are that same button.  */
+
+.modal-scrim.dd-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 160px)) var(--space-6) var(--space-6);
+  animation: scrimFade 0.14s ease;
+}
+
+.dd-modal {
+  width: 400px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.dd-scrim,
+  .dd-modal {
+    animation: none;
+  }
+}
+
+.dd-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+/* the question itself — the same 16/500 title every Nocturne dialog opens
+   with. It carries a NAME or a count, never a path, so it wraps rather than
+   truncates: the one sentence in this app that must be read whole. */
+.dd-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* the second line, and only when it says something the question does not
+   ("Folders are deleted with everything inside them.") */
+.dd-sub {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.dd-ft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the spacer that keeps the way out on the left and the answer on the right */
+.dd-gap {
+  flex: 1;
+}
+
+/* one structural focus ring for every control in the dialog (the A4 rule) */
+.dd-modal button:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window */
+@media (max-width: 460px) {
+  .dd-body,
+  .dd-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
 /* ═══ Nocturne A6 — the commit view ═════════════════════════════════════════
    One more occupant of the middle row, built on the SAME grammar as a pane:
    a neutral-900 card with a hairline edge, a 38px strip of chrome, and the
@@ -6691,4 +6814,22 @@ body.is-dnd * {
   font-size: 11.5px;
   line-height: 1.35;
   white-space: normal;
+}
+
+/* The one entry that cannot be taken back (B10a), as INK: the label goes
+   danger, the ground and the hover stay exactly what every other entry has. A
+   red row would make the list read as a warning; a red WORD reads as what the
+   word does. */
+.cm-item.is-danger .cm-label {
+  color: var(--color-danger);
+}
+
+/* The hairline above it — the A9b "no separators" rule's single amendment, and
+   the last thing between a pointer running down the list and a permanent
+   delete. 1px of neutral, the block's own spacing around it, no focus, no
+   label: `ui/context-menu.ts` appends it to the card, not to the entries. */
+.cm-sep {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--color-neutral-800);
 }

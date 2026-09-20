@@ -13,10 +13,17 @@
  *
  * Copy rules this file enforces, not just follows:
  * - LABELS ARE PLAIN WORDS (PROJECT-SCOPE, 2026-07-25): `Open`, `Close`,
- *   `Copy`, `Paste`, `Open beside`, `New file`, `New folder`, `Refresh`. No
- *   commands, no flags, no key names, no icons, no counts, no separator — a
+ *   `Copy`, `Paste`, `Open beside`, `New file`, `New folder`, `Refresh`,
+ *   `Delete`. No commands, no flags, no key names, no icons, no counts — a
  *   list this short reads as a list, and nothing on it is a plural of
- *   something else.
+ *   something else. `Delete` carries no count either: the QUESTION counts
+ *   (`ui/delete-model.ts`), the entry only names the act.
+ * - ONE SEPARATOR, AND ONLY BEFORE `Delete` (B10a). The A9b rule was "no
+ *   separators" and this is the one amendment to it, with its reason: every
+ *   other entry can be taken back by doing something else, and this one
+ *   cannot — the hairline is what says so before the pointer arrives. It is
+ *   drawn by `ui/context-menu.ts` as a `div.cm-sep` appended to the box, not
+ *   as an entry, so the arrow keys never stop on it.
  * - HONESTY ABOUT WHAT IS NOT BUILT: `Paste` is visible and DISABLED, with one
  *   plain sentence saying why — a page cannot read files off the clipboard
  *   outside a `paste` event, which is a keystroke, and that route really does
@@ -39,7 +46,8 @@ export type MenuAction =
   | 'copy-files'
   | 'new-file'
   | 'new-folder'
-  | 'refresh';
+  | 'refresh'
+  | 'delete';
 
 /** One entry of the menu. */
 export interface MenuItem {
@@ -54,6 +62,19 @@ export interface MenuItem {
   enabled: boolean;
   /** The one-line explanation a disabled entry carries. Enabled ones carry none. */
   note?: string;
+  /**
+   * This entry cannot be taken back (B10a: `Delete`, and nothing else so far).
+   * The DOM half writes it as danger INK on the label — never a red ground,
+   * which would make the list read as a warning instead of as a list.
+   */
+  danger?: true;
+  /**
+   * A hairline is drawn ABOVE this entry. The one amendment to A9b's "no
+   * separators" rule, and it exists for exactly the entries `danger` marks:
+   * the gap is the last thing between a pointer moving down the list and a
+   * permanent delete.
+   */
+  separated?: true;
 }
 
 /** The row the menu was opened on, reduced to what the entries depend on. */
@@ -71,6 +92,21 @@ export interface RowSubject {
    * and disabled, with the sentence below.
    */
   canCopy: boolean;
+  /**
+   * May this row be deleted at all (B10a)? False for the panel's own root and
+   * for every registered project folder — the anchors, which the SERVER
+   * refuses too (`server/fsdelete.ts`). It is a best-effort answer painted
+   * from what the app knows: the server is the authority, and a row that is
+   * offered `Delete` can still come back with a refusal sentence.
+   */
+  deletable: boolean;
+  /**
+   * How many rows the act would really be about — the whole selection when
+   * this row is in it, otherwise 1 (Explorer's rule, `itemsFor` in
+   * `ui/delete-model.ts`). It is spent on the menu's accessible NAME and on
+   * nothing else: no entry label carries a count.
+   */
+  count: number;
 }
 
 /**
@@ -123,13 +159,31 @@ export function itemsFor(row: RowSubject): MenuItem[] {
       { action: 'paste', label: 'Paste', enabled: false, note: PASTE_NOTE },
       { action: 'copy-files', label: COPY_LABEL, enabled: true },
       ...makeEntries(),
+      ...deleteEntry(row.deletable),
     ];
   }
   return [
     { action: 'open', label: 'Open', enabled: true },
     { action: 'open-beside', label: 'Open beside', enabled: true },
     copyEntry(row.canCopy),
+    ...deleteEntry(row.deletable),
   ];
+}
+
+/**
+ * `Delete`, or nothing at all (B10a). An ANCHOR — the panel's own root, a
+ * registered project folder — is NOT offered a disabled entry with a sentence
+ * under it: `Paste` and `Copy` are disabled because the act exists and cannot
+ * run HERE, and the honest answer for an anchor is that this row has no delete
+ * at all. A list that ends in a greyed `Delete` on the folder the panel is
+ * standing in would read as "it might work next time".
+ *
+ * It is the LAST entry of both lists, behind a hairline, and its label is the
+ * plain word: the count is the confirmation's business.
+ */
+function deleteEntry(deletable: boolean): MenuItem[] {
+  if (!deletable) return [];
+  return [{ action: 'delete', label: 'Delete', enabled: true, danger: true, separated: true }];
 }
 
 /**
@@ -186,15 +240,26 @@ function makeEntries(): MenuItem[] {
  */
 export function itemsForRoot(name: string): MenuItem[] {
   void name;
+  // No `Delete` either (B10a): the root IS an anchor — the folder the panel is
+  // standing in, which the server refuses to delete — and the root menu has
+  // never offered anything that acts on the folder itself.
   return [{ action: 'copy-files', label: COPY_LABEL, enabled: true }, ...makeEntries()];
 }
 
 /**
- * The menu's accessible name: `actions for src`. Lower case and plain, so a
- * screen reader reads it as the continuation of the row it was opened from
- * rather than as a title nobody asked for.
+ * The menu's accessible name: `actions for src` — and, when the act covers
+ * more than the row it was opened on, `actions for 3 selected items` (B10a).
+ *
+ * Lower case and plain, so a screen reader reads it as the continuation of the
+ * row it was opened from rather than as a title nobody asked for. THE COUNT
+ * LIVES HERE AND NOWHERE ELSE on the menu: with five rows chosen, naming one
+ * of them would be the menu describing a fifth of what it is about — and the
+ * app has no `role="tree"`/`aria-multiselectable` to say it structurally
+ * (recorded limitation, `memory/decisions/b10a-multi-select-and-delete.md`),
+ * so this sentence is how a screen reader hears the selection at all.
  */
 export function menuLabel(row: RowSubject): string {
+  if (row.count > 1) return `actions for ${row.count} selected items`;
   return `actions for ${row.name}`;
 }
 
