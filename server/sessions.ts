@@ -6,22 +6,33 @@
  * and detach freely and the whole buffer is replayed on attach. On PTY exit
  * the session stays listed (status 'exited', buffer intact) until DELETEd.
  *
+ * Ending a session signals the PTY's PROCESS GROUP, not just its leader, so a
+ * CLI that does its work in a child (Gemini CLI) cannot be left behind holding
+ * an API key in its environment: DELETE sends SIGHUP, then SIGTERM, then
+ * SIGKILL; shutdown sends SIGHUP and SIGKILL at once (no grace).
+ *
  * command + args are spawned as an argv array — client-supplied values never
  * enter a shell string. This is what keeps multi-CLI support generic.
  *
  * Every create/exit/kill is mirrored into the crash-safe SessionHistory so any
  * ended session can be RESUMED on this or a later run (history.ts).
  *
- * TWO agent-specific behaviours live here, both deliberately narrow and both
- * for claude-kind sessions only (basename(command) === 'claude'):
- *   - a per-session settings file injected as `--settings <file>` so Claude
- *     Code draws OUR status line (session-settings.ts);
- *   - an injected `--session-id <uuid>` pinning the launch to a conversation
- *     the history can later `--resume` (conversation.ts).
- * Everything else about the spawn stays generic, NEITHER injected flag ever
- * enters SessionInfo.args, a session that already carries its own `--settings`
- * is left alone, and one that already carries a resume/session flag is never
- * given a second one.
+ * FOUR agent-specific behaviours live here, all deliberately narrow, all keyed
+ * on `basename(command)` and all confined to the PTY's argv/env — none of them
+ * ever enters SessionInfo.args (so history stores the CLIENT's argv and a
+ * resume re-injects from scratch):
+ *   - claude: a per-session settings file injected as `--settings <file>` so
+ *     Claude Code draws OUR status line (session-settings.ts);
+ *   - claude: an injected `--session-id <uuid>` pinning the launch to a
+ *     conversation the history can later `--resume` (conversation.ts);
+ *   - claude / gemini / grok: the API key stored for THAT tool set as that
+ *     tool's environment variable (keys.ts, Nocturne B5). A saved key beats an
+ *     inherited one; with none saved the environment is untouched;
+ *   - cmd.exe with no client args: the working-directory tail
+ *     `/k pushd <windows path>`, because cmd refuses a UNC cwd (winpath.ts).
+ * Everything else about the spawn stays generic, a session that already carries
+ * its own `--settings` is left alone, and one that already carries a
+ * resume/session flag is never given a second one.
  */
 import { randomUUID } from 'node:crypto';
 import { fstatSync, readSync } from 'node:fs';
@@ -30,7 +41,10 @@ import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
+import { isKeyedTool, KEY_ENV } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
+import type { KeyStore } from './keys.ts';
+import { planCmdStart } from './winpath.ts';
 import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import { sameTelemetry } from './telemetry.ts';
@@ -56,6 +70,29 @@ function cwdTitle(cwd: string): string {
 
 /** Minimum gap between per-session output summary lines (debug). */
 export const OUTPUT_LOG_INTERVAL_MS = 1000;
+
+/**
+ * Kill escalation, step two (DELETE only). A TUI that honours SIGHUP is gone
+ * within milliseconds, so 2 s is already generous for one that flushes state
+ * to disk before it leaves.
+ */
+export const KILL_TERM_AFTER_MS = 2000;
+/**
+ * Kill escalation, step three (DELETE only): 3 s more for a TUI that does
+ * honour SIGTERM but is slow about it, before the signal it cannot refuse.
+ */
+export const KILL_KILL_AFTER_MS = 3000;
+
+/**
+ * The one pid shape the kill ladder may turn into a process-group signal. A
+ * seatbelt: `pty.pid` is always a real child pid, but `process.kill(-0, …)`
+ * would signal the backend's own group and `process.kill(-(-1), …)` is a
+ * signal to pid 1, so anything that is not a plain positive child pid is
+ * refused before it can become a negative one.
+ */
+export function signalableChildPid(pid: number): boolean {
+  return Number.isInteger(pid) && pid > 1;
+}
 
 /**
  * Byte-capped ring buffer of output chunks; drops oldest chunks when over cap.
@@ -128,6 +165,17 @@ interface Session {
   inBytes: number;
   inFrames: number;
   lastOutLogMs: number;
+  /**
+   * Pending escalation step (SIGTERM or SIGKILL). Cancelled when the PTY's
+   * whole process GROUP is gone — never merely when its leader exited: a
+   * worker child that ignored the signal keeps running in that group, and
+   * ending it is the entire point of the ladder. A live group also pins its
+   * leader's pid NUMBER (Linux frees a number only when nothing references it
+   * under any type, PGID included), so while the group answers `kill(-pid, 0)`
+   * the negative pid is still THIS session's group and can never be a
+   * stranger's.
+   */
+  killTimer: NodeJS.Timeout | undefined;
 }
 
 export interface CreateSessionOptions {
@@ -419,8 +467,12 @@ const PARENT_CLAUDE_ENV = [
 /**
  * This process's environment as a PTY gets it: ours, minus the handoff flags
  * and minus the markers of whichever Claude Code session started the backend.
+ *
+ * EXPORTED because two read-only callers must mean the very same environment a
+ * session is spawned with, or they would lie about it: the PATH probe behind
+ * GET /api/tools (server/tools.ts) and the `env` half of GET /api/keys.
  */
-function ptyEnv(): Record<string, string> {
+export function ptyEnv(): Record<string, string> {
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     TERM: 'xterm-256color',
@@ -437,14 +489,33 @@ export class SessionManager {
   readonly #history: SessionHistory;
   /** Absent -> no status-line injection at all (tests that don't need it). */
   readonly #settings: SessionSettingsStore | undefined;
+  /** Absent -> no API-key injection at all (tests that don't need it). */
+  readonly #keys: KeyStore | undefined;
 
   readonly #slog: Logger;
 
-  constructor(log: Logger, history: SessionHistory, settings?: SessionSettingsStore) {
+  /**
+   * Kill ladders still in flight, by session id: the session itself is already
+   * out of #sessions, so this map is the ONLY handle destroyAll() has on a
+   * process the ladder has not reached yet. Without it, a DELETE followed
+   * within 5 s by Restart service / Update / launcher stop would leave exactly
+   * the process the ladder exists to end, with its API key, outliving us.
+   */
+  readonly #escalating = new Map<string, { pid: number }>();
+  /** The group probe warns about an unexpected errno at most once per run. */
+  #groupProbeWarned = false;
+
+  constructor(
+    log: Logger,
+    history: SessionHistory,
+    settings?: SessionSettingsStore,
+    keys?: KeyStore,
+  ) {
     this.#log = log;
     this.#slog = scoped(log, 'session');
     this.#history = history;
     this.#settings = settings;
+    this.#keys = keys;
   }
 
   list(): SessionInfo[] {
@@ -478,12 +549,9 @@ export class SessionManager {
     // remembers — a resume must get a FRESH settings file, not a path this
     // boot's wipe already removed.
     let spawnArgs = [...opts.args];
+    const tool = basename(opts.command);
     let statusline = false;
-    if (
-      this.#settings !== undefined &&
-      basename(opts.command) === 'claude' &&
-      !hasSettingsArg(opts.args)
-    ) {
+    if (this.#settings !== undefined && tool === 'claude' && !hasSettingsArg(opts.args)) {
       const file = this.#settings.write(id, parsePermissionMode(opts.args));
       if (file !== undefined) {
         spawnArgs = [...spawnArgs, '--settings', file];
@@ -497,6 +565,30 @@ export class SessionManager {
     const plan = planConversation(opts.command, opts.args, id);
     if (plan.injected.length > 0) spawnArgs = [...spawnArgs, ...plan.injected];
 
+    const env = ptyEnv();
+    // Stored API key -> the child ENVIRONMENT of exactly the tool it belongs
+    // to, never argv (an argv is visible in `ps` to every process of this
+    // user). A SAVED key overrides one inherited from the backend's own
+    // environment: saving it was the user's explicit, later act. With no key
+    // saved nothing is touched, so an inherited variable still reaches the CLI.
+    if (isKeyedTool(tool)) {
+      const key = this.#keys?.get(tool);
+      if (key !== undefined) {
+        env[KEY_ENV[tool]] = key;
+        // The TOOL, never the value, never its length.
+        this.#slog('debug', `${id} using the stored API key for ${tool}`);
+      }
+    }
+    // Command Prompt: cmd.exe refuses a UNC working directory, so it is started
+    // with `/k pushd <windows path>` — the tail is composed here, from the cwd
+    // and this backend's WSL_DISTRO_NAME, and only for a launch that carries NO
+    // client arguments (the dialog's Command Prompt card sends exactly that).
+    if (tool === 'cmd.exe' && opts.args.length === 0) {
+      const start = planCmdStart(opts.cwd, env['WSL_DISTRO_NAME']);
+      if (start.ok) spawnArgs = [...spawnArgs, ...start.args];
+      else this.#log('warn', `cmd.exe: working directory not passed (${start.reason})`);
+    }
+
     let proc: pty.IPty;
     try {
       proc = pty.spawn(opts.command, spawnArgs, {
@@ -504,7 +596,7 @@ export class SessionManager {
         cols: opts.cols,
         rows: opts.rows,
         cwd: opts.cwd,
-        env: ptyEnv(),
+        env,
       });
     } catch (err) {
       // A failed spawn must not leave its settings file behind.
@@ -527,6 +619,10 @@ export class SessionManager {
       ...(statusline ? { statusline: true } : {}),
     };
 
+    // The ladder outlives `session.pty` (destroy() nulls it), so the pid the
+    // group is addressed by is captured once, here.
+    const ptyPid = proc.pid;
+
     const session: Session = {
       info,
       pty: proc,
@@ -541,6 +637,7 @@ export class SessionManager {
       inBytes: 0,
       inFrames: 0,
       lastOutLogMs: Date.now(),
+      killTimer: undefined,
     };
     this.#sessions.set(id, session);
     this.#history.recordCreate(info, {
@@ -568,6 +665,15 @@ export class SessionManager {
     rescueFinalOutput(proc, handleOutput, this.#log);
 
     proc.onExit(({ exitCode, signal }) => {
+      // The LEADER is gone; the ladder is only called off when the whole group
+      // is. A CLI whose top-level process honours SIGHUP but whose worker child
+      // ignores it would otherwise leave that child running forever — with the
+      // stored API key in its environment.
+      if (session.killTimer !== undefined && this.#groupGone(ptyPid)) {
+        clearTimeout(session.killTimer);
+        session.killTimer = undefined;
+        this.#escalating.delete(id);
+      }
       session.info.status = 'exited';
       session.info.exitCode = exitCode;
       session.pty = null;
@@ -688,9 +794,13 @@ export class SessionManager {
    * Kill the PTY (if running), close all attached clients, remove the session.
    *
    * `by` says WHO asked — 'user' for DELETE /api/sessions/:id, 'shutdown' for
-   * destroyAll() at server exit. It only shapes the log line; the history stamp
-   * stays 'user-kill' (endAllLive() has already stamped 'shutdown' by then, and
-   * the first stamp wins).
+   * destroyAll() at server exit. It shapes the log line and the kill
+   * escalation; the history stamp stays 'user-kill' (endAllLive() has already
+   * stamped 'shutdown' by then, and the first stamp wins).
+   *
+   * The signal ladder is in #escalateKill / #signalGroup below: SIGHUP first
+   * either way, then (user) SIGTERM and SIGKILL to the process group, or
+   * (shutdown) SIGKILL to it at once.
    */
   destroy(id: string, by: 'user' | 'shutdown' = 'user'): boolean {
     const session = this.#sessions.get(id);
@@ -710,12 +820,28 @@ export class SessionManager {
       // Stamp BEFORE kill so the async onExit's 'exit' stamp is the no-op.
       // At server shutdown endAllLive() ran first, so THIS is the no-op.
       this.#history.markEnded(id, 'user-kill');
+      // Captured before the field is cleared: the escalation signals the pid,
+      // not the (already detached) IPty.
+      const pid = session.pty.pid;
       try {
         session.pty.kill();
       } catch (err) {
         this.#log('warn', `session ${id} kill failed: ${describeError(err)}`);
       }
       session.pty = null;
+      if (by === 'shutdown') {
+        // No grace at shutdown: sessions die with the server by design, and a
+        // process that ignores SIGHUP must not outlive the backend carrying an
+        // API key in its environment. `-pid` is unambiguous here: the group was
+        // alive a line ago, and a live group pins its leader's pid number.
+        this.#slog(
+          'info',
+          `${id} killed for shutdown with SIGHUP; sending SIGKILL to its process group immediately`,
+        );
+        this.#signalGroup(id, pid, 'SIGKILL');
+      } else {
+        this.#escalateKill(id, session, pid);
+      }
     }
     for (const ws of session.clients) {
       try {
@@ -734,6 +860,121 @@ export class SessionManager {
     const ids = [...this.#sessions.keys()];
     this.#slog('info', `destroying all ${ids.length} session(s) for shutdown`);
     for (const id of ids) this.destroy(id, 'shutdown');
+    // Sessions already DELETEd whose ladder is still counting down: the caller
+    // exits the process right after this returns and the ladder's timers are
+    // unref'd, so anything still alive here would survive the backend. Same
+    // treatment as a live session at shutdown — SIGKILL to the group, now.
+    for (const [id, { pid }] of this.#escalating) {
+      if (this.#groupGone(pid)) continue;
+      this.#slog(
+        'info',
+        `${id} killed for shutdown with SIGHUP; sending SIGKILL to its process group immediately`,
+      );
+      this.#signalGroup(id, pid, 'SIGKILL');
+    }
+    this.#escalating.clear();
+  }
+
+  /**
+   * DELETE's signal ladder after the SIGHUP `pty.kill()` already sent: SIGTERM
+   * to the process group after KILL_TERM_AFTER_MS, SIGKILL after a further
+   * KILL_KILL_AFTER_MS, each step skipped once the whole GROUP is gone.
+   *
+   * Measured 2026-09-20: Gemini CLI 0.60 (a `node` wrapper that relaunches
+   * itself as a `node --max-old-space-size=…` CHILD) ignores both SIGHUP and
+   * SIGTERM, so a deleted gemini session and its child kept running — and kept
+   * GEMINI_API_KEY in their environment after the user had removed that key.
+   * Only SIGKILL ended them.
+   *
+   * Both timers are unref'd: an escalation in flight never keeps the process
+   * alive, and shutdown takes the immediate path anyway.
+   */
+  #escalateKill(id: string, session: Session, pid: number): void {
+    this.#escalating.set(id, { pid });
+    const term = setTimeout(() => {
+      session.killTimer = undefined;
+      if (this.#groupGone(pid)) {
+        this.#escalating.delete(id);
+        return;
+      }
+      this.#slog(
+        'info',
+        `${id} still running ${KILL_TERM_AFTER_MS}ms after SIGHUP; sending SIGTERM to its process group`,
+      );
+      this.#signalGroup(id, pid, 'SIGTERM');
+      const kill = setTimeout(() => {
+        session.killTimer = undefined;
+        this.#escalating.delete(id);
+        if (this.#groupGone(pid)) return;
+        this.#slog(
+          'info',
+          `${id} still running ${KILL_KILL_AFTER_MS}ms after SIGTERM; sending SIGKILL to its process group`,
+        );
+        this.#signalGroup(id, pid, 'SIGKILL');
+      }, KILL_KILL_AFTER_MS);
+      kill.unref();
+      session.killTimer = kill;
+    }, KILL_TERM_AFTER_MS);
+    term.unref();
+    session.killTimer = term;
+  }
+
+  /**
+   * True when the PTY's process group holds NO process any more — the only
+   * safe "stop signalling" answer, and a stronger one than "its leader exited":
+   * a worker child that ignored the signal still lives in that group.
+   *
+   * It doubles as the pid-reuse guard. Linux frees a pid NUMBER only once
+   * nothing references it under any type — PGID and SID included — so a group
+   * that still answers pins its leader's number even after the leader itself
+   * was reaped. A successful `kill(-pid, 0)` therefore proves `-pid` is still
+   * THIS session's group and never a stranger that inherited the number.
+   *
+   * Anything other than ESRCH (EPERM, or an errno we did not foresee) is read
+   * as "alive": the ladder may then signal in vain, which is harmless, while
+   * the opposite mistake leaks a process.
+   */
+  #groupGone(pid: number): boolean {
+    if (!signalableChildPid(pid)) return true;
+    try {
+      process.kill(-pid, 0);
+      return false;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ESRCH') return true;
+      if (code !== 'EPERM' && !this.#groupProbeWarned) {
+        this.#groupProbeWarned = true;
+        this.#log('warn', `process group probe failed, assuming alive: ${describeError(err)}`);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Signal the PTY's whole PROCESS GROUP. node-pty's forkpty child calls
+   * setsid(), so `pty.pid` IS the group leader and the negative pid reaches
+   * every descendant the CLI spawned — which is the only way to end a wrapper
+   * whose real work runs in a child.
+   *
+   * ESRCH means the group is already gone: the ordinary race with onExit, not
+   * an error. The pid guard is a seatbelt only — `process.kill(-1, …)` would
+   * signal every process this user owns, so a pid that is not a plain child
+   * pid is never signalled.
+   */
+  #signalGroup(id: string, pid: number, signal: 'SIGTERM' | 'SIGKILL'): void {
+    if (!signalableChildPid(pid)) {
+      this.#log('warn', `session ${id} not signalling process group: implausible pid ${pid}`);
+      return;
+    }
+    try {
+      process.kill(-pid, signal);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
+      this.#log(
+        'warn',
+        `session ${id} ${signal} to process group ${pid} failed: ${describeError(err)}`,
+      );
+    }
   }
 
   /**

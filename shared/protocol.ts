@@ -881,6 +881,68 @@ export interface CreateSessionRequest {
 // (arrays of the entity interfaces above; no wrapper object)
 
 // ---------------------------------------------------------------------------
+// Launchable tools + API keys (Nocturne B5, 2026-09-18; `.claude/PLAN-B5.md`)
+// ---------------------------------------------------------------------------
+//
+// The New session dialog offers tools and shells the backend may or may not be
+// able to spawn, and three of the tools read an API key from their environment.
+//
+//   GET    /api/tools       -> ToolAvailability. A PATH lookup in the SAME
+//                              environment a session is spawned with (regular
+//                              file, executable) — never a spawn. Cached ≤ 5 s.
+//   GET    /api/keys        -> KeyStatus. Only saved / not saved and whether
+//                              the backend's own environment carries the
+//                              variable; a key value never reaches the page.
+//   PUT    /api/keys/:tool  -> OkResponse (SaveKeyRequest body). 400 for an
+//                              unknown tool or a value that is not key-shaped.
+//   DELETE /api/keys/:tool  -> OkResponse (forget; 400 unknown tool).
+//
+// Keys live in `<dataDir>/keys.json` (0600, atomic) — the same ceiling as the
+// GitHub token: readable by the user's own account, never logged. At spawn a
+// SAVED key is set as that tool's variable in the child environment only, for
+// exactly that tool (`basename(command)`), never in argv.
+
+/** Which launchable executables the backend finds on its PATH. */
+export interface ToolAvailability {
+  claude: boolean;
+  codex: boolean;
+  gemini: boolean;
+  grok: boolean;
+  zsh: boolean;
+  cmd: boolean;
+  powershell: boolean;
+}
+
+/** The tools that take a stored API key. Codex is not one: a key alone does not sign it in. */
+export type KeyedTool = 'claude' | 'gemini' | 'grok';
+export const KEYED_TOOLS: readonly KeyedTool[] = ['claude', 'gemini', 'grok'];
+
+/** True when `v` names a keyed tool. */
+export function isKeyedTool(v: unknown): v is KeyedTool {
+  return typeof v === 'string' && (KEYED_TOOLS as readonly string[]).includes(v);
+}
+
+/** The environment variable each keyed tool reads. */
+export const KEY_ENV: Record<KeyedTool, string> = {
+  claude: 'ANTHROPIC_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  grok: 'XAI_API_KEY',
+};
+
+/** GET /api/keys response. */
+export interface KeyStatus {
+  /** A key is stored in keys.json for the tool. */
+  saved: Record<KeyedTool, boolean>;
+  /** The backend's own environment carries the tool's variable (set outside the app). */
+  env: Record<KeyedTool, boolean>;
+}
+
+/** PUT /api/keys/:tool request body. */
+export interface SaveKeyRequest {
+  key: string;
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket messages (/ws/sessions/:id?token=<token>)
 // ---------------------------------------------------------------------------
 //

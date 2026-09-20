@@ -42,6 +42,25 @@ test('modelFromArgs: --model= with an empty value -> null', () => {
   assert.equal(modelFromArgs(['--model=']), null);
 });
 
+test('modelFromArgs: the short `-m <value>` form the other three agents take (B5)', () => {
+  // Codex, Gemini CLI and Grok are spawned as `-m <id>`, so the pane status
+  // bar's Model row is honest for them too.
+  assert.equal(modelFromArgs(['-m', 'gpt-6-astra']), 'gpt-6-astra');
+  assert.equal(modelFromArgs(['-a', 'on-request', '-s', 'read-only', '-m', 'gpt-5.5']), 'gpt-5.5');
+  assert.equal(modelFromArgs(['-m', 'flash-lite', '--approval-mode', 'yolo']), 'flash-lite');
+  assert.equal(modelFromArgs(['-m', 'grok-4.6', '--effort', 'high', '--continue']), 'grok-4.6');
+  // The long form still wins where both somehow appear.
+  assert.equal(modelFromArgs(['-m', 'pro', '--model', 'opus']), 'opus');
+  assert.equal(modelFromArgs(['--model=sonnet', '-m', 'pro']), 'sonnet');
+  // Only the SPACE form: guessing at the joined spellings would start reading
+  // an unrelated `-m` out of a custom command as a model.
+  assert.equal(modelFromArgs(['-m=pro']), null);
+  assert.equal(modelFromArgs(['-mpro']), null);
+  assert.equal(modelFromArgs(['-m']), null, 'as the last arg it names nothing');
+  assert.equal(modelFromArgs(['-m', '']), null);
+  assert.equal(modelFromArgs(['resume', '--last']), null);
+});
+
 // ---------------------------------------------------------------------------
 // permFromArgs
 // ---------------------------------------------------------------------------

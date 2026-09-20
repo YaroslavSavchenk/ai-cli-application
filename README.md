@@ -38,9 +38,18 @@ administrator rights, and it installs nothing else unless you tick it.
   the version it needs.
 - **Claude Code inside that distribution**, if you want Claude sessions. The
   Setup offers to install it for you — switched off by default, on a page that
-  shows the exact command and the site it comes from. Plain terminal sessions
-  (Bash, PowerShell) need nothing extra. Resuming a specific past
+  shows the exact command and the site it comes from. Resuming a specific past
   conversation needs Claude Code 2.1.263 or newer.
+- **The other agents, if you want them**: Codex, Gemini CLI and Grok, each
+  installed by you inside the distribution. The Setup never installs these, and
+  the New session dialog shows a card as "Not installed" until the backend
+  finds its executable.
+- Plain terminal sessions need nothing extra: Bash comes with the
+  distribution, PowerShell and Command Prompt come through WSL interop. The Zsh
+  card needs `zsh` installed in the distribution. A Command Prompt session
+  opens in the project folder — on a Linux path the prompt shows a temporary
+  mapped drive; a project path with characters outside `A-Za-z0-9._-` opens in
+  the Windows default directory instead.
 
 Nothing else: no Node, no git and no build tools inside the distribution — the
 Setup brings the runtime the app runs on. On the Windows side the app window
@@ -334,6 +343,13 @@ path):
   written after a successful connection (device flow, or a pasted token stored
   with "remember"), deleted on disconnect. Never sent to the browser. It is
   **not encrypted** — see the honesty note in the GitHub section below
+- `keys.json` — the stored API keys, one optional value per keyed tool (Claude
+  Code, Gemini CLI, Grok — Codex signs in inside its own terminal), user-only
+  readable (mode 0600), written atomically when a key is saved in Settings and
+  deleted per tool when it is cleared. A stored key only ever reaches the
+  environment of a session spawned for that tool, never its argv, never
+  `server.log`, never a response: `GET /api/keys` answers saved / not saved
+  only. Like `github.json` it is **not encrypted** — same honesty note
 - `runtime.json` — runtime discovery (port, auth token, pid, startedAt, and
   `appDir`, the directory the running backend was started from);
   removed on clean shutdown, with one deliberate exception: a restart handoff

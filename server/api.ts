@@ -21,6 +21,7 @@
  * normalization rules live with writeClientLog() below.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type {
@@ -37,15 +38,20 @@ import type {
   GithubTokenRequest,
   ResumeHistoryRequest,
   RuntimeStatusResponse,
+  SaveKeyRequest,
+  ToolAvailability,
   UpdateStatus,
   UiPrefs,
 } from '../shared/protocol.ts';
+import { isKeyedTool } from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { ProjectStore, isExistingDirectory } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
-import { SessionManager } from './sessions.ts';
+import { SessionManager, ptyEnv } from './sessions.ts';
 import { SessionHistory } from './history.ts';
-import { resumeSpawn } from './conversation.ts';
+import { KeyStore, KEY_NOT_SHAPED, KEY_UNKNOWN_TOOL } from './keys.ts';
+import { cachedProbe } from './tools.ts';
+import { planConversation, resumeSpawn } from './conversation.ts';
 import { GithubConnection, GithubError, parseGithubRepoPath } from './github.ts';
 import {
   createEntry,
@@ -90,6 +96,16 @@ export const GITHUB_REPO_NAME_MAX = 200;
 export const GITHUB_TOKEN_MAX_BYTES = 4096;
 /** Bound on the pasted token itself (mirrors github.ts MAX_PASTED_TOKEN_LEN). */
 export const GITHUB_TOKEN_MAX_CHARS = 1024;
+/**
+ * Dedicated body cap for PUT /api/keys/:tool — NOT the generic 1 MiB. The whole
+ * legitimate body is `{"key":"…"}` with a key of at most KEY_MAX_CHARS (4096),
+ * so anything past 8 KiB is refused before it is read into memory.
+ */
+export const KEYS_MAX_BYTES = 8192;
+/** A unit harness built the handler without a KeyStore (cf. ApiDeps.restart). */
+export const KEYS_NOT_AVAILABLE = 'key storage is not available in this process';
+/** POST /api/sessions refusing a resume of a conversation that is still live. */
+export const CONVERSATION_RUNNING = 'That conversation is already running.';
 
 // --- POST /api/client-log limits (the contract the frontend codes against) ---
 /** Read cap on the batch body; anything larger is 413 before it is parsed. */
@@ -130,6 +146,18 @@ export interface ApiDeps {
   sessions: SessionManager;
   history: SessionHistory;
   github: GithubConnection;
+  /**
+   * Stored API keys (server/keys.ts). Absent in unit-test harnesses that build
+   * the handler directly: /api/keys then answers 503 instead of pretending
+   * there is a store — the same discipline as `restart` and `update` below.
+   */
+  keys?: KeyStore;
+  /**
+   * GET /api/tools seam. Absent -> a cache over `probeTools(ptyEnv())`, i.e.
+   * the PATH a session is really spawned with. Tests inject a probe with their
+   * own environment and clock.
+   */
+  tools?: () => Promise<ToolAvailability>;
   webDistDir: string;
   /** Short git hash of the running server code, or null (GET /api/runtime). */
   serverCommit?: string | null;
@@ -294,7 +322,8 @@ function repoNameFromUrl(url: string): string | undefined {
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, history, github, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, history, github, keys, webDistDir, log } = deps;
+  const tools = deps.tools ?? cachedProbe({ env: () => ptyEnv() });
   const httpLog = scoped(log, 'http');
   const clientLog = scoped(log, 'client');
   /**
@@ -620,6 +649,90 @@ export function createRequestHandler(
         return;
       }
       sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Launchable tools: a PATH probe of the spawn environment ------------
+    // No spawn, no shell, no network (server/tools.ts); cached ≤ 5 s, and
+    // AWAITED — the probe stats every PATH entry and must not hold the loop.
+    if (pathname === '/api/tools') {
+      if (method === 'GET') {
+        sendJson(res, 200, await tools());
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    // --- Stored API keys (Nocturne B5) --------------------------------------
+    //
+    // The same secret discipline as POST /api/github/token, for the same
+    // reason — a credential arrives in the BODY and nowhere else:
+    //   * GET answers saved/not-saved only. No route here ever returns a key,
+    //     in any form, not even to the authenticated page that saved it.
+    //   * the body read is readJsonBodySafe with a dedicated small cap, so a
+    //     malformed body can never put a JSON.parse error quoting the key into
+    //     server.log.
+    //   * content-type must be application/json: a cross-site form post cannot
+    //     set that header, so the Origin/Host checks are not the only guard.
+    //   * KeyStore logs the tool name and nothing else.
+    if (pathname === '/api/keys') {
+      if (method === 'GET') {
+        if (keys === undefined) {
+          sendError(res, 503, KEYS_NOT_AVAILABLE);
+          return;
+        }
+        // The environment a session is really spawned with — otherwise the page
+        // would be told about a variable the CLI never sees.
+        sendJson(res, 200, keys.status(ptyEnv()));
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    const keyMatch = /^\/api\/keys\/([^/]+)$/.exec(pathname);
+    if (keyMatch !== null) {
+      if (method !== 'PUT' && method !== 'DELETE') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      if (keys === undefined) {
+        sendError(res, 503, KEYS_NOT_AVAILABLE);
+        return;
+      }
+      const tool = decodeURIComponent(keyMatch[1] as string);
+      if (!isKeyedTool(tool)) {
+        sendError(res, 400, KEY_UNKNOWN_TOOL);
+        return;
+      }
+      if (method === 'DELETE') {
+        keys.clear(tool);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (!isJsonContentType(req.headers['content-type'])) {
+        sendError(res, 415, 'content-type must be application/json');
+        return;
+      }
+      const read = await readJsonBodySafe(req, KEYS_MAX_BYTES);
+      if (!read.ok) {
+        if (read.reason === 'too-large') sendError(res, 413, 'request body is too large');
+        else sendError(res, 400, 'invalid JSON body');
+        return;
+      }
+      const body = read.value;
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        sendError(res, 400, 'invalid JSON body');
+        return;
+      }
+      // KeyStore validates and logs `key rejected for <tool>`; the value itself
+      // never leaves this statement.
+      if (!keys.save(tool, (body as Partial<SaveKeyRequest>).key)) {
+        sendError(res, 400, KEY_NOT_SHAPED);
+        return;
+      }
+      sendJson(res, 200, { ok: true });
       return;
     }
 
@@ -1237,6 +1350,22 @@ export function createRequestHandler(
           ? body.title.trim()
           : undefined;
         const title = givenTitle ?? projectName;
+        // A launch that ADOPTS a conversation id from its own args (the new
+        // session dialog's per-conversation resume sends `--resume <uuid>`)
+        // must be refused while that conversation is still running — two
+        // claude processes on one transcript corrupt it, and POST
+        // /api/history/:id/resume already refuses exactly this case. The probe
+        // id is a fresh uuid, so `plan.id !== probeId` is true only when the
+        // key came from the CLIENT's argv, never from the injection.
+        const probeId = randomUUID();
+        const plan = planConversation(body.command, body.args, probeId);
+        if (plan.conversation && plan.id !== probeId) {
+          const live = history.get(plan.id);
+          if (live !== undefined && live.ended === null) {
+            sendError(res, 409, CONVERSATION_RUNNING);
+            return;
+          }
+        }
         try {
           const info = sessions.create({
             ...(projectId !== undefined ? { projectId } : {}),

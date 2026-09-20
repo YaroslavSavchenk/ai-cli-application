@@ -8,8 +8,12 @@
  *                       drives TWO places: Claude Code's own line inside the
  *                       terminal (`enabled`) and the app's bar under it
  *                       (`paneBar`, ui/pane-status-model.ts).
- *   Preferences         which tools show up and the keys they need — MOCK until
- *                       part B6; every control is inert and says so.
+ *   Preferences         the keys the tools need (which tools show up is part
+ *                       B6, and the page draws no such toggle yet). The key
+ *                       rows are LIVE since part B5 (one optional key per tool
+ *                       that reads one from its environment; the page only ever
+ *                       learns saved / not saved). The Defaults block under
+ *                       them is still a mock, and one line under THAT says so.
  *   Keyboard            the chords the app takes off the terminal, plus the
  *                       link to the full shortcuts overlay — unchanged.
  *   Terminal colours    ground + text for the terminals (ui/term-colours.ts) —
@@ -33,12 +37,13 @@
  * anywhere in here. The per-row samples are the literal text the status line
  * draws for that item, which is terminal output, not CLI syntax.
  */
-import type { SessionInfo } from '../../../shared/protocol.ts';
+import type { KeyedTool, KeyStatus, SessionInfo } from '../../../shared/protocol.ts';
+import { isKeyedTool } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
-import { NOT_YET, TOOL_CARDS, commandLabel } from './launch-args.ts';
+import { TOOL_CARDS, commandLabel } from './launch-args.ts';
 import { openReleasesPage } from './releases.ts';
 import { openRestartConfirm, runtimeFacts } from './update.ts';
 import { buildTermColours } from './term-colours.ts';
@@ -53,11 +58,31 @@ import {
   type StatusLineCfg,
 } from './statusline-model.ts';
 
+/** Where an opener wants the panel to land (Nocturne B5: the launch dialog's `Add key`). */
+export interface SettingsOpenOpts {
+  /** The page to show instead of the first one. */
+  page?: PageId;
+  /** Put the keyboard in THIS tool's key field (implies the Preferences page). */
+  focusKey?: KeyedTool;
+}
+
 export interface SettingsPanel {
-  open(): void;
+  open(opts?: SettingsOpenOpts): void;
   close(): void;
   toggle(): void;
   isOpen(): boolean;
+}
+
+/**
+ * The ONE live panel, so another surface can send the user straight to a page
+ * without owning a reference (the launch dialog's `Add key` button). Same idiom
+ * as `openLaunchDialog` in ui/launch.ts; null until main.ts has built it.
+ */
+let panelCtl: SettingsPanel | null = null;
+
+/** Open Settings, optionally on a given page with one key field focused. */
+export function openSettings(opts?: SettingsOpenOpts): void {
+  panelCtl?.open(opts);
 }
 
 export interface SettingsDeps {
@@ -155,33 +180,39 @@ const ITEM_ROWS: ItemRow[] = [
 ];
 
 /**
- * The Preferences page's rows — MOCK until part B6. `needsKey` decides whether
- * the row shows a key field. Nothing here claims a key EXISTS: an invented
- * "Key added" row would be the one mock a user could act on by mistake.
+ * The Preferences page's rows. The key rows are LIVE since part B5; the
+ * Defaults block below them stays mock, and tool-visibility toggles arrive
+ * with part B6 — the page draws none today.
+ * `tool` names the keyed tool whose field the row carries — absent = no field,
+ * because there is no key this app can store for it.
  */
 interface ProviderRow {
   mark: string;
   label: string;
   keyText: string;
-  needsKey: boolean;
+  /** The keyed tool this row saves for; absent = the row is words only. */
+  tool?: KeyedTool;
   /** The known agent's tile carries the accent family (v3). */
   agent?: boolean;
 }
 
 /**
  * What each row says about its key, by the New session dialog's own card id.
- * The three tools part B5 will wire say what that dialog says about them —
- * `NOT_YET`, one string in one place — because "Needs a key" would promise a
- * key is all that is missing. A card with no entry here (the custom-command
- * `Other`) gets no provider row.
+ * Codex gets NO field on purpose (user decision 2026-09-18): a key alone does
+ * not authenticate it, so the honest line is that it signs in where it runs.
+ * A card with no entry here (the custom-command `Other`) gets no provider row.
  */
-const ROW_KEYS: Record<string, { keyText: string; needsKey: boolean; agent?: boolean }> = {
-  claude: { keyText: 'Uses your Claude login', needsKey: false, agent: true },
-  codex: { keyText: NOT_YET, needsKey: true },
-  gemini: { keyText: NOT_YET, needsKey: true },
-  grok: { keyText: NOT_YET, needsKey: true },
-  terminal: { keyText: 'No key needed', needsKey: false },
+const ROW_KEYS: Record<string, { keyText: string; tool?: KeyedTool; agent?: boolean }> = {
+  claude: { keyText: 'Uses your Claude login. A saved key is used instead.', tool: 'claude', agent: true },
+  codex: { keyText: 'Signs in inside the terminal' },
+  gemini: { keyText: 'Needs an API key, or a sign-in inside the terminal.', tool: 'gemini' },
+  grok: { keyText: 'Needs an API key, or a sign-in inside the terminal.', tool: 'grok' },
+  terminal: { keyText: 'No key needed' },
 };
+
+/** What the row says about the key it has: stored here, or only in the environment. */
+const KEY_SAVED = 'Saved';
+const KEY_ENV_ONLY = 'Set outside the app';
 
 /**
  * The marks and names are the New session dialog's own table (launch-args.ts
@@ -352,14 +383,32 @@ export function initSettings(
   statusPage.append(resetRow);
 
   // ======================================================================
-  // Preferences — MOCK until part B6. Every control is disabled, and one line
-  // says so (the A4 inert-card idiom: the outline stays, the ink drops).
+  // Preferences — the key rows are LIVE (part B5); the Defaults block below
+  // them is still a mock, and the one placeholder line sits under THAT block
+  // and covers only it.
   // ======================================================================
   const prefsPage = newPage(
     'prefs',
     'Preferences',
-    'Which tools show up when you start a session, and the keys they need.',
+    // Only what this page really does today: tool VISIBILITY is part B6, and
+    // until it exists the subtitle must not promise it.
+    'The keys your tools need.',
   );
+
+  /** One live key row's controls, kept so the page can reflect what it learns. */
+  interface KeyRowCtl {
+    label: string;
+    input: HTMLInputElement;
+    show: HTMLButtonElement;
+    save: HTMLButtonElement;
+    remove: HTMLButtonElement;
+    state: HTMLElement;
+    err: HTMLElement;
+  }
+  const keyRows = new Map<KeyedTool, KeyRowCtl>();
+  /** Last answer from GET /api/keys; null until one arrives. */
+  let keyStatus: KeyStatus | null = null;
+
   const provWrap = el('div', 'sg-rows');
   for (const p of PROVIDER_ROWS) {
     const row = el('div', 'sg-prow');
@@ -368,19 +417,34 @@ export function initSettings(
     const txt = el('div', 'sg-prowtxt');
     txt.append(el('span', 'sg-rowlb', p.label), el('span', 'sg-prowkey', p.keyText));
     row.append(mark, txt);
-    if (p.needsKey) {
+    const tool = p.tool;
+    if (tool !== undefined) {
       const inp = el('input', 'sg-keyin');
       // Same shape as the app's one real credential field (ui/github.ts): a key
-      // is never plain text on screen, and never offered as a saved login. No
-      // `name`, so nothing can autofill it either.
+      // is never plain text on screen unless the user asks, never offered as a
+      // saved login, and with no `name` for an autofill to match.
       inp.type = 'password';
       inp.autocomplete = 'new-password';
+      inp.spellcheck = false;
       inp.placeholder = 'Paste API key';
-      inp.disabled = true;
       inp.setAttribute('aria-label', `${p.label} key`);
-      const show = button('sg-smallbtn', 'Show');
-      show.disabled = true;
-      row.append(inp, show);
+      inp.id = `sg-key-${tool}`;
+      const show = button('sg-smallbtn', 'Show', () => toggleShow(tool));
+      show.setAttribute('aria-pressed', 'false');
+      const save = button('sg-smallbtn', 'Save', () => void saveKey(tool));
+      const remove = button('sg-smallbtn', 'Remove', () => void removeKey(tool));
+      const state = el('span', 'sg-keystate', '');
+      const line = el('div', 'sg-keyline');
+      line.append(inp, show, save, remove);
+      const err = el('div', 'sg-keyerr');
+      err.setAttribute('role', 'alert');
+      err.hidden = true;
+      txt.append(line, err);
+      row.append(state);
+      // Save stays off until there is something to save — a key-shaped field
+      // with nothing in it has no verb.
+      inp.addEventListener('input', () => syncKeyRow(tool));
+      keyRows.set(tool, { label: p.label, input: inp, show, save, remove, state, err });
     }
     provWrap.append(row);
   }
@@ -398,14 +462,129 @@ export function initSettings(
   prefsPage.append(defWrap);
 
   /**
-   * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B6). Every control on this
-   * page is inert, and a settings page that silently forgets what it was told
-   * is worse than one that is not there. One function, one call site.
+   * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B6). It follows the
+   * Defaults rows and speaks for those alone: everything above it saves for
+   * real since part B5.
    */
   function prefsPlaceholderNote(): HTMLElement {
-    return el('p', 'sg-note', 'Example settings until the app saves them.');
+    return el('p', 'sg-note', 'These defaults are examples until the app saves them.');
   }
   prefsPage.append(prefsPlaceholderNote());
+
+  // ---- the key rows, live --------------------------------------------------
+
+  /**
+   * Reflect what the page knows onto ONE row: the state word beside the name
+   * (`Saved`, or `Set outside the app` when only the environment carries one),
+   * and which verbs can be used. The page only ever learns saved / not saved —
+   * a key never comes back from the server, so the field always starts empty.
+   */
+  function syncKeyRow(tool: KeyedTool): void {
+    const r = keyRows.get(tool);
+    if (r === undefined) return;
+    const saved = keyStatus?.saved[tool] === true;
+    const env = keyStatus?.env[tool] === true;
+    r.state.textContent = saved ? KEY_SAVED : env ? KEY_ENV_ONLY : '';
+    r.save.disabled = r.input.value.trim() === '';
+    r.remove.disabled = !saved;
+  }
+
+  function syncKeyRows(): void {
+    for (const tool of keyRows.keys()) syncKeyRow(tool);
+  }
+
+  /** Show the key that is being typed, for as long as the user asks. */
+  function toggleShow(tool: KeyedTool): void {
+    const r = keyRows.get(tool);
+    if (r === undefined) return;
+    const showing = r.input.type === 'text';
+    r.input.type = showing ? 'password' : 'text';
+    r.show.textContent = showing ? 'Show' : 'Hide';
+    r.show.setAttribute('aria-pressed', showing ? 'false' : 'true');
+  }
+
+  function keyErr(tool: KeyedTool, msg: string | null): void {
+    const r = keyRows.get(tool);
+    if (r === undefined) return;
+    r.err.textContent = msg ?? '';
+    r.err.hidden = msg === null;
+  }
+
+  /**
+   * What to SAY about a failed key call. The server's own sentences are written
+   * for the user and are rendered verbatim; a failure with no sentence (a
+   * network drop, or a status whose body the client could not read) falls back
+   * to plain words — `HTTP 413` is a status code, not something to read.
+   */
+  function keyFailure(e: unknown, fallback: string): string {
+    const msg = e instanceof Error ? e.message : '';
+    return msg !== '' && !/^HTTP \d+$/.test(msg) ? msg : fallback;
+  }
+
+  /**
+   * Hand ONE key to the backend and forget it. The field is cleared in the same
+   * turn the request is made, the local reference dies with this function, and
+   * nothing about the value is logged — only which tool was written.
+   */
+  async function saveKey(tool: KeyedTool): Promise<void> {
+    const r = keyRows.get(tool);
+    if (r === undefined) return;
+    const key = r.input.value.trim();
+    if (key === '') return;
+    keyErr(tool, null);
+    r.save.disabled = true;
+    try {
+      await api.saveKey(tool, key);
+      r.input.value = '';
+      if (r.input.type === 'text') toggleShow(tool);
+      keyStatus = withSaved(keyStatus, tool, true);
+      log.info(`key saved for ${tool}`);
+    } catch (e) {
+      // The server's sentence is written for the user; it never echoes the value.
+      keyErr(tool, keyFailure(e, 'That key was not saved.'));
+    } finally {
+      syncKeyRow(tool);
+    }
+  }
+
+  /** Forget the stored key. An environment variable set outside the app stays. */
+  async function removeKey(tool: KeyedTool): Promise<void> {
+    const r = keyRows.get(tool);
+    if (r === undefined) return;
+    keyErr(tool, null);
+    r.remove.disabled = true;
+    try {
+      await api.deleteKey(tool);
+      keyStatus = withSaved(keyStatus, tool, false);
+      log.info(`key cleared for ${tool}`);
+    } catch (e) {
+      keyErr(tool, keyFailure(e, 'That key was not removed.'));
+    } finally {
+      syncKeyRow(tool);
+    }
+  }
+
+  /** The status bag with ONE tool's saved bit replaced (never mutated in place). */
+  function withSaved(cur: KeyStatus | null, tool: KeyedTool, saved: boolean): KeyStatus {
+    const base: KeyStatus = cur ?? {
+      saved: { claude: false, gemini: false, grok: false },
+      env: { claude: false, gemini: false, grok: false },
+    };
+    return { saved: { ...base.saved, [tool]: saved }, env: { ...base.env } };
+  }
+
+  /** Re-read which keys exist. Never throws: a failed read leaves the rows blank. */
+  function refreshKeys(): void {
+    void api
+      .getKeys()
+      .then((s) => {
+        keyStatus = s;
+        syncKeyRows();
+      })
+      .catch(() => {
+        // Nothing to say: the rows simply claim no key.
+      });
+  }
 
   // ======================================================================
   // Keyboard — the gestures that are NOT visible controls anywhere else
@@ -651,15 +830,41 @@ export function initSettings(
   // ---- open / close --------------------------------------------------------
   let restoreTo: HTMLElement | null = null;
 
-  function open(): void {
-    if (!scrim.hidden) return;
+  /**
+   * Empty every key field, drop its error and put it back to hidden. Run on
+   * BOTH open and close: a key typed and never saved must not sit in an input's
+   * `.value` for the rest of the page's life — a credential the user abandoned
+   * is one the app stops holding, in the same gesture that abandons it.
+   */
+  function clearKeyFields(): void {
+    for (const tool of keyRows.keys()) {
+      const r = keyRows.get(tool);
+      if (r === undefined) continue;
+      r.input.value = '';
+      if (r.input.type === 'text') toggleShow(tool);
+      keyErr(tool, null);
+    }
+  }
+
+  function open(opts?: SettingsOpenOpts): void {
+    const focusKey = opts?.focusKey !== undefined && isKeyedTool(opts.focusKey) ? opts.focusKey : null;
+    if (!scrim.hidden) {
+      // Already open: an opener that names a destination still gets to send the
+      // user there (the launch dialog's `Add key`).
+      if (opts !== undefined) goTo(opts.page ?? (focusKey !== null ? 'prefs' : page), focusKey);
+      return;
+    }
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     writes = 0;
-    // The gear opens the panel on the page about the sessions' own status line.
-    showPage(PAGES[0].id);
+    // The gear opens the panel on the page about the sessions' own status line;
+    // a named destination wins.
+    showPage(opts?.page ?? (focusKey !== null ? 'prefs' : PAGES[0].id));
     syncRows();
     renderNotice();
     renderBackend();
+    clearKeyFields();
+    syncKeyRows();
+    refreshKeys();
     scrim.hidden = false;
     anchor.setAttribute('aria-expanded', 'true');
     // Re-read the stored config on open: another window (or another run) may
@@ -679,11 +884,28 @@ export function initSettings(
       .catch(() => {
         // Keep the in-memory config; nothing to say.
       });
-    tabEls.get(page)?.focus();
+    if (focusKey !== null) focusKeyField(focusKey);
+    else tabEls.get(page)?.focus();
+  }
+
+  /** Swap to a page and, when asked, put the keyboard in one tool's key field. */
+  function goTo(to: PageId, focusKey: KeyedTool | null): void {
+    showPage(to);
+    if (focusKey !== null) focusKeyField(focusKey);
+    else tabEls.get(to)?.focus();
+  }
+
+  /** The keyboard lands ON the field the opener sent the user here to fill. */
+  function focusKeyField(tool: KeyedTool): void {
+    const r = keyRows.get(tool);
+    if (r !== undefined) r.input.focus();
+    else tabEls.get(page)?.focus();
   }
 
   function close(): void {
     if (scrim.hidden) return;
+    clearKeyFields();
+    syncKeyRows();
     scrim.hidden = true;
     anchor.setAttribute('aria-expanded', 'false');
     if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();
@@ -693,10 +915,12 @@ export function initSettings(
 
   showPage(page);
 
-  return {
+  const ctl: SettingsPanel = {
     open,
     close,
     toggle: () => (scrim.hidden ? open() : close()),
     isOpen: () => !scrim.hidden,
   };
+  panelCtl = ctl;
+  return ctl;
 }

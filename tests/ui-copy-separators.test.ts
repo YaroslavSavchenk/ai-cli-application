@@ -232,7 +232,7 @@ test('the separator scan actually reads the chrome (non-vacuity: files, literals
     ['ui/launch.ts', 'No projects yet. This one opens in your home folder.'],
     ['ui/launch-args.ts', 'Asks before every edit or command.'],
     ['ui/launch-args.ts', 'The last conversation in this project'],
-    ['ui/launch-args.ts', 'Not available yet'],
+    ['ui/launch-args.ts', 'Not installed'],
   ];
   for (const [file, text] of canaries) {
     const found = (litsOf.get(file) as Lit[]).some((l) => l.text === text);

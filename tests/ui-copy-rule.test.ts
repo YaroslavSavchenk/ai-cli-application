@@ -143,6 +143,15 @@ const SHAPES: { re: RegExp; why: string }[] = [
   { re: /(^|[\s(])--[A-Za-z]/, why: 'a CLI long flag (or a CSS custom property)' },
   { re: /(^|\s)\$(\s|$)/, why: 'a shell prompt' },
   { re: /\b(acceptEdits|bypassPermissions)\b/, why: 'a raw CLI permission-mode value' },
+  // Nocturne B5 brought three more CLIs, each with its own vocabulary of raw
+  // values — the same kind of token as `acceptEdits`, banned the same way.
+  {
+    re: /\b(on-request|workspace-write|read-only|auto_edit|yolo|model_reasoning_effort|danger-full-access)\b/,
+    why: 'a raw CLI approval / sandbox / config value',
+  },
+  // A short flag on its own (`-m`, `-a`, `-s`, `-c`, `-r`): the long-flag rule
+  // above never saw these, and B5 argv is full of them.
+  { re: /(^|\s)-[A-Za-z]($|\s)/, why: 'a CLI short flag' },
   { re: /\bAI_SM_[A-Z0-9_]+/, why: 'a server env-var name' },
   { re: /\bgit (init|clone|commit|push|pull|status|checkout)\b/, why: 'a git command' },
 ];
@@ -159,6 +168,10 @@ function shapeOf(text: string): string | null {
  */
 const ALLOWED: Record<string, string[]> = {
   // --- argv composition / parsing: these strings ARE the CLI contract --------
+  // Since Nocturne B5 this file is the ONLY place the per-tool CLI mapping may
+  // live (`.claude/PLAN-B5.md`), so the four agents' whole argv vocabulary is
+  // listed here and nowhere else. A flag that turns up in any other module is
+  // still a failure, which is exactly what this per-file list is for.
   'ui/launch-args.ts': [
     'acceptEdits',
     'bypassPermissions',
@@ -166,6 +179,27 @@ const ALLOWED: Record<string, string[]> = {
     '--permission-mode',
     '--effort',
     '--continue',
+    '--resume',
+    // Shells
+    '-l',
+    // Codex
+    '-m',
+    '-a',
+    '-s',
+    '-c',
+    'on-request',
+    'read-only',
+    'workspace-write',
+    `model_reasoning_effort=${HOLE}`,
+    '--dangerously-bypass-approvals-and-sandbox',
+    '--last',
+    // Gemini CLI
+    '--approval-mode',
+    'auto_edit',
+    'yolo',
+    '-r',
+    // Grok
+    '--always-approve',
   ],
   'ui/util.ts': [
     '--model',
@@ -174,6 +208,8 @@ const ALLOWED: Record<string, string[]> = {
     '--permission-mode',
     '--permission-mode=',
     'bypassPermissions',
+    // The pane status bar reads the other three tools' model flag (B5).
+    '-m',
   ],
   // --- CSS custom properties: same `--x` shape, entirely different job -------
   'ui/terminal.ts': [

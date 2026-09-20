@@ -2894,6 +2894,12 @@ body.is-dnd * {
   gap: var(--space-4);
 }
 
+/* a tool with no effort levels (Gemini CLI, B5) leaves ONE control in the row;
+   half a row of nothing beside it would read as a control that failed to draw */
+.ns-row2.is-one {
+  grid-template-columns: 1fr;
+}
+
 .ns-field input,
 .ns-field select {
   height: 34px;
@@ -3032,8 +3038,10 @@ body.is-dnd * {
    size (user's ask, 2026-09-10) */
 .ns-shells .ns-card,
 .ns-perms .ns-card {
-  height: 40px;
-  padding: 0 var(--space-4);
+  /* min, not fixed: a permission card that cannot be set for the chosen tool
+     (B5) grows a hint line, and the grid keeps its row's cards equal anyway */
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
   color: var(--color-text);
 }
 
@@ -3042,7 +3050,8 @@ body.is-dnd * {
   font-weight: 500;
 }
 
-.ns-shells .ns-card[aria-disabled='true'] {
+.ns-shells .ns-card[aria-disabled='true'],
+.ns-perms .ns-card[aria-disabled='true'] {
   color: var(--color-neutral-700);
 }
 
@@ -3160,6 +3169,35 @@ body.is-dnd * {
   gap: var(--space-3);
   font-size: 12.5px;
   color: var(--color-neutral-400);
+}
+
+/* The key notice (B5): a QUIET LINE, not a banner — no fill, no rule, no icon,
+   no colour. One sentence about the tool just chosen and one small outlined
+   button that goes where it can be fixed; the weight ordering says which of the
+   two is the act. Same baseline-flex shape as .ns-none above. */
+.ns-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+}
+
+.ns-noticebtn {
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.ns-noticebtn:hover {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
 }
 
 .ns-link {
@@ -3604,9 +3642,10 @@ body.is-dnd * {
   border-color: var(--color-neutral-600);
 }
 
+/* small button: three of them share one key row since B5, so it is sized by its
+   word rather than by a fixed 82px */
 .sg-smallbtn {
   flex: none;
-  width: 82px;
   height: 28px;
   padding: 0 var(--space-3);
   border: var(--line) solid var(--color-neutral-800);
@@ -3665,14 +3704,43 @@ body.is-dnd * {
   color: var(--color-neutral-500);
 }
 
-/* ---- Preferences page (MOCK until part B6) ---------------------------------- */
+/* ---- Preferences page (key rows LIVE since B5; Defaults still mock) ---------
+   A row is the tool's tile, its words, and — for a tool that reads a key from
+   its environment — a second line with the masked field and its three verbs.
+   The state word (`Saved`) sits at the row's right edge, where a status
+   belongs; the refusal sentence sits under the field it is about. */
 
 .sg-prow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-2);
   border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-prow .sg-mark {
+  margin-top: 1px;
+}
+
+.sg-keystate {
+  flex: none;
+  align-self: center;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-keyline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.sg-keyerr {
+  margin-top: var(--space-2);
+  font-size: 11.5px;
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
 }
 
 .sg-prowtxt {
@@ -3710,8 +3778,8 @@ body.is-dnd * {
 }
 
 .sg-keyin {
-  flex: none;
-  width: 170px;
+  flex: 1;
+  min-width: 0;
   height: 30px;
   padding: 0 var(--space-3);
   border: var(--line) solid var(--color-neutral-800);

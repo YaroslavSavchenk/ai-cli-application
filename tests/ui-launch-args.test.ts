@@ -20,6 +20,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import {
   composeArgs,
   parseCustomCommand,
@@ -45,14 +46,26 @@ import {
   MODEL_LABEL,
   modelLabel,
   EFFORT_LABEL,
-  NOT_YET,
+  NOT_INSTALLED,
   TOOL_CARDS,
   SHELL_CARDS,
   START_FROM,
   continueFromStart,
   isStartFrom,
+  AGENT_KINDS,
+  TOOLS,
+  GROK_PERM_HINT,
+  composeCodexArgs,
+  composeGeminiArgs,
+  composeGrokArgs,
+  isAgentKind,
+  isToolModel,
+  isToolEffort,
+  isToolStart,
+  commandLabel,
 } from '../web/src/ui/launch-args.ts';
 import type {
+  AgentKind,
   Effort,
   LaunchForm,
   LaunchKind,
@@ -283,32 +296,44 @@ function form(over: Partial<LaunchForm> = {}): LaunchForm {
   };
 }
 
-test('vocabulary: the kind switch is exactly three kinds, claude first (the pre-selected one)', () => {
-  assert.deepEqual([...KINDS], ['claude', 'terminal', 'other']);
+test('vocabulary: the kind switch is exactly six kinds, claude first (the pre-selected one)', () => {
+  assert.deepEqual([...KINDS], ['claude', 'codex', 'gemini', 'grok', 'terminal', 'other']);
   assert.equal(KINDS[0], 'claude');
   for (const k of KINDS) assert.ok(isKind(k));
-  for (const bad of ['shell', 'Claude', '', 'terminal ', 7, null, undefined]) {
+  for (const bad of ['shell', 'Claude', '', 'terminal ', 'Codex', 7, null, undefined]) {
     assert.equal(isKind(bad), false, JSON.stringify(bad));
+  }
+  // The four that render an agent form; Terminal and Other never do.
+  assert.deepEqual([...AGENT_KINDS], ['claude', 'codex', 'gemini', 'grok']);
+  for (const k of AGENT_KINDS) assert.ok(isAgentKind(k) && isKind(k), k);
+  for (const k of ['terminal', 'other', '', 'CLAUDE', 5, null, undefined]) {
+    assert.equal(isAgentKind(k), false, JSON.stringify(k));
   }
 });
 
-test('vocabulary: two shells — the WSL login shell and PowerShell through interop, argv byte-exact', () => {
+test('vocabulary: four shells — two WSL, two through interop, argv byte-exact', () => {
   assert.deepEqual(
     SHELLS.map((s) => ({ id: s.id, command: s.command, args: [...s.args] })),
     [
       { id: 'wsl', command: '/bin/bash', args: ['-l'] },
+      { id: 'zsh', command: 'zsh', args: ['-l'] },
       { id: 'powershell', command: 'powershell.exe', args: ['-NoLogo'] },
+      // Command Prompt sends NO args: cmd.exe refuses a UNC working directory,
+      // so the SERVER appends the tail that walks it into the project folder.
+      { id: 'cmd', command: 'cmd.exe', args: [] },
     ],
   );
   for (const s of SHELLS) assert.ok(isShellId(s.id));
-  for (const bad of ['bash', 'pwsh', '', 'WSL', 3, null, undefined]) {
+  for (const bad of ['bash', 'pwsh', '', 'WSL', 'Zsh', 3, null, undefined]) {
     assert.equal(isShellId(bad), false, JSON.stringify(bad));
   }
 });
 
 test('shellSpawn: each id spawns its own command + args, and the returned args are a COPY', () => {
   assert.deepEqual(shellSpawn('wsl'), { command: '/bin/bash', args: ['-l'] });
+  assert.deepEqual(shellSpawn('zsh'), { command: 'zsh', args: ['-l'] });
   assert.deepEqual(shellSpawn('powershell'), { command: 'powershell.exe', args: ['-NoLogo'] });
+  assert.deepEqual(shellSpawn('cmd'), { command: 'cmd.exe', args: [] });
   const spawned = shellSpawn('wsl');
   spawned.args.push('mutated');
   assert.deepEqual(shellSpawn('wsl').args, ['-l'], 'the table must not be mutable through a spawn');
@@ -365,6 +390,10 @@ test('composeSpawn: every kind answers, and only the composed kind is read', () 
   const full = form({ kind: 'claude', shell: 'powershell', customLine: 'htop' });
   const byKind: Record<LaunchKind, unknown> = {
     claude: { command: 'claude', args: ['--model', 'opus'] },
+    // The three B5 agents with no per-tool field set: their own defaults.
+    codex: { command: 'codex', args: ['-a', 'on-request', '-s', 'read-only'] },
+    gemini: { command: 'gemini', args: [] },
+    grok: { command: 'grok', args: [] },
     terminal: { command: 'powershell.exe', args: ['-NoLogo'] },
     other: { command: 'htop', args: [] },
   };
@@ -430,16 +459,45 @@ test('composeSpawn: the returned args are a COPY — a caller mutating the POST 
     args: ['-NoLogo'],
   });
   assert.deepEqual(shellSpawn('powershell').args, ['-NoLogo']);
-  assert.deepEqual([...SHELLS[1].args], ['-NoLogo'], 'the SHELLS table itself must be untouched');
+  const ps = SHELLS.find((s) => s.id === 'powershell');
+  assert.deepEqual([...(ps?.args ?? [])], ['-NoLogo'], 'the SHELLS table itself must be untouched');
 });
 
-test('shellLabel: the two shells the app composes read as product names; anything else stays null', () => {
+test('shellLabel: the four shells the app composes read as product names; anything else stays null', () => {
   assert.equal(shellLabel('/bin/bash'), 'Bash');
+  assert.equal(shellLabel('zsh'), 'Zsh');
   assert.equal(shellLabel('powershell.exe'), 'PowerShell');
+  assert.equal(shellLabel('cmd.exe'), 'Command Prompt');
   // A custom command the user typed is echoed verbatim by the caller — never
   // relabelled by resemblance.
-  for (const other of ['bash', '/usr/bin/bash', 'pwsh', 'claude', 'htop', '']) {
+  for (const other of ['bash', '/usr/bin/bash', '/usr/bin/zsh', 'cmd', 'pwsh', 'claude', 'htop', '']) {
     assert.equal(shellLabel(other), null, other);
+  }
+});
+
+test('commandLabel: the four agents read as product names by BASENAME, shells exactly, anything else verbatim', () => {
+  assert.deepEqual(
+    ['claude', 'codex', 'gemini', 'grok'].map((c) => commandLabel(c)),
+    ['Claude Code', 'Codex', 'Gemini CLI', 'Grok'],
+  );
+  // A path to an agent is still that agent; printing the path would put a
+  // command in UI chrome (the isClaudeCommand rule, now for all four).
+  assert.equal(commandLabel('/usr/local/bin/codex'), 'Codex');
+  assert.equal(commandLabel('C:\\tools\\gemini'), 'Gemini CLI');
+  assert.equal(commandLabel('/home/you/.local/bin/grok'), 'Grok');
+  // The shells, by the table.
+  assert.deepEqual(
+    ['/bin/bash', 'zsh', 'powershell.exe', 'cmd.exe'].map((c) => commandLabel(c)),
+    ['Bash', 'Zsh', 'PowerShell', 'Command Prompt'],
+  );
+  // Everything else is echoed exactly as typed — inventing a name for an
+  // arbitrary command would be a lie about what is running.
+  for (const raw of ['htop', '/usr/bin/env', 'Codex', 'GROK', 'codexx', '']) {
+    assert.equal(commandLabel(raw), raw, raw);
+  }
+  // A command that names an Object.prototype member must not find a label there.
+  for (const raw of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    assert.equal(commandLabel(raw), raw, raw);
   }
 });
 
@@ -448,19 +506,25 @@ test('copy rule: the shell words are plain names — no command, no path, no ext
     assertPlainCopy(s.label, 'shell label');
     assert.equal(s.label.includes('.exe'), false, s.label);
     assert.equal(s.label.includes('/'), false, s.label);
+    // The label may not BE the command. Case matters and is the whole point:
+    // `Zsh` is the product's own name, `zsh` is the executable, and the two
+    // layers stay separate even when one word serves both (B5).
+    assert.notEqual(s.label, s.command, `the shell label must not be its command: ${s.label}`);
     assert.equal(
-      s.label.toLowerCase().includes(s.command.toLowerCase()),
+      s.command.includes(s.label),
       false,
-      `the shell label must not be its command: ${s.label}`,
+      `the command must not carry the label verbatim: ${s.command}`,
     );
   }
 });
 
 test('type-level guard: LaunchKind and ShellId are the literal unions the dialog binds to', () => {
-  const kinds: LaunchKind[] = ['claude', 'terminal', 'other'];
-  const shells: ShellId[] = ['wsl', 'powershell'];
+  const kinds: LaunchKind[] = ['claude', 'codex', 'gemini', 'grok', 'terminal', 'other'];
+  const shells: ShellId[] = ['wsl', 'zsh', 'powershell', 'cmd'];
+  const agents: AgentKind[] = ['claude', 'codex', 'gemini', 'grok'];
   assert.deepEqual(kinds, [...KINDS]);
   assert.deepEqual(shells, SHELLS.map((s) => s.id));
+  assert.deepEqual(agents, [...AGENT_KINDS]);
 });
 
 // ---------------------------------------------------------------------------
@@ -553,62 +617,63 @@ test('type-level guard: Perm and Effort are the literal unions the dialog binds 
 // code under test.
 
 /** The cards a user can actually pick, and the kind each one launches. */
-test('A4 tool cards: six cards in v3 order, exactly the three existing kinds selectable', () => {
+test('A4/B5 tool cards: six cards in v3 order, every one of them launching a real kind', () => {
   assert.deepEqual(
     TOOL_CARDS.map((t) => [t.id, t.label, t.kind]),
     [
       ['claude', 'Claude Code', 'claude'],
-      ['codex', 'Codex', null],
-      ['gemini', 'Gemini CLI', null],
-      ['grok', 'Grok', null],
+      ['codex', 'Codex', 'codex'],
+      ['gemini', 'Gemini CLI', 'gemini'],
+      ['grok', 'Grok', 'grok'],
       ['terminal', 'Terminal', 'terminal'],
       ['other', 'Other', 'other'],
     ],
   );
-  // Every existing kind has exactly one card; nothing else launches anything.
-  const live = TOOL_CARDS.flatMap((t) => (t.kind === null ? [] : [t.kind]));
-  assert.deepEqual(live, [...KINDS]);
+  // Every kind has exactly one card, in the kind vocabulary's own order. Since
+  // B5 no card is inert in the TABLE — what a card cannot do is decided at
+  // runtime by what the backend finds on its PATH.
+  assert.deepEqual(TOOL_CARDS.map((t) => t.kind), [...KINDS]);
   assert.equal(TOOL_CARDS[0].label, AGENT_LABEL, 'the agent card IS the agent product name');
 });
 
 test('A4 tool cards: each selectable card spawns exactly what its old segment spawned', () => {
   const byCard: Record<string, SpawnSpec | null> = {};
   for (const t of TOOL_CARDS) {
-    if (t.kind === null) continue;
     byCard[t.id] = composeSpawn(form({ kind: t.kind, customLine: 'htop --tree' }));
   }
   assert.deepEqual(byCard, {
     claude: { command: 'claude', args: ['--model', 'opus'] },
+    codex: { command: 'codex', args: ['-a', 'on-request', '-s', 'read-only'] },
+    gemini: { command: 'gemini', args: [] },
+    grok: { command: 'grok', args: [] },
     terminal: { command: '/bin/bash', args: ['-l'] },
     other: { command: 'htop', args: ['--tree'] },
   });
 });
 
-test('A4 shell cards: Bash is the WSL login shell and PowerShell the interop one, byte for byte; Zsh and Command Prompt are inert', () => {
+test('A4/B5 shell cards: four cards, each wired to its SHELLS entry byte for byte', () => {
   assert.deepEqual(
     SHELL_CARDS.map((c) => [c.id, c.label, c.sub, c.shell]),
     [
       ['bash', 'Bash', 'WSL', 'wsl'],
-      ['zsh', 'Zsh', 'WSL', null],
+      ['zsh', 'Zsh', 'WSL', 'zsh'],
       ['powershell', 'PowerShell', 'Windows', 'powershell'],
-      ['cmd', 'Command Prompt', 'Windows', null],
+      ['cmd', 'Command Prompt', 'Windows', 'cmd'],
     ],
   );
   const spawned: Record<string, SpawnSpec | null> = {};
   for (const c of SHELL_CARDS) {
-    if (c.shell === null) continue;
     spawned[c.id] = composeSpawn(form({ kind: 'terminal', shell: c.shell }));
   }
   assert.deepEqual(spawned, {
     bash: { command: '/bin/bash', args: ['-l'] },
+    zsh: { command: 'zsh', args: ['-l'] },
     // v3 draws `pwsh.exe`; the app keeps today's argv (not adopted in A4).
     powershell: { command: 'powershell.exe', args: ['-NoLogo'] },
+    cmd: { command: 'cmd.exe', args: [] },
   });
-  // Every existing shell has exactly one card.
-  assert.deepEqual(
-    SHELL_CARDS.flatMap((c) => (c.shell === null ? [] : [c.shell])),
-    SHELLS.map((s) => s.id),
-  );
+  // Every shell has exactly one card, in the SHELLS order.
+  assert.deepEqual(SHELL_CARDS.map((c) => c.shell), SHELLS.map((s) => s.id));
 });
 
 test('A4 Start from: `The last conversation in this project` IS the old checkbox — --continue, last', () => {
@@ -704,7 +769,13 @@ test('A4 copy rule: no label the dialog shows ever reaches argv, and every one i
     ...TOOL_CARDS.flatMap((t) => [t.label, t.sub]),
     ...SHELL_CARDS.flatMap((c) => [c.label, c.sub]),
     ...START_FROM.map((s) => s.label),
-    NOT_YET,
+    ...AGENT_KINDS.flatMap((k) => [
+      ...TOOLS[k].models.map((m) => m.label),
+      ...TOOLS[k].efforts.map((e) => e.label),
+      ...TOOLS[k].starts.map((s) => s.label),
+      ...TOOLS[k].inertPerms.map((p) => p.hint),
+    ]),
+    NOT_INSTALLED,
   ];
   for (const text of shown) {
     assertPlainCopy(text, 'dialog label');
@@ -737,13 +808,26 @@ test('A4 marks: every tile is at most two glyphs and never a command name', () =
   }
 });
 
-test('A4 inert cards carry the plain hint, and there are exactly five of them', () => {
-  assert.equal(NOT_YET, 'Not available yet');
-  const inert = [
-    ...TOOL_CARDS.filter((t) => t.kind === null).map((t) => t.id),
-    ...SHELL_CARDS.filter((c) => c.shell === null).map((c) => c.id),
-  ];
-  assert.deepEqual(inert, ['codex', 'gemini', 'grok', 'zsh', 'cmd']);
+test('B5 inert hint: one plain string, and `Not available yet` is gone from the whole frontend', () => {
+  assert.equal(NOT_INSTALLED, 'Not installed');
+  assertPlainCopy(NOT_INSTALLED, 'inert hint');
+  // Nothing in the card TABLES is inert any more: availability is a runtime
+  // answer (GET /api/tools), rendered by the dialog.
+  assert.deepEqual(TOOL_CARDS.filter((t) => !isKind(t.kind)), []);
+  assert.deepEqual(SHELL_CARDS.filter((c) => !isShellId(c.shell)), []);
+  // The retired string may not survive anywhere in the frontend (the janitor
+  // item in .claude/PLAN-B5.md's final gate).
+  const webSrc = new URL('../web/src/', import.meta.url);
+  const walk = (dir: URL): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? walk(new URL(`${e.name}/`, dir))
+        : e.name.endsWith('.ts')
+          ? [readFileSync(new URL(e.name, dir), 'utf8')]
+          : [],
+    );
+  const offenders = walk(webSrc).filter((src) => src.includes('Not available yet'));
+  assert.equal(offenders.length, 0, '`Not available yet` must be gone from web/src');
 });
 
 test('A4 permission help: the ONE explanation, one short plain line per mode, total over PERMS', () => {
@@ -778,9 +862,9 @@ test('type-level guard: StartFrom is the literal union the select binds to', () 
 // and label tables must keep, stated as rules rather than as one snapshot.
 // ---------------------------------------------------------------------------
 
-test('A4 cards: a live card holds a REAL vocabulary value; ids and labels are unique per grid', () => {
-  for (const t of TOOL_CARDS) if (t.kind !== null) assert.ok(isKind(t.kind), `${t.id} -> ${t.kind}`);
-  for (const c of SHELL_CARDS) if (c.shell !== null) assert.ok(isShellId(c.shell), `${c.id} -> ${c.shell}`);
+test('A4 cards: every card holds a REAL vocabulary value; ids and labels are unique per grid', () => {
+  for (const t of TOOL_CARDS) assert.ok(isKind(t.kind), `${t.id} -> ${t.kind}`);
+  for (const c of SHELL_CARDS) assert.ok(isShellId(c.shell), `${c.id} -> ${c.shell}`);
   for (const grid of [TOOL_CARDS, SHELL_CARDS] as const) {
     const ids = grid.map((c) => c.id);
     const labels = grid.map((c) => c.label);
@@ -788,35 +872,22 @@ test('A4 cards: a live card holds a REAL vocabulary value; ids and labels are un
     assert.equal(new Set(labels).size, labels.length, `duplicate label in ${labels.join(',')}`);
   }
   // No two cards launch the same thing: one card per kind, one per shell.
-  const kinds = TOOL_CARDS.flatMap((t) => (t.kind === null ? [] : [t.kind]));
-  const shells = SHELL_CARDS.flatMap((c) => (c.shell === null ? [] : [c.shell]));
+  const kinds = TOOL_CARDS.map((t) => t.kind);
+  const shells = SHELL_CARDS.map((c) => c.shell);
   assert.equal(new Set(kinds).size, kinds.length);
   assert.equal(new Set(shells).size, shells.length);
 });
 
-test('A4 inert set, by the words the user sees: exactly Codex, Gemini CLI, Grok, Zsh, Command Prompt', () => {
-  assert.deepEqual(
-    [
-      ...TOOL_CARDS.filter((t) => t.kind === null).map((t) => t.label),
-      ...SHELL_CARDS.filter((c) => c.shell === null).map((c) => c.label),
-    ],
-    ['Codex', 'Gemini CLI', 'Grok', 'Zsh', 'Command Prompt'],
-  );
-});
-
-test('A4 inert ids can never be spawned: no guard accepts them, and a smuggled one falls back to the WSL shell', () => {
-  // There is no stored/remembered kind or shell to migrate (the dialog keeps
-  // them in memory, typed), so the only way an inert card could launch is its
-  // id leaking into a value slot. Every guard refuses it, and shellSpawn's
-  // fallback is the first real shell — never zsh, never cmd, never nothing.
-  for (const t of TOOL_CARDS) if (t.kind === null) assert.equal(isKind(t.id), false, t.id);
-  for (const c of SHELL_CARDS) {
-    if (c.shell !== null) continue;
-    assert.equal(isShellId(c.id), false, c.id);
-    assert.deepEqual(shellSpawn(c.id as ShellId), { command: '/bin/bash', args: ['-l'] }, c.id);
-  }
-  // A shell CARD id is not a shell id either (`bash` is the card, `wsl` the shell).
+test('A4 card ids are never vocabulary values: a smuggled card id falls back to the WSL shell', () => {
+  // A CARD id and a VALUE id are separate layers (`bash` is the card, `wsl` the
+  // shell). The only way a card could launch the wrong thing is its id leaking
+  // into a value slot; every guard refuses it, and shellSpawn's fallback is the
+  // first real shell — never nothing.
   assert.equal(isShellId('bash'), false);
+  assert.deepEqual(shellSpawn('bash' as ShellId), { command: '/bin/bash', args: ['-l'] });
+  // The tool cards' ids DO equal their kinds since B5 — stated, so a future
+  // rename of one without the other shows up here.
+  assert.deepEqual(TOOL_CARDS.map((t) => t.id), TOOL_CARDS.map((t) => t.kind));
 });
 
 test('A4 card copy never names a command, a path or a flag (sub-lines included)', () => {
@@ -881,6 +952,44 @@ test('modelLabel: a known model id reads as its MODEL_LABEL; any other value is 
   }
 });
 
+test('B5 modelLabel: EVERY tool`s model id reads as the word its dialog select showed', () => {
+  // The pane status bar, the sessions drawer and the Earlier rows read `-m`
+  // now, so a Codex / Gemini / Grok model must not reach them as a raw CLI id.
+  for (const kind of AGENT_KINDS) {
+    for (const m of TOOLS[kind].models) assert.equal(modelLabel(m.id), m.label, `${kind} ${m.id}`);
+  }
+  assert.equal(modelLabel('gpt-6-astra'), 'GPT-6 Astra');
+  assert.equal(modelLabel('pro'), 'Pro');
+  assert.equal(modelLabel('grok-4.6'), 'Grok 4.6');
+  assert.equal(modelLabel('opus'), 'Opus', 'claude unchanged');
+});
+
+test('B5 model ids: one id never means two different words across the four tables', () => {
+  // modelLabel is ONE table over all four tools, so a shared id (`default`)
+  // must carry the same label everywhere, or the same word on screen would
+  // mean two things — and `pro` could read as a Codex model.
+  const seen = new Map<string, string>();
+  for (const kind of AGENT_KINDS) {
+    for (const m of TOOLS[kind].models) {
+      const prev = seen.get(m.id);
+      if (prev !== undefined) assert.equal(m.label, prev, `${m.id} reads two ways`);
+      seen.set(m.id, m.label);
+    }
+  }
+  // The ids that appear twice are exactly the sentinels that emit NOTHING, so
+  // no argv (and therefore no status bar) can ever carry them.
+  const counts = new Map<string, number>();
+  for (const kind of AGENT_KINDS) {
+    for (const m of TOOLS[kind].models) counts.set(m.id, (counts.get(m.id) ?? 0) + 1);
+  }
+  for (const [id, n] of counts) {
+    if (n > 1) {
+      const owners = AGENT_KINDS.filter((k) => TOOLS[k].models.some((m) => m.id === id));
+      for (const k of owners) assert.equal(TOOLS[k].modelNone, id, `${k} emits ${id}`);
+    }
+  }
+});
+
 test('A4 PERM_HELP: plain sentences, one per mode, naming no flag, command or CLI value', () => {
   assert.deepEqual(Object.keys(PERM_HELP), PERMS.map((p) => p.mode));
   const lines = PERMS.map((p) => PERM_HELP[p.mode]);
@@ -911,4 +1020,410 @@ test('A4 PERM_HELP: plain sentences, one per mode, naming no flag, command or CL
   // The danger mode's line carries the caution; no other line does.
   assert.ok(/care/i.test(PERM_HELP.bypassPermissions));
   for (const p of PERMS) if (!p.danger) assert.equal(/care|danger/i.test(PERM_HELP[p.mode]), false, p.mode);
+});
+
+// ---------------------------------------------------------------------------
+// Nocturne B5 (2026-09-18): the other three agents, argv byte-exact
+// ---------------------------------------------------------------------------
+//
+// The expectations below are written out LITERALLY from the verified-contract
+// table in `.claude/PLAN-B5.md`, never derived from the code under test. Each
+// tool's order is FIXED: model, permission, effort, then the start-from tail —
+// and for Codex the tail is a SUBCOMMAND, so every option must precede it.
+
+test('B5 Codex: the whole permission column, verbatim', () => {
+  const byPerm: Record<string, string[]> = {};
+  for (const p of PERMS) byPerm[p.mode] = composeCodexArgs('default', p.mode, 'default', 'fresh');
+  assert.deepEqual(byPerm, {
+    default: ['-a', 'on-request', '-s', 'read-only'],
+    acceptEdits: ['-a', 'on-request', '-s', 'workspace-write'],
+    plan: ['-a', 'never', '-s', 'read-only'],
+    bypassPermissions: ['--dangerously-bypass-approvals-and-sandbox'],
+  });
+});
+
+test('B5 Codex: models, efforts and start-from tails, each on its own', () => {
+  assert.deepEqual(composeCodexArgs('gpt-6-astra', 'default', 'default', 'fresh'), [
+    '-m', 'gpt-6-astra', '-a', 'on-request', '-s', 'read-only',
+  ]);
+  // `Default` names no model: the CLI keeps its own recommended one.
+  assert.equal(composeCodexArgs('default', 'default', 'default', 'fresh').includes('-m'), false);
+  assert.deepEqual(composeCodexArgs('default', 'default', 'xhigh', 'fresh'), [
+    '-a', 'on-request', '-s', 'read-only', '-c', 'model_reasoning_effort=xhigh',
+  ]);
+  assert.deepEqual(composeCodexArgs('default', 'default', 'default', 'last'), [
+    '-a', 'on-request', '-s', 'read-only', 'resume', '--last',
+  ]);
+  assert.deepEqual(composeCodexArgs('default', 'default', 'default', 'pick'), [
+    '-a', 'on-request', '-s', 'read-only', 'resume',
+  ]);
+});
+
+test('B5 Codex: the hardest state — options BEFORE the resume subcommand', () => {
+  assert.deepEqual(composeCodexArgs('gpt-5.6-sol', 'acceptEdits', 'high', 'last'), [
+    '-m', 'gpt-5.6-sol',
+    '-a', 'on-request', '-s', 'workspace-write',
+    '-c', 'model_reasoning_effort=high',
+    'resume', '--last',
+  ]);
+  const args = composeCodexArgs('gpt-5.4-mini', 'bypassPermissions', 'minimal', 'pick');
+  assert.deepEqual(args, [
+    '-m', 'gpt-5.4-mini',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '-c', 'model_reasoning_effort=minimal',
+    'resume',
+  ]);
+  assert.ok(args.indexOf('resume') === args.length - 1, 'the subcommand is LAST');
+});
+
+test('B5 Codex: every model and every effort emits its own id, the sentinels nothing', () => {
+  for (const m of TOOLS.codex.models) {
+    const args = composeCodexArgs(m.id, 'default', 'default', 'fresh');
+    assert.deepEqual(
+      args,
+      m.id === 'default'
+        ? ['-a', 'on-request', '-s', 'read-only']
+        : ['-m', m.id, '-a', 'on-request', '-s', 'read-only'],
+      m.id,
+    );
+  }
+  for (const e of TOOLS.codex.efforts) {
+    const args = composeCodexArgs('default', 'default', e.id, 'fresh');
+    assert.deepEqual(
+      args,
+      e.id === 'default'
+        ? ['-a', 'on-request', '-s', 'read-only']
+        : ['-a', 'on-request', '-s', 'read-only', '-c', `model_reasoning_effort=${e.id}`],
+      e.id,
+    );
+  }
+  // Codex has no `max` level (the CLI does not take one).
+  assert.equal(TOOLS.codex.efforts.some((e) => e.id === 'max'), false);
+});
+
+test('B5 Gemini: the whole permission column and both start-from values, verbatim', () => {
+  const byPerm: Record<string, string[]> = {};
+  for (const p of PERMS) byPerm[p.mode] = composeGeminiArgs('auto', p.mode, 'fresh');
+  assert.deepEqual(byPerm, {
+    // Always ask IS Gemini's default: it emits nothing at all.
+    default: [],
+    acceptEdits: ['--approval-mode', 'auto_edit'],
+    plan: ['--approval-mode', 'plan'],
+    bypassPermissions: ['--approval-mode', 'yolo'],
+  });
+  assert.deepEqual(composeGeminiArgs('auto', 'default', 'last'), ['-r', 'latest']);
+  assert.deepEqual(composeGeminiArgs('flash-lite', 'bypassPermissions', 'last'), [
+    '-m', 'flash-lite', '--approval-mode', 'yolo', '-r', 'latest',
+  ]);
+});
+
+test('B5 Gemini: every model but `Auto` emits itself; the tool has NO effort levels', () => {
+  for (const m of TOOLS.gemini.models) {
+    assert.deepEqual(
+      composeGeminiArgs(m.id, 'default', 'fresh'),
+      m.id === 'auto' ? [] : ['-m', m.id],
+      m.id,
+    );
+  }
+  assert.deepEqual([...TOOLS.gemini.efforts], [], 'the Effort control is hidden for Gemini CLI');
+});
+
+test('B5 Grok: only No prompts emits an approval flag; the two middle modes are inert', () => {
+  const byPerm: Record<string, string[]> = {};
+  for (const p of PERMS) byPerm[p.mode] = composeGrokArgs('default', p.mode, 'default', 'fresh');
+  assert.deepEqual(byPerm, {
+    default: [],
+    // INERT cards: unreachable from the dialog, and they emit nothing even if a
+    // value were smuggled past it.
+    acceptEdits: [],
+    plan: [],
+    bypassPermissions: ['--always-approve'],
+  });
+  assert.deepEqual(
+    TOOLS.grok.inertPerms.map((p) => [p.mode, p.hint]),
+    [
+      ['acceptEdits', GROK_PERM_HINT],
+      ['plan', GROK_PERM_HINT],
+    ],
+  );
+  assert.equal(GROK_PERM_HINT, 'Grok switches this inside the session');
+});
+
+test('B5 Grok: model, effort and the last-session tail, verbatim', () => {
+  assert.deepEqual(composeGrokArgs('grok-4.6', 'default', 'default', 'fresh'), ['-m', 'grok-4.6']);
+  assert.deepEqual(composeGrokArgs('default', 'default', 'high', 'fresh'), ['--effort', 'high']);
+  assert.deepEqual(composeGrokArgs('default', 'default', 'default', 'last'), ['--continue']);
+  assert.deepEqual(composeGrokArgs('grok-4.6', 'bypassPermissions', 'low', 'last'), [
+    '-m', 'grok-4.6', '--always-approve', '--effort', 'low', '--continue',
+  ]);
+  for (const e of TOOLS.grok.efforts) {
+    assert.deepEqual(
+      composeGrokArgs('default', 'default', e.id, 'fresh'),
+      e.id === 'default' ? [] : ['--effort', e.id],
+      e.id,
+    );
+  }
+});
+
+test('B5 composeSpawn: each agent kind spawns ITS command with ITS argv', () => {
+  assert.deepEqual(
+    composeSpawn(form({ kind: 'codex', codexModel: 'gpt-5.5', codexEffort: 'medium', start: 'last', perm: 'plan' })),
+    {
+      command: 'codex',
+      args: ['-m', 'gpt-5.5', '-a', 'never', '-s', 'read-only', '-c', 'model_reasoning_effort=medium', 'resume', '--last'],
+    },
+  );
+  assert.deepEqual(composeSpawn(form({ kind: 'gemini', geminiModel: 'pro', perm: 'acceptEdits', start: 'last' })), {
+    command: 'gemini',
+    args: ['-m', 'pro', '--approval-mode', 'auto_edit', '-r', 'latest'],
+  });
+  assert.deepEqual(
+    composeSpawn(form({ kind: 'grok', grokModel: 'grok-4.6', grokEffort: 'medium', perm: 'bypassPermissions', start: 'last' })),
+    { command: 'grok', args: ['-m', 'grok-4.6', '--always-approve', '--effort', 'medium', '--continue'] },
+  );
+});
+
+test('B5 composeSpawn: a value from ANOTHER tool never reaches this tool’s argv', () => {
+  // The dialog keeps one control set pointed at whichever tool is chosen, so
+  // the form always carries every tool's last value at once.
+  const full: Partial<LaunchForm> = {
+    model: 'fable',
+    effort: 'max',
+    continueLast: true,
+    resumeId: 'conv-1',
+    codexModel: 'gpt-6-astra',
+    codexEffort: 'xhigh',
+    geminiModel: 'flash',
+    grokModel: 'grok-4.6',
+    grokEffort: 'high',
+    start: 'last',
+    shell: 'cmd',
+    customLine: 'htop --tree',
+  };
+  const got: Record<string, unknown> = {};
+  for (const k of KINDS) got[k] = composeSpawn(form({ ...full, kind: k }));
+  assert.deepEqual(got, {
+    claude: { command: 'claude', args: ['--model', 'fable', '--effort', 'max', '--resume', 'conv-1'] },
+    codex: {
+      command: 'codex',
+      args: ['-m', 'gpt-6-astra', '-a', 'on-request', '-s', 'read-only', '-c', 'model_reasoning_effort=xhigh', 'resume', '--last'],
+    },
+    gemini: { command: 'gemini', args: ['-m', 'flash', '-r', 'latest'] },
+    grok: { command: 'grok', args: ['-m', 'grok-4.6', '--effort', 'high', '--continue'] },
+    terminal: { command: 'cmd.exe', args: [] },
+    other: { command: 'htop', args: ['--tree'] },
+  });
+});
+
+test('B5 claude resume: a conversation id replaces --continue, never joins it', () => {
+  assert.deepEqual(composeArgs('opus', 'default', false, 'default', 'abc-123'), [
+    '--model', 'opus', '--resume', 'abc-123',
+  ]);
+  // Both asked for: the named conversation is the more specific ask and wins.
+  const both = composeArgs('opus', 'default', true, 'default', 'abc-123');
+  assert.deepEqual(both, ['--model', 'opus', '--resume', 'abc-123']);
+  assert.equal(both.includes('--continue'), false);
+  // An absent or empty id changes nothing about the pre-B5 argv.
+  assert.deepEqual(composeArgs('opus', 'default', true, 'default', ''), ['--model', 'opus', '--continue']);
+  assert.deepEqual(composeArgs('opus', 'default', true, 'default', undefined), ['--model', 'opus', '--continue']);
+  assert.deepEqual(composeArgs('opus', 'default', false, 'default'), ['--model', 'opus']);
+  // The tail stays LAST, after model, mode and effort.
+  assert.deepEqual(composeArgs('sonnet', 'plan', true, 'high', 'zz'), [
+    '--model', 'sonnet', '--permission-mode', 'plan', '--effort', 'high', '--resume', 'zz',
+  ]);
+  assert.deepEqual(composeSpawn(form({ resumeId: 'q-9', continueLast: true })), {
+    command: 'claude',
+    args: ['--model', 'opus', '--resume', 'q-9'],
+  });
+});
+
+test('B5 tool vocabularies: labels are display-only and every id passes its own guard', () => {
+  for (const k of AGENT_KINDS) {
+    const v = TOOLS[k];
+    assert.ok(v.command.length > 0, k);
+    const ids = v.models.map((m) => m.id);
+    assert.equal(new Set(ids).size, ids.length, `${k}: duplicate model id`);
+    const labels = v.models.map((m) => m.label);
+    assert.equal(new Set(labels).size, labels.length, `${k}: two models would read the same`);
+    for (const m of v.models) assert.ok(isToolModel(k, m.id), `${k}/${m.id}`);
+    for (const e of v.efforts) assert.ok(isToolEffort(k, e.id), `${k}/${e.id}`);
+    for (const s of v.starts) assert.ok(isToolStart(k, s.value), `${k}/${s.value}`);
+    // The sentinel is the FIRST option: a select falling back to its first
+    // option must never name a model or a level the user did not choose.
+    if (v.modelNone !== '') assert.equal(v.models[0]?.id, v.modelNone, `${k}: sentinel first`);
+    if (v.efforts.length > 0) assert.equal(v.efforts[0]?.id, v.effortNone, `${k}: effort sentinel first`);
+    // And Start from's first option is always the fresh one.
+    assert.equal(v.starts[0]?.value, 'fresh', k);
+    for (const x of [...v.models, ...v.efforts]) {
+      assertPlainCopy(x.label, `${k} option label`);
+      assert.ok(x.label.trim() === x.label && x.label.length > 0, JSON.stringify(x.label));
+    }
+    for (const s of v.starts) assertPlainCopy(s.label, `${k} start label`);
+    for (const p of v.inertPerms) assertPlainCopy(p.hint, `${k} inert hint`);
+  }
+  // Nothing outside a tool's own vocabulary passes its guards.
+  assert.equal(isToolModel('codex', 'opus'), false);
+  assert.equal(isToolModel('gemini', 'grok-4.6'), false);
+  assert.equal(isToolEffort('gemini', 'high'), false, 'Gemini CLI has no effort levels at all');
+  assert.equal(isToolEffort('codex', 'max'), false);
+  assert.equal(isToolStart('gemini', 'pick'), false);
+  for (const bad of ['', 'GPT-6 Astra', 7, null, undefined]) {
+    assert.equal(isToolModel('codex', bad), false, JSON.stringify(bad));
+  }
+});
+
+test('B5 tool vocabularies: the model and effort tables, spelled out', () => {
+  assert.deepEqual(
+    TOOLS.codex.models.map((m) => [m.id, m.label]),
+    [
+      ['default', 'Default'],
+      ['gpt-6-astra', 'GPT-6 Astra'],
+      ['gpt-5.6-sol', 'GPT-5.6 Sol'],
+      ['gpt-5.6-terra', 'GPT-5.6 Terra'],
+      ['gpt-5.6-luna', 'GPT-5.6 Luna'],
+      ['gpt-5.5', 'GPT-5.5'],
+      ['gpt-5.4', 'GPT-5.4'],
+      ['gpt-5.4-mini', 'GPT-5.4 Mini'],
+    ],
+  );
+  assert.deepEqual(
+    TOOLS.codex.efforts.map((e) => [e.id, e.label]),
+    [
+      ['default', 'Default'],
+      ['minimal', 'Minimal'],
+      ['low', 'Low'],
+      ['medium', 'Medium'],
+      ['high', 'High'],
+      ['xhigh', 'Extra high'],
+    ],
+  );
+  assert.deepEqual(
+    TOOLS.gemini.models.map((m) => [m.id, m.label]),
+    [
+      ['auto', 'Auto'],
+      ['pro', 'Pro'],
+      ['flash', 'Flash'],
+      ['flash-lite', 'Flash Lite'],
+    ],
+  );
+  assert.deepEqual(
+    TOOLS.grok.models.map((m) => [m.id, m.label]),
+    [
+      ['default', 'Default'],
+      ['grok-4.6', 'Grok 4.6'],
+    ],
+  );
+  assert.deepEqual(
+    TOOLS.grok.efforts.map((e) => [e.id, e.label]),
+    [
+      ['default', 'Default'],
+      ['low', 'Low'],
+      ['medium', 'Medium'],
+      ['high', 'High'],
+    ],
+  );
+  // Claude Code's own tables are the pre-B5 ones, reused rather than re-typed.
+  assert.deepEqual(TOOLS.claude.models.map((m) => m.id), [...MODELS]);
+  assert.deepEqual(TOOLS.claude.efforts.map((e) => e.id), [...EFFORTS]);
+  assert.equal(TOOLS.claude.command, 'claude');
+});
+
+test('B5 Start from, per tool: the words the select shows', () => {
+  const byTool: Record<string, [string, string][]> = {};
+  for (const k of AGENT_KINDS) byTool[k] = TOOLS[k].starts.map((s) => [s.value, s.label]);
+  assert.deepEqual(byTool, {
+    claude: [
+      ['fresh', 'A fresh conversation'],
+      ['continue', 'The last conversation in this project'],
+    ],
+    codex: [
+      ['fresh', 'A fresh session'],
+      ['last', 'The last session'],
+      ['pick', 'Pick an earlier session'],
+    ],
+    gemini: [
+      ['fresh', 'A fresh session'],
+      ['last', 'The last session'],
+    ],
+    grok: [
+      ['fresh', 'A fresh session'],
+      ['last', 'The last session'],
+    ],
+  });
+  // The fresh option never resumes anything, for any tool.
+  for (const k of AGENT_KINDS) {
+    assert.deepEqual(composeSpawn(form({ kind: k, start: 'fresh' }))?.args.includes('resume'), false, k);
+  }
+  assert.equal(composeGeminiArgs('auto', 'default', 'fresh').length, 0);
+  assert.equal(composeGrokArgs('default', 'default', 'default', 'fresh').length, 0);
+});
+
+test('a value outside a tool’s OWN vocabulary emits nothing — including another tool’s id', () => {
+  // The selects only ever hold ids from TOOLS, but composeSpawn's output IS the
+  // POST /api/sessions body: a stale stored form, a kind switch that left the
+  // other tool's value behind, or a hand-built LaunchForm must not be able to
+  // put an unknown token into an argv.
+  const CODEX_ASK = ['-a', 'on-request', '-s', 'read-only'];
+  const smuggled = 'gpt-9-unknown; rm -rf ~';
+  assert.deepEqual(composeCodexArgs(smuggled, 'default', 'default', 'fresh'), CODEX_ASK);
+  assert.deepEqual(composeCodexArgs('default', 'default', smuggled, 'fresh'), CODEX_ASK);
+  // `max` is claude's effort id and `flash` is gemini's model id: neither is codex's.
+  assert.deepEqual(composeCodexArgs('flash', 'default', 'max', 'fresh'), CODEX_ASK);
+  assert.deepEqual(composeGeminiArgs(smuggled, 'default', 'fresh'), []);
+  assert.deepEqual(composeGeminiArgs('gpt-6-astra', 'default', 'fresh'), []);
+  assert.deepEqual(composeGrokArgs(smuggled, 'default', smuggled, 'fresh'), []);
+  assert.deepEqual(composeGrokArgs('gpt-5.5', 'default', 'xhigh', 'fresh'), []);
+  // Through the one composition path as well.
+  assert.deepEqual(composeSpawn(form({ kind: 'codex', codexModel: 'flash', codexEffort: 'max' })), {
+    command: 'codex',
+    args: CODEX_ASK,
+  });
+  assert.deepEqual(composeSpawn(form({ kind: 'gemini', geminiModel: 'grok-4.6' })), {
+    command: 'gemini',
+    args: [],
+  });
+  assert.deepEqual(composeSpawn(form({ kind: 'grok', grokModel: 'pro', grokEffort: 'xhigh' })), {
+    command: 'grok',
+    args: [],
+  });
+});
+
+test('B5 copy rule: no tool label, hint or start-from word ever reaches any tool’s argv', () => {
+  const shown = AGENT_KINDS.flatMap((k) => [
+    ...TOOLS[k].models.map((m) => m.label),
+    ...TOOLS[k].efforts.map((e) => e.label),
+    ...TOOLS[k].starts.map((s) => s.label),
+    ...TOOLS[k].inertPerms.map((p) => p.hint),
+  ]);
+  const emitted = new Set<string>();
+  for (const p of PERMS) {
+    for (const m of TOOLS.codex.models) {
+      for (const e of TOOLS.codex.efforts) {
+        for (const s of TOOLS.codex.starts) {
+          for (const a of composeCodexArgs(m.id, p.mode, e.id, s.value)) emitted.add(a);
+        }
+      }
+    }
+    for (const m of TOOLS.gemini.models) {
+      for (const s of TOOLS.gemini.starts) {
+        for (const a of composeGeminiArgs(m.id, p.mode, s.value)) emitted.add(a);
+      }
+    }
+    for (const m of TOOLS.grok.models) {
+      for (const e of TOOLS.grok.efforts) {
+        for (const s of TOOLS.grok.starts) {
+          for (const a of composeGrokArgs(m.id, p.mode, e.id, s.value)) emitted.add(a);
+        }
+      }
+    }
+  }
+  assert.ok(emitted.size > 20, `non-vacuity: ${emitted.size} distinct argv tokens composed`);
+  for (const label of shown) assert.equal(emitted.has(label), false, `display word ${label} reached argv`);
+  // And a label change can never move a byte: the ids are what compose.
+  for (const k of AGENT_KINDS) {
+    for (const m of TOOLS[k].models) {
+      if (m.id === TOOLS[k].modelNone) continue;
+      assert.ok(emitted.has(m.id) || k === 'claude', `${k}/${m.id} never composed`);
+    }
+  }
 });

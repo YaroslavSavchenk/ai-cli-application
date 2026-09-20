@@ -6,8 +6,8 @@ a decision changes; never let it silently drift from reality.
 
 ## What we are building
 
-A GUI to run and manage multiple AI CLI sessions (Claude Code first; Codex CLI,
-Gemini CLI and others later) side by side — and, since 2026-09-08 (user's
+A GUI to run and manage multiple AI CLI sessions (Claude Code first; Codex,
+Gemini CLI and Grok live since Nocturne B5, 2026-09-20) side by side — and, since 2026-09-08 (user's
 call, "alles moet mogelijk"), plain terminal sessions (WSL shell or
 PowerShell) next to them. Each session is a real interactive terminal
 running inside WSL; the GUI adds project management, launch presets, and
@@ -466,39 +466,127 @@ multi-pane layouts on top.
   stable top so switching Tool never moves the grid under the pointer.
   First group `Tool` = a 2-per-row card radiogroup (roving tabindex, arrow
   keys): **Claude Code · Codex · Gemini CLI · Grok · Terminal · Other**.
-  Codex, Gemini CLI and Grok are visible but **inert until part B5**
+  **Since Nocturne B5 (2026-09-18, spec `.claude/PLAN-B5.md`) all four AI
+  tools are live**; a card whose executable the backend cannot find on the
+  PATH of the very environment it spawns sessions with (`GET /api/tools`,
+  a stat-only probe cached 5 s, fetched on every dialog open) is inert
   (`aria-disabled`, never selectable, skipped by the arrows, sub-line
-  `Not available yet`); `Other` is the 2026-07-20 custom-command escape
+  `Not installed`), and until the first answer every non-composable card is
+  inert with no sub-line at all — the dialog never flashes a row of enabled
+  cards that then go dark. `Other` is the 2026-07-20 custom-command escape
   hatch as the sixth card (user's call 2026-09-10, v3 has none) and reveals
   the mono Command field. `Terminal` reveals `Shell` cards **Bash**
-  (`/bin/bash -l`) · Zsh (inert until B5) · **PowerShell** (`powershell.exe
+  (`/bin/bash -l`) · **Zsh** (`zsh -l`, B5) · **PowerShell** (`powershell.exe
   -NoLogo` through WSL interop, ~8 s cold start, UNC-form prompt; v3's
-  `pwsh.exe` NOT adopted) · Command Prompt (inert until B5), in the project
-  folder or, with no project, the home folder. The claude-only controls
-  are hidden AND disabled for the other kinds (hidden, not dimmed). Shared
-  by all kinds: Name (optional; placeholder = the selected project's name)
-  and Project on one row, Cancel and **Start session** (was Launch). The
-  claude-only set is exactly Model · **Effort** (`default`, `low`,
-  `medium`, `high`, `xhigh` shown as "Extra high", `max` → `--effort <v>`,
-  default emits nothing) · **Permissions** as a 2×2 card radiogroup `Always
-  ask` · `Auto edits` · `Read only` · `No prompts` (danger red) · **Start
-  from** `A fresh conversation` / `The last conversation in this project`
-  (`--continue`; replaced the checkbox). **One info button** beside the
-  Permissions label opens a short plain explanation of the four modes
-  (`PERM_HELP`) — the ONLY explanatory copy in the dialog (user's call
-  2026-09-10: labels only on the cards, one on-demand explanation); Esc
-  closes that popover first. v3's command preview is left out (user's call
-  2026-09-10; the no-code rule stands). Per-id resume entries in Start from
-  arrive with B5; until then per-id resume lives in the sessions panel's
-  "Earlier" section (the HISTORY section until Nocturne A5, 2026-09-13),
-  grouped per project folder. No API-key notice before
-  B5. `composeSpawn()` is the ONE composition path for all kinds, and every
-  pre-A4 dialog state emits byte-identical argv (pinned through the real
-  dialog by `tests/ui-launch-dialog.test.ts`). GONE since 2026-09-06: the
+  `pwsh.exe` NOT adopted — not installed, plan decision 6) · **Command
+  Prompt** (B5, plan decision 6: `cmd.exe` through interop; the client sends
+  NO args and the SERVER appends `/k pushd <windows path of the cwd>` — cmd
+  refuses a UNC working directory and would land in `C:\Windows` — computed
+  by a pure function (`/mnt/<d>/…` → `D:\…`, else
+  `\\wsl.localhost\<WSL_DISTRO_NAME>\…`) and appended ONLY when the cwd
+  matches the launcher's allow-list shape without dot segments and the distro
+  name is well-formed, since cmd parses its own command line; otherwise plain
+  `cmd.exe` plus one warn line — the user is not told in the UI, recorded),
+  in the project folder or, with no project, the home folder. The
+  tool-specific controls are hidden AND disabled for the other kinds (hidden,
+  not dimmed). Shared by all kinds: Name (optional; placeholder = the
+  selected project's name) and Project on one row, Cancel and **Start
+  session** (was Launch). The Claude Code set is exactly Model · **Effort**
+  (`default`, `low`, `medium`, `high`, `xhigh` shown as "Extra high", `max`
+  → `--effort <v>`, default emits nothing) · **Permissions** as a 2×2 card
+  radiogroup `Always ask` · `Auto edits` · `Read only` · `No prompts`
+  (danger red) · **Start from** `A fresh conversation` / `The last
+  conversation in this project` (`--continue`; replaced the checkbox) / one
+  entry per ENDED conversation of the selected project (B5: the Earlier
+  section's entries, newest first, `<title>, <relative time>`; with no
+  project, home-folder conversations; choosing one presets Name and emits
+  `--resume <id>` in place of `--continue`; the server answers `409 That
+  conversation is already running.` when that entry is live and the dialog
+  shows it). The other tools reuse the same controls with their own
+  vocabularies — the mapping lives in `web/src/ui/launch-args.ts` ONLY, argv
+  order fixed model → permission → effort → start tail, pinned byte-exact:
+  **Codex** (models `Default` + the documented GPT ids; Effort `Default`,
+  `minimal`…`xhigh` → `-c model_reasoning_effort=<v>`; Always ask `-a
+  on-request -s read-only`, Auto edits `-a on-request -s workspace-write`,
+  Read only `-a never -s read-only`, No prompts
+  `--dangerously-bypass-approvals-and-sandbox`; Start from `A fresh session`
+  / `The last session` (`resume --last`) / `Pick an earlier session`
+  (`resume`, Codex's own picker), options before the subcommand);
+  **Gemini CLI** (models `Auto` (emits nothing), `Pro`, `Flash`, `Flash
+  Lite` → `-m`; NO effort control (no flag exists); `--approval-mode
+  auto_edit|plan|yolo`, Always ask emits nothing; Start from fresh / `The
+  last session` = `-r latest`); **Grok** (Grok Build, xAI's own CLI — built
+  from its docs, not installed here: models `Default`, `Grok 4.6`; Effort
+  `Default`, low, medium, high → `--effort`; only Always ask (nothing) and No
+  prompts (`--always-approve`) — `Auto edits` and `Read only` are inert
+  cards with the hint `Grok switches this inside the session`; Start from
+  fresh / `The last session` = `--continue`). `modelLabel()` names every id
+  the dialog can emit the way the dialog showed it (ids unique across the
+  four tables); an unknown id (a custom command) is echoed verbatim. **One
+  info button** beside the Permissions label opens a short plain explanation
+  of the four modes (`PERM_HELP`, the same four generic lines for every tool
+  — an accepted approximation of Codex's sandbox semantics) — with the B5
+  key notice and the Grok hint the only explanatory copy in the dialog
+  (user's call 2026-09-10: labels only on the cards, one on-demand
+  explanation); Esc closes that popover first. v3's command preview is left
+  out (user's call 2026-09-10; the no-code rule stands). **API keys (B5,
+  plan decision 4, user 2026-09-18):** Gemini CLI and Grok show a quiet
+  notice `Needs an API key, or sign in inside the terminal the first time.`
+  + `Add key` (→ Settings → Preferences, that tool's field focused) when no
+  key is saved AND the backend's own environment lacks the variable; Claude
+  Code (login is the norm) and Codex (a key alone does not sign it in — it
+  signs in inside the terminal, no field) show none. `composeSpawn()` is
+  the ONE composition path for all kinds, and every pre-A4 dialog state
+  emits byte-identical argv (pinned through the real dialog by
+  `tests/ui-launch-dialog.test.ts`). GONE since 2026-09-06: the
   subtitle, the preset chips, the readable launch summary / ink well, the
   footer note, per-card permission descriptions, hint text and
   mechanic-explaining tooltips. The launched "agent" is still a
   configurable command + args (multi-CLI support stays free).
+- **Stored API keys + the B5 spawn-time injections (Nocturne B5,
+  2026-09-18; rationale `memory/decisions/b5-tools-keys-and-shells.md`).**
+  `<dataDir>/keys.json` (0600, atomic, `{ claude?, gemini?, grok? }`) is
+  the fourth data-dir artifact holding a secret — the same ceiling as the
+  GitHub token: the value is never logged (only `key saved/cleared/rejected
+  for <tool>`), never returned to the page, never in argv. Values are gated
+  to 1–4096 printable non-space ASCII on save AND on load, so a hand-edited
+  file can never put a control character into an environment. Routes (token
+  + Origin/Host like every `/api` route): `GET /api/tools` →
+  `ToolAvailability` (an async stat-only PATH lookup in `ptyEnv()`'s PATH —
+  the probe and a spawn can never disagree — cached 5 s, never a spawn,
+  relative/empty PATH entries skipped); `GET /api/keys` → `KeyStatus`
+  (`saved` / `env` booleans); `PUT /api/keys/:tool` (`{ key }`, JSON only,
+  8 KiB cap, `400 That does not look like an API key.` / `Unknown tool.`);
+  `DELETE /api/keys/:tool` (idempotent). Two NEW narrow injections in
+  `server/sessions.ts`, beside `--settings` and `--session-id`, both by
+  `basename(command)`, PTY-only, never in `SessionInfo.args`, re-applied on
+  resume: (1) a SAVED key becomes that tool's variable in the child
+  environment (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY`; a
+  saved key beats an inherited one, no saved key = untouched, so a variable
+  set in the user's shell still reaches the CLI; known consequence: the CLI's
+  own child processes inherit it, as with any env-var key); (2) `cmd.exe`
+  launched with NO client args gets `/k pushd <windows path>` (see the
+  launch-dialog bullet). `POST /api/sessions` answers `409` when a
+  client-supplied `--resume <uuid>` targets a history entry that is still
+  live. Not built by decision: keys for Codex; `pwsh.exe`.
+- **Ending a session = a signal ladder on the process GROUP (2026-09-20,
+  found by B5's verify-terminal pass; rationale in
+  `memory/decisions/b5-tools-keys-and-shells.md` § 5).** `DELETE
+  /api/sessions/:id` sends SIGHUP (`pty.kill()`, what a closing terminal
+  sends), then after 2 s SIGTERM to `-pid`, then after 3 more s SIGKILL to
+  `-pid` — node-pty's forkpty child is a session leader, so the negative pid
+  reaches every descendant the CLI spawned; each rung is skipped once the
+  whole group is gone (`process.kill(-pid, 0)` → ESRCH; a live group pins
+  its leader's pid number, so the probe cannot hit a reused pid). Server
+  shutdown and restart send SIGHUP + immediate group SIGKILL, including for
+  ladders still in flight for sessions already removed. Why: Gemini CLI 0.60
+  (a wrapper that relaunches itself as a child) ignores SIGHUP and SIGTERM
+  sent to the leader alone, so an ended session kept running with the
+  stored `GEMINI_API_KEY` in its environment after the user had removed the
+  key. Known limits, recorded: a descendant that `setsid`s out of the group
+  escapes the ladder (same uid — it could read the key anyway); a root-owned
+  member survives silently; shutdown's SIGHUP+SIGKILL in one tick loses
+  in-flight shell history (UX, user's call).
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -702,9 +790,16 @@ multi-pane layouts on top.
   read-only usage display) are DELETED — their backends too (`/api/usage`,
   `/api/telemetry`, the auto-run registry, the global launch-defaults
   store). Since Nocturne A7 (2026-09-13) the panel is a v3 left-nav modal
-  with five pages: Status bar (the status-line checklist, next bullet, the
-  only LIVE preferences), Preferences (tool visibility, API keys, defaults —
-  mock until B6; where keys live is plan open decision 4), Keyboard,
+  with five pages: Status bar (the status-line checklist, next bullet),
+  Preferences (API keys LIVE since B5, 2026-09-18 — plan decision 4: one
+  password field with Show / Save / Remove per keyed tool, Claude Code
+  `ANTHROPIC_API_KEY` ("Uses your Claude login. A saved key is used
+  instead."), Gemini CLI `GEMINI_API_KEY`, Grok `XAI_API_KEY`; Codex has no
+  field ("Signs in inside the terminal"); the page only ever learns saved /
+  not saved / `Set outside the app` from `GET /api/keys`, a key never comes
+  back, the field is cleared on save and on close; tool visibility and the
+  Defaults block stay mock until B6 with the subtitle `The keys your tools
+  need.`), Keyboard,
   Terminal colours (mock until B9; shape decided 2026-09-13, plan decision
   10: presets + custom ground and text, ground + text only, terminal only,
   status colours never themed, no top-bar switch — see

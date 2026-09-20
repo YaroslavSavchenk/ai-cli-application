@@ -64,6 +64,7 @@ import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';
 import { SessionSettingsStore } from './session-settings.ts';
+import { KeyStore } from './keys.ts';
 import { TelemetryWatcher } from './telemetry.ts';
 import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
@@ -320,7 +321,14 @@ if (!standbyWaiting) {
   resetSessionArtifacts();
   resetUpdateArtifacts();
 }
-const sessions = new SessionManager(log, history, sessionSettings);
+/**
+ * Stored API keys (Nocturne B5). Constructed beside prefs/github and handed to
+ * BOTH consumers: the SessionManager, which sets a saved key as that tool's
+ * variable in the child environment at spawn, and the API, which only ever
+ * reports saved/not-saved. The value never appears in server.log or a response.
+ */
+const keys = new KeyStore(paths.keysFile, log);
+const sessions = new SessionManager(log, history, sessionSettings, keys);
 /**
  * The status-line snapshots the script writes for each claude session, back
  * into SessionInfo.telemetry (and from there to every attached client as the
@@ -547,6 +555,7 @@ const apiDeps: ApiDeps = {
   sessions,
   history,
   github,
+  keys,
   webDistDir,
   serverCommit,
   serverVersion: bundle?.version ?? null,

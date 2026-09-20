@@ -54,6 +54,13 @@ export interface DataPaths {
    */
   historyFile: string;
   /**
+   * Stored API keys, one optional value per keyed tool (mode 0600, atomic —
+   * server/keys.ts). Same storage ceiling as githubFile: not encrypted, and
+   * never claimed to be. A value here reaches exactly one place besides this
+   * file: the environment of a session spawned for that tool.
+   */
+  keysFile: string;
+  /**
    * Per-session Claude Code settings files (`--settings <file>`, one per
    * claude session, holding only our statusLine key). Created 0700 and WIPED
    * at boot by SessionSettingsStore — no session survives a restart, so any
@@ -134,6 +141,7 @@ export function resolveDataPaths(): DataPaths {
     prefsFile: join(dataDir, 'prefs.json'),
     githubFile: join(dataDir, 'github.json'),
     historyFile: join(dataDir, 'history.json'),
+    keysFile: join(dataDir, 'keys.json'),
     sessionSettingsDir: join(dataDir, 'session-settings'),
     statuslineSnapshotDir: join(dataDir, 'statusline-snapshots'),
     statuslineCacheFile: join(dataDir, 'statusline-cache.json'),

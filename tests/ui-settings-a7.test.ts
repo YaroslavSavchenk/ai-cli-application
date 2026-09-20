@@ -225,7 +225,13 @@ test('the five pages are the nav, in the plan’s order, and the gear opens the 
     ['colours', 'Terminal colours'],
     ['service', 'Background service'],
   ]);
-  assert.match(SETTINGS, /showPage\(PAGES\[0\]\.id\)/, 'open() shows the first page');
+  // A plain open still shows the first page; since B5 an opener may name a
+  // destination instead (the launch dialog's `Add key` -> Preferences).
+  assert.match(
+    SETTINGS,
+    /showPage\(opts\?\.page \?\? \(focusKey !== null \? 'prefs' : PAGES\[0\]\.id\)\)/,
+    'open() shows the first page unless the opener names one',
+  );
 });
 
 test('every existing wire is still in the panel (A7 is a restyle, not a rewrite)', () => {
@@ -245,7 +251,9 @@ test('every existing wire is still in the panel (A7 is a restyle, not a rewrite)
 
 test('the mock pages each carry exactly ONE honesty line, through one function', () => {
   for (const [src, name, fn, line] of [
-    [SETTINGS, 'settings.ts', 'prefsPlaceholderNote', 'Example settings until the app saves them.'],
+    // Since B5 the Preferences key rows are live; the one line left speaks for
+    // the Defaults block it sits under, and says so.
+    [SETTINGS, 'settings.ts', 'prefsPlaceholderNote', 'These defaults are examples until the app saves them.'],
     [
       COLOURS,
       'term-colours.ts',

@@ -111,8 +111,13 @@ export function trapTab(container: HTMLElement): void {
 }
 
 /**
- * Model tag from a session's argv (`--model x` / `--model=x`) — tags derive
- * client-side from SessionInfo.args; the protocol carries no tag fields.
+ * Model tag from a session's argv (`--model x` / `--model=x`, and since B5 the
+ * short `-m x` the other three agents take) — tags derive client-side from
+ * SessionInfo.args; the protocol carries no tag fields.
+ *
+ * Only the SPACE form of the short flag is read: Codex, Gemini CLI and Grok are
+ * all spawned by this app as `-m <id>`, and guessing at `-m<id>` / `-m=<id>`
+ * would start reading a custom command's unrelated `-m` as a model.
  */
 export function modelFromArgs(args: string[]): string | null {
   const i = args.indexOf('--model');
@@ -120,7 +125,10 @@ export function modelFromArgs(args: string[]): string | null {
   if (i !== -1 && typeof next === 'string' && next !== '') return next;
   const eq = args.find((a) => a.startsWith('--model='));
   const v = eq?.slice('--model='.length);
-  return v !== undefined && v !== '' ? v : null;
+  if (v !== undefined && v !== '') return v;
+  const j = args.indexOf('-m');
+  const short = j !== -1 ? args[j + 1] : undefined;
+  return typeof short === 'string' && short !== '' ? short : null;
 }
 
 /**

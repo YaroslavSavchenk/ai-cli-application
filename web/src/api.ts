@@ -22,11 +22,15 @@ import type {
   GithubStatus,
   GithubTokenRequest,
   HistoryEntry,
+  KeyedTool,
+  KeyStatus,
   OkResponse,
   Project,
   ResumeHistoryRequest,
   RuntimeStatusResponse,
+  SaveKeyRequest,
   SessionInfo,
+  ToolAvailability,
   UiPrefs,
 } from '../../shared/protocol.ts';
 import { formatError, log } from './log.ts';
@@ -358,6 +362,42 @@ export async function backendHealth(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Launchable tools + stored API keys (Nocturne B5). The key VALUE travels in
+// exactly one direction: into `saveKey`'s body and nowhere else. `getKeys()`
+// answers saved/not-saved only — the page can never read a key back, and
+// `request()` logs no request body, so nothing here can put one in the log.
+// ---------------------------------------------------------------------------
+
+/** Which launchable executables the backend finds on its own PATH. */
+export function getTools(): Promise<ToolAvailability> {
+  return request<ToolAvailability>('/api/tools');
+}
+
+/** Per keyed tool: is a key stored, and does the backend's own environment carry one. */
+export function getKeys(): Promise<KeyStatus> {
+  return request<KeyStatus>('/api/keys');
+}
+
+/**
+ * Store ONE tool's API key. THE BODY IS THE ONLY PLACE THE CREDENTIAL EXISTS
+ * client-side — the caller (ui/settings.ts) clears its field in the same frame
+ * and keeps no copy; a 400 carries the server's own sentence and never the
+ * value that was refused.
+ */
+export function saveKey(tool: KeyedTool, key: string): Promise<OkResponse> {
+  const body: SaveKeyRequest = { key };
+  return request<OkResponse>(`/api/keys/${encodeURIComponent(tool)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Forget ONE tool's stored key. The environment variable, if any, stays. */
+export function deleteKey(tool: KeyedTool): Promise<OkResponse> {
+  return request<OkResponse>(`/api/keys/${encodeURIComponent(tool)}`, { method: 'DELETE' });
 }
 
 /** Stored UI prefs bag ({} if none stored yet) — server never interprets it. */

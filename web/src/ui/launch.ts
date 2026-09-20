@@ -12,22 +12,32 @@
  * NOCTURNE A4 2026-09-10 — the v3 layout, the same launches behind it:
  *
  *   Tool         2 x 3 card grid: Claude Code, Codex, Gemini CLI, Grok,
- *                Terminal, Other. Codex, Gemini CLI and Grok are INERT until
- *                part B5 (shown, never selectable, skipped by the arrows).
+ *                Terminal, Other.
  *   Name (optional)   Project      (Name's placeholder IS the selected
  *                                   project's name — blank = titled that)
- *   Claude Code: Model   Effort
+ *   An agent:    Model   Effort
  *                Permissions (i)   2 x 2 cards; the (i) button opens the ONE
  *                                  sanctioned explanation in this dialog
- *                Start from        fresh / the last conversation (= the old
- *                                  `Continue last conversation` checkbox)
+ *                Start from        per tool (Claude Code also lists this
+ *                                  project's own ended conversations)
  *   Terminal:    Shell             Bash, Zsh, PowerShell, Command Prompt
- *                                  (Zsh and Command Prompt inert until B5)
  *   Other:       Command           the custom-command escape hatch
  *
- * The claude-only controls are HIDDEN and DISABLED for the other kinds (not
- * dimmed — four dead controls carry no information). No command preview: the
- * 2026-07-25 "no commands or flags in the UI" rule stands (user, 2026-09-10).
+ * The agent-only controls are HIDDEN and DISABLED for Terminal and Other (not
+ * dimmed — four dead controls carry no information), and the same idiom applies
+ * per tool: Gemini CLI has no effort levels, so that control leaves the form
+ * for it. No command preview: the 2026-07-25 "no commands or flags in the UI"
+ * rule stands (user, 2026-09-10).
+ *
+ * NOCTURNE B5 2026-09-18 — the other three agents and two more shells go live.
+ * What a card can do is no longer a hole in a table: the dialog asks the
+ * backend which executables it can find (`GET /api/tools`) and an absent one
+ * becomes an INERT card with the sub-line `Not installed` — the A4 idiom,
+ * runtime-sourced. Gemini CLI and Grok read an API key from their environment,
+ * so a tool with neither a saved key nor one in the backend's environment shows
+ * ONE quiet notice row with a button into Settings. Every per-tool vocabulary
+ * (models, efforts, permission availability, start-from options) lives in
+ * launch-args.ts; this file only ever renders ids and labels.
  *
  * `composeSpawn()` in launch-args.ts is the ONE composition path for all three
  * kinds and `currentSpawn()` its ONE caller, so the POST body has no second
@@ -40,33 +50,43 @@
  * active. While closed, the dialog touches no keyboard input — the terminal
  * owns the keys.
  */
+import type { HistoryEntry, KeyedTool, KeyStatus, ToolAvailability } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, trapTab, fmtAgo } from './util.ts';
 import { infoIcon } from './icons.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
+import { openSettings } from './settings.ts';
 import {
-  MODELS,
-  MODEL_LABEL,
+  AGENT_KINDS,
   PERMS,
   PERM_SHORT,
   PERM_HELP,
-  EFFORTS,
-  EFFORT_LABEL,
-  NOT_YET,
+  NOT_INSTALLED,
   SHELLS,
   SHELL_CARDS,
   START_FROM,
+  TOOLS,
   TOOL_CARDS,
   composeSpawn,
   continueFromStart,
+  isAgentKind,
   isEffort,
+  isStartFrom,
   shellLabel,
   resolveModel,
   resolvePerm,
 } from './launch-args.ts';
-import type { Effort, LaunchKind, Perm, ShellId, SpawnSpec } from './launch-args.ts';
+import type {
+  AgentKind,
+  Choice,
+  Effort,
+  LaunchKind,
+  Perm,
+  ShellId,
+  SpawnSpec,
+} from './launch-args.ts';
 
 export interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
@@ -107,17 +127,29 @@ export function isLaunchDialogOpen(): boolean {
 
 /** One card of a card radiogroup. */
 interface CardSpec<T extends string> {
-  /** The value the card selects; null = INERT (shown, never selectable). */
-  value: T | null;
+  /** The value the card selects. */
+  value: T;
   /** Extra class on the card (the danger mode). */
   cls?: string;
-  content: Node[];
+  /** The tile before the words, decoration only (aria-hidden). */
+  mark?: HTMLElement;
+  label: string;
+  /** The quieter line under the label while the card is LIVE. */
+  sub?: string;
 }
 
 interface CardGroup<T extends string> {
   row: HTMLElement;
   buttons: Map<T, HTMLButtonElement>;
   select(v: T): void;
+  /**
+   * Make cards inert, each with the hint that replaces its sub-line; every card
+   * not named goes back to live with its own words. Inert cards are
+   * `aria-disabled`, never a tab stop, and skipped by the arrows.
+   */
+  setInert(hints: ReadonlyMap<T, string>): void;
+  /** The values that can be picked right now, in reading order. */
+  live(): T[];
 }
 
 /**
@@ -127,6 +159,10 @@ interface CardGroup<T extends string> {
  * `aria-disabled="true"` and permanently `tabindex=-1`: the arrows skip them,
  * a click does nothing and does not even take focus, and the dialog's focus
  * trap (`tabIndex >= 0` filter) never counts them as a stop.
+ *
+ * Since B5 inert-ness is a RUNTIME state (an executable the backend cannot
+ * find, a mode a tool does not take), so the same card can go live and back
+ * without being rebuilt — `setInert` is the one way it changes.
  */
 function radioCards<T extends string>(
   rowClass: string,
@@ -138,26 +174,38 @@ function radioCards<T extends string>(
   row.setAttribute('role', 'radiogroup');
   row.setAttribute('aria-labelledby', labelledBy);
   const buttons = new Map<T, HTMLButtonElement>();
-  const order: T[] = [];
+  /** Per card: its own sub-line words, and the two spans that render them. */
+  const words = new Map<T, { txt: HTMLElement; lb: HTMLElement; sub: HTMLElement; own: string }>();
+  const all: T[] = [];
+  let order: T[] = [];
   for (const s of specs) {
     const b = button(s.cls !== undefined && s.cls !== '' ? `ns-card ${s.cls}` : 'ns-card', '');
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', 'false');
     b.tabIndex = -1;
-    b.append(...s.content);
-    const v = s.value;
-    if (v === null) {
-      b.setAttribute('aria-disabled', 'true');
-      b.addEventListener('mousedown', (e) => e.preventDefault());
-    } else {
-      order.push(v);
-      buttons.set(v, b);
-      b.addEventListener('click', () => onPick(v));
-    }
+    const txt = el('span', 'ns-card-txt');
+    const lb = el('span', 'ns-card-lb', s.label);
+    const sub = el('span', 'ns-card-sub', s.sub ?? '');
+    txt.replaceChildren(...(s.sub !== undefined ? [lb, sub] : [lb]));
+    if (s.mark !== undefined) b.append(s.mark);
+    b.append(txt);
+    words.set(s.value, { txt, lb, sub, own: s.sub ?? '' });
+    all.push(s.value);
+    order.push(s.value);
+    buttons.set(s.value, b);
+    b.addEventListener('click', () => {
+      if (b.getAttribute('aria-disabled') === 'true') return;
+      onPick(s.value);
+    });
+    // An inert card must not even take focus from a press (A4).
+    b.addEventListener('mousedown', (e) => {
+      if (b.getAttribute('aria-disabled') === 'true') e.preventDefault();
+    });
     row.append(b);
   }
   let current = order[0] as T;
   row.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (order.length === 0) return;
     let i = order.indexOf(current);
     const k = e.key;
     if (k === 'ArrowRight' || k === 'ArrowDown') i = (i + 1) % order.length;
@@ -176,19 +224,33 @@ function radioCards<T extends string>(
       const on = value === v;
       b.classList.toggle('is-sel', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
-      b.tabIndex = on ? 0 : -1;
+      // An inert card is never a tab stop, selected or not.
+      b.tabIndex = on && b.getAttribute('aria-disabled') !== 'true' ? 0 : -1;
+    }
+    // A group whose selected card just went inert would have NO tab stop and
+    // drop out of the keyboard's reach; its first live card takes the stop
+    // until the caller moves the selection.
+    if (order.length > 0 && ![...buttons.values()].some((b) => b.tabIndex === 0)) {
+      const first = buttons.get(order[0] as T);
+      if (first !== undefined) first.tabIndex = 0;
     }
   }
+  function setInert(hints: ReadonlyMap<T, string>): void {
+    order = all.filter((v) => !hints.has(v));
+    for (const [value, b] of buttons) {
+      const hint = hints.get(value);
+      const w = words.get(value);
+      if (hint === undefined) b.removeAttribute('aria-disabled');
+      else b.setAttribute('aria-disabled', 'true');
+      if (w === undefined) continue;
+      const line = hint ?? w.own;
+      w.sub.textContent = line;
+      w.txt.replaceChildren(...(line !== '' ? [w.lb, w.sub] : [w.lb]));
+    }
+    select(current);
+  }
   select(current);
-  return { row, buttons, select };
-}
-
-/** A card's words: the label, and an optional quieter sub-line under it. */
-function cardText(label: string, sub?: string): HTMLElement {
-  const txt = el('span', 'ns-card-txt');
-  txt.append(el('span', 'ns-card-lb', label));
-  if (sub !== undefined) txt.append(el('span', 'ns-card-sub', sub));
-  return txt;
+  return { row, buttons, select, setInert, live: () => [...order] };
 }
 
 /** A group label that a radiogroup can point `aria-labelledby` at. */
@@ -229,14 +291,26 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     TOOL_CARDS.map((t) => {
       const mark = el('span', t.kind === 'claude' ? 'ns-mark is-agent' : 'ns-mark', t.mark);
       mark.setAttribute('aria-hidden', 'true');
-      return {
-        value: t.kind,
-        content: [mark, cardText(t.label, t.kind === null ? NOT_YET : t.sub)],
-      };
+      return { value: t.kind as LaunchKind, mark, label: t.label, sub: t.sub };
     }),
     (k) => setKind(k, true),
   );
   toolGroup.append(groupLabel('ns-tool-lb', 'Tool'), toolCards.row);
+
+  // The key notice: ONE quiet line about the selected tool, and one small
+  // button that hands the user to the field that fixes it. Shown only for a
+  // tool that reads a key from its environment and has neither a saved one nor
+  // one already there — never for Claude Code (it signs in) or Codex (a key
+  // alone does not authenticate it; its Settings row says so).
+  const notice = el('div', 'ns-notice');
+  notice.hidden = true;
+  const noticeTxt = el('span', '', 'Needs an API key, or sign in inside the terminal the first time.');
+  const noticeBtn = button('ns-noticebtn', 'Add key', () => {
+    const tool = keyToolFor(kind);
+    close();
+    if (tool !== null) openSettings({ page: 'prefs', focusKey: tool });
+  });
+  notice.append(noticeTxt, noticeBtn);
 
   // Name + Project, shared by every kind.
   const nameProj = el('div', 'ns-row2');
@@ -254,30 +328,49 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   projField.append(el('span', 'ns-lb', 'Project'), projectSel);
   nameProj.append(nameField, projField);
 
-  // ---- Claude Code only ----------------------------------------------------
+  // ---- the agents (Claude Code, Codex, Gemini CLI, Grok) --------------------
+  // ONE control set, repopulated per tool from the launch-args tables: four
+  // parallel forms would be four places for the same mistake.
   const claudeBox = el('div', 'ns-kindbox');
 
   const modelEffort = el('div', 'ns-row2');
   const modelField = el('label', 'ns-field');
   const modelSel = el('select');
   modelSel.name = 'model';
-  for (const m of MODELS) {
-    const opt = el('option', '', MODEL_LABEL[m]);
-    opt.value = m;
-    modelSel.append(opt);
-  }
   modelField.append(el('span', 'ns-lb', 'Model'), modelSel);
 
   const effortField = el('label', 'ns-field');
   const effortSel = el('select');
   effortSel.name = 'effort';
-  for (const e of EFFORTS) {
-    const opt = el('option', '', EFFORT_LABEL[e]);
-    opt.value = e;
-    effortSel.append(opt);
-  }
   effortField.append(el('span', 'ns-lb', 'Effort'), effortSel);
   modelEffort.append(modelField, effortField);
+
+  /**
+   * What each agent was last set to. The dialog has ONE Model/Effort/Start from
+   * set pointed at whichever tool is chosen, so switching tools and back must
+   * not silently hand Codex the level the user picked for Grok — and coming
+   * back to a tool must show what was chosen for it.
+   *
+   * Effort and Start from are reset for every agent on every open (a reopened
+   * dialog never silently continues); the model is not, except Claude Code's,
+   * which the selected project's own default resolves per open.
+   */
+  const chosen: Record<AgentKind, { model: string; effort: string; start: string }> = {
+    claude: { model: TOOLS.claude.models[0]?.id ?? '', effort: TOOLS.claude.effortNone, start: 'fresh' },
+    codex: { model: TOOLS.codex.modelNone, effort: TOOLS.codex.effortNone, start: 'fresh' },
+    gemini: { model: TOOLS.gemini.modelNone, effort: TOOLS.gemini.effortNone, start: 'fresh' },
+    grok: { model: TOOLS.grok.modelNone, effort: TOOLS.grok.effortNone, start: 'fresh' },
+  };
+
+  /** Fill a select from a per-tool table: the option SHOWS a label, HOLDS an id. */
+  function fillChoices(sel: HTMLSelectElement, choices: readonly Choice[]): void {
+    sel.replaceChildren();
+    for (const c of choices) {
+      const opt = el('option', '', c.label);
+      opt.value = c.id;
+      sel.append(opt);
+    }
+  }
 
   // Permissions: labels only on the cards (the 2026-09-06 cut stands). The
   // words are PERM_SHORT — the same table the pane status bar's Mode reads.
@@ -314,7 +407,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     PERMS.map((p) => ({
       value: p.mode,
       cls: p.danger ? 'is-danger' : '',
-      content: [cardText(PERM_SHORT[p.mode])],
+      label: PERM_SHORT[p.mode],
     })),
     (mode) => setPerm(mode),
   );
@@ -326,16 +419,12 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
   setPerm('default');
 
-  // Start from: `continue` is exactly the old "Continue last conversation"
-  // checkbox (`--continue`). Per-id resume stays in the drawer's HISTORY.
+  // Start from: per tool. Claude Code's `continue` is exactly the old
+  // "Continue last conversation" checkbox (`--continue`), and its list grows
+  // one option per ended conversation of the selected project (B5).
   const startField = el('label', 'ns-field');
   const startSel = el('select');
   startSel.name = 'start';
-  for (const s of START_FROM) {
-    const opt = el('option', '', s.label);
-    opt.value = s.value;
-    startSel.append(opt);
-  }
   startField.append(el('span', 'ns-lb', 'Start from'), startSel);
 
   claudeBox.append(modelEffort, permGroup, startField);
@@ -347,10 +436,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   const shellCards = radioCards<ShellId>(
     'ns-grid ns-shells',
     'ns-shell-lb',
-    SHELL_CARDS.map((c) => ({
-      value: c.shell,
-      content: [cardText(c.label, c.shell === null ? NOT_YET : c.sub)],
-    })),
+    SHELL_CARDS.map((c) => ({ value: c.shell as ShellId, label: c.label, sub: c.sub })),
     (id) => {
       shell = id;
       shellCards.select(id);
@@ -380,7 +466,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   });
   none.append(noneTxt, noneAdd);
 
-  body.append(toolGroup, nameProj, claudeBox, shellGroup, cmdField, err, none);
+  body.append(toolGroup, notice, nameProj, claudeBox, shellGroup, cmdField, err, none);
 
   // ---- footer --------------------------------------------------------------
   const ft = el('footer', 'ns-ft');
@@ -390,10 +476,11 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
 
   /**
    * Switch what is being launched: each kind reveals its own group, and the
-   * claude-only set (Model, Effort, Permissions and its info button, Start
-   * from) leaves the dialog entirely for the other two kinds — hidden AND
-   * `disabled`, so nothing hidden is reachable by keyboard or read by a screen
-   * reader.
+   * agent-only set (Model, Effort, Permissions and its info button, Start from)
+   * leaves the dialog entirely for Terminal and Other — hidden AND `disabled`,
+   * so nothing hidden is reachable by keyboard or read by a screen reader. The
+   * same idiom applies WITHIN the agents: Gemini CLI has no effort levels, so
+   * that one control leaves the form for it (a dead select says nothing).
    *
    * `byUser` moves the keyboard into the revealed Command field — an open()
    * restoring a remembered kind must not steal focus from the Name box.
@@ -401,18 +488,70 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   function setKind(next: LaunchKind, byUser: boolean): void {
     kind = next;
     toolCards.select(next);
-    const claudeOff = next !== 'claude';
+    const agent = isAgentKind(next) ? next : null;
+    const agentOff = agent === null;
     cmdField.hidden = next !== 'other';
     shellGroup.hidden = next !== 'terminal';
-    claudeBox.hidden = claudeOff;
-    modelSel.disabled = claudeOff;
-    effortSel.disabled = claudeOff;
-    startSel.disabled = claudeOff;
-    infoBtn.disabled = claudeOff;
-    for (const b of permCards.buttons.values()) b.disabled = claudeOff;
-    if (claudeOff) setHelp(false, false);
+    claudeBox.hidden = agentOff;
+    infoBtn.disabled = agentOff;
+    for (const b of permCards.buttons.values()) b.disabled = agentOff;
+    if (agentOff) setHelp(false, false);
+    if (agent !== null) applyToolVocab(agent);
+    else {
+      modelSel.disabled = true;
+      effortSel.disabled = true;
+      startSel.disabled = true;
+    }
+    syncNotice();
     syncLaunchable();
     if (byUser && next === 'other') cmdInput.focus();
+  }
+
+  /**
+   * Point the one agent control set at ONE tool's vocabulary: its models, its
+   * effort levels (none = the control leaves the form), which permission cards
+   * it cannot be told from here, and its Start from options. Every value comes
+   * from `TOOLS` in launch-args.ts; nothing about a CLI is spelled here.
+   */
+  function applyToolVocab(agent: AgentKind): void {
+    const v = TOOLS[agent];
+    fillChoices(modelSel, v.models);
+    modelSel.value = chosen[agent].model;
+    // A value no option carries selects NOTHING in a real select; fall back to
+    // the tool's own first option rather than leaving the field blank.
+    if (modelSel.value !== chosen[agent].model) {
+      chosen[agent].model = v.models[0]?.id ?? '';
+      modelSel.value = chosen[agent].model;
+    }
+    modelSel.disabled = false;
+
+    const hasEffort = v.efforts.length > 0;
+    effortField.hidden = !hasEffort;
+    effortSel.disabled = !hasEffort;
+    // With only one control left the row stops being a pair, or Model would sit
+    // in half a dialog beside a hole.
+    modelEffort.classList.toggle('is-one', !hasEffort);
+    if (hasEffort) {
+      fillChoices(effortSel, v.efforts);
+      effortSel.value = chosen[agent].effort;
+      if (effortSel.value !== chosen[agent].effort) {
+        chosen[agent].effort = v.effortNone;
+        effortSel.value = v.effortNone;
+      }
+    } else {
+      effortSel.replaceChildren();
+    }
+
+    permCards.setInert(new Map(v.inertPerms.map((p) => [p.mode, p.hint])));
+    // A mode this tool cannot be told is not a mode it silently keeps.
+    if (v.inertPerms.some((p) => p.mode === perm)) setPerm('default');
+    else permCards.select(perm);
+
+    startSel.disabled = false;
+    // Claude Code is the one tool whose Start from lists conversations, so its
+    // list is the only one that needs the history (asked once per open).
+    if (agent === 'claude') refreshHistory();
+    populateStart();
   }
 
   modal.append(hd, body, ft);
@@ -485,6 +624,224 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     syncNamePlaceholder();
   }
 
+  // ---- what the backend can actually run (B5) -------------------------------
+
+  /**
+   * What the dialog assumes before it has ever been told. Exactly the set the
+   * app could compose BEFORE part B5 — anything new stays inert until the
+   * backend says it is there, so opening the dialog never flashes a row of
+   * enabled cards that then go dark.
+   */
+  const ASSUMED: ToolAvailability = {
+    claude: true,
+    codex: false,
+    gemini: false,
+    grok: false,
+    zsh: false,
+    cmd: false,
+    powershell: true,
+  };
+
+  /** The last answer from GET /api/tools; a pending fetch keeps this one. */
+  let avail: ToolAvailability = ASSUMED;
+  /**
+   * False until GET /api/tools has answered ONCE on this page. While it is
+   * false the assumed-absent cards are inert with NO sub-line: unselectable,
+   * but claiming nothing — `Not installed` is a statement only the backend
+   * gets to make.
+   */
+  let answered = false;
+  /** The last answer from GET /api/keys; null = not asked yet / unreadable. */
+  let keyStatus: KeyStatus | null = null;
+  /** This project's resumable conversations, fetched at most once per open. */
+  let history: HistoryEntry[] = [];
+  let historyAsked = false;
+
+  /** The keyed tool a kind reads a key for, or null when it takes none. */
+  function keyToolFor(k: LaunchKind): KeyedTool | null {
+    // Claude Code signs in, and a key alone does not authenticate Codex — so
+    // neither gets a notice, whatever is stored (user decision 2026-09-18).
+    return k === 'gemini' || k === 'grok' ? k : null;
+  }
+
+  /**
+   * What the backend said about ONE card id, or undefined for a card it says
+   * nothing about — Terminal, Other and the Bash card, none of which can be
+   * missing (this backend runs in a WSL shell, and a typed command is the
+   * user's own claim about what exists).
+   */
+  function installed(id: string): boolean | undefined {
+    return Object.hasOwn(avail, id) ? avail[id as keyof ToolAvailability] : undefined;
+  }
+
+  /**
+   * Availability -> the cards. An absent executable makes its card INERT with
+   * the sub-line `Not installed`; Terminal, Other and the Bash card are never
+   * inert (this backend IS a shell in WSL, and a typed command is the user's
+   * own claim). A selection that just went inert falls back to the first live
+   * card rather than sitting on something that cannot launch.
+   */
+  function applyAvailability(): void {
+    const hint = answered ? NOT_INSTALLED : '';
+    const toolHints = new Map<LaunchKind, string>();
+    for (const t of TOOL_CARDS) {
+      if (installed(t.id) === false) toolHints.set(t.kind, hint);
+    }
+    toolCards.setInert(toolHints);
+    const shellHints = new Map<ShellId, string>();
+    for (const c of SHELL_CARDS) {
+      if (installed(c.id) === false) shellHints.set(c.shell, hint);
+    }
+    shellCards.setInert(shellHints);
+    if (shellHints.has(shell)) {
+      const firstShell = shellCards.live()[0];
+      if (firstShell !== undefined) {
+        shell = firstShell;
+        shellCards.select(firstShell);
+      }
+    }
+    if (toolHints.has(kind)) {
+      const firstKind = toolCards.live()[0];
+      if (firstKind !== undefined) setKind(firstKind, false);
+      else syncNotice();
+    } else {
+      toolCards.select(kind);
+      syncNotice();
+    }
+  }
+
+  /**
+   * The ONE notice in the dialog: shown for a tool that reads an API key from
+   * its environment and has neither a saved one nor one already set outside the
+   * app. While the answer is unknown nothing is claimed — an unprompted "needs
+   * a key" over a machine that has one would be wrong half the time.
+   */
+  function syncNotice(): void {
+    const tool = keyToolFor(kind);
+    const unanswered = keyStatus === null;
+    const has = tool !== null && keyStatus !== null && (keyStatus.saved[tool] || keyStatus.env[tool]);
+    notice.hidden = tool === null || unanswered || has;
+  }
+
+  /** Ask the backend what it can run and which keys exist. Never throws. */
+  function refreshTools(): void {
+    void api
+      .getTools()
+      .then((t) => {
+        avail = t;
+        answered = true;
+        applyAvailability();
+      })
+      .catch(() => {
+        // Keep the last known answer: a momentary failure must not turn every
+        // card the user just used into `Not installed`.
+      });
+    void api
+      .getKeys()
+      .then((s) => {
+        keyStatus = s;
+        syncNotice();
+      })
+      .catch(() => {
+        // Unknown stays unknown, and an unknown makes no claim.
+      });
+  }
+
+  /**
+   * The ended conversations of the SELECTED project, newest first — the same
+   * entries the sessions drawer's Earlier section lists, filtered to the ones
+   * `--resume` can target. With no project selected the page cannot name the
+   * home folder, so it offers the entries that belong to no project instead.
+   */
+  function resumeEntries(): HistoryEntry[] {
+    const pid = projectSel.value;
+    return history
+      .filter(
+        (e) =>
+          e.conversation &&
+          e.ended !== null &&
+          (pid !== ''
+            ? e.projectId === pid
+            : // No project = the home folder, where such a session would start:
+              // a project-less conversation from SOME OTHER folder is not one of
+              // these. Until home is known nothing is offered, never a guess.
+              e.projectId === undefined && homeResolved !== null && e.cwd === homeResolved),
+      )
+      .sort((a, b) => Date.parse(b.lastUsedAt) - Date.parse(a.lastUsedAt));
+  }
+
+  /**
+   * Fill Start from for the selected tool: its fixed options, then (Claude Code
+   * only) one per resumable conversation of this project, labelled with its
+   * title and when it last ran — the Earlier section's own wording. A value the
+   * new list no longer carries falls back to a fresh start; it never silently
+   * becomes a different conversation.
+   */
+  function populateStart(): void {
+    if (!isAgentKind(kind)) return;
+    startSel.replaceChildren();
+    for (const s of TOOLS[kind].starts) {
+      const opt = el('option', '', s.label);
+      opt.value = s.value;
+      startSel.append(opt);
+    }
+    if (kind === 'claude') {
+      for (const e of resumeEntries()) {
+        const opt = el('option', '', `${e.title}, ${fmtAgo(e.lastUsedAt)}`);
+        opt.value = e.id;
+        startSel.append(opt);
+      }
+    }
+    const want = chosen[kind].start;
+    startSel.value = want;
+    // The conversation that was chosen may not belong to the project now
+    // selected. A fresh start is the only honest fallback — silently landing on
+    // a DIFFERENT conversation would be the one unforgivable outcome here.
+    if (startSel.value !== want) {
+      chosen[kind].start = 'fresh';
+      startSel.value = 'fresh';
+    }
+  }
+
+  /**
+   * The home folder behind "no project", resolved once per page (the fetch
+   * itself is cached in `homeCwd`) so `resumeEntries` can tell a conversation
+   * that ran THERE from one that ran in some other folder outside every
+   * project. Asked beside the history, for the same list.
+   */
+  let homeResolved: string | null = null;
+  let homeAsked = false;
+  function refreshHome(): void {
+    if (homeAsked) return;
+    homeAsked = true;
+    void homeCwd()
+      .then((p) => {
+        homeResolved = p;
+        if (kind === 'claude') populateStart();
+      })
+      .catch(() => {
+        // Unknown home: the list stays empty rather than guessing, and the next
+        // open asks again.
+        homeAsked = false;
+      });
+  }
+
+  /** Claude Code's resume list, asked at most once per open. */
+  function refreshHistory(): void {
+    refreshHome();
+    if (historyAsked) return;
+    historyAsked = true;
+    void api
+      .getHistory()
+      .then((h) => {
+        history = h;
+        if (kind === 'claude') populateStart();
+      })
+      .catch(() => {
+        // No list, no extra options — the two fixed ones still work.
+      });
+  }
+
   /**
    * With no projects there is nothing for Claude to work on, so Start session
    * stays off — but a plain Terminal always has somewhere to run (the home
@@ -524,18 +881,38 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
    */
   function applyDefaults(): void {
     const p = st.state.projects.find((p) => p.id === projectSel.value);
-    modelSel.value = resolveModel(p?.defaultModel);
-    setPerm(resolvePerm(p?.defaultMode));
+    // `defaultModel` is a Claude Code model id, so it resolves onto THAT tool's
+    // choice — whichever tool is on screen right now. Switching to Claude Code
+    // later in this open still shows it.
+    chosen.claude.model = resolveModel(p?.defaultModel);
+    if (kind === 'claude') modelSel.value = chosen.claude.model;
+    const wanted = resolvePerm(p?.defaultMode);
+    // Never onto a card this tool cannot be told: an inert mode is not a choice.
+    const inert = isAgentKind(kind) ? TOOLS[kind].inertPerms : [];
+    setPerm(inert.some((x) => x.mode === wanted) ? 'default' : wanted);
   }
 
   /** Start from, read in ONE place: the argv and the log line agree. */
   function currentContinue(): boolean {
-    return continueFromStart(startSel.value);
+    return kind === 'claude' && continueFromStart(startSel.value);
+  }
+
+  /**
+   * The conversation the user picked in Start from, when they picked one: any
+   * value the fixed table does not carry IS a conversation id (the per-project
+   * entries are valued by it). Claude Code only.
+   */
+  function currentResumeId(): string | undefined {
+    if (kind !== 'claude') return undefined;
+    const v = startSel.value;
+    return v !== '' && !isStartFrom(v) ? v : undefined;
   }
 
   /**
    * The ONE composition path for every kind — the POST body reads only this.
-   * null = nothing to spawn (blank custom command).
+   * null = nothing to spawn (blank custom command). Every field is handed over
+   * whatever the kind: `composeSpawn` reads only the ones its kind owns, and
+   * the tests pin that a hidden control cannot leak into another tool's argv.
    */
   function currentSpawn(): SpawnSpec | null {
     return composeSpawn({
@@ -546,19 +923,52 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       effort: currentEffort(),
       shell,
       customLine: cmdInput.value,
+      ...(currentResumeId() !== undefined ? { resumeId: currentResumeId() } : {}),
+      codexModel: kind === 'codex' ? modelSel.value : undefined,
+      geminiModel: kind === 'gemini' ? modelSel.value : undefined,
+      grokModel: kind === 'grok' ? modelSel.value : undefined,
+      codexEffort: kind === 'codex' ? effortSel.value : undefined,
+      grokEffort: kind === 'grok' ? effortSel.value : undefined,
+      start: startSel.value,
     });
   }
 
-  /** The selected effort, resolved in ONE place: the argv and the log line agree. */
+  /**
+   * The selected effort, resolved in ONE place: the argv and the log line
+   * agree. Claude Code's own vocabulary — the other tools' efforts are their
+   * own ids and travel through `composeSpawn`'s per-tool fields.
+   */
   function currentEffort(): Effort {
-    return isEffort(effortSel.value) ? effortSel.value : 'default';
+    return kind === 'claude' && isEffort(effortSel.value) ? effortSel.value : 'default';
   }
 
   projectSel.addEventListener('change', () => {
     // A mid-dialog project switch does NOT re-resolve model/permission —
     // defaults settle once per open (applyDefaults); per-launch control stays
-    // with the user. Only the name placeholder follows the new project.
+    // with the user. The name placeholder and, for Claude Code, WHICH
+    // conversations can be resumed both follow the new project.
     syncNamePlaceholder();
+    if (kind === 'claude') populateStart();
+  });
+
+  // Every per-tool choice is remembered against ITS tool, so a switch and back
+  // shows what was chosen rather than what the last tool happened to hold.
+  modelSel.addEventListener('change', () => {
+    if (isAgentKind(kind)) chosen[kind].model = modelSel.value;
+  });
+  effortSel.addEventListener('change', () => {
+    if (isAgentKind(kind)) chosen[kind].effort = effortSel.value;
+  });
+
+  // Choosing an earlier conversation names the session after it — the user
+  // recognises the work, not a project name repeated five times. Still just a
+  // preset: the field stays editable.
+  startSel.addEventListener('change', () => {
+    if (isAgentKind(kind)) chosen[kind].start = startSel.value;
+    const id = currentResumeId();
+    if (id === undefined) return;
+    const entry = resumeEntries().find((e) => e.id === id);
+    if (entry !== undefined) nameInput.value = entry.title;
   });
 
   // ONE permanent subscription (state.ts has no unsubscribe — never bind per
@@ -583,13 +993,15 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     // What the user asked for, in SHAPE only: the custom command line is
     // whatever they typed and never reaches a log line — only how many words
     // it had. The project appears by NAME, never by path.
-    const effort = currentEffort();
     const continueLast = currentContinue();
     const projectLabel = st.state.projects.find((p) => p.id === projectId)?.name ?? '?';
     log.info(
-      kind === 'claude'
-        ? `launch: kind=claude project=${projectLabel} model=${modelSel.value} effort=${effort} ` +
-          `mode=${perm} continue=${continueLast}`
+      isAgentKind(kind)
+        ? // A conversation id is a session identifier, not a secret, but it says
+          // nothing a reader needs: `resume=yes` is the fact.
+          `launch: kind=${kind} project=${projectLabel} model=${modelSel.value} ` +
+          `effort=${effortSel.disabled ? 'none' : effortSel.value} mode=${perm} ` +
+          `continue=${continueLast} resume=${currentResumeId() !== undefined ? 'yes' : 'no'}`
         : kind === 'terminal'
           ? `launch: kind=terminal project=${projectLabel} shell=${shell}`
           : `launch: kind=other project=${projectLabel} words=${spawn.args.length + 1}`,
@@ -647,6 +1059,17 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     err.hidden = true;
     nameInput.value = '';
     setHelp(false, false);
+    // Ask again every open: a tool can be installed, and a key saved, between
+    // two uses of this dialog. The LAST answer stays on screen until a new one
+    // lands, so nothing flickers while the requests are in flight.
+    historyAsked = false;
+    refreshTools();
+    // Effort and Start from reset for EVERY agent: a reopened dialog never
+    // silently continues, resumes, or spends a level the user chose an hour ago.
+    for (const k of AGENT_KINDS) {
+      chosen[k].effort = TOOLS[k].effortNone;
+      chosen[k].start = 'fresh';
+    }
     populateProjects();
     if (opts?.projectId !== undefined && st.state.projects.some((p) => p.id === opts.projectId)) {
       // Explicit project intent (projects-drawer row `+`) means "a Claude Code
@@ -664,10 +1087,10 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     }
     // Resolve model + permission once against the now-settled selected project
     // (the forced project above, or populateProjects()'s auto-selected first
-    // project on a plain open). Effort and Start from reset every open.
+    // project on a plain open). A project default names a Claude Code model, so
+    // it is layered on for that tool only. Effort and Start from reset every
+    // open — a reopened dialog never silently continues or resumes.
     applyDefaults();
-    effortSel.value = 'default';
-    startSel.value = 'fresh';
     scrim.hidden = false;
     nameInput.focus();
   }
@@ -682,6 +1105,11 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     else requestTerminalFocus();
     restoreTo = null;
   }
+
+  // The assumed set on screen from the very first frame: the cards the backend
+  // has not vouched for yet are already inert, so a first open cannot flash a
+  // live Codex / Gemini CLI / Grok / Zsh / Command Prompt that then goes dark.
+  applyAvailability();
 
   ctl = { open, close, isOpen: () => !scrim.hidden };
 }
