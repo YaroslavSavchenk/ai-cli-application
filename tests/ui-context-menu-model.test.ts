@@ -188,9 +188,10 @@ test('a DISABLED entry carries its note; an ENABLED one carries none', () => {
       }
     }
   }
-  // Non-vacuity, and the count of what is not built yet: Copy on all three
-  // rows, Paste on the two folders. Everything A9c added is enabled — an entry
-  // that creates something either works or is not on the menu.
+  // Non-vacuity, and the count of what this window cannot do: Copy on all
+  // three rows (`canCopy: false` here), Paste on the two folders. Everything
+  // A9c added is enabled — an entry that creates something either works or is
+  // not on the menu.
   assert.equal(disabled, 5);
   assert.equal(enabled, 12);
 });

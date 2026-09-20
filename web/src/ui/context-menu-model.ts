@@ -104,10 +104,11 @@ export const MENU_MARGIN = 8;
  *
  * A FOLDER offers what the row itself does (`Open`/`Close` — the same toggle
  * the primary click performs, named instead of guessed at), the two clipboard
- * entries that are not built yet, the destination gesture that IS built
- * (`Copy files here…`, the same words as the copy strip's own button, because
- * they do the same thing to the same folder) and — since A9c — the three that
- * make or re-read its contents (`makeEntries`).
+ * entries (`Copy`, real in the native window since B10; `Paste`, never from a
+ * menu), the destination gesture that IS built (`Copy files here…`, the same
+ * words as the copy strip's own button, because they do the same thing to the
+ * same folder) and — since A9c — the three that make or re-read its contents
+ * (`makeEntries`).
  *
  * A FILE offers the two ways the app can already show it — in the focused
  * editor pane, or beside it — plus `Copy`. It offers no `Paste`: files do not
@@ -172,10 +173,9 @@ function makeEntries(): MenuItem[] {
  *
  * It is the FOLDER list minus the two entries that need a row to act on: the
  * root has no row, so there is nothing to `Open`/`Close` (it is the whole
- * tree, always open), and `Copy` would have to put the root itself on a
- * clipboard nobody can read yet. What is left is everything that is about the
- * folder's CONTENTS, which is exactly what the background of a file tree is
- * about.
+ * tree, always open), and `Copy` would have to put the root itself on the
+ * clipboard. What is left is everything that is about the folder's CONTENTS,
+ * which is exactly what the background of a file tree is about.
  *
  * `name` is the root's own name — the one the header prints — and it is
  * deliberately NOT spent on a label: `Copy files here…` is the copy strip's

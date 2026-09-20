@@ -257,7 +257,7 @@ interface Subject {
 // what is a pane's folder, what would a paste use — answered HERE, by the one
 // `subject()` the header already prints, and handed to `ui/filedrop.ts` as
 // injected deps. Since B2 each answer is a `Destination`: the NAME the UI is
-// allowed to show and the real PATH part B10's upload will post to. Not one
+// allowed to show and the real PATH the upload posts to (part B10). Not one
 // visible string changes — every renderer reads `.name`.
 
 /** The panel's own root — its non-folder area. Null with no panel on screen. */

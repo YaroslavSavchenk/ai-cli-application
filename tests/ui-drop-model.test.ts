@@ -474,7 +474,7 @@ test('resultText: results that do not say file-or-folder are counted as items', 
 });
 
 // ---------------------------------------------------------------------------
-// The mock's own demo path (what the dialog will actually show until B10)
+// The demo path: what the dialog shows for a drop onto a real listing
 // ---------------------------------------------------------------------------
 
 test('a real listing makes README.md and web the conflicts at the root', () => {

@@ -73,7 +73,7 @@ export interface DropItem {
   /**
    * Size in bytes for a file (`getAsFile()?.size`), `null` for a folder and
    * for a file whose size the browser would not say. A folder never fails on
-   * size: its total is a recursive walk, which is B10's job.
+   * size: its total is a recursive walk, which `ui/drop-walk.ts` does (B10).
    */
   bytes: number | null;
 }
@@ -239,16 +239,6 @@ export function keepBothName(name: string, taken: readonly string[]): string {
 // ---------------------------------------------------------------------------
 // The mock copy
 // ---------------------------------------------------------------------------
-
-/**
- * Per-file write mode the upload route takes: `replace` is a deliberate
- * overwrite of something already there, `new` a name that must still be free.
- * It is the protocol's own `FsUploadMode` since part B10 phase 2 — the wire
- * decides what a write mode is, and this module only chooses between them.
- * Re-exported under the A9 name so every reader that learned it here keeps
- * working, and so a plan can be read without knowing where the wire lives.
- */
-export type UploadMode = FsUploadMode;
 
 /**
  * One top-level item, resolved against the destination's listing and the one

@@ -225,6 +225,14 @@ differently — see [Updating](#updating) above.)
   it installs anything third-party, and it is the only part that installs
   anything at all: the app itself launches the CLIs you already have, and it
   will refuse to restart rather than run `npm install` for you.
+- **Files you drop into the app land in WSL.** Drag files or folders from
+  Explorer onto a folder in the Files panel or onto a terminal pane, or paste
+  them with files on the clipboard: they are copied under that folder, up to
+  200 dropped items, 50 MB per file, 2000 files and 1 GB per drop, with one
+  question per drop when names clash. If the app dies in the middle of a copy,
+  an in-flight `.upload-….part` file may be left behind — it is safe to
+  delete. `Copy` in a row's menu puts that file or folder on the Windows
+  clipboard (native window only), ready to paste in Explorer.
 
 ## Run it (Windows + WSL2)
 

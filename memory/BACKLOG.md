@@ -392,7 +392,8 @@ pass or a test-engineer brief, not a feature.
 
 ## Queued ideas (not decided)
 
-- Persist the verify-terminal CDP driver (Playwright's bare Chromium `~/.cache/ms-playwright/chromium-1228` + `ws`, `libnspr4`/`libnss3` unpacked locally, force a tiny `Page.captureScreenshot` before reading `.xterm-rows` because headless throttles rAF, clear `DevToolsActivePort`/`SingletonLock` before relaunch, `top` for `htop`) under `scripts/` so each part's gate stops rebuilding it from scratch — three sessions have now written it into a throwaway scratch dir (A3, A4b, A8).
+- Persist the verify-terminal CDP driver (Playwright's bare Chromium `~/.cache/ms-playwright/chromium-1228` + `ws`, `libnspr4`/`libnss3` unpacked locally, force a tiny `Page.captureScreenshot` before reading `.xterm-rows` because headless throttles rAF, clear `DevToolsActivePort`/`SingletonLock` before relaunch, `top` for `htop`) under `scripts/` so each part's gate stops rebuilding it from scratch — five sessions have now written it into a throwaway scratch dir (A3, A4b, A8, B5, B10 — B10's `<scratchpad>/gate/lib.mjs` was a working candidate).
+- B10 follow-ups (2026-09-20): a folder merge logs one expected `409` per existing subfolder at WARN in the browser log (`POST /api/fs/create` treated as success by the runner) — mark expected 409s debug; a server-side unit test that upload traffic never touches a session WS (gate-only evidence today); Grok `-s <uuid>` / Gemini `--session-id` pinning (B5 follow-up).
 
 
 - [x] Drop the "Continue last conversation" checkbox? — done in Nocturne A4 (2026-09-10): Start from select.

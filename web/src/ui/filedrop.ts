@@ -61,7 +61,7 @@ import type { Destination } from './fs-model.ts';
 
 /**
  * A real folder: the NAME every visible string here is built from, and the
- * PATH part B10's upload will post to. Re-exported (part B2, §4b) so the
+ * PATH the upload posts to (part B10). Re-exported (part B2, §4b) so the
  * readers that learned the type from this module keep working unchanged;
  * `ui/fs-model.ts` owns the definition.
  */
@@ -82,8 +82,7 @@ const TOO_MANY = `Too many items. Drop up to ${MAX_ITEMS} at a time.`;
 /**
  * A terminal pane whose session has no project (user decision 4, 2026-09-15).
  * The app may not print a path and cannot name that folder, so it says what it
- * knows and stops; B10 may fill the name in when the backend can answer with
- * one.
+ * knows and stops.
  */
 const NO_PROJECT = 'This session has no project folder yet.';
 
