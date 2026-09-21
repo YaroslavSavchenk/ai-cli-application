@@ -31,6 +31,7 @@ import {
   DEFAULT_LIMIT,
   GIT_COMMIT_BAD,
   GIT_COMMIT_GONE,
+  ISO_RE,
   MAX_COMMIT_FILES,
   MAX_DIFF_LINE_CHARS,
   MAX_DIFF_LINES,
@@ -388,6 +389,18 @@ test('parseLogRecords: a stream that desyncs or is cut off is DROPPED, never gue
   assert.deepEqual(parseLogRecords(junkThenRecord, 5), [], 'a stream that starts wrong ends there');
 });
 
+test('ISO_RE: both zone spellings git prints are dates, and nothing looser is', () => {
+  // git 2.43 prints `+00:00` for a UTC commit, a newer git prints `Z` (the CI
+  // runner's — the first B3 push went red on it, every date answered '').
+  for (const ok of ['2026-09-21T21:45:00Z', '2026-09-21T21:45:00+00:00', '2026-09-21T23:45:00+02:00', '2026-09-21T16:15:00-05:30']) {
+    assert.match(ok, ISO_RE);
+    assert.ok(Number.isFinite(Date.parse(ok)), `${ok} is a date the page can read`);
+  }
+  for (const bad of ['', '%aI', '2026-09-21', '2026-09-21T21:45:00', '2026-09-21T21:45:00z', '2026-09-21T21:45:00+0000', '2026-09-21 21:45:00 +0200', '2026-09-21T21:45:00Z\n', 'x2026-09-21T21:45:00Z']) {
+    assert.doesNotMatch(bad, ISO_RE);
+  }
+});
+
 test('parseUnifiedDiff: a diff LINE that looks like a hunk header is a ROW, not a header', () => {
   // A file can contain the text `@@ -1,1 +1,1 @@`; in the patch it arrives as
   // `+@@ -1,1 +1,1 @@`, i.e. with the marker in front. Only a line that STARTS
@@ -593,7 +606,7 @@ test('the list answers one page, the branch, the head and the TOTAL', async () =
   assert.match(first?.hash ?? '', /^[0-9a-f]{40}$/);
   assert.equal(first?.shortHash, (first?.hash ?? '').slice(0, first?.shortHash.length ?? 0));
   assert.equal(first?.author, 'T');
-  assert.match(first?.authoredAt ?? '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+  assert.match(first?.authoredAt ?? '', ISO_RE);
   assert.deepEqual({ add: first?.add, del: first?.del, files: first?.files }, { add: 1, del: 1, files: 1 });
 });
 
@@ -762,7 +775,7 @@ test('one commit answers its message, its body, its people, its parents and its 
   assert.equal(body.commit.subject, 'second subject');
   assert.equal(body.body, 'body line one\n\nbody line two', 'the BODY keeps its newlines');
   assert.equal(body.committer, null, 'the same person authored and committed it');
-  assert.match(body.committedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+  assert.match(body.committedAt, ISO_RE);
   assert.equal(body.parents, 1);
   assert.equal(body.branch, 'main');
   assert.equal(body.github, null, 'this fixture has no remote at all');

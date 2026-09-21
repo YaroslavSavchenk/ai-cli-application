@@ -127,7 +127,14 @@ const HASH_RE = /^[0-9a-f]{40}$/;
 /** `%h` is `core.abbrev`-dependent, so it is validated like anything else. */
 const SHORT_HASH_RE = /^[0-9a-f]{1,40}$/;
 /** `%aI` / `%cI`: strict ISO 8601 with an offset. Anything else becomes ''. */
-const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/;
+/**
+ * `%aI` / `%cI`, strict ISO 8601. The zone has TWO spellings: `+02:00`, and —
+ * on a newer git, for a commit made in UTC — a bare `Z` (git 2.43 here prints
+ * `+00:00` for the same commit; the GitHub runner's git prints `Z`, which is
+ * how this was found: CI red on the first push, every date answered ''). Both
+ * are what `Date.parse` takes.
+ */
+export const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Flags every `git log` in this module carries. Each one is measured in the
