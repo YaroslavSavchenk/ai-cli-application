@@ -55,6 +55,7 @@ import {
 import { initFileDrop, installDropGuard, type DropRequest } from './ui/filedrop.ts';
 import { createDropRun } from './ui/drop-upload.ts';
 import { initCommitView } from './ui/commit-view.ts';
+import { setCommitGateway } from './ui/commit-store.ts';
 import { flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
@@ -557,13 +558,21 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // is the only module allowed to know that those three questions are HTTP —
   // `ui/files.ts` never imports `./api.ts`, which is what keeps it drivable
   // under `node --test` against a plain fake.
-  const filesPanel = initFilesPanel(filesAside, requestTerminalFocus, {
+  // ONE object for both readers of git: the panel draws the list, the commit
+  // store (ui/commit-store.ts) fetches the commit the view and the panel's
+  // selected state share. Two gateways would be two boundaries to keep right.
+  const fsGateway = {
     entries: api.fsEntries,
     create: api.fsCreate,
     changes: api.gitChanges,
+    commits: api.gitCommits,
+    commit: api.gitCommit,
+    commitDiff: api.gitCommitDiff,
     winPath: api.fsWinPath,
     delete: api.fsDelete,
-  });
+  };
+  const filesPanel = initFilesPanel(filesAside, requestTerminalFocus, fsGateway);
+  setCommitGateway(fsGateway);
 
   /**
    * One drop, handed over (B10). THIS is the seam where a path stops: the

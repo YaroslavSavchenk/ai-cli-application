@@ -1,31 +1,28 @@
 /**
  * PLACEHOLDER CONTENT for the Files panel (Nocturne part A5), what is left of
- * it after part B2.
+ * it after parts B2 and B3.
  *
- * The FILE TREE is gone from this module: the panel lists a real folder
- * through the backend since B2, and the `Changes` tab draws real
- * `git diff --numstat` rows. What is still placeholder, and the part that
- * replaces each half:
+ * The FILE TREE went first: the panel lists a real folder through the backend
+ * since B2, and the `Changes` tab draws real `git diff --numstat` rows. The
+ * COMMITS went in B3 (`MOCK_COMMITS`, `mockCommitByHash`, `MOCK_BRANCH` and
+ * the counting that kept their numbers honest): the Commits tab, the commit
+ * view and every diff row read `git log` / `git show` through
+ * `ui/commit-store.ts`, and the synthetic diff those numbers were counted from
+ * went with them.
  *
- *   - FILE CONTENTS (`mockFileContent` / `saveMockFile`) — part B4 reads and
- *     writes the real file. Two readers are left: a commit view's diff blocks
- *     and the editor's in-memory edit map.
- *   - COMMITS (`MOCK_COMMITS`, `mockCommitByHash`, `MOCK_BRANCH`) — part B3
- *     reads `git log`. The Commits tab carries the one honesty line left in
- *     the panel until then.
+ * ONE HALF IS LEFT, and part B4 takes it: FILE CONTENTS (`mockFileContent` /
+ * `saveMockFile`), read by an editor file tab and written by its Save button.
  *
  * Content is the v3 reference's own mock (`session-manager-v3.html`), with the
  * author changed to this repo's.
  */
-import { commitTotals, pathSeed, syntheticDiff, type CommitFileChange } from './commit-model.ts';
-import type { CommitEntry } from './files-model.ts';
 
 /**
- * PLACEHOLDER FILE CONTENTS for the editor and the commit view (part A6).
+ * PLACEHOLDER FILE CONTENTS for the editor (part A6).
  *
- * Two things read this map: an editor file tab (the text in the textarea) and
- * `syntheticDiff()` (the rows a diff block draws). Part B4 replaces both reads
- * with the backend's own file read, and `saveMockFile()` with a write to disk.
+ * ONE thing reads this map since part B3: an editor file tab (the text in the
+ * textarea). Part B4 replaces that read with the backend's own file read, and
+ * `saveMockFile()` with a write to disk.
  *
  * The texts are the v3 reference's own mock sources, kept short on purpose:
  * they exist to give the editor real line lengths, real indentation and enough
@@ -246,18 +243,10 @@ export async function makeIcon(source, target) {
 ]);
 
 /**
- * The sentence a surface prints INSTEAD of a file it has no example of. It is
- * a note, never a line of that file: rendered as a diff row with a number and
- * a `+` beside it, it would read as content the file really has.
- */
-export const NO_EXAMPLE_CONTENT = 'There is no example content for this file yet.';
-
-/**
- * The text an editor tab or a diff block reads, or NULL when the mock knows
- * nothing about that path. Null rather than a sentence dressed as a file: the
- * two readers draw `NO_EXAMPLE_CONTENT` as a plain note (and the editor offers
- * no field to type in), which is the whole difference between "there is
- * nothing here" and "here is what is in it".
+ * The text an editor tab reads, or NULL when the mock knows nothing about that
+ * path. Null rather than a sentence dressed as a file: the pane then draws its
+ * own note and offers no field to type in, which is the whole difference
+ * between "there is nothing here" and "here is what is in it".
  */
 export function mockFileContent(path: string): string | null {
   return MOCK_FILE_CONTENTS.get(path) ?? null;
@@ -271,90 +260,3 @@ export function mockFileContent(path: string): string | null {
 export function saveMockFile(path: string, text: string): void {
   MOCK_FILE_CONTENTS.set(path, text);
 }
-
-/**
- * The numbers of one commit, COUNTED from the very diff its view will draw
- * rather than typed in beside it: `+A -D` per file, summed for the commit. A
- * mock whose header claimed `+346 -0` over a body full of red rows is the one
- * thing placeholder data must not do — it teaches the reader to distrust the
- * screen. Part B3 reads both from `git show --numstat` and deletes this.
- *
- * KNOWN MOCK-ONLY LIMIT: these numbers are counted ONCE, at module init, while
- * `saveMockFile()` can replace a file's text afterwards — so after a save the
- * redrawn diff and the frozen header can disagree until the page is reloaded.
- * Part B3 reads real numbers and part B4 writes to disk, which closes it; it is
- * not worth a recount path in placeholder data.
- */
-function counted(path: string): CommitFileChange {
-  let add = 0;
-  let del = 0;
-  for (const row of syntheticDiff(mockFileContent(path) ?? '', pathSeed(path))) {
-    if (row.kind === 'add') add += 1;
-    else if (row.kind === 'del') del += 1;
-  }
-  return { path, add, del };
-}
-
-function withCounts(paths: readonly string[]): {
-  files: CommitFileChange[];
-  add: number;
-  del: number;
-} {
-  const files: CommitFileChange[] = paths.map(counted);
-  return { files, ...commitTotals(files) };
-}
-
-/**
- * Placeholder until B3. Newest first, as `git log` returns them. Only the
- * words and the paths are written here; every number comes from `withCounts`,
- * so the Commits row, the view's header and the diff under it always agree.
- */
-export const MOCK_COMMITS: CommitEntry[] = [
-  {
-    hash: '474d891',
-    message: 'Define the update wire contract in shared/protocol.ts',
-    author: 'Sava',
-    when: '2 hours ago',
-    ...withCounts(['shared/protocol.ts', 'server/ws.ts']),
-  },
-  {
-    hash: '9b2e1f0',
-    message: 'Restart handoff: promote host/next on launcher start',
-    author: 'Sava',
-    when: 'Yesterday',
-    ...withCounts(['launcher/launch.ps1', 'launcher/make-icon.mjs']),
-  },
-  {
-    hash: 'e07c5a2',
-    message: 'Keep scrollback on reattach and replay buffered frames',
-    author: 'Sava',
-    when: 'Yesterday',
-    ...withCounts(['server/pty-pool.ts', 'web/src/store.ts']),
-  },
-  {
-    hash: '1a8f0d3',
-    message: 'Tab strip: merge by dragging a tab onto a pane',
-    author: 'Sava',
-    when: '2 days ago',
-    ...withCounts(['web/src/TabStrip.tsx', 'web/src/Pane.tsx']),
-  },
-  {
-    hash: '55c9be7',
-    message: 'Initial backend: node-pty sessions over WebSocket',
-    author: 'Sava',
-    when: '5 days ago',
-    ...withCounts(['server/pty-pool.ts', 'server/ws.ts', 'README.md']),
-  },
-];
-
-/**
- * The commit with this short hash, or null. The hash IS the identity (see
- * `CommitEntry`), so part B3 keeps this signature and reads `git show` instead.
- */
-export function mockCommitByHash(hash: string | null): CommitEntry | null {
-  if (hash === null) return null;
-  return MOCK_COMMITS.find((c) => c.hash === hash) ?? null;
-}
-
-/** Placeholder until B3 — the branch the commits list is on. */
-export const MOCK_BRANCH = 'main';

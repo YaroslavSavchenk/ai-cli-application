@@ -39,7 +39,7 @@ import {
   treeRows,
   type FileChange,
 } from '../web/src/ui/files-model.ts';
-import { MOCK_BRANCH, MOCK_COMMITS } from '../web/src/ui/files-mock.ts';
+import { branchLabel } from '../web/src/ui/commit-model.ts';
 
 // state.ts touches localStorage inside function bodies; same shim as tests/ui-state.test.ts.
 class MemoryStorage {
@@ -245,15 +245,16 @@ test('badgeFor: an unknown type, a dotfile and a file with no extension all get 
 });
 
 // ---------------------------------------------------------------------------
-// The mock (placeholder until B2/B3) — it may be fake, it may not be dishonest
+// The renderer's own fixture — the shape the live tabs really hand it
 // ---------------------------------------------------------------------------
 
 /**
  * The shape part B2's `Changes` tab really hands this renderer: a flat list of
  * repo-relative paths, numbers only where git has them. It replaces the
  * `MOCK_FILES` this test used to read (part B2 deleted that half of
- * `ui/files-mock.ts`), and it is declared HERE because the arithmetic below is
- * about the renderer, not about anybody's data.
+ * `ui/files-mock.ts`, part B3 the commits half), and it is declared HERE
+ * because the arithmetic below is about the renderer, not about anybody's
+ * data.
  */
 const FIXTURE: FileChange[] = [
   { path: 'web/src/App.tsx', add: 12, del: 4 },
@@ -276,14 +277,17 @@ test('a flat change list becomes the tree the panel draws, and the summary it pr
   assert.ok(rows.some((r) => r.busy), 'an edited file pulses, and so does the spine above it');
 });
 
-test('the mock commits carry this repo`s author and a plural-correct header', () => {
-  assert.equal(MOCK_COMMITS.length, 5);
-  for (const c of MOCK_COMMITS) {
-    assert.equal(c.author, 'Sava');
-    assert.match(c.hash, /^[0-9a-f]{7}$/, 'a short hash, the only code-shaped value the spec allows');
-    assert.ok(c.message.length > 0 && c.add >= 0 && c.del >= 0);
-  }
-  assert.equal(commitsHeaderText(MOCK_BRANCH, MOCK_COMMITS.length), 'main, 5 commits');
+test('the commits header states the BRANCH and the repository`s own total, pluralised', () => {
+  // Part B3: the count is `rev-list --count`, not the number of rows drawn —
+  // the list holds one page of ten and the header is about the repository.
+  assert.equal(commitsHeaderText('main', 5), 'main, 5 commits');
+  assert.equal(commitsHeaderText('main', 1), 'main, 1 commit');
+  assert.equal(commitsHeaderText('main', 214), 'main, 214 commits');
+  // A detached head has no branch to name, and the word for that is the same
+  // one on every surface (`ui/commit-model.ts`).
+  assert.equal(commitsHeaderText(branchLabel(null), 214), 'Detached, 214 commits');
+  assert.equal(branchLabel('main'), 'main');
+  assert.equal(branchLabel(''), 'Detached', 'an empty name is no name');
 });
 
 // ---------------------------------------------------------------------------

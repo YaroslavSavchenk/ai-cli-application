@@ -70,6 +70,18 @@ import { handleDelete } from './fsdelete.ts';
 import { handleUpload } from './fsupload.ts';
 import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
 import { changesFor, GIT_READ_FAILED } from './git.ts';
+import {
+  commitDiffFor,
+  commitFor,
+  commitsFor,
+  DEFAULT_LIMIT,
+  MAX_LIMIT,
+  MAX_SKIP,
+  MIN_LIMIT,
+  requireHash,
+  requireInt,
+  requirePath,
+} from './git-log.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import type { RestartRunner } from './restart.ts';
 import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE, type UpdateRunner } from './update-install.ts';
@@ -1417,6 +1429,110 @@ export function createRequestHandler(
       return;
     }
 
+    // --- Git: the history, one commit, one file's diff (the Commits tab, B3) --
+    //
+    // The same shape as /api/git/changes above, three times: GET only, `root`
+    // required, ONE log line of COUNTS, an FsBrowseError is its own status and
+    // sentence, anything else is a class + frames at error and the constant
+    // 500. Never a hash, a path, a subject, an author or the remote url — the
+    // remote url can hold a token, and server/git-log.ts is where that is kept.
+    if (pathname === '/api/git/commits') {
+      if (method === 'GET') {
+        const root = url.searchParams.get('root');
+        if (root === null) {
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        try {
+          const limit = requireInt(url.searchParams.get('limit'), MIN_LIMIT, MAX_LIMIT, DEFAULT_LIMIT);
+          const skip = requireInt(url.searchParams.get('skip'), 0, MAX_SKIP, 0);
+          const fromRaw = url.searchParams.get('from');
+          const from = fromRaw === null || fromRaw === '' ? null : requireHash(fromRaw);
+          const body = await commitsFor(root, { limit, skip, from }, gitLog, projectAnchors());
+          gitLog(
+            'debug',
+            `GET /api/git/commits -> 200, repo=${body.isRepo}, ${body.commits.length} commits` +
+              (body.more ? ', more' : ''),
+          );
+          sendJson(res, 200, body);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            gitLog('debug', `GET /api/git/commits -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            gitLog('error', `git commits failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, GIT_READ_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    if (pathname === '/api/git/commit') {
+      if (method === 'GET') {
+        const root = url.searchParams.get('root');
+        if (root === null) {
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        try {
+          const hash = requireHash(url.searchParams.get('hash'));
+          const body = await commitFor(root, hash, gitLog, projectAnchors());
+          gitLog(
+            'debug',
+            `GET /api/git/commit -> 200, ${body.files.length} files` +
+              (body.truncated > 0 ? `, ${body.truncated} not shown` : ''),
+          );
+          sendJson(res, 200, body);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            gitLog('debug', `GET /api/git/commit -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            gitLog('error', `git commit failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, GIT_READ_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
+    if (pathname === '/api/git/commit-diff') {
+      if (method === 'GET') {
+        const root = url.searchParams.get('root');
+        if (root === null) {
+          sendError(res, 400, FS_PATH_BAD);
+          return;
+        }
+        try {
+          const hash = requireHash(url.searchParams.get('hash'));
+          const path = requirePath(url.searchParams.get('path'));
+          const body = await commitDiffFor(root, hash, path, gitLog, projectAnchors());
+          gitLog(
+            'debug',
+            `GET /api/git/commit-diff -> 200, ` +
+              (body.binary ? 'binary' : body.tooLarge ? 'too large' : `${body.lines.length} lines`),
+          );
+          sendJson(res, 200, body);
+        } catch (err) {
+          if (err instanceof FsBrowseError) {
+            gitLog('debug', `GET /api/git/commit-diff -> ${err.status}`);
+            sendError(res, err.status, err.message);
+          } else {
+            gitLog('error', `git commit diff failed (${errorClass(err)}) ${errorFrames(err)}`);
+            sendError(res, 500, GIT_READ_FAILED);
+          }
+        }
+        return;
+      }
+      sendError(res, 405, 'method not allowed');
+      return;
+    }
+
     // --- Sessions -----------------------------------------------------------
     if (pathname === '/api/sessions') {
       if (method === 'GET') {
@@ -1730,6 +1846,14 @@ export function createRequestHandler(
         // anything but a 200 is still info (or error), because a refusal there
         // is the diagnostic.
         (route === '/api/git/changes' && status === 200) ||
+        // The Commits tab polls /api/git/commits on the same 5 s rule, and one
+        // open commit view fires /api/git/commit-diff once per FILE BLOCK — a
+        // 40-file commit is 40 access lines. Same trade as above: only the 200
+        // is demoted, a refusal stays info (or error) because that is the
+        // diagnostic.
+        (route === '/api/git/commits' && status === 200) ||
+        (route === '/api/git/commit' && status === 200) ||
+        (route === '/api/git/commit-diff' && status === 200) ||
         // One upload per FILE: a 2000-file drop would otherwise write 2000
         // access lines. A refusal there is still info (or error) — that is the
         // diagnostic.

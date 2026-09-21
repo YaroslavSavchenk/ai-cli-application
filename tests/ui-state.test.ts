@@ -107,9 +107,13 @@ function addView(root: ViewRoot | null, slots: PaneSlot[], id: string = crypto.r
 
 const E = await import('../web/src/ui/editor-model.ts');
 
+/** The folder every diff tab below is read from (part B3). */
+const REPO = '/home/you/projects/app';
+
 const sess = (id: string): PaneSlot => ({ kind: 'session', id });
 const ftab = (path: string): EditorTab => ({ kind: 'file', path });
-const dtab = (hash: string, path: string): EditorTab => ({ kind: 'diff', hash, path });
+const dtab = (hash: string, path: string): EditorTab => ({ kind: 'diff', hash, path, root: REPO });
+/** The folder a diff tab is read from (B3) — one repository for the whole file. */
 /** An editor pane holding these files as tabs (A10b: files are TABS, not panes). */
 const ed = (...paths: string[]): EditorSlot => st.newEditorSlot(paths.map(ftab));
 /** An editor pane holding these tabs verbatim (for diffs, or a chosen active). */
@@ -633,15 +637,15 @@ test('openDiff: a read-only diff is a TAB of the same pane, and the same one rai
   st.initServer([], []);
   st.loadUi();
   assert.equal(st.openFile({ kind: 'home' }, 'server/ws.ts', 'ws.ts'), 'ok');
-  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts', REPO), 'ok');
   assert.equal(home().slots.length, 1, 'one pane, two tabs');
   assert.deepEqual(strip(home(), 0), ['f:server/ws.ts', 'd:474d891:server/ws.ts']);
   assert.equal(activeId(home(), 0), 'd:474d891:server/ws.ts');
 
-  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts', REPO), 'ok');
   assert.deepEqual(strip(home(), 0), ['f:server/ws.ts', 'd:474d891:server/ws.ts'], 'raised');
   // The same file in another commit is a different tab.
-  assert.equal(st.openDiff({ kind: 'home' }, '55c9be7', 'server/ws.ts'), 'ok');
+  assert.equal(st.openDiff({ kind: 'home' }, '55c9be7', 'server/ws.ts', REPO), 'ok');
   assert.equal(strip(home(), 0).length, 3);
 });
 
@@ -651,13 +655,13 @@ test('openDiff then openFile of the SAME path: two tabs, because they are two id
   // `f:` / `d:` are two different `state.edits` keys.
   st.initServer([], []);
   st.loadUi();
-  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts', REPO), 'ok');
   assert.equal(st.openFile({ kind: 'home' }, 'server/ws.ts', 'ws.ts'), 'ok');
   assert.equal(home().slots.length, 1, 'still ONE pane');
   assert.deepEqual(strip(home(), 0), ['d:474d891:server/ws.ts', 'f:server/ws.ts'], 'two tabs');
   assert.equal(activeId(home(), 0), 'f:server/ws.ts', 'the file the user just asked for is up');
   // And neither of the two raises the other.
-  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts'), 'ok');
+  assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts', REPO), 'ok');
   assert.deepEqual(strip(home(), 0), ['d:474d891:server/ws.ts', 'f:server/ws.ts']);
   assert.equal(activeId(home(), 0), 'd:474d891:server/ws.ts');
 });
@@ -1444,7 +1448,7 @@ test("every tab and pane mutator notifies 'ui' — an editor pane is a PANE", ()
   const h = () => home().id;
   assert.deepEqual(only(() => st.openFile({ kind: 'home' }, 'a.ts', 'a.ts')), ['ui']);
   assert.deepEqual(only(() => st.openFile({ kind: 'home' }, 'b.ts', 'b.ts')), ['ui'], 'a tab add');
-  assert.deepEqual(only(() => st.openDiff({ kind: 'home' }, '474d891', 'a.ts')), ['ui']);
+  assert.deepEqual(only(() => st.openDiff({ kind: 'home' }, '474d891', 'a.ts', REPO)), ['ui']);
   assert.deepEqual(only(() => st.setActiveTab(h(), 0, 0)), ['ui']);
   assert.deepEqual(only(() => st.cycleTab(1)), ['ui']);
   assert.deepEqual(only(() => st.openTabAt(h(), 0, 'left', ftab('c.ts'))), ['ui']);

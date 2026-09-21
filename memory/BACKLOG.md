@@ -371,9 +371,12 @@ pass or a test-engineer brief, not a feature.
   outside tab/LF/CR, so the blob never enters a WIP branch at all.
 - [ ] **Mock data out of production code**: `files-mock.ts` and the
   mock markers across `state.ts`, `files.ts`, `commit-*.ts`,
-  `drop-*.ts`, `settings.ts` exist because B3/B4 are not live yet (B2 landed
+  `drop-*.ts`, `settings.ts` exist because B4 is not live yet (B2 landed
   2026-09-16: the FILES half of `files-mock.ts` and the Files-tab markers
-  are gone; the drop dialog's conflicts are real). When B3/B4 land, delete
+  are gone; the drop dialog's conflicts are real. B3 landed 2026-09-21: the
+  COMMITS half, `syntheticDiff` and both commit honesty lines are gone —
+  what is left is `mockFileContent` / `saveMockFile` and the editor's one
+  line). When B4 lands, delete
   the rest of the module and every remaining marker in the same change;
   until then, a test asserts the count only goes DOWN.
 - [ ] **Persist the agents' scratch tooling as repo scripts** (2026-09-16,

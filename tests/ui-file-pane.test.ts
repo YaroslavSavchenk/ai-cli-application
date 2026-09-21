@@ -2,7 +2,8 @@
  * The body of a file pane and of a diff pane (Nocturne part A10), driven
  * through the REAL `web/src/ui/file-pane.ts` on the shared DOM double, against
  * the REAL `web/src/state.ts`, `ui/util.ts`, `ui/editor-model.ts`,
- * `ui/files-mock.ts` and the commit view's own diff renderer.
+ * `ui/files-mock.ts`, `ui/commit-store.ts` (with the backend a plain fake) and
+ * the commit view's own diff renderer.
  *
  * WHY, next to `tests/ui-editor-model.test.ts`. That file pins the arithmetic
  * (what an id means, how many line numbers a text needs, what Save is called);
@@ -14,7 +15,10 @@
  *   - a Save that writes nowhere,
  *   - a path with no example text offering a field to type into, or a Save
  *     that would write a sentence into a file,
- *   - a read-only diff that renders an editable field.
+ *   - a read-only diff that renders an editable field,
+ *   - (part B3) a diff pane that asks nothing, or that repaints the PANE GRID
+ *     when its answer lands — a diff arriving may never put a terminal
+ *     through a rebuild.
  *
  * The amber dot itself, the header `×` and the pane chrome around this body
  * live in `ui/panes.ts`, which imports @xterm/xterm and cannot be loaded here;
@@ -30,6 +34,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from './helpers.ts';
 import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from './fake-dom.ts';
+import { PROJ, makeFixture, settle } from './fs-fixture.ts';
+import { BINARY_PATH, GONE_PATH, GONE_TEXT, HEAD, diffOf } from './commits-fixture.ts';
 
 const dom = installDom();
 
@@ -45,7 +51,11 @@ interface FilePaneModule {
     path: string,
     onDirtyFlip: () => void,
   ): { root: FakeElement; focus(): void; update(): void };
-  diffPaneBody(hash: string, path: string): { root: FakeElement; focus(): void; update(): void };
+  diffPaneBody(
+    root: string,
+    hash: string,
+    path: string,
+  ): { root: FakeElement; focus(): void; update(): void };
 }
 
 const st = (await import(new URL('../web/src/state.ts', import.meta.url).href)) as StateModule;
@@ -53,13 +63,19 @@ const FP = (await import(new URL('../web/src/ui/file-pane.ts', import.meta.url).
 const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as {
   mockFileContent(path: string): string | null;
   saveMockFile(path: string, text: string): void;
-  MOCK_COMMITS: { hash: string; files: { path: string }[] }[];
 };
+const STORE = (await import(new URL('../web/src/ui/commit-store.ts', import.meta.url).href)) as {
+  setCommitGateway(gw: unknown): void;
+};
+/** Part B3: a diff pane reads git through the gateway the store owns. */
+const fx = makeFixture();
+STORE.setCommitGateway(fx.gateway);
 
 const PATH = 'web/src/Pane.tsx';
 const NO_TEXT = 'server/nothing-here.ts';
 const ORIGINAL = MOCK.mockFileContent(PATH) as string;
-const C0 = MOCK.MOCK_COMMITS[0] as { hash: string; files: { path: string }[] };
+/** One file of one commit, as the commit view hands it to a diff tab. */
+const DIFF_PATH = 'shared/protocol.ts';
 
 let flips = 0;
 
@@ -91,7 +107,7 @@ beforeEach(() => {
 test('non-vacuity: the mock really has text for one path and none for the other', () => {
   assert.ok(ORIGINAL.length > 20, 'the example file looks empty');
   assert.equal(MOCK.mockFileContent(NO_TEXT), null, 'the second path must be unknown to the mock');
-  assert.ok(C0.files.length > 0, 'the example commit has files');
+  assert.ok(diffOf(HEAD, DIFF_PATH).lines.length > 0, 'the fixture commit really has a diff');
 });
 
 test('a file body is the numbers, the text and Save — on the pane, not in a column', () => {
@@ -112,11 +128,12 @@ test('a file body is the numbers, the text and Save — on the pane, not in a co
 
 test('the honesty line belongs to the MOCK branch only (part B2)', () => {
   // The real-file branch needs no such line — it says outright that the app
-  // cannot read the file. The other branch is still fiction: a commit view's
-  // `Open file` hands over a mock commit path, `ui/files-mock.ts` has text for
-  // it, and the pane draws a textarea with a Save. A field full of invented
-  // source with nothing saying so is the one thing placeholder data must not
-  // do, so the line stays exactly there until part B4.
+  // cannot read the file. The other branch is still fiction: a path
+  // `ui/files-mock.ts` has text for draws a textarea with a Save. A field full
+  // of invented source with nothing saying so is the one thing placeholder
+  // data must not do, so the line stays exactly there until part B4. (Since
+  // part B3 only a test reaches that branch: every path the app hands over is
+  // absolute and the mock's keys are repository-relative.)
   assert.deepEqual(textsOf(mount(PATH), 'pane-fnote'), [
     'Example content until the app reads your files.',
   ]);
@@ -241,27 +258,77 @@ test('focus() lands in the text, so the pane can be handed the keyboard', () => 
   assert.equal(dom.doc.activeElement, field(body.root));
 });
 
-test('a diff body is READ-ONLY: diff rows, and no field at all', () => {
-  const f0 = C0.files[0] as { path: string };
-  const body = FP.diffPaneBody(C0.hash, f0.path);
+test('a diff body is READ-ONLY: diff rows, and no field at all', async () => {
+  const body = FP.diffPaneBody(PROJ, HEAD, DIFF_PATH);
   dom.body.replaceChildren(body.root);
+  // It says `Loading…` first and asks exactly once, with the root the tab
+  // carries and the commit it is about.
+  assert.deepEqual(textsOf(body.root, 'diff-note'), ['Loading…']);
+  assert.deepEqual(fx.diffCalls, [`${HEAD} ${DIFF_PATH}`]);
+  await settle();
   assert.equal(field(body.root), null, 'the changes in a commit are not something to type into');
   assert.equal(byClass(body.root, 'pane-save').length, 0, 'and nothing to save');
-  assert.ok(byClass(body.root, 'diff-line').length > 0, 'it draws the commit view’s own rows');
+  assert.equal(
+    byClass(body.root, 'diff-line').length,
+    diffOf(HEAD, DIFF_PATH).lines.length,
+    'it draws exactly the lines the answer carried',
+  );
   // The same renderer, so the pane and the screen it came from cannot disagree.
   assert.equal(byClass(body.root, 'diff-body').length, 1);
+  assert.equal(byClass(body.root, 'diff-n').length % 2, 0, 'two gutters per row');
 });
 
-test('a diff for a path the mock knows nothing about draws ONE note, never a numbered row', () => {
-  const body = FP.diffPaneBody(C0.hash, NO_TEXT);
+test('a diff pane notifies NOTHING — its answer may not put the pane grid through a render', async () => {
+  const kinds: string[] = [];
+  st.subscribe((k) => kinds.push(k));
+  const body = FP.diffPaneBody(PROJ, HEAD, DIFF_PATH);
   dom.body.replaceChildren(body.root);
-  assert.equal(byClass(body.root, 'diff-line').length, 0);
-  assert.deepEqual(textsOf(body.root, 'diff-note'), [
-    'There is no example content for this file yet.',
-  ]);
+  await settle();
+  assert.ok(byClass(body.root, 'diff-line').length > 0, 'non-vacuity: the answer really landed');
+  assert.deepEqual(kinds, [], 'it paints its own node and nothing else');
+  const src = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  assert.equal(src.includes('notify('), false, 'no notification from this module');
+  assert.equal(/from '\.\.\/api\.ts'/.test(src), false, 'and no API import: the gateway is injected');
 });
 
-test('every class a file or diff body renders has a rule in app.css', () => {
+test('a gateway that throws SYNCHRONOUSLY still builds the pane, with the sentence in it', async () => {
+  // `encodeURIComponent` throws a URIError on a lone surrogate, and a path is
+  // git's verbatim bytes. In a pane that throw would escape the BUILD — the
+  // body would never be returned and the tab would show nothing at all.
+  STORE.setCommitGateway({
+    commit: () => Promise.reject(new Error('not asked here')),
+    commitDiff: () => {
+      throw new URIError('URI malformed');
+    },
+  });
+  try {
+    const body = FP.diffPaneBody(PROJ, HEAD, 'a\ud800b');
+    dom.body.replaceChildren(body.root);
+    assert.equal(byClass(body.root, 'diff-body').length, 1, 'the pane was built');
+    await settle();
+    assert.deepEqual(textsOf(body.root, 'diff-note'), ['The app could not reach the service.']);
+    assert.equal(byClass(body.root, 'diff-line').length, 0);
+  } finally {
+    STORE.setCommitGateway(fx.gateway);
+  }
+});
+
+test('a binary file and a refused one each draw ONE note, never a numbered row', async () => {
+  const bin = FP.diffPaneBody(PROJ, HEAD, BINARY_PATH);
+  dom.body.replaceChildren(bin.root);
+  await settle();
+  assert.equal(byClass(bin.root, 'diff-line').length, 0);
+  assert.deepEqual(textsOf(bin.root, 'diff-note'), ['Binary file.']);
+
+  const gone = FP.diffPaneBody(PROJ, HEAD, GONE_PATH);
+  dom.body.replaceChildren(gone.root);
+  await settle();
+  assert.equal(byClass(gone.root, 'diff-line').length, 0);
+  assert.deepEqual(textsOf(gone.root, 'diff-note'), [GONE_TEXT], "the server's own sentence");
+  assert.equal((byClass(gone.root, 'diff-note')[0] as FakeElement).classList.contains('is-bad'), true);
+});
+
+test('every class a file or diff body renders has a rule in app.css', async () => {
   const seen = new Set<string>();
   const collect = (root: FakeElement): void => {
     for (const n of [root, ...descendants(root)]) {
@@ -273,8 +340,13 @@ test('every class a file or diff body renders has a rule in app.css', () => {
   type(field(root) as FakeElement, 'dirty\n');
   collect(root);
   collect(mount(NO_TEXT));
-  const diff = FP.diffPaneBody(C0.hash, (C0.files[0] as { path: string }).path);
+  const diff = FP.diffPaneBody(PROJ, HEAD, DIFF_PATH);
   collect(diff.root);
+  await settle();
+  collect(diff.root);
+  const bin = FP.diffPaneBody(PROJ, HEAD, BINARY_PATH);
+  await settle();
+  collect(bin.root);
 
   assert.ok(seen.size >= 8, `non-vacuity: only ${seen.size} classes were collected`);
   const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');

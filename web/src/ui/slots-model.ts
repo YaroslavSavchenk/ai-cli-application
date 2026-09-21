@@ -4,15 +4,18 @@
  * file/diff tabs: which tab a file belongs to, what a tab, a pane and a file
  * chip are CALLED, and which drop zone a pointer is over.
  *
- * No DOM, no state, no imports that run: every value a rule needs is handed
- * in, so `node --test` drives all of it and the drag layer can be tested
- * without a browser. (The two type imports are erased at runtime.)
+ * No DOM and no state: every value a rule needs is handed in, so `node --test`
+ * drives all of it and the drag layer can be tested without a browser. (The
+ * type imports are erased at runtime; the one value import is
+ * `ui/commit-model.ts`, which is pure arithmetic and copy for the same
+ * reason.)
  *
  * Copy rules this file enforces, not just follows:
  * - A PATH NEVER REACHES A LABEL. A tab about a project prints the project's
  *   NAME (PROJECT-SCOPE, 2026-07-25), Home prints `Home`, and a file chip
  *   prints the last segment of its path.
  */
+import { shortHashOf } from './commit-model.ts';
 import type { EditorTab, PaneSlot, ViewRoot, Zone } from '../state.ts';
 
 /**
@@ -74,10 +77,13 @@ export function viewLabel(
 /**
  * What one FILE TAB is called (its chip in the pane's strip, A10b). A file
  * prints the last segment of its path and nothing else; a diff says which
- * commit it shows (the A6 wording).
+ * commit it shows (the A6 wording) — by its SHORT hash since part B3, while
+ * the tab's identity stays the full one: a chip is no place to read 40
+ * characters, and two commits that share a path are told apart by the id
+ * behind it, not by eye.
  */
 export function tabTitle(tab: EditorTab): string {
-  return tab.kind === 'file' ? fileName(tab.path) : `Changes in ${tab.hash}`;
+  return tab.kind === 'file' ? fileName(tab.path) : `Changes in ${shortHashOf(tab.hash)}`;
 }
 
 /**

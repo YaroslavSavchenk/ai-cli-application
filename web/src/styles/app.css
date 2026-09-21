@@ -952,6 +952,10 @@ select:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* SECURITY RULE, see `.commit-fpath-t`: a tab chip prints a file NAME out of
+     a repository, so it draws in the order it is stored. */
+  unicode-bidi: isolate-override;
+  direction: ltr;
 }
 
 /* the unsaved mark sits between the name and the ×, where the eye already is */
@@ -1327,13 +1331,15 @@ select:focus-visible,
    xterm renders no ligatures, so a file pane that prints `=` `=` as one long
    glyph (or `=>` as an arrow) would show code this app cannot show in the pane
    beside it — and a reader could not tell `==` from `===`. Every surface that
-   prints code or a path is listed here, once.                                */
+   prints code or a path is listed here, once — including, since part B3, a
+   commit's own message body, which is drawn beside the diff it describes.    */
 .pane-text,
 .pane-gutter,
 .pane-tab-pick,
 .diff-t,
 .diff-path,
 .commit-fpath,
+.commit-vtext,
 .sg-tcprev {
   font-variant-ligatures: none;
 }
@@ -2143,23 +2149,15 @@ select:focus-visible,
   color: var(--color-neutral-600);
 }
 
-/* The placeholder marker at the top of the Commits tab, the last surface in
-   this panel still showing `ui/files-mock.ts` under the user's real project
-   name. Quietest thing in the panel: the branch line's own size and ink, and
-   the body's own row padding so it lines up with the rows it is about. Goes
-   away with part B3. */
-.files-note {
-  padding: var(--space-2) var(--space-3);
-  font-size: 11.5px;
-  color: var(--color-neutral-600);
-}
-
 /* a commit row is a real button (A6: it opens the commit view) */
 .commit-row {
   display: flex;
   flex-direction: column;
   gap: 3px;
   width: 100%;
+  min-width: 0;
+  /* Nothing in a row may widen the panel: the grip's width is a PTY resize. */
+  overflow: hidden;
   padding: var(--space-3);
   border-radius: var(--radius-md);
   text-align: left;
@@ -2190,8 +2188,72 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+/* git abbreviates a hash to whatever `core.abbrev` says — 1..40 characters, so
+   this row may never be sized for seven. It keeps its own width, elides past
+   fourteen (a cut hash SHOWS that it is cut), and the row clips rather than
+   pushes: a pixel of panel width is a PTY resize on the other side of the grip. */
 .commit-hash {
+  flex: none;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
+}
+
+/* B3, THE ROW AT 200px: the numbers are flex:none and keep their line, the
+   author takes what is left and elides. Nothing here may widen the panel —
+   every pixel of its width is a PTY resize on the other side of the grip. */
+.commit-author {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-meta .files-num {
+  flex: none;
+}
+
+/* the third line: the absolute date and how long ago that was, quietest in
+   the row, in the panel's smallest ink */
+.commit-when {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.commit-when > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* `Show more`: a full-width quiet row, the same rhythm as a commit row — a
+   verb in the list, not a button standing over it */
+.commit-more-btn {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  text-align: left;
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+}
+
+.commit-more-btn:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.commit-more-btn:disabled {
+  color: var(--color-neutral-600);
 }
 
 /* ---- the drag edge --------------------------------------------------------
@@ -3428,7 +3490,8 @@ body.is-dnd * {
   line-height: 1.5;
 }
 
-/* the one quiet line that says a surface is not wired yet (files-note idiom) */
+/* the one quiet line that says a surface is not wired yet (part B3 deleted
+   `.files-note`, which this idiom was named after; same size and ink) */
 .sg-note {
   margin: 0;
   font-size: 11.5px;
@@ -6450,26 +6513,36 @@ body.is-dnd * {
   gap: var(--space-2);
 }
 
-/* NOT a link until the app reads a remote (part B3): quiet, unclickable, and
-   its title says when it starts working. */
-/* a real button that says it is unavailable: the disabled LOOK, never the
-   disabled attribute (a screen reader must still reach its explanation) */
+/* Part B3: a real BUTTON (never an `<a href>` — the host drops those), and it
+   exists only when the repository really has an origin on github.com. The
+   panel's own text-link weight: a word, underlined, never a second button. */
 .commit-gh {
   font-size: 12px;
-  color: var(--color-neutral-600);
-  cursor: default;
+  color: var(--color-accent-300);
+  text-decoration: underline;
 }
 
-.commit-gh[aria-disabled='true'] {
-  opacity: 0.6;
+.commit-gh:hover {
+  color: var(--color-accent-200);
 }
 
-/* a commit the view cannot resolve: one sentence, and the back control above
-   it is the whole point of the state */
+/* a commit that is still loading, or one the view cannot resolve: one
+   sentence, and the back control above it is the whole point of the state */
 .commit-missing {
   padding: var(--space-6) var(--space-4);
   font-size: 13px;
   color: var(--color-neutral-500);
+}
+
+/* the server's own refusal, in the ink every refusal in this app wears */
+.commit-missing.is-bad {
+  color: var(--color-danger);
+}
+
+/* the quiet last row of a commit the server had to cap */
+.commit-more {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
 }
 
 .commit-vsum {
@@ -6501,10 +6574,24 @@ body.is-dnd * {
   background: var(--color-ok);
 }
 
-/* the honest line about mock data, in the header's own quiet ramp */
-.commit-note {
-  font-size: 11.5px;
+/* the full date and time, and who committed it when that is somebody else:
+   two more facts on the meta line, in its quietest ink */
+.commit-vwhen,
+.commit-vby {
   color: var(--color-neutral-600);
+}
+
+/* the message BODY under the subject: the user's own text, wrapped as they
+   wrote it, on the same plain glyphs every code surface here draws */
+.commit-vtext {
+  margin: 0;
+  max-width: 78ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-neutral-400);
 }
 
 /* ---- commit view: one collapsible file, then its diff ---------------------- */
@@ -6557,6 +6644,10 @@ body.is-dnd * {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* SECURITY RULE, see `.commit-fpath-t`: the path draws in the order it is
+     stored, whatever directional marks the name itself carries. */
+  unicode-bidi: isolate-override;
+  direction: ltr;
 }
 
 .diff-hd .files-num {
@@ -6604,9 +6695,13 @@ body.is-dnd * {
   background: var(--color-danger-tint);
 }
 
+/* TWO number columns since part B3: a unified diff numbers the OLD file and
+   the NEW one side by side, and the side a row does not exist on stays blank.
+   `--diff-gut-w` is the WHOLE gutter, so one token still says how wide the
+   numbers are and the two halves can never drift apart. */
 .diff-n {
   flex: none;
-  width: var(--diff-gut-w);
+  width: calc(var(--diff-gut-w) / 2);
   padding-right: var(--space-3);
   text-align: right;
   color: var(--color-neutral-700);
@@ -6624,11 +6719,22 @@ body.is-dnd * {
   color: var(--color-neutral-400);
 }
 
-/* No example text for this path: a NOTE, not a numbered diff row. Same quiet
-   ink and size as the panel's placeholder line, on the terminal ground. */
+/* A block with no rows to draw says why — loading, binary, capped, or the
+   server's own refusal: a NOTE, never a numbered row, which would read as
+   content the file really has. */
 .diff-note {
   padding: var(--space-3) var(--space-4);
   font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.diff-note.is-bad {
+  color: var(--color-danger);
+}
+
+/* a hunk header (`@@ … @@`): git's own row, in the quietest ink, carrying no
+   number of its own because it belongs to neither file */
+.diff-line[data-kind='hunk'] .diff-t {
   color: var(--color-neutral-600);
 }
 
@@ -6700,6 +6806,19 @@ body.is-dnd * {
   text-overflow: ellipsis;
   direction: rtl;
   text-align: left;
+}
+
+/* SECURITY RULE: A PATH IS DRAWN IN THE ORDER IT IS STORED. A file named
+   `src/x<RLO>txt.sj` draws as `src/js.txt` — the repository's own bytes,
+   rearranged by the text engine into a name the user never chose, on a row
+   whose whole job is to identify a file. `isolate-override` pins the visual
+   order to this element's own direction and neutralises every embedded
+   override; the two rows below keep their layout (this one truncates at the
+   FRONT, so its BOX stays `direction: rtl` and only the text inside is
+   forced left-to-right). */
+.commit-fpath-t {
+  unicode-bidi: isolate-override;
+  direction: ltr;
 }
 
 /* a folded file recedes, exactly like a closed folder in the tree */

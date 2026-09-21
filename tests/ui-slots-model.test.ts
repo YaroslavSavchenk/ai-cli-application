@@ -91,10 +91,10 @@ test('tabTitle: a file chip prints the LAST SEGMENT, a diff chip says which comm
   assert.equal(tabTitle({ kind: 'file', path: 'web/src/ui/panes.ts' }), 'panes.ts');
   assert.equal(tabTitle({ kind: 'file', path: 'LICENSE' }), 'LICENSE');
   assert.equal(tabTitle({ kind: 'file', path: '/a/b//c.ts' }), 'c.ts');
-  assert.equal(tabTitle({ kind: 'diff', hash: '474d891', path: 'server/ws.ts' }), 'Changes in 474d891');
+  assert.equal(tabTitle({ kind: 'diff', hash: '474d891', path: 'server/ws.ts', root: '/home/you/app' }), 'Changes in 474d891');
   for (const t of [
     { kind: 'file', path: 'web/src/ui/panes.ts' },
-    { kind: 'diff', hash: '474d891', path: 'server/ws.ts' },
+    { kind: 'diff', hash: '474d891', path: 'server/ws.ts', root: '/home/you/app' },
   ] as EditorTab[]) {
     assert.ok(!tabTitle(t).includes('/'), 'no path separator reaches a chip');
   }
@@ -107,7 +107,7 @@ test('slotTitle: an editor pane is called after the tab it is SHOWING', () => {
   const tabs: EditorTab[] = [
     { kind: 'file', path: 'web/src/ui/panes.ts' },
     { kind: 'file', path: 'LICENSE' },
-    { kind: 'diff', hash: '474d891', path: 'server/ws.ts' },
+    { kind: 'diff', hash: '474d891', path: 'server/ws.ts', root: '/home/you/app' },
   ];
   assert.equal(slotTitle(editor(tabs, 0)), 'panes.ts');
   assert.equal(slotTitle(editor(tabs, 1)), 'LICENSE');

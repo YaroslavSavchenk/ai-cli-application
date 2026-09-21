@@ -601,6 +601,51 @@ multi-pane layouts on top.
   escapes the ladder (same uid — it could read the key anyway); a root-owned
   member survives silently; shutdown's SIGHUP+SIGKILL in one tick loses
   in-flight shell history (UX, user's call).
+- **The commits routes (Nocturne B3, 2026-09-21; spec
+  `.claude/plans/nocturne/PLAN-B3.md`, rationale
+  `memory/decisions/b3-commits-live.md` and
+  `memory/knowledge/git-read-calls-run-repo-config.md`).** Three authed GETs
+  beside `/api/git/changes`, same home/project boundary on `root`, in
+  `server/git-log.ts` on B2's one git runner: `GET /api/git/commits?root&limit
+  (1..50, default 10)&skip&from` (the history of HEAD, newest first, `total`
+  from `rev-list --count` — a floor when that times out — `more`, paging
+  pinned by `from=<head of page one>`; not a repository = 200 `isRepo:false`;
+  an empty one = `branch` + `head:null`), `GET /api/git/commit?root&hash`
+  (subject, body ≤ 8 KiB, author NAME, committer name only when it differs,
+  both dates, parents, branch, the files with `+a -d` ≤ 2000 then `truncated`,
+  and `github: { owner, repo } | null` parsed from `origin` — github.com
+  only, https and the ssh/scp spellings, a credential in the URL discarded
+  and never in a response or a log line), `GET
+  /api/git/commit-diff?root&hash&path` (one file of one commit as numbered
+  lines; `binary`; `tooLarge` past 2000 lines, decided from numstat before
+  the patch is asked for). Every client string is gated BEFORE argv: `hash` /
+  `from` `^[0-9a-f]{40}$` then `rev-parse --verify --quiet <h>^{commit}`
+  (400 `The app cannot open that commit.` / 404 `This commit is no longer
+  there.`), `limit` / `skip` strict integers, `path` relative without
+  `.`/`..`/NUL and only after `--`. Nothing the repository configures may run
+  or reshape: `--no-show-signature --no-notes --no-color --no-ext-diff
+  --no-textconv --no-renames --diff-merges=first-parent --encoding=UTF-8
+  -O/dev/null`, `--no-walk` on the three single-commit calls (a walking `log
+  -1 -- <path>` answers with an ANCESTOR's diff — measured), and
+  `GIT_NO_LAZY_FETCH=1` in the shared environment — found by the security
+  review: a partial-clone config with one missing object made `log`,
+  `rev-parse` and B2's shipped `diff` RUN the transport program the repository
+  named. Records are `%x01`-led with `%x00` between fields (git cuts `%s` at
+  a NUL, so no commit can forge one); subject, names, body and diff text are
+  control-stripped and capped, file paths are git's verbatim bytes (they must
+  round-trip as a pathspec; the page draws them as text, bidi-isolated). No
+  e-mail address anywhere. Logging: one line per request, counts only. The
+  page: 10 rows + `Show more` (user decision), three-line rows (subject;
+  hash, author, `+a -d`; date + relative time), one 5 s interval shared with
+  the Changes tab, the first ten file blocks unfolded and fetched in
+  parallel, the rest on unfold, one block repainted per answer, never a pane
+  render while the grid is hidden. Known limits, recorded: the object store
+  of the WHOLE repository is readable through `commit-diff` (a tracked file
+  above a project anchor included — B2's whole-repository reach; a token
+  holder can already spawn a shell); a git older than the CVE-2024-32004
+  backport ignores `GIT_NO_LAZY_FETCH`; a file of few enormous lines ends at
+  the 2 MiB cap with the constant 500; `/api/git/changes` still 500s on a
+  broken repo-local `diff.orderFile`.
 - **The upload route (Nocturne B10, 2026-09-20; spec `.claude/plans/nocturne/PLAN-B10.md`
   §2).** `PUT /api/fs/upload?dir=<abs>&rel=<relative>&mode=replace|new`,
   body `application/octet-stream`, ONE file per request, `content-length`
@@ -708,8 +753,9 @@ multi-pane layouts on top.
   +/-, amber pulse on files being edited and their ancestor folders) and
   Commits (message, hash, author, relative time, +/-; DISABLED with the
   title "No repository at Home" while the header reads `Home`, the panel
-  falling back to Files — user decision 2026-09-15, part A11; a session
-  without a project keeps the mock until B3 decides repo detection);
+  falling back to Files — user decision 2026-09-15, part A11; since B2 the
+  rule is a real probe of the panel's root, a project-less session's folder
+  included; LIVE since B3, 2026-09-21 — the commits bullet below);
   header shows the
   focused session's project name (its title when it has no project); when
   the focused pane is a file or diff, the tab's root folder (since A10);
@@ -728,17 +774,16 @@ multi-pane layouts on top.
   control, never `<body>`); since A9b a first Esc clears a folder
   selection instead, the next one closes. It is NOT a keyboard owner: an open Files panel
   never blocks the window-activation refocus of the terminal
-  (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2/B3 land, each tab
-  carries one quiet "Example data until the panel reads your …" line —
-  the data is placeholder, the header name is real (a project, a session
-  title, or `Home`). **B2 + A9c (started 2026-09-16, `.claude/plans/nocturne/PLAN-B2.md`)**
+  (`OPEN_FOCUS_OWNER_SELECTOR` excludes it). Until B2 (Files, Changes) and B3 (Commits) landed, each tab
+  carried one quiet "Example data until the panel reads your …" line; both
+  are gone — every tab reads the real folder and the real repository. **B2 + A9c (started 2026-09-16, `.claude/plans/nocturne/PLAN-B2.md`)**
   turn the panel into a REAL file browser (root = the user's home, or the
   focused session's project root — with NOTHING focused the root is home,
   user decision 2026-09-16, replacing A5's "first live session anywhere"
   header rule for the panel; lazy per-folder listings, no poll; the
   git changes become a `Changes` tab fed by `git diff --numstat` +
   `git status --porcelain -z`, polled every 5 s only while that tab is
-  visible; `Commits` stays mock until B3) and give the row menu `New file`
+  visible; `Commits` is live since B3, 2026-09-21) and give the row menu `New file`
   / `New folder` / `Refresh` (inline name row at the child indent, Enter
   creates for real, Escape or blur cancels, the refusal is a second row in
   danger ink) plus a panel-ROOT menu (Copy files here…, New file, New
@@ -754,7 +799,9 @@ multi-pane layouts on top.
   `anchor + sep`); the picker's `/api/fs/list` + `/api/fs/mkdir` stay
   machine-wide on purpose (user decision 2026-09-16), constant error sentences, counts-not-names in
   `server.log`, git via argv only with `core.fsmonitor` off,
-  `GIT_OPTIONAL_LOCKS=0`, stdout capped and a 5 s kill. Test seam
+  `GIT_OPTIONAL_LOCKS=0`, and since B3 `GIT_NO_LAZY_FETCH=1`,
+  `GIT_LITERAL_PATHSPECS=1` and `LC_ALL=C` in the one shared environment,
+  stdout capped and a 5 s kill. Test seam
   `AI_SM_HOME_OVERRIDE` (absolute, normalized, never root, existing dir;
   refused at boot with a `server.log` line; never inherited by PTYs)
   moves that home for route tests only. Since A9 (2026-09-15) the panel and
@@ -841,15 +888,19 @@ multi-pane layouts on top.
   A10b brought the file tabs back inside the pane).
 - **Commit view and editor panes** (Nocturne A6, landed 2026-09-13; file
   panes since A10 and file TABS inside them since A10b, both 2026-09-15;
-  mock content until B3/B4): the commit view
+  the commit view and the diff tabs on real data since B3, 2026-09-21; file
+  CONTENT stays mock until B4): the commit view
   is one more column in the middle row, mounted as a flex sibling in the
   order Projects, Files, commit view, pane grid, Sessions. The **commit
   view** replaces the pane area (the grid is
   `hidden`; terminals are NOT disposed and `panes.render()` refuses to
   build or reconcile while the grid is hidden — a deferred render runs on
   return): card on neutral-900, "Back to sessions", title, author initial
-  avatar, "committed <when>", `main` chip, hash chip, an inert "Open on
-  GitHub" until B3 knows a remote, `N files changed +A -D` with a
+  avatar, "committed <when>" with the full date and time, `Committed by
+  <name>` when the committer differs, the message body, the branch chip
+  (absent on a detached head), the short-hash chip, "Open on GitHub" ONLY
+  when `origin` is on github.com (absent otherwise, never disabled — user
+  decision 2026-09-21), `N files changed +A -D` with a
   five-block bar, one collapsible block per file with a unified diff and
   "Open file" / "Changes". The Files panel's Commits tab shows the
   selected commit (message, meta, per-file rows that fold the view's
@@ -874,8 +925,9 @@ multi-pane layouts on top.
   the keyboard to the terminal. New `ChangeKind` `'screen'` = something
   other than the panes fills the pane area; the pane module ignores it.
   Code surfaces (editor, diff, paths) draw plain glyphs — no font
-  ligatures — like the terminal. Each surface carries one quiet "Example
-  …" line until the real data lands. Esc inside a file pane's textarea
+  ligatures — like the terminal. Since B3 only the editor's file body
+  carries a quiet "Example …" line (until B4); the commit view and the diff
+  tabs draw the repository. Esc inside a file pane's textarea
   belongs to the textarea and closes nothing.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC

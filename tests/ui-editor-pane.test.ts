@@ -44,6 +44,8 @@ import {
   textsOf,
   type FakeElement,
 } from './fake-dom.ts';
+import { PROJ, makeFixture } from './fs-fixture.ts';
+import { HEAD } from './commits-fixture.ts';
 
 const dom = installDom();
 
@@ -55,7 +57,8 @@ const dom = installDom();
 
 type EditorTab =
   | { kind: 'file'; path: string }
-  | { kind: 'diff'; hash: string; path: string };
+  /** Part B3: a diff tab carries the folder it is READ from, and the full hash. */
+  | { kind: 'diff'; hash: string; path: string; root: string };
 interface EditorSlot {
   kind: 'editor';
   id: string;
@@ -80,7 +83,7 @@ interface StateModule {
     edits: Map<string, string>;
   };
   openFile(root: { kind: 'home' }, path: string, label: string): string;
-  openDiff(root: { kind: 'home' }, hash: string, path: string): string;
+  openDiff(root: { kind: 'home' }, hash: string, path: string, repoRoot: string): string;
   activeView(): ViewLike | null;
   slotKey(s: PaneSlot): string;
   setActiveTab(viewId: string, slot: number, tabIndex: number): boolean;
@@ -122,15 +125,24 @@ const EM = (await import(new URL('../web/src/ui/editor-model.ts', import.meta.ur
 const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as {
   mockFileContent(path: string): string | null;
   saveMockFile(path: string, text: string): void;
-  MOCK_COMMITS: { hash: string; files: { path: string }[] }[];
 };
+const STORE = (await import(new URL('../web/src/ui/commit-store.ts', import.meta.url).href)) as {
+  setCommitGateway(gw: unknown): void;
+};
+// A diff TAB fetches its own rows (part B3), through the gateway the store
+// owns — injected here exactly as main.ts injects the real one.
+STORE.setCommitGateway(makeFixture().gateway);
 
 const A = 'web/src/Pane.tsx';
 const B = 'web/src/App.tsx';
 const C = 'shared/protocol.ts';
 const ORIGINAL_A = MOCK.mockFileContent(A) as string;
 const ORIGINAL_B = MOCK.mockFileContent(B) as string;
-const HASH = (MOCK.MOCK_COMMITS[0] as { hash: string }).hash;
+const HASH = HEAD;
+/** The chip shows seven characters of it; the tab's identity is all forty. */
+const SHORT = HEAD.slice(0, 7);
+/** The folder every diff tab below is read from. */
+const REPO = PROJ;
 
 // ---------------------------------------------------------------------------
 // The two elements `ui/panes.ts` owns and hands over: a header and a body.
@@ -258,13 +270,13 @@ test('the strip is followed by the PANE’s own ×, which says what goes with it
 });
 
 test('a read-only diff tab is called after its commit and never wears the unsaved mark', () => {
-  st.openDiff({ kind: 'home' }, HASH, C);
+  st.openDiff({ kind: 'home' }, HASH, C, REPO);
   sync();
-  assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx', `Changes in ${HASH}`]);
+  assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx', `Changes in ${SHORT}`]);
   assert.equal(field(), null, 'a diff has nothing to type into');
   assert.equal(byClass(hd, 'pane-dirty').length, 0, 'and so it can never be unsaved');
   const x = byClass(chips()[2] as FakeElement, 'pane-x')[0] as FakeElement;
-  assert.equal(x.getAttribute('aria-label'), `Close Changes in ${HASH}`);
+  assert.equal(x.getAttribute('aria-label'), `Close Changes in ${SHORT}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -461,7 +473,7 @@ test('focus() lands in the text of a file tab, and on the CHIP of a read-only di
   assert.equal(dom.doc.activeElement, field(), 'a file pane focuses what can be typed in');
   assert.equal(pane.holdsFocus(), false, 'the textarea is the BODY, not the strip');
 
-  st.openDiff({ kind: 'home' }, HASH, C);
+  st.openDiff({ kind: 'home' }, HASH, C, REPO);
   sync();
   pane.focus();
   const pick = byClass(chips()[2] as FakeElement, 'pane-tab-pick')[0] as FakeElement;
@@ -511,11 +523,11 @@ test('fileTabSpec names the pane twice and the tab twice — nothing more', () =
 });
 
 test('a diff chip carries its own id, from the other id space', () => {
-  st.openDiff({ kind: 'home' }, HASH, C);
+  st.openDiff({ kind: 'home' }, HASH, C, REPO);
   sync();
   const spec = EP.fileTabSpec('v9', slot(), 0, 2) as Record<string, unknown>;
   assert.equal(spec.tabId, EM.diffTabId(HASH, C));
-  assert.equal(spec.label, `Changes in ${HASH}`);
+  assert.equal(spec.label, `Changes in ${SHORT}`);
 });
 
 test('a pointerdown on a chip arms the CHIP’s drag, never the pane’s', () => {
@@ -575,7 +587,7 @@ test('every class the strip renders has a rule in app.css', () => {
   type(field() as FakeElement, `${ORIGINAL_B}\nchanged`); // the dot and its words
   sync();
   collect();
-  st.openDiff({ kind: 'home' }, HASH, C); // a read-only tab
+  st.openDiff({ kind: 'home' }, HASH, C, REPO); // a read-only tab
   sync();
   collect();
 

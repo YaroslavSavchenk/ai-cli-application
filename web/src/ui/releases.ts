@@ -9,20 +9,16 @@
  * says what it does in words, exactly like every other control in the app
  * (PROJECT-SCOPE copy rule, 2026-07-25).
  *
- * WHY THE CALL SHAPE IS LOAD-BEARING. This is THE ONE SANCTIONED WAY OUT of the
- * app window. The WebView2 host locks top-level navigation to the launch origin
- * and drops every popup, with exactly one exception: a user-initiated
- * `window.open` for an exact http/https target, which it hands to the user's
- * default browser as a separate process (scheme allowlist enforced host-side).
- * So: a real click, `window.open`, `_blank` (a new window — navigating this one
- * is what the origin lock refuses), and `noopener,noreferrer` (the opened page
- * must never reach back into a localhost window holding an auth token). A
- * fetch, a redirect, an `<a href>` or a programmatic open would be dropped or
- * would break the lock.
+ * THE CALL ITSELF MOVED (part B3): `ui/open-external.ts` owns the one
+ * `window.open` this app makes, because the commit view got a second address
+ * to leave for (`Open on GitHub`, user decision D2) and two copies of a
+ * security-shaped call is how one of them drifts. That module carries the why.
  */
+import { openExternal } from './open-external.ts';
+
 export const RELEASES_URL = 'https://github.com/YaroslavSavchenk/ai-cli-application/releases';
 
 /** Open the releases page in the user's own browser. Call it FROM a click. */
 export function openReleasesPage(): void {
-  window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+  openExternal(RELEASES_URL);
 }

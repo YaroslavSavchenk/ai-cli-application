@@ -3,7 +3,9 @@
  * through the REAL module: the grip dragged with real pointer events, the
  * arrow keys pressed, folder rows clicked, tabs switched — against the REAL
  * `web/src/state.ts`, `ui/util.ts`, `ui/icons.ts`, `ui/files-model.ts`,
- * `ui/fs-model.ts` and, for the Commits tab only, `ui/files-mock.ts`.
+ * `ui/fs-model.ts` and — for the Commits tab since part B3 — `ui/commit-model.ts`
+ * and `ui/commit-store.ts`, with the backend a plain fake (`tests/fs-fixture.ts`
+ * over `tests/commits-fixture.ts`).
  *
  * THE BACKEND IS A FAKE `FsGateway` (part B2). The panel takes it injected, so
  * the whole file browser — lazy listings, the states they pass through, the
@@ -42,6 +44,7 @@ import type { Project, SessionInfo } from '../shared/protocol.ts';
 import {
   byClass,
   byKey,
+  descendants,
   dispatch,
   installDom,
   textsOf,
@@ -58,13 +61,24 @@ import {
   repoAnswer,
   settle,
   type Changes,
-  type Entry,
   type Gateway,
 } from './fs-fixture.ts';
+import {
+  BRANCH,
+  EMPTY_PAGE,
+  NOT_A_REPO,
+  HEAD,
+  NOW,
+  SUMMARIES,
+  TOTAL,
+  detailOf,
+  hashOf,
+  pageOf,
+} from './commits-fixture.ts';
 
 /** The fake backend every test below drives the panel against (`fs-fixture.ts`). */
 const fx = makeFixture();
-const { gateway, entryCalls, changeCalls, failWith } = fx;
+const { gateway, entryCalls, changeCalls, commitsCalls, failWith } = fx;
 
 const dom = installDom();
 
@@ -74,7 +88,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const st = (await import(new URL('../web/src/state.ts', import.meta.url).href)) as StateModule;
 const F = (await import(new URL('../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 const M = (await import(new URL('../web/src/ui/files-model.ts', import.meta.url).href)) as ModelModule;
-const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as MockModule;
 const MODEL = (await import(new URL('../web/src/ui/commit-model.ts', import.meta.url).href)) as {
   blockDomId(hash: string, path: string): string;
 };
@@ -113,6 +126,7 @@ interface StateModule {
   state: {
     sessions: Map<string, SessionInfo>;
     openCommit: string | null;
+    openCommitAt: { root: string; repoRoot: string } | null;
     commitCollapsed: Set<string>;
     edits: Map<string, string>;
     projects: Project[];
@@ -133,7 +147,7 @@ interface StateModule {
   subscribe(fn: (kind: string) => void): void;
   toggleLeftPanel(p: 'files'): void;
   filesPanelVisible(): boolean;
-  openCommitView(hash: string): void;
+  openCommitView(hash: string, at: { root: string; repoRoot: string }): void;
   closeCommitView(): void;
   commitFileCollapsed(hash: string, path: string): boolean;
   editorFileId(path: string): string;
@@ -167,7 +181,12 @@ function ed(...paths: string[]): PaneSlot {
 }
 
 interface FilesModule {
-  initFilesPanel(host: unknown, onLeaveScreen: () => void, fs: Gateway): { render(): void };
+  initFilesPanel(
+    host: unknown,
+    onLeaveScreen: () => void,
+    fs: Gateway,
+    now?: () => number,
+  ): { render(): void };
   /** Part A9: where a drop, a paste or the header button would copy to. */
   pasteDestination(): Dest | null;
   /** Part A9b: the folder the user chose — a real folder behind its name. */
@@ -185,19 +204,6 @@ interface ModelModule {
   buildTree(files: readonly { path: string }[]): unknown[];
   treeRows(nodes: readonly unknown[], open: ReadonlySet<string>): { path: string; dir: boolean; busy: boolean }[];
 }
-interface MockModule {
-  MOCK_COMMITS: {
-    hash: string;
-    message: string;
-    author: string;
-    when: string;
-    add: number;
-    del: number;
-    files: { path: string; add: number; del: number }[];
-  }[];
-  MOCK_BRANCH: string;
-}
-
 const host = dom.doc.createElement('aside');
 dom.body.append(host);
 /** The keyboard hand-back main.ts injects (the real one focuses a terminal). */
@@ -208,7 +214,27 @@ const panel = F.initFilesPanel(
     handBacks += 1;
   },
   gateway,
+  () => NOW,
 );
+/**
+ * The selected-commit state reads the ONE answer the commit view fetched
+ * (`ui/commit-store.ts`), so the store gets the same fake — exactly as main.ts
+ * hands it the same object it hands the panel.
+ */
+const STORE = (await import(new URL('../web/src/ui/commit-store.ts', import.meta.url).href)) as {
+  setCommitGateway(gw: unknown): void;
+  syncCommit(hash: string | null, root: string | null): void;
+};
+STORE.setCommitGateway(gateway);
+
+/**
+ * The commit VIEW is what asks for an open commit (main.ts renders it first on
+ * every notification); this file drives the panel alone, so it stands in for
+ * that one call — and for nothing else.
+ */
+function viewRender(): void {
+  STORE.syncCommit(st.state.openCommit, st.state.openCommitAt?.root ?? null);
+}
 const root = host.children[0] as FakeElement;
 
 /**
@@ -392,8 +418,10 @@ beforeEach(() => {
   // starts from the same wish — pressed, the way a user sets it.
   (byKey(root, 'ftab:files') as FakeElement | null)?.click();
   st.state.openCommit = null;
+  st.state.openCommitAt = null;
   st.state.commitCollapsed = new Set();
   st.state.edits = new Map();
+  viewRender();
   dom.doc.activeElement = dom.body;
   // A9b: activating a folder row SELECTS it, and a selection outlives every
   // rebuild on purpose — so a row a previous test clicked would still be the
@@ -1419,28 +1447,21 @@ test('the caret is decoration: aria-hidden, and the folder row itself states the
   assert.equal(web.getAttribute('aria-expanded'), 'true');
 });
 
-test('only the Commits tab still says what is under it is not the real repository', async () => {
-  // Part B2 made the Files tab REAL, so its honesty line is gone with the mock
-  // it was about; `Commits` is the last surface drawing `ui/files-mock.ts`
-  // under the user's real project name, and it keeps the one line.
+test('no honesty line is left in the panel at all — every tab is real (B3)', async () => {
+  // B2 made the Files tab real, B3 the Commits tab. The one quiet "Example
+  // data until…" line went with the mock it was about, and the function that
+  // drew it went with it.
   await liveSession();
   assert.deepEqual(textsOf(root, 'files-note'), [], 'a real listing needs no apology');
 
   (byKey(root, 'ftab:commits') as FakeElement).click();
-  assert.deepEqual(textsOf(root, 'files-note'), [
-    'Example data until the panel reads your commits.',
-  ]);
-  assert.equal(
-    (body.children[0] as FakeElement).classList.contains('files-note'),
-    true,
-    'first thing in the body',
-  );
+  await settle();
+  assert.deepEqual(textsOf(root, 'files-note'), []);
 
-  // ONE render site, so B3 removes it by deleting one function and one
-  // argument — not by hunting two branches.
   const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
-  assert.equal(src.split('placeholderNote(').length - 1, 2, 'one definition, one call site');
-
+  for (const dead of ['placeholderNote', 'Example data', 'files-mock', 'MOCK_COMMITS']) {
+    assert.equal(src.includes(dead), false, `${dead} died with part B3`);
+  }
   (byKey(root, 'ftab:files') as FakeElement).click(); // the tab is panel-local state
 });
 
@@ -1452,26 +1473,323 @@ test('the Commits tab swaps the body and hides the summary; both tabs say which 
   assert.equal(commits.getAttribute('aria-pressed'), 'false');
 
   commits.click();
+  await settle();
   assert.equal(commits.getAttribute('aria-pressed'), 'true');
   assert.equal(files.getAttribute('aria-pressed'), 'false');
   assert.equal(summary.hidden, true, 'a file summary over a commit list would be a lie');
   assert.equal(byClass(root, 'files-row').length, 0);
-  assert.equal(textsOf(root, 'files-branch')[0], 'main, 5 commits');
+  // The header states the branch and the REPOSITORY's total, not the number of
+  // rows on screen: the list holds one page of ten.
+  assert.equal(textsOf(root, 'files-branch')[0], `${BRANCH}, ${TOTAL} commits`);
 
   const rows = byClass(root, 'commit-row');
-  assert.equal(rows.length, MOCK.MOCK_COMMITS.length);
-  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
-  assert.equal(textsOf(root, 'commit-msg')[0], first.message);
-  assert.equal(textsOf(root, 'commit-hash')[0], first.hash);
-  assert.ok(rows[0]?.textContent.includes(first.when));
+  assert.equal(rows.length, 10, 'the first page is ten (user decision D1)');
+  assert.ok(TOTAL > 10, 'non-vacuity: the history is longer than one page');
+  const first = SUMMARIES[0] as (typeof SUMMARIES)[number];
+  assert.equal(textsOf(root, 'commit-msg')[0], first.subject);
+  assert.equal(textsOf(root, 'commit-hash')[0], first.shortHash, 'the SHORT hash in the row');
+  assert.equal(textsOf(root, 'commit-author')[0], first.author);
+  assert.equal(textsOf(root, 'commit-date')[0], '21 Sep 2026', 'the absolute date');
+  assert.ok(rows[0]?.textContent.includes('3 hours ago'), 'and the relative time beside it');
   assert.ok(rows[0]?.textContent.includes(`+${first.add}`));
-  // A6: a commit row opens the full commit view.
+  assert.ok(rows[0]?.textContent.includes(`-${first.del}`));
+  // The full date and time is the tooltip, not a fourth line.
+  assert.equal(
+    (byClass(rows[0] as FakeElement, 'commit-when')[0] as FakeElement).title,
+    '21 Sep 2026 at 09:00',
+  );
+  // A6: a commit row opens the full commit view, by the FULL hash.
   assert.equal(rows[0]?.tagName, 'BUTTON', 'a commit row is a control now, not a card');
   assert.equal(rows[0]?.getAttribute('data-k'), `commit:${first.hash}`);
+  assert.equal(rows[0]?.textContent.includes(first.hash), false, 'forty characters are not a row');
 
   files.click();
   assert.equal(summary.hidden, true, 'the summary belongs to Changes, not to a folder listing');
   assert.ok(byClass(root, 'files-row').length > 0, 'and the tree comes back');
+});
+
+test('the list asks for TEN, from the root the Changes tab sends, and says Loading first', async () => {
+  await liveSession();
+  fx.hold();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  assert.deepEqual(textsOf(root, 'files-row'), ['Loading…'], 'no rows are invented meanwhile');
+  fx.release();
+  await settle();
+  assert.deepEqual(commitsCalls, [{ root: PROJ, limit: 10, skip: 0, from: undefined }]);
+  assert.equal(byClass(root, 'commit-row').length, 10);
+});
+
+test('`Show more` loads ten more, PINNED to the head of page one', async () => {
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  const more = byKey(root, 'commit:more') as FakeElement;
+  assert.notEqual(more, null, 'there is an older page, so the row is there');
+  assert.equal(more.textContent, 'Show more');
+  assert.equal(more.tagName, 'BUTTON', 'an ordinary button in tab order — no new chord');
+
+  more.click();
+  await settle();
+  assert.deepEqual(commitsCalls[1], { root: PROJ, limit: 10, skip: 10, from: HEAD });
+  assert.equal(byClass(root, 'commit-row').length, TOTAL, 'both pages are on screen');
+  assert.deepEqual(
+    textsOf(root, 'commit-hash'),
+    SUMMARIES.map((c) => c.shortHash),
+    'in order, with nothing repeated and nothing skipped',
+  );
+  assert.equal(byKey(root, 'commit:more'), null, 'and the row goes when there is no more');
+});
+
+test('a page still in flight disables the row and says so, and a second press asks nothing', async () => {
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  fx.hold();
+  (byKey(root, 'commit:more') as FakeElement).click();
+  const busy = byKey(root, 'commit:more') as FakeElement;
+  assert.equal(busy.textContent, 'Loading…');
+  assert.equal(busy.disabled, true);
+  busy.click();
+  assert.equal(commitsCalls.length, 2, 'one request, not two');
+  fx.release();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, TOTAL);
+});
+
+test('the poll asks page ONE: the same head changes nothing, a new head resets the list', async () => {
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  (byKey(root, 'commit:more') as FakeElement).click();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, TOTAL, 'two pages loaded');
+
+  const tick = dom.win.intervals[0] as { fn: () => void };
+  assert.equal(dom.win.intervals[0]?.ms, 5000, 'the Changes tab`s own rule');
+  tick.fn();
+  await settle();
+  assert.deepEqual(commitsCalls[2], { root: PROJ, limit: 10, skip: 0, from: undefined });
+  assert.equal(byClass(root, 'commit-row').length, TOTAL, 'same head: the loaded pages stay');
+
+  // A commit landed: the head moved, so the pinned pages under it are no longer
+  // reachable from it and the list goes back to page one.
+  const moved = hashOf(99);
+  fx.setCommits((_root, limit, skip) => ({ ...pageOf(limit, skip), head: moved }));
+  tick.fn();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, 10, 'back to one page');
+  // And the next `Show more` pins to the NEW head.
+  (byKey(root, 'commit:more') as FakeElement).click();
+  await settle();
+  assert.equal((commitsCalls[commitsCalls.length - 1] as { from: string }).from, moved);
+});
+
+test('a commit row is never a dead click: the history may answer BEFORE the repository', async () => {
+  // `setRoot()` nulls the Changes answer while the Commits tab stays up (the
+  // wished tab survives an unknown `isRepo`), and the two requests race. The
+  // row opens the view with the root it was read from; the repository is
+  // filled in when its own answer lands.
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  // Both roots are repositories; only the history answers for now.
+  fx.setChanges((r) => (r === PROJ2 ? repoAnswer({ repoRoot: PROJ2 }) : repoAnswer()));
+  fx.setCommits((_r, limit, skip) => pageOf(limit, skip));
+  fx.holdIf((c) => c.kind === 'changes');
+
+  st.setProjects([project('p1', 'api'), project('p2', 'tools')]);
+  st.setSessions([mkSession('s2', { projectId: 'p2' })]);
+  focusSession('s2');
+  rootNow = PROJ2;
+  panel.render();
+  await settle();
+  assert.ok(byClass(root, 'commit-row').length > 0, 'the list answered first');
+
+  (byKey(root, `commit:${HEAD}`) as FakeElement).click();
+  assert.equal(st.state.openCommit, HEAD, 'the click DID something');
+  assert.deepEqual(
+    st.state.openCommitAt,
+    { root: PROJ2, repoRoot: null },
+    'the root now, the repository later',
+  );
+
+  fx.release();
+  await settle();
+  assert.deepEqual(
+    st.state.openCommitAt,
+    { root: PROJ2, repoRoot: PROJ2 },
+    'the Changes answer for the same root fills it in',
+  );
+  st.closeCommitView();
+  viewRender();
+  rootNow = PROJ;
+});
+
+test('a root change while page one is in flight asks the NEW root at once', async () => {
+  // `dropCommits()` has to clear the flight marker too: with it left set, the
+  // render that follows thinks a request for the new root is already out and
+  // the list waits for the next poll tick — five seconds, or forever with the
+  // panel hidden.
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  fx.holdIf((c) => c.kind === 'commits');
+  // A root change with page one still out.
+  st.setSessions([mkSession('s2', { projectId: 'p2' })]);
+  st.setProjects([project('p1', 'api'), project('p2', 'tools')]);
+  focusSession('s2');
+  rootNow = PROJ2;
+  panel.render();
+  await settle();
+  const asked = commitsCalls.map((c) => c.root);
+  assert.ok(asked.includes(PROJ2), `the new root was asked at once: ${asked.join(' ')}`);
+  fx.release();
+  await settle();
+  // The answer for the root we LEFT never paints.
+  assert.equal(byClass(root, 'commit-row').length, 0, 'PROJ2 is no repository, so no rows');
+  rootNow = PROJ;
+});
+
+test('`Show more` while the POLL is in flight still loads the page', async () => {
+  // Two questions, two flight markers: a tick about page one may not swallow
+  // the only way to see older commits.
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  fx.hold(); // the poll tick below stays out
+  (dom.win.intervals[0] as { fn: () => void }).fn();
+  const afterTick = commitsCalls.length;
+  const more = byKey(root, 'commit:more') as FakeElement;
+  assert.equal(more.disabled, false, 'a poll does not disable the row');
+  assert.equal(more.textContent, 'Show more');
+  more.click();
+  assert.equal(commitsCalls.length, afterTick + 1, 'the page really was asked for');
+  assert.deepEqual(commitsCalls[commitsCalls.length - 1], {
+    root: PROJ,
+    limit: 10,
+    skip: 10,
+    from: HEAD,
+  });
+  fx.release();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, TOTAL, 'and both pages are on screen');
+});
+
+test('ONE poll timer: it follows the visible tab and goes with the panel', async () => {
+  await liveSession();
+  assert.equal(dom.win.intervals.length, 0, 'the Files tab polls nothing');
+  (byKey(root, 'ftab:changes') as FakeElement).click();
+  await settle();
+  assert.equal(dom.win.intervals.length, 1, 'Changes arms it');
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  assert.equal(dom.win.intervals.length, 1, 'Commits keeps exactly ONE, not a second');
+  assert.equal(dom.win.intervals[0]?.ms, 5000);
+
+  // A tick asks the VISIBLE tab's question, and only that one.
+  const commitsBefore = commitsCalls.length;
+  const changesBefore = changeCalls.length;
+  (dom.win.intervals[0] as { fn: () => void }).fn();
+  await settle();
+  assert.equal(commitsCalls.length, commitsBefore + 1, 'the history was re-asked');
+  assert.equal(changeCalls.length, changesBefore, 'and the diff was not');
+
+  st.state.leftPanel = null;
+  panel.render();
+  assert.equal(dom.win.intervals.length, 0, 'a panel nobody can see costs nothing');
+  st.state.leftPanel = 'files';
+  panel.render();
+  await settle();
+  assert.equal(dom.win.intervals.length, 1, 'and it comes back with the panel');
+  (byKey(root, 'ftab:files') as FakeElement).click();
+  assert.equal(dom.win.intervals.length, 0, 'leaving both watching tabs clears it');
+});
+
+test('an empty repository names its branch and says there is nothing yet', async () => {
+  fx.setCommits(() => EMPTY_PAGE);
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  assert.equal(textsOf(root, 'files-branch')[0], BRANCH, 'the branch alone — 0 commits is not a count');
+  assert.deepEqual(textsOf(root, 'files-row'), ['No commits yet.']);
+  assert.equal(byClass(root, 'commit-row').length, 0);
+  assert.equal(byKey(root, 'commit:more'), null);
+});
+
+test('a root that stopped being a repository draws NOTHING, never `No commits yet.`', async () => {
+  // An empty repository and a folder with no repository are two different
+  // facts. The Changes probe is what takes the tab away on the next render;
+  // until it does, this tab says nothing rather than the wrong thing — and it
+  // asks nothing either, so a held answer can never become a request loop.
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  fx.setCommits(() => NOT_A_REPO);
+  const before = commitsCalls.length;
+  (dom.win.intervals[0] as { fn: () => void }).fn();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, 0);
+  assert.deepEqual(textsOf(root, 'files-row'), [], 'not one sentence about a repository');
+  panel.render();
+  panel.render();
+  await settle();
+  assert.equal(commitsCalls.length, before + 1, 'and a repaint asks nothing');
+});
+
+test('a detached head has no branch to name, and says the one word for that', async () => {
+  fx.setCommits((_root, limit, skip) => ({ ...pageOf(limit, skip), branch: null }));
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  assert.equal(textsOf(root, 'files-branch')[0], `Detached, ${TOTAL} commits`);
+});
+
+test('a refused history draws the SERVER`s sentence, in the danger ink', async () => {
+  fx.setCommits(() => new FakeApiError(500, 'The app could not read this repository.'));
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  const row = byClass(root, 'files-row')[0] as FakeElement;
+  assert.equal(row.textContent, 'The app could not read this repository.');
+  assert.equal(row.classList.contains('is-err'), true, 'the danger ink every refusal wears');
+  assert.equal(byClass(root, 'commit-row').length, 0);
+});
+
+test('a `Show more` that fails keeps the rows it could not extend', async () => {
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  fx.setCommits(() => new FakeApiError(404, 'This commit is no longer there.'));
+  (byKey(root, 'commit:more') as FakeElement).click();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, 10, 'the loaded page is still true');
+  const states = textsOf(root, 'files-row');
+  assert.ok(states.includes('This commit is no longer there.'), states.join(' | '));
+});
+
+test('a dead backend gets the app`s own sentence, never a status code', async () => {
+  fx.setCommits(() => new FakeApiError(502, 'HTTP 502'));
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  assert.deepEqual(textsOf(root, 'files-row'), ['The app could not reach the service.']);
+});
+
+test('the history is re-read when the ROOT moves, and never mixed with the old one', async () => {
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, 10);
+
+  // Away to a folder that is not a repository: the tab goes, and with it the
+  // history that belonged to the other root.
+  st.setSessions([]);
+  st.state.views = [];
+  st.state.activeViewId = '';
+  rootNow = HOME;
+  panel.render();
+  await settle();
+  assert.equal(byClass(root, 'commit-row').length, 0, 'no row of the old repository survives');
 });
 
 // ---------------------------------------------------------------------------
@@ -1540,8 +1858,9 @@ test('a session appearing again gives the Commits tab back, title and all', asyn
   assert.equal(commits.title, '');
 
   commits.click();
+  await settle();
   assert.equal(commits.getAttribute('aria-pressed'), 'true', 'and it leads somewhere again');
-  assert.equal(textsOf(root, 'files-branch')[0], 'main, 5 commits');
+  assert.equal(textsOf(root, 'files-branch')[0], `${BRANCH}, ${TOTAL} commits`);
   (byKey(root, 'ftab:files') as FakeElement).click(); // the tab is panel-local state
 });
 
@@ -1856,38 +2175,101 @@ test('the git answer that fails puts the SERVER s sentence where the rows would 
 // The Commits tab while a commit is open (Nocturne A6)
 // ---------------------------------------------------------------------------
 
+/** Open the Commits tab, let it load, then open the commit at `i`. */
+async function openCommit(i = 0): Promise<(typeof SUMMARIES)[number]> {
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  const c = SUMMARIES[i] as (typeof SUMMARIES)[number];
+  (byKey(root, `commit:${c.hash}`) as FakeElement).click();
+  // The commit VIEW is what fetches; main.ts renders it before this panel.
+  viewRender();
+  await settle();
+  panel.render();
+  return c;
+}
+
 test('clicking a commit opens the commit view, and the tab becomes its selected state', async () => {
   await liveSession();
-  (byKey(root, 'ftab:commits') as FakeElement).click();
-  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
-
-  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+  const first = await openCommit();
+  const detail = detailOf(first.hash) as NonNullable<ReturnType<typeof detailOf>>;
   assert.equal(st.state.openCommit, first.hash, 'the panel opens the view, it does not draw it');
+  // It carries WHERE it was read from: the root the Changes tab sends, and the
+  // repository its file paths are relative to.
+  assert.deepEqual(st.state.openCommitAt, { root: PROJ, repoRoot: PROJ });
 
   // The selected state: a back control, the message, the meta line, and one
   // row per file — the commit list itself is gone.
   const sel = byClass(root, 'files-selhd')[0] as FakeElement;
   assert.equal(sel.hidden, false);
-  assert.equal(textsOf(root, 'files-selmsg')[0], first.message);
-  assert.equal(textsOf(root, 'commit-hash')[0], first.hash);
-  assert.ok(sel.textContent.includes(first.author) && sel.textContent.includes(first.when));
+  assert.equal(textsOf(root, 'files-selmsg')[0], first.subject);
+  assert.equal(textsOf(root, 'commit-hash')[0], first.shortHash);
+  assert.ok(sel.textContent.includes(first.author) && sel.textContent.includes('3 hours ago'));
   assert.equal(byClass(root, 'commit-row').length, 0, 'the list gave way to the one commit');
-  assert.equal(textsOf(root, 'files-branch')[0], `${first.files.length} files changed`);
-  assert.deepEqual(textsOf(root, 'commit-fpath'), first.files.map((f) => f.path));
+  // The SERVER's own count (a capped commit draws fewer rows than it changed),
+  // and the same number the commit view states.
+  assert.equal(textsOf(root, 'files-branch')[0], `${detail.commit.files} files changed`);
+  assert.deepEqual(textsOf(root, 'commit-fpath'), detail.files.map((f) => f.path));
   const nums = byClass(root, 'commit-file')[0] as FakeElement;
-  assert.ok(nums.textContent.includes(`+${(first.files[0] as { add: number }).add}`));
+  assert.ok(nums.textContent.includes(`+${(detail.files[0] as { add: number }).add}`));
+  // ONE request for that commit, made by the view — the panel adds none.
+  assert.deepEqual(fx.commitCalls, [`${PROJ} ${first.hash}`]);
+});
+
+test('the selected state says Loading, then the SERVER`s sentence if it cannot be read', async () => {
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  fx.hold();
+  (byKey(root, `commit:${HEAD}`) as FakeElement).click();
+  viewRender();
+  panel.render();
+  assert.deepEqual(textsOf(root, 'files-row'), ['Loading…']);
+  assert.notEqual(byKey(root, 'commit:all'), null, 'the way back is there before the answer');
+  fx.release();
+  await settle();
+  assert.ok(byClass(root, 'commit-file').length > 0);
+
+  st.closeCommitView();
+  viewRender();
+  fx.commitFails = new FakeApiError(404, 'This commit is no longer there.');
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  (byKey(root, `commit:${HEAD}`) as FakeElement).click();
+  viewRender();
+  await settle();
+  panel.render();
+  const row = byClass(root, 'files-row')[0] as FakeElement;
+  assert.equal(row.textContent, 'This commit is no longer there.');
+  assert.equal(row.classList.contains('is-err'), true);
+});
+
+test('a binary file states no numbers, and a capped file list says how many are missing', async () => {
+  await liveSession();
+  // The commit with the binary file, and the one whose file list was capped.
+  const binary = await openCommit(1);
+  const detail = detailOf(binary.hash) as NonNullable<ReturnType<typeof detailOf>>;
+  const bin = detail.files.find((f) => f.add === null) as { path: string };
+  const row = byKey(root, `cfile:${bin.path}`) as FakeElement;
+  assert.equal(byClass(row, 'files-num').length, 0, '+0 -0 would claim it changed nothing');
+  st.closeCommitView();
+  viewRender();
+
+  const wide = await openCommit(3);
+  const w = detailOf(wide.hash) as { truncated: number };
+  assert.equal(w.truncated, 3, 'non-vacuity');
+  const states = textsOf(root, 'files-row');
+  assert.ok(states.includes('3 more files are not shown.'), states.join(' | '));
 });
 
 test('a file row in the selected state folds that file in the view, and says which state it is in', async () => {
   await liveSession();
-  (byKey(root, 'ftab:commits') as FakeElement).click();
-  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
-  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
-  const path = (first.files[0] as { path: string }).path;
+  const first = await openCommit();
+  const detail = detailOf(first.hash) as NonNullable<ReturnType<typeof detailOf>>;
+  const path = (detail.files[0] as { path: string }).path;
 
   const row = byKey(root, `cfile:${path}`) as FakeElement;
   assert.equal(row.tagName, 'BUTTON');
-  assert.equal(row.getAttribute('aria-expanded'), 'true', 'a commit opens fully expanded');
+  assert.equal(row.getAttribute('aria-expanded'), 'true', 'the first ten open');
   row.click();
   assert.equal(st.commitFileCollapsed(first.hash, path), true, 'the SAME key the view folds by');
   const after = byKey(root, `cfile:${path}`) as FakeElement;
@@ -1895,7 +2277,7 @@ test('a file row in the selected state folds that file in the view, and says whi
   assert.equal(after.classList.contains('is-collapsed'), true, 'a folded file recedes');
 
   // The other file is untouched.
-  const other = (first.files[1] as { path: string }).path;
+  const other = (detail.files[1] as { path: string }).path;
   assert.equal(st.commitFileCollapsed(first.hash, other), false);
 });
 
@@ -1903,11 +2285,10 @@ test('a file row NAMES the block it expands — the block lives in another regio
   // `aria-expanded` with nothing to point at leaves a reader with "expanded
   // what?": the block is in the commit VIEW, not in this panel.
   await liveSession();
-  (byKey(root, 'ftab:commits') as FakeElement).click();
-  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
-  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
-  assert.ok(first.files.length > 1, 'non-vacuity: more than one row');
-  for (const f of first.files) {
+  const first = await openCommit();
+  const detail = detailOf(first.hash) as NonNullable<ReturnType<typeof detailOf>>;
+  assert.ok(detail.files.length > 1, 'non-vacuity: more than one row');
+  for (const f of detail.files) {
     const row = byKey(root, `cfile:${f.path}`) as FakeElement;
     assert.equal(
       row.getAttribute('aria-controls'),
@@ -1919,24 +2300,22 @@ test('a file row NAMES the block it expands — the block lives in another regio
 
 test('All commits closes the whole view and hands the keyboard back', async () => {
   await liveSession();
-  (byKey(root, 'ftab:commits') as FakeElement).click();
-  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
-  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+  await openCommit();
 
   const back = byKey(root, 'commit:all') as FakeElement;
   assert.equal(back.textContent, 'All commits', 'words only — the chevron is a drawn mark beside them');
   back.click();
+  viewRender();
+  panel.render();
   assert.equal(st.state.openCommit, null, 'one commit is open or none is');
   assert.equal(handBacks, 1);
   assert.equal((byClass(root, 'files-selhd')[0] as FakeElement).hidden, true);
-  assert.equal(byClass(root, 'commit-row').length, MOCK.MOCK_COMMITS.length, 'the list is back');
+  assert.equal(byClass(root, 'commit-row').length, 10, 'the list is back, page one');
 });
 
 test('switching to the Files tab while a commit is open keeps the VIEW open', async () => {
   await liveSession();
-  (byKey(root, 'ftab:commits') as FakeElement).click();
-  const first = MOCK.MOCK_COMMITS[0] as MockModule['MOCK_COMMITS'][number];
-  (byKey(root, `commit:${first.hash}`) as FakeElement).click();
+  const first = await openCommit();
 
   (byKey(root, 'ftab:files') as FakeElement).click();
   assert.equal(st.state.openCommit, first.hash, 'only the PANEL is gated on the tab, never the view');
@@ -1944,9 +2323,83 @@ test('switching to the Files tab while a commit is open keeps the VIEW open', as
   assert.ok(byClass(root, 'files-row').length > 0, 'the tree is what the Files tab shows');
 
   (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
   assert.equal((byClass(root, 'files-selhd')[0] as FakeElement).hidden, false, 'and back again');
   st.closeCommitView();
+  viewRender();
   (byKey(root, 'ftab:files') as FakeElement).click();
+});
+
+test('a timestamp the server could not read costs the row its third line, not a NaN', async () => {
+  // `authoredAt` arrives EMPTY when git's own date failed the server's strict
+  // ISO check. An empty date line, an `Invalid Date` or a NaN would each be a
+  // claim; two lines are the truth.
+  fx.setCommits((_root, limit, skip) => {
+    const page = pageOf(limit, skip);
+    return { ...page, commits: page.commits.map((c) => ({ ...c, authoredAt: '' })) };
+  });
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  const row = byClass(root, 'commit-row')[0] as FakeElement;
+  assert.equal(byClass(row, 'commit-when').length, 0, 'no line at all, rather than an empty one');
+  assert.equal(/NaN|Invalid/.test(row.textContent), false, row.textContent);
+  assert.ok(row.textContent.includes((SUMMARIES[0] as { author: string }).author), 'the rest stands');
+});
+
+test('a long abbreviation (core.abbrev) never widens the panel — the row clips, the numbers stay', async () => {
+  // git abbreviates to whatever the repository says, 1..40 characters. The row
+  // may not be sized for seven: the hash keeps its own width and elides, the
+  // author gives up space first, and the numbers are always drawn.
+  fx.setCommits((_root, limit, skip) => {
+    const page = pageOf(limit, skip);
+    return { ...page, commits: page.commits.map((c) => ({ ...c, shortHash: c.hash })) };
+  });
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  const row = byClass(root, 'commit-row')[0] as FakeElement;
+  assert.equal(textsOf(row, 'commit-hash')[0], (SUMMARIES[0] as { hash: string }).hash);
+  assert.equal(byClass(row, 'files-num').length, 2, 'both numbers are still drawn');
+  const app = readFileSync(join(here, '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const rule = app.slice(app.indexOf('.commit-hash {'), app.indexOf('}', app.indexOf('.commit-hash {')));
+  assert.match(rule, /max-width:/, 'the chip has a ceiling');
+  assert.match(rule, /text-overflow: ellipsis;/, 'and a cut hash SHOWS that it is cut');
+  const rowRule = app.slice(app.indexOf('.commit-row {'), app.indexOf('}', app.indexOf('.commit-row {')));
+  assert.match(rowRule, /overflow: hidden;/, 'nothing in a row may widen the panel');
+});
+
+test('every class the Commits tab renders has a rule in app.css (a typo is an invisible row)', async () => {
+  const seen = new Set<string>();
+  const collect = (): void => {
+    for (const n of [root, ...descendants(root)]) {
+      for (const c of n.className.split(/\s+/)) if (c !== '') seen.add(c);
+    }
+  };
+  await liveSession();
+  (byKey(root, 'ftab:commits') as FakeElement).click();
+  await settle();
+  collect(); // the list, with its `Show more` row
+  (byKey(root, 'commit:more') as FakeElement).click();
+  await settle();
+  collect();
+  await openCommit(3); // the selected state, with a capped file list
+  collect();
+  st.closeCommitView();
+  viewRender();
+  panel.render();
+  fx.setCommits(() => EMPTY_PAGE);
+  st.state.leftPanel = null;
+  panel.render();
+  st.state.leftPanel = 'files';
+  panel.render();
+  await settle();
+  collect(); // an empty repository
+
+  assert.ok(seen.size > 10, `non-vacuity: ${seen.size} classes were collected`);
+  const css = readFileSync(join(here, '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
+  assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });
 
 test('a rebuild keeps the keyboard where it was (folder rows are re-created wholesale)', async () => {
@@ -1989,16 +2442,19 @@ test('main.ts constructs the panel — on the aside it just created', () => {
   assert.match(MAIN, /import \{[^}]*\binitFilesPanel\b[^}]*\} from '\.\/ui\/files\.ts';/s);
   assert.match(
     MAIN,
-    /const filesPanel = initFilesPanel\(filesAside, requestTerminalFocus, \{/,
+    /const filesPanel = initFilesPanel\(filesAside, requestTerminalFocus, fsGateway\);/,
     'the panel must be initialised with the files aside, or nothing is ever built',
   );
   // Part B2: the backend reaches the panel as an INJECTED gateway, and this is
-  // the only module allowed to know those three questions are HTTP.
+  // the only module allowed to know those questions are HTTP. Part B3 added the
+  // three git-history ones to the SAME object, which the commit store is given
+  // too — two gateways would be two boundaries to keep right.
   assert.match(
     MAIN,
-    /entries: api\.fsEntries,\s*\n\s*create: api\.fsCreate,\s*\n\s*changes: api\.gitChanges,/,
-    'the three client functions are handed over by name',
+    /entries: api\.fsEntries,\s*\n\s*create: api\.fsCreate,\s*\n\s*changes: api\.gitChanges,\s*\n\s*commits: api\.gitCommits,\s*\n\s*commit: api\.gitCommit,\s*\n\s*commitDiff: api\.gitCommitDiff,/,
+    'the client functions are handed over by name',
   );
+  assert.match(MAIN, /setCommitGateway\(fsGateway\);/, 'and the commit store gets the same one');
   const files = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
   assert.equal(
     /from '\.\.\/api\.ts'/.test(files),
@@ -2457,6 +2913,7 @@ test('every sentence the panel can print follows the copy rules', () => {
   // no path, no flag, no command, no key name, and a full stop on a sentence.
   const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
   const fsModel = readFileSync(join(here, '..', 'web', 'src', 'ui', 'fs-model.ts'), 'utf8');
+  const commitModel = readFileSync(join(here, '..', 'web', 'src', 'ui', 'commit-model.ts'), 'utf8');
   const sentences = [
     'The app could not reach the service.',
     'Loading…',
@@ -2464,15 +2921,29 @@ test('every sentence the panel can print follows the copy rules', () => {
     'No changes since the last commit.',
     '1 more item is not shown here.',
     '200 more items are not shown here.',
+    // Part B3, printed by the same body from `ui/commit-model.ts`.
+    'No commits yet.',
+    'Show more',
+    'Detached',
+    '1 more file is not shown.',
+    '3 more files are not shown.',
   ];
-  assert.ok(src.includes('The app could not reach the service.'), 'non-vacuity');
+  // The two unreachable-sentence owners moved to `ui/fs-model.ts` in part B3,
+  // so the panel, the commits list, the commit view and a diff pane all print
+  // ONE of them (`messageOf`) instead of four copies.
+  assert.ok(fsModel.includes('The app could not reach the service.'), 'non-vacuity');
+  assert.ok(src.includes('messageOf(err)'), 'non-vacuity: the panel renders through it');
   assert.ok(fsModel.includes('No changes since the last commit.'), 'non-vacuity');
+  assert.ok(commitModel.includes('No commits yet.'), 'non-vacuity');
   for (const line of sentences) {
     assert.equal(/\//.test(line), false, `a path in: ${line}`);
     assert.equal(/--|\bgit\b|\bnpm\b/.test(line), false, `a command or a flag in: ${line}`);
     assert.equal(/ctrl|alt|shift|Escape/i.test(line), false, `a key name in: ${line}`);
+    // A SENTENCE ends in a full stop; a LABEL on a control does not, and the
+    // two allowed labels are named here so a third cannot slip in quietly.
     if (line.includes(' ') && /^[A-Z0-9]/.test(line)) {
-      assert.ok(line.endsWith('.') || line === 'Empty folder', `no full stop: ${line}`);
+      const label = line === 'Empty folder' || line === 'Show more';
+      assert.ok(line.endsWith('.') || label, `no full stop: ${line}`);
     }
   }
   // The title on a disabled tab is a FRAGMENT on a control, so it carries no

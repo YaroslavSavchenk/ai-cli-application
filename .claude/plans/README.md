@@ -87,6 +87,7 @@ Part specs, `nocturne/`:
 - `PLAN-A10b.md` — the editor pane with file tabs
 - `PLAN-B1.md` — the pane status bar on Claude Code's own data
 - `PLAN-B2.md` — the Files panel on the real file system, plus New file / New folder (A9c)
+- `PLAN-B3.md` — Commits live: the real history, the real diff, Open on GitHub
 - `PLAN-B5.md` — the New session dialog live for every tool
 - `PLAN-B10.md` — real file copy into WSL, Copy to the Windows clipboard
 - `PLAN-B10a.md` — select several files and folders, and delete them

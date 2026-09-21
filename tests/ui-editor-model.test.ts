@@ -27,6 +27,13 @@ const E = (await import(new URL('../web/src/ui/editor-model.ts', import.meta.url
   saveLabel(dirty: boolean): string;
 };
 
+/**
+ * The folder a diff tab is read from (part B3). It is part of the TAB and not
+ * part of its id: the same commit and the same path are the same tab whatever
+ * folder the request was made from.
+ */
+const REPO = '/home/you/projects/app';
+
 // ---------------------------------------------------------------------------
 // The id IS the kind
 // ---------------------------------------------------------------------------
@@ -68,13 +75,13 @@ test('tabIdOf is BYTE-IDENTICAL to fileTabId / diffTabId — one spelling of the
     ['474d891', 'server/ws.ts'],
     ['55c9be7', 'a/b.ts'],
   ] as const) {
-    assert.equal(E.tabIdOf({ kind: 'diff', hash, path }), E.diffTabId(hash, path));
-    assert.equal(E.tabKind(E.tabIdOf({ kind: 'diff', hash, path })), 'diff');
+    assert.equal(E.tabIdOf({ kind: 'diff', hash, path, root: REPO }), E.diffTabId(hash, path));
+    assert.equal(E.tabKind(E.tabIdOf({ kind: 'diff', hash, path, root: REPO })), 'diff');
   }
   // The same file as a file tab and as a diff tab are two different tabs.
   assert.notEqual(
     E.tabIdOf({ kind: 'file', path: 'server/ws.ts' }),
-    E.tabIdOf({ kind: 'diff', hash: '474d891', path: 'server/ws.ts' }),
+    E.tabIdOf({ kind: 'diff', hash: '474d891', path: 'server/ws.ts', root: REPO }),
   );
 });
 

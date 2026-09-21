@@ -9,23 +9,23 @@
  * existing debounced fit -> ws `resize` chain tells the PTY its new cols/rows.
  * Nothing here talks to a terminal; the seam does the work.
  *
- * WHAT IS REAL AND WHAT IS NOT (part B2). The `Files` tab is a real browser of
- * a real folder and the `Changes` tab is the real `git` answer for the
- * repository behind it; both arrive through an INJECTED `FsGateway`, never
- * through an import of `../api.ts`, so this module stays drivable under
- * `node --test` with a plain fake object. Only `Commits` is still
- * `ui/files-mock.ts` (part B3) and it is the one surface left carrying the
- * quiet "Example data until …" line. File CONTENT is part B4: a file row
- * opens a pane, and that pane says it cannot read the file yet.
+ * WHAT IS REAL (parts B2 and B3). All three tabs: a real browser of a real
+ * folder, the real `git` answer for the repository behind it, and — since B3 —
+ * the real history of its HEAD, ten commits a page. Every answer arrives
+ * through an INJECTED `FsGateway`, never through an import of `../api.ts`, so
+ * this module stays drivable under `node --test` with a plain fake object, and
+ * no honesty line is owed anywhere in the panel. File CONTENT is part B4: a
+ * file row opens a pane, and that pane says it cannot read the file yet.
  *
  * HOW THE TREE LOADS (PLAN-B2 §3). Lazy per folder on expand,
  * cache-then-revalidate (a folder that already answered never flashes
  * `Loading…` again), one request per path at a time, and a GENERATION counter
  * so a slow listing of the folder we just left can never paint over the one we
  * are in. No poll and no watcher: a listing is re-read when the user expands,
- * creates or refreshes. The `Changes` tab is the exception and polls every
- * `CHANGES_POLL_MS` — but only while it is the visible tab AND the panel is on
- * screen, because that tab exists to watch a session change files.
+ * creates or refreshes. The `Changes` and `Commits` tabs are the exception and
+ * poll every `CHANGES_POLL_MS` — but only while one of them is the visible tab
+ * AND the panel is on screen, because those tabs exist to watch a session
+ * change files and commit them.
  *
  * WHICH FOLDER IS THE ROOT (§4a). `subject()` answers both the NAME the header
  * prints and the PATH the tree lists, in one walk, so the two can never name
@@ -111,7 +111,6 @@ import type {
   GitChangesResponse,
   SessionInfo,
 } from '../../../shared/protocol.ts';
-import type { CommitEntry } from './files-model.ts';
 import {
   badgeFor,
   buildTree,
@@ -128,8 +127,10 @@ import {
   createRowIndex,
   destinationOf,
   fsRows,
+  isSentence,
   isUnder,
   joinPath,
+  messageOf,
   nameProblem,
   parentPath,
   nameProblemText,
@@ -138,8 +139,19 @@ import {
   type FolderState,
   type FsRow,
 } from './fs-model.ts';
-import { blockDomId, filesChangedText } from './commit-model.ts';
-import { MOCK_BRANCH, MOCK_COMMITS, mockCommitByHash } from './files-mock.ts';
+import {
+  NO_COMMITS_TEXT,
+  SHOW_MORE_TEXT,
+  absoluteDate,
+  blockDomId,
+  branchLabel,
+  filesChangedText,
+  fullDateTime,
+  moreFilesText,
+  relativeTime,
+} from './commit-model.ts';
+import { commitAsked, commitVersion } from './commit-store.ts';
+import type { GitCommitSummary, GitCommitsResponse } from '../../../shared/protocol.ts';
 
 type Tab = 'files' | 'changes' | 'commits';
 
@@ -147,12 +159,13 @@ type Tab = 'files' | 'changes' | 'commits';
 const NUDGE_PX = 16;
 
 /**
- * How often the `Changes` tab re-asks git, while it is the VISIBLE tab and the
- * panel is on screen (PLAN-B2 §7). The one poll part B2 adds: that tab exists
- * to watch a session change files, so a listing one gesture old — which is
- * right for the tree — would be the wrong promise here. Every other second is
- * slower than a human reads a diff and cheap beside the caps the backend puts
- * on the git call itself.
+ * How often a WATCHING tab re-asks git, while it is the VISIBLE tab and the
+ * panel is on screen (PLAN-B2 §7, kept by PLAN-B3 for `Commits`). The one poll
+ * part B2 added: those two tabs exist to watch a session change files and
+ * commit them, so a listing one gesture old — which is right for the tree —
+ * would be the wrong promise here. Every other second is slower than a human
+ * reads a diff and cheap beside the caps the backend puts on the git call
+ * itself. ONE interval serves both tabs; the tick asks whichever is up.
  */
 const CHANGES_POLL_MS = 5000;
 
@@ -167,15 +180,6 @@ const CHANGES_POLL_MS = 5000;
 function noRepoTitle(name: string): string {
   return `No repository at ${name}`;
 }
-
-/**
- * What a folder row says when the answer never arrived at all (a dead backend,
- * a dropped connection). Every other failure renders the SERVER's own sentence
- * verbatim (PLAN-B2 §1d) — the picker's rule: honest states only, the
- * backend's own reason inline — and this is the one case where there is no
- * server sentence to render, so the panel says what it knows in its own voice.
- */
-const UNREACHABLE_TEXT = 'The app could not reach the service.';
 
 /**
  * What the name row says when a create failed and the failure carried no
@@ -239,6 +243,13 @@ export interface FsGateway {
   create(dir: string, name: string, kind: 'file' | 'folder'): Promise<FsCreateResponse>;
   /** What the repository at (or above) this folder has changed since its last commit. */
   changes(root: string): Promise<GitChangesResponse>;
+  /**
+   * One page of that repository's history, newest first (part B3). `skip` and
+   * `limit` page it; `from` PINS every page after the first to the head the
+   * first one answered, so a commit landing mid-browse can never shift a row
+   * down into the next page or repeat one that is already on screen.
+   */
+  commits(root: string, limit: number, skip: number, from?: string): Promise<GitCommitsResponse>;
   /**
    * The Windows form of one path, for the row menu's `Copy` (B10). It is a
    * gateway call like the other three for the same reason they are: this
@@ -476,11 +487,16 @@ export function refreshAfterDrop(dest: Destination): void {
  * ui/panes.ts takes its launch opener that way — and here it also keeps this
  * module free of `ui/panes.ts`, whose import graph reaches @xterm/xterm, so
  * the panel stays drivable under `node --test`.
+ *
+ * `now` is the clock the Commits tab says `3 hours ago` against (part B3),
+ * injected for the same reason: a relative time is computed at every repaint,
+ * and a test must be able to say what "now" is.
  */
 export function initFilesPanel(
   host: HTMLElement,
   onLeaveScreen: () => void,
   fs: FsGateway,
+  now: () => number = () => Date.now(),
 ): FilesPanel {
   // Local to the panel instance: which tab is up, which folders are open, and
   // what each open folder answered. None of it is server state and none of it
@@ -564,44 +580,6 @@ export function initFilesPanel(
    * a listing arriving for an already-open folder would repaint nothing.
    */
   let dataVersion = 0;
-
-  /**
-   * The sentence a failed request puts in the row.
-   *
-   * An `ApiError` carries the SERVER's own constant sentence (§1d) and a
-   * `status`, which is how this tells it apart from a fetch that never reached
-   * anything — duck-typed rather than `instanceof`, because importing
-   * `../api.ts` here is exactly what the injected gateway exists to avoid.
-   *
-   * AND THE SHAPE IS CHECKED, not only the origin. `request()` invents
-   * `HTTP <status>` when a body carries no `error` at all, and an older
-   * backend answers its own vocabulary (`not found`, `permission denied` —
-   * the picker's words, lowercase fragments meant for a different surface).
-   * Either would land in a tree row as a sentence the app never wrote. So a
-   * message is rendered only if it LOOKS like §1d: one line, an uppercase
-   * start, a full stop, and no `HTTP` in it. Everything else is the app's own
-   * "we did not get an answer", which is the truth in every one of those
-   * cases.
-   */
-  function messageOf(err: unknown): string {
-    if (err !== null && typeof err === 'object') {
-      const e = err as { status?: unknown; message?: unknown };
-      if (typeof e.status === 'number' && typeof e.message === 'string' && isSentence(e.message)) {
-        return e.message;
-      }
-    }
-    return UNREACHABLE_TEXT;
-  }
-
-  /** Does this read like one of the server's own constant sentences (§1d)? */
-  function isSentence(text: string): boolean {
-    if (text.length < 2 || text.length > 160) return false;
-    if (/[\n\r\t]/.test(text)) return false;
-    if (text.includes('HTTP')) return false;
-    if (!text.endsWith('.')) return false;
-    const first = text[0] as string;
-    return first === first.toUpperCase() && first !== first.toLowerCase();
-  }
 
   /** An answer changed something: repaint, whatever the signature said before. */
   function bump(): void {
@@ -759,6 +737,9 @@ export function initFilesPanel(
     changes = null;
     changesError = null;
     changesRoot = null;
+    // The history belongs to the repository we just left (B3). Its rows are
+    // asked for again by the render that follows, if Commits is the tab up.
+    dropCommits();
     dataVersion += 1;
     fetchFolder(next);
     fetchChanges(next);
@@ -822,6 +803,9 @@ export function initFilesPanel(
         changes = res;
         changesError = null;
         changesRoot = root;
+        // An open commit view may be waiting for exactly this: the repository
+        // its file paths are relative to (part B3, scope review).
+        if (res.repoRoot !== null) st.noteCommitRepoRoot(root, res.repoRoot);
       })
       .catch((err: unknown) => {
         if (gen !== generation) return;
@@ -837,16 +821,22 @@ export function initFilesPanel(
   }
 
   /**
-   * Arm or drop the poll. The timer exists only while the Changes tab is the
-   * visible tab AND the panel is on screen, so a hidden panel and every other
+   * Arm or drop the poll. The timer exists only while a WATCHING tab is the
+   * visible one AND the panel is on screen, so a hidden panel and the Files
    * tab cost nothing at all; a tick while a request is still in flight is
-   * skipped by `fetchChanges` itself.
+   * skipped by the fetch itself. ONE timer serves both watching tabs: which
+   * question it asks is decided when it FIRES, so switching between them costs
+   * no timer churn and can never leave two running.
    */
   function syncPoll(): void {
-    const want = st.filesPanelVisible() && tab === 'changes' && currentPath !== null;
+    const watching = tab === 'changes' || tab === 'commits';
+    const want = st.filesPanelVisible() && watching && currentPath !== null;
     if (want && pollId === null) {
       pollId = window.setInterval(() => {
-        if (currentPath !== null) fetchChanges(currentPath);
+        const root = currentPath;
+        if (root === null) return;
+        if (tab === 'changes') fetchChanges(root);
+        else if (tab === 'commits') fetchCommits(root, 0);
       }, CHANGES_POLL_MS);
       return;
     }
@@ -854,6 +844,134 @@ export function initFilesPanel(
       window.clearInterval(pollId);
       pollId = null;
     }
+  }
+
+  // ---- commits (part B3) -----------------------------------------------------
+  //
+  // The `Commits` tab: the history of HEAD, newest first, ten rows a page
+  // (user decision D1, 2026-09-21), through the same injected gateway and the
+  // same root the Changes tab sends — one boundary check covers both.
+  //
+  // PAGING IS PINNED. Page one answers a `head`; every `Show more` after it
+  // sends `from=<that head>`, so a commit landing mid-browse cannot shift a
+  // row into the next page or repeat one already on screen. The 5 s poll asks
+  // for PAGE ONE only: the same head means nothing changed and the loaded
+  // pages (and the scroll position) stay exactly as they are; a different head
+  // means the history moved and the list goes back to page one, which is the
+  // only honest thing to show when the rows under a pinned page are no longer
+  // reachable from it.
+
+  /** How many rows a page holds — the first one and every `Show more` (D1). */
+  const COMMITS_PAGE = 10;
+
+  /** The pages loaded so far, newest first, or null while none has arrived. */
+  let commits: GitCommitSummary[] | null = null;
+  /**
+   * Was the last answer about a repository at all? A root can stop being one
+   * between two ticks (a folder moved, a project re-registered); the Changes
+   * probe is what takes the tab away on the next render, and until it does
+   * this tab draws NOTHING rather than `No commits yet.`, which would be a
+   * sentence about a repository that is not there.
+   */
+  let commitsRepo = true;
+  /** The head every page after the first is pinned to; null on an empty repository. */
+  let commitsHead: string | null = null;
+  /** The branch and the total, as page one answered them. */
+  let commitsBranch: string | null = null;
+  let commitsTotal = 0;
+  /** Is there an older commit past the last row. */
+  let commitsMore = false;
+  /** The sentence the last attempt failed with, or null. */
+  let commitsError: string | null = null;
+  /**
+   * The generation whose PAGE-ONE request is in flight (the tab opening, the
+   * poll), or null — and, separately, the one whose `Show more` is. They are
+   * two markers because they are two questions: a `Show more` pressed while a
+   * poll tick is out must go, not be swallowed (scope review, part B3), and a
+   * poll tick while an older page is loading is what the skip is for.
+   */
+  let pageFlight: number | null = null;
+  let moreFlight: number | null = null;
+
+  /**
+   * One page. `skip` 0 is page one (and the poll's question); anything else is
+   * a `Show more`, pinned to the head page one answered.
+   */
+  function fetchCommits(root: string, skip: number): void {
+    // Dedupe WITHIN a generation, exactly like `fetchChanges`: a poll tick over
+    // a slow `git log` is skipped, and so is a second `Show more` while the
+    // first is still out.
+    const gen = generation;
+    const first = skip === 0;
+    if ((first ? pageFlight : moreFlight) === gen) return;
+    const from = first ? undefined : (commitsHead ?? undefined);
+    if (first) pageFlight = gen;
+    else moreFlight = gen;
+    fs.commits(root, COMMITS_PAGE, skip, from)
+      .then((res) => {
+        if (gen !== generation) return;
+        commitsError = null;
+        takePage(res, skip);
+      })
+      .catch((err: unknown) => {
+        if (gen !== generation) return;
+        // The rows that are already on screen are not wrong because the NEXT
+        // page failed: a `Show more` that could not answer says so under the
+        // list it did load, and only page one clears it.
+        if (skip === 0) commits = null;
+        commitsError = messageOf(err);
+      })
+      .finally(() => {
+        if (first && pageFlight === gen) pageFlight = null;
+        if (!first && moreFlight === gen) moreFlight = null;
+        if (gen !== generation) return;
+        bump();
+      });
+  }
+
+  /** Fold one answer into the list, by the pinning rules above. */
+  function takePage(res: GitCommitsResponse, skip: number): void {
+    commitsRepo = res.isRepo;
+    if (!res.isRepo) {
+      // Not a repository (any more): hold an EMPTY answer, so the render draws
+      // nothing and asks nothing, and let the probe move the tab.
+      commits = [];
+      commitsHead = null;
+      commitsMore = false;
+      return;
+    }
+    if (skip === 0) {
+      // Same head, same history: keep every page the user has loaded and the
+      // place they had scrolled to.
+      if (commits !== null && res.head === commitsHead) return;
+      commits = [...res.commits];
+    } else {
+      // A `Show more` whose answer belongs to a head that has since moved is
+      // dropped: page one is already being re-read.
+      if (commits === null || res.head !== commitsHead) return;
+      commits = [...commits, ...res.commits];
+    }
+    commitsHead = res.head;
+    commitsBranch = res.branch;
+    commitsTotal = res.total;
+    commitsMore = res.more;
+  }
+
+  /** Forget the history: the root moved, or the panel left the screen. */
+  function dropCommits(): void {
+    commits = null;
+    commitsRepo = true;
+    // THE MARKERS GO WITH IT (scope review, part B3). They belong to the root
+    // we just left; leaving one set would make the render below think a
+    // request for the NEW root is already out, and the new history would wait
+    // for the next poll tick — five seconds, or forever with the panel hidden.
+    pageFlight = null;
+    moreFlight = null;
+    commitsHead = null;
+    commitsBranch = null;
+    commitsTotal = 0;
+    commitsMore = false;
+    commitsError = null;
   }
 
   /**
@@ -2404,9 +2522,10 @@ export function initFilesPanel(
     dropCreate('tab');
     wish = next;
     tab = visibleTab();
-    // Opening `Changes` re-asks straight away — the answer behind it may be
-    // five seconds old, and this is the gesture that says "show me now".
+    // Opening a watching tab re-asks straight away — the answer behind it may
+    // be five seconds old, and this is the gesture that says "show me now".
     if (next === 'changes' && currentPath !== null) fetchChanges(currentPath);
+    if (next === 'commits' && currentPath !== null) fetchCommits(currentPath, 0);
     lastSig = '';
     render();
     syncPoll();
@@ -2462,6 +2581,13 @@ export function initFilesPanel(
       st.state.openCommit ?? '',
       collapsed,
       openFiles,
+      // B3: the history itself, and the OPEN commit's own answer — which this
+      // panel reads (`ui/commit-store.ts`) and the commit view fetches, so a
+      // commit landing has to repaint the selected state here too.
+      commits === null ? '' : String(commits.length),
+      commitsHead ?? '',
+      commitsError ?? '',
+      String(commitVersion()),
     ].join('|');
   }
 
@@ -2508,6 +2634,15 @@ export function initFilesPanel(
     // `visibleTab`), the wished one again the moment one answers. The wish
     // itself is never touched by this, so a root change cannot spend it.
     tab = visibleTab();
+    // The history the Commits tab is about, if nothing has asked for it yet:
+    // the tab was opened before its repository answered, the root moved under
+    // it, or the panel came back on screen. A failed attempt is NOT retried
+    // here — the sentence stays until the user changes tab or root, or the
+    // poll's next tick asks again.
+    const nothingAsked = commits === null && commitsError === null && pageFlight === null;
+    if (tab === 'commits' && currentPath !== null && (returning || nothingAsked)) {
+      fetchCommits(currentPath, 0);
+    }
     syncPoll();
     const s = sig();
     if (s === lastSig) return;
@@ -2615,10 +2750,11 @@ export function initFilesPanel(
     } else {
       summary.hidden = true;
     }
-    // The placeholder line belongs to `Commits` alone now: it is the last
-    // surface in this panel still drawing `ui/files-mock.ts`. Part B3 deletes
-    // `placeholderNote` and this one argument together.
-    body.replaceChildren(...(tab === 'commits' ? [placeholderNote(), ...commitRows()] : []), ...(tab === 'files' ? fileRows() : []), ...(tab === 'changes' ? changeRows() : []));
+    body.replaceChildren(
+      ...(tab === 'commits' ? commitRows() : []),
+      ...(tab === 'files' ? fileRows() : []),
+      ...(tab === 'changes' ? changeRows() : []),
+    );
     // The selected state has its own header block above the body (the back
     // control, the message and the meta line); it is the same commit the full
     // view shows, so the two can never disagree.
@@ -2688,17 +2824,6 @@ export function initFilesPanel(
         tabBtns.get('files')?.focus();
       }
     }
-  }
-
-  /**
-   * PLACEHOLDER MARKER — DELETE WITH THE MOCK. The Commits tab is the last
-   * surface in this panel drawing `ui/files-mock.ts`, under the user's real
-   * project name, so without this line it reads as a report about their
-   * repository. Part B3 removes the sentence, this function and its single
-   * call site together.
-   */
-  function placeholderNote(): HTMLElement {
-    return el('p', 'files-note', 'Example data until the panel reads your commits.');
   }
 
   /**
@@ -2858,83 +2983,178 @@ export function initFilesPanel(
    * NEXT one — the panel flips to Files and the commit list is out of reach.
    */
   function selectedHeader(): HTMLElement[] {
-    const c = openCommit();
+    const asked = commitAsked();
     // Only the Commits tab turns into the selected state. Switching to Files
     // while a commit is open leaves the VIEW open and shows the tree — the
     // reference gates the panel on the tab, never the view (and the view's own
     // `Back to sessions` is always there).
-    if (c === null || tab !== 'commits') return [];
+    if (asked === null || tab !== 'commits') return [];
     const back = button('files-back', '', () => {
       st.closeCommitView();
       onLeaveScreen();
     });
     back.setAttribute('data-k', 'commit:all');
     back.append(caretLeftIcon(), el('span', '', 'All commits'));
+    // The way back comes FIRST and alone while the commit is still loading, or
+    // when it cannot be read at all: the view beside this panel is saying what
+    // happened, and one sentence on two surfaces is one sentence too many.
+    if (asked.k !== 'ready') return [back];
 
+    const c = asked.value.commit;
     const meta = el('div', 'commit-meta');
-    meta.append(
-      el('span', 'commit-hash', c.hash),
-      el('span', '', c.author),
-      el('span', '', c.when),
-    );
-    return [back, el('div', 'files-selmsg', c.message), meta];
-  }
-
-  /** The open commit, when the mock knows it. */
-  function openCommit(): CommitEntry | null {
-    return mockCommitByHash(st.state.openCommit);
+    meta.append(el('span', 'commit-hash', c.shortHash), el('span', 'commit-author', c.author));
+    // Empty when git's own date failed the server's strict ISO check; an empty
+    // span would be a gap the user reads as a missing fact.
+    const ago = relativeTime(c.authoredAt, now());
+    if (ago !== '') meta.append(el('span', '', ago));
+    return [back, el('div', 'files-selmsg', c.subject), meta];
   }
 
   /**
    * The Commits tab's body: the list, or — while a commit is open — that
    * commit's files, each row folding its own diff block in the view.
+   *
+   * THE OPEN COMMIT IS NOT FETCHED HERE. `ui/commit-store.ts` holds the one
+   * answer the view already asked for, so this panel and that screen can never
+   * list different files, and a commit costs ONE request between them.
    */
   function commitRows(): HTMLElement[] {
-    const open = openCommit();
-    if (open !== null) {
-      const rows: HTMLElement[] = [
-        el('div', 'files-branch', filesChangedText(open.files.length)),
-      ];
-      for (const f of open.files) {
-        const collapsed = st.commitFileCollapsed(open.hash, f.path);
-        const row = button('commit-file', '', () => st.toggleCommitFile(open.hash, f.path));
-        row.setAttribute('data-k', `cfile:${f.path}`);
-        row.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        // The block it expands lives in the commit VIEW, a different region of
-        // the screen — so the row names it by id instead of leaving
-        // `aria-expanded` pointing at nothing.
-        row.setAttribute('aria-controls', blockDomId(open.hash, f.path));
-        row.classList.toggle('is-collapsed', collapsed);
-        // The PATH is the row (a commit's files are not a tree), so it is mono
-        // and it truncates at its FRONT — the file name is what identifies it.
+    const hash = st.state.openCommit;
+    if (hash !== null) return openCommitRows(hash);
+    if (commitsError !== null && commits === null) {
+      return [stateRow(commitsError, rowIndent(0), true)];
+    }
+    if (commits === null) return [stateRow(LOADING_TEXT, rowIndent(0), false)];
+    if (!commitsRepo) return [];
+    const branch = branchLabel(commitsBranch);
+    // A repository with no commit in it names its branch and says so; there is
+    // no count to give, because `0 commits` reads as a number that was counted
+    // wrong rather than as a repository nobody has committed to.
+    if (commitsHead === null) {
+      return [el('div', 'files-branch', branch), stateRow(NO_COMMITS_TEXT, rowIndent(0), false)];
+    }
+    const rows: HTMLElement[] = [
+      el('div', 'files-branch', commitsHeaderText(branch, commitsTotal)),
+    ];
+    for (const c of commits) rows.push(commitRow(c));
+    if (commitsMore) rows.push(showMoreRow());
+    // A `Show more` that failed says so UNDER the rows it could not extend;
+    // the rows themselves are still true.
+    if (commitsError !== null) rows.push(stateRow(commitsError, rowIndent(0), true));
+    return rows;
+  }
+
+  /**
+   * ONE commit, in three lines (design, part B3): the subject, then the facts
+   * that identify it (short hash, author, `+a -d`), then the two answers about
+   * time — the absolute date and how long ago that was.
+   *
+   * WHY THREE LINES AND NOT TWO. This panel is 200..520px wide and every pixel
+   * of it is a PTY resize: a row may never widen the panel, and a meta line
+   * carrying six items would either clip its numbers at 200px or push. So the
+   * numbers, which are the only coloured thing in the list, keep a line where
+   * they always fit, and the quietest pair gets the last line.
+   */
+  function commitRow(c: GitCommitSummary): HTMLElement {
+    const row = button('commit-row', '', () => {
+      const root = currentPath;
+      // A row is never a dead control. The history and the Changes answer are
+      // two requests and the history can win (a root change nulls the Changes
+      // answer while these rows are still on screen), so the view opens with
+      // what IS known — the root it was read from — and the repository is
+      // filled in when its answer lands (`noteCommitRepoRoot`). Only
+      // `Open file` waits for it, and it says so.
+      if (root === null) return;
+      st.openCommitView(c.hash, { root, repoRoot: changes?.repoRoot ?? null });
+    });
+    row.setAttribute('data-k', `commit:${c.hash}`);
+    row.append(el('span', 'commit-msg', c.subject));
+
+    const meta = el('div', 'commit-meta');
+    meta.append(
+      el('span', 'commit-hash', c.shortHash),
+      el('span', 'commit-author', c.author),
+      el('span', 'files-num is-add', `+${c.add}`),
+      el('span', 'files-num is-del', `-${c.del}`),
+    );
+    row.append(meta);
+    // A timestamp git could not hand over as strict ISO arrives EMPTY, and an
+    // empty line is not a fact: the row then simply has two lines instead of
+    // three, rather than a blank one, an `Invalid Date` or a NaN.
+    const date = absoluteDate(c.authoredAt);
+    if (date !== '') {
+      const when = el('div', 'commit-when');
+      when.append(
+        el('span', 'commit-date', date),
+        el('span', '', relativeTime(c.authoredAt, now())),
+      );
+      // The full date and time is the tooltip, not a fourth line: it answers a
+      // question the two lines above only answer roughly, and only sometimes.
+      when.title = fullDateTime(c.authoredAt);
+      row.append(when);
+    }
+    return row;
+  }
+
+  /** The quiet row that loads ten more, and nothing else about paging. */
+  function showMoreRow(): HTMLElement {
+    // Only an older PAGE makes this row busy: a poll tick behind it is about
+    // page one and must not disable the only way to see more.
+    const busy = moreFlight !== null;
+    const b = button('commit-more-btn', busy ? LOADING_TEXT : SHOW_MORE_TEXT, () => {
+      const root = currentPath;
+      if (root === null || commits === null) return;
+      fetchCommits(root, commits.length);
+      // Say so NOW: the press is the moment to answer, and nothing else
+      // repaints this row until the page lands.
+      bump();
+    });
+    b.setAttribute('data-k', 'commit:more');
+    b.disabled = busy;
+    return b;
+  }
+
+  /** The selected state's body: one row per file of the commit that is open. */
+  function openCommitRows(hash: string): HTMLElement[] {
+    const asked = commitAsked();
+    if (asked === null || asked.k === 'loading') {
+      return [stateRow(LOADING_TEXT, rowIndent(0), false)];
+    }
+    if (asked.k === 'error') return [stateRow(asked.message, rowIndent(0), true)];
+    const c = asked.value;
+    // The SERVER's count, not the number of rows below it: a capped commit
+    // draws 12 blocks and changed 15 files, and the two surfaces about one
+    // commit (this panel and the view) may never state different sizes.
+    const rows: HTMLElement[] = [el('div', 'files-branch', filesChangedText(c.commit.files))];
+    for (const f of c.files) {
+      const collapsed = st.commitFileCollapsed(hash, f.path);
+      const row = button('commit-file', '', () => st.toggleCommitFile(hash, f.path));
+      row.setAttribute('data-k', `cfile:${f.path}`);
+      row.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      // The block it expands lives in the commit VIEW, a different region of
+      // the screen — so the row names it by id instead of leaving
+      // `aria-expanded` pointing at nothing.
+      row.setAttribute('aria-controls', blockDomId(hash, f.path));
+      row.classList.toggle('is-collapsed', collapsed);
+      // The PATH is the row (a commit's files are not a tree), so it is mono
+      // and it truncates at its FRONT — the file name is what identifies it.
+      // The text sits in a span of its OWN so the box can stay right-to-left
+      // (which is what truncates at the front) while the path itself is drawn
+      // left-to-right, in the order it is stored: `.commit-fpath-t` in app.css
+      // carries the why.
+      const pathBox = el('span', 'commit-fpath');
+      pathBox.append(el('span', 'commit-fpath-t', f.path));
+      row.append(pathBox);
+      // A binary file has no lines to count and says nothing rather than +0 -0.
+      if (f.add !== null && f.del !== null) {
         row.append(
-          el('span', 'commit-fpath', f.path),
           el('span', 'files-num is-add', `+${f.add}`),
           el('span', 'files-num is-del', `-${f.del}`),
         );
-        rows.push(row);
       }
-      return rows;
-    }
-    const rows: HTMLElement[] = [
-      el('div', 'files-branch', commitsHeaderText(MOCK_BRANCH, MOCK_COMMITS.length)),
-    ];
-    for (const c of MOCK_COMMITS) {
-      const row = button('commit-row', '', () => st.openCommitView(c.hash));
-      row.setAttribute('data-k', `commit:${c.hash}`);
-      row.append(el('span', 'commit-msg', c.message));
-      const meta = el('div', 'commit-meta');
-      meta.append(
-        el('span', 'commit-hash', c.hash),
-        el('span', '', c.author),
-        el('span', '', c.when),
-        el('span', 'drawer-gap'),
-        el('span', 'files-num is-add', `+${c.add}`),
-        el('span', 'files-num is-del', `-${c.del}`),
-      );
-      row.append(meta);
       rows.push(row);
     }
+    if (c.truncated > 0) rows.push(stateRow(moreFilesText(c.truncated), rowIndent(0), false));
     return rows;
   }
 

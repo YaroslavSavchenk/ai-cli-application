@@ -79,6 +79,56 @@ export const EMPTY_TEXT = 'Empty folder';
 export const NO_CHANGES_TEXT = 'No changes since the last commit.';
 
 /**
+ * What a surface says when the answer never arrived at all (a dead backend, a
+ * dropped connection). Every other failure renders the SERVER's own sentence
+ * verbatim (PLAN-B2 §1d) — the picker's rule: honest states only, the
+ * backend's own reason inline — and this is the one case where there is no
+ * server sentence to render, so the app says what it knows in its own voice.
+ *
+ * It lives HERE, beside `messageOf()`, since part B3: the Files panel, the
+ * commits list, the commit view and a diff pane all reach the same four routes
+ * and must never invent a second way to say the same nothing.
+ */
+export const UNREACHABLE_TEXT = 'The app could not reach the service.';
+
+/**
+ * The sentence to render for a rejected request: the SERVER's own, when the
+ * rejection carries one, and `UNREACHABLE_TEXT` otherwise.
+ *
+ * AND THE SHAPE IS CHECKED, not only the origin. `request()` invents
+ * `HTTP <status>` when a body carries no `error` at all, and an older backend
+ * answers its own vocabulary (`not found`, `permission denied` — the picker's
+ * words, lowercase fragments meant for a different surface). Either would land
+ * in a row as a sentence the app never wrote. So a message is rendered only if
+ * it LOOKS like §1d: one line, an uppercase start, a full stop, and no `HTTP`
+ * in it. Everything else is the app's own "we did not get an answer", which is
+ * the truth in every one of those cases.
+ */
+export function messageOf(err: unknown): string {
+  if (err !== null && typeof err === 'object') {
+    const e = err as { status?: unknown; message?: unknown };
+    if (typeof e.status === 'number' && typeof e.message === 'string' && isSentence(e.message)) {
+      return e.message;
+    }
+  }
+  return UNREACHABLE_TEXT;
+}
+
+/**
+ * Does this read like one of the server's own constant sentences (§1d)? The
+ * row menu's per-item refusals ask this directly (one batch answer carries a
+ * sentence per path, not an error object), which is why it is exported.
+ */
+export function isSentence(text: string): boolean {
+  if (text.length < 2 || text.length > 160) return false;
+  if (/[\n\r\t]/.test(text)) return false;
+  if (text.includes('HTTP')) return false;
+  if (!text.endsWith('.')) return false;
+  const first = text[0] as string;
+  return first === first.toUpperCase() && first !== first.toLowerCase();
+}
+
+/**
  * What the panel knows about ONE folder's contents, keyed by absolute path.
  *
  * `error` carries the SERVER's sentence (§1d) rather than a code, because the

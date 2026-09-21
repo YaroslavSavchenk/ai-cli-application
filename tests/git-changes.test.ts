@@ -666,6 +666,54 @@ test('a repository-local core.fsmonitor is NOT executed by a changes call', asyn
   assert.equal(existsSync(marker), false, 'the repository’s own program was NOT run');
 });
 
+test('a PROMISOR remote cannot make a changes call fetch — and so cannot run the transport it names', async () => {
+  // Found by the B3 security review (2026-09-21) against the SHIPPED B2 route,
+  // not against B3's new ones. A PARTIAL CLONE (`extensions.partialClone`,
+  // `remote.origin.promisor=true`) is allowed to go and FETCH a missing object
+  // in the middle of a read — and the transport it uses is a PROGRAM its own
+  // .git/config names (`remote.origin.uploadpack`, `core.sshCommand`). Opening
+  // the Changes tab on a cloned repository would run it; .git/config travels
+  // with nothing a clone refuses. `GIT_NO_LAZY_FETCH=1` in GIT_ENV is the fix.
+  //
+  // MEASURED (git 2.43.0): `git diff --numstat -z HEAD` — this module's own
+  // call — ran the script with nothing but a modified working-tree file.
+  const donor = join(root, 'promisor-donor');
+  await mkdir(donor);
+  git(donor, 'init', '-q', '-b', 'main');
+  await writeFile(join(donor, 'f.txt'), 'l1\nl2\nl3\n');
+  git(donor, 'add', '-A');
+  git(donor, 'commit', '-qm', 'one');
+
+  const work = join(home, 'promisor-repo');
+  execFileSync('git', ['clone', '-q', donor, work], { encoding: 'utf8' });
+  const marker = join(root, 'UPLOADPACK_RAN');
+  const hook = join(root, 'uploadpack.sh');
+  await writeFile(hook, ['#!/bin/sh', `touch ${marker}`, 'exit 1', ''].join('\n'), { mode: 0o755 });
+  await chmod(hook, 0o755);
+  git(work, 'config', 'extensions.partialClone', 'origin');
+  git(work, 'config', 'remote.origin.promisor', 'true');
+  git(work, 'config', 'remote.origin.uploadpack', hook);
+  const blob = execFileSync('git', ['rev-parse', 'HEAD:f.txt'], { cwd: work, encoding: 'utf8' }).trim();
+  await rm(join(work, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+  // The modified working-tree file is all `git diff --numstat HEAD` needs to
+  // want the missing blob.
+  await writeFile(join(work, 'f.txt'), 'l1\nl2\nl3\nl4\n');
+
+  // Non-vacuity: a plain git, on this fixture, runs the script.
+  try {
+    execFileSync('git', ['diff', '--numstat', 'HEAD'], { cwd: work, stdio: 'ignore' });
+  } catch {
+    // Exit 128 — the fetch it tried failed. The marker is the point.
+  }
+  assert.equal(existsSync(marker), true, 'the fixture is real: a plain git fetches');
+  await rm(marker);
+
+  const res = await changes(server, work);
+  assert.equal(res.status, 500, JSON.stringify(res.body));
+  assert.deepEqual(res.body, { error: GIT_READ_FAILED });
+  assert.equal(existsSync(marker), false, 'the repository’s own transport was NOT run');
+});
+
 test('the fsmonitor override is `false`, not `true` — pinned in the source, and why', () => {
   // The behavioural test above proves the repository's OWN program is not run.
   // It cannot tell `core.fsmonitor=false` from `core.fsmonitor=true`: `true`
@@ -681,6 +729,7 @@ test('the fsmonitor override is `false`, not `true` — pinned in the source, an
   assert.match(src, /GIT_CONFIG_KEY_0: 'core\.fsmonitor'/, 'and it is core.fsmonitor');
   assert.match(src, /GIT_CONFIG_VALUE_0: 'false'/, 'set to false — never true, never a program');
   assert.match(src, /GIT_OPTIONAL_LOCKS: '0'/, 'and the index is never rewritten');
+  assert.match(src, /GIT_NO_LAZY_FETCH: '1'/, 'and no read ever contacts a promisor remote');
   // The env is built ONCE and spread into the spawn: a second literal would be
   // a second posture nobody reviewed.
   assert.equal([...src.matchAll(/GIT_CONFIG_VALUE_0/g)].length, 1, 'one definition of the value');

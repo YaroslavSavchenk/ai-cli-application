@@ -19,6 +19,9 @@ import type {
   FsUploadResponse,
   FsWinPathResponse,
   GitChangesResponse,
+  GitCommitDiffResponse,
+  GitCommitResponse,
+  GitCommitsResponse,
   GithubCloneRequest,
   GithubCreateRepoRequest,
   GithubRepo,
@@ -566,6 +569,48 @@ export function logDrop(files: number, bytes: number, failed: number): void {
 /** What the repository at (or above) `root` has changed since its last commit. */
 export function gitChanges(root: string): Promise<GitChangesResponse> {
   return request<GitChangesResponse>(`/api/git/changes?root=${encodeURIComponent(root)}`);
+}
+
+/**
+ * One page of the history of HEAD (B3). `from` pins every later page to the
+ * head of page one.
+ *
+ * THE THREE HISTORY CALLS ARE `async` ON PURPOSE. `encodeURIComponent` THROWS
+ * a `URIError` on a lone surrogate — and a path is git's verbatim bytes, so a
+ * repository really can hand one over. In a plain function that throw escapes
+ * the CALLER (a half-built render, a block stuck on `Loading…`); in an `async`
+ * one it becomes a rejected promise, which every caller here already handles
+ * with the server-sentence path (`messageOf`).
+ */
+export async function gitCommits(
+  root: string,
+  limit: number,
+  skip: number,
+  from?: string,
+): Promise<GitCommitsResponse> {
+  const pin = from === undefined ? '' : `&from=${encodeURIComponent(from)}`;
+  return request<GitCommitsResponse>(
+    `/api/git/commits?root=${encodeURIComponent(root)}&limit=${limit}&skip=${skip}${pin}`,
+  );
+}
+
+/** One commit: its message, who and when, and the files it changed (B3). */
+export async function gitCommit(root: string, hash: string): Promise<GitCommitResponse> {
+  return request<GitCommitResponse>(
+    `/api/git/commit?root=${encodeURIComponent(root)}&hash=${encodeURIComponent(hash)}`,
+  );
+}
+
+/** What one commit changed in one file, as numbered lines (B3). */
+export async function gitCommitDiff(
+  root: string,
+  hash: string,
+  path: string,
+): Promise<GitCommitDiffResponse> {
+  return request<GitCommitDiffResponse>(
+    `/api/git/commit-diff?root=${encodeURIComponent(root)}&hash=${encodeURIComponent(hash)}` +
+      `&path=${encodeURIComponent(path)}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

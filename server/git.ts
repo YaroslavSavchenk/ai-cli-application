@@ -24,6 +24,14 @@
  * RUNS, and a plain `git status` REWRITES `.git/index`. Neither belongs in a
  * read-only tab that polls every five seconds.
  *
+ * B3 (2026-09-21) added `LC_ALL=C` and `GIT_LITERAL_PATHSPECS=1` to the same
+ * env, and EXPORTS `runGitCapture` / `capturedOrFail` / `GIT_ENV` so
+ * server/git-log.ts (the commit routes) shares one runner and one posture
+ * rather than growing a second copy. Neither new entry changes this module:
+ * `changesFor` passes no pathspec at all (checked — `diff --numstat -z HEAD`
+ * and `status --porcelain=v1 -z`), and it parses no human-readable git text,
+ * only `-z` records and exit statuses.
+ *
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
 import { spawn } from 'node:child_process';
@@ -72,10 +80,58 @@ const GIT_TIMEOUT_MS = 5_000;
  * 5 s poll doing that would fight the user's own git for the lock and touch a
  * file the app has no business writing. With optional locks off, git reports
  * the same answer and writes nothing.
+ *
+ * `GIT_LITERAL_PATHSPECS=1` (B3) — the commit-diff route puts a CLIENT string
+ * after `--` as a pathspec. MEASURED (git 2.43.0): without this, `:(glob)*` is
+ * magic and matches the whole tree; with it, `:(glob)*` matches NOTHING and a
+ * file really named `star*.txt` is found by the literal text `star*.txt`. No
+ * glob, no `:(magic)`, no `^` negation — a pathspec is a file name again.
+ *
+ * `LC_ALL=C` (B3) — git's human-readable text (dates it formats for humans,
+ * error text, `--stat` headers) stops depending on the user's locale. Nothing
+ * this app parses is locale-dependent (`%aI` is ISO 8601 by definition, `-z`
+ * records are bytes), so this pins the ONE class of surprise a translated git
+ * could still cause and costs nothing.
+ *
+ * `GIT_NO_LAZY_FETCH=1` (B3 security review, 2026-09-21) — THE THIRD WAY A
+ * REPOSITORY CAN RUN A PROGRAM, and the one that survived the `--no-*` flags.
+ * A PARTIAL CLONE (`extensions.partialClone=origin`,
+ * `remote.origin.promisor=true`) is allowed to go and FETCH an object it does
+ * not have, mid-read, from `remote.origin.url` — and the transport it uses is
+ * a PROGRAM the same `.git/config` names.
+ *
+ * MEASURED against git 2.43.0 with this exact env and B3's flags: a clone with
+ * those two keys, `remote.origin.uploadpack=<script>` and ONE blob of HEAD
+ * deleted out of `.git/objects` ran the script (marker created) for
+ *   * `git log … --numstat` (the commits list),
+ *   * `git rev-parse --verify --quiet <absent 40 hex>^{commit}` (the hash gate,
+ *     i.e. BEFORE any commit is known to exist), and
+ *   * `git diff --numstat -z HEAD` — B2's SHIPPED Changes call, with nothing
+ *     but a modified working-tree file.
+ * The `remote.origin.url=ssh://x/` + `core.sshCommand=<script>` spelling ran
+ * too. With `GIT_NO_LAZY_FETCH=1` the marker stayed absent in every case;
+ * rev-parse then exits 1 (a 404) and log/diff exit 128 (the constant 500).
+ *
+ * RESIDUAL, stated: this is an ENV VARIABLE git has to honour. A git older
+ * than the CVE-2024-32004 hardening that made `GIT_NO_LAZY_FETCH` load-bearing
+ * ignores it, and on such a git a partial clone can still reach its promisor
+ * remote from these calls. The flag costs nothing on a git that does honour
+ * it, and a legitimate partial clone loses only these read-only calls (they
+ * report the failure as the constant 500), never the user's own git.
+ *
+ * NOT pinned here, and measured so the next reader does not have to:
+ * `core.pager` / `pager.log` naming a program are INERT (no tty, so git never
+ * starts a pager). A repo-local `diff.orderFile` naming a missing file makes
+ * `git log --numstat` exit 128 — handled with `-O/dev/null` on the argv of
+ * server/git-log.ts's calls rather than with a fourth GIT_CONFIG entry, so the
+ * Changes tab's posture is not changed by a B3 finding.
  */
-const GIT_ENV: Record<string, string> = {
+export const GIT_ENV: Record<string, string> = {
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
+  GIT_LITERAL_PATHSPECS: '1',
+  GIT_NO_LAZY_FETCH: '1',
+  LC_ALL: 'C',
   GIT_CONFIG_COUNT: '1',
   GIT_CONFIG_KEY_0: 'core.fsmonitor',
   GIT_CONFIG_VALUE_0: 'false',
@@ -89,7 +145,7 @@ const GIT_ENV: Record<string, string> = {
  */
 const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
 
-interface GitRun {
+export interface GitRun {
   /** Exit status, or null when the child died on a signal. */
   code: number | null;
   /** stdout, decoded utf8. Empty on any non-zero exit we tolerate. */
@@ -102,7 +158,7 @@ interface GitRun {
  * learn the folder is not a repository) — and rejects only when the call itself
  * could not be trusted: git missing, the timeout, or the stdout cap.
  */
-function runGitCapture(
+export function runGitCapture(
   args: readonly string[],
   cwd: string,
   log: Logger,
@@ -387,7 +443,7 @@ async function collectChanges(cwd: string, log: Logger, trace: string[]): Promis
 }
 
 /** A git call whose non-zero exit IS a failure (unlike the two probes above). */
-async function capturedOrFail(
+export async function capturedOrFail(
   args: readonly string[],
   cwd: string,
   log: Logger,

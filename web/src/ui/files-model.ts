@@ -8,8 +8,8 @@
  * copy the two tabs print. What does NOT live here: anything that reads or
  * writes app state (the open-folder set is passed in), and the data itself
  * (the Changes tab's real `git diff --numstat` since part B2, through
- * `ui/fs-model.ts`'s `changesToFiles`; the Commits tab is still
- * `ui/files-mock.ts` until `git log` lands in part B3).
+ * `ui/fs-model.ts`'s `changesToFiles`; the Commits tab's real `git log` since
+ * part B3, through `ui/commit-store.ts`).
  *
  * THE INPUT SHAPE WAS THE FUTURE ONE, AND IT HELD. `FileChange[]` is a flat
  * list of paths with `add`/`del`/`editing` — exactly what a numstat walk
@@ -22,8 +22,6 @@
  * and the google-fonts/oklch lesson) — they live in tokens.css as a
  * `--badge-<kind>-*` pair per family and this table only names the family.
  */
-
-import type { CommitFileChange } from './commit-model.ts';
 
 /** One changed (or merely listed) file, as B2's `git diff --numstat` walk hands it over. */
 export interface FileChange {
@@ -40,30 +38,6 @@ export interface FileChange {
    * (`ui/fs-model.ts` `changesToFiles` leaves it unset).
    */
   editing?: boolean;
-}
-
-/** One commit, as B3's `git log` walk will hand it over. */
-export interface CommitEntry {
-  /**
-   * Short hash doubles as the IDENTITY: the commit view is opened by it and
-   * the collapse keys are built from it. B3 keeps that (a hash is unique in a
-   * repository), so nothing downstream needs a second id. Rendered mono.
-   */
-  hash: string;
-  /** Subject line only. */
-  message: string;
-  author: string;
-  /** Already-relative time ("2 hours ago") — B3 decides where it is formatted. */
-  when: string;
-  add: number;
-  del: number;
-  /**
-   * What the commit touched — the commit view's whole body (part A6). The two
-   * numbers above are the sums of these, which
-   * `tests/ui-commit-model.test.ts` pins on the mock so the list row and the
-   * opened view can never state different totals.
-   */
-  files: CommitFileChange[];
 }
 
 /** A folder or file in the derived tree. */
@@ -261,7 +235,12 @@ export function summaryText(files: number): string {
   return `since last commit in ${files} ${files === 1 ? 'file' : 'files'}`;
 }
 
-/** `main, 1 commit` / `main, 5 commits` — the branch is the only name in it. */
+/**
+ * `main, 1 commit` / `main, 214 commits` — the branch is the only name in it,
+ * and the count is `rev-list --count`, not the number of rows on screen (B3:
+ * the list holds one page of ten). A repository with no branch to name says
+ * `Detached`, which `branchLabel()` in `ui/commit-model.ts` decides.
+ */
 export function commitsHeaderText(branch: string, count: number): string {
   return `${branch}, ${count} ${count === 1 ? 'commit' : 'commits'}`;
 }

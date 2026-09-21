@@ -80,7 +80,21 @@ const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
  */
 export type EditorTab =
   | { kind: 'file'; path: string }
-  | { kind: 'diff'; hash: string; path: string };
+  | {
+      kind: 'diff';
+      /** The commit's own 40-hex hash: the IDENTITY (the chip shows 7 of it). */
+      hash: string;
+      /** Repository-relative, as `git show` names it. */
+      path: string;
+      /**
+       * The folder this diff is READ from (part B3) — the same root the Files
+       * panel asks git with (`state.openCommitAt.root`), carried on the tab
+       * because the tab outlives the commit view it was opened from and a pane
+       * may never guess where a repository is. NOT the repository root: see
+       * `openDiff`, whose parameter is named `requestRoot` for this reason.
+       */
+      root: string;
+    };
 
 /**
  * A pane holding files: ONE pane per group, with an inner strip of file tabs
@@ -186,12 +200,32 @@ interface AppState {
   /** Files panel width in px, FILES_W_MIN..FILES_W_MAX (drag its right edge). */
   filesWidth: number;
   /**
-   * The commit whose full view covers the pane area (Nocturne A6), by short
-   * hash; null = the panes are on screen. NOT persisted: it is a place the
-   * user is standing, not a preference, and a reload that reopened a commit
-   * view over a running session would hide the terminal for no reason.
+   * The commit whose full view covers the pane area (Nocturne A6), by its
+   * 40-hex hash since part B3; null = the panes are on screen. NOT persisted:
+   * it is a place the user is standing, not a preference, and a reload that
+   * reopened a commit view over a running session would hide the terminal for
+   * no reason.
    */
   openCommit: string | null;
+  /**
+   * WHERE that commit is read from (part B3), captured when it was opened so
+   * the screen cannot change repository under itself while the panel's focus
+   * moves on:
+   *
+   *   - `root` is the folder the request is made from — the same root the
+   *     Changes tab sends, so one boundary check covers both;
+   *   - `repoRoot` is the repository the commit's paths are relative to
+   *     (`GitChangesResponse.repoRoot`), and it is what makes `Open file` hand
+   *     `openFile` the absolute path every other row in the panel hands it.
+   *     It is NULL until that answer is in: the history and the repository are
+   *     two requests, and the history can win the race (a root change nulls
+   *     the Changes answer while the list is still on screen). A commit opens
+   *     either way — only `Open file` waits, and says so
+   *     (`noteCommitRepoRoot` fills it the moment the answer lands).
+   *
+   * Null exactly when `openCommit` is.
+   */
+  openCommitAt: { root: string; repoRoot: string | null } | null;
   /**
    * Which file blocks inside the open commit are COLLAPSED (`<hash>:<path>`).
    * Collapsed rather than expanded, so a commit opens with its whole diff
@@ -266,6 +300,7 @@ export const state: AppState = {
   leftPanel: 'files',
   filesWidth: FILES_W_DEFAULT,
   openCommit: null,
+  openCommitAt: null,
   commitCollapsed: new Set(),
   edits: new Map(),
   wsLatencyMs: null,
@@ -1175,9 +1210,25 @@ export function openFile(root: ViewRoot, path: string, label: string): OpenFileR
  * tab's editor pane (user decision 8, 2026-09-15: the A6 `Changes in <hash>`
  * screen survives as a tab kind). The twin of `openFile`: a diff has no
  * unsaved text and no Save, and `tabIdOf` keeps the two id spaces apart.
+ *
+ * `requestRoot` IS THE FOLDER THE REQUEST IS MADE FROM — the same root the
+ * Files panel asks git with (`openCommitAt.root`), which is what the backend's
+ * boundary check accepts. It is deliberately NOT the repository root: that can
+ * be an ancestor of every registered anchor (a project registered at `web/`
+ * inside a repository), and a tab carrying it would answer the boundary
+ * sentence for every diff it ever asks for.
  */
-export function openDiff(root: ViewRoot, hash: string, path: string): OpenFileResult {
-  return openEditorTab(viewForRoot(root), { kind: 'diff', hash, path }, `commit=${hash}`);
+export function openDiff(
+  root: ViewRoot,
+  hash: string,
+  path: string,
+  requestRoot: string,
+): OpenFileResult {
+  return openEditorTab(
+    viewForRoot(root),
+    { kind: 'diff', hash, path, root: requestRoot },
+    `commit=${hash}`,
+  );
 }
 
 /** The shared body of `openFile`/`openDiff` — raise, else add, else new pane. */
@@ -1646,13 +1697,22 @@ export function filesPanelVisible(): boolean {
 // it. Since A10 the editor column is NOT in this group: a file is a pane, so
 // opening one notifies `'ui'` like any other pane change.
 
-/** Open the full commit view over the pane area. */
-export function openCommitView(hash: string): void {
+/**
+ * Open the full commit view over the pane area, for the commit `hash` in the
+ * repository the Files panel is standing in (`at`, see `openCommitAt`).
+ */
+export function openCommitView(
+  hash: string,
+  at: { root: string; repoRoot: string | null },
+): void {
   if (state.openCommit === hash) return;
   state.openCommit = hash;
+  state.openCommitAt = at;
   // A newly opened commit starts fully expanded: the collapse set is per
   // `<hash>:<path>`, so stale keys from an earlier commit can never hide a
   // block in this one, and dropping them keeps the set from growing forever.
+  // (Part B3 folds everything past the first ten the moment the commit
+  // answers — see `seedCommitCollapsed`; until then there is nothing to fold.)
   state.commitCollapsed = new Set();
   notify('screen');
 }
@@ -1661,7 +1721,36 @@ export function openCommitView(hash: string): void {
 export function closeCommitView(): void {
   if (state.openCommit === null) return;
   state.openCommit = null;
+  state.openCommitAt = null;
   state.commitCollapsed = new Set();
+  notify('screen');
+}
+
+/**
+ * Fold these blocks, once, on the render that first draws a commit's file list
+ * (part B3: everything past the first ten, so a 200-file commit does not fire
+ * 200 requests and does not open 200 blocks nobody asked for).
+ *
+ * IT DOES NOT NOTIFY, on purpose: it is called from inside the very render
+ * that is about to draw the folds, and a notification there would be a render
+ * loop. Every LATER change to the set goes through `toggleCommitFile`, which
+ * does notify.
+ */
+export function seedCommitCollapsed(keys: readonly string[]): void {
+  state.commitCollapsed = new Set(keys);
+}
+
+/**
+ * The repository behind the open commit, learned late (part B3). The Changes
+ * answer for the SAME root is what carries it; a commit opened before that
+ * answer landed is fully readable, and this is what turns its `Open file`
+ * from "waiting" into a control — so it notifies, exactly once, when it
+ * really fills that gap.
+ */
+export function noteCommitRepoRoot(root: string, repoRoot: string): void {
+  const at = state.openCommitAt;
+  if (at === null || at.root !== root || at.repoRoot !== null) return;
+  state.openCommitAt = { root: at.root, repoRoot };
   notify('screen');
 }
 

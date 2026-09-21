@@ -376,6 +376,92 @@ export function parseGithubRepoPath(cloneUrl: string): { owner: string; repo: st
   return { owner, repo };
 }
 
+/** Owner / repo characters GitHub itself allows; never a dot segment. */
+const GH_SEGMENT_RE = /^[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * Owner + repo of the `origin` URL of a LOCAL repository, for B3's
+ * `Open on GitHub` (plan `.claude/plans/nocturne/PLAN-B3.md`, decision D2:
+ * github.com only, the button is ABSENT for anything else).
+ *
+ * The three spellings git writes, and nothing else:
+ *   https://github.com/<owner>/<repo>[.git]
+ *   [<user>[:<secret>]@]github.com:<owner>/<repo>[.git]        (scp-like ssh)
+ *   ssh://[<user>[:<secret>]@]github.com/<owner>/<repo>[.git]
+ *
+ * HOW THIS DIFFERS FROM parseGithubRepoPath ABOVE, on purpose: that one REFUSES
+ * a url carrying credentials, because it guards a path the app then CLONES
+ * with the user's own token — a credential in the input there is a sign the
+ * input is not what it claims. Here the url is one the USER's repository
+ * already contains, and `https://<token>@github.com/o/r` is a perfectly
+ * ordinary thing to find in a `.git/config`. Refusing it would only take the
+ * button away from the people most likely to want it, so the userinfo is
+ * DISCARDED (user decision, 2026-09-21). It is discarded and not returned,
+ * logged, echoed or included in any error: the ONLY thing that leaves here is
+ * `{ owner, repo }`, two strings matching ^[A-Za-z0-9._-]{1,100}$.
+ *
+ * A PORT is refused in every form: `github.com:8080` is not github.com's web
+ * site, and the page builds `https://github.com/<owner>/<repo>/commit/<hash>`
+ * from what this returns. `http:` and `git:` are refused too (no https, no
+ * button). Path segments are taken RAW, never percent-decoded, so an escaped
+ * separator stays literal text and then fails the pattern.
+ *
+ * Returns null — not undefined — because the protocol field is `… | null`.
+ */
+export function parseGithubRemote(url: string): { owner: string; repo: string } | null {
+  const trimmed = url.trim();
+  if (trimmed === '' || trimmed.length > 2048) return null;
+
+  // scp-like: `[user@]host:path`, which is NOT a URL and must be recognised
+  // before `new URL()` sees it (`git@github.com:o/r` parses as scheme `git@`).
+  const scp = /^(?:[^/@]*@)?([^/@:]+):(?!\/)(.+)$/.exec(trimmed);
+  if (scp !== null) {
+    if (!isGithubHost(scp[1] as string)) return null;
+    return splitOwnerRepo((scp[2] as string).split('/'));
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'ssh:') return null;
+  // NOT `=== 'github.com'`: `ssh:` is a NON-SPECIAL scheme, so the WHATWG URL
+  // parser leaves its host EXACTLY as written (measured: `ssh://git@GITHUB.COM/o/r`
+  // keeps `hostname === 'GITHUB.COM'`, while `HTTPS://GITHUB.COM/o/r` is
+  // lower-cased for us). DNS does not care about case, so neither may this —
+  // otherwise a perfectly ordinary `git@GitHub.com:o/r` silently loses the
+  // button.
+  if (!isGithubHost(parsed.hostname)) return null;
+  if (parsed.port !== '') return null;
+  return splitOwnerRepo(parsed.pathname.split('/'));
+}
+
+/**
+ * The host is github.com, compared with ASCII-ONLY case folding.
+ *
+ * `String.prototype.toLowerCase` folds Unicode too, and that is a door nobody
+ * needs here: this compares against a fixed ASCII name, so only ASCII letters
+ * may differ in case. Anything else — an IDN homograph, a Kelvin sign, a
+ * dotted capital I — stays exactly the character it is and fails.
+ */
+function isGithubHost(host: string): boolean {
+  return host.replace(/[A-Z]/g, (c) => c.toLowerCase()) === 'github.com';
+}
+
+/** Exactly two non-empty segments, `.git` off the second, both in the pattern. */
+function splitOwnerRepo(rawSegments: readonly string[]): { owner: string; repo: string } | null {
+  const segments = rawSegments.filter((s) => s !== '');
+  if (segments.length !== 2) return null;
+  const owner = segments[0] as string;
+  const repo = (segments[1] as string).replace(/\.git$/i, '');
+  for (const s of [owner, repo]) {
+    if (s === '.' || s === '..' || !GH_SEGMENT_RE.test(s)) return null;
+  }
+  return { owner, repo };
+}
+
 /** True when `p` is an existing directory (symlinks followed, like statSync elsewhere). */
 function isDirectory(p: string): boolean {
   try {

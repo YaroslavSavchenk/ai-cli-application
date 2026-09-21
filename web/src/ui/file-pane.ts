@@ -17,8 +17,9 @@
  *    no Save, because there would be nothing to write. Since part B2 that is
  *    EVERY file opened from the Files panel: the paths are real and the app
  *    cannot read a file until part B4, which is what the note says. The OTHER
- *    branch (a mock commit path, opened from the commit view) still draws
- *    `ui/files-mock.ts` text, so it keeps its own quiet line saying so.
+ *    branch (a path `ui/files-mock.ts` happens to have text for) still draws
+ *    that text, so it keeps its own quiet line saying so. The DIFF half of
+ *    this module stopped being placeholder in part B3.
  * 3. CODE SURFACES DRAW PLAIN GLYPHS (`font-variant-ligatures: none`, one
  *    shared rule in app.css): the terminal in the pane beside this one renders
  *    none, and `==` must not be readable as `===`.
@@ -28,9 +29,12 @@
  */
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
-import { diffBody } from './commit-view.ts';
+import { diffBox } from './commit-view.ts';
+import { fetchDiff, type Asked } from './commit-store.ts';
 import { gutterText, saveLabel } from './editor-model.ts';
+import { messageOf } from './fs-model.ts';
 import { mockFileContent, saveMockFile } from './files-mock.ts';
+import type { GitCommitDiffResponse } from '../../../shared/protocol.ts';
 
 /**
  * What a file pane says instead of a REAL file's text (part B2, §5). Every
@@ -44,12 +48,17 @@ const CANNOT_READ = 'The app cannot read this file yet.';
 
 /**
  * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B4). The OTHER branch is
- * still fiction: a commit view's `Open file` hands over a mock commit path,
- * `ui/files-mock.ts` has text for it, and the pane then shows a textarea with
- * a Save that writes into that same map. A field full of invented source with
- * nothing saying so is the one thing placeholder data must not do, so the
- * line the real-file branch no longer needs is still owed here. One function,
- * one call site.
+ * still fiction: a path `ui/files-mock.ts` happens to have text for gets a
+ * textarea with a Save that writes into that same map. A field full of
+ * invented source with nothing saying so is the one thing placeholder data
+ * must not do, so the line the real-file branch no longer needs is still owed
+ * here. One function, one call site.
+ *
+ * SINCE PART B3 NOTHING IN THE APP REACHES IT: a commit view's `Open file`
+ * hands over `joinPath(repoRoot, path)` — an absolute path out of a real
+ * `git show` — and the mock's keys are repository-relative, so every caller
+ * takes the `CANNOT_READ` branch above. The map is reachable from a test and
+ * from nowhere else; B4 deletes both branches with the module.
  */
 function placeholderNote(): HTMLElement {
   return el('span', 'pane-fnote', 'Example content until the app reads your files.');
@@ -160,16 +169,39 @@ export function filePaneBody(path: string, onDirtyFlip: () => void): PaneBody {
 }
 
 /**
- * The body of a DIFF pane: the A6 unified diff, read-only. No field, no Save
- * and no dirty state — the changes in a commit are not something to type into.
- * `diffBody` is the commit view's own renderer, so the pane and the screen it
- * came from can never disagree about what a commit changed.
+ * The body of a DIFF pane: the unified diff of one file in one commit,
+ * read-only. No field, no Save and no dirty state — the changes in a commit
+ * are not something to type into. `diffBox` is the commit view's own renderer,
+ * so the pane and the screen it came from can never disagree about what a
+ * commit changed.
+ *
+ * IT HOLDS ITS OWN ANSWER (part B3). A commit is immutable and this tab
+ * outlives the view it was opened from, so it asks once, through the injected
+ * gateway `ui/commit-store.ts` owns, and paints ITS OWN NODE when the answer
+ * lands. No notification: a diff arriving may not put the pane grid through a
+ * render — that is the path that rebuilds terminals nobody asked to rebuild.
+ *
+ * `root` is the folder the diff is read from, carried on the tab itself
+ * (`EditorTab`), because a pane may never guess where a repository is.
  */
-export function diffPaneBody(hash: string, path: string): PaneBody {
-  const root = el('div', 'pane-diff');
-  root.append(diffBody(hash, path));
+export function diffPaneBody(root: string, hash: string, path: string): PaneBody {
+  const host = el('div', 'pane-diff');
+  let asked: Asked<GitCommitDiffResponse> = { k: 'loading' };
+  const draw = (): void => {
+    host.replaceChildren(diffBox(asked));
+  };
+  draw();
+  fetchDiff(root, hash, path)
+    .then((res) => {
+      asked = { k: 'ready', value: res };
+      draw();
+    })
+    .catch((err: unknown) => {
+      asked = { k: 'error', message: messageOf(err) };
+      draw();
+    });
   return {
-    root,
+    root: host,
     // The keyboard lands on the header chip instead (ui/panes.ts): there is
     // nothing in a read-only body to type into.
     focus: () => {},

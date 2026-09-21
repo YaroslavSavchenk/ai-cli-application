@@ -20,6 +20,15 @@
  * style. A fetch, a redirect, an `<a href>` navigation or a programmatic open
  * would each be dropped or would break the origin lock.
  *
+ * PART B3 MOVED THE CALL, not the rule. The commit view got a second address
+ * to leave for (`Open on GitHub`, user decision D2) — one BUILT from parts of
+ * the user's own `remote.origin.url` — so the call itself lives in
+ * `web/src/ui/open-external.ts`, which checks the address before it opens it,
+ * and `ui/releases.ts` is the caller that owns the releases ADDRESS. One door,
+ * checked once. (`ui/terminal.ts` keeps its own: an OSC 8 hyperlink a program
+ * printed is `http` as well as `https` and is never logged, which is a
+ * different rule for a different kind of address.)
+ *
  * WHY A SOURCE SCAN. There is no DOM in this runner, and `ui/settings.ts`
  * transitively imports `ui/terminal.ts` -> `@xterm/xterm`, which cannot even be
  * imported outside a bundler (see `tests/ui-shortcuts-openers.test.ts` for the
@@ -45,6 +54,7 @@ const read = (...p: string[]): string => readFileSync(join(REPO_ROOT, ...p), 'ut
 
 const SETTINGS = read('web', 'src', 'ui', 'settings.ts');
 const RELEASES = read('web', 'src', 'ui', 'releases.ts');
+const EXIT = read('web', 'src', 'ui', 'open-external.ts');
 const UPDATE = read('web', 'src', 'ui', 'update.ts');
 const CSS = read('web', 'src', 'styles', 'app.css');
 
@@ -131,16 +141,20 @@ test('the link opens the browser through the sanctioned exit: window.open, exact
   // `noopener,noreferrer` is what keeps the opened page from reaching back into
   // this window's `opener` — a localhost page holding an auth token.
   assert.ok(
-    RELEASES.includes("window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');"),
-    'the call must be exactly window.open(RELEASES_URL, \'_blank\', \'noopener,noreferrer\')',
+    EXIT.includes("window.open(url, '_blank', 'noopener,noreferrer');"),
+    'the call must be exactly window.open(url, \'_blank\', \'noopener,noreferrer\')',
   );
-  // It must be the CONSTANT that is opened, never a string built at the call.
-  assert.equal(/window\.open\(\s*'/.test(RELEASES), false, 'no inline address at the call site');
-  // Exactly one exit from the whole frontend.
-  assert.equal(RELEASES.split('window.open(').length - 1, 1, 'exactly one window is ever opened');
+  // It must be the checked VARIABLE that is opened, never a string built at
+  // the call.
+  assert.equal(/window\.open\(\s*'/.test(EXIT), false, 'no inline address at the call site');
+  // Exactly one exit for every address the APP knows. (ui/terminal.ts opens an
+  // address a PROGRAM printed, under its own `isOpenableLink` rule.)
+  assert.equal(EXIT.split('window.open(').length - 1, 1, 'exactly one window is ever opened');
   for (const [name, src] of [
     ['settings.ts', SETTINGS],
     ['update.ts', UPDATE],
+    ['releases.ts', RELEASES],
+    ['commit-view.ts', read('web', 'src', 'ui', 'commit-view.ts')],
   ] as const) {
     assert.equal(src.includes('window.open('), false, `${name} must go through the shared opener`);
   }
@@ -150,9 +164,43 @@ test('the link opens the browser through the sanctioned exit: window.open, exact
     /const checkBtn = button\('sg-link', 'Check for updates', \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
   );
   assert.match(SETTINGS, /import \{ openReleasesPage \} from '\.\/releases\.ts';/);
+  assert.match(RELEASES, /import \{ openExternal \} from '\.\/open-external\.ts';/);
   // The panel itself still fetches nothing: checking is the backend's job now
   // (phase E) and asking the page to do it would be a second, unaudited path.
   assert.equal(SETTINGS.includes('fetch('), false, 'the panel must not check for updates over the network');
+});
+
+test('the exit refuses anything that is not EXACTLY an https address of ours (part B3)', async () => {
+  // The commit view builds an address out of parts that came from the user's
+  // own repository config, so the door checks before it opens: https only, no
+  // credentials in it, and nothing the URL parser had to repair.
+  const dom = (await import('./fake-dom.ts')).installDom();
+  const opened: string[][] = [];
+  (dom.win as unknown as { open: (u: string, t: string, f: string) => void }).open = (u, t, f) => {
+    opened.push([u, t, f]);
+  };
+  const { openExternal } = (await import(
+    new URL('../web/src/ui/open-external.ts', import.meta.url).href
+  )) as { openExternal(url: string): boolean };
+
+  for (const bad of [
+    '',
+    'not a url',
+    'http://github.com/o/r/commit/abc',
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'data:text/html,<script>1</script>',
+    'https://user:pw@github.com/o/r',
+    'https://github.com/o/r/commit/abc ',
+    'HTTPS://GITHUB.COM/o/r',
+  ]) {
+    assert.equal(openExternal(bad), false, `opened: ${JSON.stringify(bad)}`);
+  }
+  assert.deepEqual(opened, [], 'not one of them reached a window');
+
+  const good = 'https://github.com/you/app/commit/' + 'a'.repeat(40);
+  assert.equal(openExternal(good), true);
+  assert.deepEqual(opened, [[good, '_blank', 'noopener,noreferrer']]);
 });
 
 test('phase E: the update dialog’s manual fallback is the SAME opener, on a real click', () => {

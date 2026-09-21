@@ -170,7 +170,7 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
             // chip and the Files panel all read it from state.
             st.notify('ui');
           })
-        : diffPaneBody(tab.hash, tab.path);
+        : diffPaneBody(tab.root, tab.hash, tab.path);
     bodies.set(id, made);
     return made;
   }

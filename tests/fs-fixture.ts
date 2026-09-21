@@ -26,6 +26,13 @@
  * `dom.win.intervals` and calling the recorded function.
  */
 
+import { GONE_PATH, GONE_TEXT, NOT_A_REPO, detailOf, diffOf, pageOf } from './commits-fixture.ts';
+import type {
+  GitCommitDiffResponse,
+  GitCommitResponse,
+  GitCommitsResponse,
+} from '../shared/protocol.ts';
+
 /** The home folder the FIRST listing (the one with no path) teaches the panel. */
 export const HOME = '/home/you';
 /**
@@ -63,6 +70,12 @@ export interface Gateway {
   entries(path?: string): Promise<{ path: string; entries: Entry[]; truncated: number }>;
   create(dir: string, name: string, kind: 'file' | 'folder'): Promise<{ path: string }>;
   changes(root: string): Promise<Changes>;
+  /** One page of the repository's history (part B3). */
+  commits(root: string, limit: number, skip: number, from?: string): Promise<GitCommitsResponse>;
+  /** One commit's detail (part B3) — the view and the panel share one answer. */
+  commit(root: string, hash: string): Promise<GitCommitResponse>;
+  /** What one commit changed in one file (part B3). */
+  commitDiff(root: string, hash: string, path: string): Promise<GitCommitDiffResponse>;
   /** The Windows form of one path, for the row menu's `Copy` (part B10). */
   winPath(path: string): Promise<{ windowsPath: string }>;
   /** Delete these paths for good (part B10a): one batch, one answer per path. */
@@ -161,6 +174,23 @@ export interface Fixture {
   entryCalls: (string | undefined)[];
   /** Every git call, by root. */
   changeCalls: string[];
+  /** Every page of history the panel asked for, in order (part B3). */
+  commitsCalls: CommitsCall[];
+  /** Every commit detail asked for, as `<root> <hash>` (part B3). */
+  commitCalls: string[];
+  /** Every file diff asked for, as `<hash> <path>` (part B3). */
+  diffCalls: string[];
+  /**
+   * What the history answers for a root — replaceable per test, which is how
+   * an empty repository, a detached head and a head that MOVED under a pinned
+   * page are all driven through the real UI.
+   */
+  commitsFor: (root: string, limit: number, skip: number, from?: string) => GitCommitsResponse | FakeApiError;
+  setCommits(fn: (root: string, limit: number, skip: number, from?: string) => GitCommitsResponse | FakeApiError): void;
+  /** What ONE commit answers, when a test wants it to fail. */
+  commitFails: FakeApiError | null;
+  /** What ONE file's diff answers, when a test wants it to fail. */
+  diffFails: FakeApiError | null;
   /**
    * Every create the panel posted, in order (A9c). "Exactly once" and "no
    * request at all for a name the client rules already refuse" are both read
@@ -233,9 +263,18 @@ export interface Fixture {
 
 /** One question the fake was asked, for `holdIf`. */
 export interface Call {
-  kind: 'entries' | 'changes';
+  kind: 'entries' | 'changes' | 'commits' | 'commit' | 'commit-diff';
   /** The path asked for; `undefined` is the home probe (`entries()` with no path). */
   path: string | undefined;
+}
+
+/** One page the Commits tab asked for, exactly as it asked (part B3). */
+export interface CommitsCall {
+  root: string;
+  limit: number;
+  skip: number;
+  /** The head every page after the first is PINNED to, or undefined on page one. */
+  from: string | undefined;
 }
 
 /** A computed answer waiting to be delivered (`holdIf`). */
@@ -260,6 +299,9 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
 
   const entryCalls: (string | undefined)[] = [];
   const changeCalls: string[] = [];
+  const commitsCalls: CommitsCall[] = [];
+  const commitCalls: string[] = [];
+  const diffCalls: string[] = [];
   const createCalls: CreateCall[] = [];
   const winPathCalls: string[] = [];
   const deleteCalls: string[][] = [];
@@ -302,6 +344,17 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
     tree,
     entryCalls,
     changeCalls,
+    commitsCalls,
+    commitCalls,
+    diffCalls,
+    // The history lives at the one root that IS a repository, exactly like the
+    // changes above it.
+    commitsFor: (root, limit, skip) => (root === PROJ ? pageOf(limit, skip) : NOT_A_REPO),
+    setCommits(fn) {
+      fx.commitsFor = fn;
+    },
+    commitFails: null,
+    diffFails: null,
     createCalls,
     winPathCalls,
     deleteCalls,
@@ -356,6 +409,12 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
       fillTree();
       entryCalls.length = 0;
       changeCalls.length = 0;
+      commitsCalls.length = 0;
+      commitCalls.length = 0;
+      diffCalls.length = 0;
+      fx.commitsFor = (root, limit, skip) => (root === PROJ ? pageOf(limit, skip) : NOT_A_REPO);
+      fx.commitFails = null;
+      fx.diffFails = null;
       createCalls.length = 0;
       winPathCalls.length = 0;
       deleteCalls.length = 0;
@@ -457,6 +516,47 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
             return a instanceof FakeApiError ? { ok: false, err: a } : { ok: true, value: a };
           };
           gate({ kind: 'changes', path: root }, compute, resolve, reject);
+        });
+      },
+      /**
+       * One page of history (B3). It RECORDS the question first — the limit,
+       * the skip and the pinned `from` are the contract, so a page asked for
+       * without its pin is visible even when the answer would have been right.
+       */
+      commits(root: string, limit: number, skip: number, from?: string) {
+        commitsCalls.push({ root, limit, skip, from });
+        return new Promise<GitCommitsResponse>((resolve, reject) => {
+          const compute = (): Answer<GitCommitsResponse> => {
+            const a = fx.commitsFor(root, limit, skip, from);
+            return a instanceof FakeApiError ? { ok: false, err: a } : { ok: true, value: a };
+          };
+          gate({ kind: 'commits', path: root }, compute, resolve, reject);
+        });
+      },
+      commit(root: string, hash: string) {
+        commitCalls.push(`${root} ${hash}`);
+        return new Promise<GitCommitResponse>((resolve, reject) => {
+          const compute = (): Answer<GitCommitResponse> => {
+            if (fx.commitFails !== null) return { ok: false, err: fx.commitFails };
+            const found = detailOf(hash);
+            return found === null
+              ? { ok: false, err: new FakeApiError(404, GONE_TEXT) }
+              : { ok: true, value: found };
+          };
+          gate({ kind: 'commit', path: root }, compute, resolve, reject);
+        });
+      },
+      commitDiff(root: string, hash: string, path: string) {
+        diffCalls.push(`${hash} ${path}`);
+        return new Promise<GitCommitDiffResponse>((resolve, reject) => {
+          const compute = (): Answer<GitCommitDiffResponse> => {
+            if (fx.diffFails !== null) return { ok: false, err: fx.diffFails };
+            // One path in the fixture answers the server's own 404, so the
+            // "a block draws the server's sentence" state is reachable.
+            if (path === GONE_PATH) return { ok: false, err: new FakeApiError(404, GONE_TEXT) };
+            return { ok: true, value: diffOf(hash, path) };
+          };
+          gate({ kind: 'commit-diff', path: root }, compute, resolve, reject);
         });
       },
     },
