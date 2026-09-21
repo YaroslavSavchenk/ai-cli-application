@@ -2215,6 +2215,40 @@ test('clicking a commit opens the commit view, and the tab becomes its selected 
   assert.deepEqual(fx.commitCalls, [`${PROJ} ${first.hash}`]);
 });
 
+test('ending the session closes ITS commit view — a commit never outlives the folder it came from', async () => {
+  // User report 2026-09-21: the session was ended with the commit view up and
+  // the view stayed, showing a repository nothing on screen stood for.
+  await liveSession();
+  const first = await openCommit();
+  assert.equal(st.state.openCommit, first.hash, 'non-vacuity: the view is up');
+  // Same root, another render: the view stays (a poll tick or an info frame
+  // must never close it).
+  panel.render();
+  await settle();
+  assert.equal(st.state.openCommit, first.hash, 'a render about the SAME folder closes nothing');
+  // The session goes: the panel's subject is no longer that project.
+  st.setSessions([]);
+  panel.render();
+  await settle();
+  assert.equal(st.state.openCommit, null, 'the view went with the session');
+  assert.equal(st.state.openCommitAt, null);
+});
+
+test('a HIDDEN panel closes an orphaned commit view too', async () => {
+  await liveSession();
+  const first = await openCommit();
+  assert.equal(st.state.openCommit, first.hash);
+  st.toggleLeftPanel('files');
+  panel.render();
+  await settle();
+  assert.equal(st.state.openCommit, first.hash, 'hiding the panel alone closes nothing');
+  st.setSessions([]);
+  panel.render();
+  await settle();
+  assert.equal(st.state.openCommit, null);
+  st.toggleLeftPanel('files');
+});
+
 test('the selected state says Loading, then the SERVER`s sentence if it cannot be read', async () => {
   await liveSession();
   (byKey(root, 'ftab:commits') as FakeElement).click();

@@ -2591,7 +2591,30 @@ export function initFilesPanel(
     ].join('|');
   }
 
+  /**
+   * An open commit belongs to the folder it was opened from. When the panel's
+   * subject moves away from that folder — the session was ended, it exited, its
+   * project was removed — the commit view would otherwise keep showing a
+   * repository nothing on screen stands for any more (user report 2026-09-21:
+   * "als ik sessie sluit met commitscherm open, blijft het commitscherm open").
+   * Checked on EVERY render, a hidden panel included: hiding the panel does not
+   * make the view any less stale. Closed in a microtask — `closeCommitView()`
+   * notifies, and this runs inside a render.
+   */
+  function closeOrphanedCommit(): void {
+    const at = st.state.openCommitAt;
+    if (st.state.openCommit === null || at === null) return;
+    const want = rootPath();
+    if (want === null || want === at.root) return;
+    queueMicrotask(() => {
+      const now = st.state.openCommitAt;
+      const root = rootPath();
+      if (now !== null && root !== null && root !== now.root) st.closeCommitView();
+    });
+  }
+
   function render(): void {
+    closeOrphanedCommit();
     if (!st.filesPanelVisible()) {
       lastSig = 'hidden';
       wasVisible = false;
