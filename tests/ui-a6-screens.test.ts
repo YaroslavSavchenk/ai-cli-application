@@ -234,6 +234,13 @@ test('an opened commit fills the header from the SERVER`s own answer', async () 
   // The message body, when there is one: the user's own text, wrapped.
   assert.equal(textsOf(commitRoot, 'commit-vtext')[0], C0.body);
   assert.ok((C0.body ?? '').includes('\n'), 'non-vacuity: this commit really has a body');
+  // …and it lives in the SCROLLER, never in the fixed header: a 40-line
+  // message in the header took the whole card and left the files no room and
+  // nothing to scroll (user report 2026-09-21).
+  const scroller = byClass(commitRoot, 'commit-vbody')[0] as FakeElement;
+  const fixedHead = byClass(commitRoot, 'commit-vhd')[0] as FakeElement;
+  assert.equal(byClass(scroller, 'commit-vtext').length, 1, 'the body scrolls with the files');
+  assert.equal(byClass(fixedHead, 'commit-vtext').length, 0, 'and is not in the fixed header');
 
   const sum = byClass(commitRoot, 'commit-vsum')[0] as FakeElement;
   assert.ok(sum.textContent.includes(`${C0.commit.files} files changed`));

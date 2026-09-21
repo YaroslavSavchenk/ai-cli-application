@@ -6584,6 +6584,8 @@ body.is-dnd * {
 /* the message BODY under the subject: the user's own text, wrapped as they
    wrote it, on the same plain glyphs every code surface here draws */
 .commit-vtext {
+  /* first child of the column-flex scroller: never shrunk to fit the card */
+  flex: none;
   margin: 0;
   max-width: 78ch;
   white-space: pre-wrap;

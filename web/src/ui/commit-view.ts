@@ -300,10 +300,6 @@ export function initCommitView(
     // filled with a word that is not a branch.
     if (c.branch !== null) meta.append(el('span', 'commit-branch', c.branch));
     title.append(meta);
-    if (c.body !== '') {
-      const text = el('pre', 'commit-vtext', c.body);
-      title.append(text);
-    }
 
     const right = el('div', 'commit-vright');
     right.append(el('span', 'commit-vhash', c.commit.shortHash));
@@ -330,7 +326,13 @@ export function initCommitView(
 
     hd.replaceChildren(top, sum);
     blocks.clear();
-    const drawn: HTMLElement[] = c.files.map((f) => fileBlock(hash, f));
+    const drawn: HTMLElement[] = [];
+    // The message BODY is the first thing in the SCROLLER, never in the fixed
+    // header: a long message there took the card's whole height, left the file
+    // blocks no room and nothing to scroll (user report 2026-09-21, a 40-line
+    // commit message). Here it scrolls away with the files it describes.
+    if (c.body !== '') drawn.push(el('pre', 'commit-vtext', c.body));
+    for (const f of c.files) drawn.push(fileBlock(hash, f));
     // The server capped the file list: say how many are missing, in the body
     // where the blocks it is about would have been.
     if (c.truncated > 0) drawn.push(el('p', 'commit-more', moreFilesText(c.truncated)));
