@@ -56,3 +56,13 @@ installer/payload/
 
 # agent worktrees (Claude Code isolation)
 .claude/worktrees/
+
+# Windows "downloaded from the internet" markers that ride along when files
+# are copied into WSL (NTFS alternate data streams surfacing as files).
+*:Zone.Identifier
+
+# The design tool's generated runtime that came with the mascot handoff export.
+# Third-party generated code with no licence statement: kept locally so the
+# prototype renders, never published. The spec (README.md) and the prototype
+# HTML are tracked.
+design/peek-mascot/support.js

@@ -47,6 +47,12 @@ docs, two test paths that read the handoffs when present). A clone on another
 machine has neither local folder: the two tests that read them self-skip, as
 before.
 
+**Tracked since 2026-09-21, later the same day** (the user: "zet de handoffs
+in git"): both folders are in git, without the `*:Zone.Identifier` files and
+without `design/peek-mascot/support.js` (the design tool's generated runtime,
+no licence statement — gitignored); `/home/<author>` in the prototypes' mock
+data became `/home/you`. The two parity tests now run in full in CI.
+
 ## Batch 4 — tests and code dirs (through `/dev-flow`)
 
 `tests/` holds 128 flat files. Pins to move with it: `package.json`

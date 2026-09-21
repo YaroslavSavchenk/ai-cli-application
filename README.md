@@ -575,7 +575,7 @@ updates at all, and neither does a bundle whose version is `0.0.0-*`.
 | `installer/` | The Inno Setup script and its PowerShell helpers |
 | `scripts/` | `build-bundle.sh` (the Linux bundle) and `release.sh` (tagging) |
 | `.github/workflows/` | CI (`verify.yml`, `ci.yml`) and the release build |
-| `design/` | Design sources: `session-manager/` (the current Nocturne handoff) and `peek-mascot/` — both local-only, not in git — and `archive/handoff-v1/` (the first handoff) |
+| `design/` | Design sources: `session-manager/` (the current Nocturne handoff), `peek-mascot/`, and `archive/handoff-v1/` (the first handoff); `design/README.md` says what each holds |
 | `memory/` | The project's memory, an Obsidian vault: `INDEX.md` (start here), `BACKLOG.md`, `decisions/`, `knowledge/`, and the work log in `log/<YYYY-MM>/<area>/` |
 | `.claude/` | How the project is built with Claude Code: `PROJECT-SCOPE.md` (the current truth), `plans/` (master plans with their status table, part specs per plan, conventions in `plans/README.md`), `agents/`, `skills/` |
 

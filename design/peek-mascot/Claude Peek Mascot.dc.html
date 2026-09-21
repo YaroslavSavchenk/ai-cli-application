@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body { margin:0; background:#faf9f5; font-family: ui-sans-serif, system-ui, sans-serif; overflow:hidden; }
+  a { color:#c96442; } a:hover { color:#a04f34; }
+  @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+  @keyframes slideIn { from { transform: translateX(130%); } to { transform: translateX(0); } }
+  @keyframes climb { 0% { transform: translate(60px, 150px) rotate(20deg); } 35% { transform: translate(30px, 110px) rotate(10deg); } 55% { transform: translate(28px, 60px) rotate(-6deg); } 75% { transform: translate(8px, 20px) rotate(8deg); } 88% { transform: translate(0, -8px) rotate(0); } 100% { transform: translate(0,0) rotate(0); } }
+  @keyframes squeeze { 0% { transform: translateX(130%) scale(.55, 1.45); } 25% { transform: translateX(40px) scale(.55, 1.45) rotate(-4deg); } 35% { transform: translateX(44px) scale(.5, 1.5) rotate(3deg); } 45% { transform: translateX(28px) scale(.55, 1.45) rotate(-5deg); } 55% { transform: translateX(32px) scale(.5, 1.5) rotate(4deg); } 65% { transform: translateX(14px) scale(.6, 1.4) rotate(-3deg); } 75% { transform: translateX(16px) scale(.55, 1.45) rotate(2deg); } 86% { transform: translateX(0) scale(1.2, .8) rotate(0); } 93% { transform: translateX(0) scale(.92, 1.1); } 100% { transform: translateX(0) scale(1); } }
+  @keyframes strain { 0%,100% { transform: translate(0,0) scale(1.04,.94) rotate(-1deg); } 20% { transform: translate(1px,1px) scale(1.05,.93) rotate(1deg); } 40% { transform: translate(-1px,0) scale(1.04,.94) rotate(-1deg); } 60% { transform: translate(1px,1px) scale(1.06,.92) rotate(.5deg); } 80% { transform: translate(-1px,1px) scale(1.04,.94) rotate(-.5deg); } }
+  @keyframes shove { 0%,100% { transform: translate(0,0); } 30% { transform: translate(3px,-2px); } 50% { transform: translate(-2px,1px); } 70% { transform: translate(3px,-3px); } 85% { transform: translate(-1px,0); } }
+  @keyframes jump { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-36px); } 60% { transform: translateY(0); } 75% { transform: translateY(-12px); } }
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  @keyframes wiggle { 0%,100% { transform: rotate(0); } 20% { transform: rotate(-12deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } 80% { transform: rotate(8deg); } }
+  @keyframes squash { 0%,100% { transform: scale(1,1); } 40% { transform: scale(1.3,0.7); } 70% { transform: scale(0.9,1.15); } }
+  @keyframes laugh { 0% { transform: translateY(0) scale(1) rotate(0); } 12% { transform: translateY(-6px) scale(1.06,.94) rotate(-3deg); } 24% { transform: translateY(0) scale(.97,1.04) rotate(2deg); } 36% { transform: translateY(-5px) scale(1.06,.94) rotate(-2deg); } 48% { transform: translateY(0) scale(.98,1.03) rotate(2deg); } 60% { transform: translateY(-4px) scale(1.05,.95) rotate(-2deg); } 72% { transform: translateY(0) scale(.98,1.02) rotate(1deg); } 84% { transform: translateY(-2px) scale(1.02,.98) rotate(-1deg); } 100% { transform: translateY(0) scale(1) rotate(0); } }
+  @keyframes wave { 0% { transform: rotate(0); } 15% { transform: rotate(-50deg); } 30% { transform: rotate(-20deg); } 45% { transform: rotate(-55deg); } 60% { transform: rotate(-20deg); } 75% { transform: rotate(-50deg); } 100% { transform: rotate(0); } }
+  @keyframes waveBody { 0%,100% { transform: rotate(0); } 30% { transform: rotate(3deg) translateX(-2px); } 70% { transform: rotate(3deg) translateX(-2px); } }
+</style>
+</helmet>
+<div style="position:relative; width:100%; height:100vh; overflow:hidden;">
+  <div style="position:absolute; left:24px; top:24px; display:flex; gap:8px; align-items:center; font-size:14px; color:#2d2b26;">
+    <span>Inputs nodig: {{ count }}</span>
+    <button onClick="{{ add }}" style="padding:6px 12px; border-radius:8px; border:1px solid #d9d4c7; background:#fff; cursor:pointer;">+ input</button>
+    <button onClick="{{ remove }}" style="padding:6px 12px; border-radius:8px; border:1px solid #d9d4c7; background:#fff; cursor:pointer;">− opgelost</button>
+  </div>
+  <div style="position:absolute; right:0; top:50%; width:220px; height:340px; transform:translateY(-50%); pointer-events:none;">
+    <sc-for list="{{ blobs }}" as="b" hint-placeholder-count="1">
+      <div style="position:absolute; right: {{ b.right }}; bottom: {{ b.bottom }}; width:100px; height:120px; z-index: {{ b.z }}; animation: {{ b.enter }}; transition: bottom .7s cubic-bezier(.3,1.4,.5,1), right .7s ease; pointer-events:auto;">
+        <div style="width:100px; height:120px; transform: {{ b.tilt }}; transform-origin: 80% 100%;">
+          <div onClick="{{ b.poke }}" title="Klik me" style="cursor:pointer; user-select:none; width:100px; height:120px; animation: {{ b.anim }}; transform-origin: center bottom;">
+            <svg width="100" height="120" viewBox="0 0 15 18" fill="none" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="overflow:visible;">
+              <sc-if value="{{ b.armDown }}" hint-placeholder-val="{{ true }}">
+                <path d="M4 5 H13 V6 H14 V8 H15 V12 H14 V13 H13 V14 H12 V17 H10 V14 H7 V17 H5 V14 H4 V13 H3 V13 H1 V8 H3 V6 H4 Z" fill="#2d2b26" stroke="#2d2b26" stroke-width="1" stroke-linejoin="miter"></path>
+              </sc-if>
+              <sc-if value="{{ b.armUp }}" hint-placeholder-val="{{ false }}">
+                <path d="M4 5 H13 V6 H14 V8 H15 V12 H14 V13 H13 V14 H12 V17 H10 V14 H7 V17 H5 V14 H4 V13 H3 V9 H1 V2 H3 V6 H4 Z" fill="#2d2b26" stroke="#2d2b26" stroke-width="1" stroke-linejoin="miter"></path>
+              </sc-if>
+              <sc-if value="{{ b.waving }}" hint-placeholder-val="{{ false }}">
+                <path d="M4 5 H13 V6 H14 V8 H15 V12 H14 V13 H13 V14 H12 V17 H10 V14 H7 V17 H5 V14 H4 V13 H3 V6 H4 Z" fill="#2d2b26" stroke="#2d2b26" stroke-width="1" stroke-linejoin="miter"></path>
+              </sc-if>
+              <rect x="4" y="5" width="9" height="1" fill="#d97757"></rect>
+              <rect x="3" y="6" width="11" height="7" fill="#d97757"></rect>
+              <rect x="4" y="13" width="9" height="1" fill="#c96442"></rect>
+              <rect x="4" y="6" width="2" height="1" fill="#eb9878"></rect>
+              <rect x="4" y="7" width="1" height="1" fill="#eb9878"></rect>
+              <rect x="12" y="7" width="1" height="6" fill="#c96442"></rect>
+              <sc-if value="{{ b.waving }}" hint-placeholder-val="{{ false }}">
+                <g style="transform-origin:2px 9px; animation: wave 1.3s ease-in-out 1;">
+                  <rect x="0.5" y="2.5" width="2.5" height="7" fill="#2d2b26"></rect>
+                  <rect x="1" y="4" width="2" height="5" fill="#d97757"></rect>
+                  <rect x="1" y="3" width="2" height="1" fill="#eb9878"></rect>
+                </g>
+              </sc-if>
+              <sc-if value="{{ b.armUp }}" hint-placeholder-val="{{ false }}">
+                <rect x="1" y="3" width="2" height="6" fill="#d97757"></rect>
+                <rect x="1" y="2" width="2" height="1" fill="#eb9878"></rect>
+              </sc-if>
+              <sc-if value="{{ b.armDown }}" hint-placeholder-val="{{ true }}">
+                <rect x="1" y="8" width="2" height="4" fill="#d97757"></rect>
+                <rect x="1" y="12" width="2" height="1" fill="#eb9878"></rect>
+              </sc-if>
+              <rect x="14" y="8" width="1" height="4" fill="#c96442"></rect>
+              <rect x="5" y="14" width="2" height="2" fill="#d97757"></rect>
+              <rect x="10" y="14" width="2" height="2" fill="#d97757"></rect>
+              <rect x="5" y="16" width="2" height="1" fill="#c96442"></rect>
+              <rect x="10" y="16" width="2" height="1" fill="#c96442"></rect>
+              <sc-if value="{{ b.eyesNormal }}" hint-placeholder-val="{{ true }}">
+                <g style="transform-origin:8.5px 9px; animation: blink 4s infinite;">
+                  <rect x="6" y="8" width="1" height="2" fill="#2d2b26"></rect>
+                  <rect x="10" y="8" width="1" height="2" fill="#2d2b26"></rect>
+                </g>
+                <rect x="8" y="11" width="1" height="1" fill="#2d2b26"></rect>
+              </sc-if>
+              <sc-if value="{{ b.eyesHappy }}" hint-placeholder-val="{{ false }}">
+                <rect x="5" y="8" width="1" height="1" fill="#2d2b26"></rect><rect x="6" y="7" width="1" height="1" fill="#2d2b26"></rect><rect x="7" y="8" width="1" height="1" fill="#2d2b26"></rect>
+                <rect x="9" y="8" width="1" height="1" fill="#2d2b26"></rect><rect x="10" y="7" width="1" height="1" fill="#2d2b26"></rect><rect x="11" y="8" width="1" height="1" fill="#2d2b26"></rect>
+                <rect x="6" y="11" width="5" height="1" fill="#2d2b26"></rect><rect x="5" y="10" width="1" height="1" fill="#2d2b26"></rect><rect x="11" y="10" width="1" height="1" fill="#2d2b26"></rect>
+              </sc-if>
+              <sc-if value="{{ b.eyesWink }}" hint-placeholder-val="{{ false }}">
+                <rect x="6" y="8" width="1" height="2" fill="#2d2b26"></rect><rect x="9" y="9" width="3" height="1" fill="#2d2b26"></rect><rect x="7" y="11" width="3" height="1" fill="#2d2b26"></rect>
+              </sc-if>
+              <sc-if value="{{ b.eyesSurprised }}" hint-placeholder-val="{{ false }}">
+                <rect x="5" y="7" width="2" height="3" fill="#2d2b26"></rect><rect x="10" y="7" width="2" height="3" fill="#2d2b26"></rect><rect x="8" y="11" width="1" height="1" fill="#2d2b26"></rect>
+              </sc-if>
+              <sc-if value="{{ b.eyesStrain }}" hint-placeholder-val="{{ false }}">
+                <rect x="5" y="8" width="1" height="1" fill="#2d2b26"></rect><rect x="6" y="9" width="2" height="1" fill="#2d2b26"></rect>
+                <rect x="11" y="8" width="1" height="1" fill="#2d2b26"></rect><rect x="9" y="9" width="2" height="1" fill="#2d2b26"></rect>
+                <rect x="6" y="11" width="5" height="1" fill="#2d2b26"></rect>
+                <rect x="7" y="12" width="1" height="1" fill="#2d2b26"></rect><rect x="9" y="12" width="1" height="1" fill="#2d2b26"></rect>
+                <rect x="12" y="6" width="1" height="1" fill="#9cc7e8"></rect>
+              </sc-if>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { count: 1, moods: ['idle', 'idle', 'idle'], straining: false };
+  timers = {};
+  reactions = {
+    laugh: { anim: 'laugh 1.4s ease-in-out 1', dur: 1400 },
+    wave: { anim: 'waveBody 1.3s ease-in-out 1', dur: 1300 },
+  };
+  // 1: onderaan, schuin om de rand. 2: klimt op de eerste. 3: wringt zich ertussen (duwt 2 omhoog).
+  poses(count) {
+    return [
+      { right: '-50px', bottom: '14px', z: 3, tilt: 'rotate(-22deg)', arm: 'down', enter: count === 3 ? 'slideIn 1.4s cubic-bezier(.25,.8,.3,1) both, shove .4s ease-in-out 0.4s 5' : 'slideIn 1.4s cubic-bezier(.25,.8,.3,1) both' },
+      { right: '-40px', bottom: count === 3 ? '110px' : '58px', z: 1, tilt: 'rotate(-8deg)', arm: 'up', enter: count === 3 ? 'climb 1.6s cubic-bezier(.4,.1,.4,1) both, shove .4s ease-in-out 0.5s 5' : 'climb 1.6s cubic-bezier(.4,.1,.4,1) both' },
+      { right: '-16px', bottom: '52px', z: 2, tilt: 'rotate(6deg)', arm: 'down', enter: 'squeeze 2.6s ease-in-out both' },
+    ];
+  }
+  setMood(i, mood) {
+    this.setState(s => { const m = s.moods.slice(); m[i] = mood; return { moods: m }; });
+  }
+  renderVals() {
+    const { count, moods, straining } = this.state;
+    const poses = this.poses(count);
+    const blobs = [];
+    for (let i = 0; i < count; i++) {
+      const m = moods[i]; const r = this.reactions[m]; const p = poses[i];
+      const strain = i === 0 && straining && m === 'idle';
+      blobs.push({
+        ...p,
+        anim: r ? r.anim : (strain ? 'strain 1.1s ease-in-out infinite' : 'bob 3s ease-in-out infinite'),
+        waving: m === 'wave',
+        armUp: m !== 'wave' && p.arm === 'up',
+        armDown: m !== 'wave' && p.arm === 'down',
+        eyesNormal: (m === 'idle' || m === 'wave') && !strain,
+        eyesHappy: m === 'laugh',
+        eyesWink: false,
+        eyesSurprised: false,
+        eyesDizzy: false,
+        eyesStrain: strain,
+        poke: () => {
+          if (this.state.moods[i] !== 'idle') return;
+          const keys = Object.keys(this.reactions);
+          const pick = keys[Math.floor(Math.random() * keys.length)];
+          this.setMood(i, pick);
+          clearTimeout(this.timers[i]);
+          this.timers[i] = setTimeout(() => this.setMood(i, 'idle'), this.reactions[pick].dur);
+        },
+      });
+    }
+    return {
+      count, blobs,
+      add: () => this.setState(s => {
+        const c = Math.min(3, s.count + 1);
+        if (c === 3 && s.count !== 3) {
+          clearTimeout(this.strainT);
+          this.strainT = setTimeout(() => this.setState({ straining: false }), 3400);
+          return { count: c, straining: true };
+        }
+        return { count: c };
+      }),
+      remove: () => this.setState(s => ({ count: Math.max(0, s.count - 1) })),
+    };
+  }
+  componentWillUnmount() { Object.values(this.timers).forEach(clearTimeout); clearTimeout(this.strainT); }
+}
+</script>
+</body>
+</html>

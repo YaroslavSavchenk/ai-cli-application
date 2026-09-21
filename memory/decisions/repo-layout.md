@@ -103,6 +103,14 @@ The two handoffs stay out of git. The orchestrator recommended tracking them
 repo, so the reversible option was taken. `design/README.md` says what each
 folder is. Asked again at the end of the batch.
 
+**Settled the same day (user: "zet de handoffs in git"):** both handoffs are
+tracked. Left out: `*:Zone.Identifier` (now gitignored repo-wide) and
+`design/peek-mascot/support.js` — the design tool's generated runtime,
+third-party code with no licence statement, which a public repo should not
+redistribute on a guess; it stays on disk so the prototype renders. The
+author's home path in the prototypes' mock data was scrubbed to `/home/you`
+(the `no-author-paths` guard would have refused the commit otherwise).
+
 ## Rejected alternatives
 
 - **Area, then month** (`log/nocturne/2026-09/`) — chronology across areas

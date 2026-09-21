@@ -30,7 +30,7 @@ constraints` and `## Process` sections of `.claude/PROJECT-SCOPE.md` first.
 
 `git ls-files | awk -F/ '{print (NF>1?$1"/":$1)}' | sort | uniq -c | sort -rn`,
 then per directory. Also list what git does not see: `.gitignore`,
-`.git/info/exclude` (`design/session-manager/` and `design/peek-mascot/` live there), `build/`.
+`.git/info/exclude`, `build/`.
 Flag: flat folders over ~25 files, top-level dirs with under 3 files,
 duplicates (the same handoff in two places), names that do not say what is
 inside, docs for one topic spread over several homes, stale plans of landed

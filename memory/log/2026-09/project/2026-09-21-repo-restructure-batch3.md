@@ -19,6 +19,14 @@ same checkout while batch 3 was half-way.
 - 24 files of citations rewritten; `tests/nocturne-tokens.test.ts` and
   `tests/ui-mascot-view.test.ts` read the new locations.
 
+## Later the same day — the handoffs go into git
+
+The user: "zet de handoffs in git". 13 files tracked; before staging, a scan
+for secrets, personal data and licences found the author's home path in the
+two prototype HTML files' mock data (scrubbed to `/home/you`), 15
+`*:Zone.Identifier` droppings (gitignored) and `peek-mascot/support.js`, a
+generated third-party runtime without a licence (left out, gitignored).
+
 ## Worth remembering
 
 - "continue" after a proposal with a publish-or-not choice is approval of the
