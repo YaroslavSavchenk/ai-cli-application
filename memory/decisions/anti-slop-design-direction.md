@@ -37,7 +37,8 @@ light blue (#66c0f4/#1a9fff) as the ONLY interactive accent, green/amber/
 gray status semantics kept, bundled Barlow (OFL) for chrome + mono for all
 data, radius ~3px, elevation only on the drag ghost. Full brief +
 slop-filter pass in `web/DESIGN.md`; tokens in `web/src/styles/tokens.css`;
-reference mockups in `design-mocks/`. Shipped together with the
+reference mockups in `design-mocks/` (removed 2026-09-21; the git tag
+`legacy-ui` keeps them). Shipped together with the
 sessions-as-tabs / drag-to-split interaction model.
 
 **UPDATE 2026-07-19 — aesthetic under revision by user feedback**: after
@@ -54,7 +55,7 @@ human status labels; from the terminal mock: mono-for-data typography,
 dense rows, flat chrome (radius ~3px, elevation only on the drag ghost),
 amber inverse attention badges; status semantics unchanged (green running /
 amber attention / gray exited). Reference mockups committed under
-`design-mocks/`. Also requested the same day: a new interaction model —
+`design-mocks/` (removed 2026-09-21, see above). Also requested the same day: a new interaction model —
 sessions as tabs, drag a tab onto another to form split views
 ([[frontend-terminal-quirks]] plumbing still applies).
 

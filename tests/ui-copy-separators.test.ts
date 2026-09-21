@@ -1,5 +1,5 @@
 /**
- * Nocturne part A2 — the COPY rules of `design_handoff_session_manager/README-v3.md`,
+ * Nocturne part A2 — the COPY rules of `design/session-manager/README-v3.md`,
  * enforced mechanically over the chrome that renders them: `web/src/main.ts`
  * and every module in `web/src/ui/`.
  *
@@ -259,7 +259,7 @@ test('no decorative separator glyph in any chrome literal (README-v3 copy rules)
   assert.deepEqual(
     offenders,
     [],
-    'UI text carries no decorative separators (design_handoff_session_manager/README-v3.md). Offenders:\n  ' +
+    'UI text carries no decorative separators (design/session-manager/README-v3.md). Offenders:\n  ' +
       offenders.join('\n  '),
   );
 });

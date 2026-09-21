@@ -1,7 +1,7 @@
 /**
  * Claude peek mascot — the view. Renders a `MascotState` snapshot into a root
  * element as the fixed 220x340 stage from the design handoff
- * (`design_handoff_claude_peek_mascot/README.md`) with one mascot per visible
+ * (`design/peek-mascot/README.md`) with one mascot per visible
  * slot.
  *
  * Three nested layers per mascot, exactly as the handoff specifies, because

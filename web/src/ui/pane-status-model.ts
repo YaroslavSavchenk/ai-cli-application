@@ -1,7 +1,7 @@
 /**
  * The pane status bar's MODEL — the thin strip of label + mono value pairs
  * that Nocturne draws under each terminal (part A3;
- * `design_handoff_session_manager/README-v3.md`, "Pane").
+ * `design/session-manager/README-v3.md`, "Pane").
  *
  * DOM-free and clock-free (the caller passes `now`), so `node:test` can import
  * it and part B1 can extend it without touching the renderer.

@@ -16,8 +16,8 @@
  *
  * Since 2026-09-10 the palette and type are NOCTURNE: a dark indigo-neutral
  * instrument panel. The design source is
- * `design_handoff_session_manager/README-v3.md` plus the primitives in
- * `design_handoff_session_manager/_ds/nocturne-<id>/styles.css`, which the
+ * `design/session-manager/README-v3.md` plus the primitives in
+ * `design/session-manager/_ds/nocturne-<id>/styles.css`, which the
  * "Nocturne primitives" block below transcribes verbatim. The accent blurple
  * is an OUTLINE and small-mark color, never a fill; fills are 12% tints of
  * it. Elevation is a 1px edge plus ambient dark — no heavy shadows. Radii
@@ -37,7 +37,7 @@
  */
 :root {
   /* ══ Nocturne primitives ══════════════════════════════════════════════════
-     Verbatim from design_handoff_session_manager/_ds/nocturne-<id>/styles.css.
+     Verbatim from design/session-manager/_ds/nocturne-<id>/styles.css.
      The deck-only --color-section* tokens are deliberately not copied: the
      README calls them deck-scale fills, not interface colors. */
   --color-bg: #161826;
@@ -101,7 +101,7 @@
   --color-attn: oklch(0.85 0.12 80);    /* attention / working on             */
   --color-danger: oklch(0.7 0.16 25);   /* danger / removed                   */
   /* Attention pill fill — NOT from README-v3/styles.css; source is
-     design_handoff_session_manager/session-manager-v3.html (line 42; the
+     design/session-manager/session-manager-v3.html (line 42; the
      session row at line 861 uses the same hue at /.14),
      a deliberately warmer fill than --color-attn.                           */
   --color-attn-tint: oklch(0.78 0.14 75 / 0.18);

@@ -11,7 +11,7 @@ tags: [design, frontend]
 Three calls made together at the start of the R2 session, reversing the
 2026-07-19 triage recommendations:
 
-1. **Precedence flipped.** The user's hi-fi handoff (`design/README.md` +
+1. **Precedence flipped.** The user's hi-fi handoff (`design/archive/handoff-v1/README.md` +
    `session-manager-prototype.html`) is now the primary source for look and
    layout ("Follow the design from that handoff design. Thats the main
    now"). `web/DESIGN.md` is rewritten to transcribe the handoff;

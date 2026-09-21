@@ -1,4 +1,4 @@
-# Plan: Nocturne redesign (design_handoff_session_manager, v3)
+# Plan: Nocturne redesign (design/session-manager, v3)
 
 Status: see the table below (updated 2026-09-20). Conventions: `.claude/plans/README.md`.
 Each part starts only on the user's word ("begin aan <id>"); rows are in the order of work.
@@ -36,7 +36,7 @@ Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
 mode, no Legacy/Nocturne toggle. Legacy is preserved only as git history:
 tag `legacy-ui` on the last commit before A1 starts. Legacy styles, the theme
-popover UI and `design-mocks/` are removed in A8/B8. Nocturne ships as v0.4.0.
+popover UI and `design-mocks/` are removed in A8/B8 (`design-mocks/` went early, 2026-09-21, in restructure batch 3). Nocturne ships as v0.4.0.
 Amended (user, 2026-09-10 evening): customising the terminal colours comes
 BACK inside Nocturne, as a Settings page (A7 visual, B9 live), not as the
 Legacy popover. The persistence/refresh machinery in `web/src/ui/theme.ts`
@@ -47,10 +47,10 @@ No methods chosen, no code investigated beyond a file listing. Each part below i
 rate-limited session and is started only when the user says "begin aan <id>".
 
 Source of truth for look and behaviour:
-- `design_handoff_session_manager/README-v3.md` (spec)
-- `design_handoff_session_manager/session-manager-v3.html` + `_ds/nocturne-*/styles.css` (reference, mocked data)
-- `design_handoff_session_manager/CLAUDE_CODE_PROMPT_v3.md` (the author's 6-phase order; this plan splits it finer)
-- `design_handoff_session_manager/app-icon.svg` (new icon)
+- `design/session-manager/README-v3.md` (spec)
+- `design/session-manager/session-manager-v3.html` + `_ds/nocturne-*/styles.css` (reference, mocked data)
+- `design/session-manager/CLAUDE_CODE_PROMPT_v3.md` (the author's 6-phase order; this plan splits it finer)
+- `design/session-manager/app-icon.svg` (new icon)
 - v2 files (`README.md`, `session-manager-prototype.html`, `CLAUDE_CODE_PROMPT.md`) are superseded for visuals; only consulted for interaction details missing from v3.
 
 Fixed rules for every part:
@@ -183,12 +183,12 @@ Fixed rules for every part:
 - With the Files panel headed `Home` (no session, no project) the Commits tab must not be viewable: no repository is known there. Tab disabled (with a title saying why) and the panel falls back to the Files tab when it was on Commits. A session without a project keeps the A5 mock until B3 decides repo detection. Done first, before A10.
 
 ### B8. Cleanup + memory
-- Janitor; remove remaining Legacy UI code (`design-mocks/`, v2 handoff files — the theme popover UI and the old alias tokens were already removed in A8, 2026-09-14; the `theme.ts` machinery B9 reuses stays); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
+- Janitor; remove remaining Legacy UI code (v2 handoff files; `design-mocks/` was already removed 2026-09-21 in restructure batch 3 — the theme popover UI and the old alias tokens were already removed in A8, 2026-09-14; the `theme.ts` machinery B9 reuses stays); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
 
 ## Track C — after the redesign (the LAST step; runs after B8)
 
 ### C1. Peek mascot (added 2026-09-15, user's ask; last step of the redesign)
-- Source of truth: `design_handoff_claude_peek_mascot/README.md` (the user's own high-fidelity design; recreate 1:1, keyframes and SVG verbatim) + `Claude Peek Mascot.dc.html` (prototype). A small pixel-art Claude that peeks around the RIGHT edge of the MONITOR — one mascot per pending input, max 3, stacked with distinct poses; click = laugh or wave; count 3 = strain. It replaces a notification, not a badge.
+- Source of truth: `design/peek-mascot/README.md` (the user's own high-fidelity design; recreate 1:1, keyframes and SVG verbatim) + `Claude Peek Mascot.dc.html` (prototype). A small pixel-art Claude that peeks around the RIGHT edge of the MONITOR — one mascot per pending input, max 3, stacked with distinct poses; click = laugh or wave; count 3 = strain. It replaces a notification, not a badge.
 - User's requirements (2026-09-15): (1) appears at the middle-right of the screen when a session is finished and waits for input; (2) lives OUTSIDE the app window, at the monitor edge, also over fullscreen games / videos; (3) a Settings toggle to turn it off.
 - **Phase 1 — DONE 2026-09-15 (branch `mascot`):** standalone page `web/mascot.html` (second Vite entry) + `web/src/mascot/{model,view,main}.ts` + `mascot.css`, driven only by a count (`window.aiSmMascot.setCount(n)`), transparent page background, `?demo&count=N` for a dev preview with +/- controls. Not wired to sessions. Served statically at `/mascot.html` with no server change.
 - **Phase 2 — the signal.** count = number of sessions whose `attention` is set (the existing BEL detection in `server/sessions.ts`; attention is acked when the user focuses that pane with the window in front, so the count is exactly "answers you have not seen yet"), clamped to 3. The overlay page needs the auth token like `index.html` (placeholder replacement in `serveStatic` for `/mascot.html` too) and polls `GET /api/sessions` every 2 s like the app; a push channel (backend events WS) stays backlog. Mascot click stays the design's reaction; whether it ALSO brings the app to the front is decision 13.

@@ -1,7 +1,7 @@
 /**
  * Claude peek mascot — the pure state machine behind the mascots that peek
  * around the right edge of the screen when the app needs the user's input
- * (design handoff: `design_handoff_claude_peek_mascot/README.md`, high
+ * (design handoff: `design/peek-mascot/README.md`, high
  * fidelity, recreate 1:1).
  *
  * No DOM, no timers of its own: every value the rules need is handed in

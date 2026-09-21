@@ -1,7 +1,7 @@
 /**
  * Nocturne part A3 — the STRUCTURAL facts of the rebuilt pane, pinned by
  * source inspection (`.claude/plans/PLAN-NOCTURNE.md` §A3;
- * `design_handoff_session_manager/README-v3.md`, "Pane").
+ * `design/session-manager/README-v3.md`, "Pane").
  *
  * There is no DOM in this runner and `web/src/ui/panes.ts` builds itself
  * against `document`, so what can be proven here is the SHAPE of the code that

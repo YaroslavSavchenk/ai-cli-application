@@ -488,7 +488,7 @@ after a ~120 s startup grace with no window ever connected.
 `app.ico` is generated — never hand-edited — by `make-icon.mjs` (plain
 Node, no deps): 16/32/48/256 px, 32bpp BMP entries, Nocturne design
 language. The mark is transcribed from
-`design_handoff_session_manager/app-icon.svg` (256-unit viewBox): a dark
+`design/session-manager/app-icon.svg` (256-unit viewBox): a dark
 rounded tile with a vertical gradient `#232532` → `#161826`, a 1px
 `#3f424d` edge, a blurple `#b5abfc` chevron with round caps and joins, and a
 light `#e9e9ed` cursor block. **Everything outside the rounded tile is

@@ -147,7 +147,7 @@ select:focus-visible,
 }
 
 /* A2: Nocturne draws a finished session as a filled neutral dot, not a
-   hollow ring (design_handoff_session_manager/session-manager-v3.html). */
+   hollow ring (design/session-manager/session-manager-v3.html). */
 .dot.is-exit {
   background: var(--color-neutral-700);
 }

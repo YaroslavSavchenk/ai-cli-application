@@ -8,7 +8,7 @@ tags: [design, frontend, nocturne]
 
 **Status:** decided (2026-09-10, user's call); in progress — A1–A4 landed 2026-09-10, A4b + A5 + A6 landed 2026-09-13 ([[2026-09-13-nocturne-a4b]], [[2026-09-13-nocturne-a5]], [[2026-09-13-nocturne-a6]]); next A7 (ask open decision 10 first)
 
-The user's v3 design handoff ("Nocturne", `design_handoff_session_manager/`)
+The user's v3 design handoff ("Nocturne", `design/session-manager/`)
 replaces the steam-blend skin of v0.3.x wholesale. The old skin is from now on
 the **Legacy UI**, preserved only as git tag `legacy-ui` (= `2281465`, the
 last commit before A1). No side-by-side mode, no toggle, no theme variants;

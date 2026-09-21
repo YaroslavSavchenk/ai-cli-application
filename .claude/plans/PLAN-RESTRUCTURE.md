@@ -1,12 +1,12 @@
 # Plan: repo restructure, in batches
 
-Status: see the table below (updated 2026-09-20). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-09-21). Conventions: `.claude/plans/README.md`.
 
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
 | Batch 1 | The vault: work log into month/area folders, INDEX by theme | landed | — | 2026-09-20 |
 | Batch 2 | Plans into `.claude/plans/`, status table, conventions | landed | — | 2026-09-20 |
-| Batch 3 | Design sources into one home | todo — move map to the user first | — | |
+| Batch 3 | Design sources into one `design/` home, `design-mocks/` removed | landed | — | 2026-09-21 |
 | Batch 4 | `tests/` and code dirs, through `/dev-flow` | todo — move map to the user first | — | |
 
 Procedure: `/restructure-repo`. Decisions and the move maps:
@@ -33,19 +33,19 @@ running status paragraph; conventions in `.claude/plans/README.md`, enforced
 by `tests/plans-layout.test.ts`. Rejected: a `landed/` folder (a spec would
 change path at every landing, and code comments cite specs by path).
 
-## Batch 3 — design sources
+## Batch 3 — design sources (LANDED 2026-09-21)
 
-Four homes today: `design/` (tracked, the v1 handoff), `design-mocks/`
-(tracked; removal already scheduled in `PLAN-NOCTURNE.md` B8),
-`design_handoff_session_manager/` and `design_handoff_claude_peek_mascot/`
-(both untracked via `.git/info/exclude`, both load-bearing: the mascot's
-source of truth, `app-icon.svg` for `launcher/make-icon.mjs`, and
-`tests/nocturne-tokens.test.ts` reads `design_handoff_session_manager/_ds`
-when it exists). Proposal to put to the user: one `design/` home with a
-folder per handoff. Open for the user: track the handoffs or keep them
-excluded; remove `design-mocks/` now or in B8. Reference class 8 applies
-(`.git/info/exclude`). 21 files cite the session-manager handoff, 8 the
-mascot's.
+One `design/` home. `design/session-manager/` (the current Nocturne handoff,
+was `design_handoff_session_manager/`) and `design/peek-mascot/` (was
+`design_handoff_claude_peek_mascot/`) stay LOCAL-ONLY: moved on disk,
+`.git/info/exclude` updated, not tracked — the repo is public and publishing
+the user's design files needs an explicit yes, which "continue" was not. The
+first handoff moved to `design/archive/handoff-v1/` (3 x `git mv`);
+`design-mocks/` (4 files, Legacy "steam") is deleted ahead of Nocturne B8 —
+the git tag `legacy-ui` keeps it. 24 files of citations rewritten (comments,
+docs, two test paths that read the handoffs when present). A clone on another
+machine has neither local folder: the two tests that read them self-skip, as
+before.
 
 ## Batch 4 — tests and code dirs (through `/dev-flow`)
 

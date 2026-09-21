@@ -1,6 +1,6 @@
 /**
  * The pane's "Background agents" table (part A3; the v3 markup at
- * `design_handoff_session_manager/session-manager-v3.html`, pane area).
+ * `design/session-manager/session-manager-v3.html`, pane area).
  *
  * A dot, a mono name, the task it is on, how long it has run and how many
  * tokens it spent — one line per agent, under the status bar, inside the

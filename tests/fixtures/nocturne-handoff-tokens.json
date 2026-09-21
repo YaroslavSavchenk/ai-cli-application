@@ -1,5 +1,5 @@
 {
-  "source": "design_handoff_session_manager/_ds/nocturne-<id>/styles.css :root (color/space/radius/shadow primitives; --color-section* and --font-* omitted on purpose)",
+  "source": "design/session-manager/_ds/nocturne-<id>/styles.css :root (color/space/radius/shadow primitives; --color-section* and --font-* omitted on purpose)",
   "tokens": {
     "--color-bg": "#161826",
     "--color-surface": "#232532",

@@ -26,7 +26,7 @@
 // PNGs are encoded with node:zlib only (hand-built PNG chunks + CRC-32); no
 // npm dependency is introduced.
 //
-// Design (Nocturne; source of truth: design_handoff_session_manager/app-icon.svg,
+// Design (Nocturne; source of truth: design/session-manager/app-icon.svg,
 // geometry transcribed below from its 256-unit viewBox):
 //   - dark rounded tile, vertical gradient #232532 (top) -> #161826 (bottom)
 //     (#161826 = --color-bg), rounded corners

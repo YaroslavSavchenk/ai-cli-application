@@ -882,7 +882,7 @@ multi-pane layouts on top.
   sequences, Claude Code hooks.
 - **Peek mascot (user's ask 2026-09-15; the LAST step of the Nocturne
   redesign, `.claude/plans/PLAN-NOCTURNE.md` C1).** The user's own pixel-art
-  Claude (`design_handoff_claude_peek_mascot/`, 1:1) peeks around the right
+  Claude (`design/peek-mascot/`, 1:1) peeks around the right
   edge of the MONITOR — outside the app window, over fullscreen games and
   video too — one mascot per session waiting for an answer, max 3, with a
   Settings toggle. Phase 1 landed 2026-09-15: a standalone count-driven page
@@ -1274,8 +1274,8 @@ history bullet.)
 
 (Settled 2026-07-19: full GUI redesign, user's call after real use — the
 anti-slop rule stands unchanged, but the phosphor skin is being replaced by
-the **"steam blend"** direction chosen from rendered mockups committed under
-`design-mocks/`; and the interaction model becomes sessions-as-tabs with
+the **"steam blend"** direction chosen from rendered mockups (committed under
+`design-mocks/` until 2026-09-21; kept by the git tag `legacy-ui`); and the interaction model becomes sessions-as-tabs with
 drag-to-split — see the Tabs-and-layouts bullet. Both shipped 2026-07-19:
 the tab model, then the steam-blend skin (brief + slop-filter pass in
 `web/DESIGN.md`; tokens in `web/src/styles/tokens.css`; chrome typeface was
@@ -1284,6 +1284,6 @@ definition and rationale in
 `memory/decisions/anti-slop-design-direction.md`. **Superseded 2026-09-10**:
 the steam-blend skin is the *Legacy UI* (git tag `legacy-ui`), being replaced
 by the **Nocturne** design (`.claude/plans/PLAN-NOCTURNE.md`;
-`design_handoff_session_manager/README-v3.md`). Part A1 landed the Nocturne
+`design/session-manager/README-v3.md`). Part A1 landed the Nocturne
 tokens and swapped the chrome typeface to self-hosted **Inter** — the Barlow
 woff2 files and its OFL are gone.)

@@ -18,7 +18,7 @@
  *
  * What each test owns:
  *   a. every `--color-*` / `--space-*` / `--radius-*` / `--shadow-*` from
- *      `design_handoff_session_manager/_ds/nocturne-<id>/styles.css` exists in
+ *      `design/session-manager/_ds/nocturne-<id>/styles.css` exists in
  *      tokens.css with the same value (tokens.css may define MORE);
  *   b. no dangling `var(--x)` anywhere in app.css, tokens.css or web/src TS;
  *   c. every `--xt-*` resolves to a plain hex or rgb()/rgba() — xterm.js's
@@ -58,7 +58,7 @@ const MASCOT_MAIN = join(projectRoot, 'web', 'src', 'mascot', 'main.ts');
 const HOST_CS = join(projectRoot, 'launcher', 'host', 'AiSessionManagerHost.cs');
 const FONT_DIR = join(projectRoot, 'web', 'src', 'assets', 'fonts');
 const WEB_SRC = join(projectRoot, 'web', 'src');
-const DS_DIR = join(projectRoot, 'design_handoff_session_manager', '_ds');
+const DS_DIR = join(projectRoot, 'design', 'session-manager', '_ds');
 
 const read = (p: string) => readFileSync(p, 'utf8');
 const rel = (p: string) => relative(projectRoot, p);

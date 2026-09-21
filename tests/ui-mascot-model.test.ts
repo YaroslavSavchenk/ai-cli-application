@@ -1,6 +1,6 @@
 /**
  * `web/src/mascot/model.ts` — the pure state machine behind the Claude peek
- * mascots (design handoff `design_handoff_claude_peek_mascot/README.md`,
+ * mascots (design handoff `design/peek-mascot/README.md`,
  * marked HIGH FIDELITY: "Colors, pixel grid, sizes, positions, timings and
  * easing are final. Recreate 1:1"). This file is where that "1:1" is pinned as
  * values: the pose table per count, the two reaction animations and their

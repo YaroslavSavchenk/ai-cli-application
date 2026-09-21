@@ -1,8 +1,8 @@
 # AI CLI Session Manager — frontend design (handoff transcription)
 
 > **Note (2026-09-10) — the tokens are Nocturne now.** The design source of
-> truth is `design_handoff_session_manager/README-v3.md` plus
-> `design_handoff_session_manager/_ds/nocturne-*/styles.css`. Part A1 of the
+> truth is `design/session-manager/README-v3.md` plus
+> `design/session-manager/_ds/nocturne-*/styles.css`. Part A1 of the
 > Nocturne switch (`.claude/plans/PLAN-NOCTURNE.md`) landed the tokens and the
 > fonts: `web/src/styles/tokens.css` holds the Nocturne primitives (the
 > temporary alias layer for the old role-token names was deleted in part A8,
@@ -15,7 +15,7 @@ Binding reference for every visual decision in `web/src/`. Since 2026-07-20
 the **hi-fi handoff in `design/` is the primary design source** (user's call,
 reversing the 2026-07-19 "repo tokens win" rule; rationale in
 `memory/decisions/handoff-design-primary.md`). This file transcribes the
-handoff — `design/README.md` (spec) + `design/session-manager-prototype.html`
+handoff — `design/archive/handoff-v1/README.md` (spec) + `design/archive/handoff-v1/session-manager-prototype.html`
 (reference behavior) — plus the recorded deviations below. Where this file
 and the handoff disagree, the handoff wins; where the handoff is silent, the
 anti-slop rules in `.claude/skills/frontend-designer/SKILL.md` still apply.
@@ -154,7 +154,7 @@ variables: 10 grounds (charcoal `#0e1116`, void `#07090c`, deep blue
 `#0a1220`, navy `#0d1526`, ocean `#081a1f`, forest `#0a1510`, moss `#10160e`,
 plum `#150f1c`, graphite `#141414`, espresso `#161010`) × 10 ramps (default,
 phosphor, amber, ice, paper, cyan, violet, ember, steel, mint — exact values
-in `design/README.md`). Ground drives both the xterm background and the pane
+in `design/archive/handoff-v1/README.md`). Ground drives both the xterm background and the pane
 card background. Persisted in localStorage under its own key (`ai-sm:theme:v1`,
 independent of the UI-arrangement schema), but the durable copy lives
 server-side in `prefs.json` (an opaque `UiPrefs` bag, fetched once at boot and
@@ -814,7 +814,7 @@ tab leaves the empty state — nothing auto-spawns.
   which lands it on the same shape the prototype's own settings dialog has: one
   labelled section, a caption, checkbox rows, `Reset to defaults` / `Done`.
   **Superseded 2026-07-25** — the
-  user's refreshed `design/session-manager-prototype.html` (2026-07-24) DOES
+  user's refreshed `design/archive/handoff-v1/session-manager-prototype.html` (2026-07-24) DOES
   contain a settings dialog and an icon-only gear, so the two 2026-07-20 guesses
   below were replaced by the primary source (primary-source rule:
   `memory/decisions/handoff-design-primary.md`):
@@ -911,7 +911,7 @@ tab leaves the empty state — nothing auto-spawns.
   dot/go-button glows; the launch-dialog backdrop blur) — **user-sanctioned
   by decision 2026-07-20**, not template residue. Nothing beyond that list.
 - Default-Tailwind look: the chrome face IS Inter — by the Nocturne handoff
-  decision of 2026-09-10 (`design_handoff_session_manager/README-v3.md`), a
+  decision of 2026-09-10 (`design/session-manager/README-v3.md`), a
   deliberate choice, not a reflex. The "default-Tailwind" test is the
   COMBINATION — Inter + a rounded-2xl card grid + soft shadows + gray-50 —
   and the rest of the system has none of it: no card-grid shell, no soft

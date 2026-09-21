@@ -1,7 +1,7 @@
 /**
  * The committed icon set must always match what `launcher/make-icon.mjs`
  * renders today (Nocturne part A1, 2026-09-10, rewrote both the generator and
- * its five outputs from `design_handoff_session_manager/app-icon.svg`).
+ * its five outputs from `design/session-manager/app-icon.svg`).
  *
  * Five binaries are checked into the repo — `launcher/app.ico`,
  * `web/public/favicon.ico`, `web/public/icon-192.png`,

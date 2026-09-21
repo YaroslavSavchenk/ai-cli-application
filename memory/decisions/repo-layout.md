@@ -1,14 +1,15 @@
 ---
 type: decision
 created: 2026-09-20
-updated: 2026-09-20
+updated: 2026-09-21
 tags: [repo, layout, memory, process]
 ---
 # Repo layout: where things live, and how they move
 
 **Status:** decided (2026-09-20, user's calls) — batches 1 (the vault) and 2
-(the plans) landed the same day; batches 3–4 each start with a move map put to
-the user (plan `.claude/plans/PLAN-RESTRUCTURE.md`).
+(the plans) landed the same day, batch 3 (design sources) on 2026-09-21; batch
+4 (tests) starts with its move map approved by the user and no other session
+at work in the checkout (plan `.claude/plans/PLAN-RESTRUCTURE.md`).
 
 The user asked for the whole repo to be restructured "so it is clear where
 everything stands": the vault and the work log had grown into flat folders of
@@ -86,6 +87,21 @@ Old location for all 12: `.claude/<file>`.
 56 files had their citations rewritten; in code, test and CI files that was
 50 lines, each verified to differ from its old self by the path substitution
 alone.
+
+## Move map — batch 3 (2026-09-21)
+
+- `design_handoff_session_manager/` → `design/session-manager/` (local only)
+- `design_handoff_claude_peek_mascot/` → `design/peek-mascot/` (local only)
+- `design/{README.md, CLAUDE_CODE_PROMPT.md, session-manager-prototype.html}`
+  → `design/archive/handoff-v1/`
+- `design-mocks/` → deleted (the git tag `legacy-ui` keeps it; Nocturne B8 had
+  it scheduled)
+
+The two handoffs stay out of git. The orchestrator recommended tracking them
+(CI could then run the two parity tests in full); the user answered
+"continue", which is not a yes to publishing his design files in a public
+repo, so the reversible option was taken. `design/README.md` says what each
+folder is. Asked again at the end of the batch.
 
 ## Rejected alternatives
 
