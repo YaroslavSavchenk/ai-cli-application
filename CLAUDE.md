@@ -31,6 +31,13 @@ Ground rules for every session:
   never moved. A landing updates spec status + table row + vault in the same
   commit; `tests/plans-layout.test.ts` enforces it. What is next: read the
   table in `.claude/plans/PLAN-NOCTURNE.md`.
+- **Two tracks, two phrases — never mixed (2026-09-21, user's call).** "begin
+  aan <id>" (B4, B6 …) starts an APP part from
+  `.claude/plans/PLAN-NOCTURNE.md`. "begin aan de optimalisatie" (also:
+  "herstructurering") starts the REPO's own restructure and optimisation:
+  open `.claude/plans/PLAN-RESTRUCTURE.md` § Resume here and follow it — do
+  not start developing the app. That track moves files and tightens documents
+  and never changes behaviour; an app part does the opposite.
 - UI work must follow `/frontend-designer` (hard anti-generic-design filter).
   Terminal-related changes aren't done until `/verify-terminal` passes.
 - **Standing authorization (2026-07-18): commit AND push to origin after every
