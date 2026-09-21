@@ -76,7 +76,7 @@ Through `/restructure-repo`, like every other move in this repo.
 Master plans:
 
 - `PLAN-NOCTURNE.md` — the Nocturne redesign, Track A (UI), Track B (function), Track C (mascot); ships as v0.4.0
-- `PLAN-RESTRUCTURE.md` — the repo restructure, in batches
+- `PLAN-RESTRUCTURE.md` — the repo's own restructure and optimisation, in batches; the user starts it with "begin aan de optimalisatie" (never an app part — see its `## Resume here`)
 - `RELEASE-NOTES-v0.4.0-draft.md` — finalised in Nocturne part B8
 
 Part specs, `nocturne/`:

@@ -1,4 +1,4 @@
-# Plan: repo restructure, in batches
+# Plan: repo restructure and optimisation, in batches
 
 Status: see the table below (updated 2026-09-21). Conventions: `.claude/plans/README.md`.
 
@@ -6,15 +6,48 @@ Status: see the table below (updated 2026-09-21). Conventions: `.claude/plans/RE
 | --- | --- | --- | --- | --- |
 | Batch 1 | The vault: work log into month/area folders, INDEX by theme | landed | — | 2026-09-20 |
 | Batch 2 | Plans into `.claude/plans/`, status table, conventions | landed | — | 2026-09-20 |
-| Batch 3 | Design sources into one `design/` home, `design-mocks/` removed | landed | — | 2026-09-21 |
-| Batch 4 | `tests/` and code dirs, through `/dev-flow` | todo — move map to the user first | — | |
+| Batch 3 | Design sources into one `design/` home, handoffs tracked, `design-mocks/` removed | landed | — | 2026-09-21 |
+| Batch 4 | `tests/` into `ui/ server/ release/ repo/ helpers/ fixtures/`, through `/dev-flow` | todo — **next**; move map approved 2026-09-21, parked while another session edited `tests/` | — | |
+| O1 | `.claude/PROJECT-SCOPE.md` back to a size one read can hold | todo — candidate, the user decides | — | |
+| O2 | `memory/BACKLOG.md`: open items apart from done ones | todo — candidate, the user decides | — | |
+| O3 | Small repairs found on the way (dead wikilinks, stale test messages) | todo — candidate, the user decides | — | |
+
+## Resume here
+
+**The user's phrase for this plan is "begin aan de optimalisatie"** (also:
+"optimalisatie", "herstructurering", "ga door met de repo"). It means THIS
+plan — the repo's own structure and documents — and never the app. App work is
+a different thing with a different phrase: "begin aan <id>" (B4, B6 …) starts a
+part of `.claude/plans/PLAN-NOCTURNE.md`. The two are never mixed in one
+session's work: this plan changes where things live and how documents read,
+and leaves behaviour alone; an app part changes behaviour and leaves the layout
+alone.
+
+When the user says it, do this, in order:
+
+1. Read this file, `memory/decisions/repo-layout.md` (every decision and move
+   map so far) and `.claude/skills/restructure-repo/SKILL.md` (the procedure).
+2. Run the preconditions of that skill — above all `ListAgents`: batches 3 and
+   4 both met a second session in this checkout. With a peer at work: message
+   it first, stage by pathspec, never `git add -A`, re-check before the commit.
+3. Take the first `todo` row of the table. Batch 4 needs no new approval of
+   its layout (section below); an `O` row is a CANDIDATE: put the concrete
+   proposal to the user in plain text and wait — no question dialogs mid-flow.
+4. Land per batch: suite equal to the baseline, one commit, push, watch CI to
+   green (`CLAUDE.md`), table row + vault log entry + INDEX line in that commit.
+
+Where it stands (2026-09-21): batches 1–3 landed; both layouts are guarded by
+`tests/vault-layout.test.ts` and `tests/plans-layout.test.ts`; the map of the
+repo is `README.md` § Repository layout. Suite at the last landing of this
+plan: 2915 / 0 — it has grown since (B3); take a fresh baseline.
 
 Procedure: `/restructure-repo`. Decisions and the move maps:
-`memory/decisions/repo-layout.md`. Suite before batch 2: 2908 / 0.
+`memory/decisions/repo-layout.md`.
 
 User decisions (2026-09-20): docs now, code after B10 · all four areas in
 scope · work log = month then area · `decisions/` and `knowledge/` flat with
-a theme-grouped INDEX.
+a theme-grouped INDEX. 2026-09-21: handoffs tracked in git · `design-mocks/`
+removed · `tests/` layout as below · `server/` and `web/src/ui/` stay flat.
 
 ## Batch 1 — the vault (LANDED 2026-09-20)
 
@@ -53,13 +86,51 @@ without `design/peek-mascot/support.js` (the design tool's generated runtime,
 no licence statement — gitignored); `/home/<author>` in the prototypes' mock
 data became `/home/you`. The two parity tests now run in full in CI.
 
-## Batch 4 — tests and code dirs (through `/dev-flow`)
+## Batch 4 — `tests/` into subfolders (through `/dev-flow`)
 
-`tests/` holds 128 flat files. Pins to move with it: `package.json`
-(`test`, `test:ui`, `test:server` globs), `tsconfig.server.json`, the
-`verify.yml` jobs, and every test that builds a path from `import.meta`.
-Proposal to put to the user: `tests/server/`, `tests/ui/`, `tests/release/`,
-helpers beside them, `tests/fixtures/` as is. `server/` (27 files) and
-`web/src/` only if the inventory shows a real finding — `server/statusline.mjs`
-is cited by path from session settings and the bundle layout is pinned by
-`scripts/build-bundle.sh`.
+Approved layout (shown to the user 2026-09-21, answered "beide" / "continue"):
+
+| Folder | Holds |
+| --- | --- |
+| `tests/ui/` | every `ui-*.test.ts`, plus `nocturne-tokens.test.ts` |
+| `tests/server/` | the backend: sessions, API, files, git, GitHub, history, keys, lifecycle, logging, restart, updates, … |
+| `tests/release/` | `build-bundle`, `installer-*`, `launcher-config`, `run-update`, `start-backend`, `release-script`, `release-workflow`, `host-webmessage`, `icon-assets` |
+| `tests/repo/` | the guards: `no-author-paths`, `vault-layout`, `plans-layout` |
+| `tests/helpers/` | `helpers.ts`, `fake-dom.ts`, `fs-fixture.ts`, `tokens-helpers.ts` |
+| `tests/fixtures/` | stays |
+
+Filenames do not change (the `ui-` prefix stays), only the folder — like the
+vault. What moves with it, measured 2026-09-21 on 138 files (recount first):
+the three npm scripts (`test`, `test:ui`, `test:server` — globs), every
+`../server/…`, `../web/…`, `../shared/…` import (one level deeper), the
+`./helpers.ts`-style imports (62 + 20 + 14 + 5), `projectRoot` in
+`helpers.ts` (`join(dirname, '..')` becomes two levels), ~42 files that build
+a path from `import.meta`, and 337 citations of `tests/<file>` in 63 files
+outside `tests/` (scope doc, plans, vault, code comments; `memory/log/`
+exempt). CI runs `npm test`, so the workflows need no edit, but
+`tests/release-workflow.test.ts` pins workflow text — read it first.
+`tsconfig.server.json` includes `tests/**/*` already. Gate: the suite count
+equal to the fresh baseline, no test skipped or deleted, typecheck and build
+green, every changed line outside the moves proven to be the path mapping.
+NOT while another session edits `tests/`, `server/` or `web/`.
+
+**`server/` (29 files) and `web/src/ui/` (54) stay flat** — decided
+2026-09-21: clear names, and hundreds of path citations plus the bundle
+scripts hang on them; a move would cost much and find nothing.
+
+## O1–O3 — optimisation candidates (nothing decided)
+
+- **O1 — the scope doc.** `.claude/PROJECT-SCOPE.md` is 1 341 lines; one
+  `Read` stops at about line 770, and every session is told to read it before
+  any work. Direction to propose: the current truth stays, dated narrative and
+  rejected alternatives move to the decision notes they already cite. The
+  janitor may never edit this file; the orchestrator does it with the user,
+  section by section.
+- **O2 — the backlog.** `memory/BACKLOG.md`, 408 lines, ticked and open items
+  mixed. Direction: open items on top by area, done items to a dated archive
+  section or note.
+- **O3 — small repairs.** Seven `[[wikilinks]]` in old log entries point at
+  notes of the orchestrator's own memory (outside the vault);
+  `tests/ui-mascot-view.test.ts` still says the handoff is "excluded from
+  git"; `web/DESIGN.md` (963 lines) is due for its Nocturne rewrite in B8 of
+  the Nocturne plan — not here.
