@@ -1,6 +1,6 @@
 # Plan B3 — Commits live: the real history, the real diff, Open on GitHub (Nocturne Track B)
 
-Status: LANDED 2026-09-21 (landing commit "Nocturne B3: Commits live"; log `memory/log/2026-09/nocturne/2026-09-21-nocturne-b3.md`; verify-terminal V1–V8 PASS; the user's Windows check is owed); earlier: STARTED 2026-09-21 (user: "continue werken aan de app"; next row in the status table; decisions asked the same day, before the developer started).
+Status: LANDED 2026-09-21 (`1096e81`; log `memory/log/2026-09/nocturne/2026-09-21-nocturne-b3.md`; verify-terminal V1–V8 PASS; the user's Windows check is owed); earlier: STARTED 2026-09-21 (user: "continue werken aan de app"; next row in the status table; decisions asked the same day, before the developer started).
 Parent: `.claude/plans/PLAN-NOCTURNE.md` part B3. A5 (2026-09-13) drew the
 Commits tab on `MOCK_COMMITS`, A6 the commit view and the `Changes in <hash>`
 diff tab on `syntheticDiff()`; B2 (2026-09-16) gave the panel a hardened git
