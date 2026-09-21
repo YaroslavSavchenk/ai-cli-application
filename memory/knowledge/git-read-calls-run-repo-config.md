@@ -34,6 +34,10 @@ measured list MISS" — put that question in every such brief.
 - `diff.orderFile=<missing>` → exit 128 → pin `-O/dev/null` (order unchanged).
 - `diff.noprefix` / `diff.mnemonicPrefix` rewrite `a/` `b/` → parse from the
   first `@@`, never from the header.
+- **The git VERSION shapes output too**: a newer git prints a UTC `%aI` / `%cI`
+  as `…T21:45:00Z`, git 2.43 prints `+00:00`. A strict regex that knew one
+  spelling kept CI red for three pushes with a green local suite — when a
+  test asserts the SHAPE of a tool's output, think of the runner's version.
 - `core.abbrev` decides `%h` (1–40 chars). `diff.context` → `--unified=3`.
 - Locale → `LC_ALL=C`. Pathspec magic (`:(glob)*`) → `GIT_LITERAL_PATHSPECS=1`.
 - `log.mailmap` only touches `%aN` / `%cN`; `%an` / `%cn` never read a file.

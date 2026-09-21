@@ -37,6 +37,12 @@ Ground rules for every session:
   significant landed change** (completed dev-flow phase, feature land,
   milestone) without asking. Only the orchestrator commits — never subagents,
   never unreviewed mid-flight work.
+- **A push is not done until its CI run is green (2026-09-21, user's call).**
+  Every push to `main` starts the `CI` and `CodeQL` workflows. After every
+  push: watch the run for that commit to its end (`gh run list`, `gh run watch
+  <id> --exit-status`); a red run is read (`gh run view <id> --log-failed`) and
+  fixed in the same session, never left for the user to find. The runner is
+  not this machine: a newer git, a UTC clock, no Windows interop.
 - **Caveman mode standing (2026-07-19, user request)**: conversation replies
   and agent reports use the token-compressed style in
   `.claude/skills/caveman/SKILL.md` — fragments, zero filler, technical

@@ -24,7 +24,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B5 | New session dialog live for every tool | verified | `.claude/plans/nocturne/PLAN-B5.md` | 2026-09-20 |
 | B10 | Real file copy into WSL, Copy to the Windows clipboard | verified | `.claude/plans/nocturne/PLAN-B10.md` | 2026-09-20 |
 | B10a | Select several files and folders, delete them | verified | `.claude/plans/nocturne/PLAN-B10a.md` | 2026-09-20 |
-| B3 | Commits live | landed | `.claude/plans/nocturne/PLAN-B3.md` | 2026-09-21 |
+| B3 | Commits live | verified | `.claude/plans/nocturne/PLAN-B3.md` | 2026-09-21 |
 | B4 | Editor live (read, edit, save to disk) | todo — **next** | — |  |
 | B6 | Settings live | todo | — |  |
 | B9 | Terminal colours live | todo | — |  |
