@@ -493,3 +493,99 @@ test('every class the strip renders has a rule in app.css', async () => {
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });
+
+// ---------------------------------------------------------------------------
+// B6 — `Confirm before ending a session` on the tab strip's ×
+//
+// The toggle is read at CLICK time, so a flip in Settings applies to the strip
+// that is already on screen. It moves ONE question: the armed two-step about
+// ending sessions. The B4 unsaved question is about dropping typed text and
+// stands in both modes — the two are never merged.
+// ---------------------------------------------------------------------------
+
+const P = (await import(new URL('../web/src/ui/prefs-model.ts', import.meta.url).href)) as {
+  setBehaviour(next: { confirmEnd?: boolean }): void;
+};
+
+/** Run `fn` with the confirm switched off, then put the factory setting back. */
+async function withConfirmOff(fn: () => Promise<void>): Promise<void> {
+  P.setBehaviour({ confirmEnd: false });
+  try {
+    await fn();
+  } finally {
+    P.setBehaviour({});
+  }
+}
+
+test('B6: confirm OFF — one click on × ends every session in the tab', async () => {
+  await withConfirmOff(async () => {
+    st.setSessions([session('s1'), session('s2')]);
+    draw([
+      view({ id: 'home', root: { kind: 'home' }, slots: [] }),
+      view({
+        id: 'plain',
+        root: null,
+        slots: [{ kind: 'session', id: 's1' }, { kind: 'session', id: 's2' }],
+      }),
+    ]);
+    const x = () => byKey(strip, 'tabx:plain') as FakeElement;
+    assert.equal(x().title, 'End the sessions in this tab', 'and the tooltip promises no question');
+    x().click();
+    await settle();
+    assert.deepEqual(killed, ['s1', 's2'], 'the first click is the act');
+  });
+});
+
+test('B6: the switch is read at CLICK time — a flip reaches the strip already drawn', async () => {
+  st.setSessions([session('s1')]);
+  draw([
+    view({ id: 'home', root: { kind: 'home' }, slots: [] }),
+    view({ id: 'plain', root: null, slots: [{ kind: 'session', id: 's1' }] }),
+  ]);
+  const x = () => byKey(strip, 'tabx:plain') as FakeElement;
+  await withConfirmOff(async () => {
+    x().click();
+    await settle();
+    assert.deepEqual(killed, ['s1'], 'no re-render was needed for the new answer to count');
+  });
+});
+
+test('B6: confirm OFF leaves the B4 unsaved question standing — two questions, never merged', async () => {
+  await withConfirmOff(async () => {
+    st.setSessions([session('s1')]);
+    st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
+    draw([
+      view({ id: 'home', root: { kind: 'home' }, slots: [] }),
+      view({
+        id: 'mixed',
+        root: { kind: 'project', id: 'p1' },
+        slots: [editor([file('web/src/main.ts')]), { kind: 'session', id: 's1' }],
+      }),
+    ]);
+    (byKey(strip, 'tabx:mixed') as FakeElement).click();
+    await settle();
+    assert.deepEqual(killed, [], 'nothing is ended while the text question is unanswered');
+    const card = byClass(dom.body, 'ud-modal');
+    assert.equal(card.length, 1, 'the B4 card is up');
+    const discard = descendants(card[0] as FakeElement).find((n) => n.textContent === 'Discard');
+    (discard as FakeElement).click();
+    await settle();
+    assert.deepEqual(killed, ['s1'], 'and only after Discard does the session end');
+  });
+});
+
+test('B6: confirm ON is still the armed two-step (the factory setting is unchanged)', async () => {
+  st.setSessions([session('s1')]);
+  draw([
+    view({ id: 'home', root: { kind: 'home' }, slots: [] }),
+    view({ id: 'plain', root: null, slots: [{ kind: 'session', id: 's1' }] }),
+  ]);
+  const x = () => byKey(strip, 'tabx:plain') as FakeElement;
+  x().click();
+  await settle();
+  assert.deepEqual(killed, []);
+  assert.equal(x().textContent, 'sure?');
+  x().click();
+  await settle();
+  assert.deepEqual(killed, ['s1']);
+});

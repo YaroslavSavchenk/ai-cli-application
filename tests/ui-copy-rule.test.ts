@@ -296,19 +296,22 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     ['main.ts', 'New session'],
     ['main.ts', 'Session Manager'],
     ['ui/statusline.ts', 'Keyboard shortcuts'],
-    ['ui/settings.ts', 'paste into a terminal'],
-    ['ui/settings.ts', 'open a link printed in a terminal'],
-    ['ui/settings.ts', 'all shortcuts'],
+    // Nocturne B6 (2026-09-22): the keyboard rows are ONE table both surfaces
+    // read (`ui/shortcuts-rows.ts`), so the copy that used to be stated twice
+    // — once in the panel's excerpt, once in the overlay — is canaried where
+    // it now lives. The Settings panel keeps canaries of its own copy.
+    ['ui/shortcuts-rows.ts', 'paste the clipboard into the terminal'],
     [
-      'ui/shortcuts.ts',
+      'ui/shortcuts-rows.ts',
       'Plain ctrl+v goes to the program running in the terminal (unless the clipboard carries files), so pasting text needs its own keys.',
     ],
-    // 2026-09-10: the copy chord's row, in both places it is stated, and the
-    // New Project dialog's add-an-existing-folder copy.
-    ['ui/settings.ts', 'copy the selection'],
-    ['ui/shortcuts.ts', 'copy the selection'],
+    ['ui/settings.ts', 'Your tools and how the app behaves.'],
+    ['ui/settings.ts', 'Keep at least one tool visible.'],
+    // 2026-09-10: the copy chord's row, and the New Project dialog's
+    // add-an-existing-folder copy.
+    ['ui/shortcuts-rows.ts', 'copy the selection'],
     [
-      'ui/shortcuts.ts',
+      'ui/shortcuts-rows.ts',
       'Plain ctrl+c stays the interrupt; with nothing selected these keys do nothing.',
     ],
     ['ui/newproject.ts', 'Add this folder'],

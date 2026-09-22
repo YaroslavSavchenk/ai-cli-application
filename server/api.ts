@@ -124,6 +124,13 @@ export const KEYS_MAX_BYTES = 8192;
 export const KEYS_NOT_AVAILABLE = 'key storage is not available in this process';
 /** POST /api/sessions refusing a resume of a conversation that is still live. */
 export const CONVERSATION_RUNNING = 'That conversation is already running.';
+/**
+ * What POST /api/update/check puts in the access line's note= when the check
+ * came back with nothing to offer (`UpdateStatus.reason === null`). A CONSTANT,
+ * like every other logged value — the remote release never names itself in the
+ * log.
+ */
+export const UPDATE_UP_TO_DATE = 'up to date';
 
 // --- POST /api/client-log limits (the contract the frontend codes against) ---
 /** Read cap on the batch body; anything larger is 413 before it is parsed. */
@@ -196,6 +203,15 @@ export interface ApiDeps {
    */
   checkUpdate?: () => UpdateStatus;
   /**
+   * POST /api/update/check (Nocturne B6): run the release check NOW and resolve
+   * the SAME composed status `checkUpdate` returns. Absent when this backend has
+   * no checker at all (a developer clone, or a bundle whose version is not a
+   * release) and in unit-test harnesses: the route then answers 503 instead of
+   * pretending. SERIALISATION is the provider's job (server/index.ts shares one
+   * in-flight promise), so two windows asking at once ask GitHub once.
+   */
+  updateCheck?: () => Promise<UpdateStatus>;
+  /**
    * The same-port restart mechanism (server/restart.ts). Absent in unit-test
    * harnesses: POST /api/restart then answers 503 instead of pretending.
    */
@@ -228,9 +244,22 @@ export interface ApiDeps {
  * ScaffoldError / FsBrowseError). Nothing derived from a request body, a query
  * string or a credential is ever stored here — that is the whole reason this is
  * a separate channel instead of "log whatever the handler threw".
+ *
+ * `reason=` in the access line therefore means ONE thing process-wide: this
+ * request was REFUSED, and this is why. The access line prints it for 4xx/5xx
+ * only, so a 2xx can never wear a refusal reason.
+ *
+ * `responseNote` is the separate 2xx channel (its line prints `note="…"`, and
+ * only while the status is < 400), for a success whose OUTCOME is the
+ * diagnostic — today exactly POST /api/update/check, which would otherwise be
+ * an indistinguishable `200 (N B)` whether it found a release or nothing. Same
+ * rule on content as the reason: CONSTANT sentences from this file or
+ * shared/protocol.ts, never remote text, user text or anything derived from a
+ * request.
  */
 const responseBytes = new WeakMap<ServerResponse, number>();
 const responseReason = new WeakMap<ServerResponse, string>();
+const responseNote = new WeakMap<ServerResponse, string>();
 
 function sendJson(
   res: ServerResponse,
@@ -658,6 +687,35 @@ export function createRequestHandler(
         return;
       }
       sendJson(res, 200, deps.update.status());
+      return;
+    }
+
+    // --- Check for updates now (Nocturne B6) --------------------------------
+    //
+    // Same gate as every other /api route and, like /api/update, NO BODY IS
+    // READ: this route takes no arguments — it only asks, right now, the
+    // question the backend otherwise asks on a timer.
+    //
+    // A FAILED CHECK IS NOT A 5xx. ReleaseChecker.checkNow() resolves whatever
+    // happened (a network failure is a log line of its own), so the answer is
+    // the LAST known status and the UI can say "nothing new" without inventing
+    // an error it cannot explain.
+    if (pathname === '/api/update/check') {
+      if (method !== 'POST') {
+        sendError(res, 405, 'method not allowed');
+        return;
+      }
+      if (deps.updateCheck === undefined) {
+        sendError(res, 503, UPDATE_NOT_AVAILABLE);
+        return;
+      }
+      const status = await deps.updateCheck();
+      // The outcome rides the ONE access line rather than a second log line —
+      // as note=, NOT reason=: this is a 200, and reason= means "refused"
+      // everywhere else in the file. `status.reason` is a constant sentence from
+      // shared/protocol.ts (or null), never text from the GitHub payload.
+      responseNote.set(res, status.reason ?? UPDATE_UP_TO_DATE);
+      sendJson(res, 200, status);
       return;
     }
 
@@ -1854,13 +1912,18 @@ export function createRequestHandler(
       const status = res.writableFinished ? res.statusCode : 0;
       const bytes = responseBytes.get(res);
       const reason = responseReason.get(res);
+      const note = responseNote.get(res);
       const parts = [
         `${method} ${route}${hasQuery ? ' ?…' : ''} ->`,
         res.writableFinished ? String(status) : 'aborted',
         `in ${ms.toFixed(1)}ms`,
       ];
       if (bytes !== undefined) parts.push(`(${bytes} B)`);
+      // reason= is a REFUSAL reason, process-wide: 4xx/5xx only.
       if (status >= 400 && reason !== undefined) parts.push(`reason=${JSON.stringify(reason)}`);
+      // note= is the success channel (B6: POST /api/update/check's outcome).
+      // A constant string either way, and never on a refusal line.
+      if (status < 400 && note !== undefined) parts.push(`note=${JSON.stringify(note)}`);
       // An authenticated request's line is ALWAYS written, whatever its status:
       // a 4xx or 5xx there is a real diagnostic, and its caller already holds
       // the token. Everything else shares the one budget.

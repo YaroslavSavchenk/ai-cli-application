@@ -386,7 +386,11 @@ export interface ReleaseChecker {
   status(): UpdateStatus;
   /** The offer itself (POST /api/update needs the urls + size). */
   release(): UpdateRelease | undefined;
-  /** Run one check now. Never rejects — a failure is a log line. */
+  /**
+   * Run one check now. Never rejects — a failure is a log line. Resolves only
+   * once the check in flight is DONE: a call made while the periodic run is
+   * still open adopts that run instead of returning early.
+   */
   checkNow(): Promise<void>;
   /** Arm the schedule (called from the `listening` handler). */
   start(): void;
@@ -514,7 +518,7 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
     if (stopped) return;
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
-      void run();
+      void runShared();
     }, delayMs);
     // A presence-bound backend must never be kept alive by an update timer.
     if (typeof timer.unref === 'function') timer.unref();
@@ -522,6 +526,7 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
 
   /** One check. Resolves always; the outcome is a log line and the next delay. */
   const run = async (): Promise<void> => {
+    // Belt only: runShared() is the single entry point, so this is unreachable.
     if (running) return;
     running = true;
     let nextMs = intervalMs;
@@ -635,6 +640,20 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
     }
   };
 
+  /**
+   * The ONE check in flight, shared by the timer and by checkNow(). A manual
+   * check fired while the periodic run is still talking to GitHub must resolve
+   * AFTER that run, never before it: the route composes its answer the moment
+   * checkNow() resolves, so an early return would compose the status the run in
+   * flight is about to replace ("you have the newest version" while the run is
+   * at that instant finding a new one).
+   */
+  let inFlightRun: Promise<void> | undefined;
+  const runShared = (): Promise<void> =>
+    (inFlightRun ??= run().finally(() => {
+      inFlightRun = undefined;
+    }));
+
   return {
     status: () => {
       const current = offer();
@@ -643,7 +662,7 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
         : { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: current };
     },
     release: () => offer(),
-    checkNow: run,
+    checkNow: runShared,
     start: () => {
       stopped = false;
       log(

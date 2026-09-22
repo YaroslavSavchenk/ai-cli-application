@@ -778,7 +778,7 @@ test('a persisted closed wish survives loadUi — and Projects opening and closi
     'ai-sm:ui:v2',
     JSON.stringify({ views: [], active: null, leftPanel: null, filesWidth: 420 }),
   );
-  st.loadUi();
+  st.loadUi({ reopen: true, run: null });
   assert.equal(st.state.leftPanel, null, 'a literal null is the user closing it');
   assert.equal(st.state.filesWidth, 420, 'non-vacuity: the same bag was really read');
   assert.equal(st.filesPanelVisible(), false);

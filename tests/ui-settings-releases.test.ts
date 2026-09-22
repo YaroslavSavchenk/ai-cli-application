@@ -1,14 +1,21 @@
 /**
- * The releases-page opener: the settings panel's `Check for updates`
- * (2026-09-08, installer phase C) and, since phase E (2026-09-09), the update
- * dialog's `Download it yourself` fallback — ONE address and ONE call, in
- * `web/src/ui/releases.ts`, with both surfaces as callers.
+ * The releases-page opener — ONE address and ONE call, in
+ * `web/src/ui/releases.ts`, with the update dialog's `Download it yourself`
+ * fallback as its caller.
  *
  * WHAT IT IS. The link to the page where the newer Setup lives, opened in the
  * user's own browser when the user asks for it. It was the whole story until
  * phase E (2026-09-09) gave the app an Update button of its own; it stays as
- * the MANUAL fallback — the settings panel's quiet verb, and the one thing left
- * to offer when the in-app update refused.
+ * the MANUAL fallback — the one thing left to offer when the in-app update
+ * refused.
+ *
+ * NOCTURNE B6 (2026-09-22, user decision D4) took the settings panel off it:
+ * `Check for updates` asks the backend to check NOW and answers on the page,
+ * instead of sending the user to a release page to compare version numbers by
+ * eye. The panel is therefore no longer a caller — what this file still pins
+ * about it is that the button is the page's QUIET verb, that it exists only in
+ * installed mode, and that the panel carries no address and opens no window of
+ * its own.
  *
  * WHY IT IS SECURITY-SHAPED. This is THE ONE SANCTIONED WAY OUT of the app
  * window. The WebView2 host locks top-level navigation to the launch origin and
@@ -95,12 +102,12 @@ test('the address is ONE constant in code, and no part of it is UI copy', () => 
   // The link's label and tooltip must not contain the url or any piece of it.
   // A7: the panel's text-link class is `sg-link` (Nocturne primitives; the
   // Legacy `.btn-link` rule is built from the alias layer part A8 deletes).
-  const label = /button\('sg-link', '([^']*)', \(\) => \{/.exec(SETTINGS);
-  assert.notEqual(label, null, 'the link must be built with the panel’s existing text-button idiom');
-  assert.equal(label?.[1], 'Check for updates');
+  const label = /const checkBtn = button\('sg-link', CHECK_LABEL,/.exec(SETTINGS);
+  assert.notEqual(label, null, 'the check must be built with the panel’s existing text-button idiom');
+  assert.ok(SETTINGS.includes("const CHECK_LABEL = 'Check for updates';"), 'the word is still the word');
   const tip = /checkBtn\.title = '([^']*)';/.exec(SETTINGS);
-  assert.notEqual(tip, null, 'a control that leaves the app window should say so');
-  for (const text of [label?.[1] as string, tip?.[1] as string]) {
+  assert.notEqual(tip, null, 'a control should say what it is about to do');
+  for (const text of ['Check for updates', tip?.[1] as string]) {
     assert.equal(text.includes(url), false, `the address must not be UI copy: ${text}`);
     assert.equal(/https?:\/\//.test(text), false, `no address in UI copy: ${text}`);
     assert.equal(text.includes('github.com'), false, `no host name in UI copy: ${text}`);
@@ -159,11 +166,10 @@ test('the link opens the browser through the sanctioned exit: window.open, exact
     assert.equal(src.includes('window.open('), false, `${name} must go through the shared opener`);
   }
   // And it must be a user CLICK: the host's exception is user-initiated only.
-  assert.match(
-    SETTINGS,
-    /const checkBtn = button\('sg-link', 'Check for updates', \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/,
-  );
-  assert.match(SETTINGS, /import \{ openReleasesPage \} from '\.\/releases\.ts';/);
+  // The update dialog is the one surface that offers it — part B6 took the
+  // settings panel off this door, and its own check never leaves the window.
+  assert.match(UPDATE, /const dlBtn = button\('rs-link', COPY\.downloadSelf, \(\) => \{[\s\S]*?openReleasesPage\(\);[\s\S]*?\}\);/);
+  assert.equal(SETTINGS.includes('openReleasesPage'), false, 'the panel is no longer a caller (B6 D4)');
   assert.match(RELEASES, /import \{ openExternal \} from '\.\/open-external\.ts';/);
   // The panel itself still fetches nothing: checking is the backend's job now
   // (phase E) and asking the page to do it would be a second, unaudited path.
@@ -259,10 +265,10 @@ test('the link exists ONLY in installed mode — a developer clone is never told
   assert.equal(/\.sg-svc[^{]*\{[^}]*display:\s*flex/.test(CSS), true);
 });
 
-test('the link is the QUIET verb beside Restart backend, on the panel’s control size', () => {
-  // Design (frontend-designer pass): facts left, verbs right; a text link must
+test('the check is the QUIET verb beside Restart backend, on the panel’s control size', () => {
+  // Design (frontend-designer pass): facts left, verbs right; a text button must
   // not outweigh the bordered button it sits next to. Both are reused idioms —
-  // `btn-link` is the same class the KEYS section’s `all shortcuts` uses.
+  // `sg-link` is the panel's own text-button class.
   // A7: the two verbs sit in one card on the Background service page, facts
   // first (they take the free space), then the link, then the bordered button.
   assert.match(

@@ -8,18 +8,29 @@
  *                       drives TWO places: Claude Code's own line inside the
  *                       terminal (`enabled`) and the app's bar under it
  *                       (`paneBar`, ui/pane-status-model.ts).
- *   Preferences         the keys the tools need (which tools show up is part
- *                       B6, and the page draws no such toggle yet). The key
- *                       rows are LIVE since part B5 (one optional key per tool
- *                       that reads one from its environment; the page only ever
- *                       learns saved / not saved). The Defaults block under
- *                       them is still a mock, and one line under THAT says so.
- *   Keyboard            the chords the app takes off the terminal, plus the
- *                       link to the full shortcuts overlay — unchanged.
+ *   Preferences         the keys the tools need, which tools the New session
+ *                       dialog offers, and how the app behaves — all LIVE
+ *                       since part B6. The key rows arrived with B5 (one
+ *                       optional key per tool that reads one from its
+ *                       environment; the page only ever learns saved / not
+ *                       saved); the Tools block hides cards from the dialog's
+ *                       grid, and the Defaults block writes the three
+ *                       behaviour toggles the app reads at boot, at every
+ *                       door that ends a session, and on every terminal write.
+ *   Keyboard            the WHOLE keyboard table, drawn from the same rows as
+ *                       the shortcuts overlay (ui/shortcuts-rows.ts) in a
+ *                       layout that fits a 640-wide page: the chords the app
+ *                       takes off the terminal, the drags and their keyboard
+ *                       twins. Until B6 it was a hand-copied three-row excerpt
+ *                       with a link to the overlay, which is how two tables
+ *                       drift apart.
  *   Terminal colours    ground + text for the terminals (ui/term-colours.ts) —
  *                       LOCAL to the page until part B9 wires ui/theme.ts.
- *   Background service  version, uptime, Check for updates, Restart — the
- *                       existing flows, restyled.
+ *   Background service  version, uptime, Check for updates, Restart. Since B6
+ *                       the check runs the backend's own release check and
+ *                       answers on the page (one sentence, and the `Update`
+ *                       act when a release is waiting) instead of opening a
+ *                       page in the browser.
  *
  * What a Status bar toggle does: it writes the `statusLine` key of the prefs
  * bag, and the script Claude Code runs re-reads that file on every invocation —
@@ -37,16 +48,28 @@
  * anywhere in here. The per-row samples are the literal text the status line
  * draws for that item, which is terminal output, not CLI syntax.
  */
-import type { KeyedTool, KeyStatus, SessionInfo } from '../../../shared/protocol.ts';
-import { isKeyedTool } from '../../../shared/protocol.ts';
+import type { KeyedTool, KeyStatus, SessionInfo, UpdateStatus } from '../../../shared/protocol.ts';
+import { isKeyedTool, UPDATE_NEW_VERSION_AVAILABLE } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { TOOL_CARDS, commandLabel } from './launch-args.ts';
-import { openReleasesPage } from './releases.ts';
-import { openRestartConfirm, runtimeFacts } from './update.ts';
+import { applyRuntime, openRestartConfirm, runtimeFacts } from './update.ts';
+import { releaseSentence } from './update-model.ts';
+import { ROWS } from './shortcuts-rows.ts';
 import { buildTermColours } from './term-colours.ts';
+import {
+  type BehaviourCfg,
+  behaviourPatch,
+  getBehaviour,
+  getHiddenTools,
+  initBehaviour,
+  initHiddenTools,
+  setBehaviour,
+  setHiddenTools,
+  toolsPatch,
+} from './prefs-model.ts';
 import {
   DEAD_PREFS_KEYS,
   getStatusLine,
@@ -86,8 +109,6 @@ export function openSettings(opts?: SettingsOpenOpts): void {
 }
 
 export interface SettingsDeps {
-  /** Opens the shortcuts overlay (one instance, shared with the `?` key). */
-  openShortcuts(): void;
   /**
    * Redraws the status bar under every visible terminal (`ui/panes.ts`
    * repaintStatus). Injected, not imported: that module pulls @xterm/xterm in,
@@ -109,27 +130,6 @@ const PAGES = [
 ] as const;
 
 type PageId = (typeof PAGES)[number]['id'];
-
-/**
- * The Keyboard page: the things the app takes off the terminal, said where
- * a user goes looking for app behaviour (2026-09-08 — the user asked "why
- * ctrl+shift+v?" about a chord that lived only in an overlay behind a bare `?`).
- * It is an EXCERPT, not a second reference: the overlay stays the full list,
- * and `all shortcuts` opens that same overlay.
- */
-interface KeyRow {
-  what: string;
-  /** Chords, rendered as <kbd> chips — the same chips the overlay draws. */
-  keys?: string[];
-  /** A mouse sentence, rendered as plain text (never a key chip). */
-  gesture?: string;
-}
-
-const KEY_ROWS: KeyRow[] = [
-  { what: 'paste into a terminal', keys: ['ctrl+shift+v', 'shift+insert'] },
-  { what: 'copy the selection', keys: ['ctrl+shift+c', 'ctrl+insert'] },
-  { what: 'open a link printed in a terminal', gesture: 'ctrl+click' },
-];
 
 /** One toggle row: its key, its label, and the text that item really draws. */
 interface ItemRow {
@@ -180,9 +180,9 @@ const ITEM_ROWS: ItemRow[] = [
 ];
 
 /**
- * The Preferences page's rows. The key rows are LIVE since part B5; the
- * Defaults block below them stays mock, and tool-visibility toggles arrive
- * with part B6 — the page draws none today.
+ * The Preferences page's key rows, LIVE since part B5. They are listed for
+ * every tool the app knows, hidden card or not (B6): a key is about the tool,
+ * not about whether its card shows up in the New session dialog.
  * `tool` names the keyed tool whose field the row carries — absent = no field,
  * because there is no key this app can store for it.
  */
@@ -224,13 +224,61 @@ const PROVIDER_ROWS: ProviderRow[] = TOOL_CARDS.flatMap((c) => {
   return k === undefined ? [] : [{ mark: c.mark, label: c.label, ...k }];
 });
 
-/** The Defaults block on the Preferences page — MOCK until part B6. */
-const DEFAULT_ROWS: { label: string; on: boolean }[] = [
-  { label: 'Reopen tabs on start', on: true },
-  { label: 'Confirm before ending a session', on: true },
-  { label: 'Notifications when a session needs you', on: true },
-  { label: 'Follow output', on: false },
+/**
+ * The Defaults block on the Preferences page — LIVE since part B6, one row per
+ * member of the behaviour store (ui/prefs-model.ts). The captions say what the
+ * switch really decides, because all three are invisible until the moment they
+ * act: a start, a click on a door, a line of output arriving.
+ *
+ * The v3 markup's fourth row (`Notifications when a session needs you`) is not
+ * here: there is no notification mechanism to switch off yet (user decision D2,
+ * 2026-09-22 — it returns with the peek mascot in part C1).
+ */
+interface DefaultRow {
+  key: keyof BehaviourCfg;
+  label: string;
+  caption: string;
+}
+
+const DEFAULT_ROWS: DefaultRow[] = [
+  {
+    key: 'reopenTabs',
+    label: 'Reopen tabs on start',
+    caption:
+      'The files, folders and views you left open come back the next time the app starts; sessions never survive a restart.',
+  },
+  {
+    key: 'confirmEnd',
+    label: 'Confirm before ending a session',
+    caption: 'Every button that ends a session asks once before it does.',
+  },
+  {
+    key: 'followOutput',
+    label: 'Follow output',
+    caption: 'A terminal jumps to its newest output even when you have scrolled up.',
+  },
 ];
+
+/** The Tools block's refusal, said in the row's own caption slot (D1). */
+const TOOLS_FLOOR = 'Keep at least one tool visible.';
+
+/**
+ * How long that refusal stays on screen. 3000 ms is the app's own "for a
+ * moment" already: the armed two-step in ui/util.ts disarms after exactly that.
+ */
+const TOOLS_FLOOR_MS = 3000;
+
+/**
+ * The Background service page's own words (D4). The check asks the backend,
+ * which asks the release page; the four outcomes are these, and the version in
+ * the second one is the only string here that came from outside the app — it
+ * passes `releaseSentence`'s shape gate before it is ever printed.
+ */
+const CHECK_LABEL = 'Check for updates';
+const CHECK_BUSY = 'Checking…';
+const CHECK_NEWEST = 'You have the newest version.';
+const CHECK_INSTALLED = 'A new version is installed. Restart the service to use it.';
+const CHECK_FAILED = 'Could not check for updates.';
 
 export function initSettings(
   modalHost: HTMLElement,
@@ -298,15 +346,26 @@ export function initSettings(
     return sect;
   }
 
-  /** A boolean row: a real button, state in aria-pressed, no hover-only affordance. */
-  function checkRow(label: string, onToggle?: () => void): {
+  /**
+   * A boolean row: a real button, state in aria-pressed, no hover-only
+   * affordance. `mark` draws the tool's tile between the box and the name, the
+   * same tile the key rows below carry, so one tool reads as one thing on both
+   * blocks of the Preferences page.
+   */
+  function checkRow(label: string, onToggle?: () => void, mark?: string): {
     row: HTMLButtonElement;
     box: HTMLElement;
   } {
     const row = button('sg-row', '', onToggle);
     const box = el('span', 'sg-box');
     box.setAttribute('aria-hidden', 'true');
-    row.append(box, el('span', 'sg-rowlb', label));
+    row.append(box);
+    if (mark !== undefined) {
+      const tile = el('span', 'sg-mark', mark);
+      tile.setAttribute('aria-hidden', 'true');
+      row.append(tile);
+    }
+    row.append(el('span', 'sg-rowlb', label));
     return { row, box };
   }
 
@@ -383,16 +442,16 @@ export function initSettings(
   statusPage.append(resetRow);
 
   // ======================================================================
-  // Preferences — the key rows are LIVE (part B5); the Defaults block below
-  // them is still a mock, and the one placeholder line sits under THAT block
-  // and covers only it.
+  // Preferences — three live blocks: the key rows (part B5), the Tools block
+  // that picks which cards the New session dialog offers, and the Defaults
+  // block that holds how the app behaves (part B6).
   // ======================================================================
   const prefsPage = newPage(
     'prefs',
     'Preferences',
-    // Only what this page really does today: tool VISIBILITY is part B6, and
-    // until it exists the subtitle must not promise it.
-    'The keys your tools need.',
+    // Three blocks since B6: the keys, which cards the New session dialog
+    // offers, and how the app behaves.
+    'Your tools and how the app behaves.',
   );
 
   /** One live key row's controls, kept so the page can reflect what it learns. */
@@ -448,28 +507,43 @@ export function initSettings(
     }
     provWrap.append(row);
   }
-  prefsPage.append(provWrap);
+  prefsPage.append(el('h3', 'sg-sub', 'API keys'), provWrap);
 
+  // ---- Tools: which cards the New session dialog offers (B6, D1) ----------
+  // A checked row = a visible card. The refusal for the last one is stated in
+  // that row's own caption slot: a dialog or a toast for a rule the user just
+  // met inside a row would answer somewhere else than where the question was
+  // asked.
+  prefsPage.append(
+    el('h3', 'sg-sub', 'Tools'),
+    el('p', 'sg-lead', 'Cards shown in the New session dialog.'),
+  );
+  const toolWrap = el('div', 'sg-rows');
+  toolWrap.setAttribute('role', 'group');
+  toolWrap.setAttribute('aria-label', 'tools shown in the New session dialog');
+  const toolRows = new Map<string, { row: HTMLButtonElement; box: HTMLElement; cap: HTMLElement }>();
+  for (const c of TOOL_CARDS) {
+    const { row, box } = checkRow(c.label, () => toggleTool(c.id), c.mark);
+    const cap = el('div', 'sg-cap');
+    // The refusal is news, not decoration: a live region says it once, where
+    // the keyboard already is.
+    cap.setAttribute('role', 'status');
+    cap.hidden = true;
+    toolRows.set(c.id, { row, box, cap });
+    toolWrap.append(row, cap);
+  }
+  prefsPage.append(toolWrap);
+
+  // ---- Defaults: how the app behaves (B6) ---------------------------------
   prefsPage.append(el('h3', 'sg-sub', 'Defaults'));
   const defWrap = el('div', 'sg-rows');
+  const defRows = new Map<keyof BehaviourCfg, { row: HTMLButtonElement; box: HTMLElement }>();
   for (const d of DEFAULT_ROWS) {
-    const { row, box } = checkRow(d.label);
-    row.setAttribute('aria-pressed', d.on ? 'true' : 'false');
-    box.textContent = d.on ? '✓' : '';
-    row.disabled = true;
-    defWrap.append(row);
+    const { row, box } = checkRow(d.label, () => toggleBehaviour(d.key));
+    defRows.set(d.key, { row, box });
+    defWrap.append(row, el('div', 'sg-cap', d.caption));
   }
   prefsPage.append(defWrap);
-
-  /**
-   * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B6). It follows the
-   * Defaults rows and speaks for those alone: everything above it saves for
-   * real since part B5.
-   */
-  function prefsPlaceholderNote(): HTMLElement {
-    return el('p', 'sg-note', 'These defaults are examples until the app saves them.');
-  }
-  prefsPage.append(prefsPlaceholderNote());
 
   // ---- the key rows, live --------------------------------------------------
 
@@ -586,30 +660,120 @@ export function initSettings(
       });
   }
 
+  // ---- the Tools and Defaults rows, live (Nocturne B6) ---------------------
+
+  /** Reflect both stores onto their rows (boxes + aria), never the other way. */
+  function syncPrefsRows(): void {
+    const hidden = new Set(getHiddenTools());
+    for (const c of TOOL_CARDS) {
+      const r = toolRows.get(c.id);
+      if (r === undefined) continue;
+      const on = !hidden.has(c.id);
+      r.row.setAttribute('aria-pressed', on ? 'true' : 'false');
+      r.box.textContent = on ? '✓' : '';
+    }
+    const cfg = getBehaviour();
+    for (const d of DEFAULT_ROWS) {
+      const r = defRows.get(d.key);
+      if (r === undefined) continue;
+      r.row.setAttribute('aria-pressed', cfg[d.key] ? 'true' : 'false');
+      r.box.textContent = cfg[d.key] ? '✓' : '';
+    }
+  }
+
+  /** The refusal, in one row's caption slot, cleared again on its own. */
+  let floorTimer = 0;
+  function sayToolsFloor(id: string): void {
+    const r = toolRows.get(id);
+    if (r === undefined) return;
+    clearToolsFloor();
+    // Reveal BEFORE the text: a `role="status"` node filled while it is
+    // hidden is a change no screen reader announces.
+    r.cap.hidden = false;
+    r.cap.textContent = TOOLS_FLOOR;
+    floorTimer = window.setTimeout(() => {
+      clearToolsFloor();
+    }, TOOLS_FLOOR_MS);
+  }
+
+  function clearToolsFloor(): void {
+    if (floorTimer !== 0) {
+      window.clearTimeout(floorTimer);
+      floorTimer = 0;
+    }
+    for (const r of toolRows.values()) {
+      r.cap.textContent = '';
+      r.cap.hidden = true;
+    }
+  }
+
+  /**
+   * Show or hide ONE card. The last visible card cannot be hidden (D1): the
+   * New session dialog with an empty grid is a dialog that cannot launch
+   * anything, so the row refuses in place and nothing is written.
+   */
+  function toggleTool(id: string): void {
+    const before = getHiddenTools();
+    const hidden = new Set(before);
+    if (hidden.has(id)) hidden.delete(id);
+    else if (TOOL_CARDS.length - hidden.size <= 1) {
+      sayToolsFloor(id);
+      return;
+    } else hidden.add(id);
+    clearToolsFloor();
+    setHiddenTools(TOOL_CARDS.map((c) => c.id).filter((cid) => hidden.has(cid)));
+    syncPrefsRows();
+    writes++;
+    log.debug(`prefs tools: hidden=${getHiddenTools().join(' ') || 'none'}`);
+    void api.updatePrefs(toolsPatch(getHiddenTools()), DEAD_PREFS_KEYS).catch(() => {
+      // A preference that was not stored must not keep claiming it was.
+      setHiddenTools(before);
+      syncPrefsRows();
+      log.warn('the tools preference was not saved');
+    });
+  }
+
+  /** Flip one behaviour toggle. A failed write puts the row back where it was. */
+  function toggleBehaviour(key: keyof BehaviourCfg): void {
+    const before = getBehaviour();
+    setBehaviour({ ...before, [key]: !before[key] });
+    syncPrefsRows();
+    writes++;
+    log.debug(`prefs behaviour: ${key}=${getBehaviour()[key]}`);
+    void api.updatePrefs(behaviourPatch(getBehaviour()), DEAD_PREFS_KEYS).catch(() => {
+      setBehaviour(before);
+      syncPrefsRows();
+      log.warn(`the ${key} preference was not saved`);
+    });
+  }
+
   // ======================================================================
-  // Keyboard — the gestures that are NOT visible controls anywhere else
+  // Keyboard — the whole table the shortcuts overlay draws, in a layout that
+  // fits this page (ui/shortcuts-rows.ts)
   // ======================================================================
   const keysPage = newPage(
     'keys',
     'Keyboard',
     'Almost everything you type goes straight to the terminal. The app only listens for these.',
   );
+  // The overlay lays a row out in three columns; 640 minus the nav leaves no
+  // room for that, so the page uses the overlay's OWN narrow-window stack:
+  // what you press, what it does, where the same thing lives in the UI — one
+  // vocabulary, one reading order, two widths.
   const keyList = el('div', 'sg-rows');
-  for (const r of KEY_ROWS) {
+  for (const r of ROWS) {
     const row = el('div', 'sg-keyrow');
     const chips = el('span', 'sg-keychips');
-    if (r.keys !== undefined) for (const k of r.keys) chips.append(el('kbd', 'sg-kbd', k));
-    // A mouse sentence is not a key: plain text, never a chip (overlay rule).
-    if (r.gesture !== undefined) chips.append(el('span', 'sg-gesture', r.gesture));
-    row.append(el('span', 'sg-rowlb', r.what), chips);
+    r.keys.forEach((k, i) => {
+      if (i > 0) chips.append(el('span', 'sg-or', 'or'));
+      // A mouse sentence is not a key: plain text, never a chip (overlay rule).
+      chips.append(r.gesture === true ? el('span', 'sg-gesture', k) : el('kbd', 'sg-kbd', k));
+    });
+    row.append(chips, el('span', 'sg-rowlb', r.what), el('span', 'sg-keyui', r.ui));
+    if (r.note !== undefined) row.append(el('div', 'sg-cap', r.note));
     keyList.append(row);
   }
   keysPage.append(keyList);
-  const allKeysBtn = button('sg-link', 'all shortcuts', () => deps.openShortcuts());
-  allKeysBtn.setAttribute('aria-haspopup', 'dialog');
-  const allKeysRow = el('div', 'sg-actions');
-  allKeysRow.append(allKeysBtn);
-  keysPage.append(allKeysRow);
 
   // ======================================================================
   // Terminal colours — its own module (ui/term-colours.ts). Local to the page
@@ -639,18 +803,31 @@ export function initSettings(
   const factUp = el('span', 'sg-svcup');
   facts.append(factVer, factUp);
   // Only an installed app can be updated by downloading one; a developer clone
-  // updates with the tools it was cloned with, and a link to a releases page
-  // would be an instruction that does not apply to it.
-  const checkBtn = button('sg-link', 'Check for updates', () => {
-    log.info('opening the releases page in the browser');
-    openReleasesPage();
+  // updates with the tools it was cloned with, and asking a release page about
+  // it would be a question that does not apply to it.
+  const checkBtn = button('sg-link', CHECK_LABEL, () => {
+    void runCheck();
   });
-  checkBtn.title = 'opens the releases page in your browser';
+  checkBtn.title = 'asks now whether a newer version exists';
   checkBtn.hidden = true;
   const restartBtn = button('sg-outbtn', 'Restart service', () => openRestartConfirm('settings'));
   restartBtn.setAttribute('aria-haspopup', 'dialog');
   card.append(facts, checkBtn, restartBtn);
   servicePage.append(card);
+
+  // The answer to the check, under the facts it is about: one sentence, and —
+  // when a release is waiting online — the same act the toast offers.
+  const answer = el('div', 'sg-svcanswer');
+  answer.hidden = true;
+  answer.setAttribute('role', 'status');
+  const answerText = el('span', 'sg-svcmsg', '');
+  // The `Update` flow is the toast's and the pill's: this button only opens the
+  // question, which the update module then asks in its own words.
+  const updateBtn = button('sg-outbtn', 'Update', () => openRestartConfirm('settings-update'));
+  updateBtn.setAttribute('aria-haspopup', 'dialog');
+  updateBtn.hidden = true;
+  answer.append(answerText, updateBtn);
+  servicePage.append(answer);
 
   /**
    * The two readouts, refreshed on open and on every conn change (the runtime
@@ -662,6 +839,71 @@ export function initSettings(
     factVer.textContent = `Version ${f.version}`;
     factUp.textContent = `Running for ${f.runningFor}`;
     checkBtn.hidden = !st.state.installed;
+  }
+
+  /** Put an answer on the page, or take the line away again (null). */
+  function sayAnswer(text: string | null, canUpdate = false): void {
+    // Reveal BEFORE the text: a `role="status"` node filled while it is
+    // hidden is a change no screen reader announces.
+    answer.hidden = text === null;
+    answerText.textContent = text ?? '';
+    updateBtn.hidden = !canUpdate;
+  }
+
+  /** Which of the four sentences an answered check earns (D4). */
+  function checkAnswer(status: UpdateStatus): { text: string; canUpdate: boolean } {
+    if (!status.available) return { text: CHECK_NEWEST, canUpdate: false };
+    // ONLINE: the release exists but is not on this machine, so the act is to
+    // fetch it, and the sentence names the version the backend read — through
+    // the model's own shape gate, the one place a remote tag is made printable.
+    if (status.reason === UPDATE_NEW_VERSION_AVAILABLE) {
+      return { text: releaseSentence(status.release), canUpdate: true };
+    }
+    // Anything else an installed backend can report means the newer version is
+    // already here and only the running process is old.
+    return { text: CHECK_INSTALLED, canUpdate: false };
+  }
+
+  /** True while a check is out — the button is the only way in, and it waits. */
+  let checking = false;
+
+  /**
+   * Ask the backend to check NOW (Nocturne B6, D4). The button states that it
+   * is working and stops taking clicks; the answer lands on the page, and then
+   * the app re-reads the runtime the ONE way it always does, so the pill and
+   * the toast learn the same news through the same path.
+   */
+  async function runCheck(): Promise<void> {
+    if (checking) return;
+    checking = true;
+    checkBtn.disabled = true;
+    checkBtn.textContent = CHECK_BUSY;
+    sayAnswer(null);
+    let answered = false;
+    try {
+      const status = await api.checkForUpdates();
+      const a = checkAnswer(status);
+      sayAnswer(a.text, a.canUpdate);
+      answered = true;
+      log.info(`update check: ${status.reason ?? 'up to date'}`);
+    } catch {
+      sayAnswer(CHECK_FAILED);
+      log.warn('the update check did not answer');
+    } finally {
+      checking = false;
+      checkBtn.disabled = false;
+      checkBtn.textContent = CHECK_LABEL;
+    }
+    if (!answered) return;
+    // The pill, the toast and this page all read one state; nothing here
+    // writes it, and a failed re-read simply leaves the last known runtime.
+    try {
+      st.setRuntime(await api.getRuntime());
+      applyRuntime();
+      renderBackend();
+    } catch {
+      // Nothing to say: the 30 s poll asks again.
+    }
   }
 
   // ---- footer --------------------------------------------------------------
@@ -860,6 +1102,7 @@ export function initSettings(
     // a named destination wins.
     showPage(opts?.page ?? (focusKey !== null ? 'prefs' : PAGES[0].id));
     syncRows();
+    syncPrefsRows();
     renderNotice();
     renderBackend();
     clearKeyFields();
@@ -876,7 +1119,15 @@ export function initSettings(
       .then((bag) => {
         if (scrim.hidden || writes > 0) return;
         initStatusLine(bag.statusLine);
+        // The same re-read serves the B6 stores: another window may have
+        // hidden a card or flipped a toggle since this page booted.
+        initBehaviour(bag.behaviour);
+        initHiddenTools(
+          bag.tools,
+          TOOL_CARDS.map((c) => c.id),
+        );
         syncRows();
+        syncPrefsRows();
         // The re-read can change what the pane bar draws (another window turned
         // an item off), and the panes hear nothing about a prefs read.
         deps.repaintStatus();
@@ -906,6 +1157,9 @@ export function initSettings(
     if (scrim.hidden) return;
     clearKeyFields();
     syncKeyRows();
+    // An answer is about the moment it was asked for: the next open asks again.
+    sayAnswer(null);
+    clearToolsFloor();
     scrim.hidden = true;
     anchor.setAttribute('aria-expanded', 'false');
     if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();

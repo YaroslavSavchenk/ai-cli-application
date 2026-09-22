@@ -26,7 +26,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B10a | Select several files and folders, delete them | verified | `.claude/plans/nocturne/PLAN-B10a.md` | 2026-09-20 |
 | B3 | Commits live | verified | `.claude/plans/nocturne/PLAN-B3.md` | 2026-09-21 |
 | B4 | Editor live (read, edit, save to disk) | verified | `.claude/plans/nocturne/PLAN-B4.md` | 2026-09-22 |
-| B6 | Settings live | todo — **next** | — |  |
+| B6 | Settings live | landed | `.claude/plans/nocturne/PLAN-B6.md` | 2026-09-22 |
 | B9 | Terminal colours live | todo | — |  |
 | B7 | Background agents table live (open decision: data source) | todo | — |  |
 | B8 | Cleanup + memory, release v0.4.0 | todo | — |  |

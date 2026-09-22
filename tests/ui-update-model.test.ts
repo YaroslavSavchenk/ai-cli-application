@@ -519,7 +519,13 @@ test('202 samePort: the flow waits for /health, then asks for a reload', async (
   assert.equal(out.kind, 'reload');
   assert.equal(h.healthCalls, 4, 'one immediate probe, then one per 250 ms');
   assert.deepEqual(h.slept, [HEALTH_POLL_MS, HEALTH_POLL_MS, HEALTH_POLL_MS]);
-  if (out.kind === 'reload') assert.equal(out.afterMs, 3 * HEALTH_POLL_MS);
+  if (out.kind === 'reload') {
+    assert.equal(out.afterMs, 3 * HEALTH_POLL_MS);
+    // The NEW run's stamp rides along (Nocturne B6, D3): the caller writes it
+    // into the stored arrangement, so the reload reads that bag as its own run
+    // and keeps the tabs with `Reopen tabs on start` off.
+    assert.equal(out.startedAt, 'x');
+  }
 });
 
 test('202 samePort but the backend never answers: the 20 s budget ends it with the relaunch message', async () => {
@@ -579,6 +585,8 @@ test('a 202 whose body is not the contract is treated as same-port: wait for thi
   const out = await runRestart(h.deps);
   assert.equal(out.kind, 'reload');
   assert.deepEqual(h.phases, ['restarting', 'reconnecting']);
+  // Nothing to stamp the arrangement with: an unreadable body names no run.
+  if (out.kind === 'reload') assert.equal(out.startedAt, null);
 });
 
 test('parseRestartBody accepts exactly the contract and rejects everything else', () => {

@@ -21,7 +21,7 @@ The facts your work hinges on:
 - Projects are `{ name, path, defaultModel, defaultMode }` and the UI shows
   the name, never the path.
 - Open decisions listed in the scope doc belong to the user — build around
-  them, don't settle them. Already settled: the port is auto-picked and
+  them, don't settle them. Already settled: the port is the last bound one, auto-picked when taken, and
   published via the runtime discovery file; the frontend is vanilla
   TypeScript + Vite.
 

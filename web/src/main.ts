@@ -68,6 +68,8 @@ import { flashMoveTabResult, flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
+import { getBehaviour, initBehaviour, initHiddenTools } from './ui/prefs-model.ts';
+import { TOOL_CARDS } from './ui/launch-args.ts';
 import {
   initLaunchDialog,
   openLaunchDialog,
@@ -343,7 +345,11 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // must land in the catch and settle the step — the two-argument form let it
   // escape as an unhandled rejection and left the first boot row pending
   // forever.
-  void api
+  // The settled promise (never rejects: the catch below settles it) is
+  // awaited ONCE before loadUi() — B6 D3 keys the stored tabs on this run's
+  // startedAt, so the answer must be in before the bag is read, or an F5 with
+  // `Reopen tabs on start` off would read as a new app start and drop them.
+  const runtimeChecked: Promise<void> = api
     .getRuntime()
     .then((r) => {
       st.setRuntime(r);
@@ -404,7 +410,21 @@ async function boot(root: HTMLDivElement): Promise<void> {
   watchTerminalFont();
   try {
     st.initServer(projects, sessions);
-    st.loadUi();
+    // Behaviour toggles and hidden tool cards (Nocturne B6) from the boot
+    // bag, BEFORE loadUi(): it reads `reopenTabs` once; the doors, the
+    // terminal writes and the New session dialog read the store fresh.
+    initBehaviour(prefs?.behaviour);
+    initHiddenTools(
+      prefs?.tools,
+      TOOL_CARDS.map((c) => c.id),
+    );
+    // D3: with `Reopen tabs on start` off the stored tabs belong to the run
+    // that wrote them — a reload inside THIS run keeps them, a new app start
+    // opens on Home. `serverStartedAt` is this run's identity (GET /api/runtime,
+    // fetched above and awaited here; null only when that check failed, which
+    // reads as a new run).
+    await runtimeChecked;
+    st.loadUi({ reopen: getBehaviour().reopenTabs, run: st.state.serverStartedAt });
     buildShell(root, prefs);
   } catch (err) {
     // Everything above has settled its row, but the ws row may still be
@@ -538,13 +558,11 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // and its pill lands in the topbar cluster right after the connection dot.
   const upd = initUpdate(modalHost);
   conn.after(upd.pill);
-  // `openShortcuts` is deferred on purpose: the overlay is constructed AFTER
-  // this panel so its scrim stacks above it (equal z-index, later in the DOM),
-  // and the panel's own KEYS section opens it over itself.
-  const settings = initSettings(modalHost, settingsBtn, {
-    openShortcuts: () => shortcuts.toggle(),
-    repaintStatus,
-  });
+  // Since B6 the panel opens no overlay of its own: its Keyboard page draws the
+  // whole shortcuts table from ui/shortcuts-rows.ts, so the `openShortcuts` dep
+  // (and the ordering it needed — the overlay is built after this panel) is
+  // gone. The statusline keeps that opener.
+  const settings = initSettings(modalHost, settingsBtn, { repaintStatus });
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.
@@ -553,9 +571,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // functions: importing either module from `ui/tabs.ts` would pull
   // @xterm/xterm into a module that has to stay drivable under `node --test`.
   const tabs = initTabs(strip, { killSession, openLaunch: () => openLaunchDialog() });
-  // ONE overlay instance; A2 dropped the topbar `?` button, so its openers are
-  // the `?` key, Ctrl+Alt+/, the statusline's Keyboard shortcuts button and
-  // the settings panel's `all shortcuts` link.
+  // ONE overlay instance; A2 dropped the topbar `?` button and B6 dropped the
+  // settings panel's link to it (that page draws the same table itself), so its
+  // openers are the `?` key, Ctrl+Alt+/ and the statusline's Keyboard shortcuts
+  // button.
   const shortcuts = initShortcuts(modalHost, requestTerminalFocus);
   const status = initStatusline(statusline, {
     openShortcuts: () => shortcuts.toggle(),

@@ -239,9 +239,12 @@ test('every existing wire is still in the panel (A7 is a restyle, not a rewrite)
     ['api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS)', 'the statusLine prefs write'],
     ['api\n      .getPrefs()', 'the re-read on open'],
     ['sessionsWithoutStatusLine', 'the notice for sessions without a status line'],
-    ['openReleasesPage()', 'Check for updates'],
+    // B6 (D4): the check asks the backend instead of opening a release page,
+    // and the Keyboard page draws ui/shortcuts-rows.ts instead of linking to
+    // the overlay — so those two wires are the ones below, not the old pair.
+    ['api.checkForUpdates()', 'Check for updates'],
     ["openRestartConfirm('settings')", 'the restart confirmation'],
-    ['deps.openShortcuts()', 'the all-shortcuts link'],
+    ["from './shortcuts-rows.ts'", 'the one keyboard table'],
     ['statusLineDefaults()', 'Reset to defaults'],
     ['trapTab(modal)', 'the focus trap'],
   ] as const) {
@@ -249,11 +252,19 @@ test('every existing wire is still in the panel (A7 is a restyle, not a rewrite)
   }
 });
 
-test('the mock pages each carry exactly ONE honesty line, through one function', () => {
+test('the ONE mock page left carries exactly ONE honesty line, through one function', () => {
+  // Part B6 made the Preferences page real — its placeholder note and the
+  // function that drew it are gone, and the panel must claim no example
+  // anywhere: Terminal colours is the last mock, and part B9 owns it.
+  for (const bad of ['prefsPlaceholderNote', 'These defaults are examples']) {
+    assert.equal(SETTINGS.includes(bad), false, `the Preferences mock is gone: ${bad}`);
+  }
+  assert.equal(
+    [...SETTINGS.matchAll(/'sg-note'/g)].length,
+    0,
+    'no honesty line is left on any page the panel itself draws',
+  );
   for (const [src, name, fn, line] of [
-    // Since B5 the Preferences key rows are live; the one line left speaks for
-    // the Defaults block it sits under, and says so.
-    [SETTINGS, 'settings.ts', 'prefsPlaceholderNote', 'These defaults are examples until the app saves them.'],
     [
       COLOURS,
       'term-colours.ts',

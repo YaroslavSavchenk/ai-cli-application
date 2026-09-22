@@ -326,7 +326,38 @@ export interface UiStatusLine {
 export interface UiPrefs {
   theme?: UiTheme;
   statusLine?: UiStatusLine;
+  behaviour?: UiBehaviour;
+  tools?: UiTools;
   [key: string]: unknown;
+}
+
+/**
+ * Nocturne B6 (.claude/plans/nocturne/PLAN-B6.md) — how the app behaves.
+ * Persisted under `behaviour` (NOT `defaults`: that is a dead key the client
+ * prunes, see DEAD_PREFS_KEYS in web/src/ui/statusline-model.ts). Every
+ * member is optional on the wire; an absent or non-boolean member takes the
+ * factory default in web/src/ui/prefs-model.ts. The server never reads this key.
+ */
+export interface UiBehaviour {
+  /**
+   * Restore the editor and folder tabs, the empty views and their order on a
+   * NEW app start (a new backend run; a reload within the same run always
+   * restores). Factory true.
+   */
+  reopenTabs?: boolean;
+  /** Ending a session takes the armed two-step; off = one click ends it. Factory true. */
+  confirmEnd?: boolean;
+  /** Every write to a terminal ends at the bottom, even after scrolling up. Factory false. */
+  followOutput?: boolean;
+}
+
+/**
+ * Nocturne B6 — cards hidden from the New session dialog, by card id
+ * (`TOOL_CARDS` in web/src/ui/launch-args.ts). Unknown ids are dropped on
+ * read; at least one card always stays visible. The server never reads this key.
+ */
+export interface UiTools {
+  hidden?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +471,15 @@ export interface UpdateStatus {
    */
   release?: UpdateRelease;
 }
+
+/**
+ * POST /api/update/check (Nocturne B6) — no body. Runs the release check now
+ * (a check already in flight is shared, never doubled) and answers 200 with
+ * the SAME composed UpdateStatus that GET /api/runtime carries under `update`.
+ * 503 UPDATE_NOT_AVAILABLE when this backend has no checker (not an installed
+ * app); 405 for any other method. A failed check answers the last known
+ * status — the checker never rejects, a failure is a log line.
+ */
 
 /** A published release the installed app could update to (phase E). */
 export interface UpdateRelease {

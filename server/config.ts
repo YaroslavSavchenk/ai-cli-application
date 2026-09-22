@@ -3,7 +3,7 @@
  *
  * Data dir: ~/.ai-session-manager/ (created 0700), overridable via the
  * AI_SM_DATA_DIR env var (must be an absolute path). Holds runtime.json,
- * projects.json, prefs.json, github.json, history.json,
+ * last-port.json, projects.json, prefs.json, github.json, history.json,
  * session-settings/ (0700, wiped at boot), statusline-snapshots/ (0700, wiped
  * at boot), statusline-cache.json (0600, wiped at boot) and server.log.
  *
@@ -109,6 +109,13 @@ export interface DataPaths {
    * notice is back on screen immediately instead of 20 s later.
    */
   updateCheckFile: string;
+  /**
+   * The port this backend last bound (mode 0600, atomic — server/last-port.ts).
+   * Tried first on the next start so the frontend's localStorage, which is
+   * scoped to the origin INCLUDING the port, keeps the saved tab layout
+   * (decision D5, 2026-09-22). Auto-pick is the fallback, not the rule.
+   */
+  lastPortFile: string;
   logFile: string;
 }
 
@@ -147,6 +154,7 @@ export function resolveDataPaths(): DataPaths {
     statuslineCacheFile: join(dataDir, 'statusline-cache.json'),
     updatesDir: join(dataDir, 'updates'),
     updateCheckFile: join(dataDir, 'update-check.json'),
+    lastPortFile: join(dataDir, 'last-port.json'),
     logFile: join(dataDir, 'server.log'),
   };
 }

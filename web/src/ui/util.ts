@@ -23,8 +23,18 @@ export function button(className: string, label: string, onClick?: () => void): 
  * Armed two-step destructive confirm on a persistent button: first click
  * arms it (inverted, confirm label) for 3s, second click fires. In-place and
  * keyboard-reachable — no native confirm() modal.
+ *
+ * `opts.ask` makes the arming itself conditional: it is asked at CLICK time
+ * (never frozen into the button when it was built), and a `false` answer runs
+ * the action at once — no arm, no label change. Left out, the button always
+ * arms, which is what a door without a preference behind it wants.
  */
-export function armButton(btn: HTMLButtonElement, confirmLabel: string, action: () => void): void {
+export function armButton(
+  btn: HTMLButtonElement,
+  confirmLabel: string,
+  action: () => void,
+  opts?: { ask?: () => boolean },
+): void {
   const original = btn.textContent ?? '';
   let timer: number | null = null;
   const disarm = (): void => {
@@ -34,6 +44,11 @@ export function armButton(btn: HTMLButtonElement, confirmLabel: string, action: 
     btn.textContent = original;
   };
   btn.addEventListener('click', () => {
+    if (opts?.ask !== undefined && !opts.ask()) {
+      disarm();
+      action();
+      return;
+    }
     if (btn.dataset.armed === '1') {
       disarm();
       action();

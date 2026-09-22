@@ -24,6 +24,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import type { SessionInfo, UiPrefs } from '../shared/protocol.ts';
+import { ROWS } from '../web/src/ui/shortcuts-rows.ts';
 import { byClass, dispatch, installDom, textsOf, type FakeElement } from './fake-dom.ts';
 
 const dom = installDom();
@@ -41,7 +42,16 @@ interface Harness {
   writes: { patch: UiPrefs; dead: readonly string[] }[];
   getCalls: number;
   restarts: string[];
-  releasePages: number;
+  /** POST /api/update/check — what the fake backend answers, and how often it was asked. */
+  update: { available: boolean; reason: string | null; release?: { version: string } };
+  checkCalls: number;
+  /** When set, the next check rejects with it. */
+  nextCheckError: Error | null;
+  /** GET /api/runtime after an answered check: the calls, and what applyRuntime saw. */
+  runtimeCalls: number;
+  runtimesApplied: number;
+  /** The runtime answers the panel handed to state.setRuntime, in order. */
+  runtimes: unknown[];
   logs: string[];
   subscribers: ((kind: string) => void)[];
   /**
@@ -70,7 +80,12 @@ const H: Harness = {
   writes: [],
   getCalls: 0,
   restarts: [],
-  releasePages: 0,
+  update: { available: false, reason: null },
+  checkCalls: 0,
+  nextCheckError: null,
+  runtimeCalls: 0,
+  runtimesApplied: 0,
+  runtimes: [],
   logs: [],
   subscribers: [],
   gate: null,
@@ -100,7 +115,13 @@ const STUB_SRC: Record<string, string> = {
       H.keyDeletes.push(tool);
       if (H.nextKeyError !== null) { const e = H.nextKeyError; H.nextKeyError = null; throw e; }
       return { ok: true };
-    }`,
+    }
+    export async function checkForUpdates() {
+      H.checkCalls++;
+      if (H.nextCheckError !== null) { const e = H.nextCheckError; H.nextCheckError = null; throw e; }
+      return H.update;
+    }
+    export async function getRuntime() { H.runtimeCalls++; return { update: H.update }; }`,
   state: `
     const H = globalThis.__sgHarness;
     export const state = {
@@ -108,6 +129,7 @@ const STUB_SRC: Record<string, string> = {
       get installed() { return H.installed; },
     };
     export function projectName(id) { return H.projectNames[id] ?? null; }
+    export function setRuntime(r) { H.runtimes.push(r); }
     export function subscribe(fn) { H.subscribers.push(fn); }`,
   log: `
     const H = globalThis.__sgHarness;
@@ -116,16 +138,14 @@ const STUB_SRC: Record<string, string> = {
   update: `
     const H = globalThis.__sgHarness;
     export function openRestartConfirm(src) { H.restarts.push(src); }
-    export function runtimeFacts() { return H.facts; }`,
-  releases: `
-    const H = globalThis.__sgHarness;
-    export function openReleasesPage() { H.releasePages++; }`,
+    export function runtimeFacts() { return H.facts; }
+    export function applyRuntime() { H.runtimesApplied++; }`,
 };
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if ((context.parentURL ?? '').endsWith('/web/src/ui/settings.ts')) {
-      const m = /^(?:\.\.\/(api|state|log)|\.\/(update|releases))\.ts$/.exec(specifier);
+      const m = /^(?:\.\.\/(api|state|log)|\.\/(update))\.ts$/.exec(specifier);
       const name = m?.[1] ?? m?.[2];
       if (name !== undefined) return { url: `sg-stub:${name}`, shortCircuit: true };
     }
@@ -143,7 +163,7 @@ interface SettingsModule {
   initSettings(
     host: unknown,
     anchor: unknown,
-    deps: { openShortcuts(): void; repaintStatus(): void },
+    deps: { repaintStatus(): void },
   ): { open(): void; close(): void; toggle(): void; isOpen(): boolean };
   /** The entry the New session dialog's `Add key` uses (Nocturne B5). */
   openSettings(opts?: { page?: string; focusKey?: string }): void;
@@ -161,14 +181,10 @@ const T = (await import(new URL('../web/src/ui/theme-model.ts', import.meta.url)
 const modalHost = dom.doc.createElement('div');
 const anchor = dom.doc.createElement('button');
 dom.body.append(modalHost, anchor);
-let shortcutsOpened = 0;
 /** `ui/panes.ts` repaintStatus, injected — counted so the pane bar's live
  *  refresh is pinned here rather than left to a browser check. */
 let repaints = 0;
 const panel = S.initSettings(modalHost, anchor, {
-  openShortcuts: () => {
-    shortcutsOpened += 1;
-  },
   repaintStatus: () => {
     repaints += 1;
   },
@@ -550,7 +566,7 @@ test('the notice names the running sessions that cannot grow a status line, and 
 // Keyboard
 // ===========================================================================
 
-test('the Keyboard page lists the chords as mono chips, a mouse gesture as plain text', async () => {
+test('the Keyboard page draws the WHOLE table, from the same rows as the overlay (B6)', async () => {
   await reopen();
   tab('Keyboard').click();
   const page = panelOf('keys');
@@ -558,36 +574,49 @@ test('the Keyboard page lists the chords as mono chips, a mouse gesture as plain
     byClass(page, 'sg-lead')[0]?.textContent,
     'Almost everything you type goes straight to the terminal. The app only listens for these.',
   );
-  assert.deepEqual(textsOf(page, 'sg-rowlb'), [
-    'paste into a terminal',
-    'copy the selection',
-    'open a link printed in a terminal',
-  ]);
-  assert.deepEqual(textsOf(page, 'sg-kbd'), [
-    'ctrl+shift+v',
-    'shift+insert',
-    'ctrl+shift+c',
-    'ctrl+insert',
-  ]);
-  assert.deepEqual(textsOf(page, 'sg-gesture'), ['ctrl+click'], 'a mouse sentence is never a key chip');
-
-  const link = byClass(page, 'sg-link').find((b) => b.textContent === 'all shortcuts');
-  assert.ok(link !== undefined);
-  assert.equal(link.getAttribute('aria-haspopup'), 'dialog');
-  const before = shortcutsOpened;
-  link.click();
-  assert.equal(shortcutsOpened, before + 1, 'the full overlay is still one click away');
+  // One source, two layouts: the page's rows ARE ui/shortcuts-rows.ts.
+  assert.equal(byClass(page, 'sg-keyrow').length, ROWS.length);
+  assert.deepEqual(
+    textsOf(page, 'sg-rowlb'),
+    ROWS.map((r) => r.what),
+  );
+  assert.deepEqual(
+    textsOf(page, 'sg-keyui'),
+    ROWS.map((r) => r.ui),
+    'every row still names where the same thing lives in the UI',
+  );
+  // A chord is a key chip; a mouse gesture is a sentence and never one.
+  assert.deepEqual(
+    textsOf(page, 'sg-kbd'),
+    ROWS.filter((r) => r.gesture !== true).flatMap((r) => r.keys),
+  );
+  assert.deepEqual(
+    textsOf(page, 'sg-gesture'),
+    ROWS.filter((r) => r.gesture === true).flatMap((r) => r.keys),
+  );
+  // The notes come with the rows they explain.
+  assert.deepEqual(
+    textsOf(page, 'sg-cap'),
+    ROWS.filter((r) => r.note !== undefined).map((r) => r.note),
+  );
+  // …and the link to a second table is gone with the excerpt it belonged to.
+  assert.deepEqual(textsOf(page, 'sg-link'), []);
 });
 
 // ===========================================================================
-// Preferences — mocked until part B6
+// Preferences — every block live since part B6
 // ===========================================================================
 
-test('the Preferences page: live key rows for the three keyed tools, mock Defaults under them', async () => {
+test('the Preferences page: live key rows for the three keyed tools, Tools and Defaults under them', async () => {
   await reopen();
   tab('Preferences').click();
   const page = panelOf('prefs');
-  assert.deepEqual(textsOf(page, 'sg-mark'), ['CC', 'CX', 'GM', 'GK', '>_']);
+  // The key rows first (no tile for the custom-command card, which has no key
+  // to store), then one Tools row per card, carrying the same tiles (B6).
+  assert.deepEqual(textsOf(page, 'sg-mark'), [
+    'CC', 'CX', 'GM', 'GK', '>_',
+    'CC', 'CX', 'GM', 'GK', '>_', '…',
+  ]);
   assert.deepEqual(
     byClass(page, 'sg-prow').map((r) => byClass(r, 'sg-rowlb')[0]?.textContent),
     ['Claude Code', 'Codex', 'Gemini CLI', 'Grok', 'Terminal'],
@@ -624,26 +653,25 @@ test('the Preferences page: live key rows for the three keyed tools, mock Defaul
   for (const b of byClass(page, 'sg-smallbtn')) {
     assert.equal(b.disabled, b.textContent !== 'Show', b.textContent);
   }
-  // The Defaults block below is still the mock, and the ONE honesty line sits
-  // under it and speaks for it alone.
-  assert.deepEqual(textsOf(page, 'sg-sub'), ['Defaults']);
+  // Three headed blocks since B6, all live, and no honesty line left on the
+  // page: nothing here is an example any more.
+  assert.deepEqual(textsOf(page, 'sg-sub'), ['API keys', 'Tools', 'Defaults']);
   assert.deepEqual(
     byClass(page, 'sg-row').map((r) => byClass(r, 'sg-rowlb')[0]?.textContent),
     [
+      'Claude Code',
+      'Codex',
+      'Gemini CLI',
+      'Grok',
+      'Terminal',
+      'Other',
       'Reopen tabs on start',
       'Confirm before ending a session',
-      'Notifications when a session needs you',
       'Follow output',
     ],
   );
-  for (const c of byClass(page, 'sg-row')) assert.equal(c.disabled, true, 'mock until part B6');
-  assert.equal(
-    byClass(page, 'sg-note')[0]?.textContent,
-    'These defaults are examples until the app saves them.',
-  );
-  const before = H.writes.length;
-  for (const r of byClass(page, 'sg-row')) r.click();
-  assert.equal(H.writes.length, before, 'the mocked defaults never reach prefs.json');
+  for (const c of byClass(page, 'sg-row')) assert.equal(c.disabled, false, 'live since part B6');
+  assert.deepEqual(textsOf(page, 'sg-note'), [], 'the placeholder line went with the mock');
 });
 
 // ---- the key rows, live (Nocturne B5) --------------------------------------
@@ -1010,7 +1038,7 @@ test('the Background service page states the two facts and keeps both existing v
   assert.equal(byClass(page, 'sg-svcup')[0]?.textContent, 'Running for 2h 15m');
   const check = byClass(page, 'sg-link')[0] as FakeElement;
   assert.equal(check.textContent, 'Check for updates');
-  assert.equal(check.hidden, true, 'a developer clone is not updated from a releases page');
+  assert.equal(check.hidden, true, 'a developer clone is not updated from a release page');
 
   // The runtime poll writes both facts; a conn change refreshes the readouts.
   H.installed = true;
@@ -1020,9 +1048,12 @@ test('the Background service page states the two facts and keeps both existing v
   assert.equal(byClass(page, 'sg-svcup')[0]?.textContent, 'Running for just started');
   assert.equal(check.hidden, false, 'an installed app can go and get one');
 
-  const releases = H.releasePages;
+  // What the check does is pinned in tests/ui-settings-b6.test.ts; here it only
+  // has to still be the page's quiet verb, and to ask the backend when used.
+  const asked = H.checkCalls;
   check.click();
-  assert.equal(H.releasePages, releases + 1);
+  await settle();
+  assert.equal(H.checkCalls, asked + 1);
 
   const restart = byClass(page, 'sg-outbtn')[0] as FakeElement;
   assert.equal(restart.textContent, 'Restart service');

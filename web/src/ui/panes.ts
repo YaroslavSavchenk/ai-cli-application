@@ -58,6 +58,7 @@ import { el, button, armButton } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
+import { getBehaviour } from './prefs-model.ts';
 import { paneStatusItems } from './pane-status-model.ts';
 import { getStatusLine } from './statusline-model.ts';
 import { renderAgents, type AgentRow } from './pane-agents.ts';
@@ -912,7 +913,12 @@ function updateNote(s: Slot, pay: SessionPayload): void {
       void relaunch(s, pay),
     );
     const delBtn = button('pane-note-btn', 'End session');
-    armButton(delBtn, 'Sure?', () => void killSession(pay.id));
+    // The shared arming primitive with ONE extra question asked at click
+    // time: `Confirm before ending a session` (part B6). Off = the click
+    // ends it; on = arm first, exactly as before.
+    armButton(delBtn, 'Sure?', () => void killSession(pay.id), {
+      ask: () => getBehaviour().confirmEnd,
+    });
     s.note.replaceChildren(
       el('span', 'pane-note-text', `Finished, code ${pay.exitCode}`),
       relaunchBtn,

@@ -10,8 +10,9 @@
  * (launcher/host/AiSessionManagerHost.cs) locks navigation to the EXACT launch
  * origin (scheme + host + port), so a restart that lands on a different port
  * strands the window. The child therefore gets AI_SM_PORT_HINT and tries that
- * port first; the auto-picked-port architecture is untouched — the hint is a
- * hint on a handoff, and a busy port still falls back to listen(0). That case
+ * port first; the port design is untouched — the hint is a hint on a handoff
+ * that simply outranks the remembered sticky port (server/last-port.ts) for
+ * this one start, and a busy port still falls back to listen(0). That case
  * is reported honestly as `samePort: false` so the UI can say "close this
  * window and relaunch" instead of navigating nowhere.
  *
@@ -52,8 +53,8 @@
  * `{type:'go'}`. That is deliberately NOT the thing rejected on 2026-09-06:
  * what was rejected was passing the LISTENING SOCKET over IPC (a handle whose
  * ownership fights with `detached` + `unref`). The port is still handed over as
- * a HINT with the same single auto-pick fallback; nothing about the port design
- * changed.
+ * a HINT with the same single auto-pick fallback: the handoff hint still beats
+ * the remembered port, and nothing else about the port design changed.
  *
  * Every dependency that touches the OS (build, spawn, health probe,
  * runtime.json read, clock, sleep, exit) is injected so the sequence can be

@@ -6,8 +6,10 @@
  * `ctrl+shift+v` in the wild had nowhere to ask why. This file pins the two new
  * answers to that:
  *
- *   1. a KEYS section in the settings panel whose rows are an EXCERPT of the
- *      overlay's table, plus an `all shortcuts` text button that opens it;
+ *   1. a Keyboard page in the settings panel, which since Nocturne B6 draws the
+ *      WHOLE table from the module both surfaces read (`ui/shortcuts-rows.ts`)
+ *      — it used to be a hand-copied three-row excerpt with an `all shortcuts`
+ *      button beside it, and a second table is how two answers drift apart;
  *   2. a labelled `Keyboard shortcuts` button in the statusline.
  *
  * NOCTURNE A2 (2026-09-10) removed the third one, the topbar `?` button: the
@@ -24,12 +26,11 @@
  * the source, and every check below is paired with a non-vacuity assertion so a
  * regex that quietly matches nothing cannot make the file pass.
  *
- * The load-bearing half is the LAST test: the settings excerpt's chords are
- * compared against the real `isPasteChord` / `isCopyChord` / `isLinkActivation`
- * predicates, so the panel cannot promise a key the app does not take (the
- * same rule `tests/ui-shortcuts-table.test.ts` enforces for the overlay
- * itself). 2026-09-10 added the copy row (`ctrl+shift+c` / `ctrl+insert`) as
- * the excerpt's second row; the link row moved to third.
+ * The load-bearing half is the LAST test: the chords the PANEL puts on screen
+ * are compared against the real `isPasteChord` / `isCopyChord` /
+ * `isLinkActivation` predicates, so the panel cannot promise a key the app does
+ * not take. Since B6 it promises exactly what the overlay promises, because it
+ * reads the same rows — which is what the first half now pins.
  *
  * NOT claimed here: that the button is visible, sized, or in the right place on
  * screen. That stays manual (`.claude/skills/verify-terminal/SKILL.md`).
@@ -48,6 +49,8 @@ const read = (...p: string[]): string => readFileSync(join(REPO_ROOT, ...p), 'ut
 const MAIN = read('web', 'src', 'main.ts');
 const SETTINGS = read('web', 'src', 'ui', 'settings.ts');
 const SHORTCUTS = read('web', 'src', 'ui', 'shortcuts.ts');
+/** The rows both surfaces draw (Nocturne B6). */
+const ROWS_TS = read('web', 'src', 'ui', 'shortcuts-rows.ts');
 
 /** Count of non-overlapping occurrences of a plain substring. */
 function count(haystack: string, needle: string): number {
@@ -141,17 +144,17 @@ test('there is exactly ONE overlay instance — the key, the button, the statusl
   assert.ok(MAIN.includes("import { initShortcuts } from './ui/shortcuts.ts';"), 'the import must still be there');
   assert.equal(count(MAIN, 'initShortcuts('), 1, 'expected exactly one construction of the overlay');
   assert.equal(count(MAIN, 'const shortcuts = initShortcuts(modalHost, requestTerminalFocus);'), 1);
-  // The two openers main.ts owns, each on the same handle.
-  assert.ok(
-    MAIN.includes('openShortcuts: () => shortcuts.toggle(),'),
-    'the statusline button must still open it',
+  // The opener main.ts owns since B6: the statusline's, and only that one —
+  // the settings panel no longer opens the overlay at all.
+  assert.equal(
+    count(MAIN, 'openShortcuts: () => shortcuts.toggle(),'),
+    1,
+    'the statusline button must still open it, and it is the only injected opener',
   );
-  // The settings panel takes a deps OBJECT (B1 added repaintStatus to it), so
-  // the opener is matched inside that call rather than as a one-line literal.
   assert.match(
     MAIN,
-    /initSettings\(modalHost, settingsBtn, \{\s*openShortcuts: \(\) => shortcuts\.toggle\(\),/,
-    'the settings panel must be handed the same opener',
+    /initSettings\(modalHost, settingsBtn, \{ repaintStatus \}\)/,
+    'the settings panel takes no overlay opener since part B6',
   );
   // The bare `?` key path (outside editable targets) must keep working.
   assert.match(MAIN, /e\.key === '\?'[\s\S]{0,200}?shortcuts\.toggle\(\);/);
@@ -164,49 +167,50 @@ test('the statusline opener is a spelled-out button, not a glyph (it replaced th
   assert.match(STATUSLINE, /hint\.title = 'Keyboard shortcuts \(\? or ctrl\+alt\+\/\)';/);
 });
 
-test('the settings panel opens the same overlay through its injected dependency', () => {
-  assert.match(SETTINGS, /export interface SettingsDeps \{[\s\S]*?openShortcuts\(\): void;[\s\S]*?\}/);
+test('the settings panel needs no overlay at all: it draws the same rows itself (B6)', () => {
   assert.match(SETTINGS, /deps: SettingsDeps,/);
-  // Nocturne A7 renamed the panel's text-link class `btn-link` -> `sg-link`
-  // (the Legacy `.btn-link` rule is built from alias tokens part A8 deletes).
-  assert.match(SETTINGS, /button\('sg-link', 'all shortcuts', \(\) => deps\.openShortcuts\(\)\)/);
-  // A dialog opener says so, like every other one in this app.
-  assert.match(SETTINGS, /allKeysBtn\.setAttribute\('aria-haspopup', 'dialog'\);/);
-  // The panel must not build a second overlay of its own.
+  assert.equal(count(SETTINGS, 'openShortcuts'), 0, 'the dep is gone with the excerpt');
+  assert.equal(count(SETTINGS, 'all shortcuts'), 0, 'and so is the link to a second table');
+  assert.match(SETTINGS, /import \{ ROWS \} from '\.\/shortcuts-rows\.ts';/);
+  assert.match(SETTINGS, /for \(const r of ROWS\) \{/, 'the Keyboard page walks the shared table');
+  // The panel must not build a second overlay of its own either.
   assert.equal(count(SETTINGS, 'initShortcuts'), 0);
+  // And the overlay reads the very same module — one table, two layouts.
+  assert.match(SHORTCUTS, /import \{ ROWS \} from '\.\/shortcuts-rows\.ts';/);
+  assert.equal(count(SHORTCUTS, 'const ROWS'), 0, 'the rows are not declared twice');
 });
 
-test('the settings KEYS section states paste, copy and the link gesture, and nothing that is not in the overlay', () => {
-  const block = /const KEY_ROWS: KeyRow\[\] = \[([\s\S]*?)\n\];/.exec(SETTINGS);
-  assert.notEqual(block, null, 'settings.ts must still declare KEY_ROWS');
-  const src = block?.[1] ?? '';
-  const rows = [...src.matchAll(/\{([^}]*)\}/g)].map((m) => m[1] as string);
-  assert.equal(rows.length, 3, `expected the three-row excerpt, parsed ${rows.length}`);
-
-  const whats = rows.map((r) => (/what:\s*'([^']*)'/.exec(r) ?? [])[1]);
-  assert.deepEqual(whats, ['paste into a terminal', 'copy the selection', 'open a link printed in a terminal']);
-
-  // Rows 0 and 1: chords, rendered as <kbd> chips. Row 2: a mouse sentence, never a chip.
-  const chords = [...(rows[0] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
-  assert.deepEqual(chords, ['ctrl+shift+v', 'shift+insert']);
-  const copyChords = [...(rows[1] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
-  assert.deepEqual(copyChords, ['ctrl+shift+c', 'ctrl+insert']);
-  assert.match(rows[2] as string, /gesture:\s*'ctrl\+click'/);
-  assert.equal((rows[0] as string).includes('gesture:'), false, 'a chord row must not render as a gesture');
-  assert.equal((rows[1] as string).includes('gesture:'), false, 'a chord row must not render as a gesture');
-  assert.equal((rows[2] as string).includes('keys:'), false, 'a mouse sentence must not render as a key chip');
-
-  // The excerpt may not drift from the full table it excerpts.
-  for (const c of [...chords, ...copyChords]) {
-    assert.ok(SHORTCUTS.includes(`'${c}'`), `${c} must also be in the overlay table`);
+test('the panel states paste, copy and the link gesture because it states the WHOLE table', () => {
+  // One source: the three rows the panel used to copy by hand are simply rows
+  // of the shared table now, and the page renders every one of them.
+  for (const what of [
+    "what: 'paste the clipboard into the terminal'",
+    "what: 'copy the selection'",
+    "what: 'open it in your browser'",
+  ]) {
+    assert.ok(ROWS_TS.includes(what), `the table must carry ${what}`);
   }
-  assert.ok(SHORTCUTS.includes("'ctrl+click a link'"), 'the link gesture must also be in the overlay table');
-  // Same words in both places: the panel and the overlay name the copy row alike.
-  assert.ok(SHORTCUTS.includes("what: 'copy the selection'"), 'the overlay must carry the same copy row');
+  assert.ok(ROWS_TS.includes("'ctrl+click a link'"), 'the link gesture is a row of the table');
+  // A chord is a key chip; a mouse gesture is a sentence and never a chip —
+  // the same rule on the page as in the overlay.
+  assert.match(
+    SETTINGS,
+    /r\.gesture === true \? el\('span', 'sg-gesture', k\) : el\('kbd', 'sg-kbd', k\)/,
+  );
+  assert.match(
+    SETTINGS,
+    /row\.append\(chips, el\('span', 'sg-rowlb', r\.what\), el\('span', 'sg-keyui', r\.ui\)\);/,
+    'the page carries all three facts of a row, like the overlay',
+  );
+  assert.match(
+    SETTINGS,
+    /if \(r\.note !== undefined\) row\.append\(el\('div', 'sg-cap', r\.note\)\);/,
+    'and the note of the rows that carry one',
+  );
 });
 
-test('every key the settings excerpt promises is one the app really takes', () => {
-  // Same rule as the overlay's own table test: the copy is checked against the
+test('every key the settings page promises is one the app really takes', () => {
+  // Same rule as the overlay's own table test: the claim is checked against the
   // predicates that read the events, not against a second hardcoded list.
   const chord = (text: string): KeyChord => {
     const parts = text.split('+');
@@ -220,14 +224,22 @@ test('every key the settings excerpt promises is one the app really takes', () =
       metaKey: parts.includes('meta'),
     };
   };
-  const block = /const KEY_ROWS: KeyRow\[\] = \[([\s\S]*?)\n\];/.exec(SETTINGS);
-  const rows = [...(block?.[1] ?? '').matchAll(/\{([^}]*)\}/g)].map((m) => m[1] as string);
-  const chords = [...(rows[0] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
-  assert.ok(chords.length >= 2, 'no chords parsed out of the panel — the check would be vacuous');
+  // The rows the page draws, read out of the module it draws them from.
+  const rowOf = (what: string): string => {
+    const hit = new RegExp(`\\{[^{}]*what: '${what}'[\\s\\S]*?\\n  \\}`).exec(ROWS_TS);
+    assert.notEqual(hit, null, `no row for ${what}`);
+    return hit?.[0] ?? '';
+  };
+  const keysOf = (what: string): string[] => {
+    const keys = /keys: \[([^\]]*)\]/.exec(rowOf(what));
+    return [...(keys?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1] as string);
+  };
+  const chords = keysOf('paste the clipboard into the terminal');
+  assert.ok(chords.length >= 2, 'no chords parsed out of the table — the check would be vacuous');
   for (const c of chords) assert.equal(isPasteChord(chord(c)), true, `the panel promises ${c}`);
-  // Row 1 is the copy row: its chords are exactly the copy pair, each one a
-  // chord isCopyChord accepts — and none of them a paste chord.
-  const copyChords = [...(rows[1] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string).slice(1);
+  // The copy row: exactly the copy pair, each one a chord isCopyChord accepts
+  // — and none of them a paste chord.
+  const copyChords = keysOf('copy the selection');
   assert.deepEqual(copyChords, ['ctrl+shift+c', 'ctrl+insert']);
   for (const c of copyChords) {
     assert.equal(isCopyChord(chord(c)), true, `the panel promises ${c} copies`);
@@ -238,11 +250,12 @@ test('every key the settings excerpt promises is one the app really takes', () =
   assert.equal(isLinkActivation({ ctrlKey: false, altKey: false, metaKey: false }), false);
 });
 
-test('the overlay answers "why not ctrl+v?" on the paste row itself, not only in the footer', () => {
+test('the table answers "why not ctrl+v?" on the paste row itself, not only in the footer', () => {
   // The user's actual question (2026-09-08). A row that lists the chord without
-  // saying why it exists is what produced it in the first place.
-  const rows = /const ROWS: Row\[\] = \[([\s\S]*?)\n\];/.exec(SHORTCUTS);
-  assert.notEqual(rows, null, 'shortcuts.ts must still declare a ROWS table');
+  // saying why it exists is what produced it in the first place. Both surfaces
+  // draw the note, because both draw this row.
+  const rows = /const ROWS: Row\[\] = \[([\s\S]*?)\n\];/.exec(ROWS_TS);
+  assert.notEqual(rows, null, 'shortcuts-rows.ts must still declare a ROWS table');
   const paste = /\{[^{}]*ctrl\+shift\+v[\s\S]*?\n  \}/.exec(rows?.[1] ?? '');
   assert.notEqual(paste, null, 'the paste row must still be in the table');
   const note = /note:\s*'([^']*)'/.exec(paste?.[0] ?? '');

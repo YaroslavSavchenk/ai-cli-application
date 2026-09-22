@@ -1,7 +1,7 @@
 ---
 type: knowledge
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-22
 tags: [security, filesystem, node, telemetry, statusline]
 ---
 # A named pipe in a watched directory hangs a synchronous open — O_NOFOLLOW is not enough
@@ -32,3 +32,14 @@ snapshot path never hangs the turn").
 `O_NONBLOCK`, then `fstat().isFile()` before the first `read`. A test that
 plants a symlink proves nothing about a FIFO; plant the FIFO itself
 (`mkfifo`) and run the reader under a timeout.
+
+**Third time (2026-09-22, B6 phase 3).** A new data-dir reader
+(`server/last-port.ts`, the remembered port) shipped with a plain
+`readFileSync` and the security review measured the same hang again: a
+`mkfifo` at `last-port.json` blocked the boot BEFORE `listen`, so the
+launcher saw no `runtime.json` and no `/health`; a symlink to `/dev/zero`
+read without end (the byte cap ran only after the read). The rule above
+holds for every reader in the data dir, not only the watched ones — a brief
+for a new data-dir file must name it. The older readers (`prefs.json`,
+`projects.json`, `history.json`, `keys.json`, `update-check.json`) still use
+`readFileSync` and sit in the BACKLOG.

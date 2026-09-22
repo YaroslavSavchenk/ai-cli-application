@@ -21,10 +21,12 @@
  * Persisted under its own localStorage key — deliberately separate from the
  * UI-arrangement schema (no version bump there).
  *
- * Server persistence: localStorage is a same-run CACHE only — the backend
- * binds a new OS-assigned port every run, so the page origin changes on
- * every restart and a fresh origin means a fresh localStorage bucket. The
- * durable copy lives server-side in prefs.json (an opaque `UiPrefs` bag —
+ * Server persistence: the port is STICKY since B6 (2026-09-22) — the backend
+ * tries the port it last bound before letting the OS pick — so the page origin
+ * and the localStorage bucket scoped to it normally survive a restart.
+ * localStorage is still only the local copy, not the durable one: a fallback
+ * port (the remembered one was busy that run) or a cleared browser profile
+ * loses the bucket. The durable copy lives server-side in prefs.json (an opaque `UiPrefs` bag —
  * see shared/protocol.ts), fetched once at boot by main.ts and handed to
  * initTheme() below. Boot order: apply the local cache immediately (no
  * flash of default), then reconcile against the server value (server wins

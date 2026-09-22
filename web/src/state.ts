@@ -414,6 +414,30 @@ function persistView(v: ViewState): Record<string, unknown> {
   };
 }
 
+/**
+ * The run stamp read out of the stored bag at `loadUi` (Nocturne B6, D3). A
+ * boot whose `GET /api/runtime` has not answered — or failed — knows no run of
+ * its own; writing `run: null` over a good stamp would turn the next boot's
+ * "same run" into "another run" and drop the tabs. So a save with nothing to
+ * say keeps what was there.
+ */
+let lastKnownRun: string | null = null;
+
+/** True once `loadUi` has run: before that a save would write an empty bag. */
+let uiLoaded = false;
+
+/**
+ * Adopt the run a restart/update handed over to (Nocturne B6, D3) and stamp the
+ * bag with it, so the `location.reload()` that follows reads the bag as its OWN
+ * run and keeps the tabs with `Reopen tabs on start` off. A no-op before
+ * `loadUi`: a save then would write `views: []` over the user's arrangement.
+ */
+export function setRunStamp(startedAt: string): void {
+  state.serverStartedAt = startedAt;
+  if (!uiLoaded) return;
+  saveUi();
+}
+
 export function saveUi(): void {
   try {
     localStorage.setItem(
@@ -427,6 +451,15 @@ export function saveUi(): void {
         // not know, and a blob written before A5 simply lands on the defaults.
         leftPanel: state.leftPanel,
         filesWidth: state.filesWidth,
+        // WHICH BACKEND RUN wrote this arrangement (Nocturne B6, user decision
+        // D3): the run's start time, and while this boot does not know it yet
+        // the stamp the bag already carried — never a null over a known run.
+        // `loadUi` compares it with the run that is booting to
+        // tell a reload (same run, the tabs stay) from a new app start (another
+        // run, the `Reopen tabs on start` switch decides). No version bump: a
+        // bag written before B6 simply has no stamp, which reads as "another
+        // run" — the honest answer for a blob from a process that is gone.
+        run: state.serverStartedAt ?? lastKnownRun,
       }),
     );
   } catch {
@@ -636,12 +669,36 @@ function migrateV1(parsed: unknown, seen: Set<string>): { views: ViewState[]; ac
   return { views, active };
 }
 
+/** What the boot has to tell `loadUi` about this run (Nocturne B6, D3). */
+export interface LoadUiOpts {
+  /**
+   * The `Reopen tabs on start` preference (ui/prefs-model.ts). False = the
+   * stored tabs are for the PREVIOUS app start only: a new backend run opens
+   * on Home instead of restoring them.
+   */
+  reopen: boolean;
+  /**
+   * This backend run's start time (`state.serverStartedAt`), or null when the
+   * runtime answer has not landed yet. It is the identity a stored bag is
+   * compared against — never a clock reading, because the question is "is this
+   * the same backend process", not "how long ago".
+   */
+  run: string | null;
+}
+
 /**
  * Rehydrate views from v2 storage; when only a v1 blob exists, migrate it
  * (then drop the v1 key). Prunes against the server's sessions and ensures
  * every server session has a view.
+ *
+ * With `reopen: false` the views are read only when the bag belongs to the run
+ * that is booting — the reload inside one run (F5, the reload after `Restart
+ * service` or an update) keeps the arrangement, a NEW app start drops it and
+ * opens on Home (user decision D3, .claude/plans/nocturne/PLAN-B6.md). The
+ * Files panel's open state and width are panel wishes, not tabs: restored
+ * either way.
  */
-export function loadUi(): void {
+export function loadUi(opts: LoadUiOpts): void {
   const ctx: LoadCtx = { seen: new Set<string>(), home: false };
   let views: ViewState[] = [];
   let active: unknown = null;
@@ -657,28 +714,49 @@ export function loadUi(): void {
   } catch {
     parsed = null;
   }
-  if (parsed !== null && typeof parsed === 'object') {
-    const o = parsed as Record<string, unknown>;
-    if (Array.isArray(o.views)) {
-      for (const v of o.views) {
-        const vv = validateView(v, ctx);
-        if (vv !== null && views.length < MAX_VIEWS) views.push(vv);
+  // Which run wrote what is stored. Anything that is not a string — absent (a
+  // pre-B6 bag, or a v1 blob), a number, a hand-edited object — reads as null,
+  // which equals only a boot that does not know its own run either.
+  const bag =
+    parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  const bagRun = typeof bag?.run === 'string' ? bag.run : null;
+  lastKnownRun = bagRun;
+  // The D3 gate, BEFORE anything is validated: with the switch off, a bag from
+  // another run is not this window's arrangement at all. Sessions never survive
+  // a backend run anyway, so what is dropped here is the editor tabs, the
+  // folder tabs, the empty views, their names, their order and which one was
+  // active — nothing that is running.
+  // A boot that does not know its own run (the runtime read has not landed,
+  // or failed) knows nothing AGAINST this bag either: unknown keeps the tabs.
+  const keepViews = opts.reopen || opts.run === null || bagRun === opts.run;
+  if (bag !== null) {
+    const o = bag;
+    if (keepViews) {
+      if (Array.isArray(o.views)) {
+        for (const v of o.views) {
+          const vv = validateView(v, ctx);
+          if (vv !== null && views.length < MAX_VIEWS) views.push(vv);
+        }
       }
+      active = o.active;
     }
-    active = o.active;
-    // Only a literal null means "the user closed it"; anything else (absent,
-    // a stale string, a number) is the default wish.
+    // The left panel is a PANEL wish, not a tab: it is restored whether or not
+    // the tabs are (user decision D3). Only a literal null means "the user
+    // closed it"; anything else (absent, a stale string, a number) is the
+    // default wish.
     if (o.leftPanel === null) state.leftPanel = null;
     if (typeof o.filesWidth === 'number') state.filesWidth = clampFilesWidth(o.filesWidth);
   } else {
     // No v2 state: try migrating v1 (malformed v1 degrades to a clean start).
+    // A v1 blob carries no run stamp, so with the switch off it is another
+    // run's arrangement by definition — the same gate applies to it.
     let v1: unknown = null;
     try {
       v1 = JSON.parse(localStorage.getItem(STORAGE_KEY_V1) ?? 'null');
     } catch {
       v1 = null;
     }
-    if (v1 !== null) {
+    if (v1 !== null && keepViews) {
       const m = migrateV1(v1, ctx.seen);
       views = m.views;
       active = m.active;
@@ -701,6 +779,7 @@ export function loadUi(): void {
   // is not a state anymore — Home is always there, possibly empty.
   ensureHomeView();
   normalizeActive();
+  uiLoaded = true;
   saveUi();
 }
 

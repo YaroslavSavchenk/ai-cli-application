@@ -11,7 +11,7 @@ indistinguishable from a native terminal. Run every check below against a
 live session (backend running, session open in the UI). Report each check as
 pass/fail — never skip and assume.
 
-The backend auto-picks its port — read it from the runtime discovery file
+The backend tries its last port first and auto-picks when taken — read it from the runtime discovery file
 (`~/.ai-session-manager/runtime.json`) or the backend's startup output;
 never assume a fixed one.
 

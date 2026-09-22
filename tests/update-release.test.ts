@@ -200,6 +200,127 @@ test('release check: a newer release becomes the ONE online reason, with the ass
   }
 });
 
+test('release check: a check asked while one is IN FLIGHT adopts it instead of resolving early', async () => {
+  const stub = await startStub();
+  const fx = await makeChecker(stub);
+  // Declared OUTSIDE the try so the teardown can always close the request the
+  // stub is holding open. Without that, a regression that makes an assertion
+  // below fail leaves the socket open and `stub.close()` blocks until the
+  // runner's timeout — a 15 s "test timed out" instead of the real diff.
+  let answer: (() => void) | undefined;
+  try {
+    // The stub holds the answer open: the first run is still talking to
+    // "GitHub" while the second caller asks. That is the manual check landing
+    // inside the periodic one — the case where resolving early would compose
+    // the status the run in flight is about to replace.
+    let arrived: (() => void) | undefined;
+    const requestArrived = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    stub.handler = (_req, res) => {
+      answer = () => {
+        res.writeHead(200, { 'content-type': 'application/json', etag: '"inflight"' });
+        res.end(JSON.stringify(releasePayload(stub.origin, 'v0.4.0')));
+      };
+      (arrived as () => void)();
+    };
+
+    const periodic = fx.checker.checkNow();
+    await requestArrived;
+    let manualDone = false;
+    const manual = fx.checker.checkNow().then(() => {
+      manualDone = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(manualDone, false, 'the manual check did NOT resolve on the old status');
+    assert.equal(fx.checker.status().available, false, 'and nothing was applied yet');
+
+    // Hand the answer over and clear it, so the teardown below cannot fire a
+    // second writeHead at a response that is already finished.
+    const fire = answer as () => void;
+    answer = undefined;
+    fire();
+    await Promise.all([periodic, manual]);
+    assert.equal(manualDone, true);
+    const status = fx.checker.status();
+    assert.equal(status.available, true, 'the adopted run had found the release');
+    assert.equal(status.reason, UPDATE_NEW_VERSION_AVAILABLE);
+    assert.equal((status.release as UpdateRelease).version, 'v0.4.0');
+    assert.equal(stub.requests.length, 1, 'two callers, ONE request to GitHub');
+  } finally {
+    answer?.();
+    await fx.cleanup();
+    await stub.close();
+  }
+});
+
+/**
+ * The case the shared run EXISTS for, end to end: the run in flight is the
+ * PERIODIC one (armed by the timer, not by a caller), and the user presses the
+ * button while it is still talking to GitHub. The manual check must adopt that
+ * run — one request, and an answer that already carries what it found. A timer
+ * that bypasses the shared entry point passes the test above and fails here.
+ */
+test('release check: a manual check landing inside the PERIODIC run adopts it — ONE request', async () => {
+  const stub = await startStub();
+  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-timer-'));
+  const lines: string[] = [];
+  const checker = createReleaseChecker({
+    currentVersion: CURRENT,
+    apiBase: stub.origin,
+    cacheFile: join(root, 'update-check.json'),
+    log: (level, message) => lines.push(`${level} ${message}`),
+    // The timer fires almost at once — that first run is the periodic one. The
+    // interval is an hour, so nothing can fire a second time inside the test.
+    firstCheckMs: 10,
+    intervalMs: 3_600_000,
+  });
+  // Outside the try: the teardown must be able to close the request the stub is
+  // holding open, or a failing assertion below hangs `stub.close()`.
+  let answer: (() => void) | undefined;
+  try {
+    let arrived: (() => void) | undefined;
+    const requestArrived = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    stub.handler = (_req, res) => {
+      answer = () => {
+        res.writeHead(200, { 'content-type': 'application/json', etag: '"timer"' });
+        res.end(JSON.stringify(releasePayload(stub.origin, 'v0.4.0')));
+      };
+      (arrived as () => void)();
+    };
+
+    checker.start();
+    await requestArrived; // the PERIODIC run is now mid-request
+
+    let manualDone = false;
+    const manual = checker.checkNow().then(() => {
+      manualDone = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(manualDone, false, 'the button did not resolve on the pre-check status');
+    assert.equal(stub.requests.length, 1, 'and it started no second request');
+    assert.equal(checker.status().available, false, 'nothing applied while the run is open');
+
+    const fire = answer as () => void;
+    answer = undefined;
+    fire();
+    await manual;
+    assert.equal(manualDone, true);
+    const status = checker.status();
+    assert.equal(status.available, true, 'the button answers what the periodic run found');
+    assert.equal(status.reason, UPDATE_NEW_VERSION_AVAILABLE);
+    assert.equal((status.release as UpdateRelease).version, 'v0.4.0');
+    assert.equal(stub.requests.length, 1, 'timer and button shared ONE request to GitHub');
+  } finally {
+    answer?.();
+    checker.stop();
+    await rm(root, { recursive: true, force: true });
+    await stub.close();
+  }
+});
+
 test('release check: the same and an older version offer nothing', async () => {
   const stub = await startStub();
   const fx = await makeChecker(stub);

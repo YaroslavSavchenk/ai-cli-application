@@ -58,6 +58,7 @@ import { el, button, trapTab, fmtAgo } from './util.ts';
 import { infoIcon } from './icons.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
 import { openSettings } from './settings.ts';
+import { getHiddenTools } from './prefs-model.ts';
 import {
   AGENT_KINDS,
   PERMS,
@@ -66,7 +67,6 @@ import {
   NOT_INSTALLED,
   SHELLS,
   SHELL_CARDS,
-  START_FROM,
   TOOLS,
   TOOL_CARDS,
   composeSpawn,
@@ -148,8 +148,17 @@ interface CardGroup<T extends string> {
    * `aria-disabled`, never a tab stop, and skipped by the arrows.
    */
   setInert(hints: ReadonlyMap<T, string>): void;
+  /**
+   * Take the named cards OUT of the grid entirely — not inert, ABSENT: hidden,
+   * never a tab stop, skipped by the arrows, invisible to `live()`. Every card
+   * not named comes back. This is Settings' `Tools` list (B6 D1), a wish about
+   * what the dialog offers, never about what the backend can run.
+   */
+  setHidden(hidden: ReadonlySet<T>): void;
   /** The values that can be picked right now, in reading order. */
   live(): T[];
+  /** The values that are ON SCREEN, inert ones included, in reading order. */
+  shown(): T[];
 }
 
 /**
@@ -177,7 +186,12 @@ function radioCards<T extends string>(
   /** Per card: its own sub-line words, and the two spans that render them. */
   const words = new Map<T, { txt: HTMLElement; lb: HTMLElement; sub: HTMLElement; own: string }>();
   const all: T[] = [];
+  /** The pickable values: everything that is neither inert nor hidden. */
   let order: T[] = [];
+  /** The cards the backend (or a tool's vocabulary) has made unselectable. */
+  let inert = new Map<T, string>();
+  /** The cards Settings took out of the grid (tool cards only, B6 D1). */
+  let hidden = new Set<T>();
   for (const s of specs) {
     const b = button(s.cls !== undefined && s.cls !== '' ? `ns-card ${s.cls}` : 'ns-card', '');
     b.setAttribute('role', 'radio');
@@ -224,8 +238,10 @@ function radioCards<T extends string>(
       const on = value === v;
       b.classList.toggle('is-sel', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
-      // An inert card is never a tab stop, selected or not.
-      b.tabIndex = on && b.getAttribute('aria-disabled') !== 'true' ? 0 : -1;
+      // An inert card is never a tab stop, selected or not — and neither is a
+      // card that is not in the grid at all.
+      b.tabIndex =
+        on && !hidden.has(value) && b.getAttribute('aria-disabled') !== 'true' ? 0 : -1;
     }
     // A group whose selected card just went inert would have NO tab stop and
     // drop out of the keyboard's reach; its first live card takes the stop
@@ -236,7 +252,8 @@ function radioCards<T extends string>(
     }
   }
   function setInert(hints: ReadonlyMap<T, string>): void {
-    order = all.filter((v) => !hints.has(v));
+    inert = new Map(hints);
+    order = all.filter((v) => !inert.has(v) && !hidden.has(v));
     for (const [value, b] of buttons) {
       const hint = hints.get(value);
       const w = words.get(value);
@@ -249,8 +266,25 @@ function radioCards<T extends string>(
     }
     select(current);
   }
+  function setHidden(next: ReadonlySet<T>): void {
+    hidden = new Set(next);
+    order = all.filter((v) => !inert.has(v) && !hidden.has(v));
+    // `hidden` on the button, not a removed node: the grid keeps ONE reading
+    // order whatever is shown, so a card that comes back lands where it has
+    // always been instead of at the end.
+    for (const [value, b] of buttons) b.hidden = hidden.has(value);
+    select(current);
+  }
   select(current);
-  return { row, buttons, select, setInert, live: () => [...order] };
+  return {
+    row,
+    buttons,
+    select,
+    setInert,
+    setHidden,
+    live: () => [...order],
+    shown: () => all.filter((v) => !hidden.has(v)),
+  };
 }
 
 /** A group label that a radiogroup can point `aria-labelledby` at. */
@@ -711,6 +745,32 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   /**
+   * The grid the user asked for (B6 D1): `TOOL_CARDS` minus the ids hidden in
+   * Settings, read FRESH here so a card toggled while the dialog was closed is
+   * gone (or back) on the next open, with no reload. Hiding is a wish about
+   * what this dialog OFFERS and nothing else: a hidden tool is still installed,
+   * still running its sessions, and `GET /api/tools` never hears about it.
+   */
+  function applyHiddenTools(): void {
+    const ids = new Set(getHiddenTools());
+    const kinds = new Set<LaunchKind>(
+      TOOL_CARDS.filter((t) => ids.has(t.id)).map((t) => t.kind as LaunchKind),
+    );
+    toolCards.setHidden(kinds);
+  }
+
+  /**
+   * The kind to pre-select: the wanted one, or — when it is not in the grid
+   * anymore — the FIRST card that is. Availability is a different question and
+   * keeps its own fallback (`applyAvailability`): this one is only about cards
+   * the user took away.
+   */
+  function shownKind(want: LaunchKind): LaunchKind {
+    const shown = toolCards.shown();
+    return shown.includes(want) ? want : (shown[0] ?? want);
+  }
+
+  /**
    * The ONE notice in the dialog: shown for a tool that reads an API key from
    * its environment and has neither a saved one nor one already set outside the
    * app. While the answer is unknown nothing is claimed — an unprompted "needs
@@ -1059,6 +1119,8 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     err.hidden = true;
     nameInput.value = '';
     setHelp(false, false);
+    // Which cards the grid holds is decided before anything is selected in it.
+    applyHiddenTools();
     // Ask again every open: a tool can be installed, and a key saved, between
     // two uses of this dialog. The LAST answer stays on screen until a new one
     // lands, so nothing flickers while the requests are in flight.
@@ -1077,13 +1139,14 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       // custom command or shell can't hijack the launch, and force-select that
       // project BEFORE defaults resolve so its defaultModel/defaultMode are
       // layered on.
-      setKind('claude', false);
+      setKind(shownKind('claude'), false);
       projectSel.value = opts.projectId;
       syncNamePlaceholder();
     } else {
       // A plain open keeps the kind (and its shell / command text) as the user
-      // last left it — the dialog's remember-what-you-chose behaviour.
-      setKind(kind, false);
+      // last left it — the dialog's remember-what-you-chose behaviour. A kind
+      // that has since left the grid falls back to the first card in it.
+      setKind(shownKind(kind), false);
     }
     // Resolve model + permission once against the now-settled selected project
     // (the forced project above, or populateProjects()'s auto-selected first
@@ -1109,7 +1172,12 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   // The assumed set on screen from the very first frame: the cards the backend
   // has not vouched for yet are already inert, so a first open cannot flash a
   // live Codex / Gemini CLI / Grok / Zsh / Command Prompt that then goes dark.
+  // The hidden cards leave the grid on the same frame, for the same reason.
+  applyHiddenTools();
   applyAvailability();
+  // Only when the remembered kind is one of them: with nothing hidden this
+  // frame is exactly the pre-B6 one, down to the untouched Model select.
+  if (shownKind(kind) !== kind) setKind(shownKind(kind), false);
 
   ctl = { open, close, isOpen: () => !scrim.hidden };
 }

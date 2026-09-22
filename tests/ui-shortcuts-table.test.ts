@@ -1,5 +1,7 @@
 /**
- * The shortcuts overlay's key table (`ROWS` in `web/src/ui/shortcuts.ts`) vs.
+ * The keyboard table (`ROWS` in `web/src/ui/shortcuts-rows.ts` — the pure data
+ * module part B6 split out of `ui/shortcuts.ts`, so the overlay and the
+ * Settings Keyboard page draw one table) vs.
  * the code that actually reads keys. The overlay is the app's only promise
  * about which keystrokes it takes; 2026-09-08 added the first row that takes a
  * key OUTSIDE the `ctrl+alt` reservation (the paste chords), so "what the
@@ -40,7 +42,10 @@ import { isCopyChord, isLinkActivation, isPasteChord } from '../web/src/ui/keys.
 import type { KeyChord } from '../web/src/ui/keys.ts';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SHORTCUTS = join(REPO_ROOT, 'web', 'src', 'ui', 'shortcuts.ts');
+/** The rows themselves; since B6 they are their own module (both surfaces read it). */
+const SHORTCUTS = join(REPO_ROOT, 'web', 'src', 'ui', 'shortcuts-rows.ts');
+/** The overlay that renders them — it still owns the standing footer note. */
+const OVERLAY = join(REPO_ROOT, 'web', 'src', 'ui', 'shortcuts.ts');
 
 interface TableRow {
   keys: string[];
@@ -57,11 +62,11 @@ interface TableRow {
   note: string | null;
 }
 
-/** Parse the `ROWS` literal out of shortcuts.ts. */
+/** Parse the `ROWS` literal out of shortcuts-rows.ts. */
 function readRows(): TableRow[] {
   const src = readFileSync(SHORTCUTS, 'utf8');
   const start = src.indexOf('const ROWS');
-  assert.notEqual(start, -1, 'shortcuts.ts must still declare a ROWS table');
+  assert.notEqual(start, -1, 'shortcuts-rows.ts must still declare a ROWS table');
   const end = src.indexOf('\n];', start);
   assert.notEqual(end, -1, 'the ROWS table must still end with a `];` line');
   const block = src.slice(start, end);
@@ -386,7 +391,7 @@ test('the copy row answers the two things a terminal user must trust, on the row
   assert.ok(text.includes('nothing selected'), `the note must say the keys fall through with no selection: ${text}`);
   // And the footer no longer claims paste is the only other thing the app takes.
   assert.ok(
-    src.includes('the paste and copy chords above are the only other keys the app takes anywhere'),
+    readFileSync(OVERLAY, 'utf8').includes('the paste and copy chords above are the only other keys the app takes anywhere'),
     'the footer must still name the two chords the app takes EVERYWHERE',
   );
 });

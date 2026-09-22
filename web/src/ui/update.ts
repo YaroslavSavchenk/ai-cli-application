@@ -150,9 +150,18 @@ const COPY = {
   reconnecting: 'Reconnecting…',
 } as const;
 
+/**
+ * Who asked for the confirmation. It decides the verb: `settings` is the
+ * maintenance `Restart service`, `settings-update` is the answered check's
+ * `Update` button — an update whatever the pending notice says, because the
+ * check just read the release itself — and the pill and the toast ask about
+ * the reason they are showing.
+ */
+type ConfirmSource = 'settings' | 'settings-update' | 'pill' | 'toast';
+
 interface UpdateCtl {
   pill: HTMLElement;
-  openConfirm(source: 'settings' | 'pill' | 'toast'): void;
+  openConfirm(source: ConfirmSource): void;
   closeConfirm(): void;
   isConfirmOpen(): boolean;
   applyRuntime(): void;
@@ -161,7 +170,7 @@ interface UpdateCtl {
 let ctl: UpdateCtl | null = null;
 
 /** Open the confirmation from anywhere (settings panel, pill, toast). */
-export function openRestartConfirm(source: 'settings' | 'pill' | 'toast' = 'settings'): void {
+export function openRestartConfirm(source: ConfirmSource = 'settings'): void {
   ctl?.openConfirm(source);
 }
 
@@ -526,7 +535,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     }
   }
 
-  function openConfirm(source: 'settings' | 'pill' | 'toast'): void {
+  function openConfirm(source: ConfirmSource): void {
     if (!scrim.hidden) return;
     // A flow is still running behind a hidden dialog: show it again instead of
     // renderConfirm()'s reset, which would ask the question a second time while
@@ -537,9 +546,15 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     }
     restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // The settings panel's `Restart service` is a maintenance verb and stays
-    // one whatever is pending; the toast and the pill ask about the reason they
-    // are showing.
-    mode = source === 'settings' ? 'restart' : noticeVerb(notice.reason);
+    // one whatever is pending; its `Update` button is the answer to a check
+    // that read the release itself, so it is an update without asking the
+    // notice; the toast and the pill ask about the reason they are showing.
+    mode =
+      source === 'settings'
+        ? 'restart'
+        : source === 'settings-update'
+          ? 'update'
+          : noticeVerb(notice.reason);
     half = mode;
     modal.setAttribute('aria-label', mode === 'update' ? 'update the app' : 'restart the background service');
     failure.textContent = '';
@@ -762,6 +777,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     if (outcome.kind === 'reload') {
       log.info(`restart: backend answered after ${outcome.afterMs}ms — reloading`);
       notice.finishRestart();
+      // Stamp the stored arrangement with the run that just took over, or the
+      // reload below reads its own bag as another run's and — with `Reopen
+      // tabs on start` off — opens on Home (Nocturne B6, D3).
+      if (outcome.startedAt !== null) st.setRunStamp(outcome.startedAt);
       // The old backend has torn down: the browser's unsaved question would
       // offer a "stay" on a page whose backend is gone (ui/unsaved.ts).
       disarmUnloadGuard();

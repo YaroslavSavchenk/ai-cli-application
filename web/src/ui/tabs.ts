@@ -18,7 +18,9 @@
  * Every drag has a keyboard/button equivalent (shortcuts overlay).
  *
  * WHAT `×` COSTS. A tab holding sessions ENDS them, so it keeps the armed
- * two-step confirm. A folder tab holding only editor panes kills nothing —
+ * two-step confirm — unless `Confirm before ending a session` is switched off
+ * in Settings (part B6), which makes the first click the act. A folder tab
+ * holding only editor panes kills nothing —
  * the panes go away — so no armed two-step stands in the way: nothing running
  * is ended. What DOES stand in the way, since part B4 (user decision D1), is
  * the unsaved-changes question: closing a tab whose files hold text no other
@@ -36,6 +38,7 @@ import { armDrag } from './dnd.ts';
 import { slotTitle, viewLabel } from './slots-model.ts';
 import { tabIdOf } from './editor-model.ts';
 import { closeViewGuarded } from './unsaved.ts';
+import { getBehaviour } from './prefs-model.ts';
 
 const armed = new ArmedSet();
 
@@ -113,7 +116,8 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
         (v) =>
           `${v.id}:${v.root?.kind ?? '-'}:${tabLabel(v)}:${st.viewStatus(v)}:` +
           `${v.slots.map((s) => s.kind).join('')}:${viewDirty(v) ? 'd' : ''}:` +
-          `${v.id === st.state.activeViewId ? '*' : ''}:${armed.isArmed(v.id) ? 'a' : ''}`,
+          `${v.id === st.state.activeViewId ? '*' : ''}:${armed.isArmed(v.id) ? 'a' : ''}:` +
+          `${getBehaviour().confirmEnd ? 'c' : ''}`,
       )
       .join('|');
     if (sig === lastSig) return;
@@ -183,7 +187,12 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
             closeViewGuarded(v.id, act, close);
             return;
           }
+          // `Confirm before ending a session` (B6), read HERE, at click time,
+          // so a flip in Settings applies to the strip already on screen. Off =
+          // the first click is the act; the unsaved question below still
+          // stands, because it is the other question.
           if (
+            !getBehaviour().confirmEnd ||
             armed.trigger(v.id, () => {
               lastSig = null;
               render();
@@ -196,9 +205,13 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
         close.setAttribute('data-k', `tabx:${v.id}`);
         close.setAttribute('aria-label', `Close tab ${i + 1}`);
         // Two different acts, two different sentences: one ends sessions, the
-        // other only puts files away.
+        // other only puts files away. The confirm is only promised while it is
+        // switched on (B6) — a tooltip that names a question nobody will be
+        // asked would be a lie about what the button costs.
         close.title = kills
-          ? 'End the sessions in this tab (asks to confirm)'
+          ? getBehaviour().confirmEnd
+            ? 'End the sessions in this tab (asks to confirm)'
+            : 'End the sessions in this tab'
           : 'Close this tab. Nothing is ended.';
         wrap.append(close);
 

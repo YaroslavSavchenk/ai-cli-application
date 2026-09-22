@@ -2701,7 +2701,7 @@ body.is-dnd * {
 
    It is a TABLE, not a form: three columns, all three information. What you
    press (mono key chips, the same chips the Settings Keyboard page draws, so
-   the excerpt and the full list read as one vocabulary), what it does (Inter,
+   the two layouts of the one table read as one vocabulary), what it does (Inter,
    the brightest ink in the row), and where the same thing lives in the UI
    (Inter, quiet — every chord here has a visible control). A row whose
    existence needs a reason carries ONE caption under it, aligned under the
@@ -3383,8 +3383,8 @@ body.is-dnd * {
    Grammar, shared with the New session dialog: rows are hairline-separated
    (neutral-900), controls are 1px neutral-800 outlines on nothing, the ONE
    accent statement is a selected card / the footer's Done, and an INERT
-   control (the Preferences page, mocked until part B6) keeps its outline and
-   drops to neutral-700 ink. Type sizes are the v3 markup's own literals.
+   control (a status-line item with both bars switched off) keeps its outline
+   and drops to neutral-700 ink. Type sizes are the v3 markup's own literals.
 
    Everything a colour MEANS stays out of here: the three status hues are never
    decoration, and the Terminal colours page paints its preview from inline
@@ -3610,8 +3610,9 @@ body.is-dnd * {
   border-color: var(--color-accent);
 }
 
-/* inert (Preferences, until part B6): the box still states its value, in the
-   same neutral-700 ink an inert card uses — never the live accent */
+/* inert (a status-line item with both bars off): the box still states its
+   value, in the same neutral-700 ink an inert card uses — never the live
+   accent */
 .sg-row:disabled[aria-pressed='true'] .sg-box {
   background: var(--color-neutral-700);
   border-color: var(--color-neutral-700);
@@ -3717,7 +3718,7 @@ body.is-dnd * {
 
 /* ---- buttons ----------------------------------------------------------------
    Three weights, in order of consequence: a text button (Reset), a text LINK
-   (Check for updates, all shortcuts), and an outlined button (Restart). The
+   (Check for updates), and an outlined button (Restart). The
    footer's Done is the shared .btn-accent — the Nocturne accent outline. */
 
 .sg-textbtn {
@@ -3794,21 +3795,48 @@ body.is-dnd * {
   outline-offset: 1px;
 }
 
-/* ---- Keyboard page ---------------------------------------------------------- */
+/* ---- Keyboard page ----------------------------------------------------------
+   Since part B6 this page draws the WHOLE table the shortcuts overlay draws
+   (one source, ui/shortcuts-rows.ts). The overlay's three columns need 640px
+   of their own; this page has that minus a 170px nav, so a row STACKS in the
+   overlay's own narrow-window order — what you press, what it does, where the
+   same thing lives in the UI — and keeps the hairline rhythm of every other
+   list in the panel. */
 
 .sg-keyrow {
   display: flex;
-  align-items: center;
-  gap: var(--space-4);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   padding: var(--space-3) var(--space-2);
   border-bottom: var(--line) solid var(--color-neutral-900);
 }
 
+/* the note under the rows that carry one sits with its row, not under a
+   checkbox: no 35px checklist indent here */
+.sg-keyrow .sg-cap {
+  padding: var(--space-1) 0 0;
+}
+
 .sg-keychips {
-  flex: none;
   display: flex;
-  align-items: center;
+  flex-wrap: wrap; /* a gesture sentence is long; it wraps rather than clips */
+  align-items: baseline;
   gap: var(--space-2);
+  max-width: 100%;
+}
+
+/* two chords on one row mean EITHER of them, exactly as the overlay says it */
+.sg-or {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* the third fact of a row: where the same thing lives in the UI, or the
+   keyboard twin of a drag (the overlay's `.sc-ui`, same ink and size) */
+.sg-keyui {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
 }
 
 .sg-kbd {
@@ -3827,7 +3855,7 @@ body.is-dnd * {
   color: var(--color-neutral-500);
 }
 
-/* ---- Preferences page (key rows LIVE since B5; Defaults still mock) ---------
+/* ---- Preferences page (key rows LIVE since B5) ------------------------------
    A row is the tool's tile, its words, and — for a tool that reads a key from
    its environment — a second line with the masked field and its three verbs.
    The state word (`Saved`) sits at the row's right edge, where a status
@@ -3954,6 +3982,23 @@ body.is-dnd * {
 .sg-svcup {
   font-size: 12px;
   color: var(--color-neutral-500);
+}
+
+/* the answer to `Check for updates` (B6): one sentence under the card it is
+   about, with the act beside it when a release is waiting. Indented to the
+   card's own padding so it reads as attached to those two facts. */
+.sg-svcanswer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+}
+
+.sg-svcmsg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
 }
 
 /* ---- Terminal colours page (Nocturne A7; live in part B9) -------------------

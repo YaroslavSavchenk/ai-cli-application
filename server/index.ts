@@ -1,10 +1,11 @@
 /**
  * AI CLI Session Manager backend — entry point.
  *
- * Binds 127.0.0.1 ONLY on an OS-assigned port (never 0.0.0.0, no fixed
- * port), then atomically writes the discovery file runtime.json (mode 0600)
- * with { port, token, pid, startedAt, appDir }. The file is removed on clean
- * SIGINT/SIGTERM shutdown.
+ * Binds 127.0.0.1 ONLY (never 0.0.0.0, never a configured port): the port is
+ * the one this data dir last bound (last-port.json, decision D5 2026-09-22)
+ * and an OS-assigned one when that is taken. It then atomically writes the
+ * discovery file runtime.json (mode 0600) with { port, token, pid, startedAt,
+ * appDir }. The file is removed on clean SIGINT/SIGTERM shutdown.
  *
  * The process runs detached (setsid for MVP): nothing depends on stdout;
  * all logging appends to server.log in the data dir. Sessions are
@@ -28,7 +29,7 @@ import type { ChildProcess } from 'node:child_process';
 import { readFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RuntimeInfo } from '../shared/protocol.ts';
+import type { RuntimeInfo, UpdateStatus } from '../shared/protocol.ts';
 import {
   resolveDataPaths,
   resolveGithubApiBase,
@@ -46,6 +47,7 @@ import {
   DEFAULT_UPDATE_API_BASE,
   resolveUpdateApiBase,
 } from './config.ts';
+import { choosePortHint, readLastPort, writeLastPort } from './last-port.ts';
 import {
   readServerCommit,
   readWebBuild,
@@ -527,6 +529,32 @@ const checkUpdate = installedCheck !== undefined
     });
 
 /**
+ * POST /api/update/check (Nocturne B6) — the user asking "is there anything
+ * new?" right now instead of waiting for the timer. Defined ONLY when there IS
+ * a checker: on a developer clone or an unreleased bundle the route answers 503
+ * rather than quietly making the outbound request this project promises not to
+ * make.
+ *
+ * SERIALISED on one module-level promise: two windows pressing the button (or a
+ * double click) share the check in flight instead of doubling the GitHub
+ * request. The composed status is read AFTER the check resolves, so the answer
+ * already carries whatever it found — and `checkNow()` never rejects, so a
+ * failure simply answers the last known status.
+ */
+const checker = releaseChecker;
+let updateCheckInFlight: Promise<UpdateStatus> | undefined;
+const updateCheck =
+  checker === undefined
+    ? undefined
+    : (): Promise<UpdateStatus> =>
+        (updateCheckInFlight ??= checker
+          .checkNow()
+          .then(() => checkUpdate())
+          .finally(() => {
+            updateCheckInFlight = undefined;
+          }));
+
+/**
  * POST /api/update — download, verify, and start the Setup on Windows. The
  * Windows launch is injected so the pipeline is testable on Linux; here it is
  * the real WSL interop spawn. A developer clone gets a controller too, and it
@@ -562,6 +590,7 @@ const apiDeps: ApiDeps = {
   installed,
   webAsset: webBuild.asset,
   checkUpdate,
+  ...(updateCheck === undefined ? {} : { updateCheck }),
   update: updater,
   log,
   allowRefusalLine,
@@ -597,18 +626,17 @@ server.on('upgrade', upgrade);
 /**
  * PORT HINT (AI_SM_PORT_HINT) — set ONLY by a restart handoff.
  *
- * The port stays auto-picked by architecture (decided 2026-07-18): this is a
- * hint on a handoff, tried once, and a busy port falls straight back to
+ * A hint on a handoff, tried once; a busy port falls straight back to
  * listen(0). It exists because the WebView2 host locks navigation to the exact
  * launch origin, so keeping the port is what lets the window simply reload.
  * Anything that is not a plausible port number is refused loudly and ignored.
  */
 const portHintRaw = process.env['AI_SM_PORT_HINT'];
-let portHint = 0;
+let envPortHint = 0;
 if (portHintRaw !== undefined && portHintRaw !== '') {
   const parsed = Number(portHintRaw);
   if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65_535) {
-    portHint = parsed;
+    envPortHint = parsed;
   } else {
     boot(
       'warn',
@@ -616,6 +644,16 @@ if (portHintRaw !== undefined && portHintRaw !== '') {
     );
   }
 }
+/**
+ * THE PORT TRIED FIRST, and where it came from (decision D5, 2026-09-22):
+ * the handoff hint, else the port this data dir last bound
+ * (`<dataDir>/last-port.json`, see server/last-port.ts), else 0 — the OS
+ * picks. Both hints travel the identical path from here on; `portSource` only
+ * decides which sentence the log writes. The file is read ONLY without a
+ * handoff hint, so a restart never complains about a file it would ignore.
+ */
+const lastPort = envPortHint === 0 ? readLastPort(paths.lastPortFile, boot) : null;
+const { port: portHint, source: portSource } = choosePortHint(envPortHint, lastPort);
 /** The hint is tried EXACTLY once; after that the OS picks and that is final. */
 let hintFellBack = false;
 let listening = false;
@@ -647,9 +685,29 @@ server.on('listening', () => {
     log('error', `failed to write ${paths.runtimeFile}: ${describeError(err)}`);
     process.exit(1);
   }
+  // Remember the port that was really bound — by every run, a restart
+  // handoff's child included (it binds the same number, so it writes the same
+  // value). Best effort: never fatal, the next start would just auto-pick.
+  //
+  // ONE EXCEPTION: a REMEMBERED port that fell back is NOT overwritten. What
+  // holds that number is usually another process's outgoing connection using
+  // it as its ephemeral source port for a few seconds; writing the auto-picked
+  // port instead would move the origin permanently and orphan the tab layout
+  // the sticky port exists to keep. So the fallback is for this run only and
+  // the next start tries the remembered port again. A HANDOFF hint that fell
+  // back still writes — that window's origin is lost either way.
+  const keepRememberedPort = hintFellBack && portSource === 'last';
+  if (!keepRememberedPort) writeLastPort(paths.lastPortFile, port, boot);
   if (hintFellBack) {
-    boot('warn', `port hint ${portHint} busy, auto-picked ${port}`);
-  } else if (portHint !== 0) {
+    boot(
+      'warn',
+      portSource === 'last'
+        ? `last port ${portHint} busy, auto-picked ${port}, keeping ${portHint} for next time`
+        : `port hint ${portHint} busy, auto-picked ${port}`,
+    );
+  } else if (portSource === 'last') {
+    boot('info', `listening on the last port ${port}`);
+  } else if (portSource === 'handoff') {
     boot(
       'info',
       `port hint ${portHint} taken (a hint on a restart handoff — the port is auto-picked otherwise)`,
@@ -664,12 +722,16 @@ server.on('listening', () => {
 });
 
 server.on('error', (err) => {
-  // A listen error while trying the HINT is the one recoverable case: the port
-  // belongs to someone else (EADDRINUSE is the expected one, but a hint is
-  // untrusted enough that ANY listen failure falls back rather than dying).
+  // A listen error while trying the first port is the one recoverable case:
+  // the port belongs to someone else (EADDRINUSE is the expected one, but
+  // neither a handoff hint nor a remembered port is trusted enough to die on,
+  // so ANY listen failure falls back).
   if (portHint !== 0 && !hintFellBack && !listening) {
     hintFellBack = true;
-    boot('warn', `listening on the hinted port ${portHint} failed: ${describeError(err)}`);
+    boot(
+      'warn',
+      `listening on the ${portSource === 'last' ? 'last' : 'hinted'} port ${portHint} failed: ${describeError(err)}`,
+    );
     server.listen(0, '127.0.0.1');
     return;
   }

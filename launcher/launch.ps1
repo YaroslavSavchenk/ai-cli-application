@@ -16,8 +16,9 @@ Usage:
                           Success shows nothing until the app window opens.
 
 How it works:
-  - The backend auto-picks its port (never hardcode one) and publishes a
-    discovery file inside WSL: ~/.ai-session-manager/runtime.json with
+  - The backend tries its last port first and auto-picks when that one is
+    taken (never hardcode a port); it publishes a discovery file inside
+    WSL: ~/.ai-session-manager/runtime.json with
     { port, token, pid, startedAt, appDir }. This script reads it via
     `wsl.exe cat` and health-checks http://127.0.0.1:<port>/health.
     ALWAYS 127.0.0.1, never `localhost`: the server binds IPv4 only and

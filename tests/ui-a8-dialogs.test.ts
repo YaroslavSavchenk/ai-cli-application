@@ -51,6 +51,9 @@ import {
 } from './tokens-helpers.ts';
 
 const SHORTCUTS_TS = readFileSync(join(WEB_SRC, 'ui', 'shortcuts.ts'), 'utf8');
+/** The rows the overlay renders: their own module since part B6 (the Settings
+ *  Keyboard page draws the same ones). */
+const SHORTCUT_ROWS_TS = readFileSync(join(WEB_SRC, 'ui', 'shortcuts-rows.ts'), 'utf8');
 const UPDATE_TS = readFileSync(join(WEB_SRC, 'ui', 'update.ts'), 'utf8');
 const DROP_DIALOG_TS = readFileSync(join(WEB_SRC, 'ui', 'drop-dialog.ts'), 'utf8');
 const DELETE_DIALOG_TS = readFileSync(join(WEB_SRC, 'ui', 'delete-dialog.ts'), 'utf8');
@@ -343,8 +346,9 @@ test('the overlay keeps its three columns, its key chips and the caption under t
   assert.match(APP_RULES, /\.sc-gesture\s*\{[^}]*font-family:\s*var\(--font-sans\)/);
   // The four chords the app takes off the terminal, and the link gesture, are
   // all still listed (the full vocabulary check is ui-shortcuts-table.test.ts).
+  // Since B6 the rows live next door, in the module both surfaces read.
   for (const k of ['ctrl+shift+v', 'shift+insert', 'ctrl+shift+c', 'ctrl+insert', 'ctrl+click a link']) {
-    assert.ok(SHORTCUTS_TS.includes(`'${k}'`), `the overlay must still list ${k}`);
+    assert.ok(SHORTCUT_ROWS_TS.includes(`'${k}'`), `the table must still list ${k}`);
   }
   // Each row that carries a one-line why keeps it, as a sentence. Five are
   // spelled with single quotes (paste, copy, the Files row menu since A9c, the
@@ -352,7 +356,7 @@ test('the overlay keeps its three columns, its key chips and the caption under t
   // sentence, and ctrl+s since B4, whose note is the reason a terminal still
   // gets that key); the files-on-the-clipboard note is double-quoted because
   // it holds an apostrophe, so this scan has never counted it.
-  const notes = [...SHORTCUTS_TS.matchAll(/note: '([^']*)'/g)].map((m) => m[1] as string);
+  const notes = [...SHORTCUT_ROWS_TS.matchAll(/note: '([^']*)'/g)].map((m) => m[1] as string);
   assert.equal(
     notes.length,
     5,

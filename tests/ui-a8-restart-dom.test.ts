@@ -110,6 +110,7 @@ const STUB_SRC: Record<string, string> = {
       return p !== undefined ? p.name : null;
     }
     export function setRestarting(v) { state.restarting = v; H.restarting.push(v); }
+    export function setRunStamp(at) { state.serverStartedAt = at; }
     export function subscribe() {}`,
   log: `
     const noop = () => {};
@@ -141,7 +142,7 @@ registerHooks({
 
 interface UpdateModule {
   initUpdate(modalHost: unknown): { pill: unknown };
-  openRestartConfirm(source?: 'settings' | 'pill' | 'toast'): void;
+  openRestartConfirm(source?: 'settings' | 'settings-update' | 'pill' | 'toast'): void;
   closeRestartConfirm(): void;
   isRestartConfirmOpen(): boolean;
   applyRuntime(): void;
@@ -323,6 +324,21 @@ test('Restart service from Settings stays a restart even while an online release
   UP.closeRestartConfirm();
   H.update = null;
   UP.applyRuntime();
+});
+
+test('the answered check’s Update button is an update even with nothing pending', () => {
+  reset();
+  setSessions(session('s1'));
+  // No notice at all: `noticeVerb(null)` is 'restart', so a source that routed
+  // through it would run a PLAIN restart — every session ended, nothing
+  // downloaded. `settings-update` maps to the update verb directly.
+  H.update = null;
+  UP.applyRuntime();
+  UP.openRestartConfirm('settings-update');
+  assert.deepEqual(texts('rs-title'), ['Update the app?']);
+  assert.equal(btn('Update').hidden, false);
+  assert.equal(modal.getAttribute('aria-label'), 'update the app');
+  UP.closeRestartConfirm();
 });
 
 // ===========================================================================

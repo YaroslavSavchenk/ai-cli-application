@@ -35,7 +35,8 @@ is kept in the backend's session history and can be resumed later, on this
 run or any future one (a Claude session resumes its own conversation, pinned
 at launch with `--session-id` and resumed with `--resume`).
 
-The port is auto-picked by the backend; nothing is ever hardcoded. Always
+The backend tries its last port first and auto-picks when it is taken; the
+launcher still reads the port from runtime.json, nothing is hardcoded. Always
 `127.0.0.1`, never `localhost` (the server binds IPv4 only; `::1` fails).
 
 ## Files

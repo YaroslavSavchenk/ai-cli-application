@@ -27,7 +27,7 @@ The facts your work hinges on:
   startup grace covers a launcher that never opens a window. Do not re-add
   window-close survival guarantees.
 - Cold WSL boot adds seconds; the launcher must handle the wait gracefully.
-- The port is auto-picked by the backend (decided 2026-07-18) — never
+- The port is chosen by the backend (its last one first, auto-pick when taken — decided 2026-07-18, amended 2026-09-22) — never
   hardcode one; always resolve it through the discovery file. A stale file
   (dead pid / failed health) means start fresh, not error out.
 

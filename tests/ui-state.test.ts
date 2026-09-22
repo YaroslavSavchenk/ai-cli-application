@@ -59,6 +59,14 @@ type EditorSlot = import('../web/src/state.ts').EditorSlot;
 type EditorTab = import('../web/src/state.ts').EditorTab;
 type ViewRoot = import('../web/src/state.ts').ViewRoot;
 
+/**
+ * `loadUi` as every test before part B6 meant it: `Reopen tabs on start` ON,
+ * which is the factory setting — the run stamp is then never consulted, so a
+ * boot that does not know its run (null) reads a bag the same way a browser
+ * reload does. The D3 gate has its own tests at the bottom of this file.
+ */
+const REOPEN: import('../web/src/state.ts').LoadUiOpts = { reopen: true, run: null };
+
 function mkSession(id: string): SessionInfo {
   return {
     id,
@@ -155,12 +163,31 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
+// B6 D3 — `setRunStamp` before the boot has read the bag. THIS TEST IS FIRST
+// ON PURPOSE: the guard it pins is a module-level flag `loadUi` sets once and
+// nothing can unset, so it can only be observed before any other test loads.
+// ---------------------------------------------------------------------------
+
+test('D3: setRunStamp before loadUi adopts the run but writes nothing over the stored bag', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  const raw = memoryStorage.getItem(STORAGE_KEY);
+  st.setRunStamp(RUN_B);
+  assert.equal(st.state.serverStartedAt, RUN_B, 'the run is adopted');
+  assert.equal(
+    memoryStorage.getItem(STORAGE_KEY),
+    raw,
+    'and the bag is untouched — a save here would write views: [] over the user’s arrangement',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // The empty state (R2: launcher tab is no longer ever-present; A10: Home is)
 // ---------------------------------------------------------------------------
 
 test('loadUi: nothing stored and no server sessions -> Home alone, empty, active', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.state.views.length, 1, 'Home is the whole strip');
   assert.deepEqual(home().slots, [], 'and it holds no panes — zero slots is the empty state');
   assert.equal(st.state.activeViewId, home().id);
@@ -168,7 +195,7 @@ test('loadUi: nothing stored and no server sessions -> Home alone, empty, active
 
 test('closeView down to the last session tab leaves Home — and Home refuses to close', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi(); // no stored arrangement -> reconcileViews auto-tabs the orphan session s1
+  st.loadUi(REOPEN); // no stored arrangement -> reconcileViews auto-tabs the orphan session s1
   assert.equal(st.state.views.length, 2, 'Home + the lone server session’s own tab');
   const sessionTab = st.state.views[1] as ViewState;
   assert.deepEqual(keys(sessionTab), ['s:s1']);
@@ -204,7 +231,7 @@ test('loadUi: prunes views for sessions the server no longer has, keeps valid on
     }),
   );
 
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   assert.deepEqual(
     st.state.views.slice(1).map((v) => v.id),
@@ -235,7 +262,7 @@ test('loadUi: a pre-R3 v2 blob with a launcher view loads without error, drops t
     }),
   );
 
-  assert.doesNotThrow(() => st.loadUi());
+  assert.doesNotThrow(() => st.loadUi(REOPEN));
 
   assert.deepEqual(
     st.state.views.slice(1).map((v) => v.id),
@@ -262,7 +289,7 @@ test('loadUi: a pre-A10 v2 blob keeps its arrangement — `sessions` is read as 
     }),
   );
 
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   const v = st.state.views[1] as ViewState;
   assert.equal(v.id, 'v-old');
@@ -290,7 +317,7 @@ test('loadUi: a LEGACY v2 bag keeps every tab, adds Home in front, and restores 
     }),
   );
 
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   assert.deepEqual(
     st.state.views.map((v: ViewState) => v.id),
@@ -316,7 +343,7 @@ test('loadUi: a pre-R3 v2 blob holding ONLY launcher views degrades to Home, emp
     }),
   );
 
-  assert.doesNotThrow(() => st.loadUi());
+  assert.doesNotThrow(() => st.loadUi(REOPEN));
   assert.equal(st.state.views.length, 1);
   assert.deepEqual(home().slots, []);
   assert.equal(st.state.activeViewId, home().id);
@@ -341,7 +368,7 @@ test('loadUi: migrates a v1 blob to v2 SESSION SLOTS, drops the v1 key, and keep
   );
   assert.equal(memoryStorage.getItem(STORAGE_KEY), null, 'precondition: no v2 blob present');
 
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   // tabC (empty) is dropped: there is no launcher view kind anymore. Home is
   // prepended — a v1 blob predates roots entirely.
@@ -363,7 +390,7 @@ test('loadUi: a malformed v1 blob degrades to a clean (Home-only) start instead 
   st.initServer([], []);
   memoryStorage.setItem(STORAGE_KEY_V1, '{not json');
 
-  assert.doesNotThrow(() => st.loadUi());
+  assert.doesNotThrow(() => st.loadUi(REOPEN));
   assert.equal(st.state.views.length, 1);
   assert.deepEqual(home().slots, []);
 });
@@ -460,7 +487,7 @@ test('slotKey is STABLE across a tab being added, switched and closed', () => {
   // The mutant this kills: `slotKey` derived from the active tab. Every string
   // below is compared BYTE-IDENTICAL to the one taken before the strip moved.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
   const v = home();
   const key = st.slotKey(v.slots[0] as PaneSlot);
@@ -518,7 +545,7 @@ test('isFolderView: Home and a project tab are folder tabs; a session tab is not
 
 test('viewForRoot: finds the folder tab it already made, and makes one only once', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const h = st.viewForRoot({ kind: 'home' });
   assert.equal(h.id, home().id, 'the home root IS views[0]');
 
@@ -535,7 +562,7 @@ test('openFile: the FIRST file makes one editor pane; the SECOND is a TAB in it'
   // User decision 1 (A10b): files must NOT each become their own pane. The
   // pane count is the whole point — this is the bug the user corrected A10 on.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'web/src/main.ts', 'main.ts'), 'ok');
   assert.equal(home().slots.length, 1, 'one pane');
   assert.deepEqual(strip(home(), 0), ['f:web/src/main.ts']);
@@ -551,7 +578,7 @@ test('openFile: the FIRST file makes one editor pane; the SECOND is a TAB in it'
 
 test('openFile: the same path RAISES the tab it is already on — never a second copy', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   for (const p of ['a.ts', 'b.ts', 'c.ts']) assert.equal(st.openFile({ kind: 'home' }, p, p), 'ok');
   const before = strip(home(), 0);
   assert.equal(activeId(home(), 0), 'f:c.ts');
@@ -565,7 +592,7 @@ test('openFile: a file open in a NON-FOCUSED pane is raised THERE, pane focus an
   // The raise-vs-add branch, on the arrangement that tells them apart: the tab
   // is in another pane of the same tab, and the focused pane is a different one.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('c.ts')]);
   v.focused = 1;
   (v.slots[0] as EditorSlot).active = 0;
@@ -581,7 +608,7 @@ test('openFile: a focused TERMINAL sends the tab to the view’s FIRST editor pa
   // Never a split off the terminal: the terminal is the hero, and the user
   // asked for the file, not for a smaller shell.
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1'), ed('b.ts')]);
   v.focused = 1;
 
@@ -598,7 +625,7 @@ test('openFile: a NEW file lands in the FOCUSED editor pane, never in the first 
   // file would pile into pane 0 while the user was working in pane 1 — a bug
   // the raise-it-where-it-is tests cannot see, because the file is NEW.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts')]);
   v.focused = 1;
 
@@ -616,7 +643,7 @@ test('openFile: a NEW file lands in the FOCUSED editor pane, never in the first 
 
 test('openFile: with NO editor pane and four panes up, it is refused and nothing changes', () => {
   st.initServer([], [mkSession('s1'), mkSession('s2'), mkSession('s3'), mkSession('s4')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), sess('s2'), sess('s3'), sess('s4')]);
   const before = shape(v);
   assert.equal(v.slots.length, st.MAX_PANES, 'precondition: the tab is full of terminals');
@@ -635,7 +662,7 @@ test('openFile: with NO editor pane and four panes up, it is refused and nothing
 
 test('openFile: a project root opens its own folder tab and activates it', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'server/ws.ts', 'ws.ts'), 'ok');
   const v = st.state.views[1] as ViewState;
   assert.deepEqual(v.root, { kind: 'project', id: 'p1' });
@@ -646,7 +673,7 @@ test('openFile: a project root opens its own folder tab and activates it', () =>
 
 test('openDiff: a read-only diff is a TAB of the same pane, and the same one raises', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'server/ws.ts', 'ws.ts'), 'ok');
   assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts', REPO), 'ok');
   assert.equal(home().slots.length, 1, 'one pane, two tabs');
@@ -665,7 +692,7 @@ test('openDiff then openFile of the SAME path: two tabs, because they are two id
   // in a commit and the editable file are two different things to look at, and
   // `f:` / `d:` are two different `state.edits` keys.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openDiff({ kind: 'home' }, '474d891', 'server/ws.ts', REPO), 'ok');
   assert.equal(st.openFile({ kind: 'home' }, 'server/ws.ts', 'ws.ts'), 'ok');
   assert.equal(home().slots.length, 1, 'still ONE pane');
@@ -713,7 +740,7 @@ test('openTabAt: the CENTRE of an editor pane ADDS a tab (and raises); a termina
   // Orchestrator default 4 (A10b): a pane full of the user's other files is
   // not something a drop may throw away, so the centre never replaces.
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1')]);
 
   assert.equal(st.openTabAt(v.id, 1, 'replace', ftab('new.ts')), 'session-centre');
@@ -738,7 +765,7 @@ test('openTabAt: the CENTRE of an editor pane ADDS a tab (and raises); a termina
 
 test('openTabAt: an unknown view or an unknown pane is `no-view`, never a guess', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView(null, [ed('a.ts')]);
   assert.equal(st.openTabAt('nope', 0, 'replace', ftab('new.ts')), 'no-view');
   assert.equal(st.openTabAt(v.id, 3, 'left', ftab('new.ts')), 'no-view');
@@ -762,7 +789,7 @@ test('MAX_TABS is four — the number the user asked for, and the persistence ca
 
 test('openFile: a FIFTH file evicts the LAST chip and takes its place, active', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   for (const p of ['a.ts', 'b.ts', 'c.ts', 'd.ts']) {
     assert.equal(st.openFile({ kind: 'home' }, p, p), 'ok');
   }
@@ -781,7 +808,7 @@ test('openFile: a FIFTH file evicts the LAST chip and takes its place, active', 
 
 test('openFile: a file already in a FULL strip is RAISED — it evicts nothing', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   for (const p of ['a.ts', 'b.ts', 'c.ts', 'd.ts']) st.openFile({ kind: 'home' }, p, p);
 
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
@@ -791,7 +818,7 @@ test('openFile: a file already in a FULL strip is RAISED — it evicts nothing',
 
 test('openFile: a diff counts in the same four — files and diffs share the strip', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   for (const p of ['a.ts', 'b.ts', 'c.ts']) st.openFile({ kind: 'home' }, p, p);
   assert.equal(st.openDiff({ kind: 'home' }, HASH40, 'a.ts', REPO), 'ok');
   assert.equal(strip(home(), 0).length, 4, 'three files and one diff IS full');
@@ -806,7 +833,7 @@ test('openFile: a diff counts in the same four — files and diffs share the str
 
 test('openFile: a NEW pane never evicts — the cap is per strip, not per tab', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
   st.state.activeViewId = v.id;
   v.focused = 1;
@@ -824,7 +851,7 @@ test('openFile: a NEW pane never evicts — the cap is per strip, not per tab', 
 
 test('openTabAt: the CENTRE of a FULL strip evicts its last chip too (the drop)', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
 
   assert.equal(st.openTabAt(v.id, 0, 'replace', ftab('new.ts')), 'ok');
@@ -838,7 +865,7 @@ test('openTabAt: the CENTRE of a FULL strip evicts its last chip too (the drop)'
 
 test('the evicted chip loses its unsaved text — and only when no other tab shows it', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
   st.setEdit('f:d.ts', 'typed\n');
 
@@ -854,7 +881,7 @@ test('the evicted chip loses its unsaved text — and only when no other tab sho
 
 test('evictionFor: the PLAN, pure — what would leave, and what that would lose', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts'), sess('s1')]);
 
   assert.deepEqual(
@@ -889,7 +916,7 @@ test('evictionFor: the PLAN, pure — what would leave, and what that would lose
 
 test('evictionFor: a dirty position 4 that ANOTHER tab shows is not lost', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts'), ed('d.ts')]);
   st.setEdit('f:d.ts', 'typed\n');
   assert.deepEqual(
@@ -901,7 +928,7 @@ test('evictionFor: a dirty position 4 that ANOTHER tab shows is not lost', () =>
 
 test('evictionForOpen: the same plan for the opener that picks its own pane', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(
     st.evictionForOpen({ kind: 'project', id: 'p1' }, ftab('e.ts')),
     null,
@@ -934,7 +961,7 @@ test('evictionForOpen: the same plan for the opener that picks its own pane', ()
 
 test('moveTab: the tab lands in the target strip and leaves the source', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('c.ts')]);
   st.state.activeViewId = v.id;
 
@@ -947,7 +974,7 @@ test('moveTab: the tab lands in the target strip and leaves the source', () => {
 
 test('moveTab: a target already holding that file RAISES it — it never shows it twice', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts', 'c.ts')]);
   (v.slots[1] as EditorSlot).active = 1;
 
@@ -962,7 +989,7 @@ test('moveTab: a raise in the target still empties the source of that tab, and c
   // copy behind in the SOURCE strip — and the source's `active`, which was on
   // the tab that left, has to come back onto a tab that exists.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts', 'c.ts')]);
   const from = v.slots[0] as EditorSlot;
   from.active = 1; // the tab being dragged is the one on screen in the source
@@ -979,7 +1006,7 @@ test('moveTab: a source emptied of tabs loses its PANE, and the target is found 
   // The 2x2 remap moves slot indices under the mover — holding the target by
   // index instead of by key lands the tab in a stranger's pane.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts'), ed('c.ts'), ed('d.ts')]);
   st.state.activeViewId = v.id;
   const targetKey = st.slotKey(v.slots[3] as PaneSlot);
@@ -993,7 +1020,7 @@ test('moveTab: a source emptied of tabs loses its PANE, and the target is found 
 
 test('moveTab: a dirty file’s text survives the move — the prune runs once, at the END', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts')]);
   const a = st.editorFileId('a.ts');
   st.setEdit(a, 'typed in a');
@@ -1005,7 +1032,7 @@ test('moveTab: a dirty file’s text survives the move — the prune runs once, 
 
 test('moveTab: a FULL target is REFUSED — a move never evicts (B4 amendment)', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('c.ts', 'd.ts', 'e.ts', 'f.ts')]);
   st.state.activeViewId = v.id;
 
@@ -1025,7 +1052,7 @@ test('moveTab: a FULL target is REFUSED — a move never evicts (B4 amendment)',
 
 test('moveTab: a bad slot, the same slot, or a terminal is refused and changes nothing', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1')]);
   const before = shape(v);
   assert.equal(st.moveTab('nope', 0, 0, 1), 'no-view');
@@ -1038,7 +1065,7 @@ test('moveTab: a bad slot, the same slot, or a terminal is refused and changes n
 
 test('moveTabToSplit: a source that KEEPS tabs needs a free pane — a full tab is `full`', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [
     ed('a.ts', 'x.ts'),
     ed('b.ts'),
@@ -1055,7 +1082,7 @@ test('moveTabToSplit: a ONE-TAB source on a full tab is fine — its own pane pa
   // The capacity rule the mutant gets wrong: the pane count does not change,
   // because the source pane leaves as the new one arrives.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts'), ed('c.ts'), ed('d.ts')]);
   st.state.activeViewId = v.id;
 
@@ -1070,7 +1097,7 @@ test('moveTabToSplit: a ONE-TAB source on a full tab is fine — its own pane pa
 
 test('moveTabToSplit: `no-zone` is measured on the view the drop will leave behind', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   // Three panes, tall pane on the left (l3 L): only slot 0 can still split.
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'x.ts'), ed('b.ts'), ed('c.ts')]);
   st.state.activeViewId = v.id;
@@ -1090,7 +1117,7 @@ test('moveTabToSplit: `no-zone` is measured on the view the drop will leave behi
 
 test('moveTabToSplit: an unknown view, pane or tab is refused', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), sess('s1')]);
   const before = shape(v);
   assert.equal(st.moveTabToSplit('nope', 0, 0, 1, 'top'), 'no-view');
@@ -1106,7 +1133,7 @@ test('moveTabToSplit: an unknown view, pane or tab is refused', () => {
 
 test('closeTab: `active` clamps to the tab that is left, and the pane stays', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts')]);
   const s = v.slots[0] as EditorSlot;
   s.active = 2; // the LAST tab is the one on screen
@@ -1126,7 +1153,7 @@ test('closeTab: `active` clamps to the tab that is left, and the pane stays', ()
 
 test('closeTab: the LAST tab takes the pane with it, down the closeSlot ladder', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   // Home keeps standing, empty (user decision 4).
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
@@ -1153,7 +1180,7 @@ test('closeTab: the LAST tab takes the pane with it, down the closeSlot ladder',
 
 test('closeTab / closeActiveTab: a terminal, a bad index and an unknown view are refused', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), ed('a.ts', 'b.ts')]);
   assert.equal(st.closeTab(v.id, 0, 0), false, 'a terminal pane has no tabs to close');
   assert.equal(st.closeTab(v.id, 1, 5), false);
@@ -1169,7 +1196,7 @@ test('closeTab / closeActiveTab: a terminal, a bad index and an unknown view are
 
 test('setActiveTab: raises a tab by index, and is silent when it is already up', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts')]);
   assert.equal(st.setActiveTab(v.id, 0, 1), true);
   assert.equal(activeId(v, 0), 'f:b.ts');
@@ -1182,7 +1209,7 @@ test('setActiveTab: raises a tab by index, and is silent when it is already up',
 
 test('cycleTab: ctrl+alt+PageUp/PageDown wraps both ways, and stands down on a terminal', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts'), sess('s1')]);
   st.state.activeViewId = v.id;
   v.focused = 0;
@@ -1208,7 +1235,7 @@ test('cycleTab: ctrl+alt+PageUp/PageDown wraps both ways, and stands down on a t
 
 test('cycleTab: a pane with ONE tab is a no-op — the chord answers false and nothing moves', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('only.ts')]);
   st.state.activeViewId = v.id;
   v.focused = 0;
@@ -1224,7 +1251,7 @@ test('cycleTab: a pane with ONE tab is a no-op — the chord answers false and n
 
 test('closeSlot: an emptied PROJECT tab goes, Home stays, and focus lands on a pane that exists', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   // Home: its last file leaves, Home stays (user decision 4).
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
@@ -1252,7 +1279,7 @@ test('closeSlot: a SESSION pane is refused — ending a session is a different a
   // The A3 no-close rule. A `×` never appears on a terminal pane, and the model
   // says so too rather than trusting every caller to remember.
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView(null, [sess('s1'), ed('a.ts')]);
   assert.equal(st.closeSlot(v.id, 0), false);
   assert.deepEqual(shape(v), ['s:s1', ['f:a.ts']]);
@@ -1262,7 +1289,7 @@ test('closeSlot: a SESSION pane is refused — ending a session is a different a
 
 test('closeSlot: a ROOTLESS tab emptied of files dissolves, like it always has', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView(null, [ed('a.ts')]);
   assert.equal(st.closeSlot(v.id, 0), true);
   assert.equal(st.state.views.some((x) => x.id === v.id), false);
@@ -1278,7 +1305,7 @@ test('closeSlot: a ROOTLESS tab emptied of files dissolves, like it always has',
 
 test('closing the ONLY pane of a dirty file drops its unsaved text', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
   const id = st.editorFileId('a.ts');
   st.setEdit(id, 'typed');
@@ -1293,7 +1320,7 @@ test('the same file in TWO panes keeps its text until BOTH are gone', () => {
   // Free mixing (decision 3): one text per FILE, shared by every TAB showing
   // it — so the first close is not the last word.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('a.ts')]);
   const id = st.editorFileId('a.ts');
   st.setEdit(id, 'typed');
@@ -1312,7 +1339,7 @@ test('openTabAt on the CENTRE of a dirty pane keeps BOTH texts — it replaces n
   // this replaces asserted the opposite, and the difference is the user's
   // unsaved typing: nothing here orphans a file, so nothing is pruned.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
   const v = home();
   const a = st.editorFileId('a.ts');
@@ -1335,7 +1362,7 @@ test('pruneOrphanEdits walks TABS: text dies with the last tab, not with the pan
   // The A10 version of this rule walked SLOTS. A pane with two files in it
   // would have pruned neither or both.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts')]);
   const a = st.editorFileId('a.ts');
   const b = st.editorFileId('b.ts');
@@ -1355,7 +1382,7 @@ test('pruneOrphanEdits walks TABS: text dies with the last tab, not with the pan
 
 test('closing a TAB drops the unsaved text of every file it held', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts')]);
   const a = st.editorFileId('a.ts');
   const b = st.editorFileId('b.ts');
@@ -1376,7 +1403,7 @@ test('merging a tab into another keeps the unsaved text of the file in transit',
   // from `dissolveView` would eat text the user is still looking at — which is
   // why the prune lives in closeSlot/closeView/the tab movers and nowhere else.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const src = addView({ kind: 'project', id: 'p1' }, [ed('a.ts')]);
   const dst = addView({ kind: 'project', id: 'p2' }, [ed('b.ts')]);
   const a = st.editorFileId('a.ts');
@@ -1394,7 +1421,7 @@ test('merging a tab into another keeps the unsaved text of the file in transit',
 
 test('movePane: a file and a terminal trade places, and focus follows the moved pane', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), sess('s1')]);
   st.state.activeViewId = v.id;
   v.focused = 0;
@@ -1421,7 +1448,7 @@ test('movePane: a file and a terminal trade places, and focus follows the moved 
 
 test('reconcileViews: the server forgot a session — its pane goes, the files beside it stay', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('gone'), ed('b.ts')]);
   const rootless = addView(null, [sess('gone2')]);
 
@@ -1449,7 +1476,7 @@ test('reconcileViews: an unassigned server session still gets its own tab, after
 
 test('reorderView / moveActiveViewBy never displace Home', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const a = addView(null, [ed('a.ts')], 'v-a');
   const b = addView(null, [ed('b.ts')], 'v-b');
   const ids = () => st.state.views.map((v) => (v.root?.kind === 'home' ? 'HOME' : v.id));
@@ -1476,7 +1503,7 @@ test('reorderView / moveActiveViewBy never displace Home', () => {
 
 test('extractSession: the new tab lands after its old one, never before Home', () => {
   st.initServer([], [mkSession('s1'), mkSession('s2')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   st.state.views = [st.state.views[0] as ViewState];
   const h = home();
   h.slots = [sess('s1'), sess('s2')];
@@ -1489,7 +1516,7 @@ test('extractSession: the new tab lands after its old one, never before Home', (
 
 test('mergeViews: Home is never the source — it is never dissolved', () => {
   st.initServer([], [mkSession('s1'), mkSession('s2')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   // One view per session: take the two auto-tabs apart by hand and hold both
   // sessions where this test wants them.
   const h = home();
@@ -1509,7 +1536,7 @@ test('mergeViews: Home is never the source — it is never dissolved', () => {
 
 test('moveSessionToView: a terminal joins a folder tab, and the folder tab keeps its files', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const p = addView({ kind: 'project', id: 'p1' }, [ed('a.ts')]);
   const src = st.viewOfSession('s1') as ViewState;
 
@@ -1529,7 +1556,7 @@ test('save/load: every slot survives a reload — terminals, editor panes, their
   // would have restored placeholder content. Now the tab is a path the app can
   // read again, so it comes back; the unsaved TEXT still does not.
   st.initServer([], [mkSession('s1'), mkSession('s2')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = st.viewOfSession('s1') as ViewState;
   v.slots = [sess('s1'), ed(A, B), sess('s2')];
   v.focused = 1; // an EDITOR pane is focused
@@ -1544,7 +1571,7 @@ test('save/load: every slot survives a reload — terminals, editor panes, their
   st.state.views = [];
   st.state.activeViewId = '';
   st.state.edits = new Map();
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   assert.equal(st.state.views[0]?.root?.kind, 'home', 'Home is recreated at index 0');
   const back = st.state.views.find((x) => x.id === v.id) as ViewState;
@@ -1568,13 +1595,13 @@ test('save/load: every slot survives a reload — terminals, editor panes, their
 
 test('save/load: a diff tab comes back too, with the folder it is read from', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   home().slots = [edTabs(dtab(HASH40, 'server/ws.ts'), ftab(A))];
   (home().slots[0] as EditorSlot).active = 1;
   st.saveUi();
 
   st.state.views = [];
-  st.loadUi();
+  st.loadUi(REOPEN);
   const slot = home().slots[0] as EditorSlot;
   assert.deepEqual(slot.tabs, [
     { kind: 'diff', hash: HASH40, path: 'server/ws.ts', root: REPO },
@@ -1585,7 +1612,7 @@ test('save/load: a diff tab comes back too, with the folder it is read from', ()
 
 test('save/load: a tab that holds ONLY files comes back now, and Home always does', () => {
   st.initServer([], [mkSession('s1')]);
-  st.loadUi();
+  st.loadUi(REOPEN);
   // s1 arrived in its own auto-tab; this test wants it in the folder tab, and
   // a session lives in exactly ONE view.
   st.state.views = [home()];
@@ -1597,7 +1624,7 @@ test('save/load: a tab that holds ONLY files comes back now, and Home always doe
 
   st.state.views = [];
   st.state.activeViewId = '';
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   const back = st.state.views.find((x) => x.id === withTerm.id) as ViewState;
   assert.deepEqual(back?.root, { kind: 'project', id: 'p1' }, 'the folder tab kept its root');
@@ -1625,7 +1652,7 @@ test('save/load: a view with NO slots at all is still dropped unless it is Home'
       active: 'empty',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.deepEqual(st.state.views.map((v) => v.id), ['h']);
 });
 
@@ -1643,7 +1670,7 @@ test('save/load: a second Home in the bag is not a second Home', () => {
       active: 'h2',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.deepEqual(st.state.views.map((v) => v.id), ['h1'], 'the second one was rootless and empty -> dropped');
   assert.equal(home().id, 'h1');
 });
@@ -1697,7 +1724,7 @@ test('save/load: a hostile bag is GATED, tab by tab — and what is left is drop
       active: 'v1',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   const v = st.state.views.find((x) => x.id === 'v1') as ViewState;
   assert.deepEqual(
     shape(v),
@@ -1739,7 +1766,7 @@ test('save/load: a diff tab whose root is not absolute is dropped', () => {
       active: 'h',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.deepEqual(
     st.slotTabIds(home().slots[0] as PaneSlot),
     [E.diffTabId(HASH40, 'c.ts')],
@@ -1782,7 +1809,7 @@ test('save/load: a hash that merely CONTAINS 40 hex is not a hash', () => {
       active: 'h',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.deepEqual(
     st.slotTabIds(home().slots[0] as PaneSlot),
     [E.diffTabId(HASH40, 'e.ts')],
@@ -1823,7 +1850,7 @@ test('save/load: a path over 4096 chars is dropped', () => {
       active: 'h',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.deepEqual(
     st.slotTabIds(home().slots[0] as PaneSlot),
     [E.fileTabId(ok)],
@@ -1849,7 +1876,7 @@ test('save/load: a strip in the bag is capped, and so is the number of panes', (
       active: 'h',
     }),
   );
-  st.loadUi();
+  st.loadUi(REOPEN);
   const strip0 = st.slotTabIds(home().slots[0] as PaneSlot);
   assert.equal(
     strip0.length,
@@ -1869,7 +1896,7 @@ test('save/load: a strip in the bag is capped, and so is the number of panes', (
 
 test('save/load: the bag holds paths, and nothing a path is not — no text, ever', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   home().slots = [ed(A)];
   st.setEdit(E.fileTabId(A), 'secret typing that is not on disk\n');
   st.saveUi();
@@ -1899,7 +1926,7 @@ test("every tab and pane mutator notifies 'ui' — an editor pane is a PANE", ()
   // pane area" (the commit view), and `ui/panes.ts` ignores it on purpose. A
   // file pane that announced itself with 'screen' would never be drawn.
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const { kinds } = collectKinds();
   const only = (fn: () => void): string[] => {
     kinds.length = 0;
@@ -1931,7 +1958,7 @@ test("every tab and pane mutator notifies 'ui' — an editor pane is a PANE", ()
 
 test("saveEdit notifies 'ui' (the dot it clears lives on a pane header) and a clean file is silent", () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   const { kinds } = collectKinds();
   const id = st.editorFileId('a.ts');
 
@@ -2143,7 +2170,7 @@ test('projectName resolves to the NAME — never the path, never the id', () => 
 
 test('saveUi/loadUi: a dragged Files width and a closed panel survive a reload', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.state.leftPanel, 'files', 'the panel is wanted by default');
   assert.equal(st.state.filesWidth, st.FILES_W_DEFAULT);
 
@@ -2153,7 +2180,7 @@ test('saveUi/loadUi: a dragged Files width and a closed panel survive a reload',
   // What a reload really does: forget the module state, read the bag back.
   st.state.filesWidth = st.FILES_W_DEFAULT;
   st.state.leftPanel = 'files';
-  st.loadUi();
+  st.loadUi(REOPEN);
 
   assert.equal(st.state.filesWidth, 460, 'the dragged width is still the dragged width');
   assert.equal(st.state.leftPanel, null, 'and the panel the user closed stays closed');
@@ -2165,7 +2192,7 @@ test('saveUi/loadUi: a dragged Files width and a closed panel survive a reload',
 
 test('saveUi: a live drag (commit false) writes nothing; the commit at the end does', () => {
   st.initServer([], []);
-  st.loadUi();
+  st.loadUi(REOPEN);
   st.setFilesWidth(420, false);
   let bag = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
   assert.equal(bag.filesWidth, st.FILES_W_DEFAULT, 'sixty writes a second is what this avoids');
@@ -2181,17 +2208,17 @@ test('loadUi: a garbage width falls back to the default, and a garbage wish to o
       STORAGE_KEY,
       JSON.stringify({ views: [], active: null, filesWidth: bad, leftPanel: 'sideways' }),
     );
-    st.loadUi();
+    st.loadUi(REOPEN);
     assert.equal(st.state.filesWidth, st.FILES_W_DEFAULT, `filesWidth: ${JSON.stringify(bad)}`);
     assert.equal(st.state.leftPanel, 'files', 'an unknown panel name is not a panel');
   }
 
   // Out of range is not garbage — it is clamped, like a split fraction.
   memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ views: [], active: null, filesWidth: 9000 }));
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.state.filesWidth, st.FILES_W_MAX);
   memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ views: [], active: null, filesWidth: 12 }));
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.state.filesWidth, st.FILES_W_MIN);
 });
 
@@ -2200,7 +2227,236 @@ test('loadUi: a pre-A5 v2 blob (neither key) opens the panel at the default widt
   memoryStorage.setItem(STORAGE_KEY, JSON.stringify({ views: [], active: null }));
   st.state.leftPanel = null;
   st.state.filesWidth = 512;
-  st.loadUi();
+  st.loadUi(REOPEN);
   assert.equal(st.state.leftPanel, 'files');
   assert.equal(st.state.filesWidth, st.FILES_W_DEFAULT);
+});
+
+// ---------------------------------------------------------------------------
+// B6 D3 — `Reopen tabs on start` and the run stamp
+//
+// A session never survives a backend run (it dies with the process), so what
+// this switch decides is what is left in the BAG: the editor tabs, the folder
+// tabs, the empty views, their names, their order and which one was active.
+// Off applies to a NEW app start only — a reload inside the same run (F5, the
+// reload after `Restart service` or an update) keeps the arrangement, which is
+// why the bag carries the run that wrote it.
+// ---------------------------------------------------------------------------
+
+const RUN_A = '2026-09-22T09:00:00.000Z';
+const RUN_B = '2026-09-22T11:30:00.000Z';
+
+/** A bag holding one folder tab with one file open, as saveUi would write it. */
+function bagWithTabs(run: string | null): void {
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        {
+          id: 'v-files',
+          root: { kind: 'folder', path: '/home/you/demo-api' },
+          slots: [{ kind: 'editor', tabs: [{ kind: 'file', path: '/home/you/demo-api/README.md' }], active: 0 }],
+          focused: 0,
+          l3: 'L',
+          split: { col: 0.5, row: 0.5 },
+        },
+      ],
+      active: 'v-files',
+      leftPanel: null,
+      filesWidth: 460,
+      run,
+    }),
+  );
+}
+
+/** The tabs that came back, Home included. */
+const viewIds = (): string[] => st.state.views.map((v: ViewState) => v.id);
+
+test('saveUi: the bag carries the run that wrote it, and a run that is not a string reads as none', () => {
+  st.initServer([], []);
+  st.state.serverStartedAt = RUN_A;
+  st.loadUi({ reopen: true, run: RUN_A });
+  const bag = (): Record<string, unknown> =>
+    JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.equal(bag().run, RUN_A, 'the stamp rides in the same v2 bag, no version bump');
+
+  // Before GET /api/runtime has answered there is no run of this boot's own to
+  // stamp with — so the save keeps the stamp the bag already carried. Writing
+  // null there would turn the next boot's "same run" into "another run" and
+  // cost the user their tabs for a read that merely had not landed yet.
+  st.state.serverStartedAt = null;
+  st.loadUi({ reopen: true, run: null });
+  assert.equal(bag().run, RUN_A);
+});
+
+test('D3: reopen ON restores the tabs whatever the run was — today\'s behaviour, unchanged', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  st.loadUi({ reopen: true, run: RUN_B });
+  assert.deepEqual(viewIds(), [home().id, 'v-files']);
+  assert.deepEqual(strip(st.state.views[1] as ViewState, 0), ['f:/home/you/demo-api/README.md']);
+  assert.equal(st.state.activeViewId, 'v-files', 'and the tab they left is the tab they come back to');
+});
+
+test('D3: reopen OFF keeps the tabs on a RELOAD — the same run wrote them', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  st.loadUi({ reopen: false, run: RUN_A });
+  assert.deepEqual(viewIds(), [home().id, 'v-files']);
+  assert.equal(st.state.activeViewId, 'v-files');
+});
+
+test('D3: reopen OFF drops the tabs on a NEW run — the window starts on Home', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.deepEqual(viewIds(), [home().id], 'Home alone');
+  assert.deepEqual(home().slots, [], 'and empty');
+  assert.equal(st.state.activeViewId, home().id);
+});
+
+test('D3: the Files panel is a PANEL wish, not a tab — its width and closed state come back either way', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.deepEqual(viewIds(), [home().id], 'the tabs went');
+  assert.equal(st.state.leftPanel, null, 'the panel the user closed stays closed');
+  assert.equal(st.state.filesWidth, 460, 'and the width they dragged is still theirs');
+});
+
+test('D3: a hostile or missing run reads as ANOTHER run, never as this one', () => {
+  st.initServer([], []);
+  for (const run of [undefined, null, 17, true, { at: RUN_A }, [RUN_A]]) {
+    bagWithTabs(RUN_A);
+    const raw = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+    if (run === undefined) delete raw.run;
+    else raw.run = run;
+    memoryStorage.setItem(STORAGE_KEY, JSON.stringify(raw));
+    st.loadUi({ reopen: false, run: RUN_A });
+    assert.deepEqual(viewIds(), [home().id], `run ${JSON.stringify(run)} is not a run`);
+  }
+  // A pre-B6 bag (no stamp at all) read by a boot that does not know its run
+  // either is the one case both sides agree on: nothing to tell apart.
+  bagWithTabs(RUN_A);
+  const raw = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  delete raw.run;
+  memoryStorage.setItem(STORAGE_KEY, JSON.stringify(raw));
+  st.loadUi({ reopen: false, run: null });
+  assert.deepEqual(viewIds(), [home().id, 'v-files']);
+});
+
+test('D3: a session the server still has gets its tab back even with the stored tabs dropped', () => {
+  // The gate drops an ARRANGEMENT, never a session: reconcileViews auto-tabs
+  // everything the backend reports, so nothing running can be hidden by a
+  // preference.
+  st.initServer([], [mkSession('s1')]);
+  bagWithTabs(RUN_A);
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.equal(st.state.views.length, 2, 'Home and the session that is running');
+  assert.deepEqual(keys(st.state.views[1] as ViewState), ['s:s1']);
+});
+
+test('D3: a v1 blob follows the same rule — it carries no stamp, so it is another run\'s', () => {
+  st.initServer([], [mkSession('s1')]);
+  memoryStorage.setItem(
+    STORAGE_KEY_V1,
+    JSON.stringify({ tabs: [{ id: 't1', sessionId: 's1' }], activeTabId: 't1' }),
+  );
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.equal(memoryStorage.getItem(STORAGE_KEY_V1), null, 'the v1 key is dropped either way');
+  assert.deepEqual(viewIds()[0], home().id);
+  assert.equal(st.state.views.length, 2, 'the session is auto-tabbed, not restored from the blob');
+});
+
+test('D3: the first save after a dropped bag re-stamps it with THIS run', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  st.state.serverStartedAt = RUN_B;
+  st.loadUi({ reopen: false, run: RUN_B });
+  const bag = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.equal(bag.run, RUN_B);
+  assert.deepEqual(
+    (bag.views as { root: { kind: string }; slots: unknown[] }[]).map((v) => [v.root.kind, v.slots.length]),
+    [['home', 0]],
+    'and it holds nothing but the empty Home',
+  );
+  // Which makes the NEXT reload inside this run a keeper.
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.deepEqual(viewIds(), [home().id]);
+});
+
+test('D3: an UNKNOWN current run keeps the tabs, and the following save keeps the stamp', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  // GET /api/runtime has not answered, or failed. The window knows nothing
+  // AGAINST this bag, and a failed read must never cost the user their tabs.
+  st.loadUi({ reopen: false, run: null });
+  assert.deepEqual(viewIds(), [home().id, 'v-files'], 'the arrangement stays');
+  const bag = (): Record<string, unknown> =>
+    JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.equal(bag().run, RUN_A, 'and loadUi’s own save kept the stamp it found');
+  // The runtime answer lands after the boot, exactly as it does in main.ts.
+  st.state.serverStartedAt = RUN_A;
+  st.saveUi();
+  assert.equal(bag().run, RUN_A);
+  // Which leaves the next reload inside this run a keeper.
+  st.loadUi({ reopen: false, run: RUN_A });
+  assert.deepEqual(viewIds(), [home().id, 'v-files']);
+});
+
+test('D3: setRunStamp after loadUi re-stamps the bag, so the restart’s reload keeps the tabs', () => {
+  st.initServer([], []);
+  bagWithTabs(RUN_A);
+  st.state.serverStartedAt = RUN_A;
+  st.loadUi({ reopen: false, run: RUN_A });
+  assert.deepEqual(viewIds(), [home().id, 'v-files']);
+  // The restart's 202 named the run that took over. Without this the reload
+  // below reads its own bag as another run's and opens on Home.
+  st.setRunStamp(RUN_B);
+  const bag = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  assert.equal(bag.run, RUN_B);
+  assert.equal(st.state.serverStartedAt, RUN_B);
+  assert.equal(
+    (bag.views as { id: string }[]).some((v) => v.id === 'v-files'),
+    true,
+    'the tabs are still in it',
+  );
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.deepEqual(viewIds(), [home().id, 'v-files'], 'the reload after the restart keeps them');
+});
+
+test('D3: a hostile stamp is never laundered back into the bag — what is written is a string or nothing', () => {
+  // The read side of the gate is covered above; this is the WRITE side of the
+  // same hostile bag. `loadUi` remembers the stamp it found so a save that has
+  // no run of its own does not null it out — and what it remembers has to be a
+  // run, not whatever a hand-edited (or corrupted) prefs blob carried. Without
+  // the string check a number, a boolean or an object is copied straight back
+  // into storage, where every later boot has to keep defending against it.
+  st.initServer([], []);
+  const bag = (): Record<string, unknown> =>
+    JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+  for (const run of [17, true, { at: RUN_A }, [RUN_A], '']) {
+    bagWithTabs(RUN_A);
+    const raw = JSON.parse(memoryStorage.getItem(STORAGE_KEY) as string) as Record<string, unknown>;
+    raw.run = run;
+    memoryStorage.setItem(STORAGE_KEY, JSON.stringify(raw));
+    // This boot does not know its own run (GET /api/runtime has not landed),
+    // so `loadUi`'s own save falls back on the stamp the bag carried.
+    st.state.serverStartedAt = null;
+    st.loadUi({ reopen: false, run: null });
+    const written = bag().run;
+    assert.equal(
+      written === null || typeof written === 'string',
+      true,
+      `a ${JSON.stringify(run)} stamp must not be written back as itself (got ${JSON.stringify(written)})`,
+    );
+    if (typeof run !== 'string') assert.equal(written, null, `${JSON.stringify(run)} is no run at all`);
+  }
+  // And the empty string is a string, so it rides back out untouched — it can
+  // never equal a real startedAt, which makes it another run, as it should be.
+  assert.equal(bag().run, '');
+  st.state.serverStartedAt = RUN_B;
+  st.loadUi({ reopen: false, run: RUN_B });
+  assert.deepEqual(viewIds(), [home().id], 'an empty stamp is not this run');
+  assert.equal(bag().run, RUN_B, 'and the first save replaces it with a real one');
 });

@@ -101,8 +101,13 @@ export function canHideRestartDialog(phase: RestartPhase): boolean {
 }
 
 export type RestartOutcome =
-  /** Same address, replacement answered `/health` after `afterMs`: reload this page. */
-  | { kind: 'reload'; afterMs: number }
+  /**
+   * Same address, replacement answered `/health` after `afterMs`: reload this
+   * page. `startedAt` is the NEW run's start time out of the 202 (null when
+   * the body was not the contract): the caller stamps the stored arrangement
+   * with it, so the reload reads that bag as its own run (Nocturne B6, D3).
+   */
+  | { kind: 'reload'; afterMs: number; startedAt: string | null }
   /** Auto-picked a different port: try to navigate, then fall back to `relaunch`. */
   | { kind: 'otherPort'; port: number }
   /** Another restart was already running; nothing happened. */
@@ -212,7 +217,7 @@ export async function runRestart(deps: RestartDeps): Promise<RestartOutcome> {
   deps.onPhase('reconnecting');
   const took = await waitForHealth(deps);
   if (took === null) return { kind: 'failed', message: MSG_LOST };
-  return { kind: 'reload', afterMs: took };
+  return { kind: 'reload', afterMs: took, startedAt: parsed?.startedAt ?? null };
 }
 
 /** `http://127.0.0.1:<port>/` — the only address a fallback navigation may use. */

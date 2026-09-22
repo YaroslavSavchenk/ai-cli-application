@@ -208,8 +208,23 @@ multi-pane layouts on top.
   `__BUILD_ID__`; now
   `web/vite.config.ts` re-exports the root config and main.ts reads the id
   through `typeof`).
-- **Port: auto-picked** (decided 2026-07-18). The backend binds `127.0.0.1`
-  on an OS-assigned free port and publishes a runtime discovery file
+- **Port: the last one first, auto-pick as the fallback** (decided
+  2026-07-18 as auto-pick only; amended 2026-09-22, Nocturne B6 decision 5,
+  user's call: the tab layout lives in localStorage, which is tied to the
+  origin INCLUDING the port, so a new port on every start threw the layout
+  away). The backend remembers the port it bound in
+  `<dataDir>/last-port.json` (0600, atomic, gated on read to an integer
+  1024–65535 — a missing file is the silent first run, anything else is
+  ignored with one debug line; opened `O_NOFOLLOW|O_NONBLOCK` and judged by
+  `fstat` first, so a planted FIFO or link cannot hang the boot) and tries it first
+  on every start through the same hint path a restart handoff uses
+  (`AI_SM_PORT_HINT` beats the file; a busy port falls back to an
+  OS-assigned one — `last port N busy, auto-picked M, keeping N for next
+  time`: the remembered port is NOT overwritten by a fallback, so a
+  transient squatter — typically another process's outgoing connection
+  holding that number as its ephemeral source port for a moment — cannot
+  move the origin for good). It binds `127.0.0.1`
+  and publishes a runtime discovery file
   (`~/.ai-session-manager/runtime.json`: port, auth token, pid, startedAt,
   and since 2026-09-08 `appDir` — the app root the process was loaded from
   (a realpath under Node's default symlink resolution), so an installer never
@@ -413,7 +428,13 @@ multi-pane layouts on top.
   beats `a new version is available` (online); `/api/runtime.update.release`
   carries the offer. **Button** (`POST /api/update`, authed, no body:
   `202 {version}` · `409` in flight · `422` nothing / not installed · `503`
-  no updater; progress via `GET /api/update/status` polled at 1 Hz):
+  no updater; progress via `GET /api/update/status` polled at 1 Hz;
+  since Nocturne B6 (2026-09-22) `POST /api/update/check`, authed, no body,
+  runs the release check NOW — a check already in flight, the periodic
+  one included, is shared, never doubled — and answers the same composed
+  status `/api/runtime` carries, 503 without a checker; its access line
+  carries `note="<constant sentence>"`, the one 2xx route that logs an
+  outcome, `reason=` stays a refusal word):
   `server/update-install.ts` downloads `SHA256SUMS.txt` then the Setup as
   `<dataDir>/updates/<version>/<name>.part` with the SHA-256 computed inline,
   exact size, 200 MiB cap, 60 s idle / 15 min total, free-space precheck,
@@ -753,7 +774,16 @@ multi-pane layouts on top.
   bag; `sessions: string[]` is still
   read as legacy, and the reader ignores unknown keys, so no bump; a
   pre-A10 build reading a post-A10 bag drops every view, a pre-B4 build
-  drops a non-Home view whose only panes are editor panes). Either way,
+  drops a non-Home view whose only panes are editor panes). Since Nocturne
+  B6 (2026-09-22, decision 3) the bag also carries `run`, the backend's
+  `startedAt` at save time: with `Reopen tabs on start` OFF the views come
+  back only for the run that wrote them (an F5, and the reload after
+  `Restart service` or an update, which re-stamps the bag with the child's
+  `startedAt` before reloading); a fresh app start opens on Home. ON
+  (factory) restores them on every load — which, since the port is sticky
+  (Architecture § Port), now includes a fresh app start. An unknown run
+  (the runtime check failed) keeps the tabs, and a known stamp is never
+  overwritten with null. Either way,
   sessions exist independently of tabs/panes/splits.
 - **Files panel** (Nocturne A5, landed 2026-09-13; visual, mocked until
   B2/B3): a third middle-row column left of the pane grid (after the
@@ -1010,20 +1040,40 @@ multi-pane layouts on top.
   instead."), Gemini CLI `GEMINI_API_KEY`, Grok `XAI_API_KEY`; Codex has no
   field ("Signs in inside the terminal"); the page only ever learns saved /
   not saved / `Set outside the app` from `GET /api/keys`, a key never comes
-  back, the field is cleared on save and on close; tool visibility and the
-  Defaults block stay mock until B6 with the subtitle `The keys your tools
-  need.`), Keyboard,
+  back, the field is cleared on save and on close, under an `API keys`
+  heading since B6; **Tools** (Nocturne B6, 2026-09-22, decision 1: one
+  toggle per card of the New session dialog, a hidden card is absent from
+  the grid and a hidden pre-selection falls back to the first visible card,
+  the last visible card refuses with `Keep at least one tool visible.`,
+  the key rows stay for hidden tools; `prefs.tools.hidden`, clamped on read
+  so at least one card always stays); **Defaults** (B6: `Reopen tabs on
+  start` — see Tabs and layouts, `Confirm before ending a session` — the
+  armed two-step on every door that ends a session, off = one click, the
+  B4 unsaved-text question never switched off, `Follow output` — every
+  write ends at the bottom even after scrolling up, off = xterm's rule;
+  `prefs.behaviour`, factory on / on / off; the notifications row was
+  dropped until C1, decision 2); the page lead reads `Your tools and how
+  the app behaves.`), Keyboard (B6: the WHOLE shortcuts table, drawn from
+  `web/src/ui/shortcuts-rows.ts`, the one source the overlay reads too),
   Terminal colours (mock until B9; shape decided 2026-09-13, plan decision
   10: presets + custom ground and text, ground + text only, terminal only,
   status colours never themed, no top-bar switch — see
-  `memory/decisions/terminal-colours-shape.md`), Background service.
+  `memory/decisions/terminal-colours-shape.md`), Background service
+  (version, uptime, `Restart service`; since B6, decision 4, `Check for
+  updates` asks `POST /api/update/check` and answers on the page —
+  `You have the newest version.` / `Version <tag> is available.` with an
+  `Update` button that opens the update confirm through its own source
+  `settings-update` / `A new version is installed. Restart the service to
+  use it.` / `Could not check for updates.` — then re-fetches the runtime so
+  the pill and the toast agree; hidden when the app is not installed).
   The same part restyled the `Add a project` dialog (header, tabs
   `New folder` / `Clone a repository` / `From GitHub`, checklist rows,
   footer) and the folder picker (`pk-` block) onto the Nocturne primitives,
   behaviour and request bodies unchanged.
   Launch-dialog pre-selection comes from per-project defaults in
   `projects.json` (which stay — a separate feature) with a hardcoded
-  fallback; a per-launch choice always wins.
+  fallback, and since B6 falls back to the first visible card when the
+  chosen one is hidden; a per-launch choice always wins.
 - **Terminal status line — decided 2026-07-25, shipped 2026-07-26,
   replacing the 2026-07-24 per-pane status strip (removed).** Claude Code
   draws its OWN status line inside each app-launched claude session; the
@@ -1232,8 +1282,9 @@ multi-pane layouts on top.
   top-bar `?` button was dropped by the Nocturne chrome, part A2, 2026-09-10 —
   the v3 handoff has none): the statusline's "Keyboard shortcuts" button, the
   `?` key and Ctrl+Alt+/ open the shortcuts overlay, whose paste and copy rows
-  carry a one-line why; Settings has a Keys section with the paste and copy
-  chords, Ctrl+click for links, and an `all shortcuts` link (the Keyboard page, A7). When the window regains focus the
+  carry a one-line why; Settings → Keyboard draws the same table from the
+  same rows module (B6, 2026-09-22; A7's three-row excerpt and its `all
+  shortcuts` link are gone). When the window regains focus the
   keyboard goes back to the focused pane unless a dialog, drawer, overlay
   or editable field owns it. OSC 8 hyperlinks printed by a CLI open in the
   system browser on **Ctrl+click** (`http`/`https` only, no confirm
@@ -1366,10 +1417,11 @@ impossibilities, not looks. Rationale, and the cuts themselves (formerly
 enumerated in the now-removed `design/GAP-ANALYSIS.md`), in
 `memory/decisions/handoff-design-primary.md`.)
 
-(Settled 2026-07-18: port auto-pick + discovery file; vanilla TS + Vite
-frontend; app data — projects.json, runtime.json, history.json (2026-09-06,
+(Settled 2026-07-18: port auto-pick + discovery file, amended 2026-09-22 —
+the last port is tried first, `last-port.json`; vanilla TS + Vite
+frontend; app data — projects.json, runtime.json, last-port.json (2026-09-22), history.json (2026-09-06,
 replacing journal.json + previous.json), prefs.json (added 2026-07-20: server-side UI prefs, since
-localStorage dies with every auto-picked-port origin change), server.log —
+localStorage died with every auto-picked-port origin change), server.log —
 lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
 `shared/protocol.ts`. Rationale in `memory/decisions/`.)
 

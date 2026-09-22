@@ -11,6 +11,10 @@
  *   as garbage (see PROJECT-SCOPE).
  * - Attach flow: on every replay frame the terminal is reset() first, then
  *   the replay is written, then live data streams (server guarantees order).
+ * - Follow output (part B6): a preference read on every write. ON pins the
+ *   view to the bottom of the buffer even after the user scrolled up; OFF
+ *   (factory) leaves xterm's own rule, which follows only while the view is
+ *   already at the bottom. A replay ends at the bottom either way.
  * - Links: OSC 8 hyperlinks (Claude Code's `/login` prints one) open in the
  *   system browser on click — no confirm() dialog, http/https only. See
  *   ./keys.ts for the scheme filter.
@@ -37,6 +41,7 @@ import type { SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
 import { isCopyChord, isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
+import { getBehaviour } from './prefs-model.ts';
 import {
   ensureFontsLoaded,
   FONT_WAIT_MS,
@@ -340,7 +345,16 @@ export class TerminalView {
         }
       },
       onData: (data) => {
-        this.term.write(data);
+        // `Follow output` (part B6), read FRESH on every write so a flip in
+        // Settings reaches sessions that are already running, with no
+        // reattach. ON = the view ends at the bottom whatever the user was
+        // reading; OFF (factory) = xterm's own rule, which follows only while
+        // the view is already at the bottom. The write CALLBACK, not the line
+        // after it: xterm parses asynchronously, and scrolling before the data
+        // has been written would land on the buffer as it was.
+        this.term.write(data, () => {
+          if (getBehaviour().followOutput) this.term.scrollToBottom();
+        });
       },
       onInfo: (session) => {
         events.onInfo(session);

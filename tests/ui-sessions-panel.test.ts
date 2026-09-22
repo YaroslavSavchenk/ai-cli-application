@@ -420,3 +420,42 @@ test('an armed row keeps the keyboard across the rebuild it causes', () => {
   assert.equal(dom.doc.activeElement, byKey(root, 'kill:s1'), 'the armed button keeps the keyboard');
   dispatch(x, 'blur');
 });
+
+// ---------------------------------------------------------------------------
+// B6 — `Confirm before ending a session` on the drawer's ×
+// ---------------------------------------------------------------------------
+
+const P = (await import(new URL('../web/src/ui/prefs-model.ts', import.meta.url).href)) as {
+  setBehaviour(next: { confirmEnd?: boolean }): void;
+};
+
+test('B6: confirm OFF — the drawer\'s × ends the session on the first click', () => {
+  P.setBehaviour({ confirmEnd: false });
+  try {
+    st.setSessions([mkSession('s1', { projectId: 'p1' })]);
+    draw();
+    const x = byKey(root, 'kill:s1') as FakeElement;
+    assert.equal(x.textContent, '×', 'the row looks exactly as it did — nothing is armed');
+    x.click();
+    assert.deepEqual(H.killed, ['s1']);
+  } finally {
+    P.setBehaviour({});
+  }
+});
+
+test('B6: the switch is read at CLICK time — a flip reaches the rows already on screen', () => {
+  st.setSessions([mkSession('s1', { projectId: 'p1' })]);
+  draw();
+  const x = byKey(root, 'kill:s1') as FakeElement;
+  x.click();
+  assert.deepEqual(H.killed, [], 'armed, as the factory setting asks');
+  P.setBehaviour({ confirmEnd: false });
+  try {
+    st.setSessions([mkSession('s2', { projectId: 'p1' })]);
+    draw();
+    (byKey(root, 'kill:s2') as FakeElement).click();
+    assert.deepEqual(H.killed, ['s2'], 'no reload, no reattach: the next click reads the new answer');
+  } finally {
+    P.setBehaviour({});
+  }
+});

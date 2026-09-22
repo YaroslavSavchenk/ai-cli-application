@@ -255,7 +255,7 @@ stripping).
 
     npm install
     npm run build       # bundle the frontend into web/dist
-    npm start           # start the backend (serves web/dist, auto-picks a port)
+    npm start           # start the backend (serves web/dist, tries its last port first)
     npm test            # backend test suite (spawns real servers and PTYs)
     npm run typecheck   # tsc over server/shared/tests and web
 
@@ -263,12 +263,15 @@ Every test has a 120 s timeout (`--test-timeout`): the suite starts real
 backend children, and a hang there must cost one red test, not a stalled CI
 job. The slowest test today takes a few seconds.
 
-The backend binds `127.0.0.1` on an OS-assigned port and writes
-`runtime.json` to its data dir; open `http://127.0.0.1:<port>/` with the
-port from that file. The one exception to the auto-pick is a restart handoff
-(see "Restarting the backend"), where the replacement process is asked to try
-the previous port first and falls back to an auto-picked one if it is taken.
-The server logs to `server.log` in the data dir, never stdout.
+The backend binds `127.0.0.1` and writes `runtime.json` to its data dir; open
+`http://127.0.0.1:<port>/` with the port from that file. The port is sticky:
+the port last bound is remembered in `last-port.json` and tried first, so the
+origin — and everything the browser scopes to it, the tab layout included —
+survives a restart. A restart handoff's hint beats the remembered port (see
+"Restarting the backend"), and an OS-assigned port is the fallback when the
+port tried first is taken; a remembered port that was busy is kept, not
+overwritten, so the next start tries it again. The server logs to `server.log`
+in the data dir, never stdout.
 
 Continuous integration (`.github/workflows/ci.yml`) runs the typecheck, the
 frontend build, the committed-icon check, the test suite and a full build of
@@ -347,8 +350,10 @@ Lives in `~/.ai-session-manager/` (override with `AI_SM_DATA_DIR`, absolute
 path):
 
 - `projects.json` — saved projects
-- `prefs.json` — server-side UI preferences (the settings panel; localStorage
-  cannot be used because the auto-picked port changes the origin)
+- `prefs.json` — server-side UI preferences (the settings panel), kept on the
+  server so they survive a port change and a cleared browser profile; the tab
+  layout does live in localStorage, and survives a restart because the port is
+  sticky
 - `github.json` — the GitHub credential, user-only readable (mode 0600);
   written after a successful connection (device flow, or a pasted token stored
   with "remember"), deleted on disconnect. Never sent to the browser. It is
@@ -365,6 +370,8 @@ path):
   removed on clean shutdown, with one deliberate exception: a restart handoff
   leaves the file in place, because by then it describes the replacement
   process the launcher has to find
+- `last-port.json` — the port the backend last bound, tried first on the next
+  start (mode 0600)
 - `history.json` — every session the app launched, across runs (atomically
   rewritten on every session create/exit/delete and at shutdown; entries left
   open by a crash are stamped `crash` at the next boot). Feeds `GET

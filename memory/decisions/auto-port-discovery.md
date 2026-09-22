@@ -1,12 +1,12 @@
 ---
 type: decision
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-09-22
 tags: [architecture, launcher]
 ---
 # Auto-picked port with a discovery file
 
-**Status:** decided (2026-07-18, user's call)
+**Status:** decided (2026-07-18, user's call); **amended 2026-09-22** (user's call, Nocturne B6 decision 5, [[b6-settings-live]]): the backend now REMEMBERS the port it bound in `<dataDir>/last-port.json` and tries it first on every start — precedence `AI_SM_PORT_HINT` (a restart handoff) > the file > auto-pick; a busy remembered port falls back to an OS-assigned one for that run and is NOT overwritten (a transient squatter must not move the origin for good). Auto-pick is the fallback, not the rule. Why: the tab layout lives in localStorage, keyed by origin including the port ([[localstorage-origin-port-churn]]), so a new port per start threw it away and made `Reopen tabs on start` inert. Everything below is the original decision as recorded.
 
 The backend binds `127.0.0.1:0` — the OS assigns a free port — and publishes
 a runtime discovery file `~/.ai-session-manager/runtime.json` containing

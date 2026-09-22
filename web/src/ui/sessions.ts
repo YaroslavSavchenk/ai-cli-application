@@ -32,6 +32,7 @@ import { commandLabel, isClaudeCommand, modelLabel } from './launch-args.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
+import { getBehaviour } from './prefs-model.ts';
 
 const armed = new ArmedSet();
 
@@ -196,7 +197,12 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       split.title = 'Show next to the current session, up to four';
       const armedKill = armed.isArmed(info.id);
       const kill = button('row-x', armedKill ? 'End' : '×', () => {
-        if (armed.trigger(info.id, refresh)) void killSession(info.id);
+        // `Confirm before ending a session` (B6) is read at CLICK time, so a
+        // flip in Settings applies to the drawer already on screen: off = this
+        // click ends it, on = the row arms and the next click does.
+        if (!getBehaviour().confirmEnd || armed.trigger(info.id, refresh)) {
+          void killSession(info.id);
+        }
       });
       if (armedKill) kill.dataset.armed = '1';
       kill.setAttribute('data-k', `kill:${info.id}`);

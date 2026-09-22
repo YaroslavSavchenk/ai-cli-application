@@ -42,6 +42,7 @@ import type {
   SessionInfo,
   ToolAvailability,
   UiPrefs,
+  UpdateStatus,
 } from '../../shared/protocol.ts';
 import { UPLOAD_CONTENT_TYPE } from '../../shared/protocol.ts';
 import { formatError, log } from './log.ts';
@@ -343,6 +344,16 @@ export async function startUpdate(): Promise<{ status: number; body: unknown }> 
   }
   log.info(`api POST /api/update → ${res.status} ${took()}ms`);
   return { status: res.status, body };
+}
+
+/**
+ * POST /api/update/check (Nocturne B6): run the release check now and get the
+ * composed status back. Unlike `startUpdate()` this goes through `request()`:
+ * a non-ok answer (503 = not an installed app, which the page never asks in)
+ * IS an error for the caller, who prints one sentence for every failure.
+ */
+export function checkForUpdates(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/check', { method: 'POST' });
 }
 
 /**
