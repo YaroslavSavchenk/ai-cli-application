@@ -31,7 +31,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B7 | Background agents table live (data source decided 2026-09-22: Claude Code's transcripts) | verified | `.claude/plans/nocturne/PLAN-B7.md` | 2026-09-22 |
 | B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule | verified | `.claude/plans/nocturne/PLAN-B11.md` | 2026-09-22 |
 | B8 | Cleanup + memory, End session button in the pane header, release v0.4.0 (prepared; user: publish AFTER C1) | verified | `.claude/plans/nocturne/PLAN-B8.md` | 2026-09-22 |
-| B12 | Icons everywhere: a real icon per file type, the real tool logos in one style | landed | `.claude/plans/nocturne/PLAN-B12.md` | 2026-09-22 |
+| B12 | Icons everywhere: a real icon per file type, the real tool logos in one style | verified | `.claude/plans/nocturne/PLAN-B12.md` | 2026-09-22 |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI

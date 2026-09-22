@@ -1,6 +1,6 @@
 # B12 — Icons everywhere: a real icon per file type, the real tool logos in one style
 
-Status: LANDED 2026-09-22 (one fix round of 8 — scope 1 MUST + 1 SHOULD + NITs, the tab-signature colour bug from the test review; 10/10 mutants; verify-terminal T1–T4; Windows check owed to the user; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b12.md`); earlier: STARTED 2026-09-22 (user: "voeg overal icontjes toe … per filetype … ook aan ai tools"; decisions asked before the developer, below).
+Status: LANDED 2026-09-22 (`7b37302`; user-verified on Windows 2026-09-22: "overal staan nu juiste icontjes, goed gedaan"; one fix round of 8 — scope 1 MUST + 1 SHOULD + NITs, the tab-signature colour bug from the test review; 10/10 mutants; verify-terminal T1–T4; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b12.md`); earlier: STARTED 2026-09-22 (user: "voeg overal icontjes toe … per filetype … ook aan ai tools"; decisions asked before the developer, below).
 
 Part B12 of `.claude/plans/PLAN-NOCTURNE.md`. Conventions: `.claude/plans/README.md`.
 
