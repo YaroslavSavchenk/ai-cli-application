@@ -1,6 +1,6 @@
 # Plan B9 — Terminal colours live: the Settings page paints every terminal (Nocturne Track B)
 
-Status: LANDED 2026-09-22 (landing commit on `main` the same day, hash recorded in the vault log with the user's Windows verdict; suite 3223 → 3258; one fix round; 18 mutants; verify-terminal B9-1…7 PASS on the reused B6 CDP harness, the status bar's themed ink owed to a Claude session on Windows; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b9.md`); earlier: STARTED 2026-09-22 (user: "continue met bouwen van de app"; next row in the status table; shape = open decision 10, DECIDED 2026-09-13; the persisted shape and the surface split below are orchestrator defaults, recorded before the developer started).
+Status: LANDED 2026-09-22 (`6b1afc1` the landing, CI green; user-verified on Windows 2026-09-22 from the dev window: "alles werkt"; suite 3223 → 3258; one fix round; 18 mutants; verify-terminal B9-1…7 PASS on the reused B6 CDP harness, the status bar's themed ink owed to a Claude session on Windows; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b9.md`); earlier: STARTED 2026-09-22 (user: "continue met bouwen van de app"; next row in the status table; shape = open decision 10, DECIDED 2026-09-13; the persisted shape and the surface split below are orchestrator defaults, recorded before the developer started).
 Parent: `.claude/plans/PLAN-NOCTURNE.md` part B9. A7 (2026-09-13) drew the
 Settings page `Terminal colours` (`web/src/ui/term-colours.ts` +
 `term-colours-model.ts`): six preset cards, a preview, two custom fields
