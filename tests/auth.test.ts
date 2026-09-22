@@ -160,18 +160,48 @@ test('static / serves the token-injected page (no-store) and traversal is blocke
   }
 });
 
-test('static: the mascot page is served as itself, with no token in it', async () => {
+test('static: the mascot page is served with the token injected, exactly like index.html', async () => {
   // A SECOND page (web/mascot.html, a second vite entry) reaches the browser
-  // through the same unhashed-entry branch as `/`, but only `/` and
-  // `/index.html` get the token-injection treatment. Two things are pinned:
-  // the page is reachable at all (a build that forgot the second rollup input
-  // would 404 here), and it carries no credential, because it needs none — it
-  // calls no API.
+  // through the same unhashed-entry branch as `/`. Since Nocturne C1 it polls
+  // /api/sessions and /api/prefs, so it carries the token by the SAME
+  // serve-time replacement as index.html, under the SAME headers: reachable
+  // at all (a build that forgot the second rollup input would 404 here), the
+  // placeholder fully replaced, no-store, and frame-protected.
   const page = await rawRequest(server.port, { path: '/mascot.html' });
   assert.equal(page.status, 200, 'web/dist/mascot.html must be served');
   assert.match(String(page.headers['content-type'] ?? ''), /^text\/html/);
-  assert.ok(!page.body.includes(server.token), 'the mascot page must never carry the app token');
-  assert.ok(!page.body.includes('__AUTH_TOKEN__'), 'and must not ask for one either');
+  assert.ok(page.body.includes(`window.__AUTH__ = '${server.token}'`), 'the mascot page must carry the injected token');
+  assert.ok(!page.body.includes('__AUTH_TOKEN__'), 'placeholder must be fully replaced');
+  assert.equal(page.headers['cache-control'], 'no-store', 'the token-carrying mascot page must be no-store');
+  assert.equal(page.headers['x-frame-options'], 'DENY', 'the token-carrying mascot page must refuse framing');
+  assert.equal(page.headers['content-security-policy'], "frame-ancestors 'none'");
+  // Byte-for-byte the index.html treatment: the same headers on both pages.
+  const index = await rawRequest(server.port, { path: '/' });
+  for (const h of ['cache-control', 'x-frame-options', 'content-security-policy', 'content-type']) {
+    assert.equal(page.headers[h], index.headers[h], `${h} must match index.html's`);
+  }
+});
+
+test('static: the token-carrying mascot page sits behind the SAME Host and Origin checks as /api', async () => {
+  // Nocturne C1: /mascot.html now holds the token, so a DNS-rebinding page
+  // (foreign Host) or a cross-origin fetch must get a 403 and never the body —
+  // the checks at the top of the handler are what keep it off the wire.
+  const refused: Record<string, string>[] = [
+    { host: `evil.example.com:${server.port}` },
+    { host: '127.0.0.1' },
+    { origin: 'http://evil.example.com' },
+    { origin: `https://127.0.0.1:${server.port}` },
+  ];
+  for (const headers of refused) {
+    const res = await rawRequest(server.port, { path: '/mascot.html', headers });
+    assert.equal(res.status, 403, `${JSON.stringify(headers)} must be 403 on /mascot.html`);
+    assert.ok(!res.body.includes(server.token), `${JSON.stringify(headers)} must not receive the token`);
+  }
+  const ok = await rawRequest(server.port, {
+    path: '/mascot.html',
+    headers: { origin: `http://127.0.0.1:${server.port}` },
+  });
+  assert.equal(ok.status, 200, 'the loopback origin itself is let in');
 });
 
 test('static: both unhashed entry documents are no-store (a cached one points at a deleted asset)', async () => {

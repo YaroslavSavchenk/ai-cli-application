@@ -46,6 +46,7 @@ import type {
 } from '../../shared/protocol.ts';
 import { UPLOAD_CONTENT_TYPE } from '../../shared/protocol.ts';
 import { formatError, log } from './log.ts';
+import { isMascotShape } from './ui/prefs-model.ts';
 
 declare global {
   interface Window {
@@ -476,6 +477,11 @@ export async function updatePrefs(patch: UiPrefs, drop: readonly string[] = []):
   if (bag !== null && typeof bag === 'object' && !Array.isArray(bag)) current = bag;
   const next: UiPrefs = { ...current, ...patch };
   for (const key of drop) delete next[key];
+  // Nocturne C1: the server refuses a PUT whose `mascot` is not exactly
+  // `{enabled: boolean}` but loads prefs.json unchecked, so a hand-edited bad
+  // value read back here would fail EVERY save (theme, status bar, …). Drop it,
+  // never coerce it: absent = on.
+  if ('mascot' in next && !isMascotShape(next.mascot)) delete next.mascot;
   await putPrefs(next);
 }
 

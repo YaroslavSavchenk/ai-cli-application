@@ -24,6 +24,11 @@
 // (see the "Page -> host" region below). Everything else stays denied and
 // top-level navigation stays locked to the launch origin.
 //
+// A second, borderless window in the same process shows the peek mascot
+// (Nocturne C1, .claude/plans/nocturne/PLAN-C1.md § The window): a topmost,
+// never-activated, click-through overlay at the right edge of the app
+// window's monitor. See the "Peek-mascot overlay" region below.
+//
 // C# 5 only (compiled by the in-box Framework csc.exe, pre-Roslyn): no string
 // interpolation, no expression-bodied members, no null-conditional operators.
 
@@ -210,6 +215,11 @@ namespace AiSessionManager
             // fires again if WinForms ever recreates the handle.
             form.HandleCreated += Form_HandleCreated;
             form.Activated += Form_Activated;
+            // The mascot overlay follows the app window's monitor, and goes
+            // away with it (C1).
+            form.LocationChanged += MainForm_MovedOrResized;
+            form.SizeChanged += MainForm_MovedOrResized;
+            form.FormClosed += MainForm_FormClosed;
             form.Text = "AI Session Manager";
             form.Width = 1280;
             form.Height = 860;
@@ -386,6 +396,7 @@ namespace AiSessionManager
                     wv.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
                     wv.CoreWebView2.PermissionRequested += WebView_PermissionRequested;
                     wv.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
+                    ScheduleMascotOverlay();
                 }
                 return;
             }
@@ -891,6 +902,794 @@ namespace AiSessionManager
             }
         }
 
+        // --- Peek-mascot overlay (Nocturne C1) --------------------------------
+        //
+        // A second borderless form in THIS process (MascotOverlayForm, below):
+        // topmost, WS_EX_TOOLWINDOW (no taskbar button, not in Alt-Tab),
+        // WS_EX_NOACTIVATE + MA_NOACTIVATE (a click never takes the focus from
+        // what the user is doing), with its own WebView2 controller on the
+        // MAIN WebView2's environment (same browser process, same profile) and
+        // a transparent background, on <launch origin>/mascot.html - never with
+        // a query string (the page's ?demo strip stays unreachable here).
+        //
+        // The page tells the host what to show; the host decides nothing else.
+        // Two strings, both JSON, both matched WHOLE against the exact shape
+        // JSON.stringify gives them on the page (web/src/mascot/feed.ts), key
+        // order included - anything else is logged and dropped:
+        //
+        //     {"type":"mascot-count","count":N,"rects":[[x,y,w,h],...]}
+        //     {"type":"mascot-open","session":"<uuid>"}
+        //
+        // WHERE the mascots are: the rects, in CSS px of the 220 x 340 page. The
+        // window's region (SetWindowRgn) is their union, scaled by the
+        // overlay's DPI, so the transparent rest of the window takes no clicks
+        // and draws nothing - a click next to a mascot reaches the window below.
+        //
+        // "Hidden" (count 0, or no usable rect) is an EMPTY region, not
+        // Form.Hide(): the window then draws nothing and takes no click, which
+        // is everything hiding buys - but its WebView2 stays visible to
+        // Chromium. A hidden WebView2 (controller IsVisible = false) makes the
+        // page hidden, and a page hidden for 5 minutes gets Chromium's
+        // intensive timer throttling (chained timers woken once a MINUTE): the
+        // page's 2 s poll would then show a finished session's mascot up to a
+        // minute late, in exactly the common case of "nothing for a while".
+        //
+        // Known limit (decision 15, accepted by the user): a game in true
+        // EXCLUSIVE fullscreen owns the display and no window can draw over it,
+        // this one included. Borderless / optimised fullscreen and video work.
+        //
+        // Failure here is never the app's failure: every path that goes wrong
+        // logs one line and drops the overlay, the main window carries on.
+        private const int MascotStageWidth = 220;
+        private const int MascotStageHeight = 340;
+        private const int MaxMascotMessageLength = 1024;
+        private const string MascotPagePath = "/mascot.html";
+
+        // Written the way JSON.stringify writes a finite number (the page sends
+        // whole numbers today; a fraction or an exponent is still a number).
+        // Every regex below ends in \z, not $: $ also matches before a
+        // trailing newline.
+        private const string JsonNumber =
+            @"-?(?:0|[1-9][0-9]{0,8})(?:\.[0-9]{1,20})?(?:[eE][+-]?[0-9]{1,3})?";
+        private const string JsonRect =
+            @"\[" + JsonNumber + "," + JsonNumber + "," + JsonNumber + "," + JsonNumber + @"\]";
+
+        // count: one digit 0..3 (an integer by construction); rects: zero to
+        // three [x,y,w,h] of four numbers each.
+        private static readonly Regex MascotCountMessage = new Regex(
+            @"^\{""type"":""mascot-count"",""count"":(?<count>[0-3]),""rects"":\[(?<rects>"
+                + JsonRect + "(?:," + JsonRect + @"){0,2})?\]\}\z",
+            RegexOptions.CultureInvariant);
+        private static readonly Regex MascotRectItem = new Regex(
+            @"\[(?<x>" + JsonNumber + "),(?<y>" + JsonNumber + "),(?<w>" + JsonNumber
+                + "),(?<h>" + JsonNumber + @")\]",
+            RegexOptions.CultureInvariant);
+        // The session id's only shape (the server's randomUUID(), the same
+        // regex the main page applies in web/src/ui/host-bridge.ts), either
+        // case. A character class, not RegexOptions.IgnoreCase: that option
+        // would loosen the literal "type" and "mascot-open" too.
+        private static readonly Regex MascotOpenMessage = new Regex(
+            @"^\{""type"":""mascot-open"",""session"":""(?<session>[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})""\}\z",
+            RegexOptions.CultureInvariant);
+
+        // The form's own background and its colour key: the window paints this
+        // colour and Windows keys it out, so where the transparent WebView2
+        // shows the form behind it, the desktop shows through instead. A colour
+        // nothing on the page uses.
+        private static readonly Color OverlayKeyColor = Color.FromArgb(1, 0, 1);
+
+        private static MascotOverlayForm _overlay;
+        private static WebView2 _overlayWebView;
+        // The last rects the page reported (validated, clamped, CSS px), or
+        // null while nothing is shown. Kept so a DPI or monitor change can
+        // re-scale the region without waiting for the page.
+        private static double[][] _overlayRects;
+        private static string _overlayScreenName;
+
+        [DllImport("user32.dll")]
+        private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+        [DllImport("gdi32.dll")]
+        private static extern int CombineRgn(IntPtr dest, IntPtr src1, IntPtr src2, int mode);
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr hObject);
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        private const int RgnOr = 2;
+        private static readonly IntPtr HwndTopmost = new IntPtr(-1);
+        private const uint SwpNoSize = 0x0001;
+        private const uint SwpNoMove = 0x0002;
+        private const uint SwpNoActivate = 0x0010;
+        private const int SwRestore = 9;
+
+        // Called once the MAIN WebView2 is up: the overlay needs its
+        // environment, and must never get in the way of the main window
+        // starting. Deferred so it runs after the main init handler returns.
+        private static void ScheduleMascotOverlay()
+        {
+            try
+            {
+                Form main = _form;
+                if (main != null && !main.IsDisposed && main.IsHandleCreated)
+                {
+                    main.BeginInvoke(new MethodInvoker(CreateMascotOverlay));
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not be scheduled (" + ex.GetType().Name
+                    + "); the app window is unaffected.");
+            }
+        }
+
+        private static void CreateMascotOverlay()
+        {
+            if (_overlay != null)
+            {
+                return;
+            }
+            try
+            {
+                Form main = _form;
+                WebView2 mainView = _webView;
+                if (main == null || main.IsDisposed || mainView == null
+                    || mainView.CoreWebView2 == null)
+                {
+                    return;
+                }
+                CoreWebView2Environment env = mainView.CoreWebView2.Environment;
+
+                MascotOverlayForm overlay = new MascotOverlayForm();
+                overlay.Text = "AI Session Manager mascot";
+                overlay.FormBorderStyle = FormBorderStyle.None;
+                overlay.ShowInTaskbar = false;
+                overlay.StartPosition = FormStartPosition.Manual;
+                overlay.AutoScaleMode = AutoScaleMode.None;
+                overlay.TopMost = true;
+                overlay.BackColor = OverlayKeyColor;
+                overlay.TransparencyKey = OverlayKeyColor;
+                overlay.DpiChanged += Overlay_DpiChanged;
+
+                WebView2 wv = new WebView2();
+                wv.Dock = DockStyle.Fill;
+                // Before initialization: the controller takes it at creation.
+                wv.DefaultBackgroundColor = Color.Transparent;
+                wv.CoreWebView2InitializationCompleted += OverlayWebView_InitCompleted;
+                wv.NavigationStarting += OverlayWebView_NavigationStarting;
+                overlay.Controls.Add(wv);
+
+                _overlay = overlay;
+                _overlayWebView = wv;
+                _overlayRects = null;
+
+                // The handle first, then an EMPTY region, then the place - all
+                // before the first show, so the window never flashes a frame.
+                IntPtr handle = overlay.Handle;
+                ApplyOverlayRegion();
+                PlaceOverlay();
+                // ShowWithoutActivation (MascotOverlayForm) makes this
+                // SW_SHOWNOACTIVATE: the window the user is in keeps the focus.
+                overlay.Show();
+                SubscribeDisplayEvents();
+
+                // The MAIN window's environment: same browser process, same
+                // profile. Source is never set on this control - it would start
+                // a second environment of its own; the page is navigated to in
+                // the init handler instead.
+                wv.EnsureCoreWebView2Async(env);
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not be created (" + ex.GetType().Name
+                    + "); the app window is unaffected.");
+                DisposeMascotOverlay();
+            }
+        }
+
+        private static void OverlayWebView_InitCompleted(
+            object sender, CoreWebView2InitializationCompletedEventArgs e)
+        {
+            WebView2 wv = sender as WebView2;
+            if (wv == null || wv != _overlayWebView)
+            {
+                // An overlay already dropped: nothing to set up.
+                return;
+            }
+            if (e == null || !e.IsSuccess || wv.CoreWebView2 == null)
+            {
+                string detail = (e == null || e.InitializationException == null)
+                    ? "no detail" : e.InitializationException.GetType().Name;
+                Log("mascot overlay: WebView2 initialization failed (" + detail
+                    + "); the app window is unaffected.");
+                DeferDisposeMascotOverlay();
+                return;
+            }
+            try
+            {
+                CoreWebView2Settings s = wv.CoreWebView2.Settings;
+                s.AreDevToolsEnabled = false;
+                s.AreBrowserAcceleratorKeysEnabled = false;
+                s.AreHostObjectsAllowed = false;
+                s.IsWebMessageEnabled = true;
+                // A page with no text and no menu: no context menu, no zoom (a
+                // zoomed page would no longer match the rects it reports), no
+                // status bubble, no swipe or pinch.
+                s.AreDefaultContextMenusEnabled = false;
+                s.IsZoomControlEnabled = false;
+                s.IsStatusBarEnabled = false;
+                try
+                {
+                    s.IsPinchZoomEnabled = false;
+                    s.IsSwipeNavigationEnabled = false;
+                }
+                catch (Exception)
+                {
+                    // Older runtime without these two: cosmetic, carry on.
+                }
+                wv.CoreWebView2.NewWindowRequested += OverlayWebView_NewWindowRequested;
+                wv.CoreWebView2.PermissionRequested += OverlayWebView_PermissionRequested;
+                wv.CoreWebView2.WebMessageReceived += OverlayWebView_WebMessageReceived;
+                wv.CoreWebView2.ProcessFailed += OverlayWebView_ProcessFailed;
+                wv.CoreWebView2.Navigate(new Uri(_launchOrigin, MascotPagePath).AbsoluteUri);
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not load its page (" + ex.GetType().Name
+                    + "); the app window is unaffected.");
+                DeferDisposeMascotOverlay();
+            }
+        }
+
+        // The overlay's page: the exact launch origin AND /mascot.html AND no
+        // query - the same origin test as the main window, narrowed to the one
+        // page this window exists for.
+        private static bool IsMascotPage(Uri candidate)
+        {
+            return IsLaunchOrigin(candidate)
+                && string.Equals(candidate.AbsolutePath, MascotPagePath, StringComparison.Ordinal)
+                && string.IsNullOrEmpty(candidate.Query);
+        }
+
+        private static void OverlayWebView_NavigationStarting(
+            object sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            Uri navUri;
+            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out navUri) || !IsMascotPage(navUri))
+            {
+                e.Cancel = true;
+            }
+            // No ready sentinel here: that is the main window's signal alone.
+        }
+
+        // Nothing leaves the overlay: no popup, no default browser, no shell.
+        private static void OverlayWebView_NewWindowRequested(
+            object sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+        }
+
+        // The overlay needs no permission at all, clipboard included.
+        private static void OverlayWebView_PermissionRequested(
+            object sender, CoreWebView2PermissionRequestedEventArgs e)
+        {
+            if (e == null)
+            {
+                return;
+            }
+            e.State = CoreWebView2PermissionState.Deny;
+            e.Handled = true;
+        }
+
+        // A crashed page cannot report "no mascots" any more: drop the region
+        // so a dead frame never sits over other programs taking clicks. A dead
+        // or hung RENDERER is reloaded (the navigation lock allows the same
+        // page), at most MaxOverlayReloads times per OverlayReloadWindow; past
+        // that the overlay stays empty and says so once. A dead BROWSER process
+        // is terminal: the app window lost it too.
+        private const int MaxOverlayReloads = 3;
+        private static readonly TimeSpan OverlayReloadWindow = TimeSpan.FromMinutes(10);
+        private static readonly System.Collections.Generic.List<DateTime> _overlayReloads =
+            new System.Collections.Generic.List<DateTime>();
+        private static bool _overlayReloadCapLogged;
+
+        private static void OverlayWebView_ProcessFailed(
+            object sender, CoreWebView2ProcessFailedEventArgs e)
+        {
+            string kind = e == null ? "no detail" : e.ProcessFailedKind.ToString();
+            Log("mascot overlay: WebView2 process failed (" + kind + "); mascots hidden.");
+            try
+            {
+                _overlayRects = null;
+                ApplyOverlayRegion();
+            }
+            catch (Exception)
+            {
+                // Best effort; the reload below still applies.
+            }
+            if (e == null
+                || (e.ProcessFailedKind != CoreWebView2ProcessFailedKind.RenderProcessExited
+                    && e.ProcessFailedKind != CoreWebView2ProcessFailedKind.RenderProcessUnresponsive))
+            {
+                return;
+            }
+            DateTime now = DateTime.UtcNow;
+            _overlayReloads.RemoveAll(delegate(DateTime t) { return now - t > OverlayReloadWindow; });
+            if (_overlayReloads.Count >= MaxOverlayReloads)
+            {
+                if (!_overlayReloadCapLogged)
+                {
+                    _overlayReloadCapLogged = true;
+                    Log("mascot overlay: reload cap reached (3 per 10 min); mascots stay hidden.");
+                }
+                return;
+            }
+            _overlayReloads.Add(now);
+            _overlayReloadCapLogged = false;
+            try
+            {
+                // Deferred: not from inside the WebView2's own event.
+                Form main = _form;
+                if (main != null && !main.IsDisposed && main.IsHandleCreated)
+                {
+                    main.BeginInvoke(new MethodInvoker(ReloadMascotOverlay));
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay: reload could not be scheduled (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        private static void ReloadMascotOverlay()
+        {
+            WebView2 wv = _overlayWebView;
+            if (_overlay == null || wv == null || wv.IsDisposed || wv.CoreWebView2 == null)
+            {
+                return;
+            }
+            try
+            {
+                wv.CoreWebView2.Reload();
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay: reload failed (" + ex.GetType().Name + "); non-fatal.");
+            }
+        }
+
+        // Monitors added / removed / re-arranged / re-scaled, or the taskbar
+        // moved or resized (the working area: UserPreferenceCategory.Desktop,
+        // which is where SPI_SETWORKAREA lands): re-place the window and
+        // re-scale the region. SystemEvents are STATIC - unsubscribed in
+        // DisposeMascotOverlay, and every handler re-checks the overlay,
+        // because a raise can already be queued when the overlay goes away.
+        private static bool _displayEventsSubscribed;
+
+        private static void SubscribeDisplayEvents()
+        {
+            if (_displayEventsSubscribed)
+            {
+                return;
+            }
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
+            _displayEventsSubscribed = true;
+        }
+
+        private static void UnsubscribeDisplayEvents()
+        {
+            if (!_displayEventsSubscribed)
+            {
+                return;
+            }
+            _displayEventsSubscribed = false;
+            try
+            {
+                Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
+                Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
+            }
+            catch (Exception)
+            {
+                // Going away anyway.
+            }
+        }
+
+        private static void SystemEvents_DisplaySettingsChanged(object sender, EventArgs e)
+        {
+            QueueOverlayReplace();
+        }
+
+        private static void SystemEvents_UserPreferenceChanged(
+            object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+        {
+            if (e != null && e.Category == Microsoft.Win32.UserPreferenceCategory.Desktop)
+            {
+                QueueOverlayReplace();
+            }
+        }
+
+        // SystemEvents may raise on their own thread: always hop to the UI
+        // thread through the overlay's own handle.
+        private static void QueueOverlayReplace()
+        {
+            try
+            {
+                MascotOverlayForm overlay = _overlay;
+                if (overlay != null && !overlay.IsDisposed && overlay.IsHandleCreated)
+                {
+                    overlay.BeginInvoke(new MethodInvoker(ReplaceOverlay));
+                }
+            }
+            catch (Exception)
+            {
+                // The overlay went away between the check and the call.
+            }
+        }
+
+        private static void ReplaceOverlay()
+        {
+            MascotOverlayForm overlay = _overlay;
+            if (overlay == null || overlay.IsDisposed)
+            {
+                return;
+            }
+            try
+            {
+                PlaceOverlay();
+                ApplyOverlayRegion();
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not follow a display change (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        private static void OverlayWebView_WebMessageReceived(
+            object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            if (e == null || _overlay == null)
+            {
+                return;
+            }
+            // (a) ORIGIN FIRST, before the message is read.
+            Uri source;
+            if (!Uri.TryCreate(e.Source, UriKind.Absolute, out source) || !IsMascotPage(source))
+            {
+                Log("mascot message ignored: not from the mascot page on the launch origin.");
+                return;
+            }
+            // (b) Strings only.
+            string text;
+            try
+            {
+                text = e.TryGetWebMessageAsString();
+            }
+            catch (Exception)
+            {
+                Log("mascot message ignored: not a string.");
+                return;
+            }
+            if (text == null || text.Length > MaxMascotMessageLength)
+            {
+                Log("mascot message ignored: empty, or over the length cap.");
+                return;
+            }
+            // (c) One of the two exact shapes, or nothing. Nothing from the
+            // message is ever logged.
+            Match m = MascotCountMessage.Match(text);
+            if (m.Success)
+            {
+                HandleMascotCount(m);
+                return;
+            }
+            m = MascotOpenMessage.Match(text);
+            if (m.Success)
+            {
+                HandleMascotOpen(m.Groups["session"].Value);
+                return;
+            }
+            Log("mascot message ignored: not a well-formed mascot-count or mascot-open.");
+        }
+
+        private static void HandleMascotCount(Match m)
+        {
+            int count = m.Groups["count"].Value[0] - '0';
+            if (count == 0)
+            {
+                ShowMascotRects(null);
+                return;
+            }
+            System.Collections.Generic.List<double[]> rects =
+                new System.Collections.Generic.List<double[]>();
+            foreach (Match r in MascotRectItem.Matches(m.Groups["rects"].Value))
+            {
+                double x, y, w, h;
+                if (!TryParseFinite(r.Groups["x"].Value, out x)
+                    || !TryParseFinite(r.Groups["y"].Value, out y)
+                    || !TryParseFinite(r.Groups["w"].Value, out w)
+                    || !TryParseFinite(r.Groups["h"].Value, out h))
+                {
+                    Log("mascot message ignored: a rect value is not a finite number.");
+                    return;
+                }
+                // Clamped to the stage: a rect can never reach past the window.
+                double x0 = Clamp(x, 0, MascotStageWidth);
+                double y0 = Clamp(y, 0, MascotStageHeight);
+                double x1 = Clamp(x + w, 0, MascotStageWidth);
+                double y1 = Clamp(y + h, 0, MascotStageHeight);
+                if (x1 > x0 && y1 > y0)
+                {
+                    rects.Add(new double[] { x0, y0, x1 - x0, y1 - y0 });
+                }
+            }
+            // A count without a usable rect has nothing to show or click.
+            ShowMascotRects(rects.Count == 0 ? null : rects.ToArray());
+        }
+
+        private static bool TryParseFinite(string text, out double value)
+        {
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+            {
+                return false;
+            }
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static double Clamp(double v, double min, double max)
+        {
+            return v < min ? min : (v > max ? max : v);
+        }
+
+        // null = nothing to show (an empty region); otherwise the union of the
+        // rects. Going from nothing to something re-places the window (the
+        // working area may have changed since) and puts it back on top of the
+        // other topmost windows, without activating it.
+        private static void ShowMascotRects(double[][] rects)
+        {
+            MascotOverlayForm overlay = _overlay;
+            if (overlay == null || overlay.IsDisposed)
+            {
+                return;
+            }
+            try
+            {
+                bool wasEmpty = _overlayRects == null;
+                _overlayRects = rects;
+                if (rects != null && wasEmpty)
+                {
+                    PlaceOverlay();
+                    SetWindowPos(overlay.Handle, HwndTopmost, 0, 0, 0, 0,
+                        SwpNoMove | SwpNoSize | SwpNoActivate);
+                }
+                ApplyOverlayRegion();
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not be updated (" + ex.GetType().Name + "); non-fatal.");
+            }
+        }
+
+        // The overlay's DPI scale: CSS px -> window px. 1.0 while this process
+        // is not per-monitor DPI aware (Windows then scales the whole window
+        // itself); the monitor's scale if it ever is.
+        private static double OverlayScale()
+        {
+            MascotOverlayForm overlay = _overlay;
+            int dpi = overlay == null ? 96 : overlay.DeviceDpi;
+            return dpi > 0 ? dpi / 96.0 : 1.0;
+        }
+
+        // SetWindowRgn = the union of _overlayRects scaled to window px,
+        // rounded OUTWARD so a mascot is never clipped by a rounding pixel; an
+        // empty region when there is nothing to show.
+        private static void ApplyOverlayRegion()
+        {
+            MascotOverlayForm overlay = _overlay;
+            if (overlay == null || overlay.IsDisposed || !overlay.IsHandleCreated)
+            {
+                return;
+            }
+            double scale = OverlayScale();
+            IntPtr region = CreateRectRgn(0, 0, 0, 0);
+            if (region == IntPtr.Zero)
+            {
+                Log("mascot overlay: no region could be created; non-fatal.");
+                return;
+            }
+            double[][] rects = _overlayRects;
+            if (rects != null)
+            {
+                for (int i = 0; i < rects.Length; i++)
+                {
+                    double[] r = rects[i];
+                    IntPtr one = CreateRectRgn(
+                        (int)Math.Floor(r[0] * scale),
+                        (int)Math.Floor(r[1] * scale),
+                        (int)Math.Ceiling((r[0] + r[2]) * scale),
+                        (int)Math.Ceiling((r[1] + r[3]) * scale));
+                    if (one != IntPtr.Zero)
+                    {
+                        CombineRgn(region, region, one, RgnOr);
+                        DeleteObject(one);
+                    }
+                }
+            }
+            // On success the system owns the region; only a failure leaves it
+            // to us.
+            if (SetWindowRgn(overlay.Handle, region, true) == 0)
+            {
+                DeleteObject(region);
+                Log("mascot overlay: the window region was refused; non-fatal.");
+            }
+        }
+
+        // 220 x 340 (DPI-scaled) at the right edge of the WORKING AREA of the
+        // app window's monitor, vertically centred. Screen.FromHandle on a
+        // minimised window answers the monitor it was on before (the
+        // MonitorFromWindow rule), which is decision 12.
+        private static void PlaceOverlay()
+        {
+            Form main = _form;
+            MascotOverlayForm overlay = _overlay;
+            if (main == null || main.IsDisposed || overlay == null || overlay.IsDisposed)
+            {
+                return;
+            }
+            Screen screen = Screen.FromHandle(main.Handle);
+            Rectangle area = screen.WorkingArea;
+            double scale = OverlayScale();
+            int w = (int)Math.Round(MascotStageWidth * scale);
+            int h = (int)Math.Round(MascotStageHeight * scale);
+            overlay.Bounds = new Rectangle(area.Right - w, area.Top + (area.Height - h) / 2, w, h);
+            _overlayScreenName = screen.DeviceName;
+        }
+
+        private static void MainForm_MovedOrResized(object sender, EventArgs e)
+        {
+            MascotOverlayForm overlay = _overlay;
+            Form main = _form;
+            if (overlay == null || overlay.IsDisposed || main == null || main.IsDisposed)
+            {
+                return;
+            }
+            try
+            {
+                string name = Screen.FromHandle(main.Handle).DeviceName;
+                if (!string.Equals(name, _overlayScreenName, StringComparison.Ordinal))
+                {
+                    PlaceOverlay();
+                    ApplyOverlayRegion();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not follow the app window (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        // Only raised if the process is per-monitor DPI aware: the size and
+        // the region follow the new scale.
+        private static void Overlay_DpiChanged(object sender, DpiChangedEventArgs e)
+        {
+            try
+            {
+                PlaceOverlay();
+                ApplyOverlayRegion();
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not follow a DPI change (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        // A click on a mascot, after its reaction played: the app comes to the
+        // front on that session. SetForegroundWindow is allowed here - this
+        // process just received the user's click. The message to the main page
+        // is built from the VALIDATED id only, never from the page's text.
+        private static void HandleMascotOpen(string sessionId)
+        {
+            Form main = _form;
+            if (main == null || main.IsDisposed)
+            {
+                return;
+            }
+            try
+            {
+                IntPtr hwnd = main.Handle;
+                if (IsIconic(hwnd))
+                {
+                    // SW_RESTORE brings back the state before minimising,
+                    // maximised included.
+                    ShowWindow(hwnd, SwRestore);
+                }
+                main.Activate();
+                if (!SetForegroundWindow(hwnd))
+                {
+                    Log("mascot-open: Windows kept another window in front (the app flashes in the taskbar instead).");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("mascot-open: the app window could not be brought forward ("
+                    + ex.GetType().Name + "); non-fatal.");
+            }
+            WebView2 mainView = _webView;
+            if (mainView == null || mainView.CoreWebView2 == null)
+            {
+                return;
+            }
+            try
+            {
+                mainView.CoreWebView2.PostWebMessageAsString(
+                    "{\"type\":\"focus-session\",\"session\":\"" + sessionId + "\"}");
+            }
+            catch (Exception ex)
+            {
+                Log("mascot-open: focus-session could not be posted ("
+                    + ex.GetType().Name + "); non-fatal.");
+            }
+        }
+
+        private static void MainForm_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            DisposeMascotOverlay();
+        }
+
+        // From inside the overlay's own WebView2 events the control must not be
+        // disposed under its feet: the main window's message loop does it next.
+        private static void DeferDisposeMascotOverlay()
+        {
+            try
+            {
+                Form main = _form;
+                if (main != null && !main.IsDisposed && main.IsHandleCreated)
+                {
+                    main.BeginInvoke(new MethodInvoker(DisposeMascotOverlay));
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+                // Fall through to the direct path.
+            }
+            DisposeMascotOverlay();
+        }
+
+        private static void DisposeMascotOverlay()
+        {
+            UnsubscribeDisplayEvents();
+            MascotOverlayForm overlay = _overlay;
+            _overlay = null;
+            _overlayWebView = null;
+            _overlayRects = null;
+            if (overlay == null)
+            {
+                return;
+            }
+            try
+            {
+                overlay.Close();
+                overlay.Dispose();
+            }
+            catch (Exception)
+            {
+                // Going away anyway.
+            }
+        }
+
         private static void WriteReadySentinel()
         {
             try
@@ -929,6 +1728,50 @@ namespace AiSessionManager
             {
                 // Logging must never throw further.
             }
+        }
+    }
+
+    // The peek-mascot window (C1). Everything that must be true BEFORE the
+    // handle exists lives here: extended styles are fixed at creation.
+    internal sealed class MascotOverlayForm : Form
+    {
+        private const int WsExTopmost = 0x00000008;
+        private const int WsExToolWindow = 0x00000080;
+        private const int WsExNoActivate = 0x08000000;
+        private const int WmMouseActivate = 0x0021;
+        private const int MaNoActivate = 3;
+
+        // Show() becomes SW_SHOWNOACTIVATE: showing never takes the focus.
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
+        // TOOLWINDOW: no taskbar button, not in Alt-Tab. NOACTIVATE: a click
+        // does not make this the active window (a game or an editor keeps the
+        // keyboard; the click still reaches the page). TOPMOST: over other
+        // programs. WS_EX_LAYERED comes from the base (TransparencyKey).
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= WsExTopmost | WsExToolWindow | WsExNoActivate;
+                return cp;
+            }
+        }
+
+        // The click lands in the WebView2's child windows, which pass
+        // WM_MOUSEACTIVATE up to this top-level window: answer "do not
+        // activate" so the click goes through to the page and nothing else.
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WmMouseActivate)
+            {
+                m.Result = new IntPtr(MaNoActivate);
+                return;
+            }
+            base.WndProc(ref m);
         }
     }
 }

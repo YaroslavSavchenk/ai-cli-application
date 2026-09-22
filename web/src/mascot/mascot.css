@@ -74,6 +74,29 @@
 @keyframes wave { 0% { transform: rotate(0); } 15% { transform: rotate(-50deg); } 30% { transform: rotate(-20deg); } 45% { transform: rotate(-55deg); } 60% { transform: rotate(-20deg); } 75% { transform: rotate(-50deg); } 100% { transform: rotate(0); } }
 @keyframes waveBody { 0%,100% { transform: rotate(0); } 30% { transform: rotate(3deg) translateX(-2px); } 70% { transform: rotate(3deg) translateX(-2px); } }
 
+/* ---- reduced motion (Nocturne C1, decision 16) ---------------------------- */
+
+/*
+ * The same art at the same place, no movement: no slide-in, climb or squeeze
+ * (a mascot appears where it would have arrived — `both` fill goes with the
+ * animation, so nothing is left parked off-screen), no bob, blink, shove,
+ * strain, laugh or wave, and no .7s glide when slot 1 moves up for a third.
+ * A click still swaps the face and the arm for the reaction's duration: that
+ * is the model's timer, not an animation.
+ *
+ * `!important` is load-bearing: the view writes every animation as an INLINE
+ * style (view.ts), and only an important author rule outranks one. The
+ * universal selector reaches the eyes' blink and the waving arm, which are
+ * inline on SVG groups deep inside the reaction layer.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pm-pos,
+  .pm-pos * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* ---- demo strip (only with ?demo; never shipped to the overlay) ----------- */
 
 /*

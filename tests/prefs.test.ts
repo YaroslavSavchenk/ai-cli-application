@@ -84,6 +84,48 @@ test('PUT /api/prefs rejects non-object bodies and oversized bodies', async () =
   assert.notDeepEqual(got.body, huge);
 });
 
+test('C1 mascot pref: {enabled: boolean} round-trips (to disk too) beside the other keys; absent stays absent', async () => {
+  // Nocturne C1 (PLAN-C1.md § The toggle): the one prefs key the server vets.
+  for (const enabled of [false, true]) {
+    const body: UiPrefs = { theme: { ground: '#0a1220', text: '#dafcff' }, mascot: { enabled }, other: 1 };
+    const put = await api(server, 'PUT', '/api/prefs', body);
+    assert.equal(put.status, 200, `PUT failed: ${JSON.stringify(put.body)}`);
+    const got = await api(server, 'GET', '/api/prefs');
+    assert.deepEqual(got.body, body);
+    const onDisk = JSON.parse(await readFile(join(server.dataDir, 'prefs.json'), 'utf8')) as UiPrefs;
+    assert.deepEqual(onDisk.mascot, { enabled });
+  }
+  // A bag without the key is fine (absent = on, decided client-side).
+  const none = await api(server, 'PUT', '/api/prefs', { theme: { ground: '#0a1220' } });
+  assert.equal(none.status, 200);
+  assert.equal('mascot' in (((await api(server, 'GET', '/api/prefs')).body) as object), false);
+});
+
+test('C1 mascot pref: every other shape is 400 and leaves the stored bag untouched', async () => {
+  const good: UiPrefs = { mascot: { enabled: false }, keep: 'me' };
+  assert.equal((await api(server, 'PUT', '/api/prefs', good)).status, 200);
+  for (const bad of [
+    null,
+    true,
+    'off',
+    0,
+    [],
+    [{ enabled: true }],
+    {},
+    { enabled: 'false' },
+    { enabled: 0 },
+    { enabled: null },
+    { enabled: true, extra: 1 },
+    { Enabled: true },
+  ]) {
+    const res = await api(server, 'PUT', '/api/prefs', { mascot: bad, keep: 'clobbered' });
+    assert.equal(res.status, 400, `mascot ${JSON.stringify(bad)} must be 400, got ${res.status}`);
+    assert.match(JSON.stringify(res.body), /prefs\.mascot must be/);
+  }
+  const got = await api(server, 'GET', '/api/prefs');
+  assert.deepEqual(got.body, good, 'a refused PUT stores nothing');
+});
+
 test('/api/prefs requires auth and the same Host/Origin checks as every other /api route', async () => {
   const noToken = await rawRequest(server.port, { path: '/api/prefs' });
   assert.equal(noToken.status, 401, 'missing token must be 401');

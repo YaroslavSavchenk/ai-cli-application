@@ -17,6 +17,10 @@
  *
  *     page → host:  copy-files\n<windows path>\n<windows path>…
  *     host → page:  copy-files ok <n>   |   copy-files failed
+ *     host → page:  {"type":"focus-session","session":"<uuid>"}   (C1)
+ *
+ * The one JSON message is the host forwarding a click on a peek mascot
+ * (Nocturne C1): it is a string too, parsed strictly below.
  *
  * The paths are WINDOWS paths the BACKEND produced (`GET /api/fs/winpath`,
  * behind the same boundary every other filesystem route sits behind), so this
@@ -101,4 +105,58 @@ export function copyPathsToClipboard(paths: readonly string[], w?: HostWindow): 
       finish(false);
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// host → page: focus-session (Nocturne C1, .claude/plans/nocturne/PLAN-C1.md
+// § The window)
+// ---------------------------------------------------------------------------
+
+/**
+ * The only shape of a session id this app hands out (`randomUUID()` on the
+ * server). The host checks the same shape before it forwards a click.
+ */
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Longer than any valid message by far; anything past it is not parsed at all. */
+const FOCUS_MAX_CHARS = 200;
+
+/**
+ * Read a host message as `{"type":"focus-session","session":"<uuid>"}` — a
+ * click on a peek mascot, forwarded by the host after it brought this window
+ * to the front. STRICT: a string (the host posts strings only, like the
+ * `copy-files` reply), valid JSON, a plain object with exactly those two
+ * keys, the right type and a session id of the UUID shape. Anything else is
+ * `null` and is ignored — never an error, never a guess.
+ */
+export function parseFocusSession(data: unknown): string | null {
+  if (typeof data !== 'string' || data.length > FOCUS_MAX_CHARS) return null;
+  let msg: unknown;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) return null;
+  const keys = Object.keys(msg);
+  if (keys.length !== 2 || !keys.includes('type') || !keys.includes('session')) return null;
+  const { type, session } = msg as { type: unknown; session: unknown };
+  if (type !== 'focus-session' || typeof session !== 'string' || !SESSION_ID.test(session)) return null;
+  return session;
+}
+
+/**
+ * Call `fn` with the session id of every valid `focus-session` the host
+ * posts. No host (an Edge `--app` window, `node --test`) → nothing is
+ * listened to. Answers the unsubscribe.
+ */
+export function onFocusSession(fn: (sessionId: string) => void, w?: HostWindow): () => void {
+  const channel = hostWindow(w)?.chrome?.webview;
+  if (channel == null) return () => {};
+  const onMessage = (e: { data?: unknown }): void => {
+    const id = parseFocusSession(e.data);
+    if (id !== null) fn(id);
+  };
+  channel.addEventListener('message', onMessage);
+  return () => channel.removeEventListener('message', onMessage);
 }

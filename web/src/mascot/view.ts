@@ -21,11 +21,26 @@
  * their variant changes — which is also what (re)starts the wave and blink
  * animations inside them.
  *
- * The stage is `aria-hidden`: the mascots are decorative art with no function
- * of their own — a click only makes one laugh or wave — and the page carries
- * no text. The real interface is the controller API in ./main.ts.
+ * The stage is `aria-hidden`: the mascots are decorative art — a click makes
+ * one laugh or wave, and in the host then brings the app to that session,
+ * which the app itself also offers — and the page carries no text. The real
+ * interface is the controller API in ./main.ts.
  */
 import type { Arm, Face, MascotState, SlotView } from './model.ts';
+import type { BoxRect } from './feed.ts';
+
+/**
+ * Margin around each mascot's box in `rects()`, CSS px. The host clips its
+ * window to these rects (PLAN-C1 § The window: a window region), and a region
+ * clips DRAWING as well as clicks — the waving arm, the laugh's hop and the
+ * strain's squash all reach past the reaction layer's own box, so the margin
+ * is what keeps them from being cut off.
+ */
+const RECT_MARGIN = 16;
+
+/** The stage's size (handoff: a fixed 220 x 340 box). */
+const STAGE_W = 220;
+const STAGE_H = 340;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -137,21 +152,34 @@ interface SlotNodes {
   /** Stable placeholder: the face is drawn last, over everything. */
   face: SVGGElement;
   drawn: Partial<SlotView>;
+  /**
+   * True while the position layer's entrance runs. Bumped `entry` makes a
+   * finished watch from an OLDER entrance (count 2 -> 3 restarts it) a no-op.
+   */
+  entering: boolean;
+  entry: number;
 }
 
 /** What the view needs from its owner. */
 export interface MascotViewOptions {
   /** A click on a mascot. The owner forwards it to the model's `poke`. */
   onPoke: (slot: number) => void;
+  /**
+   * A mascot's entrance finished — `rects()` changed although no state did.
+   * The page re-reports to the host on it (Nocturne C1).
+   */
+  onSettle?: () => void;
 }
 
 export class MascotView {
   private readonly stage: HTMLDivElement;
   private readonly onPoke: (slot: number) => void;
+  private readonly onSettle: (() => void) | null;
   private readonly slots = new Map<number, SlotNodes>();
 
   constructor(root: HTMLElement, options: MascotViewOptions) {
     this.onPoke = options.onPoke;
+    this.onSettle = options.onSettle ?? null;
     this.stage = document.createElement('div');
     this.stage.className = 'pm-stage';
     this.stage.setAttribute('aria-hidden', 'true');
@@ -169,6 +197,39 @@ export class MascotView {
     for (const slot of state.slots) this.drawSlot(slot);
   }
 
+  /**
+   * Where each visible mascot is, slot order, in CSS px of the page, for the
+   * host's click-through region: the reaction layer's box (its tilt included)
+   * plus `RECT_MARGIN`, clipped to the page and rounded outward. While a
+   * mascot's ENTRANCE runs it answers the whole stage instead — the climb and
+   * the squeeze travel through space the settled box does not cover, and a
+   * region clips drawing — and `onSettle` asks for the tight box after.
+   */
+  rects(): BoxRect[] {
+    const out: BoxRect[] = [];
+    const vw = typeof window === 'undefined' ? STAGE_W : window.innerWidth;
+    const vh = typeof window === 'undefined' ? STAGE_H : window.innerHeight;
+    const ordered = [...this.slots.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [, nodes] of ordered) {
+      let box = { left: vw - STAGE_W, top: (vh - STAGE_H) / 2, right: vw, bottom: (vh + STAGE_H) / 2 };
+      if (!nodes.entering && typeof nodes.react.getBoundingClientRect === 'function') {
+        const r = nodes.react.getBoundingClientRect();
+        box = {
+          left: r.left - RECT_MARGIN,
+          top: r.top - RECT_MARGIN,
+          right: r.right + RECT_MARGIN,
+          bottom: r.bottom + RECT_MARGIN,
+        };
+      }
+      const x0 = Math.max(0, Math.floor(box.left));
+      const y0 = Math.max(0, Math.floor(box.top));
+      const x1 = Math.min(vw, Math.ceil(box.right));
+      const y1 = Math.min(vh, Math.ceil(box.bottom));
+      if (x1 > x0 && y1 > y0) out.push([x0, y0, x1 - x0, y1 - y0]);
+    }
+    return out;
+  }
+
   /** Remove everything this view put in the page. */
   destroy(): void {
     this.slots.clear();
@@ -184,7 +245,10 @@ export class MascotView {
     if (drawn.right !== view.right) nodes.pos.style.right = view.right;
     if (drawn.bottom !== view.bottom) nodes.pos.style.bottom = view.bottom;
     if (drawn.z !== view.z) nodes.pos.style.zIndex = String(view.z);
-    if (drawn.enter !== view.enter) nodes.pos.style.animation = view.enter;
+    if (drawn.enter !== view.enter) {
+      nodes.pos.style.animation = view.enter;
+      this.watchEntrance(nodes);
+    }
     if (drawn.tilt !== view.tilt) nodes.tilt.style.transform = view.tilt;
     if (drawn.anim !== view.anim) nodes.react.style.animation = view.anim;
 
@@ -245,9 +309,46 @@ export class MascotView {
     pos.appendChild(tilt);
     this.stage.appendChild(pos);
 
-    const nodes: SlotNodes = { pos, tilt, react, outline, arm, face, drawn: {} };
+    const nodes: SlotNodes = {
+      pos,
+      tilt,
+      react,
+      outline,
+      arm,
+      face,
+      drawn: {},
+      entering: false,
+      entry: 0,
+    };
     this.slots.set(index, nodes);
     return nodes;
+  }
+
+  /**
+   * Follow the entrance that was just (re)started on this position layer and
+   * say when it is over. The browser's own list of running animations is the
+   * source: under `prefers-reduced-motion` the stylesheet removes them all,
+   * the list is empty, and the mascot is settled the moment it is drawn.
+   */
+  private watchEntrance(nodes: SlotNodes): void {
+    const entry = ++nodes.entry;
+    const pos = nodes.pos as HTMLDivElement & { getAnimations?: () => Animation[] };
+    const running = typeof pos.getAnimations === 'function' ? pos.getAnimations() : [];
+    if (running.length === 0) {
+      nodes.entering = false;
+      return;
+    }
+    nodes.entering = true;
+    void Promise.allSettled(running.map((a) => a.finished)).then(() => {
+      if (nodes.entry !== entry || !this.slots.has(this.indexOf(nodes))) return;
+      nodes.entering = false;
+      this.onSettle?.();
+    });
+  }
+
+  private indexOf(nodes: SlotNodes): number {
+    for (const [i, n] of this.slots) if (n === nodes) return i;
+    return -1;
   }
 
   private drawArm(host: SVGGElement, variant: Arm): void {

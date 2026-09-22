@@ -98,3 +98,4 @@ Part specs, `nocturne/`:
 - `PLAN-B8.md` — cleanup, memory, an End session button in every session pane's header, release v0.4.0
 - `PLAN-B11.md` — session state Working vs. Waiting for you, the agents table behind a switch, at most 4 running agents
 - `PLAN-B12.md` — icons everywhere: a real icon per file type, the real tool logos in one style
+- `PLAN-C1.md` — the peek mascot: a small Claude at the monitor edge when a session is done or asks you something

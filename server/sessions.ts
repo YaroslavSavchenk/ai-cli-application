@@ -484,6 +484,27 @@ export function ptyEnv(): Record<string, string> {
   return env;
 }
 
+/**
+ * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The signal): keep
+ * `pendingSince` in step with `attention || turnUnseen`. Stamped when that
+ * goes false -> true, KEPT while either stays set (a second BEL, or a turn
+ * ending on a session a BEL already made pending, does not move it — the
+ * mascots are ordered oldest-first), deleted when both are false. Returns
+ * whether the field changed.
+ */
+function syncPending(info: SessionInfo): boolean {
+  const pending = info.attention || info.turnUnseen === true;
+  if (pending && info.pendingSince === undefined) {
+    info.pendingSince = new Date().toISOString();
+    return true;
+  }
+  if (!pending && info.pendingSince !== undefined) {
+    delete info.pendingSince;
+    return true;
+  }
+  return false;
+}
+
 export class SessionManager {
   #sessions = new Map<string, Session>();
   readonly #log: Logger;
@@ -677,6 +698,9 @@ export class SessionManager {
       this.#broadcast(session, { type: 'data', data });
       if (scanForBell(data, session)) {
         session.info.attention = true;
+        // C1: a BEL makes the session pending too; the `attention` frame is
+        // the news on the wire, `pendingSince` rides the next info / GET.
+        syncPending(session.info);
         this.#slog('debug', `${id} attention raised (BEL in output)`);
         this.#broadcast(session, { type: 'attention' });
       }
@@ -730,6 +754,14 @@ export class SessionManager {
         delete session.info.turn;
         changed = true;
       }
+      // C1: an ended turn nobody looked at is no longer news once the session
+      // is gone (a BEL's `attention` stays, as before — and so does its
+      // `pendingSince`).
+      if (session.info.turnUnseen !== undefined) {
+        delete session.info.turnUnseen;
+        changed = true;
+      }
+      if (syncPending(session.info)) changed = true;
       if (changed) {
         // ONE extra frame, before the exit: the client upserts this session on
         // `info` and repaints on `exit`, so the repaint already draws the
@@ -860,6 +892,13 @@ export class SessionManager {
    *   - NOTHING CHANGED. The watcher already compares field-wise before it
    *     calls, so this is belt and braces — but it is what guarantees one
    *     broadcast per real change.
+   *
+   * Nocturne C1 (PLAN-C1.md § The signal): `turnUnseen` is set exactly on a
+   * 'working' -> 'waiting' move of `turn` (a first readout of 'waiting', or
+   * one following an unknown turn, is not news) and cleared when the turn
+   * goes back to 'working'; `pendingSince` follows. Both ride the same one
+   * frame as the turn move — `turnUnseen` only ever changes when `turn` does,
+   * so the unchanged check above stays complete.
    */
   setReport(id: string, report: AgentsReport): void {
     const session = this.#sessions.get(id);
@@ -888,8 +927,12 @@ export class SessionManager {
     else session.info.agents = agents;
     if (agentCounts === undefined) delete session.info.agentCounts;
     else session.info.agentCounts = agentCounts;
+    const prevTurn = session.info.turn;
     if (report.turn === undefined) delete session.info.turn;
     else session.info.turn = report.turn;
+    if (prevTurn === 'working' && report.turn === 'waiting') session.info.turnUnseen = true;
+    else if (report.turn === 'working') delete session.info.turnUnseen;
+    syncPending(session.info);
     this.#slog(
       'debug',
       `${id} agents updated: ${agents?.length ?? 0} row(s), ` +
@@ -903,6 +946,9 @@ export class SessionManager {
     const session = this.#sessions.get(id);
     if (session === undefined) return false;
     session.info.attention = false;
+    // C1: looking at the session acks an ended turn exactly like a BEL.
+    delete session.info.turnUnseen;
+    syncPending(session.info);
     return true;
   }
 

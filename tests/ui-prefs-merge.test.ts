@@ -196,3 +196,28 @@ test('an empty drop list leaves every unknown key alone (every other writer)', a
     theme: { ground: '#07090c', text: '#d8ffd8' },
   });
 });
+
+// ---------------------------------------------------------------------------
+// Nocturne C1: a bad stored `mascot` must not block every later save
+// ---------------------------------------------------------------------------
+
+test('a stored `mascot` of the wrong shape is DROPPED from the PUT (the server would 400 the whole save)', async () => {
+  for (const bad of ['off', null, false, { enabled: 'no' }, { enabled: true, extra: 1 }, [], {}]) {
+    calls = [];
+    getBody = { mascot: bad, futureSetting: 'keep' };
+    await updatePrefs({ theme: { ground: '#07090c', text: '#ffe9c4' } });
+    const body = putBody() as Record<string, unknown>;
+    assert.equal('mascot' in body, false, `dropped, not coerced: ${JSON.stringify(bad)}`);
+    assert.deepEqual(body, { futureSetting: 'keep', theme: { ground: '#07090c', text: '#ffe9c4' } });
+  }
+});
+
+test('a valid stored `mascot` survives an unrelated save untouched, and a mascot patch is sent as given', async () => {
+  getBody = { mascot: { enabled: false } };
+  await updatePrefs({ statusLine: { enabled: true } });
+  assert.deepEqual(putBody(), { mascot: { enabled: false }, statusLine: { enabled: true } });
+  calls = [];
+  getBody = { mascot: 'off' };
+  await updatePrefs({ mascot: { enabled: true } });
+  assert.deepEqual(putBody(), { mascot: { enabled: true } });
+});

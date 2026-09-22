@@ -16,8 +16,9 @@
  *   back to `idle` (1400 ms / 1300 ms).
  * - `straining` — set when the count transitions TO 3, cleared after 3400 ms.
  *
- * What it does NOT own: sessions. This page is driven purely by a number; the
- * wiring to real pending inputs is a later plan part.
+ * What it does NOT own: sessions. The model is driven purely by a number;
+ * which sessions are pending, the 1.5 s rise hold and the prefs switch live
+ * in ./feed.ts (Nocturne C1), which hands this model the count.
  */
 
 /** Never more than three mascots, whatever the app asks for. */
@@ -214,11 +215,16 @@ export class MascotModel {
    * A click on slot `i`: pick laugh or wave at random and return to idle
    * after its duration. A slot that is already reacting ignores the click
    * (handoff: "Ignore clicks while reacting").
+   *
+   * Answers the reaction it started, or `null` when the click was ignored —
+   * the page (./main.ts) waits that reaction's duration before it asks the
+   * host to open the session (PLAN-C1 § The page), so an ignored click opens
+   * nothing a second time.
    */
-  poke(slot: number): void {
-    if (this.destroyed) return;
-    if (!Number.isInteger(slot) || slot < 0 || slot >= this.count) return;
-    if (this.moods[slot] !== 'idle') return;
+  poke(slot: number): Exclude<Mood, 'idle'> | null {
+    if (this.destroyed) return null;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= this.count) return null;
+    if (this.moods[slot] !== 'idle') return null;
     const draw = Math.floor(this.random() * REACTION_KEYS.length);
     const index = Math.min(REACTION_KEYS.length - 1, Math.max(0, draw));
     const pick = REACTION_KEYS[index]!;
@@ -230,6 +236,7 @@ export class MascotModel {
       this.emit();
     }, REACTIONS[pick].dur);
     this.emit();
+    return pick;
   }
 
   /** What the view draws right now. A fresh object every call. */

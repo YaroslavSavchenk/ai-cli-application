@@ -12,7 +12,10 @@
  * - `confirmEnd`  — every door that ends a session, at click time.
  * - `followOutput` — ui/terminal.ts, on every write.
  * - `hidden`      — ui/launch.ts, on every open of the New session dialog.
- * Nothing here reaches the server: prefs.json is an opaque bag to it.
+ * - `mascot`      — the peek mascot page (web/src/mascot/feed.ts), on every
+ *                   poll (Nocturne C1); the settings panel only writes it.
+ * Nothing here reaches the server: prefs.json is an opaque bag to it (the one
+ * exception is `mascot`, whose shape the server checks on PUT).
  */
 import type { UiBehaviour, UiPrefs } from '../../../shared/protocol.ts';
 
@@ -111,4 +114,56 @@ export function setHiddenTools(next: readonly string[]): void {
 /** The prefs patch a settings write sends. */
 export function toolsPatch(hidden: readonly string[]): UiPrefs {
   return { tools: { hidden: [...hidden] } };
+}
+
+// ---------------------------------------------------------------------------
+// Peek mascot switch (Nocturne C1, .claude/plans/nocturne/PLAN-C1.md § The toggle)
+// ---------------------------------------------------------------------------
+
+/**
+ * Is the peek mascot on, per `prefs.mascot`? ABSENT = ON (the part's default),
+ * and so is anything that is not `{ enabled: false }` exactly — a mascot the
+ * user never switched off must not vanish because a hand-edited file holds a
+ * string. Shared by the settings row and the mascot page, so the two can
+ * never disagree on what the bag means.
+ */
+export function clampMascot(raw: unknown): boolean {
+  if (raw === null || typeof raw !== 'object') return true;
+  return (raw as Record<string, unknown>).enabled !== false;
+}
+
+/**
+ * Is `raw` exactly the shape the server accepts for `prefs.mascot` on PUT —
+ * `{ enabled: boolean }` and nothing else? The server checks this strictly
+ * (server/api.ts `validMascotPref`) while it LOADS prefs.json unchecked, and
+ * every write re-sends the whole bag (api.ts `updatePrefs`), so a hand-edited
+ * `"mascot": "off"` would make every later save of anything fail. The writer
+ * drops a value that fails this — absent is on, so nothing is guessed.
+ */
+export function isMascotShape(raw: unknown): boolean {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const keys = Object.keys(raw);
+  return keys.length === 1 && keys[0] === 'enabled' && typeof (raw as { enabled: unknown }).enabled === 'boolean';
+}
+
+let mascotOn = true;
+
+/** Seed from the prefs bag (`prefs.mascot`); tolerant of anything. */
+export function initMascot(fromPrefs: unknown): void {
+  mascotOn = clampMascot(fromPrefs);
+}
+
+/** Whether the switch is on right now. */
+export function getMascotEnabled(): boolean {
+  return mascotOn;
+}
+
+/** Replace the in-memory switch (persistence is the caller's job — the panel). */
+export function setMascotEnabled(on: boolean): void {
+  mascotOn = on;
+}
+
+/** The prefs patch a settings write sends. */
+export function mascotPatch(on: boolean): UiPrefs {
+  return { mascot: { enabled: on } };
 }

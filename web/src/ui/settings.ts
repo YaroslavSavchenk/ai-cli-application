@@ -18,7 +18,9 @@
  *                       saved); the Tools block hides cards from the dialog's
  *                       grid, and the Defaults block writes the three
  *                       behaviour toggles the app reads at boot, at every
- *                       door that ends a session, and on every terminal write.
+ *                       door that ends a session, and on every terminal write,
+ *                       plus (C1) the peek mascot's switch, which the mascot
+ *                       page reads.
  *   Keyboard            the WHOLE keyboard table, drawn from the same rows as
  *                       the shortcuts overlay (ui/shortcuts-rows.ts) in a
  *                       layout that fits a 640-wide page: the chords the app
@@ -72,10 +74,14 @@ import {
   behaviourPatch,
   getBehaviour,
   getHiddenTools,
+  getMascotEnabled,
   initBehaviour,
   initHiddenTools,
+  initMascot,
+  mascotPatch,
   setBehaviour,
   setHiddenTools,
+  setMascotEnabled,
   toolsPatch,
 } from './prefs-model.ts';
 import {
@@ -248,9 +254,10 @@ const PROVIDER_ROWS: ProviderRow[] = TOOL_CARDS.flatMap((c) => {
  * switch really decides, because all three are invisible until the moment they
  * act: a start, a click on a door, a line of output arriving.
  *
- * The v3 markup's fourth row (`Notifications when a session needs you`) is not
- * here: there is no notification mechanism to switch off yet (user decision D2,
- * 2026-09-22 — it returns with the peek mascot in part C1).
+ * The v3 markup's fourth row (`Notifications when a session needs you`) came
+ * back with the peek mascot (user decision D2, 2026-09-22; part C1) as the
+ * `Peek mascot` row below, which is not a behaviour member: it has its own
+ * prefs key (`mascot`) because the mascot page reads it, not this app.
  */
 interface DefaultRow {
   key: keyof BehaviourCfg;
@@ -276,6 +283,14 @@ const DEFAULT_ROWS: DefaultRow[] = [
     caption: 'A terminal jumps to its newest output even when you have scrolled up.',
   },
 ];
+
+/**
+ * The Defaults block's fourth row (Nocturne C1, `.claude/plans/nocturne/PLAN-C1.md`
+ * § The toggle). Plain words: what the user sees, and when.
+ */
+const MASCOT_LABEL = 'Peek mascot';
+const MASCOT_CAPTION =
+  'A small Claude peeks in at the edge of your screen when a session is done or asks you something.';
 
 /** The Tools block's refusal, said in the row's own caption slot (D1). */
 const TOOLS_FLOOR = 'Keep at least one tool visible.';
@@ -570,6 +585,8 @@ export function initSettings(
     defRows.set(d.key, { row, box });
     defWrap.append(row, el('div', 'sg-cap', d.caption));
   }
+  const mascotRow = checkRow(MASCOT_LABEL, () => toggleMascot());
+  defWrap.append(mascotRow.row, el('div', 'sg-cap', MASCOT_CAPTION));
   prefsPage.append(defWrap);
 
   // ---- the key rows, live --------------------------------------------------
@@ -706,6 +723,9 @@ export function initSettings(
       r.row.setAttribute('aria-pressed', cfg[d.key] ? 'true' : 'false');
       r.box.textContent = cfg[d.key] ? '✓' : '';
     }
+    const mascotOn = getMascotEnabled();
+    mascotRow.row.setAttribute('aria-pressed', mascotOn ? 'true' : 'false');
+    mascotRow.box.textContent = mascotOn ? '✓' : '';
   }
 
   /** The refusal, in one row's caption slot, cleared again on its own. */
@@ -771,6 +791,24 @@ export function initSettings(
       setBehaviour(before);
       syncPrefsRows();
       log.warn(`the ${key} preference was not saved`);
+    });
+  }
+
+  /**
+   * Flip the peek mascot (C1). The mascot page reads `prefs.mascot` on its
+   * next poll, so the switch acts within ~2 s; a failed write puts the row
+   * back where it was.
+   */
+  function toggleMascot(): void {
+    const before = getMascotEnabled();
+    setMascotEnabled(!before);
+    syncPrefsRows();
+    writes++;
+    log.debug(`prefs mascot: enabled=${!before}`);
+    void api.updatePrefs(mascotPatch(!before), DEAD_PREFS_KEYS).catch(() => {
+      setMascotEnabled(before);
+      syncPrefsRows();
+      log.warn('the mascot preference was not saved');
     });
   }
 
@@ -1163,6 +1201,7 @@ export function initSettings(
         // The same re-read serves the B6 stores: another window may have
         // hidden a card or flipped a toggle since this page booted.
         initBehaviour(bag.behaviour);
+        initMascot(bag.mascot);
         initHiddenTools(
           bag.tools,
           TOOL_CARDS.map((c) => c.id),

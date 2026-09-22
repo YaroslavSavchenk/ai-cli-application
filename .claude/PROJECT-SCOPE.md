@@ -1021,17 +1021,35 @@ multi-pane layouts on top.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
   sequences, Claude Code hooks.
-- **Peek mascot (user's ask 2026-09-15; the LAST step of the Nocturne
-  redesign, `.claude/plans/PLAN-NOCTURNE.md` C1).** The user's own pixel-art
-  Claude (`design/peek-mascot/`, 1:1) peeks around the right
-  edge of the MONITOR — outside the app window, over fullscreen games and
-  video too — one mascot per session waiting for an answer, max 3, with a
-  Settings toggle. Phase 1 landed 2026-09-15: a standalone count-driven page
-  (`web/mascot.html`, transparent background) not yet wired to sessions.
-  Later phases: count = attention count (BEL), a transparent always-on-top
-  tool window in the WebView2 host, `prefs.json` toggle. Open decisions
-  12–15 in the plan (monitor, click behaviour, count semantics, the
-  exclusive-fullscreen limit) are the user's.
+- **Peek mascot — Nocturne C1 (user's ask 2026-09-15; decisions 12–16
+  settled by the user 2026-09-22; spec `.claude/plans/nocturne/PLAN-C1.md`).**
+  The user's own pixel-art Claude (`design/peek-mascot/`, 1:1) peeks around
+  the right edge of the monitor the APP WINDOW is on — outside the app
+  window, over other programs, borderless fullscreen and video (a true
+  exclusive-fullscreen game cannot be drawn over: accepted limit). One
+  mascot per session that is PENDING — Claude ended its turn
+  (`SessionInfo.turnUnseen`, set by the server only on a working → waiting
+  move of the B11 turn readout) or rang the bell (`attention`) — and not
+  yet looked at; max 3, oldest `pendingSince` first. Looking at the pane
+  (the same ack as a BEL: focused, window in front; the `seen` WS frame /
+  `POST …/seen` clear both flags) sends it away; `turnUnseen` also clears
+  when Claude works again and at exit. The statusline, Sessions badge and
+  `Needs you` pill stay BEL-only (B11). The page `/mascot.html` now carries
+  the auth token like `index.html` (same no-store and frame protection),
+  polls `/api/sessions` + `/api/prefs` every 2 s, shows a rise only after it
+  held 1.5 s (no flash for a turn ending in the pane the user watches), and
+  reports `mascot-count` (+ click-through rects) and, after a click's laugh
+  or wave, `mascot-open` to the Windows host, which keeps a TopMost,
+  no-activate, taskbar-less transparent WebView2 window whose window REGION
+  is the union of the reported rects — empty (draws nothing, takes no
+  clicks) while the count is 0; the window is never hidden, because a hidden
+  WebView2 is throttled by Chromium after 5 min and a mascot would arrive up
+  to a minute late. The host declares no DPI awareness (like the main
+  window), so on a >100 % monitor Windows scales the art. It reloads a
+  crashed mascot page (capped) and re-places on display changes; and, on `mascot-open`, brings the app to the front and posts
+  `focus-session` to the main page. `prefs.mascot = { enabled }` (Settings →
+  Preferences, `Peek mascot`, default ON) is the one prefs key the server
+  validates. Under the OS reduced-motion setting the art stands still.
 - **App settings panel — GO given 2026-07-20; contents REVERSED 2026-07-25
   (user decision).** A checklist-style settings surface persisted
   server-side in `prefs.json` via `/api/prefs`. The 2026-07-20 "decided

@@ -37,6 +37,7 @@ import {
   descendants,
   dispatch,
   installDom,
+  setRect,
   type Dom,
 } from './fake-dom.ts';
 
@@ -567,4 +568,96 @@ test('the stage and the three layers carry the handoff\'s CSS facts', () => {
   assert.ok(CSS.includes('transform-origin: center bottom'), 'the reaction layer hinges at the ground');
   assert.ok(CSS.includes('pointer-events: auto'), 'the position layer takes the clicks back');
   assert.ok(/transition:\s*\n?\s*bottom 0\.7s cubic-bezier\(0\.3, 1\.4, 0\.5, 1\)/.test(CSS));
+});
+
+// ---------------------------------------------------------------------------
+// rects() — the host's click-through region (Nocturne C1, PLAN-C1 § The window)
+// ---------------------------------------------------------------------------
+
+/** A view with `onSettle` wired, over a model driven by hand. */
+function mountSettling(): { model: Model; view: View; root: FakeElement; settled: number[] } {
+  const root = new FakeElement('div');
+  dom.body.append(root);
+  const settled: number[] = [];
+  let view!: View;
+  const model: Model = new MascotModel({
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    random: () => 0,
+    onChange: (state) => view.render(state),
+  });
+  view = new MascotView(root as unknown as HTMLElement, {
+    onPoke: (slot) => model.poke(slot),
+    onSettle: () => settled.push(settled.length),
+  });
+  view.render(model.snapshot());
+  return { model, view, root, settled };
+}
+
+/** Give every position layer a `getAnimations()` for the length of `fn`. */
+async function withAnimations(
+  list: () => { finished: Promise<unknown> }[],
+  fn: () => Promise<void>,
+): Promise<void> {
+  const proto = FakeElement.prototype as unknown as Record<string, unknown>;
+  proto.getAnimations = function (this: FakeElement) {
+    return String(this.className).includes('pm-pos') ? list() : [];
+  };
+  try {
+    await fn();
+  } finally {
+    delete proto.getAnimations;
+  }
+}
+
+test('rects(): each settled mascot is its reaction box + 16 px, rounded OUTWARD, clipped to the page, slot order', () => {
+  const { model, view, root } = mountSettling();
+  assert.deepEqual(view.rects(), [], 'count 0: an empty region');
+  model.setCount(2);
+  const [p0, p1] = byClass(root, 'pm-pos');
+  // Slot 0 at fractional px (outward rounding), slot 1 half past the right
+  // edge of the 1600 x 900 page (clipped).
+  setRect(layersOf(p0!).react, { left: 1400.4, top: 300.6, width: 100, height: 120.2 });
+  setRect(layersOf(p1!).react, { left: 1550, top: 350, width: 100, height: 120 });
+  assert.deepEqual(view.rects(), [
+    [1384, 284, 1517 - 1384, 437 - 284],
+    [1534, 334, 1600 - 1534, 486 - 334],
+  ]);
+  view.destroy();
+});
+
+test('rects(): while an entrance runs a mascot claims the whole stage, then settles and says so', async () => {
+  let done!: () => void;
+  const finished = new Promise<void>((res) => (done = res));
+  await withAnimations(
+    () => [{ finished }],
+    async () => {
+      const { model, view, root, settled } = mountSettling();
+      model.setCount(1);
+      setRect(layersOf(byClass(root, 'pm-pos')[0]!).react, { left: 1450, top: 380, width: 100, height: 120 });
+      // The 220 x 340 stage at the right edge, vertically centred on 900.
+      assert.deepEqual(view.rects(), [[1380, 280, 220, 340]], 'mid-climb: the whole stage');
+      assert.deepEqual(settled, []);
+      done();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      assert.equal(settled.length, 1, 'onSettle once the entrance is over');
+      assert.deepEqual(view.rects(), [[1434, 364, 132, 152]], 'then the tight box');
+      view.destroy();
+    },
+  );
+});
+
+test('rects(): with no running animation (reduced motion) a mascot is settled the moment it is drawn', async () => {
+  await withAnimations(
+    () => [],
+    async () => {
+      const { model, view, root, settled } = mountSettling();
+      model.setCount(1);
+      setRect(layersOf(byClass(root, 'pm-pos')[0]!).react, { left: 1450, top: 380, width: 100, height: 120 });
+      assert.deepEqual(view.rects(), [[1434, 364, 132, 152]], 'tight at once: nothing to wait on');
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      assert.deepEqual(settled, [], 'and no settle report for an entrance that never ran');
+      view.destroy();
+    },
+  );
 });

@@ -32,7 +32,8 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule | verified | `.claude/plans/nocturne/PLAN-B11.md` | 2026-09-22 |
 | B8 | Cleanup + memory, End session button in the pane header, release v0.4.0 (prepared; user: publish AFTER C1) | verified | `.claude/plans/nocturne/PLAN-B8.md` | 2026-09-22 |
 | B12 | Icons everywhere: a real icon per file type, the real tool logos in one style | verified | `.claude/plans/nocturne/PLAN-B12.md` | 2026-09-22 |
-| C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
+| C1 | Peek mascot (phase 1 of 4 landed 2026-09-15; decisions 12–16 settled 2026-09-22) | landed | `.claude/plans/nocturne/PLAN-C1.md` | 2026-09-22 |
+| B13 | Rename files and folders in the Files panel (NOTED 2026-09-22, after C1) | todo | — |  |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -203,6 +204,11 @@ Fixed rules for every part:
 ### B12. Icons everywhere (added 2026-09-22, user's ask; spec `.claude/plans/nocturne/PLAN-B12.md`)
 - A real icon per file type in the Files panel and editor tabs; the real Claude / Codex / Gemini / Grok logos in one uniform style wherever a tool is shown. Inline SVG, no package (decision 5).
 
+### B13. Rename files and folders (NOTED 2026-09-22, user's ask — NO PLAN YET; after C1)
+- User (2026-09-22): "ik wil dat je files en folders ook kan renamen. Want nu is het alleen verwijderen of aanmaken. Voeg dit toe aan de planning na C1." The Files panel can create (A9c/B2) and delete (B10a) but not rename.
+- Touches: a `Rename` entry in the row context menu (+ a keyboard twin, e.g. F2 like Explorer), an inline name row in the tree (the A9c create idiom: Enter renames, Esc cancels, same name rules), and a backend endpoint that renames under the same realpath boundary as create/delete (never a project root or an anchor, no move across folders, conflicts refused or asked) — security review. Open editor tabs on a renamed file or inside a renamed folder must follow (B4 keys tabs by path). Decisions to ask at the start: conflict behaviour, whether renaming a project's own folder is allowed, whether the extension is selected in the inline edit.
+- Start only on "begin aan B13".
+
 ## Track C — after the redesign (the LAST step; runs after B8)
 
 ### C1. Peek mascot (added 2026-09-15, user's ask; last step of the redesign)
@@ -228,11 +234,11 @@ Fixed rules for every part:
 9. ~~A4 — where the custom-command escape hatch lives (v3 has none)~~ DECIDED 2026-09-10 (user): a sixth tool card "Other" after Terminal, showing the existing command field.
 10. ~~Terminal colours (B9), ask before A7~~ DECIDED 2026-09-13 (user, all four the orchestrator's advice): (a) presets + custom ground and text; (b) ground + text only, never the full ANSI palette; (c) terminal only, the app accent stays Nocturne, status colours never themed; (d) a Settings page only, no top-bar switch. Original question: (a) presets only, a free colour picker, or both; (b) which colours — ground + text only, or the full ANSI palette; (c) terminal only, or the app's accent colour too; (d) its place — a Settings page only, or also a quick switch in the top bar. Orchestrator's advice: a Settings page with a handful of presets (Nocturne first) plus custom ground and text colours; terminal only; status colours never themed.
 11. ~~Files panel MEANING (ask before B2)~~ DECIDED 2026-09-15 (user, the orchestrator's advice): the Files panel becomes a real FILE BROWSER — root = the user's home directory, the project root when a session is focused; the v3 git-changes list survives as a second tab (`Changes`) beside `Files` and `Commits`. Same day: the panel opens without a session (header `Home`), and only one left panel at a time — the Projects drawer hides Files while open (Files returns when it closes). Both deviate from v3 on purpose. Original question: git-changes panel per project, a file browser rooted at home, or both (tabs).
-12. C1 — which monitor holds the mascot when there are several: the primary, the one the app window is on, or the one with the mouse pointer.
-13. C1 — a click on a mascot: the design's reaction only (laugh / wave), or also bring the app to the front on that session.
-14. C1 — count semantics: one mascot per session waiting for an answer you have not looked at yet (= today's attention badges), max 3 — or only the session you last worked in.
-15. C1 — accept the exclusive-fullscreen limit (no overlay can draw over a true exclusive-fullscreen game; borderless / optimised fullscreen and video are fine), or is a different mechanism wanted for that case.
-16. C1 — reduced motion: the handoff describes no behaviour for the OS "reduce motion" setting, yet the overlay's idle bob/blink run forever at the monitor edge; the app's own CSS honours the setting everywhere. Add it (still the same art, no motion), defer to C1, or decline.
+12. ~~C1 — which monitor holds the mascot when there are several: the primary, the one the app window is on, or the one with the mouse pointer.~~ DECIDED 2026-09-22 (user): the monitor the APP WINDOW is on.
+13. ~~C1 — a click on a mascot: the design's reaction only (laugh / wave), or also bring the app to the front on that session.~~ DECIDED 2026-09-22 (user): the reaction, then the app comes to the front on that session.
+14. ~~C1 — count semantics: one mascot per session waiting for an answer you have not looked at yet (= today's attention badges), max 3 — or only the session you last worked in.~~ DECIDED 2026-09-22 (user): a session counts once Claude ends its turn OR rings the bell, until the user looks at it; max 3 (spec `.claude/plans/nocturne/PLAN-C1.md`).
+15. ~~C1 — accept the exclusive-fullscreen limit (no overlay can draw over a true exclusive-fullscreen game; borderless / optimised fullscreen and video are fine), or is a different mechanism wanted for that case.~~ DECIDED 2026-09-22 (user): accepted, a recorded known limit.
+16. ~~C1 — reduced motion: the handoff describes no behaviour for the OS "reduce motion" setting, yet the overlay's idle bob/blink run forever at the monitor edge; the app's own CSS honours the setting everywhere. Add it (still the same art, no motion), defer to C1, or decline.~~ DECIDED 2026-09-22 (user): the same art, no motion.
 
 ## Suggested order
 A1 → A2 → A3 → A4 → A4b → A5 → A6 → A7 → A8, then A11 → A10 → A9 → A10b → A9b (user's 2026-09-15/16 priorities) → B2 + A9c (pulled forward 2026-09-16, user's ask) → B1 → B5 → B10 → B10a (user's ask 2026-09-20) → B3 → B4 → B6 → B9 → B7 → B8 → C1 (last, phase 1 already landed 2026-09-15).

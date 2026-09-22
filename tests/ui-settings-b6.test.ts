@@ -7,7 +7,9 @@
  *                            hidden, and the refusal is said in place.
  *   Preferences -> Defaults  the three behaviour toggles (D2 dropped the
  *                            fourth), each writing the whole `behaviour` bag
- *                            and flipping back when the write fails.
+ *                            and flipping back when the write fails — and,
+ *                            since Nocturne C1, the `Peek mascot` row that
+ *                            took the fourth place, writing `mascot`.
  *   Background service       `Check for updates` asks the backend NOW (D4),
  *                            says one of four sentences, offers `Update` when
  *                            a release is waiting, and then re-reads the
@@ -29,7 +31,14 @@ import { registerHooks } from 'node:module';
 import type { UiPrefs } from '../shared/protocol.ts';
 import { UPDATE_NEW_VERSION_AVAILABLE } from '../shared/protocol.ts';
 import { TOOL_CARDS } from '../web/src/ui/launch-args.ts';
-import { getBehaviour, getHiddenTools, initBehaviour, initHiddenTools } from '../web/src/ui/prefs-model.ts';
+import {
+  getBehaviour,
+  getHiddenTools,
+  getMascotEnabled,
+  initBehaviour,
+  initHiddenTools,
+  initMascot,
+} from '../web/src/ui/prefs-model.ts';
 import { byClass, installDom, textsOf, type FakeElement } from './fake-dom.ts';
 
 const dom = installDom();
@@ -217,15 +226,17 @@ const pressed = (r: FakeElement): boolean => r.getAttribute('aria-pressed') === 
  */
 async function openOn(
   pageLabel: string,
-  seed: { hidden?: string[]; behaviour?: Record<string, boolean> } = {},
+  seed: { hidden?: string[]; behaviour?: Record<string, boolean>; mascot?: unknown } = {},
 ): Promise<void> {
   panel.close();
   // The bag on disk and the seeded store are one thing in the browser (main.ts
   // seeds from the same bag at boot), so the double sets both.
   H.prefs = { tools: { hidden: seed.hidden ?? [] }, behaviour: seed.behaviour ?? {} };
+  if (seed.mascot !== undefined) H.prefs.mascot = seed.mascot as UiPrefs['mascot'];
   H.writes.length = 0;
   H.nextWriteError = null;
   initBehaviour(seed.behaviour ?? {});
+  initMascot(seed.mascot);
   initHiddenTools({ hidden: seed.hidden ?? [] }, ALL_IDS);
   panel.open();
   await settle();
@@ -332,17 +343,23 @@ test('a tools write that fails puts the card back', async () => {
 });
 
 // ===========================================================================
-// Preferences -> Defaults (D2 dropped the notifications row)
+// Preferences -> Defaults (D2 dropped the notifications row; C1 brought the
+// peek mascot's switch in its place)
 // ===========================================================================
 
-/** The three captions, in the order the page draws them. */
+/** The peek mascot row's caption (Nocturne C1). */
+const MASCOT_CAPTION =
+  'A small Claude peeks in at the edge of your screen when a session is done or asks you something.';
+
+/** The four captions, in the order the page draws them. */
 const DEFAULT_CAPTIONS = [
   'The files, folders and views you left open come back the next time the app starts; sessions never survive a restart.',
   'Every button that ends a session asks once before it does.',
   'A terminal jumps to its newest output even when you have scrolled up.',
+  MASCOT_CAPTION,
 ];
 
-test('the Defaults block is three live rows with a caption each, at their factory values', async () => {
+test('the Defaults block is three behaviour rows and the mascot row, a caption each, at their factory values', async () => {
   await openOn('Preferences');
   const p = page('prefs');
   assert.deepEqual(textsOf(p, 'sg-sub'), ['API keys', 'Tools', 'Defaults']);
@@ -353,7 +370,8 @@ test('the Defaults block is three live rows with a caption each, at their factor
     'factory: reopen on, confirm on, follow off',
   );
   for (const l of labels) assert.equal(row('prefs', l).disabled, false, `${l} is live since B6`);
-  // D2: there is no notifications row to switch off until part C1.
+  // D2: the notifications row never came back under that name — C1's
+  // `Peek mascot` row is what it became.
   assert.equal(
     byClass(p, 'sg-rowlb').some((n) => (n.textContent ?? '').includes('Notifications')),
     false,
@@ -402,6 +420,90 @@ test('the stored bag decides what the rows show on open', async () => {
     ),
     [false, false, true],
   );
+});
+
+// ---------------------------------------------------------------------------
+// The Peek mascot row (Nocturne C1, PLAN-C1.md § The toggle)
+// ---------------------------------------------------------------------------
+
+test('Peek mascot is ON when the bag has no `mascot` key, and a click writes `{enabled:false}`', async () => {
+  await openOn('Preferences');
+  const r = row('prefs', 'Peek mascot');
+  assert.equal(pressed(r), true, 'absent = on');
+  assert.equal(r.tagName.toLowerCase(), 'button', 'a real button: the keyboard reaches it');
+  r.click();
+  await settle();
+  assert.equal(getMascotEnabled(), false);
+  assert.equal(pressed(r), false);
+  assert.deepEqual(lastWrite().patch, { mascot: { enabled: false } });
+  assert.ok(lastWrite().dead.includes('defaults'), 'the write prunes the retired keys like every other');
+  r.click();
+  await settle();
+  assert.deepEqual(lastWrite().patch, { mascot: { enabled: true } });
+  assert.equal(pressed(r), true);
+});
+
+test('a stored `{enabled:false}` shows the row off on open; anything else reads as on', async () => {
+  await openOn('Preferences', { mascot: { enabled: false } });
+  assert.equal(pressed(row('prefs', 'Peek mascot')), false);
+  await openOn('Preferences', { mascot: { enabled: 'no' } });
+  assert.equal(pressed(row('prefs', 'Peek mascot')), true, 'a wrong type is not a switch-off');
+});
+
+test('a mascot write that fails puts the row back and says so in the log', async () => {
+  await openOn('Preferences');
+  H.nextWriteError = new Error('HTTP 500');
+  row('prefs', 'Peek mascot').click();
+  await settle();
+  assert.equal(getMascotEnabled(), true, 'the store never keeps what disk refused');
+  assert.equal(pressed(row('prefs', 'Peek mascot')), true);
+  assert.ok(H.logs.includes('warn the mascot preference was not saved'));
+});
+
+test('the re-read on open shows what disk holds for the mascot, not what this window booted with', async () => {
+  // Another window switched the mascot off after this one booted: the row must
+  // show the stored bag, like every other B6 row (settings.ts re-read).
+  panel.close();
+  initMascot(undefined); // booted: on
+  H.writes.length = 0;
+  H.prefs = { mascot: { enabled: false } };
+  panel.open();
+  await settle();
+  await settle();
+  tab('Preferences').click();
+  assert.equal(getMascotEnabled(), false, 'the store follows the disk bag');
+  assert.equal(pressed(row('prefs', 'Peek mascot')), false, 'and so does the row');
+  H.prefs = {};
+});
+
+test('a slow re-read on open never undoes a mascot click the user already made', async () => {
+  panel.close();
+  initMascot(undefined);
+  H.writes.length = 0;
+  let release!: () => void;
+  H.prefsGate = new Promise<void>((res) => {
+    release = res;
+  });
+  H.prefs = { mascot: { enabled: true } };
+  panel.open();
+  await settle();
+  tab('Preferences').click();
+  row('prefs', 'Peek mascot').click();
+  await settle();
+  assert.equal(getMascotEnabled(), false);
+  release();
+  H.prefsGate = null;
+  await settle();
+  await settle();
+  assert.equal(getMascotEnabled(), false, 'the late bag must not switch it back on');
+  assert.equal(pressed(row('prefs', 'Peek mascot')), false);
+  H.prefs = {};
+});
+
+test('the mascot row speaks plain words: no code word in its label or caption', () => {
+  for (const text of ['Peek mascot', MASCOT_CAPTION]) {
+    assert.doesNotMatch(text, /mascot\.|enabled|prefs|turnUnseen|BEL|\{|`/, text);
+  }
 });
 
 // ===========================================================================

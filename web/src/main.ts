@@ -69,7 +69,7 @@ import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
 import { initTheme } from './ui/theme.ts';
-import { getBehaviour, initBehaviour, initHiddenTools } from './ui/prefs-model.ts';
+import { getBehaviour, initBehaviour, initHiddenTools, initMascot } from './ui/prefs-model.ts';
 import { TOOL_CARDS } from './ui/launch-args.ts';
 import {
   initLaunchDialog,
@@ -91,6 +91,7 @@ import {
   isRestartConfirmOpen,
 } from './ui/update.ts';
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
+import { onFocusSession } from './ui/host-bridge.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
 import {
   dropDialogEscape,
@@ -419,6 +420,9 @@ async function boot(root: HTMLDivElement): Promise<void> {
       prefs?.tools,
       TOOL_CARDS.map((c) => c.id),
     );
+    // The peek mascot switch (C1): only the Settings row reads it here; the
+    // mascot page reads the bag itself on every poll.
+    initMascot(prefs?.mascot);
     // D3: with `Reopen tabs on start` off the stored tabs belong to the run
     // that wrote them — a reload inside THIS run keeps them, a new app start
     // opens on Home. `serverStartedAt` is this run's identity (GET /api/runtime,
@@ -1031,6 +1035,22 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
       });
   };
   window.setInterval(poll, POLL_MS);
+
+  // ---- peek mascot click (Nocturne C1) --------------------------------------
+  // The host brought this window to the front for a click on a mascot and
+  // names the session it stood for: go to its tab and focus its pane, which
+  // acks it like any look does. A session this page does not know (ended
+  // meanwhile) → nothing. The commit view steps aside — it covers the pane the
+  // user asked to see and holds nothing that is lost by closing it; an open
+  // dialog stays open (it may hold typing).
+  onFocusSession((id) => {
+    if (fatal || !st.state.sessions.has(id) || st.viewOfSession(id) === undefined) return;
+    log.info(`host: focus-session ${id}`);
+    st.closeCommitView();
+    st.focusSession(id);
+    requestTerminalFocus();
+    refreshPaneArea();
+  });
 
   // ---- runtime poll (uptime · version · update check) ----------------------
   // Only while the page is visible: a backgrounded window has nobody to tell.

@@ -120,6 +120,25 @@ export interface SessionInfo {
    * when the session exits.
    */
   turn?: SessionTurn;
+  /**
+   * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The signal): true once
+   * `turn` went 'working' -> 'waiting' (Claude ended its turn) and the user
+   * has not looked at the session since. Never set by a first readout of
+   * 'waiting' (a fresh session at its first prompt, or the backend's first
+   * read of an old transcript) nor for a session without a turn readout.
+   * Cleared by the `seen` ack (WS `{type:'seen'}` and
+   * POST /api/sessions/:id/seen, the same paths that clear `attention`), by
+   * `turn` going back to 'working', and at exit. Absent when false. Only the
+   * peek mascot counts it — `attention` semantics stay BEL-only (B11).
+   */
+  turnUnseen?: boolean;
+  /**
+   * Nocturne C1 (PLAN-C1.md § The signal): ISO-8601 time the session last
+   * became pending, i.e. `attention || turnUnseen` went false -> true. Kept
+   * while either stays set; absent while neither is. Orders the mascots
+   * (oldest = slot 0).
+   */
+  pendingSince?: string;
 }
 
 /**
@@ -282,7 +301,9 @@ export interface ResumeHistoryRequest {
 //   <= 64 KiB (PREFS_MAX_BYTES in server/api.ts); the server stores it
 //   VERBATIM and never interprets its contents — deliberately an opaque
 //   bag, so a future user-gated settings panel can add keys without a
-//   server-side schema change. Auth like every other /api route.
+//   server-side schema change. The one exception (Nocturne C1): `mascot`,
+//   when present, must be exactly `{ enabled: boolean }` or the PUT is 400
+//   (validMascotPref in server/api.ts). Auth like every other /api route.
 //
 // ONE READER exists outside the API (added 2026-07-26): server/statusline.mjs
 // — the script Claude Code runs to draw its native status line — READS
@@ -385,16 +406,28 @@ export interface UiStatusLine {
  * because the client uses them; any other key is opaque to the server and
  * preserved verbatim on PUT — merge-on-write (read the bag, replace only the
  * touched key, PUT the whole thing back) happens client-side, see
- * web/src/ui/theme.ts. The HTTP layer still never interprets the bag; the one
- * consumer of `statusLine` is server/statusline.mjs, which reads the file
- * directly (see the note above this section).
+ * web/src/ui/theme.ts. The HTTP layer never interprets the bag beyond the
+ * shape check on `mascot` (C1); the one consumer of `statusLine` is
+ * server/statusline.mjs, which reads the file directly (see the note above
+ * this section).
  */
 export interface UiPrefs {
   theme?: UiTheme;
   statusLine?: UiStatusLine;
   behaviour?: UiBehaviour;
   tools?: UiTools;
+  mascot?: UiMascot;
   [key: string]: unknown;
+}
+
+/**
+ * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The toggle) — the peek
+ * mascot switch, Settings -> Preferences. Absent = on. The server validates
+ * the shape on PUT /api/prefs (`enabled` must be a boolean) and never reads
+ * it otherwise; /mascot.html reads it each poll.
+ */
+export interface UiMascot {
+  enabled: boolean;
 }
 
 /**
@@ -1104,7 +1137,10 @@ export interface ResizeMessage {
   rows: number;
 }
 
-/** Clears session.attention (same effect as POST /api/sessions/:id/seen). */
+/**
+ * Clears session.attention, and since Nocturne C1 also session.turnUnseen and
+ * session.pendingSince (same effect as POST /api/sessions/:id/seen).
+ */
 export interface SeenMessage {
   type: 'seen';
 }

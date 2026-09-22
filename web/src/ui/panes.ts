@@ -683,9 +683,13 @@ function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEv
       // applyFocus ran before this frame arrived and could not know.
       // A focused pane under the commit view is not ON SCREEN: the badge
       // must survive until the grid is back (the deferred applyFocus acks it).
+      // Since Nocturne C1 the same goes for a turn that just ended
+      // (`turnUnseen`): the server tells attached panes at once, so a turn
+      // that ends in the pane the user is looking at is acked before the
+      // peek mascot's 1.5 s hold is up, and never shows a mascot.
       const v = st.activeView();
       if (
-        info.attention &&
+        (info.attention || info.turnUnseen === true) &&
         v !== null &&
         v.id === renderedViewId &&
         v.focused === s.index &&
@@ -756,17 +760,25 @@ function applyFocus(): void {
   clearAttentionIfPending(s);
 }
 
+/**
+ * The user is looking at this pane: ack what it holds. Two things are acked
+ * by the one `seen` — a BEL (`attention`) and, since Nocturne C1, a turn the
+ * user has not seen end (`turnUnseen`, what the peek mascot counts) — so
+ * either one being set is reason enough to send it. Only `attention` feeds
+ * the statusline, the Sessions badge and the `Needs you` pill (B11).
+ */
 function clearAttentionIfPending(s: Slot): void {
   if (s.pay?.kind !== 'session') return;
   const info = st.state.sessions.get(s.pay.id);
-  if (info !== undefined && info.attention) ackSeen(s.pay, s.pay.id);
+  if (info !== undefined && (info.attention || info.turnUnseen === true)) ackSeen(s.pay, s.pay.id);
 }
 
 function ackSeen(pay: SessionPayload, sessionId: string): void {
-  // Both channels per spec; both are idempotent server-side.
+  // Both channels per spec; both are idempotent server-side, and both clear
+  // `attention` and `turnUnseen` together.
   pay.view?.sendSeen();
   void api.markSeen(sessionId).catch(() => {});
-  st.setAttention(sessionId, false);
+  st.markSeenLocally(sessionId);
 }
 
 // --------------------------------------------------------------------------

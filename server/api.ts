@@ -7,8 +7,9 @@
  * present, must be http://localhost:<port> or http://127.0.0.1:<port>.
  *
  * The auth token reaches the UI by serve-time injection: web/dist/index.html
- * contains the literal placeholder __AUTH_TOKEN__ which is replaced when
- * serving / (the injected page is never cacheable).
+ * (and, since Nocturne C1, web/dist/mascot.html) contains the literal
+ * placeholder __AUTH_TOKEN__ which is replaced when serving / and
+ * /mascot.html (the injected pages are never cacheable).
  *
  * ACCESS LOG (2026-09-06): every request writes ONE line on completion —
  * method, pathname, status, duration, response bytes, and for 4xx/5xx the
@@ -101,8 +102,21 @@ import {
 
 const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_TERM_DIM = 1000;
-/** Prefs is a small opaque bag (theme today) — well under the generic cap. */
+/** Prefs is a small opaque bag (theme, statusLine, behaviour, tools, mascot …) — well under the generic cap. */
 export const PREFS_MAX_BYTES = 64 * 1024;
+
+/**
+ * Nocturne C1 (PLAN-C1.md § The toggle): the `mascot` prefs key is absent, or
+ * exactly `{ enabled: boolean }` — a plain object with that one key and a real
+ * boolean (no `"false"`, no `0`, no null, no extra keys). Anything else would
+ * reach /mascot.html as a value it has to guess at.
+ */
+export function validMascotPref(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  const keys = Object.keys(v);
+  return keys.length === 1 && keys[0] === 'enabled' && typeof (v as { enabled: unknown }).enabled === 'boolean';
+}
 /** Bound on a new GitHub repo name (GitHub itself caps at 100; be generous). */
 export const GITHUB_REPO_NAME_MAX = 200;
 /**
@@ -759,7 +773,7 @@ export function createRequestHandler(
       return;
     }
 
-    // --- UI prefs (opaque bag; server never interprets contents) -----------
+    // --- UI prefs (opaque bag; only `mascot`'s shape is checked, C1) -------
     if (pathname === '/api/prefs') {
       if (method === 'GET') {
         sendJson(res, 200, prefs.get());
@@ -769,6 +783,13 @@ export function createRequestHandler(
         const body = await readJsonBody(req, PREFS_MAX_BYTES);
         if (body === null || typeof body !== 'object' || Array.isArray(body)) {
           sendError(res, 400, 'prefs body must be a JSON object');
+          return;
+        }
+        // The bag stays opaque except for the one key the server now vets
+        // (Nocturne C1, PLAN-C1.md § The toggle): `mascot`, when present, is
+        // exactly `{ enabled: boolean }`.
+        if (!validMascotPref((body as Record<string, unknown>)['mascot'])) {
+          sendError(res, 400, 'prefs.mascot must be {"enabled": true|false}');
           return;
         }
         prefs.replace(body as UiPrefs);
@@ -1840,14 +1861,16 @@ export function createRequestHandler(
     // `mascot.html` (the peek-mascot page, a second vite entry). Both are
     // `no-store`, because both name HASHED asset bundles that disappear on the
     // next build — a heuristically cached copy would ask for an asset that is
-    // gone and render nothing, with no error anywhere. Only index.html carries
-    // the auth-token placeholder; the mascot page needs no credential and gets
-    // none.
+    // gone and render nothing, with no error anywhere. BOTH carry the
+    // auth-token placeholder and get it replaced the same way (Nocturne C1:
+    // the mascot page polls /api/sessions and /api/prefs), under the same
+    // no-store and frame-protection headers — the second page holding the
+    // token is guarded exactly like the first, nothing weaker.
     if (pathname === '/' || pathname === '/index.html' || pathname === '/mascot.html') {
       const entry = pathname === '/mascot.html' ? 'mascot.html' : 'index.html';
       try {
         const html = await readFile(join(webDistDir, entry), 'utf8');
-        const page = entry === 'index.html' ? html.replaceAll('__AUTH_TOKEN__', token) : html;
+        const page = html.replaceAll('__AUTH_TOKEN__', token);
         responseBytes.set(res, Buffer.byteLength(page));
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',

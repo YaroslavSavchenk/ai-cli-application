@@ -742,6 +742,8 @@ test('the Preferences page: live key rows for the three keyed tools, Tools and D
       'Reopen tabs on start',
       'Confirm before ending a session',
       'Follow output',
+      // Nocturne C1: the peek mascot's switch, the Defaults block's fourth row.
+      'Peek mascot',
     ],
   );
   for (const c of byClass(page, 'sg-row')) assert.equal(c.disabled, false, 'live since part B6');
