@@ -1,6 +1,6 @@
 # Plan B6 — Settings live: tools, defaults, the keyboard page, check for updates (Nocturne Track B)
 
-Status: LANDED 2026-09-22 (the landing commit; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b6.md`; suite 3127 → 3224; verify-terminal B6-1…7 + sanity 1/2/4 PASS; Windows check owed to the user); earlier: STARTED 2026-09-22 (user: "continue werken aan de app"; next row in the status table; decisions D1–D4 asked the same day, before the developer started; D5 after the 2b review).
+Status: LANDED 2026-09-22 (`7f9e7c1` the landing, CI green; user-verified on Windows 2026-09-22: "alles werkt"; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b6.md`; suite 3127 → 3224; verify-terminal B6-1…7 + sanity 1/2/4 PASS); earlier: STARTED 2026-09-22 (user: "continue werken aan de app"; next row in the status table; decisions D1–D4 asked the same day, before the developer started; D5 after the 2b review).
 Parent: `.claude/plans/PLAN-NOCTURNE.md` part B6. A7 (2026-09-13) drew the
 Settings dialog with five pages; B1 made Status bar live, B5 made the API
 keys live, and the Background service page has read the real version and
