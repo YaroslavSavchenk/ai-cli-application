@@ -502,7 +502,7 @@ test('a slow re-read on open never undoes a mascot click the user already made',
 
 test('the mascot row speaks plain words: no code word in its label or caption', () => {
   for (const text of ['Peek mascot', MASCOT_CAPTION]) {
-    assert.doesNotMatch(text, /mascot\.|enabled|prefs|turnUnseen|BEL|\{|`/, text);
+    assert.doesNotMatch(text, /mascot\.|enabled|prefs|turnEnded|turnUnseen|BEL|\{|`/, text);
   }
 });
 

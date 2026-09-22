@@ -9,11 +9,14 @@ tags: [nocturne, mascot, overlay, host, session-state]
 **Status:** decided 2026-09-22 (user, asked before the developers started;
 the recommended option each time except the monitor).
 
-- **When (14):** one mascot per session that is PENDING — Claude ended its
-  turn (the B11 readout went working → waiting, `turnUnseen`) or rang the
-  bell (`attention`) — until the user LOOKS at it (the BEL ack: that pane
-  focused with the window in front). Max 3. Rejected: BEL-only; everything
-  waiting even after it was seen.
+- **When (14):** ~~until the user LOOKS at it~~ — changed the same evening
+  on the Windows check (user: "hij mag niet zomaar verdwijnen. Alleen als de
+  sessie weer aan het werk gaat of wanneer ik een sessie afsluit. zelfs met
+  open app moet dit gebeuren"): one mascot per Claude session whose turn
+  ENDED (working → waiting, `turnEnded`), shown even with the app in front,
+  until that session works again or ends; looking or clicking does not send
+  it away. A BEL (`attention`) still shows one until the pane is looked at.
+  Max 3.
 - **Where (12):** the monitor the APP WINDOW is on (not the pointer's — the
   orchestrator's advice — nor the primary).
 - **Click (13):** the design's laugh or wave, then the app comes to the front

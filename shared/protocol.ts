@@ -122,19 +122,19 @@ export interface SessionInfo {
   turn?: SessionTurn;
   /**
    * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The signal): true once
-   * `turn` went 'working' -> 'waiting' (Claude ended its turn) and the user
-   * has not looked at the session since. Never set by a first readout of
-   * 'waiting' (a fresh session at its first prompt, or the backend's first
-   * read of an old transcript) nor for a session without a turn readout.
-   * Cleared by the `seen` ack (WS `{type:'seen'}` and
-   * POST /api/sessions/:id/seen, the same paths that clear `attention`), by
-   * `turn` going back to 'working', and at exit. Absent when false. Only the
-   * peek mascot counts it — `attention` semantics stay BEL-only (B11).
+   * `turn` went 'working' -> 'waiting' (Claude ended its turn). Never set by
+   * a first readout of 'waiting' (a fresh session at its first prompt, or the
+   * backend's first read of an old transcript) nor for a session without a
+   * turn readout. Cleared ONLY when `turn` goes back to 'working' and at
+   * exit — NOT by the `seen` ack (user, 2026-09-22, on the Windows check: the
+   * mascot for a finished turn stays until the session works again, also
+   * while the user looks at it). Absent when false. Only the peek mascot
+   * counts it — `attention` semantics stay BEL-only (B11).
    */
-  turnUnseen?: boolean;
+  turnEnded?: boolean;
   /**
    * Nocturne C1 (PLAN-C1.md § The signal): ISO-8601 time the session last
-   * became pending, i.e. `attention || turnUnseen` went false -> true. Kept
+   * became pending, i.e. `attention || turnEnded` went false -> true. Kept
    * while either stays set; absent while neither is. Orders the mascots
    * (oldest = slot 0).
    */
@@ -1138,8 +1138,9 @@ export interface ResizeMessage {
 }
 
 /**
- * Clears session.attention, and since Nocturne C1 also session.turnUnseen and
- * session.pendingSince (same effect as POST /api/sessions/:id/seen).
+ * Clears session.attention (same effect as POST /api/sessions/:id/seen) — and
+ * session.pendingSince with it when session.turnEnded is not set. It never
+ * clears turnEnded (Nocturne C1, user 2026-09-22).
  */
 export interface SeenMessage {
   type: 'seen';

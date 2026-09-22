@@ -8,12 +8,14 @@
  * browser, a backend or a real second going by.
  *
  * The rules, in the spec's words:
- * - Pending = a RUNNING session with `attention || turnUnseen`, ordered by
+ * - Pending = a RUNNING session with `attention || turnEnded`, ordered by
  *   `pendingSince` (oldest = slot 0). Count = min(3, n).
  * - `prefs.mascot.enabled === false` → count 0 (absent = on), read each poll.
- * - A RISE in count is applied only after it held for 1.5 s — a turn that
- *   ends in the pane the user is looking at is acked within that window, so
- *   it never flashes a mascot. A FALL applies at once.
+ * - A RISE in count is applied only after it held for 1.5 s — a BEL in the
+ *   pane the user is looking at is acked within that window, and a turn that
+ *   ends and at once starts again never flashes a mascot. A FALL applies at
+ *   once. (A turn that ended stays pending until the session works again or
+ *   ends — looking does not clear it; user, 2026-09-22.)
  * - The host gets `{"type":"mascot-count","count":N,"rects":[…]}` on every
  *   change, and `{"type":"mascot-open","session":"<id>"}` after a click's
  *   reaction — both as a STRING (the host reads string messages only).
@@ -37,7 +39,7 @@ export const FAILS_TO_ZERO = 2;
 
 /**
  * The pending sessions, oldest first: running, and either rang the bell or
- * ended a turn the user has not seen. A session without `pendingSince` (a
+ * ended its turn and has not started working again. A session without `pendingSince` (a
  * backend that predates it) sorts after every dated one; ties break on the id
  * so the order is stable between polls. Anything that is not a list of
  * objects is no sessions at all — this answer crossed a network.
@@ -49,7 +51,7 @@ export function pendingSessions(list: unknown): string[] {
     if (raw === null || typeof raw !== 'object') continue;
     const s = raw as Partial<SessionInfo>;
     if (typeof s.id !== 'string' || s.status !== 'running') continue;
-    if (s.attention !== true && s.turnUnseen !== true) continue;
+    if (s.attention !== true && s.turnEnded !== true) continue;
     hits.push({ id: s.id, since: typeof s.pendingSince === 'string' ? s.pendingSince : '' });
   }
   hits.sort((a, b) => {

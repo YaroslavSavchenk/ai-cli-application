@@ -217,6 +217,12 @@ app window first so one backend at a time owns runtime.json.
 - [ ] The older data-dir readers (`prefs.json`, `projects.json`, `history.json`, `keys.json`, `update-check.json`, `github.json`) still `readFileSync` a path another process can create — apply the FIFO rule ([[fifo-open-blocks-main-thread]]: `O_NOFOLLOW|O_NONBLOCK` + `fstat().isFile()` + a cap before the read) to all of them in one pass, with a `mkfifo` test each (found a third time in B6 phase 3, `last-port.json`).
 - [ ] C1 phase 4: the `Notifications when a session needs you` row was dropped in B6 (decision 2) — the mascot toggle takes its place on Preferences → Defaults.
 
+## From Nocturne C1 (2026-09-22)
+
+- [ ] **A backend that shuts down deletes a NEWER backend's `runtime.json`.** Seen on the dev data dir 2026-09-22 21:32Z: the old backend (port 38757) hit its idle grace and shut down 9 s after a new one (port 37323) had written `runtime.json`; the file was gone afterwards while the new backend ran on. The shutdown path should delete the file only when it still names its own pid. Pre-existing lifecycle bug, not C1.
+- [ ] The edited-file pulse (`app.css`, Files panel) has no `prefers-reduced-motion` opt-out (the state dots got theirs in B11/B8).
+- [ ] The restart dialog says `History` where the Sessions panel says `Earlier` — user's call.
+
 ## Claude Code CLI compatibility guard (user's ask 2026-09-15, not started)
 
 The app depends on documented `claude` CLI flags and behaviour

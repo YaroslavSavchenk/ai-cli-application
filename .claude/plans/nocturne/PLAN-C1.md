@@ -196,4 +196,13 @@ Phase 3 — host (`wsl-launcher`): `launcher/host/AiSessionManagerHost.cs`
   chooses between the host forcing it and the page signalling at click
   time; if the region misaligns at 125/150 %, the page reports its viewport
   size.
+- **Decision 14 changed on the Windows check** (user, 2026-09-22: "hij mag
+  niet zomaar verdwijnen. Alleen als de sessie weer aan het werk gaat of
+  wanneer ik een sessie afsluit. zelfs met open app moet dit gebeuren"): a
+  finished Claude turn shows a mascot even with the app open and in front,
+  and it stays until that session WORKS again or ends — looking at the pane
+  or clicking the mascot no longer sends it away (the click still brings the
+  app to that session). The flag is renamed `turnUnseen` → `turnEnded`
+  (set on working → waiting, cleared only by working and at exit, never by
+  `seen`). A BEL (`attention`) keeps the look-ack.
 

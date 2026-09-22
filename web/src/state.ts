@@ -1037,17 +1037,16 @@ export function setAttention(id: string, value: boolean): void {
 
 /**
  * The user LOOKED at this session (the `seen` ack, sent by ui/panes.ts): the
- * local copy drops what the server drops on the same ack — `attention`, and
- * since Nocturne C1 `turnUnseen` and `pendingSince` — so the next render does
- * not wait for a poll to agree.
+ * local copy drops what the server drops on the same ack — `attention` — so
+ * the next render does not wait for a poll to agree. `turnEnded` (Nocturne
+ * C1) survives a look (user, 2026-09-22), and so does `pendingSince` while it
+ * is set: the session is still pending for the peek mascot.
  */
 export function markSeenLocally(id: string): void {
   const s = state.sessions.get(id);
-  if (s === undefined) return;
-  if (!s.attention && s.turnUnseen === undefined && s.pendingSince === undefined) return;
+  if (s === undefined || !s.attention) return;
   s.attention = false;
-  delete s.turnUnseen;
-  delete s.pendingSince;
+  if (s.turnEnded !== true) delete s.pendingSince;
   notify('sessions');
 }
 

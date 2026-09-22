@@ -1039,7 +1039,8 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
   // ---- peek mascot click (Nocturne C1) --------------------------------------
   // The host brought this window to the front for a click on a mascot and
   // names the session it stood for: go to its tab and focus its pane, which
-  // acks it like any look does. A session this page does not know (ended
+  // acks a BEL like any look does (a turn that ended keeps its mascot until
+  // the session works again or ends — user, 2026-09-22). A session this page does not know (ended
   // meanwhile) → nothing. The commit view steps aside — it covers the pane the
   // user asked to see and holds nothing that is lost by closing it; an open
   // dialog stays open (it may hold typing).

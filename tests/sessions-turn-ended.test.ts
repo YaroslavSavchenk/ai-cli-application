@@ -2,19 +2,21 @@
  * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The signal) — the server
  * half of the peek mascot's count:
  *
- *   - `SessionInfo.turnUnseen` is set EXACTLY on a 'working' -> 'waiting' move
+ *   - `SessionInfo.turnEnded` is set EXACTLY on a 'working' -> 'waiting' move
  *     of the B11 turn readout (never on a first readout of 'waiting', never
  *     after an unknown turn, never for a session without a readout), and
- *     cleared by the turn going back to 'working', by the `seen` ack (WS
- *     `{type:'seen'}` and POST /api/sessions/:id/seen), and at exit.
- *   - `SessionInfo.pendingSince` is stamped when `attention || turnUnseen`
+ *     cleared ONLY by the turn going back to 'working' and at exit. The `seen`
+ *     ack (WS `{type:'seen'}` and POST /api/sessions/:id/seen) KEEPS it —
+ *     it clears `attention` only (user, 2026-09-22, on the Windows check:
+ *     the mascot for a finished turn stays until the session works again).
+ *   - `SessionInfo.pendingSince` is stamped when `attention || turnEnded`
  *     goes false -> true (the BEL path included), KEPT while either stays set,
  *     and deleted when both are false.
  *   - `info` is re-sent only on a real change.
  *
  * Two halves: SessionManager driven directly (a FakeClient counts frames),
  * then the real HTTP + WS handlers in-process, so the two seen paths are
- * proven to clear both flags — not just markSeen.
+ * proven to clear `attention` and keep `turnEnded` — not just markSeen.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -81,7 +83,7 @@ async function settleAndRemove(m: SessionManager, logs: string[], dir: string): 
 async function withManager(
   fn: (m: SessionManager, root: string, logs: string[]) => Promise<void>,
 ): Promise<void> {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-turn-unseen-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-turn-ended-')));
   const logs: string[] = [];
   const log: Logger = (level, message) => logs.push(`${level}: ${message}`);
   const history = new SessionHistory(join(root, 'history.json'), log);
@@ -116,10 +118,10 @@ function isIso(v: unknown): boolean {
 // SessionManager
 // ---------------------------------------------------------------------------
 
-test('C1 turnUnseen: working -> waiting sets it and stamps pendingSince, in ONE info frame', async () => {
+test('C1 turnEnded: working -> waiting sets it and stamps pendingSince, in ONE info frame', async () => {
   await withManager(async (m, root) => {
     const info = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
-    assert.equal('turnUnseen' in info, false, 'a new session carries neither flag');
+    assert.equal('turnEnded' in info, false, 'a new session carries neither flag');
     assert.equal('pendingSince' in info, false);
     const client = new FakeClient();
     assert.equal(m.attach(info.id, client.asWs()), true);
@@ -132,22 +134,22 @@ test('C1 turnUnseen: working -> waiting sets it and stamps pendingSince, in ONE 
     assert.equal(client.infoFrames().length, base + 1, 'the turn move is one frame, flags included');
     const frame = client.infoFrames()[base] as SessionInfo;
     assert.equal(frame.turn, 'waiting');
-    assert.equal(frame.turnUnseen, true);
+    assert.equal(frame.turnEnded, true);
     assert.ok(isIso(frame.pendingSince), `pendingSince is ISO: ${String(frame.pendingSince)}`);
     const at = Date.parse(frame.pendingSince as string);
     assert.ok(at >= t0 && at <= t1, 'stamped at the transition, not before or after');
     assert.equal(frame.attention, false, 'attention stays BEL-only (B11)');
-    assert.equal(m.get(info.id)?.turnUnseen, true, 'the session holds it for GET /api/sessions');
+    assert.equal(m.get(info.id)?.turnEnded, true, 'the session holds it for GET /api/sessions');
 
     // The same readout again: no change, no frame, flags kept.
     m.setReport(info.id, turn('waiting'));
     assert.equal(client.infoFrames().length, base + 1);
-    assert.equal(m.get(info.id)?.turnUnseen, true);
+    assert.equal(m.get(info.id)?.turnEnded, true);
     assert.equal(m.get(info.id)?.pendingSince, frame.pendingSince);
   });
 });
 
-test('C1 turnUnseen: a FIRST readout of waiting is not news — nor waiting after an unknown turn', async () => {
+test('C1 turnEnded: a FIRST readout of waiting is not news — nor waiting after an unknown turn', async () => {
   await withManager(async (m, root) => {
     const info = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
@@ -156,7 +158,7 @@ test('C1 turnUnseen: a FIRST readout of waiting is not news — nor waiting afte
     m.setReport(info.id, turn('waiting'));
     let s = m.get(info.id) as SessionInfo;
     assert.equal(s.turn, 'waiting');
-    assert.equal('turnUnseen' in s, false, 'first readout: absent');
+    assert.equal('turnEnded' in s, false, 'first readout: absent');
     assert.equal('pendingSince' in s, false);
 
     // working -> unknown -> waiting: the move was not observed as one.
@@ -164,18 +166,18 @@ test('C1 turnUnseen: a FIRST readout of waiting is not news — nor waiting afte
     m.setReport(info.id, turn(undefined));
     m.setReport(info.id, turn('waiting'));
     s = m.get(info.id) as SessionInfo;
-    assert.equal('turnUnseen' in s, false, 'waiting after an unknown turn is a first readout again');
+    assert.equal('turnEnded' in s, false, 'waiting after an unknown turn is a first readout again');
     assert.equal('pendingSince' in s, false);
 
     // A session that never had a readout never gets the flag.
     const other = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     m.setReport(other.id, turn(undefined));
-    assert.equal('turnUnseen' in (m.get(other.id) as SessionInfo), false);
-    for (const f of client.infoFrames()) assert.equal('turnUnseen' in f, false, 'no frame ever carried it');
+    assert.equal('turnEnded' in (m.get(other.id) as SessionInfo), false);
+    for (const f of client.infoFrames()) assert.equal('turnEnded' in f, false, 'no frame ever carried it');
   });
 });
 
-test('C1 turnUnseen: the turn going back to working clears it and pendingSince; the turn going unknown keeps it', async () => {
+test('C1 turnEnded: the turn going back to working clears it and pendingSince; the turn going unknown keeps it', async () => {
   await withManager(async (m, root) => {
     const info = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
@@ -187,24 +189,24 @@ test('C1 turnUnseen: the turn going back to working clears it and pendingSince; 
 
     // Unknown (a refused path, say): not a look, not a new turn — kept.
     m.setReport(info.id, turn(undefined));
-    assert.equal(m.get(info.id)?.turnUnseen, true);
+    assert.equal(m.get(info.id)?.turnEnded, true);
     assert.equal(m.get(info.id)?.pendingSince, stamped);
 
     m.setReport(info.id, turn('working'));
     const base = client.infoFrames().length;
-    assert.equal('turnUnseen' in (client.infoFrames()[base - 1] as SessionInfo), false, 'cleared in the working frame');
+    assert.equal('turnEnded' in (client.infoFrames()[base - 1] as SessionInfo), false, 'cleared in the working frame');
     assert.equal('pendingSince' in (client.infoFrames()[base - 1] as SessionInfo), false);
-    assert.equal('turnUnseen' in (m.get(info.id) as SessionInfo), false, 'absent, not false');
+    assert.equal('turnEnded' in (m.get(info.id) as SessionInfo), false, 'absent, not false');
 
     // The next end of turn is news again, with a NEW stamp.
     await delay(5);
     m.setReport(info.id, turn('waiting'));
-    assert.equal(m.get(info.id)?.turnUnseen, true);
+    assert.equal(m.get(info.id)?.turnEnded, true);
     assert.ok((m.get(info.id)?.pendingSince as string) > (stamped as string), 'a fresh pending gets a fresh stamp');
   });
 });
 
-test('C1 markSeen clears turnUnseen, attention and pendingSince together; unknown id -> false', async () => {
+test('C1 markSeen clears attention only: turnEnded and its pendingSince stay; unknown id -> false', async () => {
   await withManager(async (m, root) => {
     const info = m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
@@ -213,18 +215,28 @@ test('C1 markSeen clears turnUnseen, attention and pendingSince together; unknow
     m.setReport(info.id, turn('waiting'));
     await ringBell(m, info.id, client);
     assert.equal(m.get(info.id)?.attention, true);
-    assert.equal(m.get(info.id)?.turnUnseen, true);
+    assert.equal(m.get(info.id)?.turnEnded, true);
+
+    const stamped = m.get(info.id)?.pendingSince;
+    assert.ok(isIso(stamped));
 
     assert.equal(m.markSeen(info.id), true);
     const s = m.get(info.id) as SessionInfo;
-    assert.equal(s.attention, false);
-    assert.equal('turnUnseen' in s, false);
-    assert.equal('pendingSince' in s, false);
+    assert.equal(s.attention, false, 'the look acks the BEL');
+    assert.equal(s.turnEnded, true, 'but NOT the ended turn');
+    assert.equal(s.pendingSince, stamped, 'still pending: the stamp stays, unmoved');
     assert.equal(s.turn, 'waiting', 'the turn readout itself is untouched by a look');
 
-    // Seen while waiting does not re-arm: the same waiting readout is no news.
+    // A second look, and the same waiting readout again: nothing moves.
+    m.markSeen(info.id);
     m.setReport(info.id, turn('waiting'));
-    assert.equal('turnUnseen' in (m.get(info.id) as SessionInfo), false);
+    assert.equal(m.get(info.id)?.turnEnded, true);
+    assert.equal(m.get(info.id)?.pendingSince, stamped);
+
+    // Only the session working again clears it (and pendingSince with it).
+    m.setReport(info.id, turn('working'));
+    assert.equal('turnEnded' in (m.get(info.id) as SessionInfo), false);
+    assert.equal('pendingSince' in (m.get(info.id) as SessionInfo), false);
 
     assert.equal(m.markSeen('no-such-session'), false);
   });
@@ -248,20 +260,29 @@ test('C1 pendingSince: BEL stamps it, a turn ending later KEEPS it, working keep
     await ringBell(m, info.id, client);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'a second BEL keeps the stamp');
 
-    // The turn ends: turnUnseen joins, the ORDER key stays the oldest.
+    // The turn ends: turnEnded joins, the ORDER key stays the oldest.
     await delay(5);
     m.setReport(info.id, turn('waiting'));
-    assert.equal(m.get(info.id)?.turnUnseen, true);
+    assert.equal(m.get(info.id)?.turnEnded, true);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'already pending: kept, not re-stamped');
 
-    // Back to working: turnUnseen goes, attention stays — still pending.
+    // Back to working: turnEnded goes, attention stays — still pending.
     m.setReport(info.id, turn('working'));
-    assert.equal('turnUnseen' in (m.get(info.id) as SessionInfo), false);
+    assert.equal('turnEnded' in (m.get(info.id) as SessionInfo), false);
     assert.equal(m.get(info.id)?.attention, true);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'attention alone keeps it');
 
     m.markSeen(info.id);
     assert.equal('pendingSince' in (m.get(info.id) as SessionInfo), false, 'both false: deleted');
+
+    // A BEL on an ended turn, then a look: attention goes, pending stays.
+    m.setReport(info.id, turn('waiting'));
+    const second = m.get(info.id)?.pendingSince;
+    assert.ok(isIso(second));
+    await ringBell(m, info.id, client);
+    m.markSeen(info.id);
+    assert.equal(m.get(info.id)?.attention, false);
+    assert.equal(m.get(info.id)?.pendingSince, second, 'turnEnded alone keeps it');
   });
 });
 
@@ -280,7 +301,7 @@ test('C1 pendingSince: a turn ending first stamps it; a BEL after keeps it', asy
   });
 });
 
-test('C1 exit: turnUnseen and its pendingSince go in the info frame right before exit; a BEL-pending one keeps its stamp', async () => {
+test('C1 exit: turnEnded and its pendingSince go in the info frame right before exit; a BEL-pending one keeps its stamp', async () => {
   await withManager(async (m, root) => {
     // (a) turn-only pending: both cleared at exit.
     const a = m.create({ command: 'bash', args: ['-c', 'read -r _'], cwd: root, cols: 80, rows: 24 });
@@ -288,16 +309,16 @@ test('C1 exit: turnUnseen and its pendingSince go in the info frame right before
     m.attach(a.id, ca.asWs());
     m.setReport(a.id, turn('working'));
     m.setReport(a.id, turn('waiting'));
-    assert.equal(m.get(a.id)?.turnUnseen, true);
+    assert.equal(m.get(a.id)?.turnEnded, true);
     m.write(a.id, 'go\r');
     await waitUntil(() => (m.get(a.id)?.status === 'exited' ? true : undefined), 'session a to exit', 10_000);
     const sa = m.get(a.id) as SessionInfo;
-    assert.equal('turnUnseen' in sa, false, 'exit clears turnUnseen');
+    assert.equal('turnEnded' in sa, false, 'exit clears turnEnded');
     assert.equal('pendingSince' in sa, false, 'and with nothing else pending, pendingSince');
     const exitAt = ca.frames.findIndex((f) => f.type === 'exit');
     const before = ca.frames[exitAt - 1] as Extract<ServerMessage, { type: 'info' }>;
     assert.equal(before.type, 'info', 'one info frame right before the exit');
-    assert.equal('turnUnseen' in before.session, false);
+    assert.equal('turnEnded' in before.session, false);
     assert.equal('pendingSince' in before.session, false);
 
     // (b) BEL-pending at exit: attention is untouched at exit (as before C1),
@@ -318,19 +339,19 @@ test('C1 exit: turnUnseen and its pendingSince go in the info frame right before
     m.write(b.id, 'go\r');
     await waitUntil(() => (m.get(b.id)?.status === 'exited' ? true : undefined), 'session b to exit', 10_000);
     const sb = m.get(b.id) as SessionInfo;
-    assert.equal('turnUnseen' in sb, false);
+    assert.equal('turnEnded' in sb, false);
     assert.equal(sb.attention, true);
     assert.equal(sb.pendingSince, stamped);
 
     // A report racing the exit brings nothing back.
     m.setReport(a.id, turn('working'));
     m.setReport(a.id, turn('waiting'));
-    assert.equal('turnUnseen' in (m.get(a.id) as SessionInfo), false);
+    assert.equal('turnEnded' in (m.get(a.id) as SessionInfo), false);
   });
 });
 
-test('C1 exit: turnUnseen held past an unknown turn still goes in ONE info frame before exit, even when a BEL keeps pendingSince', async () => {
-  // The one exit path where clearing turnUnseen is the ONLY change: the turn
+test('C1 exit: turnEnded held past an unknown turn still goes in ONE info frame before exit, even when a BEL keeps pendingSince', async () => {
+  // The one exit path where clearing turnEnded is the ONLY change: the turn
   // readout already went unknown (so `turn` has nothing to delete) and a BEL
   // keeps `pendingSince`. Attached clients must still hear the flag go.
   await withManager(async (m, root) => {
@@ -348,14 +369,14 @@ test('C1 exit: turnUnseen held past an unknown turn still goes in ONE info frame
     m.setReport(info.id, turn(undefined));
     await ringBell(m, info.id, client);
     const stamped = m.get(info.id)?.pendingSince;
-    assert.equal(m.get(info.id)?.turnUnseen, true);
+    assert.equal(m.get(info.id)?.turnEnded, true);
     assert.equal('turn' in (m.get(info.id) as SessionInfo), false);
     m.write(info.id, 'go\r');
     await waitUntil(() => (m.get(info.id)?.status === 'exited' ? true : undefined), 'the session to exit', 10_000);
     const exitAt = client.frames.findIndex((f) => f.type === 'exit');
     const before = client.frames[exitAt - 1] as Extract<ServerMessage, { type: 'info' }>;
     assert.equal(before.type, 'info', 'an info frame right before the exit');
-    assert.equal('turnUnseen' in before.session, false, 'it no longer carries the flag');
+    assert.equal('turnEnded' in before.session, false, 'it no longer carries the flag');
     assert.equal(before.session.attention, true);
     assert.equal(before.session.pendingSince, stamped);
   });
@@ -365,8 +386,8 @@ test('C1 exit: turnUnseen held past an unknown turn still goes in ONE info frame
 // The two seen paths through the real handlers
 // ---------------------------------------------------------------------------
 
-test('C1 served + seen paths: /mascot.html carries the token like index.html; POST /seen and WS {type:"seen"} both clear turnUnseen + pendingSince', async () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-turn-unseen-http-')));
+test('C1 served + seen paths: /mascot.html carries the token like index.html; POST /seen and WS {type:"seen"} clear attention and KEEP turnEnded + pendingSince', async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-turn-ended-http-')));
   const logs: string[] = [];
   const log: Logger = (level, message) => logs.push(`${level}: ${message}`);
   const token = 'c'.repeat(64);
@@ -433,39 +454,57 @@ test('C1 served + seen paths: /mascot.html carries the token like index.html; PO
     assert.equal(page.headers.get('x-frame-options'), 'DENY');
     assert.equal(page.headers.get('content-security-policy'), "frame-ancestors 'none'");
 
-    const info = sessions.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: dir, cols: 80, rows: 24 });
+    const info = sessions.create({ command: 'bash', args: BELL_ON_LINE, cwd: dir, cols: 80, rows: 24 });
+    client = await WsClient.connect(`ws://127.0.0.1:${boundPort}/ws/sessions/${info.id}?token=${token}`);
+    await client.waitForMessage('replay');
+    const ws = client;
+    const bell = async (): Promise<void> => {
+      const from = ws.messages.length;
+      ws.send({ type: 'input', data: 'x\r' });
+      await ws.waitForMessage('attention', { fromIndex: from });
+    };
 
-    // GET /api/sessions carries both flags (what /mascot.html polls).
+    // GET /api/sessions carries the flag (what /mascot.html polls).
     sessions.setReport(info.id, turn('working'));
     sessions.setReport(info.id, turn('waiting'));
     let s = await getSession(info.id);
-    assert.equal(s?.turnUnseen, true);
-    assert.ok(isIso(s?.pendingSince));
+    assert.equal(s?.turnEnded, true);
+    const stamped = s?.pendingSince;
+    assert.ok(isIso(stamped));
 
+    // HTTP seen: attention cleared, the ended turn stays pending.
+    await bell();
+    assert.equal((await getSession(info.id))?.attention, true);
     const res = await fetch(`${base}/api/sessions/${info.id}/seen`, {
       method: 'POST',
       headers: { 'x-auth-token': token },
     });
     assert.equal(res.status, 200);
     s = await getSession(info.id);
-    assert.equal(s !== undefined && 'turnUnseen' in s, false, 'HTTP seen clears turnUnseen');
-    assert.equal(s !== undefined && 'pendingSince' in s, false, 'and pendingSince');
+    assert.equal(s?.attention, false, 'HTTP seen clears attention');
+    assert.equal(s?.turnEnded, true, 'HTTP seen keeps turnEnded');
+    assert.equal(s?.pendingSince, stamped, 'and pendingSince, unmoved');
 
-    // Pending again, then acked over the session socket.
-    sessions.setReport(info.id, turn('working'));
-    sessions.setReport(info.id, turn('waiting'));
-    assert.equal((await getSession(info.id))?.turnUnseen, true);
-    client = await WsClient.connect(`ws://127.0.0.1:${boundPort}/ws/sessions/${info.id}?token=${token}`);
-    await client.waitForMessage('replay');
-    client.send({ type: 'seen' });
-    await waitUntil(
+    // WS seen: the same.
+    await bell();
+    assert.equal((await getSession(info.id))?.attention, true);
+    ws.send({ type: 'seen' });
+    s = await waitUntil(
       async () => {
         const cur = await getSession(info.id);
-        return cur !== undefined && !('turnUnseen' in cur) && !('pendingSince' in cur) ? true : undefined;
+        return cur !== undefined && cur.attention === false ? cur : undefined;
       },
-      "ws 'seen' to clear turnUnseen + pendingSince",
+      "ws 'seen' to clear attention",
       5_000,
     );
+    assert.equal(s.turnEnded, true, 'WS seen keeps turnEnded');
+    assert.equal(s.pendingSince, stamped, 'and pendingSince, unmoved');
+
+    // Working again is what clears it — visible on the same GET.
+    sessions.setReport(info.id, turn('working'));
+    s = await getSession(info.id);
+    assert.equal(s !== undefined && 'turnEnded' in s, false);
+    assert.equal(s !== undefined && 'pendingSince' in s, false);
   } finally {
     await client?.close();
     // The detach armed the REAL 10-minute grace timer: without stop() the

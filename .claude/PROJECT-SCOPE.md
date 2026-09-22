@@ -1027,13 +1027,13 @@ multi-pane layouts on top.
   the right edge of the monitor the APP WINDOW is on — outside the app
   window, over other programs, borderless fullscreen and video (a true
   exclusive-fullscreen game cannot be drawn over: accepted limit). One
-  mascot per session that is PENDING — Claude ended its turn
-  (`SessionInfo.turnUnseen`, set by the server only on a working → waiting
-  move of the B11 turn readout) or rang the bell (`attention`) — and not
-  yet looked at; max 3, oldest `pendingSince` first. Looking at the pane
-  (the same ack as a BEL: focused, window in front; the `seen` WS frame /
-  `POST …/seen` clear both flags) sends it away; `turnUnseen` also clears
-  when Claude works again and at exit. The statusline, Sessions badge and
+  mascot per session that is PENDING; max 3, oldest `pendingSince` first.
+  A Claude session whose turn ENDED (`SessionInfo.turnEnded`, set by the
+  server only on a working → waiting move of the B11 turn readout) shows
+  one even with the app in front and keeps it until Claude works again or
+  the session ends — looking does not send it away (user, 2026-09-22, on
+  the Windows check). A BEL (`attention`) shows one until the pane is
+  looked at (the `seen` ack clears `attention` only). The statusline, Sessions badge and
   `Needs you` pill stay BEL-only (B11). The page `/mascot.html` now carries
   the auth token like `index.html` (same no-store and frame protection),
   polls `/api/sessions` + `/api/prefs` every 2 s, shows a rise only after it

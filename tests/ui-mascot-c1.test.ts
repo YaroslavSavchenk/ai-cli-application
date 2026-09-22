@@ -8,16 +8,18 @@
  *   - `pendingSessions` — WHICH sessions a mascot stands for, in WHICH order
  *     (oldest pending = slot 0, which is also the one a click opens).
  *   - `MascotFeed` — the count rules, on injected clocks: a rise shows only
- *     after it HELD 1.5 s (a turn that ends in the pane the user is looking
- *     at is acked inside that window, so it must never flash a mascot), a fall
- *     at once, the switch off = 0, never more than 3, a gone backend = 0.
+ *     after it HELD 1.5 s (a BEL acked inside that window, or a turn that
+ *     starts again at once, never flashes a mascot), a fall at once, the
+ *     switch off = 0, never more than 3, a gone backend = 0.
  *   - the host messages — byte shapes the C# host parses, the dedupe, and the
  *     silence of a page without a host (`?demo`, a plain browser).
  *   - `parseFocusSession` — strict: the one message that makes this page move
  *     focus on the host's word.
  *   - the reduced-motion block, by source (decision 16).
- *   - the ack, by source and on the real store: the same `seen` that clears a
- *     BEL clears `turnUnseen`, and the BEL-only counters stay BEL-only (B11).
+ *   - the ack, by source and on the real store: a look acks a BEL only; a
+ *     turn that ended (`turnEnded`) survives it — its mascot stays until the
+ *     session works again or ends (user, 2026-09-22, overriding decision 14) —
+ *     and the BEL-only counters stay BEL-only (B11).
  *
  * NOT claimed (browser and Windows work): that the overlay window shows, that
  * rects match what is drawn, that animations are gone under the OS setting,
@@ -58,10 +60,10 @@ function sess(id: string, extra: Partial<SessionInfo> = {}): Partial<SessionInfo
 // pendingSessions
 // ===========================================================================
 
-test('pending = running AND (attention OR turnUnseen); exited, quiet and malformed rows are not', () => {
+test('pending = running AND (attention OR turnEnded); exited, quiet and malformed rows are not', () => {
   const list = [
     sess(A, { attention: true, pendingSince: '2026-09-22T10:00:01.000Z' }),
-    sess(B, { turnUnseen: true, pendingSince: '2026-09-22T10:00:02.000Z' }),
+    sess(B, { turnEnded: true, pendingSince: '2026-09-22T10:00:02.000Z' }),
     sess(C, { status: 'exited', attention: true, pendingSince: '2026-09-22T10:00:00.000Z' }),
     sess(D),
     null,
@@ -75,7 +77,7 @@ test('pending = running AND (attention OR turnUnseen); exited, quiet and malform
 test('ordered by pendingSince, oldest first; undated after dated; ties on the id', () => {
   const list = [
     sess(D, { attention: true }),
-    sess(C, { turnUnseen: true, pendingSince: '2026-09-22T10:00:05.000Z' }),
+    sess(C, { turnEnded: true, pendingSince: '2026-09-22T10:00:05.000Z' }),
     sess(B, { attention: true, pendingSince: '2026-09-22T10:00:01.000Z' }),
     sess(A, { attention: true, pendingSince: '2026-09-22T10:00:05.000Z' }),
   ];
@@ -180,7 +182,7 @@ function rig(): Rig {
 }
 
 const pending = (...ids: string[]): Partial<SessionInfo>[] =>
-  ids.map((id, i) => sess(id, { turnUnseen: true, pendingSince: `2026-09-22T10:00:0${i}.000Z` }));
+  ids.map((id, i) => sess(id, { turnEnded: true, pendingSince: `2026-09-22T10:00:0${i}.000Z` }));
 
 test('a rise shows only after it held 1.5 s — confirmed by a fresh read, not assumed', async () => {
   const r = rig();
@@ -197,14 +199,29 @@ test('a rise shows only after it held 1.5 s — confirmed by a fresh read, not a
   r.feed.stop();
 });
 
-test('a turn acked inside the hold (the pane the user looks at) never shows a mascot', async () => {
+test('a pending that clears inside the hold (a BEL acked in view, a turn that works again) never flashes', async () => {
   const r = rig();
   r.sessions = pending(A);
   r.feed.start();
   await r.flush();
-  r.sessions = [sess(A)]; // the main page sent `seen`
+  r.sessions = [sess(A)]; // the BEL was acked / the session is working again
   await r.advance(POLL_MS * 3);
   assert.deepEqual(r.counts, [], 'no flash, ever');
+  r.feed.stop();
+});
+
+test('a turn that ended shows its mascot even in the pane the user looks at, and leaves only when it works again', async () => {
+  const r = rig();
+  r.sessions = [sess(A, { turnEnded: true, pendingSince: '2026-09-22T10:00:00.000Z' })];
+  r.feed.start();
+  await r.flush();
+  await r.advance(RISE_HOLD_MS);
+  assert.deepEqual(r.counts, [1], 'no look clears `turnEnded`: the mascot comes');
+  await r.advance(POLL_MS * 5);
+  assert.deepEqual(r.counts, [1], 'and it stays while nothing changes');
+  r.sessions = [sess(A, { turn: 'working' })]; // the server cleared turnEnded
+  await r.feed.poll();
+  assert.deepEqual(r.counts, [1, 0], 'working again: gone at once');
   r.feed.stop();
 });
 
@@ -484,14 +501,16 @@ test('prefers-reduced-motion removes every animation and transition from the mas
 // the ack (main page), by source + the real store
 // ===========================================================================
 
-test('panes.ts: a look acks `turnUnseen` like a BEL, through the same seen', () => {
+test('panes.ts: a look acks a BEL only — `turnEnded` never sends a seen', () => {
   const src = read('web/src/ui/panes.ts');
   const fn = /function clearAttentionIfPending\(s: Slot\): void \{[\s\S]*?\n\}/.exec(src);
   assert.ok(fn);
-  assert.match(fn[0], /info\.attention \|\| info\.turnUnseen === true/, 'either one sends the seen');
+  assert.match(fn[0], /if \(info !== undefined && info\.attention\) ackSeen/, 'attention alone sends the seen');
+  assert.doesNotMatch(fn[0], /turnEnded|turnEnded/);
   const onInfo = /onInfo: \(info: SessionInfo\) => \{[\s\S]*?clearAttentionIfPending\(s\);/.exec(src);
   assert.ok(onInfo);
-  assert.match(onInfo[0], /\(info\.attention \|\| info\.turnUnseen === true\) &&/, 'a turn that ends in view is acked at once');
+  assert.match(onInfo[0], /if \(\s*info\.attention &&/, 'the info-frame gate is BEL-only');
+  assert.doesNotMatch(onInfo[0].replace(/\/\/.*$/gm, ''), /turnEnded|turnEnded/, 'no turn flag in the gate code');
   const ack = /function ackSeen\([\s\S]*?\n\}/.exec(src);
   assert.ok(ack);
   assert.match(ack[0], /sendSeen\(\)/);
@@ -512,13 +531,29 @@ class MemoryStorage {
   }
 }
 
-test('the store: markSeenLocally clears both; the counters stay BEL-only (B11)', async () => {
+test('the store: markSeenLocally clears the BEL only, keeps `turnEnded` + its pendingSince; counters stay BEL-only (B11)', async () => {
   const g = globalThis as unknown as Record<string, unknown>;
   g.localStorage ??= new MemoryStorage();
   g.window ??= { setTimeout, clearTimeout, __AUTH__: 't' };
   const st = await import('../web/src/state.ts');
+  const base = {
+    command: 'claude',
+    args: [],
+    cwd: '/tmp',
+    cols: 80,
+    rows: 24,
+    createdAt: '2026-09-22T10:00:00.000Z',
+  };
+  const both = {
+    ...sess(A, { attention: true, turnEnded: true, pendingSince: '2026-09-22T10:00:00.000Z' }),
+    ...base,
+  } as unknown as SessionInfo;
+  const belOnly = {
+    ...sess(B, { attention: true, pendingSince: '2026-09-22T10:00:01.000Z' }),
+    ...base,
+  } as unknown as SessionInfo;
   const turnOnly = {
-    ...sess(A, { turnUnseen: true, pendingSince: '2026-09-22T10:00:00.000Z' }),
+    ...sess(C, { turnEnded: true, pendingSince: '2026-09-22T10:00:02.000Z' }),
     command: 'claude',
     args: [],
     cwd: '/tmp',
@@ -526,27 +561,32 @@ test('the store: markSeenLocally clears both; the counters stay BEL-only (B11)',
     rows: 24,
     createdAt: '2026-09-22T10:00:00.000Z',
   } as unknown as SessionInfo;
-  st.initServer([], [turnOnly]);
-  assert.equal(st.attentionCount(), 0, 'a turn the user has not seen is not a BEL');
+  st.initServer([], [both, belOnly, turnOnly]);
+  assert.equal(st.attentionCount(), 2, 'a turn that ended is not a BEL');
   let notified = 0;
   st.subscribe((k) => {
     if (k === 'sessions') notified++;
   });
   st.markSeenLocally(A);
-  const after = st.state.sessions.get(A);
-  assert.equal(after?.turnUnseen, undefined);
-  assert.equal(after?.pendingSince, undefined);
-  assert.equal(after?.attention, false);
-  assert.equal(notified, 1);
-  st.markSeenLocally(A);
-  assert.equal(notified, 1, 'nothing to clear, nothing said');
+  const a = st.state.sessions.get(A);
+  assert.equal(a?.attention, false);
+  assert.equal(a?.turnEnded, true, 'a look never clears a turn that ended');
+  assert.equal(a?.pendingSince, '2026-09-22T10:00:00.000Z', 'still pending: its place in line stays');
+  st.markSeenLocally(B);
+  const b = st.state.sessions.get(B);
+  assert.equal(b?.attention, false);
+  assert.equal(b?.pendingSince, undefined, 'BEL only: nothing pending any more');
+  assert.equal(notified, 2);
+  st.markSeenLocally(C);
+  assert.equal(st.state.sessions.get(C)?.turnEnded, true);
+  assert.equal(notified, 2, 'no BEL to clear, nothing said');
   const src = read('web/src/state.ts');
   const count = /export function attentionCount\(\): number \{[\s\S]*?\n\}/.exec(src);
   assert.ok(count);
-  assert.doesNotMatch(count[0], /turnUnseen/);
+  assert.doesNotMatch(count[0], /turnEnded/);
   const view = /export function viewAttention\([\s\S]*?\n\}/.exec(src);
   assert.ok(view);
-  assert.doesNotMatch(view[0], /turnUnseen/);
+  assert.doesNotMatch(view[0], /turnEnded/);
 });
 
 test('isMascotShape is exactly the server\'s PUT check: `{enabled: boolean}` and nothing else', async () => {
@@ -647,7 +687,7 @@ test('a good poll between two failures resets the miss count: two NON-consecutiv
 
 test('an undated pending session sorts after a dated one, whichever the server lists first', () => {
   const dated = sess(A, { attention: true, pendingSince: '2026-09-22T10:00:00.000Z' });
-  const undated = sess(D, { turnUnseen: true });
+  const undated = sess(D, { turnEnded: true });
   assert.deepEqual(pendingSessions([dated, undated]), [A, D]);
   assert.deepEqual(pendingSessions([undated, dated]), [A, D]);
 });
