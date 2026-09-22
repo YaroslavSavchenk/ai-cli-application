@@ -632,6 +632,16 @@ test('main.ts tests the SHIFTED pgup/pgdn branch before the unshifted one', () =
   assert.match(block, /cycleTab/);
   // ctrl+alt+m moves the active tab, and falls back to a split.
   assert.match(block, /moveTabToSplit/);
+  // B4 amendment (2026-09-22): a full TARGET STRIP is a different "no room"
+  // than a full tab of panes, so the chord reports the move through the
+  // mapping that says `This pane already holds 4 files.` — never the
+  // pane-count sentence.
+  assert.match(block, /flashMoveTabResult\(st\.moveTab\(/);
+  assert.equal(
+    /flashOpenResult\(st\.moveTab\(/.test(block),
+    false,
+    'the pane-count sentence would be the wrong refusal for a full strip',
+  );
   // ctrl+alt+w closes the TAB, not the pane (A10b).
   assert.match(block, /closeActiveTabGuarded\(/);
   assert.equal(/st\.closeSlot\(/.test(block), false, 'the chord closes a tab now, not a whole pane');

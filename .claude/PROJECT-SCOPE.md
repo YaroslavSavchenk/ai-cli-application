@@ -742,8 +742,12 @@ multi-pane layouts on top.
   same v2 bag also carries the Files panel's wish and width; since A10 each
   view carries `root` and `slots`; since B4 (2026-09-22, user decision)
   EDITOR slots persist too — file tabs as `{kind:'file', path}`, diff tabs
-  as `{kind:'diff', root, hash, path}`, at most 16 tabs per strip (the
-  writer caps, the reader drops the tail), every entry gated on read
+  as `{kind:'diff', root, hash, path}`, at most 4 tabs per strip: the writer
+  caps and the reader drops the tail, and 4 is the LIVE cap too since the B4
+  amendment (2026-09-22, the user's Windows check "ik kan oneindig veel tabs
+  open hebben, limiteer dat met 4" — `MAX_TABS = 4`, opening a fifth file
+  evicts the tab in position 4, a MOVE into a full pane is refused), every
+  entry gated on read
   (absolute path of at most 4096 characters, no NUL, 40-hex hash, absolute diff
   root, unknown kinds dropped) — unsaved TEXT is never written to the
   bag; `sessions: string[]` is still
@@ -944,7 +948,8 @@ multi-pane layouts on top.
   dirty tab is never touched by a follow answer or a follow refusal, and a
   follow answer that a save overtook is dropped. Unsaved text lives only
   in memory, keyed by path so the same file in two panes shares it; it is
-  NEVER dropped without a question: closing a file tab, an editor pane or
+  NEVER dropped without a question: an OPEN that would evict the fourth tab
+  of a full strip (the amendment below), closing a file tab, an editor pane or
   a whole tab that would orphan unsaved text (a file still shown elsewhere
   is not lost) asks `Discard unsaved changes to <name>?` / `… to N files?`
   (`Discard` in danger ink, `Keep editing` the default and Esc — the

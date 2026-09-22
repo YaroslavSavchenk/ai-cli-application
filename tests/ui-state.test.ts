@@ -747,6 +747,188 @@ test('openTabAt: an unknown view or an unknown pane is `no-view`, never a guess'
 });
 
 // ---------------------------------------------------------------------------
+// FOUR TABS PER PANE (part B4 amendment, the user's Windows check 2026-09-22:
+// "ik kan oneindig veel tabs open hebben, limiteer dat met 4")
+//
+// One cap (`MAX_TABS`), three rules: an OPEN into a full strip evicts the tab
+// in the last position and takes its place; a RAISE evicts nothing; a MOVE is
+// refused rather than evicting. `evictionFor` is the pure plan `ui/unsaved.ts`
+// reads before it asks about unsaved text (pinned in tests/ui-unsaved.test.ts).
+// ---------------------------------------------------------------------------
+
+test('MAX_TABS is four — the number the user asked for, and the persistence cap', () => {
+  assert.equal(st.MAX_TABS, 4);
+});
+
+test('openFile: a FIFTH file evicts the LAST chip and takes its place, active', () => {
+  st.initServer([], []);
+  st.loadUi();
+  for (const p of ['a.ts', 'b.ts', 'c.ts', 'd.ts']) {
+    assert.equal(st.openFile({ kind: 'home' }, p, p), 'ok');
+  }
+  assert.deepEqual(strip(home(), 0), ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:d.ts'], 'precondition: full');
+
+  assert.equal(st.openFile({ kind: 'home' }, 'e.ts', 'e.ts'), 'ok', 'the open still succeeds');
+  assert.deepEqual(
+    strip(home(), 0),
+    ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:e.ts'],
+    'position 4 made room; the three the user opened first stay where they were',
+  );
+  assert.equal(home().slots.length, 1, 'and it cost no pane');
+  assert.equal((home().slots[0] as EditorSlot).active, 3, 'the new tab is AT position 4');
+  assert.equal(activeId(home(), 0), 'f:e.ts', 'and it is the one on screen');
+});
+
+test('openFile: a file already in a FULL strip is RAISED — it evicts nothing', () => {
+  st.initServer([], []);
+  st.loadUi();
+  for (const p of ['a.ts', 'b.ts', 'c.ts', 'd.ts']) st.openFile({ kind: 'home' }, p, p);
+
+  assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
+  assert.deepEqual(strip(home(), 0), ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:d.ts'], 'all four survive');
+  assert.equal(activeId(home(), 0), 'f:a.ts', 'raised, not re-added');
+});
+
+test('openFile: a diff counts in the same four — files and diffs share the strip', () => {
+  st.initServer([], []);
+  st.loadUi();
+  for (const p of ['a.ts', 'b.ts', 'c.ts']) st.openFile({ kind: 'home' }, p, p);
+  assert.equal(st.openDiff({ kind: 'home' }, HASH40, 'a.ts', REPO), 'ok');
+  assert.equal(strip(home(), 0).length, 4, 'three files and one diff IS full');
+
+  assert.equal(st.openFile({ kind: 'home' }, 'e.ts', 'e.ts'), 'ok');
+  assert.deepEqual(
+    strip(home(), 0),
+    ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:e.ts'],
+    'and the diff is what the fifth file evicted',
+  );
+});
+
+test('openFile: a NEW pane never evicts — the cap is per strip, not per tab', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
+  st.state.activeViewId = v.id;
+  v.focused = 1;
+
+  // The focused editor pane is full, so THIS open evicts...
+  assert.equal(st.openFile({ kind: 'project', id: 'p1' }, 'e.ts', 'e.ts'), 'ok');
+  assert.deepEqual(shape(v), ['s:s1', ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:e.ts']]);
+
+  // ...while a tab with NO editor pane makes one, holding a single tab.
+  const bare = addView({ kind: 'project', id: 'p2' }, [sess('s1')]);
+  bare.slots = [];
+  assert.equal(st.openFile({ kind: 'project', id: 'p2' }, 'z.ts', 'z.ts'), 'ok');
+  assert.deepEqual(shape(bare), [['f:z.ts']], 'one tab in a pane of its own');
+});
+
+test('openTabAt: the CENTRE of a FULL strip evicts its last chip too (the drop)', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
+
+  assert.equal(st.openTabAt(v.id, 0, 'replace', ftab('new.ts')), 'ok');
+  assert.deepEqual(shape(v), [['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:new.ts']]);
+  assert.equal(activeId(v, 0), 'f:new.ts');
+
+  // An EDGE makes a new pane and evicts nothing, however full the strip is.
+  assert.equal(st.openTabAt(v.id, 0, 'left', ftab('edge.ts')), 'ok');
+  assert.deepEqual(shape(v), [['f:edge.ts'], ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:new.ts']]);
+});
+
+test('the evicted chip loses its unsaved text — and only when no other tab shows it', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
+  st.setEdit('f:d.ts', 'typed\n');
+
+  assert.equal(st.openTabAt(v.id, 0, 'replace', ftab('new.ts')), 'ok');
+  assert.equal(st.state.edits.has('f:d.ts'), false, 'the orphaned text is pruned by the eviction');
+
+  // The same eviction with the file ALSO open in a second pane keeps the text.
+  const w = addView({ kind: 'project', id: 'p2' }, [ed('a.ts', 'b.ts', 'c.ts', 'x.ts'), ed('x.ts')]);
+  st.setEdit('f:x.ts', 'typed\n');
+  assert.equal(st.openTabAt(w.id, 0, 'replace', ftab('new.ts')), 'ok');
+  assert.equal(st.state.edits.get('f:x.ts'), 'typed\n', 'the other pane still shows it');
+});
+
+test('evictionFor: the PLAN, pure — what would leave, and what that would lose', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts'), sess('s1')]);
+
+  assert.deepEqual(
+    st.evictionFor(v.id, 0, 'f:e.ts'),
+    { tabIndex: 3, lostIds: [] },
+    'position 4 leaves, and a clean tab loses nothing',
+  );
+  st.setEdit('f:d.ts', 'typed\n');
+  assert.deepEqual(
+    st.evictionFor(v.id, 0, 'f:e.ts'),
+    { tabIndex: 3, lostIds: ['f:d.ts'] },
+    'a DIRTY position 4 is what the question is asked about',
+  );
+  st.setEdit('f:c.ts', 'typed\n');
+  assert.deepEqual(
+    st.evictionFor(v.id, 0, 'f:e.ts')?.lostIds,
+    ['f:d.ts'],
+    'the chips that STAY are not lost, however dirty',
+  );
+  // PURE: reading the plan changes neither the strip nor the text.
+  assert.deepEqual(strip(v, 0), ['f:a.ts', 'f:b.ts', 'f:c.ts', 'f:d.ts']);
+  assert.equal(st.state.edits.get('f:d.ts'), 'typed\n');
+
+  assert.equal(st.evictionFor(v.id, 0, 'f:b.ts'), null, 'a RAISE evicts nothing');
+  assert.equal(st.evictionFor(v.id, 1, 'f:e.ts'), null, 'a terminal pane holds no strip');
+  assert.equal(st.evictionFor(v.id, 9, 'f:e.ts'), null, 'nor does pane 9 exist');
+  assert.equal(st.evictionFor('nope', 0, 'f:e.ts'), null, 'nor that view');
+
+  const room = addView({ kind: 'project', id: 'p2' }, [ed('a.ts', 'b.ts', 'c.ts')]);
+  assert.equal(st.evictionFor(room.id, 0, 'f:e.ts'), null, 'and a strip with room evicts nothing');
+});
+
+test('evictionFor: a dirty position 4 that ANOTHER tab shows is not lost', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts', 'c.ts', 'd.ts'), ed('d.ts')]);
+  st.setEdit('f:d.ts', 'typed\n');
+  assert.deepEqual(
+    st.evictionFor(v.id, 0, 'f:e.ts'),
+    { tabIndex: 3, lostIds: [] },
+    'the second pane keeps that text alive, so the open asks nothing',
+  );
+});
+
+test('evictionForOpen: the same plan for the opener that picks its own pane', () => {
+  st.initServer([], [mkSession('s1')]);
+  st.loadUi();
+  assert.equal(
+    st.evictionForOpen({ kind: 'project', id: 'p1' }, ftab('e.ts')),
+    null,
+    'a tab that does not exist yet has no strip to overflow',
+  );
+  const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), ed('a.ts', 'b.ts', 'c.ts', 'd.ts')]);
+  st.state.activeViewId = v.id;
+
+  // A focused TERMINAL still sends the tab to the view's first editor pane.
+  v.focused = 0;
+  st.setEdit('f:d.ts', 'typed\n');
+  assert.deepEqual(st.evictionForOpen({ kind: 'project', id: 'p1' }, ftab('e.ts')), {
+    tabIndex: 3,
+    lostIds: ['f:d.ts'],
+  });
+  assert.equal(
+    st.evictionForOpen({ kind: 'project', id: 'p1' }, ftab('b.ts')),
+    null,
+    'a file already open in that view is RAISED, so nothing leaves',
+  );
+  // PURE: it may not create the tab it was asked about, the way viewForRoot does.
+  assert.equal(st.state.views.some((x: ViewState) => x.root?.kind === 'project' && x.root.id === 'p9'), false);
+  assert.equal(st.evictionForOpen({ kind: 'project', id: 'p9' }, ftab('e.ts')), null);
+  assert.equal(st.state.views.some((x: ViewState) => x.root?.kind === 'project' && x.root.id === 'p9'), false);
+});
+
+// ---------------------------------------------------------------------------
 // Moving a tab: to another pane, and out into a split of its own
 // ---------------------------------------------------------------------------
 
@@ -819,6 +1001,26 @@ test('moveTab: a dirty file’s text survives the move — the prune runs once, 
   assert.equal(st.moveTab(v.id, 0, 0, 1), 'ok');
   assert.deepEqual(shape(v), [['f:b.ts', 'f:a.ts']], 'one pane left, holding both');
   assert.equal(st.editText(a), 'typed in a', 'the tab moved, it did not close');
+});
+
+test('moveTab: a FULL target is REFUSED — a move never evicts (B4 amendment)', () => {
+  st.initServer([], []);
+  st.loadUi();
+  const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('c.ts', 'd.ts', 'e.ts', 'f.ts')]);
+  st.state.activeViewId = v.id;
+
+  assert.equal(st.moveTab(v.id, 0, 1, 1), 'full', 'the sentence is the strip\'s, not the pane count\'s');
+  assert.deepEqual(
+    shape(v),
+    [['f:a.ts', 'f:b.ts'], ['f:c.ts', 'f:d.ts', 'f:e.ts', 'f:f.ts']],
+    'nothing moved, nothing was thrown out',
+  );
+
+  // A target that already SHOWS that tab is a raise, and a raise costs no room.
+  const w = addView({ kind: 'project', id: 'p2' }, [ed('a.ts', 'b.ts'), ed('b.ts', 'd.ts', 'e.ts', 'f.ts')]);
+  assert.equal(st.moveTab(w.id, 0, 1, 1), 'ok');
+  assert.deepEqual(shape(w), [['f:a.ts'], ['f:b.ts', 'f:d.ts', 'f:e.ts', 'f:f.ts']]);
+  assert.equal(activeId(w, 1), 'f:b.ts', 'raised where it already was');
 });
 
 test('moveTab: a bad slot, the same slot, or a terminal is refused and changes nothing', () => {
@@ -1649,9 +1851,17 @@ test('save/load: a strip in the bag is capped, and so is the number of panes', (
   );
   st.loadUi();
   const strip0 = st.slotTabIds(home().slots[0] as PaneSlot);
-  assert.equal(strip0.length, 16, 'a strip of forty chips is not a strip anybody arranged');
+  assert.equal(
+    strip0.length,
+    st.MAX_TABS,
+    'a strip of forty chips is not a strip anybody arranged — and four is the live cap too',
+  );
   assert.deepEqual(strip0[0], E.fileTabId('/f/0.ts'), 'the first ones are kept, in order');
-  assert.equal((home().slots[0] as EditorSlot).active, 15, 'and the active index lands inside');
+  assert.equal(
+    (home().slots[0] as EditorSlot).active,
+    st.MAX_TABS - 1,
+    'and the active index lands inside',
+  );
   const v2 = st.state.views.find((x) => x.id === 'v2') as ViewState;
   assert.equal(v2.slots.length, st.MAX_PANES, 'a tab holds at most four panes, whatever the bag says');
   assert.equal(v2.focused, st.MAX_PANES - 1, 'and the focus lands on one that exists');

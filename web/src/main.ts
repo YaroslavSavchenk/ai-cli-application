@@ -64,7 +64,7 @@ import {
   isDiscardDialogOpen,
   unloadGuard,
 } from './ui/unsaved.ts';
-import { flashOpenResult } from './ui/dnd.ts';
+import { flashMoveTabResult, flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
@@ -831,7 +831,10 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
         if (v === null || s === undefined || s.kind !== 'editor') return;
         const to = nextEditorSlot(v, v.focused);
         if (to !== -1) {
-          flashOpenResult(st.moveTab(v.id, v.focused, s.active, to));
+          // `flashMoveTabResult`, not `flashOpenResult`: a `'full'` from
+          // `moveTab` is a full STRIP (four files, B4 amendment), and it gets
+          // the strip's own sentence rather than the pane-count one.
+          flashMoveTabResult(st.moveTab(v.id, v.focused, s.active, to));
           return;
         }
         // A pane's only tab has nowhere to go: no other editor pane, and a

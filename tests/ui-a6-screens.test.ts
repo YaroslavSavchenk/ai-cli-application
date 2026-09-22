@@ -69,7 +69,8 @@ type EditorTab =
   | { kind: 'diff'; hash: string; path: string; root: string };
 /**
  * A10b: a pane is a terminal or an EDITOR holding a strip of file/diff tabs.
- * The commit view's two openers go through `st.openFile` / `st.openDiff`, so
+ * The commit view's two openers go through `openFileGuarded` / `openDiffGuarded`
+ * (ui/unsaved.ts, the B4 question in front of `st.openFile` / `st.openDiff`), so
  * what they produce is an editor SLOT whose strip holds the tab — never a
  * `file` slot, which no longer exists.
  */
@@ -835,12 +836,16 @@ test('both openers open the pane BEFORE closing the view — one layout pass, no
   // render draws the new layout ONCE. The other order builds the panes twice.
   const src = readFileSync(join(here, '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
   for (const [key, opener, call] of [
-    ['diffopen', 'openFile', 'st.openFile('],
-    ['diffchanges', 'changes', 'st.openDiff('],
+    ['diffopen', 'openFile', 'openFileGuarded('],
+    ['diffchanges', 'changes', 'openDiffGuarded('],
   ] as [string, string, string][]) {
     const from = src.indexOf(`const ${opener} = button(`);
     assert.notEqual(from, -1, `non-vacuity: the ${key} handler was found`);
     const body = src.slice(from, src.indexOf('});', from));
+    // Both indexes must EXIST: `-1 < n` is true for any n, and that is exactly
+    // how this pin went vacuous when the B4 guard renamed the opener.
+    assert.notEqual(body.indexOf(call), -1, `${key}: the guarded opener is in the handler`);
+    assert.notEqual(body.indexOf('st.closeCommitView()'), -1, `${key}: the close is in the handler`);
     assert.ok(
       body.indexOf(call) < body.indexOf('st.closeCommitView()'),
       `${key}: the pane is opened before the view closes`,

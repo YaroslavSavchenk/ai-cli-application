@@ -49,6 +49,7 @@
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
 import { armDrag, flashOpenResult } from './dnd.ts';
+import { openFileGuarded, openTabAtGuarded } from './unsaved.ts';
 import { openCopyFilesPicker, type PaneDest } from './filedrop.ts';
 import {
   afterEscape,
@@ -1066,7 +1067,9 @@ export function initFilesPanel(
         // it belongs to and never against the panel's own root.
         const b = button('files-row is-file', '', () => {
           if (repoRoot === null) return;
-          st.openFile(currentRoot(), joinPath(repoRoot, r.path), r.name);
+          // Guarded since the B4 amendment: a fifth file evicts the strip's
+          // last chip, and an evicted chip carrying unsaved text asks first.
+          openFileGuarded(currentRoot(), joinPath(repoRoot, r.path), r.name);
         });
         b.setAttribute('data-k', `gfile:${r.path}`);
         // Its OWN title, naming only what it does. A changed file row is not a
@@ -1453,7 +1456,7 @@ export function initFilesPanel(
    */
   function runMenuAction(action: MenuAction, key: string, path: string, name: string): void {
     if (action === 'toggle') toggleFolder(path);
-    else if (action === 'open') st.openFile(currentRoot(), path, name);
+    else if (action === 'open') openFileGuarded(currentRoot(), path, name, { returnFocus: activeRowEl() });
     else if (action === 'open-beside') openBeside(path, name);
     // The two acts that are about the SELECTION when the row they were chosen
     // on is part of it (B10a) — the menu hands the row's key over and
@@ -2057,7 +2060,7 @@ export function initFilesPanel(
           openFolders.add(path);
           fetchFolder(path);
         } else {
-          st.openFile(currentRoot(), path, leaf);
+          openFileGuarded(currentRoot(), path, leaf);
         }
         // The keyboard follows the thing that was made — but its row does not
         // exist until the folder answers again, so this is a promise the next
@@ -2493,7 +2496,9 @@ export function initFilesPanel(
   function openBeside(path: string, name: string): void {
     const v = st.activeView();
     if (v === null || v.slots.length === 0) {
-      flashOpenResult(st.openFile(currentRoot(), path, name));
+      // An empty tab: the file lands IN it, as its first pane. Guarded like
+      // every other open, though a tab with no pane has no strip to overflow.
+      openFileGuarded(currentRoot(), path, name, { done: flashOpenResult });
       return;
     }
     const where = st.dropZonesFor(v, v.focused, 1)[0];
@@ -2501,7 +2506,10 @@ export function initFilesPanel(
       flashOpenResult(v.slots.length >= st.MAX_PANES ? 'full' : 'no-zone');
       return;
     }
-    flashOpenResult(st.openTabAt(v.id, v.focused, where, { kind: 'file', path }));
+    // `dropZonesFor` only ever answers EDGES here, so this makes a new pane
+    // and cannot evict — the guard is on it anyway, so no second rule about
+    // which opener needs it can drift into this file.
+    openTabAtGuarded(v.id, v.focused, where, { kind: 'file', path }, { done: flashOpenResult });
   }
 
   function headerName(): string {
@@ -2920,7 +2928,7 @@ export function initFilesPanel(
         // choose it without opening anything at all.
         b.addEventListener('click', (e) =>
           onRowClick(e, key, () => {
-            st.openFile(currentRoot(), r.path, r.name);
+            openFileGuarded(currentRoot(), r.path, r.name, { returnFocus: b });
           }),
         );
         b.setAttribute('data-k', key);

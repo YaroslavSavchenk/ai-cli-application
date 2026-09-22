@@ -23,7 +23,7 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from './helpers.ts';
 import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from './fake-dom.ts';
@@ -50,12 +50,20 @@ interface ViewLike {
   split: { col: number; row: number };
 }
 
+interface Eviction {
+  tabIndex: number;
+  lostIds: string[];
+}
 interface StateModule {
   state: { views: ViewLike[]; activeViewId: string; edits: Map<string, string> };
   newEditorSlot(tabs: EditorTab[]): EditorSlot;
   editorFileId(path: string): string;
   dirtyLostBy(viewId: string, slot?: number, tab?: number): string[];
   activeTabIndex(viewId: string, slot: number): number | null;
+  MAX_TABS: number;
+  evictionFor(viewId: string, slot: number, tabId: string): Eviction | null;
+  evictionForOpen(root: ViewLike['root'], tab: EditorTab): Eviction | null;
+  openFile(root: { kind: 'home' } | { kind: 'project'; id: string }, path: string, label: string): string;
 }
 interface UnsavedModule {
   confirmDiscard(ids: readonly string[], returnFocus?: FakeElement | null): Promise<boolean>;
@@ -67,6 +75,26 @@ interface UnsavedModule {
   closeViewGuarded(viewId: string, act: () => void, returnFocus?: FakeElement | null): void;
   unloadGuard(e: { preventDefault(): void; returnValue: unknown }): boolean;
   disarmUnloadGuard(): void;
+  openFileGuarded(
+    root: { kind: 'home' } | { kind: 'project'; id: string },
+    path: string,
+    label: string,
+    opts?: { returnFocus?: FakeElement | null; done?: (r: string) => void },
+  ): void;
+  openDiffGuarded(
+    root: { kind: 'home' } | { kind: 'project'; id: string },
+    hash: string,
+    path: string,
+    requestRoot: string,
+    opts?: { returnFocus?: FakeElement | null; done?: (r: string) => void },
+  ): void;
+  openTabAtGuarded(
+    viewId: string,
+    slot: number,
+    where: string,
+    tab: EditorTab,
+    opts?: { returnFocus?: FakeElement | null; done?: (r: string) => void },
+  ): void;
 }
 
 const st = (await import(new URL('../web/src/state.ts', import.meta.url).href)) as unknown as StateModule;
@@ -352,6 +380,171 @@ test("a whole tab's × asks first and runs the strip's OWN act — sessions and 
   answer('Discard').click();
   await settle();
   assert.equal(ran, 1, 'the act the strip handed in is what runs');
+});
+
+// ---------------------------------------------------------------------------
+// THE FIFTH DOOR: an OPEN that evicts (part B4 amendment, the user's Windows
+// check 2026-09-22 — four files per pane, and a fifth evicts the last chip)
+//
+// The strip's cap lives in state.ts and is pinned there (tests/ui-state.test.ts).
+// What is pinned HERE is the question in front of it: the state opener may
+// never be reachable with a dirty eviction without it, and `Keep editing`
+// cancels the OPEN itself — the strip stands exactly as it was.
+// ---------------------------------------------------------------------------
+
+const C = '/home/you/web/src/Grid.tsx';
+const D = '/home/you/web/src/Tabs.tsx';
+const E5 = '/home/you/web/src/Fifth.tsx';
+
+/** A view whose one editor pane is FULL, in strip order. */
+function fullPane(): EditorSlot {
+  const slot = st.newEditorSlot([
+    { kind: 'file', path: A },
+    { kind: 'file', path: B },
+    { kind: 'file', path: C },
+    { kind: 'file', path: D },
+  ]);
+  st.state.views = [view('v1', [slot])];
+  st.state.activeViewId = 'v1';
+  assert.equal(slot.tabs.length, st.MAX_TABS, 'precondition: the strip is full');
+  return slot;
+}
+
+/** The paths on screen in that pane, in strip order. */
+function paths(slot: EditorSlot): string[] {
+  return slot.tabs.map((t) => (t.kind === 'file' ? t.path : `d:${t.hash}`));
+}
+
+test('an open into a full strip with a CLEAN last chip asks nothing and evicts it', () => {
+  const slot = fullPane();
+  const results: string[] = [];
+  U.openFileGuarded({ kind: 'home' }, E5, 'Fifth.tsx', { done: (r) => results.push(r) });
+  assert.equal(card(), null, 'nothing would be lost, so nothing is asked');
+  assert.deepEqual(results, ['ok'], 'and it happened SYNCHRONOUSLY, like every clean door');
+  assert.deepEqual(paths(slot), [A, B, C, E5], 'position 4 made room');
+  assert.equal(slot.active, st.MAX_TABS - 1, 'and the new file is the one on screen');
+});
+
+test('a strip with ROOM never asks at all', () => {
+  st.state.views = [view('v1', [st.newEditorSlot([{ kind: 'file', path: A }])])];
+  dirty(A);
+  U.openFileGuarded({ kind: 'home' }, B, 'App.tsx');
+  assert.equal(card(), null, 'a dirty tab that is not going anywhere is not a question');
+  assert.deepEqual(
+    (st.state.views[0]?.slots[0] as EditorSlot).tabs.length,
+    2,
+    'and the file simply opened',
+  );
+});
+
+test('the open WAITS for the answer: Keep editing cancels the open, and the strip stands', async () => {
+  const slot = fullPane();
+  dirty(D);
+  const results: string[] = [];
+
+  U.openFileGuarded({ kind: 'home' }, E5, 'Fifth.tsx', { done: (r) => results.push(r) });
+  assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Tabs.tsx?']);
+  assert.deepEqual(paths(slot), [A, B, C, D], 'nothing moved while the question is up');
+
+  answer('Keep editing').click();
+  await settle();
+  assert.deepEqual(paths(slot), [A, B, C, D], 'Keep editing changed nothing at all');
+  assert.equal(st.state.edits.has(st.editorFileId(D)), true, 'the unsaved text is still there');
+  assert.deepEqual(results, [], 'and the open never ran, so there is no result to report');
+});
+
+test('Discard opens the fifth file and the evicted text goes with its chip', async () => {
+  const slot = fullPane();
+  dirty(D);
+  U.openFileGuarded({ kind: 'home' }, E5, 'Fifth.tsx');
+  answer('Discard').click();
+  await settle();
+  assert.deepEqual(paths(slot), [A, B, C, E5]);
+  assert.equal(st.state.edits.has(st.editorFileId(D)), false, 'pruned by the eviction');
+  assert.equal(st.state.edits.size, 0);
+});
+
+test('the question is about the chip that LEAVES — not about the dirty ones that stay', async () => {
+  const slot = fullPane();
+  dirty(A);
+  dirty(D);
+  U.openFileGuarded({ kind: 'home' }, E5, 'Fifth.tsx');
+  assert.deepEqual(
+    textsOf(dom.body, 'ud-title'),
+    ['Discard unsaved changes to Tabs.tsx?'],
+    'one name, the evicted one',
+  );
+  answer('Discard').click();
+  await settle();
+  assert.equal(st.state.edits.has(st.editorFileId(A)), true, "A's text is still on screen");
+  assert.deepEqual(paths(slot), [A, B, C, E5], 'and only the last chip left');
+});
+
+test('a file already in the full strip is RAISED — no question, no eviction', () => {
+  const slot = fullPane();
+  dirty(D);
+  U.openFileGuarded({ kind: 'home' }, B, 'App.tsx');
+  assert.equal(card(), null, 'a raise loses nothing');
+  assert.deepEqual(paths(slot), [A, B, C, D], 'all four survive');
+  assert.equal(slot.active, 1, 'raised');
+});
+
+test('openDiffGuarded asks about the chip a DIFF would evict', async () => {
+  const slot = fullPane();
+  dirty(D);
+  U.openDiffGuarded({ kind: 'home' }, HASH, 'a.ts', '/repo');
+  assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Tabs.tsx?']);
+  answer('Discard').click();
+  await settle();
+  assert.deepEqual(paths(slot), [A, B, C, `d:${HASH}`], 'a diff counts in the same four');
+});
+
+test('openTabAtGuarded: the pane CENTRE asks; an EDGE makes a pane and never asks', async () => {
+  const slot = fullPane();
+  dirty(D);
+
+  U.openTabAtGuarded('v1', 0, 'replace', { kind: 'file', path: E5 });
+  assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Tabs.tsx?']);
+  answer('Keep editing').click();
+  await settle();
+  assert.deepEqual(paths(slot), [A, B, C, D], 'the drop was cancelled with the question');
+
+  const results: string[] = [];
+  U.openTabAtGuarded('v1', 0, 'left', { kind: 'file', path: E5 }, { done: (r) => results.push(r) });
+  assert.equal(card(), null, 'an edge makes a NEW pane, which evicts nothing');
+  assert.deepEqual(results, ['ok']);
+  assert.equal(st.state.views[0]?.slots.length, 2);
+  assert.deepEqual(paths(slot), [A, B, C, D], 'and the full strip is untouched');
+});
+
+test('no module reaches the state openers past the guard', () => {
+  // THE INVARIANT: the state opener must never be reachable with a dirty
+  // eviction and no question. `state.ts` performs the eviction, `unsaved.ts`
+  // is the only door in front of it — so no other module may call the three
+  // openers directly. Read from SOURCE, because main.ts and ui/panes.ts pull
+  // @xterm/xterm in and cannot be imported here.
+  const web = join(projectRoot, 'web', 'src');
+  const files = readdirSync(web, { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith('.ts'))
+    .filter((f) => f !== 'state.ts' && f !== join('ui', 'unsaved.ts'));
+  let scanned = 0;
+  let guardedCalls = 0;
+  for (const rel of files) {
+    const src = readFileSync(join(web, rel), 'utf8');
+    scanned += 1;
+    for (const call of ['st.openFile(', 'st.openDiff(', 'st.openTabAt(']) {
+      assert.equal(
+        src.includes(call),
+        false,
+        `${rel}: ${call} must go through ui/unsaved.ts's guarded twin (B4 amendment)`,
+      );
+    }
+    for (const call of ['openFileGuarded(', 'openDiffGuarded(', 'openTabAtGuarded(']) {
+      if (src.includes(call)) guardedCalls += 1;
+    }
+  }
+  assert.ok(scanned > 40, `non-vacuity: only ${scanned} sources scanned`);
+  assert.ok(guardedCalls >= 4, `non-vacuity: only ${guardedCalls} guarded openers called`);
 });
 
 // ---------------------------------------------------------------------------

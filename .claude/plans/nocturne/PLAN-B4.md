@@ -296,6 +296,20 @@ bar), tests: `tests/ui-file-pane.test.ts`, `tests/ui-editor-model.test.ts`,
    row; the mock-count test in `ui-a8-block-rules` (or wherever the count
    lives) now asserts ZERO.
 
+## Amendment (2026-09-22, the user's Windows check: "ik kan oneindig veel tabs open hebben, limiteer dat met 4")
+
+- **Four tabs per editor pane** (files and diffs together); the persistence
+  cap follows (`MAX_TABS = 4`, was 16).
+- **Opening a fifth evicts the tab in position 4** (the last one) and the new
+  tab takes that place, active. A tab already in the strip is raised and
+  evicts nothing. A new pane never evicts.
+- D1 holds: an evicted tab with unsaved text no other tab shows gets the
+  `Discard unsaved changes to <name>?` question first; `Keep editing`
+  cancels the open (orchestrator's default, D1-consistent).
+- Moving a tab into a full pane (drag onto its centre, Ctrl+Alt+M) is
+  refused with `This pane already holds 4 files.` — never an eviction on a
+  drag. An edge drop (new pane) is unaffected.
+
 ## Gates
 
 - Phase 0 (orchestrator): protocol + client functions, `npm run typecheck`.

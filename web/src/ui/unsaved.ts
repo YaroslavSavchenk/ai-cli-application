@@ -1,6 +1,6 @@
 /**
  * THE QUESTION BEFORE TYPED TEXT IS DROPPED (Nocturne part B4, user decision
- * D1, 2026-09-22) — and the four doors it stands in.
+ * D1, 2026-09-22) — and the five doors it stands in.
  *
  * WHAT IT IS FOR. Until B4 a file pane held text that had never been on disk,
  * so closing it lost nothing real and the amber dot was the whole warning.
@@ -11,6 +11,9 @@
  *   - the `×` of a whole editor pane          (`closeSlotGuarded`)
  *   - ctrl+alt+w on the focused editor pane   (`closeActiveTabGuarded`)
  *   - the `×` of a whole tab in the strip     (`closeViewGuarded`)
+ *   - opening a FIFTH file in a full strip    (`openFileGuarded` and its two
+ *     twins, B4 amendment 2026-09-22: four tabs per pane, and the fifth
+ *     evicts the last one — so an OPEN is a door too)
  *
  * and the browser asks the same question for a reload or a window close
  * (`unloadGuard`, wired in `main.ts`). ENDING A SESSION IS NOT A DOOR: it
@@ -20,9 +23,11 @@
  * app a while after the last window closed. There is no window left to ask in.
  *
  * IT ASKS ONLY WHEN SOMETHING WOULD REALLY BE LOST. `state.dirtyLostBy` is the
- * arithmetic (state.ts, pure and tested): a file open in TWO panes is not lost
- * by closing one of them, so that close asks nothing at all. A question with a
- * false premise trains the user to answer it blindly.
+ * arithmetic for the four closing doors, and `state.evictionFor` /
+ * `evictionForOpen` for the fifth (state.ts, all three pure and tested): a
+ * file open in TWO panes is not lost by closing one of them, so that close
+ * asks nothing at all. A question with a false premise trains the user to
+ * answer it blindly.
  *
  * THE CARD IS THE DELETE DIALOG'S, exactly (ui/delete-dialog.ts, B10a): the
  * app's smallest card — a question, two answers, no header, no `×`, no icon —
@@ -34,7 +39,7 @@
  */
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
-import { discardQuestion, filePathOf } from './editor-model.ts';
+import { discardQuestion, filePathOf, tabIdOf } from './editor-model.ts';
 import { fileName } from './slots-model.ts';
 
 let scrim: HTMLElement | null = null;
@@ -212,6 +217,80 @@ export function closeViewGuarded(
   returnFocus?: HTMLElement | null,
 ): void {
   guard(st.dirtyLostBy(viewId), returnFocus, act);
+}
+
+/**
+ * THE FIFTH DOOR (B4 amendment, 2026-09-22): an OPEN can now drop text too.
+ * A strip holds four files (`state.MAX_TABS`), and opening a fifth evicts the
+ * tab in the last position — so every path that ADDS a tab to an existing
+ * pane goes through one of the three wrappers below, never through
+ * `state.openFile` / `openDiff` / `openTabAt` directly.
+ *
+ * `state.evictionFor` / `evictionForOpen` are the pure plan (they change
+ * nothing); this is the only place that turns a non-empty `lostIds` into the
+ * question. `Keep editing` (and Escape, and the backdrop) CANCELS THE OPEN:
+ * nothing is evicted, nothing is opened, the strip stands as it was.
+ *
+ * `done` is the caller's "it really happened" hook, carrying the result —
+ * `ui/dnd.ts` flashes refusals with it, `ui/commit-view.ts` closes its screen
+ * on it. It is NOT called when the question was answered `Keep editing`: the
+ * act did not run, so there is no result to report.
+ */
+export interface OpenOpts {
+  returnFocus?: HTMLElement | null;
+  done?: (r: st.OpenFileResult) => void;
+}
+
+/** `state.openFile`, with the eviction question in front of it. */
+export function openFileGuarded(
+  root: st.ViewRoot,
+  path: string,
+  label: string,
+  opts?: OpenOpts,
+): void {
+  const ev = st.evictionForOpen(root, { kind: 'file', path });
+  guard(ev?.lostIds ?? [], opts?.returnFocus, () => {
+    // The open runs on its OWN line: `opts?.done?.(st.openFile(…))` would
+    // short-circuit the whole call — arguments included — whenever the caller
+    // passed no `done`, and the file would never open at all.
+    const r = st.openFile(root, path, label);
+    opts?.done?.(r);
+  });
+}
+
+/** `state.openDiff`, same guard. A diff owns no text, but it can EVICT one. */
+export function openDiffGuarded(
+  root: st.ViewRoot,
+  hash: string,
+  path: string,
+  requestRoot: string,
+  opts?: OpenOpts,
+): void {
+  const ev = st.evictionForOpen(root, { kind: 'diff', hash, path, root: requestRoot });
+  guard(ev?.lostIds ?? [], opts?.returnFocus, () => {
+    const r = st.openDiff(root, hash, path, requestRoot);
+    opts?.done?.(r);
+  });
+}
+
+/**
+ * `state.openTabAt`, same guard. Only the pane's CENTRE (`'replace'`) can
+ * evict anything — an edge makes a NEW pane — and `evictionFor` answers
+ * `null` for every other case by itself, so the zone needs no special case
+ * here.
+ */
+export function openTabAtGuarded(
+  viewId: string,
+  slot: number,
+  where: st.Zone | 'replace',
+  tab: st.EditorTab,
+  opts?: OpenOpts,
+): void {
+  const ev = where === 'replace' ? st.evictionFor(viewId, slot, tabIdOf(tab)) : null;
+  guard(ev?.lostIds ?? [], opts?.returnFocus, () => {
+    const r = st.openTabAt(viewId, slot, where, tab);
+    opts?.done?.(r);
+  });
 }
 
 /** Ask when the list says something would be lost, then act. */

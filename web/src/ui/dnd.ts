@@ -25,8 +25,9 @@
  * FILE-ROW drag (source: a row of the Files panel):
  *   - onto a pane edge   -> split that pane and open the file there;
  *   - onto a pane centre -> open it as a TAB of that editor pane (A10b: it
- *     never replaces what is already in the strip; a TERMINAL pane refuses,
- *     user decision 7);
+ *     never replaces what is already in the strip — though a strip already
+ *     holding four files loses its LAST chip to make room, B4 amendment; a
+ *     TERMINAL pane refuses, user decision 7);
  *   - onto a tab chip    -> open it as a pane of that folder tab;
  *   - onto the EMPTY STATE of an empty active tab -> the same, for that tab.
  * FILE-TAB drag (source: one chip of an editor pane's strip, A10b):
@@ -34,7 +35,9 @@
  *     there (the only gesture that makes a split, user decision 2); a pane
  *     whose LAST tab leaves frees its own pane, so the split can cost nothing;
  *   - onto the centre of ANOTHER editor pane -> the tab MOVES into that strip
- *     (the whole pane lights up, because the whole pane takes it);
+ *     (the whole pane lights up, because the whole pane takes it) — unless
+ *     that strip already holds four files, which REFUSES: a move never
+ *     evicts anything (B4 amendment, 2026-09-22);
  *   - onto the centre of a TERMINAL pane -> refused, with the same sentence a
  *     file row gets there;
  *   - onto its OWN pane's centre, the tab strip, another chip or the empty
@@ -52,6 +55,7 @@ import * as st from '../state.ts';
 import { el } from './util.ts';
 import { flash } from './statusline.ts';
 import { zoneForPoint, type DropWhere } from './slots-model.ts';
+import { openFileGuarded, openTabAtGuarded } from './unsaved.ts';
 import { tabIdOf } from './editor-model.ts';
 
 const THRESHOLD_PX = 5;
@@ -108,6 +112,8 @@ type Target =
   | { t: 'move-tab'; viewId: string; slot: number }
   /** A file TAB onto the centre of a TERMINAL pane (user decision 7, same as a row). */
   | { t: 'reject-session' }
+  /** A file TAB onto an editor pane whose strip already holds `MAX_TABS` files (B4 amendment). */
+  | { t: 'reject-tabs-full' }
   | { t: 'reject-full' }
   | null;
 
@@ -142,6 +148,16 @@ const REJECT_SESSION_CENTRE =
 
 /** The pane cannot split the way it was asked to — the short pane of a 3-split. */
 const REJECT_NO_ROOM = 'There is no room beside this pane.';
+
+/**
+ * A pane's strip is FULL and the gesture is a MOVE (B4 amendment, 2026-09-22:
+ * four files per pane). An OPEN evicts the last chip to make room; a move
+ * never does — the tab it would throw out is one the user put there, and the
+ * gesture that asked for it says nothing about which. Exported because the
+ * ctrl+alt+m twin in main.ts says the SAME sentence: one refusal, one
+ * spelling. The four is written out, not interpolated: this is copy.
+ */
+export const REJECT_PANE_TABS_FULL = 'This pane already holds 4 files.';
 
 interface Drag {
   spec: DragSpec;
@@ -471,9 +487,12 @@ function resolve(x: number, y: number): Target {
       return {
         t: 'open-file-tab',
         viewId: v.id,
-        // A10b: a tab holding an editor pane always has room — the file
-        // becomes a TAB there and costs no pane. The rule here must be the
-        // one the drop itself uses, or the drag says no and the release says yes.
+        // A10b: a tab holding an editor pane always takes the file — it
+        // becomes a TAB there and costs no pane. Since the B4 amendment that
+        // strip holds four files, and a fifth EVICTS the last chip rather
+        // than being refused (only a MOVE refuses), so the answer is still
+        // yes. The rule here must be the one the drop itself uses, or the
+        // drag says no and the release says yes.
         ok:
           fileIsIn(v, spec.path) ||
           v.slots.some((s) => s.kind === 'editor') ||
@@ -539,6 +558,13 @@ function resolve(x: number, y: number): Target {
       // what it joins.
       if (target.kind === 'session') return { t: 'reject-session' };
       if (slot === src.slot) return null; // its own pane: it is already there
+      // B4 amendment (2026-09-22): a strip holds four files. An OPEN evicts
+      // the last chip to make room; a MOVE refuses — so the drag says so
+      // here, and the drop says it in words. A target that already shows this
+      // tab is a RAISE and costs no room, however full it is.
+      if (target.tabs.length >= st.MAX_TABS && !st.slotTabIds(target).includes(spec.tabId)) {
+        return { t: 'reject-tabs-full' };
+      }
       return { t: 'move-tab', viewId: active.id, slot };
     }
     // An EDGE. `null` is an edge this drop cannot honour — a full tab, the
@@ -656,6 +682,7 @@ function setTarget(target: Target, x: number): void {
       showPaneDrop(target.slot, '', MOVE_TAB_LABEL);
       break;
     case 'reject-session':
+    case 'reject-tabs-full':
       ghost?.classList.add('is-invalid');
       break;
     case 'swap': {
@@ -714,6 +741,17 @@ export function flashOpenResult(r: st.OpenFileResult): void {
   else if (r === 'no-zone') flash(REJECT_NO_ROOM);
 }
 
+/**
+ * Say why a MOVE did not land. The one difference from `flashOpenResult` is
+ * what `'full'` means here: `state.moveTab` answers it for a full STRIP, not
+ * a full tab of panes (B4 amendment), so it gets the strip's sentence. Shared
+ * by the drop and by ctrl+alt+m, for the usual reason.
+ */
+export function flashMoveTabResult(r: st.OpenFileResult): void {
+  if (r === 'full') flash(REJECT_PANE_TABS_FULL);
+  else flashOpenResult(r);
+}
+
 function drop(d: Drag): void {
   const target = d.target;
   const spec = d.spec;
@@ -756,8 +794,15 @@ function drop(d: Drag): void {
       // `'replace'` is the pane's CENTRE, and on an editor pane that ADDS the
       // file to the strip (A10b) — the word is the drop layer's name for the
       // middle, not a promise to throw anything away.
-      flashOpenResult(
-        st.openTabAt(target.viewId, target.slot, target.where, { kind: 'file', path: spec.path }),
+      // Through the B4 guard: the CENTRE of a full strip evicts its last chip,
+      // and a chip carrying unsaved text no other tab shows is asked about
+      // first (`ui/unsaved.ts`). An edge cannot evict and never asks.
+      openTabAtGuarded(
+        target.viewId,
+        target.slot,
+        target.where,
+        { kind: 'file', path: spec.path },
+        { done: flashOpenResult },
       );
       break;
     }
@@ -780,7 +825,7 @@ function drop(d: Drag): void {
       if (spec.kind !== 'filetab') return;
       const src = filetabSource(spec);
       if (src === null) return;
-      flashOpenResult(st.moveTab(target.viewId, src.slot, src.tabIndex, target.slot));
+      flashMoveTabResult(st.moveTab(target.viewId, src.slot, src.tabIndex, target.slot));
       break;
     }
     case 'reject-session':
@@ -788,11 +833,18 @@ function drop(d: Drag): void {
       // sentence for the same mistake.
       flashOpenResult('session-centre');
       break;
+    case 'reject-tabs-full':
+      // The same sentence `state.moveTab`'s own refusal would give, said here
+      // because the drag layer already knows the answer and never called it.
+      flash(REJECT_PANE_TABS_FULL);
+      break;
     case 'open-file-tab': {
       if (spec.kind !== 'file') return;
       const v = viewById(target.viewId);
       if (v === undefined || v.root === null) return;
-      flashOpenResult(st.openFile(v.root, spec.path, spec.label));
+      // Through the B4 guard, for the reason the pane centre is: this door
+      // adds a tab to an existing strip too.
+      openFileGuarded(v.root, spec.path, spec.label, { done: flashOpenResult });
       break;
     }
     case 'reject-full':

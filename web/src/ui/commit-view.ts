@@ -69,6 +69,7 @@ import { caretGlyph } from './files-model.ts';
 import { LOADING_TEXT, joinPath } from './fs-model.ts';
 import { openExternal } from './open-external.ts';
 import { flash } from './statusline.ts';
+import { openDiffGuarded, openFileGuarded } from './unsaved.ts';
 import { log } from '../log.ts';
 import type { GitCommitDiffResponse, GitCommitFile, GitCommitResponse } from '../../../shared/protocol.ts';
 
@@ -417,17 +418,30 @@ export function initCommitView(
       // — since B4 the pane answers for that itself: its read draws the
       // server's own sentence, and a save onto a file that is gone offers
       // `Overwrite`.
-      if (st.openFile(commitRoot(), joinPath(repo, f.path), fileName(f.path)) !== 'ok') {
-        // The tab has no room for a new PANE and no editor pane to add a tab
-        // to: say so and stay, rather than closing this screen for a file that
-        // was never opened.
-        flash(TAB_FULL);
-        return;
-      }
-      st.closeCommitView();
-      // This button went away with the view that held it; without the
-      // hand-over the keyboard falls to <body>.
-      onOpenPane();
+      //
+      // THROUGH THE B4 GUARD (amendment 2026-09-22): a strip holds four files,
+      // and a fifth evicts the last chip — so this open can drop unsaved text
+      // and has to ask first. `done` runs only when the open really happened,
+      // so `Keep editing` leaves this screen exactly as it is, which is the
+      // same "stay" a full tab gets below. It is SYNCHRONOUS whenever nothing
+      // would be lost (the common case), so the one-layout-pass order above
+      // still holds.
+      openFileGuarded(commitRoot(), joinPath(repo, f.path), fileName(f.path), {
+        returnFocus: openFile,
+        done: (r) => {
+          if (r !== 'ok') {
+            // The tab has no room for a new PANE and no editor pane to add a
+            // tab to: say so and stay, rather than closing this screen for a
+            // file that was never opened.
+            flash(TAB_FULL);
+            return;
+          }
+          st.closeCommitView();
+          // This button went away with the view that held it; without the
+          // hand-over the keyboard falls to <body>.
+          onOpenPane();
+        },
+      });
     });
     openFile.setAttribute('data-k', `diffopen:${f.path}`);
     openFile.setAttribute('aria-label', `Open file ${f.path}`);
@@ -442,12 +456,19 @@ export function initCommitView(
     const changes = button('diff-act', 'Changes', () => {
       // Same order, same reason as `Open file` above. The tab carries the root
       // it is read from, because it outlives this screen.
-      if (st.openDiff(commitRoot(), hash, f.path, readRoot()) !== 'ok') {
-        flash(TAB_FULL);
-        return;
-      }
-      st.closeCommitView();
-      onOpenPane();
+      // Guarded like `Open file`: a diff owns no text of its own, but the
+      // chip it evicts may.
+      openDiffGuarded(commitRoot(), hash, f.path, readRoot(), {
+        returnFocus: changes,
+        done: (r) => {
+          if (r !== 'ok') {
+            flash(TAB_FULL);
+            return;
+          }
+          st.closeCommitView();
+          onOpenPane();
+        },
+      });
     });
     changes.setAttribute('data-k', `diffchanges:${hash}:${f.path}`);
     changes.setAttribute('aria-label', `Changes to ${f.path} in this commit`);

@@ -395,6 +395,28 @@ test('a file dropped on the CENTRE of an EDITOR pane ADDS a tab — it replaces 
     'the dropped file joined the strip, and is the one showing');
 });
 
+test('a file dropped on the centre of a FULL strip evicts the last chip and takes its place', () => {
+  // The B4 amendment (2026-09-22): four files per pane. The drop is NOT
+  // refused — only a MOVE is — and the chip in position 4 leaves. Unsaved
+  // text in it is asked about first; that question is pinned on the guard
+  // itself (tests/ui-unsaved.test.ts), which this drop goes through.
+  st.state.views = [
+    view({ id: 'v1', root: { kind: 'home' }, slots: [ed('a.ts', 'b.ts', 'c.ts', 'd.ts')] }),
+  ];
+  st.state.activeViewId = 'v1';
+  paint();
+  spec = FILE_SPEC;
+
+  const lit = dragTo(centreOf(0));
+  assert.equal(lit?.dataset.zone, 'replace', 'the centre still promises the drop');
+  assert.equal(flashText(), '', 'and it landed, so nothing was refused');
+  assert.deepEqual(
+    shapeOf(st.activeView()),
+    ['a.ts b.ts c.ts *web/src/Pane.tsx'],
+    'four chips: d.ts made room for the dropped file',
+  );
+});
+
 test('the CENTRE of a TERMINAL pane is refused: invalid ghost, no overlay, nothing replaced', () => {
   // User decision 7, 2026-09-15. A running session is not something a file may
   // quietly take the place of.
@@ -580,6 +602,37 @@ test('a full folder tab that holds an EDITOR pane still takes the file, as a tab
   dispatch(dom.body, 'pointerup', { clientX: target.x, clientY: target.y, pointerId: 7 });
   assert.equal(st.activeView()?.slots.length, 4, 'no fifth pane');
   assert.equal(st.slotTabIds(st.activeView()!.slots[0]).length, 2, 'the file is a second tab of the editor pane');
+});
+
+test('that editor pane has room until FOUR — then the file EVICTS the last chip (B4 amendment)', () => {
+  // The A10b rule was "a tab holding an editor pane always has room". Since
+  // the user's limit of four (2026-09-22) the strip is capped, and the drop
+  // still lands: the fifth file takes position 4 and the chip that was there
+  // leaves. The drag may not promise less than the drop does, so the chip
+  // still lights up.
+  st.state.views = [
+    view({
+      id: 'home',
+      root: { kind: 'home' },
+      slots: [ed('a.ts', 'b.ts', 'c.ts', 'd.ts'), { kind: 'session', id: 's1' }],
+    }),
+  ];
+  st.state.activeViewId = 'home';
+  paint();
+  spec = FILE_SPEC;
+
+  const target = chipOf('home');
+  dispatch(sourceRow, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 70 });
+  dispatch(dom.body, 'pointermove', { clientX: target.x, clientY: target.y, pointerId: 70 });
+  assert.equal(ghost()?.classList.contains('is-invalid'), false, 'the drag promises what the drop does');
+  assert.equal((strip.children[0] as FakeElement).classList.contains('is-drop'), true);
+  dispatch(dom.body, 'pointerup', { clientX: target.x, clientY: target.y, pointerId: 70 });
+  assert.equal(flashText(), '', 'it landed, so nothing was refused');
+  assert.deepEqual(
+    shapeOf(st.activeView()),
+    ['a.ts b.ts c.ts *web/src/Pane.tsx', 'session s1'],
+    'four chips, the dropped file at position 4 and on screen',
+  );
 });
 
 test('Escape cancels the drag: no pane changes, no ghost, no visuals left behind', () => {
@@ -929,6 +982,55 @@ test('the centre of a TERMINAL pane refuses a file tab, with the sentence a file
   assert.equal(r.marks, 0);
   assert.equal(flashText(), 'A terminal pane cannot hold files. Drop on an edge to split.');
   assert.deepEqual(shapeOf(st.activeView()), ['*a.ts b.ts', 'session s1'], 'nothing moved');
+});
+
+test('a file tab dropped on a FULL editor pane is REFUSED: a move never evicts (B4 amendment)', () => {
+  // The user asked for four files per pane (2026-09-22). An OPEN evicts the
+  // last chip to make room; a MOVE says so and changes nothing — the chip it
+  // would throw out is one the user put there, and this gesture names none.
+  st.state.views = [
+    view({
+      id: 'v1',
+      root: { kind: 'home' },
+      slots: [ed('a.ts', 'b.ts'), ed('c.ts', 'd.ts', 'e.ts', 'f.ts')],
+    }),
+  ];
+  st.state.activeViewId = 'v1';
+  paint();
+  chipSpec = tabSpec('v1', 0, 0);
+
+  const r = chipDragTo(centreOf(1), 46);
+  assert.equal(r.lit, null, 'no box: nothing is about to change in that pane');
+  assert.equal(r.invalid, true, 'the ghost says no while the pointer is over it');
+  assert.equal(r.marks, 0);
+  assert.equal(flashText(), 'This pane already holds 4 files.');
+  assert.deepEqual(
+    shapeOf(st.activeView()),
+    ['*a.ts b.ts', '*c.ts d.ts e.ts f.ts'],
+    'nothing moved, and nothing was thrown out',
+  );
+});
+
+test('a file tab the FULL pane already shows is still taken: a raise costs no room', () => {
+  st.state.views = [
+    view({
+      id: 'v1',
+      root: { kind: 'home' },
+      slots: [ed('a.ts', 'b.ts'), ed('b.ts', 'd.ts', 'e.ts', 'f.ts')],
+    }),
+  ];
+  st.state.activeViewId = 'v1';
+  paint();
+  chipSpec = tabSpec('v1', 0, 1);
+
+  const r = chipDragTo(centreOf(1), 47);
+  assert.notEqual(r.lit, null, 'the pane lights up: it really takes it');
+  assert.equal(flashText(), '');
+  assert.deepEqual(
+    shapeOf(st.activeView()),
+    ['*a.ts', '*b.ts d.ts e.ts f.ts'],
+    'the tab left the source and was raised where it already was',
+  );
 });
 
 test('its OWN pane, a strip, a chip and the bottom tab strip are not targets — and light nothing', () => {

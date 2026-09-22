@@ -70,14 +70,18 @@ export type ChangeKind =
 export const MAX_PANES = 4;
 const MAX_VIEWS = 16;
 /**
- * How many file tabs of ONE editor pane a reload carries (part B4, D2). The
- * live model has no cap — a user may open as many files in a strip as they
- * like — but STORAGE is a hostile boundary: a hand-edited or corrupted bag
- * must not be able to conjure a strip of four thousand chips. Sixteen is the
- * same "more than anyone arranges on purpose" number `MAX_VIEWS` is, and the
- * writer caps at it too, so what is read back is what was written.
+ * How many file tabs ONE editor pane holds — files and diffs together (part
+ * B4 amendment, user's ask 2026-09-22: "ik kan oneindig veel tabs open
+ * hebben, limiteer dat met 4"). It is the LIVE cap and the STORED one at
+ * once: opening a fifth file evicts the tab in the last position
+ * (`evictForAdd`), and the writer and the hostile-bag reader both stop here
+ * (`persistView`, `validateTabs`), so a hand-edited blob cannot conjure a
+ * strip nobody could have arranged.
+ *
+ * The number is the pane count's (`MAX_PANES`) on purpose: four chips is what
+ * a 26px strip shows without scrolling in the narrowest pane a 2x2 has.
  */
-const MAX_TABS = 16;
+export const MAX_TABS = 4;
 const STORAGE_KEY = 'ai-sm:ui:v2';
 const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
 
@@ -1197,7 +1201,12 @@ export function replaceSessionInView(viewId: string, slot: number, newId: string
 export type OpenFileResult =
   /** The file is on screen, focused, in an active tab. */
   | 'ok'
-  /** The target tab already shows 4 panes. */
+  /**
+   * No room. From every opener: the target tab already shows `MAX_PANES`
+   * panes. From `moveTab` ONLY: the target PANE already holds `MAX_TABS`
+   * files — two "no room"s with two sentences, told apart by which function
+   * answered (`ui/dnd.ts`, `flashMoveTabResult`).
+   */
   | 'full'
   /** The centre of a TERMINAL pane: it splits at an edge, it never replaces. */
   | 'session-centre'
@@ -1282,6 +1291,89 @@ function targetEditorIndex(v: ViewState): number {
   return v.slots.findIndex((s) => s.kind === 'editor');
 }
 
+/** Is this tab id already in that strip? A raise, then — it costs no room. */
+function stripHolds(s: EditorSlot, tabId: string): boolean {
+  return s.tabs.some((t) => tabIdOf(t) === tabId);
+}
+
+/**
+ * What ADDING `tabId` to pane `slotIndex` of view `viewId` would throw out —
+ * the plan, not the act (B4 amendment, 2026-09-22). PURE and synchronous:
+ * `ui/unsaved.ts` reads it BEFORE the open, so a tab carrying unsaved text no
+ * other tab shows can still be rescued by `Keep editing`.
+ *
+ * `null` means "nothing leaves": the strip has room, the tab is already there
+ * (a raise), or that pane is not an editor pane at all. Otherwise the tab in
+ * the LAST position goes — `tabIndex` is always `MAX_TABS - 1`, named rather
+ * than assumed so the caller never counts it out itself — and `lostIds` are
+ * the `state.edits` keys that would have no tab left anywhere
+ * (`dirtyLostBy`), which is exactly the list the question is asked about.
+ */
+export interface Eviction {
+  /** Strip position that leaves: the last one. */
+  tabIndex: number;
+  /** Unsaved text no other tab would show afterwards; empty is the common case. */
+  lostIds: string[];
+}
+
+export function evictionFor(viewId: string, slotIndex: number, tabId: string): Eviction | null {
+  const v = state.views.find((x) => x.id === viewId);
+  const s = v?.slots[slotIndex];
+  if (v === undefined || s === undefined || s.kind !== 'editor') return null;
+  if (s.tabs.length < MAX_TABS || stripHolds(s, tabId)) return null;
+  const tabIndex = MAX_TABS - 1;
+  return { tabIndex, lostIds: dirtyLostBy(viewId, slotIndex, tabIndex) };
+}
+
+/**
+ * The same plan for `openFile`/`openDiff`, which choose their own pane: the
+ * FOCUSED editor pane of the root's tab, else its first one (the rule
+ * `targetEditorIndex` holds). PURE — unlike `viewForRoot` it never creates
+ * the tab, because a tab that does not exist yet has no strip to overflow.
+ *
+ * `null` for every case that adds nothing to an existing strip: no such tab
+ * yet, no editor pane in it (the open makes a NEW pane, which never evicts),
+ * or the tab is already open SOMEWHERE in that view — `openEditorTab` raises
+ * it there and touches no strip at all.
+ */
+export function evictionForOpen(root: ViewRoot, tab: EditorTab): Eviction | null {
+  const v =
+    root.kind === 'home'
+      ? (state.views.find((x) => x.root?.kind === 'home') ?? null)
+      : (state.views.find((x) => x.root?.kind === 'project' && x.root.id === root.id) ?? null);
+  if (v === null) return null;
+  const id = tabIdOf(tab);
+  if (findTab(v, id) !== null) return null; // a raise, wherever it lives
+  const target = targetEditorIndex(v);
+  if (target === -1) return null; // a new pane has room for one tab by construction
+  return evictionFor(v.id, target, id);
+}
+
+/**
+ * Make room in a FULL strip for `tab`: the tab in the LAST position leaves
+ * (B4 amendment — the user asked for a limit of four, and the limit had to
+ * choose a victim; the orchestrator's choice is position 4, so the tabs the
+ * user opened first stay where they are).
+ *
+ * A strip with room, or one that already holds this tab, is untouched — a
+ * raise is not an add. The prune runs HERE, after the splice and before the
+ * new tab arrives, because this is the one moment the evicted file has no tab
+ * anywhere; the new tab is a different id and cannot be the one pruned.
+ *
+ * `ui/unsaved.ts` has already asked about `evictionFor(...).lostIds` by the
+ * time this runs — the question may not live in the model, and the model may
+ * not be the thing that decides to ask.
+ */
+function evictForAdd(s: EditorSlot, tab: EditorTab): void {
+  if (s.tabs.length < MAX_TABS || stripHolds(s, tabIdOf(tab))) return;
+  // To the END, not one tab: the strip is never longer than `MAX_TABS` (every
+  // mutator goes through here and the reader caps too), and if a future one
+  // ever leaked a longer strip in, the cap must still hold afterwards.
+  s.tabs.splice(MAX_TABS - 1, s.tabs.length - MAX_TABS + 1);
+  clampActive(s);
+  pruneOrphanEdits();
+}
+
 /** Put `tab` in an editor pane's strip — raising it when it is already there. */
 function addOrRaise(s: EditorSlot, tab: EditorTab): void {
   const id = tabIdOf(tab);
@@ -1345,6 +1437,10 @@ function openEditorTab(v: ViewState, tab: EditorTab, what: string): OpenFileResu
   } else {
     const target = targetEditorIndex(v);
     if (target !== -1) {
+      // A FULL strip loses its last chip to make room (B4 amendment). The
+      // question about unsaved text was asked before this call, by
+      // `ui/unsaved.ts`'s guarded opener — `evictionFor` is the plan it read.
+      evictForAdd(v.slots[target] as EditorSlot, tab);
       addOrRaise(v.slots[target] as EditorSlot, tab);
       v.focused = target;
     } else {
@@ -1382,7 +1478,10 @@ export function openTabAt(
   if (target === undefined) return 'no-view';
   if (where === 'replace') {
     if (target.kind === 'session') return 'session-centre';
-    // Adding costs no pane and orphans no file, so there is nothing to prune.
+    // Adding costs no PANE. It can cost the strip's last CHIP though, once the
+    // strip is full (B4 amendment) — `evictForAdd` prunes what that orphans,
+    // after `ui/unsaved.ts` asked about it.
+    evictForAdd(target, tab);
     addOrRaise(target, tab);
     v.focused = slot;
   } else {
@@ -1407,6 +1506,13 @@ export function openTabAt(
  * BEFORE `removeAtSlot`, because the 2x2 remap moves slot INDICES around — the
  * pane the user dropped on is found again by key, never by the index they
  * started from.
+ *
+ * A FULL target is REFUSED with `'full'` and nothing moves (B4 amendment,
+ * 2026-09-22) — a MOVE never evicts. `'full'` from this function means "that
+ * strip already holds `MAX_TABS` files" and nothing else, which is why its two
+ * callers (`ui/dnd.ts`'s drop, main.ts's ctrl+alt+m) say it with the strip's
+ * own sentence instead of the pane-count one. A raise is not an add, so a
+ * target that already shows the tab takes it however full it is.
  */
 export function moveTab(
   viewId: string,
@@ -1422,6 +1528,7 @@ export function moveTab(
   if (to === undefined || to.kind !== 'editor') return 'no-view';
   const tab = from.tabs[tabIndex];
   if (tab === undefined) return 'no-view';
+  if (to.tabs.length >= MAX_TABS && !stripHolds(to, tabIdOf(tab))) return 'full';
 
   const toKey = slotKey(to);
   addOrRaise(to, tab);
