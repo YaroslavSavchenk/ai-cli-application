@@ -56,6 +56,7 @@ import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, trapTab, fmtAgo } from './util.ts';
 import { infoIcon } from './icons.ts';
+import { toolIcon } from './icons-tools.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
 import { openSettings } from './settings.ts';
 import { getHiddenTools } from './prefs-model.ts';
@@ -323,7 +324,8 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     'ns-grid ns-tools',
     'ns-tool-lb',
     TOOL_CARDS.map((t) => {
-      const mark = el('span', t.kind === 'claude' ? 'ns-mark is-agent' : 'ns-mark', t.mark);
+      const mark = el('span', t.kind === 'claude' ? 'ns-mark is-agent' : 'ns-mark');
+      mark.append(toolIcon(t.icon, 14));
       mark.setAttribute('aria-hidden', 'true');
       return { value: t.kind as LaunchKind, mark, label: t.label, sub: t.sub };
     }),

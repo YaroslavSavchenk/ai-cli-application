@@ -97,8 +97,8 @@ in `app.css`. Eight sections:
    theme is built from at runtime (`themeFromTokens()` in `ui/terminal.ts`),
    so terminal and chrome are one system. Plain hex / rgba only: xterm's
    parser does not read `oklch()`.
-4. **File-type badges** — one background/ink pair per file family, a data
-   table for the Files panel chips.
+4. **File-type icon colours** — one ink per file family (`--badge-<kind>-fg`),
+   a data table for the Files panel's icons; no chip background since B12.
 5. **Type** — `--font-sans` (Inter) and `--font-mono` (JetBrains Mono first).
 6. **App structure** — chrome heights and widths the handoff has no
    primitive for: top bar 48, tab chip 32, statusline 26, pane header 38,
@@ -262,7 +262,8 @@ session's project, or its working folder; a file pane's tab folder). Three
 tabs:
 
 - **Files** — the real tree of that folder, lazy per folder; Phosphor folder
-  icons and per-extension badge chips (the token table); a file the session
+  icons and a real 16 px icon per file type (B12: a language's own logo, else
+  a category glyph, in its family's ink from the token table); a file the session
   is editing, and its ancestors, pulse amber (1.2 s). Click opens it in an
   editor pane. Many rows can be selected (click, ctrl-, shift-click, the
   keyboard); the row menu (right-click, ContextMenu key, Shift+F10) offers
@@ -385,8 +386,15 @@ under `prefers-reduced-motion`; the word says it without them.
   forgets one (the pane's and the tab's `×`, the Sessions panel's `End`);
   Files Delete asks in its dialog instead — no native `confirm()`; the
   prototype killed without asking.
-- **Icons are inline SVG** transcribed from the handoff's Phosphor paths
-  (`ui/icons.ts`, MIT licence committed) — no icon package (open decision 5).
+- **Icons are inline SVG** transcribed as path data — no icon package (open
+  decision 5, settled at B12): the chrome's Phosphor glyphs (`ui/icons.ts`),
+  file types (`ui/icons-files.ts`: Simple Icons logos, CC0, and Phosphor
+  category glyphs) and tool marks (`ui/icons-tools.ts`: the four agents' real
+  logos from LobeHub's mono set, MIT, all as one single-colour silhouette;
+  Phosphor terminal and command). Licences in `web/src/assets/icons/`. The
+  tool mark sits in the New session and Settings tiles, on a tab (its first
+  pane's), in the pane header, on the Sessions rows and once in the
+  Background agents header.
 - **Terminal line height** is xterm's native 1, not the mock's 1.6.
 - **Connection** reads `Offline` when the backend is unreachable; the mock
   had no failure mode.
@@ -418,7 +426,8 @@ under `prefers-reduced-motion`; the word says it without them.
   and the rest of the system has none of it.
 - No icon sidebar, no KPI tiles; the shell is top bar, terminal cards,
   bottom tab strip, statusline.
-- No emoji; icons are a handful of Phosphor glyphs, state is a dot plus a
+- No emoji; icons are Phosphor glyphs plus file-type and tool logos drawn
+  as single-colour silhouettes (never brand colours), state is a dot plus a
   word.
 - Every coloured element encodes something: accent = interactive, green =
   running, amber = attention or waiting, red = danger, grey = finished.

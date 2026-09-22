@@ -68,6 +68,8 @@ import { readoutClass, readoutWord, sessionReadout, type SessionReadout } from '
 import { editorPane, type EditorPane } from './editor-pane.ts';
 import { tabIdOf } from './editor-model.ts';
 import { slotTitle } from './slots-model.ts';
+import { toolIconFor } from './launch-args.ts';
+import { toolIcon } from './icons-tools.ts';
 
 /** How often the status bar's `Time` and a running agent's time are refreshed
     (the statusline's rate). */
@@ -83,6 +85,8 @@ interface SessionPayload {
   exitCode: number | null;
   dead: boolean;
   dot: HTMLElement;
+  /** Holds the session's tool mark (B12); empty until the session is known. */
+  tool: HTMLElement;
   proj: HTMLElement;
   title: HTMLElement;
   state: HTMLElement;
@@ -579,8 +583,8 @@ function teardown(s: Slot): void {
 // --------------------------------------------------------------------------
 
 function buildSessionPane(s: Slot, sessionId: string): void {
-  // A3 header (38px): dot, session name, project NAME, spacer, state pill,
-  // (conn chip while degraded), "Own tab" when the tab holds more than one
+  // A3 header (38px): dot, tool mark (B12), session name, project NAME,
+  // spacer, state pill, (conn chip while degraded), "Own tab" when the tab holds more than one
   // pane, then End session — on EVERY session pane, a one-pane tab included
   // (B8, user's decision 2026-09-22). A3 kept ending off the header because
   // it would have been a one-click kill on every pane; since B6 it is not:
@@ -591,6 +595,8 @@ function buildSessionPane(s: Slot, sessionId: string): void {
   // ctrl+alt+shift+arrows (swap) and the "Own tab" button (extract).
   const dot = el('span', 'dot pane-dot');
   dot.setAttribute('aria-hidden', 'true');
+  const tool = el('span', 'pane-tool');
+  tool.setAttribute('aria-hidden', 'true');
   const title = el('span', 'pane-title');
   const proj = el('span', 'pane-proj');
   const state = el('span', 'pane-state');
@@ -599,7 +605,7 @@ function buildSessionPane(s: Slot, sessionId: string): void {
   const extractBtn = button('pane-pop', 'Own tab');
   extractBtn.title = 'Move to its own tab';
   const endBtn = endSessionButton(() => void killSession(sessionId));
-  s.hd.replaceChildren(dot, title, proj, el('span', 'pane-gap'), state, connChip, extractBtn, endBtn);
+  s.hd.replaceChildren(dot, tool, title, proj, el('span', 'pane-gap'), state, connChip, extractBtn, endBtn);
   s.hd.title = 'Drag onto a pane to swap them, or onto the tab strip to give it its own tab.';
 
   // The terminal card: the xterm mount fills it, the status bar and the
@@ -621,6 +627,7 @@ function buildSessionPane(s: Slot, sessionId: string): void {
     exitCode: null,
     dead: false,
     dot,
+    tool,
     proj,
     title,
     state,
@@ -858,6 +865,19 @@ function updateHeader(s: Slot, pay: SessionPayload): void {
   pay.dot.className = `dot pane-dot ${cls}`;
   const stateText = readoutWord(readout);
   pay.state.textContent = stateText;
+  // The tool's mark (B12), from the command the session carries — drawn once
+  // it is known, redrawn only if it changes, never guessed: a session that
+  // drops out of the list loses its mark rather than keep a stale one.
+  const toolId = info === undefined ? null : toolIconFor(info.command);
+  if (toolId === null) {
+    if (pay.tool.dataset.tool !== undefined) {
+      delete pay.tool.dataset.tool;
+      pay.tool.replaceChildren();
+    }
+  } else if (pay.tool.dataset.tool !== toolId) {
+    pay.tool.dataset.tool = toolId;
+    pay.tool.replaceChildren(toolIcon(toolId, 14));
+  }
   pay.state.className = `pane-state ${cls}`;
   const code = info?.exitCode ?? pay.exitCode;
   pay.state.title =

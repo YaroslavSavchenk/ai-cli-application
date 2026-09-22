@@ -1,0 +1,13 @@
+Simple Icons (https://simpleicons.org) — CC0 1.0 Universal
+
+The language and tool logos in web/src/ui/icons-files.ts are transcribed, as
+SVG path data only, from the npm package simple-icons@16.32.0
+(https://github.com/simple-icons/simple-icons). The Simple Icons project
+dedicates its icon data to the public domain under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+Full text: https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md
+
+CC0 waives copyright; it does not grant trademark rights. The logos remain
+the trademarks of their owners and are used here only to name the file type
+or tool they belong to, as the Simple Icons project's own disclaimer asks
+(https://github.com/simple-icons/simple-icons/blob/develop/DISCLAIMER.md).

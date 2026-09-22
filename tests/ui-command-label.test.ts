@@ -137,7 +137,7 @@ test('the sessions drawer really composes its history meta from this rule (sourc
   );
   // And it must be the SHARED helper, not a second table copied into the drawer.
   assert.ok(
-    src.includes("import { commandLabel, isClaudeCommand, modelLabel } from './launch-args.ts';"),
+    src.includes("import { commandLabel, isClaudeCommand, modelLabel, toolIconFor } from './launch-args.ts';"),
     'the drawer must import the shared vocabulary, never redefine it',
   );
   assert.equal(src.includes('export function commandLabel'), false, 'commandLabel must not live here anymore');

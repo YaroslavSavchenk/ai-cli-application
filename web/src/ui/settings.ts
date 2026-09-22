@@ -58,7 +58,8 @@ import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
-import { TOOL_CARDS, commandLabel } from './launch-args.ts';
+import { TOOL_CARDS, commandLabel, type ToolIconId } from './launch-args.ts';
+import { toolIcon } from './icons-tools.ts';
 import { applyRuntime, openRestartConfirm, runtimeFacts } from './update.ts';
 import { releaseSentence } from './update-model.ts';
 import { ROWS } from './shortcuts-rows.ts';
@@ -204,7 +205,7 @@ const ITEM_ROWS: ItemRow[] = [
  * because there is no key this app can store for it.
  */
 interface ProviderRow {
-  mark: string;
+  icon: ToolIconId;
   label: string;
   keyText: string;
   /** The keyed tool this row saves for; absent = the row is words only. */
@@ -238,7 +239,7 @@ const KEY_ENV_ONLY = 'Set outside the app';
  */
 const PROVIDER_ROWS: ProviderRow[] = TOOL_CARDS.flatMap((c) => {
   const k = ROW_KEYS[c.id];
-  return k === undefined ? [] : [{ mark: c.mark, label: c.label, ...k }];
+  return k === undefined ? [] : [{ icon: c.icon, label: c.label, ...k }];
 });
 
 /**
@@ -369,7 +370,7 @@ export function initSettings(
    * same tile the key rows below carry, so one tool reads as one thing on both
    * blocks of the Preferences page.
    */
-  function checkRow(label: string, onToggle?: () => void, mark?: string): {
+  function checkRow(label: string, onToggle?: () => void, mark?: ToolIconId): {
     row: HTMLButtonElement;
     box: HTMLElement;
   } {
@@ -378,7 +379,8 @@ export function initSettings(
     box.setAttribute('aria-hidden', 'true');
     row.append(box);
     if (mark !== undefined) {
-      const tile = el('span', 'sg-mark', mark);
+      const tile = el('span', 'sg-mark');
+      tile.append(toolIcon(mark, 14));
       tile.setAttribute('aria-hidden', 'true');
       row.append(tile);
     }
@@ -495,7 +497,8 @@ export function initSettings(
   const provWrap = el('div', 'sg-rows');
   for (const p of PROVIDER_ROWS) {
     const row = el('div', 'sg-prow');
-    const mark = el('span', p.agent === true ? 'sg-mark is-agent' : 'sg-mark', p.mark);
+    const mark = el('span', p.agent === true ? 'sg-mark is-agent' : 'sg-mark');
+    mark.append(toolIcon(p.icon, 14));
     mark.setAttribute('aria-hidden', 'true');
     const txt = el('div', 'sg-prowtxt');
     txt.append(el('span', 'sg-rowlb', p.label), el('span', 'sg-prowkey', p.keyText));
@@ -547,7 +550,7 @@ export function initSettings(
   toolWrap.setAttribute('aria-label', 'tools shown in the New session dialog');
   const toolRows = new Map<string, { row: HTMLButtonElement; box: HTMLElement; cap: HTMLElement }>();
   for (const c of TOOL_CARDS) {
-    const { row, box } = checkRow(c.label, () => toggleTool(c.id), c.mark);
+    const { row, box } = checkRow(c.label, () => toggleTool(c.id), c.icon);
     const cap = el('div', 'sg-cap');
     // The refusal is news, not decoration: a live region says it once, where
     // the keyboard already is.

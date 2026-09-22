@@ -789,7 +789,13 @@ multi-pane layouts on top.
   B2/B3): a third middle-row column left of the pane grid (after the
   Projects drawer), flex sibling like the drawers so opening or dragging it
   refits every pane through the one fit → ws resize seam. Tabs Files
-  (summary row, tree with folder icons and per-extension badges, per-file
+  (summary row, tree with folder icons and a real icon per file type —
+  since B12, 2026-09-22: language logos from Simple Icons, category glyphs
+  from Phosphor, coloured by `--badge-<kind>-fg`; the same B12 put the real
+  Claude / Codex / Gemini / Grok marks, one uniform single-colour style from
+  LobeHub, on the New session and Settings tiles, the tab strip, the pane
+  header, the Sessions rows and the agents table header; inline SVG path
+  data, no icon package — per-file
   +/-, amber pulse on files being edited and their ancestor folders) and
   Commits (message, hash, author, relative time, +/-; DISABLED with the
   title "No repository at Home" while the header reads `Home`, the panel

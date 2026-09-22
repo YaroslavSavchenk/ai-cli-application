@@ -191,16 +191,15 @@ const ALLOWED: Record<string, { text: string; why: string }[]> = {
   'ui/sessions.ts': [
     { text: '▸', why: 'collapsed-group disclosure caret (aria-hidden, paired with ▾)' },
   ],
-  // The Files panel's tree (Nocturne A5). Same two non-text roles: a folder's
-  // disclosure caret is geometry in its own aria-hidden span, and the unknown
-  // file type's chip is a centred dot MARK inside an aria-hidden badge — no
-  // sentence anywhere near either of them.
+  // The Files panel's tree (Nocturne A5). A folder's disclosure caret is
+  // geometry in its own aria-hidden span — no sentence anywhere near it. (A5's
+  // second entry, the `·` of the unknown-type chip, went with the chips in
+  // B12: an unknown file is a plain file GLYPH now.)
   'ui/files-model.ts': [
     {
       text: '▸',
       why: 'closed disclosure caret (aria-hidden span, paired with ▾) — ONE definition, `caretGlyph()`: it draws the tree folders here AND the commit view file blocks (ui/commit-view.ts)',
     },
-    { text: '·', why: 'unknown file-type badge mark (aria-hidden chip), never text' },
   ],
 };
 

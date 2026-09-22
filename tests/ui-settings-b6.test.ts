@@ -259,7 +259,10 @@ test('the Tools block mirrors the New session dialog’s own cards, all visible 
     const r = row('prefs', c.label);
     assert.equal(pressed(r), true, `${c.label} starts visible`);
     assert.equal(byClass(r, 'sg-box')[0]?.textContent, '✓');
-    assert.equal(byClass(r, 'sg-mark')[0]?.textContent, c.mark);
+    // B12: the tile holds the tool's real logo, the dialog card's own mark.
+    const tile = byClass(r, 'sg-mark')[0];
+    assert.equal(tile?.textContent, '', 'a logo, no letters');
+    assert.equal((tile?.children[0] as FakeElement | undefined)?.getAttribute('data-tool'), c.icon);
     assert.equal(r.disabled, false);
   }
 });

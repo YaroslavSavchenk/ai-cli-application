@@ -24,6 +24,7 @@
  * never in the shipped UI.
  */
 import { el } from './util.ts';
+import { toolIcon } from './icons-tools.ts';
 
 /**
  * The dot's meaning, on the same three-colour vocabulary as a session — the
@@ -63,7 +64,11 @@ export function renderAgents(table: AgentTable): HTMLElement | null {
 
   const box = el('div', 'pane-agents');
   const head = el('div', 'pane-agents-hd');
-  head.append(el('span', '', 'Background agents'), el('span', '', 'Tokens'));
+  // The tool mark ONCE, in the header (B12): every row is one of Claude
+  // Code's own subagents, so a mark per row would repeat one fact four times.
+  const title = el('span', 'pane-agents-title');
+  title.append(toolIcon('claude', 11, 'pane-agents-tool'), 'Background agents');
+  head.append(title, el('span', '', 'Tokens'));
   box.append(head);
 
   for (const r of rows) {

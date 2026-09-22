@@ -492,3 +492,40 @@ test('B6: the switch is read at CLICK time — a flip reaches the rows already o
     P.setBehaviour({});
   }
 });
+
+// ---------------------------------------------------------------------------
+// Part B12 — the tool mark on every row, running and earlier
+// ---------------------------------------------------------------------------
+
+test('B12: every row wears its tool’s mark between the dot and the name — decorative, the name unchanged', () => {
+  st.setSessions([
+    mkSession('s1', { projectId: 'p1' }),
+    mkSession('s2', { command: 'gemini' }),
+    mkSession('s3', { command: '/bin/bash', args: ['-l'] }),
+    mkSession('s4', { command: 'htop' }),
+  ]);
+  // Fixed stamps: two Date.now() reads a millisecond apart would reorder the rows.
+  const t0 = Date.now();
+  st.state.history = [
+    mkEntry('h1', { command: 'grok', lastUsedAt: new Date(t0 - 3600_000).toISOString() }),
+    mkEntry('h2', { command: 'powershell.exe', lastUsedAt: new Date(t0 - 7200_000).toISOString() }),
+  ];
+  draw();
+  const tools = byClass(root, 'sess-tool');
+  assert.deepEqual(
+    tools.map((t) => t.getAttribute('data-tool')),
+    ['claude', 'gemini', 'terminal', 'command', 'grok', 'terminal'],
+  );
+  for (const t of tools) {
+    assert.equal(t.getAttribute('aria-hidden'), 'true');
+    assert.equal(t.textContent, '');
+  }
+  // Placement: dot, mark, name — in the select button of a running row and in
+  // the line of an earlier one.
+  const open = byKey(root, 'show:s1') as FakeElement;
+  assert.deepEqual(
+    (open.children as FakeElement[]).map((c) => c.className.split(' ')[0]),
+    ['dot', 'sess-tool', 'sess-name'],
+  );
+  assert.equal(open.getAttribute('aria-label'), 's1, Working', 'the mark adds nothing to what is read out');
+});

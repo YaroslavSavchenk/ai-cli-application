@@ -1,10 +1,12 @@
 /**
  * Inline SVG glyphs. Nocturne's design source draws its icons from Phosphor,
- * but whether this app takes an icon PACKAGE is open decision #5 in
- * `.claude/plans/PLAN-NOCTURNE.md` — so the handful of glyphs the chrome needs are
+ * and the app takes no icon PACKAGE (open decision #5 in
+ * `.claude/plans/PLAN-NOCTURNE.md`, settled by the user at B12: inline subset,
+ * licences committed) — so the handful of glyphs the chrome needs are
  * transcribed here as path data (copied verbatim from
  * `design/session-manager/session-manager-v3.html`) and built with
- * createElementNS. No dependency, no build step, no innerHTML.
+ * createElementNS. No dependency, no build step, no innerHTML. File-type
+ * icons live in `./icons-files.ts`, tool marks in `./icons-tools.ts`.
  *
  * Every icon is decorative: the control around it carries the accessible name.
  *
@@ -62,19 +64,43 @@ const CARET_LEFT_PATH = 'M152.7,41.4L164,52.7L88.7,128L164,203.3L152.7,214.6L66.
 const X_PATH =
   'M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z';
 
-function icon(d: string, size: number, fillRule: 'nonzero' | 'evenodd' = 'nonzero'): SVGSVGElement {
+/**
+ * One transcribed glyph: its path data, the grid it was drawn on (Phosphor
+ * draws on 256, Simple Icons and LobeHub on 24) and whether it must be filled
+ * even-odd (LobeHub's marks are; its holes are sub-paths, not cut-outs).
+ * The file-type set lives in `./icons-files.ts`, the tool marks in
+ * `./icons-tools.ts` (part B12); this module keeps the chrome's own glyphs.
+ */
+export interface IconPath {
+  readonly d: string;
+  readonly vb: 24 | 256;
+  readonly evenodd?: true;
+}
+
+/**
+ * Build one decorative SVG from path data. `currentColor` fill, so the colour
+ * is the element's own `color` — a token set by CSS, never by the icon.
+ */
+export function pathIcon(p: IconPath, size: number): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('width', String(size));
   svg.setAttribute('height', String(size));
-  svg.setAttribute('viewBox', '0 0 256 256');
+  // A 24-grid logo is drawn edge to edge; a Phosphor glyph keeps a ~10%
+  // inset on its 256 grid. Two units of air round the 24 grid (24/28 of the
+  // box) give the logos the same optical size as the glyphs beside them.
+  svg.setAttribute('viewBox', p.vb === 24 ? '-2 -2 28 28' : '0 0 256 256');
   svg.setAttribute('fill', 'currentColor');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('d', d);
-  if (fillRule !== 'nonzero') path.setAttribute('fill-rule', fillRule);
+  path.setAttribute('d', p.d);
+  if (p.evenodd === true) path.setAttribute('fill-rule', 'evenodd');
   svg.append(path);
   return svg;
+}
+
+function icon(d: string, size: number, fillRule: 'nonzero' | 'evenodd' = 'nonzero'): SVGSVGElement {
+  return pathIcon(fillRule === 'evenodd' ? { d, vb: 256, evenodd: true } : { d, vb: 256 }, size);
 }
 
 /** The Settings gear at the v3 size (15px inside a 30px control). */
@@ -82,9 +108,9 @@ export function gearIcon(): SVGSVGElement {
   return icon(GEAR_PATH, 15);
 }
 
-/** The folder glyph at the v3 size (16px) in a tree row. Colour comes from CSS. */
-export function folderIcon(): SVGSVGElement {
-  return icon(FOLDER_PATH, 16);
+/** The folder glyph: 16px (the v3 size) in a tree row, 13px on a folder tab (B12). Colour comes from CSS. */
+export function folderIcon(size = 16): SVGSVGElement {
+  return icon(FOLDER_PATH, size);
 }
 
 /** The back chevron at 12px, inside the commit view's back controls (A6). */

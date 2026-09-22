@@ -102,6 +102,7 @@ import { flash } from './statusline.ts';
 import { isContextMenuChord, isEditableTarget, OPEN_MODAL_SELECTOR } from './keys.ts';
 import { fileName, rootForSubject } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
+import { fileIcon } from './icons-files.ts';
 import { MAX_DELETE_ITEMS } from '../../../shared/protocol.ts';
 import type {
   FsCreateResponse,
@@ -113,8 +114,9 @@ import type {
   SessionInfo,
 } from '../../../shared/protocol.ts';
 import {
-  badgeFor,
+  PLAIN_FILE,
   buildTree,
+  fileIconFor,
   commitsHeaderText,
   diffSummary,
   rowIndent,
@@ -1093,10 +1095,7 @@ export function initFilesPanel(
         if (r.open) ic.classList.add('is-open');
         row.append(ic);
       } else {
-        const badge = el('span', 'files-badge', badgeFor(r.name).label);
-        badge.dataset.kind = badgeFor(r.name).kind;
-        badge.setAttribute('aria-hidden', 'true');
-        row.append(badge);
+        row.append(fileIcon(fileIconFor(r.name)));
       }
 
       const name = el('span', 'files-name', r.name);
@@ -2133,7 +2132,7 @@ export function initFilesPanel(
    *
    * It is a `<div>`, like every other row that is not a button, carrying the
    * caret's own spacer so the input starts where a name starts, the folder
-   * mark or the neutral badge so the KIND is visible before a single letter is
+   * mark or the plain file glyph so the KIND is visible before a single letter is
    * typed, and the input itself. The refusal is a second row directly beneath
    * it, the same height, in the ink this app refuses in everywhere.
    */
@@ -2168,10 +2167,8 @@ export function initFilesPanel(
       ic.classList.add('files-folder');
       row.append(ic);
     } else {
-      // The plain badge: a file with no name yet has no type to claim.
-      const badge = el('span', 'files-badge', '');
-      badge.setAttribute('aria-hidden', 'true');
-      row.append(badge);
+      // The plain file glyph: a file with no name yet has no type to claim.
+      row.append(fileIcon(PLAIN_FILE));
     }
     const input = el('input', 'files-newname');
     input.type = 'text';
@@ -2983,11 +2980,7 @@ export function initFilesPanel(
         if (r.open) ic.classList.add('is-open');
         row.append(ic);
       } else {
-        const b = badgeFor(r.name);
-        const badge = el('span', 'files-badge', b.label);
-        badge.dataset.kind = b.kind;
-        badge.setAttribute('aria-hidden', 'true');
-        row.append(badge);
+        row.append(fileIcon(fileIconFor(r.name)));
       }
 
       // No `+N -N` here any more: a browser knows what is IN a folder, not

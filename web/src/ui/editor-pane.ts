@@ -44,7 +44,8 @@
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
 import { armDrag, type DragSpec } from './dnd.ts';
-import { tabTitle } from './slots-model.ts';
+import { tabIcon, tabTitle } from './slots-model.ts';
+import { fileIcon } from './icons-files.ts';
 import { tabIdOf } from './editor-model.ts';
 import { diffPaneBody, filePaneBody, type PaneBody } from './file-pane.ts';
 import { closeSlotGuarded, closeTabGuarded } from './unsaved.ts';
@@ -208,6 +209,9 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
       // A chip is narrow and its name is elided; the tooltip is where the rest
       // of it lives (the A10 file header did the same with its path).
       pick.title = t.kind === 'file' ? t.path : label;
+      // The type's icon before the name (B12), decorative: the name is the
+      // chip's text and its accessible name.
+      pick.replaceChildren(fileIcon(tabIcon(t), 14, 'pane-tab-icon'), label);
       chip.append(pick);
 
       // A diff is read-only: it can never be unsaved, so it never wears the

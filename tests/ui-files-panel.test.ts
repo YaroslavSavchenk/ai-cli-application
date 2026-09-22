@@ -646,22 +646,33 @@ test('the Files tab is the gateway s own answer, in the gateway s own order', as
     [
       'web',
       'src',
-      'TSXApp.tsx',
-      'TSXPane.tsx',
-      'TSXTabStrip.tsx',
-      'TSstore.ts',
-      'MDDESIGN.md',
-      '{ }package.json',
+      'App.tsx',
+      'Pane.tsx',
+      'TabStrip.tsx',
+      'store.ts',
+      'DESIGN.md',
+      'package.json',
       'server',
-      'TSpty-pool.ts',
-      'TSws.ts',
-      'TSpresence.ts',
+      'pty-pool.ts',
+      'ws.ts',
+      'presence.ts',
       'launcher',
       'shared',
-      'MDREADME.md',
-      '·LICENSE',
+      'README.md',
+      'LICENSE',
     ],
-    'every row prints its badge and its NAME — never a path — in the server s order',
+    'every row prints its NAME — never a path — in the server s order',
+  );
+  // B12: and before it, its type's icon (a folder its glyph), no letters.
+  assert.deepEqual(
+    rows.map((r) => {
+      const ic = (r.children as FakeElement[]).find((c) => c.classList.contains('files-icon'));
+      return ic === undefined ? 'dir' : ic.getAttribute('data-icon');
+    }),
+    [
+      'dir', 'dir', 'typescript', 'typescript', 'typescript', 'typescript', 'markdown', 'npm',
+      'dir', 'typescript', 'typescript', 'typescript', 'dir', 'dir', 'book-open', 'certificate',
+    ],
   );
   // The KEY is the absolute path (part B2): that is what the row menu, the
   // drop layer and part B10 all act on.
@@ -982,22 +993,6 @@ test('a root change prunes the open folders, the cache and a selection outside i
     'and the tree is the new root s top level, closed',
   );
 });
-
-function badgeLabel(name: string): string {
-  const dot = name.lastIndexOf('.');
-  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
-  const table: Record<string, string> = {
-    ts: 'TS',
-    tsx: 'TSX',
-    js: 'JS',
-    jsx: 'JSX',
-    mjs: 'JS',
-    md: 'MD',
-    json: '{ }',
-    ps1: 'PS',
-  };
-  return table[ext] ?? '·';
-}
 
 test('the header names the project of the focused session, and the session itself when it has none', async () => {
   await liveSession();
@@ -1416,27 +1411,24 @@ test('a file pane in a rootless tab with NO session of its own reads Home', asyn
   assert.deepEqual((st.activeView() as ViewLike).root, { kind: 'home' });
 });
 
-test('every file row carries a colour-family badge, including the ones behind a closed folder', async () => {
+test('every file row carries its type icon, decorative, including the ones behind a closed folder', async () => {
   await liveSession();
-  const badges = byClass(root, 'files-badge');
-  assert.ok(badges.length > 0);
-  for (const b of badges) assert.equal(b.getAttribute('aria-hidden'), 'true');
-  const kindOf = new Map(badges.map((b) => [b.textContent, b.dataset.kind]));
-  assert.equal(kindOf.get('TSX'), 'ts');
-  assert.equal(kindOf.get('TS'), 'ts', 'one family, two marks');
-  assert.equal(kindOf.get('MD'), 'md');
-  assert.equal(kindOf.get('{ }'), 'json');
-  assert.equal(
-    kindOf.get('·'),
-    'plain',
-    'the neutral chip is on screen too: the mock carries a file whose type the table does not know',
-  );
+  const icons = byClass(root, 'files-icon');
+  assert.ok(icons.length > 0);
+  for (const b of icons) assert.equal(b.getAttribute('aria-hidden'), 'true');
+  assert.equal(byClass(root, 'files-badge').length, 0, 'the A5 text chips are gone');
+  const kindOf = new Map(icons.map((b) => [b.getAttribute('data-icon'), b.getAttribute('data-kind')]));
+  assert.equal(kindOf.get('typescript'), 'ts', '.ts and .tsx: one logo, one family');
+  assert.equal(kindOf.get('markdown'), 'md');
+  assert.equal(kindOf.get('npm'), 'npm', 'package.json is npm’s file');
+  assert.equal(kindOf.get('certificate'), 'text', 'LICENSE is a licence, not an unknown file');
+  for (const b of icons) assert.equal(b.textContent, '', `${b.getAttribute('data-icon')}: a glyph, never letters`);
 
   // The families that only appear once a closed folder is opened.
   await expand('launcher');
-  const opened = new Map(byClass(root, 'files-badge').map((b) => [b.textContent, b.dataset.kind]));
-  assert.equal(opened.get('PS'), 'ps');
-  assert.equal(opened.get('JS'), 'js', 'a .mjs is JavaScript, not an unknown type');
+  const opened = new Map(byClass(root, 'files-icon').map((b) => [b.getAttribute('data-icon'), b.getAttribute('data-kind')]));
+  assert.equal(opened.get('terminal-window'), 'ps');
+  assert.equal(opened.get('javascript'), 'js', 'a .mjs is JavaScript, not an unknown type');
 });
 
 test('the caret is decoration: aria-hidden, and the folder row itself states the state', async () => {
@@ -1904,7 +1896,7 @@ test('Changes draws the repository s own tree, its summary and nothing about fol
   // built, every row a NAME.
   assert.deepEqual(
     byClass(root, 'files-row').map((r) => r.textContent.replace(/^[▾▸]/, '').trim()),
-    ['web', 'server', 'MDREADME.md', 'launcher'],
+    ['web', 'server', 'README.md', 'launcher'],
     'the tree starts closed, in git s own order, and an untracked file is one row',
   );
   (byKey(root, 'gdir:web') as FakeElement).click();
@@ -1913,7 +1905,7 @@ test('Changes draws the repository s own tree, its summary and nothing about fol
     byClass(root, 'files-row')
       .map((r) => r.textContent.replace(/^[▾▸]/, '').trim())
       .slice(0, 4),
-    ['web', 'src', 'TSXApp.tsx+12-4', 'TSXPane.tsx+8-6'],
+    ['web', 'src', 'App.tsx+12-4', 'Pane.tsx+8-6'],
     'a changed file carries its numbers here, where they are about a commit',
   );
   assert.equal(
@@ -2608,27 +2600,27 @@ test('Escape hands the keyboard back to the terminal, in BOTH branches that clos
 // ---------------------------------------------------------------------------
 
 test('every colour family the model can emit is defined in tokens.css and mapped in app.css', () => {
-  // `badgeFor()` only NAMES a family; `--badge-<kind>-bg/fg` and the
-  // `[data-kind]` rule are what make the chip visible. A kind added or renamed
-  // on one side only renders an unstyled chip, which no DOM test can see.
+  // The classifier only NAMES a family; `--badge-<kind>-fg` and the
+  // `[data-kind]` rule are what colour the icon. A kind added or renamed on
+  // one side only renders a grey glyph, which no DOM test can see.
   const model = readFileSync(join(here, '..', 'web', 'src', 'ui', 'files-model.ts'), 'utf8');
   const tokens = readFileSync(join(here, '..', 'web', 'src', 'styles', 'tokens.css'), 'utf8');
   const app = readFileSync(join(here, '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
-  const kinds = new Set(Array.from(model.matchAll(/kind: '([a-z]+)'/g), (m) => m[1] as string));
+  const list = model.slice(model.indexOf('export const BADGE_KINDS = ['), model.indexOf('] as const;'));
+  const kinds = new Set(Array.from(list.matchAll(/'([a-z]+)'/g), (m) => m[1] as string));
   assert.ok(kinds.size >= 13, `non-vacuity: found ${kinds.size} families in files-model.ts`);
   assert.ok(kinds.has('plain'), 'the fallback family is one of them');
 
   const missing: string[] = [];
   for (const k of kinds) {
-    if (!tokens.includes(`--badge-${k}-bg:`)) missing.push(`tokens.css --badge-${k}-bg`);
     if (!tokens.includes(`--badge-${k}-fg:`)) missing.push(`tokens.css --badge-${k}-fg`);
     // `plain` is the base rule's own colour, so it needs no data-kind selector.
-    if (k !== 'plain' && !app.includes(`.files-badge[data-kind='${k}']`)) {
-      missing.push(`app.css .files-badge[data-kind='${k}']`);
+    if (k !== 'plain' && !app.includes(`.files-icon[data-kind='${k}']`)) {
+      missing.push(`app.css .files-icon[data-kind='${k}']`);
     }
   }
-  assert.deepEqual(missing, [], 'a badge family with no colours is an invisible mark');
-  assert.match(app, /\.files-badge \{[^}]*background: var\(--badge-plain-bg\)/s, 'the base chip IS plain');
+  assert.deepEqual(missing, [], 'an icon family with no colour is an unexplained grey');
+  assert.match(app, /\.files-icon \{[^}]*color: var\(--badge-plain-fg\)/s, 'the base icon IS plain');
 });
 
 // ---------------------------------------------------------------------------

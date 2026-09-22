@@ -28,7 +28,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { byClass, installDom, textsOf, type FakeElement } from './fake-dom.ts';
+import { byClass, descendants, installDom, textsOf, type FakeElement } from './fake-dom.ts';
 
 installDom();
 
@@ -64,6 +64,11 @@ test('the table is a header plus one row per agent, in the order given', () => {
   const head = byClass(t, 'pane-agents-hd');
   assert.equal(head.length, 1, 'exactly one header');
   assert.equal(head[0]?.textContent, 'Background agentsTokens', 'the A3 header literals');
+  // B12: Claude Code's mark ONCE, in the header — every row is its subagent.
+  const marks = descendants(t).filter((n) => n.getAttribute('data-tool') !== null);
+  assert.deepEqual(marks.map((m) => m.getAttribute('data-tool')), ['claude'], 'one mark, never per row');
+  assert.equal(marks[0]?.getAttribute('aria-hidden'), 'true');
+  assert.ok(byClass(head[0] as FakeElement, 'pane-agents-tool').length === 1, 'and it sits in the header');
   const rows = byClass(t, 'pane-agent');
   assert.equal(rows.length, ROWS.length, 'one row per agent, none added or dropped');
   assert.deepEqual(textsOf(t, 'pane-agent-name'), ['backend-pty', 'terminal-ui', 'test-engineer']);

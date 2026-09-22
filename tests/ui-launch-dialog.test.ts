@@ -580,6 +580,28 @@ test('harness non-vacuity: the REAL dialog mounted, with its three card groups a
   assert.equal(doc.activeElement, byName('title'), 'open() puts the keyboard in the Name box');
 });
 
+test('B12: every Tool card holds its tool’s real logo in the tile — one per card, no letters, Claude’s tile keeps its tint', () => {
+  openWith([PROJ]);
+  const want: [string, string][] = [
+    ['Claude Code', 'claude'],
+    ['Codex', 'codex'],
+    ['Gemini CLI', 'gemini'],
+    ['Grok', 'grok'],
+    ['Terminal', 'terminal'],
+    ['Other', 'command'],
+  ];
+  for (const [label, id] of want) {
+    const tile = descendants(tool(label)).find((d) => d.classList.contains('ns-mark'));
+    assert.ok(tile !== undefined, `${label}: a tile`);
+    assert.equal(tile.textContent, '', `${label}: a logo, not letters`);
+    assert.equal(tile.getAttribute('aria-hidden'), 'true');
+    const logos = descendants(tile).filter((d) => d.getAttribute('data-tool') !== null);
+    assert.deepEqual(logos.map((l) => l.getAttribute('data-tool')), [id], label);
+    assert.equal(logos[0]?.getAttribute('width'), '14', `${label}: one size in every tile`);
+    assert.equal(tile.classList.contains('is-agent'), label === 'Claude Code', `${label}: the accent tint only on Claude`);
+  }
+});
+
 test('defaults: an untouched dialog sends exactly `claude --model opus` for the project, no title', async () => {
   openWith([PROJ]);
   userClick(tool('Claude Code'));

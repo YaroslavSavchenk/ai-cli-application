@@ -342,17 +342,20 @@ test('New folder puts one name row INSIDE the folder, at the child indent, with 
   assert.equal(dom.doc.activeElement, input, 'it takes the keyboard on the repaint that made it');
   // The KIND is visible before a letter is typed: a folder wears the mark.
   assert.equal(byClass(row, 'files-folder').length, 1);
-  assert.equal(byClass(row, 'files-badge').length, 0);
+  assert.equal(byClass(row, 'files-icon').length, 0);
 });
 
-test('New file wears the neutral badge and says so to a screen reader', async () => {
+test('New file wears the plain file glyph and says so to a screen reader', async () => {
   await liveSession();
   choose(dirRow('web'), 'New file');
   const row = newRow() as FakeElement;
   assert.equal(nameField().getAttribute('aria-label'), 'new file name');
-  assert.equal(byClass(row, 'files-badge').length, 1, 'a file mark, with no type to claim yet');
+  assert.equal(byClass(row, 'files-icon').length, 1, 'a file mark, with no type to claim yet');
   assert.equal(byClass(row, 'files-folder').length, 0);
-  assert.equal(byClass(row, 'files-badge')[0]?.textContent, '');
+  const icon = byClass(row, 'files-icon')[0];
+  assert.equal(icon?.getAttribute('data-icon'), 'file', 'the plain file glyph (B12)');
+  assert.equal(icon?.getAttribute('data-kind'), 'plain');
+  assert.equal(icon?.getAttribute('aria-hidden'), 'true');
 });
 
 test('a CLOSED folder is opened — and fetched — before the row is drawn in it', async () => {

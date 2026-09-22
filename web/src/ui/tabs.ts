@@ -5,9 +5,11 @@
  *
  * A tab: a 7px state dot (pulsing amber = a session in it is waiting for you,
  * green = working, neutral = finished, NOTHING at all when the tab holds no
- * session), the name, an amber dot when a file in it has unsaved text, a count
- * pill when the tab holds more than one PANE (never a tab count: since A10b
- * one editor pane can hold four files and it is still one pane), the words
+ * session), an icon (B12: a folder tab's folder glyph, else the first
+ * pane's), the name, an amber dot when a file
+ * in it has unsaved text, a count pill when the tab holds more than one PANE
+ * (never a tab count: since A10b one editor pane can hold four files and it
+ * is still one pane), the words
  * "Needs you" when a session awaits input, and `×`. The active tab is the only
  * filled one. After the tabs: `+` (opens the launch dialog) and the
  * right-aligned drag hint.
@@ -35,7 +37,12 @@
 import * as st from '../state.ts';
 import { el, button, ArmedSet } from './util.ts';
 import { armDrag } from './dnd.ts';
-import { slotTitle, viewLabel } from './slots-model.ts';
+import { slotTitle, tabIcon, viewLabel } from './slots-model.ts';
+import { toolIconFor, type ToolIconId } from './launch-args.ts';
+import type { FileIcon } from './files-model.ts';
+import { toolIcon } from './icons-tools.ts';
+import { fileIcon } from './icons-files.ts';
+import { folderIcon } from './icons.ts';
 import { tabIdOf } from './editor-model.ts';
 import { closeViewGuarded } from './unsaved.ts';
 import { getBehaviour } from './prefs-model.ts';
@@ -68,6 +75,43 @@ function titleOf(slot: st.PaneSlot): string {
   return slot.kind === 'session'
     ? slotTitle(slot, st.state.sessions.get(slot.id)?.title)
     : slotTitle(slot);
+}
+
+/**
+ * The icon a tab wears before its name (part B12). A tab about a FOLDER
+ * (`Home`, a project) wears the folder glyph: its label is the folder, and a
+ * Docker logo beside `Home` read as "Home is Docker". Every other tab wears
+ * its FIRST pane's mark — a session's tool (from its command, `toolIconFor`),
+ * an editor pane's active file icon (git's for a diff). `null` for a tab with
+ * no pane, and for a session the browser has not heard about yet: a mark for
+ * an unknown command would be a guess.
+ */
+export type TabMark =
+  | { kind: 'folder' }
+  | { kind: 'tool'; id: ToolIconId }
+  | { kind: 'file'; icon: FileIcon };
+
+export function tabMark(v: st.ViewState): TabMark | null {
+  if (v.root !== null && v.root !== undefined) return { kind: 'folder' };
+  const first = v.slots[0];
+  if (first === undefined) return null;
+  if (first.kind === 'session') {
+    const info = st.state.sessions.get(first.id);
+    return info === undefined ? null : { kind: 'tool', id: toolIconFor(info.command) };
+  }
+  const tab = st.activeTabOf(first);
+  return tab === null ? null : { kind: 'file', icon: tabIcon(tab) };
+}
+
+/**
+ * The mark as a signature fragment: a change of what the icon DRAWS must
+ * redraw the chip — the glyph AND, for a file, its colour family (`.bashrc`
+ * and `nginx.conf` share the gear but not the ink).
+ */
+export function tabMarkSig(m: TabMark | null): string {
+  if (m === null) return '-';
+  if (m.kind === 'folder') return 'd';
+  return m.kind === 'tool' ? `t${m.id}` : `f${m.icon.icon}.${m.icon.kind}`;
 }
 
 /**
@@ -110,14 +154,15 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
     // all three change what a chip draws without changing its name. The
     // LABEL covers the rest: raising another file inside an editor pane is a
     // new `tabLabel` for a plain session tab, and no change at all for a
-    // folder tab, which is named after its folder.
+    // folder tab, which is named after its folder — so the first pane's icon
+    // (B12) carries its own part.
     const sig = st.state.views
       .map(
         (v) =>
           `${v.id}:${v.root?.kind ?? '-'}:${tabLabel(v)}:${st.viewStatus(v)}:` +
           `${v.slots.map((s) => s.kind).join('')}:${viewDirty(v) ? 'd' : ''}:` +
           `${v.id === st.state.activeViewId ? '*' : ''}:${armed.isArmed(v.id) ? 'a' : ''}:` +
-          `${getBehaviour().confirmEnd ? 'c' : ''}`,
+          `${getBehaviour().confirmEnd ? 'c' : ''}:${tabMarkSig(tabMark(v))}`,
       )
       .join('|');
     if (sig === lastSig) return;
@@ -150,6 +195,18 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
         const dot = el('span', `dot is-${status}`);
         dot.setAttribute('aria-hidden', 'true');
         sel.append(dot);
+      }
+      // The icon is ADDED beside the dot, never instead of it (B12): the dot is
+      // the state, the icon is what runs (or which file is up).
+      const mark = tabMark(v);
+      if (mark !== null) {
+        if (mark.kind === 'folder') {
+          const ic = folderIcon(13);
+          ic.classList.add('tab-folder');
+          sel.append(ic);
+        } else {
+          sel.append(mark.kind === 'tool' ? toolIcon(mark.id, 13, 'tab-tool') : fileIcon(mark.icon, 13, 'tab-ficon'));
+        }
       }
       sel.append(el('span', 'tab-label', tabLabel(v)));
       if (viewDirty(v)) {

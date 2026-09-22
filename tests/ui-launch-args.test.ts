@@ -37,6 +37,7 @@ import {
   AGENT_LABEL,
   KINDS,
   SHELLS,
+  toolIconFor,
   composeSpawn,
   isKind,
   isShellId,
@@ -64,6 +65,7 @@ import {
   isToolStart,
   commandLabel,
 } from '../web/src/ui/launch-args.ts';
+import { TOOL_ICON_PATHS } from '../web/src/ui/icons-tools.ts';
 import type {
   AgentKind,
   Effort,
@@ -795,16 +797,69 @@ test('A4 copy rule: no label the dialog shows ever reaches argv, and every one i
   }
 });
 
-test('A4 marks: every tile is at most two glyphs and never a command name', () => {
+test('B12 marks: every tile is a real logo, one per tool, each agent its own LobeHub mark', () => {
   assert.deepEqual(
-    TOOL_CARDS.map((t) => t.mark),
-    ['CC', 'CX', 'GM', 'GK', '>_', '…'],
+    TOOL_CARDS.map((t) => [t.kind, t.icon]),
+    [
+      ['claude', 'claude'],
+      ['codex', 'codex'],
+      ['gemini', 'gemini'],
+      ['grok', 'grok'],
+      ['terminal', 'terminal'],
+      ['other', 'command'],
+    ],
   );
+  // Every mark a card can name has path data (icons-tools.ts, a Record over
+  // the id union — this is the runtime half of that guarantee).
   for (const t of TOOL_CARDS) {
-    assert.ok([...t.mark].length <= 2, t.mark);
-    for (const cmd of ['claude', 'codex', 'gemini', 'grok', 'bash', 'sh', 'htop']) {
-      assert.notEqual(t.mark.toLowerCase(), cmd, `${t.id}: a tile must not be a command`);
-    }
+    const p = TOOL_ICON_PATHS[t.icon];
+    assert.ok(p !== undefined && p.d.length > 20, `${t.id}: ${t.icon} has a path`);
+    assert.ok(p.vb === 24 || p.vb === 256, `${t.icon}: a known grid`);
+  }
+});
+
+test('B12 toolIconFor: a session wears its tool by command basename; a shell the terminal; the rest the command mark', () => {
+  assert.equal(toolIconFor('claude'), 'claude');
+  assert.equal(toolIconFor('/usr/local/bin/claude'), 'claude', 'basename, like commandLabel');
+  assert.equal(toolIconFor('C:\\tools\\claude'), 'claude', 'both separators');
+  assert.equal(toolIconFor('codex'), 'codex');
+  assert.equal(toolIconFor('/home/you/.npm/bin/gemini'), 'gemini');
+  assert.equal(toolIconFor('grok'), 'grok');
+  for (const sh of SHELLS) assert.equal(toolIconFor(sh.command), 'terminal', sh.command);
+  assert.equal(toolIconFor('/usr/bin/bash'), 'command', 'not this app\'s Bash card: exact shells only, as shellLabel');
+  assert.equal(toolIconFor('htop'), 'command');
+  assert.equal(toolIconFor(''), 'command');
+  assert.equal(toolIconFor('toString'), 'command', 'no prototype lookups');
+  assert.equal(toolIconFor('claude-code'), 'command', 'a basename, not a prefix');
+  // Every id it can return has a path.
+  for (const id of ['claude', 'codex', 'gemini', 'grok', 'terminal', 'command'] as const) {
+    assert.ok(TOOL_ICON_PATHS[id].d.length > 20, id);
+  }
+  assert.deepEqual(Object.keys(TOOL_ICON_PATHS).sort(), ['claude', 'codex', 'command', 'gemini', 'grok', 'terminal']);
+});
+
+test('B12 toolIconFor, the edges: prototype keys, odd paths, case, and the same verdict as commandLabel', () => {
+  for (const c of ['constructor', '__proto__', 'hasOwnProperty', 'valueOf', '/usr/bin/constructor']) {
+    assert.equal(toolIconFor(c), 'command', `${c}: no prototype lookups`);
+  }
+  assert.equal(toolIconFor('./codex'), 'codex', 'a relative path is still its basename');
+  assert.equal(toolIconFor('..\\bin\\grok'), 'grok');
+  assert.equal(toolIconFor('C:/Users/you/AppData/Roaming/npm/gemini'), 'gemini', 'forward slashes on a Windows path');
+  assert.equal(toolIconFor('claude/'), 'command', 'a trailing separator leaves no basename to claim');
+  assert.equal(toolIconFor('Claude'), 'command', 'case-sensitive, as commandLabel and isClaudeCommand');
+  assert.equal(toolIconFor('claude.exe'), 'command', 'an exact basename, no extension guessing');
+  assert.equal(toolIconFor(' claude'), 'command', 'no trimming of what the user typed');
+  assert.equal(toolIconFor('bash'), 'command', 'bare `bash` is not the app’s `/bin/bash` card');
+  assert.equal(toolIconFor('/usr/bin/zsh'), 'command', 'and a path to zsh is not its bare `zsh` card');
+  assert.equal(toolIconFor('C:\\Windows\\System32\\cmd.exe'), 'command', 'the shell rule is exact-command, not basename');
+  // The icon and the label never disagree about whether a command is KNOWN:
+  // a mark other than `command` exactly when the label is not the raw command.
+  const cases = [
+    'claude', '/opt/claude', 'codex', 'gemini', 'grok', '/bin/bash', 'zsh', 'powershell.exe', 'cmd.exe',
+    'htop', 'bash', 'Claude', 'claude-code', 'toString', '__proto__', '', 'python3 -m http.server',
+  ];
+  for (const c of cases) {
+    assert.equal(toolIconFor(c) !== 'command', commandLabel(c) !== c, `${JSON.stringify(c)}: icon and label agree`);
   }
 });
 

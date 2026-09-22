@@ -30,7 +30,8 @@ import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, ArmedSet, fmtAgo, modelFromArgs, fmtCount } from './util.ts';
 import { readoutClass, readoutWord, sessionReadout } from './session-state.ts';
-import { commandLabel, isClaudeCommand, modelLabel } from './launch-args.ts';
+import { commandLabel, isClaudeCommand, modelLabel, toolIconFor } from './launch-args.ts';
+import { toolIcon } from './icons-tools.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
 import { flash } from './statusline.ts';
@@ -189,7 +190,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       open.title = stateWord;
       const dot = el('span', `dot ${cls}`);
       dot.setAttribute('aria-hidden', 'true');
-      open.append(dot, el('span', 'sess-name', info.title));
+      open.append(dot, toolIcon(toolIconFor(info.command), 13, 'sess-tool'), el('span', 'sess-name', info.title));
 
       const split = button('row-btn', 'Side by side', () => splitIntoActive(info.id));
       split.setAttribute('data-k', `split:${info.id}`);
@@ -285,7 +286,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     const line = el('div', 'sess-line');
     const dot = el('span', 'dot is-past');
     dot.setAttribute('aria-hidden', 'true');
-    line.append(dot, el('span', 'sess-name is-hist', entry.title));
+    line.append(dot, toolIcon(toolIconFor(entry.command), 13, 'sess-tool'), el('span', 'sess-name is-hist', entry.title));
 
     const meta = el('div', 'sess-meta is-hist');
     const parts = [fmtAgo(entry.lastUsedAt)];

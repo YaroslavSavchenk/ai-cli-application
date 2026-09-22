@@ -83,6 +83,7 @@ interface TabsModule {
     deps: { killSession(id: string): void; openLaunch(): void },
   ): { render(): void };
   tabLabel(v: View): string;
+  tabMarkSig(m: { kind: 'folder' } | { kind: 'tool'; id: string } | { kind: 'file'; icon: { icon: string; kind: string } } | null): string;
 }
 
 const st = (await import(new URL('../web/src/state.ts', import.meta.url).href)) as StateModule;
@@ -605,4 +606,168 @@ test('B6: confirm ON is still the armed two-step (the factory setting is unchang
   x().click();
   await settle();
   assert.deepEqual(killed, ['s1']);
+});
+
+// ---------------------------------------------------------------------------
+// Part B12 — the first pane's icon beside the dot
+// ---------------------------------------------------------------------------
+
+/** What each chip wears before its label: `t:<tool>`, `f:<icon>`, or `-`. */
+const marks = (): string[] =>
+  chips().map((c) => {
+    const svg = descendants(c).find((n) => n.tagName.toLowerCase() === 'svg');
+    if (svg === undefined) return '-';
+    if (svg.classList.contains('tab-folder')) return 'folder';
+    const tool = svg.getAttribute('data-tool');
+    return tool !== null ? `t:${tool}` : `f:${svg.getAttribute('data-icon') ?? '?'}`;
+  });
+
+test('B12: a tab wears its FIRST pane’s icon — a session its tool, an editor its active file, a diff git; a folder tab its folder', () => {
+  st.setSessions([
+    session('s1'),
+    session('s2', { command: 'codex' }),
+    session('s3', { command: '/bin/bash' }),
+    session('s4', { command: 'htop' }),
+  ]);
+  draw([
+    view({ id: 'home', root: { kind: 'home' } }),
+    view({ id: 'a', slots: [{ kind: 'session', id: 's1' }] }),
+    view({ id: 'b', slots: [{ kind: 'session', id: 's2' }, { kind: 'session', id: 's1' }] }),
+    view({ id: 'c', slots: [{ kind: 'session', id: 's3' }] }),
+    view({ id: 'd', slots: [{ kind: 'session', id: 's4' }] }),
+    view({ id: 'e', slots: [editor([file('/p/web/main.ts'), file('/p/README.md')], 1), { kind: 'session', id: 's1' }] }),
+    view({ id: 'f', slots: [editor([diff('a'.repeat(40), 'web/x.ts')])] }),
+    view({ id: 'g', slots: [{ kind: 'session', id: 'unknown' }] }),
+  ]);
+  assert.deepEqual(marks(), [
+    'folder', // Home is a folder, whatever it holds
+    't:claude',
+    't:codex', // the FIRST slot's, not the second's
+    't:terminal',
+    't:command', // a custom command: the command mark, never a guess
+    'f:book-open', // the ACTIVE file of the first pane (README.md)
+    'f:git',
+    '-', // a session the browser has not heard of yet
+  ]);
+  // Decorative, and ADDED — the status dot is still there, before it.
+  for (const c of chips()) {
+    const svg = descendants(c).find((n) => n.tagName.toLowerCase() === 'svg');
+    if (svg !== undefined) assert.equal(svg.getAttribute('aria-hidden'), 'true');
+  }
+  const sel = byClass(chips()[1] as FakeElement, 'tab-sel')[0] as FakeElement;
+  const kids = sel.children as FakeElement[];
+  assert.ok(kids[0]?.classList.contains('dot'), 'the dot stays first');
+  assert.equal(kids[1]?.getAttribute('data-tool'), 'claude', 'the icon follows it');
+  assert.ok(kids[2]?.classList.contains('tab-label'), 'then the name');
+});
+
+test('B12: raising another file in the first pane redraws the tab’s icon (it is in the signature)', () => {
+  const pane = editor([file('/p/a.py'), file('/p/b.rs')], 0);
+  // A plain tab: it is named after the file, so it wears the file's icon.
+  st.state.views = [view({ id: 'x', root: null, slots: [pane] })];
+  st.state.activeViewId = 'x';
+  strip.replaceChildren();
+  tabs.render();
+  assert.deepEqual(marks(), ['f:python']);
+  (pane as { active: number }).active = 1;
+  tabs.render(); // NOT from scratch: the guard must see the change
+  assert.deepEqual(marks(), ['f:rust']);
+});
+
+/**
+ * View `x`'s chip icon as `icon/kind` (a file) or `tool` — what it DRAWS,
+ * colour included. By key, not position: `setSessions` reconciles the views
+ * and puts a Home tab in front.
+ */
+const firstMark = (): string => {
+  const sel = byKey(strip, 'tab:x') as FakeElement | null;
+  assert.ok(sel !== null, 'view x has a chip');
+  const svg = descendants(sel).find((n) => n.tagName.toLowerCase() === 'svg');
+  if (svg === undefined) return '-';
+  return svg.getAttribute('data-tool') ?? `${svg.getAttribute('data-icon')}/${svg.getAttribute('data-kind')}`;
+};
+
+test('B12: a session the browser hears about LATE gets its mark on the next render (no rebuild from scratch)', () => {
+  // A plain session tab (a folder tab wears its folder, not a tool).
+  st.state.views = [view({ id: 'x', root: null, slots: [{ kind: 'session', id: 's9' }] })];
+  st.state.activeViewId = 'x';
+  strip.replaceChildren();
+  tabs.render();
+  assert.equal(firstMark(), '-', 'not known yet: no guess');
+  st.setSessions([session('s9', { command: 'grok', projectId: 'p1' })]);
+  tabs.render();
+  assert.equal(firstMark(), 'grok', 'the list arrived: the mark follows');
+});
+
+test('B12: a known session whose COMMAND changes redraws the tab’s mark (the mark alone is in the signature)', () => {
+  st.setSessions([session('s1', { command: 'codex', projectId: 'p1' })]);
+  st.state.views = [view({ id: 'x', root: null, slots: [{ kind: 'session', id: 's1' }] })];
+  st.state.activeViewId = 'x';
+  strip.replaceChildren();
+  tabs.render();
+  assert.equal(firstMark(), 'codex');
+  // Same id, same title, same status — only what runs differs.
+  st.setSessions([session('s1', { command: '/bin/bash', projectId: 'p1' })]);
+  tabs.render();
+  assert.equal(firstMark(), 'terminal');
+});
+
+test('B12: raising a file with the SAME glyph but another colour family recolours the tab’s icon', () => {
+  // `.bashrc` and `nginx.conf` share the gear glyph but not the colour: the
+  // shell family vs. the config family (files-model.ts SHELL_CONFIG / CONFIG).
+  // The signature itself first: the same glyph in another family is another
+  // signature. (On screen a file-named tab's LABEL changes with the file too,
+  // so the chip alone cannot pin the colour part — the fragment can.)
+  const gear = (kind: string) => T.tabMarkSig({ kind: 'file', icon: { icon: 'gear-six', kind } });
+  assert.notEqual(gear('sh'), gear('config'));
+  assert.notEqual(T.tabMarkSig({ kind: 'folder' }), T.tabMarkSig(null));
+  const pane = editor([file('/p/.bashrc'), file('/p/nginx.conf')], 0);
+  st.state.views = [view({ id: 'x', root: null, slots: [pane] })];
+  st.state.activeViewId = 'x';
+  strip.replaceChildren();
+  tabs.render();
+  assert.equal(firstMark(), 'gear-six/sh');
+  (pane as { active: number }).active = 1;
+  tabs.render(); // NOT from scratch
+  assert.equal(firstMark(), 'gear-six/config', 'the colour is part of what the tab shows');
+});
+
+test('B12: a FOLDER tab wears the folder glyph — never its active file’s logo, never a tool', () => {
+  st.setSessions([session('s1', { projectId: 'p1' })]);
+  draw([
+    view({ id: 'home', root: { kind: 'home' }, slots: [editor([file('/home/tester/Dockerfile')])] }),
+    view({ id: 'proj', root: { kind: 'project', id: 'p1' }, slots: [editor([file('/home/tester/api/main.py')])] }),
+    view({ id: 'psess', root: { kind: 'project', id: 'p1' }, slots: [{ kind: 'session', id: 's1' }] }),
+    view({ id: 'empty', root: { kind: 'home' }, slots: [] }),
+  ]);
+  assert.deepEqual(marks(), ['folder', 'folder', 'folder', 'folder']);
+  for (const c of chips()) {
+    const svg = descendants(c).find((n) => n.tagName.toLowerCase() === 'svg') as FakeElement;
+    assert.equal(svg.getAttribute('aria-hidden'), 'true');
+    assert.equal(svg.getAttribute('width'), '13');
+  }
+});
+
+test('B12: the tab mark adds no text — the tab’s name reads exactly as before', () => {
+  st.setSessions([session('s1', { title: 'api work' }), session('s2', { command: 'htop', title: 'top' })]);
+  draw([
+    view({ id: 'a', slots: [{ kind: 'session', id: 's1' }] }),
+    view({ id: 'b', root: { kind: 'project', id: 'p1' }, slots: [editor([file('/p/main.py')])] }),
+    view({ id: 'c', slots: [{ kind: 'session', id: 's2' }] }),
+  ]);
+  for (const c of chips()) {
+    const sel = byClass(c, 'tab-sel')[0] as FakeElement;
+    const svgs = descendants(sel).filter((n) => n.tagName.toLowerCase() === 'svg');
+    assert.equal(svgs.length, 1, 'one mark per tab');
+    for (const s of svgs) {
+      assert.equal(s.textContent, '', 'no glyph text');
+      assert.equal(s.getAttribute('aria-hidden'), 'true');
+      assert.equal(descendants(s).some((n) => n.tagName.toLowerCase() === 'title'), false, 'no <title> to be read out');
+    }
+    assert.equal(sel.getAttribute('aria-label'), null, 'the name is still the chip’s own text, no label added over it');
+  }
+  assert.deepEqual(
+    chips().map((c) => (byClass(c, 'tab-label')[0] as FakeElement).textContent),
+    [T.tabLabel(st.state.views[0] as View), T.tabLabel(st.state.views[1] as View), T.tabLabel(st.state.views[2] as View)],
+  );
 });

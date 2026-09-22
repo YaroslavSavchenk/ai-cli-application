@@ -270,13 +270,23 @@ export function shellLabel(command: string): string | null {
 /** The hint an unavailable card carries instead of its sub-line. Plain words. */
 export const NOT_INSTALLED = 'Not installed';
 
+/**
+ * The marks a tool can wear (part B12): the four agents' own logos, Phosphor's
+ * terminal for a shell, and Phosphor's command key for anything else.
+ * `ui/icons-tools.ts` holds one path per id.
+ */
+export type ToolIconId = 'claude' | 'codex' | 'gemini' | 'grok' | 'terminal' | 'command';
+
 export interface ToolCard {
   readonly id: string;
   readonly label: string;
   /** Vendor or kind, one plain word or two. */
   readonly sub: string;
-  /** The two-glyph tile, decoration only (aria-hidden in the DOM). */
-  readonly mark: string;
+  /**
+   * The tool's mark in its tile (part B12: the real logo, one style for all;
+   * `ui/icons-tools.ts`), decoration only (aria-hidden in the DOM).
+   */
+  readonly icon: ToolIconId;
   /** The kind this card launches. */
   readonly kind: LaunchKind;
 }
@@ -287,12 +297,12 @@ export interface ToolCard {
  * the kind switch).
  */
 export const TOOL_CARDS = [
-  { id: 'claude', label: AGENT_LABEL, sub: 'Anthropic', mark: 'CC', kind: 'claude' },
-  { id: 'codex', label: 'Codex', sub: 'OpenAI', mark: 'CX', kind: 'codex' },
-  { id: 'gemini', label: 'Gemini CLI', sub: 'Google', mark: 'GM', kind: 'gemini' },
-  { id: 'grok', label: 'Grok', sub: 'xAI', mark: 'GK', kind: 'grok' },
-  { id: 'terminal', label: 'Terminal', sub: 'Plain shell', mark: '>_', kind: 'terminal' },
-  { id: 'other', label: 'Other', sub: 'Any command', mark: '…', kind: 'other' },
+  { id: 'claude', label: AGENT_LABEL, sub: 'Anthropic', icon: 'claude', kind: 'claude' },
+  { id: 'codex', label: 'Codex', sub: 'OpenAI', icon: 'codex', kind: 'codex' },
+  { id: 'gemini', label: 'Gemini CLI', sub: 'Google', icon: 'gemini', kind: 'gemini' },
+  { id: 'grok', label: 'Grok', sub: 'xAI', icon: 'grok', kind: 'grok' },
+  { id: 'terminal', label: 'Terminal', sub: 'Plain shell', icon: 'terminal', kind: 'terminal' },
+  { id: 'other', label: 'Other', sub: 'Any command', icon: 'command', kind: 'other' },
 ] as const satisfies readonly ToolCard[];
 
 export interface ShellCard {
@@ -725,6 +735,21 @@ export function commandLabel(command: string): string {
   // `/usr/local/bin/claude` is the known agent, and printing its path would put
   // a command in UI chrome.
   return TOOL_LABELS.get(commandBase(command)) ?? shellLabel(command) ?? command;
+}
+
+/**
+ * The mark a session wears (part B12), from what it already carries: its
+ * command. The same basename rule `commandLabel` applies — an agent is its
+ * own logo, one of this app's shells (exact command, as `shellLabel`) is the
+ * terminal, and anything else a user typed is `command`: an icon is a claim
+ * about what runs, and guessing one for an unknown program would be a lie.
+ */
+export function toolIconFor(command: string): ToolIconId {
+  const base = commandBase(command);
+  for (const k of AGENT_KINDS) {
+    if (TOOLS[k].command === base) return TOOL_CARDS.find((c) => c.kind === k)?.icon ?? 'command';
+  }
+  return shellLabel(command) !== null ? 'terminal' : 'command';
 }
 
 /** Project defaultMode → dialog permission: `skip-permissions` maps to bypass; otherwise no override. */

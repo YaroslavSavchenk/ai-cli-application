@@ -4,7 +4,7 @@
  *
  * What lives here: the flat-path-list → tree build, the row flattening a
  * rendered tree needs (depth, indent, caret, which rows pulse), the
- * since-last-commit summary, the per-extension badge table, and the plural
+ * since-last-commit summary, the file-type icon classifier, and the plural
  * copy the two tabs print. What does NOT live here: anything that reads or
  * writes app state (the open-folder set is passed in), and the data itself
  * (the Changes tab's real `git diff --numstat` since part B2, through
@@ -17,10 +17,10 @@
  * changing one line here. Input ORDER is preserved (no sorting): git already
  * returns a stable order, and the panel renders exactly that order.
  *
- * The badge colours are `oklch()`. That is safe on purpose: they are CSS-only
+ * The icon colours are `oklch()`. That is safe on purpose: they are CSS-only
  * marks in the chrome and never reach xterm's theme parser (tokens.css header,
- * and the google-fonts/oklch lesson) — they live in tokens.css as a
- * `--badge-<kind>-*` pair per family and this table only names the family.
+ * and the google-fonts/oklch lesson) — they live in tokens.css as one
+ * `--badge-<kind>-fg` per family and the classifier only names the family.
  */
 
 /** One changed (or merely listed) file, as B2's `git diff --numstat` walk hands it over. */
@@ -246,66 +246,368 @@ export function commitsHeaderText(branch: string, count: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// File-type badges
+// File-type icons (part B12 — replaced A5's text chips)
 // ---------------------------------------------------------------------------
 
 /**
- * Colour families. The LABEL can differ inside a family (`.tsx` reads TSX on
- * the TypeScript colours) — the family only decides the two custom properties
- * `--badge-<kind>-bg` / `--badge-<kind>-fg` that app.css maps onto the chip.
+ * Colour families. The ICON can differ inside a family (`.tsx` and `.ts` share
+ * the TypeScript logo; Kotlin wears the PHP purple) — the family only decides
+ * the one custom property `--badge-<kind>-fg` that app.css maps onto the glyph.
+ * The first twelve are A5's own; the rest arrived with B12 in the same oklch
+ * band. There is no background any more: the glyph IS the icon.
  */
-export type BadgeKind =
-  | 'ts'
-  | 'js'
-  | 'py'
-  | 'md'
-  | 'json'
-  | 'ps'
-  | 'css'
-  | 'html'
-  | 'sh'
-  | 'yml'
-  | 'rs'
-  | 'go'
-  | 'plain';
-
-export interface Badge {
-  /** Up to three characters, mono, uppercase — a mark, never a sentence. */
-  label: string;
-  kind: BadgeKind;
-}
-
-/** Extension → mark + colour family (the v3 reference's own table). */
-const BADGES: Record<string, Badge> = {
-  ts: { label: 'TS', kind: 'ts' },
-  tsx: { label: 'TSX', kind: 'ts' },
-  js: { label: 'JS', kind: 'js' },
-  jsx: { label: 'JSX', kind: 'js' },
-  mjs: { label: 'JS', kind: 'js' },
-  py: { label: 'PY', kind: 'py' },
-  md: { label: 'MD', kind: 'md' },
-  json: { label: '{ }', kind: 'json' },
-  ps1: { label: 'PS', kind: 'ps' },
-  css: { label: 'CSS', kind: 'css' },
-  html: { label: '<>', kind: 'html' },
-  sh: { label: 'SH', kind: 'sh' },
-  yml: { label: 'YML', kind: 'yml' },
-  yaml: { label: 'YML', kind: 'yml' },
-  rs: { label: 'RS', kind: 'rs' },
-  go: { label: 'GO', kind: 'go' },
-};
+export const BADGE_KINDS = [
+  'ts',
+  'js',
+  'py',
+  'md',
+  'json',
+  'ps',
+  'css',
+  'html',
+  'sh',
+  'yml',
+  'rs',
+  'go',
+  'git',
+  'docker',
+  'c',
+  'java',
+  'ruby',
+  'php',
+  'vue',
+  'npm',
+  'vim',
+  'config',
+  'text',
+  'key',
+  'secret',
+  'cert',
+  'image',
+  'archive',
+  'pdf',
+  'doc',
+  'sheet',
+  'media',
+  'db',
+  'history',
+  'marker',
+  'binary',
+  'font',
+  'lockfile',
+  'plain',
+] as const;
+export type BadgeKind = (typeof BADGE_KINDS)[number];
 
 /**
- * A file type the table does not know gets a neutral chip with a centred dot —
- * a mark that says "a file", not an invented three-letter word. The glyph is
- * decorative (the chip is aria-hidden; the name beside it is the content).
+ * Every glyph the classifier can hand out. Language and tool LOGOS are Simple
+ * Icons slugs (CC0); CATEGORY glyphs are Phosphor names (MIT, the app's icon
+ * family). `ui/icons-files.ts` holds one path per id — typed as a Record over
+ * this union, so a missing path is a compile error, and a unit test checks it
+ * again at runtime.
  */
-const UNKNOWN_BADGE: Badge = { label: '·', kind: 'plain' };
+export type FileIconId =
+  // Simple Icons
+  | 'typescript'
+  | 'javascript'
+  | 'python'
+  | 'markdown'
+  | 'json'
+  | 'css'
+  | 'html5'
+  | 'gnubash'
+  | 'yaml'
+  | 'rust'
+  | 'go'
+  | 'docker'
+  | 'git'
+  | 'c'
+  | 'cplusplus'
+  | 'openjdk'
+  | 'ruby'
+  | 'php'
+  | 'kotlin'
+  | 'swift'
+  | 'dotnet'
+  | 'vuedotjs'
+  | 'svelte'
+  | 'toml'
+  | 'npm'
+  | 'vim'
+  | 'sass'
+  | 'dotenv'
+  | 'jupyter'
+  | 'dart'
+  | 'haskell'
+  | 'elixir'
+  | 'scala'
+  | 'r'
+  | 'graphql'
+  | 'terraform'
+  | 'cmake'
+  // Phosphor
+  | 'file'
+  | 'file-text'
+  | 'key'
+  | 'gear-six'
+  | 'lock-simple'
+  | 'lock-key'
+  | 'image'
+  | 'file-zip'
+  | 'file-pdf'
+  | 'database'
+  | 'table'
+  | 'music-note'
+  | 'film-strip'
+  | 'clock-counter-clockwise'
+  | 'terminal-window'
+  | 'certificate'
+  | 'book-open'
+  | 'hammer'
+  | 'shield-check'
+  | 'flag'
+  | 'cpu'
+  | 'text-aa'
+  | 'file-doc'
+  | 'presentation-chart'
+  | 'file-code';
 
-/** Badge for a file NAME (not a path). A dotfile has no extension. */
-export function badgeFor(name: string): Badge {
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0) return UNKNOWN_BADGE;
-  const ext = name.slice(dot + 1).toLowerCase();
-  return BADGES[ext] ?? UNKNOWN_BADGE;
+export interface FileIcon {
+  readonly icon: FileIconId;
+  readonly kind: BadgeKind;
+}
+
+// Frozen: the table's entries are SHARED (every `.bashrc` gets the same
+// object), so a caller that mutated one would recolour every file like it.
+const fi = (icon: FileIconId, kind: BadgeKind): FileIcon => Object.freeze({ icon, kind });
+
+// The shared entries, so one type reads as one thing wherever it is reached.
+const SHELL_CONFIG = fi('gear-six', 'sh');
+const CONFIG = fi('gear-six', 'config');
+const HISTORY = fi('clock-counter-clockwise', 'history');
+const MARKER = fi('flag', 'marker');
+const SSH_KEY = fi('key', 'key');
+const TRUST_LIST = fi('shield-check', 'cert');
+const SECRET = fi('lock-key', 'secret');
+const GIT = fi('git', 'git');
+const DOCKER = fi('docker', 'docker');
+const NPM = fi('npm', 'npm');
+const VIM = fi('vim', 'vim');
+const TEXT = fi('file-text', 'text');
+
+/**
+ * The plain file glyph: a file nothing is known about. Still a real icon —
+ * A5's centred `·` is gone — but the quietest one, so the typed files read
+ * first.
+ */
+export const PLAIN_FILE: FileIcon = fi('file', 'plain');
+
+/**
+ * Rule 1 — whole names, lower-cased. What a file is CALLED says more than any
+ * extension it has (`package.json` is npm's, not just JSON), and most dotfiles
+ * have no extension at all. A Map, not an object: a file named `constructor`
+ * must not find an entry on Object.prototype.
+ */
+const EXACT: ReadonlyMap<string, FileIcon> = new Map([
+  ['dockerfile', DOCKER],
+  ['containerfile', DOCKER],
+  ['.dockerignore', DOCKER],
+  ['makefile', fi('hammer', 'config')],
+  ['gnumakefile', fi('hammer', 'config')],
+  ['cmakelists.txt', fi('cmake', 'c')],
+  ['.gitignore', GIT],
+  ['.gitconfig', GIT],
+  ['.gitattributes', GIT],
+  ['.gitmodules', GIT],
+  ['.gitkeep', GIT],
+  // Git's plain-text credential store: a secret, whatever its name says.
+  ['.git-credentials', SECRET],
+  ['.bashrc', SHELL_CONFIG],
+  ['.bash_profile', SHELL_CONFIG],
+  ['.bash_login', SHELL_CONFIG],
+  ['.bash_logout', SHELL_CONFIG],
+  ['.bash_aliases', SHELL_CONFIG],
+  ['.profile', SHELL_CONFIG],
+  ['.zshrc', SHELL_CONFIG],
+  ['.zshenv', SHELL_CONFIG],
+  ['.zprofile', SHELL_CONFIG],
+  ['.zlogin', SHELL_CONFIG],
+  ['.zlogout', SHELL_CONFIG],
+  ['.inputrc', SHELL_CONFIG],
+  ['.bash_history', HISTORY],
+  ['.zsh_history', HISTORY],
+  ['.python_history', HISTORY],
+  ['.node_repl_history', HISTORY],
+  ['.psql_history', HISTORY],
+  ['.mysql_history', HISTORY],
+  ['.sqlite_history', HISTORY],
+  ['.lesshst', HISTORY],
+  ['.viminfo', VIM],
+  ['.vimrc', VIM],
+  ['.gvimrc', VIM],
+  ['_vimrc', VIM],
+  ['.npmrc', NPM],
+  ['.npmignore', NPM],
+  ['package.json', NPM],
+  ['package-lock.json', NPM],
+  ['tsconfig.json', fi('typescript', 'ts')],
+  ['go.mod', fi('go', 'go')],
+  ['go.sum', fi('go', 'go')],
+  ['.editorconfig', CONFIG],
+  ['.wslconfig', CONFIG],
+  ['known_hosts', TRUST_LIST],
+  ['authorized_keys', TRUST_LIST],
+  ['authorized_keys2', TRUST_LIST],
+  // Empty stamp files a login leaves behind: they mark that something
+  // happened once, and hold nothing.
+  ['.motd_shown', MARKER],
+  ['.sudo_as_admin_successful', MARKER],
+  ['.hushlogin', MARKER],
+]);
+
+/**
+ * Rule 1, the name FAMILIES a Map cannot spell: `LICENSE.md`, `README.txt`,
+ * `.env.local`, `id_ed25519` (and its `_sk` hardware twin), a `*rc` dotfile.
+ * Checked in this order, after EXACT.
+ */
+const NAME_PATTERNS: ReadonlyArray<readonly [RegExp, FileIcon]> = [
+  [/^(license|licence|copying)([._-].*)?$/, fi('certificate', 'text')],
+  [/^readme(\..*)?$/, fi('book-open', 'md')],
+  [/^dockerfile\..+$|^.+\.dockerfile$|^(docker-)?compose(\..+)?\.ya?ml$/, DOCKER],
+  [/^\.env(\..+)?$/, fi('dotenv', 'config')],
+  [/^id_(rsa|dsa|ecdsa|ed25519)(_sk)?$/, SSH_KEY],
+  // `.xyzrc` is a run-control file by the oldest convention there is:
+  // configuration, whichever program reads it.
+  [/^\.[a-z0-9_.-]+rc$/, CONFIG],
+];
+
+/**
+ * Rule 2 — a backup suffix is not a type. `known_hosts.old` is known_hosts;
+ * the suffix is cut (repeatedly: `a.bak.old`) and the rest classified again.
+ */
+const BACKUP_SUFFIX = /(\.old|\.bak|\.orig|~)$/;
+
+/** Rule 3 — the LAST extension, lower-cased. */
+const EXT: ReadonlyMap<string, FileIcon> = new Map(
+  (
+    [
+      // Languages: their own logo, on A5's colour families where one existed.
+      [['ts', 'tsx', 'mts', 'cts'], fi('typescript', 'ts')],
+      [['js', 'jsx', 'mjs', 'cjs'], fi('javascript', 'js')],
+      [['py', 'pyw', 'pyi'], fi('python', 'py')],
+      [['ipynb'], fi('jupyter', 'rs')],
+      [['md', 'markdown', 'mdx'], fi('markdown', 'md')],
+      [['json', 'jsonc', 'json5'], fi('json', 'json')],
+      [['ps1', 'psm1', 'psd1', 'bat', 'cmd'], fi('terminal-window', 'ps')],
+      [['css', 'less'], fi('css', 'css')],
+      [['scss', 'sass'], fi('sass', 'css')],
+      [['html', 'htm'], fi('html5', 'html')],
+      [['xml', 'xsd', 'xsl', 'plist'], fi('file-code', 'html')],
+      [['sh', 'bash', 'zsh', 'ksh'], fi('gnubash', 'sh')],
+      [['fish', 'lua', 'pl'], fi('file-code', 'sh')],
+      [['yml', 'yaml'], fi('yaml', 'yml')],
+      [['rs'], fi('rust', 'rs')],
+      [['go'], fi('go', 'go')],
+      [['c', 'h'], fi('c', 'c')],
+      [['cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx'], fi('cplusplus', 'c')],
+      [['java'], fi('openjdk', 'java')],
+      [['kt', 'kts'], fi('kotlin', 'php')],
+      [['scala', 'sc'], fi('scala', 'ruby')],
+      [['rb'], fi('ruby', 'ruby')],
+      [['php'], fi('php', 'php')],
+      [['swift'], fi('swift', 'rs')],
+      [['cs', 'csproj', 'sln', 'fs', 'vb'], fi('dotnet', 'php')],
+      [['vue'], fi('vuedotjs', 'vue')],
+      [['svelte'], fi('svelte', 'rs')],
+      [['dart'], fi('dart', 'go')],
+      [['hs'], fi('haskell', 'php')],
+      [['ex', 'exs'], fi('elixir', 'php')],
+      [['r'], fi('r', 'ts')],
+      [['graphql', 'gql'], fi('graphql', 'yml')],
+      [['tf', 'hcl'], fi('terraform', 'php')],
+      [['vim'], VIM],
+      [['patch', 'diff'], GIT],
+      [['dockerfile'], DOCKER],
+      [['mk', 'mak'], fi('hammer', 'config')],
+      // Configuration.
+      [['toml'], fi('toml', 'config')],
+      [['env'], fi('dotenv', 'config')],
+      [['conf', 'cfg', 'ini', 'properties', 'service', 'desktop'], CONFIG],
+      // Text and data.
+      [['txt', 'log', 'rst', 'text'], TEXT],
+      [['csv', 'tsv', 'xls', 'xlsx', 'ods'], fi('table', 'sheet')],
+      [['doc', 'docx', 'odt', 'rtf'], fi('file-doc', 'doc')],
+      [['ppt', 'pptx', 'odp'], fi('presentation-chart', 'doc')],
+      [['pdf'], fi('file-pdf', 'pdf')],
+      [['sql', 'db', 'sqlite', 'sqlite3', 'db3'], fi('database', 'db')],
+      // Media.
+      [['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif', 'tif', 'tiff', 'heic'], fi('image', 'image')],
+      [['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus'], fi('music-note', 'media')],
+      [['mp4', 'mkv', 'mov', 'webm', 'avi'], fi('film-strip', 'media')],
+      [['ttf', 'otf', 'woff', 'woff2'], fi('text-aa', 'font')],
+      // Packed and compiled.
+      [['zip', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'zst', '7z', 'rar', 'jar', 'whl', 'deb', 'rpm'], fi('file-zip', 'archive')],
+      [['exe', 'dll', 'so', 'dylib', 'bin', 'o', 'a', 'wasm'], fi('cpu', 'binary')],
+      // Keys, certificates, locks.
+      [['pem', 'key', 'pub', 'p12', 'pfx', 'gpg', 'asc', 'ppk'], SSH_KEY],
+      [['crt', 'cer', 'der', 'csr'], fi('certificate', 'cert')],
+      [['lock'], fi('lock-simple', 'lockfile')],
+    ] as ReadonlyArray<readonly [readonly string[], FileIcon]>
+  ).flatMap(([exts, icon]) => exts.map((e) => [e, icon] as const)),
+);
+
+/**
+ * Rule 4 — a name that SAYS it holds a secret (`anthropic_api_key`,
+ * `pi_password`) is shown as one when nothing above claimed it. After the
+ * extension on purpose: `pi_askpass.sh` is a script, and `token.json` is JSON.
+ */
+const SECRET_NAME = /password|passwd|secret|token|api[_-]?key|credential/;
+
+/** Rules 1–3 on one (already lower-cased) name; null = nothing matched. */
+function byName(lower: string): FileIcon | null {
+  const exact = EXACT.get(lower);
+  if (exact !== undefined) return exact;
+  for (const [re, icon] of NAME_PATTERNS) if (re.test(lower)) return icon;
+  const dot = lower.lastIndexOf('.');
+  // A dotfile's leading dot is not an extension (`.env` is not "env");
+  // a trailing dot is not one either.
+  if (dot <= 0 || dot === lower.length - 1) return null;
+  return EXT.get(lower.slice(dot + 1)) ?? null;
+}
+
+/**
+ * The icon for a file NAME (not a path), case-insensitive: whole name →
+ * backup suffix cut and classified again → last extension → secret-sounding
+ * name → the plain file glyph. Pure; `ui/icons-files.ts` draws it.
+ */
+export function fileIconFor(name: string): FileIcon {
+  let lower = name.toLowerCase();
+  const direct = byName(lower);
+  if (direct !== null) return direct;
+  let cut = lower.replace(BACKUP_SUFFIX, '');
+  while (cut !== lower && cut !== '') {
+    const again = byName(cut);
+    if (again !== null) return again;
+    lower = cut;
+    cut = lower.replace(BACKUP_SUFFIX, '');
+  }
+  if (SECRET_NAME.test(name.toLowerCase())) return SECRET;
+  return PLAIN_FILE;
+}
+
+/**
+ * Every icon the classifier can hand out, once each — for the tests that
+ * check each has path data and each colour family a token and a CSS rule.
+ */
+export function allFileIcons(): FileIcon[] {
+  const all = [
+    ...EXACT.values(),
+    ...NAME_PATTERNS.map(([, icon]) => icon),
+    ...EXT.values(),
+    SECRET,
+    PLAIN_FILE,
+  ];
+  const seen = new Map<string, FileIcon>();
+  for (const f of all) seen.set(`${f.icon}:${f.kind}`, f);
+  return Array.from(seen.values());
 }

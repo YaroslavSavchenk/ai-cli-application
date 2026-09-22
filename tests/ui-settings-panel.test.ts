@@ -683,10 +683,14 @@ test('the Preferences page: live key rows for the three keyed tools, Tools and D
   const page = panelOf('prefs');
   // The key rows first (no tile for the custom-command card, which has no key
   // to store), then one Tools row per card, carrying the same tiles (B6).
-  assert.deepEqual(textsOf(page, 'sg-mark'), [
-    'CC', 'CX', 'GM', 'GK', '>_',
-    'CC', 'CX', 'GM', 'GK', '>_', '…',
-  ]);
+  // B12: the tiles hold the tools' real logos, no letters.
+  assert.deepEqual(
+    byClass(page, 'sg-mark').map((m) => [m.textContent, (m.children[0] as FakeElement | undefined)?.getAttribute('data-tool')]),
+    [
+      ['', 'claude'], ['', 'codex'], ['', 'gemini'], ['', 'grok'], ['', 'terminal'],
+      ['', 'claude'], ['', 'codex'], ['', 'gemini'], ['', 'grok'], ['', 'terminal'], ['', 'command'],
+    ],
+  );
   assert.deepEqual(
     byClass(page, 'sg-prow').map((r) => byClass(r, 'sg-rowlb')[0]?.textContent),
     ['Claude Code', 'Codex', 'Gemini CLI', 'Grok', 'Terminal'],

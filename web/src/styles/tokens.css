@@ -1,7 +1,7 @@
 /*
  * Design tokens — the single source of truth for every color, size and
  * timing in the UI. Eight sections, nothing else: the Nocturne primitives,
- * the three semantics, the terminal palette, the file-type badge table, type,
+ * the three semantics, the terminal palette, the file-type icon colours, type,
  * app structure, motion, z-index. Since part A8 (2026-09-14) every token here
  * has a reader in the UI, with ONE stated exception: the handoff primitives
  * named in the allow-list of `tests/ui-a8-tokens.test.ts` (--color-divider,
@@ -170,37 +170,59 @@
   --xt-bright-magenta: #d1b9ff;
   --xt-bright-cyan: #89dae3;
 
-  /* ══ File-type badge chips (Files panel, A5) ══════════════════════════════
-     A DATA table, not a role palette: one background/ink pair per file-type
-     family, transcribed from the v3 reference's own map. oklch() is safe for
-     every one of them — they are chrome marks and never reach xterm's theme
-     parser (see the header rule about --xt-*). app.css maps a family onto the
-     chip through [data-kind]. */
-  --badge-ts-bg: oklch(0.35 0.06 250);
+  /* ══ File-type icon colours (Files panel A5, icons since B12) ════════════
+     A DATA table, not a role palette: one ink per file-type family. A5's
+     twelve are the v3 reference's own map; B12 dropped the chip backgrounds
+     (the glyph IS the icon now) and added the families below in the same
+     band — lightness 0.84-0.9, chroma 0.06-0.13 — so no type shouts over
+     another. The quiet ones (md, text, history, marker, binary, font,
+     lockfile, plain) sit on the neutral ramp on purpose: a tree reads its
+     code first. config is the one deliberate exception to both: chroma 0.04,
+     a cool steel just off the ramp, so configuration recedes like the quiet
+     ones yet still reads as its own family. oklch() is
+     safe for every one of them — they are chrome marks and never reach
+     xterm's theme parser (see the header rule about --xt-*). app.css maps a
+     family onto the glyph through [data-kind]. */
   --badge-ts-fg: oklch(0.85 0.1 250);
-  --badge-js-bg: oklch(0.4 0.08 90);
   --badge-js-fg: oklch(0.9 0.12 95);
-  --badge-py-bg: oklch(0.35 0.06 230);
   --badge-py-fg: oklch(0.88 0.12 95);
-  --badge-md-bg: var(--color-neutral-800);
   --badge-md-fg: var(--color-neutral-200);
-  --badge-json-bg: oklch(0.38 0.07 80);
   --badge-json-fg: oklch(0.9 0.1 85);
-  --badge-ps-bg: oklch(0.35 0.07 240);
   --badge-ps-fg: oklch(0.88 0.08 240);
-  --badge-css-bg: oklch(0.35 0.08 300);
   --badge-css-fg: oklch(0.88 0.1 300);
-  --badge-html-bg: oklch(0.4 0.1 35);
   --badge-html-fg: oklch(0.9 0.1 40);
-  --badge-sh-bg: var(--color-neutral-800);
   --badge-sh-fg: oklch(0.85 0.12 150);
-  --badge-yml-bg: oklch(0.35 0.05 340);
   --badge-yml-fg: oklch(0.88 0.08 340);
-  --badge-rs-bg: oklch(0.38 0.08 40);
   --badge-rs-fg: oklch(0.88 0.1 45);
-  --badge-go-bg: oklch(0.35 0.07 210);
   --badge-go-fg: oklch(0.88 0.1 210);
-  --badge-plain-bg: var(--color-neutral-900);
+  /* B12 — languages and tools */
+  --badge-git-fg: oklch(0.85 0.12 30);
+  --badge-docker-fg: oklch(0.86 0.09 230);
+  --badge-c-fg: oklch(0.86 0.06 220);
+  --badge-java-fg: oklch(0.87 0.1 60);
+  --badge-ruby-fg: oklch(0.84 0.12 20);
+  --badge-php-fg: oklch(0.86 0.09 285);
+  --badge-vue-fg: oklch(0.87 0.11 160);
+  --badge-npm-fg: oklch(0.84 0.12 20);
+  --badge-vim-fg: oklch(0.86 0.12 145);
+  /* B12 — categories */
+  --badge-text-fg: var(--color-neutral-300);
+  --badge-config-fg: oklch(0.84 0.04 250);
+  --badge-key-fg: oklch(0.88 0.11 85);
+  --badge-secret-fg: oklch(0.86 0.12 65);
+  --badge-cert-fg: oklch(0.86 0.09 165);
+  --badge-image-fg: oklch(0.86 0.1 320);
+  --badge-archive-fg: oklch(0.86 0.08 70);
+  --badge-pdf-fg: oklch(0.84 0.12 25);
+  --badge-doc-fg: oklch(0.86 0.08 255);
+  --badge-sheet-fg: oklch(0.87 0.11 150);
+  --badge-media-fg: oklch(0.86 0.1 300);
+  --badge-db-fg: oklch(0.87 0.08 200);
+  --badge-history-fg: var(--color-neutral-400);
+  --badge-marker-fg: var(--color-neutral-500);
+  --badge-binary-fg: var(--color-neutral-400);
+  --badge-font-fg: var(--color-neutral-300);
+  --badge-lockfile-fg: var(--color-neutral-500);
   --badge-plain-fg: var(--color-neutral-500);
 
   /* ══ Type ═════════════════════════════════════════════════════════════════
@@ -223,8 +245,7 @@
   --drawer-sess-w: 300px; /* A5: v3 sessions panel                            */
   --files-row-h: 26px;  /* A5: Files tree row                                 */
   --files-grip-w: 6px;  /* A5: width-drag hit zone on the panel's right edge   */
-  --files-badge-w: 18px; /* A5: file-type chip                                */
-  --files-badge-h: 16px;
+  --files-icon: 16px;   /* B12: file-type icon (the folder glyph's size)      */
   --dot-row: 8px;       /* A5: status dot in a Sessions panel row             */
   --diff-gut-w: 88px;   /* A6: diff line-number gutter (commit view + editor).
                            B3 widened it from 44px and it now covers BOTH

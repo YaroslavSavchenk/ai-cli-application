@@ -31,7 +31,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SessionInfo } from '../shared/protocol.ts';
 import {
-  badgeFor,
   buildTree,
   commitsHeaderText,
   diffSummary,
@@ -210,39 +209,7 @@ test('counts are pluralised in both tabs (README-v3 copy rule)', () => {
   assert.equal(commitsHeaderText('release', 0), 'release, 0 commits');
 });
 
-// ---------------------------------------------------------------------------
-// Badges
-// ---------------------------------------------------------------------------
-
-test('badgeFor: the v3 table, including the families that share a colour', () => {
-  assert.deepEqual(badgeFor('main.ts'), { label: 'TS', kind: 'ts' });
-  assert.deepEqual(badgeFor('App.tsx'), { label: 'TSX', kind: 'ts' });
-  assert.deepEqual(badgeFor('x.js'), { label: 'JS', kind: 'js' });
-  assert.deepEqual(badgeFor('x.jsx'), { label: 'JSX', kind: 'js' });
-  assert.deepEqual(badgeFor('make-icon.mjs'), { label: 'JS', kind: 'js' });
-  assert.deepEqual(badgeFor('a.py'), { label: 'PY', kind: 'py' });
-  assert.deepEqual(badgeFor('README.md'), { label: 'MD', kind: 'md' });
-  assert.deepEqual(badgeFor('package.json'), { label: '{ }', kind: 'json' });
-  assert.deepEqual(badgeFor('launch.ps1'), { label: 'PS', kind: 'ps' });
-  assert.deepEqual(badgeFor('app.css'), { label: 'CSS', kind: 'css' });
-  assert.deepEqual(badgeFor('index.html'), { label: '<>', kind: 'html' });
-  assert.deepEqual(badgeFor('run.sh'), { label: 'SH', kind: 'sh' });
-  assert.deepEqual(badgeFor('ci.yml'), { label: 'YML', kind: 'yml' });
-  assert.deepEqual(badgeFor('ci.yaml'), { label: 'YML', kind: 'yml' });
-  // `.toml` is NOT a family: README-v3 lists thirteen marks and TML is none of
-  // them, so it falls through to the neutral chip like any other unknown type.
-  assert.deepEqual(badgeFor('Cargo.toml'), { label: '·', kind: 'plain' });
-  assert.deepEqual(badgeFor('main.rs'), { label: 'RS', kind: 'rs' });
-  assert.deepEqual(badgeFor('main.go'), { label: 'GO', kind: 'go' });
-});
-
-test('badgeFor: an unknown type, a dotfile and a file with no extension all get the neutral mark', () => {
-  assert.deepEqual(badgeFor('LICENSE'), { label: '·', kind: 'plain' });
-  assert.deepEqual(badgeFor('.gitignore'), { label: '·', kind: 'plain' });
-  assert.deepEqual(badgeFor('notes.xyz'), { label: '·', kind: 'plain' });
-  assert.deepEqual(badgeFor('MAIN.TS'), { label: 'TS', kind: 'ts' }, 'the extension is case-insensitive');
-  assert.deepEqual(badgeFor('archive.tar.gz'), { label: '·', kind: 'plain' }, 'only the LAST extension counts');
-});
+// File-type icons: tests/ui-file-icons.test.ts (part B12).
 
 // ---------------------------------------------------------------------------
 // The renderer's own fixture — the shape the live tabs really hand it
@@ -574,37 +541,6 @@ test('diffSummary: one-sided diffs count as changed, and a missing number is not
     { add: 0, del: 0, files: 0 },
     'a file being edited has not changed anything until it has',
   );
-});
-
-test('badgeFor: multi-dot names take the LAST extension, and case never matters', () => {
-  assert.deepEqual(badgeFor('ui-files-model.test.ts'), { label: 'TS', kind: 'ts' });
-  assert.deepEqual(badgeFor('index.d.ts'), { label: 'TS', kind: 'ts' });
-  assert.deepEqual(badgeFor('vite.config.MJS'), { label: 'JS', kind: 'js' });
-  assert.deepEqual(badgeFor('App.TSX'), { label: 'TSX', kind: 'ts' });
-  assert.deepEqual(badgeFor('CI.YAML'), { label: 'YML', kind: 'yml' });
-});
-
-test('badgeFor: a name with no usable extension is the neutral mark, never a guess', () => {
-  assert.deepEqual(badgeFor('Makefile'), { label: '·', kind: 'plain' });
-  assert.deepEqual(badgeFor('LICENSE.'), { label: '·', kind: 'plain' }, 'a trailing dot is not an extension');
-  assert.deepEqual(badgeFor('.env'), { label: '·', kind: 'plain' }, 'a dotfile has no extension');
-  assert.deepEqual(badgeFor(''), { label: '·', kind: 'plain' });
-  assert.deepEqual(badgeFor('.eslintrc.json'), { label: '{ }', kind: 'json' }, 'a dotfile WITH one does');
-});
-
-test('badgeFor: every kind in the table is reachable, and `plain` only by falling through', () => {
-  const kinds = new Set(
-    [
-      'a.ts', 'a.tsx', 'a.js', 'a.jsx', 'a.mjs', 'a.py', 'a.md', 'a.json',
-      'a.ps1', 'a.css', 'a.html', 'a.sh', 'a.yml', 'a.yaml', 'a.rs', 'a.go',
-    ].map((n) => badgeFor(n).kind),
-  );
-  assert.deepEqual(
-    Array.from(kinds).sort(),
-    ['css', 'go', 'html', 'js', 'json', 'md', 'ps', 'py', 'rs', 'sh', 'ts', 'yml'],
-    'the 12 colour families the panel styles — losing one silently would drop a colour',
-  );
-  assert.equal(badgeFor('a.xyz').kind, 'plain');
 });
 
 test('commitsHeaderText: the branch is printed verbatim, whatever it is called', () => {

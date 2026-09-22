@@ -291,6 +291,24 @@ test('a read-only diff tab is called after its commit and never wears the unsave
   assert.equal(x.getAttribute('aria-label'), `Close Changes in ${SHORT}`);
 });
 
+test('B12: every chip carries its file’s type icon before the name — a diff git’s — and the name stays the text', async () => {
+  st.openDiff({ kind: 'home' }, HASH, C, REPO);
+  await sync();
+  const picks = byClass(hd, 'pane-tab-pick');
+  assert.deepEqual(
+    picks.map((p) => {
+      const ic = p.children[0] as FakeElement;
+      return [ic.getAttribute('data-icon'), ic.getAttribute('data-kind'), ic.getAttribute('aria-hidden')];
+    }),
+    [
+      ['typescript', 'ts', 'true'],
+      ['typescript', 'ts', 'true'],
+      ['git', 'git', 'true'],
+    ],
+  );
+  assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx', `Changes in ${SHORT}`], 'the icon adds no text');
+});
+
 // ---------------------------------------------------------------------------
 // 2. Unsaved: the dot, and the same fact in words
 // ---------------------------------------------------------------------------

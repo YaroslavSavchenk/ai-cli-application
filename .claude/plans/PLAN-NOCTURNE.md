@@ -31,6 +31,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B7 | Background agents table live (data source decided 2026-09-22: Claude Code's transcripts) | verified | `.claude/plans/nocturne/PLAN-B7.md` | 2026-09-22 |
 | B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule | verified | `.claude/plans/nocturne/PLAN-B11.md` | 2026-09-22 |
 | B8 | Cleanup + memory, End session button in the pane header, release v0.4.0 (prepared; user: publish AFTER C1) | verified | `.claude/plans/nocturne/PLAN-B8.md` | 2026-09-22 |
+| B12 | Icons everywhere: a real icon per file type, the real tool logos in one style | landed | `.claude/plans/nocturne/PLAN-B12.md` | 2026-09-22 |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
@@ -199,6 +200,9 @@ Fixed rules for every part:
 ### B8. Cleanup + memory
 - Janitor; remove remaining Legacy UI code (v2 handoff files; `design-mocks/` was already removed 2026-09-21 in restructure batch 3 — the theme popover UI and the old alias tokens were already removed in A8, 2026-09-14; the `theme.ts` machinery B9 reuses stays); update `PROJECT-SCOPE.md`, `web/DESIGN.md` (Nocturne replaces steam blend), memory vault; release v0.4.0.
 
+### B12. Icons everywhere (added 2026-09-22, user's ask; spec `.claude/plans/nocturne/PLAN-B12.md`)
+- A real icon per file type in the Files panel and editor tabs; the real Claude / Codex / Gemini / Grok logos in one uniform style wherever a tool is shown. Inline SVG, no package (decision 5).
+
 ## Track C — after the redesign (the LAST step; runs after B8)
 
 ### C1. Peek mascot (added 2026-09-15, user's ask; last step of the redesign)
@@ -217,7 +221,7 @@ Fixed rules for every part:
 2. ~~Data sources for Cost, Context, Account usage, Active skill, Lines changed in the status bar~~ DECIDED 2026-09-16 (user, the orchestrator's advice): the payload Claude Code already hands `server/statusline.mjs` on every turn (model, cost, context %, account usage %, lines changed, git branch). The script writes a per-session snapshot into the app data dir (like its branch cache: 0600, wiped at boot), the backend carries it in the session info, and the pane status bar renders the same checklist as Settings → Status bar. Active skill has NO source in that payload and is dropped honestly. Known consequence: the same values then stand twice on screen (Claude's own line inside the terminal and the pane bar under it) unless the user switches Claude's line off in the checklist. Rejected: Claude Code hooks (more moving parts; reconsider for decision 3), keeping only Claude's own line (B1 would then be nothing).
 3. Source of "files the session is touching": Claude Code hooks, transcript watching, or something else.
 4. ~~Where API keys live locally and how they reach the child process.~~ DECIDED 2026-09-18 (user, the orchestrator's advice): server-side `keys.json` (0600, like the GitHub token), one optional key per tool that reads an env var directly (Claude `ANTHROPIC_API_KEY`, Gemini `GEMINI_API_KEY`, Grok `XAI_API_KEY`), injected into that tool's child environment at spawn only; the page learns saved / not saved; Codex gets no field (a key alone does not sign it in — it signs in inside the terminal). Rejected: no storage; env-only detection.
-5. Phosphor icons: inline SVG subset vs. package.
+5. ~~Phosphor icons: inline SVG subset vs. package.~~ DECIDED 2026-09-22 (user, at B12): inline SVG subset transcribed into the code, no icon package; licence texts committed.
 6. ~~pwsh.exe / cmd.exe via interop: allowed under the hard constraints in `PROJECT-SCOPE.md`? Check at B5.~~ DECIDED 2026-09-18 (user, the orchestrator's advice): Command Prompt = `cmd.exe` through interop like PowerShell, with a server-injected `/k pushd <windows path of the cwd>` so it starts in the project folder (cmd refuses a UNC working directory; measured); the path is allow-listed before injection. No `pwsh.exe` card (not installed; PowerShell stays `powershell.exe`, 2026-09-10). Rejected: plain cmd.exe landing in C:\Windows; dropping the card.
 7. ~~A4 — command preview~~ DECIDED 2026-09-10 (user): left out; the 2026-07-25 "no commands or flags in the UI" rule stands.
 8. ~~A4 — permission-card descriptions~~ DECIDED 2026-09-10 (user): cards show labels only, plus ONE small info button beside the "Permissions" label that opens a short plain explanation of all four modes. The only explanatory copy in the dialog.

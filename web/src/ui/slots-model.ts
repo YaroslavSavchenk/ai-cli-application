@@ -6,9 +6,9 @@
  *
  * No DOM and no state: every value a rule needs is handed in, so `node --test`
  * drives all of it and the drag layer can be tested without a browser. (The
- * type imports are erased at runtime; the one value import is
+ * type imports are erased at runtime; the two value imports are
  * `ui/commit-model.ts`, which is pure arithmetic and copy for the same
- * reason.)
+ * reason, and `ui/files-model.ts`'s file-type classifier, pure as well.)
  *
  * Copy rules this file enforces, not just follows:
  * - A PATH NEVER REACHES A LABEL. A tab about a project prints the project's
@@ -16,6 +16,7 @@
  *   prints the last segment of its path.
  */
 import { shortHashOf } from './commit-model.ts';
+import { fileIconFor, type FileIcon } from './files-model.ts';
 import type { EditorTab, PaneSlot, ViewRoot, Zone } from '../state.ts';
 
 /**
@@ -84,6 +85,18 @@ export function viewLabel(
  */
 export function tabTitle(tab: EditorTab): string {
   return tab.kind === 'file' ? fileName(tab.path) : `Changes in ${shortHashOf(tab.hash)}`;
+}
+
+/** A diff tab's icon: it shows what git says changed, so it wears git's mark. */
+export const DIFF_TAB_ICON: FileIcon = Object.freeze({ icon: 'git', kind: 'git' });
+
+/**
+ * The icon an editor tab wears (part B12) — on its own chip and, for the
+ * pane that comes first in a tab, on the tab strip: a file its type's icon
+ * (by NAME, the classifier's input), a diff git's mark.
+ */
+export function tabIcon(tab: EditorTab): FileIcon {
+  return tab.kind === 'file' ? fileIconFor(fileName(tab.path)) : DIFF_TAB_ICON;
 }
 
 /**

@@ -581,7 +581,7 @@ test('A8 (i): the alias layer is deleted and every surviving token family is sti
     const n = [...real.keys()].filter((t) => re.test(t)).length;
     assert.ok(n >= least, `only ${n} tokens match ${String(re)} — a family went out with the alias block`);
   }
-  for (const name of ['--term-bg', '--xt-bg', '--xt-bright-cyan', '--badge-ts-bg', '--badge-plain-fg', '--font-sans', '--font-mono', '--fs-term', '--line', '--tick', '--dot', '--t-btn', '--t-spin', '--z-toast', '--z-ghost', '--panel-w', '--topbar-h']) {
+  for (const name of ['--term-bg', '--xt-bg', '--xt-bright-cyan', '--badge-ts-fg', '--badge-plain-fg', '--font-sans', '--font-mono', '--fs-term', '--line', '--tick', '--dot', '--t-btn', '--t-spin', '--z-toast', '--z-ghost', '--panel-w', '--topbar-h']) {
     assert.ok(real.has(name), `${name} outlives the alias layer and must still be declared`);
   }
   // And the names that DID go: a Legacy alias may not be re-declared quietly.
