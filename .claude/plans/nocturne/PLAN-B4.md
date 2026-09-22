@@ -1,6 +1,6 @@
 # Plan B4 — Editor live: read a file, edit it, save it to disk (Nocturne Track B)
 
-Status: LANDED 2026-09-22 (log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b4.md`; suite 3033 → 3103; verify-terminal B4-1…6 + sanity 1–4 PASS; awaiting the user's Windows check); earlier: STARTED 2026-09-22 (user: "continue werken aan de app"; next row in the status table; decisions D1–D4 asked the same day, before the developer started).
+Status: LANDED 2026-09-22 (`6d56028` the landing, `39cbfbb` the four-tab amendment from the user's check; log `memory/log/2026-09/nocturne/2026-09-22-nocturne-b4.md`; suite 3033 → 3127; verify-terminal B4-1…6 + sanity 1–4 PASS; user-verified on Windows 2026-09-22: "ik heb het getest en alles werkt"); earlier: STARTED 2026-09-22 (user: "continue werken aan de app"; next row in the status table; decisions D1–D4 asked the same day, before the developer started).
 Parent: `.claude/plans/PLAN-NOCTURNE.md` part B4. A6 (2026-09-13) drew the
 editor on `MOCK_FILE_CONTENTS`; A10 / A10b (2026-09-15) made it a pane with
 file tabs; B2 (2026-09-16) made every path real, so every file opened from the
