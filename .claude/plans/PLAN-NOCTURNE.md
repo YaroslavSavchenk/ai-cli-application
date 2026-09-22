@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design/session-manager, v3)
 
-Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-09-23; shipped as v0.4.0 the same day). Conventions: `.claude/plans/README.md`.
 Each part starts only on the user's word ("begin aan <id>"); rows are in the order of work.
 
 | Part | What | State | Spec | Landed |
