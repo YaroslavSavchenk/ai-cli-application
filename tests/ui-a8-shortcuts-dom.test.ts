@@ -167,11 +167,14 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
   // A9c added the fourth: the row-menu gesture, whose caption says the menu now
   // CREATES things — a menu nobody opens is a feature nobody has. B10a added
   // the fifth: the Delete key, whose caption is the one sentence the overlay
-  // OWES the reader — there is no undo and no recycle bin behind it.
+  // OWES the reader — there is no undo and no recycle bin behind it. B4 added
+  // the sixth: ctrl+s, the third chord outside the ctrl+alt reservation, whose
+  // caption is why it is safe — it acts only where the keyboard already is, so
+  // a terminal still receives that key.
   assert.equal(
     withCaption.length,
-    5,
-    'the paste row, the copy row, the files-paste row, the row-menu row and the delete row',
+    6,
+    'the paste, copy, files-paste, row-menu, delete and save rows',
   );
   for (const item of withCaption) {
     const row = byClass(item, 'sc-row')[0];
@@ -181,6 +184,8 @@ test('every caption sits INSIDE the item of the row it explains — the reason A
     assert.match(cap, /^[A-Z].*\.$/, `a caption is a plain sentence: ${cap}`);
     if (keys.includes('ctrl+shift+v')) assert.match(cap, /ctrl\+v/);
     if (keys.includes('ctrl+shift+c')) assert.match(cap, /ctrl\+c/);
+    // The save row's caption has ONE job: say that a terminal keeps the key.
+    if (keys === 'ctrl+s') assert.match(cap, /terminal/);
   }
   // Every caption in the whole overlay belongs to an item: none floats loose.
   assert.equal(byClass(modal, 'sc-cap').length, withCaption.length);

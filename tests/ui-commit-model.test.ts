@@ -11,6 +11,11 @@
  * The same split A5 made between `ui-files-model.test.ts` and
  * `ui-files-panel.test.ts`.
  *
+ * WHAT PART B4 DELETED from this file: the last two pins on `ui/files-mock.ts`
+ * (a path the map had text for, and saving back into it). The module is gone:
+ * a file pane reads and writes the real file through an injected gateway now,
+ * and `tests/ui-file-pane.test.ts` drives that against `tests/editor-fixture.ts`.
+ *
  * WHAT PART B3 DELETED from this file: every pin on `MOCK_COMMITS` and on
  * `syntheticDiff()` / `pathSeed()`. The rows come from `git show` now
  * (`GitCommitDiffResponse`), so "a commit's numbers are counted from the diff
@@ -45,11 +50,6 @@ const M = (await import(new URL('../web/src/ui/commit-model.ts', import.meta.url
   collapseKey(hash: string, path: string): string;
   blockDomId(hash: string, path: string): string;
   fileName(path: string): string;
-};
-
-const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as {
-  mockFileContent(path: string): string | null;
-  saveMockFile(path: string, text: string): void;
 };
 
 /** A hash of the shape every response carries: 40 hex, lower case. */
@@ -101,28 +101,6 @@ test('fileName is the last segment — the only part of a path a tab label shows
   assert.equal(M.fileName('web/src/Pane.tsx'), 'Pane.tsx');
   assert.equal(M.fileName('README.md'), 'README.md');
   assert.equal(M.fileName(''), '');
-});
-
-// ---------------------------------------------------------------------------
-// What is LEFT of the mock (part B4 takes it): file text, and nothing else
-// ---------------------------------------------------------------------------
-
-test('a file the mock does not know is NULL — a sentence dressed as a file is worse', () => {
-  // A sentence returned as CONTENT renders as a one-line editable file, which
-  // claims the file says that. Null lets the pane draw the note it is.
-  assert.equal(MOCK.mockFileContent('server/nothing-here.ts'), null);
-  assert.ok(
-    (MOCK.mockFileContent('web/src/Pane.tsx') ?? '').length > 100,
-    'non-vacuity: known files have text',
-  );
-});
-
-test('saving writes back into the mock map — and nothing else can (part B4 writes to disk)', () => {
-  const before = MOCK.mockFileContent('web/src/App.tsx') ?? '';
-  MOCK.saveMockFile('web/src/App.tsx', 'edited\n');
-  assert.equal(MOCK.mockFileContent('web/src/App.tsx'), 'edited\n');
-  MOCK.saveMockFile('web/src/App.tsx', before);
-  assert.equal(MOCK.mockFileContent('web/src/App.tsx'), before);
 });
 
 // ---------------------------------------------------------------------------

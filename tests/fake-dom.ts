@@ -351,6 +351,16 @@ export class FakeElement extends FakeNode {
    */
   readOnly = false;
   spellcheck = true;
+  /**
+   * Caret, selection and scroll offset of a text field (part B4). There is no
+   * layout and no caret here, so these are plain values the module under test
+   * writes and reads back — which is exactly what the disk follow's caret
+   * clamp (`min(old caret, new length)`) and the "scroll offset is kept" rule
+   * are about.
+   */
+  selectionStart = 0;
+  selectionEnd = 0;
+  scrollTop = 0;
   readonly captured = new Set<number>();
   /**
    * Layout, as a value a test sets: there is no engine here, so a module that
@@ -460,6 +470,12 @@ export class FakeElement extends FakeNode {
   }
   set value(v: string) {
     this.#value = v;
+  }
+
+  /** What a real text field does with `setSelectionRange` (part B4). */
+  setSelectionRange(start: number, end: number): void {
+    this.selectionStart = start;
+    this.selectionEnd = end;
   }
 
   /** The set rect, or an all-zero one (a node no test placed has no box). */
@@ -638,6 +654,12 @@ export function descendants(root: FakeElement): FakeElement[] {
 export interface FakeDocument extends FakeTarget {
   body: FakeElement;
   activeElement: FakeElement;
+  /**
+   * `visible` / `hidden`, as a value a test sets (part B4): the editor's disk
+   * follow ticks only while the document is visible, and there is no window
+   * manager here to hide it.
+   */
+  visibilityState: string;
   createElement(tag: string): FakeElement;
   createElementNS(ns: string, tag: string): FakeElement;
   /**
@@ -809,6 +831,7 @@ export function installDom(): Dom {
   const d = Object.assign(new FakeTarget(), {
     body,
     activeElement: body,
+    visibilityState: 'visible',
     createElement: (tag: string) => new FakeElement(tag),
     createElementNS: (_ns: string, tag: string) => {
       const n = new FakeElement(tag);

@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design/session-manager, v3)
 
-Status: see the table below (updated 2026-09-21). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-09-22). Conventions: `.claude/plans/README.md`.
 Each part starts only on the user's word ("begin aan <id>"); rows are in the order of work.
 
 | Part | What | State | Spec | Landed |
@@ -25,8 +25,8 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B10 | Real file copy into WSL, Copy to the Windows clipboard | verified | `.claude/plans/nocturne/PLAN-B10.md` | 2026-09-20 |
 | B10a | Select several files and folders, delete them | verified | `.claude/plans/nocturne/PLAN-B10a.md` | 2026-09-20 |
 | B3 | Commits live | verified | `.claude/plans/nocturne/PLAN-B3.md` | 2026-09-21 |
-| B4 | Editor live (read, edit, save to disk) | todo — **next** | — |  |
-| B6 | Settings live | todo | — |  |
+| B4 | Editor live (read, edit, save to disk) | landed | `.claude/plans/nocturne/PLAN-B4.md` | 2026-09-22 |
+| B6 | Settings live | todo — **next** | — |  |
 | B9 | Terminal colours live | todo | — |  |
 | B7 | Background agents table live (open decision: data source) | todo | — |  |
 | B8 | Cleanup + memory, release v0.4.0 | todo | — |  |

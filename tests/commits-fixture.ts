@@ -5,7 +5,8 @@
  * `GitCommitDiffResponse`).
  *
  * WHY A FIXTURE AND NOT A MOCK MODULE. B3 deleted the commits half of
- * `ui/files-mock.ts`; the Commits tab, the commit view and a diff pane all
+ * `ui/files-mock.ts` and B4 deleted what was left of that module; the Commits
+ * tab, the commit view and a diff pane all
  * take their answers through an INJECTED gateway now, so every test here is
  * the real UI against a plain object — no module stubbing, no HTTP, no clock.
  * The values are chosen so the pages, the caps and the two special file kinds

@@ -252,7 +252,7 @@ test('badgeFor: an unknown type, a dotfile and a file with no extension all get 
  * The shape part B2's `Changes` tab really hands this renderer: a flat list of
  * repo-relative paths, numbers only where git has them. It replaces the
  * `MOCK_FILES` this test used to read (part B2 deleted that half of
- * `ui/files-mock.ts`, part B3 the commits half), and it is declared HERE
+ * `ui/files-mock.ts`, B3 the commits half and B4 the module), and it is HERE
  * because the arithmetic below is about the renderer, not about anybody's
  * data.
  */

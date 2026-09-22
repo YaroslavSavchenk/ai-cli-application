@@ -1,7 +1,7 @@
 ---
 type: backlog
 created: 2026-09-08
-updated: 2026-09-15
+updated: 2026-09-22
 tags: [backlog, todo, open]
 ---
 # Backlog — still to do (living note)
@@ -189,7 +189,7 @@ app window first so one backend at a time owns runtime.json.
 - [x] Windows-side (A6) — user tested the dev window 2026-09-13: "alles goed".
 - [ ] ~~Windows-side (A6, 2026-09-13):~~ (verified, see above) commit view open/Back with a TUI running (no torn rows, WebGL intact), editor column at 54 % with typing + Save, `Changes` diff tab, Esc out of the view, ligature-free `===` in the editor, `This commit is not available.` never seen (mock only).
 - [ ] B3 owes: `syntheticDiff` → `git show <hash> -- <path>` (one diff per PATH today, so two commits sharing a file show identical rows/numbers); `DiffLine.n` → `oldNo/newNo` two-column gutter (`--diff-gut-w` sized for one); a remote datum for `Open on GitHub`.
-- [ ] B4 owes: unsaved-text confirm on all four doors (tab close, reload, window close, backend grace) + disk write; `lastGoodDims` in `panes.ts` is global not per-slot (self-corrects at attach).
+- [x] ~~B4 owes: unsaved-text confirm on all four doors + disk write~~ — landed 2026-09-22 ([[2026-09-22-nocturne-b4]]; backend grace stays the one silent door, known limit). Still open: `lastGoodDims` in `panes.ts` is global not per-slot (self-corrects at attach).
 - [ ] Editor caret/scroll position is lost when a commit view opens over it (text survives) — scope note A6.
 - [x] ~~`MOCK_FILES` is an exported const mutated at module init~~ — B2 Brief B (2026-09-16) deleted the FILES half of `files-mock.ts`; the contents half (B4) and commits half (B3) remain, with a header comment naming their owners.
 - [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
@@ -309,9 +309,7 @@ number exists.
   1,048,052 bytes in the A10b verify). Re-attach only the slots whose
   geometry changed, or replay the viewport plus a bounded tail and fetch
   the rest on scroll.
-- [ ] **Editor panes across a reload**: `EditorSlot` tabs are not in the
-  v2 persistence bag, so a reload drops open files (B4 may land this
-  anyway; if not, it belongs here).
+- [x] ~~**Editor panes across a reload**~~ — B4 (2026-09-22, user decision D2): file + diff tabs persist, 16 per strip; unsaved text does not.
 - [ ] **Frontend bundle**: `index-*.js` is 660 kB (Vite warns above
   500 kB). xterm.js + the WebGL addon are the bulk; split the GitHub /
   Settings / update surfaces into lazy chunks, keep the terminal path in
@@ -376,9 +374,9 @@ pass or a test-engineer brief, not a feature.
   are gone; the drop dialog's conflicts are real. B3 landed 2026-09-21: the
   COMMITS half, `syntheticDiff` and both commit honesty lines are gone —
   what is left is `mockFileContent` / `saveMockFile` and the editor's one
-  line). When B4 lands, delete
-  the rest of the module and every remaining marker in the same change;
-  until then, a test asserts the count only goes DOWN.
+  line). B4 landed 2026-09-22: `files-mock.ts` deleted with its last two
+  readers and the editor's honesty line — nothing in the app is mock.
+  (Ticked; kept for the history of the three halves.)
 - [ ] **Persist the agents' scratch tooling as repo scripts** (2026-09-16,
   from the session analysis): every test-gate rebuilds a mutation harness
   (`scratchpad/mut/run.py`: apply one string mutant, run a test subset,

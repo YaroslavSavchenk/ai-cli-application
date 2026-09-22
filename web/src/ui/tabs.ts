@@ -19,9 +19,12 @@
  *
  * WHAT `×` COSTS. A tab holding sessions ENDS them, so it keeps the armed
  * two-step confirm. A folder tab holding only editor panes kills nothing —
- * the panes go away, and the unsaved text goes with them for good (the amber
- * dot is the only warning until part B4 adds the confirm), so no armed
- * two-step stands in the way: nothing running is ended.
+ * the panes go away — so no armed two-step stands in the way: nothing running
+ * is ended. What DOES stand in the way, since part B4 (user decision D1), is
+ * the unsaved-changes question: closing a tab whose files hold text no other
+ * tab shows asks before that text goes (`closeViewGuarded`, ui/unsaved.ts).
+ * The two are not the same question and never merge: one is about sessions
+ * being ended, the other about typing being dropped.
  *
  * `killSession` and `openLaunch` are INJECTED by main.ts rather than imported:
  * both live behind modules that pull in @xterm/xterm, and this strip has to
@@ -32,6 +35,7 @@ import { el, button, ArmedSet } from './util.ts';
 import { armDrag } from './dnd.ts';
 import { slotTitle, viewLabel } from './slots-model.ts';
 import { tabIdOf } from './editor-model.ts';
+import { closeViewGuarded } from './unsaved.ts';
 
 const armed = new ArmedSet();
 
@@ -167,8 +171,16 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
       if (!home) {
         const kills = st.sessionIds(v).length > 0;
         const close = button('tab-x', armed.isArmed(v.id) ? 'sure?' : '×', () => {
-          if (!kills) {
+          // TWO QUESTIONS, NEVER MERGED. The armed two-step is about ENDING
+          // sessions and stays on the button; the unsaved-changes question
+          // (part B4, D1) is about dropping typed text and stands between the
+          // confirmed click and the act. Nothing is ended and nothing is
+          // closed until both have been answered.
+          const act = (): void => {
             void killView(v, deps);
+          };
+          if (!kills) {
+            closeViewGuarded(v.id, act, close);
             return;
           }
           if (
@@ -177,7 +189,7 @@ export function initTabs(strip: HTMLElement, deps: TabDeps): { render(): void } 
               render();
             })
           ) {
-            void killView(v, deps);
+            closeViewGuarded(v.id, act, close);
           }
         });
         if (armed.isArmed(v.id)) close.dataset.armed = '1';

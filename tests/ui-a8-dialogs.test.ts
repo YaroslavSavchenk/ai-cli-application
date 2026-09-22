@@ -54,6 +54,7 @@ const SHORTCUTS_TS = readFileSync(join(WEB_SRC, 'ui', 'shortcuts.ts'), 'utf8');
 const UPDATE_TS = readFileSync(join(WEB_SRC, 'ui', 'update.ts'), 'utf8');
 const DROP_DIALOG_TS = readFileSync(join(WEB_SRC, 'ui', 'drop-dialog.ts'), 'utf8');
 const DELETE_DIALOG_TS = readFileSync(join(WEB_SRC, 'ui', 'delete-dialog.ts'), 'utf8');
+const UNSAVED_TS = readFileSync(join(WEB_SRC, 'ui', 'unsaved.ts'), 'utf8');
 
 /** Every .ts under web/src, plus the one hand-written HTML page. */
 const FILES = frontendFiles(['.ts']);
@@ -81,8 +82,10 @@ const MINE = [
   // a file is a PANE now, and its styling lives in the pane blocks
   // (`file pane (Nocturne A10)`), which are Developer A's.
   'file pane (Nocturne A10)',
-  // Part B10a's confirmation: one more dialog on the same scrim and the same
-  // button block, so it is scanned by the same token and colour rules.
+  // Part B10a's confirmation — and, since part B4, the unsaved-changes
+  // question, which is that same card with another sentence in it and shares
+  // every rule in the section: one more dialog on the same scrim and the same
+  // button block, so both are scanned by the same token and colour rules.
   'delete confirmation (Nocturne B10a)',
 ];
 
@@ -114,13 +117,14 @@ function assignedClasses(src: string): string[] {
 
 /**
  * The dialog-and-panel prefixes this file is the parity guard for. `fd-` (the
- * A9 drop dialog) joined the family in part A9 and `dd-` (the B10a delete
- * confirmation) in part B10a: each is one more dialog on the same scrim and
- * the same button block, so they are checked by the same three rules rather
- * than by a second copy of them. Their own DOM behaviour is
- * `tests/ui-a9-drop-dialog.test.ts` and `tests/ui-files-delete.test.ts`.
+ * A9 drop dialog) joined the family in part A9, `dd-` (the B10a delete
+ * confirmation) in part B10a and `ud-` (part B4's unsaved-changes question) in
+ * B4: each is one more dialog on the same scrim and the same button block, so
+ * they are checked by the same three rules rather than by a second copy of
+ * them. Their own DOM behaviour is `tests/ui-a9-drop-dialog.test.ts`,
+ * `tests/ui-files-delete.test.ts` and `tests/ui-unsaved.test.ts`.
  */
-const PREFIXED = /^(?:sc|ut|rs|fd|dd)-[a-z0-9-]+$/;
+const PREFIXED = /^(?:sc|ut|rs|fd|dd|ud)-[a-z0-9-]+$/;
 
 // ---------------------------------------------------------------------------
 
@@ -155,7 +159,7 @@ test('tokens only: every var() in the dialog and panel sections is declared in t
   assert.deepEqual(offenders, [], `a rule reads a token that is declared nowhere:\n  ${offenders.join('\n  ')}`);
 });
 
-test('class parity for sc-, ut-, rs-, fd- and dd-: no unstyled class, no dead rule, one owner per prefix', () => {
+test('class parity for sc-, ut-, rs-, fd-, dd- and ud-: no unstyled class, no dead rule, one owner per prefix', () => {
   const inTs = new Map<string, string[]>();
   for (const f of FILES) {
     for (const c of assignedClasses(f.src)) {
@@ -166,7 +170,7 @@ test('class parity for sc-, ut-, rs-, fd- and dd-: no unstyled class, no dead ru
     }
   }
   const inCss = new Set<string>();
-  for (const m of APP_RULES.matchAll(/\.((?:sc|ut|rs|fd|dd)-[a-z0-9-]+)/g)) inCss.add(m[1] as string);
+  for (const m of APP_RULES.matchAll(/\.((?:sc|ut|rs|fd|dd|ud)-[a-z0-9-]+)/g)) inCss.add(m[1] as string);
   assert.ok(inTs.size >= 20 && inCss.size >= 20, `non-vacuity: ts ${inTs.size}, css ${inCss.size}`);
 
   const unstyled = [...inTs.keys()]
@@ -191,6 +195,7 @@ test('class parity for sc-, ut-, rs-, fd- and dd-: no unstyled class, no dead ru
   assert.deepEqual([...(owners.get('rs') as Set<string>)], ['web/src/ui/update.ts']);
   assert.deepEqual([...(owners.get('fd') as Set<string>)], ['web/src/ui/drop-dialog.ts']);
   assert.deepEqual([...(owners.get('dd') as Set<string>)], ['web/src/ui/delete-dialog.ts']);
+  assert.deepEqual([...(owners.get('ud') as Set<string>)], ['web/src/ui/unsaved.ts']);
 });
 
 test('the retired Legacy dialog chrome has zero users: no rule, no assignment', () => {
@@ -267,6 +272,7 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
     'web/src/ui/picker.ts',
     'web/src/ui/settings.ts',
     'web/src/ui/shortcuts.ts',
+    'web/src/ui/unsaved.ts',
     'web/src/ui/update.ts',
   ]);
   // The two new scrims wear it beside their own prefix, in that order.
@@ -274,12 +280,17 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
   assert.ok(UPDATE_TS.includes("el('div', 'modal-scrim rs-scrim')"));
   assert.ok(DROP_DIALOG_TS.includes("el('div', 'modal-scrim fd-scrim')"));
   assert.ok(DELETE_DIALOG_TS.includes("el('div', 'modal-scrim dd-scrim')"));
+  assert.ok(UNSAVED_TS.includes("el('div', 'modal-scrim ud-scrim')"));
   // The confirmation sits at the shared --z-modal — it takes its z-layer from
   // `.modal-scrim` and declares none of its own, unlike the restart
   // confirmation, which is the ONE dialog that opens over another.
-  const dd = /\.modal-scrim\.dd-scrim\s*\{([^}]*)\}/.exec(APP_RULES);
+  // Since part B4 that anchor rule serves TWO scrims — the confirmation and
+  // the unsaved-changes question are one card with two questions in it — so
+  // the selector is a list and the block is read through it.
+  const dd = /\.modal-scrim\.dd-scrim[^{]*\{([^}]*)\}/.exec(APP_RULES);
   assert.notEqual(dd, null, 'the confirmation scrim must have its own anchor rule');
   assert.equal(/z-index/.test(dd?.[1] ?? ''), false, 'it inherits --z-modal from .modal-scrim');
+  assert.match(APP_RULES, /\.modal-scrim\.ud-scrim/, 'and the B4 question is anchored with it');
   // The confirmation is the ONE dialog that opens over another one.
   assert.match(APP_RULES, /\.modal-scrim\.rs-scrim\s*\{[^}]*z-index:\s*var\(--z-modal-top\)/);
   // The toast sits over the panes and under every dialog.
@@ -335,16 +346,17 @@ test('the overlay keeps its three columns, its key chips and the caption under t
   for (const k of ['ctrl+shift+v', 'shift+insert', 'ctrl+shift+c', 'ctrl+insert', 'ctrl+click a link']) {
     assert.ok(SHORTCUTS_TS.includes(`'${k}'`), `the overlay must still list ${k}`);
   }
-  // Each row that carries a one-line why keeps it, as a sentence. Four are
-  // spelled with single quotes (paste, copy, the Files row menu since A9c, and
-  // the Delete key since B10a, whose note is the "no undo, no recycle bin"
-  // sentence); the files-on-the-clipboard note is double-quoted because it
-  // holds an apostrophe, so this scan has never counted it.
+  // Each row that carries a one-line why keeps it, as a sentence. Five are
+  // spelled with single quotes (paste, copy, the Files row menu since A9c, the
+  // Delete key since B10a, whose note is the "no undo, no recycle bin"
+  // sentence, and ctrl+s since B4, whose note is the reason a terminal still
+  // gets that key); the files-on-the-clipboard note is double-quoted because
+  // it holds an apostrophe, so this scan has never counted it.
   const notes = [...SHORTCUTS_TS.matchAll(/note: '([^']*)'/g)].map((m) => m[1] as string);
   assert.equal(
     notes.length,
-    4,
-    `expected the paste, copy, row-menu and delete notes, found ${notes.length}`,
+    5,
+    `expected the paste, copy, row-menu, delete and save notes, found ${notes.length}`,
   );
   for (const n of notes) {
     assert.match(n, /^[A-Z]/, `a caption is a plain sentence: ${n}`);

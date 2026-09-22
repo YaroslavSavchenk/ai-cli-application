@@ -1166,6 +1166,55 @@ export type FsDeleteResult = { ok: true } | { ok: false; status: number; error: 
  *  each item carries its own status, so a partial batch is an ordinary answer. */
 export interface FsDeleteResponse { results: FsDeleteResult[] }
 
+// ---------------------------------------------------------------------------
+// Editor (Nocturne B4) — GET /api/fs/read, PUT /api/fs/write
+// ---------------------------------------------------------------------------
+//
+// The editor pane's ONE read and ONE write (`.claude/plans/nocturne/PLAN-B4.md`).
+// Both take an absolute path through the same anchor boundary as
+// /api/fs/create (home + every registered project root, the data dir refused).
+// Text only: at most FS_TEXT_MAX_BYTES, UTF-8, no NUL byte — anything else is
+// refused with a sentence (413 too large, 415 not text), never sent as bytes.
+//
+// `stamp` is the server's hash of the bytes on disk, OPAQUE to the client. A
+// read with `if=<stamp>` answers `{ changed: false }` when the file is still
+// those bytes (the 5 s disk follow costs no body then); a write with
+// `expect: <stamp>` is refused with 409 when the file changed since (user
+// decision D4) — the client never computes a stamp, only hands one back.
+//
+// Text travels LF-normalised both ways; `eol` and `bom` say what the file used
+// so a write restores them. Neither the path nor a byte of text is ever logged.
+
+/** The most bytes the editor reads or writes; larger answers 413. */
+export const FS_TEXT_MAX_BYTES = 1024 * 1024;
+
+/** The line ending a file uses — the kind of its FIRST line break; `lf` when it has none. */
+export type FsEol = 'lf' | 'crlf';
+
+/**
+ * GET /api/fs/read?path=<abs>&if=<stamp, optional>. With `if` equal to the
+ * current stamp the answer is `{ changed: false, stamp }` and carries no text.
+ */
+export type FsReadResponse =
+  | { changed: false; stamp: string }
+  | { changed: true; stamp: string; text: string; eol: FsEol; bom: boolean };
+
+/**
+ * PUT /api/fs/write — JSON body, `text` LF-normalised. `expect` = the stamp the
+ * text was edited from: a mismatch answers 409, a file that is gone 404; absent
+ * = write regardless (the editor's `Overwrite`, which also recreates a gone file).
+ */
+export interface FsWriteRequest {
+  path: string;
+  text: string;
+  eol: FsEol;
+  bom: boolean;
+  expect?: string;
+}
+
+/** 200 of PUT /api/fs/write: the new stamp and the bytes that landed. */
+export interface FsWriteResponse { stamp: string; bytes: number }
+
 /** GET /api/git/changes?root=<abs> — how one file differs from the last commit. */
 export type ChangeStatus = 'modified' | 'new' | 'deleted' | 'renamed';
 

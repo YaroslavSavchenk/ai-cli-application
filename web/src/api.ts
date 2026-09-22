@@ -14,6 +14,9 @@ import type {
   FsEntriesResponse,
   FsListResponse,
   FsMkdirResponse,
+  FsReadResponse,
+  FsWriteRequest,
+  FsWriteResponse,
   FsUploadMode,
   FsDeleteResponse,
   FsUploadResponse,
@@ -494,6 +497,29 @@ export function fsCreate(
   return request<FsCreateResponse>('/api/fs/create', {
     method: 'POST',
     body: JSON.stringify({ dir, name, kind }),
+  });
+}
+
+/**
+ * Read ONE text file for the editor (B4). `ifStamp` = the stamp already held:
+ * the server answers `{ changed: false }` when the bytes are still the same, so
+ * the 5 s disk follow costs no body. Refusals reject with `ApiError(status)`
+ * carrying the server's sentence (413 too large, 415 not text, 404 gone).
+ */
+export function fsRead(path: string, ifStamp?: string): Promise<FsReadResponse> {
+  const q = `path=${encodeURIComponent(path)}${ifStamp === undefined ? '' : `&if=${encodeURIComponent(ifStamp)}`}`;
+  return request<FsReadResponse>(`/api/fs/read?${q}`);
+}
+
+/**
+ * Write ONE text file for the editor (B4). `body.expect` is the stamp the text
+ * was edited from; the server answers 409 when the file changed since, 404
+ * when it is gone. Without `expect` the write lands regardless (`Overwrite`).
+ */
+export function fsWrite(body: FsWriteRequest): Promise<FsWriteResponse> {
+  return request<FsWriteResponse>('/api/fs/write', {
+    method: 'PUT',
+    body: JSON.stringify(body),
   });
 }
 

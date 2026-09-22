@@ -286,13 +286,21 @@ test('the session list and the 15 s tick skip panes that hold no session', () =>
 //    that is NOT here
 // ---------------------------------------------------------------------------
 
-test('an editor pane’s × closes the PANE through state.ts, and says why that is allowed', () => {
+test('an editor pane’s × closes the PANE through the B4 guard, and says why that is allowed', () => {
   // The × itself moved into ui/editor-pane.ts with the rest of the header; the
-  // RULE did not move, so both halves are read.
+  // RULE did not move, so both halves are read. Since part B4 (user decision
+  // D1) it goes through `closeSlotGuarded`, which asks before unsaved text is
+  // dropped and then calls `state.closeSlot` — which still refuses a session
+  // slot, so this × can only ever close an editor pane.
   assert.match(
     EDITOR_PANE,
-    /const closePane = button\('pane-x', '×', \(\) => \{\s*\n\s*if \(slot !== null\) st\.closeSlot\(viewId, slotIndex\);/,
-    'state.ts refuses a session slot; this × can only ever close an editor pane',
+    /const closePane = button\('pane-x', '×', \(\) => \{[\s\S]*?if \(slot !== null\) closeSlotGuarded\(viewId, slotIndex, closePane\);/,
+    'the pane × asks first, then closes the pane through state.ts',
+  );
+  assert.equal(
+    EDITOR_PANE.includes('st.closeSlot('),
+    false,
+    'and never past the question (ui/unsaved.ts owns that call now)',
   );
   assert.equal(EDITOR_PANE.includes('killSession'), false, 'an editor pane never ends anything');
   assert.match(
@@ -300,8 +308,13 @@ test('an editor pane’s × closes the PANE through state.ts, and says why that 
     /A3 no-close rule: that rule is\n \* about ENDING SESSIONS/,
     'the reason the × is allowed here is written down where the pane is built',
   );
-  // And the tab × is the OTHER closer: one tab, never the pane.
-  assert.match(EDITOR_PANE, /button\('pane-x', '×', \(\) => st\.closeTab\(viewId, slotIndex, i\)\)/);
+  // And the tab × is the OTHER closer: one tab, never the pane — through the
+  // same B4 question, which asks about that ONE file.
+  assert.match(
+    EDITOR_PANE,
+    /button\('pane-x', '×', \(\) => closeTabGuarded\(viewId, slotIndex, i, x\)\)/,
+  );
+  assert.equal(EDITOR_PANE.includes('st.closeTab('), false, 'never past the question');
 });
 
 test('buildEditorPane hands the chrome over and then only states the model', () => {
@@ -415,10 +428,18 @@ test('ctrl+alt+w closes the ACTIVE TAB, ends nothing, and stands down under the 
   // looking at, and only its LAST tab takes the pane with it — that ladder is
   // state.ts's (`closeActiveTab` -> `closeTab` -> `closeSlot`), so main.ts
   // must not reach past it and close the pane itself.
+  // Since part B4 the chord goes through the D1 guard first
+  // (`closeActiveTabGuarded` -> the question -> `state.closeTab`), so the
+  // ladder is unchanged and one more thing stands in front of it.
   assert.match(
     body,
-    /const v = st\.activeView\(\);\s*\n\s*if \(v !== null\) st\.closeActiveTab\(v\.id, v\.focused\);/,
-    'it closes the active tab of the FOCUSED pane of the ACTIVE view, through state.ts',
+    /const v = st\.activeView\(\);[\s\S]*?if \(v !== null\) closeActiveTabGuarded\(v\.id, v\.focused\);/,
+    'it closes the active tab of the FOCUSED pane of the ACTIVE view, after asking',
+  );
+  assert.equal(
+    body.includes('st.closeActiveTab('),
+    false,
+    'and never past the question',
   );
   assert.equal(body.includes('killSession'), false, 'the chord never ends a session');
   assert.equal(

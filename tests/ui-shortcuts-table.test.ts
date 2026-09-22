@@ -116,6 +116,15 @@ const ROWS = readRows();
 // rows these lists are about are the ones that take a keystroke off the TUI.
 const pasteRows = ROWS.filter((r) => !r.gesture && r.what.includes('paste'));
 const copyRows = ROWS.filter((r) => !r.gesture && r.what.includes('copy'));
+/**
+ * The THIRD sanctioned row outside the ctrl+alt reservation (part B4,
+ * 2026-09-22): ctrl+s saves the file the keyboard is in. It differs from paste
+ * and copy in the way that makes it safe, and that difference is asserted
+ * below rather than assumed: it is handled by the FIELD (`ui/file-pane.ts`),
+ * not by the window, and it is deliberately NOT in the terminal's allow-list —
+ * a focused terminal keeps its own ctrl+s (XOFF).
+ */
+const saveRows = ROWS.filter((r) => !r.gesture && r.keys.includes('ctrl+s'));
 
 /**
  * Every chord in the plausible space (all 16 ctrl/shift/alt/meta combinations
@@ -205,8 +214,8 @@ test('the paste and copy rows are the ONLY rows outside the ctrl+alt reservation
   // anything else taking `ctrl+`/`shift+` must be THE paste row or THE copy
   // row — exempted by identity (the single rows pinned above), not by a
   // substring of their description.
-  const sanctioned = [...pasteRows, ...copyRows];
-  assert.equal(sanctioned.length, 2, 'the exemption must name exactly the paste row and the copy row');
+  const sanctioned = [...saveRows, ...pasteRows, ...copyRows];
+  assert.equal(sanctioned.length, 3, 'the exemption must name exactly the save, paste and copy rows');
   const outside = ROWS.filter((r) =>
     r.keys.some(
       (k) =>
@@ -223,7 +232,11 @@ test('the paste and copy rows are the ONLY rows outside the ctrl+alt reservation
   // And both sanctioned rows really ARE outside it (non-vacuity of the exemption).
   assert.deepEqual(
     outside.map((r) => r.what),
-    ['paste the clipboard into the terminal', 'copy the selection'],
+    [
+      'save the file you are typing in',
+      'paste the clipboard into the terminal',
+      'copy the selection',
+    ],
   );
 });
 
@@ -298,7 +311,7 @@ test('the link row promises exactly what isLinkActivation does: ctrl (or meta) o
 test('the paste and copy rows are the ONLY keyboard rows outside the ctrl+alt reservation — gestures are exempt by flag, not by luck', () => {
   // Same invariant as above, stated over the parsed `gesture` flag: a MOUSE
   // sentence beginning with `ctrl+` is not a key the app takes off the TUI.
-  const sanctioned = [...pasteRows, ...copyRows];
+  const sanctioned = [...saveRows, ...pasteRows, ...copyRows];
   const offenders = ROWS.filter(
     (r) =>
       !r.gesture &&
@@ -372,7 +385,10 @@ test('the copy row answers the two things a terminal user must trust, on the row
   assert.ok(text.includes('ctrl+c') && text.includes('interrupt'), `plain ctrl+c must still read as the interrupt: ${text}`);
   assert.ok(text.includes('nothing selected'), `the note must say the keys fall through with no selection: ${text}`);
   // And the footer no longer claims paste is the only other thing the app takes.
-  assert.ok(src.includes('the paste and copy chords above are the only other keys the app takes'));
+  assert.ok(
+    src.includes('the paste and copy chords above are the only other keys the app takes anywhere'),
+    'the footer must still name the two chords the app takes EVERYWHERE',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -617,7 +633,7 @@ test('main.ts tests the SHIFTED pgup/pgdn branch before the unshifted one', () =
   // ctrl+alt+m moves the active tab, and falls back to a split.
   assert.match(block, /moveTabToSplit/);
   // ctrl+alt+w closes the TAB, not the pane (A10b).
-  assert.match(block, /closeActiveTab/);
+  assert.match(block, /closeActiveTabGuarded\(/);
   assert.equal(/st\.closeSlot\(/.test(block), false, 'the chord closes a tab now, not a whole pane');
 });
 
@@ -666,4 +682,48 @@ test('the swap row is about a PANE now, not about a session (A10 made it kind-bl
     false,
     'a file pane swaps with a terminal, so the old wording is no longer true',
   );
+});
+
+// ---------------------------------------------------------------------------
+// The save chord (part B4, 2026-09-22)
+// ---------------------------------------------------------------------------
+
+test('ctrl+s is listed on exactly ONE row, with the control it doubles and the reason it is safe', () => {
+  assert.equal(saveRows.length, 1, `expected one save row, found ${saveRows.length}`);
+  const row = saveRows[0] as TableRow;
+  assert.deepEqual(row.keys, ['ctrl+s']);
+  assert.equal(row.gesture, false, 'a key is a chip, not a sentence');
+  assert.equal(row.what, 'save the file you are typing in');
+  assert.equal(row.ui, 'Save under the text', 'the same act has a visible control');
+  // The note is load-bearing: it is the reason a chord outside ctrl+alt does
+  // not break the project's keyboard rule.
+  assert.equal(
+    row.note,
+    'These keys act only while the keyboard is in a file, so a terminal still receives them.',
+  );
+  assert.ok((row.note ?? '').includes('terminal'));
+  // Not the paste or copy row wearing a second label.
+  assert.equal(pasteRows.includes(row), false);
+  assert.equal(copyRows.includes(row), false);
+});
+
+test('ctrl+s is handled by the FIELD, not by the window — and the terminal never gives it up', () => {
+  // THE WHOLE REASON THE ROW IS ALLOWED. A window-level ctrl+s would take the
+  // key from every pane, including a terminal, where ctrl+s is XOFF and
+  // belongs to the program (PROJECT-SCOPE's keyboard rule). So:
+  //   1. no window handler claims it,
+  //   2. the textarea of a file body does,
+  //   3. the terminal allow-list does NOT mention it — a key in that list that
+  //      nothing acts on is a key stolen from the PTY.
+  const main = readFileSync(MAIN_TS, 'utf8');
+  assert.equal(/'s'\s*\|\||k === 's'/.test(mainChordBlock()), false, 'not an app chord');
+  assert.equal(/key === 's'/.test(main), false, "main.ts must not claim the field's key");
+
+  const filePane = readFileSync(join(REPO_ROOT, 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  assert.match(filePane, /ta\.addEventListener\('keydown'/, 'the FIELD listens');
+  assert.match(filePane, /e\.key !== 's' && e\.key !== 'S'/, 'and it is this chord it acts on');
+  assert.match(filePane, /e\.preventDefault\(\)/, "the browser's own save dialog must not open");
+
+  const allow = terminalAllowlist();
+  assert.equal(/'s'/.test(allow), false, 'a focused terminal keeps ctrl+s: it is XOFF');
 });

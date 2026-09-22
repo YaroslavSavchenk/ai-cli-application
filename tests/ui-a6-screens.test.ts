@@ -1190,7 +1190,8 @@ test('closing an editor pane leaves every other file’s unsaved text alone', ()
   assert.equal(st.state.edits.get('f:a/one.ts'), 'one typed');
   // The closed file was on no other pane, so its text goes with it
   // (PROJECT-SCOPE: dropped when the LAST pane showing that file closes).
-  // Still no confirm before B4 owns the disk write; the amber dot is the warning.
+  // `closeTab` is the state MUTATOR: since part B4 the question about unsaved
+  // text stands in FRONT of it (`closeTabGuarded`, ui/unsaved.ts), never in it.
   assert.equal(st.state.edits.has('f:a/two.ts'), false);
   assert.deepEqual(tabsOf(st.state.views[0] as View), [{ kind: 'file', path: 'a/one.ts' }]);
 });

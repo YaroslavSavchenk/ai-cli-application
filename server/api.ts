@@ -67,6 +67,7 @@ import {
   FS_READ_FAILED,
 } from './fsbrowse.ts';
 import { handleDelete } from './fsdelete.ts';
+import { handleRead, handleWrite } from './fstext.ts';
 import { handleUpload } from './fsupload.ts';
 import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
 import { changesFor, GIT_READ_FAILED } from './git.ts';
@@ -1323,6 +1324,40 @@ export function createRequestHandler(
       return;
     }
 
+    // --- Filesystem: the editor's file READ and WRITE (B4) ------------------
+    //
+    // The whole of both routes lives in server/fstext.ts (the boundary, the
+    // O_NOFOLLOW|O_NONBLOCK opens, the fstat rule, the stamp compare and the
+    // in-place write). What stays here is this file's own policy: how a
+    // response is written, how a body is read SAFELY (readJsonBodySafe never
+    // lets a parse error — which quotes the user's TEXT — escape), and that a
+    // refusal taken before the body is read closes the connection. The write's
+    // body cap is the route's own (FS_WRITE_MAX_BODY_BYTES), passed by the
+    // module to readJson: the generic MAX_BODY_BYTES stays 1 MiB.
+    if (pathname === '/api/fs/read') {
+      handleRead(req, res, url, {
+        projects: projectAnchors,
+        log: fsLog,
+        sendJson,
+        sendError,
+        sendErrorAndClose,
+        readJson: readJsonBodySafe,
+      });
+      return;
+    }
+
+    if (pathname === '/api/fs/write') {
+      await handleWrite(req, res, {
+        projects: projectAnchors,
+        log: fsLog,
+        sendJson,
+        sendError,
+        sendErrorAndClose,
+        readJson: readJsonBodySafe,
+      });
+      return;
+    }
+
     // --- Filesystem: upload ONE file (B10) ----------------------------------
     //
     // The whole route lives in server/fsupload.ts; what stays here is the
@@ -1857,7 +1892,14 @@ export function createRequestHandler(
         // One upload per FILE: a 2000-file drop would otherwise write 2000
         // access lines. A refusal there is still info (or error) — that is the
         // diagnostic.
-        (route === '/api/fs/upload' && status >= 200 && status < 300);
+        (route === '/api/fs/upload' && status >= 200 && status < 300) ||
+        // An open editor pane polls /api/fs/read every 5 s to follow the file
+        // on disk (B4), and a `changed: false` answer is the common one. The
+        // save is demoted with it so one Ctrl+S burst does not out-shout the
+        // rest of the file; a refusal on either stays info (or error), because
+        // that is the diagnostic.
+        (route === '/api/fs/read' && status === 200) ||
+        (route === '/api/fs/write' && status === 200);
       httpLog(status >= 500 ? 'error' : quiet ? 'debug' : 'info', parts.join(' '));
     });
 

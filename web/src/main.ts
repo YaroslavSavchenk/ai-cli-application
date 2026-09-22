@@ -56,6 +56,14 @@ import { initFileDrop, installDropGuard, type DropRequest } from './ui/filedrop.
 import { createDropRun } from './ui/drop-upload.ts';
 import { initCommitView } from './ui/commit-view.ts';
 import { setCommitGateway } from './ui/commit-store.ts';
+import { setEditorGateway } from './ui/editor-store.ts';
+import {
+  closeActiveTabGuarded,
+  disarmUnloadGuard,
+  discardDialogEscape,
+  isDiscardDialogOpen,
+  unloadGuard,
+} from './ui/unsaved.ts';
 import { flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
@@ -573,6 +581,10 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   };
   const filesPanel = initFilesPanel(filesAside, requestTerminalFocus, fsGateway);
   setCommitGateway(fsGateway);
+  // B4: the editor pane reads and writes real files through its own injected
+  // gateway. Same seam, same reason as the two above — `ui/file-pane.ts` never
+  // imports `./api.ts`, so a file body is drivable under `node --test`.
+  setEditorGateway({ read: api.fsRead, write: api.fsWrite });
 
   /**
    * One drop, handed over (B10). THIS is the seam where a path stops: the
@@ -786,7 +798,9 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
         // its own confirmation (the A3 rule).
         e.preventDefault();
         const v = st.activeView();
-        if (v !== null) st.closeActiveTab(v.id, v.focused);
+        // Through the B4 guard (D1): a tab whose unsaved text no other tab
+        // shows asks first, and the state mutator runs only after `Discard`.
+        if (v !== null) closeActiveTabGuarded(v.id, v.focused);
       } else if (k.length === 1 && k >= '1' && k <= '9') {
         e.preventDefault();
         st.setActiveViewIndex(Number(k) - 1);
@@ -873,6 +887,12 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
         // drop dialog is hidden mid-copy. Escape is its Cancel, exactly.
         e.preventDefault();
         deleteDialogEscape();
+      } else if (isDiscardDialogOpen()) {
+        // The B4 unsaved-changes question, ranked beside the delete
+        // confirmation it is modelled on. Escape is `Keep editing` — the only
+        // safe answer to a question about text that is not on disk yet.
+        e.preventDefault();
+        discardDialogEscape();
       } else if (isDropDialogOpen()) {
         e.preventDefault();
         dropDialogEscape();
@@ -930,7 +950,13 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
     sleep: (ms) => new Promise<void>((resolve) => window.setTimeout(resolve, ms)),
     setRestarting: (v) => st.setRestarting(v),
     showProbe: () => showReconnectTakeover(),
-    reload: () => location.reload(),
+    reload: () => {
+      // The backend this page held a token for is gone, so the browser's
+      // unsaved question would offer a "stay" on a page that cannot save
+      // anything any more (ui/unsaved.ts).
+      disarmUnloadGuard();
+      location.reload();
+    },
     showPanel: () => {
       fatal = true;
       hideReconnectTakeover();
@@ -1020,6 +1046,16 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
     }
   }
   window.addEventListener('focus', refocusTerminal);
+
+  // A RELOAD AND A WINDOW CLOSE ASK TOO (part B4, user decision D1). The app
+  // cannot put its own card in front of either, so the browser's question is
+  // the one that stands there — and only while something is really unsaved:
+  // `unloadGuard` (ui/unsaved.ts) reads `state.edits` and arms nothing when it
+  // is empty, because a page that always asks is a page whose question means
+  // nothing.
+  window.addEventListener('beforeunload', (e) => {
+    unloadGuard(e);
+  });
 }
 
 /**

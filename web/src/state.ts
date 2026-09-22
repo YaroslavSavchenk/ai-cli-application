@@ -29,7 +29,7 @@ import type {
   UpdateStatus,
 } from '../../shared/protocol.ts';
 import { log } from './log.ts';
-import { fileTabId, tabIdOf } from './ui/editor-model.ts';
+import { diffTabId, fileTabId, tabIdOf } from './ui/editor-model.ts';
 import { collapseKey } from './ui/commit-model.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
@@ -69,6 +69,15 @@ export type ChangeKind =
 
 export const MAX_PANES = 4;
 const MAX_VIEWS = 16;
+/**
+ * How many file tabs of ONE editor pane a reload carries (part B4, D2). The
+ * live model has no cap — a user may open as many files in a strip as they
+ * like — but STORAGE is a hostile boundary: a hand-edited or corrupted bag
+ * must not be able to conjure a strip of four thousand chips. Sixteen is the
+ * same "more than anyone arranges on purpose" number `MAX_VIEWS` is, and the
+ * writer caps at it too, so what is read back is what was written.
+ */
+const MAX_TABS = 16;
 const STORAGE_KEY = 'ai-sm:ui:v2';
 const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
 
@@ -235,10 +244,14 @@ interface AppState {
   /**
    * Unsaved file text per TAB ID — `f:<path>` (`tabIdOf`), so the key is the
    * FILE and never the pane it happens to sit in. A tab with an entry here is
-   * DIRTY (the amber dot on its chip); Save removes it, and two strips showing
-   * the same file share the one entry. Not persisted: until part B4 nothing
-   * was ever read from disk, and persisting text that was never a file would
-   * persist fiction. B4 turns Save into a disk write.
+   * DIRTY (the amber dot on its chip); Save removes it once the write has
+   * LANDED, and two strips showing the same file share the one entry.
+   *
+   * NOT PERSISTED (part B4, user decision D2): the open tabs survive a reload,
+   * the text in them does not. It was never on disk, and a bag of localStorage
+   * is not where a user's work is kept — which is why every door that would
+   * drop an entry asks first (`dirtyLostBy`, `ui/unsaved.ts`) and a reload
+   * goes through the browser's own question.
    */
   edits: Map<string, string>;
   /** Presence ping round-trip in ms; null until measured / while disconnected. */
@@ -358,28 +371,40 @@ function newSessionView(sessionId: string): ViewState {
 }
 
 /**
- * What one view looks like in storage: its root and ONLY its session slots.
- * EDITOR slots are dropped on purpose (user decision 10, 2026-09-15) — until
- * part B4 their tabs' text was never read from disk, so a reload that
- * resurrected them would resurrect placeholder content.
+ * What one view looks like in storage: its root, its SLOTS — terminals and
+ * editor panes alike — and where the focus sat.
  *
- * `focused` is remapped onto the slots that survive, so a tab whose focused
- * pane held files does not come back focused on someone else's terminal.
+ * EDITOR SLOTS PERSIST (user decision D2, 2026-09-22). Until part B4 their
+ * tabs' text was never read from disk, so a reload that resurrected them would
+ * have resurrected placeholder content; now a file tab is a path the app can
+ * read again and a diff tab a commit that cannot change, so both come back.
+ * The unsaved TEXT does not (`state.edits` is not persisted): it was never on
+ * disk, and a bag of localStorage is not where a user's work is kept.
+ *
+ * `focused` is no longer remapped away from an editor pane: a tab whose
+ * focused pane held files comes back with the focus on those files.
  */
 function persistView(v: ViewState): Record<string, unknown> {
-  const kept: PaneSlot[] = [];
-  let focused = 0;
-  for (let i = 0; i < v.slots.length; i++) {
-    const s = v.slots[i] as PaneSlot;
-    if (s.kind !== 'session') continue;
-    if (i <= v.focused) focused = kept.length;
-    kept.push(s);
-  }
   return {
     id: v.id,
     root: v.root,
-    slots: kept,
-    focused: Math.min(focused, Math.max(0, kept.length - 1)),
+    slots: v.slots.map((s) =>
+      s.kind === 'session'
+        ? { kind: 'session', id: s.id }
+        : {
+            // The slot's own `e:<n>` is NOT written: it is the identity of a
+            // pane on THIS page (ui/panes.ts keys its live panes by it), and a
+            // reload builds new panes. `newEditorSlot` hands out a fresh one.
+            kind: 'editor',
+            tabs: s.tabs.slice(0, MAX_TABS).map((t) =>
+              t.kind === 'file'
+                ? { kind: 'file', path: t.path }
+                : { kind: 'diff', root: t.root, hash: t.hash, path: t.path },
+            ),
+            active: s.active,
+          },
+    ),
+    focused: Math.min(Math.max(0, v.focused), Math.max(0, v.slots.length - 1)),
     l3: v.l3,
     split: v.split,
   };
@@ -429,16 +454,24 @@ function validateRoot(raw: unknown, ctx: LoadCtx): ViewRoot | null {
 }
 
 /**
- * Validate one stored v2 view: its root, and its SESSION slots. A view without
- * slots is dropped unless it is Home — which is the fixed first tab and is
- * allowed to stand empty.
- * // B4: editor slots persist; drop this exception.
+ * Validate one stored v2 view: its root and its SLOTS — sessions AND editor
+ * panes (part B4, user decision D2). A view without slots is dropped unless it
+ * is Home, which is the fixed first tab and is allowed to stand empty; a view
+ * holding only editor panes is a view with slots and SURVIVES.
+ *
+ * STORAGE IS HOSTILE, so every value is gated rather than trusted: a file
+ * tab's path must be a non-empty ABSOLUTE path with no NUL byte (the shape
+ * every path in this app has since part B2 — a relative one would be read
+ * against nothing), a diff tab needs the full 40-hex hash and the folder it is
+ * read from, an unknown tab kind is dropped, a strip is capped at `MAX_TABS`,
+ * and a slot left with no valid tab at all is dropped with them (an editor
+ * pane with an empty strip is not a state this model has).
  *
  * This is also the migration for two older shapes under the same v2 key (the
  * reader has always ignored what it does not know): pre-R3 launcher views
  * (kind: 'launcher', zero sessions) simply vanish, and a pre-A10 blob's
  * `sessions: string[]` is read as session slots, so an arrangement made before
- * A10 survives the upgrade.
+ * A10 survives the upgrade. A pre-B4 blob simply carries no editor slot.
  */
 function validateView(raw: unknown, ctx: LoadCtx): ViewState | null {
   if (raw === null || typeof raw !== 'object') return null;
@@ -453,12 +486,21 @@ function validateView(raw: unknown, ctx: LoadCtx): ViewState | null {
   };
   if (Array.isArray(o.slots)) {
     for (const s of o.slots) {
-      // Only session slots are ever written (see persistView); anything else in
-      // the bag is a hand-edit or a future build's blob, and conjuring an
-      // editor pane out of it would conjure its contents too.
-      if (s !== null && typeof s === 'object' && (s as Record<string, unknown>).kind === 'session') {
-        addSession((s as Record<string, unknown>).id);
+      if (s === null || typeof s !== 'object') continue;
+      const slot = s as Record<string, unknown>;
+      if (slot.kind === 'session') {
+        addSession(slot.id);
+        continue;
       }
+      if (slot.kind !== 'editor' || slots.length >= MAX_PANES) continue;
+      const tabs = validateTabs(slot.tabs);
+      // No tab survived the gates: there is no pane to build. The strip is
+      // never empty while the slot lives, so an empty one cannot be loaded.
+      if (tabs.length === 0) continue;
+      const made = newEditorSlot(tabs);
+      const activeRaw = typeof slot.active === 'number' ? Math.trunc(slot.active) : 0;
+      made.active = Math.min(Math.max(0, activeRaw), tabs.length - 1);
+      slots.push(made);
     }
   } else if (Array.isArray(o.sessions)) {
     for (const s of o.sessions) addSession(s);
@@ -476,6 +518,69 @@ function validateView(raw: unknown, ctx: LoadCtx): ViewState | null {
     l3: o.l3 === 'R' ? 'R' : 'L',
     split: { col: clampSplit(splitRaw?.col), row: clampSplit(splitRaw?.row) },
   };
+}
+
+/** How long a stored path may be. Past this it is not a path any OS has. */
+const MAX_STORED_PATH = 4096;
+
+/**
+ * A stored path: a non-empty string, no NUL byte, and no longer than a real
+ * path can be. The cap is the reader's: a blob is hand-editable, and a
+ * megabyte-long "path" would be carried into every chip label and every
+ * request this tab makes.
+ */
+function storedPath(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw === '') return null;
+  if (raw.length > MAX_STORED_PATH) return null;
+  return raw.includes('\0') ? null : raw;
+}
+
+/**
+ * The tabs of one stored editor slot, in order, gated one by one. Anything the
+ * reader cannot make sense of is DROPPED rather than repaired: a tab about a
+ * path that is not a path names no file, and a chip nobody can open is worse
+ * than a chip that is not there.
+ */
+function validateTabs(raw: unknown): EditorTab[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EditorTab[] = [];
+  const seen = new Set<string>();
+  for (const t of raw) {
+    if (out.length >= MAX_TABS) break;
+    if (t === null || typeof t !== 'object') continue;
+    const tab = t as Record<string, unknown>;
+    if (tab.kind === 'file') {
+      const path = storedPath(tab.path);
+      // ABSOLUTE only: every path the app opens a file by is absolute (part
+      // B2), and a relative one would be read against a folder nobody named.
+      if (path === null || !path.startsWith('/')) continue;
+      const id = fileTabId(path);
+      if (seen.has(id)) continue; // one strip never shows one file twice
+      seen.add(id);
+      out.push({ kind: 'file', path });
+      continue;
+    }
+    if (tab.kind === 'diff') {
+      const hash = typeof tab.hash === 'string' ? tab.hash : '';
+      // The full 40 hex, as every hash in this app is (PLAN-B3): an
+      // abbreviation is not an identity.
+      if (!/^[0-9a-f]{40}$/.test(hash)) continue;
+      // A diff path is REPOSITORY-relative (git's own spelling), so it is not
+      // asked to be absolute; the root it is read from is.
+      const path = storedPath(tab.path);
+      const diffRoot = storedPath(tab.root);
+      // The ROOT is absolute, like every other folder the app reads git in: a
+      // relative one would be resolved against a folder nobody named.
+      if (path === null || diffRoot === null || !diffRoot.startsWith('/')) continue;
+      const id = diffTabId(hash, path);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ kind: 'diff', hash, path, root: diffRoot });
+      continue;
+    }
+    // An unknown kind is a future build's blob or a hand-edit: dropped.
+  }
+  return out;
 }
 
 /**
@@ -1489,6 +1594,61 @@ export function closeSlot(viewId: string, index: number): boolean {
   return true;
 }
 
+/**
+ * The active tab index of one editor pane, or null when that slot is not an
+ * editor pane (which is how ctrl+alt+w on a terminal answers "nothing to do").
+ * Exported for `ui/unsaved.ts`, whose guarded closer has to know WHICH tab the
+ * chord would close before it can ask about it.
+ */
+export function activeTabIndex(viewId: string, slot: number): number | null {
+  const v = state.views.find((x) => x.id === viewId);
+  const s = v?.slots[slot];
+  if (s === undefined || s.kind !== 'editor') return null;
+  return Math.min(Math.max(0, s.active), Math.max(0, s.tabs.length - 1));
+}
+
+/**
+ * WHOSE UNSAVED TEXT WOULD THIS CLOSE THROW AWAY (part B4, user decision D1)?
+ *
+ * The answer is the whole premise of the question the user is asked, so it is
+ * arithmetic here rather than a guess at the door: the dirty FILE ids among the
+ * tabs the operation removes that NO OTHER SURVIVING TAB shows — anywhere in
+ * the app, because `state.edits` is keyed by the file and two panes on one file
+ * share one text (`pruneOrphanEdits`). Closing one of them loses nothing.
+ *
+ * Three forms, one per door:
+ *   dirtyLostBy(view, slot, tab)  one file tab (a chip's `×`, ctrl+alt+w)
+ *   dirtyLostBy(view, slot)       a whole editor pane (the pane's `×`)
+ *   dirtyLostBy(view)             a whole tab (the strip's `×`)
+ *
+ * Pure: it reads state and changes nothing. A diff tab can never appear in the
+ * answer — it is read-only and owns no entry by construction.
+ */
+export function dirtyLostBy(viewId: string, slot?: number, tab?: number): string[] {
+  const lost: string[] = [];
+  const kept = new Set<string>();
+  for (const v of state.views) {
+    for (let i = 0; i < v.slots.length; i++) {
+      const s = v.slots[i] as PaneSlot;
+      if (s.kind !== 'editor') continue;
+      for (let t = 0; t < s.tabs.length; t++) {
+        const entry = s.tabs[t] as EditorTab;
+        if (entry.kind !== 'file') continue;
+        const id = tabIdOf(entry);
+        const goes =
+          v.id === viewId &&
+          (slot === undefined || (i === slot && (tab === undefined || t === tab)));
+        if (!goes) {
+          kept.add(id);
+        } else if (editorDirty(id) && !lost.includes(id)) {
+          lost.push(id);
+        }
+      }
+    }
+  }
+  return lost.filter((id) => !kept.has(id));
+}
+
 // --------------------------------------------------------------------------
 // Focus + in-view movement
 // --------------------------------------------------------------------------
@@ -1792,19 +1952,18 @@ export function editText(id: string): string | undefined {
 }
 
 /**
- * Save: forget the unsaved text and hand it back, so the CALLER writes it
- * where it belongs. Until part B4 that is the mock map in `ui/files-mock.ts`;
- * B4 makes the same call site a backend write. Saving a clean file returns
- * null and changes nothing.
+ * Save: forget the unsaved text and hand it back. It is called by the file
+ * pane when the WRITE HAS LANDED (part B4) and by `Load from disk`, which
+ * drops the same entry because the user chose the bytes on disk over their
+ * own. A refused write changes nothing here: the text stays unsaved until it
+ * is really on disk. Saving a clean file returns null and changes nothing.
  *
- * KNOWN GAP, part B4: there is no "you have unsaved changes" confirmation,
- * because until B4 nothing was ever read from disk and nothing can be written
- * to it — a modal about losing placeholder text would be theatre. The amber
- * dot on the pane header is the whole warning; B4 adds the confirm together
- * with the real file write, and has to cover all four doors the text falls out
- * of: closing the last pane showing the file (`pruneOrphanEdits`), reloading
- * the page, closing the window, and the backend's grace timer ending the app
- * after the last window closed.
+ * WHAT STANDS BETWEEN AN ENTRY AND NOTHING (user decision D1, 2026-09-22):
+ * every door that would orphan one asks first — `ui/unsaved.ts` guards the
+ * chip `×`, the pane `×`, ctrl+alt+w and a whole tab's `×`, and `beforeunload`
+ * guards a reload and a window close. ONE door has no question and is a known
+ * limit: the backend's grace timer ending the app after the last window
+ * closed, where there is no window left to ask in.
  */
 export function saveEdit(id: string): string | null {
   const text = state.edits.get(id);

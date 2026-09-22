@@ -8,6 +8,12 @@
  * broken, and the id scheme is what keeps one file's unsaved text in ONE place
  * while two panes show it.
  *
+ * WHAT PART B4 ADDED (2026-09-22): the four rules a real file brings with it —
+ * what a refusal LEAVES the user (a choice, or a fact), how it is inked, where
+ * the caret lands in text that changed under it, and the sentence the app asks
+ * before typed text is dropped. All four are decisions the user feels and no
+ * screenshot shows, and three of them are about not losing work.
+ *
  * GONE with A10 (user decision 2026-09-15): the editor column's tab strip.
  * `EditorState`/`openTab`/`closeTab`/`setActive`/`activeTab` were deleted —
  * a file is a pane now, and `state.ts` owns which panes a tab holds
@@ -22,9 +28,16 @@ const E = (await import(new URL('../web/src/ui/editor-model.ts', import.meta.url
   tabKind(id: string): 'file' | 'diff';
   fileTabId(path: string): string;
   diffTabId(hash: string, path: string): string;
+  filePathOf(id: string): string;
   tabIdOf(t: EditorTab): string;
   gutterText(text: string): string;
   saveLabel(dirty: boolean): string;
+  SAVING_TEXT: string;
+  statusOf(err: unknown): number | null;
+  offersChoice(status: number | null): boolean;
+  sentenceTone(status: number | null): 'quiet' | 'bad';
+  clampCaret(pos: number, length: number): number;
+  discardQuestion(names: readonly string[]): string;
 };
 
 /**
@@ -124,4 +137,83 @@ test('the gutter counts LINES, so a Windows file is not numbered twice', () => {
   assert.equal(E.gutterText('\n'), '1\n2');
   assert.equal(E.gutterText('\n\n\n'), '1\n2\n3\n4');
   assert.equal(E.gutterText('one line, no ending'), '1');
+});
+
+// ---------------------------------------------------------------------------
+// What a refusal leaves behind (part B4, user decision D4)
+// ---------------------------------------------------------------------------
+
+test('a rejected request is read for its STATUS as well as its sentence', () => {
+  assert.equal(E.statusOf({ status: 409, message: 'x' }), 409);
+  assert.equal(E.statusOf(new Error('network')), null, 'a network failure carries none');
+  assert.equal(E.statusOf(null), null);
+  assert.equal(E.statusOf('409'), null, 'a string is not a status');
+  assert.equal(E.statusOf({ status: '409' }), null);
+});
+
+test('only 409 and 404 leave the user a CHOICE; every other refusal is a fact', () => {
+  // The two the pane can answer in two honest ways: my text wins, or the disk
+  // wins. There is nothing to choose about "too large" or "no permission".
+  assert.equal(E.offersChoice(409), true);
+  assert.equal(E.offersChoice(404), true);
+  for (const status of [400, 403, 413, 415, 500, 507, null]) {
+    assert.equal(E.offersChoice(status), false, `status ${String(status)}`);
+  }
+});
+
+test('a refusal is danger ink; a file that is simply gone is quiet ink', () => {
+  assert.equal(E.sentenceTone(404), 'quiet', 'nothing went wrong, there is nothing there');
+  for (const status of [403, 409, 413, 415, 500, null]) {
+    assert.equal(E.sentenceTone(status), 'bad', `status ${String(status)}`);
+  }
+});
+
+test('the Save button has a third label, and it is the button that reports', () => {
+  assert.equal(E.SAVING_TEXT, 'Saving…');
+  assert.notEqual(E.SAVING_TEXT, E.saveLabel(true));
+  assert.notEqual(E.SAVING_TEXT, E.saveLabel(false));
+});
+
+// ---------------------------------------------------------------------------
+// The caret in text that changed under it (D3)
+// ---------------------------------------------------------------------------
+
+test('the caret keeps its offset, or lands on the END of shorter text — never on 0', () => {
+  assert.equal(E.clampCaret(40, 120), 40, 'a file that grew keeps the reader where they were');
+  assert.equal(E.clampCaret(120, 40), 40, 'a file that shrank puts them at the end of it');
+  assert.equal(E.clampCaret(0, 0), 0, 'an empty file has exactly one place to stand');
+  assert.equal(E.clampCaret(9, 9), 9, 'the position AFTER the last character is a real caret');
+  assert.equal(E.clampCaret(-3, 10), 0, 'there is no caret before the first character');
+  assert.equal(E.clampCaret(4.7, 10), 4, 'a caret is a whole offset');
+  assert.equal(E.clampCaret(Number.NaN, 10), 0);
+  assert.equal(E.clampCaret(10, -1), 0, 'a negative length is no length');
+});
+
+// ---------------------------------------------------------------------------
+// The question before typed text is dropped (D1)
+// ---------------------------------------------------------------------------
+
+test('the discard question NAMES one file and COUNTS several', () => {
+  assert.equal(E.discardQuestion(['Pane.tsx']), 'Discard unsaved changes to Pane.tsx?');
+  assert.equal(E.discardQuestion(['a.ts', 'b.ts']), 'Discard unsaved changes to 2 files?');
+  assert.equal(
+    E.discardQuestion(['a.ts', 'b.ts', 'c.ts', 'd.ts']),
+    'Discard unsaved changes to 4 files?',
+    'four names in one question is a list, not a question',
+  );
+  // Plural forms, and never a bare number with no noun (the v3 copy rules).
+  assert.ok(E.discardQuestion(['a.ts', 'b.ts']).includes('2 files'));
+  assert.equal(E.discardQuestion(['a.ts']).includes('1 file'), false);
+  // Nothing to lose: no question at all.
+  assert.equal(E.discardQuestion([]), '');
+});
+
+test('a file id gives its path back — and the QUESTION is built from names, not paths', () => {
+  // The id is `f:<path>`; the sentence above is handed `fileName(...)` of this,
+  // because a path may never reach a label (PROJECT-SCOPE, 2026-07-25).
+  assert.equal(E.filePathOf(E.fileTabId('/home/you/web/src/Pane.tsx')), '/home/you/web/src/Pane.tsx');
+  assert.equal(E.filePathOf('f:f:weird'), 'f:weird', 'exactly what fileTabId put in comes back out');
+  assert.equal(E.filePathOf('/no/prefix.ts'), '/no/prefix.ts', 'a bare path is left alone');
+  assert.equal(E.discardQuestion(['/home/you/web/src/Pane.tsx']).includes('/home/you'), true,
+    'non-vacuity: this helper does NOT shorten anything — fileName does, at the call site');
 });

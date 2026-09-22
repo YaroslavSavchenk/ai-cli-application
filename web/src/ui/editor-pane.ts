@@ -10,7 +10,7 @@
  * (`EditorSlot.tabs`), this module owns its DOM.
  *
  * WHAT THIS MODULE MAY IMPORT. state / util / dnd / slots-model /
- * editor-model / file-pane — and NEVER `ui/panes.ts`, which reaches
+ * editor-model / file-pane / unsaved — and NEVER `ui/panes.ts`, which reaches
  * @xterm/xterm and would take `node --test` down with it. The pane's chrome
  * (the card, the header element, the body element, the drop overlay) belongs
  * to panes.ts; what goes INSIDE the header and the body belongs here.
@@ -47,6 +47,7 @@ import { armDrag, type DragSpec } from './dnd.ts';
 import { tabTitle } from './slots-model.ts';
 import { tabIdOf } from './editor-model.ts';
 import { diffPaneBody, filePaneBody, type PaneBody } from './file-pane.ts';
+import { closeSlotGuarded, closeTabGuarded } from './unsaved.ts';
 
 /** How `ui/panes.ts` drives one editor pane. */
 export interface EditorPane {
@@ -108,7 +109,10 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
   strip.setAttribute('role', 'group');
   strip.setAttribute('aria-label', 'open files');
   const closePane = button('pane-x', '×', () => {
-    if (slot !== null) st.closeSlot(viewId, slotIndex);
+    // EVERY DOOR ASKS (part B4, D1): a pane holding unsaved text no other tab
+    // shows puts the question up first, and `state.closeSlot` runs only if the
+    // answer is Discard.
+    if (slot !== null) closeSlotGuarded(viewId, slotIndex, closePane);
   });
   hd.replaceChildren(strip, el('span', 'pane-gap'), closePane);
 
@@ -142,7 +146,13 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
       // A tab that left takes its parked body with it; keeping it would hand
       // a re-opened file the text of a pane that no longer exists.
       const live = new Set(ids);
-      for (const id of [...bodies.keys()]) if (!live.has(id)) bodies.delete(id);
+      for (const id of [...bodies.keys()]) {
+        if (live.has(id)) continue;
+        // The body goes and gives up what it registered (the B4 disk follow):
+        // a parked body nobody can reach must not keep asking about a file.
+        bodies.get(id)?.dispose();
+        bodies.delete(id);
+      }
     }
     if (activeId !== shown) {
       shown = activeId;
@@ -210,7 +220,7 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
         chip.append(dot, el('span', 'sr-only', 'Unsaved changes'));
       }
 
-      const x = button('pane-x', '×', () => st.closeTab(viewId, slotIndex, i));
+      const x = button('pane-x', '×', () => closeTabGuarded(viewId, slotIndex, i, x));
       x.setAttribute('data-k', `ptabx:${s.id}:${id}`);
       x.setAttribute('aria-label', `Close ${label}`);
       x.title =
@@ -253,7 +263,9 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
 
   function dispose(): void {
     // Without this a pane converted back to an editor would resurrect the
-    // textareas of files state.ts has already dropped.
+    // textareas of files state.ts has already dropped — and, since part B4,
+    // every body would keep its seat in the disk follow.
+    for (const body of bodies.values()) body.dispose();
     bodies.clear();
     chips = new Map();
     sig = '\0';

@@ -73,7 +73,8 @@ interface StateModule {
   slotKey(s: Slot): string;
   /** The `state.edits` key of a file — the TAB's id, never the pane's. */
   editorFileId(path: string): string;
-  /** Write the unsaved text out (B4 owes the disk); returns it, or null. */
+  /** Forget the unsaved text and hand it back (since B4 the disk write is the
+   * file pane's, once its PUT has landed); returns it, or null. */
   saveEdit(id: string): string | null;
 }
 interface TabsModule {

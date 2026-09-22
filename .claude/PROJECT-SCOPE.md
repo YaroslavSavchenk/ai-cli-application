@@ -740,10 +740,16 @@ multi-pane layouts on top.
   one strip are one pane). The arrangement is client-local, persisted as localStorage
   schema v2 with migration from v1 (since Nocturne A5, 2026-09-13, the
   same v2 bag also carries the Files panel's wish and width; since A10 each
-  view carries `root` and `slots` holding SESSION slots only — editor
-  slots (their file and diff tabs) are not persisted before B4, `sessions: string[]` is still
+  view carries `root` and `slots`; since B4 (2026-09-22, user decision)
+  EDITOR slots persist too — file tabs as `{kind:'file', path}`, diff tabs
+  as `{kind:'diff', root, hash, path}`, at most 16 tabs per strip (the
+  writer caps, the reader drops the tail), every entry gated on read
+  (absolute path of at most 4096 characters, no NUL, 40-hex hash, absolute diff
+  root, unknown kinds dropped) — unsaved TEXT is never written to the
+  bag; `sessions: string[]` is still
   read as legacy, and the reader ignores unknown keys, so no bump; a
-  pre-A10 build reading a post-A10 bag drops every view). Either way,
+  pre-A10 build reading a post-A10 bag drops every view, a pre-B4 build
+  drops a non-Home view whose only panes are editor panes). Either way,
   sessions exist independently of tabs/panes/splits.
 - **Files panel** (Nocturne A5, landed 2026-09-13; visual, mocked until
   B2/B3): a third middle-row column left of the pane grid (after the
@@ -791,7 +797,8 @@ multi-pane layouts on top.
   chord with the focus in the panel — Files tab only. Backend (landed with
   Brief A): `GET /api/fs/entries`, `POST /api/fs/create`, since B10
   `PUT /api/fs/upload` and `GET /api/fs/winpath` (the upload bullet below),
-  since B10a `POST /api/fs/delete` (the delete bullet below),
+  since B10a `POST /api/fs/delete` (the delete bullet below), since B4
+  `GET /api/fs/read` and `PUT /api/fs/write` (the editor bullet below),
   `GET /api/git/changes`, all token-gated, all confined to a realpath
   boundary = the user's HOME or any REGISTERED project's path — a registered
   project is the user's own choice and anchors its WHOLE subtree, no floor
@@ -888,8 +895,8 @@ multi-pane layouts on top.
   A10b brought the file tabs back inside the pane).
 - **Commit view and editor panes** (Nocturne A6, landed 2026-09-13; file
   panes since A10 and file TABS inside them since A10b, both 2026-09-15;
-  the commit view and the diff tabs on real data since B3, 2026-09-21; file
-  CONTENT stays mock until B4): the commit view
+  the commit view and the diff tabs on real data since B3, 2026-09-21; the
+  file body on the real file since B4, 2026-09-22): the commit view
   is one more column in the middle row, mounted as a flex sibling in the
   order Projects, Files, commit view, pane grid, Sessions. The **commit
   view** replaces the pane area (the grid is
@@ -910,14 +917,55 @@ multi-pane layouts on top.
   a `×` here does not touch the A3 rule, which is about ending sessions),
   a grab area, and the pane's own `×` ("Close this pane and its N files");
   the body is the ACTIVE tab's line-number gutter + textarea with the
-  "Example …" line and Save/Saved, or a read-only diff for a "Changes in
-  <hash>" tab (from the commit view). Switching tabs swaps the body only —
+  file's text and a bottom bar (`Save` / `Saving…` / `Saved`), or a
+  read-only diff for a "Changes in <hash>" tab (from the commit view).
+  Switching tabs swaps the body only —
   neighbouring terminals are never resized or re-attached, and a tab's
   caret survives a round trip. Opening a file never narrows the grid.
-  Unsaved text lives only in memory, keyed by path so the same file in two
-  panes shares it; it is dropped when the last TAB showing that file
-  closes, on reload, window close or backend grace, without a confirm (B4
-  owes the confirm and the disk write). The pane chords (Ctrl+Alt+arrows,
+  **Editor live** (B4, landed 2026-09-22; user decisions in
+  `memory/decisions/b4-editor-live.md`, spec
+  `.claude/plans/nocturne/PLAN-B4.md`): the body reads the file through
+  `GET /api/fs/read` (text only, 1 MiB at most, UTF-8 without a NUL byte;
+  a refusal — 413 too large, 415 not text, 403, 404 — is drawn as the
+  pane's one sentence, no field, no Save; line endings and a BOM are
+  preserved across a save, text travels LF-normalised). `Save` (the
+  button, or Ctrl+S while the keyboard is in the text — the only place
+  the app takes that key; a terminal keeps its XOFF) writes in place
+  through `PUT /api/fs/write` with the STAMP it read (the server's
+  SHA-256 of the bytes on disk, opaque to the page); a file that changed
+  since answers 409 `This file changed on disk since you opened it.`, a
+  vanished one 404, and the bottom bar offers `Overwrite` (my text wins,
+  no stamp, recreates a gone file) and `Load from disk` (my changes go);
+  keystrokes typed while a write is out stay unsaved. A CLEAN tab
+  FOLLOWS its file on disk: the active tab of every editor pane on screen
+  re-reads with `if=<stamp>` on one shared 5 s timer (skipped while the
+  document is hidden, the body parked, a request out, or after a refusal),
+  a change lands in place with the caret clamped and the scroll kept — a
+  dirty tab is never touched by a follow answer or a follow refusal, and a
+  follow answer that a save overtook is dropped. Unsaved text lives only
+  in memory, keyed by path so the same file in two panes shares it; it is
+  NEVER dropped without a question: closing a file tab, an editor pane or
+  a whole tab that would orphan unsaved text (a file still shown elsewhere
+  is not lost) asks `Discard unsaved changes to <name>?` / `… to N files?`
+  (`Discard` in danger ink, `Keep editing` the default and Esc — the
+  delete dialog's shape), and a reload or window close goes through the
+  browser's `beforeunload` question while any file is unsaved (disarmed
+  for the app's own restart handoff and auth-loss reload). KNOWN LIMITS,
+  recorded: the backend's grace timer after the last window closed is the
+  one door that cannot ask; a HARD LINK inside the boundary to a file
+  outside it (or to the data dir's own files) is read and written through
+  — `realpath` cannot see it, the planter already runs as the user, the
+  requester already holds the shell-spawning token; an `nlink` refusal was
+  rejected because pnpm's store is hard links; a file being edited by the
+  editor and rewritten by a tool at the same instant is settled by the
+  stamp, never merged. Server side (`server/fstext.ts`): the same anchor
+  boundary as `/api/fs/create`, the data dir refused, the fd judged before
+  the path is trusted (`O_NOFOLLOW|O_NONBLOCK`, a regular file only — a
+  FIFO, socket, device or planted link answers 415 without a hang), the
+  stamp compared and the bytes written on ONE descriptor (inode, mode,
+  links and owner stay; a read-only file answers 403), counts-only logging.
+  The last mock module (`web/src/ui/files-mock.ts`) went with this part.
+  The pane chords (Ctrl+Alt+arrows,
   Ctrl+Alt+W, Ctrl+Alt+PageUp/PageDown unshifted, Ctrl+Alt+M) and the
   tab-switch chords (Ctrl+Alt+1..9) are ignored while a commit view is up;
   Ctrl+Alt+Shift+PageUp/PageDown (reorder tabs) stays live. Esc closes the commit view
@@ -925,9 +973,9 @@ multi-pane layouts on top.
   the keyboard to the terminal. New `ChangeKind` `'screen'` = something
   other than the panes fills the pane area; the pane module ignores it.
   Code surfaces (editor, diff, paths) draw plain glyphs — no font
-  ligatures — like the terminal. Since B3 only the editor's file body
-  carries a quiet "Example …" line (until B4); the commit view and the diff
-  tabs draw the repository. Esc inside a file pane's textarea
+  ligatures — like the terminal. Since B4 nothing in the app is mock: the
+  editor draws the file, the commit view and the diff tabs draw the
+  repository. Esc inside a file pane's textarea
   belongs to the textarea and closes nothing.
 - **Attention badges**: surface when a hidden session is waiting for input.
   Implemented: BEL (0x07) detection in output. Possible later: OSC
@@ -1151,7 +1199,9 @@ multi-pane layouts on top.
   Ctrl+Alt+PageUp/PageDown and Ctrl+Alt+M do nothing and are swallowed,
   recorded 2026-09-15; Ctrl+Alt+M's bytes equal Alt+Enter's, which stays
   untouched). The app takes
-  exactly four extra chords (plus, since A9b, the files-only paste EVENT
+  exactly four extra chords (plus, since B4, Ctrl+S while the keyboard is
+  inside a file pane's text — a key the textarea takes, not a window
+  chord — and, since A9b, the files-only paste EVENT
   described below — an event, not a chord — and, while the keyboard is
   INSIDE the Files panel, the ContextMenu key / Shift+F10 that open the
   row's menu on a focused row or the panel's own menu elsewhere in it

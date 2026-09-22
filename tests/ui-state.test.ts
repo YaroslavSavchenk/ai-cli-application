@@ -110,6 +110,17 @@ const E = await import('../web/src/ui/editor-model.ts');
 /** The folder every diff tab below is read from (part B3). */
 const REPO = '/home/you/projects/app';
 
+/**
+ * The three files the persistence tests open. ABSOLUTE, because that is the
+ * shape every path in the app has had since part B2 — and since part B4 the
+ * storage reader refuses anything else (a relative path names no file).
+ */
+const A = '/home/you/web/src/Pane.tsx';
+const B = '/home/you/web/src/App.tsx';
+const C = '/home/you/README.md';
+/** A commit hash as every answer carries it: the full 40 hex, lower case. */
+const HASH40 = 'a'.repeat(40);
+
 const sess = (id: string): PaneSlot => ({ kind: 'session', id });
 const ftab = (path: string): EditorTab => ({ kind: 'file', path });
 const dtab = (hash: string, path: string): EditorTab => ({ kind: 'diff', hash, path, root: REPO });
@@ -1309,47 +1320,76 @@ test('moveSessionToView: a terminal joins a folder tab, and the folder tab keeps
 // Persistence: what a reload keeps, and what it must not
 // ---------------------------------------------------------------------------
 
-test('save/load: session slots and splits survive a reload; file slots do not; Home comes back first', () => {
+test('save/load: every slot survives a reload — terminals, editor panes, their tabs and the focus', () => {
+  // PART B4, user decision D2 (2026-09-22): open file and diff tabs join the
+  // localStorage bag beside the session slots. Until B4 an editor slot was
+  // dropped on purpose — its text had never been on disk, so restoring it
+  // would have restored placeholder content. Now the tab is a path the app can
+  // read again, so it comes back; the unsaved TEXT still does not.
   st.initServer([], [mkSession('s1'), mkSession('s2')]);
   st.loadUi();
   const v = st.viewOfSession('s1') as ViewState;
-  v.slots = [sess('s1'), ed('a.ts', 'b.ts'), sess('s2')];
+  v.slots = [sess('s1'), ed(A, B), sess('s2')];
   v.focused = 1; // an EDITOR pane is focused
   v.l3 = 'R';
   v.split = { col: 0.3, row: 0.7 };
   st.state.views = st.state.views.filter((x) => x.id === home().id || x.id === v.id);
   st.setActiveView(v.id);
+  st.setEdit(E.fileTabId(A), 'typed, never saved\n');
   st.saveUi();
 
   // What a reload really does: forget the module state, read the bag back.
   st.state.views = [];
   st.state.activeViewId = '';
+  st.state.edits = new Map();
   st.loadUi();
 
   assert.equal(st.state.views[0]?.root?.kind, 'home', 'Home is recreated at index 0');
   const back = st.state.views.find((x) => x.id === v.id) as ViewState;
-  assert.deepEqual(keys(back), ['s:s1', 's:s2'], 'the editor pane is not persisted (decision 10)');
+  assert.deepEqual(
+    shape(back),
+    ['s:s1', [E.fileTabId(A), E.fileTabId(B)], 's:s2'],
+    'the editor pane came back, in its place, with both of its tabs',
+  );
   assert.deepEqual(back.split, { col: 0.3, row: 0.7 }, 'the dragged divider is still where it was');
   assert.equal(back.l3, 'R');
-  assert.equal(back.focused, 0, 'focus is remapped onto a pane that survived');
+  assert.equal(back.focused, 1, 'and the focus is still on the editor pane (no remapping since B4)');
   assert.equal(st.state.activeViewId, v.id);
+  assert.equal(st.state.edits.size, 0, 'the unsaved text did NOT come back: it was never on disk');
 
-  // And the bag itself holds no path at all.
-  const bag = memoryStorage.getItem(STORAGE_KEY) as string;
-  assert.ok(!bag.includes('a.ts'), 'no file path reaches storage before part B4');
-  assert.ok(!bag.includes('b.ts'), 'not the other tab of that pane either');
-  assert.ok(!bag.includes('editor'), 'and no editor slot is written at all');
+  // The pane's identity is NOT the stored one: `e:<n>` belongs to a page, and
+  // ui/panes.ts keys its live panes by it.
+  const slot = back.slots[1] as EditorSlot;
+  assert.match(st.slotKey(slot), /^e:\d+$/);
+  assert.equal(slot.active, 0, 'the strip opens on the tab that was active');
 });
 
-test('save/load: a folder tab with a terminal comes back; a file-only one does not; Home always does', () => {
+test('save/load: a diff tab comes back too, with the folder it is read from', () => {
+  st.initServer([], []);
+  st.loadUi();
+  home().slots = [edTabs(dtab(HASH40, 'server/ws.ts'), ftab(A))];
+  (home().slots[0] as EditorSlot).active = 1;
+  st.saveUi();
+
+  st.state.views = [];
+  st.loadUi();
+  const slot = home().slots[0] as EditorSlot;
+  assert.deepEqual(slot.tabs, [
+    { kind: 'diff', hash: HASH40, path: 'server/ws.ts', root: REPO },
+    { kind: 'file', path: A },
+  ]);
+  assert.equal(slot.active, 1, 'and it opens on the tab that was up');
+});
+
+test('save/load: a tab that holds ONLY files comes back now, and Home always does', () => {
   st.initServer([], [mkSession('s1')]);
   st.loadUi();
   // s1 arrived in its own auto-tab; this test wants it in the folder tab, and
   // a session lives in exactly ONE view.
   st.state.views = [home()];
-  const withTerm = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), sess('s1')], 'v-term');
-  addView({ kind: 'project', id: 'p2' }, [ed('b.ts')], 'v-files');
-  home().slots = [ed('c.ts')];
+  const withTerm = addView({ kind: 'project', id: 'p1' }, [ed(A), sess('s1')], 'v-term');
+  addView({ kind: 'project', id: 'p2' }, [ed(B)], 'v-files');
+  home().slots = [ed(C)];
   const homeId = home().id;
   st.saveUi();
 
@@ -1359,14 +1399,32 @@ test('save/load: a folder tab with a terminal comes back; a file-only one does n
 
   const back = st.state.views.find((x) => x.id === withTerm.id) as ViewState;
   assert.deepEqual(back?.root, { kind: 'project', id: 'p1' }, 'the folder tab kept its root');
-  assert.deepEqual(keys(back), ['s:s1'], 'and the terminal that kept it alive');
-  assert.equal(
-    st.state.views.some((x) => x.id === 'v-files'),
-    false,
-    'a tab that held only files has nothing to come back as before B4',
+  assert.deepEqual(shape(back), [[E.fileTabId(A)], 's:s1'], 'its files AND its terminal');
+  const files = st.state.views.find((x) => x.id === 'v-files') as ViewState;
+  assert.deepEqual(
+    shape(files),
+    [[E.fileTabId(B)]],
+    'a tab of files only is a tab with slots — it survives (D2)',
   );
   assert.equal(home().id, homeId, 'Home keeps its identity across the reload');
-  assert.deepEqual(home().slots, [], 'empty, because its file was not persisted either');
+  assert.deepEqual(shape(home()), [[E.fileTabId(C)]], 'and its own file came back with it');
+});
+
+test('save/load: a view with NO slots at all is still dropped unless it is Home', () => {
+  // The rule D2 did not change: zero slots is nothing to come back as.
+  st.initServer([], []);
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        { id: 'h', root: { kind: 'home' }, slots: [], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+        { id: 'empty', root: { kind: 'project', id: 'p1' }, slots: [], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+      ],
+      active: 'empty',
+    }),
+  );
+  st.loadUi();
+  assert.deepEqual(st.state.views.map((v) => v.id), ['h']);
 });
 
 test('save/load: a second Home in the bag is not a second Home', () => {
@@ -1388,7 +1446,11 @@ test('save/load: a second Home in the bag is not a second Home', () => {
   assert.equal(home().id, 'h1');
 });
 
-test('save/load: a stored EDITOR (or legacy file) slot is ignored — no pane is conjured', () => {
+test('save/load: a hostile bag is GATED, tab by tab — and what is left is dropped with its slot', () => {
+  // STORAGE IS NOT THE MODEL. Every value below is one a hand-edit, a
+  // corrupted blob or another build could put there, and each is refused for
+  // its own reason rather than repaired: a tab nobody can open is worse than a
+  // tab that is not there.
   st.initServer([], [mkSession('s1')]);
   memoryStorage.setItem(
     STORAGE_KEY,
@@ -1398,10 +1460,31 @@ test('save/load: a stored EDITOR (or legacy file) slot is ignored — no pane is
           id: 'v1',
           root: { kind: 'project', id: 'p1' },
           slots: [
-            // A hand-edited bag, and an A10-era one: neither may resurrect text
-            // that was never read from disk.
-            { kind: 'editor', id: 'e:99', tabs: [{ kind: 'file', path: 'a.ts' }], active: 0 },
-            { kind: 'file', path: 'legacy.ts' },
+            {
+              kind: 'editor',
+              id: 'e:99', // the stored pane id is ignored: a reload builds new panes
+              tabs: [
+                { kind: 'file', path: 'relative.ts' }, // not absolute
+                { kind: 'file', path: '' }, // not a path
+                { kind: 'file', path: '/ok/kept.ts' }, // the one good file
+                { kind: 'file', path: '/nul\u0000name.ts' }, // a NUL byte
+                { kind: 'file' }, // no path at all
+                { kind: 'file', path: '/ok/kept.ts' }, // the same file twice
+                { kind: 'diff', hash: 'abc1234', path: 'a.ts', root: '/repo' }, // 7 hex
+                { kind: 'diff', hash: HASH40.toUpperCase(), path: 'a.ts', root: '/repo' }, // upper case
+                { kind: 'diff', hash: HASH40, path: 'a.ts' }, // no root to read from
+                { kind: 'diff', hash: HASH40, path: '', root: '/repo' },
+                { kind: 'diff', hash: HASH40, path: 'a.ts', root: '/repo' }, // the one good diff
+                { kind: 'terminal', path: '/ok/x.ts' }, // an unknown kind
+                null,
+                'a string',
+              ],
+              active: 99, // past the end
+            },
+            // A slot whose every tab failed a gate: no pane is conjured for it.
+            { kind: 'editor', tabs: [{ kind: 'file', path: 'nope.ts' }], active: 0 },
+            { kind: 'editor', tabs: [], active: 0 },
+            { kind: 'file', path: '/legacy.ts' }, // the A10-era slot kind
             sess('s1'),
           ],
           focused: 0,
@@ -1414,7 +1497,176 @@ test('save/load: a stored EDITOR (or legacy file) slot is ignored — no pane is
   );
   st.loadUi();
   const v = st.state.views.find((x) => x.id === 'v1') as ViewState;
-  assert.deepEqual(keys(v), ['s:s1'], 'nothing was ever read from disk, so nothing is restored');
+  assert.deepEqual(
+    shape(v),
+    [[E.fileTabId('/ok/kept.ts'), E.diffTabId(HASH40, 'a.ts')], 's:s1'],
+    'one editor pane with the two tabs that passed, and the terminal',
+  );
+  assert.equal((v.slots[0] as EditorSlot).active, 1, 'an active index past the end is clamped');
+  assert.match(st.slotKey(v.slots[0] as PaneSlot), /^e:\d+$/, 'and it is a FRESH pane id');
+});
+
+test('save/load: a diff tab whose root is not absolute is dropped', () => {
+  // The root is the folder the diff is READ IN. A relative one would be
+  // resolved against whatever folder the backend happens to stand in — which
+  // is the same reason a file tab's path has to be absolute.
+  st.initServer([], []);
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        {
+          id: 'h',
+          root: { kind: 'home' },
+          slots: [
+            {
+              kind: 'editor',
+              tabs: [
+                { kind: 'diff', hash: HASH40, path: 'a.ts', root: 'repo' },
+                { kind: 'diff', hash: HASH40, path: 'b.ts', root: '../up/repo' },
+                { kind: 'diff', hash: HASH40, path: 'c.ts', root: REPO }, // the one good one
+              ],
+              active: 0,
+            },
+          ],
+          focused: 0,
+          l3: 'L',
+          split: { col: 0.5, row: 0.5 },
+        },
+      ],
+      active: 'h',
+    }),
+  );
+  st.loadUi();
+  assert.deepEqual(
+    st.slotTabIds(home().slots[0] as PaneSlot),
+    [E.diffTabId(HASH40, 'c.ts')],
+    'only the diff whose root is absolute survived',
+  );
+});
+
+test('save/load: a hash that merely CONTAINS 40 hex is not a hash', () => {
+  // ANCHORED, both ends (D2): the id of a commit is exactly 40 lower-case hex
+  // and nothing around them. A gate that only looked for 40 hex SOMEWHERE
+  // would let a hand-edited blob carry `<40 hex>\n rm -rf` — or a 41-hex
+  // string that is no commit at all — straight into the `hash` of every diff
+  // request this tab makes, and into the chip that names it.
+  st.initServer([], []);
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        {
+          id: 'h',
+          root: { kind: 'home' },
+          slots: [
+            {
+              kind: 'editor',
+              tabs: [
+                { kind: 'diff', hash: `${HASH40}0`, path: 'a.ts', root: REPO }, // 41 hex
+                { kind: 'diff', hash: `${HASH40} x`, path: 'b.ts', root: REPO }, // trailing junk
+                { kind: 'diff', hash: `x ${HASH40}`, path: 'c.ts', root: REPO }, // leading junk
+                { kind: 'diff', hash: `${HASH40}\n`, path: 'd.ts', root: REPO }, // a newline after it
+                { kind: 'diff', hash: HASH40, path: 'e.ts', root: REPO }, // the one good one
+              ],
+              active: 0,
+            },
+          ],
+          focused: 0,
+          l3: 'L',
+          split: { col: 0.5, row: 0.5 },
+        },
+      ],
+      active: 'h',
+    }),
+  );
+  st.loadUi();
+  assert.deepEqual(
+    st.slotTabIds(home().slots[0] as PaneSlot),
+    [E.diffTabId(HASH40, 'e.ts')],
+    'only the tab whose hash IS the 40 hex survived',
+  );
+});
+
+test('save/load: a path over 4096 chars is dropped', () => {
+  // A blob is hand-editable, and a path no filesystem could hold is not a
+  // path: it would be carried into every chip label and every request the tab
+  // makes.
+  st.initServer([], []);
+  const long = `/${'a'.repeat(4096)}`; // 4097 chars
+  const ok = `/${'b'.repeat(4094)}`; // 4095 — a path a filesystem really could hold
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        {
+          id: 'h',
+          root: { kind: 'home' },
+          slots: [
+            {
+              kind: 'editor',
+              tabs: [
+                { kind: 'file', path: long },
+                { kind: 'diff', hash: HASH40, path: 'a.ts', root: long },
+                { kind: 'file', path: ok },
+              ],
+              active: 0,
+            },
+          ],
+          focused: 0,
+          l3: 'L',
+          split: { col: 0.5, row: 0.5 },
+        },
+      ],
+      active: 'h',
+    }),
+  );
+  st.loadUi();
+  assert.deepEqual(
+    st.slotTabIds(home().slots[0] as PaneSlot),
+    [E.fileTabId(ok)],
+    'the over-long path and the over-long diff root are both gone',
+  );
+});
+
+test('save/load: a strip in the bag is capped, and so is the number of panes', () => {
+  st.initServer([], []);
+  const many = Array.from({ length: 40 }, (_, i) => ({ kind: 'file', path: `/f/${i}.ts` }));
+  const panes = Array.from({ length: 6 }, () => ({
+    kind: 'editor',
+    tabs: [{ kind: 'file', path: '/one.ts' }],
+    active: 0,
+  }));
+  memoryStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      views: [
+        { id: 'h', root: { kind: 'home' }, slots: [{ kind: 'editor', tabs: many, active: 39 }], focused: 0, l3: 'L', split: { col: 0.5, row: 0.5 } },
+        { id: 'v2', root: { kind: 'project', id: 'p1' }, slots: panes, focused: 5, l3: 'L', split: { col: 0.5, row: 0.5 } },
+      ],
+      active: 'h',
+    }),
+  );
+  st.loadUi();
+  const strip0 = st.slotTabIds(home().slots[0] as PaneSlot);
+  assert.equal(strip0.length, 16, 'a strip of forty chips is not a strip anybody arranged');
+  assert.deepEqual(strip0[0], E.fileTabId('/f/0.ts'), 'the first ones are kept, in order');
+  assert.equal((home().slots[0] as EditorSlot).active, 15, 'and the active index lands inside');
+  const v2 = st.state.views.find((x) => x.id === 'v2') as ViewState;
+  assert.equal(v2.slots.length, st.MAX_PANES, 'a tab holds at most four panes, whatever the bag says');
+  assert.equal(v2.focused, st.MAX_PANES - 1, 'and the focus lands on one that exists');
+});
+
+test('save/load: the bag holds paths, and nothing a path is not — no text, ever', () => {
+  st.initServer([], []);
+  st.loadUi();
+  home().slots = [ed(A)];
+  st.setEdit(E.fileTabId(A), 'secret typing that is not on disk\n');
+  st.saveUi();
+  const bag = memoryStorage.getItem(STORAGE_KEY) as string;
+  assert.ok(bag.includes(A), 'the open tab is remembered (D2)');
+  assert.equal(bag.includes('secret typing'), false, 'the unsaved text is NOT');
+  assert.equal(bag.includes('e:'), false, "and not the pane's page-local id either");
 });
 
 // ---------------------------------------------------------------------------

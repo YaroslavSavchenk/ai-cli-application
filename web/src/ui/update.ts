@@ -58,6 +58,7 @@ import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, trapTab } from './util.ts';
 import { commandLabel } from './launch-args.ts';
+import { disarmUnloadGuard } from './unsaved.ts';
 import { requestTerminalFocus } from './panes.ts';
 import {
   CONTINUE_NOTE,
@@ -761,6 +762,9 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
     if (outcome.kind === 'reload') {
       log.info(`restart: backend answered after ${outcome.afterMs}ms — reloading`);
       notice.finishRestart();
+      // The old backend has torn down: the browser's unsaved question would
+      // offer a "stay" on a page whose backend is gone (ui/unsaved.ts).
+      disarmUnloadGuard();
       location.reload();
       return;
     }

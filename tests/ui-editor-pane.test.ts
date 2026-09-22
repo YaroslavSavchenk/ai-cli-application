@@ -3,7 +3,8 @@
  * part A10b, user decision 1, 2026-09-15), driven through the REAL module on
  * the DOM double in `tests/fake-dom.ts`, against the REAL `web/src/state.ts`,
  * `ui/util.ts`, `ui/dnd.ts`, `ui/slots-model.ts`, `ui/editor-model.ts`,
- * `ui/file-pane.ts` and `ui/files-mock.ts`.
+ * `ui/file-pane.ts` — with the two backends plain fakes
+ * (`tests/editor-fixture.ts` for the files, `tests/fs-fixture.ts` for git).
  *
  * WHY THIS FILE EXISTS, next to `tests/ui-pane-a10.test.ts`. That file is a
  * SOURCE scan: `ui/panes.ts` reaches @xterm/xterm and cannot be imported under
@@ -44,7 +45,8 @@ import {
   textsOf,
   type FakeElement,
 } from './fake-dom.ts';
-import { PROJ, makeFixture } from './fs-fixture.ts';
+import { PROJ, makeFixture, settle } from './fs-fixture.ts';
+import { makeEditor } from './editor-fixture.ts';
 import { HEAD } from './commits-fixture.ts';
 
 const dom = installDom();
@@ -122,22 +124,27 @@ const EM = (await import(new URL('../web/src/ui/editor-model.ts', import.meta.ur
   fileTabId(path: string): string;
   diffTabId(hash: string, path: string): string;
 };
-const MOCK = (await import(new URL('../web/src/ui/files-mock.ts', import.meta.url).href)) as {
-  mockFileContent(path: string): string | null;
-  saveMockFile(path: string, text: string): void;
-};
 const STORE = (await import(new URL('../web/src/ui/commit-store.ts', import.meta.url).href)) as {
   setCommitGateway(gw: unknown): void;
 };
-// A diff TAB fetches its own rows (part B3), through the gateway the store
-// owns — injected here exactly as main.ts injects the real one.
+const ES = (await import(new URL('../web/src/ui/editor-store.ts', import.meta.url).href)) as {
+  setEditorGateway(gw: unknown): void;
+};
+// A diff TAB fetches its own rows (part B3), through the gateway the commit
+// store owns — injected here exactly as main.ts injects the real one.
 STORE.setCommitGateway(makeFixture().gateway);
+// A FILE tab reads and writes through the editor store's gateway (part B4).
+// The strip is what this file is about, so the backend is a fake disk and
+// every case lets its answer land (`await sync()`).
+const ed = makeEditor();
+ES.setEditorGateway(ed.gateway);
 
-const A = 'web/src/Pane.tsx';
-const B = 'web/src/App.tsx';
+const A = '/home/you/web/src/Pane.tsx';
+const B = '/home/you/web/src/App.tsx';
+/** A diff path is REPOSITORY-relative, as git names it. */
 const C = 'shared/protocol.ts';
-const ORIGINAL_A = MOCK.mockFileContent(A) as string;
-const ORIGINAL_B = MOCK.mockFileContent(B) as string;
+const ORIGINAL_A = 'export function Pane() {\n  return null;\n}\n';
+const ORIGINAL_B = 'export function App() {\n  return <Pane />;\n}\n';
 const HASH = HEAD;
 /** The chip shows seven characters of it; the tab's identity is all forty. */
 const SHORT = HEAD.slice(0, 7);
@@ -162,9 +169,14 @@ function slot(): EditorSlot {
   return s as EditorSlot;
 }
 
-/** What `ui/panes.ts` does on every notify: hand the pane the current model. */
-function sync(): void {
+/**
+ * What `ui/panes.ts` does on every notify: hand the pane the current model —
+ * and then let the read of any body it just built land (part B4: a file body
+ * shows `Loading…` until its answer arrives).
+ */
+async function sync(): Promise<void> {
   pane.update(slot(), (st.activeView() as ViewLike).id, 0);
+  await settle();
 }
 
 function chips(): FakeElement[] {
@@ -185,9 +197,9 @@ function type(ta: FakeElement, value: string): void {
   dispatch(ta, 'input');
 }
 
-beforeEach(() => {
-  MOCK.saveMockFile(A, ORIGINAL_A);
-  MOCK.saveMockFile(B, ORIGINAL_B);
+beforeEach(async () => {
+  ed.setFile(A, ORIGINAL_A);
+  ed.setFile(B, ORIGINAL_B);
   st.state.views = [];
   st.state.activeViewId = '';
   st.state.sessions = new Map();
@@ -216,7 +228,7 @@ beforeEach(() => {
   pane = EP.editorPane(hd, body);
   st.openFile({ kind: 'home' }, A, 'Pane.tsx');
   st.openFile({ kind: 'home' }, B, 'App.tsx');
-  sync();
+  await sync();
 });
 
 /** Let go of whatever a test picked up, so the module singleton is clean. */
@@ -228,7 +240,7 @@ function releasePointer(id: number): void {
 // Non-vacuity
 // ---------------------------------------------------------------------------
 
-test('non-vacuity: two real files are open as TABS OF ONE PANE, with real text', () => {
+test('non-vacuity: two real files are open as TABS OF ONE PANE, with real text', async () => {
   assert.ok(ORIGINAL_A.length > 20 && ORIGINAL_B.length > 20, 'the example files look empty');
   assert.notEqual(ORIGINAL_A, ORIGINAL_B, 'two different files, or the round-trip proves nothing');
   const v = st.activeView() as ViewLike;
@@ -241,7 +253,7 @@ test('non-vacuity: two real files are open as TABS OF ONE PANE, with real text',
 // 1. The strip: what it draws, and that it says which file is up
 // ---------------------------------------------------------------------------
 
-test('one chip per tab, in strip order, and exactly ONE of them is on', () => {
+test('one chip per tab, in strip order, and exactly ONE of them is on', async () => {
   assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx'], 'the chips follow the model, in its order');
   const on = chips().filter((c) => c.classList.contains('is-on'));
   assert.equal(on.length, 1, 'exactly one chip is the one on screen');
@@ -257,7 +269,7 @@ test('one chip per tab, in strip order, and exactly ONE of them is on', () => {
   assert.equal(strip.getAttribute('aria-label'), 'open files');
 });
 
-test('the strip is followed by the PANE’s own ×, which says what goes with it', () => {
+test('the strip is followed by the PANE’s own ×, which says what goes with it', async () => {
   const xs = byClass(hd, 'pane-x');
   // One × per chip, then the pane's own — and the pane's is the LAST thing in
   // the header, behind the `.pane-gap` that is the pane's grab area.
@@ -269,9 +281,9 @@ test('the strip is followed by the PANE’s own ×, which says what goes with it
   assert.equal(closePane.title, 'Close this pane and its 2 files');
 });
 
-test('a read-only diff tab is called after its commit and never wears the unsaved mark', () => {
+test('a read-only diff tab is called after its commit and never wears the unsaved mark', async () => {
   st.openDiff({ kind: 'home' }, HASH, C, REPO);
-  sync();
+  await sync();
   assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx', `Changes in ${SHORT}`]);
   assert.equal(field(), null, 'a diff has nothing to type into');
   assert.equal(byClass(hd, 'pane-dirty').length, 0, 'and so it can never be unsaved');
@@ -283,10 +295,10 @@ test('a read-only diff tab is called after its commit and never wears the unsave
 // 2. Unsaved: the dot, and the same fact in words
 // ---------------------------------------------------------------------------
 
-test('a dirty tab wears the amber dot AND says so in words — on ITS chip only', () => {
+test('a dirty tab wears the amber dot AND says so in words — on ITS chip only', async () => {
   type(field() as FakeElement, `${ORIGINAL_B}\nchanged`);
   assert.equal(st.editorDirty(st.editorFileId(B)), true, 'non-vacuity: state really flipped');
-  sync();
+  await sync();
   const dirtyChip = chips()[1] as FakeElement;
   assert.equal(byClass(dirtyChip, 'pane-dirty').length, 1, 'the dot is on the file that changed');
   assert.deepEqual(textsOf(dirtyChip, 'sr-only'), ['Unsaved changes']);
@@ -299,17 +311,18 @@ test('a dirty tab wears the amber dot AND says so in words — on ITS chip only'
   );
 });
 
-test('the dirty bit is IN the strip signature: the dot appears AND goes away again', () => {
+test('the dirty bit is IN the strip signature: the dot appears AND goes away again', async () => {
   // A signature built from the tab ids and the active index alone keeps every
   // assertion about the dot's arrival green (the first keystroke happens to
   // rebuild for another reason on some paths) and then never moves it again.
   const ta = field() as FakeElement;
   type(ta, `${ORIGINAL_B}\nchanged`);
-  sync();
+  await sync();
   assert.equal(byClass(hd, 'pane-dirty').length, 1, 'non-vacuity: it appeared');
   (byClass(body, 'pane-save')[0] as FakeElement).click();
+  await settle(); // the write is a request now (part B4): `Saved` is what LANDED
   assert.equal(st.editorDirty(st.editorFileId(B)), false, 'non-vacuity: the save really landed');
-  sync();
+  await sync();
   assert.equal(byClass(hd, 'pane-dirty').length, 0, 'a strip sig without the dirty bit sticks');
 });
 
@@ -317,7 +330,7 @@ test('the dirty bit is IN the strip signature: the dot appears AND goes away aga
 // 3. The tab × closes THAT tab, and never raises it on the way out
 // ---------------------------------------------------------------------------
 
-test('the × of an unfocused chip closes THAT tab and leaves the active one alone', () => {
+test('the × of an unfocused chip closes THAT tab and leaves the active one alone', async () => {
   const before = slot().active;
   assert.equal(before, 1, 'non-vacuity: the SECOND tab is the one on screen');
   const x = byClass(chips()[0] as FakeElement, 'pane-x')[0] as FakeElement;
@@ -328,13 +341,13 @@ test('the × of an unfocused chip closes THAT tab and leaves the active one alon
     [B],
     'the tab that was clicked is the tab that went',
   );
-  sync();
+  await sync();
   assert.deepEqual(labels(), ['App.tsx'], 'and the strip agrees');
   assert.equal((byClass(hd, 'pane-x')[1] as FakeElement).getAttribute('aria-label'),
     'Close this pane and the file in it', 'the pane × counts what is left');
 });
 
-test('a chip’s × never raises its tab first — the click stops at the button', () => {
+test('a chip’s × never raises its tab first — the click stops at the button', async () => {
   // The chip AROUND the × is the picker. A × that let its click through would
   // raise the file it is closing, so the user sees it flash on the way out.
   const chip = chips()[0] as FakeElement;
@@ -347,11 +360,11 @@ test('a chip’s × never raises its tab first — the click stops at the button
   assert.equal(raised, 0, 'stopPropagation is what keeps the closing file off the screen');
 });
 
-test('clicking a chip raises its tab, through state.ts', () => {
+test('clicking a chip raises its tab, through state.ts', async () => {
   const pick = byClass(chips()[0] as FakeElement, 'pane-tab-pick')[0] as FakeElement;
   pick.click();
   assert.equal(slot().active, 0, 'the model moved');
-  sync();
+  await sync();
   assert.equal((chips()[0] as FakeElement).classList.contains('is-on'), true);
   assert.equal((chips()[1] as FakeElement).classList.contains('is-on'), false);
 });
@@ -360,29 +373,29 @@ test('clicking a chip raises its tab, through state.ts', () => {
 // 4. The bodies are PARKED, not rebuilt
 // ---------------------------------------------------------------------------
 
-test('a tab round trip brings back the SAME textarea node — with its text in it', () => {
+test('a tab round trip brings back the SAME textarea node — with its text in it', async () => {
   const taB = field() as FakeElement;
   type(taB, `${ORIGINAL_B}\ntyped in B`);
 
   st.setActiveTab((st.activeView() as ViewLike).id, 0, 0);
-  sync();
+  await sync();
   const taA = field() as FakeElement;
   assert.notEqual(taA, taB, 'non-vacuity: the other tab has its own field');
   assert.equal(taA.value, ORIGINAL_A);
 
   st.setActiveTab((st.activeView() as ViewLike).id, 0, 1);
-  sync();
+  await sync();
   assert.equal(field(), taB, 'the SAME node: a rebuilt one loses caret, selection and scroll');
   assert.equal((field() as FakeElement).value, `${ORIGINAL_B}\ntyped in B`);
 });
 
-test('20 keystrokes: the node never moves and the chips are rebuilt at most ONCE', () => {
+test('20 keystrokes: the node never moves and the chips are rebuilt at most ONCE', async () => {
   const ta = field() as FakeElement;
   let chipRebuilds = 0;
   let last = chips()[0];
   for (let i = 1; i <= 20; i++) {
     type(ta, `${ORIGINAL_B}\n${'x'.repeat(i)}`);
-    sync();
+    await sync();
     assert.equal(field(), ta, `the field survived keystroke ${i}`);
     if (chips()[0] !== last) {
       chipRebuilds += 1;
@@ -396,16 +409,16 @@ test('20 keystrokes: the node never moves and the chips are rebuilt at most ONCE
   assert.equal(byClass(hd, 'pane-dirty').length, 1, 'and the rebuild it spent was the dot');
 });
 
-test('a closed tab’s parked body is dropped: re-opening the file builds a new one', () => {
+test('a closed tab’s parked body is dropped: re-opening the file builds a new one', async () => {
   const taB = field() as FakeElement;
   // Close the tab that is up, then open the same path again.
   const x = byClass(chips()[1] as FakeElement, 'pane-x')[0] as FakeElement;
   x.click();
-  sync();
+  await sync();
   assert.deepEqual(labels(), ['Pane.tsx'], 'non-vacuity: it really left the strip');
 
   st.openFile({ kind: 'home' }, B, 'App.tsx');
-  sync();
+  await sync();
   assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx']);
   assert.notEqual(
     field(),
@@ -414,7 +427,7 @@ test('a closed tab’s parked body is dropped: re-opening the file builds a new 
   );
 });
 
-test('a SECOND pane on the same file refreshes its Save button while the first is typed in', () => {
+test('a SECOND pane on the same file refreshes its Save button while the first is typed in', async () => {
   // The cheap path — same strip, same active tab — ends in
   // `bodies.get(shown).update()`, and that call is the ONLY thing that carries
   // an outside change into a body that is already on screen. A pane that
@@ -432,6 +445,7 @@ test('a SECOND pane on the same file refreshes its Save button while the first i
   const pane2 = EP.editorPane(hd2, body2);
   const viewId = (st.activeView() as ViewLike).id;
   pane2.update(second, viewId, 1);
+  await settle(); // its body reads its file before it draws one
   const saveOf = (host: FakeElement): string =>
     (byClass(host, 'pane-save')[0] as FakeElement).textContent;
   const fieldOf = (host: FakeElement): FakeElement =>
@@ -440,7 +454,7 @@ test('a SECOND pane on the same file refreshes its Save button while the first i
 
   // The first pane raises the same file and the user types in it.
   st.setActiveTab(viewId, 0, 0);
-  sync();
+  await sync();
   type(field() as FakeElement, `${ORIGINAL_A}\ntyped in the other pane`);
   assert.equal(st.editorDirty(st.editorFileId(A)), true, 'non-vacuity: the file is unsaved now');
 
@@ -452,14 +466,14 @@ test('a SECOND pane on the same file refreshes its Save button while the first i
   card2.remove();
 });
 
-test('dispose() gives up every parked body, so a converted pane resurrects nothing', () => {
+test('dispose() gives up every parked body, so a converted pane resurrects nothing', async () => {
   const taB = field() as FakeElement;
   pane.dispose();
   hd.replaceChildren();
   body.replaceChildren();
   // panes.ts builds a NEW editorPane on the same elements after a conversion.
   pane = EP.editorPane(hd, body);
-  sync();
+  await sync();
   assert.notEqual(field(), taB, 'a stale textarea would carry text state.ts has already dropped');
   assert.deepEqual(labels(), ['Pane.tsx', 'App.tsx'], 'and the strip is drawn from the model again');
 });
@@ -468,20 +482,20 @@ test('dispose() gives up every parked body, so a converted pane resurrects nothi
 // 5. The keyboard
 // ---------------------------------------------------------------------------
 
-test('focus() lands in the text of a file tab, and on the CHIP of a read-only diff', () => {
+test('focus() lands in the text of a file tab, and on the CHIP of a read-only diff', async () => {
   pane.focus();
   assert.equal(dom.doc.activeElement, field(), 'a file pane focuses what can be typed in');
   assert.equal(pane.holdsFocus(), false, 'the textarea is the BODY, not the strip');
 
   st.openDiff({ kind: 'home' }, HASH, C, REPO);
-  sync();
+  await sync();
   pane.focus();
   const pick = byClass(chips()[2] as FakeElement, 'pane-tab-pick')[0] as FakeElement;
   assert.equal(dom.doc.activeElement, pick, 'a diff has no field: the keyboard lands on its chip');
   assert.equal(pane.holdsFocus(), true, 'and panes.ts must not move it out of the strip');
 });
 
-test('a rebuilt strip hands the keyboard back to the chip that had it', () => {
+test('a rebuilt strip hands the keyboard back to the chip that had it', async () => {
   const pick = byClass(chips()[0] as FakeElement, 'pane-tab-pick')[0] as FakeElement;
   const key = pick.getAttribute('data-k');
   assert.equal(key, `ptab:${slot().id}:${EM.fileTabId(A)}`, 'the key names the PANE and the TAB');
@@ -489,7 +503,7 @@ test('a rebuilt strip hands the keyboard back to the chip that had it', () => {
   assert.equal(pane.holdsFocus(), true);
   // Something else makes the strip redraw under the user's hands.
   st.setEdit(st.editorFileId(B), `${ORIGINAL_B}\nchanged`);
-  sync();
+  await sync();
   assert.notEqual(byClass(chips()[0] as FakeElement, 'pane-tab-pick')[0], pick, 'it really redrew');
   assert.equal(
     (dom.doc.activeElement as FakeElement).getAttribute('data-k'),
@@ -502,7 +516,7 @@ test('a rebuilt strip hands the keyboard back to the chip that had it', () => {
 // 6. The chip is its own drag source
 // ---------------------------------------------------------------------------
 
-test('fileTabSpec names the pane twice and the tab twice — nothing more', () => {
+test('fileTabSpec names the pane twice and the tab twice — nothing more', async () => {
   const s = slot();
   const spec = EP.fileTabSpec('v9', s, 2, 1) as Record<string, unknown>;
   assert.deepEqual(spec, {
@@ -522,15 +536,15 @@ test('fileTabSpec names the pane twice and the tab twice — nothing more', () =
   assert.equal(EP.fileTabSpec('v9', s, 2, 9), null, 'an index past the strip carries nothing');
 });
 
-test('a diff chip carries its own id, from the other id space', () => {
+test('a diff chip carries its own id, from the other id space', async () => {
   st.openDiff({ kind: 'home' }, HASH, C, REPO);
-  sync();
+  await sync();
   const spec = EP.fileTabSpec('v9', slot(), 0, 2) as Record<string, unknown>;
   assert.equal(spec.tabId, EM.diffTabId(HASH, C));
   assert.equal(spec.label, `Changes in ${SHORT}`);
 });
 
-test('a pointerdown on a chip arms the CHIP’s drag, never the pane’s', () => {
+test('a pointerdown on a chip arms the CHIP’s drag, never the pane’s', async () => {
   const chip = chips()[0] as FakeElement;
   dispatch(chip, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 31 });
   dispatch(dom.body, 'pointermove', { clientX: 200, clientY: 300, pointerId: 31 });
@@ -546,7 +560,7 @@ test('a pointerdown on a chip arms the CHIP’s drag, never the pane’s', () =>
   releasePointer(31);
 });
 
-test('a pointerdown on a chip’s LABEL arms the chip too (the label is most of the chip)', () => {
+test('a pointerdown on a chip’s LABEL arms the chip too (the label is most of the chip)', async () => {
   const pick = byClass(chips()[1] as FakeElement, 'pane-tab-pick')[0] as FakeElement;
   dispatch(pick, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 32 });
   dispatch(dom.body, 'pointermove', { clientX: 200, clientY: 300, pointerId: 32 });
@@ -555,7 +569,7 @@ test('a pointerdown on a chip’s LABEL arms the chip too (the label is most of 
   releasePointer(32);
 });
 
-test('a pointerdown on a chip’s × drags nothing at all', () => {
+test('a pointerdown on a chip’s × drags nothing at all', async () => {
   const x = byClass(chips()[0] as FakeElement, 'pane-x')[0] as FakeElement;
   dispatch(x, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 33 });
   dispatch(dom.body, 'pointermove', { clientX: 200, clientY: 300, pointerId: 33 });
@@ -564,7 +578,7 @@ test('a pointerdown on a chip’s × drags nothing at all', () => {
   releasePointer(33);
 });
 
-test('the pane header itself is still the PANE’s handle', () => {
+test('the pane header itself is still the PANE’s handle', async () => {
   // Non-vacuity for the three tests above: the header drag is really armed, so
   // "it did not fire" means the chip won, not that nothing was listening.
   dispatch(hd, 'pointerdown', { clientX: 10, clientY: 10, pointerId: 34 });
@@ -576,7 +590,7 @@ test('the pane header itself is still the PANE’s handle', () => {
 // 7. Class parity: a typo is an invisible strip
 // ---------------------------------------------------------------------------
 
-test('every class the strip renders has a rule in app.css', () => {
+test('every class the strip renders has a rule in app.css', async () => {
   const seen = new Set<string>();
   const collect = (): void => {
     for (const n of [hd, body, ...descendants(hd), ...descendants(body)]) {
@@ -585,10 +599,10 @@ test('every class the strip renders has a rule in app.css', () => {
   };
   collect();
   type(field() as FakeElement, `${ORIGINAL_B}\nchanged`); // the dot and its words
-  sync();
+  await sync();
   collect();
   st.openDiff({ kind: 'home' }, HASH, C, REPO); // a read-only tab
-  sync();
+  await sync();
   collect();
 
   assert.ok(seen.size >= 8, `non-vacuity: only ${seen.size} classes were collected`);
@@ -600,7 +614,7 @@ test('every class the strip renders has a rule in app.css', () => {
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });
 
-test('the strip’s CSS is ONE new section, inserted after the pane header block', () => {
+test('the strip’s CSS is ONE new section, inserted after the pane header block', async () => {
   const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');
   const header = css.indexOf('/* ---- pane header (38px)');
   const section = css.indexOf('/* ---- editor pane tabs (Nocturne A10b)');

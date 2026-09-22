@@ -1218,11 +1218,14 @@ select:focus-visible,
 }
 
 /* ---- file pane (Nocturne A10) -------------------------------------------------
+   Made real by part B4: the text is the file on disk, and the bar under it
+   carries what the last save had to say.
+
    A file opened from the Files panel is a PANE, so it wears the pane's own
    card: the terminal ground fills the body edge to edge, the text sits on it
    in the terminal's own mono, and the one strip under it is the same 30px
-   hairline bar a session uses for its status items — the honest line about the
-   mock on the left, Save on the right. Nothing here is decorated; the code is
+   hairline bar a session uses for its status items — what the last save has to
+   say on the left, Save on the right. Nothing here is decorated; the code is
    the content.                                                                */
 
 .pane-file,
@@ -1278,7 +1281,9 @@ select:focus-visible,
   outline: none; /* the caret is the focus ring inside a text field */
 }
 
-/* no example text for this path: a sentence, no field, no numbers */
+/* nothing to type into: the server's own sentence, no field, no numbers — and
+   `Loading…` in the same slot, in the same quiet ink, so the answer replaces
+   the waiting line exactly where it stood (part B4) */
 .pane-fempty {
   flex: 1;
   min-width: 0;
@@ -1287,7 +1292,16 @@ select:focus-visible,
   color: var(--color-neutral-600);
 }
 
-/* the strip under the text — the session pane's status bar, other contents */
+/* A REFUSAL is danger ink (too large, not text, no permission); a file that is
+   simply gone keeps the quiet ink above — nothing went wrong, there is nothing
+   there. Same pair the diff notes already use (`.diff-note.is-bad`). */
+.pane-fempty.is-bad {
+  color: var(--color-danger);
+}
+
+/* the strip under the text — the session pane's status bar, other contents.
+   Since B4 it is also the CONFLICT bar: the same 30px strip, the server's
+   sentence on the left and the two answers beside it. */
 .pane-fbar {
   flex: none;
   display: flex;
@@ -1299,11 +1313,21 @@ select:focus-visible,
   font-size: 11.5px;
 }
 
-.pane-fnote {
-  color: var(--color-neutral-600);
+/* WHAT A SAVE HAS TO SAY, in the bar and nowhere else (part B4). A file that
+   changed under the user is a line in the pane's own statusline with the two
+   answers beside it — never a banner over the text, never a dialog: the text
+   is what the user came for and it stays on screen and editable. The sentence
+   is the SERVER's, verbatim, in danger ink. */
+.pane-fmsg {
+  min-width: 0;
+  color: var(--color-danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pane-save {
+.pane-save,
+.pane-fact {
   flex: none;
   height: var(--ctl-h-row);
   padding: 0 var(--space-3);
@@ -1311,6 +1335,17 @@ select:focus-visible,
   border-radius: var(--radius-sm);
   color: var(--color-neutral-600);
   font-size: 12px;
+}
+
+/* The two answers to a conflict are QUIET, both of them: neither `Overwrite`
+   nor `Load from disk` is the safe one — they lose different work — so putting
+   an accent on either would be the app choosing for the user. */
+.pane-fact {
+  color: var(--color-neutral-300);
+}
+
+.pane-fact:hover {
+  border-color: var(--color-neutral-600);
 }
 
 /* only a file with unsaved text offers the accent — `Saved` is a statement */
@@ -6271,7 +6306,15 @@ body.is-dnd * {
   }
 }
 
-/* ---- delete confirmation (Nocturne B10a): dd- --------------------------------
+/* ---- delete confirmation (Nocturne B10a): dd- — and, since part B4, the
+   unsaved-changes question: ud- --------------------------------------------
+   ONE CARD, TWO USERS. The unsaved-changes question (part B4, user decision
+   D1: `Discard` / `Keep editing`) is this same card with a different question
+   in it, so it shares every rule below rather than owning a second set of
+   values. The difference is behaviour, not looks: there the SAFE answer holds
+   the keyboard (`Keep editing`), here it is `Cancel`. Both write the answer
+   that cannot be taken back as danger ink and an outline.
+   ------------------------------------------------------------------------------
    The ONE stop before bytes are gone for good — no trash, no undo, no recycle
    bin behind it.
 
@@ -6292,13 +6335,15 @@ body.is-dnd * {
    focuses Cancel): every other dialog here focuses the safe answer, and here
    the safe answer is Cancel. Escape and the backdrop are that same button.  */
 
-.modal-scrim.dd-scrim {
+.modal-scrim.dd-scrim,
+.modal-scrim.ud-scrim {
   align-items: flex-start;
   padding: max(var(--space-6), calc(50vh - 160px)) var(--space-6) var(--space-6);
   animation: scrimFade 0.14s ease;
 }
 
-.dd-modal {
+.dd-modal,
+.ud-modal {
   width: 400px;
   max-width: 100%;
   display: flex;
@@ -6312,12 +6357,15 @@ body.is-dnd * {
 
 @media (prefers-reduced-motion: reduce) {
   .modal-scrim.dd-scrim,
-  .dd-modal {
+  .modal-scrim.ud-scrim,
+  .dd-modal,
+  .ud-modal {
     animation: none;
   }
 }
 
-.dd-body {
+.dd-body,
+.ud-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -6327,11 +6375,22 @@ body.is-dnd * {
 /* the question itself — the same 16/500 title every Nocturne dialog opens
    with. It carries a NAME or a count, never a path, so it wraps rather than
    truncates: the one sentence in this app that must be read whole. */
-.dd-title {
+.dd-title,
+.ud-title {
   font-size: 16px;
   font-weight: 500;
   color: var(--color-text);
   overflow-wrap: anywhere;
+}
+
+/* the FILE NAME inside that question (part B4). SECURITY RULE, see
+   `.pane-tab-pick` and `.commit-fpath-t`: a name out of a repository may carry
+   a right-to-left run, which would otherwise reorder the sentence around
+   itself — the name is isolated and drawn left to right, so `Discard unsaved
+   changes to <name>?` reads in that order whatever the name contains. */
+.ud-name {
+  unicode-bidi: isolate;
+  direction: ltr;
 }
 
 /* the second line, and only when it says something the question does not
@@ -6341,7 +6400,8 @@ body.is-dnd * {
   color: var(--color-neutral-500);
 }
 
-.dd-ft {
+.dd-ft,
+.ud-ft {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -6350,12 +6410,14 @@ body.is-dnd * {
 }
 
 /* the spacer that keeps the way out on the left and the answer on the right */
-.dd-gap {
+.dd-gap,
+.ud-gap {
   flex: 1;
 }
 
 /* one structural focus ring for every control in the dialog (the A4 rule) */
-.dd-modal button:focus-visible {
+.dd-modal button:focus-visible,
+.ud-modal button:focus-visible {
   outline: var(--tick) solid var(--color-accent);
   outline-offset: 1px;
 }
@@ -6363,7 +6425,9 @@ body.is-dnd * {
 /* narrow window */
 @media (max-width: 460px) {
   .dd-body,
-  .dd-ft {
+  .ud-body,
+  .dd-ft,
+  .ud-ft {
     padding-left: var(--space-6);
     padding-right: var(--space-6);
   }

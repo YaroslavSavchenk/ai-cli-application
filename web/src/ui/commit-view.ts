@@ -413,8 +413,10 @@ export function initCommitView(
       // THE PATH IS ABSOLUTE, exactly like the one a `Changes` row hands over
       // (ui/files.ts): a commit names its files relative to the REPOSITORY, so
       // it is joined onto the repository this view was opened from. Part B3
-      // reads the working-tree file; nothing checks that it still exists,
-      // which is B4's refusal to write.
+      // reads the working-tree file; nothing checks HERE that it still exists
+      // — since B4 the pane answers for that itself: its read draws the
+      // server's own sentence, and a save onto a file that is gone offers
+      // `Overwrite`.
       if (st.openFile(commitRoot(), joinPath(repo, f.path), fileName(f.path)) !== 'ok') {
         // The tab has no room for a new PANE and no editor pane to add a tab
         // to: say so and stay, rather than closing this screen for a file that
