@@ -6,15 +6,24 @@
  * tokens it spent — one line per agent, under the status bar, inside the
  * terminal card.
  *
- * A3 SHIPS IT EMPTY. Nothing in this app knows about background agents yet:
- * their data source is open decision #7 of `.claude/plans/PLAN-NOCTURNE.md` (part
- * B7). `renderAgents([])` returns `null` and the caller renders nothing —
- * exactly like the reference, which hides the block when there are no agents.
- * Sample rows exist only in a screenshot session, never in the shipped UI.
+ * WHERE THE ROWS COME FROM (part B7, `.claude/plans/nocturne/PLAN-B7.md`):
+ * `SessionInfo.agents` — the subagents Claude Code ran for this session, read
+ * by the server from that session's own transcripts and already ordered and
+ * capped there. `ui/pane-agents-model.ts` turns them into the rows below;
+ * nothing here reads state, a session or the clock.
+ *
+ * NEVER EMPTY. `renderAgents([])` returns `null` and the caller renders
+ * nothing — exactly like the reference, which hides the block when there are
+ * no agents. Sample rows exist only in a screenshot session, never in the
+ * shipped UI.
  */
 import { el } from './util.ts';
 
-/** The dot's meaning, on the same three-colour vocabulary as a session. */
+/**
+ * The dot's meaning, on the same three-colour vocabulary as a session — the
+ * PANE's vocabulary, which is why `attention` stays here. B7 never emits it:
+ * a subagent asks the user nothing, so no row is ever waiting on them.
+ */
 export type AgentTone = 'running' | 'attention' | 'finished';
 
 export interface AgentRow {

@@ -45,6 +45,9 @@
  *     wake-up in the backend;
  *   - it obeys the same HONESTY RULE as the line: a value the payload does not
  *     really carry is an ABSENT KEY, never a zero.
+ * Since B7 the snapshot also carries `transcript`, the payload's
+ * `transcript_path` verbatim: the backend derives this session's subagents
+ * directory from it (server/agents.ts), and only the payload knows it.
  * Without the argument the script behaves exactly as it did before B1.
  *
  * <permission-mode> is one of the four values in MODE_LABELS, or anything else
@@ -293,6 +296,18 @@ function writeSnapshot(file, payload, branch) {
   const seven = pct(obj(limits?.seven_day)?.used_percentage);
   if (five !== null) snapshot.usage5h = five;
   if (seven !== null) snapshot.usage7d = seven;
+
+  // Nocturne B7: the absolute path of THIS session's transcript, the only
+  // place the subagents directory can be derived from (a resumed conversation
+  // keeps its old Claude session id, so the app's id says nothing). Taken
+  // VERBATIM, not through clean(): it is a path, and collapsing whitespace or
+  // stripping a character would hand the backend a path to a different file.
+  // Nothing here vouches for it — the backend re-checks the whole string
+  // against its own boundary before it opens anything (server/agents.ts).
+  const transcript = payload.transcript_path;
+  if (typeof transcript === 'string' && transcript !== '' && transcript.length <= 1024) {
+    snapshot.transcript = transcript;
+  }
 
   // Compare everything except the timestamp: a 2 s refresh that reports the
   // same numbers must leave the file (and its mtime) completely alone.

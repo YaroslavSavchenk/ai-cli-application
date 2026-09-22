@@ -7,12 +7,14 @@
  * against `document`, so what can be proven here is the SHAPE of the code that
  * builds it. Three things are worth exactly that:
  *
- *   1. NO SAMPLE DATA SHIPS. The "Background agents" table has no data source
- *      until part B7 (open decision #7), so `panes.ts` must mount
- *      `renderAgents` with an EMPTY list and `renderAgents([])` must answer
- *      `null` — i.e. the block is absent, not an empty table and certainly not
- *      the reference's demo rows. This is the one A3 pin that guards against
- *      shipping a screenshot as a feature.
+ *   1. NO SAMPLE DATA SHIPS. The "Background agents" table draws only what a
+ *      session really reported: since part B7 `panes.ts` mounts `renderAgents`
+ *      with the rows of `ui/pane-agents-model.ts` (`agentRows`, fed from
+ *      `SessionInfo.agents`) and with nothing else — no literal it authored
+ *      itself — and `renderAgents([])` must still answer `null`, i.e. the
+ *      block is absent, not an empty table and certainly not the reference's
+ *      demo rows. This is the one A3 pin that guards against shipping a
+ *      screenshot as a feature.
  *   2. THE A3 COPY. The literals the new pane renders exist, and the Legacy
  *      ones it replaced are gone from the whole chrome.
  *   3. THE STYLE CONTRACT: `app.css` carries no `pane-scan` (the Legacy
@@ -58,22 +60,24 @@ test('non-vacuity: the A3 sources are the ones being read', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 1. The agents table ships empty
+// 1. The agents table ships no sample data
 // ---------------------------------------------------------------------------
 
-test('panes.ts mounts the agents renderer with an EMPTY list — no sample rows ship', () => {
+test('panes.ts mounts the agents renderer with the MODEL’s rows — no sample rows ship', () => {
   const calls = [...PANES_CODE.matchAll(/renderAgents\(([^)]*)\)/g)].map((m) => m[1] as string);
   assert.equal(calls.length, 1, `expected exactly one renderAgents call site, found ${calls.length}`);
   const arg = (calls[0] as string).trim();
-  // Either the literal `[]`, or a plain identifier declared as an empty array.
-  let provablyEmpty = arg === '[]';
-  if (!provablyEmpty && /^[A-Za-z_$][\w$]*$/.test(arg)) {
-    provablyEmpty = new RegExp(`const\\s+${arg}\\s*(:[^=]*)?=\\s*\\[\\s*\\]\\s*;`).test(PANES_CODE);
+  // Either `agentRows(...)` itself, or a plain identifier declared from it.
+  let fromModel = /^agentRows\(/.test(arg);
+  if (!fromModel && /^[A-Za-z_$][\w$]*$/.test(arg)) {
+    fromModel = new RegExp(`const\\s+${arg}\\s*(:[^=]*)?=\\s*agentRows\\(`).test(PANES_CODE);
   }
   assert.ok(
-    provablyEmpty,
-    `renderAgents is called with ${JSON.stringify(arg)}, which is not provably empty`,
+    fromModel,
+    `renderAgents is called with ${JSON.stringify(arg)}, which does not come from agentRows()`,
   );
+  // ...and that model is the B7 one, imported from its own module.
+  assert.match(PANES_CODE, /import \{ agentRows \} from '\.\/pane-agents-model\.ts';/);
   // And nothing anywhere in panes.ts builds an AgentRow.
   assert.equal(/\bname:\s*'[^']*',\s*task:/.test(PANES_CODE), false, 'panes.ts must not author agent rows');
 });

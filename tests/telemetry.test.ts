@@ -20,7 +20,12 @@ import { mkdir, mkdtemp, rm, symlink, unlink, utimes, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SessionTelemetry } from '../shared/protocol.ts';
-import { parseSnapshot, sameTelemetry, TelemetryWatcher } from '../server/telemetry.ts';
+import {
+  parseSnapshot,
+  sameTelemetry,
+  TelemetryWatcher,
+  transcriptFromSnapshot,
+} from '../server/telemetry.ts';
 
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
@@ -190,6 +195,60 @@ test('parseSnapshot: anything over 8 KiB is refused unparsed', () => {
   assert.equal(parseSnapshot(justUnder)?.model, 'Opus 5');
 });
 
+// ---------------------------------------------------------------------------
+// transcriptFromSnapshot (Nocturne B7) — the same file, a second fact
+// ---------------------------------------------------------------------------
+
+/** transcriptFromSnapshot on an object, the way the watcher sees it (as text). */
+function transcriptOf(value: unknown): string | undefined {
+  return transcriptFromSnapshot(JSON.stringify(value));
+}
+
+test('transcriptFromSnapshot: the key comes back exactly as written — it is a PATH', () => {
+  const path = '/home/u/.claude/projects/-home-u-p/0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09.jsonl';
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: path }), path);
+  // Spaces are legal in a path and survive: clean()'s collapsing would name a
+  // different file.
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: '/a/my  dir/x.jsonl' }), '/a/my  dir/x.jsonl');
+});
+
+test('transcriptFromSnapshot: telemetry and the transcript never leak into each other', () => {
+  const text = JSON.stringify({ v: 1, at: 1_726_560_000_000, model: 'Opus 5', transcript: '/a/b.jsonl' });
+  // parseSnapshot keeps dropping the key it does not know...
+  assert.deepEqual(parseSnapshot(text), { at: '2024-09-17T08:00:00.000Z', model: 'Opus 5' });
+  // ...and this one reads only the key parseSnapshot drops.
+  assert.equal(transcriptFromSnapshot(text), '/a/b.jsonl');
+});
+
+test('transcriptFromSnapshot: no key, no snapshot, no version -> undefined', () => {
+  assert.equal(transcriptOf({ v: 1, at: 1 }), undefined);
+  assert.equal(transcriptOf({ v: 2, at: 1, transcript: '/a/b.jsonl' }), undefined, 'one schema version');
+  assert.equal(transcriptOf([{ v: 1, transcript: '/a/b.jsonl' }]), undefined, 'an array is not a snapshot');
+  assert.equal(transcriptFromSnapshot('not json at all'), undefined);
+  assert.equal(transcriptFromSnapshot(''), undefined);
+});
+
+test('transcriptFromSnapshot: a non-string, an empty string and 1025 characters are refused', () => {
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: 12345 }), undefined);
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: { path: '/a/b.jsonl' } }), undefined);
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: ['/a/b.jsonl'] }), undefined);
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: null }), undefined);
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: '' }), undefined);
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: `/${'a'.repeat(1023)}` })?.length, 1024, 'exactly 1024 is fine');
+  assert.equal(transcriptOf({ v: 1, at: 1, transcript: `/${'a'.repeat(1024)}` }), undefined, '1025 is not');
+});
+
+test('transcriptFromSnapshot: a control character anywhere in the path refuses the whole value', () => {
+  for (const bad of [`${ESC}[31m/a/b.jsonl`, `/a/${BEL}b.jsonl`, `/a/b.jsonl${DEL}`, '/a/b\u0000.jsonl', '/a/b\n.jsonl']) {
+    assert.equal(transcriptOf({ v: 1, at: 1, transcript: bad }), undefined, JSON.stringify(bad));
+  }
+});
+
+test('transcriptFromSnapshot: anything over 8 KiB is refused unparsed', () => {
+  const huge = JSON.stringify({ v: 1, at: 1, transcript: '/a/b.jsonl', pad: 'x'.repeat(9_000) });
+  assert.equal(transcriptFromSnapshot(huge), undefined);
+});
+
 test('sameTelemetry: every field counts, including the stamp', () => {
   const base: SessionTelemetry = { at: '2026-09-17T10:30:00.000Z', model: 'Opus 5', costUsd: 0.42 };
   assert.equal(sameTelemetry(base, { ...base }), true);
@@ -207,6 +266,7 @@ test('sameTelemetry: every field counts, including the stamp', () => {
 interface Seen {
   id: string;
   telemetry: SessionTelemetry;
+  transcript: string | undefined;
 }
 
 /** A watcher on a fresh temp directory, recording everything it reports. */
@@ -257,7 +317,7 @@ async function waitForSeen(seen: Seen[], count: number, ms = 5_000): Promise<voi
 test('watcher: a snapshot appearing in the directory is reported with its session id', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     const id = '0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09';
     await writeSnapshot(w.dir, `${id}.json`, {
       v: 1,
@@ -289,7 +349,7 @@ test('watcher: a snapshot appearing in the directory is reported with its sessio
 test('watcher: a filename that is not a session id NEVER reaches the callback', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     const body = { v: 1, at: Date.now(), model: 'Opus 5' };
     // Every one of these is a real file in the watched directory, and not one
     // of them is a session id: a space, a dot segment, a leading dash, the
@@ -328,7 +388,7 @@ test('watcher: a filename that is not a session id NEVER reaches the callback', 
 test('watcher: a file that vanished (its session ended) is skipped silently', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     const gone = join(w.dir, 'sess-gone.json');
     await writeFile(gone, JSON.stringify({ v: 1, at: Date.now(), model: 'Opus 5' }));
     // Removed inside the debounce window: the read finds nothing.
@@ -344,7 +404,7 @@ test('watcher: a file that vanished (its session ended) is skipped silently', as
 test('watcher: garbage in the directory is ignored, and the watcher keeps working', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-bad.json', 'not json at all');
     await writeSnapshot(w.dir, 'sess-v2.json', { v: 2, at: Date.now() });
     await delay(600);
@@ -360,7 +420,7 @@ test('watcher: garbage in the directory is ignored, and the watcher keeps workin
 test('watcher: stop() detaches — a write afterwards is never reported', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-1.json', { v: 1, at: Date.now(), model: 'Opus 5' });
     await waitForSeen(w.seen, 1);
 
@@ -377,7 +437,7 @@ test('watcher: stop() detaches — a write afterwards is never reported', async 
 test('watcher: a write still in flight when stop() lands is dropped, not delivered late', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-1.json', { v: 1, at: Date.now(), model: 'Opus 5' });
     // Inside the ~150 ms debounce: the pending timer must be cleared by stop().
     await delay(20);
@@ -395,7 +455,7 @@ test('watcher: a directory fs.watch cannot take falls back to polling and catche
   // directory appears (the standby ordering makes this a real case).
   const w = await makeWatcher({ create: false });
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     assert.ok(
       w.logs.some((l) => l.startsWith('debug: [telemetry] cannot watch ')),
       `the fallback is announced at debug, got ${JSON.stringify(w.logs)}`,
@@ -443,7 +503,7 @@ test('watcher: a directory fs.watch cannot take falls back to polling and catche
 test('watcher #read: a SYMLINK named like a snapshot is refused, never followed', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     // A perfectly valid snapshot, OUTSIDE the watched directory. Following the
     // link would read a file the session never wrote — the whole point of
     // O_NOFOLLOW is that this content can never reach SessionInfo.
@@ -467,7 +527,7 @@ test('watcher #read: a SYMLINK named like a snapshot is refused, never followed'
 test('watcher #read: a file bigger than 8 KiB is refused, and never parsed', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     // Valid JSON, valid schema, ~9 KiB: a real snapshot is ~150 bytes, so this
     // is someone filling the bar's read buffer, not a session reporting.
     const big = JSON.stringify({ v: 1, at: Date.now(), model: 'Opus 5', pad: 'x'.repeat(9 * 1024) });
@@ -564,7 +624,7 @@ test('watcher #read: a FIFO named like a snapshot never blocks the watcher', asy
 test('watcher: stop() clears the pending debounce — a restart never delivers the old write', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, telemetry) => w.seen.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-stale.json', { v: 1, at: Date.now(), model: 'Stale' });
     await delay(50); // The event has landed; its 150 ms timer is pending.
     w.watcher.stop();
@@ -573,7 +633,7 @@ test('watcher: stop() clears the pending debounce — a restart never delivers t
     // NEW callback. The timer from before stop() must be gone, not merely
     // ignored: whatever it would deliver describes the run that ended.
     const later: Seen[] = [];
-    w.watcher.start((id, telemetry) => later.push({ id, telemetry }));
+    w.watcher.start((id, telemetry, transcript) => later.push({ id, telemetry, transcript }));
     await delay(600);
     assert.equal(later.length, 0, 'nothing left over from before stop() fires into the new callback');
     assert.equal(w.seen.length, 0, 'and nothing reached the old one either');
@@ -582,6 +642,28 @@ test('watcher: stop() clears the pending debounce — a restart never delivers t
     await writeSnapshot(w.dir, 'sess-fresh.json', { v: 1, at: Date.now(), model: 'Opus 5' });
     await waitForSeen(later, 1);
     assert.equal(later[0]?.id, 'sess-fresh');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: the snapshot\'s transcript path is handed over as the third argument (B7)', async () => {
+  const w = await makeWatcher();
+  try {
+    w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
+    const id = 'sess-transcript';
+    const path = '/home/u/.claude/projects/-home-u-p/0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09.jsonl';
+    await writeSnapshot(w.dir, `${id}.json`, { v: 1, at: Date.UTC(2026, 8, 22, 9, 0, 0), transcript: path });
+    await waitForSeen(w.seen, 1);
+    assert.equal(w.seen[0]?.transcript, path);
+    // And the telemetry half never saw it.
+    assert.deepEqual(w.seen[0]?.telemetry, { at: '2026-09-22T09:00:00.000Z' });
+
+    // A snapshot without the key reports undefined, not the previous path:
+    // this callback is the only thing that keeps the two in step.
+    await writeSnapshot(w.dir, `${id}.json`, { v: 1, at: Date.UTC(2026, 8, 22, 9, 1, 0) });
+    await waitForSeen(w.seen, 2);
+    assert.equal(w.seen[1]?.transcript, undefined);
   } finally {
     await w.cleanup();
   }

@@ -103,6 +103,14 @@ export interface SessionInfo {
    * re-sends `info`); kept after exit — cost so far is still true then.
    */
   telemetry?: SessionTelemetry;
+  /**
+   * Nocturne B7: the subagents Claude Code ran for this session, from its
+   * transcripts (server/agents.ts). Absent until the first one; running ones
+   * first (oldest first), then at most 3 finished (newest first), at most 8
+   * rows; replaced whenever the list changes (the server re-sends `info`);
+   * kept after exit.
+   */
+  agents?: SessionAgent[];
 }
 
 /**
@@ -132,6 +140,32 @@ export interface SessionTelemetry {
   usage5hPct?: number;
   /** `rate_limits.seven_day.used_percentage`, 0-100 integer. */
   usage7dPct?: number;
+}
+
+/** A subagent's dot: it is working, or it has ended (its turn, or it went quiet — PLAN-B7 § defaults). */
+export type SessionAgentState = 'running' | 'finished';
+
+/**
+ * Nocturne B7: one subagent Claude Code ran for a session, read by
+ * server/agents.ts from `~/.claude/projects/<slug>/<session-id>/subagents/`
+ * (found through the snapshot's transcript path). Every string crossed an
+ * untrusted file and was sanitised: control-stripped, capped (name 64, task
+ * 120); numbers are finite integers ≥ 0.
+ */
+export interface SessionAgent {
+  /** The hex after `agent-` in the file names: `^[a-f0-9]{1,32}$`. */
+  id: string;
+  /** `agentType` from the meta file (`agent` when it had none), mono in the UI. */
+  name: string;
+  /** `description` from the meta file — what it was asked to do, in words. */
+  task: string;
+  /** ISO-8601: the first transcript line, or the meta file's mtime before there is one. */
+  startedAt: string;
+  /** ISO-8601, present exactly when `state` is 'finished'. */
+  endedAt?: string;
+  /** Billed total across the agent's unique API messages: input + cache creation + cache read + output. */
+  tokens: number;
+  state: SessionAgentState;
 }
 
 // ---------------------------------------------------------------------------

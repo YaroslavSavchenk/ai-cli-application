@@ -1141,6 +1141,41 @@ multi-pane layouts on top.
   exited session keeps its last values; Time drops. The script reads
   `paneBar` for one thing only: skipping the git probe when nobody would
   show the branch.
+- **Background agents table — Nocturne B7, 2026-09-22 (the B7 row's open
+  decision, user 2026-09-22; spec `.claude/plans/nocturne/PLAN-B7.md`).**
+  The table under the pane status bar (name, task, time, tokens; A3 built
+  it empty) is fed by Claude Code's OWN transcripts: per session Claude
+  Code writes `<CLAUDE_CONFIG_DIR|~/.claude>/projects/<slug>/<session-id>/subagents/agent-<hex>.meta.json`
+  (agent type, task) and `agent-<hex>.jsonl` (timestamps, `message.id`,
+  `stop_reason`, `usage`). The status-line script adds the payload's
+  `transcript_path` to the B1 snapshot; the backend derives the subagents
+  directory from it and, because the snapshot is untrusted, refuses the
+  path unless it is absolute, normalised, `<uuid>.jsonl`, and its parent
+  realpath sits inside the real projects root (`DataPaths.claudeProjectsDir`,
+  the first directory outside the data dir this app reads for live data);
+  the directory actually opened is realpath-checked again on every poll.
+  `server/agents.ts` polls it every 2 s (no inotify: the directory does not
+  exist before the first subagent), reads meta files ≤ 8 KiB and transcripts
+  incrementally (offset + carry, ≤ 4 MiB per file and ≤ 16 MiB per tick
+  across everything, lines ≤ 1 MiB, `O_NOFOLLOW`, regular files only),
+  and hands `SessionInfo.agents` to the session manager, which re-sends
+  `info` on a real change only. A row: name = agent type, task =
+  description (control-stripped, 64/120), started = the first line's
+  timestamp (the meta's mtime before there is one), tokens = the billed
+  total across unique `message.id`s (input + cache creation + cache read +
+  output — a 15-minute agent reads `12.5M`), finished when the last
+  user/assistant line is an assistant `end_turn` or the file has not grown
+  for 15 min (a killed agent leaves no marker). Wire list: running first
+  (oldest first), then at most 3 finished (newest first), at most 8 rows;
+  64 agents tracked per session. The table is never rendered empty, never
+  for a non-claude session, keeps its rows after exit, and its ink and
+  both hairlines under the terminal take the terminal theme's steps (the
+  B9 constraint). Tracking stops at exit and removal, and at exit every row still
+  `running` becomes `finished` with the exit's own time (Claude Code runs
+  its subagents in-process, so none outlived it) in one extra `info`
+  frame before `exit`; a snapshot for a dead or unknown session is
+  ignored. No hooks, no env var, nothing
+  written under `~/.claude`.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's
   call; shape decided the same day.** The app stops being a passive
   registrar of existing directories and can *create* projects itself, and

@@ -382,9 +382,12 @@ path):
   with; emptied at boot, since no session survives a restart
 - `statusline-snapshots/` — one file per session (directory mode 0700, files
   0600) holding what Claude Code last reported for it: model, git branch, cost,
-  lines changed, context used, account usage. Written by the status-line script
-  the sessions run, read back by the backend, and drawn in the bar under each
-  terminal; emptied at boot with the settings above
+  lines changed, context used, account usage, and the path of Claude Code's own
+  transcript for the session. Written by the status-line script the sessions
+  run, read back by the backend, and drawn in the bar under each terminal — the
+  transcript path is not drawn: it is where the backend finds the session's
+  subagents for the Background agents table; emptied at boot with the settings
+  above
 - `statusline-cache.json` — the status line's git-branch cache, user-only
   readable (mode 0600), written by the script Claude Code runs and keyed by its
   session id; deleted at boot

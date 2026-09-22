@@ -18,7 +18,7 @@ marks, 1 px edges instead of shadows, radii 4/8/14. The previous look
   GitHub account chip, Settings, New session.
 - Pane cards with a 38 px header (state as words: Working, Needs your
   answer, Finished), the terminal on its own ground, a status bar under
-  each terminal, a Background agents strip (*empty until B7*).
+  each terminal, a Background agents strip (*live since B7, fed by Claude Code's subagent transcripts*).
 - Files panel (*mock until B2*), resizable 200–520 px, with file-type
   chips and an edited-file pulse; Sessions panel with Running now /
   Earlier; Projects drawer in the same row vocabulary.

@@ -20,10 +20,16 @@
  * failures are logged, not thrown.
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { HistoryEntry, SessionEndReason, SessionInfo } from '../shared/protocol.ts';
-import { atomicWriteFile, describeError, errorStackOnly, scoped, type Logger } from './config.ts';
+import {
+  atomicWriteFile,
+  claudeConfigDir,
+  describeError,
+  errorStackOnly,
+  scoped,
+  type Logger,
+} from './config.ts';
 import { isUuid } from './conversation.ts';
 
 /** Cap on stored entries; the oldest ENDED one is dropped past this. */
@@ -49,11 +55,6 @@ export interface HistoryKey {
  * refuse to guess in that case — see #transcriptMissing).
  */
 const ENCODED_CWD_MAX = 200;
-
-function claudeConfigDir(): string {
-  const override = process.env['CLAUDE_CONFIG_DIR'];
-  return override !== undefined && override !== '' ? override : join(homedir(), '.claude');
-}
 
 function encodeCwd(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');

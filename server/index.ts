@@ -68,6 +68,7 @@ import { SessionManager } from './sessions.ts';
 import { SessionSettingsStore } from './session-settings.ts';
 import { KeyStore } from './keys.ts';
 import { TelemetryWatcher } from './telemetry.ts';
+import { AgentsWatcher, subagentsDirFor } from './agents.ts';
 import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
@@ -330,7 +331,17 @@ if (!standbyWaiting) {
  * reports saved/not-saved. The value never appears in server.log or a response.
  */
 const keys = new KeyStore(paths.keysFile, log);
-const sessions = new SessionManager(log, history, sessionSettings, keys);
+/**
+ * The subagents Claude Code ran for a session (Nocturne B7), polled out of its
+ * own transcripts under paths.claudeProjectsDir — which is also the boundary
+ * every transcript path from a snapshot is checked against (server/agents.ts).
+ *
+ * Constructed BEFORE the SessionManager because the manager holds it: a
+ * session that exits or is deleted must stop being polled, and the manager is
+ * the only place that knows when that happened.
+ */
+const agents = new AgentsWatcher(log, { projectsRoot: paths.claudeProjectsDir });
+const sessions = new SessionManager(log, history, sessionSettings, keys, agents);
 /**
  * The status-line snapshots the script writes for each claude session, back
  * into SessionInfo.telemetry (and from there to every attached client as the
@@ -749,7 +760,28 @@ function beginListening(): void {
   // After resetSessionArtifacts() on both paths (module load for a normal boot,
   // the `go` handler for a standby), so the directory being watched is the one
   // this run's sessions write into.
-  telemetry.start((id, snapshot) => sessions.setTelemetry(id, snapshot));
+  telemetry.start((id, snapshot, transcript) => {
+    sessions.setTelemetry(id, snapshot);
+    // B7: the one place a transcript path is known. It is UNTRUSTED (the
+    // snapshot is a file any local process can write), so subagentsDirFor()
+    // refuses everything that is not a real transcript inside Claude Code's
+    // own projects root before any directory is opened.
+    //
+    // Only for a session that is still RUNNING: the watcher fires for any
+    // snapshot file in the directory, and one written just before a session
+    // exited can arrive a debounce (or a poll) after onExit already untracked
+    // it — tracking then would never be undone.
+    if (transcript !== undefined && sessions.isLive(id)) {
+      const dir = subagentsDirFor(transcript, paths.claudeProjectsDir);
+      if (dir !== null) agents.track(id, dir);
+      // server.log is the only diagnostic channel this process has: a refused
+      // path must not be silent, or "the table never appears" has no trace.
+      // oneLine is belt and braces — the value already passed a control-char
+      // check on the way out of the snapshot.
+      else log('debug', `[agents] ${id}: transcript path refused: ${oneLine(transcript)}`);
+    }
+  });
+  agents.start((id, list) => sessions.setAgents(id, list));
   server.listen(portHint, '127.0.0.1');
 }
 
@@ -786,6 +818,7 @@ const restart = new RestartController({
     // belong to the child, so removing it here would blind the launcher.
     lifecycle.stop();
     telemetry.stop();
+    agents.stop();
     releaseChecker?.stop();
     history.endAllLive('shutdown');
     sessions.destroyAll();
@@ -950,6 +983,7 @@ function shutdown(cause: string): void {
   );
   lifecycle.stop();
   telemetry.stop();
+  agents.stop();
   releaseChecker?.stop();
   // A frontend build in flight is this process's child: it must not outlive us
   // writing into web/dist-next, and its half-written output goes with it.

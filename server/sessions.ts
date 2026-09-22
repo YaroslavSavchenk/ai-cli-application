@@ -40,7 +40,7 @@ import { basename } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
-import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
+import type { SessionAgent, SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
 import { isKeyedTool, KEY_ENV } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
@@ -48,6 +48,7 @@ import { planCmdStart } from './winpath.ts';
 import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import { sameTelemetry } from './telemetry.ts';
+import { sameAgents, type AgentsWatcher } from './agents.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
@@ -491,6 +492,13 @@ export class SessionManager {
   readonly #settings: SessionSettingsStore | undefined;
   /** Absent -> no API-key injection at all (tests that don't need it). */
   readonly #keys: KeyStore | undefined;
+  /**
+   * Absent -> no background-agents polling at all (tests that don't need it).
+   * The manager only ever tells it to STOP watching a session; what starts a
+   * watch is the transcript path arriving through the telemetry snapshot
+   * (server/index.ts), which is the only place that knows it.
+   */
+  readonly #agents: AgentsWatcher | undefined;
 
   readonly #slog: Logger;
 
@@ -510,12 +518,14 @@ export class SessionManager {
     history: SessionHistory,
     settings?: SessionSettingsStore,
     keys?: KeyStore,
+    agents?: AgentsWatcher,
   ) {
     this.#log = log;
     this.#slog = scoped(log, 'session');
     this.#history = history;
     this.#settings = settings;
     this.#keys = keys;
+    this.#agents = agents;
   }
 
   list(): SessionInfo[] {
@@ -529,6 +539,19 @@ export class SessionManager {
 
   has(id: string): boolean {
     return this.#sessions.has(id);
+  }
+
+  /**
+   * True only for a session that exists AND whose PTY is still running.
+   *
+   * `has()` cannot answer this: an exited session STAYS listed until DELETE.
+   * The caller is the B7 wiring in server/index.ts, which must not start (or
+   * restart) polling a dead session's transcripts — a snapshot written by the
+   * status line can land up to a debounce or a poll AFTER the process exited,
+   * and tracking on that would never be undone.
+   */
+  isLive(id: string): boolean {
+    return this.#sessions.get(id)?.info.status === 'running';
   }
 
   /**
@@ -678,6 +701,25 @@ export class SessionManager {
       session.info.exitCode = exitCode;
       session.pty = null;
       if (statusline) this.#settings?.remove(id);
+      // The process is gone, so no new subagent can appear: stop polling its
+      // transcripts. The list already on info stands — what it cost is still
+      // true after the session ended.
+      this.#agents?.untrack(id);
+      // ...but a row still marked 'running' is no longer true: Claude Code runs
+      // its subagents IN-PROCESS, so none of them outlived this exit, and the
+      // browser would go on counting `now - startedAt` forever. The exit is the
+      // fact the app knows, and its clock is the one that stamps the end.
+      const endedAt = new Date().toISOString();
+      const agents = session.info.agents;
+      if (agents !== undefined && agents.some((a) => a.state === 'running')) {
+        session.info.agents = agents.map((a) =>
+          a.state === 'running' ? { ...a, state: 'finished' as const, endedAt } : a,
+        );
+        // ONE extra frame, before the exit: the client upserts this session on
+        // `info` and repaints on `exit`, so the repaint already draws the
+        // corrected rows.
+        this.#broadcast(session, { type: 'info', session: { ...session.info } });
+      }
       // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
       this.#history.markEnded(id, 'exit', exitCode);
       this.#broadcast(session, { type: 'exit', exitCode });
@@ -783,6 +825,33 @@ export class SessionManager {
     this.#broadcast(session, { type: 'info', session: { ...session.info } });
   }
 
+  /**
+   * Replace a session's background-agent list (Nocturne B7, from
+   * server/agents.ts polling Claude Code's subagent transcripts) and tell the
+   * attached clients — the table under the pane status bar is drawn from this.
+   *
+   * Two silent no-ops, the same two setTelemetry has:
+   *   - NO SUCH SESSION. A poll can land after the session ended, and a list
+   *     of subagents never creates a session.
+   *   - NOTHING CHANGED. The watcher already compares field-wise before it
+   *     calls, so this is belt and braces — but it is what guarantees one
+   *     broadcast per real change.
+   */
+  setAgents(id: string, agents: SessionAgent[]): void {
+    const session = this.#sessions.get(id);
+    if (session === undefined) {
+      this.#slog('debug', `${id} agents ignored: no such session`);
+      return;
+    }
+    if (sameAgents(session.info.agents, agents)) return;
+    session.info.agents = agents;
+    this.#slog(
+      'debug',
+      `${id} agents updated: ${agents.length} row(s), ${session.clients.size} client(s) attached`,
+    );
+    this.#broadcast(session, { type: 'info', session: { ...session.info } });
+  }
+
   markSeen(id: string): boolean {
     const session = this.#sessions.get(id);
     if (session === undefined) return false;
@@ -816,6 +885,8 @@ export class SessionManager {
     this.#sessions.delete(id);
     // No-op when the session never had one, or when onExit already removed it.
     if (session.info.statusline === true) this.#settings?.remove(id);
+    // Same for the agents poll: no session, nothing to deliver a list to.
+    this.#agents?.untrack(id);
     if (session.pty !== null) {
       // Stamp BEFORE kill so the async onExit's 'exit' stamp is the no-op.
       // At server shutdown endAllLive() ran first, so THIS is the no-op.

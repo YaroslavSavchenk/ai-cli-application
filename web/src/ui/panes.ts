@@ -19,7 +19,7 @@
  *   session  header: state dot, session name, project NAME, state pill,
  *            "Own tab" in a split. Body: the xterm mount, a thin status bar
  *            (ui/pane-status-model.ts) and the background-agents table
- *            (ui/pane-agents.ts, empty in A3).
+ *            (ui/pane-agents.ts, fed by ui/pane-agents-model.ts since B7).
  *   editor   header: one chip per open file — its name, an amber dot while it
  *            is unsaved, its own `×` — then the pane's `×`. Body: the ACTIVE
  *            chip's body (ui/file-pane.ts: line numbers, the text, Save; or
@@ -61,12 +61,14 @@ import { flash } from './statusline.ts';
 import { getBehaviour } from './prefs-model.ts';
 import { paneStatusItems } from './pane-status-model.ts';
 import { getStatusLine } from './statusline-model.ts';
-import { renderAgents, type AgentRow } from './pane-agents.ts';
+import { renderAgents } from './pane-agents.ts';
+import { agentRows } from './pane-agents-model.ts';
 import { editorPane, type EditorPane } from './editor-pane.ts';
 import { tabIdOf } from './editor-model.ts';
 import { slotTitle } from './slots-model.ts';
 
-/** How often the status bar's `Time` value is refreshed (the statusline's rate). */
+/** How often the status bar's `Time` and a running agent's time are refreshed
+    (the statusline's rate). */
 const STATUS_TICK_MS = 15_000;
 
 /** Everything a SESSION pane owns beyond the shared chrome. */
@@ -172,8 +174,9 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
       }
     }
   });
-  // The status bar's `Time` value ages; nothing else in a pane ticks. One
-  // timer for the whole grid, at the statusline's rate.
+  // The status bar's `Time` value ages, and so does a running background
+  // agent's (B7); nothing else in a pane ticks. One timer for the whole grid,
+  // at the statusline's rate.
   window.setInterval(() => {
     for (const s of slots) {
       if (s.pay?.kind === 'session') updateStatus(s.pay);
@@ -861,10 +864,11 @@ function updateHeader(s: Slot, pay: SessionPayload): void {
 }
 
 /**
- * The status bar under the terminal, plus the (A3: always empty) background
- * agents table. Both are absent — not blank — when there is nothing honest to
- * put in them: `paneStatusItems` returns [] for anything but the known agent,
- * so a plain shell's pane is terminal edge to terminal edge.
+ * The status bar under the terminal, plus the background agents table (B7).
+ * Both are absent — not blank — when there is nothing honest to put in them:
+ * `paneStatusItems` and `agentRows` both return [] for anything but the known
+ * agent, and `agentRows` also for a session that has spawned none, so a plain
+ * shell's pane is terminal edge to terminal edge.
  */
 function updateStatus(pay: SessionPayload): void {
   const info = st.state.sessions.get(pay.id);
@@ -888,10 +892,13 @@ function updateStatus(pay: SessionPayload): void {
       }),
     );
   }
-  // Part B7 decides where background agents come from (open decision #7);
-  // until then the list is empty and the table renders as nothing at all —
-  // which is exactly once, by the same signature rule.
-  const rows: AgentRow[] = [];
+  // The background agents this session spawned (part B7): the server reads
+  // them from Claude Code's transcripts and sends them ordered and capped on
+  // `SessionInfo.agents`, `agentRows` formats them, and the same signature
+  // rule renders once per real change. A session with none yields no rows and
+  // the table is absent, not blank. The 15 s tick above is what moves a
+  // running agent's time: the row's text changes, so the signature does.
+  const rows = agentRows(info, Date.now());
   const agentsSig = rows.map((r) => JSON.stringify(r)).join('\n');
   if (agentsSig !== pay.agentsSig) {
     pay.agentsSig = agentsSig;

@@ -116,6 +116,23 @@ export interface DataPaths {
    * (decision D5, 2026-09-22). Auto-pick is the fallback, not the rule.
    */
   lastPortFile: string;
+  /**
+   * Claude Code's OWN transcript root, `<CLAUDE_CONFIG_DIR|~/.claude>/projects`
+   * — NOT ours, NOT under the data dir, and never created or written by this
+   * process. It is where Claude Code keeps `<slug>/<session-id>.jsonl` and,
+   * beside it, `<slug>/<session-id>/subagents/` (Nocturne B7). The env var is
+   * honoured through claudeConfigDir(), the same one server/history.ts uses to
+   * find a transcript — two answers to "where does Claude Code keep this?"
+   * would make the agents table silently empty for anyone who set it.
+   *
+   * It is here because it is a BOUNDARY, not a convenience: the transcript
+   * path server/agents.ts reads comes out of a snapshot file that any process
+   * running as this user can write (memory/knowledge/wsl-0600-not-a-boundary.md),
+   * so a path is only ever opened after its real directory has been proven to
+   * sit inside the realpath of THIS directory. Tests point the watcher at a
+   * temp root through its constructor; there is deliberately no env var.
+   */
+  claudeProjectsDir: string;
   logFile: string;
 }
 
@@ -137,6 +154,22 @@ export function dataDirPath(): string {
   return join(homedir(), '.ai-session-manager');
 }
 
+/**
+ * Claude Code's own configuration directory: `CLAUDE_CONFIG_DIR` when the user
+ * set it, `~/.claude` otherwise.
+ *
+ * ONE definition for the whole server (server/history.ts imports it too): a
+ * second copy that forgot the env var would make a feature vanish silently for
+ * the users who set it — which is exactly what `claudeProjectsDir` below would
+ * have done. Deliberately NOT validated here: it is the user's own environment,
+ * not input from a client, and every consumer treats what it finds there as
+ * untrusted anyway.
+ */
+export function claudeConfigDir(): string {
+  const override = process.env['CLAUDE_CONFIG_DIR'];
+  return override !== undefined && override !== '' ? override : join(homedir(), '.claude');
+}
+
 /** Resolve (and create, mode 0700) the data dir. Throws on a relative AI_SM_DATA_DIR. */
 export function resolveDataPaths(): DataPaths {
   const dataDir = dataDirPath();
@@ -155,6 +188,10 @@ export function resolveDataPaths(): DataPaths {
     updatesDir: join(dataDir, 'updates'),
     updateCheckFile: join(dataDir, 'update-check.json'),
     lastPortFile: join(dataDir, 'last-port.json'),
+    // Claude Code's own directory, off the data dir on purpose: it is read
+    // (never written) and it follows CLAUDE_CONFIG_DIR / the user's home, not
+    // AI_SM_DATA_DIR.
+    claudeProjectsDir: join(claudeConfigDir(), 'projects'),
     logFile: join(dataDir, 'server.log'),
   };
 }

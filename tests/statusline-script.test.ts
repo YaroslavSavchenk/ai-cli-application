@@ -787,6 +787,9 @@ test('snapshot: a full payload records every field, 0600, beside an unchanged li
       context: 32,
       usage5h: 45,
       usage7d: 12,
+      // B7: the payload's transcript_path, verbatim — the only handle the
+      // backend has on this session's subagents directory.
+      transcript: '/home/u/.claude/projects/p/sess-1.jsonl',
     });
     assert.equal((await stat(snapshot)).mode & 0o777, 0o600, 'user-only, like every file this script writes');
   } finally {
@@ -807,7 +810,58 @@ test('snapshot honesty: zero cost, null context, absent rate limits and zero lin
     const written = await readSnapshot(snapshot);
     delete written['at'];
     // A zero is a real number and still says nothing: no key, never a 0.
-    assert.deepEqual(written, { v: 1, model: 'Opus 5', branch: 'main' });
+    // `transcript` is not a drawable value and is not subject to that rule:
+    // the payload carried it, so it is there.
+    assert.deepEqual(written, {
+      v: 1,
+      model: 'Opus 5',
+      branch: 'main',
+      transcript: '/home/u/.claude/projects/p/sess-1.jsonl',
+    });
+  } finally {
+    await rm(ws.root, { recursive: true, force: true });
+  }
+});
+
+test('snapshot: transcript_path is carried VERBATIM — a path is not clean()ed', async () => {
+  const ws = await makeWorkspace();
+  const snapshot = join(ws.root, 'sess-tp.json');
+  try {
+    const payload = fixture(ws.repo, 'sess-tp');
+    // Spaces are legal in a path and clean() would collapse them, which would
+    // hand the backend a path to a DIFFERENT file (or to nothing at all).
+    payload['transcript_path'] = '/home/u/.claude/projects/my  project/0ed9d6f2-1d4f-4a4a-9d9e-6f3b2d4c5e6a.jsonl';
+    await runWithSnapshot('default', ws.prefs, snapshot, payload);
+    const written = await readSnapshot(snapshot);
+    assert.equal(
+      written['transcript'],
+      '/home/u/.claude/projects/my  project/0ed9d6f2-1d4f-4a4a-9d9e-6f3b2d4c5e6a.jsonl',
+    );
+  } finally {
+    await rm(ws.root, { recursive: true, force: true });
+  }
+});
+
+test('snapshot: a transcript_path that is not a usable string leaves NO key', async () => {
+  const ws = await makeWorkspace();
+  try {
+    for (const [name, value] of [
+      ['a number', 12345],
+      ['an object', { path: '/x.jsonl' }],
+      ['an array', ['/x.jsonl']],
+      ['null', null],
+      ['empty', ''],
+      ['1025 characters', `/${'a'.repeat(1024)}`],
+    ] as [string, unknown][]) {
+      const snapshot = join(ws.root, `sess-tp-${name.replace(/\W+/g, '-')}.json`);
+      const payload = fixture(ws.repo, 'sess-tp-bad');
+      payload['transcript_path'] = value;
+      const res = await runWithSnapshot('default', ws.prefs, snapshot, payload);
+      assert.equal(res.code, 0, `${name}: still exits 0`);
+      assert.equal(res.err, '', `${name}: the HARD RULE — never a word on stderr`);
+      const written = await readSnapshot(snapshot);
+      assert.equal('transcript' in written, false, `${name}: no transcript key`);
+    }
   } finally {
     await rm(ws.root, { recursive: true, force: true });
   }

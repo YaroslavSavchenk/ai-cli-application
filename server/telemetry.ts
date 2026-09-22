@@ -27,6 +27,14 @@
  *
  * Nothing in here ever throws into a watcher callback or a timer: a bad file is
  * a skipped file, logged at debug and forgotten.
+ *
+ * Nocturne B7 added one key to the same file, `transcript` — the absolute path
+ * of Claude Code's own transcript for this session. It is NOT telemetry and
+ * never reaches SessionInfo.telemetry: parseSnapshot drops it like any other
+ * key it does not know, and transcriptFromSnapshot below lifts it out
+ * separately for server/agents.ts, which owns the boundary check on it. All
+ * this module promises about it is that it is a string of 1-1024 characters
+ * with no control characters in it.
  */
 import {
   closeSync,
@@ -77,6 +85,18 @@ const MAX_COST_USD = 1_000_000;
 
 /** Line counts above this are not edits either. */
 const MAX_LINES = 1_000_000_000;
+
+/**
+ * Longest transcript path we will even look at (B7). PATH_MAX is 4096 on
+ * Linux, but Claude Code's own transcripts live at a predictable depth under
+ * the home directory; a kilobyte is already far past any of them, and the cap
+ * exists so a multi-megabyte string in a planted snapshot is refused before
+ * anything tries to normalise or realpath it.
+ */
+const MAX_TRANSCRIPT = 1024;
+
+/** C0/C1 controls and DEL: never in a path we opened, so never in one we accept. */
+const CONTROL_CHAR = /[\u0000-\u001F\u007F-\u009F]/;
 
 /**
  * Terminal- and DOM-safe single-line text: strip C0/C1 controls and DEL,
@@ -173,6 +193,40 @@ export function parseSnapshot(text: string): SessionTelemetry | null {
 }
 
 /**
+ * The snapshot's `transcript` key (Nocturne B7): Claude Code's own transcript
+ * path for this session, or undefined when the file does not carry one we can
+ * use. Pure and total, like parseSnapshot, and deliberately SEPARATE from it —
+ * telemetry is drawn, this is a path that will be opened, and the two must not
+ * share a code path by accident.
+ *
+ * What is checked here is only what a string can be checked for: the schema
+ * version, a length between 1 and MAX_TRANSCRIPT, and no control character
+ * (an ESC or a NUL in a path is never anything but an attack or corruption).
+ * Whether the path is ABSOLUTE, normalised, shaped like a transcript and
+ * inside Claude Code's own projects root is the boundary in server/agents.ts,
+ * which is the module that actually opens files — one owner, one check.
+ */
+export function transcriptFromSnapshot(text: string): string | undefined {
+  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > MAX_SNAPSHOT_BYTES) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined; // Truncated mid-write, or never JSON at all.
+  }
+  const raw = plainObject(parsed);
+  if (raw === undefined) return undefined;
+  if (raw['v'] !== 1) return undefined; // Same one version parseSnapshot believes.
+  const value = raw['transcript'];
+  if (typeof value !== 'string') return undefined;
+  if (value.length === 0 || value.length > MAX_TRANSCRIPT) return undefined;
+  if (CONTROL_CHAR.test(value)) return undefined;
+  return value;
+}
+
+/**
  * Field-wise equality over the whole schema — what decides whether a session's
  * telemetry actually CHANGED and therefore whether every attached client gets
  * an `info` broadcast. `at` counts: the script rewrites the file only when the
@@ -209,7 +263,9 @@ export class TelemetryWatcher {
   #debounce = new Map<string, NodeJS.Timeout>();
   /** Last mtime the POLL path acted on, per id. Unused while fs.watch works. */
   #seen = new Map<string, number>();
-  #onChange: ((id: string, telemetry: SessionTelemetry) => void) | undefined;
+  #onChange:
+    | ((id: string, telemetry: SessionTelemetry, transcript: string | undefined) => void)
+    | undefined;
   #stopped = false;
 
   constructor(dir: string, log: Logger) {
@@ -217,8 +273,17 @@ export class TelemetryWatcher {
     this.#log = scoped(log, 'telemetry');
   }
 
-  /** Begin watching. Safe to call on a directory that does not exist yet. */
-  start(onChange: (id: string, telemetry: SessionTelemetry) => void): void {
+  /**
+   * Begin watching. Safe to call on a directory that does not exist yet.
+   *
+   * `transcript` (B7) is the same file's transcript path when it carried one
+   * that survived transcriptFromSnapshot, undefined otherwise — a second fact
+   * out of the one file, so the handover to server/agents.ts needs no second
+   * file and no second watcher.
+   */
+  start(
+    onChange: (id: string, telemetry: SessionTelemetry, transcript: string | undefined) => void,
+  ): void {
     this.#onChange = onChange;
     this.#stopped = false;
     try {
@@ -336,7 +401,7 @@ export class TelemetryWatcher {
       return;
     }
     try {
-      onChange(id, telemetry);
+      onChange(id, telemetry, transcriptFromSnapshot(text));
     } catch (err) {
       // A throwing consumer must not take the watcher down with it.
       this.#log('warn', `${id}: telemetry consumer threw: ${describeError(err)}`);

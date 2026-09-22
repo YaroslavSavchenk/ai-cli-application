@@ -28,7 +28,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B4 | Editor live (read, edit, save to disk) | verified | `.claude/plans/nocturne/PLAN-B4.md` | 2026-09-22 |
 | B6 | Settings live | verified | `.claude/plans/nocturne/PLAN-B6.md` | 2026-09-22 |
 | B9 | Terminal colours live | verified | `.claude/plans/nocturne/PLAN-B9.md` | 2026-09-22 |
-| B7 | Background agents table live (open decision: data source) | todo | — |  |
+| B7 | Background agents table live (data source decided 2026-09-22: Claude Code's transcripts) | landed | `.claude/plans/nocturne/PLAN-B7.md` | 2026-09-22 |
 | B8 | Cleanup + memory, release v0.4.0 | todo | — |  |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
 
@@ -142,7 +142,7 @@ Fixed rules for every part:
 - Preferences: tool visibility, API keys, defaults (reopen tabs, confirm before ending a session, notifications, follow output). Keyboard page from existing shortcuts. Background service page wired to existing version/uptime/update/restart.
 
 ### B7. Background agents table live
-- Data source is an OPEN DECISION; if none exists, table shows an honest empty state and this part is dropped.
+- Data source was an open decision. DECIDED 2026-09-22 (user, the orchestrator's advice): Claude Code's own transcripts — `~/.claude/projects/<slug>/<session-id>/subagents/agent-<hex>.meta.json` + `.jsonl`, found through the `transcript_path` the status-line payload already carries (added to the B1 snapshot). Rejected: SubagentStart/Stop hooks (no tokens, more moving parts), dropping the part. STARTED and LANDED 2026-09-22; spec `.claude/plans/nocturne/PLAN-B7.md`. Windows check owed.
 - Constraint from B9 (2026-09-22): the table sits inside the terminal card, on the THEMED ground. Its ink (`.pane-agents-hd`, `.pane-agent-*`) and the two hairlines under the terminal (`.pane-status`, `.pane-agents`, `--color-neutral-900`) are still app neutrals — invisible while the table is empty, unreadable on a light custom ground once it is not. B7 gives them the theme's steps like the status bar's (`--xt-bright-black` / `--xt-fg`).
 
 ### B9. Terminal colours live (added 2026-09-10, user's ask)
