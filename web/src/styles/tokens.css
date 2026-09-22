@@ -29,11 +29,12 @@
  * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
  * and the app palette are ONE system. Because xterm's parser only
  * understands #rgb[a] / #rrggbb[aa] / rgb() / rgba() reliably, every --xt-*
- * value is a plain hex or rgba — never oklch() or color-mix(). The theme
- * popover is gone since A8; part B9's Terminal colours Settings page will
- * override --term-bg and the neutral --xt-* text slots inline on :root,
- * through the machinery kept in ui/theme.ts. ANSI status hues are semantic
- * and never themed. Never hardcode a color outside this file.
+ * value is a plain hex or rgba — never oklch() or color-mix(). Since part B9
+ * the Terminal colours Settings page overrides --term-bg and the neutral
+ * --xt-* text slots inline on :root through ui/theme.ts; the DEFAULT is the
+ * absence of those overrides, so the values below are the Nocturne theme
+ * itself and not a copy of it. ANSI status hues are semantic and never
+ * themed. Never hardcode a color outside this file.
  */
 :root {
   /* ══ Nocturne primitives ══════════════════════════════════════════════════
@@ -109,6 +110,10 @@
      (v3 markup, pane header) sits INSIDE an attention-coloured card and
      would shout at /.18.                                                    */
   --color-attn-tint-soft: oklch(0.78 0.14 75 / 0.14);
+  /* The terminal ground as an app colour: the same value as --term-bg's
+     default, but NEVER themed. Surfaces that merely look terminal-ish (an
+     input well, the boot overlay, an editor pane, a diff) take this one, so
+     a light custom terminal ground never lands under app ink (part B9).     */
   --color-term: oklch(0.16 0.015 275);  /* terminal ground (= #0b0d14)        */
   /* Ink on a --color-danger fill. A fixed white, not a themed text role:
      the fill is one constant red, so its readable ink is constant too.     */
@@ -130,16 +135,18 @@
 
   /* ══ Terminal palette ═════════════════════════════════════════════════════
      The ground plus the xterm.js theme. Plain hex / rgba only (see the
-     header). Neutral slots follow the Nocturne text ramp (out/cmd/dim); part
-     B9's Terminal colours Settings page overrides exactly these on :root. The
+     header). Neutral slots follow the Nocturne text ramp (out/cmd/dim); since
+     part B9 the Terminal colours Settings page overrides exactly these on
+     :root, and the DEFAULT is the absence of those overrides. The
      ANSI hues are the README-v3 semantics converted to sRGB: green
      oklch(0.72 0.14 150), yellow oklch(0.85 0.12 80), red oklch(0.7 0.16 25),
      plus blue/magenta/cyan on the same lightness band. */
-  --term-bg: #0b0d14; /* terminal ground — plain hex on purpose: themable by
-                         the Terminal colours Settings page in part B9 via
-                         ui/theme.ts, and read by --xt-bg. The whole terminal
-                         card paints from this, xterm's own #000 viewport
-                         included (app.css, "the black band")                */
+  --term-bg: #0b0d14; /* terminal ground — plain hex on purpose: since part B9
+                         the Terminal colours Settings page overrides it on
+                         :root via ui/theme.ts, and it is read by --xt-bg. The
+                         whole terminal card paints from this, xterm's own #000
+                         viewport included (app.css, "the black band"). The
+                         TERMINAL only: app surfaces take --color-term.      */
   --xt-bg: var(--term-bg);
   --xt-fg: #cfd3e5;             /* neutral-300 — v3 "out"                     */
   --xt-cursor: #e9e9ed;         /* --color-text — v3 "cmd"                    */

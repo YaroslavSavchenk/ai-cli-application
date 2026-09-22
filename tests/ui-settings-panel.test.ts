@@ -159,11 +159,23 @@ registerHooks({
   },
 });
 
+interface TermPair {
+  ground: string;
+  text: string;
+}
 interface SettingsModule {
   initSettings(
     host: unknown,
     anchor: unknown,
-    deps: { repaintStatus(): void },
+    deps: {
+      repaintStatus(): void;
+      theme: {
+        apply(next: TermPair): void;
+        adopt(next: TermPair): void;
+        current(): TermPair;
+        flush(): Promise<void>;
+      };
+    },
   ): { open(): void; close(): void; toggle(): void; isOpen(): boolean };
   /** The entry the New session dialog's `Add key` uses (Nocturne B5). */
   openSettings(opts?: { page?: string; focusKey?: string }): void;
@@ -184,10 +196,38 @@ dom.body.append(modalHost, anchor);
 /** `ui/panes.ts` repaintStatus, injected — counted so the pane bar's live
  *  refresh is pinned here rather than left to a browser check. */
 let repaints = 0;
+/**
+ * ui/theme.ts's control, stubbed and RECORDING (part B9): the panel hands it to
+ * the Terminal colours page, re-applies the server's pair on the re-read, and
+ * flushes it when the dialog closes — none of which can reach the real module
+ * here, because it imports @xterm/xterm.
+ */
+let themePair: TermPair = { ground: T.GROUNDS[0]!.hex, text: T.RAMPS[0]!.cmd };
+const themeApplied: string[] = [];
+const themeAdopted: string[] = [];
+let themeFlushes = 0;
+const themeStub = {
+  apply(next: TermPair): void {
+    themeApplied.push(`${next.ground}/${next.text}`);
+    themePair = { ...next };
+  },
+  // The server's own pair: painted and cached, never written back (the real
+  // control also drops it while a write of ours is pending).
+  adopt(next: TermPair): void {
+    themeAdopted.push(`${next.ground}/${next.text}`);
+    themePair = { ...next };
+  },
+  current: (): TermPair => ({ ...themePair }),
+  flush: (): Promise<void> => {
+    themeFlushes += 1;
+    return Promise.resolve();
+  },
+};
 const panel = S.initSettings(modalHost, anchor, {
   repaintStatus: () => {
     repaints += 1;
   },
+  theme: themeStub,
 });
 const scrim = modalHost.children[0] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
@@ -874,12 +914,13 @@ test('B5 keys: openSettings() lands on Preferences with one field focused (the d
 });
 
 // ===========================================================================
-// Terminal colours — local to the page until part B9
+// Terminal colours — LIVE since part B9: the page drives the injected control
 // ===========================================================================
 
 /**
- * The colour page's selection is LOCAL and survives a close/open (part B9 will
- * persist it), so a case that wants to start from the default says so.
+ * The selection survives a close/open (since part B9 it is the control's, and
+ * the control is this suite's stub), so a case that wants to start from the
+ * default says so.
  */
 function resetColours(): void {
   const reset = byClass(panelOf('colours'), 'sg-textbtn').find((b) => b.textContent === 'Reset to Nocturne');
@@ -923,11 +964,93 @@ test('the Terminal colours page opens on Nocturne, previewed in the terminal’s
   assert.equal(byClass(prev, 'sg-tcline')[0]?.style.color, nocturne().cmd);
   assert.equal(groundHex.value, nocturne().ground);
   assert.equal(textHex.value, nocturne().cmd);
-  assert.equal(byClass(page, 'sg-note')[0]?.textContent, 'Example colours until the app applies them to your terminals.');
+  assert.deepEqual(byClass(page, 'sg-note'), [], 'part B9 made the page real: no honesty line');
+  assert.equal(themeApplied.at(-1), `${nocturne().ground}/${nocturne().cmd}`, 'Reset reached the control');
   // Three ink steps, and the dim line is not the bright one.
   const inks = byClass(prev, 'sg-tcline').map((l) => l.style.color);
   assert.equal(inks.length, 3);
   assert.notEqual(inks[0], inks[2]);
+});
+
+test('the panel flushes the debounced colour write when the dialog closes (part B9)', async () => {
+  await reopen();
+  tab('Terminal colours').click();
+  const before = themeFlushes;
+  panel.close();
+  assert.equal(themeFlushes, before + 1, 'closing sends a pending server write NOW');
+  // And it is the close that does it, not the open.
+  panel.open();
+  await settle();
+  assert.equal(themeFlushes, before + 1);
+  panel.close();
+});
+
+test('the re-read on open ADOPTS the stored pair and re-seeds the page (another window chose)', async () => {
+  panel.close();
+  // Amber on espresso, as another window would have left it in the bag.
+  const amber = { ground: T.GROUNDS[9]?.hex as string, text: T.RAMPS[2]?.cmd as string };
+  H.prefs = { theme: amber };
+  const applies = themeApplied.length;
+  await reopen();
+  tab('Terminal colours').click();
+  assert.equal(themeAdopted.at(-1), `${amber.ground}/${amber.text}`, 'the control was handed the stored pair');
+  assert.equal(
+    themeApplied.length,
+    applies,
+    'through adopt(), not apply(): a pair that came FROM the server is never written back',
+  );
+  const { prev, cards } = colourPage();
+  assert.equal(prev.style['background-color'], amber.ground, 'and the page shows it');
+  assert.equal(
+    cards.find((c) => c.getAttribute('aria-checked') === 'true')?.textContent?.includes('Amber'),
+    true,
+  );
+  H.prefs = {};
+  await reopen();
+  resetColours();
+  panel.close();
+});
+
+test('a colour picked while the re-read is in the air is NOT undone by it (the writes guard counts it)', async () => {
+  // settings.ts wraps the injected control so a colour counts as a write of
+  // this open; without that `writes += 1` a slow GET would land after the user
+  // picked a scheme and quietly repaint every terminal in the OLD one.
+  panel.close();
+  let release!: () => void;
+  H.gate = new Promise<void>((res) => {
+    release = res;
+  });
+  // What the other window left on disk: Amber on espresso.
+  const amber = `${T.GROUNDS[9]?.hex as string}/${T.RAMPS[2]?.cmd as string}`;
+  H.prefs = { theme: { ground: T.GROUNDS[9]?.hex as string, text: T.RAMPS[2]?.cmd as string } };
+  const adopts = themeAdopted.length;
+  panel.open();
+  await settle();
+  tab('Terminal colours').click();
+  const { cards } = colourPage();
+  const phosphor = cards.find((c) => c.textContent?.includes('Phosphor on void')) as FakeElement;
+  phosphor.click();
+  const mine = `${T.GROUNDS[1]?.hex as string}/${T.RAMPS[1]?.cmd as string}`;
+  assert.equal(themeApplied.at(-1), mine, 'the user chose Phosphor while the answer was in the air');
+
+  release();
+  await settle();
+  await settle();
+  assert.equal(themeApplied.at(-1), mine, 'the late answer must not re-apply the stored pair');
+  assert.notEqual(themeApplied.at(-1), amber);
+  assert.equal(themeAdopted.length, adopts, 'and the guarded re-read adopted nothing either');
+  assert.equal(
+    colourPage()
+      .cards.find((c) => c.getAttribute('aria-checked') === 'true')
+      ?.textContent?.includes('Phosphor'),
+    true,
+    'and the page still shows what the user picked',
+  );
+  H.gate = null;
+  H.prefs = {};
+  await reopen();
+  resetColours();
+  panel.close();
 });
 
 test('picking a scheme moves the preview, the cards and both fields — and nothing else', async () => {

@@ -1,15 +1,24 @@
 /**
- * Consumed since A7 (2026-09-13) by ui/term-colours-model.ts (presets are GROUNDS×RAMPS index pairs); KEPT — part B9 wires the Terminal colours page to ui/theme.ts.
+ * Pure data + logic behind the terminal colours the user picks on Settings →
+ * Terminal colours (ui/theme.ts applies them, ui/term-colours.ts draws the
+ * page). Two things live here: the palette TABLES the six presets are built
+ * from, and the clamp that turns an arbitrary stored value into a pair this
+ * app can paint with.
  *
- * Pure data + logic behind the terminal colours (ui/theme.ts):
- * the palette tables and the validation/comparison helpers for the
- * persisted selection. Entry 0 of each table is the DEFAULT and carries the
- * Nocturne palette since 2026-09-10; the remaining entries are the Legacy
- * UI's handoff tables, kept so persisted indexes keep their meaning now that
- * part A8 has deleted the popover that rendered them. Deliberately DOM-free — no
- * xterm, no document — so it stays importable under `node --test`; theme.ts
- * remains the sole owner of applying a theme to :root and the live
- * terminals.
+ * THE PERSISTED SHAPE IS A HEX PAIR (Nocturne B9, 2026-09-22): a ground and
+ * the bright text step, both `#rrggbb` lower-case. The preset is not stored —
+ * `matchPreset` in ui/term-colours-model.ts recovers it — so renaming a preset
+ * can never silently change somebody's colours. The Legacy shape
+ * (`{ bg, fg, scan }`, indexes into the two tables below) is still READ, one
+ * member at a time, so a prefs.json written before that date keeps its
+ * meaning; it is never written again, and `scan` — the Legacy scanline flag
+ * nothing has rendered since A8 — is simply dropped.
+ *
+ * Entry 0 of each table is the DEFAULT and carries the Nocturne palette since
+ * 2026-09-10; the remaining entries are the Legacy UI's handoff tables.
+ * Deliberately DOM-free — no xterm, no document — so it stays importable under
+ * `node --test`; theme.ts remains the sole owner of applying a pair to :root
+ * and to the live terminals.
  */
 import type { UiTheme } from '../../../shared/protocol.ts';
 
@@ -31,7 +40,7 @@ export interface Ramp {
  * (oklch(0.16 0.015 275) = #0b0d14), replacing the Legacy UI's charcoal in
  * place so persisted indexes stay valid. The rest are the Legacy handoff's
  * "Terminal backgrounds" — exact values; the popover that rendered them was
- * deleted in A8, the tables stay for part B9.
+ * deleted in A8, and since B9 the Settings page's presets index this table.
  */
 export const GROUNDS: Ground[] = [
   { name: 'nocturne', hex: '#0b0d14' },
@@ -50,7 +59,8 @@ export const GROUNDS: Ground[] = [
  * Terminal text ramps (cmd / out / dim). Entry 0 is the DEFAULT and since
  * 2026-09-10 it is the Nocturne neutral ramp (--color-text / neutral-300 /
  * neutral-600), matching the --xt-* tokens; the rest are the Legacy
- * handoff's ramps — exact values.
+ * handoff's ramps — exact values. A preset's `out` and `dim` are the two
+ * quieter steps its terminal really draws with.
  */
 export const RAMPS: Ramp[] = [
   { name: 'nocturne', cmd: '#e9e9ed', out: '#cfd3e5', dim: '#75798c' },
@@ -65,30 +75,88 @@ export const RAMPS: Ramp[] = [
   { name: 'mint', cmd: '#e2fff4', out: '#7fe0bb', dim: '#468a72' },
 ];
 
-export interface ThemeState {
-  bg: number;
-  fg: number;
-  scan: boolean;
+/** A six-digit hex colour, case-insensitive. Shorthand and alpha forms are not accepted: the two Settings fields round-trip through a native colour input, which always writes six digits. */
+export function isHex6(s: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(s);
 }
 
-/** Clamp an arbitrary (localStorage- or server-sourced) object into a valid ThemeState. */
-export function clampTheme(o: Record<string, unknown>): ThemeState {
-  const idx = (v: unknown, max: number): number =>
-    typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < max ? v : 0;
+/** `#RRGGBB` → `#rrggbb`, or null when it is not a six-digit hex colour. */
+export function normHex(s: string): string | null {
+  const t = s.trim();
+  return isHex6(t) ? t.toLowerCase() : null;
+}
+
+/**
+ * The terminal colours in force: the ground and the BRIGHT text step. The two
+ * quieter steps are derived (ui/term-colours-model.ts `coloursOf`) — a preset
+ * takes them from its own ramp, a custom pair pulls them out of the text
+ * colour — so nothing else has to be stored or asked for.
+ */
+export interface ThemeState {
+  ground: string;
+  text: string;
+}
+
+/** The default: the stylesheet's own terminal ground and bright step. */
+export const NOCTURNE: ThemeState = {
+  ground: (GROUNDS[0] as Ground).hex,
+  text: (RAMPS[0] as Ramp).cmd,
+};
+
+/** A valid index into a table of `max` entries. */
+function idx(v: unknown, max: number): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < max ? v : null;
+}
+
+/**
+ * Clamp an arbitrary (localStorage- or server-sourced) value into a pair this
+ * app can paint with. Each member is read INDEPENDENTLY, v2 first and the
+ * Legacy index second, so half a stored value is still worth something:
+ *
+ *   { ground, text }   a hex pair    → normalised to lower case
+ *   { bg, fg }         Legacy        → GROUNDS[bg].hex / RAMPS[fg].cmd
+ *   anything else                    → the Nocturne member
+ */
+export function clampTheme(raw: unknown): ThemeState {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ...NOCTURNE };
+  const o = raw as Record<string, unknown>;
+  const ground = typeof o.ground === 'string' ? normHex(o.ground) : null;
+  const text = typeof o.text === 'string' ? normHex(o.text) : null;
+  const bg = idx(o.bg, GROUNDS.length);
+  const fg = idx(o.fg, RAMPS.length);
   return {
-    bg: idx(o.bg, GROUNDS.length),
-    fg: idx(o.fg, RAMPS.length),
-    scan: o.scan === true,
+    ground: ground ?? (bg === null ? NOCTURNE.ground : (GROUNDS[bg] as Ground).hex),
+    text: text ?? (fg === null ? NOCTURNE.text : (RAMPS[fg] as Ramp).cmd),
   };
 }
 
 export function themeEquals(a: ThemeState, b: ThemeState): boolean {
-  return a.bg === b.bg && a.fg === b.fg && a.scan === b.scan;
+  return a.ground === b.ground && a.text === b.text;
 }
 
-/** True when `t` has the exact shape persisted by ui/theme.ts (see UiTheme). */
+/**
+ * The default pair, which theme.ts paints by REMOVING its overrides rather
+ * than writing them — so Nocturne is exactly what tokens.css says, down to
+ * `--xt-bright-white: #f3f5fe`, a step no ramp carries.
+ */
+export function isNocturne(s: ThemeState): boolean {
+  return themeEquals(s, NOCTURNE);
+}
+
+/**
+ * True when a prefs bag's `theme` member carries something this module can
+ * READ — either shape, at least one member. A bag without it, or with an
+ * unreadable one, is no opinion at all: the caller keeps the local choice
+ * rather than resetting a user's terminals because of a garbage value.
+ */
 export function isUiTheme(t: unknown): t is UiTheme {
-  if (t === null || typeof t !== 'object') return false;
+  if (t === null || typeof t !== 'object' || Array.isArray(t)) return false;
   const o = t as Record<string, unknown>;
-  return typeof o.bg === 'number' && typeof o.fg === 'number' && typeof o.scan === 'boolean';
+  const hex = (v: unknown): boolean => typeof v === 'string' && normHex(v) !== null;
+  return hex(o.ground) || hex(o.text) || idx(o.bg, GROUNDS.length) !== null || idx(o.fg, RAMPS.length) !== null;
+}
+
+/** The pair a prefs bag asks for, or null when it asks for nothing readable. */
+export function themeFromBag(raw: unknown): ThemeState | null {
+  return isUiTheme(raw) ? clampTheme(raw) : null;
 }

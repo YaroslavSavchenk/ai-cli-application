@@ -252,35 +252,26 @@ test('every existing wire is still in the panel (A7 is a restyle, not a rewrite)
   }
 });
 
-test('the ONE mock page left carries exactly ONE honesty line, through one function', () => {
-  // Part B6 made the Preferences page real — its placeholder note and the
-  // function that drew it are gone, and the panel must claim no example
-  // anywhere: Terminal colours is the last mock, and part B9 owns it.
+test('no mock page is left: every Settings page does what it says', () => {
+  // B6 made Preferences real; B9 made Terminal colours real. The panel claims
+  // no example anywhere, and neither does a page it draws from its own module.
   for (const bad of ['prefsPlaceholderNote', 'These defaults are examples']) {
     assert.equal(SETTINGS.includes(bad), false, `the Preferences mock is gone: ${bad}`);
   }
-  assert.equal(
-    [...SETTINGS.matchAll(/'sg-note'/g)].length,
-    0,
-    'no honesty line is left on any page the panel itself draws',
-  );
-  for (const [src, name, fn, line] of [
-    [
-      COLOURS,
-      'term-colours.ts',
-      'placeholderNote',
-      'Example colours until the app applies them to your terminals.',
-    ],
-  ] as const) {
-    assert.ok(src.includes(line), `${name} must say: ${line}`);
-    const calls = [...src.matchAll(new RegExp(`${fn}\\(\\)`, 'g'))].length;
-    assert.equal(calls, 2, `${name}: ${fn} is one definition and one call site`);
+  for (const bad of ['placeholderNote', 'Example colours until the app applies them to your terminals.']) {
+    assert.equal(COLOURS.includes(bad), false, `the Terminal colours mock is gone: ${bad}`);
   }
+  assert.equal(
+    [...SETTINGS.matchAll(/'sg-note'/g)].length + [...COLOURS.matchAll(/'sg-note'/g)].length,
+    0,
+    'no honesty line is left on any page of the panel',
+  );
 });
 
-test('the Terminal colours page never touches :root, a terminal, or prefs in A7 (part B9 owns that)', () => {
-  // Comments stripped: the file header NAMES what part B9 will wire, which is
-  // documentation, not a reach.
+test('the Terminal colours page never touches :root, a terminal, or prefs — it drives the injected control', () => {
+  // Still true after part B9, now as a WIRING rule: the page hands a pair to
+  // ui/theme.ts's control and owns nothing else. Comments stripped: the file
+  // header NAMES the modules it must not reach, which is documentation.
   const code = COLOURS.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   for (const bad of ['documentElement', 'refreshAllTerminalThemes', 'updatePrefs', 'theme.ts', 'terminal.ts']) {
     assert.equal(code.includes(bad), false, `A7 must not reach for ${bad}`);
@@ -288,4 +279,7 @@ test('the Terminal colours page never touches :root, a terminal, or prefs in A7 
   assert.ok(code.length > 2000, `non-vacuity: ${code.length} chars of code scanned`);
   // It reads the tables it previews from, and nothing else.
   assert.match(COLOURS, /from '\.\/term-colours-model\.ts'/);
+  // And every change really does leave the page through the control.
+  assert.match(code, /ctl\.apply\(\{ ground: state\.ground, text: state\.text \}\)/);
+  assert.match(code, /ctl\.current\(\)/);
 });

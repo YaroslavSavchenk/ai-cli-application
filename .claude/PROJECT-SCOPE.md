@@ -1055,10 +1055,24 @@ multi-pane layouts on top.
   dropped until C1, decision 2); the page lead reads `Your tools and how
   the app behaves.`), Keyboard (B6: the WHOLE shortcuts table, drawn from
   `web/src/ui/shortcuts-rows.ts`, the one source the overlay reads too),
-  Terminal colours (mock until B9; shape decided 2026-09-13, plan decision
-  10: presets + custom ground and text, ground + text only, terminal only,
-  status colours never themed, no top-bar switch — see
-  `memory/decisions/terminal-colours-shape.md`), Background service
+  Terminal colours (LIVE since B9, 2026-09-22; shape decided 2026-09-13, plan
+  decision 10: presets + custom ground and text, ground + text only, terminal
+  only, status colours never themed, no top-bar switch — see
+  `memory/decisions/terminal-colours-shape.md`; the six preset cards and the
+  two custom fields paint every open terminal at once through
+  `web/src/ui/theme.ts` — the six `:root` slots `--term-bg`, `--xt-fg`,
+  `--xt-white`, `--xt-bright-white`, `--xt-cursor`, `--xt-bright-black` →
+  `themeFromTokens()` — and Nocturne is the ABSENCE of those overrides, so
+  the default is exactly `tokens.css`; the choice persists as
+  `prefs.theme = { ground, text }`, a lower-case hex pair (the Legacy
+  `{ bg, fg, scan }` index shape is still read, never written), localStorage
+  is only the cache; the server write is debounced 300 ms and serialised,
+  flushed when the dialog closes; the dialog's re-read on open ADOPTS the
+  server pair (paint + cache, never a write back, skipped while a write of
+  this window is pending); only terminal surfaces follow the ground — the
+  editor, the diff and the file chip sit on `--color-term`, and the pane
+  status bar's ink takes the theme's quiet and ordinary steps so it stays
+  readable on any ground; spec `.claude/plans/nocturne/PLAN-B9.md`), Background service
   (version, uptime, `Restart service`; since B6, decision 4, `Check for
   updates` asks `POST /api/update/check` and answers on the page —
   `You have the newest version.` / `Version <tag> is available.` with an

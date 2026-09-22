@@ -1,17 +1,19 @@
 /**
- * Settings page "Terminal colours" (Nocturne A7 — LOOK only; part B9 wires it).
+ * Settings page "Terminal colours" (drawn in Nocturne A7, LIVE since part B9).
  *
  * Not in the v3 handoff: the user asked for it (2026-09-10) and settled its
  * shape on 2026-09-13 (plan open decision 10), so the page is designed in the
  * Nocturne idiom the rest of Settings uses — a lead line, a preview, a row of
  * scheme cards, two fields, one text button.
  *
- * WHAT IT DOES NOT DO IN A7. The selection is LOCAL to this page: it moves the
- * preview and the selected card, and nothing else. It does not write `:root`,
- * it does not touch a terminal, it does not write prefs. Part B9 connects it to
- * ui/theme.ts (which already owns `--term-bg` + the `--xt-*` slots,
- * `refreshAllTerminalThemes()` and the prefs copy). Hence the one honesty line
- * at the bottom.
+ * IT DRIVES A CONTROL; IT DOES NOT OWN TERMINALS. Every change goes straight
+ * to the injected `TermColoursControl` (ui/theme.ts's, handed down through
+ * ui/settings.ts), which is what writes `:root`, repaints every live terminal
+ * and persists the pair. This module still imports nothing from theme.ts or
+ * terminal.ts: it reads its opening pair from `ctl.current()`, hands back a
+ * new one on every change, and `sync()` re-seeds it when the panel has re-read
+ * the server copy. That keeps the page importable — and testable — without
+ * @xterm/xterm, and keeps one module in charge of painting.
  *
  * THE INLINE COLOURS ARE DATA, NOT STYLING. Every colour this module sets
  * through `style.setProperty` is a VALUE the user picked (or a preset's own
@@ -28,10 +30,10 @@ import {
   CUSTOM,
   PRESETS,
   coloursOf,
-  initialState,
   isHex6,
   presetColours,
   reduce,
+  stateOf,
   type TcState,
 } from './term-colours-model.ts';
 
@@ -46,13 +48,33 @@ const SAMPLE: { step: 'cmd' | 'out' | 'dim'; text: string }[] = [
   { step: 'dim', text: 'Ready for your next message' },
 ];
 
+/** The ground + bright-text pair this page chooses between. */
+export interface TermPair {
+  ground: string;
+  text: string;
+}
+
+/**
+ * The part of ui/theme.ts's `ThemeControl` this page uses, spelled
+ * structurally: importing the real type would drag theme.ts — and through it
+ * @xterm/xterm — into a module that has to stay buildable under `node --test`.
+ */
+export interface TermColoursControl {
+  /** Paint this pair everywhere and persist it. */
+  apply(next: TermPair): void;
+  /** The pair in force right now. */
+  current(): TermPair;
+}
+
 export interface TermColoursPage {
   /** The page element, appended into the settings body once. */
   root: HTMLElement;
+  /** Re-seed the page from the control — the panel calls it after its re-read on open. */
+  sync(): void;
 }
 
-export function buildTermColours(titleId: string): TermColoursPage {
-  let state: TcState = initialState();
+export function buildTermColours(titleId: string, ctl: TermColoursControl): TermColoursPage {
+  let state: TcState = stateOf(ctl.current());
 
   const root = el('section', 'sg-page');
   root.setAttribute('role', 'tabpanel');
@@ -170,16 +192,6 @@ export function buildTermColours(titleId: string): TermColoursPage {
   resetRow.append(resetBtn);
   root.append(resetRow);
 
-  /**
-   * PLACEHOLDER MARKER — DELETE WITH THE MOCK (part B9). Nothing on this page
-   * reaches a terminal yet, and a colour page that changes nothing is exactly
-   * the kind of surface a user trusts by mistake. One function, one call site.
-   */
-  function placeholderNote(): HTMLElement {
-    return el('p', 'sg-note', 'Example colours until the app applies them to your terminals.');
-  }
-  root.append(placeholderNote());
-
   // ---- state -> DOM --------------------------------------------------------
 
   function render(): void {
@@ -218,10 +230,24 @@ export function buildTermColours(titleId: string): TermColoursPage {
   }
 
   function apply(a: Parameters<typeof reduce>[1]): void {
-    state = reduce(state, a);
+    const next = reduce(state, a);
+    // An invalid hex reduces to the SAME state object (the field keeps what is
+    // typed and flags itself): re-render, but do not paint or persist a change
+    // that was not made.
+    const changed = next !== state;
+    state = next;
+    render();
+    // `state.ground` / `state.text` ARE the pair — a preset carries its own two
+    // values, so the control never has to know what a preset is.
+    if (changed) ctl.apply({ ground: state.ground, text: state.text });
+  }
+
+  /** The control changed under the page (another window's choice, re-read on open). */
+  function sync(): void {
+    state = stateOf(ctl.current());
     render();
   }
 
   render();
-  return { root };
+  return { root, sync };
 }

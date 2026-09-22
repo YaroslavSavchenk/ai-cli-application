@@ -552,6 +552,7 @@ function teardown(s: Slot): void {
   s.pay = null;
   s.key = '';
   s.note.hidden = true;
+  s.root.classList.remove('is-editor');
   if (pay === null) return;
   if (pay.kind === 'session') {
     // Dispose BEFORE emptying the mount: the view's observer and renderer are
@@ -646,6 +647,11 @@ function buildSessionPane(s: Slot, sessionId: string): void {
  * own (ui/editor-pane.ts) and says so on itself.
  */
 function buildEditorPane(s: Slot, slot: st.EditorSlot, index: number): void {
+  // The card says what kind it is, so CSS can keep the editor's body off the
+  // THEMED terminal ground (open decision 10c): an editor pane with no drawable
+  // tab leaves .pane-body bare, and .pane-body is painted var(--term-bg).
+  // teardown() takes the class off again, in step with the payload.
+  s.root.classList.add('is-editor');
   const pane = editorPane(s.hd, s.body);
   s.hd.title = 'Drag onto a pane to swap them. Drag one file tab to move just that file.';
   s.pay = { kind: 'editor', id: slot.id, pane };

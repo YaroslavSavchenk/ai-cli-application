@@ -91,5 +91,6 @@ Part specs, `nocturne/`:
 - `PLAN-B4.md` — Editor live: read a file, edit it, save it to disk, follow it, survive a reload
 - `PLAN-B5.md` — the New session dialog live for every tool
 - `PLAN-B6.md` — Settings live: tool visibility, the Defaults rows, the Keyboard page from one source, Check for updates
+- `PLAN-B9.md` — Terminal colours live: the Settings page paints every terminal, the choice persists as a hex pair
 - `PLAN-B10.md` — real file copy into WSL, Copy to the Windows clipboard
 - `PLAN-B10a.md` — select several files and folders, and delete them

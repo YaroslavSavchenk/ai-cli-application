@@ -1,12 +1,11 @@
 /**
- * Pure model behind the Settings page "Terminal colours" (Nocturne A7; the
- * page goes LIVE in part B9).
+ * Pure model behind the Settings page "Terminal colours" (drawn in Nocturne
+ * A7, LIVE since part B9).
  *
  * DOM-free on purpose — no document, no xterm — so `node --test` imports it
  * directly, in the same spirit as statusline-model.ts / theme-model.ts. The
  * page itself (ui/term-colours.ts) owns every element and every inline colour;
- * this file owns the preset table, hex validation, the derived preview ramp and
- * the state reducer.
+ * this file owns the preset table, the derived ramp and the state reducer.
  *
  * DECIDED SHAPE (user, 2026-09-13, plan open decision 10): presets plus a
  * custom ground and text; ground and text ONLY, never the full ANSI palette;
@@ -15,12 +14,21 @@
  * switch.
  *
  * WHY THE PRESETS ARE INDEX PAIRS INTO theme-model.ts. Those two tables
- * (GROUNDS, RAMPS) are the ones part B9 hands to `themeFromTokens()` through
- * ui/theme.ts, and entry 0 of each IS Nocturne. Composing the presets from
- * them means this page previews the exact hexes a terminal will be painted
- * with, and B9 can persist a preset as the pair it already stores.
+ * (GROUNDS, RAMPS) are the ones ui/theme.ts hands to `themeFromTokens()`, and
+ * entry 0 of each IS Nocturne. Composing the presets from them means this page
+ * previews the exact hexes a terminal is painted with — `coloursOf` is the one
+ * function BOTH the preview and ui/theme.ts derive those four colours through,
+ * so a card can never promise a colour the terminal does not take. ONE
+ * exception, by D2: the DEFAULT card. Nocturne is painted by REMOVING the six
+ * overrides, so its bright step is tokens.css's own --xt-bright-white
+ * (#f3f5fe) while this table's RAMPS[0].cmd — what the card, the preview and
+ * the Text field show — is #e9e9ed, the A1 --xt-cursor value.
  */
-import { GROUNDS, RAMPS } from './theme-model.ts';
+import { GROUNDS, NOCTURNE, RAMPS, isHex6, normHex, type ThemeState } from './theme-model.ts';
+
+// The hex rule belongs to the persisted pair, so theme-model.ts owns it; the
+// page and its tests keep importing it from here, where they always have.
+export { isHex6, normHex };
 
 /** A named ground + ramp pair, as a card on the Schemes row. */
 export interface Preset {
@@ -94,17 +102,6 @@ function rampOf(p: Preset): { cmd: string; out: string; dim: string } {
   return RAMPS[p.fg] ?? (RAMPS[0] as { cmd: string; out: string; dim: string });
 }
 
-/** A `#rrggbb` string, case-insensitive. Three-digit and eight-digit forms are NOT accepted: the two fields round-trip through a native colour input, which always writes six. */
-export function isHex6(s: string): boolean {
-  return /^#[0-9a-fA-F]{6}$/.test(s);
-}
-
-/** `#RRGGBB` → `#rrggbb`, or null when it is not a six-digit hex colour. */
-export function normHex(s: string): string | null {
-  const t = s.trim();
-  return isHex6(t) ? t.toLowerCase() : null;
-}
-
 /**
  * `a` blended `t` of the way towards `b`, per channel, rounded. Used for ONE
  * thing: a custom pair has a single text colour, and a terminal still needs a
@@ -168,6 +165,18 @@ export function matchPreset(ground: string, text: string): string | null {
 /** The page's opening state: the default preset, with its own two values in the custom fields. */
 export function initialState(): TcState {
   return fromPreset(DEFAULT_PRESET);
+}
+
+/**
+ * The page state a persisted PAIR means: the preset it matches, or CUSTOM.
+ * Both directions of the B9 wire use it — the page seeds itself from
+ * `ctl.current()` through this, and ui/theme.ts turns the pair it is about to
+ * paint into the four colours `coloursOf` derives.
+ */
+export function stateOf(pair: ThemeState): TcState {
+  const g = normHex(pair.ground) ?? NOCTURNE.ground;
+  const t = normHex(pair.text) ?? NOCTURNE.text;
+  return { id: matchPreset(g, t) ?? CUSTOM, ground: g, text: t };
 }
 
 function fromPreset(id: string): TcState {

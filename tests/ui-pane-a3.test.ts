@@ -163,9 +163,9 @@ test('tokens.css defines --color-attn-tint-soft and app.css consumes it', () => 
 // frame around the text on the Nocturne ground (measured: `#000000` on the
 // top/left/right padding of every pane in the 1-, 2-, 3- and 4-pane layouts).
 // The override must stay, must stay token-driven (ui/theme.ts is the module
-// that writes --term-bg inline on :root — unwired since A2, re-wired by part
-// B9 for the live recolouring), and must not touch the padding, which the fit
-// addon subtracts to keep cols/rows exact.
+// that writes --term-bg inline on :root, live since part B9: the Terminal
+// colours page recolours every open terminal through it), and must not touch
+// the padding, which the fit addon subtracts to keep cols/rows exact.
 
 test('the whole terminal card is painted from --term-bg, never a literal colour', () => {
   const block = /\.term-host \.xterm,([\s\S]*?)\}/.exec(APP_CSS);
@@ -176,7 +176,7 @@ test('the whole terminal card is painted from --term-bg, never a literal colour'
   assert.doesNotMatch(
     rule,
     /#[0-9a-fA-F]{3,8}/,
-    'a hardcoded hex here would not follow the live --term-bg override B9 restores',
+    'a hardcoded hex here would not follow the live --term-bg override B9 writes',
   );
   assert.ok(
     /\.pane-body\s*\{[^}]*background:\s*var\(--term-bg\)/.test(APP_CSS),

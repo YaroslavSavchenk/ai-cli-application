@@ -1,8 +1,8 @@
 /**
  * `web/src/api.ts` `updatePrefs()` — the CLIENT-side merge-on-write for the
  * shared prefs bag. `PUT /api/prefs` REPLACES the whole object (proven server-
- * side in tests/prefs.test.ts), so two writers — the theme popover writing
- * `theme` and the settings panel writing `statusLine` — must read-merge-write
+ * side in tests/prefs.test.ts), so two writers — the Terminal colours page
+ * writing `theme` and the settings panel writing `statusLine` — must read-merge-write
  * or they clobber each other's top-level keys. The server suite can't see this;
  * this is the only coverage of the read-merge-write itself.
  *
@@ -64,40 +64,41 @@ afterEach(() => {
 });
 
 test('updatePrefs GETs then PUTs, preserving untouched top-level keys (theme + a foreign key survive writing `statusLine`)', async () => {
-  getBody = { theme: { bg: 1, fg: 2, scan: true }, futureSetting: 'keep' };
+  getBody = { theme: { ground: '#07090c', text: '#ffe9c4' }, futureSetting: 'keep' };
   await updatePrefs({ statusLine: { enabled: true, model: true } });
 
   assert.deepEqual(calls.map((c) => c.method), ['GET', 'PUT'], 'exactly one GET then one PUT');
   assert.equal(calls[0].path, '/api/prefs');
   assert.equal(calls[1].path, '/api/prefs');
   assert.deepEqual(putBody(), {
-    theme: { bg: 1, fg: 2, scan: true },
+    theme: { ground: '#07090c', text: '#ffe9c4' },
     futureSetting: 'keep',
     statusLine: { enabled: true, model: true },
   });
 });
 
 test('updatePrefs is last-write-wins per top-level key: a patch to `theme` overwrites the stored `theme` verbatim', async () => {
-  getBody = { theme: { bg: 1, fg: 1, scan: false }, statusLine: { usage: true } };
-  await updatePrefs({ theme: { bg: 5, fg: 6, scan: true } });
+  getBody = { theme: { ground: '#07090c', text: '#d8ffd8' }, statusLine: { usage: true } };
+  await updatePrefs({ theme: { ground: '#0a1510', text: '#efe6ff' } });
   assert.deepEqual(putBody(), {
-    theme: { bg: 5, fg: 6, scan: true },
+    theme: { ground: '#0a1510', text: '#efe6ff' },
     statusLine: { usage: true },
   });
 });
 
-test('a failed GET degrades to patch-only (writes the patch alone, never throws) — best effort, does not block the write', async () => {
+test('a failed GET writes NOTHING and rejects: the PUT replaces the whole bag, so patch-only is data loss', async () => {
   getOk = false;
   getBody = { error: 'boom' };
-  await assert.doesNotReject(updatePrefs({ statusLine: { enabled: false } }));
-  assert.deepEqual(calls.map((c) => c.method), ['GET', 'PUT'], 'GET attempted, then PUT still happens');
-  assert.deepEqual(putBody(), { statusLine: { enabled: false } }, 'patch alone when the prior bag is unreadable');
+  await assert.rejects(updatePrefs({ statusLine: { enabled: false } }));
+  assert.deepEqual(calls.map((c) => c.method), ['GET'], 'GET attempted, and no PUT followed it');
+  // Without this, one unreadable GET resets statusLine, behaviour and tools to
+  // their factory values. Every caller catches and reverts its own row.
 });
 
 test('a wrong-shape GET (array) is guarded like an absent bag — the merge base stays {}, so only the patch is written', async () => {
   getBody = [1, 2, 3];
-  await updatePrefs({ theme: { bg: 0, fg: 0, scan: false } });
-  assert.deepEqual(putBody(), { theme: { bg: 0, fg: 0, scan: false } });
+  await updatePrefs({ theme: { ground: '#0b0d14', text: '#e9e9ed' } });
+  assert.deepEqual(putBody(), { theme: { ground: '#0b0d14', text: '#e9e9ed' } });
 });
 
 test('a null GET body is guarded too (no crash, no spread of null)', async () => {
@@ -108,13 +109,13 @@ test('a null GET body is guarded too (no crash, no spread of null)', async () =>
 
 test('writing `statusLine` merges: the settings panel preserves the stored `theme` (and any foreign key)', async () => {
   getBody = {
-    theme: { bg: 1, fg: 2, scan: true },
+    theme: { ground: '#07090c', text: '#ffe9c4' },
     futureSetting: 'keep',
   };
   await updatePrefs({ statusLine: { enabled: true, model: true, usage: false } });
   assert.deepEqual(calls.map((c) => c.method), ['GET', 'PUT'], 'exactly one GET then one PUT');
   assert.deepEqual(putBody(), {
-    theme: { bg: 1, fg: 2, scan: true },
+    theme: { ground: '#07090c', text: '#ffe9c4' },
     futureSetting: 'keep',
     statusLine: { enabled: true, model: true, usage: false },
   });
@@ -122,12 +123,12 @@ test('writing `statusLine` merges: the settings panel preserves the stored `them
 
 test('writing `statusLine` overwrites only the stored `statusLine` verbatim (last-write-wins per top-level key)', async () => {
   getBody = {
-    theme: { bg: 0, fg: 0, scan: false },
+    theme: { ground: '#0b0d14', text: '#e9e9ed' },
     statusLine: { enabled: false, lines: true },
   };
   await updatePrefs({ statusLine: { enabled: true } });
   assert.deepEqual(putBody(), {
-    theme: { bg: 0, fg: 0, scan: false },
+    theme: { ground: '#0b0d14', text: '#e9e9ed' },
     statusLine: { enabled: true },
   });
 });
@@ -141,7 +142,7 @@ test('the settings-panel write path: a bag holding BOTH retired keys comes back 
   // the new panel: the retired launch defaults, the retired per-pane strip
   // config, a theme, and a key this app has never heard of.
   getBody = {
-    theme: { bg: 2, fg: 3, scan: false },
+    theme: { ground: '#0a1220', text: '#e8f4ff' },
     defaults: { model: 'sonnet', permissionMode: 'plan', startupCommand: '/x' },
     statusBar: { model: true, time: true, skill: true },
     futureSetting: 'keep',
@@ -152,7 +153,7 @@ test('the settings-panel write path: a bag holding BOTH retired keys comes back 
   );
   const body = putBody() as Record<string, unknown>;
   assert.deepEqual(body, {
-    theme: { bg: 2, fg: 3, scan: false },
+    theme: { ground: '#0a1220', text: '#e8f4ff' },
     futureSetting: 'keep',
     statusLine: {
       enabled: true,
@@ -172,10 +173,10 @@ test('the settings-panel write path: a bag holding BOTH retired keys comes back 
 });
 
 test('dropping is idempotent and harmless when the retired keys are already absent', async () => {
-  getBody = { theme: { bg: 0, fg: 0, scan: false } };
+  getBody = { theme: { ground: '#0b0d14', text: '#e9e9ed' } };
   await updatePrefs({ statusLine: { enabled: true } }, ['defaults', 'statusBar']);
   assert.deepEqual(putBody(), {
-    theme: { bg: 0, fg: 0, scan: false },
+    theme: { ground: '#0b0d14', text: '#e9e9ed' },
     statusLine: { enabled: true },
   });
 });
@@ -188,10 +189,10 @@ test('drop is applied AFTER the merge — a key cannot be written and dropped by
 
 test('an empty drop list leaves every unknown key alone (every other writer)', async () => {
   getBody = { defaults: { model: 'opus' }, statusBar: { model: false } };
-  await updatePrefs({ theme: { bg: 1, fg: 1, scan: true } });
+  await updatePrefs({ theme: { ground: '#07090c', text: '#d8ffd8' } });
   assert.deepEqual(putBody(), {
     defaults: { model: 'opus' },
     statusBar: { model: false },
-    theme: { bg: 1, fg: 1, scan: true },
+    theme: { ground: '#07090c', text: '#d8ffd8' },
   });
 });

@@ -63,8 +63,9 @@ const KEYS: (keyof StatusLineCfg)[] = [
 ];
 
 /**
- * Prefs-bag keys this app used to write and no longer does. The settings panel
- * drops them on every write (see statusLinePatch): `defaults` held the retired
+ * Prefs-bag keys this app used to write and no longer does. Every writer drops
+ * them on every write — the settings panel's three (see statusLinePatch) and,
+ * since B9, ui/theme.ts's colour write: `defaults` held the retired
  * global launch defaults + auto-run startup command, `statusBar` the retired
  * per-pane telemetry strip. Nothing reads them anymore, so leaving them in
  * prefs.json would only be dead weight the next reader has to explain.

@@ -25,7 +25,9 @@
  *                       with a link to the overlay, which is how two tables
  *                       drift apart.
  *   Terminal colours    ground + text for the terminals (ui/term-colours.ts) —
- *                       LOCAL to the page until part B9 wires ui/theme.ts.
+ *                       LIVE since part B9: the page drives ui/theme.ts's
+ *                       control (injected, see SettingsDeps.theme), which
+ *                       paints every open terminal and persists the pair.
  *   Background service  version, uptime, Check for updates, Restart. Since B6
  *                       the check runs the backend's own release check and
  *                       answers on the page (one sentence, and the `Update`
@@ -58,7 +60,10 @@ import { TOOL_CARDS, commandLabel } from './launch-args.ts';
 import { applyRuntime, openRestartConfirm, runtimeFacts } from './update.ts';
 import { releaseSentence } from './update-model.ts';
 import { ROWS } from './shortcuts-rows.ts';
-import { buildTermColours } from './term-colours.ts';
+import { buildTermColours, type TermColoursControl, type TermPair } from './term-colours.ts';
+// theme-model.ts only: the clamp that reads a prefs bag's `theme`. ui/theme.ts
+// itself arrives as a dep (see SettingsDeps.theme).
+import { themeFromBag } from './theme-model.ts';
 import {
   type BehaviourCfg,
   behaviourPatch,
@@ -118,6 +123,16 @@ export interface SettingsDeps {
    * just clicked must not wait for the next session event to show up.
    */
   repaintStatus(): void;
+  /**
+   * ui/theme.ts's terminal-colours control, spelled structurally (the page's
+   * own `TermColoursControl` plus the dialog's flush): importing theme.ts
+   * would pull @xterm/xterm into a module that has to stay drivable under
+   * `node --test`. The Terminal colours page drives it; `flush()` sends a
+   * debounced server write NOW, which is what closing this dialog does, and
+   * `adopt()` takes a pair that came FROM the server (the re-read below)
+   * without writing it back.
+   */
+  theme: TermColoursControl & { adopt(next: TermPair): void; flush(): Promise<void> };
 }
 
 /** The nav, in order. The gear always opens the first one. */
@@ -776,10 +791,19 @@ export function initSettings(
   keysPage.append(keyList);
 
   // ======================================================================
-  // Terminal colours — its own module (ui/term-colours.ts). Local to the page
-  // until part B9: nothing here paints a terminal yet.
+  // Terminal colours — its own module (ui/term-colours.ts). LIVE since part
+  // B9: every change on it goes through the injected control, which paints
+  // every open terminal and persists the pair. The control is wrapped so a
+  // colour counts as a write of this open — the re-read below must never undo
+  // a choice the user just made.
   // ======================================================================
-  const colours = buildTermColours('sg-tab-colours');
+  const colours = buildTermColours('sg-tab-colours', {
+    apply: (next) => {
+      writes += 1;
+      deps.theme.apply(next);
+    },
+    current: () => deps.theme.current(),
+  });
   colours.root.id = 'sg-panel-colours';
   panelEls.set('colours', colours.root);
   bodyEl.append(colours.root);
@@ -1011,7 +1035,10 @@ export function initSettings(
         ITEM_ROWS.map((r) => `${r.key}=${cfg[r.key]}`).join(' '),
     );
     void api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS).catch(() => {
-      // Non-fatal by design — nothing user-facing to say about it.
+      // Non-fatal: the in-memory value stands for this run, and the sessions'
+      // own line keeps drawing what is on disk — but a write that did not land
+      // is said in the log, like the tools and behaviour writes say it.
+      log.warn('the status line preference was not saved');
     });
   }
 
@@ -1126,6 +1153,15 @@ export function initSettings(
           bag.tools,
           TOOL_CARDS.map((c) => c.id),
         );
+        // Terminal colours too: another window's choice is already painted
+        // there, and this page must not show the one this window booted with.
+        // ADOPT, not apply: this pair came from the server, so it is painted
+        // and cached but never written back — and the control drops it outright
+        // if a write of ours is still pending (a close() flush in the air), or
+        // a stale answer would revert the choice AND outlive it on disk.
+        const pair = themeFromBag(bag.theme);
+        if (pair !== null) deps.theme.adopt(pair);
+        colours.sync();
         syncRows();
         syncPrefsRows();
         // The re-read can change what the pane bar draws (another window turned
@@ -1155,6 +1191,9 @@ export function initSettings(
 
   function close(): void {
     if (scrim.hidden) return;
+    // A colour change is debounced server-side; the dialog closing is the
+    // moment it has to become durable, not ~300ms of luck later.
+    void deps.theme.flush();
     clearKeyFields();
     syncKeyRows();
     // An answer is about the moment it was asked for: the next open asks again.

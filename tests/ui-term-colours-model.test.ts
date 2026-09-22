@@ -1,12 +1,12 @@
 /**
  * `web/src/ui/term-colours-model.ts` — the pure model behind the Settings page
- * "Terminal colours" (Nocturne A7; the page goes live in part B9). DOM-free, so
+ * "Terminal colours" (drawn in Nocturne A7, LIVE since part B9). DOM-free, so
  * it is imported and driven directly here.
  *
  * What is worth pinning, in the order a regression would bite:
  *   1. The PRESETS really resolve through theme-model.ts's own tables, and
  *      Nocturne is entry 0 of both — that is the promise "this page previews
- *      the exact hexes B9 will paint a terminal with".
+ *      the exact hexes a terminal is painted with".
  *   2. Hex validation is strict: a half-typed colour never becomes a colour.
  *   3. The reducer never invents state — an invalid hex changes nothing, a
  *      custom pair that equals a preset re-selects that preset, and Reset goes
@@ -16,7 +16,7 @@
  *      preview that lies).
  *
  * The page's looks, and that any of this reaches a terminal, are not claimed
- * here: the first is manual, the second is part B9.
+ * here: the first is manual, the second is tests/ui-b9-theme.test.ts's.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

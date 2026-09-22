@@ -235,15 +235,17 @@ export interface ResumeHistoryRequest {
 // prefs.json is still written exclusively through PUT /api/prefs.
 
 /**
- * The one UiPrefs member the client currently reads/writes — mirrors the
- * persisted shape in web/src/ui/theme-model.ts exactly: `bg`/`fg` are
- * indices into that module's GROUNDS/RAMPS tables, `scan` is the scanline
- * toggle.
+ * Nocturne B9 (.claude/plans/nocturne/PLAN-B9.md) — the terminal colours the
+ * user chose on Settings → Terminal colours: the ground and the bright text
+ * step, both `#rrggbb` lower-case. The preset is not stored (the page recovers
+ * it from the pair); an absent or invalid member means Nocturne, which is the
+ * stylesheet's own tokens. Persisted under `theme`; the server never reads it.
+ * The Legacy shape `{ bg, fg, scan }` (table indexes, until 2026-09-22) is
+ * still accepted on read by web/src/ui/theme-model.ts and never written again.
  */
 export interface UiTheme {
-  bg: number;
-  fg: number;
-  scan: boolean;
+  ground?: string;
+  text?: string;
 }
 
 /**

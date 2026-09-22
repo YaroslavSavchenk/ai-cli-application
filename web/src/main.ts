@@ -13,8 +13,8 @@
  * and the 26px statusline. Heights and colors live in tokens.css.
  *
  * A2 removed two top-bar controls: the Theme button (Nocturne is the only
- * theme; A8 deleted its popover and part B9 wires what is left of
- * ui/theme.ts to the Terminal colours Settings page) and the `?` help
+ * theme; A8 deleted its popover, and since B9 what is left of ui/theme.ts is
+ * driven by the Terminal colours Settings page) and the `?` help
  * button (the shortcuts overlay stays reachable through the `?` key, the
  * statusline's "Keyboard shortcuts" button and the settings panel).
  *
@@ -68,6 +68,7 @@ import { flashMoveTabResult, flashOpenResult } from './ui/dnd.ts';
 import { initShortcuts } from './ui/shortcuts.ts';
 import { initSettings } from './ui/settings.ts';
 import { initStatusLine } from './ui/statusline-model.ts';
+import { initTheme } from './ui/theme.ts';
 import { getBehaviour, initBehaviour, initHiddenTools } from './ui/prefs-model.ts';
 import { TOOL_CARDS } from './ui/launch-args.ts';
 import {
@@ -379,8 +380,8 @@ async function boot(root: HTMLDivElement): Promise<void> {
   // (the status-line checklist) is joined into the SAME hydrate wait — no extra boot-panel step,
   // no reordering — but wrapped in its own .catch so a prefs-fetch failure
   // never fails hydrate or blocks the UI (the status-line checklist then keeps
-  // its defaults; A2 unwired the theme popover and A8 deleted it, so no theme
-  // rides along until part B9).
+  // its defaults, and the terminal colours stand on their local cache alone —
+  // see initTheme in buildShell).
   let projects;
   let sessions;
   let prefs: UiPrefs | undefined;
@@ -554,6 +555,12 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // the settings panel opens showing what the sessions' own status line reads
   // (the script re-reads the same key from disk on every draw).
   initStatusLine(prefs?.statusLine);
+  // Terminal colours BEFORE anything that builds a terminal (initPanes, far
+  // below): initTheme paints the chosen ground and ink onto :root, so every
+  // terminal is born in them instead of being repainted after its first frame.
+  // It also reconciles the local cache against the boot bag, and hands back the
+  // one control the Settings page drives.
+  const theme = initTheme(prefs);
   // Update notice BEFORE settings: the panel's BACKEND section calls into it,
   // and its pill lands in the topbar cluster right after the connection dot.
   const upd = initUpdate(modalHost);
@@ -562,7 +569,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   // whole shortcuts table from ui/shortcuts-rows.ts, so the `openShortcuts` dep
   // (and the ordering it needed — the overlay is built after this panel) is
   // gone. The statusline keeps that opener.
-  const settings = initSettings(modalHost, settingsBtn, { repaintStatus });
+  const settings = initSettings(modalHost, settingsBtn, { repaintStatus, theme });
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.

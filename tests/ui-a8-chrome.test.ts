@@ -132,20 +132,29 @@ test('the theme popover is gone: its classes have zero users anywhere under web/
   assert.ok(FILES.some((f) => f.name === 'web/src/main.ts' && f.src.includes("'boot-mark is-spin'")));
 });
 
-test('what is left of ui/theme.ts is the B9 machinery, with no DOM of its own', () => {
+test('ui/theme.ts is the terminal-colours machinery, with no DOM of its own', () => {
   const theme = readFileSync(join(WEB_SRC, 'ui', 'theme.ts'), 'utf8');
   const code = strip(theme).replace(/^\s*\/\/.*$/gm, '');
-  // The apply/persist/reconcile machinery part B9 wires up.
-  for (const keep of ['function loadState', 'function saveState', 'function apply', 'function persist', 'export function initTheme']) {
-    assert.ok(code.includes(keep), `ui/theme.ts must keep ${keep} for part B9`);
+  // The load/apply/reconcile machinery part B9 wired up.
+  for (const keep of ['function loadState', 'function saveState', 'function apply', 'function send', 'export function initTheme']) {
+    assert.ok(code.includes(keep), `ui/theme.ts must keep ${keep}`);
   }
-  assert.match(code, /updatePrefs\(\{ theme \}\)/, 'the merged PUT of the theme stays');
-  // No popover: nothing here builds an element or a button any more.
+  assert.match(
+    code,
+    /updatePrefs\(\{ theme \}, DEAD_PREFS_KEYS\)/,
+    'the merged PUT of the theme stays, and drops the retired keys like every other writer',
+  );
+  // No popover: nothing here builds an element or a button any more — the page
+  // (ui/term-colours.ts) owns every element and drives this module's control.
   for (const bad of ['el(', 'button(', 'classList', 'appendChild', 'addEventListener', 'getBoundingClientRect']) {
-    assert.equal(code.includes(bad), false, `ui/theme.ts must not build DOM any more: ${bad}`);
+    assert.equal(code.includes(bad), false, `ui/theme.ts must not build DOM: ${bad}`);
   }
-  // Still UNWIRED: main.ts does not call it (part B9 does).
-  assert.equal(MAIN_TS.includes('initTheme'), false, 'main.ts must not wire the theme yet — that is part B9');
+  // WIRED since part B9: main.ts applies the theme before it builds a terminal.
+  assert.ok(MAIN_TS.includes('initTheme(prefs)'), 'main.ts wires the theme from the boot prefs bag');
+  assert.ok(
+    MAIN_TS.indexOf('initTheme(prefs)') < MAIN_TS.indexOf('initPanes('),
+    'initTheme must run BEFORE initPanes, so a terminal is born in the chosen colours',
+  );
 });
 
 test('the Legacy .btn family is gone; .btn-accent / .btn-quiet is the one shared pair', () => {

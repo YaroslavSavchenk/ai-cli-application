@@ -153,8 +153,8 @@ test('there is exactly ONE overlay instance — the key, the button, the statusl
   );
   assert.match(
     MAIN,
-    /initSettings\(modalHost, settingsBtn, \{ repaintStatus \}\)/,
-    'the settings panel takes no overlay opener since part B6',
+    /initSettings\(modalHost, settingsBtn, \{ repaintStatus, theme \}\)/,
+    'the settings panel takes no overlay opener since part B6 — repaintStatus and, since B9, the theme control',
   );
   // The bare `?` key path (outside editable targets) must keep working.
   assert.match(MAIN, /e\.key === '\?'[\s\S]{0,200}?shortcuts\.toggle\(\);/);

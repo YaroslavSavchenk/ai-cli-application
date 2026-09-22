@@ -21,9 +21,10 @@
  *   3. COUNTS ARE PLURALISED — the statusline says `1 session` / `2 sessions`,
  *      never `1 sessions` and never `session(s)`.
  *
- * And A2's removals: `main.ts` no longer wires the theme popover (no
- * `initTheme`, no `Theme` button), and the three chrome heights the new shell
- * is built on are pinned in `tokens.css` (48 / 32 / 26 px).
+ * And A2's removals: `main.ts` carries no `Theme` BUTTON (the terminal colours
+ * live on the Settings page since part B9, and `initTheme` is wired at boot —
+ * open decision 10d), and the three chrome heights the new shell is built on
+ * are pinned in `tokens.css` (48 / 32 / 26 px).
  *
  * WHY A SOURCE SCAN. There is no DOM in this runner; the chrome is built
  * against `document` inside `buildShell()` and the drawer renderers. So the
@@ -264,7 +265,7 @@ test('no decorative separator glyph in any chrome literal (README-v3 copy rules)
   );
 });
 
-test('the separator allowlist has no stale entries, and ui/theme.ts really is unwired', () => {
+test('the separator allowlist has no stale entries, and ui/theme.ts is wired to exactly one caller', () => {
   for (const [file, entries] of Object.entries(ALLOWED)) {
     assert.ok(FILES.includes(file), `ALLOWED names a file that is not scanned: ${file}`);
     const present = new Set((litsOf.get(file) as Lit[]).map((l) => l.text));
@@ -273,15 +274,16 @@ test('the separator allowlist has no stale entries, and ui/theme.ts really is un
       assert.ok(e.why.length > 10, `every allowlist entry states a reason: ${e.text}`);
     }
   }
-  // ui/theme.ts carried the last excused literal until part A8 deleted the
-  // popover DOM with it. What is left of the module renders nothing, and
-  // nothing imports it — which this proves rather than assumes, because part
-  // B9 wires it back in and its copy will be on screen from that moment.
+  // ui/theme.ts renders NOTHING — it writes custom properties and repaints
+  // terminals — so it still has no copy on screen. Part B9 wired it to exactly
+  // one caller: main.ts, at boot. The Settings page drives it through an
+  // injected control and must never import it (that would pull @xterm/xterm
+  // into a module `node --test` has to be able to build).
   const importers = FILES.filter(
     (f) => f !== 'ui/theme.ts' && /from '\.{1,2}(\/ui)?\/theme\.ts'/.test(src(f)),
   );
-  assert.deepEqual(importers, [], 'ui/theme.ts is unwired in A2 — its allowlist entry assumes exactly that');
-  assert.equal(src('main.ts').includes('initTheme'), false, 'main.ts must not call initTheme');
+  assert.deepEqual(importers, ['main.ts'], 'ui/theme.ts has one importer: main.ts');
+  assert.ok(src('main.ts').includes('initTheme(prefs)'), 'main.ts wires the theme at boot');
 });
 
 // ---------------------------------------------------------------------------
@@ -408,11 +410,20 @@ test('the statusline pluralises its counts instead of writing `session(s)`', () 
 // A2's removals and the chrome heights
 // ---------------------------------------------------------------------------
 
-test('main.ts wires no theme control any more (Nocturne is the only theme)', () => {
+test('main.ts wires the terminal colours but no theme BUTTON (the choice lives in Settings)', () => {
   const MAIN = src('main.ts');
   assert.ok(MAIN.includes('function buildShell'), 'non-vacuity: main.ts must still build the shell');
-  assert.equal(MAIN.includes('initTheme'), false, 'no initTheme import or call');
-  assert.equal(/from '\.\/ui\/theme\.ts'/.test(MAIN), false, 'no import of the theme popover');
+  assert.ok(/from '\.\/ui\/theme\.ts'/.test(MAIN), 'main.ts imports the theme machinery');
+  // Asserted to EXIST first: `-1 < x` would make the ordering check pass for a
+  // call that was deleted.
+  assert.ok(MAIN.includes('initTheme(prefs)'), 'main.ts calls initTheme(prefs)');
+  assert.ok(MAIN.includes('initSettings('), 'main.ts calls initSettings(');
+  assert.ok(
+    MAIN.indexOf('initTheme(prefs)') < MAIN.indexOf('initSettings('),
+    'the control exists before the panel that is handed it',
+  );
+  // A2 deleted the top-bar popover and open decision 10(d) keeps it deleted:
+  // the only way in is Settings → Terminal colours.
   const themeLabels = (litsOf.get('main.ts') as Lit[]).filter((l) => /^theme$/i.test(l.text.trim()));
   assert.deepEqual(
     themeLabels.map((l) => `main.ts:${l.line} ${JSON.stringify(l.text)}`),

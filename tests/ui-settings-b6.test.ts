@@ -139,20 +139,45 @@ registerHooks({
   },
 });
 
+interface TermPair {
+  ground: string;
+  text: string;
+}
 interface SettingsModule {
   initSettings(
     host: unknown,
     anchor: unknown,
-    deps: { repaintStatus(): void },
+    deps: {
+      repaintStatus(): void;
+      theme: {
+        apply(next: TermPair): void;
+        adopt(next: TermPair): void;
+        current(): TermPair;
+        flush(): Promise<void>;
+      };
+    },
   ): { open(): void; close(): void; toggle(): void; isOpen(): boolean };
 }
+
+/** ui/theme.ts's control, stubbed: this suite is about the other four pages. */
+let themePair: TermPair = { ground: '#0b0d14', text: '#e9e9ed' };
+const themeStub = {
+  apply(next: TermPair): void {
+    themePair = { ...next };
+  },
+  adopt(next: TermPair): void {
+    themePair = { ...next };
+  },
+  current: (): TermPair => ({ ...themePair }),
+  flush: (): Promise<void> => Promise.resolve(),
+};
 
 const S = (await import(new URL('../web/src/ui/settings.ts', import.meta.url).href)) as SettingsModule;
 
 const modalHost = dom.doc.createElement('div');
 const anchor = dom.doc.createElement('button');
 dom.body.append(modalHost, anchor);
-const panel = S.initSettings(modalHost, anchor, { repaintStatus: () => {} });
+const panel = S.initSettings(modalHost, anchor, { repaintStatus: () => {}, theme: themeStub });
 const scrim = modalHost.children[0] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
 

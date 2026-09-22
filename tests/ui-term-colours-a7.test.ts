@@ -14,13 +14,16 @@
  *   3. The roving tabindex really MOVES with the arrows (the dev test asserts
  *      aria-checked, not the tab stop), Home/End land, and a key the grid does
  *      not own changes nothing and is not swallowed.
- *   4. A7 reaches nothing outside its own page AT RUNTIME, not only in source:
- *      `document.documentElement.style` is a recording double here and must stay
- *      untouched, and `fetch` throws if anything tries to call an API.
+ *   4. The page reaches its injected CONTROL and nothing else AT RUNTIME, not
+ *      only in source: since part B9 every change goes to `ctl.apply`, while
+ *      `document.documentElement.style` is a recording double here and must
+ *      stay untouched, `fetch` throws if anything tries to call an API, and the
+ *      page arms no timer of its own (ui/theme.ts owns :root, the prefs write
+ *      and its debounce).
  *
  * The page is driven through the REAL `ui/term-colours.ts` on the DOM double in
- * `tests/fake-dom.ts`; no stubs are needed, because the module imports only
- * `ui/util.ts` and the pure model. Looks stay manual
+ * `tests/fake-dom.ts`; the only stub is that control, because the module
+ * imports only `ui/util.ts` and the pure model. Looks stay manual
  * (`.claude/skills/verify-terminal/SKILL.md`).
  */
 import { test } from 'node:test';
@@ -35,7 +38,7 @@ const dom = installDom();
   throw new Error('A7 must not call an API from the Terminal colours page');
 };
 
-/** `document.documentElement.style`, recording: part B9 owns `:root`, not A7. */
+/** `document.documentElement.style`, recording: ui/theme.ts owns `:root`, not the page. */
 const rootWrites: string[] = [];
 const htmlEl = dom.doc.createElement('html');
 Object.defineProperty(htmlEl, 'style', {
@@ -92,8 +95,15 @@ interface ThemeModule {
   GROUNDS: { name: string; hex: string }[];
   RAMPS: { name: string; cmd: string; out: string; dim: string }[];
 }
+interface TermPair {
+  ground: string;
+  text: string;
+}
 interface PageModule {
-  buildTermColours(titleId: string): { root: FakeElement };
+  buildTermColours(
+    titleId: string,
+    ctl: { apply(next: TermPair): void; current(): TermPair },
+  ): { root: FakeElement; sync(): void };
 }
 
 const M = (await import(
@@ -229,7 +239,25 @@ test('reduce: an invalid hex freezes a PRESET state too, and a preset’s own va
 // The page on the DOM double
 // ===========================================================================
 
-const page = P.buildTermColours('sg-tab-colours').root;
+/**
+ * The injected control, stubbed: it records what the page hands it and answers
+ * `current()` from the same pair, which is exactly the contract ui/theme.ts
+ * fulfils (it clamps, paints and persists — none of which is this page's job).
+ */
+const applied: string[] = [];
+let held: TermPair = { ground: T.GROUNDS[0]!.hex, text: T.RAMPS[0]!.cmd };
+const ctl = {
+  apply(next: TermPair): void {
+    applied.push(`${next.ground}/${next.text}`);
+    held = { ...next };
+  },
+  current(): TermPair {
+    return { ...held };
+  },
+};
+
+const built = P.buildTermColours('sg-tab-colours', ctl);
+const page = built.root;
 dom.body.append(page);
 
 const cards = (): FakeElement[] => byClass(page, 'sg-tccard');
@@ -410,12 +438,30 @@ test('the two swatches and the two hex fields stay two views of one value', () =
   reset();
 });
 
-test('nothing on this page wrote :root, called an API, or armed a timer (part B9 owns all three)', () => {
-  assert.deepEqual(rootWrites, [], 'A7 must not touch document.documentElement.style');
-  assert.deepEqual(dom.win.timers, [], 'the page arms no timer');
-  // The honesty line is the only claim the page makes about reaching a terminal.
+test('every change reached the injected control, and the last one is what the page shows', () => {
+  assert.ok(applied.length > 0, 'the page drives the control');
+  const nocturnePair = `${T.GROUNDS[0]!.hex}/${T.RAMPS[0]!.cmd}`;
+  assert.equal(applied.at(-1), nocturnePair, 'the suite ends on Reset to Nocturne');
+  assert.deepEqual(ctl.current(), { ground: T.GROUNDS[0]!.hex, text: T.RAMPS[0]!.cmd });
+});
+
+test('the page re-seeds itself from the control on sync() — another window\'s choice shows up', () => {
+  held = { ground: T.GROUNDS[9]!.hex, text: T.RAMPS[2]!.cmd }; // Amber on espresso
+  const before = applied.length;
+  built.sync();
+  assert.equal(prev().style['background-color'], T.GROUNDS[9]!.hex, 'the preview follows');
   assert.equal(
-    byClass(page, 'sg-note')[0]?.textContent,
-    'Example colours until the app applies them to your terminals.',
+    cards().find((c) => c.getAttribute('aria-checked') === 'true')?.textContent?.includes('Amber'),
+    true,
+    'and so does the selected card',
   );
+  assert.equal(applied.length, before, 'a sync is not a change: it must not write back');
+  reset();
+});
+
+test('nothing on this page wrote :root, called an API, or armed a timer (ui/theme.ts owns all three)', () => {
+  assert.deepEqual(rootWrites, [], 'the page must not touch document.documentElement.style');
+  assert.deepEqual(dom.win.timers, [], 'the page arms no timer — the write debounce is theme.ts\'s');
+  // The mock is gone with part B9: the page applies the colours it shows.
+  assert.deepEqual(byClass(page, 'sg-note'), [], 'no honesty line is left on a live page');
 });

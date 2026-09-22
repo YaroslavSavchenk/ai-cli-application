@@ -27,7 +27,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B3 | Commits live | verified | `.claude/plans/nocturne/PLAN-B3.md` | 2026-09-21 |
 | B4 | Editor live (read, edit, save to disk) | verified | `.claude/plans/nocturne/PLAN-B4.md` | 2026-09-22 |
 | B6 | Settings live | verified | `.claude/plans/nocturne/PLAN-B6.md` | 2026-09-22 |
-| B9 | Terminal colours live | todo | — |  |
+| B9 | Terminal colours live | landed | `.claude/plans/nocturne/PLAN-B9.md` | 2026-09-22 |
 | B7 | Background agents table live (open decision: data source) | todo | — |  |
 | B8 | Cleanup + memory, release v0.4.0 | todo | — |  |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
@@ -143,11 +143,12 @@ Fixed rules for every part:
 
 ### B7. Background agents table live
 - Data source is an OPEN DECISION; if none exists, table shows an honest empty state and this part is dropped.
+- Constraint from B9 (2026-09-22): the table sits inside the terminal card, on the THEMED ground. Its ink (`.pane-agents-hd`, `.pane-agent-*`) and the two hairlines under the terminal (`.pane-status`, `.pane-agents`, `--color-neutral-900`) are still app neutrals — invisible while the table is empty, unreadable on a light custom ground once it is not. B7 gives them the theme's steps like the status bar's (`--xt-bright-black` / `--xt-fg`).
 
 ### B9. Terminal colours live (added 2026-09-10, user's ask)
 - The user can customise the terminal colours, like other terminals allow (e.g. Windows Terminal colour schemes): at least the terminal ground and the text colours, with the Nocturne look as the default and a way back to it.
 - Reuse the existing machinery in `web/src/ui/theme.ts`: CSS custom properties on `:root` feed `themeFromTokens()`, `refreshAllTerminalThemes()` repaints every open terminal live, the choice persists server-side in `prefs.json` (localStorage dies with every auto-picked port). Status colours (green/amber/red) stay semantic and are never themed.
-- Exact shape is OPEN DECISION 10.
+- Exact shape = decision 10, DECIDED 2026-09-13. STARTED and LANDED 2026-09-22 (user: "continue met bouwen van de app"; next row in the table). Spec `.claude/plans/nocturne/PLAN-B9.md`: the pair `prefs.theme = { ground, text }` (the Legacy `{bg, fg, scan}` index shape still read, never written), Nocturne = the absence of an override, terminal-only surfaces split at the CSS seam (editor / diff / file chip on `--color-term`), the server write debounced + serialised with `adopt` on the dialog's re-read; one fix round (a reopen race, `updatePrefs` wiping the bag on a failed GET — pre-existing), 18 mutants, verify-terminal on the reused B6 CDP harness. Windows check owed.
 
 ### A9 + B10. Drop files and folders into the file system (added 2026-09-15, user's ask)
 - The user drags files or folders from Windows Explorer into the app and they land in the WSL file system, "like Explorer": drop onto a folder in the Files panel or onto a terminal pane (its session's working directory). It must always be obvious WHERE the drop will land before the mouse is released (drop-target highlight on the exact folder row / the pane, plus the destination named in words); copying via the clipboard (Ctrl+C in Explorer, Ctrl+V in the app) is the same operation through a second door.

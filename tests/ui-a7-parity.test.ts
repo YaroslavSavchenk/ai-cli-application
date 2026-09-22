@@ -68,8 +68,9 @@ function idsOf(src: string): string[] {
     /\.id = '((?:sg|ap|gh|pk)-[a-z0-9-]+)'/g,
     /htmlFor = '((?:sg|ap|gh|pk)-[a-z0-9-]+)'/g,
     /'aria-(?:controls|labelledby|describedby)', '((?:sg|ap|gh|pk)-[a-z0-9-]+)'/g,
-    // The one id a module is HANDED as an argument (buildTermColours' title id).
-    /buildTermColours\('((?:sg|ap|gh|pk)-[a-z0-9-]+)'\)/g,
+    // The one id a module is HANDED as an argument (buildTermColours' title id;
+    // part B9 gave that call a second argument, the theme control).
+    /buildTermColours\('((?:sg|ap|gh|pk)-[a-z0-9-]+)'[,)]/g,
   ]) {
     for (const m of src.matchAll(re)) out.push(m[1] as string);
   }
@@ -244,7 +245,7 @@ test('the A7 modules keep their colour decisions out of the stylesheet and vice 
   }
   // The model that DOES speak in hexes owns no palette of its own: its one
   // literal is the black `mixHex` falls back to, and every preset colour comes
-  // from theme-model.ts's two tables (so this page previews what B9 will paint).
+  // from theme-model.ts's two tables (so this page previews what is painted).
   const model = readFileSync(join(WEB_SRC, 'ui', 'term-colours-model.ts'), 'utf8');
   const modelCode = model.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   assert.deepEqual(

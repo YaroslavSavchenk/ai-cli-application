@@ -885,9 +885,13 @@ select:focus-visible,
    geometrically the `.tab` chip of the top strip (1px border, --radius-sm,
    a neutral label that goes --color-text when it is the one on screen) at
    26px instead of --tab-h, so "a strip of tabs inside a tab" needs no second
-   visual language — and the ACTIVE chip is filled with --term-bg, the ground
-   of the body it opens, which is the only thing in this header that states
-   WHICH file the pane is showing. Everything else recedes.
+   visual language — and the ACTIVE chip is filled with --color-term, the
+   ground of the body it opens, which is the only thing in this header that
+   states WHICH file the pane is showing. Everything else recedes.
+
+   --color-term, not --term-bg: since part B9 --term-bg is the ground the USER
+   picks for the TERMINAL (decision 10c themes nothing else), and this chip
+   belongs to an editor pane, whose body is app ink on the app's own ground.
 
    No new token: 26px is a literal because the header is 38px and the chip is
    what is left of it after the header's own padding — an arithmetic fact of
@@ -931,7 +935,7 @@ select:focus-visible,
 
 /* the file this pane is SHOWING: filled with the ground of its own body */
 .pane-tab.is-on {
-  background: var(--term-bg);
+  background: var(--color-term);
   border-color: var(--color-neutral-800);
   color: var(--color-text);
 }
@@ -1034,10 +1038,12 @@ select:focus-visible,
    exact.
 
    The ground is spelled --term-bg (not its oklch twin --color-term) on every
-   surface of this card. ui/theme.ts is the machinery that writes --term-bg
-   inline on :root and calls refreshAllTerminalThemes() so the card and the
-   glyphs recolour together — unwired since A2, re-wired by Nocturne B9
-   (terminal colours in Settings); today nothing calls it. */
+   surface of this card, and THAT is what makes it follow the user's choice:
+   since Nocturne B9 ui/theme.ts writes --term-bg inline on :root from the
+   Terminal colours page and calls refreshAllTerminalThemes(), so the card and
+   the glyphs recolour together, in place, with no resize and no re-attach.
+   Nothing else in the app reads --term-bg — the terminal is the only themed
+   surface (open decision 10c). */
 
 .pane-body {
   flex: 1;
@@ -1112,14 +1118,18 @@ select:focus-visible,
   flex: none;
 }
 
+/* The bar sits ON the themed ground, so its two inks are the THEME's quiet and
+   ordinary steps, not the app neutrals — the same hexes on the default, and
+   readable under a light custom ground. Its danger and attention colours stay
+   semantic (open decision 10c). */
 .pane-status-k {
-  color: var(--color-neutral-600);
+  color: var(--xt-bright-black);
 }
 
 .pane-status-v {
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: var(--color-neutral-300);
+  color: var(--xt-fg);
 }
 
 .pane-status-v.is-danger {
@@ -1226,7 +1236,13 @@ select:focus-visible,
    in the terminal's own mono, and the one strip under it is the same 30px
    hairline bar a session uses for its status items — what the last save has to
    say on the left, Save on the right. Nothing here is decorated; the code is
-   the content.                                                                */
+   the content.
+
+   That ground is --color-term, the oklch twin of the DEFAULT terminal ground,
+   and it is painted here rather than inherited from .pane-body: since part B9
+   the card's own --term-bg is whatever the user chose for their TERMINALS
+   (open decision 10c), and this pane's ink is app ink — --color-text and the
+   diff's own red/green — which a light custom ground would swallow.          */
 
 .pane-file,
 .pane-diff {
@@ -1234,6 +1250,14 @@ select:focus-visible,
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--color-term);
+}
+
+/* An EDITOR pane's body under the same rule: between two tabs (and while it
+   has none to draw) .pane-body is bare, and bare .pane-body is the THEMED
+   ground — which this card's app ink was never meant to sit on. */
+.pane.is-editor .pane-body {
+  background: var(--color-term);
 }
 
 .pane-diff .diff-body {
@@ -3525,14 +3549,6 @@ body.is-dnd * {
   line-height: 1.5;
 }
 
-/* the one quiet line that says a surface is not wired yet (part B3 deleted
-   `.files-note`, which this idiom was named after; same size and ink) */
-.sg-note {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--color-neutral-600);
-}
-
 .sg-lb {
   font-size: 12px;
   color: var(--color-neutral-400);
@@ -4001,7 +4017,7 @@ body.is-dnd * {
   color: var(--color-neutral-300);
 }
 
-/* ---- Terminal colours page (Nocturne A7; live in part B9) -------------------
+/* ---- Terminal colours page (Nocturne A7; live since part B9) ---------------
    The preview is a terminal fragment: the terminal's own mono, plain glyphs
    (no ligatures, like every code surface here), three ink steps. Its ground
    and ink arrive inline from ui/term-colours.ts, because they ARE the data. */
@@ -6481,8 +6497,9 @@ body.is-dnd * {
 /* ═══ Nocturne A6 — the commit view ═════════════════════════════════════════
    One more occupant of the middle row, built on the SAME grammar as a pane:
    a neutral-900 card with a hairline edge, a 38px strip of chrome, and the
-   content itself on the terminal ground (--term-bg, never a raw oklch — A4b's
-   lesson, and part B9 themes that one property). Nothing here is decorated:
+   content itself on the terminal ground (--color-term: the DEFAULT ground, not
+   the themed --term-bg — a diff's red and green are app ink and never follow
+   the terminal's colours, open decision 10c). Nothing here is decorated:
    in a diff the colour IS the meaning, and the only motion is the 150ms fade
    of a screen arriving.                                                      */
 
@@ -6783,10 +6800,11 @@ body.is-dnd * {
 
 /* ---- the diff itself (commit view AND a diff pane) -------------------------
    On the terminal ground, 12px mono: the densest surface in the app, and the
-   one place where a row's GROUND carries meaning.                            */
+   one place where a row's GROUND carries meaning — which is exactly why it is
+   --color-term and not the themed --term-bg (part B9).                       */
 
 .diff-body {
-  background: var(--term-bg);
+  background: var(--color-term);
   padding: var(--space-2) 0;
   font-family: var(--font-mono);
   font-size: 12px;

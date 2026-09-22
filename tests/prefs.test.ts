@@ -35,7 +35,7 @@ test('GET /api/prefs starts empty; PUT replaces the whole object and persists to
   assert.equal(empty.status, 200);
   assert.deepEqual(empty.body, {});
 
-  const theme: UiPrefs = { theme: { bg: 2, fg: 5, scan: true } };
+  const theme: UiPrefs = { theme: { ground: '#0a1220', text: '#dafcff' } };
   const put = await api(server, 'PUT', '/api/prefs', theme);
   assert.equal(put.status, 200, `PUT failed: ${JSON.stringify(put.body)}`);
   assert.deepEqual(put.body, { ok: true }, 'PUT /api/prefs must respond with the shared OkResponse shape');
@@ -75,7 +75,7 @@ test('PUT /api/prefs rejects non-object bodies and oversized bodies', async () =
   }
 
   // Well over the 64 KiB cap.
-  const huge = { theme: { bg: 0, fg: 0, scan: false }, filler: 'x'.repeat(80 * 1024) };
+  const huge = { theme: { ground: '#0b0d14', text: '#e9e9ed' }, filler: 'x'.repeat(80 * 1024) };
   const res = await api(server, 'PUT', '/api/prefs', huge);
   assert.equal(res.status, 400, 'oversized prefs body must be 400');
 
@@ -152,8 +152,8 @@ test('readJsonBody cap is parameterized per-route: a body over PREFS_MAX_BYTES (
 });
 
 test('concurrent PUTs to /api/prefs never corrupt the file: the end state is exactly one of the two bodies, in memory and on disk', async () => {
-  const a: UiPrefs = { marker: 'A', theme: { bg: 1, fg: 1, scan: false } };
-  const b: UiPrefs = { marker: 'B', theme: { bg: 2, fg: 2, scan: true } };
+  const a: UiPrefs = { marker: 'A', theme: { ground: '#07090c', text: '#d8ffd8' } };
+  const b: UiPrefs = { marker: 'B', theme: { ground: '#0a1220', text: '#ffe9c4' } };
 
   const [resA, resB] = await Promise.all([
     api(server, 'PUT', '/api/prefs', a),
@@ -197,10 +197,10 @@ test('a corrupt prefs.json is tolerated: GET returns {} and the parse failure is
     );
 
     // The store must still be writable after recovering from corruption.
-    const put = await api(corrupt, 'PUT', '/api/prefs', { theme: { bg: 1, fg: 1, scan: false } });
+    const put = await api(corrupt, 'PUT', '/api/prefs', { theme: { ground: '#07090c', text: '#d8ffd8' } });
     assert.equal(put.status, 200);
     const got2 = await api(corrupt, 'GET', '/api/prefs');
-    assert.deepEqual(got2.body, { theme: { bg: 1, fg: 1, scan: false } });
+    assert.deepEqual(got2.body, { theme: { ground: '#07090c', text: '#d8ffd8' } });
   } finally {
     await corrupt.stop();
     await rm(root, { recursive: true, force: true });

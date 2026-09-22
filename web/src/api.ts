@@ -455,24 +455,25 @@ export function putPrefs(body: UiPrefs): Promise<OkResponse> {
  * panel writing `statusLine`) must never PUT a stale bag or they drop each
  * other's keys. This reads the current bag, shallow-merges `patch` at the top
  * level, and PUTs the result. Last-write-wins per top-level key (documented,
- * not solved) if two windows race; a failed GET degrades to patch-only rather
- * than clobbering (best effort — a subsequent successful write reconciles).
+ * not solved) if two windows race; a FAILED GET rejects without writing at all,
+ * because the merge base would be `{}` and a whole-object PUT of the patch
+ * alone would reset every other key in the bag (statusLine, behaviour, tools)
+ * to its factory value. Every caller catches and reverts its own row.
  *
  * `drop` removes top-level keys from the merged bag before the PUT — the one
  * way to actually DELETE a key from an opaque bag whose write is a whole-object
  * replace. It is applied AFTER the merge, so a key cannot be dropped and
- * re-added by the same call. Used by the settings panel to retire the two keys
- * this app no longer writes (see DEAD_PREFS_KEYS in ui/statusline-model.ts);
- * every other writer passes nothing and keeps preserving unknown keys verbatim.
+ * re-added by the same call. Every writer in the app passes the two keys this
+ * app no longer writes (DEAD_PREFS_KEYS in ui/statusline-model.ts) so whichever
+ * write goes last cannot resurrect them; unknown keys are preserved verbatim.
  */
 export async function updatePrefs(patch: UiPrefs, drop: readonly string[] = []): Promise<void> {
+  // No read, no write: the PUT replaces the whole object, so PUTting the patch
+  // on an unknown bag is data loss, not best effort. A wrong-SHAPE answer is a
+  // different thing — the bag really holds nothing mergeable, so {} is right.
+  const bag = await getPrefs();
   let current: UiPrefs = {};
-  try {
-    const bag = await getPrefs();
-    if (bag !== null && typeof bag === 'object' && !Array.isArray(bag)) current = bag;
-  } catch {
-    // GET failed — write the patch alone rather than nothing.
-  }
+  if (bag !== null && typeof bag === 'object' && !Array.isArray(bag)) current = bag;
   const next: UiPrefs = { ...current, ...patch };
   for (const key of drop) delete next[key];
   await putPrefs(next);

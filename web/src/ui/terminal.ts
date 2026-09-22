@@ -97,8 +97,9 @@ const liveViews = new Set<TerminalView>();
 
 /**
  * Re-read the --xt-* tokens and apply to ALL live terminals. Called by
- * ui/theme.ts after it writes ground/ramp overrides onto :root (part B9's
- * Terminal colours page is what drives that) — the tokens
+ * ui/theme.ts after it writes the ground/text overrides onto :root — or
+ * REMOVES them, which is how the Nocturne default is painted — for the
+ * Terminal colours Settings page that drives it (since B9); the tokens
  * file stays the single ITheme source; nothing else may hand xterm a theme.
  */
 export function refreshAllTerminalThemes(): void {
