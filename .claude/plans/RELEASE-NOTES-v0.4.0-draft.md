@@ -3,8 +3,10 @@
 A new look for the whole app, and everything behind it live: the Files
 panel on the real file system, commits, an editor, every tool in the New
 session dialog, Settings, terminal colours, and a session state you can
-read at a glance. Built in two tracks (`.claude/plans/PLAN-NOCTURNE.md`):
-Track A drew the screens, Track B wired each of them to real data.
+read at a glance — plus a small Claude that peeks in from the edge of your
+screen when a session is done or needs you. Built in three tracks (`.claude/plans/PLAN-NOCTURNE.md`):
+Track A drew the screens, Track B wired each of them to real data, Track C
+added the peek mascot.
 
 ## The whole UI is new
 
@@ -28,8 +30,10 @@ marks, 1 px edges instead of shadows, radii 4/8/14. The previous look
 ## What works now
 
 - **Files panel, on the real file system.** Browse the folder of the pane
-  you are in (or Home), create a new file or folder, select several rows and
-  delete them (asked once, permanent, never a project's own folder), drag or
+  you are in (or Home), create a new file or folder, rename a file or folder
+  (F2 or the row menu; a name that is already taken is refused, never
+  replaced; open editor tabs follow along with their unsaved text), select
+  several rows and delete them (asked once, permanent, never a project's own folder), drag or
   paste files and folders in from Windows (one question per drop when names
   clash), and copy files to the Windows clipboard to paste them in Explorer
   (in the app window). Files the session is editing pulse amber. The
@@ -66,6 +70,14 @@ marks, 1 px edges instead of shadows, radii 4/8/14. The previous look
   you (amber, still); "Needs your answer" (amber, pulsing) still means it
   asked you something. Only that last one counts in the statusline and the
   Sessions badge.
+- **Peek mascot.** When a session finishes its turn or asks you something
+  while you are looking elsewhere, a small Claude peeks in at the edge of
+  the monitor the app is on (up to three, one per session). Click it and the
+  app comes to the front on that session. It stays until the session works
+  again or ends. On by default; switch it off in Settings → Preferences.
+- **Real icons everywhere.** Every file type has its own icon, and every
+  tool shows its real logo in one consistent style — in the New session
+  dialog, tabs, pane headers, the Sessions panel and the agents table.
 - **End session button in the pane header.** Top right on every session
   pane: it ends the session like the tab's × does, and asks once first
   unless you switched that off in Settings.
@@ -96,7 +108,11 @@ pluralised; no commands, flags or configuration names in the UI.
   outside `@media`, no colour literal in the stylesheet.
 - Ending a session now stops everything it started: the whole process
   group gets the hang-up, then a terminate, then a kill.
-- Suite: 1165 tests before Nocturne, 1745 after Track A, more than 3400 at
+- Rename and delete recognise your home, project and app folders by their
+  identity on disk, not only by their path, so a symlink or a differently
+  capitalised path on a Windows drive (`/mnt/c`) cannot get past that
+  protection.
+- Suite: 1165 tests before Nocturne, 1745 after Track A, more than 3700 at
   this release.
 
 ## Known limits (honest)
@@ -113,4 +129,6 @@ pluralised; no commands, flags or configuration names in the UI.
 - Unsaved editor text lives only in the app window. Closing or reloading
   the window asks first; the background service stopping on its own after
   the last window closed cannot ask.
-- Notifications when a session needs you are not there yet.
+- The peek mascot cannot show over a game or app in exclusive fullscreen.
+- Rename works within one folder; moving a file to another folder is not
+  there yet.
