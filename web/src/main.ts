@@ -714,9 +714,9 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   initPanes(grid, () => openLaunchDialog());
 
   function updateChrome(): void {
-    // The same set as the statusline's `N waiting for you` (B11): BELs and
-    // sessions whose Claude ended its turn, each once.
-    const n = st.needsYouCount();
+    // The same set as the statusline's `N waiting for you`: BELs only (user,
+    // 2026-09-22 — an ended turn shows on its pane, not in the counts).
+    const n = st.attentionCount();
     sessionsBadge.hidden = n === 0;
     sessionsBadge.textContent = String(n);
     projAside.hidden = st.state.drawer !== 'projects';

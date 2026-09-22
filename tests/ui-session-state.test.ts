@@ -1,16 +1,16 @@
 /**
  * `web/src/ui/session-state.ts` — the ONE readout of what a session is doing
  * (Nocturne B11, `.claude/plans/nocturne/PLAN-B11.md`). The pane dot + pill,
- * the drawer row, the tab dot, `N waiting for you` and the Sessions badge all
- * read it, so this file pins it once:
+ * the drawer row and the tab dot all read it (the counts — `N waiting for
+ * you`, the Sessions badge — are BEL-only and do not), so this file pins it
+ * once:
  *
  *   1. THE ORDER — attn (BEL) > exited > waiting > working > running, over
  *      every combination of `status`, `attention` and `turn`.
  *   2. PULSE ONLY WHERE THE STATE IS KNOWN — no `turn` is `running` (still
  *      green), never `working` (pulsing).
  *   3. THE WORDS and THE CLASSES, one per readout.
- *   4. `needsYou` — the set the counts count: attn and waiting, nothing else.
- *   5. THE LOOK, by source (app.css): is-work pulses on --color-ok, is-wait is
+ *   4. THE LOOK, by source (app.css): is-work pulses on --color-ok, is-wait is
  *      --color-attn with NO animation, and the work pulse stops under
  *      prefers-reduced-motion. That the pulse is visible is a browser check.
  *
@@ -22,7 +22,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionInfo, SessionTurn } from '../shared/protocol.ts';
 import {
-  needsYou,
   readoutClass,
   readoutWord,
   sessionReadout,
@@ -73,14 +72,6 @@ test('one word per readout — Working twice, because running and working say th
 test('one class per readout, matching app.css', () => {
   const all: SessionReadout[] = ['attn', 'waiting', 'working', 'running', 'exited'];
   assert.deepEqual(all.map(readoutClass), ['is-attn', 'is-wait', 'is-work', 'is-run', 'is-exit']);
-});
-
-test('needsYou is exactly attn and waiting — the set `N waiting for you` and the badge count', () => {
-  const all: SessionReadout[] = ['attn', 'waiting', 'working', 'running', 'exited'];
-  assert.deepEqual(
-    all.filter(needsYou),
-    ['attn', 'waiting'],
-  );
 });
 
 test('app.css: is-work pulses green, is-wait is still amber, reduced motion stops the work pulse', () => {

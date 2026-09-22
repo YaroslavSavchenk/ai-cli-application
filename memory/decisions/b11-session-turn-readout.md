@@ -18,7 +18,11 @@ own inline task list and the app's table.
 Decided (user):
 - **Words and colours:** Working = green pulsing; Waiting for you = amber
   still; Needs your answer (BEL) = amber pulsing, unchanged; Finished = grey.
-  The statusline's `N waiting for you` counts waiting sessions too.
+  ~~The statusline's `N waiting for you` counts waiting sessions too.~~
+  Reverted the same evening on the Windows check (user: "dat daaronder mag
+  weg"; chose "terug naar alleen BEL"): the statusline and the Sessions
+  badge count BELs only; Waiting for you shows on the pane, drawer row and
+  tab dot.
 - **Source:** the session's own Claude transcript (the B7 boundary, one
   more file) — the last line that counts decides.
 - **The agents table behind a switch**, Settings → Status bar, default OFF:

@@ -1196,9 +1196,11 @@ multi-pane layouts on top.
   exit. Readout order: Needs your answer (BEL, amber pulsing) > Finished
   (grey) > Waiting for you (amber still) > Working (green pulsing, turn
   known) > Working (green still, no turn readout — every non-claude
-  session). The statusline's `N waiting for you` and the top bar's
-  Sessions badge count BEL + waiting sessions; the tab's `Needs you` pill,
-  `attention`, `seen` and every notification stay BEL-only. Known limit:
+  session). Waiting shows on the session's own pane, drawer row and tab dot
+  only: the statusline's `N waiting for you`, the top bar's Sessions badge,
+  the tab's `Needs you` pill, `attention`, `seen` and every notification
+  stay BEL-only (user, 2026-09-22, on the B11 check — B11 first counted
+  waiting sessions there too). Known limit:
   Claude Code's permission prompt writes nothing to the transcript, so it
   reads Working unless the BEL fires.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's

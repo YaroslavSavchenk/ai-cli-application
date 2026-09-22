@@ -297,3 +297,10 @@ Line numbers drift; seams are named by symbol.
   dir no longer silences the turn; the tab dot pulses green when any
   session in it works; the Waiting for you pill has no amber tint (the tint
   stays the BEL's).
+- **The counts stay BEL-only** (user, 2026-09-22, on the Windows check of
+  the landed part: "dat daaronder mag weg, waiting for you"; asked, chose
+  "terug naar alleen BEL"): the statusline's `N waiting for you` and the
+  Sessions badge count BELs again, as before B11. Waiting for you shows on
+  the pane, the drawer row and the tab dot only. `needsYouCount()` and
+  `needsYou()` are gone; this overrides (b)'s "counts waiting sessions too"
+  and the Sessions-badge default above.

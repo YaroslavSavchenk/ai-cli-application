@@ -1,7 +1,7 @@
 /**
  * Statusline (Nocturne A2): a 26px readout, left to right —
  * `N sessions` (the ones still running), `N panes`, an amber `N waiting for
- * you` when any session is (a BEL or an ended turn, B11), spacer,
+ * you` when any session has a BEL pending, spacer,
  * `Latency N ms` (the presence ping round trip), `Up 2h 15m` (server uptime,
  * ticked locally every 15 s) and a Keyboard shortcuts button.
  *
@@ -73,9 +73,10 @@ export function render(): void {
   const panes = v === null ? 0 : v.slots.length;
   nodes.push(el('span', 'status-seg', `${panes} ${panes === 1 ? 'pane' : 'panes'}`));
 
-  // Nocturne B11: a BEL ('Needs your answer') AND a session whose Claude ended
-  // its turn ('Waiting for you') both wait for the user — each session once.
-  const waiting = st.needsYouCount();
+  // BELs only ('Needs your answer'). A session whose Claude merely ended its
+  // turn ('Waiting for you') shows that on its own pane and is NOT counted
+  // here (user, 2026-09-22, on the B11 check).
+  const waiting = st.attentionCount();
   if (waiting > 0) nodes.push(el('span', 'status-attn', `${waiting} waiting for you`));
 
   nodes.push(el('span', 'status-gap'));

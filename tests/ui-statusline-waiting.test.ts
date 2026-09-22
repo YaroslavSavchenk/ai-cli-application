@@ -1,13 +1,12 @@
 /**
  * `web/src/ui/statusline.ts` — the app's bottom bar's amber `N waiting for
- * you` (Nocturne B11, `.claude/plans/nocturne/PLAN-B11.md`), driven against
- * the fake document.
+ * you`, driven against the fake document.
  *
- * What is pinned: the count is `needsYouCount()` — a BEL ('Needs your answer')
- * AND an ended turn ('Waiting for you'), each session once; a working, a plain
- * running and an exited session add nothing; zero draws no segment at all.
- * The Sessions badge in main.ts reads the same `needsYouCount()` (pinned in
- * `tests/ui-state.test.ts` for the number and here by source for the call).
+ * What is pinned: the count is BELs only (`attentionCount()`). B11 first
+ * counted ended turns ('Waiting for you') too; the user took that out on the
+ * B11 check (2026-09-22) — an ended turn shows on its own pane, not in the
+ * counts. Zero draws no segment at all. The Sessions badge in main.ts reads
+ * the same `attentionCount()` (pinned here by source).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,7 +44,7 @@ bar.initStatusline(root as unknown as HTMLElement, { openShortcuts: () => {} });
 
 const waitingText = (): string[] => byClass(root, 'status-attn').map((n) => n.textContent);
 
-test('BELs and ended turns are counted together, each session once', () => {
+test('only BELs are counted — an ended turn alone adds nothing', () => {
   st.setSessions([
     mk('s1', { attention: true, turn: 'waiting' }), // both: once
     mk('s2', { turn: 'waiting' }),
@@ -54,20 +53,19 @@ test('BELs and ended turns are counted together, each session once', () => {
     mk('s5', { status: 'exited', turn: 'waiting' }),
   ]);
   bar.render();
-  assert.deepEqual(waitingText(), ['2 waiting for you']);
+  assert.deepEqual(waitingText(), ['1 waiting for you']);
 });
 
-test('nobody waiting -> no segment at all', () => {
-  st.setSessions([mk('s1', { turn: 'working' }), mk('s2')]);
+test('no BEL -> no segment at all, even with sessions waiting', () => {
+  st.setSessions([mk('s1', { turn: 'working' }), mk('s2'), mk('s3', { turn: 'waiting' })]);
   bar.render();
   assert.deepEqual(waitingText(), []);
 });
 
-test('the Sessions badge counts the same set (main.ts reads needsYouCount)', () => {
+test('the Sessions badge counts the same set (main.ts reads attentionCount)', () => {
   const main = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
   const chrome = main.slice(main.indexOf('function updateChrome'));
   assert.ok(chrome.length > 100, 'non-vacuity: updateChrome exists');
   const body = chrome.slice(0, chrome.indexOf('sessionsBadge.textContent'));
-  assert.match(body, /const n = st\.needsYouCount\(\);/);
-  assert.equal(/attentionCount\(\)/.test(body), false, 'not the BEL-only count');
+  assert.match(body, /const n = st\.attentionCount\(\);/);
 });

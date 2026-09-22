@@ -465,24 +465,19 @@ test("viewStatus (B11): the tab dot follows the session readout — attn > wait 
   st.state.sessions.clear();
 });
 
-test('needsYouCount (B11) counts BELs AND ended turns, each session once; attentionCount stays BEL-only', () => {
+test('attentionCount counts BELs only — an ended turn (B11 waiting) is not counted (user, 2026-09-22)', () => {
   st.state.sessions.clear();
   const both = mkSession('s1');
   both.attention = true;
-  both.turn = 'waiting'; // one session, counted once
+  both.turn = 'waiting';
   const waiting = mkSession('s2');
   waiting.turn = 'waiting';
   const working = mkSession('s3');
   working.turn = 'working';
-  const plain = mkSession('s4');
-  const exited = mkSession('s5');
-  exited.status = 'exited';
-  exited.turn = 'waiting';
-  for (const s of [both, waiting, working, plain, exited]) st.state.sessions.set(s.id, s);
-  assert.equal(st.needsYouCount(), 2);
-  assert.equal(st.attentionCount(), 1, 'notifications, seen and the taskbar flash still count BELs only');
+  for (const s of [both, waiting, working]) st.state.sessions.set(s.id, s);
+  assert.equal(st.attentionCount(), 1);
   st.state.sessions.clear();
-  assert.equal(st.needsYouCount(), 0);
+  assert.equal(st.attentionCount(), 0);
 });
 
 test('viewAttention reads SESSIONS only — a file never asks for anything', () => {

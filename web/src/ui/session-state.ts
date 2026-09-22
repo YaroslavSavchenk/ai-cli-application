@@ -58,11 +58,6 @@ export function readoutWord(r: SessionReadout): string {
   }
 }
 
-/** True for 'attn' and 'waiting' — the set `N waiting for you` and the Sessions badge count. */
-export function needsYou(r: SessionReadout): boolean {
-  return r === 'attn' || r === 'waiting';
-}
-
 /**
  * The state class every surface puts on its dot / pill / meta line:
  * `is-attn` · `is-wait` · `is-work` · `is-run` · `is-exit` (app.css).

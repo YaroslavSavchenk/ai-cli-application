@@ -31,7 +31,7 @@ import type {
 import { log } from './log.ts';
 import { diffTabId, fileTabId, tabIdOf } from './ui/editor-model.ts';
 import { collapseKey } from './ui/commit-model.ts';
-import { needsYou, sessionReadout } from './ui/session-state.ts';
+import { sessionReadout } from './ui/session-state.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -1958,10 +1958,10 @@ export function viewStatus(v: ViewState): 'attn' | 'wait' | 'work' | 'run' | 'ex
 }
 
 /**
- * Sessions with a BEL pending. BEL-only on purpose: notifications, `seen` and
- * the taskbar flash act on BELs alone (they read `attention` themselves), and
- * a session that merely waits never nags (B11). The COUNTS the user reads use
- * `needsYouCount()`; since B11 nothing in the app calls this one.
+ * Sessions with a BEL pending — what the statusline's `N waiting for you` and
+ * the top bar's Sessions badge show. BEL-only on purpose: a session whose
+ * Claude merely ended its turn (B11 'Waiting for you') shows that on its own
+ * pane and is not counted (user, 2026-09-22, on the B11 check).
  */
 export function attentionCount(): number {
   let n = 0;
@@ -1969,16 +1969,6 @@ export function attentionCount(): number {
   return n;
 }
 
-/**
- * Sessions that need the user: a BEL pending OR the transcript saying Claude
- * ended its turn (B11) — each session once. What `N waiting for you` and the
- * top bar's Sessions badge show; one number in two places.
- */
-export function needsYouCount(): number {
-  let n = 0;
-  for (const s of state.sessions.values()) if (needsYou(sessionReadout(s))) n++;
-  return n;
-}
 
 /**
  * Toggle a drawer. Opening 'projects' HIDES the Files panel for as long as it
