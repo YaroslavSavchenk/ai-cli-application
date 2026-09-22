@@ -723,6 +723,22 @@ multi-pane layouts on top.
   `fsbrowse.ts` records; a token holder could always `rm -rf` through a
   shell — the boundary adds no privilege, it keeps the irreversible verb
   inside home + projects and away from the anchors and the data dir.
+- **The rename route (Nocturne B13, 2026-09-22; spec `.claude/plans/nocturne/PLAN-B13.md`
+  §1; rationale `memory/decisions/b13-rename-in-files-panel.md`).**
+  `POST /api/fs/rename { path, name }` → `200 {}` (no path back — the page
+  builds the new path from the path it SHOWS). Same folder only; the same
+  path/name checks and parent boundary as delete, in a fixed order; refused:
+  an anchor or a folder containing one (home, a project root — also as the
+  path STORED in `projects.json` and through any symlink on its chain), the
+  data dir (real, configured, and any symlink on its chain), a new name that
+  is a stored project path; a taken name is NEVER replaced (409 — link +
+  unlink for files and symlinks, lstat + rename for folders, races named in
+  `server/fsrename.ts`). Since B13, delete AND rename also refuse by
+  IDENTITY: `server/fsprotect.ts` walks every anchor, stored project path
+  and the configured data dir and records the bigint `dev:ino` of every
+  entry passed (catches symlink chains and drvfs case variants, where
+  `realpath` keeps the request's case); cached 5 s, a walk hung past 3 s
+  answers 503 and is not cached. Async fs only; logs carry statuses only.
 - **Tabs and layouts**: interaction model redesigned (decided 2026-07-19,
   user request; recorded in
   `memory/decisions/anti-slop-design-direction.md`): **sessions are tabs**,
@@ -837,7 +853,8 @@ multi-pane layouts on top.
   chord with the focus in the panel — Files tab only. Backend (landed with
   Brief A): `GET /api/fs/entries`, `POST /api/fs/create`, since B10
   `PUT /api/fs/upload` and `GET /api/fs/winpath` (the upload bullet below),
-  since B10a `POST /api/fs/delete` (the delete bullet below), since B4
+  since B10a `POST /api/fs/delete` (the delete bullet below), since B13
+  `POST /api/fs/rename` (the rename bullet below), since B4
   `GET /api/fs/read` and `PUT /api/fs/write` (the editor bullet below),
   `GET /api/git/changes`, all token-gated, all confined to a realpath
   boundary = the user's HOME or any REGISTERED project's path — a registered
@@ -905,7 +922,11 @@ multi-pane layouts on top.
   offer Open or Close, Copy, Paste, Copy files here…, since A9c
   (2026-09-16) New file, New folder, Refresh, and since B10a — behind the
   menu's ONE hairline, in danger ink, the only entry that cannot be taken
-  back — Delete; file rows Open, Open beside, Copy, ──, Delete. An ANCHOR
+  back — Delete; file rows Open, Open beside, Copy, ──, Delete; since B13
+  (2026-09-22) `Rename` sits directly above that hairline on a single
+  file row and on a single folder row that is no anchor and holds no
+  project (F2 on the focused row = the same; an inline name row, the stem
+  pre-selected; open editor tabs follow the rename with their unsaved text). An ANCHOR
   row (the panel root, the home folder, a registered project root) has NO
   Delete at all, not a disabled one. `Copy` and `Delete` act on the whole
   selection when the clicked row is in it, else on that row (Explorer's
@@ -1380,7 +1401,8 @@ multi-pane layouts on top.
   INSIDE the Files panel, the ContextMenu key / Shift+F10 that open the
   row's menu on a focused row or the panel's own menu elsewhere in it
   (A9c, 2026-09-16), and since B10a (2026-09-20) Delete, ctrl+a, ↑/↓,
-  shift+↑/↓, ctrl+↑/↓, ctrl+space and ctrl+enter — all on the panel root's
+  shift+↑/↓, ctrl+↑/↓, ctrl+space and ctrl+enter, and since B13 (2026-09-22)
+  F2 — all on the panel root's
   own bubble-phase listener, so a focused terminal never sees any of them
   taken): `Ctrl+Shift+V` and `Shift+Insert` paste the
   clipboard into the terminal (2026-09-08; plain Ctrl+V is NOT intercepted —

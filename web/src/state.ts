@@ -29,7 +29,8 @@ import type {
   UpdateStatus,
 } from '../../shared/protocol.ts';
 import { log } from './log.ts';
-import { diffTabId, fileTabId, tabIdOf } from './ui/editor-model.ts';
+import { diffTabId, filePathOf, fileTabId, tabIdOf, tabKind } from './ui/editor-model.ts';
+import { remapPath } from './ui/rename-model.ts';
 import { collapseKey } from './ui/commit-model.ts';
 import { sessionReadout } from './ui/session-state.ts';
 
@@ -2192,6 +2193,77 @@ export function saveEdit(id: string): string | null {
   // the pane header's dot and the tab chip — both of them pane-area chrome.
   notify('ui');
   return text;
+}
+
+/**
+ * A file or folder was RENAMED in the Files panel (part B13, user decision D3):
+ * every `file` tab at or under `from` now points at the same place under `to`,
+ * in every view and every editor pane, and the unsaved text of each moves with
+ * it (`f:<old>` -> `f:<new>`) — B4's rule that unsaved text is never dropped
+ * silently holds across a rename too.
+ *
+ * DIFF TABS ARE LEFT ALONE: a diff names a file inside a COMMIT, which a rename
+ * on disk does not change. The rewrite itself is `remapPath` — the one
+ * at-or-under rule with a separator boundary, so a sibling that only shares a
+ * prefix (`/a/bc` next to a renamed `/a/b`) keeps its tab.
+ *
+ * DEDUPED PER STRIP: a strip that ends up holding one file twice keeps the
+ * first, and `active` follows the tab it was on. Caret and scroll position are
+ * lost — the pane body is rebuilt for the new id (recorded, D3). Answers
+ * whether anything changed; nothing changed means no notify.
+ */
+export function retargetFiles(from: string, to: string): boolean {
+  if (from === to) return false;
+  // NEVER OVERWRITE UNSAVED TEXT (B4). A dirty file whose new path ALREADY has
+  // unsaved text of its own (a tab still open on a file deleted outside the
+  // app) does not move: its tab stays on the old path with its text, and the
+  // other text stays where it is. The panel refuses such a rename before it is
+  // sent (`hasUnsavedAt`); this is the defensive half.
+  const blocked = new Set<string>();
+  for (const key of state.edits.keys()) {
+    if (tabKind(key) !== 'file') continue;
+    const path = filePathOf(key);
+    const next = remapPath(path, from, to);
+    if (next !== path && state.edits.has(fileTabId(next))) blocked.add(path);
+  }
+  const follow = (path: string): string => (blocked.has(path) ? path : remapPath(path, from, to));
+  let changed = false;
+  for (const v of state.views) {
+    for (const s of v.slots) {
+      if (s.kind !== 'editor') continue;
+      const before = s.tabs;
+      if (!before.some((t) => t.kind === 'file' && follow(t.path) !== t.path)) continue;
+      changed = true;
+      const wasActive = Math.min(Math.max(0, s.active), before.length - 1);
+      const tabs: EditorTab[] = [];
+      let active = 0;
+      before.forEach((t, i) => {
+        const next: EditorTab =
+          t.kind === 'file' ? { kind: 'file', path: follow(t.path) } : t;
+        const id = tabIdOf(next);
+        const at = tabs.findIndex((x) => tabIdOf(x) === id);
+        if (at === -1) tabs.push(next);
+        if (i === wasActive) active = at === -1 ? tabs.length - 1 : at;
+      });
+      s.tabs = tabs;
+      s.active = active;
+      clampActive(s);
+    }
+  }
+  for (const [key, text] of [...state.edits]) {
+    if (tabKind(key) !== 'file') continue;
+    const path = filePathOf(key);
+    const next = follow(path);
+    if (next === path) continue;
+    changed = true;
+    state.edits.delete(key);
+    state.edits.set(fileTabId(next), text);
+  }
+  if (!changed) return false;
+  log.debug('editor tabs followed a rename');
+  saveUi();
+  notify('ui');
+  return true;
 }
 
 /** The key a file at `path` is edited under — one spelling for every caller. */

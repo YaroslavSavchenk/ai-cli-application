@@ -80,6 +80,8 @@ export interface Gateway {
   winPath(path: string): Promise<{ windowsPath: string }>;
   /** Delete these paths for good (part B10a): one batch, one answer per path. */
   delete(paths: string[]): Promise<{ results: DeleteResult[] }>;
+  /** Rename one entry in the same folder (part B13). Answers `{}`, no path. */
+  rename(path: string, name: string): Promise<Record<string, never>>;
 }
 
 /**
@@ -216,6 +218,13 @@ export interface Fixture {
   /** Hold the next delete until `releaseDelete()` — the in-flight state. */
   holdDelete(): void;
   releaseDelete(): void;
+  /** Every rename the panel posted, `{path, name}`, in order (part B13). */
+  renameCalls: { path: string; name: string }[];
+  /** The next rename REJECTS with this (a 409 and its sentence, a dead backend). */
+  renameFails: FakeApiError | null;
+  /** Hold every rename until `releaseRename()` — the in-flight state. */
+  holdRename(): void;
+  releaseRename(): void;
   /**
    * What the NEXT mapping answers, when a test wants it to fail: the 422 a path
    * with no Windows form gets, or the 403 of a path outside the boundary.
@@ -305,6 +314,9 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
   const createCalls: CreateCall[] = [];
   const winPathCalls: string[] = [];
   const deleteCalls: string[][] = [];
+  const renameCalls: { path: string; name: string }[] = [];
+  /** Renames waiting for `releaseRename()`. */
+  let heldRename: (() => void)[] | null = null;
   /** Deletes waiting for `releaseDelete()` (the `is-busy` rows, the second Delete). */
   let heldDelete: (() => void)[] | null = null;
   const failWith = new Map<string, FakeApiError>();
@@ -358,6 +370,16 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
     createCalls,
     winPathCalls,
     deleteCalls,
+    renameCalls,
+    renameFails: null,
+    holdRename() {
+      heldRename = [];
+    },
+    releaseRename() {
+      const queue = heldRename ?? [];
+      heldRename = null;
+      for (const fn of queue) fn();
+    },
     failWith,
     createFails: null,
     winPathFails: null,
@@ -423,6 +445,9 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
       fx.deleteAnswer = null;
       fx.deleteFails = null;
       heldDelete = null;
+      renameCalls.length = 0;
+      fx.renameFails = null;
+      heldRename = null;
       failWith.clear();
       held = null;
       heldCreate = null;
@@ -506,6 +531,40 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
         if (heldDelete === null) return Promise.resolve({ results });
         return new Promise<{ results: DeleteResult[] }>((resolve) => {
           heldDelete?.push(() => resolve({ results }));
+        });
+      },
+      /**
+       * One rename (B13). RECORDS first, answers second. On success the TREE
+       * follows — the entry in its parent's listing (a copy, never a splice of
+       * the shared `TREE_SHAPE` array) and every listing at or under the old
+       * path — because the panel re-reads the parent and must find the new name.
+       */
+      rename(path: string, name: string) {
+        renameCalls.push({ path, name });
+        const bad = fx.renameFails;
+        if (bad !== null) return Promise.reject(bad);
+        const cut = path.lastIndexOf('/');
+        const parent = path.slice(0, cut);
+        const old = path.slice(cut + 1);
+        const to = `${parent}/${name}`;
+        const rows = tree.get(parent);
+        if (rows !== undefined) {
+          tree.set(
+            parent,
+            rows.map((e) => (e.name === old ? { name, dir: e.dir } : e)),
+          );
+        }
+        for (const key of [...tree.keys()]) {
+          if (key === path || key.startsWith(`${path}/`)) {
+            const v = tree.get(key) as Entry[];
+            tree.delete(key);
+            tree.set(to + key.slice(path.length), v);
+          }
+        }
+        const answer: Record<string, never> = {};
+        if (heldRename === null) return Promise.resolve(answer);
+        return new Promise<Record<string, never>>((resolve) => {
+          heldRename?.push(() => resolve(answer));
         });
       },
       changes(root: string) {

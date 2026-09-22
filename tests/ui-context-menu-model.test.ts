@@ -50,6 +50,7 @@ const folder = (o: Partial<RowSubject> = {}): RowSubject => ({
   open: false,
   canCopy: false,
   deletable: true,
+  renamable: true,
   count: 1,
   ...o,
 });
@@ -59,6 +60,7 @@ const file = (o: Partial<RowSubject> = {}): RowSubject => ({
   open: false,
   canCopy: false,
   deletable: true,
+  renamable: true,
   count: 1,
   ...o,
 });
@@ -79,6 +81,7 @@ test('itemsFor: a CLOSED folder offers Open, and a closed one is what a folder u
     'new-file:New file:on',
     'new-folder:New folder:on',
     'refresh:Refresh:on',
+    'rename:Rename:on',
     'delete:Delete:on',
   ]);
 });
@@ -92,6 +95,7 @@ test('itemsFor: an OPEN folder offers Close — the entry NAMES what the click w
     'new-file:New file:on',
     'new-folder:New folder:on',
     'refresh:Refresh:on',
+    'rename:Rename:on',
     'delete:Delete:on',
   ]);
   // One entry, one action: `Open` and `Close` are the SAME toggle, so the DOM
@@ -105,6 +109,7 @@ test('itemsFor: a FILE offers the two ways the app can show it, plus Copy — an
     'open:Open:on',
     'open-beside:Open beside:on',
     'copy:Copy:off',
+    'rename:Rename:on',
     'delete:Delete:on',
   ]);
   assert.equal(
@@ -204,9 +209,10 @@ test('a DISABLED entry carries its note; an ENABLED one carries none', () => {
   // A9c added is enabled — an entry that creates something either works or is
   // not on the menu — and so is B10a's `Delete`, one per row: an anchor is
   // offered NO delete rather than a greyed one, so a disabled `Delete` does
-  // not exist anywhere in this app.
+  // not exist anywhere in this app. B13's `Rename` is enabled too, one per
+  // row: like `Delete`, it is absent where it cannot run, never greyed.
   assert.equal(disabled, 5);
-  assert.equal(enabled, 15);
+  assert.equal(enabled, 18);
 });
 
 test('the disabled entries are exactly Copy (everywhere) and Paste (folders only), with their own sentence each', () => {
@@ -232,6 +238,7 @@ test('itemsFor hands out a FRESH list and fresh entries every call', () => {
     'open:Open:on',
     'open-beside:Open beside:on',
     'copy:Copy:off',
+    'rename:Rename:on',
     'delete:Delete:on',
   ]);
   const f = itemsFor(folder());
@@ -245,6 +252,7 @@ test('itemsFor hands out a FRESH list and fresh entries every call', () => {
     'new-file:New file:on',
     'new-folder:New folder:on',
     'refresh:Refresh:on',
+    'rename:Rename:on',
     'delete:Delete:on',
   ]);
   // The three A9c entries come out of ONE private helper shared by both menus
@@ -304,9 +312,9 @@ test('itemsForRoot: the NAME never reaches a label, however odd the name is', ()
 });
 
 test('the root menu and a folder row say the SAME words for the same three things', () => {
-  // The folder row's LAST entry is `Delete` since B10a and the root has none
-  // (it is an anchor), so the three shared entries are the ones before it.
-  const rowTail = itemsFor(folder()).slice(-4, -1);
+  // The folder row ends in `Rename` (B13) and `Delete` (B10a) and the root has
+  // neither (it is an anchor), so the three shared entries are the ones before.
+  const rowTail = itemsFor(folder()).slice(-5, -2);
   const rootTail = itemsForRoot('api').slice(-3);
   assert.deepEqual(shape(rowTail), shape(rootTail));
   assert.deepEqual(shape(rowTail), [
@@ -363,6 +371,7 @@ test('an ANCHOR row is offered NO Delete at all — not a greyed one, and no hai
 });
 
 test('deletable changes NOTHING else about either list', () => {
+  // `Rename` answers its own flag (B13 `renamable`), so it stays put here.
   const withoutDelete = (row: RowSubject): string[] =>
     itemsFor(row)
       .filter((i) => i.action !== 'delete')
@@ -591,4 +600,99 @@ test('nextItem: DISABLED entries are not skipped — every index of a real menu 
     [...seen].sort((a, b) => a - b).filter((n) => items[n]?.enabled === false),
     [1, 2],
   );
+});
+
+// ---------------------------------------------------------------------------
+// Rename (part B13, `.claude/plans/nocturne/PLAN-B13.md` § 2 Menu)
+// ---------------------------------------------------------------------------
+
+test('Rename sits DIRECTLY above Delete on both lists — enabled, plain, no hairline of its own', () => {
+  for (const row of [folder(), folder({ open: true }), file()]) {
+    const items = itemsFor(row);
+    const at = items.findIndex((i) => i.action === 'rename');
+    assert.equal(at, items.length - 2, 'second to last');
+    assert.equal(items[at + 1]?.action, 'delete', 'Delete right after it');
+    const rename = items[at] as MenuItem;
+    assert.deepEqual(rename, { action: 'rename', label: 'Rename', enabled: true });
+    // The hairline stays on `Delete`: Rename is reversible (rename it back),
+    // so it is on the near side of the separator, not behind it.
+    assert.equal(rename.separated, undefined);
+    assert.equal(rename.danger, undefined);
+    assert.equal(rename.note, undefined);
+    assert.equal(items.filter((i) => i.action === 'rename').length, 1, 'exactly one');
+  }
+});
+
+test('Rename on a FOLDER follows Refresh; on a FILE it follows Copy', () => {
+  const f = itemsFor(folder()).map((i) => i.action);
+  assert.deepEqual(f.slice(-3), ['refresh', 'rename', 'delete']);
+  const g = itemsFor(file()).map((i) => i.action);
+  assert.deepEqual(g, ['open', 'open-beside', 'copy', 'rename', 'delete']);
+});
+
+test('Rename is ABSENT on an anchor row — not greyed — folder and file alike', () => {
+  for (const row of [
+    folder({ deletable: false, renamable: false }),
+    file({ deletable: false, renamable: false }),
+  ]) {
+    const items = itemsFor(row);
+    assert.equal(items.some((i) => i.action === 'rename'), false);
+    assert.equal(items.some((i) => i.label === 'Rename'), false);
+  }
+});
+
+test('a folder that HOLDS a project: deletable, not renamable — Delete stays, Rename goes', () => {
+  // D2's second half (`containsProject`): renaming the parent would move the
+  // project away from its registered path; deleting it is B10a's call, not
+  // this one, and `deletable` alone decides it.
+  const items = itemsFor(folder({ deletable: true, renamable: false }));
+  assert.equal(items.some((i) => i.action === 'rename'), false);
+  const last = items[items.length - 1] as MenuItem;
+  assert.equal(last.action, 'delete');
+  assert.equal(last.separated, true);
+  assert.equal(items[items.length - 2]?.action, 'refresh', 'nothing left in its slot');
+});
+
+test('Rename answers renamable, NOT deletable', () => {
+  // The reverse combination no caller builds today, pinned so the gate cannot
+  // quietly go back to reading `deletable`.
+  const items = itemsFor(file({ deletable: false, renamable: true }));
+  assert.deepEqual(items.map((i) => i.action), ['open', 'open-beside', 'copy', 'rename']);
+  assert.equal(items[3]?.separated, undefined);
+});
+
+test('Rename is ABSENT on a multi-selection, while Delete stays', () => {
+  for (const count of [2, 3, 100]) {
+    for (const row of [folder({ count }), file({ count })]) {
+      const items = itemsFor(row);
+      assert.equal(items.some((i) => i.action === 'rename'), false, `count ${count}`);
+      assert.equal(items[items.length - 1]?.action, 'delete', 'Delete is about the whole selection');
+      assert.equal(items[items.length - 1]?.separated, true);
+    }
+  }
+  // A count of 0 is no caller's value, and is not "one row" either.
+  assert.equal(itemsFor(file({ count: 0 })).some((i) => i.action === 'rename'), false);
+});
+
+test('Rename never reaches the root menu (the root is an anchor)', () => {
+  for (const name of ['api', 'Home']) {
+    assert.equal(itemsForRoot(name).some((i) => i.action === 'rename'), false);
+  }
+});
+
+test('Rename changes NOTHING else about either list', () => {
+  const rest = (row: RowSubject): string[] =>
+    itemsFor(row)
+      .filter((i) => i.action !== 'rename')
+      .map((i) => `${i.action}:${i.label}:${i.enabled ? 'on' : 'off'}:${i.note ?? ''}:${i.separated ?? ''}`);
+  // A multi-selection loses Rename and keeps everything else, entry for entry.
+  assert.deepEqual(rest(folder()), rest(folder({ count: 2 })));
+  assert.deepEqual(rest(file()), rest(file({ count: 2 })));
+  // And the entry has no dependency on the name, the open state or canCopy.
+  for (const row of [folder({ name: 'x.y', open: true, canCopy: true }), file({ name: '.env', canCopy: true })]) {
+    assert.deepEqual(
+      itemsFor(row).find((i) => i.action === 'rename'),
+      { action: 'rename', label: 'Rename', enabled: true },
+    );
+  }
 });

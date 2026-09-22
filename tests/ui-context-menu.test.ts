@@ -143,6 +143,7 @@ interface ModelModule {
     name: string;
     open: boolean;
     deletable?: boolean;
+    renamable?: boolean;
     count?: number;
   }): { label: string }[];
   itemsForRoot(name: string): { label: string }[];
@@ -328,7 +329,7 @@ test('a right-click on a FOLDER row opens the menu with that folder s entries', 
   assert.equal(box.getAttribute('aria-label'), 'actions for web', 'a NAME, never a path');
   assert.deepEqual(
     labels(),
-    M.itemsFor({ dir: true, name: 'web', open: true, deletable: true, count: 1 }).map(
+    M.itemsFor({ dir: true, name: 'web', open: true, deletable: true, renamable: true, count: 1 }).map(
       (i) => i.label,
     ),
     'the entries are the model s, in its order',
@@ -364,7 +365,7 @@ test('a right-click on a FILE row opens the file entries', async () => {
   assert.equal(menuEl()?.getAttribute('aria-label'), 'actions for README.md');
   assert.deepEqual(
     labels(),
-    M.itemsFor({ dir: false, name: 'README.md', open: false, deletable: true, count: 1 }).map(
+    M.itemsFor({ dir: false, name: 'README.md', open: false, deletable: true, renamable: true, count: 1 }).map(
       (i) => i.label,
     ),
   );

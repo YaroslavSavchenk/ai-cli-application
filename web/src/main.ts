@@ -608,6 +608,7 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
     commitDiff: api.gitCommitDiff,
     winPath: api.fsWinPath,
     delete: api.fsDelete,
+    rename: api.fsRename,
   };
   const filesPanel = initFilesPanel(filesAside, requestTerminalFocus, fsGateway);
   setCommitGateway(fsGateway);

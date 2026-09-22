@@ -64,6 +64,7 @@ interface StateModule {
   evictionFor(viewId: string, slot: number, tabId: string): Eviction | null;
   evictionForOpen(root: ViewLike['root'], tab: EditorTab): Eviction | null;
   openFile(root: { kind: 'home' } | { kind: 'project'; id: string }, path: string, label: string): string;
+  retargetFiles(from: string, to: string): boolean;
 }
 interface UnsavedModule {
   confirmDiscard(ids: readonly string[], returnFocus?: FakeElement | null): Promise<boolean>;
@@ -659,4 +660,112 @@ test('every door in the app goes through a guard — no raw closer is left anywh
   assert.match(handler, /closeViewGuarded\(/, 'the × asks first');
   assert.equal(handler.includes('st.closeView('), false, 'and never closes past the question');
   assert.equal(handler.includes('killView('), true, 'the act it hands in is the strip\'s own');
+});
+
+// ---------------------------------------------------------------------------
+// A rename in the Files panel (part B13, user decision D3): the tabs FOLLOW,
+// and the unsaved text goes with them — never dropped, never stranded on an id
+// no tab shows.
+// ---------------------------------------------------------------------------
+
+test('a dirty tab follows a FILE rename with its text intact, in every view', () => {
+  const moved = '/home/you/web/src/Panel.tsx';
+  st.state.views = [
+    view('v1', [st.newEditorSlot([{ kind: 'file', path: A }, { kind: 'file', path: B }])]),
+    view('v2', [st.newEditorSlot([{ kind: 'file', path: A }])], null),
+  ];
+  dirty(A, 'my work\n');
+  assert.equal(st.retargetFiles(A, moved), true);
+  const s1 = st.state.views[0]?.slots[0] as EditorSlot;
+  const s2 = st.state.views[1]?.slots[0] as EditorSlot;
+  assert.deepEqual(s1.tabs, [{ kind: 'file', path: moved }, { kind: 'file', path: B }]);
+  assert.deepEqual(s2.tabs, [{ kind: 'file', path: moved }]);
+  assert.equal(st.state.edits.get(st.editorFileId(moved)), 'my work\n');
+  assert.equal(st.state.edits.has(st.editorFileId(A)), false, 'nothing left on the old id');
+  // Nothing is lost by the rename itself: the text has a tab that shows it.
+  assert.deepEqual(st.dirtyLostBy('v2'), [], 'v1 still shows the moved file');
+});
+
+test('a dirty tab follows a FOLDER rename; a prefix sibling and a DIFF tab stay where they are', () => {
+  const sibling = '/home/you/web/srcx/keep.ts';
+  const diff: EditorTab = { kind: 'diff', hash: HASH, path: 'web/src/App.tsx', root: '/home/you' };
+  st.state.views = [
+    view('v1', [
+      st.newEditorSlot([
+        { kind: 'file', path: A },
+        diff,
+        { kind: 'file', path: sibling },
+        { kind: 'file', path: B },
+      ]),
+    ]),
+  ];
+  dirty(A, 'a text\n');
+  dirty(B, 'b text\n');
+  dirty(sibling, 'sibling text\n');
+  st.retargetFiles('/home/you/web/src', '/home/you/web/lib');
+  const s = st.state.views[0]?.slots[0] as EditorSlot;
+  assert.deepEqual(s.tabs, [
+    { kind: 'file', path: '/home/you/web/lib/Pane.tsx' },
+    diff,
+    { kind: 'file', path: sibling },
+    { kind: 'file', path: '/home/you/web/lib/App.tsx' },
+  ]);
+  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/Pane.tsx')), 'a text\n');
+  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/App.tsx')), 'b text\n');
+  assert.equal(st.state.edits.get(st.editorFileId(sibling)), 'sibling text\n');
+  assert.equal(st.state.edits.size, 3);
+});
+
+test('a strip that ends up holding one file twice keeps it once, and stays on the tab it was on', () => {
+  const lower = '/home/you/web/src/readme.md';
+  const upper = '/home/you/web/src/README.md';
+  const slot = st.newEditorSlot([
+    { kind: 'file', path: upper },
+    { kind: 'file', path: B },
+    { kind: 'file', path: lower },
+  ]);
+  slot.active = 2;
+  st.state.views = [view('v1', [slot])];
+  st.retargetFiles(lower, upper);
+  const s = st.state.views[0]?.slots[0] as EditorSlot;
+  assert.deepEqual(s.tabs, [{ kind: 'file', path: upper }, { kind: 'file', path: B }]);
+  assert.equal(s.active, 0, 'the active tab was the one that merged into the first');
+});
+
+test('a rename nothing is open under changes nothing and says so', () => {
+  st.state.views = [view('v1', [st.newEditorSlot([{ kind: 'file', path: A }])])];
+  dirty(A);
+  assert.equal(st.retargetFiles('/home/you/other', '/home/you/moved'), false);
+  assert.deepEqual((st.state.views[0]?.slots[0] as EditorSlot).tabs, [{ kind: 'file', path: A }]);
+  assert.ok(st.state.edits.has(st.editorFileId(A)));
+});
+
+test('retargetFiles never OVERWRITES unsaved text: that one file stays on its old path, text and tab', () => {
+  const x = '/home/you/web/src/x.ts';
+  const y = '/home/you/web/src/y.ts';
+  st.state.views = [
+    view('v1', [st.newEditorSlot([{ kind: 'file', path: x }, { kind: 'file', path: y }])]),
+  ];
+  dirty(x, 'x text\n');
+  dirty(y, 'y text\n');
+  st.retargetFiles(y, x);
+  const s = st.state.views[0]?.slots[0] as EditorSlot;
+  assert.deepEqual(s.tabs, [{ kind: 'file', path: x }, { kind: 'file', path: y }], 'no tab moved');
+  assert.equal(st.state.edits.get(st.editorFileId(x)), 'x text\n');
+  assert.equal(st.state.edits.get(st.editorFileId(y)), 'y text\n');
+  // In a FOLDER rename only the blocked file stays; the rest still follow.
+  const other = '/home/you/web/src/z.ts';
+  st.state.views = [
+    view('v1', [st.newEditorSlot([{ kind: 'file', path: y }, { kind: 'file', path: other }])]),
+  ];
+  st.state.edits = new Map();
+  dirty(y, 'y text\n');
+  dirty(other, 'z text\n');
+  dirty('/home/you/web/lib/y.ts', 'already there\n');
+  st.retargetFiles('/home/you/web/src', '/home/you/web/lib');
+  const s2 = st.state.views[0]?.slots[0] as EditorSlot;
+  assert.deepEqual(s2.tabs, [{ kind: 'file', path: y }, { kind: 'file', path: '/home/you/web/lib/z.ts' }]);
+  assert.equal(st.state.edits.get(st.editorFileId(y)), 'y text\n');
+  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/y.ts')), 'already there\n');
+  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/z.ts')), 'z text\n');
 });

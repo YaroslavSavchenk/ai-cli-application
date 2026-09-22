@@ -240,6 +240,43 @@ export function isDataDirUnder(real: string): boolean {
 }
 
 /**
+ * The CONFIGURED data dir (AI_SM_DATA_DIR as written, or the default) is `p`
+ * itself or lies UNDER it — a LEXICAL test, the twin of isDataDirUnder.
+ *
+ * Added by the B13 security review: the realpath tests above miss a data dir
+ * configured THROUGH a symlink. With `AI_SM_DATA_DIR=<home>/ddlink/data` and
+ * `ddlink -> <home>/real`, renaming or deleting the LINK `<home>/ddlink` is
+ * judged on the link's own path, which is not under the real data dir — yet it
+ * breaks the path the backend reads its token, prefs and history from.
+ * `p` is compared as given: callers pass both the lexical request path and the
+ * entry path under the realpath'd parent.
+ */
+export function holdsConfiguredDataDir(p: string): boolean {
+  let configured: string;
+  try {
+    configured = resolve(dataDirPath());
+  } catch {
+    return false; // A relative AI_SM_DATA_DIR already stopped the boot.
+  }
+  return isUnder(configured, p);
+}
+
+/**
+ * A project path AS STORED in projects.json is `p` itself or lies UNDER it —
+ * LEXICAL, the twin of the realpath anchor test (B13 security review). A
+ * project registered through a symlink (`<home>/proj-link -> real-proj`, or
+ * `<home>/lnk/proj` with `lnk` a link) has a realpath anchor that never equals
+ * the link's own path, so without this the link — the name the project is
+ * registered under — could be renamed or deleted, orphaning the project.
+ * Conservative on purpose: a stored path whose folder is gone still counts.
+ */
+export function holdsStoredProject(p: string, projectPaths: readonly string[]): boolean {
+  return projectPaths.some(
+    (raw) => typeof raw === 'string' && isAbsolute(raw) && isUnder(resolve(raw), p),
+  );
+}
+
+/**
  * How long one project path's realpath answer is reused. The Changes tab polls
  * every 5 s and the panel lists on demand, so a whole burst of requests costs
  * ONE realpath per project instead of one each.

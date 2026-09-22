@@ -60,10 +60,15 @@
  * TOCTOU between the realpath and the rm is the accepted, documented position
  * of server/fsbrowse.ts — the same window, for the same reasons.
  *
- * SYNCHRONOUS on purpose, like every other fs route here: `rmSync` of a large
- * tree blocks the event loop for as long as it takes. Accepted for a
- * single-user loopback service; the cap of MAX_DELETE_ITEMS bounds the number
- * of roots, not the size of one tree.
+ * ASYNCHRONOUS: `rm` from `node:fs/promises`, never `rmSync` — a synchronous
+ * delete of a 20k-file tree blocked every PTY for 400 ms (measured, B10a). The
+ * cap of MAX_DELETE_ITEMS bounds the number of roots, not the size of one tree.
+ *
+ * IDENTITY (B13, 2026-09-22; `.claude/plans/nocturne/PLAN-B13.md`): besides the
+ * string comparisons, a target whose `dev:ino` lies on the walked chain of an
+ * anchor, a STORED project path or the CONFIGURED data dir is refused
+ * (server/fsprotect.ts) — a symlink deeper in such a chain, and a drvfs case
+ * variant, pass every string test. A walk hung past 3 s answers 503.
  *
  * LOGGING: counts and statuses only. Never a name, never a path, never a body
  * value — a 5xx logs the error CLASS and its FRAMES, never `describeError`:
@@ -72,7 +77,7 @@
  *
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
-import { rm } from 'node:fs/promises';
+import { lstat, rm } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import {
@@ -87,11 +92,20 @@ import {
   FS_PATH_BAD,
   MAX_NAME_BYTES,
   anchorsFor,
+  holdsConfiguredDataDir,
+  holdsStoredProject,
   isDataDirUnder,
   isSafeSegment,
   isUnderDataDir,
   resolveUnderAllowed,
 } from './fsbrowse.ts';
+import {
+  FS_PROTECT_UNAVAILABLE,
+  ProtectTimeoutError,
+  identityOf,
+  protectedSetForRequest,
+  type ProtectedSet,
+} from './fsprotect.ts';
 
 /**
  * The new user-facing sentences. They live HERE rather than beside the browse
@@ -242,6 +256,7 @@ async function deleteOne(
   removed: string[],
   index: number,
   log: Logger,
+  getProtectedSet: () => Promise<ProtectedSet>,
 ): Promise<FsDeleteResult> {
   try {
     if (typeof raw !== 'string' || raw === '' || !isAbsolute(raw) || raw.includes('\0')) {
@@ -291,7 +306,18 @@ async function deleteOne(
     // `~/projects`. Home is judged here rather than by the data-dir rule below
     // (the default data dir lives inside home, so both would refuse it) because
     // "your home folder" is the sentence that tells the user what happened.
-    if (anchors.some((anchor) => isUnderPath(anchor, target))) {
+    //
+    // AND THE STORED PROJECT PATHS, lexically (B13 security review): a project
+    // registered THROUGH a symlink (`<home>/proj-link`, or `<home>/lnk/proj`
+    // with `lnk` a link) has a realpath anchor that never equals the link's own
+    // path, so the realpath test alone let the link — the name the project is
+    // registered under — be deleted. Judged on `lex` (as asked) and `target`
+    // (under the real parent).
+    if (
+      anchors.some((anchor) => isUnderPath(anchor, target)) ||
+      holdsStoredProject(lex, projects) ||
+      holdsStoredProject(target, projects)
+    ) {
       throw new FsBrowseError(403, FS_DELETE_ANCHOR);
     }
     // THEN THE DATA DIR, both ways too: the PARENT test stops a delete INSIDE
@@ -300,17 +326,56 @@ async function deleteOne(
     // otherwise take the auth token, prefs.json, history.json and runtime.json
     // with it. NOT a security boundary — a token holder can rm it through a
     // shell — but the Files panel must not do it by accident.
-    if (isUnderDataDir(parentReal) || isUnderDataDir(target) || isDataDirUnder(target)) {
+    // The CONFIGURED data dir path is judged lexically too (B13 security review):
+    // with AI_SM_DATA_DIR running through a symlink, the LINK holding it is not
+    // under the real data dir, yet deleting it cuts the backend off its token.
+    if (
+      isUnderDataDir(parentReal) ||
+      isUnderDataDir(target) ||
+      isDataDirUnder(target) ||
+      holdsConfiguredDataDir(lex) ||
+      holdsConfiguredDataDir(target)
+    ) {
       throw new FsBrowseError(403, FS_DELETE_DATA_DIR);
     }
-    // BOTH COMPARISONS RUN ON `target` AND NOTHING ELSE. There was a second
-    // pass here that realpathed a non-symlink target and compared again; the
+    // THE REALPATH COMPARISONS RUN ON `target` AND NOTHING ELSE (the lexical
+    // stored-project and configured-data-dir tests above take `lex` too).
+    // There was a second pass here that realpathed a non-symlink target and
+    // compared again; the
     // 2026-09-20 gate proved it dead and it is gone: `parentReal` is already a
     // realpath and `name` is a plain segment, so for a non-symlink
     // `realpath(target) === target` — a tripwire `if (targetReal !== target)
     // throw` survived the whole suite. A SYMLINK needs no comparison either:
     // unlinking a link changes nothing at the other end, so a link into a
     // project or into the data dir is an ordinary deletable row.
+
+    // BY IDENTITY, the check the strings above cannot make (B13 security
+    // re-review, server/fsprotect.ts): the entry itself — lstat, NOT followed
+    // — must not be on the kernel's walk to an anchor, a stored project path
+    // or the configured data dir. That catches a symlink DEEPER in a chain
+    // (`<home>/a/lnk/proj` with `a -> b`, `b/lnk -> c`: deleting `b/lnk`) and a
+    // drvfs case variant (`/mnt/c/work/proj` vs the anchor `.../Proj`). The
+    // string tests stay as a first line: cheap, synchronous, uncached.
+    let targetStat;
+    try {
+      // BIGINT: a drvfs inode can exceed 2^53 (server/fsprotect.ts realFs).
+      targetStat = await lstat(target, { bigint: true });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' && coveredBy(target, removed)) return { ok: true };
+      throw deleteErrorFor(code);
+    }
+    let protectedSet: ProtectedSet;
+    try {
+      protectedSet = await getProtectedSet();
+    } catch (err) {
+      // FAIL SAFE: without the set nothing is deleted.
+      if (err instanceof ProtectTimeoutError) throw new FsBrowseError(503, FS_PROTECT_UNAVAILABLE);
+      throw err;
+    }
+    const hit = protectedSet.get(identityOf(targetStat));
+    if (hit === 'anchor') throw new FsBrowseError(403, FS_DELETE_ANCHOR);
+    if (hit === 'data') throw new FsBrowseError(403, FS_DELETE_DATA_DIR);
 
     try {
       // ONE call for every kind of entry, and the PROMISES rm, never rmSync:
@@ -349,7 +414,7 @@ async function deleteOne(
   } catch (err) {
     const mapped =
       err instanceof FsBrowseError ? err : new FsBrowseError(500, FS_DELETE_FAILED);
-    if (mapped.status >= 500) {
+    if (mapped.status >= 500 && mapped.status !== 503) {
       // errorClass + FRAMES, never describeError: rm's errno message quotes the
       // path it failed on, twice.
       log('error', `fs delete failed (${errorClass(err)}) ${errorFrames(err)}`);
@@ -450,9 +515,18 @@ export async function handleDelete(
   // hundred concurrent recursive deletes would be a worse neighbour than the
   // synchronous version this replaced. A non-string element is that ITEM's 400
   // — the rest of the batch is still answered.
+  // The protected-entry set (server/fsprotect.ts), fetched ONCE per request and
+  // only when an item gets that far: every item is judged against the same
+  // set, and a set that TIMED OUT answers 503 for the rest of the batch at once
+  // instead of making each of up to 100 items wait out its own timer.
+  let setPromise: Promise<ProtectedSet> | null = null;
+  const getProtectedSet = (): Promise<ProtectedSet> => {
+    setPromise ??= protectedSetForRequest(projects, anchors);
+    return setPromise;
+  };
   const results: FsDeleteResult[] = [];
   for (let i = 0; i < paths.length; i += 1) {
-    results.push(await deleteOne(paths[i], projects, anchors, removed, i, log));
+    results.push(await deleteOne(paths[i], projects, anchors, removed, i, log, getProtectedSet));
   }
   const ok = results.filter((r) => r.ok).length;
   log('info', `POST /api/fs/delete -> 200, ${ok} ok, ${results.length - ok} failed`);

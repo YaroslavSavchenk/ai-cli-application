@@ -1310,6 +1310,29 @@ export type FsDeleteResult = { ok: true } | { ok: false; status: number; error: 
 export interface FsDeleteResponse { results: FsDeleteResult[] }
 
 // ---------------------------------------------------------------------------
+// Rename in place (Nocturne B13) — POST /api/fs/rename
+// ---------------------------------------------------------------------------
+//
+// A SAME-FOLDER rename of one entry (`.claude/plans/nocturne/PLAN-B13.md` § 1).
+// Same boundary as /api/fs/delete: never an anchor (home, a project root, or a
+// folder that contains one), never the data dir, and NEVER replacing an entry
+// that already has the new name (409, user decision D1 — a replace would be a
+// hidden permanent delete). A symlink is renamed itself, never followed.
+//
+// NO PATH COMES BACK: the server works on the realpath'd parent, the tree is
+// keyed by the path as SHOWN (which may pass through a symlinked folder), so
+// the client builds the new path itself: `dirname(path) + '/' + name`.
+
+/** POST /api/fs/rename body: the entry's absolute path and its new name
+ *  (one plain segment: no `/`, no `\`, no control character, not all dots,
+ *  at most 255 UTF-8 bytes). */
+export interface FsRenameRequest { path: string; name: string }
+
+/** 200 of POST /api/fs/rename — empty on purpose (see above). A rename to the
+ *  SAME name is a 200 with nothing done. Refusals are `{ error }` + status. */
+export type FsRenameResponse = Record<string, never>;
+
+// ---------------------------------------------------------------------------
 // Editor (Nocturne B4) — GET /api/fs/read, PUT /api/fs/write
 // ---------------------------------------------------------------------------
 //

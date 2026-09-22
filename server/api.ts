@@ -68,6 +68,7 @@ import {
   FS_READ_FAILED,
 } from './fsbrowse.ts';
 import { handleDelete } from './fsdelete.ts';
+import { handleRename } from './fsrename.ts';
 import { handleRead, handleWrite } from './fstext.ts';
 import { handleUpload } from './fsupload.ts';
 import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
@@ -1462,6 +1463,23 @@ export function createRequestHandler(
     // read closes the connection.
     if (pathname === '/api/fs/delete') {
       await handleDelete(req, res, {
+        projects: projectAnchors,
+        log: fsLog,
+        sendJson,
+        sendError,
+        sendErrorAndClose,
+        readJson: readJsonBodySafe,
+      });
+      return;
+    }
+
+    // --- Filesystem: RENAME one entry in place (B13) ------------------------
+    //
+    // Same split as the delete above: the boundary, the anchor and data-dir
+    // refusals and the no-clobber rename live in server/fsrename.ts; this file
+    // supplies how a response is written and the SAFE body reader.
+    if (pathname === '/api/fs/rename') {
+      await handleRename(req, res, {
         projects: projectAnchors,
         log: fsLog,
         sendJson,

@@ -52,7 +52,7 @@ export function initShortcuts(modalHost: HTMLElement, refocus: () => void): Shor
   }
   const note = el('p', 'sc-note');
   note.textContent =
-    "Everything else goes to the terminal: arrows and esc are never intercepted, and plain ctrl+c/v go straight to it — unless the clipboard carries files and a row is selected in the Files panel, which is the one paste the app keeps for itself. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes anywhere — plus two that act only where the keyboard already is: ctrl+s inside a file's text, and, inside the Files panel, the menu key or shift+f10, delete, ctrl+a and the arrows.";
+    "Everything else goes to the terminal: arrows and esc are never intercepted, and plain ctrl+c/v go straight to it — unless the clipboard carries files and a row is selected in the Files panel, which is the one paste the app keeps for itself. App chords live only on ctrl+alt (altgr is left alone), and the paste and copy chords above are the only other keys the app takes anywhere — plus two that act only where the keyboard already is: ctrl+s inside a file's text, and, inside the Files panel, the menu key or shift+f10, delete, f2, ctrl+a and the arrows.";
 
   modal.append(hd, table, note);
   scrim.append(modal);

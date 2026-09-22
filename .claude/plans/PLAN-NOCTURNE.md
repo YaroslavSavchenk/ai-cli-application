@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design/session-manager, v3)
 
-Status: see the table below (updated 2026-09-22, late). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/README.md`.
 Each part starts only on the user's word ("begin aan <id>"); rows are in the order of work.
 
 | Part | What | State | Spec | Landed |
@@ -33,7 +33,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B8 | Cleanup + memory, End session button in the pane header, release v0.4.0 (prepared; user: publish AFTER C1) | verified | `.claude/plans/nocturne/PLAN-B8.md` | 2026-09-22 |
 | B12 | Icons everywhere: a real icon per file type, the real tool logos in one style | verified | `.claude/plans/nocturne/PLAN-B12.md` | 2026-09-22 |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15; decisions 12–16 settled 2026-09-22) | verified | `.claude/plans/nocturne/PLAN-C1.md` | 2026-09-22 |
-| B13 | Rename files and folders in the Files panel (NOTED 2026-09-22, after C1) | todo | — |  |
+| B13 | Rename files and folders in the Files panel (user: before the v0.4.0 release) | verified | `.claude/plans/nocturne/PLAN-B13.md` | 2026-09-23 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side

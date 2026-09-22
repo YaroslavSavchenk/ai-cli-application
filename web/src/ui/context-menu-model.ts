@@ -14,9 +14,9 @@
  * Copy rules this file enforces, not just follows:
  * - LABELS ARE PLAIN WORDS (PROJECT-SCOPE, 2026-07-25): `Open`, `Close`,
  *   `Copy`, `Paste`, `Open beside`, `New file`, `New folder`, `Refresh`,
- *   `Delete`. No commands, no flags, no key names, no icons, no counts — a
- *   list this short reads as a list, and nothing on it is a plural of
- *   something else. `Delete` carries no count either: the QUESTION counts
+ *   `Rename`, `Delete`. No commands, no flags, no key names, no icons, no
+ *   counts — a list this short reads as a list, and nothing on it is a plural
+ *   of something else. `Delete` carries no count either: the QUESTION counts
  *   (`ui/delete-model.ts`), the entry only names the act.
  * - ONE SEPARATOR, AND ONLY BEFORE `Delete` (B10a). The A9b rule was "no
  *   separators" and this is the one amendment to it, with its reason: every
@@ -35,6 +35,7 @@
  *   caller is the one that reduced a path to it (`selectedName`).
  */
 import { COPY_LABEL } from './files-select-model.ts';
+import { canRename } from './rename-model.ts';
 
 /** What one entry does when it is chosen. */
 export type MenuAction =
@@ -47,6 +48,7 @@ export type MenuAction =
   | 'new-file'
   | 'new-folder'
   | 'refresh'
+  | 'rename'
   | 'delete';
 
 /** One entry of the menu. */
@@ -101,6 +103,14 @@ export interface RowSubject {
    */
   deletable: boolean;
   /**
+   * May this row be renamed at all (B13 D2)? False for every anchor
+   * `deletable` refuses AND for every folder that CONTAINS a registered
+   * project (`containsProject` in `ui/rename-model.ts`): renaming the parent
+   * would move the project out from under its registration. Best effort in
+   * the same way — the server refuses the same rows.
+   */
+  renamable: boolean;
+  /**
    * How many rows the act would really be about — the whole selection when
    * this row is in it, otherwise 1 (Explorer's rule, `itemsFor` in
    * `ui/delete-model.ts`). It is spent on the menu's accessible NAME and on
@@ -144,7 +154,8 @@ export const MENU_MARGIN = 8;
  * menu), the destination gesture that IS built (`Copy files here…`, the same
  * words as the copy strip's own button, because they do the same thing to the
  * same folder) and — since A9c — the three that make or re-read its contents
- * (`makeEntries`).
+ * (`makeEntries`). Both lists end in `Rename` (B13, one non-anchor row only)
+ * and `Delete` (B10a, every non-anchor row), in that order.
  *
  * A FILE offers the two ways the app can already show it — in the focused
  * editor pane, or beside it — plus `Copy`. It offers no `Paste`: files do not
@@ -159,6 +170,7 @@ export function itemsFor(row: RowSubject): MenuItem[] {
       { action: 'paste', label: 'Paste', enabled: false, note: PASTE_NOTE },
       { action: 'copy-files', label: COPY_LABEL, enabled: true },
       ...makeEntries(),
+      ...renameEntry(row),
       ...deleteEntry(row.deletable),
     ];
   }
@@ -166,8 +178,24 @@ export function itemsFor(row: RowSubject): MenuItem[] {
     { action: 'open', label: 'Open', enabled: true },
     { action: 'open-beside', label: 'Open beside', enabled: true },
     copyEntry(row.canCopy),
+    ...renameEntry(row),
     ...deleteEntry(row.deletable),
   ];
+}
+
+/**
+ * `Rename`, or nothing at all (B13, `.claude/plans/nocturne/PLAN-B13.md` § 2).
+ * It sits directly ABOVE the hairline, so `Delete` stays the last entry and the
+ * only one behind the separator. Absent — not disabled — on a row that is not
+ * `renamable` (D2: the anchors `Delete` is absent on, plus every folder that
+ * holds a project — `Delete` stays on those) and on a
+ * MULTI-selection: a rename is about one name, and a greyed entry would read
+ * as "select less and it works", which is a hint no other entry gives. The
+ * rule itself is `canRename`, so F2 and the menu cannot disagree.
+ */
+function renameEntry(row: RowSubject): MenuItem[] {
+  if (!canRename({ renamable: row.renamable, count: row.count })) return [];
+  return [{ action: 'rename', label: 'Rename', enabled: true }];
 }
 
 /**

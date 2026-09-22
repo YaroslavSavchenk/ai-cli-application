@@ -132,6 +132,7 @@ export const ROWS: Row[] = [
     ui: 'Delete in the row menu',
     note: 'There is no undo and nothing goes to a recycle bin; the app asks once first.',
   },
+  { keys: ['f2'], what: 'rename the focused row in the Files panel', ui: 'Rename in the row menu' },
   {
     keys: ['paste with files on the clipboard'],
     gesture: true,

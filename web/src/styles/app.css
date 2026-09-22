@@ -2310,8 +2310,45 @@ select:focus-visible,
   font-size: 12.5px;
 }
 
+/* the refusal WRAPS like the rename note below (B13 browser-gate finding: at
+   the default panel width `Something with that name already exists here.`
+   read `…already exis…`). It grows DOWN only, so no pane is resized. */
+.files-row.is-newerr {
+  height: auto;
+  min-height: var(--files-row-h);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
 .files-row.is-newerr .files-name {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
   color: var(--color-danger);
+}
+
+/* the RENAME note (Nocturne B13, user decision D4): a folder with a session
+   working inside it may be renamed, and this line says what that costs. Not a
+   refusal, so the tree's quiet ink; and it WRAPS instead of ellipsising — a
+   note cut at 200px would say half of it. It grows DOWN only (min-height keeps
+   the 26px rhythm, the width is the row's own), so no pane is resized. */
+.files-row.is-newnote {
+  height: auto;
+  min-height: var(--files-row-h);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  cursor: default;
+}
+
+.files-row.is-newnote:hover {
+  background: transparent;
+}
+
+.files-row.is-newnote .files-name {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
 }
 
 /* ---- commits list (a row opens the commit view since A6) -------------------

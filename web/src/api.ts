@@ -19,6 +19,8 @@ import type {
   FsWriteResponse,
   FsUploadMode,
   FsDeleteResponse,
+  FsRenameRequest,
+  FsRenameResponse,
   FsUploadResponse,
   FsWinPathResponse,
   GitChangesResponse,
@@ -595,6 +597,21 @@ export function fsDelete(paths: string[]): Promise<FsDeleteResponse> {
   return request<FsDeleteResponse>('/api/fs/delete', {
     method: 'POST',
     body: JSON.stringify({ paths }),
+  });
+}
+
+/**
+ * Give one file or folder a new name in the SAME folder (B13). The request
+ * carries a name, never a destination, so a move cannot be expressed. The
+ * answer carries no path either: the server works on the resolved parent, and
+ * the panel's tree is keyed by the path as SHOWN, so the caller builds the new
+ * path itself (`renamedPath`). A taken name is refused (409), never replaced.
+ */
+export function fsRename(path: string, name: string): Promise<FsRenameResponse> {
+  const body: FsRenameRequest = { path, name };
+  return request<FsRenameResponse>('/api/fs/rename', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 

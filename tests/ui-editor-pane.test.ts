@@ -93,6 +93,7 @@ interface StateModule {
   editorDirty(id: string | null): boolean;
   setEdit(id: string, text: string): void;
   newEditorSlot(tabs: EditorTab[]): EditorSlot;
+  retargetFiles(from: string, to: string): boolean;
 }
 interface EditorPaneModule {
   editorPane(
@@ -650,4 +651,41 @@ test('the strip’s CSS is ONE new section, inserted after the pane header block
   // Tokens only: no raw colour may enter the pane's vocabulary here.
   assert.equal(/#[0-9a-fA-F]{3,8}\b/.test(block), false, 'colours come from tokens.css');
   assert.equal(/\brgba?\(/.test(block), false, 'and so do the tints');
+});
+
+// ---------------------------------------------------------------------------
+// A rename in the Files panel (part B13, user decision D3)
+// ---------------------------------------------------------------------------
+
+test('a DIRTY tab follows a file rename: new chip name, same unsaved text in the rebuilt field', async () => {
+  const typed = `${ORIGINAL_B}\ntyped before the rename`;
+  type(field() as FakeElement, typed);
+  const moved = '/home/you/web/src/Shell.tsx';
+  ed.setFile(moved, ORIGINAL_B); // the disk moved with it
+  assert.equal(st.retargetFiles(B, moved), true);
+  await sync();
+  assert.deepEqual(labels(), ['Pane.tsx', 'Shell.tsx'], 'the chip names the new file');
+  assert.equal((field() as FakeElement).value, typed, 'the text the user typed is still there');
+  assert.equal(st.editorDirty(st.editorFileId(moved)), true, 'and still unsaved');
+  assert.equal(st.editorDirty(st.editorFileId(B)), false, 'nothing is left on the old id');
+});
+
+test('a DIRTY tab follows a FOLDER rename; a diff tab in the same strip is left alone', async () => {
+  st.openDiff({ kind: 'home' }, HASH, C, REPO);
+  await sync();
+  st.setActiveTab((st.activeView() as ViewLike).id, 0, 0);
+  await sync();
+  const typed = `${ORIGINAL_A}\ntyped in A`;
+  type(field() as FakeElement, typed);
+  const before = slot().tabs.find((t) => t.kind === 'diff');
+  ed.setFile('/home/you/web/lib/Pane.tsx', ORIGINAL_A);
+  ed.setFile('/home/you/web/lib/App.tsx', ORIGINAL_B);
+  st.retargetFiles('/home/you/web/src', '/home/you/web/lib');
+  await sync();
+  assert.deepEqual(
+    slot().tabs.filter((t) => t.kind === 'file').map((t) => t.path),
+    ['/home/you/web/lib/Pane.tsx', '/home/you/web/lib/App.tsx'],
+  );
+  assert.deepEqual(slot().tabs.find((t) => t.kind === 'diff'), before, 'the diff tab is untouched');
+  assert.equal((field() as FakeElement).value, typed, 'the active file kept its unsaved text');
 });

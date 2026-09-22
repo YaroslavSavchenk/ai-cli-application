@@ -423,7 +423,8 @@ test('Delete is on a folder row and on a file row, last, behind ONE hairline', a
   assert.equal(menuEntry('Delete').className, 'cm-item is-danger', 'danger is a class, not a fill');
 
   rightClick(fileRow('README.md'));
-  assert.deepEqual(menuLabels(), ['Open', 'Open beside', 'Copy', 'Delete']);
+  // B13's `Rename` sits right above the hairline, so `Delete` stays last.
+  assert.deepEqual(menuLabels(), ['Open', 'Open beside', 'Copy', 'Rename', 'Delete']);
   seps = byClass(menuBox() as FakeElement, 'cm-sep');
   assert.equal(seps.length, 1);
 });

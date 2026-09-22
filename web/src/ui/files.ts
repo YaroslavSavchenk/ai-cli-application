@@ -97,6 +97,20 @@ import {
   type MenuAction,
 } from './context-menu-model.ts';
 import { closeRowMenu, openRowMenu } from './context-menu.ts';
+import {
+  containsProject,
+  hasSessionInside,
+  hasUnsavedAt,
+  isSameName,
+  remapKeys,
+  remapPath,
+  renamedPath,
+  renameMessage,
+  RENAME_SESSION_NOTE,
+  RENAME_UNSAVED_TAKEN,
+  stemRange,
+  type TextRange,
+} from './rename-model.ts';
 import { copyPathsToClipboard, hasHostBridge } from './host-bridge.ts';
 import { flash } from './statusline.ts';
 import { isContextMenuChord, isEditableTarget, OPEN_MODAL_SELECTOR } from './keys.ts';
@@ -109,6 +123,7 @@ import type {
   FsDeleteResponse,
   FsDeleteResult,
   FsEntriesResponse,
+  FsRenameResponse,
   FsWinPathResponse,
   GitChangesResponse,
   SessionInfo,
@@ -272,6 +287,13 @@ export interface FsGateway {
    * means the request itself was refused and nothing was touched.
    */
   delete(paths: string[]): Promise<FsDeleteResponse>;
+  /**
+   * Give ONE row a new name in the same folder (B13). The answer carries no
+   * path: the panel builds the new one itself (`renamedPath`), because its tree
+   * is keyed by the path as shown and the server works on the resolved parent.
+   * A taken name is REFUSED with the server's own sentence, never replaced.
+   */
+  rename(path: string, name: string): Promise<FsRenameResponse>;
 }
 
 /**
@@ -736,7 +758,7 @@ export function initFilesPanel(
     selected = prunedTo(selected, next);
     // A9c: a name row belongs to ONE folder in ONE tree. The root moved under
     // it, so there is nothing left for it to be inside of (§6b).
-    dropCreate('root');
+    dropNaming('root');
     changes = null;
     changesError = null;
     changesRoot = null;
@@ -1203,6 +1225,21 @@ export function initFilesPanel(
       runDelete(activeTreeKey(), activeRowEl());
       return true;
     }
+    if (e.key === 'F2' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      // B13: rename the row the keyboard is standing on — the row alone, even
+      // inside a larger selection. Owned HERE, on the panel's own listener, so
+      // an F2 pressed in a focused terminal never comes near it and reaches the
+      // PTY as it always did. A dialog up means the window is not the panel's.
+      if (document.querySelector(OPEN_MODAL_SELECTOR) !== null) return false;
+      const key = activeTreeKey();
+      // Not on a tree row, or on a row that may not be renamed (D2): the key
+      // does nothing and is left alone.
+      if (key === null || !isRenamable(keyPath(key))) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      startRename(key);
+      return true;
+    }
     if ((e.key === 'a' || e.key === 'A') && e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -1408,7 +1445,7 @@ export function initFilesPanel(
     // A9c: any menu opening cancels a name row (§6b). It is done FIRST, so the
     // repaint below is the one that removes it and the menu is anchored to the
     // rows the user will actually see under it.
-    dropCreate('menu');
+    dropNaming('menu');
     const before = selected;
     // Explorer's rule, in the model: a row ALREADY IN the selection leaves it
     // alone (right-clicking one of five chosen rows asks about all five); any
@@ -1434,6 +1471,9 @@ export function initFilesPanel(
       open: openFolders.has(path),
       canCopy: hasHostBridge(),
       deletable: !isAnchor(path),
+      // B13 D2 — the SAME predicate F2 asks (`isRenamable`), so the entry and
+      // the key can never disagree about a row.
+      renamable: isRenamable(path),
       count: actCount(key),
     };
     openRowMenu({
@@ -1468,6 +1508,8 @@ export function initFilesPanel(
     else if (action === 'new-file') startCreate(path, 'file');
     else if (action === 'new-folder') startCreate(path, 'folder');
     else if (action === 'refresh') fetchFolder(path);
+    // B13: the row menu's `Rename` and F2 on the focused row are one act.
+    else if (action === 'rename') startRename(key);
     // 'paste' is a disabled entry: the menu never chooses it.
   }
 
@@ -1607,6 +1649,18 @@ export function initFilesPanel(
     if (currentPath !== null && path === currentPath) return true;
     if (homePath !== null && path === homePath) return true;
     return st.state.projects.some((p) => p.path === path);
+  }
+
+  /**
+   * May this row be RENAMED (B13, user decision D2)? Not an anchor, and not a
+   * folder that HOLDS a registered project — renaming it would move that
+   * project away from the path it is registered at. ONE predicate for both
+   * doors: the row menu's `renamable` and F2 ask exactly this, so the entry and
+   * the key can never disagree. Best effort like `isAnchor`: the server refuses
+   * the same rows on its own.
+   */
+  function isRenamable(path: string): boolean {
+    return !isAnchor(path) && !containsProject(path, st.state.projects.map((p) => p.path));
   }
 
   /**
@@ -1785,7 +1839,7 @@ export function initFilesPanel(
     if (tab !== 'files') return false;
     const dest = rootDestination();
     if (dest === null) return false;
-    dropCreate('menu');
+    dropNaming('menu');
     const back =
       document.activeElement instanceof HTMLElement &&
       document.activeElement.closest('.files-view') !== null
@@ -1920,6 +1974,9 @@ export function initFilesPanel(
   function startCreate(dir: string, kind: 'file' | 'folder'): void {
     const rootP = currentPath;
     if (rootP === null) return;
+    // ONE name row at a time, create or rename (B13): a rename left open would
+    // be a second input fighting this one for the keyboard.
+    clearRename();
     clearCreate();
     if (dir !== rootP && !openFolders.has(dir)) {
       openFolders.add(dir);
@@ -1954,11 +2011,13 @@ export function initFilesPanel(
    * tab switch, a root change, the panel leaving the screen. Only the menu
    * repaints from here — `setTab` renders right after its own call, and the
    * other two are already INSIDE a render pass, which a second render would
-   * re-enter.
+   * re-enter. Since B13 they cancel EITHER name row, a create or a rename: the
+   * rename row is the same row asking a different question.
    */
-  function dropCreate(why: 'menu' | 'tab' | 'root' | 'hidden'): void {
-    if (creating === null) return;
+  function dropNaming(why: 'menu' | 'tab' | 'root' | 'hidden'): void {
+    if (creating === null && renaming === null) return;
     clearCreate();
+    clearRename();
     lastSig = '';
     if (why === 'menu') render();
   }
@@ -2129,12 +2188,7 @@ export function initFilesPanel(
    * or at the very top for the root — and -1 when that folder is not on screen
    * at all (a listing that changed under the menu, a folder that closed), in
    * which case the create is dropped rather than drawn somewhere arbitrary.
-   *
-   * It is a `<div>`, like every other row that is not a button, carrying the
-   * caret's own spacer so the input starts where a name starts, the folder
-   * mark or the plain file glyph so the KIND is visible before a single letter is
-   * typed, and the input itself. The refusal is a second row directly beneath
-   * it, the same height, in the ink this app refuses in everywhere.
+   * The row itself is `nameRowEl`, the one a rename draws too.
    */
   function insertNameRow(rows: HTMLElement[], model: readonly FsRow[], rootP: string): void {
     const c = creating;
@@ -2153,40 +2207,84 @@ export function initFilesPanel(
       return;
     }
     const depth = at === 0 ? 0 : (model[at - 1]?.depth ?? 0) + 1;
+    let icon: Element;
+    if (c.kind === 'folder') {
+      icon = folderIcon();
+      icon.classList.add('files-folder');
+    } else {
+      // The plain file glyph: a file with no name yet has no type to claim.
+      icon = fileIcon(PLAIN_FILE);
+    }
+    const out = nameRowEl({
+      indent: rowIndent(depth),
+      caret: '',
+      icon,
+      // The field IS the label: there is no visible caption to point at, so the
+      // accessible name says what is being named and what kind of thing it is.
+      label: c.kind === 'folder' ? 'new folder name' : 'new file name',
+      value: createText,
+      busy: createBusy,
+      error: c.error,
+      note: null,
+      onEnter: commitCreate,
+      onEscape: () => cancelCreate(true),
+      onBlur: () => cancelCreate(false),
+    });
+    rows.splice(at, 0, ...out);
+  }
+
+  /**
+   * The NAME ROW's elements — one input row, then the refusal under it and (a
+   * rename only) the quiet note — shared by `New file` / `New folder` (A9c) and
+   * `Rename` (B13), so the two questions are one row with one set of rules.
+   *
+   * It is a `<div>`, like every other row that is not a button, carrying the
+   * caret's own spacer so the input starts where a name starts, the mark of the
+   * KIND so what is being named is visible before a single letter is typed, and
+   * the input itself. The refusal is a second row directly beneath it, at least
+   * the same height (it wraps, growing down only), in the ink this app refuses
+   * in everywhere. Nothing here changes a
+   * width: a row that widened the panel would resize every PTY in the grid.
+   *
+   * It also sets `nameInput` — the one live input, whichever question it asks.
+   */
+  function nameRowEl(o: {
+    indent: number;
+    caret: string;
+    icon: Element;
+    label: string;
+    value: string;
+    busy: boolean;
+    error: string | null;
+    note: string | null;
+    onEnter: () => void;
+    onEscape: () => void;
+    onBlur: () => void;
+  }): HTMLElement[] {
     const row = el('div', 'files-row is-new');
-    row.style.paddingLeft = `${rowIndent(depth)}px`;
+    row.style.paddingLeft = `${o.indent}px`;
     // In flight: the same opacity pulse a busy row already wears, and NO
     // height change — a row that grew mid-request would move the tree under
     // the pointer.
-    row.classList.toggle('is-busy', createBusy);
-    const caret = el('span', 'files-caret', '');
+    row.classList.toggle('is-busy', o.busy);
+    const caret = el('span', 'files-caret', o.caret);
     caret.setAttribute('aria-hidden', 'true');
-    row.append(caret);
-    if (c.kind === 'folder') {
-      const ic = folderIcon();
-      ic.classList.add('files-folder');
-      row.append(ic);
-    } else {
-      // The plain file glyph: a file with no name yet has no type to claim.
-      row.append(fileIcon(PLAIN_FILE));
-    }
+    row.append(caret, o.icon);
     const input = el('input', 'files-newname');
     input.type = 'text';
-    // The field IS the label: there is no visible caption to point at, so the
-    // accessible name says what is being named and what kind of thing it is.
-    input.setAttribute('aria-label', c.kind === 'folder' ? 'new folder name' : 'new file name');
+    input.setAttribute('aria-label', o.label);
     // A file name is not prose: no squiggles, no capital first letter on a
     // phone keyboard, and no history dropdown over the tree.
     input.spellcheck = false;
     input.setAttribute('autocapitalize', 'off');
     input.autocomplete = 'off';
-    input.value = createText;
-    input.readOnly = createBusy;
+    input.value = o.value;
+    input.readOnly = o.busy;
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        commitCreate();
+        o.onEnter();
         return;
       }
       if (e.key !== 'Escape') return;
@@ -2197,26 +2295,278 @@ export function initFilesPanel(
       // next press has to reach.
       e.preventDefault();
       e.stopPropagation();
-      cancelCreate(true);
+      o.onEscape();
     });
     input.addEventListener('blur', () => {
       // A rebuild replaces this element; in a real browser that can fire a
       // blur for a node nobody left. Both guards answer the same question —
       // "is this still the input the user is standing in?"
       if (rebuilding || !input.isConnected) return;
-      // `false`: the keyboard is already on its way somewhere the user picked.
-      cancelCreate(false);
+      // The keyboard is already on its way somewhere the user picked.
+      o.onBlur();
     });
     row.append(input);
     nameInput = input;
     const out: HTMLElement[] = [row];
-    if (c.error !== null) {
+    if (o.error !== null) {
       const err = el('div', 'files-row is-newerr');
-      err.style.paddingLeft = `${rowIndent(depth)}px`;
-      err.append(el('span', 'files-name', c.error));
+      err.style.paddingLeft = `${o.indent}px`;
+      err.append(el('span', 'files-name', o.error));
       out.push(err);
     }
-    rows.splice(at, 0, ...out);
+    if (o.note !== null) {
+      // D4 (B13): not a refusal — the rename is allowed — so it is the tree's
+      // quiet ink, not the danger ink, and it WRAPS: a note cut off by an
+      // ellipsis at 200px would say half of what it costs.
+      const note = el('div', 'files-row is-newnote');
+      note.style.paddingLeft = `${o.indent}px`;
+      note.append(el('span', 'files-name', o.note));
+      out.push(note);
+    }
+    return out;
+  }
+
+  // ---- renaming a file or a folder (part B13) ---------------------------------
+  //
+  // F2 on the focused row, or `Rename` in its menu
+  // (`.claude/plans/nocturne/PLAN-B13.md` § 2). The SAME name row a create
+  // draws (`nameRowEl`), put IN PLACE of the row being renamed: same indent,
+  // same mark, same `--files-row-h`, no width change — so nothing in the tree
+  // moves and no PTY is resized. Same folder only: the request carries a name,
+  // never a destination.
+  //
+  // THE SAME CANCELS AS A CREATE: Escape (the keyboard goes back to the row),
+  // blur (it stays where the user put it), a menu opening, a tab switch, a root
+  // change, the panel leaving the screen — `dropNaming` — and one name row at a
+  // time, create or rename.
+  //
+  // NOTHING CHANGES OPTIMISTICALLY. The row is renamed when the parent's new
+  // listing says so; what the panel remaps at once is only what is KEYED by
+  // the old path (open folders, cached listings, the selection, editor tabs),
+  // so the renamed folder comes back open, with its rows, and a dirty tab keeps
+  // its text (D3).
+
+  /** The rename on screen, or nothing. `error` is the sentence under it. */
+  let renaming: { path: string; dir: boolean; error: string | null } | null = null;
+  /** What is typed, kept outside the input across repaints (as `createText`). */
+  let renameText = '';
+  /** The request is out: the input is read-only and the row pulses. */
+  let renameBusy = false;
+  /** Bumped by every start and every cancel (as `createToken`). */
+  let renameToken = 0;
+  /**
+   * The input's selection across a repaint, and whether the first focus has
+   * already selected the stem: the stem is selected ONCE, and a repaint (a
+   * listing landing, a refusal drawn) may never re-select over what the user
+   * has since placed the caret on.
+   */
+  let renameRange: TextRange | null = null;
+  let renameStemDone = false;
+  /** The row being renamed, by key: where Escape hands the keyboard back. */
+  let renameReturn: string | null = null;
+
+  /**
+   * Begin renaming the row with this key. Guarded like a delete: a copy that
+   * is still writing and a delete in flight own the same rows.
+   */
+  function startRename(key: string): void {
+    if (tab !== 'files') return;
+    const path = keyPath(key);
+    if (path === '' || !isRenamable(path)) return;
+    if (isDropRunning()) {
+      flash(COPY_RUNNING);
+      return;
+    }
+    if (deleting !== null) {
+      flash(DELETE_RUNNING);
+      return;
+    }
+    clearCreate();
+    clearRename();
+    renaming = { path, dir: keyIsDir(key), error: null };
+    renameText = fileName(path);
+    // Escape hands the keyboard back to THIS row, drawn again under its name.
+    renameReturn = key;
+    focusName = true;
+    lastSig = '';
+    render();
+  }
+
+  /** Forget the rename. STATE ONLY — the caller decides about painting. */
+  function clearRename(): void {
+    if (renaming !== null) nameInput = null;
+    renaming = null;
+    renameText = '';
+    renameBusy = false;
+    renameToken += 1;
+    renameRange = null;
+    renameStemDone = false;
+  }
+
+  /** Escape (`true`: keyboard back to the row) and blur (`false`: leave it). */
+  function cancelRename(giveKeyboardBack: boolean): void {
+    if (renaming === null) return;
+    const back = renameReturn;
+    clearRename();
+    focusName = false;
+    lastSig = '';
+    render();
+    if (!giveKeyboardBack) return;
+    const el =
+      back === null ? null : root.querySelector<HTMLElement>(`[data-k="${CSS.escape(back)}"]`);
+    (el ?? copyBtn).focus();
+  }
+
+  /**
+   * Enter: the client rules, then the unchanged name (no request — the row
+   * just closes), then exactly one request.
+   */
+  function commitRename(): void {
+    if (renaming === null || renameBusy) return;
+    const { path, dir } = renaming;
+    const name = nameInput === null ? renameText : nameInput.value;
+    renameText = name;
+    const bad = nameProblem(name);
+    if (bad !== null) {
+      failRename(nameProblemText(bad));
+      return;
+    }
+    if (isSameName(path, name)) {
+      cancelRename(true);
+      return;
+    }
+    // A copy or a delete that started while the row was open owns the same
+    // folders: say so where the user is looking, and keep the text.
+    if (isDropRunning()) {
+      failRename(COPY_RUNNING);
+      return;
+    }
+    if (deleting !== null) {
+      failRename(DELETE_RUNNING);
+      return;
+    }
+    // B4 across a rename: unsaved text already open at the new path (or under
+    // it) would be overwritten by the text that follows the rename. Refused
+    // here, before anything moves on disk.
+    const editPaths = [...st.state.edits.keys()]
+      .filter((k) => k.startsWith('f:'))
+      .map((k) => k.slice(2));
+    if (hasUnsavedAt(editPaths, renamedPath(path, name))) {
+      failRename(RENAME_UNSAVED_TAKEN);
+      return;
+    }
+    renameBusy = true;
+    renaming = { path, dir, error: null };
+    lastSig = '';
+    render();
+    const token = renameToken;
+    const gen = generation;
+    fs.rename(path, name)
+      .then(() => {
+        const to = renamedPath(path, name);
+        // EDITOR TABS FOLLOW, whatever happened to this panel meanwhile (D3):
+        // the file really moved, and a tab left on the old path would be a 404
+        // holding the user's unsaved text.
+        st.retargetFiles(path, to);
+        // The ROOT moved under the answer: nothing in this tree is about it.
+        if (gen !== generation) return;
+        // Everything KEYED by the old path follows it — also after a cancel,
+        // because the thing has been renamed either way.
+        for (const p of [...openFolders]) {
+          const q = remapPath(p, path, to);
+          if (q !== p) {
+            openFolders.delete(p);
+            openFolders.add(q);
+          }
+        }
+        for (const [p, v] of [...listings]) {
+          const q = remapPath(p, path, to);
+          if (q !== p) {
+            listings.delete(p);
+            listings.set(q, v);
+          }
+        }
+        selected = remapKeys(selected, path, to);
+        const parent = parentPath(path);
+        if (token !== renameToken) {
+          // A rename opened meanwhile on a row INSIDE the folder that just
+          // moved must send the path that exists now, not the old one.
+          const open = renaming as { path: string; dir: boolean; error: string | null } | null;
+          if (open !== null) {
+            renaming = { ...open, path: remapPath(open.path, path, to) };
+            const back = renameReturn;
+            if (back !== null) renameReturn = rowKey(remapPath(keyPath(back), path, to), keyIsDir(back));
+          }
+          fetchFolder(parent);
+          bump();
+          return;
+        }
+        clearRename();
+        const key = rowKey(to, dir);
+        selected = afterRowActivate(selected, key);
+        // The keyboard follows the renamed row once its folder answers with
+        // it — the create's promise, aimed at the new key.
+        focusCreated = { key, dir: parent };
+        fetchFolder(parent);
+        bump();
+      })
+      .catch((err: unknown) => {
+        if (token !== renameToken || gen !== generation) return;
+        renameBusy = false;
+        failRename(renameMessage(err));
+      });
+  }
+
+  /** A refusal under the input: the text stays, the keyboard goes back into it. */
+  function failRename(sentence: string): void {
+    if (renaming === null) return;
+    renaming = { path: renaming.path, dir: renaming.dir, error: sentence };
+    lastSig = '';
+    render();
+    liveNameInput()?.focus();
+  }
+
+  /**
+   * D4: a FOLDER with a live session working at or under it gets the note. The
+   * rename is allowed; the note says what it costs.
+   */
+  function renameNote(path: string, dir: boolean): string | null {
+    if (!dir) return null;
+    const cwds: string[] = [];
+    for (const info of st.state.sessions.values()) {
+      if (info.status !== 'exited' && info.cwd !== '') cwds.push(info.cwd);
+    }
+    return hasSessionInside(cwds, path) ? RENAME_SESSION_NOTE : null;
+  }
+
+  /**
+   * The rename row, in place of the row it renames: the row's own indent, its
+   * own caret and its own mark, so the only thing that changes on screen is
+   * the name turning into a field.
+   */
+  function renameRowEls(r: FsRow): HTMLElement[] {
+    const c = renaming as { path: string; dir: boolean; error: string | null };
+    let icon: Element;
+    if (c.dir) {
+      icon = folderIcon();
+      icon.classList.add('files-folder');
+      if (r.open) icon.classList.add('is-open');
+    } else {
+      icon = fileIcon(fileIconFor(r.name));
+    }
+    return nameRowEl({
+      indent: r.indent,
+      caret: r.caret,
+      icon,
+      label: c.dir ? 'new name for folder' : 'new name for file',
+      value: renameText,
+      busy: renameBusy,
+      error: c.error,
+      note: renameNote(c.path, c.dir),
+      onEnter: commitRename,
+      onEscape: () => cancelRename(true),
+      onBlur: () => cancelRename(false),
+    });
   }
 
   // ---- header: the three tabs, then the name of what we are looking at -----
@@ -2524,7 +2874,7 @@ export function initFilesPanel(
     if (!tabAvailable(next)) return;
     // The name row is drawn by the Files tab and by nothing else, so leaving
     // that tab is leaving it (§6b).
-    dropCreate('tab');
+    dropNaming('tab');
     wish = next;
     tab = visibleTab();
     // Opening a watching tab re-asks straight away — the answer behind it may
@@ -2583,6 +2933,12 @@ export function initFilesPanel(
       // keystroke would rebuild the tree under the cursor.
       creating === null ? '' : `${creating.kind}:${creating.dir}:${creating.error ?? ''}`,
       createBusy ? 'busy' : '',
+      // B13: the rename row, the same way — and whether D4's note is up, which
+      // a session starting or ending while the row is open changes.
+      renaming === null
+        ? ''
+        : `${renaming.path}:${renaming.error ?? ''}:${renameNote(renaming.path, renaming.dir) ?? ''}`,
+      renameBusy ? 'rbusy' : '',
       st.state.openCommit ?? '',
       collapsed,
       openFiles,
@@ -2634,7 +2990,7 @@ export function initFilesPanel(
       // And the name row with it (A9c, §6b): a half-typed name over a panel
       // nobody can see would come back on the next toggle as a question the
       // user has long stopped asking.
-      dropCreate('hidden');
+      dropNaming('hidden');
       selected = afterPanelHidden(selected);
       // …and with it the promise about where a delete would put the keyboard:
       // it is about rows on a screen nobody is looking at any more.
@@ -2725,6 +3081,12 @@ export function initFilesPanel(
     // landing, a refusal being drawn) never costs the user their text.
     if (creating !== null && nameInput !== null && nameInput.isConnected) {
       createText = nameInput.value;
+    }
+    // B13: the same for a rename — and where the caret or the selection was,
+    // so a repaint never re-selects over what the user placed.
+    if (renaming !== null && nameInput !== null && nameInput.isConnected) {
+      renameText = nameInput.value;
+      renameRange = { start: nameInput.selectionStart ?? 0, end: nameInput.selectionEnd ?? 0 };
     }
     const hadName =
       document.activeElement instanceof HTMLElement &&
@@ -2818,6 +3180,19 @@ export function initFilesPanel(
     if (fresh !== null && (focusName || hadName)) {
       focusName = false;
       fresh.focus();
+      const r = renaming;
+      if (r !== null) {
+        // A rename selects the STEM on its first focus only (a folder: the
+        // whole name), so typing replaces the name and keeps the extension;
+        // every later repaint puts back what the user had.
+        if (!renameStemDone) {
+          renameStemDone = true;
+          const stem = stemRange(fresh.value, r.dir);
+          fresh.setSelectionRange(stem.start, stem.end);
+        } else if (renameRange !== null) {
+          fresh.setSelectionRange(renameRange.start, renameRange.end);
+        }
+      }
       return;
     }
     // 3. whatever had it before this rebuild, by key.
@@ -2877,6 +3252,7 @@ export function initFilesPanel(
     // (`createRowIndex`), and an element list built from a second walk could
     // be a different tree than the one that index was computed against.
     const model = fsRows(rootP, openFolders, listings);
+    let renameShown = false;
     for (const r of model) {
       let row: HTMLElement;
       if (r.kind === 'state') {
@@ -2884,6 +3260,12 @@ export function initFilesPanel(
         continue;
       }
       const key = rowKey(r.path, r.kind === 'dir');
+      // B13: the row being renamed is drawn as the name row, in its place.
+      if (renaming !== null && key === rowKey(renaming.path, renaming.dir)) {
+        renameShown = true;
+        rows.push(...renameRowEls(r));
+        continue;
+      }
       if (r.kind === 'dir') {
         const b = button('files-row is-dir', '');
         // ONE gesture, TWO effects, in this order (A9b user decision 1): the
@@ -2988,7 +3370,20 @@ export function initFilesPanel(
       row.append(el('span', 'files-name', r.name));
       rows.push(row);
     }
+    // A rename whose row is no longer in the tree (a re-listing without it, a
+    // folder above it closed) is dropped, like a create whose folder left.
+    // While a folder ABOVE it is being re-read the row may be missing for a
+    // moment (that folder was just renamed and its new row has not been listed
+    // yet): kept, and the input takes the keyboard back when it is drawn again.
+    if (renaming !== null && !renameShown) {
+      const r = renaming;
+      const listing = [...inFlight.keys()].some((p) => p !== r.path && isUnder(r.path, p));
+      if (listing) focusName = true;
+      else clearRename();
+    }
     // One element per model row above, so the model's index IS this list's.
+    // (A rename row can add a line or two, but a create and a rename are never
+    // on screen together.)
     insertNameRow(rows, model, rootP);
     return rows;
   }
