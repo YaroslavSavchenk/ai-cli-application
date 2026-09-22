@@ -35,13 +35,19 @@ export function armButton(
   action: () => void,
   opts?: { ask?: () => boolean },
 ): void {
-  const original = btn.textContent ?? '';
+  // The button's own CONTENT comes back on disarm, not just its text: an icon
+  // button (B8, a pane header's End session) holds an SVG and no text at all.
+  // While armed, the visible confirm label IS the name — an aria-label would
+  // keep announcing the unarmed action over it — so it steps aside and returns.
+  const original = Array.from(btn.childNodes);
+  const label = btn.getAttribute('aria-label');
   let timer: number | null = null;
   const disarm = (): void => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
     delete btn.dataset.armed;
-    btn.textContent = original;
+    btn.replaceChildren(...original);
+    if (label !== null) btn.setAttribute('aria-label', label);
   };
   btn.addEventListener('click', () => {
     if (opts?.ask !== undefined && !opts.ask()) {
@@ -56,6 +62,7 @@ export function armButton(
     }
     btn.dataset.armed = '1';
     btn.textContent = confirmLabel;
+    if (label !== null) btn.removeAttribute('aria-label');
     timer = window.setTimeout(disarm, 3000);
   });
 }

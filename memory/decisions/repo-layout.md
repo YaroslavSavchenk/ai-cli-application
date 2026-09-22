@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-20
-updated: 2026-09-21
+updated: 2026-09-22
 tags: [repo, layout, memory, process]
 ---
 # Repo layout: where things live, and how they move
@@ -110,6 +110,10 @@ third-party code with no licence statement, which a public repo should not
 redistribute on a guess; it stays on disk so the prototype renders. The
 author's home path in the prototypes' mock data was scrubbed to `/home/you`
 (the `no-author-paths` guard would have refused the commit otherwise).
+The v2 files that came inside `design/session-manager/` (`README.md`,
+`session-manager-prototype.html`, `CLAUDE_CODE_PROMPT.md`, superseded by the
+v3 files) were deleted in Nocturne B8 (2026-09-22); `design/archive/handoff-v1/`
+stays.
 
 ## Rejected alternatives
 

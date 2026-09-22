@@ -95,4 +95,5 @@ Part specs, `nocturne/`:
 - `PLAN-B9.md` — Terminal colours live: the Settings page paints every terminal, the choice persists as a hex pair
 - `PLAN-B10.md` — real file copy into WSL, Copy to the Windows clipboard
 - `PLAN-B10a.md` — select several files and folders, and delete them
+- `PLAN-B8.md` — cleanup, memory, an End session button in every session pane's header, release v0.4.0
 - `PLAN-B11.md` — session state Working vs. Waiting for you, the agents table behind a switch, at most 4 running agents

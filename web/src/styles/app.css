@@ -168,6 +168,14 @@ select:focus-visible,
   }
 }
 
+/* Needs your answer without the motion (B8): the pill still says it, and the
+   dot keeps the amber. */
+@media (prefers-reduced-motion: reduce) {
+  .dot.is-attn {
+    animation: none;
+  }
+}
+
 /* A2: Nocturne draws a finished session as a filled neutral dot, not a
    hollow ring (design/session-manager/session-manager-v3.html). */
 .dot.is-exit {
@@ -769,7 +777,8 @@ select:focus-visible,
 }
 
 /* ---- pane header (38px) ---------------------------------------------------
-   dot, name, project name, spacer, state pill, (connection chip), Own tab.
+   dot, name, project name, spacer, state pill, (connection chip), Own tab,
+   End session (B8).
    No border under it: the terminal card's own edge is the separation. */
 
 .pane-hd {
@@ -869,6 +878,42 @@ select:focus-visible,
 .pane-pop:hover {
   border-color: var(--color-neutral-600);
   color: var(--color-text);
+}
+
+/* End session (B8) — the last control in a session pane's header: the same
+   24px height and quiet ink as Own tab, but an icon with no frame until the
+   pointer is on it, so it does not read as a second Own tab. Danger ink is
+   the promise of what it does, on hover and while armed; armed it widens to
+   the word (`Sure?`), so "one more click ends it" is never a colour alone —
+   the exited banner's End session is armed the same way. */
+.pane-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+/* The glyph is never the pointer's target: the press lands on the button. */
+.pane-end svg {
+  pointer-events: none;
+}
+
+.pane-end:hover {
+  border-color: var(--color-neutral-800);
+  color: var(--color-danger);
+}
+
+.pane-end[data-armed='1'] {
+  padding: 0 var(--space-3);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 /* A FILE pane's header (A10): the name, the unsaved mark, and the way out.

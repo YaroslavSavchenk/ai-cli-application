@@ -303,9 +303,12 @@ test('an editor pane’s × closes the PANE through the B4 guard, and says why t
     'and never past the question (ui/unsaved.ts owns that call now)',
   );
   assert.equal(EDITOR_PANE.includes('killSession'), false, 'an editor pane never ends anything');
+  // B8 retired the A3 no-close rule (a session pane's header ends its session
+  // since the user's decision of 2026-09-22), so what is written down now is
+  // the difference between the two closers.
   assert.match(
     PANES,
-    /A3 no-close rule: that rule is\n \* about ENDING SESSIONS/,
+    /A `×` on an EDITOR pane closes the pane and kills nothing/,
     'the reason the × is allowed here is written down where the pane is built',
   );
   // And the tab × is the OTHER closer: one tab, never the pane — through the

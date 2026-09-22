@@ -1,7 +1,8 @@
 # Redesign v3 (Nocturne)
 
 `session-manager-v3.html` is the current design reference. It supersedes
-`session-manager-prototype.html` (v2, "steam blend") for visual style. Open it in
+`session-manager-prototype.html` (v2, "steam blend"; deleted from the repo in
+Nocturne B8, 2026-09-22) for visual style. Open it in
 a browser (the `_ds/` folder next to it must stay in place) to see every screen
 and interaction live. Everything in it is mocked; the real app wires real data.
 

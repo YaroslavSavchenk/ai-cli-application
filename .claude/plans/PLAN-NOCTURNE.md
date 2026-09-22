@@ -30,7 +30,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B9 | Terminal colours live | verified | `.claude/plans/nocturne/PLAN-B9.md` | 2026-09-22 |
 | B7 | Background agents table live (data source decided 2026-09-22: Claude Code's transcripts) | verified | `.claude/plans/nocturne/PLAN-B7.md` | 2026-09-22 |
 | B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule | verified | `.claude/plans/nocturne/PLAN-B11.md` | 2026-09-22 |
-| B8 | Cleanup + memory, release v0.4.0 | todo | — |  |
+| B8 | Cleanup + memory, End session button in the pane header, release v0.4.0 (prepared, published on the user's word) | landed | `.claude/plans/nocturne/PLAN-B8.md` | 2026-09-22 |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
@@ -52,7 +52,7 @@ Source of truth for look and behaviour:
 - `design/session-manager/session-manager-v3.html` + `_ds/nocturne-*/styles.css` (reference, mocked data)
 - `design/session-manager/CLAUDE_CODE_PROMPT_v3.md` (the author's 6-phase order; this plan splits it finer)
 - `design/session-manager/app-icon.svg` (new icon)
-- v2 files (`README.md`, `session-manager-prototype.html`, `CLAUDE_CODE_PROMPT.md`) are superseded for visuals; only consulted for interaction details missing from v3.
+- v2 files (`README.md`, `session-manager-prototype.html`, `CLAUDE_CODE_PROMPT.md`) were superseded for visuals and only consulted for interaction details missing from v3; deleted in B8 (2026-09-22).
 
 Fixed rules for every part:
 - Recreate in the real stack in `web/` (vanilla TS + xterm.js, existing `ui/*` modules). HTML is reference, never copied.

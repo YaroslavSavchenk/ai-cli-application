@@ -416,6 +416,15 @@ export class FakeElement extends FakeNode {
     }
     return false;
   }
+  /**
+   * `childNodes` is text nodes included, which is what `children` already is
+   * in this double (`ui/util.ts` armButton keeps a button's own nodes — an
+   * icon, or its text — to put back on disarm, B8). A copy, as the live
+   * NodeList would be one to the caller that spreads it.
+   */
+  get childNodes(): FakeNode[] {
+    return [...this.children];
+  }
   override get textContent(): string {
     return this.children.map((c) => c.textContent).join('');
   }

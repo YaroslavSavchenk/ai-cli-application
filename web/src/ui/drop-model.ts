@@ -3,7 +3,8 @@
  * behind dropping files and folders from Windows Explorer into the app: how
  * many things are being dragged, what they are called together, which of them
  * already exist at the destination, what a "keep both" copy is named, and what
- * the dialog says while and after it pretends to copy.
+ * the dialog says while and after it copies (a pretend copy in A9, real since
+ * part B10).
  *
  * No DOM, no state, no browser: every value a rule needs is handed in
  * (`.claude/plans/nocturne/PLAN-A9.md` §5), so `node --test` drives all of it and the drag
@@ -237,7 +238,7 @@ export function keepBothName(name: string, taken: readonly string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// The mock copy
+// The copy: its plan and its sentences (A9's mock copy, executed since B10)
 // ---------------------------------------------------------------------------
 
 /**

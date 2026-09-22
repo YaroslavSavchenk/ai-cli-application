@@ -1,12 +1,12 @@
 ---
 type: decision
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-09-22
 tags: [design, frontend]
 ---
 # Handoff design is the primary design source
 
-**Status:** decided (2026-07-20, user's call); **superseded for visuals 2026-09-10 by [[nocturne-full-switch]]** (v3 handoff; v2 consulted only for interaction details)
+**Status:** decided (2026-07-20, user's call); **superseded for visuals 2026-09-10 by [[nocturne-full-switch]]** (v3 handoff; v2 was consulted only for interaction details until its files were deleted in Nocturne B8, 2026-09-22)
 
 Three calls made together at the start of the R2 session, reversing the
 2026-07-19 triage recommendations:

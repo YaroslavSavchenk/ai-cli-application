@@ -162,7 +162,7 @@ multi-pane layouts on top.
   bundle — is ever moved aside; `dist-prev` is kept until the handoff and
   reverted if the standby dies before teardown — including restoring an
   ABSENT `web/dist` — so every 422 leaves `web/dist` as it was — the two logged exceptions are a restore whose own rename fails, and a `dist-prev` that vanished under the app), end sessions exactly like `shutdown()` (history stamped `shutdown` →
-  resumable from HISTORY), close the listener, send `go`, wait for the
+  resumable from the session history), close the listener, send `go`, wait for the
   child's `runtime.json` + `/health`, answer `202 { port, startedAt,
   samePort }` (Connection: close) and exit WITHOUT unlinking
   `runtime.json`. The child on `go` runs the crash-stamp history load,
@@ -193,7 +193,7 @@ multi-pane layouts on top.
   gitignored. UI: Settings → Background service (`Restart service`, since Nocturne A7 2026-09-13), a dismissible
   `New version available` toast, a persistent amber `Update` pill after
   dismissal, a confirmation that names the running sessions and says they
-  stay in HISTORY (plus a note when dependencies must be installed first);
+  stay in History (plus a note when dependencies must be installed first);
   the dialog says "Preparing the new version…" while the preflight runs,
   "Reconnecting…" during the health wait, and on `422` "Nothing was
   restarted" with Close/Try again and the polls resumed. During the
@@ -463,7 +463,7 @@ multi-pane layouts on top.
   bundle is unpacked and `current` flipped by the existing helper with its
   live-dir guards; then the existing installed-mode checker reports `a new
   version is installed` and the UI continues AUTOMATICALLY into the proven
-  same-port `POST /api/restart` handoff — sessions end like Restart, HISTORY
+  same-port `POST /api/restart` handoff — sessions end like Restart, the session history
   keeps them, the page reloads on the same origin. A silent upgrade reuses
   the previous install's distro and app dir from `install-info.txt`
   (`LoadPreviousInstall`, read via `WizardDirValue` — `{app}` cannot be
@@ -489,7 +489,7 @@ multi-pane layouts on top.
 - **Projects**: stored in a `projects.json` — `{ id, name, path,
   defaultModel, defaultMode, createdAt }` (full schema: `shared/protocol.ts`). UI shows the project *name* everywhere (a project-less terminal session,
   launched into the home folder, is grouped under that folder's last
-  segment in HISTORY — never a full path); the raw path
+  segment in the Sessions panel's `Earlier` list — never a full path); the raw path
   appears only as secondary metadata inside the manage-projects view (needed
   to disambiguate add/delete). "Add project" = browse to a directory + give
   it a name.
@@ -948,7 +948,7 @@ multi-pane layouts on top.
   blocks, "All commits"). An **editor pane** is a pane like a terminal
   (same card, same 38 px header, the terminal ground): its header is a
   strip of 26 px tab chips (file name, amber dot when unsaved, `×` per tab —
-  a `×` here does not touch the A3 rule, which is about ending sessions),
+  a `×` here closes files and ends nothing),
   a grab area, and the pane's own `×` ("Close this pane and its N files");
   the body is the ACTIVE tab's line-number gutter + textarea with the
   file's text and a bottom bar (`Save` / `Saving…` / `Saved`), or a
@@ -1048,7 +1048,9 @@ multi-pane layouts on top.
   the key rows stay for hidden tools; `prefs.tools.hidden`, clamped on read
   so at least one card always stays); **Defaults** (B6: `Reopen tabs on
   start` — see Tabs and layouts, `Confirm before ending a session` — the
-  armed two-step on every door that ends a session, off = one click, the
+  armed two-step on every door that ends a session — the tab `×`, the
+  Sessions panel's end control, the exited banner's `End session` and, since
+  B8, the pane header's End session button — off = one click, the
   B4 unsaved-text question never switched off, `Follow output` — every
   write ends at the bottom even after scrolling up, off = xterm's rule;
   `prefs.behaviour`, factory on / on / off; the notifications row was
@@ -1203,6 +1205,23 @@ multi-pane layouts on top.
   waiting sessions there too). Known limit:
   Claude Code's permission prompt writes nothing to the transcript, so it
   reads Working unless the BEL fires.
+- **Session pane header — Nocturne A3, End session button since B8
+  (user's decision 2026-09-22; spec `.claude/plans/nocturne/PLAN-B8.md`).**
+  A session pane's 38 px header holds, left to right: the state dot, the
+  session name, the project NAME (never a path), a spacer, the state pill
+  (the B11 word), the connection chip only while degraded (`Reconnecting` /
+  `Lost`), `Own tab` only when the tab holds more than one pane, and — top
+  right, on EVERY session pane, a one-pane tab included — an **End session**
+  button (a quiet `X` icon, `aria-label` / `title` `End session`). It ENDS
+  the session exactly like the tab `×` and the Sessions panel's end control
+  do (`killSession`) — not "close the pane, keep it running" — and follows
+  Settings → Preferences → `Confirm before ending a session`: on, the first
+  click arms (`Sure?`) and the second ends; off, one click ends. A3 had kept
+  ending off the pane header as a one-click destructive control; the confirm
+  setting answers that. A press on the button never starts the header's
+  pane drag. No keyboard chord (the tab `×` and the Sessions panel are
+  keyboard-reachable). Editor panes keep their own `×`, which closes files
+  and ends nothing.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's
   call; shape decided the same day.** The app stops being a passive
   registrar of existing directories and can *create* projects itself, and
@@ -1285,7 +1304,7 @@ multi-pane layouts on top.
   `bypassPermissions`) — known exception: Claude Code's own in-terminal
   status line (`server/statusline.mjs` `MODE_LABELS`) still prints its
   older words incl. `plan`, and so does its Settings preview sample; the
-  New Project default-mode option still reads `never ask (dangerous)`;
+  Add a project dialog's default-mode option still reads `never ask (dangerous)`;
   aligning all three is open (backlog) — resume reads
   **The last conversation in this project** (never `--continue`), and the launch dialog's
   argv command preview was replaced by a readable summary, itself **removed
@@ -1508,7 +1527,7 @@ drawer UI — the journal/previous part superseded 2026-09-06 by the session
 history bullet.)
 
 (Settled 2026-07-19: full GUI redesign, user's call after real use — the
-anti-slop rule stands unchanged, but the phosphor skin is being replaced by
+anti-slop rule stands unchanged, but the phosphor skin was replaced by
 the **"steam blend"** direction chosen from rendered mockups (committed under
 `design-mocks/` until 2026-09-21; kept by the git tag `legacy-ui`); and the interaction model becomes sessions-as-tabs with
 drag-to-split — see the Tabs-and-layouts bullet. Both shipped 2026-07-19:
@@ -1517,8 +1536,10 @@ the tab model, then the steam-blend skin (brief + slop-filter pass in
 self-hosted Barlow, OFL license committed beside the woff2 assets). Blend
 definition and rationale in
 `memory/decisions/anti-slop-design-direction.md`. **Superseded 2026-09-10**:
-the steam-blend skin is the *Legacy UI* (git tag `legacy-ui`), being replaced
-by the **Nocturne** design (`.claude/plans/PLAN-NOCTURNE.md`;
-`design/session-manager/README-v3.md`). Part A1 landed the Nocturne
-tokens and swapped the chrome typeface to self-hosted **Inter** — the Barlow
-woff2 files and its OFL are gone.)
+the steam-blend skin is the *Legacy UI* (git tag `legacy-ui`), replaced
+completely by the **Nocturne** design, which ships as v0.4.0
+(`.claude/plans/PLAN-NOCTURNE.md`; `design/session-manager/README-v3.md`).
+Part A1 landed the Nocturne tokens and swapped the chrome typeface to
+self-hosted **Inter** — the Barlow woff2 files and its OFL are gone. Since
+B8 (2026-09-22) `web/DESIGN.md` describes the Nocturne app; the steam-blend
+brief lives on only in git history.)

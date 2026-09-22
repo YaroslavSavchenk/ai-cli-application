@@ -1315,8 +1315,9 @@ test('closeSlot: an emptied PROJECT tab goes, Home stays, and focus lands on a p
 });
 
 test('closeSlot: a SESSION pane is refused — ending a session is a different act', () => {
-  // The A3 no-close rule. A `×` never appears on a terminal pane, and the model
-  // says so too rather than trusting every caller to remember.
+  // There is no close-the-PANE control on a terminal pane (the header's End
+  // session button, B8, ends the session instead), and the model says so too
+  // rather than trusting every caller to remember.
   st.initServer([], [mkSession('s1')]);
   st.loadUi(REOPEN);
   const v = addView(null, [sess('s1'), ed('a.ts')]);

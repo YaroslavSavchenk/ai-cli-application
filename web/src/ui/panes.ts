@@ -17,7 +17,7 @@
  * terminal ground. What those two hold depends on the kind:
  *
  *   session  header: state dot, session name, project NAME, state pill,
- *            "Own tab" in a split. Body: the xterm mount, a thin status bar
+ *            "Own tab" in a split, the End session button (B8). Body: the xterm mount, a thin status bar
  *            (ui/pane-status-model.ts) and the background-agents table
  *            (ui/pane-agents.ts, fed by ui/pane-agents-model.ts since B7).
  *   editor   header: one chip per open file — its name, an amber dot while it
@@ -27,10 +27,10 @@
  *            ui/editor-pane.ts, which this module only drives: `update`,
  *            `focus`, `holdsFocus`, `dispose`.
  *
- * A `×` on an EDITOR pane does not break the A3 no-close rule: that rule is
- * about ENDING SESSIONS, which is still only possible from the tab strip and
- * the Sessions panel, both of which ask to confirm. Closing a file — or the
- * pane it sits in — kills nothing.
+ * A `×` on an EDITOR pane closes the pane and kills nothing: closing a file —
+ * or the pane it sits in — ends no session. Ending one is a SESSION pane's
+ * header button (B8), the tab strip's `×` and the Sessions panel, all of
+ * which follow `Confirm before ending a session`.
  *
  * The status bar is NOT the 2026-07-26 telemetry strip that was removed: it
  * states only what the app already knows — the session's own argv (model,
@@ -55,6 +55,7 @@ import { log } from '../log.ts';
 import type { ConnState } from '../ws.ts';
 import { TerminalView, type TerminalEvents } from './terminal.ts';
 import { el, button, armButton } from './util.ts';
+import { endSessionButton } from './pane-end.ts';
 import { armDrag } from './dnd.ts';
 import { scheduleHistoryRefresh } from './history.ts';
 import { flash } from './statusline.ts';
@@ -580,11 +581,14 @@ function teardown(s: Slot): void {
 function buildSessionPane(s: Slot, sessionId: string): void {
   // A3 header (38px): dot, session name, project NAME, spacer, state pill,
   // (conn chip while degraded), "Own tab" when the tab holds more than one
-  // pane. Ending a session is NOT here — it lives on the tab × and in the
-  // sessions drawer, both of which confirm; a one-click kill on every pane
-  // header would be the only destructive control on this surface. The whole
-  // header is the drag source — keyboard twins: ctrl+alt+shift+arrows (swap)
-  // and the "Own tab" button (extract).
+  // pane, then End session — on EVERY session pane, a one-pane tab included
+  // (B8, user's decision 2026-09-22). A3 kept ending off the header because
+  // it would have been a one-click kill on every pane; since B6 it is not:
+  // the button asks `Confirm before ending a session` at click time, exactly
+  // like the tab × and the sessions drawer (arm first when on, one click when
+  // the user turned the question off). The whole header is the drag source,
+  // buttons excepted (createSlot's armDrag) — keyboard twins:
+  // ctrl+alt+shift+arrows (swap) and the "Own tab" button (extract).
   const dot = el('span', 'dot pane-dot');
   dot.setAttribute('aria-hidden', 'true');
   const title = el('span', 'pane-title');
@@ -594,7 +598,8 @@ function buildSessionPane(s: Slot, sessionId: string): void {
   connChip.hidden = true;
   const extractBtn = button('pane-pop', 'Own tab');
   extractBtn.title = 'Move to its own tab';
-  s.hd.replaceChildren(dot, title, proj, el('span', 'pane-gap'), state, connChip, extractBtn);
+  const endBtn = endSessionButton(() => void killSession(sessionId));
+  s.hd.replaceChildren(dot, title, proj, el('span', 'pane-gap'), state, connChip, extractBtn, endBtn);
   s.hd.title = 'Drag onto a pane to swap them, or onto the tab strip to give it its own tab.';
 
   // The terminal card: the xterm mount fills it, the status bar and the

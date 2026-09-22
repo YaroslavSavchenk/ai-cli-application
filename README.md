@@ -17,6 +17,33 @@ resume any of them (a Claude session resumes ITS OWN conversation: the
 backend pins each launch with `--session-id <uuid>` and resumes with
 `--resume <id>`).
 
+## What it does
+
+- **Sessions side by side.** Claude Code, Codex, Gemini CLI, Grok, a plain
+  shell (Bash, Zsh, PowerShell, Command Prompt) or any command you type, each
+  in a real terminal. Up to four panes per tab; drag a tab onto another to
+  split, drag a pane header back to the tab strip to give it its own tab.
+- **Says what each session is doing**, in words: Working, Waiting for you,
+  Needs your answer, Finished. For Claude Code this comes from its own
+  transcript, so the app knows when Claude is done with its turn.
+- **A status bar under each Claude session** with what Claude Code itself
+  reports — model, mode, branch, cost, context, usage, time, lines changed —
+  and, if you switch it on, a table of the background agents it runs.
+- **End a session from its pane** with the button top right, or from its tab
+  or the Sessions panel; each asks once first unless you turn that off.
+- **Files panel** on the real file system: browse, create files and folders,
+  select several and delete them, drag or paste files in from Windows, copy
+  files to the Windows clipboard; see what changed since the last commit and
+  browse the commits with their diffs.
+- **Editor panes** next to the terminals: open up to four files per pane,
+  edit and save them; a file that changed on disk is never silently
+  overwritten.
+- **Projects** with a default model and permission mode, created from a new
+  folder, a clone, or your GitHub repositories.
+- **Settings** for the status bar, API keys, which tools the New session
+  dialog offers, a few behaviours, the whole keyboard table, and the
+  terminal's colours.
+
 ## Install
 
 Download **`AI-Session-Manager-Setup-<version>.exe`** from the
@@ -100,7 +127,8 @@ upgrades in place, keeps everything, and you may leave the app open while it
 runs. Afterwards the app notices the new version by itself and offers the
 restart that moves it there — through the notice in the window, or under
 **Settings → Background service → Restart service**. Sessions that are open at
-that moment end; they keep their place in HISTORY and can be resumed.
+that moment end; they keep their place in the Sessions panel's **Earlier**
+list and can be resumed.
 
 ### Uninstalling
 
@@ -446,7 +474,7 @@ it was — same process, same sessions, same screens:
    stops the standby and refuses too.
 
 Only then does the old process end every running session (each one is stamped
-in `history.json`, so it keeps its entry and can be resumed from HISTORY),
+in `history.json`, so it keeps its entry and can be resumed from the Sessions panel's Earlier list),
 close its listener, tell the standby to take the port, wait until that one
 answers `/health`, and answer the browser and exit. Running sessions do not
 survive this — the app never pretends otherwise.
@@ -494,8 +522,8 @@ credential is active at a time** — connecting one way replaces the other.
 
 ### A. Paste a token (no server setup)
 
-Works out of the box, with nothing configured. In the app: **New Project →
-GitHub → paste a token**. The server checks it against GitHub (`GET /user`,
+Works out of the box, with nothing configured. In the app: **Add a project →
+From GitHub → paste a token** (the GitHub chip in the top bar opens it too). The server checks it against GitHub (`GET /user`,
 then `GET /user/repos?per_page=1`) and shows you which account it resolved to
 before it counts as connected.
 
@@ -525,7 +553,7 @@ the manager:
    (For the Windows launcher, set it in the environment the WSL command
    inherits.) Absent or empty ⇒ only this sign-in path is unavailable; pasting
    a token still works and nothing else changes.
-3. In the app, open **New Project → GitHub → Connect with GitHub**, then enter
+3. In the app, open **Add a project → From GitHub → Connect with GitHub**, then enter
    the shown code at `github.com/login/device`. The requested scope is `repo`
    (list + clone + create + push, no re-auth).
 

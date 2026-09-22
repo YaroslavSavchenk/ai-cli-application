@@ -1,963 +1,424 @@
-# AI CLI Session Manager — frontend design (handoff transcription)
+# AI CLI Session Manager — frontend design (Nocturne)
 
-> **Note (2026-09-10) — the tokens are Nocturne now.** The design source of
-> truth is `design/session-manager/README-v3.md` plus
-> `design/session-manager/_ds/nocturne-*/styles.css`. Part A1 of the
-> Nocturne switch (`.claude/plans/PLAN-NOCTURNE.md`) landed the tokens and the
-> fonts: `web/src/styles/tokens.css` holds the Nocturne primitives (the
-> temporary alias layer for the old role-token names was deleted in part A8,
-> 2026-09-14 — every screen is on the primitives now), and the chrome face
-> is **Inter**, not Barlow. Everything else in this file still describes the
-> **Legacy UI** (the "steam blend" skin, preserved as git tag `legacy-ui`)
-> and is rewritten in part B8.
+**Source of truth:** `design/session-manager/README-v3.md` (the spec) plus
+`design/session-manager/session-manager-v3.html` and
+`design/session-manager/_ds/nocturne-*/styles.css` (the reference, mocked
+data). This file describes the app that exists — the Nocturne UI, v0.4.0 —
+and the rules it keeps. Where this file and the handoff disagree, the handoff
+wins unless a deviation below says why it does not; where the handoff is
+silent, the anti-slop rules in `.claude/skills/frontend-designer/SKILL.md`
+apply. The handoff is the primary design source by the user's call
+(`memory/decisions/handoff-design-primary.md`). The previous look ("steam
+blend", the Legacy UI) survives only as the git tag `legacy-ui`.
 
-Binding reference for every visual decision in `web/src/`. Since 2026-07-20
-the **hi-fi handoff in `design/` is the primary design source** (user's call,
-reversing the 2026-07-19 "repo tokens win" rule; rationale in
-`memory/decisions/handoff-design-primary.md`). This file transcribes the
-handoff — `design/archive/handoff-v1/README.md` (spec) + `design/archive/handoff-v1/session-manager-prototype.html`
-(reference behavior) — plus the recorded deviations below. Where this file
-and the handoff disagree, the handoff wins; where the handoff is silent, the
-anti-slop rules in `.claude/skills/frontend-designer/SKILL.md` still apply.
+When in doubt, the code is the witness: `web/src/styles/tokens.css`,
+`web/src/styles/app.css` and the module named in each section.
 
 ## UI copy rule — no commands, flags, or code (decided 2026-07-25)
 
 The GUI speaks plain English; CLI syntax belongs in the terminal, not in the
-chrome around it (PROJECT-SCOPE "No commands, flags, or code in the UI"). This
-is **display-only**: `Perm`/`Effort` values, `shared/protocol.ts`, prefs keys and
-the emitted argv are untouched — `claude --permission-mode acceptEdits --effort
-high --continue` is still exactly what runs. The label sets below are BINDING
-reference; the single source is `web/src/ui/launch-args.ts` (`PERM_SHORT`,
-`EFFORTS`, `AGENT_LABEL`), pinned by `tests/ui-launch-args.test.ts`,
-`tests/ui-copy-rule.test.ts` + `tests/ui-util.test.ts`.
-
-**Sharpened 2026-09-06 (user's call):** short plain words, and no sentence that
-explains the app to itself. The launch dialog was cut back to labelled controls
-(see its section below); everything that only *described* a control — the header
-subtitle, the preset chips, the permission descriptions, the readable launch
-summary, the custom-command hint, the footer note, the drawer's previous-run
-note — is gone rather than reworded. `tests/ui-copy-rule.test.ts` lists those
-exact strings so they cannot drift back in.
-
-**Permission modes** — ONE label table, `PERM_SHORT`, read by both the launch
-dialog's mode segments and the pane-header tag (`permFromArgs`), so a mode reads
-identically everywhere:
-
-| value               | label      |
-|---------------------|------------|
-| `default`           | always ask |
-| `acceptEdits`       | auto edits |
-| `plan`              | read-only  |
-| `bypassPermissions` | no prompts |
-
-`--dangerously-skip-permissions` also reads `no prompts`. Both bypass forms are
-danger (red); on the pane tag `default` renders NO tag at all, so its label
-appears only in the dialog. A mode outside the known four (only reachable from a
-typed custom command) is shown verbatim rather than mistranslated.
-
-**Effort** — `EFFORTS` = `default` · `low` · `medium` · `high` · `xhigh` · `max`,
-rendered verbatim as select options (single lowercase words, no flag anywhere in
-the copy). `default` is the app's own sentinel and emits nothing; the other five
-are Claude Code's own level names (`claude --help`, 2.1.263) and emit
-`--effort <level>`.
-
-**Continue** — one checkbox, `Continue last conversation`, emitting `--continue`.
-There is deliberately no per-id `--resume <id>` HERE: resuming a specific
-conversation is the sessions drawer's HISTORY section, where the server composes
-the argv.
-
-**Exempt by construction**: the custom-command field (label `Command`,
-placeholder `htop`) — its content IS a command the user typed. Terminal content
-is obviously exempt. Statusline items (`ws <n> ms`, `pty ok`, `up HH:MM:SS`) and
-model ids (`opus`/`sonnet`/`haiku`/`fable` — product names) stay as they are.
-
-Other copy this rule changed, outside the launch dialog: the sessions drawer's
-literal command name → the product name `Claude Code` (`commandLabel`);
-new-project git toggle sample `git init` → `starts version history` (title
-`start tracking changes in the new project folder`); new-project clone tab
-`$ git clone <url> <dest>` preview → the three-line `copies` / url / `into
-folder: <dest>` summary (exact lines and `—` empty state in the New Project
-dialog section below). (The settings panel's startup-command copy was listed
-here until 2026-07-26; the control itself is gone — see the settings-panel
-section.)
-
-## Direction (one sentence)
-
-**Steam blend, hi-fi**: a Steam-client-lineage shell — gradient topbar,
-bottom-aligned tab strip, charcoal-blue surface stack, one light-blue
-interactive accent — around floating terminal cards on a radial-lit deep
-ground, with a user-themable terminal palette (10 grounds × 10 text ramps)
-and mono type carrying every piece of data.
-
-## Precedence and user-sanctioned exceptions
-
-The frontend-designer skill's hard reject list normally bans gradients,
-backdrop blur, shadows and glow. The handoff is the **user's own design**;
-its specific choices are sanctioned and REQUIRED:
-
-- the topbar gradient `linear-gradient(180deg,#1f2833,#1b222c)` and the
-  pane-area radial lift `radial-gradient(1100px 520px at 32% -10%,#1b232f,#12161d)`;
-- exactly four shadows — pane `0 12px 32px rgba(0,0,0,.32)`, dialog
-  `0 24px 60px rgba(0,0,0,.5)`, popover `0 14px 36px rgba(0,0,0,.45)`,
-  drag ghost `0 10px 28px rgba(0,0,0,.55)`;
-- glow accents: active-tab bar `box-shadow:0 0 14px 2px rgba(92,184,240,.45)`,
-  connected-dot glow, green "go"-button hover glow `0 0 18px rgba(100,194,90,.3)`;
-- radii up to 12–13px by role (see tokens);
-- the launch-dialog backdrop blur (`backdrop-filter:blur(4px)`) and its
-  header gradient `linear-gradient(180deg,#202935,#1b222c)`.
-
-Everything NOT specified by the handoff stays under the reject list: no new
-gradients, no additional shadows, no decorative inventions.
-
-## Tokens (single system in `src/styles/tokens.css`)
-
-### Surfaces
-
-- App bg `#171d25`; deep bg `#12161d` (logo tiles, inset inputs, add-form
-  floor); terminal ground `#0e1116` (themable, see Theme system).
-- `#1b222c` bars/drawers/cards · `#141920` pane header · `#10141a`
-  statusline · `#212a35` hover · `#232b36` active/pressed.
-- Borders: `#262f3b` (structural), `#2e3846` (controls), `#232b36` (quiet),
-  `#1d242e` (pane-header underline), `#3d5a75` (focus/split accent border).
-
-### Text ramp
-
-`#dbe2ea` primary · `#aab7c4` headings/wordmark · `#8e9cab` secondary ·
-`#7d8b9c` muted controls · `#5c6b7c` dim/statusline · `#3d4b5d` faint/hints.
-
-### Color roles (exclusive meanings)
-
-- **Interactive accent `#5cb8f0`** (glow `rgba(92,184,240,.45)`, tint
-  `rgba(92,184,240,.08)`): active-tab bar, split badge, pop-out/split
-  buttons, drop hints, focus rings, selection. Never status.
-- **Green `#64c25a`** (text `#7ed673`, tints `.08–.3`): running dots, the
-  "go" family (+ New session, Add, relaunch), active-session counts, the
-  logo glyph, connected dot.
-- **Amber `#e0a53c`**: needs-attention ONLY — pulsing dots, `input` tab
-  pill, Sessions-button count badge, `awaiting input` statusline item.
-- **Red `#d95c5c`** (muted `#a05252`, border tint `#4a2f33`): danger —
-  kill/remove hovers, armed confirms, nonzero exits, permission-bypass tags.
-- Exited/idle dot `#3d4b5d`.
-
-### Terminal theming (the ONE palette with the chrome)
-
-The xterm `ITheme` is built at runtime from the `--xt-*` custom properties
-(`themeFromTokens()` in `ui/terminal.ts`) — the terminal palette and the app
-palette remain one system by construction. Defaults: ground `#0e1116`, text
-ramp "default" (`cmd #e6edf3 / out #b7c2cd / dim #66788a`) mapped as
-out → foreground/white, cmd → brightWhite/cursor, dim → brightBlack. ANSI
-status hues are semantic and never themed: red `#d95c5c`, green `#64c25a`,
-yellow `#e0a53c`, blue `#5cb8f0`, magenta `#b39df2`, cyan `#66d9e8`.
-
-The **theme popover** (handoff §9) writes user selections onto the same
-variables: 10 grounds (charcoal `#0e1116`, void `#07090c`, deep blue
-`#0a1220`, navy `#0d1526`, ocean `#081a1f`, forest `#0a1510`, moss `#10160e`,
-plum `#150f1c`, graphite `#141414`, espresso `#161010`) × 10 ramps (default,
-phosphor, amber, ice, paper, cyan, violet, ember, steel, mint — exact values
-in `design/archive/handoff-v1/README.md`). Ground drives both the xterm background and the pane
-card background. Persisted in localStorage under its own key (`ai-sm:theme:v1`,
-independent of the UI-arrangement schema), but the durable copy lives
-server-side in `prefs.json` (an opaque `UiPrefs` bag, fetched once at boot and
-reconciled server-wins); localStorage is only a same-run cache, since the
-backend's per-run port change gives each restart a fresh origin and bucket.
-Scanline overlay (1px dark lines
-every 3px, `mix-blend-mode:multiply`, terminal bodies only) is a popover
-toggle, default OFF.
-
-### Typography
-
-- **Chrome: Inter** (Nocturne A1, 2026-09-10 — replaced Barlow) 400–700 —
-  self-hosted variable woff2 (Google's latin subset), under Inter's SIL Open
-  Font License 1.1, committed at `src/assets/fonts/OFL-Inter.txt`.
-- **Data + terminal: JetBrains Mono** 400/500/700 — self-hosted woff2
-  (official JetBrains release, full glyph set for terminal coverage), OFL at
-  `src/assets/fonts/OFL-JetBrainsMono.txt`. First in the mono stack;
-  fallbacks Cascadia Mono → IBM Plex Mono → ui-monospace → Menlo/Consolas.
-- No runtime network font fetch — offline localhost tool.
-- Sizes: wordmark 12px/600/ls 1.6px; UI controls 12px; section headers 11px
-  600 ls 1.4px; tab names mono 11.5px; session names mono 12px; row names
-  13px; statusline + hints mono 10.5px; tags mono 9.5px; terminal 12.5px.
-
-### Radius by role
-
-Tabs `9px 9px 0 0` · pane cards/dialogs 12px · popover/small cards 10px ·
-buttons/inputs/tags 6–8px (7px default) · preset pills 13px · dots 50%.
-
-### Spacing & structure
-
-Dense: topbar 44px (padding 0 14px) · tab strip ~35px (30px tabs,
-padding 5px 8px 0, gap 3px) · statusline 23px · pane header 30px · pane grid
-gap/padding 10px · projects drawer 272px · sessions drawer 296px · control
-gaps 6–10px.
-
-### Motion (handoff set, ≤.2s + sanctioned pulses/spin)
-
-`fadeUp` .2s (dialogs, popover, add-form) · `slideL`/`slideR` .18s (drawers)
-· `pulse` 1.6s infinite (attention dots/pills/badges — the sanctioned
-attention animation) · `spin` .7s (boot-step spinner, handoff §10 — a
-progress indicator, not decoration) · button transitions .15s · cursor
-blink is xterm's own. Nothing else animates.
-
-## Shell anatomy (handoff §1–§5)
-
-Vertical flex, 100vh, no page scroll:
-
-1. **Topbar 44px** — gradient band. Left: 18px logo tile (border `#2e3846`,
-   radius 7px, bg `#12161d`, green mono `>_` 8px/700) + `AI SESSION MANAGER`
-   wordmark. Right, in the refreshed prototype's order (2026-07-24): 28px
-   icon-only `⚙` Settings button, Theme button (CSS 2×2 swatch icon:
-   green/blue/amber/violet), Projects toggle, Sessions toggle (amber count
-   badge when any session awaits input), 1px divider, connection indicator
-   (green glowing dot + `connected`, derived from real reachability: poll ok /
-   presence pong; red `offline` when the backend is unreachable), GitHub chip,
-   and the primary green `+ New session`. Toggled buttons: bg `#232b36`, text
-   `#dbe2ea`.
-2. **Middle row** — optional projects drawer (left) · pane area (radial
-   lift) · optional sessions drawer (right). Drawers are structural flex
-   siblings: opening one resizes panes through the real fit → ws-resize
-   chain, never covers them.
-3. **Tab strip ~35px, BOTTOM** (Steam-style; settled user decision
-   2026-07-20) — bg `#1b222c`, top border `#262f3b`, tabs bottom-aligned.
-   Tab = one view (1–4 sessions): status dot, mono 11.5px name (split views
-   join member names with " · "), `▦ N` split badge (mono 9.5px, border
-   `#3d5a75`, `#5cb8f0`) when >1 session, pulsing amber `input` pill when a
-   member awaits input, per-tab `×` (armed two-step for session views).
-   Active tab: bg `#0e1116` (terminal ground), 1px `#262f3b` border, glowing
-   2px `#5cb8f0` top bar inset 12px. After the tabs: ghost `+` (opens the
-   launch dialog), then right-aligned faint hint
-   `drag a tab onto a tab or pane to merge · ⇱ splits it back out`.
-4. **Statusline 23px** — bg `#10141a`, mono 10.5px `#5c6b7c`. Left: `ws
-   <n> ms` (presence ping round-trip), `<n> sessions · <n> panes`, amber
-   `<n> awaiting input` when >0, then the focused-session readout
-   (project · title · cols×rows · conn state — carried over, it is
-   information). Right: transient flash notices, `up HH:MM:SS` (from
-   `GET /api/runtime` startedAt), `pty ok` (health-derived; replaced by red
-   `backend unreachable` on repeated poll failure), `?` shortcuts hint
-   (a real button). Intentionally NO separate "healthy" item (handoff
-   removed it — the topbar dot covers connection) and NO grace countdown
-   (fiction cut, see below).
-
-## Pane cards (handoff §3)
-
-- Card: bg = themed terminal ground, radius 12px, border `#262f3b`,
-  `overflow:hidden`, pane shadow. Grid templates by count (1/2/3/4) with
-  10px gap/padding; split fractions are draggable dividers in the gap
-  (invisible ~10px grab strips, keyboard-nudgeable, `role=separator` —
-  carried over unchanged).
-- Header 30px (`#141920`, underline `#1d242e`): status dot (green running /
-  pulsing amber attention / hollow gray exited), mono 12px/500 session name,
-  11px `#5c6b7c` project name, spacer, model tag + permission tag (mono
-  9.5px chips, border `#2e3846`; permission tag `#d95c5c` when the session's
-  args contain `--dangerously-skip-permissions` or `--permission-mode
-  bypassPermissions`), connection chip only while degraded (`reconnecting…`
-  / red `lost`), and `⇱ own tab` (accent-blue chip) ONLY when the view holds
-  more than one pane. Tags derive from `SessionInfo.args` client-side — no
-  protocol fields. The whole header is a drag source (swap panes / extract
-  to strip); keyboard equivalents: ctrl+alt+shift+arrows, the ⇱ button.
-- Focused pane in a split: inner `outline:1px solid #3d5a75;
-  outline-offset:-1px`. A lone pane carries no focus frame.
-- Exited/dead banners stay structural strips under the header (relaunch /
-  delete, armed confirms); the buffer below stays readable. `relaunch` goes
-  through `POST /api/history/:id/resume` when the session history still holds
-  THIS session's entry — so a claude pane continues its own conversation
-  instead of starting an empty one — and falls back to reposting the same
-  command otherwise. The word on the button stays `relaunch`.
-- Drop overlay during drags: dashed `#5cb8f0` box + accent tint over the
-  target half/whole, mono label (`split here` / `merge here`).
-
-## Drawers (handoff §6–§7)
-
-- **Projects (left, 272px)**: header `PROJECTS` + `+ add`. `+ add` opens the
-  New Project dialog (Phase 2a — its own section below); the older inline add
-  flow and its directory-browser modal were REPLACED by that dialog, which
-  keeps the same rule that made them worth keeping — the path comes from a
-  real backend-fs picker, never a free-text-only field (so the handoff's
-  `~/projects/<name>` autofill applies to a text path input we still do not
-  have; the dialog SUGGESTS that path in its pathrow instead).
-  Rows: name 13px/500, spacer, `+` (opens the launch dialog pre-set to the
-  project), `×` (armed remove), faint mono path (the ONE place a path is
-  shown as project metadata), meta line `N active sessions` in green when
-  >0 else `no active sessions` in `#3d4b5d`.
-- **Sessions (right, 296px)**: `ACTIVE · N` rows — dot, mono name, model
-  tag, `split` (append into the current view, max 4 — the button twin of
-  drag-to-merge), `×` (armed kill); the row body is a real button: click
-  activates that session's view and focuses it. Meta: project · status
-  (· tab place when assigned). Slide-in .18s.
-
-  **`HISTORY · N`** (replaced `PREVIOUS RUN` on 2026-09-06, user's call): every
-  ended session the app ever launched, from `GET /api/history`, in **a folder
-  per project**. Section header carries the total plus a `clear all` armed chip
-  (ArmedSet key `hist-all`, same two-step as kill). Below it, one **folder
-  header per project** — the WHOLE row is the collapse toggle (`.hist-group`,
-  `aria-expanded`): caret text glyph `▾`/`▸` (10px mono, `--text-dim`, no icon
-  library), folder name 13px/500, `· N` in mono micro `--text-faint`. A folder
-  is the project when the app still knows that project id, and otherwise the
-  cwd's LAST SEGMENT — never a path. Folders are ordered by their newest entry,
-  entries inside them newest first; all open by default, collapse state in
-  memory only (localStorage dies with the origin every backend run).
-
-  Entry rows reuse `.sess-row`/`.sess-main`/`.sess-meta`/`.sess-actions`,
-  indented one `--s-5` step so the folder headers form the section's left edge:
-  hollow exit dot, title, and a meta line of `fmtAgo(lastUsedAt)` (`just now` ·
-  `5 min ago` · `3 h ago` · `yesterday` · `4 d ago` · else `30 Aug`, plus the
-  year when it differs) · model tag from argv · `crashed` when
-  `ended.reason === 'crash'`, the whole line in `--danger-mut` in that case.
-  Actions: `resume` (`chip-btn is-acc`; `start again` when the entry carries no
-  pinned conversation — `entry.conversation === false`, i.e. any non-claude
-  command AND a claude launch that continues the folder's most recent
-  conversation, both of which respawn rather than continue THIS conversation)
-  and `×` (armed forget, key `hist:<id>`). Both action buttons carry an
-  `aria-label` naming the entry (`resume <title>` / `start again <title>` /
-  `forget <title>`), since the visible labels repeat per row. Resume POSTs `/api/history/:id/resume` with the
-  focused pane's dims and takes the SessionInfo back — **the SERVER composes the
-  argv**, so no resume flag is ever chosen in the browser. NO explanatory copy
-  anywhere in the drawer; the old footer note is gone.
-
-## Launch dialog (handoff §8 — R3, replaces launcher-as-tab)
-
-THE way to create a session (`web/src/ui/launch.ts`). Modal over the ONE
-sanctioned blurred backdrop (`rgba(8,10,14,.55)` + `blur(4px)`, centered):
-560px card, radius 12, dialog shadow, fadeUp. Header on the sanctioned
-`#202935→#1b222c` gradient: 30px logo tile (radius 9) · `New session`
-14px/600/ls .8px · bordered `×` (danger on hover). NO subtitle.
-
-**Reduced 2026-09-06 (user's call — "far too many unnecessary things ... plain
-short words, without further explanation").** The dialog is a short form: six
-labelled controls, nothing that describes them. Body (18px 20px, 16px stack):
-
-- **Field grid** (2 columns, `--s-7` gap; labels 10.5px/600/ls 1.2px uppercase
-  `--text-dim`; inputs/selects mono 32px on `#12161d`, radius 8):
-  `Name` · `Project` / `Model` · `Effort`.
-  - `Name` maps to `title`. Its **placeholder is the selected project's name**
-    and follows the project select — blank sends no title and the server names
-    the session after the project, so the placeholder shows what will happen
-    instead of saying it.
-  - `Project`: names only, never paths.
-  - `Model`: opus, sonnet, haiku, fable.
-  - `Effort`: default, low, medium, high, xhigh, max. `default` emits nothing;
-    the rest emit `--effort <level>`.
-- **Mode** — ONE segmented row of four (`.mode-seg`, `--field-h` tall, shared
-  `#12161d` floor, `--edge-mid` hairlines between segments, radius 8), labels
-  from `PERM_SHORT`: `always ask` · `auto edits` · `read-only` · `no prompts`.
-  Selected: `--acc-tint` fill + `--acc` ink. The dangerous segment is
-  `--danger-mut` unselected and `--danger-edge` fill + `--danger` ink selected —
-  **the warning colour survives the shorter words**. No descriptions, no cards.
-- **Continue** — one checkbox row in the app's shared toggle idiom
-  (`.status-row`/`.status-box`, a real button carrying `aria-pressed`), label
-  `Continue last conversation`, pulled to the body's left edge by
-  `.launch-check`. Checked → `--continue`. Default unchecked, reset on every
-  open.
-- **Custom escape hatch** (user decision 2026-07-20, kept): the footer's
-  `other command` text button (quiet mono `--fs-status`, `--acc` when on) toggles
-  custom MODE. It reveals a full-width mono `Command` field (placeholder `htop`)
-  and dims Model, Effort, the mode segments and the continue row to the
-  is-disabled pattern (opacity .45 + real `disabled` attrs — visible, not
-  hidden). First token = command, rest = args; the server spawns argv, never a
-  shell. NO hint text. Exits: toggling it off, or a project-preset open. Name
-  and project still apply (title / cwd). Blank command on Launch → the
-  `.form-err` inline error `type a command`.
-- `no projects yet — add one` (`.launch-none` + `.btn-link`) when the project
-  list is empty — navigation, not explanation.
-
-Footer (`#171d25`, top seam): `other command` (left) · spacer · Cancel (ghost,
-30px) · `Launch` (green go, 30px). No note, no `▸`. Launch POSTs
-`{ projectId, command, args, title?, cols, rows }` from `currentSpawn()` — the
-ONE composition path for both modes, over `composeArgs()`/`parseCustomCommand()`
-in `launch-args.ts` (`command` is `'claude'` in claude mode, the user's argv[0]
-in custom mode; argv only — never a shell string). The new session gets its own
-tab and becomes active, keyboard lands in its terminal.
-
-**Argv order** (`composeArgs(model, perm, continueLast, effort)`):
-`--model <m>`, then `--permission-mode <p>` when not `default`, then
-`--effort <e>` when not `default`, then `--continue` when checked. There is no
-second rendering of that array anywhere in the dialog, so nothing can describe a
-different launch than the one it starts.
-
-Behavior: Escape and backdrop-click close; Tab is trapped inside; focus
-enters the name field on open and returns to the invoking control on close
-(when the invoker was the terminal — ctrl+alt+t — that IS the terminal).
-Entry points: topbar `+ New session`, tab-strip ghost `+`, projects-drawer
-row `+` (project pre-set, defaults applied), empty-state button, Ctrl+Alt+T.
-
-**Pre-selection precedence** (model + permission, `resolveModel`/`resolvePerm`
-in `launch-args.ts`, unit-tested): **explicit project default > hardcoded
-fallback** (the middle tier — an app-wide default in the settings panel — was
-removed 2026-07-26 with that section). On every open the dialog resolves
-model + permission ONCE against the selected project through those two
-`resolve*` functions (`applyDefaults`): a project-intent open force-selects
-its project first (`defaultModel` when in the model list; `defaultMode:
-skip-permissions` → the `no prompts` segment), a plain open uses the
-auto-selected first project — either way the same precedence runs, so a
-project default is layered on every open, not only project-intent opens. A
-per-launch edit always wins (the dialog stays fully editable) and is not
-persisted, and a mid-dialog project switch does NOT re-resolve — per-launch
-control stays with the user once the dialog is open. **Effort and continue reset
-to `default`/unchecked on every open**; the custom command text persists.
-
-## New Project dialog (`web/src/ui/newproject.ts`)
-
-Same modal language as the launch dialog (gradient header, `launch-body`
-stack, ink well, `.form-err`), opened from the projects drawer `+ add` and —
-straight onto the GitHub tab — from the topbar GitHub chip. Header: `◧`
-tile · `New project` · mono subtitle `create locally · clone a repo`. Three
-tabs (`np-tabs`, `role=group`, aria-label `project source`): `Blank local` /
-`Clone repo` / `GitHub`.
-
-**Blank local**: `Project name` (placeholder `my-project`) · `Local path`
-(pathrow + `Browse`; suggests `<home>/projects/<name>` live as the name is
-typed) · checkbox row `Initialize git repo` with sample `starts version
-history` (title `start tracking changes in the new project folder`) · two
-OPTIONAL selects in the settings-panel idiom, `Default model (optional)` and
-`Default permission mode (optional)`, both with the lowercase empty option `no
-default`; the permission select's only other entry is `never ask · dangerous`
-(lowercase to match its sibling — the launch dialog's own mode segments are
-unaffected, and `standard` is not offered at all: it is behaviourally
-identical to "no default"). Caption: `creates the folder and registers it under
-Projects`.
-
-**Add intent** (2026-09-10): a BROWSED path is probed with the same `GET
-/api/fs/list` the picker uses (its `empty` flag). A folder that exists and is
-not empty flips the tab: primary `Add this folder`, a note under the path
-`This folder already exists. It is added as it is.`, the git row and the
-caption hidden, and the name prefilled with the folder's basename (over an
-empty or previously auto-filled name, never over a typed one); the request
-registers the folder as it is. A browsed folder that is already a project
-shows `This folder is already a project.` and the primary is disabled. Empty,
-missing or unknown stays `Create project` with git init as before. Each new
-pick drops back to `Create project` with the primary disabled until its probe
-answers.
-
-**Clone repo**: `Git URL` (placeholder `https://github.com/owner/repo.git`) ·
-`Destination (optional)` (pathrow + `Browse`; suggests
-`<home>/projects/<repo>`, or `Browse to choose a location` before home is
-known) · and the ink well (`.launch-cmd` / `.launch-sum-line`, now their only
-user), which since the copy rule holds THREE plain lines instead of the old
-`$ git clone <url> <dest>`:
-
-```
-copies
-https://github.com/owner/repo.git
-into folder: /home/you/projects/repo
-```
-
-Line 1 is fixed. Line 2 is the pasted URL verbatim (the user's own input, not
-code) and line 3 the effective destination; each falls back to `—`, the app's
-empty-value glyph, so an empty dialog reads `copies` / `—` / `into folder: —`
-and never shows a half-real command.
-
-Footer note + primary follow the tab: `registers under Projects` + `Create
-project` or `Add this folder` (blank, by intent — see above) · `clones, then registers under Projects` + `Clone ▸` (clone)
-· `browse your GitHub repositories` + NO primary (GitHub is view-only here).
-Clone is slow and synchronous, so the footer swaps in an honest indeterminate
-spinner `cloning… this can take a while` — never a fake percentage.
-
-## GitHub panel — two credential paths (`web/src/ui/github.ts`)
-
-Added 2026-07-25 (user's decision; security design gate ran BEFORE any code —
-`memory/decisions/github-token-paste-path.md`). The New Project dialog's GitHub
-tab now offers **two ways to connect**: the OAuth device flow and a token the
-user pastes. One credential at a time. `GithubStatus.source` (`device` | `pat`)
-says which is live and EVERYTHING the user must do differently branches on it —
-above all where to revoke, where a wrong instruction leaves a live credential
-the user believes is dead.
-
-`configured` was replaced by `deviceFlowAvailable`, which hides the sign-in
-BUTTON and nothing else: a pasted token needs no OAuth client id, so the paste
-path must stay visible exactly on the servers where sign-in is impossible. The
-old dormant "GitHub isn't set up on this server" card is GONE — it took over the
-whole panel and would now hide the only path that works.
-
-**No new tokens, colors, gradients, shadows, glows, radii or fonts.** The token
-well is the `.gh-newform` inset in the panel's own language (`--bg-deep` on
-`--edge-mid`, `--r-card-sm`), the remember control is the settings /
-`Initialize git repo` checkbox idiom (`.status-row` + `.status-box`), the field
-is `.launch-field`/`.launch-lb`, the busy state is `.np-busy`/`.np-spinner`, and
-the colors keep their exclusive meanings: **amber `--attn` = needs attention**
-(credential stopped working, expiry inside three days, "check the account"),
-**red `--danger` = harm** (the never-paste-someone-else's warning — the same
-permanent red as the bypass permission card — and inline failures), **accent
-`--acc` = interactive**, **green `--ok` = connected**.
-
-### Binding input rules (design gate; enforced in code and by comment)
-
-- `type=password`, `autocomplete=new-password`, `spellcheck=false`, **NO `name`
-  attribute**, and **NOT inside a `<form>`** — submitted from a click handler
-  like every other action here, so no browser save-password prompt fires (the
-  Edge `--app` fallback window is a full Edge profile with a password manager).
-  Enter in the field calls the same handler; it creates no form.
-- The value is set/read **only through the `.value` property**, never a `value`
-  attribute, so the credential never appears in `outerHTML`.
-- The credential's whole client-side lifetime is `submitToken()`: read once,
-  handed to the request, field cleared in the same frame, local reference
-  dropped. NO module variable, timer closure, error object or retry buffer keeps
-  it; a failed add means the user pastes again. Leaving the tab clears the field.
-- No `localStorage` / `sessionStorage` / IndexedDB / cookie / prefs write, and
-  no `history.pushState`, hash or URL involvement — ever.
-- Untrusted strings (login, scopes) render via `textContent`; the repo's
-  zero-`innerHTML` rule is load-bearing here (the page holds the app token).
-
-### Copy — BINDING (pure choosers in `ui/github-model.ts`, pinned by `tests/ui-github-model.test.ts`)
-
-**Storage honesty ceiling.** There is no OS keyring in this environment
-(verified absent) and 0600 does not hold against the Windows side of WSL
-(`memory/knowledge/wsl-0600-not-a-boundary.md`). Nothing may say keychain,
-keyring, encrypted, secure, vault or protected. The strongest permitted
-sentence is `storageNote(true)`, and a test asserts the forbidden words never
-appear in any credential string this module produces.
-
-Disconnected card (`deviceCardCopy`), title `Connect your GitHub account`:
-
-| deviceFlowAvailable | rendering |
-|---|---|
-| `true`  | GH avatar · body `List your repositories from inside the manager, clone them, and create new ones. Connect by signing in with GitHub, or by pasting a token you create yourself.` · button `Connect with GitHub` · fine `sign in once through GitHub · the token is kept server-side, never in the browser · it can read and write every repository on the account, and usually does not expire` |
-| `false` | NO avatar (it belongs to the sign-in action, and 44px would push the working control below the fold) · body `List your repositories from inside the manager, clone them, and create new ones.` · NO button · note `Signing in with GitHub is not set up on this server — see the project README. Pasting a token works without it.` |
-
-A 409 from the device endpoint renders inline: `Signing in with GitHub is not set
-up on this server — see the project README. You can still paste a token below.`
-
-Token well — heading `Or paste a GitHub token` when sign-in also works,
-`Paste a GitHub token` when it is the only path. Order top to bottom:
-
-1. Recommendation (sans body) — **the highest-value security advice in the app**,
-   placed where it is read BEFORE pasting. `Contents`/`Metadata` are permission
-   names on GitHub's own screens, so naming them is allowed under the copy rule,
-   the same way the device-flow URL is:
-   `Recommended: create a fine-grained token on GitHub, limit it to the
-   repositories you want this app to touch, and give it an expiry date. Grant it
-   Contents (read and write); Metadata (read) comes with it.`
-2. Field: label `GITHUB TOKEN`, placeholder `paste your token here`.
-3. `Remember this token` checkbox row (default **ON**, the user's decided
-   default), mono sample `kept on this machine` / `until the app closes`.
-4. Toggle note (`rememberNote`) — the one control that removes the on-disk copy,
-   said plainly:
-   ON `Stored on this machine in the app’s data folder, readable by your own
-   user account.` ·
-   OFF `Kept in this app’s memory only. It disappears when the app closes —
-   about half a minute after the last window — and you paste it again next time.`
-5. `checking with GitHub…` (indeterminate, never a percentage) + primary
-   `Add token`. Empty submit → inline `paste a token first`, no request.
-   Failures show the server's own sentence; `tokenErrText` only covers a
-   bodyless 400 (`GitHub did not accept that token`) / 502 (`could not reach
-   GitHub`) and never describes the token's length, prefix or shape.
-6. Red permanent warning: `Never paste a token someone else gave you. A token
-   you did not create yourself connects this app to their account.`
-7. Fine-print footnote (below the action on purpose): `narrower than signing in,
-   which takes read and write on every repository of the account and usually
-   does not expire · a token limited to selected repositories can list and clone them,
-   but creating a brand-new repository from here needs a broader one`
-
-Connected view — `@login` (large mono) + sub `connected · pasted token` /
-`connected · signed in with GitHub` (`sourceLabel`), then:
-
-- **Account check, pasted token ONLY** (amber): `Check this is the account you
-  meant — clones and new repositories land in it.` A token can silently be for
-  the wrong account; with the device flow the user signed in themselves.
-- **Facts ledger** (`.gh-fact`, mono, one line each, rendered ONLY when the
-  server reported them): `storageNote(persisted)` · `fmtTokenExpiry(expiresAt)`
-  (`expires in N days/hours/minutes` · `expires in under a minute` · `this token
-  has expired`; amber inside 3 days or past) · `scopesNote(scopes)`
-  (`this token can: repo, read:org`). **Absent `scopes` renders NOTHING** — that
-  is what a fine-grained token looks like, and "no permissions" would be exactly
-  backwards; an EMPTY array is a different, real answer and reads `GitHub
-  reports no scopes on this token`.
-- **Revocation, keyed on source** (`revokeNote`) — the instruction that is wrong
-  for the other credential: `pat` → `Disconnect removes the token from this app.
-  To revoke it everywhere, delete it on GitHub under Settings → Developer
-  settings → Personal access tokens.` · `device` → `Disconnect removes the token
-  from this app. To revoke access everywhere, remove the app on GitHub under
-  Settings → Applications.` · unknown source names both screens.
-
-Credential lost (amber strip above the disconnected card, `role=status`) — shown
-when a LIVE connection drops without the user pressing disconnect, which an
-expiring pasted token makes routine: `GitHub stopped accepting the stored
-credential. It may have expired, been revoked, or lost access to your
-repositories. Connect again below.` A user-pressed disconnect never shows it,
-and after a reload no reason is invented.
-
-Top-bar chip (`chipView`) — `disconnected` now reads `Connect GitHub` whatever
-`deviceFlowAvailable` says. Connected shows `@login` plus a mono micro-tag
-naming the credential (`token` / `sign-in`, `.tb-gh-tag`, aria-hidden because
-the accessible name already says it in words: `GitHub — connected as octocat
-with a pasted token` / `… by signing in with GitHub`). An unknown source is left
-unlabelled rather than guessed.
-
-## App settings panel (`web/src/ui/settings.ts`) — status line only
-
-Rewritten 2026-07-26. The panel used to hold four things; three of them are
-gone with the features they configured, and the fourth was replaced by the real
-thing:
-
-- **launch defaults + auto-run startup command** — removed. The launch dialog
-  now pre-selects from the PROJECT's own defaults (see the precedence paragraph
-  in the Launch dialog section); `ui/defaults.ts` and `ui/startup.ts` are
-  deleted.
-- **usage ledger** — removed with `GET /api/usage`.
-- **terminal status bar** (the app-rendered per-pane strip) — removed with
-  `GET /api/telemetry`; the pane is header + terminal again.
-- **status line** — the section that stayed, now bound to Claude Code's OWN
-  status line, which the session draws inside its terminal.
-
-Terminal themes are NOT here: they live in the theme popover (`ui/theme.ts`),
-untouched.
-
-**Shell** — unchanged modal language: shared gradient dialog header
-(`launch-hd` + 30px `launch-tile` holding the `⚙` glyph + `Settings` + mono
-subtitle `what each session shows in its status line`), Escape / backdrop / × /
-**Done** all dismiss, Tab-trapped, focus restores to the invoker, focus enters
-the open page's nav tab on open. Footer: `Reset to defaults` left, accent-blue
-primary `Done` (`btn is-acc`) right.
-
-**Body** — ONE `settings-sect` labelled `STATUS LINE`, in order:
-
-1. Two `.settings-note` captions. First: `Claude Code draws a status line at the
-   bottom of every session started here. Pick what it shows — changes reach
-   running sessions within a couple of seconds.` Second, the blank-bar truth
-   said out loud so an empty line reads as normal rather than broken: `A session
-   shows nothing until its first reply — and when Claude asks you to trust a
-   folder it has not worked in before, the line stays blank until you do.`
-2. The **relaunch notice** (`.settings-notice`, `role=note`), rendered ONLY when
-   it is true — see below.
-3. The **two switch rows**, their own `.status-rows` group (Nocturne B1):
-   `Inside the terminal` (`enabled` — Claude Code's own line) and `Under the
-   terminal` (`paneBar` — this app's bar), each with a caption naming who draws
-   it. See the B1 paragraph in the next section.
-4. The **eight item rows** (`.status-rows.settings-items`, `role=group`,
-   aria-label `status line items`), each a keyboard-reachable
-   `<button class="status-row">` with the 16px checkbox square (`✓` in
-   `--term-bg` on `--acc` when on) and `aria-pressed`. The right-hand
-   `.status-sample` is the LITERAL text that item draws, so the row promises
-   exactly what appears:
-
-   | row              | key       | default | sample       |
-   |------------------|-----------|---------|--------------|
-   | Model            | `model`   | on      | `opus`       |
-   | Permission mode  | `mode`    | on      | `always ask` |
-   | Git branch       | `branch`  | on      | `git:main`   |
-   | Cost so far      | `cost`    | on      | `$0.42`      |
-   | Session time     | `time`    | on      | `2h 15m`     |
-   | Lines changed    | `lines`   | off     | `+128 -41`   |
-   | Context used     | `context` | on      | `ctx 62%`    |
-   | Account usage    | `usage`   | off     | `5h 38%`     |
-
-   `Account usage` — the row that was a DISABLED "not available" placeholder in
-   the old strip — is now a real toggle, because the account rate-limit windows
-   really are in the payload Claude Code hands the script. Its
-   `.settings-rowcap` states the honest scope: `works with a Claude Pro or Max
-   account · appears after the session's first reply`. The `Permission mode`
-   row carries a rowcap too — `shows the mode the session was started with` —
-   the known-limit caption for the launch-mode-only item. `Session time` carries
-   `under the terminal only`: Claude's own line cannot draw it (no start time in
-   the payload), so the preview strip, which IS that line, leaves it out.
-
-With BOTH switches off the item group takes the launch dialog's `is-disabled`
-treatment (0.45 opacity) and its buttons go `disabled` — they decide nothing
-while no bar is drawn. Either switch on keeps the items live: they feed both
-bars.
-
-**Relaunch notice** — the ONE thing a toggle cannot fix. A session only has a
-status line when the server injected its per-session settings file at spawn
-(`SessionInfo.statusline === true`); item toggles apply to running sessions
-live, but a session started without one has to be relaunched.
-`sessionsWithoutStatusLine()` (in `ui/statusline-model.ts`, unit-tested) selects
-RUNNING sessions whose command basename is `claude` and whose `statusline` is
-not true — exited sessions and other agents are never mentioned. Empty set = the
-notice does not exist. Otherwise: `These sessions were started without a
-status line. End them and start them again to add one:` plus a mono
-`.settings-notice-names` line joining their display labels with ` · ` — a
-session titled by the user keeps its title; an untitled one renders the shared
-`commandLabel()` product name, and colliding labels append the project name in
-parentheses when one exists (all untrusted → `textContent`). It re-renders on the session poll while the panel is open. Item
-toggles never produce it — nagging for a change that already applied would be a
-lie.
-
-**Persistence** — every toggle writes immediately:
-`api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS)` = GET the bag →
-shallow-merge `statusLine` → DROP `defaults` and `statusBar` → PUT. The drop list
-is how a key is actually deleted from a bag whose write is a whole-object
-replace; it retires the two keys this app stopped writing. `theme` and any
-unknown key survive untouched. Every member of `statusLine` is written
-explicitly (absent means "factory default" to the script, which is not the same
-statement as "the user chose this"). On open the panel re-reads the bag once and
-re-seeds the toggles — unless the user has already toggled something in that
-open, so a slow response can never undo a fresh choice.
-
-**Where the toggles are read** — by `server/statusline.mjs`, which reads
-`prefs.json` directly on every invocation, and that is what makes a toggle apply
-to already-running sessions with no restart. Since Nocturne B1 the browser reads
-the same toggles too, for the bar UNDER the terminal only (`getStatusLine()`
-from `ui/statusline-model.ts`, handed to `ui/pane-status-model.ts` by
-`ui/panes.ts`); Claude's own line is still never drawn here. The factory table
-in `ui/statusline-model.ts` therefore has to stay byte-identical to
-`DEFAULT_CONFIG` in that script; `tests/ui-statusline-model.test.ts` parses the
-script and asserts it.
-
-**Prefs write discipline** — two writers share the bag (`theme` from the
-popover, `statusLine` from the panel). `PUT /api/prefs` replaces the WHOLE
-object, so both go through `api.updatePrefs(patch, drop?)`. Last-write-wins per
-top-level key across concurrent windows (documented, not solved);
-fire-and-forget failure tolerance stays (the in-memory value holds for the run).
-
-## Terminal status line (drawn by the session, not by us)
-
-Replaced the app-rendered per-pane strip on 2026-07-26. No app DOM draws THIS
-line: Claude Code prints it inside its own terminal, from
-`server/statusline.mjs`. (A strip under the terminal exists again since Nocturne
-A3 — see the first bullet and the B1 paragraph at the end of this section.) What
-that means for this frontend:
-
-- **The 2026-07-26 telemetry strip is gone** — `ui/statusbar.ts`, its
-  `.pane-status-item` markup and the `--surface-panestatus` token with it, and
-  with them the poll that fed them. A strip under the terminal DOES exist again:
-  Nocturne A3 brought one back as `.pane-status` (built by
-  `ui/pane-status-model.ts`), and B1 made it the configurable status bar — see
-  the B1 paragraph at the end of this section. Whenever it is hidden the pane is
-  header + terminal, one less element in the vertical flex; the existing
-  ResizeObserver → FitAddon → ws-resize chain propagates the height change like
-  any other geometry change.
-- **No telemetry poll.** The 3s `GET /api/telemetry` loop and its 1s time tick
-  are gone; nothing in the pane path polls the server anymore (the A3 strip ages
-  its `Time` value on one local 15s timer for the whole grid, `STATUS_TICK_MS`).
-- **Order and formatting are the script's**, joined with ` | `: model · mode ·
-  `git:<branch>` · `$<cost>` · `+<added> -<removed>` · `ctx <n>%` · `5h <n>% 7d
-  <n>%`. The settings rows quote these verbatim as samples rather than inventing
-  a second formatting.
-- **Honesty rule survives the move**: an item is drawn only when its toggle is on
-  AND the payload carries a real value. A blank bar is a normal state (before the
-  first reply, in a folder Claude has not been trusted in yet, or in a session
-  started without a status line) — the panel says so in words.
-- **Known limit — the permission-mode item names the LAUNCH mode**: Claude Code
-  2.1.220 sends no permission mode in the status-line payload, so a mode changed
-  mid-session (shift+tab) is not reflected; the settings row carries the caption
-  `shows the mode the session was started with`.
-
-**Two places, one checklist (Nocturne B1, 2026-09-17).** The strip under the
-terminal came back with Nocturne A3 (`.pane-status`, built by
-`ui/pane-status-model.ts`), and B1 makes it read the SAME checklist as the line
-inside the terminal. The Settings → Status bar page therefore carries two
-switches instead of one master: `Inside the terminal` (`enabled` — Claude Code's
-own line, drawn by the script) and `Under the terminal` (`paneBar` — this app's
-bar); the bar is on and Claude's line off by default (user, 2026-09-17 — with
-both on the values stood twice, and the bar is the design's place for them). The item rows below them feed both, so they only dim
-when BOTH switches are off; with both on the same values stand twice, which the
-lead line says in one sentence rather than solving behind the user's back. One
-row is pane-bar-only: `Session time` (`time`, sample `2h 15m`, caption `under
-the terminal only`) — the payload carries no start time, so Claude's line cannot
-draw it and the preview strip, which IS that line, leaves it out. A checklist
-change repaints the panes at once through `repaintStatus()`, injected into the
-settings panel from `main.ts` (importing `ui/panes.ts` there would pull
-@xterm/xterm into a module that must stay testable without a browser).
-
-The pane bar's items, in the v3 mock's order: `Model`, `Mode`, `Branch`, `Cost`,
-`Context`, `Usage`, `Time`, `Changed`. Two sources and no third. The session's
-own argv gives `Mode`, and `Model` when nothing has been reported yet. Everything
-else is what Claude Code reported for that session — `SessionInfo.telemetry`,
-written by the script into a per-session snapshot and carried on the existing
-`info` message — so a reported model beats the argv guess, `Cost` appears only
-above zero, `Changed` only when a line really moved, and a session that has not
-replied yet simply shows fewer items. `Usage` reads `38% of 5h`, or
-`38% of 5h, 12% of 7d` when both windows are known (a comma, not the mock's
-middle dot: the A2 copy rule bans decorative separators), and it is the ONE item
-that carries colour — amber (`--color-attn`, `.pane-status-v.is-warn`) at or
-above 80%, the same attention hue the rest of the chrome uses, next to the
-existing red of a bypassed permission mode. `Active skill` is in the v3 mock and
-is NOT here: nothing reports it (user decision, 2026-09-16), and a placeholder
-would be a lie with a label on it.
-
-## Boot panel (handoff §10 visual language, minus fiction — R3)
-
-Honest in-app steps ONLY (`createBootPanel` in `web/src/main.ts`): `token
-check` (GET /api/runtime — authed, doubles as the uptime fetch), `hydrate
-sessions` (projects + sessions), `attach ws` (first presence pong; a close
-before any pong fails the step while reconnect continues). Steps run
-concurrently and each row's mark is real state: spinner (`spin` .7s) while
-its promise pends → green `✓` → red `×` + message on failure. Full-screen
-`#12161d` overlay (`--z-overlay`), brand row (26px logo tile + wordmark),
-`#0e1116` card radius 10, mono 11.5. The overlay mounts only if boot
-outlives ~150ms (a warm localhost boot shows nothing) and removes itself
-when every step settles. NO launcher-lifecycle steps (`reading
-runtime.json` / `starting backend` / `waiting for health` — the app can
-never witness them), NO fake timers, NO click-to-skip. Fatal failures
-(hydrate error / rotated token) pin the overlay with the failed step, a
-guidance line and a reload button; the post-boot 401 takeover panel
-(`renderRestartPanel`) is unchanged.
-
-## Empty state (handoff §11 minus fiction)
-
-Zero views (⇔ zero sessions): centered 64px logo tile, `No active
-sessions`, buttons `+ New session` (opens the launch dialog) and `Resume a
-session (N)` (opens the sessions drawer, where the HISTORY folders live; shown
-only when the history holds anything). NO grace countdown line. Closing the last
-tab leaves the empty state — nothing auto-spawns.
-
-## Cut as fiction (unchanged by the precedence flip)
-
-- **Grace countdown** (empty state + statusline): any UI able to show it is
-  itself keeping the backend alive.
-- **Boot overlay with launcher lifecycle steps**: the browser opens after
-  health passes; the app can never witness those steps (honest in-app boot
-  panel lands with R3).
-- **Per-session `--resume <id>` — UNCUT 2026-09-06.** It was a fiction while the
-  journal only stored OUR session ids. The session-history contract
-  (`shared/protocol.ts`, `HistoryEntry.conversation`) makes the app pin a
-  claude session to a real conversation id at spawn, so `POST
-  /api/history/:id/resume` can target it. The BROWSER still never composes a
-  resume flag — the server does; the launch dialog's own checkbox stays plain
-  `--continue`.
-
-## Recorded deviations from the handoff (with reasons)
-
-- **The app settings panel + topbar `Settings` button** exist in no handoff
-  screen — the ORIGINAL handoff was silent on settings. Built by user decision
-  2026-07-20 (PROJECT-SCOPE "App settings panel"), designed entirely inside
-  the established modal/dialog language (see "App settings panel" above), no
-  new colors/tokens. **Reduced 2026-07-26** to a single status-line section,
-  which lands it on the same shape the prototype's own settings dialog has: one
-  labelled section, a caption, checkbox rows, `Reset to defaults` / `Done`.
-  **Superseded 2026-07-25** — the
-  user's refreshed `design/archive/handoff-v1/session-manager-prototype.html` (2026-07-24) DOES
-  contain a settings dialog and an icon-only gear, so the two 2026-07-20 guesses
-  below were replaced by the primary source (primary-source rule:
-  `memory/decisions/handoff-design-primary.md`):
-  - the panel's **plain label header → the shared gradient dialog header**
-    (prototype lines 435–472: `launch-hd` + 30px `launch-tile` + `⚙` +
-    `Settings` + mono subtitle). Our subtitle reads `what each session shows in
-    its status line` rather than the prototype's `terminal status bar · saved on
-    this machine`: the second half is wrong for us (the toggles are read from
-    the app's data dir by the script Claude Code runs, not from the browser), and
-    the first half names a strip that no longer exists — honesty beats
-    transcription.
-  - the footer's neutral **`Close` → the prototype's accent-blue primary
-    `Done`** (`btn is-acc`: `--acc-tint` fill, `--acc` border/ink, hover
-    `--acc-sel`; the same recipe as `.gh-repo-act.is-clone`, so no new token).
-    Blue = confirm/interactive; green stays the "go" family that spends
-    something (spawn, clone, add).
-  - the topbar's **text `Settings` button → an icon-only 28px `⚙`**
-    (prototype line 44), moved to be FIRST of the right-hand controls. It keeps
-    an accessible name (`aria-label="Settings"`), its `title`,
-    `aria-haspopup="dialog"`, keyboard reachability and the standard 2px
-    `--acc` focus ring; the glyph span is `aria-hidden`. It is the ONLY
-    icon-only control — Theme, Projects and Sessions keep their labels.
-- **The `custom · any command` chip + command field** exist in no handoff
-  screen — added by user decision 2026-07-20 (the claude-only dialog
-  contradicted the decided "configurable command + args" feature; the
-  first R3 cut dropped the capability). Designed inside the dialog's own
-  language: fourth pill in the chip row, mode-toggle state, old launcher's
-  field copy and disabled-field pattern. See "Custom escape hatch" above.
-- **Bypass emits `--permission-mode bypassPermissions`** (the handoff's
-  preview form) instead of the old preset's
-  `--dangerously-skip-permissions`; tags recognize both forms as danger.
-- **The summary's `folder:` line shows the project's real absolute path** — the
-  prototype's `~/projects/<name>` was mock data; the real cwd is honest. This is
-  the second sanctioned place a path appears (with the projects drawer), both
-  inside launch/manage contexts. (Was `  cwd: <path>` under the argv preview
-  until the 2026-07-25 copy rule replaced the preview with the summary.)
-- **Focus restore on close goes to the invoking control**, not always the
-  terminal: yanking a keyboard user from the `+` button to a terminal would
-  strand them. Opened via ctrl+alt+t from a terminal, the invoker IS the
-  terminal; after a launch, focus goes to the new session's terminal.
-- **No Phosphor icons** (no new dependencies): the prototype's text glyphs
-  are the icon set — `>_ × + ▦ ⇱ ▸ ⠿ ◧ ▤ ⌕ ⚙`.
-- **Terminal line-height**: xterm keeps its native cell metrics (lineHeight
-  1) instead of the prototype's 1.6 — the prototype faked terminal lines
-  with divs; real TUIs need real cell geometry. Font size 12.5px per spec.
-- **Armed two-step confirms** (kill → `sure?`) are kept on every destructive
-  control — repo interaction contract, no native confirm(); the prototype
-  killed without asking.
-- **Tab strip hint** doubles as drag documentation; every drag interaction
-  keeps a keyboard/button path (shortcuts overlay lists them all).
-- **Connection indicator** shows red `offline` when unreachable — the
-  prototype only ever showed `connected` (mock had no failure mode).
-- **Shortcuts entry point moved to the statusline**: the handoff has no `?`
-  control anywhere; the topbar `?` button was dropped in the restructure, so
-  the statusline's kbd help hint became a real `?` button (the shortcuts
-  overlay needs one non-drag, non-chord entry point).
-- **Drawer row meta** trimmed to the handoff's project · status shape; age
-  and cols×rows moved out of the drawer (dims live in the statusline
-  readout).
-- **JetBrains Mono** bundled from the official JetBrains release (full
-  glyph coverage for terminal content) instead of the latin-subset Google
-  pipeline used for Barlow chrome.
-
-## Guarantees carried over unchanged
-
-- Resize chain: every geometry change (divider drag, drawer toggle, tab
-  switch, split change) flows container-resize → FitAddon → ws `resize` →
-  `pty.resize`. Divider clamps 15%–85%, tabbable, arrows nudge, Enter/dblclick
-  resets. The theme popover changes no geometry.
-- Plain keys (Ctrl+C, Esc, arrows) never intercepted; app chords exclusively
-  Ctrl+Alt with the `getModifierState('AltGraph')` guard in BOTH the window
-  handler and xterm's custom key handler (European layouts). Ctrl+Alt+Enter
-  was retired with the launcher tab (no longer intercepted anywhere).
-- localStorage UI schema stays **v2** (with the v1 migration). R3 removed
-  the launcher view kind WITHOUT a schema bump: views are stored without
-  `kind`, and the loader drops zero-session views — which is exactly how
-  pre-R3 blobs containing launcher views migrate (active remaps, zero
-  views stays legal). Theme state lives under a separate key.
-- Sessions are server-side; the UI attaches views. xterm opens only on
-  attached, measurable nodes; `.term-host` keeps `z-index:0` isolation (the
-  scanline overlay sits OUTSIDE the host, `pointer-events:none`).
-- Every control is a real `<button>/<input>` with a visible blue
-  `:focus-visible` ring; hover-only affordances forbidden. An icon-only control
-  (the topbar `⚙`) carries its name in `aria-label`, never in the glyph alone.
-- Projects display their NAME everywhere; the path appears only as drawer
-  row metadata.
-- The 2026-07-25 copy rule is DISPLAY-ONLY: labels changed, emitted argv did
-  not (`composeArgs` tests are the guard).
-
-## Slop-filter pass (against the frontend-designer reject list)
-
-- Gradients / blur / shadows / glow: present ONLY where the handoff specs
-  them (topbar + pane-area + dialog-header gradients; four shadows; tab/
-  dot/go-button glows; the launch-dialog backdrop blur) — **user-sanctioned
-  by decision 2026-07-20**, not template residue. Nothing beyond that list.
-- Default-Tailwind look: the chrome face IS Inter — by the Nocturne handoff
-  decision of 2026-09-10 (`design/session-manager/README-v3.md`), a
-  deliberate choice, not a reflex. The "default-Tailwind" test is the
-  COMBINATION — Inter + a rounded-2xl card grid + soft shadows + gray-50 —
-  and the rest of the system has none of it: no card-grid shell, no soft
-  shadows (hairline edge + ambient darkness only), no gray-50, data and
-  terminal in JetBrains Mono.
-- Generic SaaS dashboard: the shell is topbar / terminal cards / Steam tab
-  strip / statusline — no icon sidebar, no card grid, no KPI tiles.
-- Emoji/sparkle iconography: none — text glyphs and state-encoding dots. The
-  `⚙` Settings button is the prototype's own text glyph in text presentation
-  (no variation selector, no emoji font), inked with the button's own color.
-- Centered friendly empty state: the handoff's empty state is a logo tile +
-  two working actions, no illustration, no copywriting fluff.
-- Decoration vs information: every colored element encodes interaction
-  (blue), go/running (green), attention (amber), danger (red) or death
-  (gray); the glows mark the active tab, the live connection, the go action.
-- *"Next to 100 AI dashboards, distinguishable?"* — bottom Steam tab strip
-  with glow bar, terminal cards floating on a radial-lit ground, themable
-  terminal palettes, mono data voice, armed confirms: yes. *"Would a tmux
-  power user feel at home?"* — chords for everything, dense mono rows,
-  statusline readout, 10 terminal color ramps: yes.
-- 2026-07-25 GitHub token-path re-check: no gradient, shadow, glow, blur, token,
-  color or font was added — the token well reuses the `.gh-newform` inset, the
-  checkbox row reuses the settings idiom, and the only new visual element is a
-  mono micro-tag on the chip that carries real information (which credential).
-  Every control is a real `<button>`/`<input>` with the standard focus ring; the
-  panel has no hover-only affordance. Placed next to 100 AI dashboards it still
-  reads as a credential status block in a terminal tool, not a signup wizard:
-  dense mono facts, an armed disconnect, plain sentences instead of reassuring
-  badges, and no lock icon anywhere — the copy says what the storage actually
-  is rather than drawing a padlock over it.
-- 2026-07-25 delta re-check: the plain-language copy is carried by the SAME mono
-  voice (values stay mono, chrome stays Barlow), so the terminal lineage is
-  intact — it reads like a tmux status readout in words, not like a friendly
-  SaaS wizard. No new gradient/shadow/glow/blur, no new token, no new color; the
-  one added button variant reuses the accent tints already in the file, and the
-  one added glyph is the prototype's own.
-- 2026-07-26 status-line re-check: this pass is mostly SUBTRACTION — one token
-  (`--surface-panestatus`), the whole `.pane-status*` block, the usage ledger's
-  `.settings-usage*`/`.settings-led*` rules and the boxed strip preview left the
-  file. Two structural classes were added and nothing else: `.settings-items` (a
-  hairline seam + the launch dialog's existing dim treatment, so the master
-  switch visibly governs the rows under it) and `.settings-notice` (`--well`
-  fill, 2px `--attn` left edge, mono name line — the `.gh-facts` grammar, in the
-  attention color because it is an attention state, not an error). No gradient,
-  shadow, glow, blur, new color or new font. Every row is a real `<button>` with
-  `aria-pressed` and no hover-only affordance; the samples carry information
-  (they are the literal text the line draws), and the notice exists only when it
-  is true. The pane lost its last piece of app chrome below the terminal, which
-  moves the design further toward "the terminal is the hero", not away from it.
+chrome around it (PROJECT-SCOPE "No commands, flags, or code in the UI"). The
+rule is **display-only**: the values in `shared/protocol.ts`, the prefs keys
+and the emitted argv are untouched. `tests/ui-copy-rule.test.ts` scans every
+string literal in `web/src/**/*.ts` and allows a CLI-shaped one only where a
+file is listed for it.
+
+**Sharpened 2026-09-06 (user's call):** short plain words, and no sentence
+that explains the app to itself. A control is labelled; it is not described.
+The one sanctioned explanation in the New session dialog is the permissions
+info popover, shown only when asked for (2026-09-10).
+
+- **One label table per vocabulary**, in `web/src/ui/launch-args.ts`, read by
+  every surface that names the thing: `PERM_SHORT` (`Always ask` ·
+  `Auto edits` · `Read only` · `No prompts`; the last one red wherever it
+  appears), `MODEL_LABEL` / `modelLabel()`, `EFFORT_LABEL` (`Default` · `Low`
+  · `Medium` · `High` · `Extra high` · `Max`), `AGENT_LABEL` (`Claude Code` —
+  a product name, never the command `claude`). A label change never changes
+  an emitted arg; `tests/ui-launch-args.test.ts` pins both layers.
+- **No command preview** anywhere (user, 2026-09-10 — v3 draws one; the rule
+  stands). The fields are the statement of what will run. Resuming a
+  conversation is the server's composition, never the browser's.
+- **Exempt by construction:** the `Other` tool's Command field (its content IS
+  a command the user types) and terminal content. Product and model names
+  and permission names on GitHub's own screens (`Contents`, `Metadata`) are
+  words, not code.
+
+## Copy rules (README-v3)
+
+- Plain sentences. **No decorative separators in text** — no `·`, `|`, `⎿`,
+  `▸`; a list inside a line uses a comma (`38% of 5h, 12% of 7d`).
+- **Pluralise counts**: `1 pane`, `2 panes`, `1 session`.
+- **States are words**, never a code or a glyph alone (next section).
+- `—` is the empty-value glyph (`Latency —`), never a half-real value.
+- Honesty: an item is drawn only when something real backs it. A block with
+  nothing true to show is **absent, not blank** — no placeholders, no
+  "not available" rows (the A3 rule).
+
+## State vocabulary (B11, `web/src/ui/session-state.ts`)
+
+One readout per session, read by every surface that names a state — the pane
+dot and pill, the Sessions panel row, the tab dot — so they cannot disagree.
+Strongest first:
+
+| readout | word | dot | when |
+|---|---|---|---|
+| `attn` | Needs your answer | amber, pulsing | the program rang the bell (BEL) |
+| `exited` | Finished | neutral grey, still | the PTY is gone |
+| `waiting` | Waiting for you | amber, still | Claude Code's transcript says it ended its turn |
+| `working` | Working | green, pulsing | the transcript says Claude generates or runs a tool |
+| `running` | Working | green, still | alive, and nothing the app reads says which (every non-Claude session) |
+
+A pulse is a claim of knowledge: green pulses only when the transcript says
+Claude works. The pill's `title` carries an exit code (`Finished, code 1`); a
+code is never the state word. The tab strip's `Needs you` pill, the
+statusline's `N waiting for you` and the top bar's Sessions badge count
+**BELs only** — `Waiting for you` shows on the session's own pane, row and
+tab dot, and nags nowhere else (user, 2026-09-22). The pulse honours
+`prefers-reduced-motion` (the dot keeps its colour, the pill keeps its word).
+
+## Tokens (`web/src/styles/tokens.css`)
+
+The single source of every colour, size and timing; no colour literal lives
+in `app.css`. Eight sections:
+
+1. **Nocturne primitives** — verbatim from `_ds/nocturne-*/styles.css`:
+   `--color-bg` `#161826`, `--color-surface` `#232532`, `--color-text`
+   `#e9e9ed`, `--color-accent` `#9184d9` (blurple) and `--color-accent-2`,
+   the OKLCH tonal ramps `--color-neutral-*`, `--color-accent-*`,
+   `--color-accent-2-*` (100–900), `--space-1…8`, `--radius-sm/md/lg`
+   (4/8/14 px), `--shadow-sm/md/lg`.
+2. **Semantics** — three exclusive meanings, the accent never one of them:
+   `--color-ok` (running, added, connected), `--color-attn` (attention,
+   waiting, unsaved), `--color-danger` (destructive, removed, bypassed
+   permissions); plus their tints and the app-only values
+   (`--color-term`, `--color-scrim`, `--color-ink-on-danger`, …), each with
+   its source noted in the file.
+3. **Terminal palette** — `--term-bg` and the `--xt-*` slots the xterm.js
+   theme is built from at runtime (`themeFromTokens()` in `ui/terminal.ts`),
+   so terminal and chrome are one system. Plain hex / rgba only: xterm's
+   parser does not read `oklch()`.
+4. **File-type badges** — one background/ink pair per file family, a data
+   table for the Files panel chips.
+5. **Type** — `--font-sans` (Inter) and `--font-mono` (JetBrains Mono first).
+6. **App structure** — chrome heights and widths the handoff has no
+   primitive for: top bar 48, tab chip 32, statusline 26, pane header 38,
+   panel header 44, Projects drawer 272, Sessions panel 300, `--line` 1 px,
+   `--tick` 2 px, `--dot` 7 px, `--fs-term` 12.5 px.
+7. **Motion** — `--t-btn` .15 s, `--t-fade` .2 s, `--t-slide` .16 s,
+   `--t-pulse` 1.6 s, `--t-pulse-edit` 1.2 s, `--t-spin` .7 s.
+8. **z-index** — toast < row menu < modal < a modal over a modal < boot
+   overlay < drag ghost.
+
+A tint or a hover is an inline `color-mix()` at the use site, a one-off size
+a literal px; neither belongs in the token file. `tests/ui-a8-tokens.test.ts`
+pins it: every `var()` declared, every token read (the handoff's unused ramp
+steps are the one named exception), retired Legacy names cannot return.
+
+### Type
+
+- **Chrome: Inter** 400–700 — self-hosted variable woff2, OFL at
+  `web/src/assets/fonts/OFL-Inter.txt`. A session's name is words, so it is
+  Inter too.
+- **Terminal, code and every data value: JetBrains Mono** 400/500/700 —
+  self-hosted, official release (full glyph set for terminal coverage), OFL
+  at `web/src/assets/fonts/OFL-JetBrainsMono.txt`. Fallbacks Cascadia Mono →
+  IBM Plex Mono → ui-monospace.
+- No runtime font fetch — an offline localhost tool.
+- Body 13 px; secondary 12 px; pills and small controls 11–11.5 px;
+  terminal 12.5 px with xterm's native cell metrics (line height 1 — real
+  TUIs need real cell geometry).
+
+### Edges, radii, elevation
+
+- Radii **4 / 8 / 14**: controls and chips 4, pane cards 8, the large
+  surfaces 14 (`--radius-lg`); dots are round.
+- **A 1 px edge instead of a shadow.** A pane card's elevation is
+  `--shadow-sm`, a 1 px neutral-800 ring. Modals, popovers, the toast and
+  the drag ghost take `--shadow-md` / `--shadow-lg`: a 1 px edge plus
+  ambient dark, never a soft haze.
+- No gradients, no blur, no glow. The modal scrim is flat
+  (`--color-scrim`).
+
+### The accent
+
+Blurple is an **outline and small-mark colour, never a fill**; a fill is a
+tint of it (`--color-accent-900` hover, 30% selection). Where it appears:
+
+- the one accent in the top bar — `New session`, outlined — and every
+  primary button (`btn-accent`: outline, never a fill);
+- the 2 px `:focus-visible` ring on every control;
+- the focused pane in a split (accent-700 ring; a lone pane keeps the
+  neutral edge — no competition, no frame);
+- drop targets while dragging (dashed accent box, `accent-900` tint) and
+  the insertion caret;
+- the active text-tab underline in dialogs, the terminal selection.
+
+Never a state. Green, amber and red keep their meanings above; neutral grey
+is finished.
+
+## Shell anatomy
+
+Vertical flex, 100 vh, no page scroll (`web/src/main.ts`):
+
+1. **Top bar, 48 px** — `>_` logo tile + `Session Manager`; the `Files`,
+   `Projects`, `Sessions` toggles (the active one is the only filled
+   control; Sessions carries an amber count badge of sessions that rang the
+   bell); spacer; the connection dot + `Connected` / `Offline` (real
+   reachability); the GitHub account chip (opens Add a project on its
+   GitHub tab); the Settings gear — icon-only, Phosphor, `aria-label`
+   `Settings`; `New session`.
+2. **Middle row** — Files panel or Projects drawer (left, one at a time:
+   opening Projects hides Files without forgetting it), the pane area, the
+   Sessions panel (right). All are flex siblings: opening one resizes the
+   panes through the real fit → `resize` → PTY chain, never covers them.
+3. **Tab strip, bottom** (settled 2026-07-20) — one tab per screen; see
+   below.
+4. **Statusline, 26 px** — `N sessions` (still running), `N panes` (of the
+   active tab, terminals and editors alike), amber `N waiting for you` (BELs
+   only), spacer, a transient flash notice when there is one, `Latency N ms`
+   (presence ping), `Up 2h 15m` (backend uptime), and the
+   `Keyboard shortcuts` button. No separate health item, no grace countdown.
+
+## Tab strip (`web/src/ui/tabs.ts`)
+
+32 px chips on the app ground above one hairline; **the active tab is the
+only filled one** (`--color-surface`, neutral-800 edge). A tab: a 7 px state
+dot (the strongest readout of its sessions; no dot when it holds none), the
+name, an amber dot while a file in it is unsaved, a count pill when it holds
+more than one **pane**, `Needs you` (amber) when a session in it rang the
+bell, and `×`. `Home` is the fixed first tab: no `×`, never dragged. After
+the tabs: `+` (New session) and the right-aligned hint `Drag a tab onto
+another to show them side by side`.
+
+A `×` on a tab holding sessions **ends** them: the armed two-step — red fill,
+the word `sure?` — unless Settings → Preferences → `Confirm before ending a
+session` is off, which makes the first click the act. A tab holding only
+files kills nothing, so it asks only the unsaved-text question.
+
+## Panes (`web/src/ui/panes.ts`)
+
+Up to four panes per tab, fixed split shapes, draggable dividers between
+them (keyboard-nudgeable, `role=separator`). A pane is a neutral-900 card,
+radius 8, `--shadow-sm` edge. Unfocused panes are **not dimmed** — a terminal
+you can read is the point; focus is the accent ring.
+
+### Session pane
+
+- **Header, 38 px**: state dot (8 px), session name (Inter 13/500), project
+  **name** (12 px, never a path), spacer, the state pill (the word; amber
+  tint for `Needs your answer`, amber word for `Waiting for you`, grey for
+  `Finished`), the connection chip only while degraded (`Reconnecting` /
+  red `Lost`), `Own tab` only when the tab holds more than one pane, and —
+  top right, on **every** session pane, a one-pane tab included — the
+  **End session** button (B8, user's decision 2026-09-22): a quiet Phosphor
+  `X`, neutral ink, danger ink on hover and while armed; `aria-label` and
+  `title` `End session`. It ends the session exactly like the tab `×` and
+  the Sessions panel's end control (`killSession`) and follows `Confirm
+  before ending a session`: on, the first click arms (`Sure?`) and the
+  second ends; off, one click ends.
+- The whole header is a drag source (onto a pane = swap, onto the tab strip
+  = own tab); a press on any button in it never starts a drag. Keyboard
+  twins: Ctrl+Alt+Shift+arrows and `Own tab`.
+- **Banner** under the header when the session finished (`Finished, code
+  N`, `Start it again`, `End session` armed the same way) or is gone from
+  the server (`Close pane`). The buffer below stays readable.
+- **Terminal** on the terminal ground (`--term-bg`, themed — see Terminal
+  colours).
+- **Status bar** under the terminal (B1): label + mono value pairs that
+  wrap, in the v3 order `Model`, `Mode`, `Branch`, `Cost`, `Context`,
+  `Usage`, `Time`, `Changed`, fed by the session's argv and what Claude Code
+  itself reported. Items follow the Settings → Status bar checklist; `Usage`
+  turns amber at 80% or more; a bypassed permission mode reads red. No item
+  without a real value; for a non-Claude session the bar is absent. Known
+  limit: `Mode` is the mode the session was started with — Claude Code's
+  payload carries no live mode, so a change inside the session (shift+tab)
+  is not shown; the Settings row's caption says so, and so does Claude
+  Code's own line (`server/statusline.mjs`).
+- **Background agents** table under it (B7): name, task, time, tokens, from
+  Claude Code's own subagent transcripts. Behind the switch Settings →
+  Status bar → `Background agents under the terminal`, **default off** (B11:
+  Claude Code draws its own task list in the terminal). At most **four
+  running** rows (oldest first), then — only when fewer than four run — the
+  one most recently finished; the rest are counted, `+N working` /
+  `+N finished`, never silently hidden. Never rendered empty, never for a
+  non-Claude session.
+
+### Editor pane (A10b, live since B4)
+
+Same card, same 38 px header, a quiet ground (`--color-term`, never the
+themed terminal ground). The header is a strip of file tabs — name, an amber
+dot while unsaved, its own `×` — at most **four** per pane, then the pane's
+`×` (closing files kills nothing, so no armed confirm; unsaved text asks
+`Discard unsaved changes …?`). The body is the active tab: line-number gutter,
+the editable mono text, `Save` / `Saving…` / `Saved`; a diff tab from a
+commit is read-only. A file tab is its own drag source inside the header.
+
+## Files panel (`web/src/ui/files.ts`)
+
+Left, resizable **200–520 px** by its right edge (pointer or arrow keys).
+Opens without a session: its header then reads `Home` (deviation from v3,
+user 2026-09-15); otherwise it names the folder of the focused pane (a
+session's project, or its working folder; a file pane's tab folder). Three
+tabs:
+
+- **Files** — the real tree of that folder, lazy per folder; Phosphor folder
+  icons and per-extension badge chips (the token table); a file the session
+  is editing, and its ancestors, pulse amber (1.2 s). Click opens it in an
+  editor pane. Many rows can be selected (click, ctrl-, shift-click, the
+  keyboard); the row menu (right-click, ContextMenu key, Shift+F10) offers
+  `Open`, `Open beside`, `Copy` (to the Windows clipboard, native window
+  only), `Paste`, `New file`, `New folder`, `Refresh`, `Delete` (red, after
+  a separator; permanent, asked once; never on the root or a project root).
+  Files dragged or pasted in from Windows are copied into the folder, one
+  question per drop when names clash.
+- **Changes** — what the repository changed since its last commit, `+a -d`
+  per file.
+- **Commits** — the history, ten a page; a commit opens the **commit view**
+  over the pane area: title, author initial, `committed <when>`, branch and
+  hash chips, `Open on GitHub` only when `origin` is on github.com (absent
+  otherwise, never disabled), `N files changed +A -D` with a five-block bar,
+  one collapsible unified diff per file. `Back to sessions` returns.
+
+Changes and Commits exist only where a repository can be (A11).
+
+## Sessions panel and Projects drawer
+
+- **Sessions** (right, 300 px, `ui/sessions.ts`): `Running now` — dot, name,
+  `Side by side`, and an end control that arms into the word `End`; the meta
+  line names the project and what runs in it, or the state word.
+  `Earlier` — every ended session the app launched, in a **folder per
+  project** (a decided feature; v3 draws a flat list), each with resume or
+  start-again and an armed forget.
+- **Projects** (left, 272 px): names, never paths as the label; `+` opens New
+  session preset to the project; removal is armed.
+
+## Dialogs
+
+Modals are top-anchored where their height changes (New session, Settings),
+over the flat scrim, `fadeUp` .2 s, Tab trapped, Escape and backdrop close,
+focus returns to the control that opened them. Every destructive answer is
+the outlined danger button; the primary is the accent outline.
+
+- **New session** (`ui/launch.ts`): a tool grid, two per row — `Claude
+  Code`, `Codex`, `Gemini CLI`, `Grok`, `Terminal`, `Other`; a tool the
+  backend cannot find is an inert card reading `Not installed`; hidden cards
+  come from Settings → Preferences. `Name` (placeholder = the project's
+  name) and `Project`. An agent adds `Model`, `Effort` (absent where the tool
+  has none), `Permissions` cards with the one info popover, and `Start from`
+  (fresh, continue, or a listed earlier conversation). A tool that needs an
+  API key and has none shows one quiet notice with a way into Settings.
+  `Terminal` adds Shell cards: Bash, Zsh, PowerShell, Command Prompt.
+  `Other` adds the Command field. Entry points: top bar, tab-strip `+`,
+  project row `+`, the empty state, Ctrl+Alt+T.
+- **Add a project** (`ui/newproject.ts`): `New folder` / `Clone a
+  repository` / `From GitHub`, and the folder picker in the same idiom.
+- **Shortcuts overlay**, **delete** and **drop** dialogs, the unsaved-text
+  question, the restart confirmation, the update toast and the boot overlay
+  all wear the same language.
+
+### GitHub credential input — binding (design gate, `ui/github.ts`)
+
+- The token field is `type=password`, `autocomplete=new-password`,
+  `spellcheck=false`, has **no `name` attribute**, and is **not inside a
+  `<form>`** — no browser save-password prompt.
+- Its value is read and written only through the `.value` property, never an
+  attribute; the credential's whole client lifetime is one submit — read
+  once, sent, cleared. No web storage, no URL, no prefs write, ever.
+- Untrusted strings render through `textContent` (the repo's zero-`innerHTML`
+  rule).
+- **Storage honesty ceiling:** nothing may say keychain, keyring, encrypted,
+  secure, vault or protected (`memory/knowledge/wsl-0600-not-a-boundary.md`);
+  the strongest sentence is `storageNote(true)`. The copy lives in
+  `ui/github-model.ts`, pinned by `tests/ui-github-model.test.ts`.
+
+## Settings (`web/src/ui/settings.ts`)
+
+A modal with a left nav of five pages, all live:
+
+- **Status bar** — two switches, `Inside the terminal` (Claude Code's own
+  line, default off) and `Under the terminal` (the pane status bar, default
+  on), the third switch `Background agents under the terminal` (default
+  off), then the item checklist both bars read, each row showing the literal
+  text it draws. A notice names running Claude sessions started without a
+  status line, and exists only when there are some.
+- **Preferences** — API keys (saved / not saved, a key never comes back),
+  which tools the New session dialog shows (at least one stays), and the
+  defaults `Reopen tabs on start`, `Confirm before ending a session`,
+  `Follow output`.
+- **Keyboard** — the whole shortcuts table, drawn from the same rows as the
+  overlay (`ui/shortcuts-rows.ts`).
+- **Terminal colours** — see below.
+- **Background service** — version, uptime, `Check for updates`, `Restart
+  service`.
+
+## Terminal colours (B9)
+
+Presets plus a custom ground and text colour; **ground and text only**, the
+**terminal only** (`memory/decisions/terminal-colours-shape.md`). The page
+overrides six `:root` slots (`--term-bg`, `--xt-fg`, `--xt-white`,
+`--xt-bright-white`, `--xt-cursor`, `--xt-bright-black`) through
+`ui/theme.ts`; Nocturne is the absence of those overrides. The app chrome,
+the accent and the status colours are **never themed**, and the ANSI hues
+stay semantic. Surfaces that merely look terminal-ish — editor, diff, input
+wells, boot overlay — sit on `--color-term`, so a light ground never lands
+under app ink; the pane status bar and agents table take the theme's quiet
+steps so they stay readable on any ground.
+
+## Motion
+
+`fadeUp` .2 s (dialogs, popovers, new content) · `slideL` / `slideR` .16 s
+(panels) · `pulse` 1.6 s (state dots, attention) · the edited-file pulse
+1.2 s · `spin` .7 s (boot-step spinner) · control transitions .15 s. Nothing
+else animates. The state-dot pulses (`Working`, `Needs your answer`) stop
+under `prefers-reduced-motion`; the word says it without them.
+
+## Recorded deviations from the handoff (still true)
+
+- **No command preview** in New session (copy rule, user 2026-09-10).
+- **Files panel opens without a session**, header `Home` (user 2026-09-15).
+- **Earlier keeps folders per project** (user 2026-09-06).
+- **Status bar:** no `Active skill` (nothing reports it, user 2026-09-16);
+  `Usage` joins its two windows with a comma (copy rule).
+- **Preferences has no notifications row** until it can do something (part
+  C1, user 2026-09-22).
+- **Armed two-step confirms** on every control that ends a session or
+  forgets one (the pane's and the tab's `×`, the Sessions panel's `End`);
+  Files Delete asks in its dialog instead — no native `confirm()`; the
+  prototype killed without asking.
+- **Icons are inline SVG** transcribed from the handoff's Phosphor paths
+  (`ui/icons.ts`, MIT licence committed) — no icon package (open decision 5).
+- **Terminal line height** is xterm's native 1, not the mock's 1.6.
+- **Connection** reads `Offline` when the backend is unreachable; the mock
+  had no failure mode.
+
+## Guarantees
+
+- Resize chain: every geometry change (divider, panel toggle, tab switch,
+  split change) flows container resize → FitAddon → ws `resize` →
+  `pty.resize`.
+- Plain keys (Ctrl+C, Esc, arrows) are never intercepted; app chords are the
+  Ctrl+Alt family with the AltGraph guard (PROJECT-SCOPE, Hard technical
+  constraints).
+- Sessions are server-side; the UI attaches views, xterm opens only on
+  attached, measurable nodes.
+- Every control is a real `<button>` / `<input>` with the visible accent
+  focus ring; no hover-only affordance; an icon-only control carries its
+  name in `aria-label`. Every drag has a keyboard or button twin.
+- Projects show their name everywhere.
+- Fiction stays cut: no grace countdown (any UI able to show it keeps the
+  backend alive), no launcher-lifecycle steps in the boot overlay (the page
+  can never witness them).
+
+## Slop filter (frontend-designer reject list)
+
+- No gradients, no blur, no glow; elevation is a hairline edge plus ambient
+  dark.
+- Inter is the handoff's deliberate choice; the "default Tailwind" look is
+  the combination — Inter + rounded card grid + soft shadows + gray-50 —
+  and the rest of the system has none of it.
+- No icon sidebar, no KPI tiles; the shell is top bar, terminal cards,
+  bottom tab strip, statusline.
+- No emoji; icons are a handful of Phosphor glyphs, state is a dot plus a
+  word.
+- Every coloured element encodes something: accent = interactive, green =
+  running, amber = attention or waiting, red = danger, grey = finished.

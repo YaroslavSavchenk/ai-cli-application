@@ -14,8 +14,8 @@
  * the real history of its HEAD, ten commits a page. Every answer arrives
  * through an INJECTED `FsGateway`, never through an import of `../api.ts`, so
  * this module stays drivable under `node --test` with a plain fake object, and
- * no honesty line is owed anywhere in the panel. File CONTENT is part B4: a
- * file row opens a pane, and that pane says it cannot read the file yet.
+ * no honesty line is owed anywhere in the panel. File CONTENT is part B4
+ * (live): a file row opens an editor pane on the file itself.
  *
  * HOW THE TREE LOADS (PLAN-B2 §3). Lazy per folder on expand,
  * cache-then-revalidate (a folder that already answered never flashes

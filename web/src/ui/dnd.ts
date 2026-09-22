@@ -211,7 +211,10 @@ export function armDrag(source: HTMLElement, ignore: string | null, makeSpec: ()
     if (e.button !== 0 || drag !== null) return;
     if (
       ignore !== null &&
-      e.target instanceof HTMLElement &&
+      // Element, not HTMLElement: a press on the GLYPH inside an icon button
+      // (B8, a pane header's End session) targets an SVG node, which is no
+      // HTMLElement — and narrowing it away would start the drag it ignores.
+      e.target instanceof Element &&
       e.target.closest(ignore) !== null
     ) {
       return;

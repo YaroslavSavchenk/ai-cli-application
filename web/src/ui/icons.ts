@@ -10,7 +10,9 @@
  *
  * Phosphor Icons (https://phosphoricons.com), MIT — licence text committed at
  * ../assets/icons/LICENSE-Phosphor.txt. Paths are copied from the v3 handoff —
- * except INFO_PATH, which the handoff does not have and is drawn here.
+ * except INFO_PATH, which the handoff does not have and is drawn here, and
+ * X_PATH, which the handoff does not have either and is copied from Phosphor's
+ * own published "x" (regular) instead.
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -51,6 +53,15 @@ const INFO_PATH =
  */
 const CARET_LEFT_PATH = 'M152.7,41.4L164,52.7L88.7,128L164,203.3L152.7,214.6L66.1,128Z';
 
+/**
+ * Phosphor "x" (regular), 256x256 viewBox — the End session button in a
+ * session pane's header (Nocturne B8). The handoff draws its closes as the
+ * text character `\u00d7`; the pane button is an icon with a spoken name, so
+ * it takes the real glyph, copied verbatim from Phosphor (same MIT licence).
+ */
+const X_PATH =
+  'M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z';
+
 function icon(d: string, size: number, fillRule: 'nonzero' | 'evenodd' = 'nonzero'): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('width', String(size));
@@ -84,4 +95,9 @@ export function caretLeftIcon(): SVGSVGElement {
 /** The info glyph at 14px, inside the launch dialog's 20px info button. */
 export function infoIcon(): SVGSVGElement {
   return icon(INFO_PATH, 14, 'evenodd');
+}
+
+/** The X glyph at 14px, inside a pane header's 24px End session button (B8). */
+export function xIcon(): SVGSVGElement {
+  return icon(X_PATH, 14);
 }

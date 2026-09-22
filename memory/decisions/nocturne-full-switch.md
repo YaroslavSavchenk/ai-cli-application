@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-10
-updated: 2026-09-13
+updated: 2026-09-22
 tags: [design, frontend, nocturne]
 ---
 # Nocturne: full switch, Legacy UI kept only as a git tag
@@ -15,8 +15,9 @@ last commit before A1). No side-by-side mode, no toggle, no theme variants;
 the terminal theme popover dies in A8/B8. Nocturne ships as v0.4.0. The plan
 with 16 parts (A1–A8 UI first, B1–B8 functionality) lives in
 `.claude/plans/PLAN-NOCTURNE.md`; each part starts only on the user's "begin aan
-<id>". Supersedes [[handoff-design-primary]] for visuals (the v2 handoff is
-consulted only for interaction details v3 lacks) and the "phosphor" /
+<id>". Supersedes [[handoff-design-primary]] for visuals (the v2 handoff was
+consulted only for interaction details v3 lacks; its files were deleted in
+B8, 2026-09-22) and the "phosphor" /
 "steam blend" realisations in [[anti-slop-design-direction]] (the anti-slop
 RULE itself stands).
 
