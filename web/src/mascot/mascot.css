@@ -36,7 +36,7 @@
   transition:
     bottom 0.7s cubic-bezier(0.3, 1.4, 0.5, 1),
     right 0.7s ease;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 /* Tilt layer: the pose's static lean, hinged at the mascot's feet. */
@@ -46,11 +46,11 @@
   transform-origin: 80% 100%;
 }
 
-/* Reaction layer: idle bob, strain, or a click reaction — and the hit area. */
+/* Reaction layer: idle bob, strain, or a click reaction. Its click listener
+   hears the art's clicks (below); its own box takes none. */
 .pm-react {
   width: 100px;
   height: 120px;
-  cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   transform-origin: center bottom;
@@ -59,6 +59,23 @@
 /* The art overflows its own box while squeezing and waving. */
 .pm-art {
   overflow: visible;
+}
+
+/*
+ * THE HIT AREA IS THE PAINTED ART, NOTHING ELSE (C1 fix, the user's Windows
+ * check: with several mascots only one could be clicked). The three mascots
+ * overlap, and every layer box is a 100 x 120 rectangle — slot 0's (z 3) and
+ * slot 2's (z 2) boxes covered most of what is VISIBLE of the others, so a
+ * click on slot 1's body landed on slot 2 and a click on slot 2 on slot 0's
+ * empty box. SVG shapes hit-test by their own geometry: a click now lands on
+ * the frontmost mascot actually drawn under the pointer, so each one is
+ * clickable wherever it can be seen. The silhouette path under the body makes
+ * the body solid (no gaps between the grid rects).
+ */
+.pm-art path,
+.pm-art rect {
+  pointer-events: visiblePainted;
+  cursor: pointer;
 }
 
 /* ---- keyframes (verbatim from the handoff) -------------------------------- */

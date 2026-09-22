@@ -153,8 +153,10 @@ interface SlotNodes {
   face: SVGGElement;
   drawn: Partial<SlotView>;
   /**
-   * True while the position layer's entrance runs. Bumped `entry` makes a
-   * finished watch from an OLDER entrance (count 2 -> 3 restarts it) a no-op.
+   * True while the position layer MOVES: its entrance, or the .7s `bottom` /
+   * `right` transition (slot 1 moving up when a third arrives, back down when
+   * it leaves). Bumped `entry` makes a finished watch from an OLDER motion a
+   * no-op.
    */
   entering: boolean;
   entry: number;
@@ -201,9 +203,10 @@ export class MascotView {
    * Where each visible mascot is, slot order, in CSS px of the page, for the
    * host's click-through region: the reaction layer's box (its tilt included)
    * plus `RECT_MARGIN`, clipped to the page and rounded outward. While a
-   * mascot's ENTRANCE runs it answers the whole stage instead — the climb and
-   * the squeeze travel through space the settled box does not cover, and a
-   * region clips drawing — and `onSettle` asks for the tight box after.
+   * mascot MOVES (its entrance, or its position transition) it answers the
+   * whole stage instead — the climb, the squeeze and the .7s move travel
+   * through space the settled box does not cover, and a region clips drawing
+   * and clicks — and `onSettle` asks for the tight box after.
    */
   rects(): BoxRect[] {
     const out: BoxRect[] = [];
@@ -242,13 +245,24 @@ export class MascotView {
 
     // Position layer. `animation` last: writing it restarts the entrance, so
     // it is only ever written when the string itself changed (count 2 <-> 3).
-    if (drawn.right !== view.right) nodes.pos.style.right = view.right;
-    if (drawn.bottom !== view.bottom) nodes.pos.style.bottom = view.bottom;
+    // Any of the three starting motion (an entrance, or the .7s transition on
+    // `bottom`/`right`) is watched until it ends, so the rects the host clips
+    // its window to are re-reported where the mascot really stands.
+    let moved = false;
+    if (drawn.right !== view.right) {
+      nodes.pos.style.right = view.right;
+      moved = true;
+    }
+    if (drawn.bottom !== view.bottom) {
+      nodes.pos.style.bottom = view.bottom;
+      moved = true;
+    }
     if (drawn.z !== view.z) nodes.pos.style.zIndex = String(view.z);
     if (drawn.enter !== view.enter) {
       nodes.pos.style.animation = view.enter;
-      this.watchEntrance(nodes);
+      moved = true;
     }
+    if (moved) this.watchMotion(nodes);
     if (drawn.tilt !== view.tilt) nodes.tilt.style.transform = view.tilt;
     if (drawn.anim !== view.anim) nodes.react.style.animation = view.anim;
 
@@ -325,12 +339,14 @@ export class MascotView {
   }
 
   /**
-   * Follow the entrance that was just (re)started on this position layer and
-   * say when it is over. The browser's own list of running animations is the
-   * source: under `prefers-reduced-motion` the stylesheet removes them all,
-   * the list is empty, and the mascot is settled the moment it is drawn.
+   * Follow the motion just started on this position layer — its entrance
+   * (CSS animations) and its `bottom`/`right` move (CSS transitions): the
+   * layer's OWN `getAnimations()` lists both, and none of the infinite bob or
+   * blink, which run on its children. Say when all of it is over. Under
+   * `prefers-reduced-motion` the stylesheet removes every animation and
+   * transition, the list is empty, and the mascot is settled at once.
    */
-  private watchEntrance(nodes: SlotNodes): void {
+  private watchMotion(nodes: SlotNodes): void {
     const entry = ++nodes.entry;
     const pos = nodes.pos as HTMLDivElement & { getAnimations?: () => Animation[] };
     const running = typeof pos.getAnimations === 'function' ? pos.getAnimations() : [];

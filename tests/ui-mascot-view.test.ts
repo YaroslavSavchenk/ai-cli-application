@@ -566,7 +566,22 @@ test('the stage and the three layers carry the handoff\'s CSS facts', () => {
   }
   assert.ok(CSS.includes('transform-origin: 80% 100%'), 'the tilt layer hinges at the feet');
   assert.ok(CSS.includes('transform-origin: center bottom'), 'the reaction layer hinges at the ground');
-  assert.ok(CSS.includes('pointer-events: auto'), 'the position layer takes the clicks back');
+  // C1 fix (Windows check: with several mascots only ONE could be clicked):
+  // no layer BOX takes a click — the 100 x 120 boxes overlap and the front
+  // one swallowed clicks on the others' visible bodies. Only painted art does.
+  const rule = (sel: string): string => {
+    const at = CSS.indexOf(`${sel} {`);
+    assert.ok(at >= 0, `no rule for ${sel}`);
+    return CSS.slice(at, CSS.indexOf('}', at));
+  };
+  assert.match(rule('.pm-pos'), /pointer-events: none;/, 'the position layer box takes no click');
+  assert.doesNotMatch(rule('.pm-react'), /pointer-events: auto|cursor/, 'nor the reaction layer box');
+  assert.doesNotMatch(CSS, /pointer-events: auto/, 'no box anywhere takes clicks back');
+  assert.match(
+    CSS,
+    /\.pm-art path,\s*\.pm-art rect \{\s*pointer-events: visiblePainted;\s*cursor: pointer;/,
+    'the painted pixels are the hit area',
+  );
   assert.ok(/transition:\s*\n?\s*bottom 0\.7s cubic-bezier\(0\.3, 1\.4, 0\.5, 1\)/.test(CSS));
 });
 
@@ -657,6 +672,34 @@ test('rects(): with no running animation (reduced motion) a mascot is settled th
       assert.deepEqual(view.rects(), [[1434, 364, 132, 152]], 'tight at once: nothing to wait on');
       for (let i = 0; i < 5; i++) await Promise.resolve();
       assert.deepEqual(settled, [], 'and no settle report for an entrance that never ran');
+      view.destroy();
+    },
+  );
+});
+
+test('rects(): a position MOVE alone (the .7s bottom transition) is watched too, then re-reported tight', async () => {
+  let done!: () => void;
+  const finished = new Promise<void>((res) => (done = res));
+  let running: { finished: Promise<unknown> }[] = [];
+  await withAnimations(
+    () => running,
+    async () => {
+      const { model, view, root, settled } = mountSettling();
+      model.setCount(2); // nothing running: settled at once
+      const state = model.snapshot();
+      setRect(layersOf(byClass(root, 'pm-pos')[1]!).react, { left: 1450, top: 380, width: 100, height: 120 });
+      assert.deepEqual(view.rects()[1], [1434, 364, 132, 152]);
+      // Only slot 1's `bottom` changes — no entrance restarts — and the browser
+      // lists the CSS transition it started on the position layer.
+      running = [{ finished }];
+      const moved = { ...state, slots: state.slots.map((v) => (v.slot === 1 ? { ...v, bottom: '110px' } : v)) };
+      view.render(moved);
+      running = [];
+      assert.deepEqual(view.rects()[1], [1380, 280, 220, 340], 'mid-move: the whole stage, never a stale box');
+      done();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      assert.equal(settled.length, 1, 'onSettle when the move ends');
+      assert.deepEqual(view.rects()[1], [1434, 364, 132, 152], 'then the tight box where it stands');
       view.destroy();
     },
   );
