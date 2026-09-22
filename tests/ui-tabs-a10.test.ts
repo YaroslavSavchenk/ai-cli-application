@@ -267,6 +267,23 @@ test('no session in the tab, no status dot — a dot there would report on nothi
   assert.ok((dots[0] as FakeElement).classList.contains('is-run'), 'a running session is green');
 });
 
+test('B11: the tab dot follows the readout — pulsing green working, still amber waiting; the pill stays BEL-only', () => {
+  st.setSessions([session('s1', { turn: 'working' })]);
+  draw([view({ id: 'work', root: null, slots: [{ kind: 'session', id: 's1' }] })]);
+  assert.ok((byClass(strip, 'dot')[0] as FakeElement).classList.contains('is-work'), 'working pulses green');
+  assert.equal(byClass(strip, 'tab-attn').length, 0);
+
+  st.setSessions([session('s1', { turn: 'waiting' })]);
+  draw([view({ id: 'wait', root: null, slots: [{ kind: 'session', id: 's1' }] })]);
+  assert.ok((byClass(strip, 'dot')[0] as FakeElement).classList.contains('is-wait'), 'waiting is amber, still');
+  assert.equal(byClass(strip, 'tab-attn').length, 0, 'an ended turn is not a question: no Needs you pill');
+
+  st.setSessions([session('s1', { turn: 'waiting', attention: true })]);
+  draw([view({ id: 'bel', root: null, slots: [{ kind: 'session', id: 's1' }] })]);
+  assert.ok((byClass(strip, 'dot')[0] as FakeElement).classList.contains('is-attn'), 'a BEL wins');
+  assert.equal(byClass(strip, 'tab-attn').length, 1, 'and only a BEL brings the pill');
+});
+
 test('an unsaved file puts the amber mark on the chip, in words as well as a shape', () => {
   // The dirty file is the tab that is NOT on screen: `viewDirty` walks every
   // TAB of every editor pane, because a file two chips deep is as unsaved as

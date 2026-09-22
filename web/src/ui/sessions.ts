@@ -9,9 +9,10 @@
  * focuses its terminal, and its accessible name carries the state word the
  * v3 row does not print.
  * Meta line, indented under the name: the project's NAME and what is running
- * in it ("api, Claude Code Opus"), the amber "Needs your answer" when the
- * session is waiting, or how it finished. A5 dropped the tab/pane PLACE from
- * this line (it is what truncated it at 300px); the row still takes you there.
+ * in it ("api, Claude Code Opus"), the amber "Needs your answer" on a BEL,
+ * "api, Waiting for you" once Claude ended its turn (B11), or how it
+ * finished. A5 dropped the tab/pane PLACE from this line (it is what
+ * truncated it at 300px); the row still takes you there.
  *
  * "Earlier" (GET /api/history, ENDED entries only) replaced the old
  * PREVIOUS RUN offers on 2026-09-06 (user's call): every session the app ever
@@ -28,6 +29,7 @@ import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, ArmedSet, fmtAgo, modelFromArgs, fmtCount } from './util.ts';
+import { readoutClass, readoutWord, sessionReadout } from './session-state.ts';
 import { commandLabel, isClaudeCommand, modelLabel } from './launch-args.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
@@ -131,7 +133,7 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
         .map(
           (s) =>
             `${s.id}:${st.projectName(s.projectId) ?? ''}:${s.title}:${s.status}:${s.exitCode ?? ''}:` +
-            `${s.attention ? '!' : ''}:${armed.isArmed(s.id) ? 'a' : ''}`,
+            `${sessionReadout(s)}:${armed.isArmed(s.id) ? 'a' : ''}`,
         )
         .join('|')
     );
@@ -173,21 +175,19 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       const row = el('div', 'sess-row');
       const line = el('div', 'sess-line');
 
-      const attention = info.attention;
-      const running = info.status === 'running';
-      // The state word the v3 row does not print. It is not decoration: the
+      // The same readout as the pane dot and the tab (ui/session-state.ts,
+      // B11). The state word the v3 row does not print is not decoration: the
       // dot is the visual, this is what a screen reader and a hover get.
-      const stateWord = attention
-        ? 'Needs your answer'
-        : running
-          ? 'Working'
-          : `Finished (${info.exitCode ?? 0})`;
+      const readout = sessionReadout(info);
+      const cls = readoutClass(readout);
+      const stateWord =
+        readout === 'exited' ? `${readoutWord(readout)} (${info.exitCode ?? 0})` : readoutWord(readout);
 
       const open = button('sess-open', '', () => showSession(info.id));
       open.setAttribute('data-k', `show:${info.id}`);
       open.setAttribute('aria-label', `${info.title}, ${stateWord}`);
       open.title = stateWord;
-      const dot = el('span', `dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`);
+      const dot = el('span', `dot ${cls}`);
       dot.setAttribute('aria-hidden', 'true');
       open.append(dot, el('span', 'sess-name', info.title));
 
@@ -216,12 +216,15 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
       const pname = st.projectName(info.projectId);
       const modelId = modelFromArgs(info.args);
       const tool = `${commandLabel(info.command)}${modelId !== null ? ` ${modelLabel(modelId)}` : ''}`;
+      // A BEL takes the whole line; an ended turn and a finished run are said
+      // after the project's name; a working session shows what it is.
       let metaTxt: string;
-      if (attention) metaTxt = stateWord;
-      else if (!running) metaTxt = pname !== null ? `${pname}, ${stateWord}` : stateWord;
+      if (readout === 'attn') metaTxt = stateWord;
+      else if (readout === 'waiting' || readout === 'exited')
+        metaTxt = pname !== null ? `${pname}, ${stateWord}` : stateWord;
       else metaTxt = pname !== null ? `${pname}, ${tool}` : tool;
       meta.textContent = metaTxt;
-      meta.classList.toggle('is-attn', attention);
+      meta.classList.add(cls);
 
       row.append(line, meta);
       rows.push(row);

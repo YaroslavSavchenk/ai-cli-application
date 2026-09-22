@@ -33,14 +33,13 @@ brief → DEVELOP → REVIEW ─(findings)→ FIX → RE-REVIEW ─┐
 Reviewers never fix; the fixer never adds features; the janitor never
 refactors. Keep these lanes strict — they are what makes re-review meaningful.
 
-Models (decided 2026-07-26, user's call, superseding 2026-07-20): subagents
-— developers, reviewers, fixer, janitor, ad-hoc — run on **opus**, with one
-exception: `security-auditor` runs on **fable** (pinned in its frontmatter).
-Pass `model: 'opus'` explicitly on every non-security Agent spawn so
-overrides beat any stale pin; spawn `security-auditor` with no model
-override (or `model: 'fable'`) so its frontmatter pin holds. The session
-model (Fable 5) is otherwise reserved for the orchestrator itself: thinking,
-briefing, consolidation/arbitration, and the final review of finished work.
+Models (decided 2026-09-22, user's call, superseding 2026-07-26): EVERY
+subagent — developers, reviewers (security-auditor included), fixer,
+janitor, ad-hoc — runs on **opus**. Pass `model: 'opus'` explicitly on every
+Agent spawn so the override beats any stale pin; every `.claude/agents/*.md`
+that pins a model pins `opus`. The session model does the orchestrator's own
+work: thinking, briefing, consolidation/arbitration, and the final review of
+finished work.
 
 ## Steps
 

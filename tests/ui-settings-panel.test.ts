@@ -371,7 +371,7 @@ test('a click on the scrim closes; a click inside the card does not', async () =
 // Status bar — the live checklist
 // ===========================================================================
 
-test('the Status bar page renders the two switches, the eight items and their captions', async () => {
+test('the Status bar page renders the three switches, the eight items and their captions', async () => {
   await reopen();
   const page = panelOf('status');
   assert.equal(byClass(page, 'sg-title')[0]?.textContent, 'Status bar');
@@ -386,6 +386,8 @@ test('the Status bar page renders the two switches, the eight items and their ca
     // Nocturne B1: the two PLACES a status bar can be, then the items they share.
     'Inside the terminal',
     'Under the terminal',
+    // Nocturne B11: the Background agents table, its own switch beside the bar.
+    'Background agents under the terminal',
     'Model',
     'Permission mode',
     'Git branch',
@@ -398,6 +400,7 @@ test('the Status bar page renders the two switches, the eight items and their ca
   assert.deepEqual(textsOf(page, 'sg-cap'), [
     'Claude Code’s own line, drawn at the bottom of the terminal',
     'the app’s bar below the terminal',
+    'the agents a session runs, also listed by Claude Code itself',
     'shows the mode the session was started with',
     'under the terminal only',
     'works with a Claude Pro or Max account, and appears after the session’s first reply',
@@ -531,6 +534,7 @@ test('a toggle writes the whole resolved config, and Reset to defaults restores 
     usage: false,
     paneBar: true,
     time: true,
+    paneAgents: false,
   });
   assert.equal(row(page, 'Lines changed').getAttribute('aria-pressed'), 'true');
 
@@ -564,6 +568,32 @@ test('the debug line of a write names both places', async () => {
   assert.ok(line.includes('enabled=false'), line);
   assert.ok(line.includes('paneBar=true'), line);
   assert.ok(line.includes('time=true'), line);
+  assert.ok(line.includes('paneAgents=false'), line);
+});
+
+test('Background agents under the terminal: OFF by default, its own switch, persisted and repainted', async () => {
+  await reopen();
+  const page = panelOf('status');
+  const agents = row(page, 'Background agents under the terminal');
+  // Default OFF (user, 2026-09-22): Claude Code lists its agents itself.
+  assert.equal(agents.getAttribute('aria-pressed'), 'false');
+  assert.equal(byClass(agents, 'sg-box')[0]?.textContent ?? '', '');
+  repaints = 0;
+  agents.click();
+  assert.equal(statusPatch().paneAgents, true, 'the switch is persisted with the whole config');
+  assert.equal(agents.getAttribute('aria-pressed'), 'true');
+  assert.equal(repaints, 1, 'the panes repaint at once, so the table appears without a session event');
+  // It is NOT one of the items: turning both bars off does not disable it.
+  row(page, 'Under the terminal').click();
+  assert.equal(statusPatch().paneBar, false);
+  assert.equal(agents.disabled, false, 'the table does not depend on either bar');
+  assert.equal(statusPatch().paneAgents, true, 'and flipping a bar leaves it as it was');
+  // Reset to defaults switches it back off.
+  const reset = byClass(page, 'sg-textbtn').find((b) => b.textContent === 'Reset to defaults');
+  assert.ok(reset !== undefined);
+  reset.click();
+  assert.equal(statusPatch().paneAgents, false);
+  assert.equal(agents.getAttribute('aria-pressed'), 'false');
 });
 
 test('the notice names the running sessions that cannot grow a status line, and only then', async () => {

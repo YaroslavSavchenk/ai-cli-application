@@ -7,10 +7,18 @@
  *
  * WHERE THE ROWS COME FROM. `SessionInfo.agents` — the subagents Claude Code
  * ran for this session, read by `server/agents.ts` from that session's own
- * transcripts. The server ORDERS and CAPS the list (running first, oldest
- * first; then at most three finished, newest first; at most eight rows), so
- * this module never sorts, never filters and never trims: what arrives is
- * what is drawn, in that order.
+ * transcripts. The server ORDERS and CAPS the list (B11: the running agents
+ * oldest first, at most four; then — only when fewer than four run — the ONE
+ * most recently finished), so this module never sorts, never filters and never
+ * trims: what arrives is what is drawn, in that order. The agents the list
+ * leaves out are COUNTED, not drawn: `SessionInfo.agentCounts` carries the
+ * server's totals and `agentTable` derives `+N working` / `+N finished` from
+ * them (totals minus the rows of that state).
+ *
+ * BEHIND A SWITCH (B11, user 2026-09-22): Claude Code draws its own task list
+ * inside the terminal and cannot hide it without disabling background agents,
+ * so this table is the duplicate the user opts into — `paneAgents` in the
+ * status-line config, Settings → Status bar, default OFF.
  *
  * THE SAME HONESTY RULE the status bar follows:
  *   - the table exists for the known agent only (`isClaudeCommand`) — nothing
@@ -33,6 +41,7 @@
  */
 import type { SessionAgent, SessionInfo } from '../../../shared/protocol.ts';
 import type { AgentRow } from './pane-agents.ts';
+import type { StatusLineCfg } from './statusline-model.ts';
 import { isClaudeCommand } from './launch-args.ts';
 
 const MINUTE = 60;
@@ -107,4 +116,41 @@ export function agentRows(session: SessionInfo | undefined, now: number = Date.n
   const agents = session.agents;
   if (agents === undefined || agents.length === 0) return [];
   return agents.map((a) => row(a, now));
+}
+
+/** A server total, as a count this module can subtract from: a finite integer ≥ 0, else 0. */
+function total(n: unknown): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * The whole table for `session` (B11): the rows `renderAgents` draws, in the
+ * server's order, and the two counts under them — the running agents beyond
+ * the four rows (`+N working`) and the finished ones beyond the one row
+ * (`+N finished`). Both are derived from the server's totals
+ * (`agentCounts`), never by counting or re-sorting the list here; a total that
+ * is absent, broken or smaller than the rows reads 0, and a 0 is not drawn.
+ *
+ * Empty (no rows, both counts 0 — the renderer then draws NOTHING, the A3
+ * rule) when the switch is off, the session is not the known agent, or it has
+ * no agents.
+ */
+export function agentTable(
+  session: SessionInfo | undefined,
+  cfg: StatusLineCfg,
+  now?: number,
+): { rows: AgentRow[]; moreWorking: number; moreFinished: number } {
+  const empty = { rows: [], moreWorking: 0, moreFinished: 0 };
+  if (!cfg.paneAgents) return empty;
+  // An absent `now` falls to agentRows' own default: one clock in this module.
+  const rows = agentRows(session, now);
+  if (rows.length === 0) return empty;
+  let runningRows = 0;
+  for (const r of rows) if (r.dot === 'running') runningRows++;
+  const counts = session?.agentCounts;
+  return {
+    rows,
+    moreWorking: Math.max(0, total(counts?.running) - runningRows),
+    moreFinished: Math.max(0, total(counts?.finished) - (rows.length - runningRows)),
+  };
 }

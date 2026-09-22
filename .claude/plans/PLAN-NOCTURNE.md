@@ -29,7 +29,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B6 | Settings live | verified | `.claude/plans/nocturne/PLAN-B6.md` | 2026-09-22 |
 | B9 | Terminal colours live | verified | `.claude/plans/nocturne/PLAN-B9.md` | 2026-09-22 |
 | B7 | Background agents table live (data source decided 2026-09-22: Claude Code's transcripts) | verified | `.claude/plans/nocturne/PLAN-B7.md` | 2026-09-22 |
-| B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule (DECIDED 2026-09-22, see the part) | todo | — |  |
+| B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule | landed | `.claude/plans/nocturne/PLAN-B11.md` | 2026-09-22 |
 | B8 | Cleanup + memory, release v0.4.0 | todo | — |  |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
 
@@ -146,7 +146,7 @@ Fixed rules for every part:
 - Data source was an open decision. DECIDED 2026-09-22 (user, the orchestrator's advice): Claude Code's own transcripts — `~/.claude/projects/<slug>/<session-id>/subagents/agent-<hex>.meta.json` + `.jsonl`, found through the `transcript_path` the status-line payload already carries (added to the B1 snapshot). Rejected: SubagentStart/Stop hooks (no tokens, more moving parts), dropping the part. STARTED and LANDED 2026-09-22; spec `.claude/plans/nocturne/PLAN-B7.md`. Windows check owed.
 - Constraint from B9 (2026-09-22): the table sits inside the terminal card, on the THEMED ground. Its ink (`.pane-agents-hd`, `.pane-agent-*`) and the two hairlines under the terminal (`.pane-status`, `.pane-agents`, `--color-neutral-900`) are still app neutrals — invisible while the table is empty, unreadable on a light custom ground once it is not. B7 gives them the theme's steps like the status bar's (`--xt-bright-black` / `--xt-fg`).
 
-### B11. Session state: Working vs. Waiting for you (NOTED 2026-09-22, user's ask on the B7 check — NO PLAN YET)
+### B11. Session state: Working vs. Waiting for you (NOTED 2026-09-22, user's ask on the B7 check; LANDED 2026-09-22, spec `.claude/plans/nocturne/PLAN-B11.md`)
 - User (2026-09-22, B7 Windows check): the pane's dot + pill say "Working" the whole time a Claude session is alive, also when Claude has finished its turn and is waiting for input ("als sessie klaar is of wacht op de input"). Today the readout knows three states only: alive (green, Working), BEL (amber, Needs your answer), exited (neutral, Finished) — a PTY does not say whether the program is generating or idle.
 - Candidate source, cheap since B7: the session's OWN transcript (`<transcript_path>` from the B1 snapshot, the same boundary as `server/agents.ts`): the last `user`/`assistant` line is an assistant `end_turn` → idle (waiting for you); a later `user` line → working. Same incremental tail as the subagent transcripts, one more file per claude session. The same tail also yields "files the session is touching" (open decision 3: `Edit`/`Write` tool calls with a `file_path`) — decide together or apart.
 - Open for the user: the words and colours (v3 vocabulary: "Working", "Needs your answer", "Finished", "Needs you" — a fourth state needs a word and a dot: e.g. green pulsing while working, green still + "Waiting for you" when idle; or amber for idle since that is when the user is needed), whether the tab strip's count pill follows it, and the order (before or after B8).

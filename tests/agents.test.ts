@@ -26,13 +26,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, mkdtemp, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { ServerMessage, SessionAgent, SessionInfo } from '../shared/protocol.ts';
-import { AgentsWatcher, foldLine, newFold, sameAgents, subagentsDirFor } from '../server/agents.ts';
+import {
+  AgentsWatcher,
+  foldLine,
+  newFold,
+  sameAgents,
+  sameReport,
+  subagentsDirFor,
+  turnOfLine,
+  type AgentsReport,
+} from '../server/agents.ts';
 import { resolveDataPaths, type Logger } from '../server/config.ts';
 import { SessionHistory } from '../server/history.ts';
 import { SessionManager } from '../server/sessions.ts';
@@ -49,9 +58,9 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 /** The constants in server/agents.ts (not exported; kept in step here). */
 const STALE_MS = 15 * 60 * 1000;
 const MAX_AGENTS = 64;
-const MAX_ROWS = 8;
-const MAX_FINISHED = 3;
+const MAX_RUNNING_ROWS = 4;
 const MAX_LINE = 1024 * 1024;
+const TURN_TAIL_BYTES = 1024 * 1024;
 
 /** A whole-second mtime "just now": utimes stores it exactly, and it is not stale. */
 const NOW_S = Math.floor(Date.now() / 1_000);
@@ -456,7 +465,9 @@ test('sameAgents: every field counts, and so does the order', () => {
 
 interface Seen {
   id: string;
+  /** `report.agents`, kept as its own field so the B7 assertions read as before. */
   agents: SessionAgent[];
+  report: AgentsReport;
 }
 
 interface Harness {
@@ -521,10 +532,23 @@ async function waitFor(seen: Seen[], ok: (agents: SessionAgent[]) => boolean, ms
   }
 }
 
+/** Wait until `seen`'s last REPORT satisfies `ok`, or fail after `ms`. */
+async function waitForReport(seen: Seen[], ok: (report: AgentsReport) => boolean, ms = 5_000): Promise<AgentsReport> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const last = seen[seen.length - 1]?.report;
+    if (last !== undefined && ok(last)) return last;
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out; ${seen.length} call(s), last = ${JSON.stringify(seen[seen.length - 1]?.report)}`);
+    }
+    await delay(10);
+  }
+}
+
 test('watcher: a meta with no transcript yet is a RUNNING row started at the meta mtime', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'a0053196a4ba8146d', {
       agentType: 'test-engineer',
       description: 'Test gate B2 Brief B (lean)',
@@ -556,7 +580,7 @@ test('watcher: a meta with no transcript yet is a RUNNING row started at the met
 test('watcher: the transcript is read INCREMENTALLY as it grows, and the row follows', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff01', { agentType: 'backend-pty', description: 'B7' });
     await appendLines(w.dir, 'ff01', [
       userLine('2026-09-16T10:00:00.000Z'),
@@ -583,7 +607,7 @@ test('watcher: the transcript is read INCREMENTALLY as it grows, and the row fol
 test('watcher: a line split across two polls is folded once, when it is complete', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff02', { agentType: 'a', description: 'b' });
     const line = assistantLine('2026-09-16T10:00:00.000Z', 'm1', { output_tokens: 42 });
     const cut = Math.floor(line.length / 2);
@@ -603,7 +627,7 @@ test('watcher: a line split across two polls is folded once, when it is complete
 test('watcher: a transcript that SHRANK is re-read from 0 with its counters reset', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff03', { agentType: 'a', description: 'b' });
     await appendLines(w.dir, 'ff03', [
       userLine('2026-09-16T10:00:00.000Z'),
@@ -629,7 +653,7 @@ test('watcher: a running agent untouched for 15 minutes is finished, at its OWN 
   const pinned = Date.now() + STALE_MS + 60_000;
   const w = await makeWatcher({ now: () => pinned });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff04', { agentType: 'security-auditor', description: 'review' }, 1_758_000_000);
     await appendLines(w.dir, 'ff04', [
       userLine('2026-09-16T10:00:00.000Z'),
@@ -649,7 +673,7 @@ test('watcher: a stale meta with no transcript at all ends where it started', as
   const pinned = Date.now() + STALE_MS + 60_000;
   const w = await makeWatcher({ now: () => pinned });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff05', { agentType: 'a', description: 'b' }, 1_758_000_000);
     w.watcher.track('sess-1', w.dir);
     const rows = await waitFor(w.seen, (a) => a.length === 1);
@@ -666,7 +690,7 @@ test('watcher: a live agent just under the stale line is still running', async (
   const pinned = Date.now() + STALE_MS - 60_000;
   const w = await makeWatcher({ now: () => pinned });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff06', { agentType: 'a', description: 'b' });
     await appendLines(w.dir, 'ff06', [userLine('2026-09-16T10:00:00.000Z')]);
     w.watcher.track('sess-1', w.dir);
@@ -686,7 +710,7 @@ test('watcher: EXACTLY 15 minutes of silence is still running — the rule is st
   const pinned = metaS * 1_000 + STALE_MS; // exactly the cap, to the millisecond
   const w = await makeWatcher({ now: () => pinned });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ff07', { agentType: 'a', description: 'b' }, metaS);
     w.watcher.track('sess-1', w.dir);
     const rows = await waitFor(w.seen, (a) => a.length === 1);
@@ -695,7 +719,7 @@ test('watcher: EXACTLY 15 minutes of silence is still running — the rule is st
     // One millisecond later it is, and that is the other side of the same line.
     const w2 = await makeWatcher({ now: () => pinned + 1 });
     try {
-      w2.watcher.start((id, agents) => w2.seen.push({ id, agents }));
+      w2.watcher.start((id, report) => w2.seen.push({ id, agents: report.agents, report }));
       await writeMeta(w2.dir, 'ff07', { agentType: 'a', description: 'b' }, metaS);
       w2.watcher.track('sess-1', w2.dir);
       const later = await waitFor(w2.seen, (a) => a.length === 1);
@@ -708,12 +732,12 @@ test('watcher: EXACTLY 15 minutes of silence is still running — the rule is st
   }
 });
 
-test('watcher: with nothing running, still only 3 finished rows are sent', async () => {
-  // MAX_FINISHED, on its own: with running agents in the list the 8-row cap
-  // would hide a missing 3-row cap, so this session has none.
+test('watcher: with nothing running, ONE finished row is sent — the most recent — and the count has them all', async () => {
+  // B11 (d): at most one finished row, the latest `endedAt`; every finished
+  // agent is in counts.finished, so the frontend draws `+4 finished`.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     for (let i = 0; i < 5; i++) {
       const id = `d${i}`;
       await writeMeta(w.dir, id, { agentType: `fin-${i}`, description: '' });
@@ -723,13 +747,18 @@ test('watcher: with nothing running, still only 3 finished rows are sent', async
       ]);
     }
     w.watcher.track('sess-1', w.dir);
-    const rows = await waitFor(w.seen, (a) => a.every((r) => r.state === 'finished') && a.length >= MAX_FINISHED);
-    // A few polls of settling time: the list can only shrink to the cap.
+    await waitFor(w.seen, (a) => a.length === 1 && a[0]?.state === 'finished');
+    await waitForReport(w.seen, (r) => r.counts.finished === 5);
+    // A few polls of settling time: nothing more may arrive.
     await delay(120);
-    const last = w.seen[w.seen.length - 1]?.agents as SessionAgent[];
-    assert.equal(last.length, MAX_FINISHED, `five finished agents, three rows; got ${JSON.stringify(last)}`);
-    assert.deepEqual(last.map((r) => r.name), ['fin-4', 'fin-3', 'fin-2'], 'the three freshest results');
-    assert.equal(rows.length <= MAX_FINISHED, true);
+    const last = w.seen[w.seen.length - 1]?.report as AgentsReport;
+    assert.deepEqual(last.agents.map((r) => r.name), ['fin-4'], `the freshest result only; got ${JSON.stringify(last)}`);
+    assert.deepEqual(last.counts, { running: 0, finished: 5 });
+    assert.equal(
+      w.seen.every((s) => s.agents.length <= 1),
+      true,
+      'no delivery ever carried more than one finished row',
+    );
   } finally {
     await w.cleanup();
   }
@@ -741,7 +770,7 @@ test('watcher: a SYMLINK named like a transcript is refused, not followed', asyn
   // turn the watcher into a reader of any file this user owns.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     const bait = join(w.root, 'not-a-transcript.jsonl');
     await writeFile(
       bait,
@@ -771,7 +800,7 @@ test('watcher: a DIRECTORY named like a meta makes no row at all', async () => {
   // called `agent-<hex>.meta.json` would invent a whole agent that never ran.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await mkdir(join(w.dir, 'agent-dd.meta.json'), { recursive: true });
     await writeMeta(w.dir, 'ab', { agentType: 'real-one', description: '' }, NOW_S);
     w.watcher.track('sess-1', w.dir);
@@ -786,10 +815,10 @@ test('watcher: a DIRECTORY named like a meta makes no row at all', async () => {
   }
 });
 
-test('watcher: running first oldest-first, then at most 3 finished newest-first, 8 rows in all', async () => {
+test('watcher: five running + five finished → the four OLDEST running rows, no finished row, counts 5/5', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     // Five running, started 10:00, 10:01, … (the meta mtime does not decide the
     // order once there are lines: the FIRST line does).
     for (let i = 0; i < 5; i++) {
@@ -807,14 +836,13 @@ test('watcher: running first oldest-first, then at most 3 finished newest-first,
       ]);
     }
     w.watcher.track('sess-1', w.dir);
-    const rows = await waitFor(w.seen, (a) => a.length === MAX_ROWS);
-    assert.equal(rows.length, MAX_ROWS);
+    const report = await waitForReport(w.seen, (r) => r.counts.running === 5 && r.counts.finished === 5);
+    assert.equal(report.agents.length, MAX_RUNNING_ROWS);
     assert.deepEqual(
-      rows.map((r) => r.name),
-      ['run-0', 'run-1', 'run-2', 'run-3', 'run-4', 'fin-4', 'fin-3', 'fin-2'],
-      'running oldest-first, then the three freshest results',
+      report.agents.map((r) => r.name),
+      ['run-0', 'run-1', 'run-2', 'run-3'],
+      'running oldest-first, first four; four run, so no finished row',
     );
-    assert.equal(rows.filter((r) => r.state === 'finished').length, MAX_FINISHED);
   } finally {
     await w.cleanup();
   }
@@ -823,7 +851,7 @@ test('watcher: running first oldest-first, then at most 3 finished newest-first,
 test(`watcher: at most ${MAX_AGENTS} agents are tracked, newest meta first`, async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     // 70 metas with strictly increasing mtimes: the 6 oldest fall off the
     // MAX_AGENTS window, so the oldest row is the 7th-oldest meta.
     // All within the last two minutes, so nothing is stale; strictly
@@ -833,12 +861,15 @@ test(`watcher: at most ${MAX_AGENTS} agents are tracked, newest meta first`, asy
       await writeMeta(w.dir, `d${i.toString(16).padStart(2, '0')}`, { agentType: `a${i}`, description: '' }, base + i);
     }
     w.watcher.track('sess-1', w.dir);
-    const rows = await waitFor(w.seen, (a) => a.length === MAX_ROWS);
+    const report = await waitForReport(w.seen, (r) => r.counts.running === MAX_AGENTS);
     assert.deepEqual(
-      rows.map((r) => r.name),
-      ['a6', 'a7', 'a8', 'a9', 'a10', 'a11', 'a12', 'a13'],
+      report.agents.map((r) => r.name),
+      ['a6', 'a7', 'a8', 'a9'],
       'a0-a5 were never tracked; the rest are the oldest of those that were',
     );
+    // The count covers the TRACKED agents only: the six beyond MAX_AGENTS are
+    // beyond both the list and the count.
+    assert.deepEqual(report.counts, { running: MAX_AGENTS, finished: 0 });
   } finally {
     await w.cleanup();
   }
@@ -847,7 +878,7 @@ test(`watcher: at most ${MAX_AGENTS} agents are tracked, newest meta first`, asy
 test('watcher: a file that is not `agent-<hex>.meta.json` is never opened', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     for (const name of [
       'agent-.meta.json',
       'agent-XYZ.meta.json', // not lowercase hex
@@ -872,7 +903,7 @@ test('watcher: a file that is not `agent-<hex>.meta.json` is never opened', asyn
 test('watcher: a SYMLINK named like a meta is refused, and the row keeps the honest fallback', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     const secret = join(w.root, 'secret.json');
     await writeFile(secret, JSON.stringify({ agentType: 'stolen', description: 'from outside the directory' }));
     await symlink(secret, join(w.dir, 'agent-ac.meta.json'));
@@ -888,7 +919,7 @@ test('watcher: a SYMLINK named like a meta is refused, and the row keeps the hon
 test('watcher: a FIFO named like a transcript never blocks the poll', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ad', { agentType: 'fifo-victim', description: '' });
     execFileSync('mkfifo', [join(w.dir, 'agent-ad.jsonl')]);
     w.watcher.track('sess-1', w.dir);
@@ -904,7 +935,7 @@ test('watcher: a FIFO named like a transcript never blocks the poll', async () =
 test('watcher: meta strings are control-stripped and capped at 64 / 120', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'ae', {
       agentType: `${ESC}[31mred${NUL}\n${'n'.repeat(200)}`,
       description: `${DEL}${'t'.repeat(300)}`,
@@ -926,7 +957,7 @@ test('watcher: meta strings are control-stripped and capped at 64 / 120', async 
 test('watcher: a meta that is not JSON, or has no agentType, still makes an honest row', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'b1', 'not json at all');
     await writeMeta(w.dir, 'b2', { model: 'opus' }); // no agentType, no description
     await writeMeta(w.dir, 'b3', { agentType: 42, description: ['x'] }); // wrong types
@@ -950,7 +981,7 @@ test('watcher: the TAIL of a dropped over-long line is never parsed as a line of
   // valid JSON, which is how a discarded line would put numbers on the wire.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'fe', { agentType: 'resync', description: '' }, NOW_S);
     // 1.2 MiB with no newline yet: past MAX_LINE, so the carry is dropped.
     await appendFile(join(w.dir, 'agent-fe.jsonl'), 'x'.repeat(1_200_000), { mode: 0o600 });
@@ -975,7 +1006,7 @@ test('watcher: an agentType that CLEANS to nothing falls back to `agent`', async
   // must show the honest placeholder rather than a blank cell.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'c1', { agentType: `${ESC}${NUL}${DEL}   \n\t`, description: 'still a task' });
     w.watcher.track('sess-1', w.dir);
     const rows = await waitFor(w.seen, (a) => a.length === 1);
@@ -989,7 +1020,7 @@ test('watcher: an agentType that CLEANS to nothing falls back to `agent`', async
 test('watcher: a task longer than 120 characters is CAPPED, not dropped', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'c2', { agentType: 'x'.repeat(65), description: `${'t'.repeat(121)}TAIL` });
     w.watcher.track('sess-1', w.dir);
     const rows = await waitFor(w.seen, (a) => a.length === 1);
@@ -1006,7 +1037,7 @@ test('watcher: equal stamps are broken by id, so the order is stable both halves
   // flicker and every poll would broadcast a "change".
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     // The meta mtimes run the OTHER way round, so the order below can only
     // come from the id tie-break: without it a stable sort leaves the agents
     // in the order the directory listing produced (newest meta first).
@@ -1023,11 +1054,11 @@ test('watcher: equal stamps are broken by id, so the order is stable both halves
       ]);
     }
     w.watcher.track('sess-1', w.dir);
-    const rows = await waitFor(w.seen, (a) => a.length === 6);
+    const report = await waitForReport(w.seen, (r) => r.counts.running === 3 && r.counts.finished === 3);
     assert.deepEqual(
-      rows.map((r) => r.id),
-      ['0b', 'a1', 'ff', '0c', 'b2', 'ee'],
-      'running first (ids ascending on a tie), then finished (ids ascending on a tie)',
+      report.agents.map((r) => r.id),
+      ['0b', 'a1', 'ff', '0c'],
+      'running first (ids ascending on a tie), then the one finished row (ids ascending on a tie)',
     );
   } finally {
     await w.cleanup();
@@ -1037,7 +1068,7 @@ test('watcher: equal stamps are broken by id, so the order is stable both halves
 test('watcher: a line past 1 MiB is skipped unparsed and reading resyncs at the next one', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'b5', { agentType: 'a', description: '' });
     const huge = JSON.stringify({
       type: 'assistant',
@@ -1057,14 +1088,18 @@ test('watcher: a line past 1 MiB is skipped unparsed and reading resyncs at the 
 test('watcher: no directory, no agents, no callback — an empty table is never announced', async () => {
   const w = await makeWatcher({ create: false });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir); // Claude Code has not created it yet.
     await delay(200);
-    assert.deepEqual(w.seen, [], 'nothing to say is said with silence');
-    // And an existing but empty directory is the same.
+    // B11: no agent table is announced — but the session's own transcript is
+    // not there either (its slug folder is still PENDING, B11 F1), so it sits
+    // at its first prompt: ONE turn-only report, not a single agent row.
+    const turnOnly = [{ agents: [], counts: { running: 0, finished: 0 }, turn: 'waiting' }];
+    assert.deepEqual(w.seen.map((s) => s.report), turnOnly);
+    // And an existing but empty directory is the same: nothing new to say.
     await mkdir(w.dir, { recursive: true });
     await delay(200);
-    assert.deepEqual(w.seen, []);
+    assert.deepEqual(w.seen.map((s) => s.report), turnOnly);
   } finally {
     await w.cleanup();
   }
@@ -1073,7 +1108,7 @@ test('watcher: no directory, no agents, no callback — an empty table is never 
 test('watcher: an unchanged list is delivered exactly once', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'b6', { agentType: 'a', description: 'b' });
     await appendLines(w.dir, 'b6', [assistantLine('2026-09-16T10:00:00.000Z', 'm1', { output_tokens: 1 }, 'end_turn')]);
     w.watcher.track('sess-1', w.dir);
@@ -1090,7 +1125,7 @@ test('watcher: untrack() stops this session and leaves the others polling', asyn
   try {
     const second = join(w.root, '-slug', OTHER_UUID, 'subagents');
     await mkdir(second, { recursive: true });
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'b7', { agentType: 'one', description: '' });
     await writeMeta(second, 'b8', { agentType: 'two', description: '' });
     w.watcher.track('sess-1', w.dir);
@@ -1115,7 +1150,7 @@ test('watcher: untrack() stops this session and leaves the others polling', asyn
 test('watcher: track() with the SAME directory keeps the offsets; another one replaces the state', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'bb', { agentType: 'first', description: '' });
     w.watcher.track('sess-1', w.dir);
     await waitFor(w.seen, (a) => a.length === 1);
@@ -1139,7 +1174,7 @@ test('watcher: track() with the SAME directory keeps the offsets; another one re
 test('watcher: stop() detaches, is idempotent, and forgets every tracked session', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'bd', { agentType: 'a', description: '' });
     w.watcher.track('sess-1', w.dir);
     await waitFor(w.seen, (a) => a.length === 1);
@@ -1163,9 +1198,9 @@ test('watcher: a consumer that throws does not take the poll down', async () => 
   const w = await makeWatcher();
   try {
     let calls = 0;
-    w.watcher.start((id, agents) => {
+    w.watcher.start((id, report) => {
       calls++;
-      w.seen.push({ id, agents });
+      w.seen.push({ id, agents: report.agents, report });
       if (calls === 1) throw new Error('consumer exploded');
     });
     await writeMeta(w.dir, 'bf', { agentType: 'a', description: '' });
@@ -1187,15 +1222,22 @@ test('watcher: a consumer that throws does not take the poll down', async () => 
 test('watcher: a directory that disappears mid-flight is a skipped poll, not a crash', async () => {
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'c1', { agentType: 'a', description: '' });
     w.watcher.track('sess-1', w.dir);
     await waitFor(w.seen, (a) => a.length === 1);
     const calls = w.seen.length;
+    const rows = w.seen[w.seen.length - 1]?.agents;
     await rm(join(w.root, '-slug'), { recursive: true, force: true });
     await delay(200);
-    // The last list stands — what those agents cost is still true.
-    assert.equal(w.seen.length, calls);
+    // The last list stands — what those agents cost is still true. (B11: the
+    // transcript's parent is gone too, so the turn becomes unknown: that is the
+    // one delivery allowed, and it carries the same rows.)
+    assert.equal(w.seen.length <= calls + 1, true, `${w.seen.length - calls} extra deliveries`);
+    for (const s of w.seen.slice(calls)) {
+      assert.deepEqual(s.agents, rows);
+      assert.equal(s.report.turn, undefined);
+    }
     assert.equal(w.watcher.trackedCount, 1, 'still tracked: the directory may come back');
   } finally {
     await w.cleanup();
@@ -1226,10 +1268,17 @@ test('watcher: a symlink at the <uuid> component is refused on every poll, not f
     pollMs: 20,
   });
   try {
-    watcher.start((id, agents) => seen.push({ id, agents }));
+    watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(slug, UUID, 'subagents'));
     await delay(300); // ~15 polls.
-    assert.deepEqual(seen, [], 'nothing from outside the root ever reaches a client');
+    // B11: the session's own transcript (`<slug>/<uuid>.jsonl`, inside the
+    // root) does not exist, so a turn-only 'waiting' report is expected — but
+    // not one agent from outside.
+    assert.equal(
+      seen.every((s) => s.agents.length === 0 && s.report.counts.running + s.report.counts.finished === 0),
+      true,
+      `nothing from outside the root ever reaches a client; got ${JSON.stringify(seen)}`,
+    );
     const refusals = logs.filter(
       (l) => l.startsWith('debug: ') && l.includes('resolves outside the projects root'),
     );
@@ -1252,7 +1301,7 @@ test('watcher: a symlink at the <uuid> component is refused on every poll, not f
 test('watcher: a path in a log line can never forge one', async () => {
   const w = await makeWatcher({ create: false });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     // A directory name carrying a newline and an ESC: legal on Linux, and it
     // reaches server.log verbatim without oneLine().
     const nasty = join(w.root, `-slug\n2026-01-01T00:00:00.000Z [error] forged${ESC}[31m`, UUID, 'subagents');
@@ -1325,7 +1374,7 @@ test('watcher: the REFUSAL log line cannot be forged either', async () => {
     pollMs: 20,
   });
   try {
-    watcher.start((id, agents) => seen.push({ id, agents }));
+    watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(root, nasty, UUID, 'subagents'));
     await delay(120); // ~6 polls, each of which refuses and logs.
     assert.deepEqual(seen, [], 'nothing outside the root is ever delivered');
@@ -1350,7 +1399,7 @@ test('watcher: ONE file gives up at 4 MiB per poll, however much budget is left'
   // the end marker sits past 4 MiB, so the FIRST list must still say running.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'fa', { agentType: 'big-talker', description: '' }, NOW_S);
     await writeSized(w.dir, 'fa', 4 * 1024 * 1024 + 64 * 1024, 'end_turn');
     w.watcher.track('sess-1', w.dir);
@@ -1387,7 +1436,7 @@ test('watcher: a line of exactly 1 MiB is parsed, one byte more is skipped', asy
   };
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'fc', { agentType: 'long-liner', description: '' }, NOW_S);
     await appendLines(w.dir, 'fc', [
       padded(MiB, 'at-the-cap', 11),
@@ -1408,7 +1457,7 @@ test('watcher: 4 MiB per poll is the cap TO THE BYTE', async () => {
   // early — and a cap that wide is one that was not thought about.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     await writeMeta(w.dir, 'fd', { agentType: 'exact', description: '' }, NOW_S);
     await writeSized(w.dir, 'fd', 4 * 1024 * 1024 + 1, 'end_turn');
     w.watcher.track('sess-1', w.dir);
@@ -1428,7 +1477,7 @@ test('watcher: past 1024 meta names one poll stops scanning, and says so', async
   // debug line that says the rest was ignored.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     const body = JSON.stringify({ agentType: 'flood', description: '' });
     for (let i = 0; i < 1_100; i++) {
       await writeFile(join(w.dir, `agent-${i.toString(16).padStart(5, '0')}.meta.json`), body, { mode: 0o644 });
@@ -1440,8 +1489,11 @@ test('watcher: past 1024 meta names one poll stops scanning, and says so', async
       true,
       w.logs.join(' | '),
     );
-    // And what it did deliver is still capped at eight rows.
-    assert.equal((w.seen[w.seen.length - 1]?.agents as SessionAgent[]).length, MAX_ROWS);
+    // And what it did deliver is still capped: four running rows, and the
+    // count stops at the tracked cap.
+    const last = w.seen[w.seen.length - 1]?.report as AgentsReport;
+    assert.equal(last.agents.length, MAX_RUNNING_ROWS);
+    assert.deepEqual(last.counts, { running: MAX_AGENTS, finished: 0 });
   } finally {
     await w.cleanup();
   }
@@ -1454,7 +1506,7 @@ test('watcher: the DEFAULT tick budget is 16 MiB — a fifth 4 MiB file waits fo
   // budget and the fifth is still untouched when the first list goes out.
   const w = await makeWatcher();
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     for (let i = 1; i <= 5; i++) {
       const id = `f${i}`;
       // Descending mtimes, so the order the files are offered the budget in is
@@ -1471,8 +1523,8 @@ test('watcher: the DEFAULT tick budget is 16 MiB — a fifth 4 MiB file waits fo
       `one tick cannot read 20 MiB; first list was ${JSON.stringify(firstList)}`,
     );
     // And nothing is lost: every agent ends up finished, each counted once.
-    const settled = await waitFor(w.seen, (a) => a.length === MAX_FINISHED && a.every((r) => r.state === 'finished'));
-    assert.deepEqual(settled.map((r) => r.tokens), [1, 1, 1]);
+    const settled = await waitForReport(w.seen, (r) => r.counts.running === 0 && r.counts.finished === 5);
+    assert.deepEqual(settled.agents.map((r) => r.tokens), [1]);
   } finally {
     await w.cleanup();
   }
@@ -1483,7 +1535,7 @@ test('watcher: one tick spends a GLOBAL byte budget — a big backlog is spread 
   // on the thread that pumps every PTY.
   const w = await makeWatcher({ readBudgetBytes: 1024 * 1024 });
   try {
-    w.watcher.start((id, agents) => w.seen.push({ id, agents }));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     // `e1` has the newer meta, so it is offered the budget first.
     await writeMeta(w.dir, 'e1', { agentType: 'first', description: '' }, NOW_S);
     await writeMeta(w.dir, 'e2', { agentType: 'second', description: '' }, NOW_S - 10);
@@ -1523,6 +1575,12 @@ class FakeClient {
     this.frames.push(JSON.parse(raw) as ServerMessage);
   }
   on(): void {}
+  /** Every `info` frame's session. */
+  infoFrames(): SessionInfo[] {
+    return this.frames
+      .filter((m): m is Extract<ServerMessage, { type: 'info' }> => m.type === 'info')
+      .map((m) => m.session);
+  }
   /** The `info` frames that actually carried an agent list. */
   agentFrames(): SessionInfo[] {
     return this.frames
@@ -1572,12 +1630,21 @@ const ROW: SessionAgent = {
   state: 'running',
 };
 
-test('SessionManager.setAgents: an unknown id is a silent no-op, and never creates a session', async () => {
+/** A report the way the watcher builds one: counts derived from the rows unless given. */
+function report(agents: SessionAgent[], extra: { counts?: AgentsReport['counts']; turn?: AgentsReport['turn'] } = {}): AgentsReport {
+  const counts = extra.counts ?? {
+    running: agents.filter((a) => a.state === 'running').length,
+    finished: agents.filter((a) => a.state === 'finished').length,
+  };
+  return { agents, counts, ...(extra.turn === undefined ? {} : { turn: extra.turn }) };
+}
+
+test('SessionManager.setReport: an unknown id is a silent no-op, and never creates a session', async () => {
   // A poll can land after the session was deleted, and a list of subagents is
   // not a session: the only trace is a debug line.
   const m = await makeManager();
   try {
-    m.manager.setAgents('no-such-session', [ROW]);
+    m.manager.setReport('no-such-session', report([ROW], { turn: 'working' }));
     assert.equal(m.manager.has('no-such-session'), false);
     assert.equal(m.manager.list().length, 0);
     assert.equal(
@@ -1590,35 +1657,45 @@ test('SessionManager.setAgents: an unknown id is a silent no-op, and never creat
   }
 });
 
-test('SessionManager.setAgents: one `info` broadcast per REAL change, carrying agents', async () => {
+test('SessionManager.setReport: one `info` broadcast per REAL change, carrying agents + agentCounts', async () => {
   const m = await makeManager();
   try {
     const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
     assert.equal(m.manager.attach(info.id, client.asWs()), true);
     assert.equal(client.agentFrames().length, 0, 'the attach info carries no agents yet');
+    const base = client.infoFrames().length;
 
-    m.manager.setAgents(info.id, [ROW]);
+    m.manager.setReport(info.id, report([ROW]));
     assert.equal(client.agentFrames().length, 1);
     assert.deepEqual(client.agentFrames()[0]?.agents, [ROW]);
+    assert.deepEqual(client.agentFrames()[0]?.agentCounts, { running: 1, finished: 0 });
     // And the session itself holds it, for a client that attaches later.
     assert.deepEqual(m.manager.get(info.id)?.agents, [ROW]);
 
-    // The same list again, as a DIFFERENT array with equal fields: what the
+    // The same report again, as DIFFERENT objects with equal fields: what the
     // watcher delivers on every poll of an idle agent. Not news, not a frame.
-    m.manager.setAgents(info.id, [{ ...ROW }]);
-    assert.equal(client.agentFrames().length, 1, 'an unchanged list is not a broadcast');
+    m.manager.setReport(info.id, report([{ ...ROW }]));
+    assert.equal(client.infoFrames().length, base + 1, 'an unchanged report is not a broadcast');
 
     // One field moved: exactly one more frame.
-    m.manager.setAgents(info.id, [{ ...ROW, tokens: 12_500 }]);
+    m.manager.setReport(info.id, report([{ ...ROW, tokens: 12_500 }]));
     assert.equal(client.agentFrames().length, 2);
     assert.equal(client.agentFrames()[1]?.agents?.[0]?.tokens, 12_500);
 
-    // The empty list is a change too (every agent went away), and it is drawn
-    // by absence — but it is still one frame, not none.
-    m.manager.setAgents(info.id, []);
+    // Only the COUNT moved (a sixth agent beyond the rows): a change too.
+    m.manager.setReport(info.id, report([{ ...ROW, tokens: 12_500 }], { counts: { running: 5, finished: 0 } }));
     assert.equal(client.agentFrames().length, 3);
-    assert.deepEqual(client.agentFrames()[2]?.agents, []);
+    assert.deepEqual(client.agentFrames()[2]?.agentCounts, { running: 5, finished: 0 });
+
+    // Every agent went away: both fields go ABSENT (never an empty table) —
+    // still one frame, not none.
+    m.manager.setReport(info.id, report([]));
+    assert.equal(client.infoFrames().length, base + 4);
+    const cleared = client.infoFrames()[base + 3] as SessionInfo;
+    assert.equal(cleared.agents, undefined);
+    assert.equal(cleared.agentCounts, undefined);
+    assert.equal('agents' in cleared, false, 'absent, not undefined-valued');
 
     m.manager.destroy(info.id);
   } finally {
@@ -1728,7 +1805,7 @@ test('watcher: the refusal is logged once, and a directory that becomes legal sa
   });
   const count = (needle: string): number => logs.filter((l) => l.includes(needle)).length;
   try {
-    watcher.start((id, agents) => seen.push({ id, agents }));
+    watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(link, 'subagents'));
     await delay(200); // ~10 polls.
     assert.equal(count('resolves outside the projects root'), 1, logs.join('\n'));
@@ -1774,7 +1851,7 @@ test('SessionManager: a RUNNING agent row is finished by the exit, and only that
       tokens: 9,
       state: 'running',
     };
-    manager.setAgents(info.id, [done, live]);
+    manager.setReport(info.id, report([done, live], { counts: { running: 3, finished: 7 }, turn: 'working' }));
 
     const deadline = Date.now() + 10_000;
     while (manager.get(info.id)?.status !== 'exited') {
@@ -1789,6 +1866,9 @@ test('SessionManager: a RUNNING agent row is finished by the exit, and only that
     const endedAt = rows[1]?.endedAt as string;
     assert.equal(new Date(endedAt).toISOString(), endedAt, 'ISO-8601');
     assert.ok(Math.abs(Date.now() - Date.parse(endedAt)) < 60_000, 'the exit clock, not a fabricated one');
+    // B11: the totals follow the same fact, and the turn is dropped.
+    assert.deepEqual(manager.get(info.id)?.agentCounts, { running: 0, finished: 10 });
+    assert.equal(manager.get(info.id)?.turn, undefined);
     manager.destroy(info.id);
   } finally {
     manager.destroyAll();
@@ -1814,5 +1894,1013 @@ test('SessionManager: a session with NO agents gets no list at exit', async () =
   } finally {
     manager.destroyAll();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Nocturne B11 — the turn (the session's own transcript) and the list rule
+// (.claude/plans/nocturne/PLAN-B11.md)
+// ---------------------------------------------------------------------------
+
+/** Real-shaped lines, cut down from this machine's transcripts (Claude Code 2.1.27x). */
+const REAL = {
+  prompt: JSON.stringify({
+    parentUuid: null,
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: 'fix the failing test' },
+    uuid: 'u1',
+    timestamp: '2026-09-22T10:00:00.000Z',
+  }),
+  toolResult: JSON.stringify({
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: [{ tool_use_id: 'toolu_1', type: 'tool_result', content: 'ok' }] },
+    timestamp: '2026-09-22T10:00:02.000Z',
+  }),
+  taskNotification: JSON.stringify({
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>' },
+    timestamp: '2026-09-22T10:00:03.000Z',
+  }),
+  interrupt: JSON.stringify({
+    parentUuid: '64184a7c-a635-4170-9250-93c802616638',
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+    timestamp: '2026-09-09T15:28:37.227Z',
+    interruptedMessageId: 'msg_011Cet6toLu1CTw9dVuiEc9H',
+  }),
+  interruptForTool: JSON.stringify({
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] },
+    timestamp: '2026-09-09T15:28:38.000Z',
+  }),
+  commandName: JSON.stringify({
+    isSidechain: false,
+    type: 'user',
+    message: {
+      role: 'user',
+      content: '<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>',
+    },
+    timestamp: '2026-09-22T16:43:23.921Z',
+  }),
+  commandStdout: JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: '<local-command-stdout>Set model to opus</local-command-stdout>' },
+  }),
+  commandStderr: JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: '<local-command-stderr>nope</local-command-stderr>' }] },
+  }),
+  commandCaveat: JSON.stringify({
+    type: 'user',
+    isMeta: false,
+    message: { role: 'user', content: '<local-command-caveat>Caveat: the messages below…</local-command-caveat>' },
+  }),
+  commandMessage: JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: '<command-message>review</command-message>' },
+  }),
+  meta: JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'Caveat: …' } }),
+  sidechain: JSON.stringify({ type: 'user', isSidechain: true, message: { role: 'user', content: 'go' } }),
+  synthetic: JSON.stringify({
+    isSidechain: false,
+    type: 'assistant',
+    message: {
+      id: 'be3179fe-a4b6-493b-84e5-6aa8de938e24',
+      model: '<synthetic>',
+      role: 'assistant',
+      stop_reason: 'stop_sequence',
+      content: [{ type: 'text', text: "You've hit your session limit · resets 7:30pm (Europe/Amsterdam)" }],
+    },
+    isApiErrorMessage: true,
+  }),
+  apiError: JSON.stringify({
+    type: 'assistant',
+    isApiErrorMessage: true,
+    message: { id: 'x', model: 'claude-opus-5-5', role: 'assistant', stop_reason: null },
+  }),
+  syntheticOnly: JSON.stringify({
+    type: 'assistant',
+    message: { id: 'x', model: '<synthetic>', role: 'assistant', stop_reason: null },
+  }),
+  toolUse: assistantLine('2026-09-22T10:00:01.000Z', 'msg_1', { output_tokens: 3 }, 'tool_use'),
+  endTurn: assistantLine('2026-09-22T10:00:04.000Z', 'msg_2', { output_tokens: 3 }, 'end_turn'),
+};
+
+test('turnOfLine: every rule of PLAN-B11 § The turn rule, on real-shaped lines', () => {
+  // A prompt, a tool_result and a task-notification start (or continue) a turn.
+  assert.equal(turnOfLine(REAL.prompt), 'working');
+  assert.equal(turnOfLine(REAL.toolResult), 'working');
+  assert.equal(turnOfLine(REAL.taskNotification), 'working');
+  // An interrupt ends it — both of Claude Code's wordings.
+  assert.equal(turnOfLine(REAL.interrupt), 'waiting');
+  assert.equal(turnOfLine(REAL.interruptForTool), 'waiting');
+  // A local slash command and its output start nothing.
+  for (const line of [REAL.commandName, REAL.commandMessage, REAL.commandStdout, REAL.commandStderr, REAL.commandCaveat]) {
+    assert.equal(turnOfLine(line), undefined, line);
+  }
+  // Meta and sidechain lines never count, whatever they say.
+  assert.equal(turnOfLine(REAL.meta), undefined);
+  assert.equal(turnOfLine(REAL.sidechain), undefined);
+  assert.equal(
+    turnOfLine(JSON.stringify({ type: 'assistant', isSidechain: true, message: { stop_reason: 'end_turn' } })),
+    undefined,
+  );
+  // An API error / a synthetic message: Claude is not going on by itself.
+  assert.equal(turnOfLine(REAL.synthetic), 'waiting');
+  assert.equal(turnOfLine(REAL.apiError), 'waiting');
+  assert.equal(turnOfLine(REAL.syntheticOnly), 'waiting');
+  // Stop reasons.
+  for (const stop of ['end_turn', 'stop_sequence', 'refusal', 'max_tokens']) {
+    assert.equal(turnOfLine(assistantLine('2026-09-22T10:00:00.000Z', 'm', undefined, stop)), 'waiting', stop);
+  }
+  for (const stop of ['tool_use', 'pause_turn', null]) {
+    assert.equal(turnOfLine(assistantLine('2026-09-22T10:00:00.000Z', 'm', undefined, stop)), 'working', String(stop));
+  }
+  assert.equal(turnOfLine(JSON.stringify({ type: 'assistant', message: { id: 'm' } })), 'working', 'no stop_reason key');
+  assert.equal(turnOfLine(JSON.stringify({ type: 'assistant' })), 'working', 'no message at all');
+  // The first TEXT block decides, not the first block.
+  assert.equal(
+    turnOfLine(
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'image', source: {} }, { type: 'text', text: '[Request interrupted by user]' }] },
+      }),
+    ),
+    'waiting',
+  );
+  // A prefix only counts at the START of the text.
+  assert.equal(
+    turnOfLine(JSON.stringify({ type: 'user', message: { content: 'what does <command-name> mean?' } })),
+    'working',
+  );
+});
+
+test('turnOfLine: total — garbage, other types and hostile shapes never throw and never count', () => {
+  for (const line of [
+    '',
+    'not json',
+    '{"type":"user"',
+    'null',
+    '42',
+    '"user"',
+    '[]',
+    '[{"type":"user"}]',
+    JSON.stringify({ type: 'system', subtype: 'turn_duration' }),
+    JSON.stringify({ type: 'attachment' }),
+    JSON.stringify({ type: 'summary' }),
+    JSON.stringify({ type: 'User', message: { content: 'x' } }),
+    JSON.stringify({ message: { stop_reason: 'end_turn' } }),
+  ]) {
+    assert.equal(turnOfLine(line), undefined, line);
+  }
+  // Wrong-typed fields inside a counting type: still a verdict, never a throw.
+  assert.equal(turnOfLine(JSON.stringify({ type: 'user', message: { content: 42 } })), 'working');
+  assert.equal(turnOfLine(JSON.stringify({ type: 'user', message: { content: [null, 7, { type: 'text', text: 9 }] } })), 'working');
+  assert.equal(turnOfLine(JSON.stringify({ type: 'user', message: 'x' })), 'working');
+  assert.equal(turnOfLine(JSON.stringify({ type: 'assistant', message: { stop_reason: 7 } })), 'working');
+  assert.equal(turnOfLine(JSON.stringify({ type: 'assistant', isApiErrorMessage: 'true', message: { stop_reason: 'tool_use' } })), 'working', 'only a real true');
+  assert.equal(turnOfLine(JSON.stringify({ type: 'user', isMeta: 'true', message: { content: 'x' } })), 'working', 'only a real true');
+  assert.equal(turnOfLine(undefined as unknown as string), undefined);
+});
+
+test('sameReport: rows, both counts and the turn all count', () => {
+  const a: AgentsReport = { agents: [], counts: { running: 1, finished: 2 }, turn: 'working' };
+  assert.equal(sameReport(undefined, undefined), true);
+  assert.equal(sameReport(a, undefined), false);
+  assert.equal(sameReport(undefined, a), false);
+  assert.equal(sameReport(a, { agents: [], counts: { running: 1, finished: 2 }, turn: 'working' }), true);
+  assert.equal(sameReport(a, { ...a, turn: 'waiting' }), false);
+  assert.equal(sameReport(a, { agents: [], counts: { running: 1, finished: 2 } }), false, 'turn absent is a change');
+  assert.equal(sameReport(a, { ...a, counts: { running: 2, finished: 2 } }), false);
+  assert.equal(sameReport(a, { ...a, counts: { running: 1, finished: 3 } }), false);
+  const row: SessionAgent = { id: 'aa', name: 'n', task: 't', startedAt: '2026-09-22T10:00:00.000Z', tokens: 1, state: 'running' };
+  assert.equal(sameReport({ ...a, agents: [row] }, { ...a, agents: [{ ...row }] }), true);
+  assert.equal(sameReport({ ...a, agents: [row] }, { ...a, agents: [{ ...row, tokens: 2 }] }), false);
+});
+
+/** The session's own transcript for the harness: `<root>/-slug/<UUID>.jsonl`. */
+function mainFile(w: Harness): string {
+  return join(w.root, '-slug', `${UUID}.jsonl`);
+}
+
+async function appendMain(w: Harness, lines: string[]): Promise<void> {
+  await appendFile(mainFile(w), lines.map((l) => `${l}\n`).join(''), { mode: 0o600 });
+}
+
+test('watcher: a MISSING transcript reads waiting — a turn-only report, no agents, no subagents dir needed', async () => {
+  // Claude Code creates the transcript at the first prompt: until then the
+  // session sits at that prompt. The subagents dir does not exist either (most
+  // sessions never spawn one), and the report still goes out.
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const report = await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 }, turn: 'waiting' });
+    await delay(120);
+    assert.equal(w.seen.length, 1, 'an unchanged turn is delivered once');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: the turn follows the transcript as it grows — prompt, tool, answer, interrupt', async () => {
+  const w = await makeWatcher();
+  try {
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    await appendMain(w, [REAL.prompt]);
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    await appendMain(w, [REAL.toolUse, REAL.toolResult]);
+    await delay(100);
+    assert.equal(w.seen[w.seen.length - 1]?.report.turn, 'working');
+    await appendMain(w, [REAL.endTurn]);
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    // A local command after the answer changes nothing.
+    await appendMain(w, [REAL.commandName, REAL.commandStdout]);
+    await delay(100);
+    assert.equal(w.seen[w.seen.length - 1]?.report.turn, 'waiting');
+    await appendMain(w, [REAL.prompt]);
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    await appendMain(w, [REAL.interrupt]);
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    // Only real changes were delivered: working, waiting, working, waiting.
+    assert.deepEqual(
+      w.seen.map((s) => s.report.turn),
+      ['working', 'waiting', 'working', 'waiting'],
+    );
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a transcript with no counting line has NO turn and says nothing', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.meta, REAL.commandName, JSON.stringify({ type: 'system' }), 'torn{']);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await delay(200);
+    assert.equal(w.seen.length, 0, 'no agents and no turn: nothing to announce');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+/** `count` filler lines of ~1 KB that do not count for the turn. */
+function filler(bytes: number): string {
+  const pad = `${JSON.stringify({ type: 'system', pad: 'x'.repeat(1_000) })}\n`;
+  return pad.repeat(Math.ceil(bytes / pad.length));
+}
+
+test('watcher: first sight reads only the TAIL — a counting line before the last MiB is never seen', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    // A prompt at the head, then more than TURN_TAIL_BYTES of lines that do
+    // not count: read from 0 the verdict would be 'working'; the tail says nothing.
+    await writeFile(mainFile(w), `${REAL.prompt}\n${filler(TURN_TAIL_BYTES + 64 * 1024)}`, { mode: 0o600 });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await delay(200);
+    assert.equal(w.seen.length, 0, `the head was read; got ${JSON.stringify(w.seen[0]?.report)}`);
+    // And from here on it is incremental: the next line is seen.
+    await appendMain(w, [REAL.endTurn]);
+    const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
+    assert.equal(report.turn, 'waiting');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: the tail drops its PARTIAL first line, and keeps one that starts exactly at the boundary', async () => {
+  // (a) A counting line straddling the boundary is dropped: its second half is
+  //     not JSON, and it must not be half-parsed either.
+  const a = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(a.root, '-slug'), { recursive: true });
+    const tail = filler(TURN_TAIL_BYTES - 100); // strictly less than the tail
+    const straddle = JSON.stringify({ type: 'user', message: { content: 'go' }, pad: 'y'.repeat(400) });
+    const body = `${filler(8 * 1024)}${straddle}\n${tail}`;
+    // The boundary (size - TAIL) falls inside `straddle`.
+    assert.ok(Buffer.byteLength(tail) < TURN_TAIL_BYTES && Buffer.byteLength(tail) + straddle.length + 1 > TURN_TAIL_BYTES);
+    await writeFile(mainFile(a), body, { mode: 0o600 });
+    a.watcher.start((id, report) => a.seen.push({ id, agents: report.agents, report }));
+    a.watcher.track('sess-1', a.dir);
+    await delay(200);
+    assert.equal(a.seen.length, 0, `the partial first line counted; got ${JSON.stringify(a.seen[0]?.report)}`);
+  } finally {
+    await a.cleanup();
+  }
+  // (b) A whole line beginning EXACTLY at size - TAIL is kept.
+  const b = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(b.root, '-slug'), { recursive: true });
+    const first = `${REAL.endTurn}\n`;
+    const rest = filler(TURN_TAIL_BYTES - first.length - 2_000);
+    const pad = TURN_TAIL_BYTES - first.length - Buffer.byteLength(rest);
+    const tail = `${first}${rest}${'z'.repeat(pad - 1)}\n`; // junk line: not JSON, skipped
+    assert.equal(Buffer.byteLength(tail), TURN_TAIL_BYTES);
+    await writeFile(mainFile(b), `${REAL.prompt}\n${filler(4 * 1024)}${tail}`, { mode: 0o600 });
+    b.watcher.start((id, report) => b.seen.push({ id, agents: report.agents, report }));
+    b.watcher.track('sess-1', b.dir);
+    const report = await waitForReport(b.seen, (r) => r.turn !== undefined);
+    assert.equal(report.turn, 'waiting', 'the line at the boundary is the verdict, not the prompt before it');
+  } finally {
+    await b.cleanup();
+  }
+});
+
+test('watcher: the main transcript SHARES the tick budget — its tail is read over several ticks', async () => {
+  const w = await makeWatcher({ create: false, readBudgetBytes: 256 * 1024 });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    // Prompt first, the answer 600 KiB later: one 256 KiB tick sees the prompt
+    // only, and the answer arrives a few ticks on.
+    await writeFile(mainFile(w), `${REAL.prompt}\n${filler(600 * 1024)}${REAL.endTurn}\n`, { mode: 0o600 });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    assert.equal(w.seen[0]?.report.turn, 'working', 'the first tick could not reach the answer');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a main transcript that SHRANK is re-read from its tail with the verdict reset', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt, REAL.toolUse, REAL.toolResult, REAL.endTurn]);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    await writeFile(mainFile(w), `${REAL.prompt}\n`, { mode: 0o600 });
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    assert.equal(w.logs.some((l) => l.includes('transcript shrank, re-reading its tail')), true, w.logs.join(' | '));
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a SYMLINK at the main transcript is refused — even one pointing inside the root — and logged once', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    const decoy = join(w.root, '-slug', `${OTHER_UUID}.jsonl`);
+    await writeFile(decoy, `${REAL.prompt}\n`, { mode: 0o600 });
+    await symlink(decoy, mainFile(w));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await delay(250);
+    assert.equal(w.seen.length, 0, `followed the symlink; got ${JSON.stringify(w.seen[0]?.report)}`);
+    const refusals = w.logs.filter((l) => l.includes('resolves outside the projects root, refused'));
+    assert.equal(refusals.length, 1, `once, not once per poll; logs ${JSON.stringify(w.logs)}`);
+    // A symlink out of the tree, to a file that would say something: same.
+    const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-out-')));
+    try {
+      await writeFile(join(outside, 'secret.jsonl'), `${REAL.endTurn}\n`, { mode: 0o600 });
+      await rm(mainFile(w));
+      await symlink(join(outside, 'secret.jsonl'), mainFile(w));
+      await delay(200);
+      assert.equal(w.seen.length, 0);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+    // Replaced by a real file: read again, and the recovery is logged.
+    await rm(mainFile(w));
+    await writeFile(mainFile(w), `${REAL.endTurn}\n`, { mode: 0o600 });
+    const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
+    assert.equal(report.turn, 'waiting');
+    assert.equal(w.logs.some((l) => l.includes('now inside the projects root, reading it again')), true);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a DANGLING symlink at the main transcript is not "missing" — no turn, never waiting', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await symlink(join(w.root, 'nowhere.jsonl'), mainFile(w));
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await delay(200);
+    assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a PARENT directory swapped for a symlink out of the root is refused per poll', async () => {
+  // subagentsDirFor checked the parent once, at track(); the watcher checks it
+  // again on every poll, so a symlink planted afterwards is caught.
+  const w = await makeWatcher({ create: false });
+  const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-parent-')));
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt]);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    await writeFile(join(outside, `${UUID}.jsonl`), `${REAL.endTurn}\n`, { mode: 0o600 });
+    await rm(join(w.root, '-slug'), { recursive: true, force: true });
+    await symlink(outside, join(w.root, '-slug'));
+    // The verdict goes AWAY (refused), it never becomes the outside file's 'waiting'.
+    const report = await waitForReport(w.seen, (r) => r.turn === undefined);
+    assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
+    await delay(150);
+    assert.equal(w.seen.some((s) => s.report.turn === 'waiting'), false);
+    assert.equal(w.logs.filter((l) => l.includes('resolves outside the projects root, refused')).length, 1);
+  } finally {
+    await w.cleanup();
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('watcher: a FIFO at the main transcript never blocks the poll and gives no turn', async () => {
+  const w = await makeWatcher();
+  try {
+    execFileSync('mkfifo', [mainFile(w)]);
+    await writeMeta(w.dir, 'ae', { agentType: 'still-polled', description: '' });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const report = await waitForReport(w.seen, (r) => r.agents.length === 1);
+    assert.equal(report.turn, undefined);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a tracked directory not shaped `<parent>/<uuid>/subagents` derives no transcript', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    const odd = join(w.root, '-slug', 'not-a-uuid', 'subagents');
+    await mkdir(odd, { recursive: true });
+    await writeFile(join(w.root, '-slug', 'not-a-uuid.jsonl'), `${REAL.prompt}\n`, { mode: 0o600 });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', odd);
+    await delay(200);
+    assert.equal(w.seen.length, 0);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+/** Plant `running` running agents (started oldest first) and `finished` finished ones (ending oldest first). */
+async function plantAgents(dir: string, running: number, finished: number): Promise<void> {
+  for (let i = 0; i < running; i++) {
+    const id = `a${i.toString(16).padStart(2, '0')}`;
+    await writeMeta(dir, id, { agentType: `run-${i}`, description: '' });
+    await appendLines(dir, id, [userLine(`2026-09-16T10:${String(i).padStart(2, '0')}:00.000Z`)]);
+  }
+  for (let i = 0; i < finished; i++) {
+    const id = `f${i.toString(16).padStart(2, '0')}`;
+    await writeMeta(dir, id, { agentType: `fin-${i}`, description: '' });
+    await appendLines(dir, id, [
+      userLine('2026-09-16T09:00:00.000Z'),
+      assistantLine(`2026-09-16T11:${String(i).padStart(2, '0')}:00.000Z`, `m${i}`, { output_tokens: 1 }, 'end_turn'),
+    ]);
+  }
+}
+
+for (const [running, finished, rows, label] of [
+  [6, 10, ['run-0', 'run-1', 'run-2', 'run-3'], '4 rows, +2 working, +10 finished'],
+  [3, 5, ['run-0', 'run-1', 'run-2', 'fin-4'], '3 rows + the latest finished, +4 finished'],
+  [4, 2, ['run-0', 'run-1', 'run-2', 'run-3'], '4 rows, +2 finished'],
+  [0, 12, ['fin-11'], '1 finished row, +11 finished'],
+] as const) {
+  test(`watcher: the list rule, B11 (d) — ${running} running + ${finished} finished → ${label}`, async () => {
+    const w = await makeWatcher();
+    try {
+      w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+      await plantAgents(w.dir, running, finished);
+      w.watcher.track('sess-1', w.dir);
+      const report = await waitForReport(w.seen, (r) => r.counts.running === running && r.counts.finished === finished);
+      assert.deepEqual(report.agents.map((r) => r.name), rows);
+      // What the frontend derives from it: `+N working` and `+N finished`.
+      const runningRows = report.agents.filter((r) => r.state === 'running').length;
+      const finishedRows = report.agents.length - runningRows;
+      assert.equal(runningRows <= MAX_RUNNING_ROWS, true);
+      assert.equal(finishedRows <= 1, true);
+      assert.equal(finishedRows === 1, running < MAX_RUNNING_ROWS, 'a finished row exactly when fewer than 4 run');
+    } finally {
+      await w.cleanup();
+    }
+  });
+}
+
+test('watcher: agents AND a turn travel in one report; the turn changing alone is a delivery', async () => {
+  const w = await makeWatcher();
+  try {
+    await plantAgents(w.dir, 1, 0);
+    await appendMain(w, [REAL.prompt, REAL.toolUse]);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const first = await waitForReport(w.seen, (r) => r.agents.length === 1 && r.turn === 'working');
+    assert.deepEqual(first.counts, { running: 1, finished: 0 });
+    const calls = w.seen.length;
+    // The orchestrator ends its turn while its agent still runs: waiting.
+    await appendMain(w, [REAL.endTurn]);
+    const next = await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    assert.equal(w.seen.length, calls + 1);
+    assert.deepEqual(next.agents.map((r) => r.name), ['run-0'], 'the rows are unchanged');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('SessionManager.setReport: a turn-only report sets `turn` and no agent fields; the turn moving is one frame', async () => {
+  const m = await makeManager();
+  try {
+    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+    const client = new FakeClient();
+    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    const base = client.infoFrames().length;
+
+    m.manager.setReport(info.id, report([], { turn: 'waiting' }));
+    assert.equal(client.infoFrames().length, base + 1);
+    const s = client.infoFrames()[base] as SessionInfo;
+    assert.equal(s.turn, 'waiting');
+    assert.equal('agents' in s, false, 'no agents: absent, never an empty table');
+    assert.equal('agentCounts' in s, false);
+
+    m.manager.setReport(info.id, report([], { turn: 'waiting' }));
+    assert.equal(client.infoFrames().length, base + 1, 'unchanged: no frame');
+
+    m.manager.setReport(info.id, report([], { turn: 'working' }));
+    assert.equal(client.infoFrames().length, base + 2);
+    assert.equal(m.manager.get(info.id)?.turn, 'working');
+
+    // Unknown again (a refused path): the field goes absent, one frame.
+    m.manager.setReport(info.id, report([]));
+    assert.equal(client.infoFrames().length, base + 3);
+    assert.equal('turn' in (client.infoFrames()[base + 2] as SessionInfo), false);
+    assert.equal(m.manager.get(info.id)?.turn, undefined);
+    m.manager.destroy(info.id);
+  } finally {
+    await m.cleanup();
+  }
+});
+
+test('SessionManager: the exit drops `turn` in the frame before `exit`, and a later report cannot bring it back', async () => {
+  const m = await makeManager();
+  try {
+    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 0.3'], cwd: m.root, cols: 80, rows: 24 });
+    const client = new FakeClient();
+    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    m.manager.setReport(info.id, report([], { turn: 'working' }));
+    assert.equal(m.manager.get(info.id)?.turn, 'working');
+
+    const deadline = Date.now() + 10_000;
+    while (m.manager.get(info.id)?.status !== 'exited') {
+      if (Date.now() >= deadline) throw new Error('the session never exited');
+      await delay(20);
+    }
+    assert.equal(m.manager.get(info.id)?.turn, undefined);
+    const exitAt = client.frames.findIndex((f) => f.type === 'exit');
+    assert.ok(exitAt > 0);
+    const before = client.frames[exitAt - 1];
+    assert.equal(before?.type, 'info', 'one info frame right before the exit');
+    assert.equal('turn' in (before as Extract<ServerMessage, { type: 'info' }>).session, false);
+
+    // A poll racing the untrack: ignored on an exited session.
+    const frames = client.frames.length;
+    m.manager.setReport(info.id, report([ROW], { turn: 'waiting' }));
+    assert.equal(m.manager.get(info.id)?.turn, undefined);
+    assert.equal(m.manager.get(info.id)?.agents, undefined);
+    assert.equal(client.frames.length, frames, 'no frame');
+    assert.equal(m.logs.some((l) => l.includes(`${info.id} agents ignored: session exited`)), true);
+    m.manager.destroy(info.id);
+  } finally {
+    await m.cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B11 test-review additions: mutants the tests above let through
+// ---------------------------------------------------------------------------
+
+test('watcher: the list rule orders by TIME, not by id — oldest-started running rows, latest-ended finished row', async () => {
+  // The ids run AGAINST the clock here, so a sort that falls back to the id
+  // (or reads startedAt where endedAt decides) picks the wrong rows. In the
+  // four-example tests above ids and times agree, which hides exactly that.
+  const w = await makeWatcher();
+  try {
+    // Five running: b0 started LAST, b4 FIRST → rows b4, b3, b2, b1.
+    for (let i = 0; i < 5; i++) {
+      await writeMeta(w.dir, `b${i}`, { agentType: `run-b${i}`, description: '' });
+      await appendLines(w.dir, `b${i}`, [userLine(`2026-09-16T10:${String(20 - i).padStart(2, '0')}:00.000Z`)]);
+    }
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const five = await waitForReport(w.seen, (r) => r.counts.running === 5);
+    assert.deepEqual(five.agents.map((r) => r.name), ['run-b4', 'run-b3', 'run-b2', 'run-b1']);
+  } finally {
+    await w.cleanup();
+  }
+
+  const v = await makeWatcher();
+  try {
+    // Two running + three finished. c1 ENDED last but STARTED first; c0 and c2
+    // bracket it on id, so neither id order nor startedAt order lands on c1.
+    await plantAgents(v.dir, 2, 0);
+    const fin: [string, string, string][] = [
+      ['c0', '2026-09-16T09:10:00.000Z', '2026-09-16T11:10:00.000Z'],
+      ['c1', '2026-09-16T09:00:00.000Z', '2026-09-16T11:30:00.000Z'],
+      ['c2', '2026-09-16T09:20:00.000Z', '2026-09-16T11:20:00.000Z'],
+    ];
+    for (const [id, start, end] of fin) {
+      await writeMeta(v.dir, id, { agentType: `fin-${id}`, description: '' });
+      await appendLines(v.dir, id, [userLine(start), assistantLine(end, `m-${id}`, { output_tokens: 1 }, 'end_turn')]);
+    }
+    v.watcher.start((id, report) => v.seen.push({ id, agents: report.agents, report }));
+    v.watcher.track('sess-1', v.dir);
+    const r = await waitForReport(v.seen, (x) => x.counts.running === 2 && x.counts.finished === 3);
+    assert.deepEqual(r.agents.map((a) => a.name), ['run-0', 'run-1', 'fin-c1'], 'the one most recently FINISHED');
+  } finally {
+    await v.cleanup();
+  }
+});
+
+test('watcher: a transcript of EXACTLY TURN_TAIL_BYTES is read from byte 0 — its first line counts', async () => {
+  // The boundary of `size > TURN_TAIL_BYTES`: at equality the whole file is
+  // the tail, so nothing is partial and the first line must not be dropped.
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    const first = `${REAL.prompt}\n`;
+    const rest = filler(TURN_TAIL_BYTES - first.length - 4_000);
+    const pad = TURN_TAIL_BYTES - first.length - Buffer.byteLength(rest);
+    const body = `${first}${rest}${'z'.repeat(pad - 1)}\n`; // last line: junk, skipped
+    assert.equal(Buffer.byteLength(body), TURN_TAIL_BYTES);
+    await writeFile(mainFile(w), body, { mode: 0o600 });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
+    assert.equal(report.turn, 'working', 'the prompt at byte 0 is the verdict');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: NO stale rule for the turn — a long tool call hours old still reads working', async () => {
+  // Agents go stale after STALE_MS; the session's own turn never does
+  // (PLAN-B11 § The turn rule: "a long tool call is still working").
+  const w = await makeWatcher({ create: false, now: () => Date.now() + 24 * 60 * 60 * 1000 });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt, REAL.toolUse]);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
+    assert.equal(report.turn, 'working');
+    await delay(150);
+    assert.deepEqual(w.seen.map((s) => s.report.turn), ['working'], 'never flips to waiting by age');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a MISSING PARENT directory is not a missing transcript — no turn, never waiting', async () => {
+  // Only `<parent>/<uuid>.jsonl` absent inside an existing parent — or a slug
+  // folder that is ONE missing component directly under the real root (B11
+  // F1, pending) — means "at the first prompt". A parent missing deeper than
+  // that, or missing outside the root, may not be read at all.
+  const w = await makeWatcher({ create: false });
+  const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-noparent-')));
+  try {
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    // Two missing components: `<root>/-a` and `<root>/-a/-b`.
+    w.watcher.track('sess-deep', join(w.root, '-a', '-b', UUID, 'subagents'));
+    // One missing component — but under a directory that is NOT the root.
+    w.watcher.track('sess-outside', join(outside, '-slug', UUID, 'subagents'));
+    // One missing component under a subfolder of the root, not the root itself.
+    await mkdir(join(w.root, '-x'), { recursive: true });
+    w.watcher.track('sess-nested', join(w.root, '-x', '-slug', UUID, 'subagents'));
+    await delay(200);
+    assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0])}`);
+  } finally {
+    await w.cleanup();
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('subagentsDirFor: a slug folder that is ONE missing component under the real root is accepted (pending), nothing else', async () => {
+  const r = await makeRoot();
+  try {
+    // Claude Code has never opened this folder: `<root>/<slug>` is not there.
+    const fresh = join(r.root, '-home-u-projects-new');
+    assert.equal(subagentsDirFor(join(fresh, `${UUID}.jsonl`), r.root), join(fresh, UUID, 'subagents'));
+    // Two missing components.
+    assert.equal(subagentsDirFor(join(r.root, '-a', '-b', `${UUID}.jsonl`), r.root), null);
+    // One missing component under a subfolder of the root, not the root itself.
+    assert.equal(subagentsDirFor(join(r.slug, '-deeper', `${UUID}.jsonl`), r.root), null);
+    // One missing component outside the root.
+    assert.equal(subagentsDirFor(join(r.base, '-slug', `${UUID}.jsonl`), r.root), null);
+    // A DANGLING symlink wearing the slug's name exists for lstat: not pending.
+    await symlink(join(r.base, 'nowhere'), join(r.root, '-dangling'));
+    assert.equal(subagentsDirFor(join(r.root, '-dangling', `${UUID}.jsonl`), r.root), null);
+    // The lexical checks still come first: a bad name is refused even when pending.
+    assert.equal(subagentsDirFor(join(fresh, 'not-a-uuid.jsonl'), r.root), null);
+    assert.equal(subagentsDirFor(`${fresh}/../-evil/${UUID}.jsonl`, r.root), null);
+    // A root reached through a symlink: the pending path is built from the REAL root.
+    const alias = join(r.base, 'alias');
+    await symlink(r.root, alias);
+    assert.equal(
+      subagentsDirFor(join(alias, '-home-u-projects-new', `${UUID}.jsonl`), r.root),
+      join(r.root, '-home-u-projects-new', UUID, 'subagents'),
+    );
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test('watcher: PENDING slug folder — waiting, then the folder appears and the transcript is read (tool_use → working)', async () => {
+  const w = await makeWatcher({ create: false }); // `<root>/-slug` does not exist
+  try {
+    const dir = subagentsDirFor(mainFile(w), w.root);
+    assert.equal(dir, w.dir, 'index.ts would track it');
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    const first = await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    assert.deepEqual(first, { agents: [], counts: { running: 0, finished: 0 }, turn: 'waiting' });
+    // The first prompt: Claude Code creates the folder and the transcript.
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt, REAL.toolUse]);
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    // And its subagents are read from the same, now real, folder.
+    await mkdir(w.dir, { recursive: true });
+    await writeMeta(w.dir, 'ab', { agentType: 'late', description: '' });
+    const withAgent = await waitForReport(w.seen, (r) => r.agents.length === 1);
+    assert.equal(withAgent.turn, 'working');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: PENDING slug folder created as a SYMLINK out of the root is refused — no turn, no agents', async () => {
+  const w = await makeWatcher({ create: false });
+  const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-pendsym-')));
+  try {
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    // What the outside tree would say, if it were read: a verdict and an agent.
+    await writeFile(join(outside, `${UUID}.jsonl`), `${REAL.prompt}\n`, { mode: 0o600 });
+    await mkdir(join(outside, UUID, 'subagents'), { recursive: true });
+    await writeMeta(join(outside, UUID, 'subagents'), 'cd', { agentType: 'stolen', description: '' });
+    await symlink(outside, join(w.root, '-slug'));
+    const report = await waitForReport(w.seen, (r) => r.turn === undefined);
+    assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
+    await delay(150);
+    assert.equal(w.seen.some((s) => s.report.turn === 'working' || s.agents.length > 0), false, JSON.stringify(w.seen));
+    assert.equal(w.logs.some((l) => l.includes('resolves outside the projects root, refused')), true, w.logs.join(' | '));
+  } finally {
+    await w.cleanup();
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('watcher: the tick budget is shared ROUND ROBIN — a busy first session cannot starve a later one', async () => {
+  // 256 KiB per tick. Session A (tracked first) needs its whole 1 MiB tail read
+  // before its verdict: 5 ticks. Session B needs one small line. In a fixed
+  // order B would get nothing until A caught up; round robin starts B first
+  // within two ticks, so B's verdict arrives while A is still reading.
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentrr-')));
+  const seen: Seen[] = [];
+  const watcher = new AgentsWatcher(() => {}, { projectsRoot: root, pollMs: 40, readBudgetBytes: 256 * 1024 });
+  try {
+    const slugA = join(root, '-a');
+    const slugB = join(root, '-b');
+    await mkdir(slugA, { recursive: true });
+    await mkdir(slugB, { recursive: true });
+    await writeFile(join(slugA, `${UUID}.jsonl`), `${filler(2 * 1024 * 1024)}${REAL.endTurn}\n`, { mode: 0o600 });
+    await writeFile(join(slugB, `${OTHER_UUID}.jsonl`), `${REAL.prompt}\n`, { mode: 0o600 });
+    watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
+    watcher.track('sess-a', join(slugA, UUID, 'subagents'));
+    watcher.track('sess-b', join(slugB, OTHER_UUID, 'subagents'));
+    const deadline = Date.now() + 10_000;
+    while (!seen.some((s) => s.id === 'sess-a' && s.report.turn === 'waiting')) {
+      if (Date.now() >= deadline) throw new Error(`A never got its verdict; ${JSON.stringify(seen.map((s) => [s.id, s.report.turn]))}`);
+      await delay(10);
+    }
+    const order = seen.map((s) => `${s.id}:${s.report.turn}`);
+    assert.equal(order[0], 'sess-b:working', `B went first, while A was still reading; order ${JSON.stringify(order)}`);
+    assert.deepEqual(order, ['sess-b:working', 'sess-a:waiting']);
+  } finally {
+    watcher.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('watcher: the 4 MiB PER-FILE cap holds on the main transcript — a 5 MiB growth takes at least two ticks', async () => {
+  // A 64 MiB tick budget would read it all at once; MAX_READ_PER_POLL must
+  // not. `now()` is called once per session per tick (the report), so it
+  // doubles as a tick counter.
+  let ticks = 0;
+  const w = await makeWatcher({
+    create: false,
+    readBudgetBytes: 64 * 1024 * 1024,
+    now: () => {
+      ticks++;
+      return Date.now();
+    },
+  });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt]);
+    const at: number[] = [];
+    w.watcher.start((id, report) => {
+      at.push(ticks);
+      w.seen.push({ id, agents: report.agents, report });
+    });
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    const before = ticks; // every tick up to here saw none of the growth
+    await appendFile(mainFile(w), `${filler(5 * 1024 * 1024)}${REAL.endTurn}\n`, { mode: 0o600 });
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    const verdictTick = at[at.length - 1] as number;
+    assert.equal(verdictTick - before >= 2, true, `verdict ${verdictTick - before} tick(s) after the growth began`);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B11 mutation gate: tests for the mutants the suite above let through
+// ---------------------------------------------------------------------------
+
+/** Permission-based refusals mean nothing to root (CAP_DAC_OVERRIDE reads everything). */
+const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
+
+test('subagentsDirFor: a slug name the filesystem cannot even look up (ENAMETOOLONG) is not pending', async () => {
+  // pendingSlug accepts ONLY a truly missing folder (lstat ENOENT); any other
+  // lstat error — here a 300-byte component — is a refusal, not "not there yet".
+  const r = await makeRoot();
+  try {
+    assert.equal(subagentsDirFor(join(r.root, 's'.repeat(300), `${UUID}.jsonl`), r.root), null);
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test('watcher: a tracked directory whose last component is not `subagents` derives no transcript', async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt]); // `<root>/-slug/<UUID>.jsonl` would say working
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', join(w.root, '-slug', UUID, 'elsewhere'));
+    await delay(200);
+    assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a main transcript under a SIBLING of the root (`<root>-evil`) is refused, not prefix-matched', async () => {
+  const w = await makeWatcher({ create: false });
+  const evil = `${w.root}-evil`;
+  try {
+    await mkdir(join(evil, '-slug'), { recursive: true });
+    await writeFile(join(evil, '-slug', `${UUID}.jsonl`), `${REAL.prompt}\n`, { mode: 0o600 });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', join(evil, '-slug', UUID, 'subagents'));
+    await delay(200);
+    assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
+    assert.equal(w.logs.some((l) => l.includes('resolves outside the projects root, refused')), true, w.logs.join(' | '));
+  } finally {
+    await w.cleanup();
+    await rm(evil, { recursive: true, force: true });
+  }
+});
+
+test('watcher: a transcript that cannot be looked up (EACCES) is not "missing" — no turn, never waiting', { skip: ROOT_USER }, async () => {
+  // Only lstat ENOENT means "at the first prompt"; a parent folder this user
+  // may not search is an unreadable transcript, not an absent one.
+  const w = await makeWatcher({ create: false });
+  const parent = join(w.root, '-slug');
+  try {
+    await mkdir(parent, { recursive: true });
+    await appendMain(w, [REAL.endTurn]);
+    await chmod(parent, 0o600); // no search bit: realpath and lstat of the file fail EACCES
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await delay(200);
+    assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
+  } finally {
+    await chmod(parent, 0o700).catch(() => {});
+    await w.cleanup();
+  }
+});
+
+test('watcher: a main transcript that becomes UNOPENABLE loses its verdict — the old one is not kept', { skip: ROOT_USER }, async () => {
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    await appendMain(w, [REAL.prompt]);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.turn === 'working');
+    await chmod(mainFile(w), 0o000); // realpath still resolves; open() is EACCES
+    const report = await waitForReport(w.seen, (r) => r.turn === undefined);
+    assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
+  } finally {
+    await chmod(mainFile(w), 0o600).catch(() => {});
+    await w.cleanup();
+  }
+});
+
+test('watcher: the tail RESYNCS — a partial first line that would parse from mid-line is still dropped', async () => {
+  // The line straddling the boundary is `xxx… {"type":"user",…}`: not JSON as a
+  // whole, but its bytes from the boundary on (`␠{…}`, the read starts one byte
+  // early) ARE. Only the resync keeps that half from counting as 'working'.
+  const w = await makeWatcher({ create: false });
+  try {
+    await mkdir(join(w.root, '-slug'), { recursive: true });
+    const json = JSON.stringify({ type: 'user', message: { content: 'go' } });
+    const rest = filler(TURN_TAIL_BYTES - json.length - 1 - 3_000);
+    const pad = TURN_TAIL_BYTES - json.length - 1 - Buffer.byteLength(rest);
+    const tail = `${json}\n${rest}${'z'.repeat(pad - 1)}\n`; // last line: junk, skipped
+    assert.equal(Buffer.byteLength(tail), TURN_TAIL_BYTES);
+    await writeFile(mainFile(w), `${filler(8 * 1024)}${'x'.repeat(500)} ${tail}`, { mode: 0o600 });
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await delay(200);
+    assert.equal(w.seen.length, 0, `the partial first line counted; got ${JSON.stringify(w.seen[0]?.report)}`);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: bytes read from the MAIN transcript are spent from the tick budget — agents wait their turn', async () => {
+  // 256 KiB per tick and a 1 MiB tail on the main transcript: the first tick's
+  // budget is gone before the agent's transcript is reached, so the agent row
+  // first appears from its meta alone (0 tokens), and its tokens only later.
+  const w = await makeWatcher({ readBudgetBytes: 256 * 1024 });
+  try {
+    await writeFile(mainFile(w), filler(2 * 1024 * 1024), { mode: 0o600 });
+    await writeMeta(w.dir, 'ad', { agentType: 'budgeted', description: '' });
+    await appendLines(w.dir, 'ad', [userLine('2026-09-16T10:00:00.000Z'), assistantLine('2026-09-16T10:00:01.000Z', 'm1', { output_tokens: 7 })]);
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    w.watcher.track('sess-1', w.dir);
+    await waitForReport(w.seen, (r) => r.agents[0]?.tokens === 7);
+    assert.equal(w.seen[0]?.report.agents[0]?.tokens, 0, `the main read did not spend the budget; ${JSON.stringify(w.seen[0]?.report)}`);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a session untracked by the consumer MID-SWEEP is not polled on its stale record', async () => {
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentsweep-')));
+  const seen: string[] = [];
+  const watcher = new AgentsWatcher(() => {}, { projectsRoot: root, pollMs: 20 });
+  try {
+    for (const [slug, uuid] of [['-a', UUID], ['-b', OTHER_UUID]] as const) {
+      await mkdir(join(root, slug), { recursive: true });
+      await writeFile(join(root, slug, `${uuid}.jsonl`), `${REAL.prompt}\n`, { mode: 0o600 });
+    }
+    // Tracked before start: the first sweep (tick 0) visits A, then B.
+    watcher.track('sess-a', join(root, '-a', UUID, 'subagents'));
+    watcher.track('sess-b', join(root, '-b', OTHER_UUID, 'subagents'));
+    watcher.start((id) => {
+      seen.push(id);
+      if (id === 'sess-a') watcher.untrack('sess-b'); // e.g. B exited meanwhile
+    });
+    const deadline = Date.now() + 5_000;
+    while (!seen.includes('sess-a')) {
+      if (Date.now() >= deadline) throw new Error('A never reported');
+      await delay(10);
+    }
+    await delay(100);
+    assert.deepEqual(seen, ['sess-a'], 'B was untracked before its turn in the same sweep');
+  } finally {
+    watcher.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('SessionManager.setReport: only the FINISHED total moving is a change too — one frame', async () => {
+  const m = await makeManager();
+  try {
+    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+    const client = new FakeClient();
+    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    m.manager.setReport(info.id, report([ROW], { counts: { running: 1, finished: 0 } }));
+    const n = client.infoFrames().length;
+    m.manager.setReport(info.id, report([ROW], { counts: { running: 1, finished: 3 } }));
+    assert.equal(client.infoFrames().length, n + 1);
+    assert.deepEqual(m.manager.get(info.id)?.agentCounts, { running: 1, finished: 3 });
+    m.manager.destroy(info.id);
+  } finally {
+    await m.cleanup();
   }
 });

@@ -781,7 +781,7 @@ function beginListening(): void {
       else log('debug', `[agents] ${id}: transcript path refused: ${oneLine(transcript)}`);
     }
   });
-  agents.start((id, list) => sessions.setAgents(id, list));
+  agents.start((id, report) => sessions.setReport(id, report));
   server.listen(portHint, '127.0.0.1');
 }
 

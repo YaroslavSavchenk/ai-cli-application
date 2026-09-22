@@ -23,6 +23,11 @@
  *      pane's 15 s tick moves it), a finished one against its own `endedAt`
  *      (so it stands still and states what it took, not how long ago it ran).
  *   5. NO ROW IS EVER `attention` — a subagent asks the user nothing (B7).
+ *   7. `agentTable` (B11): behind the `paneAgents` switch (default OFF → no
+ *      table), the user's four many-agents examples as the server sends them
+ *      (≤ 4 running rows, ≤ 1 finished row, `agentCounts` totals) → the right
+ *      `+N working` / `+N finished`, a 0 stays 0 (the renderer then draws no
+ *      word), and a broken or missing total never goes negative.
  *
  * NOT claimed here: that anything is rendered or legible. The renderer is
  * `web/src/ui/pane-agents.ts` (pinned structurally by `tests/ui-pane-a3.test.ts`)
@@ -35,9 +40,11 @@ import { join } from 'node:path';
 import type { SessionAgent, SessionInfo } from '../shared/protocol.ts';
 import {
   agentRows,
+  agentTable,
   formatDuration,
   formatTokens,
 } from '../web/src/ui/pane-agents-model.ts';
+import { statusLineDefaults } from '../web/src/ui/statusline-model.ts';
 import type { AgentRow } from '../web/src/ui/pane-agents.ts';
 import { projectRoot } from './helpers.ts';
 
@@ -308,4 +315,104 @@ test('the model imports no DOM module and reads no clock of its own', () => {
   assert.match(code, /now:\s*number\s*=\s*Date\.now\(\)/, 'and it IS that default');
   // The type import from the renderer is type-only: no DOM is pulled in.
   assert.match(code, /import type \{ AgentRow \} from '\.\/pane-agents\.ts'/);
+});
+
+// ---------------------------------------------------------------------------
+// 7. agentTable (B11): the switch, and the counts behind the rows
+// ---------------------------------------------------------------------------
+
+const ON = { ...statusLineDefaults(), paneAgents: true };
+
+/** What the server sends for `running` running + `finished` finished agents (PLAN-B11 § The agents list). */
+function served(running: number, finished: number): SessionInfo {
+  const agents: SessionAgent[] = [];
+  for (let i = 0; i < Math.min(4, running); i++) {
+    agents.push(agent({ id: `r${i}`, name: `run-${i}`, startedAt: at(-(10 - i) * MIN) }));
+  }
+  if (running < 4 && finished > 0) {
+    agents.push(agent({ id: 'f0', name: 'done-latest', state: 'finished', startedAt: at(-20 * MIN), endedAt: at(-MIN) }));
+  }
+  return session({ agents, agentCounts: { running, finished } });
+}
+
+const shape = (t: ReturnType<typeof agentTable>) => ({
+  rows: t.rows.map((r) => r.dot),
+  moreWorking: t.moreWorking,
+  moreFinished: t.moreFinished,
+});
+
+test('the switch is OFF by factory default, and off means no table at all', () => {
+  assert.equal(statusLineDefaults().paneAgents, false, 'default OFF (user, 2026-09-22)');
+  assert.deepEqual(agentTable(served(6, 10), statusLineDefaults(), NOW), {
+    rows: [],
+    moreWorking: 0,
+    moreFinished: 0,
+  });
+});
+
+test('switched on, the honesty rules of agentRows still hold: no session, another tool, no agents -> empty', () => {
+  const empty = { rows: [], moreWorking: 0, moreFinished: 0 };
+  assert.deepEqual(agentTable(undefined, ON, NOW), empty);
+  assert.deepEqual(agentTable({ ...served(6, 10), command: '/bin/bash' }, ON, NOW), empty);
+  assert.deepEqual(agentTable(session(), ON, NOW), empty);
+  // Totals without a list is not a table either (the server never sends that).
+  assert.deepEqual(agentTable(session({ agents: [], agentCounts: { running: 3, finished: 1 } }), ON, NOW), empty);
+});
+
+test('6 running + 10 finished -> 4 rows, +2 working, +10 finished', () => {
+  assert.deepEqual(shape(agentTable(served(6, 10), ON, NOW)), {
+    rows: ['running', 'running', 'running', 'running'],
+    moreWorking: 2,
+    moreFinished: 10,
+  });
+});
+
+test('3 running + 5 finished -> 3 rows + 1 finished row, +4 finished, no working count', () => {
+  assert.deepEqual(shape(agentTable(served(3, 5), ON, NOW)), {
+    rows: ['running', 'running', 'running', 'finished'],
+    moreWorking: 0,
+    moreFinished: 4,
+  });
+});
+
+test('4 running + 2 finished -> 4 rows, +2 finished', () => {
+  assert.deepEqual(shape(agentTable(served(4, 2), ON, NOW)), {
+    rows: ['running', 'running', 'running', 'running'],
+    moreWorking: 0,
+    moreFinished: 2,
+  });
+});
+
+test('0 running + 12 finished -> 1 finished row, +11 finished', () => {
+  assert.deepEqual(shape(agentTable(served(0, 12), ON, NOW)), {
+    rows: ['finished'],
+    moreWorking: 0,
+    moreFinished: 11,
+  });
+});
+
+test('everything fits -> both counts 0 (nothing beyond the rows to count)', () => {
+  assert.deepEqual(shape(agentTable(served(2, 1), ON, NOW)), {
+    rows: ['running', 'running', 'finished'],
+    moreWorking: 0,
+    moreFinished: 0,
+  });
+});
+
+test('the rows are agentRows verbatim — the table neither re-sorts nor re-caps', () => {
+  const info = served(6, 10);
+  assert.deepEqual(agentTable(info, ON, NOW).rows, agentRows(info, NOW));
+});
+
+test('a missing, broken or too-small total reads 0, never a negative or fractional count', () => {
+  const base = served(3, 5);
+  const bad: unknown[] = [undefined, { running: -4, finished: -1 }, { running: NaN, finished: Infinity }, { running: '9', finished: null }, { running: 1, finished: 0 }];
+  for (const counts of bad) {
+    const t = agentTable({ ...base, agentCounts: counts as SessionInfo['agentCounts'] }, ON, NOW);
+    assert.equal(t.rows.length, 4, `${JSON.stringify(counts)}: the rows still draw`);
+    assert.equal(t.moreWorking, 0, `${JSON.stringify(counts)}: working`);
+    assert.equal(t.moreFinished, 0, `${JSON.stringify(counts)}: finished`);
+  }
+  const frac = agentTable({ ...base, agentCounts: { running: 5.9, finished: 3.2 } }, ON, NOW);
+  assert.deepEqual([frac.moreWorking, frac.moreFinished], [2, 2]);
 });

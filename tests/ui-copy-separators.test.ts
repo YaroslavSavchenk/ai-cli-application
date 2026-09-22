@@ -13,7 +13,8 @@
  *      its reason; a stale entry fails, so the list cannot quietly outlive
  *      what it excuses.
  *   2. THE STATE WORDS are fixed: `Working`, `Needs your answer`, `Finished`,
- *      `Needs you`. The Legacy vocabulary (`awaiting input`, `waiting for
+ *      `Needs you`, and since B11 `Waiting for you` — written ONCE, in
+ *      `ui/session-state.ts`, which the drawer row and the pane dot read. The Legacy vocabulary (`awaiting input`, `waiting for
  *      input`, `needs input`, a bare `running` as a LABEL) may not come back.
  *      Matched as exact label literals — `running` as an identifier, a
  *      protocol value (`status === 'running'`) or a CSS class stays legal, and
@@ -226,8 +227,9 @@ test('the separator scan actually reads the chrome (non-vacuity: files, literals
     ['main.ts', 'New session'],
     ['ui/statusline.ts', 'Keyboard shortcuts'],
     ['ui/tabs.ts', 'Needs you'],
-    ['ui/sessions.ts', 'Working'],
-    ['ui/panes.ts', 'Needs your answer'],
+    ['ui/session-state.ts', 'Working'],
+    ['ui/session-state.ts', 'Needs your answer'],
+    ['ui/panes.ts', 'Own tab'],
     // Nocturne A4: the New session dialog's own copy and its display tables.
     ['ui/launch.ts', 'Start session'],
     ['ui/launch.ts', 'No projects yet. This one opens in your home folder.'],
@@ -290,27 +292,33 @@ test('the separator allowlist has no stale entries, and ui/theme.ts is wired to 
 // The state words
 // ---------------------------------------------------------------------------
 
-/** Files that name a session's state to the user. */
-const STATE_FILES = ['ui/sessions.ts', 'ui/panes.ts', 'ui/tabs.ts'] as const;
+/** Files that name a session's state to the user (B11: the words live in session-state.ts). */
+const STATE_FILES = ['ui/session-state.ts', 'ui/sessions.ts', 'ui/panes.ts', 'ui/tabs.ts'] as const;
 
-test('the four Nocturne state words are the ones the chrome renders', () => {
-  // Per file, exactly what that surface says today — the drawer rows and the
-  // pane dot name a session, the tab pill names a TAB holding one.
+test('the Nocturne state words are the ones the chrome renders', () => {
+  // Since B11 a session's state word is written once — `readoutWord` in
+  // ui/session-state.ts — and the drawer row and the pane dot both read it;
+  // the tab pill names a TAB holding one and keeps its own literal.
   const has = (file: string, text: string): boolean =>
     (litsOf.get(file) as Lit[]).some((l) => l.text === text || l.text.startsWith(`${text} `));
-  assert.ok(has('ui/sessions.ts', 'Working'), 'the drawer row says Working');
-  assert.ok(has('ui/sessions.ts', 'Needs your answer'), 'the drawer row says Needs your answer');
+  for (const word of ['Working', 'Needs your answer', 'Finished', 'Waiting for you']) {
+    assert.ok(has('ui/session-state.ts', word), `the readout says ${word}`);
+  }
+  for (const file of ['ui/sessions.ts', 'ui/panes.ts']) {
+    assert.match(
+      src(file),
+      /import \{[^}]*\breadoutWord\b[^}]*\} from '\.\/session-state\.ts';/,
+      `${file} takes its state word from the one readout`,
+    );
+  }
   assert.ok(
-    (litsOf.get('ui/sessions.ts') as Lit[]).some((l) => l.text.startsWith('Finished')),
-    'the drawer row says Finished (it appends the exit code)',
+    (litsOf.get('ui/panes.ts') as Lit[]).some((l) => l.text.startsWith('Finished, code')),
+    'the pane pill title says Finished, code N',
   );
-  assert.ok(has('ui/panes.ts', 'Working'), 'the pane dot says Working');
-  assert.ok(has('ui/panes.ts', 'Needs your answer'), 'the pane dot says Needs your answer');
-  assert.ok(has('ui/panes.ts', 'Finished'), 'the pane dot says Finished');
   assert.ok(has('ui/tabs.ts', 'Needs you'), 'the tab pill says Needs you');
-  // And the four words exist across the three files as a set.
+  // And the five words exist across the files as a set.
   const all = STATE_FILES.flatMap((f) => (litsOf.get(f) as Lit[]).map((l) => l.text));
-  for (const word of ['Working', 'Needs your answer', 'Finished', 'Needs you']) {
+  for (const word of ['Working', 'Needs your answer', 'Finished', 'Needs you', 'Waiting for you']) {
     assert.ok(
       all.some((t) => t === word || t.startsWith(`${word} `) || t.startsWith(`${word},`)),
       `no chrome literal says ${JSON.stringify(word)}`,
@@ -385,8 +393,8 @@ test('`running` survives only as a protocol value, never as a rendered label', (
   // Non-vacuity: the protocol value IS still there (this check must be able to
   // tell the two apart, not simply find nothing anywhere).
   assert.ok(
-    (litsOf.get('ui/sessions.ts') as Lit[]).some((l) => l.text === 'running'),
-    'ui/sessions.ts must still compare against the protocol value',
+    (litsOf.get('ui/session-state.ts') as Lit[]).some((l) => l.text === 'running'),
+    'ui/session-state.ts must still compare against the protocol value',
   );
 });
 

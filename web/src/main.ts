@@ -714,7 +714,9 @@ function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
   initPanes(grid, () => openLaunchDialog());
 
   function updateChrome(): void {
-    const n = st.attentionCount();
+    // The same set as the statusline's `N waiting for you` (B11): BELs and
+    // sessions whose Claude ended its turn, each once.
+    const n = st.needsYouCount();
     sessionsBadge.hidden = n === 0;
     sessionsBadge.textContent = String(n);
     projAside.hidden = st.state.drawer !== 'projects';

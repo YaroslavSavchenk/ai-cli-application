@@ -1165,9 +1165,15 @@ multi-pane layouts on top.
   total across unique `message.id`s (input + cache creation + cache read +
   output — a 15-minute agent reads `12.5M`), finished when the last
   user/assistant line is an assistant `end_turn` or the file has not grown
-  for 15 min (a killed agent leaves no marker). Wire list: running first
-  (oldest first), then at most 3 finished (newest first), at most 8 rows;
-  64 agents tracked per session. The table is never rendered empty, never
+  for 15 min (a killed agent leaves no marker). Wire list (B11, replacing
+  B7's 3 finished / 8 rows): at most 4 running rows (oldest first), then —
+  only when fewer than 4 run — the one most recently finished;
+  `SessionInfo.agentCounts` carries the totals so the table ends in
+  `+N working` / `+N finished` and nothing is silently hidden; 64 agents
+  tracked per session. Since B11 the table shows only when Settings →
+  Status bar → "Background agents under the terminal" (`paneAgents`,
+  default OFF) is on: Claude Code draws its own task list inside the
+  terminal and cannot hide it. The table is never rendered empty, never
   for a non-claude session, keeps its rows after exit, and its ink and
   both hairlines under the terminal take the terminal theme's steps (the
   B9 constraint). Tracking stops at exit and removal, and at exit every row still
@@ -1176,6 +1182,25 @@ multi-pane layouts on top.
   frame before `exit`; a snapshot for a dead or unknown session is
   ignored. No hooks, no env var, nothing
   written under `~/.claude`.
+- **Session state: Working vs. Waiting for you — Nocturne B11 (decided
+  2026-09-22, user's call).** A PTY does not say whether the program is
+  generating or idle, so a Claude session's readout comes from its OWN
+  transcript (`<uuid>.jsonl`, derived from the tracked subagents dir, the
+  same boundary and budgets as B7, first sight reads the last 1 MiB only):
+  the last line that counts decides — an assistant `end_turn` /
+  `stop_sequence` / `refusal` / `max_tokens`, a synthetic API error, or a
+  user interrupt → `waiting`; a prompt, a tool result, a task
+  notification, an assistant `tool_use` → `working`; local slash commands
+  and meta lines do not count. A transcript that does not exist yet (the
+  first prompt) reads `waiting`. `SessionInfo.turn` carries it, dropped at
+  exit. Readout order: Needs your answer (BEL, amber pulsing) > Finished
+  (grey) > Waiting for you (amber still) > Working (green pulsing, turn
+  known) > Working (green still, no turn readout — every non-claude
+  session). The statusline's `N waiting for you` and the top bar's
+  Sessions badge count BEL + waiting sessions; the tab's `Needs you` pill,
+  `attention`, `seen` and every notification stay BEL-only. Known limit:
+  Claude Code's permission prompt writes nothing to the transcript, so it
+  reads Working unless the BEL fires.
 - **Project creation + GitHub integration — GO given 2026-07-23, user's
   call; shape decided the same day.** The app stops being a passive
   registrar of existing directories and can *create* projects itself, and

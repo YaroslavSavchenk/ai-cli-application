@@ -129,6 +129,11 @@ select:focus-visible,
 }
 
 /* ---- status dots: green running / pulsing amber attention / neutral exited - */
+/* B11 (ui/session-state.ts): a claude session's transcript splits "running"
+   in two — pulsing green is-work (Claude generates or runs a tool) and still
+   amber is-wait (it ended its turn). is-run stays still green for a session
+   nothing reads a turn from (a shell, no transcript): a pulse there would
+   claim knowledge the app does not have. */
 
 .dot {
   flex: none;
@@ -144,6 +149,23 @@ select:focus-visible,
 .dot.is-attn {
   background: var(--color-attn);
   animation: pulse var(--t-pulse) infinite;
+}
+
+.dot.is-work {
+  background: var(--color-ok);
+  animation: pulse var(--t-pulse) infinite;
+}
+
+.dot.is-wait {
+  background: var(--color-attn);
+}
+
+/* Working without the motion: the pill still says it, and the dot keeps the
+   green. */
+@media (prefers-reduced-motion: reduce) {
+  .dot.is-work {
+    animation: none;
+  }
 }
 
 /* A2: Nocturne draws a finished session as a filled neutral dot, not a
@@ -812,6 +834,12 @@ select:focus-visible,
   color: var(--color-attn);
 }
 
+/* B11: waiting for the user's next prompt — the amber word, no tint. The tint
+   stays the BEL's: a question is louder than an ended turn. */
+.pane-state.is-wait {
+  color: var(--color-attn);
+}
+
 .pane-state.is-exit {
   color: var(--color-neutral-600);
 }
@@ -1242,6 +1270,24 @@ select:focus-visible,
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--xt-bright-black);
+}
+
+/* B11: the agents the list leaves out, counted — `+2 working` `+10 finished`
+   on one quiet line under the rows, indented to the name column (the 6px dot
+   plus the row gap), two words spaced apart and nothing between them (copy
+   rule). The working count takes the task step (it is live), the finished
+   count the quiet step; both are theme inks (B9). */
+.pane-agents-more {
+  display: flex;
+  gap: var(--space-4);
+  padding-left: calc(6px + var(--space-3));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--xt-bright-black);
+}
+
+.pane-agents-more-n.is-working {
+  color: color-mix(in srgb, var(--xt-fg) 33%, var(--xt-bright-black));
 }
 
 /* ---- file pane (Nocturne A10) -------------------------------------------------
@@ -1736,7 +1782,8 @@ select:focus-visible,
   color: var(--color-neutral-600);
 }
 
-.sess-meta.is-attn {
+.sess-meta.is-attn,
+.sess-meta.is-wait {
   color: var(--color-attn);
 }
 

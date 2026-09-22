@@ -441,6 +441,50 @@ test("viewStatus: a tab with no session in it is 'none' — a dot there would re
   assert.equal(st.viewStatus(mkView([ed('a.ts'), sess('s1')])), 'run');
 });
 
+test("viewStatus (B11): the tab dot follows the session readout — attn > wait > work > run > exit", () => {
+  st.state.sessions.clear();
+  const working = mkSession('s1');
+  working.turn = 'working';
+  const waiting = mkSession('s2');
+  waiting.turn = 'waiting';
+  const plain = mkSession('s3'); // no turn readout: a shell, or no transcript
+  const exited = mkSession('s4');
+  exited.status = 'exited';
+  exited.turn = 'waiting'; // stale: exited beats it
+  const attn = mkSession('s5');
+  attn.attention = true;
+  attn.turn = 'working';
+  for (const s of [working, waiting, plain, exited, attn]) st.state.sessions.set(s.id, s);
+  assert.equal(st.viewStatus(mkView([sess('s1'), sess('s2'), sess('s5')])), 'attn', 'a BEL wins');
+  assert.equal(st.viewStatus(mkView([sess('s1'), sess('s2'), sess('s3')])), 'wait', 'an ended turn beats work');
+  assert.equal(st.viewStatus(mkView([sess('s3'), sess('s1')])), 'work', 'known work pulses over plain running');
+  assert.equal(st.viewStatus(mkView([sess('s4'), sess('s3')])), 'run', 'no turn readout stays still green');
+  assert.equal(st.viewStatus(mkView([sess('s4')])), 'exit', 'a stale turn on an exited session is ignored');
+  // The tab's `Needs you` PILL stays BEL-only.
+  assert.equal(st.viewAttention(mkView([sess('s2')])), false, 'waiting is not attention');
+  st.state.sessions.clear();
+});
+
+test('needsYouCount (B11) counts BELs AND ended turns, each session once; attentionCount stays BEL-only', () => {
+  st.state.sessions.clear();
+  const both = mkSession('s1');
+  both.attention = true;
+  both.turn = 'waiting'; // one session, counted once
+  const waiting = mkSession('s2');
+  waiting.turn = 'waiting';
+  const working = mkSession('s3');
+  working.turn = 'working';
+  const plain = mkSession('s4');
+  const exited = mkSession('s5');
+  exited.status = 'exited';
+  exited.turn = 'waiting';
+  for (const s of [both, waiting, working, plain, exited]) st.state.sessions.set(s.id, s);
+  assert.equal(st.needsYouCount(), 2);
+  assert.equal(st.attentionCount(), 1, 'notifications, seen and the taskbar flash still count BELs only');
+  st.state.sessions.clear();
+  assert.equal(st.needsYouCount(), 0);
+});
+
 test('viewAttention reads SESSIONS only — a file never asks for anything', () => {
   const attn = mkSession('s1');
   attn.attention = true;

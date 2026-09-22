@@ -378,6 +378,26 @@ test('each item is drawn by ITS OWN toggle: one toggle on at a time draws exactl
   }
 });
 
+test('paneAgents (B11) is a pane-only key: the script draws the same line with it on or off', async () => {
+  // DEFAULT_CONFIG carries `paneAgents: false` only so the panel's factory
+  // table and this one stay one list (tests/ui-statusline-model); the line
+  // Claude Code draws must not depend on it in either direction.
+  const ws = await makeWorkspace();
+  try {
+    const outs: string[] = [];
+    for (const paneAgents of [true, false]) {
+      await writeFile(ws.prefs, JSON.stringify({ statusLine: { enabled: true, paneAgents } }));
+      const res = await runStatusline('default', ws.prefs, fixture(ws.repo, `sess-pa-${paneAgents}`));
+      assert.equal(res.code, 0);
+      outs.push(res.out);
+    }
+    assert.equal(outs[0], 'Opus 5 | always ask | git:main | $0.42 | ctx 32%');
+    assert.equal(outs[1], outs[0]);
+  } finally {
+    await rm(ws.root, { recursive: true, force: true });
+  }
+});
+
 test('percentages are floored and clamped to 0-100 — never 132%, never a negative, never a fraction', async () => {
   const ws = await makeWorkspace();
   try {

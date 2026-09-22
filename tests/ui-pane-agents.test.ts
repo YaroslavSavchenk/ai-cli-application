@@ -19,6 +19,9 @@
  *   4. THE DOT IS A CLASS, hidden from the accessibility tree: it repeats what
  *      the time column already says, and a screen reader reading "bullet" per
  *      row is noise.
+ *   5. THE COUNT LINE (B11): `+N working` and `+N finished` as two separate
+ *      words in one `.pane-agents-more` row under the rows; a 0 is not drawn,
+ *      and with both 0 the row is not there at all.
  *
  * NOT claimed here: colour, size, legibility on a light custom ground — those
  * are `.claude/skills/verify-terminal/SKILL.md` and the B9 screenshot.
@@ -33,7 +36,10 @@ const { renderAgents } = (await import(
   new URL('../web/src/ui/pane-agents.ts', import.meta.url).href
 )) as typeof import('../web/src/ui/pane-agents.ts');
 
-type Row = Parameters<typeof renderAgents>[0][number];
+type Row = Parameters<typeof renderAgents>[0]['rows'][number];
+
+/** The renderer's input with no count line (B11: `agentTable`'s shape). */
+const only = (rows: Row[]) => ({ rows, moreWorking: 0, moreFinished: 0 });
 
 const ROWS: Row[] = [
   { name: 'backend-pty', task: 'Wire the agents watcher', time: '2m 10s', tokens: '12.4k', dot: 'running' },
@@ -43,13 +49,13 @@ const ROWS: Row[] = [
 
 /** The table for `rows`, asserted non-null (the renderer's own null case is its own test). */
 function table(rows: Row[]): FakeElement {
-  const t = renderAgents(rows) as unknown as FakeElement | null;
+  const t = renderAgents(only(rows)) as unknown as FakeElement | null;
   assert.notEqual(t, null, 'a non-empty list must render a table');
   return t as FakeElement;
 }
 
 test('an empty list renders NO table — the block is absent, not blank', () => {
-  assert.equal(renderAgents([]), null);
+  assert.equal(renderAgents(only([])), null);
 });
 
 test('the table is a header plus one row per agent, in the order given', () => {
@@ -103,4 +109,27 @@ test('a single agent is a whole table — the first subagent makes it appear', (
   const t = table([ROWS[0] as Row]);
   assert.equal(byClass(t, 'pane-agent').length, 1);
   assert.equal(byClass(t, 'pane-agents-hd').length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// B11: the count line
+// ---------------------------------------------------------------------------
+
+test('both counts: one quiet line under the rows, two separate words, no separator', () => {
+  const t = renderAgents({ rows: ROWS, moreWorking: 2, moreFinished: 10 }) as unknown as FakeElement;
+  const more = byClass(t, 'pane-agents-more');
+  assert.equal(more.length, 1, 'exactly one count line');
+  assert.deepEqual(textsOf(t, 'pane-agents-more-n'), ['+2 working', '+10 finished']);
+  assert.equal((more[0] as FakeElement).children.length, 2, 'two words, nothing between them');
+  // Under the rows: the line is the box's last child.
+  assert.equal(t.children[t.children.length - 1], more[0], 'the count line comes after every row');
+});
+
+test('a count of 0 is not drawn; both 0 means no count line at all', () => {
+  const w = renderAgents({ rows: ROWS, moreWorking: 3, moreFinished: 0 }) as unknown as FakeElement;
+  assert.deepEqual(textsOf(w, 'pane-agents-more-n'), ['+3 working']);
+  const f = renderAgents({ rows: ROWS, moreWorking: 0, moreFinished: 11 }) as unknown as FakeElement;
+  assert.deepEqual(textsOf(f, 'pane-agents-more-n'), ['+11 finished']);
+  const none = table(ROWS);
+  assert.equal(byClass(none, 'pane-agents-more').length, 0, 'no line for two zeros');
 });

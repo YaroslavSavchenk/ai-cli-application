@@ -62,7 +62,8 @@ import { getBehaviour } from './prefs-model.ts';
 import { paneStatusItems } from './pane-status-model.ts';
 import { getStatusLine } from './statusline-model.ts';
 import { renderAgents } from './pane-agents.ts';
-import { agentRows } from './pane-agents-model.ts';
+import { agentTable } from './pane-agents-model.ts';
+import { readoutClass, readoutWord, sessionReadout, type SessionReadout } from './session-state.ts';
 import { editorPane, type EditorPane } from './editor-pane.ts';
 import { tabIdOf } from './editor-model.ts';
 import { slotTitle } from './slots-model.ts';
@@ -840,18 +841,22 @@ function updateHeader(s: Slot, pay: SessionPayload): void {
   const pname = st.projectName(info?.projectId);
   pay.proj.textContent = pname ?? '';
   pay.title.textContent = info?.title ?? pay.id.slice(0, 8);
-  const attention = info !== undefined && info.attention;
-  const running = info === undefined || info.status === 'running';
-  // Dot and pill are one readout: green Working, pulsing amber Needs your
-  // answer, neutral Finished. The exit code rides in the pill's title (and
-  // on the banner) — a code is not a state word.
-  pay.dot.className = `dot pane-dot ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
-  const stateText = attention ? 'Needs your answer' : running ? 'Working' : 'Finished';
+  // Dot and pill are one readout (ui/session-state.ts, B11): pulsing green
+  // Working while the transcript says Claude works, still amber Waiting for
+  // you once it ended its turn, still green Working where nothing says which
+  // (a shell, a session without a transcript), pulsing amber Needs your
+  // answer on a BEL, neutral Finished. A slot whose session is not in the list
+  // yet reads as alive. The exit code rides in the pill's title (and on the
+  // banner) — a code is not a state word.
+  const readout: SessionReadout = info === undefined ? 'running' : sessionReadout(info);
+  const cls = readoutClass(readout);
+  pay.dot.className = `dot pane-dot ${cls}`;
+  const stateText = readoutWord(readout);
   pay.state.textContent = stateText;
-  pay.state.className = `pane-state ${attention ? 'is-attn' : running ? 'is-run' : 'is-exit'}`;
+  pay.state.className = `pane-state ${cls}`;
   const code = info?.exitCode ?? pay.exitCode;
   pay.state.title =
-    !running && code !== null && code !== undefined ? `Finished, code ${code}` : stateText;
+    info !== undefined && info.status !== 'running' && code !== null && code !== undefined ? `Finished, code ${code}` : stateText;
   if (pay.conn === null || pay.conn === 'live') {
     pay.connChip.hidden = true;
   } else {
@@ -866,9 +871,10 @@ function updateHeader(s: Slot, pay: SessionPayload): void {
 /**
  * The status bar under the terminal, plus the background agents table (B7).
  * Both are absent — not blank — when there is nothing honest to put in them:
- * `paneStatusItems` and `agentRows` both return [] for anything but the known
- * agent, and `agentRows` also for a session that has spawned none, so a plain
- * shell's pane is terminal edge to terminal edge.
+ * `paneStatusItems` and `agentTable` both come back empty for anything but the
+ * known agent, and `agentTable` also for a session that has spawned none or
+ * while its switch is off, so a plain shell's pane is terminal edge to
+ * terminal edge.
  */
 function updateStatus(pay: SessionPayload): void {
   const info = st.state.sessions.get(pay.id);
@@ -894,16 +900,21 @@ function updateStatus(pay: SessionPayload): void {
   }
   // The background agents this session spawned (part B7): the server reads
   // them from Claude Code's transcripts and sends them ordered and capped on
-  // `SessionInfo.agents`, `agentRows` formats them, and the same signature
-  // rule renders once per real change. A session with none yields no rows and
-  // the table is absent, not blank. The 15 s tick above is what moves a
-  // running agent's time: the row's text changes, so the signature does.
-  const rows = agentRows(info, Date.now());
-  const agentsSig = rows.map((r) => JSON.stringify(r)).join('\n');
+  // `SessionInfo.agents` with their totals on `agentCounts`; `agentTable`
+  // formats the rows and derives the `+N working` / `+N finished` counts (B11),
+  // and the same signature rule renders once per real change. The table is
+  // behind the `paneAgents` switch (B11, default off) — `repaintStatus()` runs
+  // this on a flip — and absent, not blank, when it has nothing to show. Its
+  // appearing or going changes the terminal card's height; the term host's
+  // ResizeObserver refits and sends the new rows like any other resize. The
+  // 15 s tick above is what moves a running agent's time: the row's text
+  // changes, so the signature does.
+  const table = agentTable(info, getStatusLine(), Date.now());
+  const agentsSig = JSON.stringify(table);
   if (agentsSig !== pay.agentsSig) {
     pay.agentsSig = agentsSig;
-    const table = renderAgents(rows);
-    pay.agentsHost.replaceChildren(...(table === null ? [] : [table]));
+    const node = renderAgents(table);
+    pay.agentsHost.replaceChildren(...(node === null ? [] : [node]));
   }
 }
 

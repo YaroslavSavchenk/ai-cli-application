@@ -40,7 +40,7 @@ import { basename } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
-import type { SessionAgent, SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
+import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
 import { isKeyedTool, KEY_ENV } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
@@ -48,7 +48,7 @@ import { planCmdStart } from './winpath.ts';
 import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import { sameTelemetry } from './telemetry.ts';
-import { sameAgents, type AgentsWatcher } from './agents.ts';
+import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
@@ -711,10 +711,26 @@ export class SessionManager {
       // fact the app knows, and its clock is the one that stamps the end.
       const endedAt = new Date().toISOString();
       const agents = session.info.agents;
+      let changed = false;
       if (agents !== undefined && agents.some((a) => a.state === 'running')) {
         session.info.agents = agents.map((a) =>
           a.state === 'running' ? { ...a, state: 'finished' as const, endedAt } : a,
         );
+        changed = true;
+      }
+      // The totals follow the same fact (B11): nothing tracked runs any more.
+      const counts = session.info.agentCounts;
+      if (counts !== undefined && counts.running > 0) {
+        session.info.agentCounts = { running: 0, finished: counts.running + counts.finished };
+        changed = true;
+      }
+      // B11: the turn verdict describes a live Claude; an exited session has
+      // none (the UI ignores it there anyway, but the wire must not claim it).
+      if (session.info.turn !== undefined) {
+        delete session.info.turn;
+        changed = true;
+      }
+      if (changed) {
         // ONE extra frame, before the exit: the client upserts this session on
         // `info` and repaints on `exit`, so the repaint already draws the
         // corrected rows.
@@ -826,28 +842,59 @@ export class SessionManager {
   }
 
   /**
-   * Replace a session's background-agent list (Nocturne B7, from
-   * server/agents.ts polling Claude Code's subagent transcripts) and tell the
-   * attached clients — the table under the pane status bar is drawn from this.
+   * Apply a session's report from server/agents.ts (Nocturne B7 + B11): the
+   * background-agent rows and their totals, and the turn verdict read from
+   * the session's own transcript. The attached clients are told — the table
+   * under the pane status bar and the Working / Waiting for you readout are
+   * drawn from this.
    *
-   * Two silent no-ops, the same two setTelemetry has:
-   *   - NO SUCH SESSION. A poll can land after the session ended, and a list
-   *     of subagents never creates a session.
+   * `agents` + `agentCounts` are set only when at least one agent is tracked
+   * (both absent otherwise, as before B11); `turn` exactly as reported
+   * (absent = unknown).
+   *
+   * Three silent no-ops:
+   *   - NO SUCH SESSION. A poll can land after the session ended, and a
+   *     report never creates a session.
+   *   - AN EXITED SESSION. The exit already finished its rows and dropped its
+   *     turn; a poll racing the untrack must not bring either back.
    *   - NOTHING CHANGED. The watcher already compares field-wise before it
    *     calls, so this is belt and braces — but it is what guarantees one
    *     broadcast per real change.
    */
-  setAgents(id: string, agents: SessionAgent[]): void {
+  setReport(id: string, report: AgentsReport): void {
     const session = this.#sessions.get(id);
     if (session === undefined) {
       this.#slog('debug', `${id} agents ignored: no such session`);
       return;
     }
-    if (sameAgents(session.info.agents, agents)) return;
-    session.info.agents = agents;
+    if (session.info.status === 'exited') {
+      this.#slog('debug', `${id} agents ignored: session exited`);
+      return;
+    }
+    const { counts } = report;
+    const any = counts.running + counts.finished > 0;
+    const agents = any ? report.agents : undefined;
+    const agentCounts = any ? { running: counts.running, finished: counts.finished } : undefined;
+    const prev = session.info.agentCounts;
+    if (
+      sameAgents(session.info.agents, agents) &&
+      prev?.running === agentCounts?.running &&
+      prev?.finished === agentCounts?.finished &&
+      session.info.turn === report.turn
+    ) {
+      return;
+    }
+    if (agents === undefined) delete session.info.agents;
+    else session.info.agents = agents;
+    if (agentCounts === undefined) delete session.info.agentCounts;
+    else session.info.agentCounts = agentCounts;
+    if (report.turn === undefined) delete session.info.turn;
+    else session.info.turn = report.turn;
     this.#slog(
       'debug',
-      `${id} agents updated: ${agents.length} row(s), ${session.clients.size} client(s) attached`,
+      `${id} agents updated: ${agents?.length ?? 0} row(s), ` +
+        `${counts.running} running, ${counts.finished} finished, turn ${report.turn ?? 'unknown'}, ` +
+        `${session.clients.size} client(s) attached`,
     );
     this.#broadcast(session, { type: 'info', session: { ...session.info } });
   }

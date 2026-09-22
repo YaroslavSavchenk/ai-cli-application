@@ -12,10 +12,16 @@
  * capped there. `ui/pane-agents-model.ts` turns them into the rows below;
  * nothing here reads state, a session or the clock.
  *
- * NEVER EMPTY. `renderAgents([])` returns `null` and the caller renders
- * nothing — exactly like the reference, which hides the block when there are
- * no agents. Sample rows exist only in a screenshot session, never in the
- * shipped UI.
+ * THE COUNT LINE (B11). The server sends at most four running rows and one
+ * finished row; the agents beyond them are counted under the rows as two
+ * separate words on one quiet line — `+2 working`, `+10 finished` — never as
+ * rows, never with a separator glyph between them (copy rule), and a count of
+ * 0 is simply not there.
+ *
+ * NEVER EMPTY. With no rows and no count `renderAgents` returns `null` and the
+ * caller renders nothing — exactly like the reference, which hides the block
+ * when there are no agents. Sample rows exist only in a screenshot session,
+ * never in the shipped UI.
  */
 import { el } from './util.ts';
 
@@ -38,12 +44,22 @@ export interface AgentRow {
   dot: AgentTone;
 }
 
+/** What `agentTable` (ui/pane-agents-model.ts) hands the renderer. */
+export interface AgentTable {
+  rows: AgentRow[];
+  /** Running agents beyond the rows; 0 = not drawn. */
+  moreWorking: number;
+  /** Finished agents beyond the rows; 0 = not drawn. */
+  moreFinished: number;
+}
+
 /**
  * The table, or `null` when there is nothing to show. The caller mounts the
  * node as-is; nothing here reads state or the clock.
  */
-export function renderAgents(rows: AgentRow[]): HTMLElement | null {
-  if (rows.length === 0) return null;
+export function renderAgents(table: AgentTable): HTMLElement | null {
+  const { rows, moreWorking, moreFinished } = table;
+  if (rows.length === 0 && moreWorking <= 0 && moreFinished <= 0) return null;
 
   const box = el('div', 'pane-agents');
   const head = el('div', 'pane-agents-hd');
@@ -62,6 +78,13 @@ export function renderAgents(rows: AgentRow[]): HTMLElement | null {
       el('span', 'pane-agent-tokens', r.tokens),
     );
     box.append(row);
+  }
+
+  if (moreWorking > 0 || moreFinished > 0) {
+    const more = el('div', 'pane-agents-more');
+    if (moreWorking > 0) more.append(el('span', 'pane-agents-more-n is-working', `+${moreWorking} working`));
+    if (moreFinished > 0) more.append(el('span', 'pane-agents-more-n', `+${moreFinished} finished`));
+    box.append(more);
   }
   return box;
 }

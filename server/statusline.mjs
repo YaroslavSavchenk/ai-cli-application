@@ -106,6 +106,11 @@ const DEFAULT_CONFIG = {
   // and this table stay one list (tests/ui-statusline-model).
   paneBar: true,
   time: true,
+  // Nocturne B11: the Background agents table under the terminal
+  // (web/src/ui/pane-agents-model.ts). Pane only, ignored here entirely; OFF by
+  // default (user, 2026-09-22) — Claude Code draws its own task list inside the
+  // terminal. Here so the factory tables stay one list (tests/ui-statusline-model).
+  paneAgents: false,
 };
 
 /** Item separator. Plain ASCII pipe — see the ASCII-only rule above. */

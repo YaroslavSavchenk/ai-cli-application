@@ -11,6 +11,12 @@
  *      subagentsDirFor() below whether it may be used at all.
  *   3. If it may, this watcher polls `<transcript dir>/<session id>/subagents/`
  *      every POLL_MS and folds each `agent-<hex>.jsonl` into one row.
+ *   4. Nocturne B11 (.claude/plans/nocturne/PLAN-B11.md): on the same poll it
+ *      reads the session's OWN transcript, `<transcript dir>/<session id>.jsonl`
+ *      (derived from the tracked directory, never taken from the snapshot
+ *      again), and folds its lines into a turn verdict — 'working' or
+ *      'waiting' (turnOfLine()). Same boundary, same open discipline, same
+ *      budgets; only its TAIL is read on first sight.
  *
  * THE PATH IS UNTRUSTED, and so is everything under it. The snapshot lives in
  * the data dir, an ordinary directory any process running as this user can
@@ -48,6 +54,7 @@ import {
   closeSync,
   constants as fsConstants,
   fstatSync,
+  lstatSync,
   openSync,
   readSync,
   readdirSync,
@@ -55,7 +62,7 @@ import {
   statSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
-import type { SessionAgent } from '../shared/protocol.ts';
+import type { SessionAgent, SessionAgentCounts, SessionTurn } from '../shared/protocol.ts';
 import { describeError, oneLine, scoped, type Logger } from './config.ts';
 import { isUuid } from './conversation.ts';
 
@@ -103,9 +110,23 @@ const STALE_MS = 15 * 60 * 1000;
 /** Most agents tracked per session, newest `.meta.json` by mtime winning. */
 const MAX_AGENTS = 64;
 
-/** Most finished rows on the wire, and most rows in total. */
-const MAX_FINISHED = 3;
-const MAX_ROWS = 8;
+/**
+ * Most RUNNING rows on the wire (B11 (d), user 2026-09-22). The rows are the
+ * running agents oldest first, the first 4, then — only when fewer than 4 run —
+ * the ONE most recently finished; the frontend draws `+N working` /
+ * `+N finished` from AgentsReport.counts. The counts cover every TRACKED agent
+ * (≤ MAX_AGENTS): a 65th agent is beyond both the list and the count.
+ */
+const MAX_RUNNING_ROWS = 4;
+
+/**
+ * How much of the session's own transcript is read on FIRST sight (B11). A
+ * long session's transcript is tens of MB; the verdict lives in its last few
+ * lines, so only the tail is read, from `max(0, size - TURN_TAIL_BYTES)`, and
+ * the first (partial) line of it is dropped. Afterwards it is read
+ * incrementally like every agent transcript.
+ */
+const TURN_TAIL_BYTES = 1024 * 1024;
 
 /**
  * Most matching filenames a single poll will stat. A directory with a million
@@ -233,17 +254,65 @@ export function subagentsDirFor(transcript: string, projectsRoot: string): strin
   const uuid = name.slice(0, -'.jsonl'.length);
   if (!isUuid(uuid)) return null;
 
-  let realDir: string;
   let realRoot: string;
   try {
-    realDir = realpathSync(dirname(transcript));
     realRoot = realpathSync(projectsRoot);
+  } catch {
+    return null; // No projects root: nothing to read, ever.
+  }
+  // PENDING (B11 F1): the first session in a folder Claude Code never opened.
+  // `<root>/<slug>` does not exist until the first prompt, and no new snapshot
+  // arrives then — refusing here would leave the session untracked for good.
+  // Accepted ONLY when the slug is exactly one missing component directly
+  // under the REAL root (pendingSlug); the returned path is built from the
+  // real root, and the watcher applies the full boundary per poll once the
+  // slug exists.
+  if (pendingSlug(dirname(transcript), realRoot)) {
+    return join(realRoot, basename(dirname(transcript)), uuid, 'subagents');
+  }
+
+  let realDir: string;
+  try {
+    realDir = realpathSync(dirname(transcript));
   } catch {
     return null; // Gone, unreadable, or a root that does not exist.
   }
   if (realDir !== realRoot && !realDir.startsWith(realRoot + sep)) return null;
 
   return join(realDir, uuid, 'subagents');
+}
+
+/**
+ * True when `parent` is a transcript folder Claude Code has not created YET
+ * (B11 F1): exactly ONE missing component, directly under the real projects
+ * root. Every check is load bearing:
+ *   - its name is a real slug: non-empty, not `.`/`..`, no separator, no
+ *     control character (basename() of a normalised absolute path already
+ *     cannot hold a separator; the others are checked here again);
+ *   - it is TRULY missing: `lstat` says ENOENT. A dangling symlink planted
+ *     under the slug's name exists for lstat and is refused, not "pending";
+ *   - its parent's realpath is EXACTLY the real root — not merely inside it,
+ *     so two or more missing components, or a missing folder anywhere else,
+ *     never count.
+ * Pure except for one lstat and one realpath. Once the folder exists this is
+ * false and the ordinary realpath boundary applies.
+ */
+function pendingSlug(parent: string, realRoot: string): boolean {
+  const slug = basename(parent);
+  if (slug === '' || slug === '.' || slug === '..' || slug.includes(sep) || CONTROL_CHAR.test(slug)) {
+    return false;
+  }
+  try {
+    lstatSync(parent);
+    return false; // It exists (or a symlink wears its name): not pending.
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false;
+  }
+  try {
+    return realpathSync(dirname(parent)) === realRoot;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +434,110 @@ export function sameAgents(a: SessionAgent[] | undefined, b: SessionAgent[] | un
   return true;
 }
 
+/** What the watcher hands to its consumer for one session (B11). */
+export interface AgentsReport {
+  agents: SessionAgent[];
+  counts: SessionAgentCounts;
+  /** Absent = unknown. */
+  turn?: SessionTurn;
+}
+
+/** Field-wise equality of two reports: the rows (in order), the counts, the turn. */
+export function sameReport(a: AgentsReport | undefined, b: AgentsReport | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return (
+    a.turn === b.turn &&
+    a.counts.running === b.counts.running &&
+    a.counts.finished === b.counts.finished &&
+    sameAgents(a.agents, b.agents)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The turn: the session's own transcript, one line at a time (B11)
+// ---------------------------------------------------------------------------
+
+/**
+ * A `user` line whose text starts with one of these is a LOCAL slash command
+ * (`/model`, `/clear`, …) or its output: it starts no turn, so it does not
+ * count. A skill command's own work shows up in the lines after it.
+ */
+const LOCAL_COMMAND_PREFIXES = [
+  '<command-name>',
+  '<command-message>',
+  '<local-command-stdout>',
+  '<local-command-stderr>',
+  '<local-command-caveat>',
+];
+
+/** What Claude Code writes as the user's line when Esc interrupts a turn. */
+const INTERRUPT_PREFIX = '[Request interrupted by user';
+
+/** Stop reasons that END a turn: Claude waits for input after them. */
+const TURN_ENDING_STOPS = new Set(['end_turn', 'stop_sequence', 'refusal', 'max_tokens']);
+
+/** A user message's text: the string content, or the first text block's text; '' when none. */
+function userText(message: Record<string, unknown> | undefined): string {
+  if (message === undefined) return '';
+  const content = message['content'];
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  for (const block of content) {
+    const b = plainObject(block);
+    if (b !== undefined && b['type'] === 'text') {
+      return typeof b['text'] === 'string' ? b['text'] : '';
+    }
+  }
+  return '';
+}
+
+/**
+ * One transcript line's turn verdict; undefined = the line does not count.
+ * Total, never throws. The rules (PLAN-B11 § The turn rule, measured on this
+ * machine's transcripts 2026-09-22, Claude Code 2.1.27x):
+ *   - not JSON, `type` not user/assistant, `isMeta: true`, `isSidechain: true`
+ *     → does not count;
+ *   - `user` starting with a local-command tag → does not count;
+ *   - `user` starting with `[Request interrupted by user` → 'waiting';
+ *   - any other `user` (a prompt, a tool_result, a task-notification) → 'working';
+ *   - `assistant` that is an API error or `<synthetic>`, or whose stop reason
+ *     ends a turn → 'waiting'; any other (`tool_use`, `pause_turn`, null) →
+ *     'working'.
+ *
+ * KNOWN LIMIT: Claude Code's permission prompt writes nothing to the
+ * transcript (the last line is the assistant's `tool_use`), so a session
+ * waiting on one reads 'working' — the BEL (`attention`) is what says "needs
+ * your answer" then. An orchestrating session that ended its turn while its
+ * background agents still run reads 'waiting', which is true: the user can
+ * type. No stale rule: a long tool call is still working.
+ */
+export function turnOfLine(line: string): SessionTurn | undefined {
+  if (typeof line !== 'string' || line.length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  const raw = plainObject(parsed);
+  if (raw === undefined) return undefined;
+  if (raw['isMeta'] === true || raw['isSidechain'] === true) return undefined;
+  const message = plainObject(raw['message']);
+  const type = raw['type'];
+  if (type === 'user') {
+    const text = userText(message);
+    if (LOCAL_COMMAND_PREFIXES.some((prefix) => text.startsWith(prefix))) return undefined;
+    if (text.startsWith(INTERRUPT_PREFIX)) return 'waiting';
+    return 'working';
+  }
+  if (type !== 'assistant') return undefined;
+  if (raw['isApiErrorMessage'] === true) return 'waiting';
+  if (message === undefined) return 'working';
+  if (message['model'] === '<synthetic>') return 'waiting';
+  const stop = message['stop_reason'];
+  return typeof stop === 'string' && TURN_ENDING_STOPS.has(stop) ? 'waiting' : 'working';
+}
+
 // ---------------------------------------------------------------------------
 // The watcher
 // ---------------------------------------------------------------------------
@@ -391,6 +564,21 @@ interface FileState {
   mtimeMs: number;
 }
 
+/** Read state of the session's own transcript (B11). */
+interface TurnState {
+  /** Bytes already consumed; -1 = never read (the next read is a TAIL read). */
+  offset: number;
+  carry: Buffer;
+  resyncing: boolean;
+  /** The verdict of the last counting line; undefined = none seen yet. */
+  turn: SessionTurn | undefined;
+}
+
+/** A turn state that has read nothing: the next read starts at the tail. */
+function newTurnState(): TurnState {
+  return { offset: -1, carry: Buffer.alloc(0), resyncing: false, turn: undefined };
+}
+
 interface TrackedAgent {
   id: string;
   /** mtimeMs of the meta file we last parsed; -1 = never parsed one. */
@@ -405,8 +593,10 @@ interface TrackedAgent {
 interface TrackedSession {
   dir: string;
   agents: Map<string, TrackedAgent>;
-  /** The last list delivered to onChange; undefined = nothing delivered yet. */
-  last: SessionAgent[] | undefined;
+  /** The last report delivered to onChange; undefined = nothing delivered yet. */
+  last: AgentsReport | undefined;
+  /** The session's own transcript (B11). */
+  main: TurnState;
   /**
    * True once the "resolves outside the projects root" refusal has been
    * logged for THIS directory. The check runs on every 2 s poll and would
@@ -415,6 +605,8 @@ interface TrackedSession {
    * finally resolves inside the root, so a fix is visible too.
    */
   refusalLogged: boolean;
+  /** Same once-only rule for a refused main transcript (B11). */
+  mainRefusalLogged: boolean;
 }
 
 /**
@@ -437,7 +629,9 @@ export class AgentsWatcher {
   readonly #readBudget: number;
   readonly #sessions = new Map<string, TrackedSession>();
   #timer: NodeJS.Timeout | undefined;
-  #onChange: ((id: string, agents: SessionAgent[]) => void) | undefined;
+  /** Ticks so far: which session a sweep starts at (round robin, B11 F2). */
+  #tick = 0;
+  #onChange: ((id: string, report: AgentsReport) => void) | undefined;
   #stopped = false;
 
   constructor(log: Logger, options: AgentsWatcherOptions) {
@@ -448,8 +642,12 @@ export class AgentsWatcher {
     this.#readBudget = options.readBudgetBytes ?? MAX_READ_PER_TICK;
   }
 
-  /** Start (idempotent) and hand every changed list to `onChange`. */
-  start(onChange: (id: string, agents: SessionAgent[]) => void): void {
+  /**
+   * Start (idempotent) and hand every changed report to `onChange` — also a
+   * report with no agents but a turn (B11), and an empty one once something
+   * was delivered and is no longer there.
+   */
+  start(onChange: (id: string, report: AgentsReport) => void): void {
     this.#onChange = onChange;
     this.#stopped = false;
     if (this.#timer !== undefined) return;
@@ -470,7 +668,14 @@ export class AgentsWatcher {
     const existing = this.#sessions.get(id);
     if (existing !== undefined && existing.dir === subagentsDir) return;
     // A fresh record, so the refusal log starts over for the new directory.
-    this.#sessions.set(id, { dir: subagentsDir, agents: new Map(), last: undefined, refusalLogged: false });
+    this.#sessions.set(id, {
+      dir: subagentsDir,
+      agents: new Map(),
+      last: undefined,
+      main: newTurnState(),
+      refusalLogged: false,
+      mainRefusalLogged: false,
+    });
     // oneLine: the path came from a snapshot file and names directories this
     // process did not create — a newline in it would forge a whole log line.
     this.#log('debug', `${id} tracking ${oneLine(subagentsDir)}`);
@@ -502,7 +707,18 @@ export class AgentsWatcher {
     if (this.#stopped) return;
     // One budget for the whole sweep, handed down and spent as files are read.
     const budget = { left: this.#readBudget };
-    for (const [id, session] of this.#sessions) {
+    // ROUND ROBIN (B11 F2): the budget is spent in sweep order, so a fixed
+    // order would let a few busy sessions early in the Map starve every later
+    // session's turn and agents on every tick. Each tick starts one session
+    // further on; every cap stays as it is.
+    const entries = [...this.#sessions];
+    const start = entries.length === 0 ? 0 : this.#tick % entries.length;
+    this.#tick = (this.#tick + 1) % Number.MAX_SAFE_INTEGER;
+    for (let i = 0; i < entries.length; i++) {
+      const [id, session] = entries[(start + i) % entries.length] as [string, TrackedSession];
+      // The list is a snapshot: a session untracked (or replaced) by a consumer
+      // earlier in this sweep is not polled on stale state.
+      if (this.#stopped || this.#sessions.get(id) !== session) continue;
       try {
         this.#pollSession(id, session, budget);
       } catch (err) {
@@ -514,6 +730,30 @@ export class AgentsWatcher {
   }
 
   #pollSession(id: string, session: TrackedSession, budget: { left: number }): void {
+    // B11: the session's own transcript first. It does not depend on the
+    // subagents directory existing (it usually does not: most sessions never
+    // spawn a subagent), and it shares this tick's byte budget.
+    this.#readMain(id, session, budget);
+    this.#pollAgents(id, session, budget);
+
+    const report = this.#report(session);
+    if (session.last === undefined && report.agents.length === 0 && report.turn === undefined) {
+      return; // Nothing to say yet.
+    }
+    if (sameReport(session.last, report)) return;
+    session.last = report;
+    const onChange = this.#onChange;
+    if (onChange === undefined) return;
+    try {
+      onChange(id, report);
+    } catch (err) {
+      // A throwing consumer must not take the watcher down with it.
+      this.#log('warn', `${id}: agents consumer threw: ${describeError(err)}`);
+    }
+  }
+
+  /** Refresh the tracked agents from the subagents directory, when it may be read. */
+  #pollAgents(id: string, session: TrackedSession, budget: { left: number }): void {
     // THE BOUNDARY, RE-CHECKED EVERY TICK. subagentsDirFor() only realpath'd
     // the transcript's own directory; the `<uuid>` and `subagents` components
     // were appended AFTER that, and readdirSync/statSync follow every
@@ -557,19 +797,147 @@ export class AgentsWatcher {
       }
       this.#readTranscript(dir, agent, budget);
     }
+  }
 
-    const agents = this.#rows(session);
-    if (agents.length === 0 && session.last === undefined) return; // Nothing to say yet.
-    if (sameAgents(session.last, agents)) return;
-    session.last = agents;
-    const onChange = this.#onChange;
-    if (onChange === undefined) return;
-    try {
-      onChange(id, agents);
-    } catch (err) {
-      // A throwing consumer must not take the watcher down with it.
-      this.#log('warn', `${id}: agents consumer threw: ${describeError(err)}`);
+  /**
+   * Bring the session's own transcript's turn verdict up to date (B11).
+   *
+   * THE PATH: `<parent>/<uuid>.jsonl`, derived from the tracked directory
+   * `<parent>/<uuid>/subagents` that subagentsDirFor() built — never read from
+   * the snapshot again. A tracked directory not of that shape gives no turn.
+   *
+   * THE BOUNDARY, RE-CHECKED EVERY TICK on the file actually opened (B7
+   * amendment 2): the parent is realpath'd and must sit inside the real
+   * projects root, and the file's own realpath must be exactly
+   * `<real parent>/<uuid>.jsonl` — a symlink at the final component (even one
+   * pointing inside the root) is refused, not followed. The open itself is
+   * O_RDONLY|O_NOFOLLOW|O_NONBLOCK and fstat must say regular file, so a
+   * symlink swapped in after the check is refused and a FIFO never blocks.
+   *
+   * States: a file that does not exist (lstat ENOENT — Claude Code creates it
+   * at the first prompt) is 'waiting'; a refused or unreadable one has no
+   * verdict; a readable one keeps the verdict of its last counting line.
+   */
+  #readMain(id: string, session: TrackedSession, budget: { left: number }): void {
+    const uuidDir = dirname(session.dir);
+    const uuid = basename(uuidDir);
+    if (basename(session.dir) !== 'subagents' || !isUuid(uuid)) {
+      this.#resetMain(session);
+      return;
     }
+    const name = `${uuid}.jsonl`;
+
+    let realRoot: string;
+    try {
+      realRoot = realpathSync(this.#projectsRoot);
+    } catch {
+      this.#resetMain(session);
+      return; // No projects root: nothing may be read.
+    }
+    let realParent: string;
+    try {
+      realParent = realpathSync(dirname(uuidDir));
+    } catch {
+      this.#resetMain(session);
+      // B11 F1: the slug folder does not exist YET (one missing component
+      // directly under the real root) — Claude Code has written nothing, so
+      // the session sits at its first prompt. Anything else missing: no turn.
+      if (pendingSlug(dirname(uuidDir), realRoot)) session.main.turn = 'waiting';
+      return;
+    }
+    if (realParent !== realRoot && !realParent.startsWith(realRoot + sep)) {
+      this.#refuseMain(id, session, dirname(uuidDir));
+      return;
+    }
+    const file = join(realParent, name);
+
+    let realFile: string;
+    try {
+      realFile = realpathSync(file);
+    } catch {
+      // Missing (the session sits at its first prompt) or a dangling symlink.
+      // Only a TRULY missing name is 'waiting'; lstat does not follow.
+      let missing = false;
+      try {
+        lstatSync(file);
+      } catch (err) {
+        missing = (err as NodeJS.ErrnoException).code === 'ENOENT';
+      }
+      this.#resetMain(session);
+      if (missing) session.main.turn = 'waiting';
+      return;
+    }
+    if (realFile !== file) {
+      this.#refuseMain(id, session, file);
+      return;
+    }
+    if (session.mainRefusalLogged) {
+      session.mainRefusalLogged = false;
+      this.#log('debug', `${id}: ${oneLine(file)} now inside the projects root, reading it again`);
+    }
+
+    let fd: number;
+    try {
+      fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+    } catch {
+      this.#resetMain(session);
+      return; // Vanished since realpath, swapped for a symlink, or unreadable.
+    }
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile()) {
+        this.#resetMain(session);
+        return;
+      }
+      const size = stat.size;
+      if (session.main.offset >= 0 && size < session.main.offset) {
+        // Shrank or replaced: the verdict describes a file that is gone, so
+        // start over from its tail.
+        this.#log('debug', `${id}: transcript shrank, re-reading its tail`);
+        session.main = newTurnState();
+      }
+      const state = session.main;
+      if (state.offset < 0) {
+        // FIRST SIGHT: only the tail. Starting one byte before the tail and
+        // resyncing drops the partial first line — and keeps a whole one that
+        // happens to begin exactly at the tail boundary.
+        if (size > TURN_TAIL_BYTES) {
+          state.offset = size - TURN_TAIL_BYTES - 1;
+          state.resyncing = true;
+        } else {
+          state.offset = 0;
+        }
+      }
+      if (size === state.offset) return;
+      const want = Math.min(size - state.offset, MAX_READ_PER_POLL, budget.left);
+      if (want <= 0) return;
+      const buffer = Buffer.allocUnsafe(want);
+      const read = readSync(fd, buffer, 0, want, state.offset);
+      if (read <= 0) return;
+      budget.left -= read;
+      state.offset += read;
+      splitLines(state, buffer.subarray(0, read), (line) => {
+        const verdict = turnOfLine(line.toString('utf8'));
+        if (verdict !== undefined) state.turn = verdict;
+      });
+    } catch (err) {
+      this.#log('debug', `${id}: transcript read failed: ${describeError(err)}`);
+    } finally {
+      closeQuietly(fd);
+    }
+  }
+
+  /** Forget the main transcript's read state and verdict. */
+  #resetMain(session: TrackedSession): void {
+    session.main = newTurnState();
+  }
+
+  /** A main transcript outside the root: no verdict, logged once per session. */
+  #refuseMain(id: string, session: TrackedSession, path: string): void {
+    this.#resetMain(session);
+    if (session.mainRefusalLogged) return;
+    session.mainRefusalLogged = true;
+    this.#log('debug', `${id}: ${oneLine(path)} resolves outside the projects root, refused`);
   }
 
   /**
@@ -707,35 +1075,14 @@ export class AgentsWatcher {
 
   /** Split a chunk on newlines, carrying the trailing partial line. */
   #foldChunk(state: FileState, chunk: Buffer): void {
-    const buf = state.carry.length === 0 ? chunk : Buffer.concat([state.carry, chunk]);
-    let start = 0;
-    for (let i = 0; i < buf.length; i++) {
-      if (buf[i] !== 0x0a) continue;
-      const line = buf.subarray(start, i);
-      start = i + 1;
-      if (state.resyncing) {
-        // The tail of a line we already gave up on: this newline ends it.
-        state.resyncing = false;
-        continue;
-      }
-      if (line.length > MAX_LINE) continue; // Too big to be a transcript line.
-      foldLine(state.fold, line.toString('utf8'));
-    }
-    const rest = buf.subarray(start);
-    if (rest.length > MAX_LINE) {
-      // An unterminated line past the cap: drop it and resync at the next
-      // newline, so a single huge (or endless) line cannot grow the carry
-      // without bound.
-      state.carry = Buffer.alloc(0);
-      state.resyncing = true;
-      return;
-    }
-    // Copied, not aliased: subarray keeps the whole chunk alive otherwise.
-    state.carry = Buffer.from(rest);
+    splitLines(state, chunk, (line) => foldLine(state.fold, line.toString('utf8')));
   }
 
-  /** The rows this session's tracked agents make, ordered and capped. */
-  #rows(session: TrackedSession): SessionAgent[] {
+  /**
+   * The report this session makes: the rows (B11 (d) list rule), the totals
+   * over every tracked agent, and the main transcript's verdict.
+   */
+  #report(session: TrackedSession): AgentsReport {
     const now = this.#now();
     const running: SessionAgent[] = [];
     const finished: SessionAgent[] = [];
@@ -749,7 +1096,17 @@ export class AgentsWatcher {
     finished.sort(
       (a, b) => cmp(b.endedAt ?? b.startedAt, a.endedAt ?? a.startedAt) || cmp(a.id, b.id),
     );
-    return [...running, ...finished.slice(0, MAX_FINISHED)].slice(0, MAX_ROWS);
+    const agents = running.slice(0, MAX_RUNNING_ROWS);
+    // One finished row, the most recent, and only while there is room.
+    const newest = finished[0];
+    if (running.length < MAX_RUNNING_ROWS && newest !== undefined) agents.push(newest);
+    const report: AgentsReport = {
+      agents,
+      counts: { running: running.length, finished: finished.length },
+    };
+    const turn = session.main.turn;
+    if (turn !== undefined) report.turn = turn;
+    return report;
   }
 
   /** One agent's row: only what its two files said. */
@@ -838,6 +1195,45 @@ export class AgentsWatcher {
       closeQuietly(fd);
     }
   }
+}
+
+/**
+ * Split a chunk on newlines, carrying the trailing partial line in `state` and
+ * handing every complete line of at most MAX_LINE bytes to `onLine`. A line
+ * past MAX_LINE is dropped unparsed; an unterminated one past it drops the
+ * carry and resyncs at the next newline, so a single huge (or endless) line
+ * cannot grow the carry without bound. `resyncing` set by the caller discards
+ * everything up to the next newline (the tail read's partial first line).
+ */
+function splitLines(
+  state: { carry: Buffer; resyncing: boolean },
+  chunk: Buffer,
+  onLine: (line: Buffer) => void,
+): void {
+  const buf = state.carry.length === 0 ? chunk : Buffer.concat([state.carry, chunk]);
+  let start = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] !== 0x0a) continue;
+    const line = buf.subarray(start, i);
+    start = i + 1;
+    if (state.resyncing) {
+      // The tail of a line we already gave up on: this newline ends it.
+      state.resyncing = false;
+      continue;
+    }
+    if (line.length > MAX_LINE) continue; // Too big to be a transcript line.
+    onLine(line);
+  }
+  const rest = buf.subarray(start);
+  if (state.resyncing || rest.length > MAX_LINE) {
+    // Still inside a line we are discarding, or an unterminated line past the
+    // cap: keep nothing and resync at the next newline.
+    state.carry = Buffer.alloc(0);
+    state.resyncing = true;
+    return;
+  }
+  // Copied, not aliased: subarray keeps the whole chunk alive otherwise.
+  state.carry = Buffer.from(rest);
 }
 
 /** Compare two ISO stamps (or ids) as plain strings — ISO-8601 sorts lexically. */

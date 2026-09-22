@@ -106,11 +106,20 @@ export interface SessionInfo {
   /**
    * Nocturne B7: the subagents Claude Code ran for this session, from its
    * transcripts (server/agents.ts). Absent until the first one; running ones
-   * first (oldest first), then at most 3 finished (newest first), at most 8
-   * rows; replaced whenever the list changes (the server re-sends `info`);
-   * kept after exit.
+   * first (oldest first, at most 4), then — only when fewer than 4 run — the
+   * one most recently finished; `agentCounts` carries the totals; replaced
+   * whenever the list changes (the server re-sends `info`); kept after exit.
    */
   agents?: SessionAgent[];
+  /** Nocturne B11: totals behind `agents` (present exactly when `agents` is). */
+  agentCounts?: SessionAgentCounts;
+  /**
+   * Nocturne B11: the transcript's verdict. Absent = unknown (no transcript
+   * path known, refused path, no counting line yet, a non-claude session); a
+   * known transcript Claude Code has not written yet reads 'waiting'. Dropped
+   * when the session exits.
+   */
+  turn?: SessionTurn;
 }
 
 /**
@@ -166,6 +175,20 @@ export interface SessionAgent {
   /** Billed total across the agent's unique API messages: input + cache creation + cache read + output. */
   tokens: number;
   state: SessionAgentState;
+}
+
+/**
+ * Nocturne B11: what a Claude session is doing between BELs, read from its own
+ * transcript (server/agents.ts, PLAN-B11 § The turn rule): 'working' — Claude
+ * is generating or running a tool; 'waiting' — it ended its turn and waits for
+ * input.
+ */
+export type SessionTurn = 'working' | 'waiting';
+
+/** Nocturne B11: every subagent the server tracks for a session (≤ 64), by state. */
+export interface SessionAgentCounts {
+  running: number;
+  finished: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -348,6 +371,13 @@ export interface UiStatusLine {
    * script ignores this key. Default ON.
    */
   time?: boolean;
+  /**
+   * Nocturne B11: the Background agents table under the terminal
+   * (ui/pane-agents-model.ts). Default OFF (user, 2026-09-22): Claude Code
+   * draws its own task list inside the terminal and cannot hide it without
+   * disabling background agents. Pane only; the script ignores it.
+   */
+  paneAgents?: boolean;
 }
 
 /**

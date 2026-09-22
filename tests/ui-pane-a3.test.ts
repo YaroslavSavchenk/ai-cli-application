@@ -9,9 +9,10 @@
  *
  *   1. NO SAMPLE DATA SHIPS. The "Background agents" table draws only what a
  *      session really reported: since part B7 `panes.ts` mounts `renderAgents`
- *      with the rows of `ui/pane-agents-model.ts` (`agentRows`, fed from
- *      `SessionInfo.agents`) and with nothing else — no literal it authored
- *      itself — and `renderAgents([])` must still answer `null`, i.e. the
+ *      with the table of `ui/pane-agents-model.ts` (`agentTable` since B11 —
+ *      the rows of `agentRows`, fed from `SessionInfo.agents`, plus the count
+ *      line from `agentCounts`) and with nothing else — no literal it authored
+ *      itself — and an empty table must still answer `null`, i.e. the
  *      block is absent, not an empty table and certainly not the reference's
  *      demo rows. This is the one A3 pin that guards against shipping a
  *      screenshot as a feature.
@@ -63,35 +64,36 @@ test('non-vacuity: the A3 sources are the ones being read', () => {
 // 1. The agents table ships no sample data
 // ---------------------------------------------------------------------------
 
-test('panes.ts mounts the agents renderer with the MODEL’s rows — no sample rows ship', () => {
+test('panes.ts mounts the agents renderer with the MODEL’s table — no sample rows ship', () => {
   const calls = [...PANES_CODE.matchAll(/renderAgents\(([^)]*)\)/g)].map((m) => m[1] as string);
   assert.equal(calls.length, 1, `expected exactly one renderAgents call site, found ${calls.length}`);
   const arg = (calls[0] as string).trim();
-  // Either `agentRows(...)` itself, or a plain identifier declared from it.
-  let fromModel = /^agentRows\(/.test(arg);
+  // Either `agentTable(...)` itself (B11; the rows plus the count line), or a
+  // plain identifier declared from it.
+  let fromModel = /^agentTable\(/.test(arg);
   if (!fromModel && /^[A-Za-z_$][\w$]*$/.test(arg)) {
-    fromModel = new RegExp(`const\\s+${arg}\\s*(:[^=]*)?=\\s*agentRows\\(`).test(PANES_CODE);
+    fromModel = new RegExp(`const\\s+${arg}\\s*(:[^=]*)?=\\s*agentTable\\(`).test(PANES_CODE);
   }
   assert.ok(
     fromModel,
-    `renderAgents is called with ${JSON.stringify(arg)}, which does not come from agentRows()`,
+    `renderAgents is called with ${JSON.stringify(arg)}, which does not come from agentTable()`,
   );
-  // ...and that model is the B7 one, imported from its own module.
-  assert.match(PANES_CODE, /import \{ agentRows \} from '\.\/pane-agents-model\.ts';/);
+  // ...and that model is the B7/B11 one, imported from its own module.
+  assert.match(PANES_CODE, /import \{ agentTable \} from '\.\/pane-agents-model\.ts';/);
   // And nothing anywhere in panes.ts builds an AgentRow.
   assert.equal(/\bname:\s*'[^']*',\s*task:/.test(PANES_CODE), false, 'panes.ts must not author agent rows');
 });
 
-test('renderAgents([]) is null by construction — the block is absent, not empty', () => {
-  assert.match(
-    AGENTS_CODE,
-    /if\s*\(\s*(rows\.length\s*===\s*0|!rows\.length)\s*\)\s*return\s+null\s*;/,
-    'pane-agents.ts must return null for an empty row list',
-  );
-  // The guard has to be the FIRST statement of the function, or a DOM call
-  // above it would throw in this DOM-free runner instead of returning null.
+test('renderAgents with nothing to show is null by construction — the block is absent, not empty', () => {
+  // B11: "nothing" is no rows AND no count — a count line alone would still
+  // say something true, so all three are in the guard.
+  const GUARD =
+    /if\s*\(\s*rows\.length\s*===\s*0\s*&&\s*moreWorking\s*<=\s*0\s*&&\s*moreFinished\s*<=\s*0\s*\)\s*return\s+null\s*;/;
+  assert.match(AGENTS_CODE, GUARD, 'pane-agents.ts must return null for an empty table');
+  // The guard has to come before any DOM call, or a DOM call above it would
+  // throw in this DOM-free runner instead of returning null.
   const body = AGENTS_CODE.slice(AGENTS_CODE.indexOf('export function renderAgents'));
-  const guard = body.search(/if\s*\(\s*(rows\.length\s*===\s*0|!rows\.length)/);
+  const guard = body.search(GUARD);
   const firstDom = body.search(/\bel\(|document\./);
   assert.ok(guard !== -1 && (firstDom === -1 || guard < firstDom), 'the empty guard must come first');
   // No demo data in the module either.

@@ -7,7 +7,9 @@
  *                       `statusLine` key. Since Nocturne B1 one checklist
  *                       drives TWO places: Claude Code's own line inside the
  *                       terminal (`enabled`) and the app's bar under it
- *                       (`paneBar`, ui/pane-status-model.ts).
+ *                       (`paneBar`, ui/pane-status-model.ts); since B11 a
+ *                       third switch shows the Background agents table
+ *                       (`paneAgents`, default off).
  *   Preferences         the keys the tools need, which tools the New session
  *                       dialog offers, and how the app behaves — all LIVE
  *                       since part B6. The key rows arrived with B5 (one
@@ -426,12 +428,19 @@ export function initSettings(
   // drawn by Claude Code inside its terminal, the other by this app under it.
   const inside = checkRow('Inside the terminal', () => toggleKey('enabled'));
   const under = checkRow('Under the terminal', () => toggleKey('paneBar'));
+  // Nocturne B11: the Background agents table is its own switch, next to the
+  // bar it sits under, default OFF — Claude Code draws its own task list in
+  // the terminal, so the table is the duplicate the user opts into. It does
+  // not depend on either bar and the items below do not feed it.
+  const agentsRow = checkRow('Background agents under the terminal', () => toggleKey('paneAgents'));
   const masterWrap = el('div', 'sg-rows');
   masterWrap.append(
     inside.row,
     el('div', 'sg-cap', 'Claude Code’s own line, drawn at the bottom of the terminal'),
     under.row,
     el('div', 'sg-cap', 'the app’s bar below the terminal'),
+    agentsRow.row,
+    el('div', 'sg-cap', 'the agents a session runs, also listed by Claude Code itself'),
   );
   statusPage.append(masterWrap);
 
@@ -1006,6 +1015,8 @@ export function initSettings(
     inside.box.textContent = cfg.enabled ? '✓' : '';
     under.row.setAttribute('aria-pressed', cfg.paneBar ? 'true' : 'false');
     under.box.textContent = cfg.paneBar ? '✓' : '';
+    agentsRow.row.setAttribute('aria-pressed', cfg.paneAgents ? 'true' : 'false');
+    agentsRow.box.textContent = cfg.paneAgents ? '✓' : '';
     // The items feed BOTH bars, so they only stop deciding when both are gone.
     const anyBar = cfg.enabled || cfg.paneBar;
     for (const r of ITEM_ROWS) {
@@ -1031,7 +1042,7 @@ export function initSettings(
     writes++;
     const cfg = getStatusLine();
     log.debug(
-      `prefs statusLine: enabled=${cfg.enabled} paneBar=${cfg.paneBar} ` +
+      `prefs statusLine: enabled=${cfg.enabled} paneBar=${cfg.paneBar} paneAgents=${cfg.paneAgents} ` +
         ITEM_ROWS.map((r) => `${r.key}=${cfg[r.key]}`).join(' '),
     );
     void api.updatePrefs(statusLinePatch(cfg), DEAD_PREFS_KEYS).catch(() => {

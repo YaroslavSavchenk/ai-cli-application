@@ -31,6 +31,7 @@ import type {
 import { log } from './log.ts';
 import { diffTabId, fileTabId, tabIdOf } from './ui/editor-model.ts';
 import { collapseKey } from './ui/commit-model.ts';
+import { needsYou, sessionReadout } from './ui/session-state.ts';
 
 export type Layout = 1 | 2 | 3 | 4;
 export type Dir = 'left' | 'right' | 'up' | 'down';
@@ -1933,22 +1934,49 @@ export function viewAttention(v: ViewState): boolean {
 }
 
 /**
- * Tab status accent: amber attention > green running > gray exited, and
- * `'none'` for a tab holding no session at all (Home, or a folder tab showing
- * only files) — a status dot there would report on nothing.
+ * Tab status accent, from the sessions in it (Nocturne B11 — the same readout
+ * as the pane dot, `ui/session-state.ts`): amber pulsing attention > amber
+ * still waiting > green pulsing working > green still running (no turn
+ * readout) > grey exited, and `'none'` for a tab holding no session at all
+ * (Home, or a folder tab showing only files) — a status dot there would report
+ * on nothing. The values are the dot's class suffix (`dot is-${status}`).
  */
-export function viewStatus(v: ViewState): 'attn' | 'run' | 'exit' | 'none' {
+export function viewStatus(v: ViewState): 'attn' | 'wait' | 'work' | 'run' | 'exit' | 'none' {
   const ids = sessionIds(v);
   if (ids.length === 0) return 'none';
-  if (viewAttention(v)) return 'attn';
-  const infos = ids.map((id) => state.sessions.get(id));
-  if (infos.some((s) => s?.status === 'running')) return 'run';
+  const found = new Set<string>();
+  for (const id of ids) {
+    const s = state.sessions.get(id);
+    // A slot whose session is not in the list reports nothing (as before B11).
+    if (s !== undefined) found.add(sessionReadout(s));
+  }
+  if (found.has('attn')) return 'attn';
+  if (found.has('waiting')) return 'wait';
+  if (found.has('working')) return 'work';
+  if (found.has('running')) return 'run';
   return 'exit';
 }
 
+/**
+ * Sessions with a BEL pending. BEL-only on purpose: notifications, `seen` and
+ * the taskbar flash act on BELs alone (they read `attention` themselves), and
+ * a session that merely waits never nags (B11). The COUNTS the user reads use
+ * `needsYouCount()`; since B11 nothing in the app calls this one.
+ */
 export function attentionCount(): number {
   let n = 0;
   for (const s of state.sessions.values()) if (s.attention) n++;
+  return n;
+}
+
+/**
+ * Sessions that need the user: a BEL pending OR the transcript saying Claude
+ * ended its turn (B11) — each session once. What `N waiting for you` and the
+ * top bar's Sessions badge show; one number in two places.
+ */
+export function needsYouCount(): number {
+  let n = 0;
+  for (const s of state.sessions.values()) if (needsYou(sessionReadout(s))) n++;
   return n;
 }
 

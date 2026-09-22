@@ -40,6 +40,7 @@ const FACTORY: StatusLineCfg = {
   usage: false,
   paneBar: true,
   time: true,
+  paneAgents: false,
 };
 
 /**
@@ -47,7 +48,10 @@ const FACTORY: StatusLineCfg = {
  * pane-bar keys (`paneBar`, `time`, Nocturne B1) last — the pane bar
  * (ui/pane-status-model.ts) reads them; the script ignores `time` entirely and
  * reads `paneBar` for one thing only (skipping its git probe when neither bar
- * would show a branch).
+ * would show a branch). `paneAgents` (Nocturne B11) switches the Background
+ * agents table under the terminal (ui/pane-agents-model.ts); pane only, the
+ * script ignores it. Default OFF: Claude Code draws its own task list inside
+ * the terminal, so the table is the duplicate the user opts into.
  */
 const KEYS: (keyof StatusLineCfg)[] = [
   'enabled',
@@ -60,6 +64,7 @@ const KEYS: (keyof StatusLineCfg)[] = [
   'usage',
   'paneBar',
   'time',
+  'paneAgents',
 ];
 
 /**

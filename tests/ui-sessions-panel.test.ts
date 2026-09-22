@@ -204,6 +204,39 @@ test('a waiting row says the one thing that needs the user, and marks it', () =>
   assert.equal((byKey(root, 'show:s1') as FakeElement).getAttribute('aria-label'), 's1, Needs your answer');
 });
 
+test('B11: an ended turn reads "Waiting for you" after the project, amber-still; working pulses green', () => {
+  st.setSessions([
+    mkSession('s1', { projectId: 'p1', turn: 'waiting' }),
+    mkSession('s2', { projectId: 'p1', turn: 'working', args: ['--model', 'opus'] }),
+    mkSession('s3', { command: '/bin/bash', args: ['-l'] }),
+  ]);
+  draw();
+  const metas = byClass(root, 'sess-meta') as FakeElement[];
+  const dots = byClass(root, 'dot') as FakeElement[];
+  // Waiting: the project stays, the state follows it; the dot is still amber.
+  assert.equal(metas[0]?.textContent, 'api, Waiting for you');
+  assert.ok(metas[0]?.classList.contains('is-wait'));
+  assert.ok(dots[0]?.classList.contains('is-wait'));
+  assert.equal((byKey(root, 'show:s1') as FakeElement).getAttribute('aria-label'), 's1, Waiting for you');
+  // Working: the tool line as before, the dot pulses (is-work).
+  assert.equal(metas[1]?.textContent, 'api, Claude Code Opus');
+  assert.ok(dots[1]?.classList.contains('is-work'));
+  assert.equal((byKey(root, 'show:s2') as FakeElement).title, 'Working');
+  // No turn readout (a shell): still green, the same word.
+  assert.ok(dots[2]?.classList.contains('is-run'));
+  assert.equal((byKey(root, 'show:s3') as FakeElement).title, 'Working');
+});
+
+test('B11: a turn change alone rebuilds the drawer (the signature carries the readout)', () => {
+  const s1 = mkSession('s1', { projectId: 'p1', turn: 'working' });
+  st.setSessions([s1]);
+  draw();
+  assert.ok((byClass(root, 'dot')[0] as FakeElement).classList.contains('is-work'));
+  st.setSessions([{ ...s1, turn: 'waiting' }]);
+  drawer.render();
+  assert.ok((byClass(root, 'dot')[0] as FakeElement).classList.contains('is-wait'));
+});
+
 test('an exited row names its project and how it finished', () => {
   st.setSessions([mkSession('s1', { projectId: 'p1', status: 'exited', exitCode: 3 })]);
   draw();
