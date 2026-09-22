@@ -29,7 +29,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B6 | Settings live | verified | `.claude/plans/nocturne/PLAN-B6.md` | 2026-09-22 |
 | B9 | Terminal colours live | verified | `.claude/plans/nocturne/PLAN-B9.md` | 2026-09-22 |
 | B7 | Background agents table live (data source decided 2026-09-22: Claude Code's transcripts) | verified | `.claude/plans/nocturne/PLAN-B7.md` | 2026-09-22 |
-| B11 | Session state: Working vs. Waiting for you (open decision: words, colours, order vs. B8) | todo | — |  |
+| B11 | Session state: Working vs. Waiting for you; agents-table switch (default off) + the many-agents rule (DECIDED 2026-09-22, see the part) | todo | — |  |
 | B8 | Cleanup + memory, release v0.4.0 | todo | — |  |
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15) | started | — |  |
 
@@ -151,6 +151,12 @@ Fixed rules for every part:
 - Candidate source, cheap since B7: the session's OWN transcript (`<transcript_path>` from the B1 snapshot, the same boundary as `server/agents.ts`): the last `user`/`assistant` line is an assistant `end_turn` → idle (waiting for you); a later `user` line → working. Same incremental tail as the subagent transcripts, one more file per claude session. The same tail also yields "files the session is touching" (open decision 3: `Edit`/`Write` tool calls with a `file_path`) — decide together or apart.
 - Open for the user: the words and colours (v3 vocabulary: "Working", "Needs your answer", "Finished", "Needs you" — a fourth state needs a word and a dot: e.g. green pulsing while working, green still + "Waiting for you" when idle; or amber for idle since that is when the user is needed), whether the tab strip's count pill follows it, and the order (before or after B8).
 - ALSO noted the same day: with B7 live the agents stand TWICE on screen — Claude Code's own inline task list under its prompt and the app's table under the status bar (the B1 duplicate all over again). Whether Claude Code can hide its own list is being checked; if not, the app's table gets a switch in Settings → Status bar (like `paneBar`) or the duplicate is accepted — user's call.
+
+- DECIDED 2026-09-22 (user, on the B7 check, session closed right after — spec still to be written on "begin aan B11"):
+  (a) **The agents table gets a switch** in Settings → Status bar (like `paneBar`), **default OFF** — Claude Code's own inline task list cannot be hidden on its own (`disableAgentView` kills background agents entirely; docs checked 2026-09-22), so the duplicate is the user's choice per install.
+  (b) **State words and colours**: Working = green PULSING; Waiting for you (Claude ended its turn, waits for input) = amber STILL; Needs your answer (BEL) = amber pulsing, unchanged; Finished = grey. The statusline's "N waiting for you" counts waiting sessions too. Source = the session's own transcript (last user/assistant line an assistant `end_turn` → waiting; a later user line → working), the B7 tail on one more file.
+  (c) **Order**: now, BEFORE B8 (ships in v0.4.0).
+  (d) **Many agents at once** — the user's words: "max 4 die running zijn, als er meer dan 4 zijn +1 of hoeveel agents aan het werk zijn. Of +1 actief en +10 finished. En als je 3 actief heb, dan toon je 1 laatste finished daarbij en de rest +aantal agents finished." Reading to confirm at the start of B11: at most 4 running rows (oldest first); more running → one count line `+N working`; finished agents never listed beyond ONE (the last finished) when there is room under the running rows, the rest as a count `+N finished`; so the table is at most 4 running + 1 finished + one or two count lines. The B7 server cap (8 rows / 3 finished) is replaced by this rule; counts travel on the wire (`running`, `finished` totals) so nothing is silently hidden.
 
 ### B9. Terminal colours live (added 2026-09-10, user's ask)
 - The user can customise the terminal colours, like other terminals allow (e.g. Windows Terminal colour schemes): at least the terminal ground and the text colours, with the Nocturne look as the default and a way back to it.

@@ -44,3 +44,16 @@ hairlines) lands in the same part.
   rejected hooks.
 - **Dropping the part** (an honest empty table, as the plan allowed): the
   data exists on disk today; only the finding was missing.
+
+## Follow-up decisions on the B7 Windows check (user, 2026-09-22) → part B11
+
+- The table gets a Settings → Status bar switch, **default OFF**: Claude
+  Code shows its own inline task list while agents run and cannot hide it
+  on its own (`disableAgentView` disables background agents entirely).
+- Session state: Working = green pulsing, Waiting for you = amber still
+  (from the session's own transcript, the B7 tail on one more file),
+  Needs your answer unchanged, Finished grey; "N waiting for you" counts
+  waiting sessions. Before B8.
+- Many agents: at most 4 running rows, a `+N working` count beyond that;
+  one last finished row at most, the rest `+N finished` — the B7 8/3 cap
+  is replaced by this. Full text in `.claude/plans/PLAN-NOCTURNE.md` § B11.
