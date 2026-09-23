@@ -28,7 +28,7 @@ import {
   type FakeFile,
 } from '../helpers/fake-dom.ts';
 import { APP_CSS, stripComments } from '../helpers/tokens-helpers.ts';
-import { readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
+import { readSource, readSources, projectRoot, filesUnder } from '../helpers/helpers.ts';
 import {
   dom,
   FD,
@@ -277,12 +277,10 @@ test('main.ts wires the window drop layer, after the panel that answers its deps
   // feature could be unwired in the shell and stay green. main.ts's import
   // graph reaches @xterm/xterm (a browser bundle), so this is read as source,
   // the way the A5/A9 shell-wiring assertions already are.
-  const main = readSource('web', 'src', 'main.ts');
+  const main = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
-  assert.match(
-    main,
-    /import \{ initFileDrop, installDropGuard, type DropRequest \} from '\.\/ui\/filedrop\.ts';/,
-  );
+  assert.match(main, /import \{ initFileDrop, type DropRequest \} from '\.\/ui\/filedrop\.ts';/);
+  assert.match(main, /import \{ installDropGuard \} from '\.\/ui\/filedrop\.ts';/);
   const panel = main.indexOf('const filesPanel = initFilesPanel(');
   const wire = main.indexOf('initFileDrop({');
   assert.ok(panel > 0 && wire > 0, 'both calls must exist');
@@ -325,7 +323,7 @@ test('main.ts is where the copy is built: the runner, the refresh and the one lo
   // `openDialog`, so the whole real copy could be unbuilt in the shell and
   // nothing here would notice. This is the seam where the destination's PATH
   // stops — the dialog is handed the name and a runner closed over the rest.
-  const main = readSource('web', 'src', 'main.ts');
+  const main = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   const open = main.indexOf('function openDrop(');
   assert.ok(open > 0, 'the drop is handed over by a function of its own');
   const body = main.slice(open, main.indexOf('\n  }\n', open));

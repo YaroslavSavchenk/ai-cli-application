@@ -30,13 +30,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from '../helpers/helpers.ts';
-import { declaredTokens, usedTokens } from '../helpers/tokens-helpers.ts';
+import { declaredTokens, readAppCss, usedTokens } from '../helpers/tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const APP_CSS = read(join(STYLES, 'app.css'));
+const APP_CSS = readAppCss();
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 const PICKER = read(join(UI, 'picker.ts'));
 /** picker.ts without comments: a comment may NAME the Legacy chrome it replaced. */
@@ -229,6 +229,7 @@ test('the Legacy chrome the picker dropped is gone from picker.ts and from app.c
     .filter((f) => f.endsWith('.ts'))
     .map((f) => [f, read(join(UI, f))] as const);
   tsFiles.push(['main.ts', read(join(projectRoot, 'web', 'src', 'main.ts'))]);
+  tsFiles.push(['main-shell.ts', read(join(projectRoot, 'web', 'src', 'main-shell.ts'))]);
   const stillSet: string[] = [];
   for (const c of ['dirlist', 'dir-btn', 'form-err', 'np-glyph']) {
     for (const [f, src] of tsFiles) if (new RegExp(`['\`  ]${c}(?![\\w-])`).test(src)) stillSet.push(`${f} ${c}`);
@@ -257,7 +258,7 @@ test('Esc reaches the picker FIRST: ranked above the dialog it opens over, below
   // RANK lives in main.ts's one Escape chain and is what makes Esc peel the
   // picker instead of the Add-a-project card underneath it. Same arm-index
   // technique as `tests/ui/ui-a6-screens.test.ts` for the commit view.
-  const MAIN = read(join(projectRoot, 'web', 'src', 'main.ts'));
+  const MAIN = read(join(projectRoot, 'web', 'src', 'main-shell.ts'));
   const from = MAIN.indexOf("e.key === 'Escape'");
   assert.notEqual(from, -1, 'non-vacuity: the Escape branch was found');
   const to = MAIN.indexOf('// ---- reliability');

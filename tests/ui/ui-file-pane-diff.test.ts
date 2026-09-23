@@ -22,7 +22,6 @@
 
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource } from '../helpers/helpers.ts';
 import {
   byClass,
   descendants,
@@ -55,6 +54,7 @@ import {
   saveBtn,
   resetPanes,
 } from '../helpers/ui-file-pane-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 beforeEach(() => {
   resetPanes();
@@ -170,7 +170,7 @@ test('every class a file or diff body renders has a rule in app.css', async () =
   collect(bin.root);
 
   assert.ok(seen.size >= 10, `non-vacuity: only ${seen.size} classes were collected`);
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

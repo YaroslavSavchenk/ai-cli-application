@@ -1,0 +1,717 @@
+/*
+ * App styles: the pane area, the split dividers, the pane card, its header,
+ * the editor pane tabs, the terminal card and the pane status bar.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane-kinds.css, app-panels.css, app-strip.css,
+ * app-dialogs.css, app-settings.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- pane area (Nocturne A3) --------------------------------------------------
+   Flat app ground, one --space-4 gutter around and between the cards. The
+   terminal is the hero here: everything else in a pane is a hairline strip.
+   Written on the Nocturne PRIMITIVES (no alias tokens) — the pane is the
+   first surface fully off the Legacy layer.                                  */
+
+.grid {
+  position: relative; /* anchors the absolutely-positioned split dividers */
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-bg);
+}
+
+/* Split fractions come from --split-col/--split-row (set per tab by
+   ui/panes.ts, persisted in localStorage); the first track takes its share
+   of the space left after the gap, the second takes the rest. */
+
+.grid[data-layout='1'] {
+  grid-template: 1fr / 1fr;
+}
+
+.grid[data-layout='2'] {
+  grid-template: 1fr / calc((100% - var(--space-4)) * var(--split-col, 0.5)) minmax(0, 1fr);
+}
+
+.grid[data-layout='3'],
+.grid[data-layout='4'] {
+  grid-template:
+    calc((100% - var(--space-4)) * var(--split-row, 0.5)) minmax(0, 1fr)
+    / calc((100% - var(--space-4)) * var(--split-col, 0.5)) minmax(0, 1fr);
+}
+
+/* 3-pane variants: L = tall pane left (stacked pair right), R = mirrored.
+   Slot order is state.ts's contract: L [tall, top, bottom], R [top, bottom, tall]. */
+
+.grid[data-layout='3'][data-l3='L'] .pane[data-slot='0'] {
+  grid-row: 1 / 3;
+}
+
+.grid[data-layout='3'][data-l3='R'] .pane[data-slot='0'] {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.grid[data-layout='3'][data-l3='R'] .pane[data-slot='1'] {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+.grid[data-layout='3'][data-l3='R'] .pane[data-slot='2'] {
+  grid-row: 1 / 3;
+  grid-column: 2;
+}
+
+/* ---- split dividers ----------------------------------------------------------
+   A grab strip exactly as wide as the gutter (so it never steals a click from
+   a terminal edge), carrying a 1px line that is ALWAYS drawn — neutral-900 at
+   rest, accent while hovered, focused or dragging. A control that appears only
+   under the pointer is forbidden here (frontend-designer).
+   Position math: the grid has --space-4 padding AND gap, so the usable track
+   space is (100% - 3 * gap); % offsets resolve against the grid's padding box. */
+
+.divider {
+  position: absolute;
+  z-index: 5;
+  touch-action: none;
+}
+
+.divider::after {
+  content: '';
+  position: absolute;
+  background: var(--color-neutral-900);
+  transition: background-color var(--t-btn);
+}
+
+.divider:hover::after {
+  background: var(--color-neutral-700);
+}
+
+.divider:focus-visible {
+  outline: none; /* the lit 1px core IS the focus ring */
+}
+
+.divider:focus-visible::after,
+.divider.is-dragging::after {
+  background: var(--color-accent);
+}
+
+.divider-col {
+  top: var(--space-4);
+  bottom: var(--space-4);
+  width: var(--space-4);
+  left: calc(
+    var(--space-4) + (100% - 3 * var(--space-4)) * var(--split-col, 0.5) + var(--space-4) / 2
+  );
+  transform: translateX(-50%);
+  cursor: col-resize;
+  z-index: 6; /* columns win the crossing square over row dividers */
+}
+
+.divider-col::after {
+  top: 0;
+  bottom: 0;
+  width: var(--line);
+  left: calc((var(--space-4) - var(--line)) / 2);
+}
+
+.divider-row {
+  left: var(--space-4);
+  right: var(--space-4);
+  height: var(--space-4);
+  top: calc(
+    var(--space-4) + (100% - 3 * var(--space-4)) * var(--split-row, 0.5) + var(--space-4) / 2
+  );
+  transform: translateY(-50%);
+  cursor: row-resize;
+}
+
+.divider-row::after {
+  left: 0;
+  right: 0;
+  height: var(--line);
+  top: calc((var(--space-4) - var(--line)) / 2);
+}
+
+/* 3 panes: the tall pane spans both rows, so the row divider lives only over
+   the stacked column — right column for variant L, left column for variant R
+   (both edges track the column split). */
+.divider-row.is-partial-r {
+  left: calc(
+    var(--space-4) + (100% - 3 * var(--space-4)) * var(--split-col, 0.5) + var(--space-4)
+  );
+}
+
+.divider-row.is-partial-l {
+  right: calc(
+    100% - var(--space-4) - (100% - 3 * var(--space-4)) * var(--split-col, 0.5)
+  );
+}
+
+/* ---- pane card ----------------------------------------------------------------
+   neutral-900 card, 8px radius, its edge IS the elevation (--shadow-sm =
+   a 1px neutral-800 ring). Unfocused panes are NOT dimmed — a terminal you
+   can read is the whole point; focus is stated by the ring instead. */
+
+.pane {
+  position: relative; /* anchors the .pane-drop overlay */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-neutral-900);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  outline: none;
+}
+
+/* Focused pane in a split: the ring turns accent-700. A lone pane has no
+   competition, so it keeps the neutral edge. */
+.grid:not([data-layout='1']) .pane.focused {
+  box-shadow: 0 0 0 var(--line) var(--color-accent-700);
+}
+
+/* header drag: source dims; a swap candidate gets a dashed accent edge
+   (dashed = prospective, solid = focused) */
+.pane.is-dragging {
+  opacity: 0.6;
+}
+
+.pane.is-drop-target {
+  outline: var(--line) dashed var(--color-accent);
+  outline-offset: calc(-1 * var(--line));
+}
+
+/* the pane's bottom breathing space, inside the card (v3) */
+.pane-foot {
+  flex: none;
+  height: var(--space-2);
+}
+
+/* drop-zone overlay: revealed by dnd while a tab hovers this pane; the box
+   marks the half (or whole pane) the merged session would take */
+.pane-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 7; /* above term-host and dividers, under nothing interactive */
+  pointer-events: none; /* hit-testing must see the pane beneath */
+}
+
+.pane-drop-box {
+  position: absolute;
+  inset: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent-900);
+  opacity: 0.92;
+  border: var(--line) dashed var(--color-accent);
+  border-radius: var(--radius-md);
+}
+
+.pane-drop[data-zone='left'] .pane-drop-box {
+  right: 50%;
+}
+
+.pane-drop[data-zone='right'] .pane-drop-box {
+  left: 50%;
+}
+
+.pane-drop[data-zone='top'] .pane-drop-box {
+  bottom: 50%;
+}
+
+.pane-drop[data-zone='bottom'] .pane-drop-box {
+  top: 50%;
+}
+
+.pane-drop-lb {
+  font-size: 13px;
+  color: var(--color-accent-200);
+  text-align: center;
+  padding: 0 var(--space-4);
+}
+
+/* rejected drop (view already holds 4): one danger pulse */
+@keyframes grid-reject {
+  0%,
+  100% {
+    outline-color: transparent;
+  }
+  50% {
+    outline-color: var(--color-danger);
+  }
+}
+
+.grid.is-reject {
+  outline: var(--tick) solid transparent;
+  outline-offset: calc(-1 * var(--tick));
+  animation: grid-reject var(--t-btn) ease-out;
+}
+
+/* ---- pane header (38px) ---------------------------------------------------
+   dot, name, project name, spacer, state pill, (connection chip), Own tab,
+   End session (B8).
+   No border under it: the terminal card's own edge is the separation. */
+
+.pane-hd {
+  height: var(--panehd-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none; /* headers are pointer-drag sources */
+  cursor: grab;
+}
+
+.pane-hd button {
+  cursor: pointer;
+}
+
+.pane-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.pane-title {
+  font-family: var(--font-sans); /* a session's name is words, not data */
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+/* B12: what runs in the pane, one quiet silhouette between dot and name */
+.pane-tool {
+  flex: none;
+  display: flex;
+  color: var(--color-neutral-400);
+}
+
+.pane-tool:empty {
+  display: none;
+}
+
+.pane-proj {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 2;
+}
+
+.pane-gap {
+  flex: 1;
+}
+
+/* state pill: the word, on the app ground — amber-tinted while it waits */
+.pane-state {
+  flex: none;
+  padding: 2px var(--space-3);
+  border-radius: 10px;
+  background: var(--color-bg);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+.pane-state.is-attn {
+  background: var(--color-attn-tint-soft);
+  color: var(--color-attn);
+}
+
+/* B11: waiting for the user's next prompt — the amber word, no tint. The tint
+   stays the BEL's: a question is louder than an ended turn. */
+.pane-state.is-wait {
+  color: var(--color-attn);
+}
+
+.pane-state.is-exit {
+  color: var(--color-neutral-600);
+}
+
+/* connection readout, only while the socket is not live */
+.pane-conn {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.pane-conn.is-danger {
+  color: var(--color-danger);
+}
+
+/* Own tab — pop the session back out of a split */
+.pane-pop {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+.pane-pop:hover {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+/* End session (B8) — the last control in a session pane's header: the same
+   24px height and quiet ink as Own tab, but an icon with no frame until the
+   pointer is on it, so it does not read as a second Own tab. Danger ink is
+   the promise of what it does, on hover and while armed; armed it widens to
+   the word (`Sure?`), so "one more click ends it" is never a colour alone —
+   the exited banner's End session is armed the same way. */
+.pane-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+/* The glyph is never the pointer's target: the press lands on the button. */
+.pane-end svg {
+  pointer-events: none;
+}
+
+.pane-end:hover {
+  border-color: var(--color-neutral-800);
+  color: var(--color-danger);
+}
+
+.pane-end[data-armed='1'] {
+  padding: 0 var(--space-3);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+/* A FILE pane's header (A10): the name, the unsaved mark, and the way out.
+   Same height, same type and the same quiet ramp as a session's header — a
+   file is a pane, not a different kind of surface. */
+
+/* unsaved: the app's one attention colour, as a mark beside the name (the
+   same 7px dot the A6 editor tab carried) */
+.pane-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-attn);
+}
+
+/* close THIS pane. It ends nothing: the × that ends sessions lives on the tab
+   chip and in the Sessions panel, and both ask first. */
+.pane-x {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pane-x:hover {
+  background: var(--color-neutral-800);
+  color: var(--color-text);
+}
+
+/* ---- editor pane tabs (Nocturne A10b) -------------------------------------
+   The file-tab strip that fills an EDITOR pane's header: one chip per open
+   file or diff, then the pane's own `×`.
+
+   DIRECTION: the tab strip's own idiom, one size down. A chip here is
+   geometrically the `.tab` chip of the top strip (1px border, --radius-sm,
+   a neutral label that goes --color-text when it is the one on screen) at
+   26px instead of --tab-h, so "a strip of tabs inside a tab" needs no second
+   visual language — and the ACTIVE chip is filled with --color-term, the
+   ground of the body it opens, which is the only thing in this header that
+   states WHICH file the pane is showing. Everything else recedes.
+
+   --color-term, not --term-bg: since part B9 --term-bg is the ground the USER
+   picks for the TERMINAL (decision 10c themes nothing else), and this chip
+   belongs to an editor pane, whose body is app ink on the app's own ground.
+
+   No new token: 26px is a literal because the header is 38px and the chip is
+   what is left of it after the header's own padding — an arithmetic fact of
+   this one strip, not a value any other surface shares. */
+
+.pane-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  /* Both are load-bearing: without min-width:0 the strip refuses to shrink
+     and pushes the pane's own × out of the card; without the scroll, a fifth
+     file would have nowhere to be. */
+  min-width: 0;
+  overflow-x: auto;
+  /* The global thin scrollbar would eat 4 of the 38px and sit under the
+     chips; the chips ellipsis long before this scrolls, and the keyboard
+     scrolls the strip by focusing a chip. */
+  scrollbar-width: none;
+}
+
+.pane-tab {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  min-width: 0;
+  max-width: 180px;
+  padding-right: var(--space-1);
+  background: transparent;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+  user-select: none;
+  touch-action: none; /* a chip is a pointer-drag source (the tab moves) */
+}
+
+.pane-tab:hover {
+  background: var(--color-neutral-800);
+}
+
+/* the file this pane is SHOWING: filled with the ground of its own body */
+.pane-tab.is-on {
+  background: var(--color-term);
+  border-color: var(--color-neutral-800);
+  color: var(--color-text);
+}
+
+/* dragged out of the strip: the CHIP dims, never the pane — the pane stays */
+.pane-tab.is-dragging {
+  opacity: 0.6;
+}
+
+.pane-tab-pick {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  color: inherit;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* SECURITY RULE, see `.commit-fpath-t`: a tab chip prints a file NAME out of
+     a repository, so it draws in the order it is stored. */
+  unicode-bidi: isolate-override;
+  direction: ltr;
+}
+
+.pane-tab-icon {
+  flex: none;
+}
+
+/* the unsaved mark sits between the name and the ×, where the eye already is */
+.pane-tab .pane-dirty {
+  margin-right: var(--space-1);
+}
+
+/* exited / dead banner: full-width structural strip, buffer stays readable */
+
+.pane-note {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
+  font-size: 12px;
+}
+
+.pane-note-text {
+  color: var(--color-neutral-500);
+}
+
+.pane-note.is-exit-err .pane-note-text {
+  color: var(--color-danger);
+}
+
+.pane-note.is-dead {
+  background: var(--color-danger);
+  padding: var(--space-2) var(--space-4);
+}
+
+.pane-note.is-dead .pane-note-text {
+  color: var(--color-ink-on-danger);
+  font-weight: 600;
+}
+
+.pane-note-btn {
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+.pane-note-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-neutral-600);
+}
+
+/* start it again: the banner's primary action */
+.pane-note-btn.is-primary {
+  color: var(--color-accent-300);
+  border-color: var(--color-accent);
+}
+
+.pane-note-btn.is-primary:hover {
+  background: var(--color-accent-900);
+  color: var(--color-accent-200);
+}
+
+.pane-note-btn[data-armed='1'] {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.pane-note.is-dead .pane-note-btn {
+  border-color: var(--color-ink-on-danger);
+  color: var(--color-ink-on-danger);
+}
+
+/* ---- terminal card ----------------------------------------------------------
+   The xterm mount, the status bar and the agents table share ONE rounded box
+   on the terminal ground, so the ground fills every corner. The mount keeps
+   its own padding: the fit addon subtracts it, which is what keeps cols/rows
+   exact.
+
+   The ground is spelled --term-bg (not its oklch twin --color-term) on every
+   surface of this card, and THAT is what makes it follow the user's choice:
+   since Nocturne B9 ui/theme.ts writes --term-bg inline on :root from the
+   Terminal colours page and calls refreshAllTerminalThemes(), so the card and
+   the glyphs recolour together, in place, with no resize and no re-attach.
+   Nothing else in the app reads --term-bg — the terminal is the only themed
+   surface (open decision 10c). */
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--term-bg);
+  overflow: hidden;
+}
+
+.pane-termwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.term-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* Own stacking context: xterm's internal z-indexed layers (link-layer
+     canvas z:2 etc.) must never escape and sit above pane chrome or an
+     overlay sharing the pane's space — an invisible canvas eats every
+     click (real bug, 2026-07-18). */
+  z-index: 0;
+}
+
+/* FitAddon subtracts .xterm's own padding from the host size */
+.term-host .xterm {
+  padding: var(--space-4) var(--space-6);
+}
+
+/* The black band, fixed (A4b, user report 2026-09-10).
+   xterm 6.0 still ships `.xterm .xterm-viewport { background-color: #000 }`
+   from its own stylesheet, and keeps that element as an EMPTY div positioned
+   absolute inset 0 over the whole .xterm box — the padding above included.
+   The runtime only ever colours the sibling .xterm-scrollable-element (the
+   content box), so the padding rendered as a ~17px black frame around the
+   text on the #0b0d14 ground. Repainting both from the token is the whole
+   fix; the padding values are untouched, because the fit addon subtracts them
+   and cols/rows must not move. xterm's other #000 surface, .composition-view,
+   is deliberately LEFT alone: it is display:none until an IME pre-edit, so it
+   is no part of the band, and its #000/#FFF is the only cue separating the
+   uncommitted composing string from the committed text under it. */
+.term-host .xterm,
+.term-host .xterm .xterm-viewport {
+  background-color: var(--term-bg);
+}
+
+/* ---- pane status bar --------------------------------------------------------
+   label + mono value pairs, wrapping. Rendered only when the app really knows
+   the values (ui/pane-status-model.ts); a shell pane has no bar at all. */
+
+.pane-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-6);
+  min-height: 30px;
+  padding: var(--space-1) var(--space-6);
+  /* THE HAIRLINE IS THEMED TOO (B7). It divides two strips of the THEMED
+     ground, so a fixed neutral-900 line vanishes under a light custom terminal
+     scheme (B9). A thin veil of the theme's own quiet step reads on any ground
+     and lands within a shade of the old #292b31 on the default. */
+  border-top: var(--line) solid color-mix(in srgb, var(--xt-bright-black) 30%, transparent);
+  font-size: 11.5px;
+}
+
+.pane-status-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: none;
+}
+
+/* The bar sits ON the themed ground, so its two inks are the THEME's quiet and
+   ordinary steps, not the app neutrals — the same hexes on the default, and
+   readable under a light custom ground. Its danger and attention colours stay
+   semantic (open decision 10c). */
+.pane-status-k {
+  color: var(--xt-bright-black);
+}
+
+.pane-status-v {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--xt-fg);
+}
+
+.pane-status-v.is-danger {
+  color: var(--color-danger);
+}
+
+/* an account window running out (B1: Usage at or above 80%). Semantic, never
+   themed — the same attention hue the statusline's own readout uses, so amber
+   means one thing everywhere in this app. */
+.pane-status-v.is-warn {
+  color: var(--color-attn);
+}
+

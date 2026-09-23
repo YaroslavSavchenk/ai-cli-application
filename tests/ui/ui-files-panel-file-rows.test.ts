@@ -31,7 +31,7 @@ import {
   settle,
   mkProject as project,
 } from '../helpers/fs-fixture.ts';
-import { sleep, readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, sleep, readSources } from '../helpers/helpers.ts';
 import {
   bindRootNow,
   dirRow,
@@ -366,7 +366,7 @@ test('no honesty line is left in the panel at all — every tab is real (B3)', a
   await settle();
   assert.deepEqual(textsOf(root, 'files-note'), []);
 
-  const src = readSource('web', 'src', 'ui', 'files.ts');
+  const src = readSources(...FILES_PANEL_SOURCES);
   for (const dead of ['placeholderNote', 'Example data', 'files-mock', 'MOCK_COMMITS']) {
     assert.equal(src.includes(dead), false, `${dead} died with part B3`);
   }

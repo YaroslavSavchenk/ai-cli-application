@@ -15,7 +15,7 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | O5 | Duplicated test code into `tests/helpers/` | landed | — | 2026-09-23 |
 | O6 | Split every test file over 800 lines (38 files, 53.6k lines on 2026-09-23) | landed | — | 2026-09-23 |
 | O7 | Dead code and unused dependencies, whole repo (janitor) | landed (five test-only functions await the user) | — | 2026-09-23 |
-| O8 | Split every source file over 1 000 lines (14 files: 5 `server/`, `shared/protocol.ts`, 7 `web/src/`, `app.css`) | todo — decided 2026-09-23 | — | |
+| O8 | Split every source file over 1 000 lines (14 files: 5 `server/`, `shared/protocol.ts`, 7 `web/src/`, `app.css`) | landed | — | 2026-09-23 |
 
 ## Resume here
 
@@ -41,10 +41,13 @@ When the user says it, do this, in order:
 4. Land per batch: suite equal to the baseline, one commit, push, watch CI to
    green (`CLAUDE.md`), table row + vault log entry + INDEX line in that commit.
 
-Where it stands (2026-09-21): batches 1–3 landed; both layouts are guarded by
-`tests/repo/vault-layout.test.ts` and `tests/repo/plans-layout.test.ts`; the map of the
-repo is `README.md` § Repository layout. Suite at the last landing of this
-plan: 2915 / 0 — it has grown since (B3); take a fresh baseline.
+Where it stands (2026-09-23): batches 1–4 and O4–O8 landed; the layouts
+are guarded by `tests/repo/vault-layout.test.ts` and
+`tests/repo/plans-layout.test.ts`, file size by `tests/repo/file-size.test.ts`;
+the map of the repo is `README.md` § Repository layout, the test rules
+`tests/README.md`. Suite at the last landing: 3711 / 0. Left: O1–O3
+(candidates, the user decides) and the five test-only functions of O7
+(`memory/BACKLOG.md`, asked 2026-09-23).
 
 Procedure: `/restructure-repo`. Decisions and the move maps:
 `memory/decisions/repo-layout.md`.
@@ -132,8 +135,8 @@ worden") and answered four questions the same day:
 1. **Order: tests first, then source.** Batch 4 → O4 → O5 → O6 → O7 → O8.
 2. **Thresholds: a test file over 800 lines, a source file over 1 000 lines
    is split.** The limit becomes a rule in `tests/README.md` and a guard test
-   (`tests/repo/file-size.test.ts`) whose list of grandfathered files may
-   only shrink.
+   (`tests/repo/file-size.test.ts`); the 52 files over it on the day were all
+   split (O6, O8), so it has no exemptions.
 3. **Split pieces stay in the same folder with a prefix** —
    `server/api.ts` → `server/api.ts` + `server/api-<topic>.ts`; the
    2026-09-21 call that `server/` and `web/src/ui/` stay flat holds.

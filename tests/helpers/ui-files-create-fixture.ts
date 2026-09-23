@@ -14,12 +14,12 @@ import assert from 'node:assert/strict';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, textsOf, type FakeElement } from './fake-dom.ts';
 import { PROJ, makeFixture, settle, type Gateway, mkSession, mkProject as project } from './fs-fixture.ts';
-import { readSource } from './helpers.ts';
+import { FILES_PANEL_SOURCES, readSources } from './helpers.ts';
 
 export const fx = makeFixture();
 export const dom = installDom();
 
-export const FILES_SRC = readSource('web', 'src', 'ui', 'files.ts');
+export const FILES_SRC = readSources(...FILES_PANEL_SOURCES);
 
 export const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 export const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;

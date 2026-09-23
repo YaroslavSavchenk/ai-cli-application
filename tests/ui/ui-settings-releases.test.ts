@@ -52,13 +52,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isOpenableLink } from '../../web/src/ui/keys.ts';
 import { UPDATE_OWNER, UPDATE_REPO } from '../../server/update-release.ts';
-import { readSource as read } from '../helpers/helpers.ts';
+import { readSource as read, readSources } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
-const SETTINGS = read('web', 'src', 'ui', 'settings.ts');
+const SETTINGS = readSources(
+  'web/src/ui/settings.ts',
+  'web/src/ui/settings-apikeys.ts',
+  'web/src/ui/settings-service.ts',
+);
 const RELEASES = read('web', 'src', 'ui', 'releases.ts');
 const EXIT = read('web', 'src', 'ui', 'open-external.ts');
 const UPDATE = read('web', 'src', 'ui', 'update.ts');
-const CSS = read('web', 'src', 'styles', 'app.css');
+const CSS = readAppCss();
 
 /** The address as the module really declares it — parsed out, never re-typed. */
 function releasesUrl(): string {

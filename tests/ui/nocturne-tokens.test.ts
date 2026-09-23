@@ -48,6 +48,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { projectRoot } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const TOKENS_CSS = join(projectRoot, 'web', 'src', 'styles', 'tokens.css');
 const APP_CSS = join(projectRoot, 'web', 'src', 'styles', 'app.css');
@@ -60,7 +61,7 @@ const FONT_DIR = join(projectRoot, 'web', 'src', 'assets', 'fonts');
 const WEB_SRC = join(projectRoot, 'web', 'src');
 const DS_DIR = join(projectRoot, 'design', 'session-manager', '_ds');
 
-const read = (p: string) => readFileSync(p, 'utf8');
+const read = (p: string) => (p === APP_CSS ? readAppCss() : readFileSync(p, 'utf8'));
 const rel = (p: string) => relative(projectRoot, p);
 
 /**

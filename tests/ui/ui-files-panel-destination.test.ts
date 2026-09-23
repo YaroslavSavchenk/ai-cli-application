@@ -37,7 +37,7 @@ import {
   settle,
   mkProject as project,
 } from '../helpers/fs-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, readSource, readSources } from '../helpers/helpers.ts';
 import {
   body,
   destName,
@@ -59,6 +59,7 @@ import {
   st,
   type ViewLike,
 } from '../helpers/ui-files-panel-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 beforeEach(resetPanel);
 
@@ -328,8 +329,8 @@ test('every row state has a rule, and every rule has a setter (class parity)', (
   // A class with no rule paints nothing and no DOM test can see it; a rule
   // with no setter is dead CSS the next reader trusts. Part B2 adds `is-state`
   // and `is-err` to this vocabulary.
-  const src = readSource('web', 'src', 'ui', 'files.ts');
-  const app = readSource('web', 'src', 'styles', 'app.css');
+  const src = readSources(...FILES_PANEL_SOURCES);
+  const app = readAppCss();
   // Two other modules put a class on a row of this panel: the drop layer
   // lights the folder under the pointer (`is-drop`), and the in-app drag
   // recedes the row it picked up (`is-dragging`).
@@ -376,7 +377,7 @@ test('every row state has a rule, and every rule has a setter (class parity)', (
 test('every sentence the panel can print follows the copy rules', () => {
   // A scan over the strings part B2 added, in the module that prints them:
   // no path, no flag, no command, no key name, and a full stop on a sentence.
-  const src = readSource('web', 'src', 'ui', 'files.ts');
+  const src = readSources(...FILES_PANEL_SOURCES);
   const fsModel = readSource('web', 'src', 'ui', 'fs-model.ts');
   const commitModel = readSource('web', 'src', 'ui', 'commit-model.ts');
   const sentences = [

@@ -130,7 +130,8 @@ registerHooks({
     const mine =
       parent.endsWith('/web/src/ui/picker.ts') ||
       parent.endsWith('/web/src/ui/newproject.ts') ||
-      parent.endsWith('/web/src/ui/github.ts');
+      parent.endsWith('/web/src/ui/github.ts') ||
+      parent.endsWith('/web/src/ui/github-state.ts');
     if (mine) {
       const m = /^\.\.\/(api|state)\.ts$/.exec(specifier);
       if (m !== null) return { url: `pk-stub:${m[1] as string}`, shortCircuit: true };

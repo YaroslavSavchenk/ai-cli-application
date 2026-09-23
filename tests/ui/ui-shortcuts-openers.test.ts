@@ -39,9 +39,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isCopyChord, isLinkActivation, isPasteChord } from '../../web/src/ui/keys.ts';
 import type { KeyChord } from '../../web/src/ui/keys.ts';
-import { readSource as read } from '../helpers/helpers.ts';
+import { readSource as read, readSources } from '../helpers/helpers.ts';
 
-const MAIN = read('web', 'src', 'main.ts');
+const MAIN = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 const SETTINGS = read('web', 'src', 'ui', 'settings.ts');
 const SHORTCUTS = read('web', 'src', 'ui', 'shortcuts.ts');
 /** The rows both surfaces draw (Nocturne B6). */

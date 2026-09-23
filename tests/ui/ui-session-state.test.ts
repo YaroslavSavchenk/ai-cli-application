@@ -25,7 +25,8 @@ import {
   sessionReadout,
   type SessionReadout,
 } from '../../web/src/ui/session-state.ts';
-import { readSource } from '../helpers/helpers.ts';
+import { readSource, readSources } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 type S = Pick<SessionInfo, 'status' | 'attention' | 'turn'>;
 const s = (status: SessionInfo['status'], attention: boolean, turn?: SessionTurn): S =>
@@ -73,7 +74,7 @@ test('one class per readout, matching app.css', () => {
 });
 
 test('app.css: is-work pulses green, is-wait is still amber, reduced motion stops the work pulse', () => {
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const rule = (sel: string): string => {
     const re = new RegExp(`(^|\\n)${sel.replace(/\./g, '\\.')}\\s*\\{([^}]*)\\}`);
     const m = re.exec(css);
@@ -97,7 +98,7 @@ test('panes.ts: the pane dot AND the pill both take the one readout (class and w
   // panes.ts imports xterm, so updateHeader cannot run under node --test; this
   // pins that the header derives dot class, pill class and pill word from
   // sessionReadout → readoutClass / readoutWord, not from a local ternary.
-  const src = readSource('web', 'src', 'ui', 'panes.ts');
+  const src = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts');
   const start = src.indexOf('function updateHeader(');
   assert.ok(start !== -1, 'non-vacuity: updateHeader exists');
   const body = src.slice(start, src.indexOf('\nfunction ', start + 1));
@@ -113,7 +114,7 @@ test('panes.ts: the pane dot AND the pill both take the one readout (class and w
 });
 
 test('app.css: the pill and the drawer meta say waiting in amber, and the pill does not pulse', () => {
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   assert.match(css, /\.pane-state\.is-wait\s*\{[^}]*color:\s*var\(--color-attn\)/);
   assert.match(css, /\.sess-meta\.is-attn,\s*\.sess-meta\.is-wait\s*\{[^}]*color:\s*var\(--color-attn\)/);
   const pill = /\.pane-state\.is-wait\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';

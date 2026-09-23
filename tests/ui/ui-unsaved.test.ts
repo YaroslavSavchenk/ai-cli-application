@@ -25,9 +25,10 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot, readSource } from '../helpers/helpers.ts';
+import { projectRoot, readSource, readSources } from '../helpers/helpers.ts';
 import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
 import { settle } from '../helpers/fs-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const dom = installDom();
 
@@ -231,7 +232,7 @@ test("the question isolates the name's direction", async () => {
     'the sentence itself is unchanged',
   );
   // The class has to mean something: the rule is in app.css, with the isolation.
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const at = css.indexOf('.ud-name {');
   assert.notEqual(at, -1, 'app.css must carry a .ud-name rule');
   const rule = css.slice(at, css.indexOf('}', at));
@@ -603,7 +604,7 @@ test('after disarm, beforeunload asks nothing even while dirty', () => {
   // takeover panels) is their own move and stays armed; a comment about one is
   // not a call site.
   let checked = 0;
-  for (const rel of ['web/src/ui/update.ts', 'web/src/main.ts']) {
+  for (const rel of ['web/src/ui/update.ts', 'web/src/main.ts', 'web/src/main-shell.ts']) {
     const src = readSource(...rel.split('/'));
     for (const line of src.split('\n')) {
       if (!line.includes('location.reload()')) continue;
@@ -626,7 +627,7 @@ test('main.ts wires the browser question and ranks this card in its Escape ladde
   // main.ts imports @xterm/xterm through ui/panes.ts and cannot be loaded here,
   // so the WIRING is read from source — the two lines that make the module
   // above reachable at all.
-  const src = readSource('web', 'src', 'main.ts');
+  const src = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   assert.match(src, /addEventListener\('beforeunload'/, 'the reload question must be wired');
   assert.match(src, /unloadGuard\(e\)/, 'and it must be THIS decision, not a second copy of it');
   assert.ok(src.includes('closeActiveTabGuarded('), 'ctrl+alt+w goes through the guard');

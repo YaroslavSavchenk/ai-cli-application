@@ -41,7 +41,7 @@ import {
 import { MascotModel, REACTIONS } from '../../web/src/mascot/model.ts';
 import { clampMascot, getMascotEnabled, initMascot, mascotPatch } from '../../web/src/ui/prefs-model.ts';
 import { onFocusSession, parseFocusSession, type HostWindow } from '../../web/src/ui/host-bridge.ts';
-import { readSource as read } from '../helpers/helpers.ts';
+import { readSource as read, readSources } from '../helpers/helpers.ts';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -466,7 +466,7 @@ test('onFocusSession listens only inside a host, forwards only valid messages, a
 });
 
 test('main.ts: focus-session goes to the tab, focuses the pane, and ignores a session it does not know', () => {
-  const src = read('web/src/main.ts');
+  const src = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   const at = src.indexOf('onFocusSession((id) => {');
   assert.ok(at > 0, 'the handler is wired');
   const body = src.slice(at, src.indexOf('});', at));
@@ -576,7 +576,7 @@ test('the store: markSeenLocally clears the BEL only, keeps `turnEnded` + its pe
   st.markSeenLocally(C);
   assert.equal(st.state.sessions.get(C)?.turnEnded, true);
   assert.equal(notified, 2, 'no BEL to clear, nothing said');
-  const src = read('web/src/state.ts');
+  const src = read('web/src/state-chrome.ts');
   const count = /export function attentionCount\(\): number \{[\s\S]*?\n\}/.exec(src);
   assert.ok(count);
   assert.doesNotMatch(count[0], /turnEnded/);

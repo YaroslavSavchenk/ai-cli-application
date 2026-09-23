@@ -1,0 +1,946 @@
+/*
+ * App styles: the side panels: their frame, the sessions and projects rows,
+ * the Files panel, the commits list and the drag edge.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-strip.css,
+ * app-dialogs.css, app-settings.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- panels (Nocturne A5, v3 §2): flex siblings, slide-in .18s --------------
+   Projects, Files and Sessions are structural columns of the middle row, not
+   floating surfaces: they sit on the app ground, separated from the pane area
+   by one neutral-900 hairline, and their width is width the grid does not get
+   — which is what makes opening one a real pane resize. */
+
+.drawer {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+.drawer-proj {
+  width: var(--drawer-proj-w);
+  border-right: var(--line) solid var(--color-neutral-900);
+}
+
+.drawer-sess {
+  width: var(--drawer-sess-w);
+  border-left: var(--line) solid var(--color-neutral-900);
+}
+
+.drawer-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-proj .drawer-view {
+  animation: slideL var(--t-slide) ease;
+}
+
+.drawer-sess .drawer-view {
+  animation: slideR var(--t-slide) ease;
+}
+
+/* 44px header, no hairline under it: the section labels below carry the
+   structure, and a second rule this close would read as a toolbar. */
+.drawer-hd {
+  height: var(--panelhd-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-6);
+}
+
+/* Section label ("Projects", "Sessions"). A2 dropped the letterspaced CAPS:
+   Nocturne's copy rules want sentence case, and a label that shouts is
+   decoration. */
+.drawer-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.drawer-gap {
+  flex: 1;
+}
+
+.drawer-x {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.drawer-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.drawer-empty {
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-neutral-600);
+  font-size: 12px;
+}
+
+/* Section labels ("Running now", "Earlier"): quiet sentence-case words, no
+   counts and no separator — the rows beneath them are the count. */
+.drawer-sect {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* the Earlier section's header sits lower: it separates two lists */
+.drawer-sect.is-later {
+  padding-top: var(--space-6);
+}
+
+/* text-only action in a section header (Clear), armed like every destructive
+   control in this app */
+.link-btn {
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 11.5px;
+}
+
+.link-btn:hover {
+  color: var(--color-text);
+}
+
+.link-btn[data-armed='1'] {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+/* ---- sessions panel rows (Nocturne A5) — and the projects drawer rows -------
+   Two lines, no card: line one is the session (dot, name, its two actions),
+   line two is the quiet fact about it, indented under the name. Nothing here
+   is filled — the only ground is the neutral-900 hover — and the only colour
+   is state: green running, amber waiting, neutral finished, danger armed.
+   The projects drawer rows at the end of this section wear the same idiom. */
+
+.sess-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+}
+
+.sess-row:hover {
+  background: var(--color-neutral-900);
+}
+
+.sess-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* the select target: dot + name, the rest of the row's width */
+.sess-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  text-align: left;
+  background: transparent;
+}
+
+.sess-row .dot {
+  width: var(--dot-row);
+  height: var(--dot-row);
+}
+
+/* B12: the tool mark between the state dot and the name */
+.sess-tool {
+  flex: none;
+  color: var(--color-neutral-500);
+}
+
+.sess-row.is-hist .sess-tool {
+  color: var(--color-neutral-600);
+}
+
+/* an earlier run is a hollow ring: the shape says "not here any more" before
+   the colour does */
+.dot.is-past {
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-700);
+}
+
+.sess-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sess-name.is-hist {
+  font-weight: 400;
+  color: var(--color-neutral-300);
+}
+
+/* outlined row action (Side by side, Continue): 24px, quiet until hovered */
+.row-btn {
+  flex: none;
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.row-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+}
+
+/* the resume action carries the accent at rest — it is the one thing an
+   earlier run is for */
+.row-btn.is-acc {
+  border-color: var(--color-accent-700);
+  color: var(--color-accent-300);
+}
+
+.row-btn.is-acc:hover {
+  background: var(--color-accent-900);
+}
+
+/* the row's destructive control: a 24px × that becomes a worded button once
+   armed, so "one more click ends it" is never a colour change alone */
+.row-x {
+  flex: none;
+  width: var(--ctl-h-row);
+  height: var(--ctl-h-row);
+  padding: 0;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-600);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.row-x:hover {
+  border-color: var(--color-neutral-800);
+  color: var(--color-danger);
+}
+
+.row-x[data-armed='1'] {
+  width: auto;
+  padding: 0 var(--space-3);
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-ink-on-danger);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* forgetting an ENDED session destroys nothing that runs: it is armed the
+   same way, but it is not painted as danger */
+.row-x.is-quiet[data-armed='1'] {
+  border-color: var(--color-neutral-700);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.row-x.is-quiet:hover {
+  color: var(--color-text);
+}
+
+.sess-meta {
+  padding-left: calc(var(--dot-row) + var(--space-2));
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sess-meta.is-hist {
+  color: var(--color-neutral-600);
+}
+
+.sess-meta.is-attn,
+.sess-meta.is-wait {
+  color: var(--color-attn);
+}
+
+/* a crashed run keeps the danger colour on its meta line — the word alone is
+   easy to miss in a dense list */
+.sess-meta.is-danger {
+  color: var(--color-danger-mut);
+}
+
+/* history entries sit INSIDE their folder: one indent step, so the folder
+   headers form the readable left edge of the section */
+.sess-row.is-hist {
+  margin-left: var(--space-3);
+}
+
+/* folder header — the WHOLE row is the collapse toggle (no hover-only
+   affordance, no icon library: the caret is a text glyph like the app's other
+   glyphs) */
+.hist-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--color-neutral-400);
+}
+
+.hist-group:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.hist-caret {
+  flex: none;
+  width: 10px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-neutral-600);
+}
+
+.hist-folder {
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+/* projects drawer rows: the same two-line idiom. The drawer's header owns
+   `Add project`; the inline add form it replaced is long gone. */
+
+.proj-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+}
+
+.proj-row:hover {
+  background: var(--color-neutral-900);
+}
+
+.proj-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.proj-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj-path {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj-meta {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.proj-meta.is-on {
+  color: var(--color-ok);
+}
+
+/* ---- Files panel (Nocturne A5, v3 §"Files panel") ---------------------------
+   A ledger, not a card: one hairline under the 44px tab header, one under the
+   summary row, 26px rows on the app ground with a neutral-900 hover, and the
+   only colours are information — green added, red removed, amber being edited
+   right now (pulsing, and pulsing on every folder above it). The accent shows
+   up exactly once, as the 2px underline of the active tab.
+
+   Width is inline (state.filesWidth, 200..520): the panel is a flex sibling of
+   the grid, so its width is width the panes lose, and the drag really resizes
+   every PTY. */
+
+.files-panel {
+  position: relative; /* anchors the drag edge */
+  border-right: var(--line) solid var(--color-neutral-900);
+}
+
+.files-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: slideL var(--t-slide) ease;
+}
+
+.files-hd {
+  height: var(--panelhd-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.files-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-4);
+  height: 100%;
+}
+
+/* a tab is its label plus a 2px underline; nothing is filled, nothing is boxed */
+.files-tab {
+  padding: 0 2px;
+  border: none;
+  border-bottom: var(--tick) solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 13px;
+}
+
+.files-tab:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.files-tab.is-on {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+/* no repository behind the panel (`Home`): the same disabled look the modal
+   tabs already wear (.ap-tab:disabled) — dimmer text, no pointer promise, and
+   no hover or focus state that would suggest it still leads anywhere */
+.files-tab:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* what the panel is about: the project's NAME, never its path */
+.files-proj {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the Changes tab's summary hairline (it left the Files tab in part B2: a
+   folder listing has no commits to be since) */
+.files-sum {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.files-sum-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* every number in this panel is mono and coloured by what it means */
+.files-num {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.files-sum .files-num {
+  font-size: 12px;
+}
+
+.files-num.is-add {
+  color: var(--color-ok);
+}
+
+.files-num.is-del {
+  color: var(--color-danger);
+}
+
+.files-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-2) var(--space-3);
+}
+
+/* one tree row: folders are buttons (they open and close) and so are files
+   since A6 (they open that file in a pane) — both are 26px, and the
+   indent is inline */
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--files-row-h);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  background: transparent;
+}
+
+.files-row:hover {
+  background: var(--color-neutral-900);
+}
+
+/* A STATE OF THE TREE, not a thing in it (part B2): `Loading…`, `Empty
+   folder`, the server's own refusal, or the quiet note about rows a cap left
+   out. It is a <div>, so it takes no hover ground and no focus ring — there is
+   nothing to press — but it is exactly as tall as the rows around it and it
+   carries a `.files-name`, so the answer that replaces it lands in the same
+   place and a long sentence ellipsises instead of widening the panel. (A
+   width change here would fire every pane's ResizeObserver and resize every
+   PTY in the grid.) Its indent is inline, like every other row's. */
+.files-row.is-state {
+  cursor: default;
+  color: var(--color-neutral-600);
+}
+
+.files-row.is-state .files-name {
+  color: var(--color-neutral-600);
+}
+
+/* a row that cannot be pressed must not light up under the pointer either */
+.files-row.is-state:hover {
+  background: transparent;
+}
+
+/* the SERVER's own sentence about a folder it would not read: the one state in
+   this tree that is a refusal, in the ink this app refuses in everywhere */
+.files-row.is-state.is-err .files-name {
+  color: var(--color-danger);
+}
+
+/* a file the session is editing, and every folder holding one */
+.files-row.is-busy {
+  animation: pulse var(--t-pulse-edit) infinite;
+}
+
+.files-caret {
+  flex: none;
+  width: 10px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-neutral-600);
+}
+
+.files-folder {
+  flex: none;
+  color: var(--color-neutral-600);
+}
+
+.files-folder.is-open {
+  color: var(--color-neutral-500);
+}
+
+.files-row.is-busy .files-folder {
+  color: var(--color-attn);
+}
+
+/* file-type icon (B12): a 16px glyph, no chip — a language's own logo or a
+   category glyph, in its family's ink from the --badge-<kind>-fg table in
+   tokens.css. Same box as the folder glyph, so names line up down the tree. */
+.files-icon {
+  flex: none;
+  width: var(--files-icon);
+  height: var(--files-icon);
+  color: var(--badge-plain-fg);
+}
+
+.files-icon[data-kind='ts'] { color: var(--badge-ts-fg); }
+.files-icon[data-kind='js'] { color: var(--badge-js-fg); }
+.files-icon[data-kind='py'] { color: var(--badge-py-fg); }
+.files-icon[data-kind='md'] { color: var(--badge-md-fg); }
+.files-icon[data-kind='json'] { color: var(--badge-json-fg); }
+.files-icon[data-kind='ps'] { color: var(--badge-ps-fg); }
+.files-icon[data-kind='css'] { color: var(--badge-css-fg); }
+.files-icon[data-kind='html'] { color: var(--badge-html-fg); }
+.files-icon[data-kind='sh'] { color: var(--badge-sh-fg); }
+.files-icon[data-kind='yml'] { color: var(--badge-yml-fg); }
+.files-icon[data-kind='rs'] { color: var(--badge-rs-fg); }
+.files-icon[data-kind='go'] { color: var(--badge-go-fg); }
+.files-icon[data-kind='git'] { color: var(--badge-git-fg); }
+.files-icon[data-kind='docker'] { color: var(--badge-docker-fg); }
+.files-icon[data-kind='c'] { color: var(--badge-c-fg); }
+.files-icon[data-kind='java'] { color: var(--badge-java-fg); }
+.files-icon[data-kind='ruby'] { color: var(--badge-ruby-fg); }
+.files-icon[data-kind='php'] { color: var(--badge-php-fg); }
+.files-icon[data-kind='vue'] { color: var(--badge-vue-fg); }
+.files-icon[data-kind='npm'] { color: var(--badge-npm-fg); }
+.files-icon[data-kind='vim'] { color: var(--badge-vim-fg); }
+.files-icon[data-kind='config'] { color: var(--badge-config-fg); }
+.files-icon[data-kind='text'] { color: var(--badge-text-fg); }
+.files-icon[data-kind='key'] { color: var(--badge-key-fg); }
+.files-icon[data-kind='secret'] { color: var(--badge-secret-fg); }
+.files-icon[data-kind='cert'] { color: var(--badge-cert-fg); }
+.files-icon[data-kind='image'] { color: var(--badge-image-fg); }
+.files-icon[data-kind='archive'] { color: var(--badge-archive-fg); }
+.files-icon[data-kind='pdf'] { color: var(--badge-pdf-fg); }
+.files-icon[data-kind='doc'] { color: var(--badge-doc-fg); }
+.files-icon[data-kind='sheet'] { color: var(--badge-sheet-fg); }
+.files-icon[data-kind='media'] { color: var(--badge-media-fg); }
+.files-icon[data-kind='db'] { color: var(--badge-db-fg); }
+.files-icon[data-kind='history'] { color: var(--badge-history-fg); }
+.files-icon[data-kind='marker'] { color: var(--badge-marker-fg); }
+.files-icon[data-kind='binary'] { color: var(--badge-binary-fg); }
+.files-icon[data-kind='font'] { color: var(--badge-font-fg); }
+.files-icon[data-kind='lockfile'] { color: var(--badge-lockfile-fg); }
+
+/* the name ramp IS the information: a folder and an untouched file recede, a
+   changed file is full ink, an edited one is amber */
+.files-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-row.is-dir .files-name {
+  color: var(--color-neutral-300);
+}
+
+.files-name.has-diff {
+  color: var(--color-text);
+}
+
+/* the CHOSEN rows (Nocturne A9b, widened by B10a): what a paste, a Copy or a
+   Delete is about. FILES wear it too since B10a, and there may be MANY of them
+   at once — which is exactly why the recipe did not change: three chosen rows
+   are the one chosen row three times over, not a second visual language with
+   check boxes and a column of its own (a column would change the row's width,
+   and a pixel of panel width is a resize of every PTY in the grid).
+   It has to be readable from across the window without being a block of
+   colour. The accent grammar of this app — an outline and a small mark, never
+   a fill — as a faint accent ground plus a 2px accent tick on the LEADING
+   edge, drawn with `box-shadow: inset` on purpose: a border or a padding would
+   move the tree by a pixel, and a pixel of panel width is a resize of every
+   PTY in the grid. The same `--color-accent-900` wash the A9 drop target
+   wears, because "this folder is the destination" is one idea whether the
+   files arrive by drag or by keyboard.
+
+   PRECEDENCE BY SPECIFICITY, not by order (`.files-view` is the extra class):
+   `.files-row.is-open` lives at the far end of this file, in the A10 block, so
+   no amount of ordering inside this section could ever beat it — and both it
+   and `:hover` are NEUTRAL grounds that a chosen row must outrank. The focus
+   ring and the A9 drop highlight are `outline`, a different property, so all
+   three coexist; the busy pulse is an opacity animation and keeps running over
+   the lot. */
+.files-view .files-row.is-sel {
+  background: var(--color-accent-900);
+  box-shadow: inset var(--tick) 0 0 0 var(--color-accent);
+}
+
+/* full ink for the name, the top of the ramp above — placed BEFORE the busy
+   rule so an amber file being edited right now keeps saying so: information
+   colour outranks selection ink. */
+.files-row.is-sel .files-name {
+  color: var(--color-text);
+}
+
+.files-row.is-busy .files-name {
+  color: var(--color-attn);
+}
+
+/* the NAME ROW (Nocturne A9c): naming a new file or folder happens in the
+   tree, at the indent the thing will live at — never in a dialog. It is the
+   tree's own row with its name turned into an ink well: same 26px rhythm, same
+   caret spacer and same mark, so the rows above and below it do not move by a
+   pixel while it is there. (A row that changed the panel's WIDTH would fire
+   every pane's ResizeObserver and resize every PTY in the grid — the A9 rule,
+   which is also why the input carries no border and no padding of its own: the
+   field ground the base `input` rule paints would otherwise make this row
+   taller than every other one.)
+
+   The refusal underneath is the same row again, one sentence, in the ink this
+   app refuses in everywhere (`.is-state.is-err` above uses the same token for
+   the same job). */
+.files-row.is-new {
+  cursor: text;
+}
+
+.files-newname {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  /* THE TREE'S FACE, NOT THE FIELD'S. The base `input` rule sets the mono
+     face (Nocturne: mono carries DATA, chrome is Inter), which inside a tree
+     of Inter names reads as a different kind of thing in the same column. The
+     name being typed is the same name that will be drawn one repaint later,
+     so it is the same face and the same 12.5px as `.files-name` — and the size
+     is restated rather than inherited so the row's height cannot move with it. */
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+/* the refusal WRAPS like the rename note below (B13 browser-gate finding: at
+   the default panel width `Something with that name already exists here.`
+   read `…already exis…`). It grows DOWN only, so no pane is resized. */
+.files-row.is-newerr {
+  height: auto;
+  min-height: var(--files-row-h);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+.files-row.is-newerr .files-name {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
+  color: var(--color-danger);
+}
+
+/* the RENAME note (Nocturne B13, user decision D4): a folder with a session
+   working inside it may be renamed, and this line says what that costs. Not a
+   refusal, so the tree's quiet ink; and it WRAPS instead of ellipsising — a
+   note cut at 200px would say half of it. It grows DOWN only (min-height keeps
+   the 26px rhythm, the width is the row's own), so no pane is resized. */
+.files-row.is-newnote {
+  height: auto;
+  min-height: var(--files-row-h);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  cursor: default;
+}
+
+.files-row.is-newnote:hover {
+  background: transparent;
+}
+
+.files-row.is-newnote .files-name {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
+  color: var(--color-neutral-600);
+}
+
+/* ---- commits list (a row opens the commit view since A6) -------------------
+   `.files-branch` is shared with the Changes tab, which names its REPOSITORY
+   and branch on the same quiet line (part B2 §7). */
+
+.files-branch {
+  padding: var(--space-2) var(--space-3);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* a commit row is a real button (A6: it opens the commit view) */
+.commit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  /* Nothing in a row may widen the panel: the grip's width is a PTY resize. */
+  overflow: hidden;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.commit-row:hover {
+  background: var(--color-neutral-900);
+}
+
+.commit-msg {
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  min-width: 0;
+}
+
+.commit-meta > span {
+  white-space: nowrap;
+}
+
+/* git abbreviates a hash to whatever `core.abbrev` says — 1..40 characters, so
+   this row may never be sized for seven. It keeps its own width, elides past
+   fourteen (a cut hash SHOWS that it is cut), and the row clips rather than
+   pushes: a pixel of panel width is a PTY resize on the other side of the grip. */
+.commit-hash {
+  flex: none;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+/* B3, THE ROW AT 200px: the numbers are flex:none and keep their line, the
+   author takes what is left and elides. Nothing here may widen the panel —
+   every pixel of its width is a PTY resize on the other side of the grip. */
+.commit-author {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-meta .files-num {
+  flex: none;
+}
+
+/* the third line: the absolute date and how long ago that was, quietest in
+   the row, in the panel's smallest ink */
+.commit-when {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.commit-when > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* `Show more`: a full-width quiet row, the same rhythm as a commit row — a
+   verb in the list, not a button standing over it */
+.commit-more-btn {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  text-align: left;
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+}
+
+.commit-more-btn:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.commit-more-btn:disabled {
+  color: var(--color-neutral-600);
+}
+
+/* ---- the drag edge --------------------------------------------------------
+   6px of hit zone hanging half over the pane area, invisible until it is
+   touched. Keyboard-reachable like every control here: it is a separator with
+   arrow keys and home. */
+
+.files-grip {
+  position: absolute;
+  top: 0;
+  right: calc(var(--files-grip-w) / -2);
+  width: var(--files-grip-w);
+  height: 100%;
+  z-index: 5;
+  cursor: col-resize;
+}
+
+.files-grip:hover {
+  background: var(--color-accent-800);
+}
+
+/* keyboard focus and a live drag light the strip fully, like .divider — a
+   pointer merely resting on it does not */
+.files-grip.is-dragging,
+.files-grip:focus-visible {
+  background: var(--color-accent);
+}
+
+.files-grip:focus-visible {
+  outline: none; /* the lit strip IS the focus ring, like .divider */
+}
+
+/* while dragging, nothing on the page may select or show a text cursor */
+body.is-resizing-col {
+  cursor: col-resize;
+  user-select: none;
+}
+

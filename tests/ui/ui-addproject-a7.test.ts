@@ -28,13 +28,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from '../helpers/helpers.ts';
-import { declaredTokens, usedTokens } from '../helpers/tokens-helpers.ts';
+import { declaredTokens, readAppCss, usedTokens } from '../helpers/tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const APP_CSS = read(join(STYLES, 'app.css'));
+const APP_CSS = readAppCss();
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 const NEWPROJECT = read(join(UI, 'newproject.ts'));
 const GITHUB = read(join(UI, 'github.ts'));
@@ -201,6 +201,7 @@ test('the Legacy classes A7 dropped are gone from app.css and every frontend mod
     .filter((f) => f.endsWith('.ts'))
     .map((f) => [f, read(join(UI, f))] as const);
   tsFiles.push(['main.ts', read(join(projectRoot, 'web', 'src', 'main.ts'))]);
+  tsFiles.push(['main-shell.ts', read(join(projectRoot, 'web', 'src', 'main-shell.ts'))]);
   const offenders: string[] = [];
   for (const c of removed) {
     if (new RegExp(`\\.${c}\\b`).test(APP_CSS)) offenders.push(`app.css .${c}`);

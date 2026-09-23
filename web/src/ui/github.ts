@@ -47,6 +47,11 @@
  * presentation decisions it renders — chip view, expiry/relative-time formats,
  * language colors, cadence intervals, clone-error copy — live in
  * ./github-model.ts, which is DOM-free and unit-tested.
+ *
+ * SPLIT (O8, 2026-09-23): the shared status controller — its state, the poll,
+ * the repo load, the clones in flight and `drop()` — moved as it stood into
+ * `./github-state.ts`; this module keeps the chip and the panel and reads
+ * that state through its exports.
  */
 import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
@@ -56,14 +61,12 @@ import {
   GH_SEARCH_DEBOUNCE_MS,
   chipView,
   clonedProject,
-  cloneErrText,
   deviceCardCopy,
   expiryTickMs,
   fmtExpiry,
   fmtTokenExpiry,
   langColor,
   ownerDest,
-  pollIntervalMs,
   relTime,
   rememberNote,
   rememberSample,
@@ -73,164 +76,31 @@ import {
   storageNote,
   tokenErrText,
 } from './github-model.ts';
+import {
+  applyStatus,
+  bumpReposVersion,
+  cloneErr,
+  cloning,
+  credentialLost,
+  drop,
+  emit,
+  ensureHome,
+  forgetCredentialLost,
+  homeDir,
+  loadRepos,
+  onGithubUpdate,
+  poll,
+  repoErr,
+  repoState,
+  repos,
+  reposVersion,
+  setTabOpen,
+  status,
+} from './github-state.ts';
 
-// ---------------------------------------------------------------------------
-// Shared controller state
-// ---------------------------------------------------------------------------
-
-let status: GithubStatus | null = null; // null = not yet fetched
-let repos: GithubRepo[] = [];
-type RepoState = 'idle' | 'loading' | 'loaded' | 'error';
-let repoState: RepoState = 'idle';
-let repoErr = '';
-let reposVersion = 0; // bumps whenever the repo list/state changes (list rebuild gate)
-
-const listeners = new Set<() => void>();
-let timer: number | null = null;
-let tabOpen = false;
-let inFlight = false;
-let repoToken = 0;
-
-/**
- * V-4: a connection that DROPS on its own — an expired or revoked token, or one
- * that lost access — used to flip the UI to "disconnected" with no explanation,
- * which with user-pasted tokens will be routine. These two flags separate that
- * from a disconnect the user asked for, so the panel can say what happened.
- * Both are per-run observations: after a reload the status is simply
- * disconnected and we do NOT invent a reason for it.
- */
-let userDropped = false;
-let credentialLost = false;
-
-// Phase 2c: repos with a clone in flight, keyed by fullName. Lives OUTSIDE the
-// row DOM (like util.ArmedSet) so a per-row "cloning…" state survives a list
-// rebuild (search / repo-list reload) instead of being wiped by replaceChildren.
-const cloning = new Set<string>();
-
-function emit(): void {
-  for (const cb of listeners) cb();
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2c helpers: home resolution + ApiError narrowing (the destination path,
-// already-cloned detection, and the error copy itself live in github-model.ts).
-// ---------------------------------------------------------------------------
-
-/**
- * Real $HOME, resolved ONCE from GET /api/fs/list (the same source
- * newproject.ts uses — NEVER hardcoded `/home/...`) and cached. Retried on
- * every call until it succeeds; null until then (clone/create surface a
- * "couldn't resolve your home directory" error rather than guessing a path).
- */
-let homeDir: string | null = null;
-
-async function ensureHome(): Promise<string | null> {
-  if (homeDir !== null) return homeDir;
-  try {
-    const res = await api.fsList(); // no path → backend's $HOME
-    if (res.path !== '') homeDir = res.path;
-  } catch {
-    // Leave null — the caller reports it; a later call retries.
-  }
-  return homeDir;
-}
-
-/**
- * Honest clone-error copy: prefer the server's real `{error}` message; fall
- * back to friendly text only for a bare `HTTP <status>` (no body) — that
- * status→copy mapping lives in github-model.cloneErrText.
- */
-function cloneErr(e: unknown): string {
-  if (e instanceof api.ApiError) return cloneErrText(e.status, e.message);
-  return e instanceof Error ? e.message : String(e);
-}
-
-function onGithubUpdate(cb: () => void): void {
-  listeners.add(cb);
-}
-
-/** Fast poll while connecting or while the dialog's GitHub tab is open (paused otherwise). */
-function syncTimer(): void {
-  const ms = pollIntervalMs(tabOpen, status);
-  if (ms !== null) {
-    if (timer === null) timer = window.setInterval(() => void poll(), ms);
-  } else if (timer !== null) {
-    clearInterval(timer);
-    timer = null;
-  }
-}
-
-/** Apply a fresh (or optimistic) status: fire transitions, notify, resync poll. */
-function applyStatus(next: GithubStatus): void {
-  const prev = status;
-  status = next;
-  if (next.state === 'connected' && prev?.state !== 'connected') {
-    credentialLost = false;
-    void loadRepos(''); // load the list once on reaching connected
-  }
-  if (next.state !== 'connected' && prev?.state === 'connected') {
-    repos = [];
-    repoState = 'idle';
-    reposVersion++;
-    // Only an UNASKED-FOR drop is news (V-4); a disconnect the user pressed is not.
-    // Nor is the drop the "remember this token" toggle CREATES: a credential the
-    // user chose not to store lives only in the backend process, so a plain
-    // restart ends it exactly this way. Saying "expired, revoked, or lost access"
-    // there would name three causes we know to be false — and could send the user
-    // to revoke a healthy token. `prev.persisted === false` is the server's own
-    // report of that choice.
-    credentialLost = !userDropped && prev.persisted !== false;
-    userDropped = false;
-  }
-  emit();
-  syncTimer();
-}
-
-async function poll(): Promise<void> {
-  if (inFlight) return;
-  inFlight = true;
-  try {
-    applyStatus(await api.githubStatus());
-  } catch {
-    // Soft: keep last-known status (chip/panel stand); the health probe lives
-    // in the main session poll, not here.
-  } finally {
-    inFlight = false;
-  }
-}
-
-async function loadRepos(q: string): Promise<void> {
-  const mine = ++repoToken;
-  repoState = 'loading';
-  reposVersion++;
-  emit();
-  try {
-    const res = await api.githubRepos(q);
-    if (mine !== repoToken) return; // superseded by a newer query
-    repos = res.repos;
-    repoState = 'loaded';
-    reposVersion++;
-    emit();
-  } catch (e) {
-    if (mine !== repoToken) return;
-    repoErr = e instanceof Error ? e.message : String(e);
-    repoState = 'error';
-    reposVersion++;
-    emit();
-  }
-}
-
-/** Fetch status once at boot so the chip is honest from the first paint. */
-export function initGithub(): void {
-  void poll();
-}
-
-/** The dialog's GitHub tab opened/closed — drives the fast/paused cadence. */
-function setTabOpen(open: boolean): void {
-  tabOpen = open;
-  syncTimer();
-  if (open) void poll();
-}
+// The shared status controller lives in `github-state.ts` since O8; main.ts
+// keeps booting it from here.
+export { initGithub } from './github-state.ts';
 
 // ---------------------------------------------------------------------------
 // Top-bar chip
@@ -744,7 +614,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       return;
     }
     setAdding(false);
-    credentialLost = false;
+    forgetCredentialLost();
     remember = true; // back to the decided default for the next paste
     syncRemember();
     applyStatus(next); // resolved @login is on screen as part of accepting it
@@ -793,22 +663,6 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       connectBtn.disabled = false;
     }
   }
-
-  /** Cancel a pending flow / disconnect — both drop the LOCAL token, then re-poll. */
-  async function drop(): Promise<void> {
-    userDropped = true; // an asked-for disconnect is not a lost credential (V-4)
-    credentialLost = false;
-    try {
-      await api.githubDisconnect();
-    } catch {
-      // Soft: the poll below reconciles the real state either way.
-    }
-    repos = [];
-    repoState = 'idle';
-    reposVersion++;
-    void poll();
-  }
-
   // ---- render ---------------------------------------------------------------
   let lastReposVersion = -1;
 
@@ -1083,7 +937,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
         if (homeDir === null) {
           void ensureHome().then(() => {
             if (active && status?.state === 'connected' && homeDir !== null) {
-              reposVersion++;
+              bumpReposVersion();
               emit();
             }
           });

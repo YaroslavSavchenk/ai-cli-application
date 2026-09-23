@@ -40,8 +40,9 @@ import {
   usedTokens,
   RUNTIME_PROPS,
 } from '../helpers/tokens-helpers.ts';
+import { readSources } from '../helpers/helpers.ts';
 
-const MAIN_TS = readFileSync(join(WEB_SRC, 'main.ts'), 'utf8');
+const MAIN_TS = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 
 /** The .ts sources, the stylesheets and the page. */
 const FILES = frontendFiles(['.ts', '.css']);

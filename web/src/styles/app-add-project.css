@@ -1,0 +1,458 @@
+/*
+ * App styles: the Add a project dialog.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- Add a project dialog (Nocturne A7) -------------------------------------
+   The v3 project modal (session-manager-v3.html, the project dialog) written
+   against the Nocturne primitives (--color-*, --space-*, --radius-*,
+   --shadow-*) plus the four structural tokens the A3 pane and A4 dialog blocks
+   also use and that have no primitive twin: --line, --tick, --font-sans,
+   --font-mono (all four are plain tokens.css declarations since A8 deleted the
+   alias layer — tests/ui/ui-addproject-a7.test.ts pins that). No
+   Legacy colour or spacing alias, no hardcoded colour. Type sizes are the v3
+   markup's own literals.
+
+   Direction: the dialog is a ledger of three ways in, not three cards. The
+   only ground inside the card is --color-bg — fields, the GitHub connect card
+   and the account row sink INTO the surface instead of floating on it — every
+   separator is one neutral-900 hairline, and there is exactly ONE accent rule:
+   the active tab's 2px underline and the primary action's outline (plus the
+   focus ring). Everything inert is neutral-700/800. Nothing is filled except
+   an 18px checkbox and nothing glows.
+
+   Meanings that stay exclusive: amber = needs your attention (a credential
+   that stopped working, an expiry inside three days, "check the account"),
+   red = harm (never paste someone else's token, inline failures), accent =
+   interactive, and there is NO percentage anywhere — a clone reports an
+   honest indeterminate spinner, never the v3 mock's fake progress bar.
+
+   Structure, like the A4 dialog: top-anchored scrim (the card's height changes
+   per tab — a centred box would move the tab row under the pointer), header
+   (title, one line of what a project is, close) / tab row on a hairline /
+   scrolling body / footer with a top hairline. */
+
+/* 250px ≈ half the New-folder tab's height, so that tab sits centred and the
+   taller GitHub tab grows downward from the same top edge. */
+.modal-scrim.ap-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
+}
+
+.ap-modal {
+  width: 580px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the body scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.ap-scrim,
+  .ap-modal {
+    animation: none;
+  }
+}
+
+/* ---- header --------------------------------------------------------------- */
+
+.ap-hd {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.ap-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* the one line that says what the thing being added IS (v3) */
+.ap-sub {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.ap-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ap-x:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ap-x:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- the three ways in: text tabs on the header's hairline ---------------- */
+
+.ap-tabs {
+  flex: none;
+  display: flex;
+  gap: var(--space-6);
+  padding: 0 var(--space-8);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.ap-tab {
+  height: 36px;
+  padding: 0 2px;
+  margin-bottom: -1px; /* the underline sits ON the row's hairline */
+  background: transparent;
+  border: none;
+  border-bottom: var(--tick) solid transparent;
+  border-radius: 0;
+  color: var(--color-neutral-500);
+  font-size: 13px;
+}
+
+.ap-tab:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.ap-tab.is-on {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ap-tab:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- body, panels, fields ------------------------------------------------- */
+
+.ap-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8);
+}
+
+.ap-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ap-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ap-lb {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.ap-opt {
+  color: var(--color-neutral-600);
+}
+
+/* two optional fields side by side (the per-project launch defaults) */
+.ap-row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.ap-field input,
+.ap-field select {
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans); /* a name or a choice is words, not data */
+  font-size: 13px;
+}
+
+.ap-field select {
+  padding: 0 var(--space-3);
+}
+
+.ap-field input::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.ap-field input:disabled,
+.ap-field select:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* a field whose VALUE is data reads in mono: a repository address, a token */
+.ap-field.is-mono input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ap-field input:focus,
+.ap-field select:focus {
+  border-color: var(--color-accent);
+}
+
+/* a field's focus is ONE 2px ring: its own border plus an inset line, so a
+   focused input never wears a border AND an outline */
+.ap-modal .ap-field input:focus-visible,
+.ap-modal .ap-field select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 var(--line) var(--color-accent);
+}
+
+/* ---- the folder row: one control, shaped like a field -------------------- */
+/* Paths are never typed here — the folder picker is the only way in — so the
+   whole row is ONE button (one tab stop) that looks like the field it stands
+   for, with the Browse affordance at its end. */
+
+.ap-pathrow {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.ap-pathrow:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+}
+
+.ap-pathrow:disabled {
+  cursor: default;
+}
+
+.ap-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a still-suggested (not yet browsed) path reads as the placeholder it is */
+.ap-path.is-suggested {
+  color: var(--color-neutral-600);
+}
+
+.ap-pathrow:disabled .ap-path {
+  color: var(--color-neutral-700);
+}
+
+.ap-browse {
+  flex: none;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.ap-pathrow:hover:not(:disabled) .ap-browse {
+  border-color: var(--color-neutral-600);
+}
+
+.ap-pathrow:disabled .ap-browse {
+  color: var(--color-neutral-700);
+}
+
+/* ---- captions and the one note that changes what the button does ---------- */
+
+.ap-note {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  line-height: 1.5;
+}
+
+/* Shown only when the picked folder is already there, i.e. when the primary
+   button changes from creating to adding. The accent hairline is what makes a
+   CHANGE of what the button does visible rather than merely legible, and the
+   brighter ink says it is a statement, not a caption. */
+.ap-pathnote {
+  padding-left: var(--space-3);
+  border-left: var(--tick) solid var(--color-accent);
+  font-size: 12px;
+  color: var(--color-neutral-300);
+  line-height: 1.5;
+}
+
+/* ---- checklist row (v3 settings idiom): an 18px box and a label ----------- */
+
+.ap-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* the negative inline margin cancels the row's own padding, so the 18px box
+     lines up with the field labels above it while the hover ground still has
+     air around the words */
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-3) var(--space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.ap-check:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+}
+
+.ap-box {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-700);
+  border-radius: var(--radius-sm);
+  color: var(--color-bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ap-check[aria-pressed='true'] .ap-box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.ap-check-lb {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.ap-check-sub {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.ap-check:disabled .ap-check-lb,
+.ap-check:disabled .ap-check-sub {
+  color: var(--color-neutral-700);
+}
+
+/* ---- honest indeterminate busy (never a percentage) ---------------------- */
+
+.ap-busy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.ap-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: var(--tick) solid var(--color-neutral-800);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* ---- inline error -------------------------------------------------------- */
+
+.ap-err {
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ---- footer -------------------------------------------------------------- */
+
+.ap-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the clone/create indicator sits at the far left of the footer it blocks */
+.ap-ft .ap-busy {
+  margin-right: auto;
+}
+
+.ap-modal .btn-accent:disabled,
+.ap-modal .btn-quiet:disabled {
+  background: transparent;
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- focus: one structural ring for every control in the dialog ---------- */
+
+.ap-modal button:focus-visible,
+.ap-modal input:focus-visible,
+.ap-modal select:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+

@@ -12,7 +12,8 @@ apply. The handoff is the primary design source by the user's call
 blend", the Legacy UI) survives only as the git tag `legacy-ui`.
 
 When in doubt, the code is the witness: `web/src/styles/tokens.css`,
-`web/src/styles/app.css` and the module named in each section.
+`web/src/styles/app.css` (an index of its `app-<topic>.css` pieces) and the
+module named in each section.
 
 ## UI copy rule — no commands, flags, or code (decided 2026-07-25)
 
@@ -158,7 +159,7 @@ is finished.
 
 ## Shell anatomy
 
-Vertical flex, 100 vh, no page scroll (`web/src/main.ts`):
+Vertical flex, 100 vh, no page scroll (`web/src/main-shell.ts`, `buildShell`):
 
 1. **Top bar, 48 px** — `>_` logo tile + `Session Manager`; the `Files`,
    `Projects`, `Sessions` toggles (the active one is the only filled

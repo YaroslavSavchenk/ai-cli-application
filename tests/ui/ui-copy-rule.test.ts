@@ -203,7 +203,7 @@ test('the copy guard actually reads the frontend (non-vacuity: files, literals, 
     // (Nocturne A2 removed the topbar `?` button that used to carry main.ts's
     // `keyboard shortcuts` literal; the label moved to ui/statusline.ts, so
     // main.ts is canaried on the top bar's own copy instead.)
-    ['main.ts', 'New session'],
+    ['main-shell.ts', 'New session'],
     ['main.ts', 'Session Manager'],
     ['ui/statusline.ts', 'Keyboard shortcuts'],
     // Nocturne B6 (2026-09-22): the keyboard rows are ONE table both surfaces
@@ -468,7 +468,7 @@ function codeOnly(src: string): string {
 test('phase E: no frontend module reads a release’s download addresses', () => {
   // Non-vacuity: the fields really are in the contract, so "not found in
   // web/src" means "not used", not "renamed and this test forgot".
-  const protocolSrc = readSource('shared', 'protocol.ts');
+  const protocolSrc = readSource('shared', 'protocol-runtime.ts');
   for (const field of ['setupUrl', 'sumsUrl']) {
     assert.ok(protocolSrc.includes(`${field}:`), `shared/protocol.ts must still declare ${field}`);
   }

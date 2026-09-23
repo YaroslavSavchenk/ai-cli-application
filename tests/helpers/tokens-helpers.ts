@@ -24,9 +24,31 @@ export const TOKENS_CSS_PATH = join(WEB_SRC, 'styles', 'tokens.css');
 export const APP_CSS_PATH = join(WEB_SRC, 'styles', 'app.css');
 export const INDEX_HTML_PATH = join(projectRoot, 'web', 'index.html');
 
+/**
+ * The pieces app.css imports, in its `@import` order — which is the cascade
+ * order. Since O8 (2026-09-23) app.css is an index: a header comment and one
+ * `@import './app-<topic>.css';` line per piece, every rule living in a piece.
+ */
+export function appCssPieces(): string[] {
+  const index = readFileSync(APP_CSS_PATH, 'utf8');
+  return [...index.matchAll(/^@import '\.\/([a-z0-9-]+\.css)';$/gm)].map((m) => m[1] as string);
+}
+
+/**
+ * app.css as the browser sees it: the index with every `@import` line replaced
+ * by the text of the piece it names, so a test reads the whole stylesheet in
+ * cascade order exactly as it read the single file before O8.
+ */
+export function readAppCss(): string {
+  const index = readFileSync(APP_CSS_PATH, 'utf8');
+  return index.replace(/^@import '\.\/([a-z0-9-]+\.css)';\n/gm, (_line, name: string) =>
+    readFileSync(join(WEB_SRC, 'styles', name), 'utf8'),
+  );
+}
+
 /** The raw stylesheets, read once per test process. */
 export const TOKENS_CSS = readFileSync(TOKENS_CSS_PATH, 'utf8');
-export const APP_CSS = readFileSync(APP_CSS_PATH, 'utf8');
+export const APP_CSS = readAppCss();
 
 /** Every custom property tokens.css declares — the whole vocabulary. */
 export function declaredTokens(src: string = TOKENS_CSS): Set<string> {
@@ -67,12 +89,16 @@ export interface SrcFile {
  */
 export function frontendFiles(exts: string[] = ['.ts']): SrcFile[] {
   const out: SrcFile[] = [];
+  // app.css counts as ONE file, read whole (index + pieces); its pieces are
+  // not listed again on their own.
+  const pieces = new Set(appCssPieces().map((n) => join(WEB_SRC, 'styles', n)));
   const walk = (dir: string): void => {
     for (const e of readdirSync(dir)) {
       const p = join(dir, e);
       if (statSync(p).isDirectory()) walk(p);
+      else if (pieces.has(p)) continue;
       else if (exts.some((x) => e.endsWith(x))) {
-        out.push({ name: relative(projectRoot, p), src: readFileSync(p, 'utf8') });
+        out.push({ name: relative(projectRoot, p), src: p === APP_CSS_PATH ? readAppCss() : readFileSync(p, 'utf8') });
       }
     }
   };

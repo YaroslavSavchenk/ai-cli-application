@@ -1,0 +1,798 @@
+/*
+ * App styles: the Settings modal.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- settings panel (status line) — since A7 the whole five-page Settings modal ---
+   Nocturne A7: the v3 settings modal (session-manager-v3.html lines 561-640) —
+   640 wide, a 170px LEFT NAV of page names beside one scrolling page. Written
+   against the Nocturne primitives (--color-*, --space-*, --radius-*,
+   --shadow-*) plus the four structural tokens that have no primitive twin:
+   --line, --tick, --font-sans, --font-mono (the A3 pane block and the A4
+   dialog use the same four; A8 phase 0 re-homed them into the Nocturne
+   sections, phase 2 deleted the alias block they used to sit under). No
+   Legacy colour or spacing alias — part A8 deleted those.
+   `tests/ui/ui-settings-a7.test.ts` pins all of it.
+
+   Grammar, shared with the New session dialog: rows are hairline-separated
+   (neutral-900), controls are 1px neutral-800 outlines on nothing, the ONE
+   accent statement is a selected card / the footer's Done, and an INERT
+   control (a status-line item with both bars switched off) keeps its outline
+   and drops to neutral-700 ink. Type sizes are the v3 markup's own literals.
+
+   Everything a colour MEANS stays out of here: the three status hues are never
+   decoration, and the Terminal colours page paints its preview from inline
+   values the model computes (ui/term-colours.ts) — a stylesheet cannot know
+   which hex a user picked. */
+
+/* Top-anchored, never centred: the page swaps under one fixed top edge, and a
+   centred box would re-place itself under the pointer on every nav click (the
+   A4 lesson). `.modal-scrim` stays on the element for its z-layer — the
+   restart confirmation opens OVER this panel from a higher one. */
+.modal-scrim.sg-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), 6vh) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  /* scrimFade + fadeUp: the two dialog keyframes the keyframes section
+     declares — one fade vocabulary for every modal in the app. */
+  animation: scrimFade 0.14s ease;
+}
+
+.sg-modal {
+  width: 640px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the page scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.sg-scrim,
+  .sg-modal {
+    animation: none;
+  }
+}
+
+/* ---- left nav ---------------------------------------------------------------
+   Flat labels, no icons: five words are faster to read than five glyphs, and
+   the active page is stated by GROUND (--color-bg, the app's own floor showing
+   through the surface) rather than by a bar or a colour. */
+
+.sg-nav {
+  width: 170px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-6) var(--space-3);
+  border-right: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-navtitle {
+  padding: 0 var(--space-3) var(--space-4);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sg-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sg-tab {
+  flex: none;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-tab:hover {
+  color: var(--color-text);
+}
+
+.sg-tab.is-sel {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ---- the page column --------------------------------------------------------
+   One scrolling body plus a footer with a top hairline (the A4 dialog's shape,
+   minus the header: the nav's own title is the dialog's title). */
+
+.sg-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sg-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8);
+}
+
+.sg-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sg-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sg-sub {
+  margin: var(--space-2) 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sg-lead {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+  line-height: 1.5;
+}
+
+.sg-lb {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.sg-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.sg-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.sg-ft {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* ---- rows: the checklist idiom ----------------------------------------------
+   A real keyboard-reachable <button> per boolean, state in aria-pressed, no
+   hover-only affordance. Rows are separated by a hairline, not by gaps. */
+
+.sg-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.sg-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-3) var(--space-2);
+  border: none;
+  border-bottom: var(--line) solid var(--color-neutral-900);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.sg-row:hover:not(:disabled) {
+  background: var(--color-neutral-900);
+}
+
+.sg-row:disabled {
+  cursor: default;
+}
+
+.sg-box {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-700);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-bg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.sg-row[aria-pressed='true'] .sg-box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* inert (a status-line item with both bars off): the box still states its
+   value, in the same neutral-700 ink an inert card uses — never the live
+   accent */
+.sg-row:disabled[aria-pressed='true'] .sg-box {
+  background: var(--color-neutral-700);
+  border-color: var(--color-neutral-700);
+}
+
+.sg-rowlb {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-val {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-row:disabled .sg-rowlb,
+.sg-row:disabled .sg-val {
+  color: var(--color-neutral-700);
+}
+
+/* honest-scope caption under an item row (account usage, permission mode).
+   35px = the row's 5.6px pad + the 18px box + the space-4 gap, so a caption
+   starts where its label does. */
+.sg-cap {
+  padding: 0 var(--space-2) var(--space-3) 35px;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  line-height: 1.4;
+}
+
+/* with the status line switched off the items decide nothing: their rows are
+   disabled (above), and the captions go with them */
+.sg-items.is-disabled .sg-cap {
+  color: var(--color-neutral-700);
+}
+
+/* ---- Status bar page: the preview strip ------------------------------------
+   The bar as it will read, on the app ground and in the terminal's own type —
+   a promise the rows can be checked against. */
+
+.sg-prevbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap; /* every item stays whole; the bar grows a row instead of clipping */
+  align-items: center;
+  gap: var(--space-2) var(--space-6);
+  min-height: 32px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.sg-previtem {
+  flex: none;
+  display: flex;
+  align-items: baseline; /* Inter label and mono value share one baseline */
+  gap: var(--space-2);
+}
+
+.sg-prevlb {
+  color: var(--color-neutral-600);
+}
+
+.sg-prevval {
+  font-family: var(--font-mono);
+  color: var(--color-neutral-300);
+}
+
+.sg-prevempty {
+  color: var(--color-neutral-600);
+}
+
+/* the sessions that predate the status line and need a relaunch to get one: an
+   ATTENTION state (never an error), so the attention edge and one mono name
+   line */
+.sg-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-left: 2px solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+  line-height: 1.5;
+}
+
+.sg-notice-names {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-attn);
+  overflow-wrap: anywhere; /* session titles are free text */
+}
+
+/* ---- buttons ----------------------------------------------------------------
+   Three weights, in order of consequence: a text button (Reset), a text LINK
+   (Check for updates), and an outlined button (Restart). The
+   footer's Done is the shared .btn-accent — the Nocturne accent outline. */
+
+.sg-textbtn {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 12.5px;
+}
+
+.sg-textbtn:hover {
+  color: var(--color-text);
+}
+
+.sg-link {
+  flex: none;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-accent-300);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sg-link:hover {
+  color: var(--color-text);
+}
+
+.sg-outbtn {
+  flex: none;
+  height: 30px;
+  padding: 0 var(--space-4);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-300);
+  font-size: 12.5px;
+}
+
+.sg-outbtn:hover {
+  border-color: var(--color-neutral-600);
+}
+
+/* small button: three of them share one key row since B5, so it is sized by its
+   word rather than by a fixed 82px */
+.sg-smallbtn {
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.sg-smallbtn:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+}
+
+.sg-smallbtn:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* one structural focus ring for every control in the panel (the A4 rule) */
+.sg-modal button:focus-visible,
+.sg-modal input:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* ---- Keyboard page ----------------------------------------------------------
+   Since part B6 this page draws the WHOLE table the shortcuts overlay draws
+   (one source, ui/shortcuts-rows.ts). The overlay's three columns need 640px
+   of their own; this page has that minus a 170px nav, so a row STACKS in the
+   overlay's own narrow-window order — what you press, what it does, where the
+   same thing lives in the UI — and keeps the hairline rhythm of every other
+   list in the panel. */
+
+.sg-keyrow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+/* the note under the rows that carry one sits with its row, not under a
+   checkbox: no 35px checklist indent here */
+.sg-keyrow .sg-cap {
+  padding: var(--space-1) 0 0;
+}
+
+.sg-keychips {
+  display: flex;
+  flex-wrap: wrap; /* a gesture sentence is long; it wraps rather than clips */
+  align-items: baseline;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+/* two chords on one row mean EITHER of them, exactly as the overlay says it */
+.sg-or {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* the third fact of a row: where the same thing lives in the UI, or the
+   keyboard twin of a drag (the overlay's `.sc-ui`, same ink and size) */
+.sg-keyui {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-kbd {
+  padding: 3px 8px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
+  white-space: nowrap;
+}
+
+/* a mouse sentence is not a key: plain text, never a chip (overlay rule) */
+.sg-gesture {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+/* ---- Preferences page (key rows LIVE since B5) ------------------------------
+   A row is the tool's tile, its words, and — for a tool that reads a key from
+   its environment — a second line with the masked field and its three verbs.
+   The state word (`Saved`) sits at the row's right edge, where a status
+   belongs; the refusal sentence sits under the field it is about. */
+
+.sg-prow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-prow .sg-mark {
+  margin-top: 1px;
+}
+
+.sg-keystate {
+  flex: none;
+  align-self: center;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-keyline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.sg-keyerr {
+  margin-top: var(--space-2);
+  font-size: 11.5px;
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}
+
+.sg-prowtxt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sg-prowkey {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+.sg-mark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-300);
+}
+
+/* the known agent's tile carries the accent family (v3), as in the New session dialog */
+.sg-mark.is-agent {
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+}
+
+.sg-keyin {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.sg-keyin::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.sg-keyin:disabled {
+  color: var(--color-neutral-700);
+}
+
+.sg-keyin:disabled::placeholder {
+  color: var(--color-neutral-700);
+}
+
+/* ---- Background service page ------------------------------------------------
+   One card on the app ground: the two facts left, the quiet verb, then the act
+   with consequences. The confirmation it opens sits on a higher layer. */
+
+.sg-svc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.sg-svcfacts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sg-svcver {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.sg-svcup {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+/* the answer to `Check for updates` (B6): one sentence under the card it is
+   about, with the act beside it when a release is waiting. Indented to the
+   card's own padding so it reads as attached to those two facts. */
+.sg-svcanswer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+}
+
+.sg-svcmsg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+}
+
+/* ---- Terminal colours page (Nocturne A7; live since part B9) ---------------
+   The preview is a terminal fragment: the terminal's own mono, plain glyphs
+   (no ligatures, like every code surface here), three ink steps. Its ground
+   and ink arrive inline from ui/term-colours.ts, because they ARE the data. */
+
+.sg-tcprev {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+.sg-tcline {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-tcgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-2);
+}
+
+/* a scheme card: the A4 card, with the swatch doing the talking */
+.sg-tccard {
+  min-width: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-400);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.sg-tccard:hover:not(.is-sel) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.sg-tccard.is-sel {
+  background: var(--color-bg);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.sg-tcsw {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sg-tcname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sg-tcfield {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sg-tclb {
+  width: 64px;
+  flex: none;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.sg-tcswatch {
+  width: 34px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  cursor: pointer;
+}
+
+/* the native swatch draws its own inner well; strip its chrome so the field
+   reads as one control */
+.sg-tcswatch::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.sg-tcswatch::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.sg-tchex {
+  flex: none;
+  width: 92px;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.sg-tchex:focus {
+  border-color: var(--color-accent);
+}
+
+/* a half-typed colour is not an error state, it is simply not a colour yet:
+   the field says so and the preview does not move */
+.sg-tchex.is-bad {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+/* Narrow window: the nav becomes a row of page names above the page. */
+@media (max-width: 560px) {
+  .sg-modal {
+    flex-direction: column;
+  }
+  .sg-nav {
+    width: auto;
+    padding: var(--space-4) var(--space-4) var(--space-3);
+    border-right: none;
+    border-bottom: var(--line) solid var(--color-neutral-900);
+  }
+  .sg-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .sg-body,
+  .sg-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .sg-tcgrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---- settings panel: END of the primitives-only sg- block ------------------ */
+

@@ -1,0 +1,132 @@
+/*
+ * App styles: the row context menu.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-github.css, app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css
+ */
+
+/* ---- row context menu (Nocturne A9b): cm- ------------------------------------
+   The Files panel's row menu — the app's first menu primitive.
+
+   THE DIRECTION: the row itself, lifted one surface. Same 26px rhythm
+   (--files-row-h), same 12.5px left-aligned ink, same --color-neutral-900
+   hover as the tree it came out of, on a --color-bg card with the popover's
+   elevation (the `ns-help` grammar: --radius-md, --shadow-md, fadeUp .14s with
+   the reduced-motion opt-out). So it reads as a continuation of the tree the
+   pointer is standing in, not as a widget borrowed from somewhere else. No
+   icons, no separators, no check marks, no counts — three entries and four
+   entries are a list.
+
+   WIDTH: content-driven between 168px and 264px. The longest label is
+   `Copy files here…` (the copy strip's own words), and the upper bound is set
+   by the two disabled entries, whose one-line explanation wraps under the
+   label — the sentence is the reason those entries exist, so it gets room to
+   be read, and the clamp is what stops a long one from turning the menu into a
+   paragraph.
+
+   DISABLED reads brighter in its SUB-LINE than in its label
+   (--color-neutral-600 over --color-neutral-700), deliberately: the label is
+   the thing that cannot be used, the sentence under it is the thing that can
+   be read.
+
+   FOCUS IS `:focus`, NOT `:focus-visible`, here and nowhere else in this
+   stylesheet: the roving focus IS this menu's selected entry, and a menu
+   opened with the pointer would otherwise show no selected entry at all while
+   the arrow keys moved it.
+
+   IT CHANGES NO LAYOUT: fixed to the viewport on the body, like the drag
+   ghost. A menu that moved the panel by a pixel would resize every PTY in the
+   grid behind it (the A9 rule).                                              */
+
+.cm-menu {
+  position: fixed;
+  /* parked at the origin until ui/context-menu.ts measures it once and writes
+     the point `menuPosition()` returned */
+  top: 0;
+  left: 0;
+  z-index: var(--z-menu);
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  max-width: 264px;
+  width: max-content;
+  padding: var(--space-2);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: fadeUp 0.14s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-menu {
+    animation: none;
+  }
+}
+
+.cm-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  min-height: var(--files-row-h);
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.cm-item:hover {
+  background: var(--color-neutral-900);
+}
+
+.cm-item:focus {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* reachable by the arrows, inert when activated: the note under the label is
+   the reason the entry is on the menu at all (part A9b, user decision 3) */
+.cm-item[aria-disabled='true'] {
+  color: var(--color-neutral-700);
+}
+
+.cm-item[aria-disabled='true']:hover {
+  background: transparent;
+}
+
+.cm-label {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.cm-sub {
+  color: var(--color-neutral-600);
+  font-size: 11.5px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+/* The one entry that cannot be taken back (B10a), as INK: the label goes
+   danger, the ground and the hover stay exactly what every other entry has. A
+   red row would make the list read as a warning; a red WORD reads as what the
+   word does. */
+.cm-item.is-danger .cm-label {
+  color: var(--color-danger);
+}
+
+/* The hairline above it — the A9b "no separators" rule's single amendment, and
+   the last thing between a pointer running down the list and a permanent
+   delete. 1px of neutral, the block's own spacing around it, no focus, no
+   label: `ui/context-menu.ts` appends it to the card, not to the entries. */
+.cm-sep {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--color-neutral-800);
+}

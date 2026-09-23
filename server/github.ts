@@ -55,33 +55,56 @@
  * HTTP is done with the Node global `fetch` (no new deps); the fetch impl is
  * injectable (a seam) so tests can drive the state machine with no network.
  *
+ * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the seams, GithubError and
+ * every parser of remote/pasted input live in server/github-parse.ts (all
+ * re-exported here); the authenticated clone's host-lock, destination rules and
+ * `git clone` spawn in server/github-clone.ts.
+ *
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmdirSync,
-  rmSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { readFileSync, unlinkSync } from 'node:fs';
 import type { GithubRepo, GithubStatus } from '../shared/protocol.ts';
 import {
   assertLoopbackApiBase,
   atomicWriteFile,
   errorStackOnly,
-  isDirectory,
   scoped,
   DEFAULT_GITHUB_API_BASE,
   USER_AGENT,
   type Logger,
 } from './config.ts';
-import { assertVacant, ScaffoldError, CLONE_TIMEOUT_MS } from './scaffold.ts';
+import {
+  asRecord,
+  filterRepos,
+  GithubError,
+  mapRepo,
+  parseScopesHeader,
+  parseTokenExpiry,
+  readString,
+  validatePastedToken,
+  type FetchLike,
+  type SpawnLike,
+  type TokenRejection,
+} from './github-parse.ts';
+import { buildAuthenticatedGithubUrl, cloneIntoDestination } from './github-clone.ts';
+
+// Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
+// of this module keeps its surface.
+export {
+  filterRepos,
+  GithubError,
+  mapRepo,
+  MAX_PASTED_TOKEN_LEN,
+  parseGithubRemote,
+  parseGithubRepoPath,
+  parseScopesHeader,
+  parseTokenExpiry,
+  validatePastedToken,
+  type FetchLike,
+  type SpawnLike,
+  type TokenRejection,
+} from './github-parse.ts';
 
 /**
  * GitHub endpoints. The device flow lives on github.com and is NEVER
@@ -109,14 +132,6 @@ const MAX_POLLS = 300;
 /** Repo pagination cap: up to 5 * 100 = 500 repos. */
 const MAX_REPO_PAGES = 5;
 const REPOS_PER_PAGE = 100;
-/** Reject absurdly long clone urls before parsing them. */
-const MAX_CLONE_URL_LEN = 2048;
-/**
- * Hard cap on a PASTED token's length. No real GitHub token comes near it;
- * anything longer is a paste accident or an attack, and is refused by RULE —
- * the refusal never quotes the value.
- */
-export const MAX_PASTED_TOKEN_LEN = 1024;
 /**
  * Probe page size for the capability check: `GET /user/repos?per_page=1` is the
  * thing the app actually needs (listing repositories), so a token that
@@ -128,10 +143,6 @@ const PROBE_REPOS_PATH = '/user/repos?per_page=1';
 const SCOPES_HEADER = 'x-oauth-scopes';
 /** GitHub reports a token's expiry here when it has one. */
 const TOKEN_EXPIRY_HEADER = 'github-authentication-token-expiration';
-/** Bound on the expiry header before parsing it (it is remote input). */
-const MAX_EXPIRY_HEADER_LEN = 64;
-/** Bound on the scopes header before splitting it (remote input; ~30 scopes exist). */
-const MAX_SCOPES_HEADER_LEN = 1024;
 /**
  * Thrown (409) after a stored credential is invalidated by a 401 from GitHub.
  * Deliberately DIFFERENT from the plain 'github not connected' 409, so the UI
@@ -140,36 +151,6 @@ const MAX_SCOPES_HEADER_LEN = 1024;
  */
 export const CREDENTIAL_REJECTED_MESSAGE =
   'GitHub rejected the stored credential — connect again';
-/**
- * Username embedded in the authenticated clone url. NOT a secret — the actual
- * password (the OAuth token) is fed to git via GIT_ASKPASS-through-env, never
- * the url. git uses this username and asks GIT_ASKPASS for the matching password.
- */
-const CLONE_USERNAME = 'x-access-token';
-/** Env var the throwaway askpass script reads the token from (never on argv/url). */
-const ASKPASS_TOKEN_ENV = 'AI_SM_GH_TOKEN';
-
-/** Injectable fetch seam — defaults to the Node global `fetch`. */
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
-
-/**
- * Injectable spawn seam — defaults to the Node global `spawn`. Lets tests
- * assert the exact argv + env of an authenticated clone (proving the token is
- * ONLY in the env, never in argv or the url) without running git.
- */
-export type SpawnLike = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
-
-/** Carries an HTTP status so the API layer can map it directly (like ScaffoldError). */
-export class GithubError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-    this.name = 'GithubError';
-  }
-}
-
 export interface GithubConnectionOptions {
   /** Absolute path to github.json in the data dir. */
   file: string;
@@ -210,82 +191,6 @@ interface StoredToken {
   expiresAt?: string;
 }
 
-/** Why a pasted token was refused. Both the status and the copy are OURS. */
-export interface TokenRejection {
-  ok: false;
-  /** HTTP status for the API layer: 400 = the token is the problem, 502 = GitHub is. */
-  status: number;
-  message: string;
-}
-
-/**
- * Shape-only validation of a pasted token (III-5). Deliberately NO prefix
- * allowlist: `ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_` and legacy 40-hex
- * tokens are all valid today and GitHub is free to mint new shapes tomorrow.
- * Only structural impossibilities are refused, and every message names the RULE
- * and never any part of the value.
- *
- * Leading/trailing whitespace is stripped first — clipboards and terminals add
- * it, and a paste that fails for an invisible reason is a terrible experience.
- * Interior whitespace (including Unicode spaces that survive nothing) and
- * control characters stay fatal: they cannot be part of a credential, and a
- * control character in a header value is a request-splitting primitive.
- * Exported for tests.
- */
-export function validatePastedToken(raw: string): { ok: true; token: string } | TokenRejection {
-  if (raw.length > MAX_PASTED_TOKEN_LEN) {
-    return { ok: false, status: 400, message: `token must be at most ${MAX_PASTED_TOKEN_LEN} characters` };
-  }
-  const token = raw.trim();
-  if (token === '') return { ok: false, status: 400, message: 'token is required' };
-  if (token.length > MAX_PASTED_TOKEN_LEN) {
-    return { ok: false, status: 400, message: `token must be at most ${MAX_PASTED_TOKEN_LEN} characters` };
-  }
-  for (let i = 0; i < token.length; i += 1) {
-    const c = token.charCodeAt(i);
-    // C0 + space + DEL + C1. The regex adds the Unicode spaces (NBSP, thin
-    // space, U+FEFF …) a paste can smuggle in the middle of a value.
-    if (c <= 0x20 || (c >= 0x7f && c <= 0x9f)) {
-      return { ok: false, status: 400, message: 'token must not contain spaces or control characters' };
-    }
-  }
-  if (/\s/u.test(token)) {
-    return { ok: false, status: 400, message: 'token must not contain spaces or control characters' };
-  }
-  return { ok: true, token };
-}
-
-/**
- * Split an `x-oauth-scopes` header into scopes. Present-but-empty is a REAL
- * answer (a classic token with no scopes) and maps to `[]`; an absent header is
- * the caller's business and maps to undefined there — never to `[]`, because
- * "GitHub did not report scopes" is not "this token has no permissions".
- * Exported for tests.
- */
-export function parseScopesHeader(value: string): string[] {
-  if (value.length > MAX_SCOPES_HEADER_LEN) return [];
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
-}
-
-/**
- * Normalize GitHub's `github-authentication-token-expiration` header (e.g.
- * `2026-12-31 00:00:00 UTC`) to ISO-8601, or undefined when it is absent,
- * over-long or unparseable. Never surface the raw remote string: the protocol
- * says ISO-8601, and an unparseable value is better dropped than rendered.
- * Exported for tests.
- */
-export function parseTokenExpiry(value: string | null | undefined): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  const trimmed = value.trim();
-  if (trimmed === '' || trimmed.length > MAX_EXPIRY_HEADER_LEN) return undefined;
-  const ms = Date.parse(trimmed);
-  if (Number.isNaN(ms)) return undefined;
-  return new Date(ms).toISOString();
-}
-
 /** In-flight device-flow state (connecting only). */
 interface DeviceFlow {
   deviceCode: string;
@@ -293,191 +198,6 @@ interface DeviceFlow {
   verificationUri: string;
   expiresAtMs: number;
   intervalMs: number;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : undefined;
-}
-
-function readString(o: Record<string, unknown>, key: string): string | undefined {
-  const v = o[key];
-  return typeof v === 'string' && v !== '' ? v : undefined;
-}
-
-/**
- * Map ONE raw GitHub repo object down to the GithubRepo wire shape — dropping
- * everything except the listed fields (no token, no raw payload leaks). Returns
- * undefined when a required field is missing. Exported for unit tests.
- */
-export function mapRepo(raw: unknown): GithubRepo | undefined {
-  const o = asRecord(raw);
-  if (o === undefined) return undefined;
-  const fullName = readString(o, 'full_name');
-  const name = readString(o, 'name');
-  const owner = readString(asRecord(o['owner']) ?? {}, 'login');
-  const cloneUrl = readString(o, 'clone_url');
-  if (fullName === undefined || name === undefined || owner === undefined || cloneUrl === undefined) {
-    return undefined;
-  }
-  const repo: GithubRepo = {
-    fullName,
-    name,
-    owner,
-    private: o['private'] === true,
-    cloneUrl,
-  };
-  const description = readString(o, 'description');
-  if (description !== undefined) repo.description = description;
-  const language = readString(o, 'language');
-  if (language !== undefined) repo.language = language;
-  const pushedAt = readString(o, 'pushed_at');
-  if (pushedAt !== undefined) repo.pushedAt = pushedAt;
-  return repo;
-}
-
-/**
- * Owner + repo of a github.com clone url (`https://github.com/<owner>/<repo>`,
- * optional `.git`), or undefined when the url is not exactly that shape.
- *
- * Used for two things only: the ONE-segment owner-directory allowance in
- * cloneAuthenticated (a comparison against an existing path segment) and the
- * `<owner>/<repo>` project-name disambiguation in server/api.ts (a display
- * string in projects.json). Path segments are taken RAW — never
- * percent-decoded — so an escaped separator like `..%2f..%2fetc` stays that
- * literal text instead of becoming `../../etc`; neither use ever builds a path
- * out of these values. Percent-encoded DOT SEGMENTS are a different mechanism:
- * `%2e%2e` and `%2E.` are decoded and removed by the WHATWG URL parser itself
- * before `pathname` is read (`https://github.com/%2e%2e/repo` → `/repo`), as
- * are plain `.`/`..` segments — so the explicit `.`/`..` refusal below is
- * belt-and-braces, not a pinned behaviour.
- *
- * The host lock matches #buildAuthenticatedGithubUrl: https, host exactly
- * github.com, NO port and NO embedded credentials. That parity is deliberate —
- * this function is exported, so a future caller must not inherit a laxer rule
- * than the one the credential path enforces. Exported for api.ts and tests.
- */
-export function parseGithubRepoPath(cloneUrl: string): { owner: string; repo: string } | undefined {
-  let parsed: URL;
-  try {
-    parsed = new URL(cloneUrl);
-  } catch {
-    return undefined;
-  }
-  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') return undefined;
-  if (parsed.port !== '') return undefined;
-  if (parsed.username !== '' || parsed.password !== '') return undefined;
-  const segments = parsed.pathname.split('/').filter((s) => s !== '');
-  if (segments.length !== 2) return undefined;
-  const owner = segments[0] as string;
-  const repo = (segments[1] as string).replace(/\.git$/i, '');
-  for (const s of [owner, repo]) {
-    if (s === '' || s === '.' || s === '..') return undefined;
-  }
-  return { owner, repo };
-}
-
-/** Owner / repo characters GitHub itself allows; never a dot segment. */
-const GH_SEGMENT_RE = /^[A-Za-z0-9._-]{1,100}$/;
-
-/**
- * Owner + repo of the `origin` URL of a LOCAL repository, for B3's
- * `Open on GitHub` (plan `.claude/plans/nocturne/PLAN-B3.md`, decision D2:
- * github.com only, the button is ABSENT for anything else).
- *
- * The three spellings git writes, and nothing else:
- *   https://github.com/<owner>/<repo>[.git]
- *   [<user>[:<secret>]@]github.com:<owner>/<repo>[.git]        (scp-like ssh)
- *   ssh://[<user>[:<secret>]@]github.com/<owner>/<repo>[.git]
- *
- * HOW THIS DIFFERS FROM parseGithubRepoPath ABOVE, on purpose: that one REFUSES
- * a url carrying credentials, because it guards a path the app then CLONES
- * with the user's own token — a credential in the input there is a sign the
- * input is not what it claims. Here the url is one the USER's repository
- * already contains, and `https://<token>@github.com/o/r` is a perfectly
- * ordinary thing to find in a `.git/config`. Refusing it would only take the
- * button away from the people most likely to want it, so the userinfo is
- * DISCARDED (user decision, 2026-09-21). It is discarded and not returned,
- * logged, echoed or included in any error: the ONLY thing that leaves here is
- * `{ owner, repo }`, two strings matching ^[A-Za-z0-9._-]{1,100}$.
- *
- * A PORT is refused in every form: `github.com:8080` is not github.com's web
- * site, and the page builds `https://github.com/<owner>/<repo>/commit/<hash>`
- * from what this returns. `http:` and `git:` are refused too (no https, no
- * button). Path segments are taken RAW, never percent-decoded, so an escaped
- * separator stays literal text and then fails the pattern.
- *
- * Returns null — not undefined — because the protocol field is `… | null`.
- */
-export function parseGithubRemote(url: string): { owner: string; repo: string } | null {
-  const trimmed = url.trim();
-  if (trimmed === '' || trimmed.length > 2048) return null;
-
-  // scp-like: `[user@]host:path`, which is NOT a URL and must be recognised
-  // before `new URL()` sees it (`git@github.com:o/r` parses as scheme `git@`).
-  const scp = /^(?:[^/@]*@)?([^/@:]+):(?!\/)(.+)$/.exec(trimmed);
-  if (scp !== null) {
-    if (!isGithubHost(scp[1] as string)) return null;
-    return splitOwnerRepo((scp[2] as string).split('/'));
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'ssh:') return null;
-  // NOT `=== 'github.com'`: `ssh:` is a NON-SPECIAL scheme, so the WHATWG URL
-  // parser leaves its host EXACTLY as written (measured: `ssh://git@GITHUB.COM/o/r`
-  // keeps `hostname === 'GITHUB.COM'`, while `HTTPS://GITHUB.COM/o/r` is
-  // lower-cased for us). DNS does not care about case, so neither may this —
-  // otherwise a perfectly ordinary `git@GitHub.com:o/r` silently loses the
-  // button.
-  if (!isGithubHost(parsed.hostname)) return null;
-  if (parsed.port !== '') return null;
-  return splitOwnerRepo(parsed.pathname.split('/'));
-}
-
-/**
- * The host is github.com, compared with ASCII-ONLY case folding.
- *
- * `String.prototype.toLowerCase` folds Unicode too, and that is a door nobody
- * needs here: this compares against a fixed ASCII name, so only ASCII letters
- * may differ in case. Anything else — an IDN homograph, a Kelvin sign, a
- * dotted capital I — stays exactly the character it is and fails.
- */
-function isGithubHost(host: string): boolean {
-  return host.replace(/[A-Z]/g, (c) => c.toLowerCase()) === 'github.com';
-}
-
-/** Exactly two non-empty segments, `.git` off the second, both in the pattern. */
-function splitOwnerRepo(rawSegments: readonly string[]): { owner: string; repo: string } | null {
-  const segments = rawSegments.filter((s) => s !== '');
-  if (segments.length !== 2) return null;
-  const owner = segments[0] as string;
-  const repo = (segments[1] as string).replace(/\.git$/i, '');
-  for (const s of [owner, repo]) {
-    if (s === '.' || s === '..' || !GH_SEGMENT_RE.test(s)) return null;
-  }
-  return { owner, repo };
-}
-
-/**
- * Client-side filter on a mapped repo list: case-insensitive substring over
- * name / owner / fullName / description. Empty/absent query -> unchanged.
- * Exported for unit tests.
- */
-export function filterRepos(repos: GithubRepo[], query?: string): GithubRepo[] {
-  if (query === undefined) return repos;
-  const q = query.trim().toLowerCase();
-  if (q === '') return repos;
-  return repos.filter(
-    (r) =>
-      r.name.toLowerCase().includes(q) ||
-      r.owner.toLowerCase().includes(q) ||
-      r.fullName.toLowerCase().includes(q) ||
-      (r.description !== undefined && r.description.toLowerCase().includes(q)),
-  );
 }
 
 export class GithubConnection {
@@ -873,59 +593,17 @@ export class GithubConnection {
   }
 
   /**
-   * Clone a (possibly PRIVATE) repo of the connected account into `destAbs`
-   * using the stored OAuth token — WITHOUT the token ever touching argv, the
-   * clone url, `.git/config`, or a log.
-   *
-   * Token-safety mechanism (the security crux):
-   *   1. `cloneUrl` is validated FIRST (buildAuthenticatedGithubUrl): it MUST be
-   *      https:// with host EXACTLY github.com — a hard guard so the token can
-   *      never be aimed at another host (SSRF/exfil). The returned url embeds
-   *      only the NON-secret username `x-access-token@` (never the token).
-   *   2. A throwaway askpass script (mode 0700, in a mkdtemp under the OS tmpdir)
-   *      reads the token from the env var AI_SM_GH_TOKEN and prints it. git is
-   *      spawned with GIT_ASKPASS=<script> and AI_SM_GH_TOKEN=<token> in its env
-   *      (argv is `git ... clone -- <username-in-url> <dest>` — NO token). git
-   *      calls GIT_ASKPASS for the password, gets the token from env, and does
-   *      NOT persist an askpass password into `.git/config`. `credential.helper`
-   *      is cleared (`-c credential.helper=`) so no configured helper can cache
-   *      the token to disk. `stdio:'ignore'` — git output is never buffered or
-   *      logged (an error line could otherwise echo a credential).
-   *   3. `finally`: the askpass script + its dir are deleted. On success the
-   *      cloned `.git/config` is verified to NOT contain the token.
-   *
-   * WHAT THE ENV DOES AND DOES NOT BUY (corrected 2026-07-25 — the earlier
-   * comment here overstated it). Passing the token through the child's
-   * environment keeps it out of argv, the url, `.git/config`, and any log — the
-   * places it would otherwise PERSIST or be readable by other local users. It is
-   * still readable via /proc by this same Linux user, and, on WSL2, by anything
-   * running as the WINDOWS user: the 9p file server runs as root inside the
-   * distro, so `\\wsl.localhost\...` reads every 0600 file in the data dir
-   * regardless of the permission bits (measured — see
-   * memory/knowledge/wsl-0600-not-a-boundary.md). So this is NOT "the same trust
-   * boundary as github.json 0600" in the protective sense that phrase implied;
-   * both are inside one boundary that already includes the Windows user. The
-   * mechanism is still right — it removes the persistent and cross-user
-   * exposures — it just is not a wall against that principal, and nothing here
-   * may claim it is.
-   *
-   * Reuses scaffold's assertVacant (409 non-empty, no clobber) and its partial-
-   * cleanup discipline (a dest WE created is removed on failure). Throws
-   * GithubError: 400 bad url/dest, 403 when creating the owner directory is
-   * denied, 409 not connected / non-empty dest, 502 on clone failure.
-   *
-   * `dest` is normalized (path.resolve) before ANY filesystem decision, so the
-   * path that is inspected, created, cloned into and cleaned up is always one
-   * and the same — see step 3.
-   *
-   * Dest parents: normally the parent must already exist (400 otherwise). The
-   * single exception is the OWNER directory of an owner-qualified destination
-   * `<projects>/<owner>/<repo>` — see step 3b for the four conditions that must
-   * all hold, and for the cleanup of an owner dir left empty by a failed clone.
+   * Clone a (possibly PRIVATE) repo of the connected account into `dest` using
+   * the stored credential — WITHOUT the token ever touching argv, the clone url,
+   * `.git/config`, or a log. Steps 1-2 run here; steps 3-5 (destination rules,
+   * the askpass clone, the leak check) and the full token-safety account are
+   * cloneIntoDestination in server/github-clone.ts. Throws GithubError: 400 bad
+   * url/dest, 403 when creating the owner directory is denied, 409 not connected
+   * / non-empty dest, 502 on clone failure.
    */
   async cloneAuthenticated(cloneUrl: string, dest: string): Promise<void> {
     // 1. Validate the url FIRST — the token must only ever be sent to github.com.
-    const authUrl = this.#buildAuthenticatedGithubUrl(cloneUrl);
+    const authUrl = buildAuthenticatedGithubUrl(cloneUrl);
 
     // 2. There must be a connected token to send. The CREDENTIAL is the gate,
     //    whatever produced it — a pasted token clones on a server with no
@@ -935,151 +613,8 @@ export class GithubConnection {
     }
     const token = this.#token;
 
-    // 3. Dest no-clobber rules (reused from scaffold): absolute, not an existing
-    //    non-empty dir / non-directory. Checked BEFORE the parent rules so no
-    //    directory is ever created for a destination we would refuse anyway.
-    //
-    //    NORMALIZE BEFORE ANY FILESYSTEM DECISION. An un-normalized dest makes
-    //    the checks below reason about a DIFFERENT directory than the one the
-    //    string reaches on disk: `<X>/<owner>/..` stats as missing (so
-    //    `existedBefore` would be false) while git — and the failure cleanup's
-    //    recursive rmSync — act on the pre-existing `<X>`. From here on there is
-    //    exactly one path: `destAbs` is what is stat'ed, what may be created,
-    //    what git is handed, and the only thing cleanup may remove. (The route
-    //    in server/api.ts refuses a non-normalized dest outright; this makes
-    //    every in-process caller safe too.)
-    //    (The absolute check is belt-and-braces: the route rejects a relative
-    //    dest before this method is reached, so it cannot change an observable
-    //    outcome — it is here for in-process callers, not pinned by a test.)
-    if (!isAbsolute(dest)) throw new GithubError(400, 'dest must be absolute');
-    const destAbs = resolve(dest);
-    let existedBefore = true;
-    try {
-      statSync(destAbs);
-    } catch {
-      existedBefore = false;
-    }
-    try {
-      assertVacant(destAbs);
-    } catch (err) {
-      if (err instanceof ScaffoldError) throw new GithubError(err.status, err.message);
-      throw new GithubError(500, 'failed to inspect destination');
-    }
-
-    // 3b. OWNER-QUALIFIED DESTINATIONS (settled 2026-07-25): app clones land in
-    //     `<projects>/<owner>/<repo>`, so exactly ONE missing segment — the
-    //     directory the dest names as its OWNER — may be created here. What the
-    //     code below actually requires (NOT a projects-root anchor: the dest may
-    //     sit anywhere the user can write, e.g. `/tmp/acme/api` creates
-    //     `/tmp/acme`):
-    //       * only dest's DIRECT parent is ever created,
-    //       * that parent's basename must equal the owner segment of the clone
-    //         url (case-insensitive, never percent-decoded) — note BOTH sides
-    //         come from the SAME request, so this is a coherence check on the
-    //         caller's own two inputs, not a containment guarantee: it stops a
-    //         mistyped/mismatched dest, it does not constrain WHERE a directory
-    //         may appear,
-    //       * dest's grandparent must already be a directory, and
-    //       * one level only — mkdir, never mkdir -p.
-    //     The containment here comes from those last two: one level, under an
-    //     already-existing directory.
-    //     Anything else keeps the old 400, so a typo'd dest still refuses
-    //     instead of silently materialising a directory tree.
-    //     Doing it OURSELVES rather than just dropping the check matters: real
-    //     `git clone` creates leading directories unboundedly (verified against
-    //     git 2.43), so this is what keeps creation to one level, turns a
-    //     permission problem into a clean 403 instead of an opaque 502, and —
-    //     because we know we made it — lets `createdOwnerDir` be removed again
-    //     (only while empty) when the clone then fails.
-    let createdOwnerDir: string | undefined;
-    const parent = dirname(destAbs);
-    if (!isDirectory(parent)) {
-      const owner = parseGithubRepoPath(cloneUrl)?.owner;
-      const grandparent = dirname(parent);
-      if (
-        owner === undefined ||
-        // Root guard + grandparent check: both belt-and-braces rather than
-        // pinned behaviour — a filesystem-root parent already fails the
-        // basename comparison, and a missing grandparent makes the mkdirSync
-        // below fail into the SAME 400. Neither can change an observable
-        // outcome today; keep them, but do not assume a test covers them.
-        parent === grandparent ||
-        basename(parent).toLowerCase() !== owner.toLowerCase() ||
-        !isDirectory(grandparent)
-      ) {
-        throw new GithubError(400, 'destination parent directory does not exist');
-      }
-      try {
-        mkdirSync(parent);
-        createdOwnerDir = parent;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code === 'EACCES' || code === 'EPERM') throw new GithubError(403, 'permission denied');
-        throw new GithubError(400, 'destination parent directory does not exist');
-      }
-    }
-
-    /**
-     * Undo what WE created: the dest, then an owner dir left empty by the
-     * failure. `existedBefore` is exactly "statSync(destAbs) succeeded", so
-     * `!existedBefore` is the broader "we could not see anything there" — it
-     * also covers a dangling symlink at `destAbs` (rmSync removes the LINK, not
-     * its target — measured) and an unreadable parent (EACCES), where the
-     * removal then simply fails and is swallowed. Both stay bounded to
-     * `destAbs` itself; the owner dir is removed non-recursively.
-     */
-    const undoOurDirs = (): void => {
-      if (!existedBefore) {
-        try {
-          rmSync(destAbs, { recursive: true, force: true });
-        } catch {
-          // Best-effort cleanup.
-        }
-      }
-      if (createdOwnerDir !== undefined) {
-        try {
-          rmdirSync(createdOwnerDir); // ENOTEMPTY (someone else's data) -> keep it
-        } catch {
-          // Best-effort cleanup.
-        }
-      }
-    };
-
-    // 4. Clone via GIT_ASKPASS-through-env (token never on argv/url). The
-    //    mkdtemp lives INSIDE the protected region: if it throws (full/read-only
-    //    tmpdir), an owner directory created in 3b must still be undone.
-    let askDir: string | undefined;
-    try {
-      askDir = mkdtempSync(join(tmpdir(), 'ai-sm-gh-ask-'));
-      const askScript = join(askDir, 'askpass.sh');
-      // The script ignores its prompt arg and prints the token from the env.
-      writeFileSync(askScript, `#!/bin/sh\nprintf '%s' "$${ASKPASS_TOKEN_ENV}"\n`, { mode: 0o700 });
-      await this.#runGitClone(authUrl, destAbs, askScript, token);
-    } catch (err) {
-      undoOurDirs();
-      throw err instanceof GithubError ? err : new GithubError(502, 'failed to clone repository');
-    } finally {
-      if (askDir !== undefined) {
-        try {
-          rmSync(askDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort cleanup.
-        }
-      }
-    }
-
-    // 5. Belt-and-suspenders: git stores only the username in .git/config, never
-    //    the askpass password. Prove the token did not leak onto disk.
-    try {
-      const cfg = readFileSync(join(destAbs, '.git', 'config'), 'utf8');
-      if (cfg.includes(token)) {
-        undoOurDirs();
-        throw new GithubError(500, 'aborted: credential leaked into git config');
-      }
-    } catch (err) {
-      if (err instanceof GithubError) throw err;
-      // Config unreadable (unexpected) — that is not a leak; leave the clone.
-    }
+    // 3.-5. Destination rules, the GIT_ASKPASS clone, the leak check.
+    await cloneIntoDestination(this.#spawn, cloneUrl, dest, authUrl, token);
   }
 
   /**
@@ -1145,103 +680,6 @@ export class GithubConnection {
   }
 
   // --- Internals ------------------------------------------------------------
-
-  /**
-   * Validate a clone url and return the authenticated form. Hard guard: MUST be
-   * https:// with host EXACTLY github.com (no port), no embedded credentials —
-   * so the token (fed separately via GIT_ASKPASS) can never be aimed elsewhere.
-   * Rejects `-`-leading, control chars, and over-length up front. The returned
-   * url carries only the NON-secret `x-access-token` username, never the token.
-   */
-  #buildAuthenticatedGithubUrl(cloneUrl: string): string {
-    if (typeof cloneUrl !== 'string' || cloneUrl === '') {
-      throw new GithubError(400, 'cloneUrl is required');
-    }
-    if (cloneUrl.length > MAX_CLONE_URL_LEN) throw new GithubError(400, 'cloneUrl is too long');
-    if (cloneUrl.startsWith('-')) throw new GithubError(400, 'invalid clone url');
-    for (let i = 0; i < cloneUrl.length; i += 1) {
-      const c = cloneUrl.charCodeAt(i);
-      if (c <= 0x20 || c === 0x7f) throw new GithubError(400, 'clone url contains invalid characters');
-    }
-    let parsed: URL;
-    try {
-      parsed = new URL(cloneUrl);
-    } catch {
-      throw new GithubError(400, 'invalid clone url');
-    }
-    if (parsed.protocol !== 'https:') {
-      throw new GithubError(400, 'clone url must be https://github.com/...');
-    }
-    if (parsed.hostname !== 'github.com' || parsed.port !== '') {
-      throw new GithubError(400, 'clone url host must be exactly github.com');
-    }
-    if (parsed.username !== '' || parsed.password !== '') {
-      throw new GithubError(400, 'clone url must not embed credentials');
-    }
-    // Rebuild from validated parts only: guarantees the target is github.com and
-    // the token is NOT in the url (git gets it via GIT_ASKPASS instead).
-    return `https://${CLONE_USERNAME}@github.com${parsed.pathname}`;
-  }
-
-  /**
-   * Spawn `git -c credential.helper= clone -- <authUrl> <destAbs>` with the
-   * token supplied ONLY through the env (GIT_ASKPASS + AI_SM_GH_TOKEN). No
-   * shell, stdio fully ignored (no output buffered/logged), bounded by
-   * CLONE_TIMEOUT_MS, GIT_TERMINAL_PROMPT=0 so a credential-needing clone fails
-   * fast instead of hanging. Resolves on exit 0, else rejects GithubError(502).
-   */
-  #runGitClone(authUrl: string, destAbs: string, askScript: string, token: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (err?: GithubError): void => {
-        if (settled) return;
-        settled = true;
-        if (timer !== undefined) clearTimeout(timer);
-        if (err !== undefined) reject(err);
-        else resolve();
-      };
-      let child: ChildProcess;
-      try {
-        child = this.#spawn(
-          'git',
-          // `-c credential.helper=` clears any configured helper so the token is
-          // never cached to disk. `--` stops the url/dest being read as options.
-          ['-c', 'credential.helper=', 'clone', '--', authUrl, destAbs],
-          {
-            shell: false,
-            stdio: 'ignore',
-            windowsHide: true,
-            env: {
-              ...process.env,
-              GIT_ASKPASS: askScript,
-              [ASKPASS_TOKEN_ENV]: token,
-              GIT_TERMINAL_PROMPT: '0',
-            },
-          },
-        );
-      } catch {
-        finish(new GithubError(502, 'failed to clone repository'));
-        return;
-      }
-      timer = setTimeout(() => {
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          // Already gone.
-        }
-        finish(new GithubError(502, 'clone timed out'));
-      }, CLONE_TIMEOUT_MS);
-      if (typeof timer.unref === 'function') timer.unref();
-
-      child.on('error', () => {
-        finish(new GithubError(502, 'failed to clone repository'));
-      });
-      child.on('close', (code) => {
-        finish(code === 0 ? undefined : new GithubError(502, 'failed to clone repository'));
-      });
-    });
-  }
 
   #authHeaders(token: string): Record<string, string> {
     return {

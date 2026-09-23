@@ -35,7 +35,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { byClass, byKey, dispatch, FakeElement } from '../helpers/fake-dom.ts';
 import { PROJ } from '../helpers/fs-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, readSource, readSources } from '../helpers/helpers.ts';
 import {
   fx,
   dom,
@@ -62,7 +62,7 @@ import {
 } from '../helpers/ui-files-delete-fixture.ts';
 
 /** main.ts bootstraps the whole app on import, so its wiring is read as source. */
-const MAIN = readSource('web', 'src', 'main.ts');
+const MAIN = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 
 beforeEach(async () => {
   await resetWorld();
@@ -331,7 +331,7 @@ test('the Escape ladder ranks the confirmation after the folder picker and befor
 });
 
 test('the panel still imports no HTTP of its own — the delete goes through the injected gateway', () => {
-  const src = readSource('web', 'src', 'ui', 'files.ts');
+  const src = readSources(...FILES_PANEL_SOURCES);
   assert.ok(src.length > 10_000, 'non-vacuity: ui/files.ts');
   assert.equal(/from '\.\.\/api\.ts'/.test(src), false, 'the panel may not know about HTTP');
   assert.match(src, /fs\.delete\(pathsOf\(items\)\)/, 'one request, the model s list of paths');

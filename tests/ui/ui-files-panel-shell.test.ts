@@ -17,19 +17,20 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, readSource, readSources } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // The shell wiring (web/src/main.ts), read from the source
 // ---------------------------------------------------------------------------
 
-const MAIN = readSource('web', 'src', 'main.ts');
+const MAIN = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 
 test('the panel knows no absolute path of its own: home is LEARNED from the first listing', () => {
   // The one request with no path at all is what teaches the app where home is
   // (§4a). A panel that guessed instead would be right on this machine and
   // wrong on the next one, and nothing on screen would say which.
-  const src = readSource('web/src/ui/files.ts');
+  const src = readSources(...FILES_PANEL_SOURCES);
   assert.match(src, /fs\.entries\(\)\s*\n\s*\.then/, 'the home probe carries no path');
   // The prose says `/home/...` where it explains the rule, so the check is on
   // the CODE: a string literal is what a guess would have to be written as.
@@ -62,7 +63,7 @@ test('main.ts constructs the panel — on the aside it just created', () => {
     'the client functions are handed over by name',
   );
   assert.match(MAIN, /setCommitGateway\(fsGateway\);/, 'and the commit store gets the same one');
-  const files = readSource('web', 'src', 'ui', 'files.ts');
+  const files = readSources(...FILES_PANEL_SOURCES);
   assert.equal(
     /from '\.\.\/api\.ts'/.test(files),
     false,
@@ -186,7 +187,7 @@ test('every colour family the model can emit is defined in tokens.css and mapped
   // one side only renders a grey glyph, which no DOM test can see.
   const model = readSource('web', 'src', 'ui', 'files-model.ts');
   const tokens = readSource('web', 'src', 'styles', 'tokens.css');
-  const app = readSource('web', 'src', 'styles', 'app.css');
+  const app = readAppCss();
   const list = model.slice(model.indexOf('export const BADGE_KINDS = ['), model.indexOf('] as const;'));
   const kinds = new Set(Array.from(list.matchAll(/'([a-z]+)'/g), (m) => m[1] as string));
   assert.ok(kinds.size >= 13, `non-vacuity: found ${kinds.size} families in files-model.ts`);

@@ -42,7 +42,6 @@ import {
   diffOf,
   hashOf,
 } from '../helpers/commits-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
 import {
   AT,
   C0,
@@ -63,6 +62,7 @@ import {
   view,
   type View,
 } from '../helpers/ui-a6-screens-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 beforeEach(resetScreen);
 
@@ -473,7 +473,7 @@ test('a repository path is drawn in the order it is STORED (bidi spoof)', () => 
   // `src/x<RLO>txt.sj` draws as `src/js.txt` unless the surface pins the
   // order. Every place a repo path (or a file name out of one) is drawn
   // carries the rule.
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   for (const sel of ['.diff-path', '.commit-fpath-t', '.pane-tab-pick']) {
     const at = css.indexOf(`${sel} {`);
     assert.notEqual(at, -1, `${sel} has a rule`);

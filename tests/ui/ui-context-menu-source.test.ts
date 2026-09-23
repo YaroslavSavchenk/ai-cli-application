@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { descendants, type FakeElement } from '../helpers/fake-dom.ts';
-import { readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
+import { readSource, readSources, projectRoot, filesUnder } from '../helpers/helpers.ts';
 import { assignedClasses } from '../helpers/source-scan.ts';
 import {
   APP_CSS,
@@ -107,7 +107,7 @@ test('main.ts s Escape ladder knows nothing about the menu', () => {
   // The menu owns Escape on its own window CAPTURE listener; a rung in the
   // ladder would be a second owner, and the ladder's length bound in
   // tests/ui/ui-files-panel.test.ts is what A9b promised not to touch.
-  const main = frontendFiles(['.ts']).find((f) => f.name === 'web/src/main.ts')?.src ?? '';
+  const main = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
   for (const name of ['RowMenu', 'context-menu', 'cm-menu']) {
     assert.equal(main.includes(name), false, `main.ts must not know the menu: ${name}`);

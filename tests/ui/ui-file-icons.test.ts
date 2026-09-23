@@ -26,7 +26,8 @@ import {
 } from '../../web/src/ui/files-model.ts';
 import { FILE_ICON_PATHS } from '../../web/src/ui/icons-files.ts';
 import { DIFF_TAB_ICON, tabIcon } from '../../web/src/ui/slots-model.ts';
-import { projectRoot as ROOT, readSource as read } from '../helpers/helpers.ts';
+import { projectRoot as ROOT, readSource as read, readSources } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const is = (name: string, icon: FileIcon['icon'], kind: FileIcon['kind'], why?: string): void => {
   assert.deepEqual(fileIconFor(name), { icon, kind }, why ?? name);
@@ -326,7 +327,7 @@ test('every icon the classifier can hand out has path data, and no path is dead 
 
 test('every colour family has a token and a rule, and the chip backgrounds are gone', () => {
   const tokens = read('web/src/styles/tokens.css');
-  const css = read('web/src/styles/app.css');
+  const css = readAppCss();
   const usedKinds = new Set(allFileIcons().map((f) => f.kind));
   assert.deepEqual(Array.from(usedKinds).sort(), [...BADGE_KINDS].sort(), 'every family is reachable');
   for (const k of BADGE_KINDS) {
@@ -385,7 +386,7 @@ test('every transcribed glyph cites its package at a pinned version, and the lic
 // ---------------------------------------------------------------------------
 
 test('a session pane header carries the tool mark between the dot and the name, from the session’s command', () => {
-  const src = read('web/src/ui/panes.ts').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const src = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const build = src.slice(src.indexOf('function buildSessionPane'), src.indexOf('\n}', src.indexOf('function buildSessionPane')));
   assert.match(build, /const tool = el\('span', 'pane-tool'\);\n\s*tool\.setAttribute\('aria-hidden', 'true'\);/);
   assert.match(build, /s\.hd\.replaceChildren\(dot, tool, title, /, 'dot, then the mark, then the name');
@@ -399,7 +400,7 @@ test('a session pane header carries the tool mark between the dot and the name, 
   );
   assert.match(upd, /pay\.tool\.replaceChildren\(toolIcon\(toolId, 14\)\);/);
   // And the empty holder takes no room before the session is known.
-  assert.match(read('web/src/styles/app.css'), /\.pane-tool:empty \{\s*display: none;\s*\}/);
+  assert.match(readAppCss(), /\.pane-tool:empty \{\s*display: none;\s*\}/);
 });
 
 // ---------------------------------------------------------------------------

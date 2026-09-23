@@ -19,13 +19,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource } from '../helpers/helpers.ts';
+import { readSource, readSources } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // The shell wiring (web/src/main.ts) and the pane-area guard (ui/panes.ts)
 // ---------------------------------------------------------------------------
 
-const MAIN = readSource('web', 'src', 'main.ts');
+const MAIN = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 const PANES = readSource('web', 'src', 'ui', 'panes.ts');
 
 test('main.ts builds the commit screen as a flex sibling of the grid, and NO editor column', () => {
@@ -87,7 +88,7 @@ test('the panes refuse to render at all against a hidden grid — the WebGL trap
     'nothing is read before the guard',
   );
   assert.match(
-    readSource('web', 'src', 'styles', 'app.css'),
+    readAppCss(),
     /\[hidden\] \{\s*display: none !important;/,
     'the hidden flag has to be real for the guard to mean anything',
   );
@@ -162,7 +163,7 @@ test('a hidden grid is never MEASURED for a new PTY either (scope review R3)', (
 });
 
 test('nothing narrows the grid any more — the panes keep the whole row (A10)', () => {
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   assert.equal(css.includes('is-narrow'), false, 'the 46% rule died with the editor column');
   assert.equal(css.includes('.editor-'), false, 'and so did the whole editor family');
   // Non-vacuity: the pane area itself is definitely still styled here.
@@ -229,7 +230,7 @@ test('`paneChord` names EVERY chord that moves a pane, the digits included', () 
 });
 
 test('neither screen is persisted: the UI bag writes the same keys it did in A5', () => {
-  const src = readSource('web', 'src', 'state.ts');
+  const src = readSource('web', 'src', 'state-persist.ts');
   const save = src.slice(src.indexOf('function saveUi'), src.indexOf('function loadUi'));
   assert.ok(save.length > 200, 'non-vacuity: saveUi was found');
   for (const key of ['openCommit', 'edits', 'commitCollapsed']) {

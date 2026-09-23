@@ -133,7 +133,7 @@ const STUB_SRC: Record<string, string> = {
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if ((context.parentURL ?? '').endsWith('/web/src/ui/settings.ts')) {
+    if (/\/web\/src\/ui\/settings(?:-apikeys|-service)?\.ts$/.test(context.parentURL ?? '')) {
       const m = /^(?:\.\.\/(api|state|log)|\.\/(update))\.ts$/.exec(specifier);
       const name = m?.[1] ?? m?.[2];
       if (name !== undefined) return { url: `b6-stub:${name}`, shortCircuit: true };

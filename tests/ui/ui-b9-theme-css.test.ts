@@ -17,13 +17,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource } from '../helpers/helpers.ts';
+import { readSource, readSources } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 // ===========================================================================
 // D3 — which surfaces follow the themed ground, in app.css
 // ===========================================================================
 
-const APP_CSS = readSource('web/src/styles/app.css');
+const APP_CSS = readAppCss();
 /** Comments carry the word `--term-bg` in prose; only DECLARATIONS count here. */
 const APP_RULES = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -143,7 +144,7 @@ test('D3: the `.sg-note` honesty-line rule is gone with the last mock page', () 
 // The boot wire in main.ts (source pin — there is no DOM boot here)
 // ===========================================================================
 
-const MAIN_TS = readSource('web/src/main.ts');
+const MAIN_TS = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 
 test('main.ts builds the theme BEFORE the settings panel and long before the first terminal', () => {
   const at = (needle: string): number => {

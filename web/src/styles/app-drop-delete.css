@@ -1,0 +1,415 @@
+/*
+ * App styles: the drop dialog and the delete confirmation.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-github.css, app-picker.css, app-boot-update.css, app-commit-view.css,
+ * app-context-menu.css
+ */
+
+/* ---- drop dialog (Nocturne A9): fd- ------------------------------------------
+   What the app says after files and folders are dropped on it from Explorer.
+   The dialog grammar is the one every Nocturne dialog already wears (`ns-`,
+   `ap-`, `pk-`, `rs-`): a surface card top-anchored on the flat scrim, a
+   16/500 title with a one-line sub, a hairline footer, and exactly one accent
+   — the outlined answer, plus the focus ring. Nothing is filled and nothing is
+   red: Replace is a choice the user aimed at, not a danger, so it wears the
+   same quiet outline as Skip and the accent falls on the answer that can lose
+   no file.
+
+   The one thing of its own is the LIST, which is also the progress. A dropped
+   name is data, so it is mono on the app ground — the treatment the restart
+   confirmation gives the sessions it is about to end — and the outcome word is
+   chrome: quiet, right-aligned, one column, so three of them read as a column
+   and not as three sentences. A row that has not resolved yet says nothing and
+   dims; that dimming is the only motion in the card, and it carries what a
+   spinner could not — which item is next. A failed row is danger INK on the
+   same ground, never a fill.
+
+   B10 made the copy real and took one rule away with it: the quiet paragraph
+   that used to say nothing was being written is deleted, rule and all.
+   Nothing was added in its place. A row now settles when its own upload answers, so the rhythm is the
+   disk's rather than a timer's, and the list scrolls the settled row into view
+   inside its own box — 168px, bounded, so not a pixel outside the scrim moves
+   while a drop of 200 items runs.                                            */
+
+.modal-scrim.fd-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 220px)) var(--space-6) var(--space-6);
+  animation: scrimFade 0.14s ease;
+}
+
+.fd-modal {
+  width: 460px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the list scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.fd-scrim,
+  .fd-modal {
+    animation: none;
+  }
+}
+
+.fd-hd {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.fd-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* the state of the drop, in words: the question, then what is being copied,
+   then what happened. It is a sentence and may wrap. */
+.fd-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.fd-sub {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.fd-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.fd-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.fd-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-8) var(--space-6);
+}
+
+/* what is being copied: dense rows sunk into the app ground, the same "data,
+   not chrome" treatment the restart confirmation gives its session list.
+   ~7 rows before it scrolls. */
+.fd-list {
+  margin: 0;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  list-style: none;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.fd-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 3px 0;
+}
+
+.fd-rowtext {
+  min-width: 0;
+}
+
+.fd-name {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* why a row reads the way it does: the name it was saved under, the limit it
+   was over. Under the name, quiet, never beside it. */
+.fd-note {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+/* the outcome word, in its own column on the right */
+.fd-state {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+}
+
+.fd-state[data-state='skipped'] {
+  color: var(--color-neutral-600);
+}
+
+/* danger as INK, the way a crashed run is written in the sessions panel: the
+   row failed, the card did not. */
+.fd-state[data-state='failed'] {
+  color: var(--color-danger-mut);
+}
+
+/* not its turn yet: the name recedes and the outcome column is empty, so the
+   list reads top-down as it settles */
+.fd-row.is-pending .fd-name {
+  color: var(--color-neutral-600);
+}
+
+/* the count under the list. Mono and tabular, like every other figure that
+   changes while you watch it. */
+.fd-progress {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.fd-step {
+  min-width: 0;
+}
+
+/* The count is focusable by SCRIPT only (tabindex -1, so Tab never reaches it)
+   and only because the busy card hides every button and focus may not fall to
+   <body> behind an aria-modal scrim. The browser's own ring around it reads as
+   a text field nobody can type in, so it is taken off here and nowhere else:
+   every control a keyboard can actually reach keeps the structural ring below. */
+.fd-step:focus,
+.fd-step:focus-visible {
+  outline: none;
+}
+
+.fd-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the spacer that keeps the way out on the left and the answers on the right */
+.fd-gap {
+  flex: 1;
+}
+
+/* one structural focus ring for every control in the dialog (the A4 rule).
+   The progress line is the exception: it is focusable by SCRIPT only (-1, so
+   Tab never reaches it) and only because the busy card hides every button, and
+   Chromium draws :focus-visible around it when the dialog hands it the
+   keyboard — a ring around a count, which reads as a text field nobody can
+   type in. */
+.fd-modal button:focus-visible,
+.fd-modal [tabindex]:focus-visible:not(.fd-step) {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window */
+@media (max-width: 460px) {
+  .fd-hd,
+  .fd-body,
+  .fd-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+/* ---- delete confirmation (Nocturne B10a): dd- — and, since part B4, the
+   unsaved-changes question: ud- --------------------------------------------
+   ONE CARD, TWO USERS. The unsaved-changes question (part B4, user decision
+   D1: `Discard` / `Keep editing`) is this same card with a different question
+   in it, so it shares every rule below rather than owning a second set of
+   values. The difference is behaviour, not looks: there the SAFE answer holds
+   the keyboard (`Keep editing`), here it is `Cancel`. Both write the answer
+   that cannot be taken back as danger ink and an outline.
+   ------------------------------------------------------------------------------
+   The ONE stop before bytes are gone for good — no trash, no undo, no recycle
+   bin behind it.
+
+   THE DIRECTION: the drop dialog's card with everything that is not the
+   question taken away. Same scrim, same surface, same radius and elevation,
+   same footer rhythm — and then nothing else: no header strip, no `×`, no
+   list, no progress, no icon. A question, at most one line under it, two
+   buttons. The smallest card in the app, because it asks the only question in
+   the app that cannot be asked again.
+
+   DANGER IS INK AND AN OUTLINE, NEVER A FILL. `Delete` is `.btn-danger` (the
+   shared button block): the same box as `Cancel` with the danger hue on its
+   border and its label. A filled red button would be the loudest thing on the
+   screen pointing at the irreversible answer — and --color-ink-on-danger stays
+   reserved for the one red GROUND in this app, the dead-pane banner.
+
+   THE WAY OUT IS ON THE LEFT and holds the keyboard (ui/delete-dialog.ts
+   focuses Cancel): every other dialog here focuses the safe answer, and here
+   the safe answer is Cancel. Escape and the backdrop are that same button.  */
+
+.modal-scrim.dd-scrim,
+.modal-scrim.ud-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 160px)) var(--space-6) var(--space-6);
+  animation: scrimFade 0.14s ease;
+}
+
+.dd-modal,
+.ud-modal {
+  width: 400px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.dd-scrim,
+  .modal-scrim.ud-scrim,
+  .dd-modal,
+  .ud-modal {
+    animation: none;
+  }
+}
+
+.dd-body,
+.ud-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+/* the question itself — the same 16/500 title every Nocturne dialog opens
+   with. It carries a NAME or a count, never a path, so it wraps rather than
+   truncates: the one sentence in this app that must be read whole. */
+.dd-title,
+.ud-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* the FILE NAME inside that question (part B4). SECURITY RULE, see
+   `.pane-tab-pick` and `.commit-fpath-t`: a name out of a repository may carry
+   a right-to-left run, which would otherwise reorder the sentence around
+   itself — the name is isolated and drawn left to right, so `Discard unsaved
+   changes to <name>?` reads in that order whatever the name contains. */
+.ud-name {
+  unicode-bidi: isolate;
+  direction: ltr;
+}
+
+/* the second line, and only when it says something the question does not
+   ("Folders are deleted with everything inside them.") */
+.dd-sub {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.dd-ft,
+.ud-ft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the spacer that keeps the way out on the left and the answer on the right */
+.dd-gap,
+.ud-gap {
+  flex: 1;
+}
+
+/* one structural focus ring for every control in the dialog (the A4 rule) */
+.dd-modal button:focus-visible,
+.ud-modal button:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window */
+@media (max-width: 460px) {
+  .dd-body,
+  .ud-body,
+  .dd-ft,
+  .ud-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+/* ═══ Nocturne A6 — the commit view ═════════════════════════════════════════
+   One more occupant of the middle row, built on the SAME grammar as a pane:
+   a neutral-900 card with a hairline edge, a 38px strip of chrome, and the
+   content itself on the terminal ground (--color-term: the DEFAULT ground, not
+   the themed --term-bg — a diff's red and green are app ink and never follow
+   the terminal's colours, open decision 10c). Nothing here is decorated:
+   in a diff the colour IS the meaning, and the only motion is the 150ms fade
+   of a screen arriving.                                                      */
+
+.screen-commit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  background: var(--color-bg);
+}
+
+.commit-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-900);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.commit-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  animation: fadeUp var(--t-btn) ease;
+}
+

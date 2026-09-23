@@ -86,6 +86,41 @@ Waiting on the user: five functions only tests still call (`closeActiveTab`,
 `aliveSessionCount`, `isFolderView`, `itemsText`, `sourceTag`) — removing
 them deletes tests, which `tests/README.md` puts in the user's hands.
 
+## O8 — every source file over 1 000 lines split by topic
+
+14 files → 53 new same-folder pieces, six agents by seam: `server/api.ts`
+2031 → 549 + seven `api-*.ts` route families (a dispatcher walks
+`ROUTE_FAMILIES` in the old order; each family returns `NEXT` when a path is
+not its own), `server/index.ts` → `index-restart.ts`, `sessions.ts` →
+`sessions-output.ts` + `sessions-env.ts`, `agents.ts` → `agents-fold.ts` +
+`agents-path.ts`, `github.ts` → `github-parse.ts` + `github-clone.ts`,
+`shared/protocol.ts` → five `protocol-*.ts` (re-exported), `web/src/main.ts`
+→ `main-shell.ts`, `state.ts` → five `state-*.ts` (the `st.*` face
+unchanged), `ui/files.ts` 3636 → eight `files-*.ts` over one `ctx`,
+`ui/github.ts`, `settings.ts`, `launch.ts`, `panes.ts` in two or three
+pieces, `app.css` 7257 → an `@import` index of 14 `app-*.css` (the built CSS
+byte-identical, same hash). Every original keeps its old exports, so no
+importer changed. Tests changed only WHICH file they read (`readSources`,
+`readAppCss`, `FILES_PANEL_SOURCES`).
+
+Gates: 3712 / 0 with the sorted name list identical; security-auditor zero
+findings (the only non-pure move — `#runGitClone` & co. out of the class
+into `github-clone.ts` — keeps argv, env, check order, clean-up and the
+`.git/config` leak check); scope review found two negative source checks
+that had narrowed to `main-shell.ts` only (fixed: they read `main.ts` too)
+and a dead import kept for a test (removed; the test pins each file's own
+import). `/verify-terminal` V1–V8 PASS on a scratch backend (V9 partial:
+the permission prompt was not exercised). Live smokes of every route
+family, the auth gate, 415, resize and the kill ladder.
+
+The size guard ended the day with no exemptions: all 52 files over the
+limit in the morning are split, so its grandfathered list and the
+"only shrinks" test were removed.
+
+One full-suite red on the way: `agents-manager` "the refusal is logged
+once…" — a pre-existing race (a meta file read between create and write
+keeps its mtime and is never re-read), not caused by the move. Backlog.
+
 ## Worth remembering
 
 - "Split it so it runs faster" is a wrong reason given for a right move: the
@@ -93,3 +128,11 @@ them deletes tests, which `tests/README.md` puts in the user's hands.
   that is tokens and time. Said so before asking the questions.
 - A read-only survey (janitor, report only) can run in parallel with a mover
   if it greps recursively and edits nothing.
+- Splitting found what reading never did: three hidden order dependences
+  between tests and one real race in the watcher. A file too long to read
+  whole also hides its coupling.
+- Parallel agents on disjoint files work; the friction was naming (two
+  fixture conventions from one brief) and a shared guard file — say the
+  exact name pattern and keep shared files with the orchestrator.
+- A negative check ("X must not appear in main.ts") silently narrows when
+  the file it reads is split; review every retargeted read for that.

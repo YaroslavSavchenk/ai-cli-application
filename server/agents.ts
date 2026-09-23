@@ -49,6 +49,11 @@
  *
  * Nothing in here ever throws into a timer or a consumer: a bad file is a
  * skipped file, logged at debug and forgotten.
+ *
+ * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the transcript-path
+ * boundary (subagentsDirFor) lives in server/agents-path.ts; the pure line
+ * fold, wire comparisons and turn verdict in server/agents-fold.ts. Both
+ * re-exported here.
  */
 import {
   closeSync,
@@ -61,11 +66,36 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
-import type { SessionAgent, SessionAgentCounts, SessionTurn } from '../shared/protocol.ts';
+import { basename, dirname, join } from 'node:path';
+import type { SessionAgent, SessionTurn } from '../shared/protocol.ts';
 import { describeError, oneLine, scoped, type Logger } from './config.ts';
 import { isUuid } from './conversation.ts';
 import { isUnder } from './fsbrowse.ts';
+import {
+  clean,
+  foldLine,
+  isoOf,
+  newFold,
+  plainObject,
+  sameReport,
+  turnOfLine,
+  type AgentFold,
+  type AgentsReport,
+} from './agents-fold.ts';
+import { pendingSlug } from './agents-path.ts';
+
+// Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
+// of this module keeps its surface.
+export {
+  foldLine,
+  newFold,
+  sameAgents,
+  sameReport,
+  turnOfLine,
+  type AgentFold,
+  type AgentsReport,
+} from './agents-fold.ts';
+export { subagentsDirFor } from './agents-path.ts';
 
 /** Poll interval per session. Same rate as the telemetry fallback poll. */
 const POLL_MS = 2_000;
@@ -140,404 +170,12 @@ const MAX_META_SCAN = 1024;
 const MAX_NAME = 64;
 const MAX_TASK = 120;
 
-/** The latest ms epoch we believe: past this, the file is lying about its clock. */
-const MAX_AT_MS = Date.UTC(3000, 0, 1);
-
-/**
- * Token counts above this are corruption, not spend (the largest real figure
- * measured is ~12.5 M for a 15-minute agent). Clamped rather than refused: the
- * row is still worth drawing.
- */
-const MAX_TOKENS = 1e12;
-
-/** C0/C1 controls and DEL. A path containing one is never a path we opened. */
-const CONTROL_CHAR = /[\u0000-\u001F\u007F-\u009F]/;
-
 /**
  * The two filenames Claude Code writes per subagent. The capture group is the
  * ONLY thing ever joined into a path — `^[a-f0-9]{1,32}$` cannot express `..`,
  * a separator or an absolute path.
  */
 const META_FILE = /^agent-([a-f0-9]{1,32})\.meta\.json$/;
-
-/** Terminal- and DOM-safe single-line text. The twin of clean() in server/telemetry.ts. */
-function clean(value: unknown, max: number): string {
-  if (typeof value !== 'string') return '';
-  const stripped = value
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return stripped.length > max ? stripped.slice(0, max) : stripped;
-}
-
-/**
- * Plain object or undefined (arrays and null are not records). A deliberate
- * twin of plainObject() in server/telemetry.ts, which is module-private there.
- */
-function plainObject(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-/**
- * A transcript timestamp as a canonical ISO-8601 string, or '' when the line
- * did not carry one we believe. Re-formatted through Date rather than passed
- * through: the raw string came out of an untrusted file and goes to the DOM,
- * and `new Date(x).toISOString()` cannot produce anything but an ISO stamp.
- */
-function isoAt(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 64) return '';
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms) || ms < 0 || ms > MAX_AT_MS) return '';
-  return new Date(ms).toISOString();
-}
-
-/** A ms epoch as ISO-8601, clamped into the range isoAt believes. */
-function isoOf(ms: number): string {
-  const safe = Number.isFinite(ms) && ms >= 0 && ms <= MAX_AT_MS ? ms : 0;
-  return new Date(safe).toISOString();
-}
-
-/** One usage figure: a finite integer >= 0, clamped. Anything else is 0. */
-function tokenField(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
-  return Math.min(Math.floor(value), MAX_TOKENS);
-}
-
-// ---------------------------------------------------------------------------
-// The boundary: which transcript path may be opened at all
-// ---------------------------------------------------------------------------
-
-/**
- * The subagents directory for a snapshot's transcript path, or null when the
- * path is refused. Pure except for the two realpath calls.
- *
- * THIS IS THE SECURITY BOUNDARY of the whole module. `transcript` came out of
- * a file any local process can write, so every one of these refusals is load
- * bearing:
- *   - not a non-empty string, or longer than 1024 characters;
- *   - a control character or NUL anywhere in it (an ESC would also reach a
- *     terminal through the log line);
- *   - not absolute, or `normalize(p) !== p` — which is how `..`, `//` and a
- *     trailing separator are refused as WRITTEN, before any resolution could
- *     quietly make them look innocent;
- *   - a basename that is not `<uuid>.jsonl` with the exact UUID shape
- *     server/conversation.ts already checks — the only names Claude Code
- *     gives a transcript;
- *   - a real directory that is not inside the real projects root. Both sides
- *     are realpath'd, so a symlink planted anywhere along the path is resolved
- *     BEFORE the comparison instead of aiming it somewhere else, and the
- *     prefix test carries a trailing separator so `/home/u/.claude/projects-evil`
- *     is not accepted as being under `/home/u/.claude/projects`.
- * A projects root that does not exist (no Claude Code on this machine) makes
- * every path refusable, which is the correct answer: there is nothing to read.
- *
- * NOT THE WHOLE BOUNDARY. The `<uuid>` and `subagents` components are appended
- * to the real directory and are NOT resolved here (they usually do not exist
- * yet). AgentsWatcher re-checks the resolved directory on every poll, which is
- * also the only place that can: a symlink may be planted long after this
- * returned.
- */
-export function subagentsDirFor(transcript: string, projectsRoot: string): string | null {
-  if (typeof transcript !== 'string' || transcript.length === 0 || transcript.length > 1024) {
-    return null;
-  }
-  if (CONTROL_CHAR.test(transcript)) return null;
-  if (!isAbsolute(transcript)) return null;
-  if (normalize(transcript) !== transcript) return null;
-  // normalize() KEEPS a trailing separator, and basename() then ignores it, so
-  // `/…/<uuid>.jsonl/` would pass every check above while naming a directory.
-  if (transcript.endsWith(sep)) return null;
-
-  const name = basename(transcript);
-  if (!name.endsWith('.jsonl')) return null;
-  const uuid = name.slice(0, -'.jsonl'.length);
-  if (!isUuid(uuid)) return null;
-
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(projectsRoot);
-  } catch {
-    return null; // No projects root: nothing to read, ever.
-  }
-  // PENDING (B11 F1): the first session in a folder Claude Code never opened.
-  // `<root>/<slug>` does not exist until the first prompt, and no new snapshot
-  // arrives then — refusing here would leave the session untracked for good.
-  // Accepted ONLY when the slug is exactly one missing component directly
-  // under the REAL root (pendingSlug); the returned path is built from the
-  // real root, and the watcher applies the full boundary per poll once the
-  // slug exists.
-  if (pendingSlug(dirname(transcript), realRoot)) {
-    return join(realRoot, basename(dirname(transcript)), uuid, 'subagents');
-  }
-
-  let realDir: string;
-  try {
-    realDir = realpathSync(dirname(transcript));
-  } catch {
-    return null; // Gone, unreadable, or a root that does not exist.
-  }
-  if (!isUnder(realDir, realRoot)) return null;
-
-  return join(realDir, uuid, 'subagents');
-}
-
-/**
- * True when `parent` is a transcript folder Claude Code has not created YET
- * (B11 F1): exactly ONE missing component, directly under the real projects
- * root. Every check is load bearing:
- *   - its name is a real slug: non-empty, not `.`/`..`, no separator, no
- *     control character (basename() of a normalised absolute path already
- *     cannot hold a separator; the others are checked here again);
- *   - it is TRULY missing: `lstat` says ENOENT. A dangling symlink planted
- *     under the slug's name exists for lstat and is refused, not "pending";
- *   - its parent's realpath is EXACTLY the real root — not merely inside it,
- *     so two or more missing components, or a missing folder anywhere else,
- *     never count.
- * Pure except for one lstat and one realpath. Once the folder exists this is
- * false and the ordinary realpath boundary applies.
- */
-function pendingSlug(parent: string, realRoot: string): boolean {
-  const slug = basename(parent);
-  if (slug === '' || slug === '.' || slug === '..' || slug.includes(sep) || CONTROL_CHAR.test(slug)) {
-    return false;
-  }
-  try {
-    lstatSync(parent);
-    return false; // It exists (or a symlink wears its name): not pending.
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false;
-  }
-  try {
-    return realpathSync(dirname(parent)) === realRoot;
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// The fold: one transcript line at a time
-// ---------------------------------------------------------------------------
-
-/** What one agent's transcript has said so far. Built only by foldLine(). */
-export interface AgentFold {
-  /** ISO-8601 of the first line that carried a timestamp; '' while there is none. */
-  firstAt: string;
-  /** ISO-8601 of the most recent line that carried one; '' while there is none. */
-  lastAt: string;
-  /** Sum over UNIQUE `message.id`s of the four usage figures. */
-  tokens: number;
-  /**
-   * The last `message.id` counted. Claude Code writes one API message as
-   * several CONSECUTIVE lines (one per content block) repeating the same
-   * usage, so remembering the previous id is enough to count it once — a Set
-   * would grow without bound over a 1.4 MB transcript for no extra accuracy.
-   */
-  seenId: string | undefined;
-  /** True when the last `user`/`assistant` line was an assistant `end_turn`. */
-  finished: boolean;
-  /** ISO-8601 of the line that ended it; '' while it is running. */
-  endedAt: string;
-}
-
-/** A fold that has read nothing. Exported so tests (and a reset) can start one. */
-export function newFold(): AgentFold {
-  return { firstAt: '', lastAt: '', tokens: 0, seenId: undefined, finished: false, endedAt: '' };
-}
-
-/**
- * Fold one transcript line into `acc`. Exported for tests; total, never throws.
- *
- * A line that is not JSON, not an object, or carries nothing we know is simply
- * ignored — a transcript is appended to WHILE we read it, so a torn line is
- * ordinary, not an error (the watcher's carry usually completes it on the next
- * poll, and the offset never rewinds past what we parsed).
- */
-export function foldLine(acc: AgentFold, line: string): void {
-  if (typeof line !== 'string' || line.length === 0) return;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return; // A torn line, or never JSON at all.
-  }
-  const raw = plainObject(parsed);
-  if (raw === undefined) return;
-
-  const at = isoAt(raw['timestamp']);
-  if (at !== '') {
-    if (acc.firstAt === '') acc.firstAt = at;
-    acc.lastAt = at;
-  }
-
-  const type = raw['type'];
-  if (type === 'user') {
-    // The orchestrator resumed the agent through SendMessage: it is working
-    // again, whatever the last assistant line said.
-    acc.finished = false;
-    acc.endedAt = '';
-    return;
-  }
-  if (type !== 'assistant') return; // attachment, system, … say nothing about state.
-
-  const message = plainObject(raw['message']);
-  if (message === undefined) return;
-
-  const id = typeof message['id'] === 'string' ? message['id'] : '';
-  if (id !== acc.seenId) {
-    acc.seenId = id;
-    const usage = plainObject(message['usage']);
-    if (usage !== undefined) {
-      const sum =
-        tokenField(usage['input_tokens']) +
-        tokenField(usage['cache_creation_input_tokens']) +
-        tokenField(usage['cache_read_input_tokens']) +
-        tokenField(usage['output_tokens']);
-      acc.tokens = Math.min(acc.tokens + sum, MAX_TOKENS);
-    }
-    // No usage object at all adds nothing — a real 0, not a guess.
-  }
-
-  const ended = message['stop_reason'] === 'end_turn';
-  acc.finished = ended;
-  acc.endedAt = ended ? (at !== '' ? at : acc.lastAt) : '';
-}
-
-// ---------------------------------------------------------------------------
-// The wire: comparing two lists
-// ---------------------------------------------------------------------------
-
-/**
- * Field-wise equality over the whole SessionAgent schema — what decides
- * whether a session's agent list actually CHANGED and therefore whether every
- * attached client gets an `info` broadcast. Order counts: the running/finished
- * ordering is part of what the table shows.
- */
-export function sameAgents(a: SessionAgent[] | undefined, b: SessionAgent[] | undefined): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i] as SessionAgent;
-    const y = b[i] as SessionAgent;
-    if (
-      x.id !== y.id ||
-      x.name !== y.name ||
-      x.task !== y.task ||
-      x.startedAt !== y.startedAt ||
-      x.endedAt !== y.endedAt ||
-      x.tokens !== y.tokens ||
-      x.state !== y.state
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/** What the watcher hands to its consumer for one session (B11). */
-export interface AgentsReport {
-  agents: SessionAgent[];
-  counts: SessionAgentCounts;
-  /** Absent = unknown. */
-  turn?: SessionTurn;
-}
-
-/** Field-wise equality of two reports: the rows (in order), the counts, the turn. */
-export function sameReport(a: AgentsReport | undefined, b: AgentsReport | undefined): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  return (
-    a.turn === b.turn &&
-    a.counts.running === b.counts.running &&
-    a.counts.finished === b.counts.finished &&
-    sameAgents(a.agents, b.agents)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// The turn: the session's own transcript, one line at a time (B11)
-// ---------------------------------------------------------------------------
-
-/**
- * A `user` line whose text starts with one of these is a LOCAL slash command
- * (`/model`, `/clear`, …) or its output: it starts no turn, so it does not
- * count. A skill command's own work shows up in the lines after it.
- */
-const LOCAL_COMMAND_PREFIXES = [
-  '<command-name>',
-  '<command-message>',
-  '<local-command-stdout>',
-  '<local-command-stderr>',
-  '<local-command-caveat>',
-];
-
-/** What Claude Code writes as the user's line when Esc interrupts a turn. */
-const INTERRUPT_PREFIX = '[Request interrupted by user';
-
-/** Stop reasons that END a turn: Claude waits for input after them. */
-const TURN_ENDING_STOPS = new Set(['end_turn', 'stop_sequence', 'refusal', 'max_tokens']);
-
-/** A user message's text: the string content, or the first text block's text; '' when none. */
-function userText(message: Record<string, unknown> | undefined): string {
-  if (message === undefined) return '';
-  const content = message['content'];
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  for (const block of content) {
-    const b = plainObject(block);
-    if (b !== undefined && b['type'] === 'text') {
-      return typeof b['text'] === 'string' ? b['text'] : '';
-    }
-  }
-  return '';
-}
-
-/**
- * One transcript line's turn verdict; undefined = the line does not count.
- * Total, never throws. The rules (PLAN-B11 § The turn rule, measured on this
- * machine's transcripts 2026-09-22, Claude Code 2.1.27x):
- *   - not JSON, `type` not user/assistant, `isMeta: true`, `isSidechain: true`
- *     → does not count;
- *   - `user` starting with a local-command tag → does not count;
- *   - `user` starting with `[Request interrupted by user` → 'waiting';
- *   - any other `user` (a prompt, a tool_result, a task-notification) → 'working';
- *   - `assistant` that is an API error or `<synthetic>`, or whose stop reason
- *     ends a turn → 'waiting'; any other (`tool_use`, `pause_turn`, null) →
- *     'working'.
- *
- * KNOWN LIMIT: Claude Code's permission prompt writes nothing to the
- * transcript (the last line is the assistant's `tool_use`), so a session
- * waiting on one reads 'working' — the BEL (`attention`) is what says "needs
- * your answer" then. An orchestrating session that ended its turn while its
- * background agents still run reads 'waiting', which is true: the user can
- * type. No stale rule: a long tool call is still working.
- */
-export function turnOfLine(line: string): SessionTurn | undefined {
-  if (typeof line !== 'string' || line.length === 0) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return undefined;
-  }
-  const raw = plainObject(parsed);
-  if (raw === undefined) return undefined;
-  if (raw['isMeta'] === true || raw['isSidechain'] === true) return undefined;
-  const message = plainObject(raw['message']);
-  const type = raw['type'];
-  if (type === 'user') {
-    const text = userText(message);
-    if (LOCAL_COMMAND_PREFIXES.some((prefix) => text.startsWith(prefix))) return undefined;
-    if (text.startsWith(INTERRUPT_PREFIX)) return 'waiting';
-    return 'working';
-  }
-  if (type !== 'assistant') return undefined;
-  if (raw['isApiErrorMessage'] === true) return 'waiting';
-  if (message === undefined) return 'working';
-  if (message['model'] === '<synthetic>') return 'waiting';
-  const stop = message['stop_reason'];
-  return typeof stop === 'string' && TURN_ENDING_STOPS.has(stop) ? 'waiting' : 'working';
-}
 
 // ---------------------------------------------------------------------------
 // The watcher

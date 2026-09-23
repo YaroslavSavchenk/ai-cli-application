@@ -137,6 +137,7 @@ registerHooks({
     const mine =
       parent.endsWith('/web/src/ui/newproject.ts') ||
       parent.endsWith('/web/src/ui/github.ts') ||
+      parent.endsWith('/web/src/ui/github-state.ts') ||
       parent.endsWith('/web/src/ui/picker.ts');
     if (mine) {
       const m = /^\.\.\/(api|state)\.ts$/.exec(specifier);

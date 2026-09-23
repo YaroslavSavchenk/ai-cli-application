@@ -30,8 +30,8 @@ system node is v18 and cannot load `.ts`).
 - **A test file stays at or under 800 lines** (a source file: 1 000). Over
   that, it holds more than one topic — split it by topic, not by line count:
   `restart.test.ts` becomes `restart-<topic>.test.ts` files, each with its
-  own header. The guard lists the files that were over the limit when the
-  rule came in; that list may only shrink.
+  own header. The guard has no exemptions: the 52 files over the limit when
+  the rule came in were all split the same day.
 - A split keeps every `test(...)` name byte-exact and moves each test whole,
   with the setup it uses. The suite's test count before and after is equal.
 - Setup that two or more of the new files need goes to

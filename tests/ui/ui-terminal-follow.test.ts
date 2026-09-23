@@ -31,13 +31,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSources } from '../helpers/helpers.ts';
 import { installDom, type FakeElement } from '../helpers/fake-dom.ts';
 import { armButton } from '../../web/src/ui/util.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const TERMINAL = readFileSync(join(UI, 'terminal.ts'), 'utf8');
-const PANES = readFileSync(join(UI, 'panes.ts'), 'utf8');
+const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts');
 const UTIL = readFileSync(join(UI, 'util.ts'), 'utf8');
 
 /** The statements of one `{ … }` body, comments and blank lines dropped. */

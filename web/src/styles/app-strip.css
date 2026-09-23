@@ -1,0 +1,386 @@
+/*
+ * App styles: the bottom tab strip, its drag and drop states, and the
+ * statusline.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-dialogs.css, app-settings.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- tab strip (Nocturne A2) -----------------------------------------------
+   One tab per screen, 32px chips on the app ground, separated from the pane
+   area by a single hairline. The ACTIVE tab is the only filled one. */
+
+.tabstrip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg);
+  border-top: var(--line) solid var(--color-neutral-900);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tab {
+  flex: none;
+  position: relative; /* anchors the insertion caret */
+  display: flex;
+  align-items: center;
+  height: var(--tab-h);
+  max-width: 260px;
+  background: transparent;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+  user-select: none;
+  touch-action: none; /* tabs are pointer-drag sources */
+}
+
+.tab:hover {
+  background: var(--color-neutral-900);
+}
+
+.tab.is-active {
+  background: var(--color-surface);
+  border-color: var(--color-neutral-800);
+  color: var(--color-text);
+}
+
+.tab-sel {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1) 0 var(--space-4);
+  color: inherit;
+  font-size: 13px;
+}
+
+/* Home has no × after its label, so the room the × would take goes to the
+   right padding instead: the word sits in the middle of its chip. */
+.tab.is-home .tab-sel {
+  padding-right: var(--space-4);
+}
+
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* B12: the tab's mark before the name — a folder tab's folder glyph, else
+   the first pane's. A tool mark is a neutral
+   silhouette that lifts with the active tab, like the label beside it; a
+   file keeps its type's ink (.files-icon[data-kind]). */
+.tab-tool,
+.tab-ficon,
+.tab-folder {
+  flex: none;
+}
+
+/* a folder tab (Home, a project) wears the tree's folder glyph, neutral */
+.tab-folder {
+  color: var(--color-neutral-600);
+}
+
+.tab.is-active .tab-folder {
+  color: var(--color-neutral-500);
+}
+
+.tab-tool {
+  color: var(--color-neutral-500);
+}
+
+.tab.is-active .tab-tool {
+  color: var(--color-neutral-300);
+}
+
+/* how many sessions share this tab — a count, not a glyph */
+.tab-count {
+  flex: none;
+  padding: 0 5px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: 8px;
+  color: var(--color-neutral-500);
+  font-size: 11px;
+}
+
+/* a file in this tab holds unsaved text — the same amber mark the pane header
+   draws, so one colour means one thing everywhere */
+.tab-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-attn);
+}
+
+/* a member session is waiting for an answer */
+.tab-attn {
+  flex: none;
+  color: var(--color-attn);
+  font-size: 11px;
+}
+
+.tab-x {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.tab-x:hover {
+  background: var(--color-neutral-800);
+  color: var(--color-text);
+}
+
+/* armed two-step confirm: red fill, unmistakable, and its own width — the
+   confirm label is wider than the × it replaces */
+.tab-x[data-armed='1'] {
+  width: auto;
+  padding: 0 var(--space-2);
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-ink-on-danger);
+  font-weight: 600;
+}
+
+.tab-new {
+  flex: none;
+  position: relative;
+  width: var(--tab-h);
+  height: var(--tab-h);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 17px;
+}
+
+.tab-new:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.strip-gap {
+  flex: 1;
+}
+
+.strip-hint {
+  flex: none;
+  align-self: center;
+  padding-right: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+
+/* ---- drag & drop: strip states ------------------------------------------- */
+
+.tab.is-dragging {
+  opacity: 0.45;
+}
+
+/* A Files-panel row that has been picked up recedes exactly like a tab chip:
+   same number, because a row and a chip are both list items, not cards
+   (a pane card dims to .6 instead — a bigger surface needs less). */
+.files-row.is-dragging {
+  opacity: 0.45;
+}
+
+/* prospective drop target: the accent as an outline, never as a fill */
+.tab.is-drop {
+  background: var(--color-neutral-900);
+  border-color: var(--color-accent);
+}
+
+/* insertion caret: a 2px accent tick in the gap before the tab */
+.tab.is-insert-before::before,
+.tab-new.is-insert-before::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--space-1));
+  width: var(--tick);
+  border-radius: var(--tick);
+  background: var(--color-accent);
+  pointer-events: none;
+}
+
+.tabstrip.is-drop {
+  outline: var(--line) solid var(--color-accent);
+  outline-offset: calc(-1 * var(--line));
+}
+
+/* An EMPTY tab (normally Home) has no pane to aim at, so its empty state takes
+   the drop and says so itself — the same dashed accent a pane's drop box uses
+   (prospective, never a solid fill). An outline, so nothing shifts by a pixel
+   while the pointer is over it. */
+.empty-state.is-drop {
+  outline: var(--line) dashed var(--color-accent);
+  outline-offset: calc(-1 * var(--space-4));
+  border-radius: var(--radius-md);
+  background: var(--color-accent-900);
+}
+
+/* cursor-following chip — real shadow sanctioned (handoff drag ghost) */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-ghost);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  height: var(--tab-h);
+  padding: 0 var(--space-4);
+  font-size: 13px;
+  background: var(--color-surface);
+  border: var(--line) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.drag-ghost.is-invalid {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+/* files dragged in from Explorer (Nocturne A9) — the same block, because they
+   are the same act seen from the other side, and app.css carries exactly one
+   "drag & drop" section (pinned by tests/ui/ui-a8-chrome.test.ts).
+   Same grammar as the in-app drags above, one rule short of it: an external
+   drag is an OS gesture, so the cursor stays the OS's (no `grabbing`) and only
+   the selection is frozen. NOTHING here changes layout — outlines and the
+   absolutely positioned `.pane-drop` overlay only. A border or a padding
+   change would resize the pane grid mid-drag, every TerminalView's
+   ResizeObserver would fire and the PTYs would be resized for a highlight. */
+
+/* a folder row, and the panel's own non-folder area: the `.empty-state.is-drop`
+   recipe, inset so the row keeps its 26px and the panel keeps its width */
+.files-row.is-dir.is-drop,
+.files-view.is-drop {
+  outline: var(--line) dashed var(--color-accent);
+  outline-offset: calc(-1 * var(--line));
+  background: var(--color-accent-900);
+}
+
+/* the twin of the drag: its own quiet line under the panel header, on the
+   tree's own left indent so it stands where the rows it copies into stand */
+.files-copy {
+  flex: none;
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.files-copy-btn {
+  /* block + line-height, not flex: `text-overflow: ellipsis` never draws its
+     glyph on an anonymous flex item, and this button holds bare text. */
+  display: block;
+  line-height: var(--files-row-h);
+  width: 100%;
+  min-width: 0;
+  height: var(--files-row-h);
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 12px;
+  text-align: left;
+  /* A9b: the label is no longer a constant — it names the chosen folder — so it
+     gets the `.files-name` recipe. A long name must never wrap inside the 26px
+     box or push the panel's min-content width out: the pane grid would narrow
+     and every terminal's ResizeObserver would resize its PTY. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-copy-btn:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+body.is-dnd,
+body.is-filedrag {
+  user-select: none;
+}
+
+body.is-dnd * {
+  cursor: grabbing !important;
+}
+
+/* ---- statusline (Nocturne A2): 26px readout -------------------------------- */
+
+.statusline {
+  height: var(--status-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-6);
+  background: var(--color-bg);
+  border-top: var(--line) solid var(--color-neutral-900);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-seg {
+  flex: none;
+}
+
+.status-gap {
+  flex: 1;
+}
+
+/* `flex: none` keeps the count whole when the readouts beside it grow; the
+   one item allowed to shrink is `.status-flash` below. */
+.status-attn {
+  flex: none;
+  color: var(--color-attn);
+}
+
+/* inverse ink block, NOT amber: amber means attention, flashes are notices */
+.status-flash {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.status-hint {
+  flex: none;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-neutral-500);
+  font-size: 11.5px;
+}
+
+.status-hint:hover {
+  color: var(--color-text);
+}
+

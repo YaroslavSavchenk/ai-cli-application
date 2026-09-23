@@ -134,6 +134,8 @@ test('class parity over the WHOLE stylesheet: no unstyled class, no dead rule, w
       'web/src/ui/github.ts',
       'web/src/ui/newproject.ts',
       'web/src/ui/picker.ts',
+      'web/src/ui/settings-apikeys.ts',
+      'web/src/ui/settings-service.ts',
       'web/src/ui/settings.ts',
       'web/src/ui/term-colours.ts',
     ],

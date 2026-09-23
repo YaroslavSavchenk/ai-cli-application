@@ -27,13 +27,13 @@ import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
 import { APP_CSS, declaredTokens, mySections, stripComments, usedTokens } from '../helpers/tokens-helpers.ts';
 import { FakeApiError, PROJ, makeFixture, settle, mkSession, mkProject as project } from '../helpers/fs-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
+import { readSource, readSources } from '../helpers/helpers.ts';
 
 const fx = makeFixture();
 const dom = installDom();
 
 const FILES_SRC = readSource('web', 'src', 'ui', 'files.ts');
-const MAIN_SRC = readSource('web', 'src', 'main.ts');
+const MAIN_SRC = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 const API_SRC = readSource('web', 'src', 'api.ts');
 
 type EditorTab =

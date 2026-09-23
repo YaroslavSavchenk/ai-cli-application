@@ -358,7 +358,7 @@ test('an EXITED session does not close the panel, and the toggle still records t
 test('the panel starts WANTED, so it appears by itself with the first session', () => {
   // A module-level default, which this runner's shared singleton cannot show
   // after the reset above — so it is read where it is declared.
-  const src = readSource('web', 'src', 'state.ts');
+  const src = readSource('web', 'src', 'state-core.ts');
   const init = src.slice(src.indexOf('export const state: AppState = {'));
   assert.ok(init.length > 100, 'non-vacuity: the state initializer was found');
   assert.match(init.slice(0, 400), /leftPanel: 'files',/);

@@ -1,0 +1,345 @@
+/*
+ * App styles: the background agents table, the file pane and the empty state.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-panels.css, app-strip.css,
+ * app-dialogs.css, app-settings.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- background agents (part A3's table, fed by part B7) --------------------
+   One line per subagent Claude Code ran for this session (ui/pane-agents.ts,
+   rows from ui/pane-agents-model.ts), inside the terminal card and therefore
+   ON THE THEMED GROUND: like the status bar above it, every ink here is one of
+   the theme's own two steps — --xt-fg ordinary, --xt-bright-black quiet — or a
+   mix of them, never an app neutral, so the table reads on a light custom
+   scheme (B9) and is the same hexes on the default. The running dot keeps the
+   semantic --color-ok (open decision 10c). */
+
+.pane-agents {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-6);
+  border-top: var(--line) solid color-mix(in srgb, var(--xt-bright-black) 30%, transparent);
+}
+
+.pane-agents-hd {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--xt-bright-black);
+}
+
+.pane-agents-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pane-agents-tool {
+  flex: none;
+}
+
+.pane-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pane-agent-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.pane-agent-dot.is-running {
+  background: var(--color-ok);
+}
+
+.pane-agent-dot.is-attention {
+  background: var(--color-attn);
+}
+
+.pane-agent-dot.is-finished {
+  background: var(--xt-bright-black);
+}
+
+.pane-agent-name {
+  flex: none;
+  width: 118px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--xt-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-agent-task {
+  flex: 1;
+  min-width: 0;
+  /* The A3 hierarchy is three steps deep — name, task, time — and the theme
+     carries two, so the middle one is a MIX of them: a third of the ordinary
+     step over the quiet one, which computes within a point per channel of the
+     neutral-500 this replaces (#9397ab) on the default scheme, and follows
+     both ends of any custom one. Without it the task would take the same ink
+     as the time beside it and the row would read flat. */
+  color: color-mix(in srgb, var(--xt-fg) 33%, var(--xt-bright-black));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-agent-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--xt-bright-black);
+}
+
+.pane-agent-tokens {
+  flex: none;
+  width: 56px;
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--xt-bright-black);
+}
+
+/* B11: the agents the list leaves out, counted — `+2 working` `+10 finished`
+   on one quiet line under the rows, indented to the name column (the 6px dot
+   plus the row gap), two words spaced apart and nothing between them (copy
+   rule). The working count takes the task step (it is live), the finished
+   count the quiet step; both are theme inks (B9). */
+.pane-agents-more {
+  display: flex;
+  gap: var(--space-4);
+  padding-left: calc(6px + var(--space-3));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--xt-bright-black);
+}
+
+.pane-agents-more-n.is-working {
+  color: color-mix(in srgb, var(--xt-fg) 33%, var(--xt-bright-black));
+}
+
+/* ---- file pane (Nocturne A10) -------------------------------------------------
+   Made real by part B4: the text is the file on disk, and the bar under it
+   carries what the last save had to say.
+
+   A file opened from the Files panel is a PANE, so it wears the pane's own
+   card: the terminal ground fills the body edge to edge, the text sits on it
+   in the terminal's own mono, and the one strip under it is the same 30px
+   hairline bar a session uses for its status items — what the last save has to
+   say on the left, Save on the right. Nothing here is decorated; the code is
+   the content.
+
+   That ground is --color-term, the oklch twin of the DEFAULT terminal ground,
+   and it is painted here rather than inherited from .pane-body: since part B9
+   the card's own --term-bg is whatever the user chose for their TERMINALS
+   (open decision 10c), and this pane's ink is app ink — --color-text and the
+   diff's own red/green — which a light custom ground would swallow.          */
+
+.pane-file,
+.pane-diff {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-term);
+}
+
+/* An EDITOR pane's body under the same rule: between two tabs (and while it
+   has none to draw) .pane-body is bare, and bare .pane-body is the THEMED
+   ground — which this card's app ink was never meant to sit on. */
+.pane.is-editor .pane-body {
+  background: var(--color-term);
+}
+
+.pane-diff .diff-body {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.pane-code {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.pane-gutter {
+  flex: none;
+  padding: var(--space-4) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-700);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+  overflow: hidden;
+}
+
+.pane-text {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  resize: none;
+  background: transparent;
+  color: var(--color-neutral-200);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: var(--space-4) var(--space-4) var(--space-4) 0;
+  white-space: pre;
+  overflow: auto;
+}
+
+.pane-text:focus-visible {
+  outline: none; /* the caret is the focus ring inside a text field */
+}
+
+/* nothing to type into: the server's own sentence, no field, no numbers — and
+   `Loading…` in the same slot, in the same quiet ink, so the answer replaces
+   the waiting line exactly where it stood (part B4) */
+.pane-fempty {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* A REFUSAL is danger ink (too large, not text, no permission); a file that is
+   simply gone keeps the quiet ink above — nothing went wrong, there is nothing
+   there. Same pair the diff notes already use (`.diff-note.is-bad`). */
+.pane-fempty.is-bad {
+  color: var(--color-danger);
+}
+
+/* the strip under the text — the session pane's status bar, other contents.
+   Since B4 it is also the CONFLICT bar: the same 30px strip, the server's
+   sentence on the left and the two answers beside it. */
+.pane-fbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 30px;
+  padding: var(--space-1) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+  font-size: 11.5px;
+}
+
+/* WHAT A SAVE HAS TO SAY, in the bar and nowhere else (part B4). A file that
+   changed under the user is a line in the pane's own statusline with the two
+   answers beside it — never a banner over the text, never a dialog: the text
+   is what the user came for and it stays on screen and editable. The sentence
+   is the SERVER's, verbatim, in danger ink. */
+.pane-fmsg {
+  min-width: 0;
+  color: var(--color-danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-save,
+.pane-fact {
+  flex: none;
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+  font-size: 12px;
+}
+
+/* The two answers to a conflict are QUIET, both of them: neither `Overwrite`
+   nor `Load from disk` is the safe one — they lose different work — so putting
+   an accent on either would be the app choosing for the user. */
+.pane-fact {
+  color: var(--color-neutral-300);
+}
+
+.pane-fact:hover {
+  border-color: var(--color-neutral-600);
+}
+
+/* only a file with unsaved text offers the accent — `Saved` is a statement */
+.pane-save.is-dirty {
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+}
+
+.pane-save.is-dirty:hover {
+  background: var(--color-accent-900);
+}
+
+.pane-save:disabled {
+  cursor: default;
+}
+
+/* DESIGN-SYSTEM RULE: code surfaces draw plain glyphs, like the terminal.
+   xterm renders no ligatures, so a file pane that prints `=` `=` as one long
+   glyph (or `=>` as an arrow) would show code this app cannot show in the pane
+   beside it — and a reader could not tell `==` from `===`. Every surface that
+   prints code or a path is listed here, once — including, since part B3, a
+   commit's own message body, which is drawn beside the diff it describes.    */
+.pane-text,
+.pane-gutter,
+.pane-tab-pick,
+.diff-t,
+.diff-path,
+.commit-fpath,
+.commit-vtext,
+.sg-tcprev {
+  font-variant-ligatures: none;
+}
+
+/* ---- empty state (no panes) --------------------------------------------------
+   Words and two ways forward. No illustration, no tile, no countdown. */
+
+.empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+.empty-hd {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.empty-sub {
+  max-width: 340px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-neutral-500);
+}
+
+.empty-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+

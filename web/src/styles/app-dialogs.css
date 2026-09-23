@@ -1,0 +1,704 @@
+/*
+ * App styles: the shared dialog scrim, the shortcuts overlay and the New
+ * session dialog.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-settings.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- the shared dialog scrim -------------------------------------------------
+   ONE scrim rule for every dialog in the app. It is also the app's definition
+   of "a dialog is open": ui/keys.ts finds an open owner of the keyboard by
+   this class (OPEN_FOCUS_OWNER_SELECTOR / FOCUS_OWNER_SELECTOR), so every
+   dialog wears it beside its own prefix (`modal-scrim ns-scrim`, `sg-`, `ap-`,
+   `pk-`, `sc-`, `rs-`) and each of those adds only its anchor and its layer. */
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--color-scrim);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+}
+
+/* ---- shortcuts overlay (Nocturne A8) ----------------------------------------
+   The keyboard reference, opened by the statusline button, `?` or ctrl+alt+/.
+   The v3 handoff draws no such surface, so it is built in the idiom the landed
+   Nocturne dialogs set (`ns-`, `sg-`, `ap-`, `pk-`): a surface card on the flat
+   scrim, 16/500 title with a 28px close control, hairline-separated rows, and
+   one structural accent — the focus ring. Nothing here is filled.
+
+   It is a TABLE, not a form: three columns, all three information. What you
+   press (mono key chips, the same chips the Settings Keyboard page draws, so
+   the two layouts of the one table read as one vocabulary), what it does (Inter,
+   the brightest ink in the row), and where the same thing lives in the UI
+   (Inter, quiet — every chord here has a visible control). A row whose
+   existence needs a reason carries ONE caption under it, aligned under the
+   `what` column; the standing note about everything the app does NOT take sits
+   in the footer, where a footnote belongs.
+
+   Written against the primitives only: --color-*, --space-*, --radius-*,
+   --shadow-*, plus the structural --line / --tick / --font-sans / --font-mono
+   and the layer tokens. */
+
+.modal-scrim.sc-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), 6vh) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
+}
+
+.sc-modal {
+  width: 640px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer note can
+     never be pushed below the window edge; the table scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.sc-scrim,
+  .sc-modal {
+    animation: none;
+  }
+}
+
+.sc-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.sc-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sc-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sc-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.sc-table {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-8);
+}
+
+/* the hairline and the row rhythm belong to the ITEM, so a row and its caption
+   stay one thing */
+.sc-item {
+  padding: var(--space-3) 0;
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.sc-item:last-child {
+  border-bottom: none;
+}
+
+.sc-row {
+  display: grid;
+  grid-template-columns: var(--sc-key-col) 1fr 1fr;
+  gap: var(--space-4);
+  align-items: baseline;
+}
+
+.sc-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* the key chip — the same recipe as the Settings Keyboard page's .sg-kbd */
+.sc-keys kbd {
+  padding: 3px 8px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
+  white-space: nowrap;
+}
+
+.sc-or {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* a mouse gesture is a sentence, not a chord: plain wrapping Inter, never a
+   nowrap chip (the same rule the Settings page's .sg-gesture states) */
+.sc-gesture {
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.sc-what {
+  font-size: 12px;
+  color: var(--color-neutral-300);
+}
+
+.sc-ui {
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+}
+
+/* the ONE caption a row may carry (paste, copy): aligned under the `what`
+   column, because a caption sits with its row and not in a footnote nobody
+   reads. The keys column + the grid gap = the indent. */
+.sc-cap {
+  padding: var(--space-1) 0 0 calc(var(--sc-key-col) + var(--space-4));
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  line-height: 1.4;
+}
+
+.sc-note {
+  flex: none;
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  line-height: 1.5;
+}
+
+/* one structural focus ring for every control in the overlay (the A4 rule) */
+.sc-modal button:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window: three columns become one stack, so no cell is squeezed under
+   its own words */
+@media (max-width: 680px) {
+  .sc-hd,
+  .sc-table,
+  .sc-note {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .sc-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+  .sc-cap {
+    padding-left: 0;
+  }
+}
+
+/* ---- New session dialog (Nocturne A4) ---------------------------------------
+   The v3 modal, written against the Nocturne primitives (--color-*,
+   --space-*, --radius-*, --shadow-*) plus four structural tokens that have no
+   primitive twin: --line, --tick, --font-sans, --font-mono (the A3 pane block
+   uses the same four). No Legacy colour or spacing alias — A8 deleted that
+   layer, and every name here is a real declaration in tokens.css
+   (tests/ui/ui-launch-a4.test.ts). Type sizes are the v3
+   markup's own literals. One accent rule: the SELECTED card's outline and the
+   Start session outline; nothing else in the dialog is blurple except the
+   focus ring. Danger red belongs to exactly one card, No prompts.
+
+   Structure: header (title, close) / scrolling body / footer with a top
+   hairline. Cards are the dialog's radio controls — 1px neutral-800 outline,
+   transparent; selected = accent outline on the --color-bg ground. Inert
+   cards (part B5) keep their outline but drop to neutral-700 ink. */
+
+/* Top-anchored, never centred: the modal's height changes with the Tool, and a
+   centred box moved the tool grid under the pointer on every switch. 319px is
+   half the Claude Code layout's height (634.5px measured at 540 wide, +4px
+   since the Permission cards went to 40px), so the
+   tallest layout still sits centred and every other kind keeps the same top. */
+.modal-scrim.ns-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 319px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
+}
+
+.ns-modal {
+  width: 540px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the body scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.ns-scrim,
+  .ns-modal {
+    animation: none;
+  }
+}
+
+.ns-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.ns-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.ns-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ns-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ns-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-2) var(--space-8) var(--space-6);
+}
+
+/* the claude-only set is one block so it hides as one; inside it keeps the
+   body's own rhythm */
+.ns-kindbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* a labelled group (Tool, Permissions, Shell) and a labelled field */
+.ns-group,
+.ns-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ns-lb {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.ns-opt {
+  color: var(--color-neutral-600);
+}
+
+/* two fields side by side: Name + Project, Model + Effort */
+.ns-row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* a tool with no effort levels (Gemini CLI, B5) leaves ONE control in the row;
+   half a row of nothing beside it would read as a control that failed to draw */
+.ns-row2.is-one {
+  grid-template-columns: 1fr;
+}
+
+.ns-field input,
+.ns-field select {
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans); /* names and choices are words, not data */
+  font-size: 13px;
+}
+
+.ns-field select {
+  padding: 0 var(--space-3);
+}
+
+.ns-field input::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.ns-field input:focus,
+.ns-field select:focus {
+  border-color: var(--color-accent);
+}
+
+/* a field's focus is ONE 2px ring: its own border plus an inset line, so a
+   focused input never wears a border AND an outline */
+.ns-modal .ns-field input:focus-visible,
+.ns-modal .ns-field select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 var(--line) var(--color-accent);
+}
+
+/* the Command field's content IS a command: the one mono input */
+.ns-cmd input {
+  font-family: var(--font-mono);
+}
+
+/* ---- card grids -------------------------------------------------------------- */
+
+.ns-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.ns-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 13px;
+  text-align: left;
+}
+
+.ns-card:hover:not(.is-sel):not([aria-disabled='true']):not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.ns-card.is-sel {
+  background: var(--color-bg);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ns-card[aria-disabled='true'] {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+.ns-card-txt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ns-card-lb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-card-sub {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-card[aria-disabled='true'] .ns-card-sub {
+  color: var(--color-neutral-600); /* the hint stays readable; the name dims */
+}
+
+/* Tool cards: 40px, mark tile + label + sub-line on one line */
+.ns-tools .ns-card {
+  height: 40px;
+  padding: 0 var(--space-3);
+}
+
+.ns-mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-300);
+}
+
+/* the known agent's tile carries the accent family (v3) */
+.ns-mark.is-agent {
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+}
+
+.ns-card[aria-disabled='true'] .ns-mark {
+  color: var(--color-neutral-700);
+}
+
+/* Shell and Permission cards: label (500) over an optional sub-line, two to
+   a row at the Tool cards' 40px, so every card grid in the dialog shares one
+   size (user's ask, 2026-09-10) */
+.ns-shells .ns-card,
+.ns-perms .ns-card {
+  /* min, not fixed: a permission card that cannot be set for the chosen tool
+     (B5) grows a hint line, and the grid keeps its row's cards equal anyway */
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text);
+}
+
+.ns-shells .ns-card-lb,
+.ns-perms .ns-card-lb {
+  font-weight: 500;
+}
+
+.ns-shells .ns-card[aria-disabled='true'],
+.ns-perms .ns-card[aria-disabled='true'] {
+  color: var(--color-neutral-700);
+}
+
+.ns-shells .ns-card-sub {
+  color: var(--color-neutral-500);
+}
+
+/* No prompts: red label whether selected or not, red outline when selected */
+.ns-card.is-danger .ns-card-lb {
+  color: var(--color-danger);
+}
+
+.ns-card.is-danger.is-sel {
+  border-color: var(--color-danger);
+}
+
+/* ---- focus: one structural ring for every control in the dialog ------------- */
+
+.ns-modal button:focus-visible,
+.ns-modal input:focus-visible,
+.ns-modal select:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* ---- Permissions: label row + the one info button + its popover ------------- */
+
+.ns-perm {
+  position: relative;
+}
+
+.ns-lbrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ns-info {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+}
+
+.ns-info svg {
+  display: block;
+}
+
+.ns-info:hover,
+.ns-info[aria-expanded='true'] {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ns-help {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  z-index: 2;
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: fadeUp 0.14s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-help {
+    animation: none;
+  }
+}
+
+.ns-help-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.ns-help-list dt {
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.ns-help-list dt.is-danger {
+  color: var(--color-danger);
+}
+
+.ns-help-list dd {
+  color: var(--color-neutral-400);
+}
+
+/* ---- error, the no-projects line, footer ------------------------------------- */
+
+.ns-err {
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ns-none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+}
+
+/* The key notice (B5): a QUIET LINE, not a banner — no fill, no rule, no icon,
+   no colour. One sentence about the tool just chosen and one small outlined
+   button that goes where it can be fixed; the weight ordering says which of the
+   two is the act. Same baseline-flex shape as .ns-none above. */
+.ns-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+}
+
+.ns-noticebtn {
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.ns-noticebtn:hover {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.ns-link {
+  padding: 0;
+  color: var(--color-accent-300);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ns-link:hover {
+  color: var(--color-text);
+}
+
+.ns-ft {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+.ns-ft .btn-accent:disabled {
+  background: transparent;
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* Narrow: tighter side padding; below 360px the paired fields stack so no
+   select is squeezed below its words. */
+@media (max-width: 520px) {
+  .ns-hd,
+  .ns-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .ns-body {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+@media (max-width: 360px) {
+  .ns-row2 {
+    grid-template-columns: 1fr;
+  }
+}
+

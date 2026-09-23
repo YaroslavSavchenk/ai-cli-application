@@ -31,18 +31,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSources } from '../helpers/helpers.ts';
 import { withoutComments as code } from '../helpers/source-scan.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const PANES = read(join(UI, 'panes.ts'));
+const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts');
 const AGENTS = read(join(UI, 'pane-agents.ts'));
 const DND = read(join(UI, 'dnd.ts'));
 const SHORTCUTS = read(join(UI, 'shortcuts.ts'));
-const APP_CSS = read(join(STYLES, 'app.css'));
+const APP_CSS = readAppCss();
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 
 /** Source with comments removed — a comment may DISCUSS what code may not do. */

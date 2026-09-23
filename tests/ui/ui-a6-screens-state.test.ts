@@ -58,6 +58,7 @@ import {
   view,
   type View,
 } from '../helpers/ui-a6-screens-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 beforeEach(resetScreen);
 
@@ -285,7 +286,7 @@ test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-s
   // The terminal renders no ligatures; an editor that prints `===` as one long
   // glyph shows code the pane beside it cannot show, and hides the difference
   // between `==` and `===`.
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const at = css.indexOf('font-variant-ligatures: none');
   assert.notEqual(at, -1, 'the rule exists');
   assert.equal(
@@ -348,7 +349,7 @@ test('every class the commit screen renders has a rule in app.css (a typo is an 
   st.closeCommitView();
 
   assert.ok(seen.size > 25, `non-vacuity: ${seen.size} classes were collected`);
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

@@ -1,0 +1,389 @@
+/*
+ * App styles: the folder picker.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-github.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- folder picker (Phase 2a) — Nocturne A7 dialog ---------------------------
+   The picker that the Add-a-project dialog's folder rows open, written against
+   the Nocturne primitives (--color-*, --space-*, --radius-*, --shadow-*) plus
+   the four structural tokens with no primitive twin that the A3 pane, the A4
+   `ns-` dialog and the A7 `ap-`/`sg-` blocks also use: --line, --tick,
+   --font-sans, --font-mono. No Legacy alias, no hardcoded colour. Type sizes
+   are the v3 markup's own literals.
+
+   It replaced the Legacy chrome this dialog wore until A7 (`modal pk-modal`
+   with the gradient `launch-hd` header, the `.dirlist`/`.dir-btn` list and a
+   `.btn is-primary` footer) — a Legacy dialog over a Nocturne one, since the
+   dialog it opens from is `ap-`.
+
+   Direction: a path instrument, not a second dialog. Three statements, top to
+   bottom — where you ARE (the path as one walkable mono row, the last segment
+   in full ink), where you can GO (quick zones, then the folders in this one as
+   hairline-separated rows), and what you will DO (one accent-outlined
+   commitment). Everything that is merely available is neutral-700/800 on the
+   card's own ground; the folder list and the path row sink INTO the surface on
+   --color-bg instead of floating on it. Folder names and path segments read in
+   JetBrains Mono because they are data, the title and the actions in Inter
+   because they are words. Nothing is filled, nothing glows.
+
+   ONE accent rule: the footer's "Choose this folder" (the shared .btn-accent
+   outline) and the focus ring. The marked quick zone is a STATE, so it takes
+   the neutral-900 ground, never the accent — the same discipline as the `ap-`
+   block, where the accent means interactive-and-chosen only.
+
+   Z-ORDER, unchanged from Legacy: the scrim keeps `modal-scrim` (ui/keys.ts
+   finds an open dialog by it, and main.ts ranks Esc: picker before the
+   Add-a-project dialog under it), so it sits at the same --z-modal as that
+   dialog and paints on top purely because it is appended to the same modal host
+   LAST. The 250px top anchor is the one the `ap-` scrim uses, so the picker's
+   top edge lands exactly on the card it covers instead of jumping.
+
+   All paths and directory names are untrusted → textContent (ui/picker.ts). */
+
+.modal-scrim.pk-scrim {
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
+}
+
+.pk-modal {
+  width: 480px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the list scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.pk-scrim,
+  .pk-modal {
+    animation: none;
+  }
+}
+
+/* ---- header: the opener's own words ------------------------------------- */
+
+.pk-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.pk-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.pk-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.pk-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+/* ---- where you are: the path, walkable, in mono -------------------------- */
+
+.pk-pathrow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-8) var(--space-4);
+}
+
+.pk-up {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pk-up:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+/* at the root there is nowhere up to go, and the control says so */
+.pk-up:disabled {
+  border-color: var(--color-neutral-900);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+.pk-crumbs {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-900);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.pk-crumb {
+  flex: none;
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.pk-crumb:hover {
+  color: var(--color-text);
+}
+
+/* the folder you are IN is the one segment in full ink */
+.pk-crumb.is-here {
+  color: var(--color-text);
+}
+
+.pk-sep {
+  flex: none;
+  color: var(--color-neutral-700);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ---- quick zones --------------------------------------------------------- */
+
+.pk-quick {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-8) var(--space-4);
+}
+
+.pk-zone {
+  height: 26px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 12px;
+}
+
+.pk-zone:hover {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+/* standing on a zone is a STATE, not an action: the neutral ground, never the
+   accent (which in this dialog means the one thing that commits) */
+.pk-zone.is-on {
+  background: var(--color-neutral-900);
+  border-color: var(--color-neutral-700);
+  color: var(--color-text);
+}
+
+/* ---- where you can go: one folder per row ------------------------------- */
+
+.pk-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  border-top: var(--line) solid var(--color-neutral-900);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.pk-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-8);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+}
+
+.pk-row + .pk-row {
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+.pk-row:hover {
+  background: var(--color-neutral-900);
+}
+
+.pk-row svg {
+  flex: none;
+  color: var(--color-neutral-600);
+}
+
+.pk-row:hover svg {
+  color: var(--color-neutral-400);
+}
+
+.pk-rowname {
+  min-width: 0;
+  font-family: var(--font-mono); /* a folder name is data */
+  font-size: 12.5px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pk-empty {
+  padding: var(--space-6) var(--space-8);
+  font-size: 12.5px;
+  color: var(--color-neutral-600);
+}
+
+/* ---- inline failure (the backend's own reason) -------------------------- */
+
+.pk-err {
+  margin: var(--space-4) var(--space-8) 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ---- make one here ------------------------------------------------------ */
+
+.pk-mkrow {
+  flex: none;
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+}
+
+.pk-mkname {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-3);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-mono); /* it becomes a path segment */
+  font-size: 12px;
+}
+
+.pk-mkname::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.pk-mk {
+  flex: none;
+  height: 30px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.pk-mk:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.pk-mk:disabled {
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- footer ------------------------------------------------------------- */
+
+.pk-ft {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* ---- focus: one structural ring for every control in the dialog --------- */
+
+.pk-modal button:focus-visible,
+.pk-modal input:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* the one field: its focus is ONE 2px ring — its own border plus an inset
+   line, so it never wears a border AND an outline (as in the `ap-` block) */
+.pk-modal .pk-mkname:focus {
+  border-color: var(--color-accent);
+}
+
+.pk-modal .pk-mkname:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--line) var(--color-accent);
+}
+
+/* ---- narrow window ------------------------------------------------------ */
+
+@media (max-width: 520px) {
+  .pk-hd,
+  .pk-pathrow,
+  .pk-quick,
+  .pk-row,
+  .pk-empty,
+  .pk-mkrow,
+  .pk-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+  .pk-err {
+    margin-left: var(--space-6);
+    margin-right: var(--space-6);
+  }
+}
+

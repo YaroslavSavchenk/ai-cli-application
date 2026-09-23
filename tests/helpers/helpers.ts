@@ -94,6 +94,32 @@ export function readSource(...parts: string[]): string {
   return readFileSync(join(projectRoot, ...parts), 'utf8');
 }
 
+/**
+ * Several files of this checkout as ONE text, joined in the order given:
+ * `readSources('web/src/main.ts', 'web/src/main-shell.ts')` — for a source pin
+ * whose text a split (O8, 2026-09-23) spread over an original and its pieces.
+ */
+export function readSources(...paths: string[]): string {
+  return paths.map((p) => readSource(p)).join('\n');
+}
+
+/**
+ * `web/src/ui/files.ts` and the pieces O8 (2026-09-23) split it into, in
+ * reading order — `readSources(...FILES_PANEL_SOURCES)` is the Files panel's
+ * source as ONE text, for a pin that was written against the single module.
+ */
+export const FILES_PANEL_SOURCES = [
+  'web/src/ui/files.ts',
+  'web/src/ui/files-destinations.ts',
+  'web/src/ui/files-ctx.ts',
+  'web/src/ui/files-tree.ts',
+  'web/src/ui/files-git.ts',
+  'web/src/ui/files-keys.ts',
+  'web/src/ui/files-menu.ts',
+  'web/src/ui/files-naming.ts',
+  'web/src/ui/files-render.ts',
+] as const;
+
 /** Every file under `dir`, recursively in readdir order, whose NAME matches `re`. */
 export function filesUnder(dir: string, re: RegExp): string[] {
   const files: string[] = [];

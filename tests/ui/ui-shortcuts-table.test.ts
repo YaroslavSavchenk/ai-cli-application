@@ -39,7 +39,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isCopyChord, isLinkActivation, isPasteChord } from '../../web/src/ui/keys.ts';
 import type { KeyChord } from '../../web/src/ui/keys.ts';
-import { projectRoot as REPO_ROOT, readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, projectRoot as REPO_ROOT, readSource, readSources } from '../helpers/helpers.ts';
 
 /** The rows themselves; since B6 they are their own module (both surfaces read it). */
 const SHORTCUTS = join(REPO_ROOT, 'web', 'src', 'ui', 'shortcuts-rows.ts');
@@ -427,8 +427,7 @@ test('the copy row answers the two things a terminal user must trust, on the row
 // It therefore adds nothing to the vocabulary this file reconciles, and needs
 // no seat in the terminal allow-list.
 
-const MAIN_TS = join(REPO_ROOT, 'web', 'src', 'main.ts');
-const FILES_TS = join(REPO_ROOT, 'web', 'src', 'ui', 'files.ts');
+const MAIN_TS = join(REPO_ROOT, 'web', 'src', 'main-shell.ts');
 const TERMINAL_TS = join(REPO_ROOT, 'web', 'src', 'ui', 'terminal.ts');
 
 /**
@@ -475,7 +474,7 @@ function terminalAllowlist(): string {
  * and (A9b) the context-menu chord on both.
  */
 function filesChordBlock(): string {
-  const src = readFileSync(FILES_TS, 'utf8');
+  const src = readSources(...FILES_PANEL_SOURCES);
   const blocks: string[] = [];
   // EVERY row-level handler, not just the first: the folder row's chord was
   // added above the file row's, and a scan that read one block would have
@@ -729,7 +728,7 @@ test('ctrl+s is handled by the FIELD, not by the window — and the terminal nev
   //   2. the textarea of a file body does,
   //   3. the terminal allow-list does NOT mention it — a key in that list that
   //      nothing acts on is a key stolen from the PTY.
-  const main = readFileSync(MAIN_TS, 'utf8');
+  const main = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   assert.equal(/'s'\s*\|\||k === 's'/.test(mainChordBlock()), false, 'not an app chord');
   assert.equal(/key === 's'/.test(main), false, "main.ts must not claim the field's key");
 

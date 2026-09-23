@@ -1511,8 +1511,8 @@ becomes a real behavioral test.)
 (Settled 2026-07-25: **lost final PTY output after session exit — FIXED.**
 Root cause was not node-pty event ordering but **libuv**: on POLLHUP
 `uv__stream_io` short-circuits to a synthetic EOF without re-reading, so
-bytes still held by the kernel are discarded. `server/sessions.ts` now
-wraps `destroy` on node-pty's internal master read stream and
+bytes still held by the kernel are discarded. `server/sessions-output.ts`
+(`rescueFinalOutput`, called from `server/sessions.ts`) now wraps `destroy` on node-pty's internal master read stream and
 synchronously drains the fd there, feeding bytes into the same handler
 `onData` uses — one ingress, no clock, loop ends on EIO/EAGAIN/0. This
 depends on two undeclared node-pty internals (`fd`, `_socket`) and on
@@ -1564,7 +1564,7 @@ frontend; app data — projects.json, runtime.json, last-port.json (2026-09-22),
 replacing journal.json + previous.json), prefs.json (added 2026-07-20: server-side UI prefs, since
 localStorage died with every auto-picked-port origin change), server.log —
 lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
-`shared/protocol.ts`. Rationale in `memory/decisions/`.)
+`shared/protocol.ts` (with its topic modules `shared/protocol-*.ts`). Rationale in `memory/decisions/`.)
 
 (Settled 2026-07-19: backend lifetime bound to UI presence — see the
 Architecture bullet; implemented the same day: presence WS + grace timers,

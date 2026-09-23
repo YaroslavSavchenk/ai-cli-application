@@ -39,7 +39,7 @@ import {
   settle,
   mkProject as project,
 } from '../helpers/fs-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, readSource, readSources } from '../helpers/helpers.ts';
 import {
   bindRootNow,
   body,
@@ -64,6 +64,7 @@ import {
   summary,
   type ViewLike,
 } from '../helpers/ui-files-panel-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 // Which root the panel is standing in right now, so a test can name a row by
 // the same relative path it always did. Declared HERE because the tests below
@@ -577,7 +578,7 @@ test('a dead focused pane does not blank the header — it names what is left, o
   assert.equal(st.filesPanelVisible(), true, 'the panel survives the last session');
   assert.equal(textsOf(root, 'files-proj')[0], 'Home');
 
-  const src = readSource('web', 'src', 'ui', 'files.ts');
+  const src = readSources(...FILES_PANEL_SOURCES);
   // A11 turned the lookup into one `subject()` the header and `repoKnown()`
   // both read; the constant it falls back to is still the guard here.
   assert.match(src, /name: 'Home', home: true/);
@@ -596,7 +597,7 @@ test('nothing in the tree pulses: no source says which files a session is touchi
     [],
     'a guessed pulse would be the panel inventing what a session is doing',
   );
-  const app = readSource('web', 'src', 'styles', 'app.css');
+  const app = readAppCss();
   assert.match(app, /\.files-row\.is-busy \{/, 'the hook survives for whenever the source arrives');
 });
 

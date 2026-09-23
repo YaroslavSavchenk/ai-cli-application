@@ -1,0 +1,575 @@
+/*
+ * App styles: the boot overlay, the boot and restart takeover panels, the
+ * update notice and the restart or update confirmation.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-github.css, app-picker.css, app-drop-delete.css, app-commit-view.css,
+ * app-context-menu.css
+ */
+
+/* ---- boot overlay (honest steps; handoff §10 visual language) ---------------
+   Nocturne A8. The app's first frame is the terminal's own ground with ONE
+   instrument card on it — the same card the New session dialog is (surface,
+   radius-lg, a hairline ring instead of a shadow), carrying the top bar's
+   brand row as its header and the boot steps as its body. Mounts only when
+   boot outlives ~150ms, so a warm localhost start shows nothing.
+
+   Every row's mark is REAL state: the accent-topped ring spins only while its
+   own promise is pending, a green check means resolved, a red × failed, and a
+   failed row puts the reason underneath it in mono. Nothing is staged, no
+   percentage is invented, and the card never moves after it lands.
+
+   The same three elements serve the reconnect takeover (one row) and the
+   fatal zone (a danger edge, one sentence, one Reload). */
+
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--color-term);
+}
+
+.boot-panel {
+  width: min(var(--panel-w), 92vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-panel,
+  .boot-step,
+  .boot-err {
+    animation: none;
+  }
+}
+
+/* the top bar's own brand, at the top bar's proportions (24px tile, --space-3) */
+.boot-brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.boot-brand-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* the steps, on the header's hairline */
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* mark column + words; a failed row's reason takes a second line of its own */
+.boot-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-400);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+/* settled and fine: the row steps back so the pending one reads first */
+.boot-step.is-done {
+  color: var(--color-neutral-600);
+}
+
+.boot-mark {
+  grid-column: 1;
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.boot-mark.is-spin {
+  width: 11px;
+  height: 11px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin var(--t-spin) linear infinite;
+}
+
+.boot-mark.is-ok {
+  color: var(--color-ok);
+}
+
+.boot-mark.is-err {
+  color: var(--color-danger);
+}
+
+/* The reason sits on its own line, so the label has the whole column and
+   nothing squeezes it onto two lines (A4b, where the message shared the row
+   and broke "terminal font" in half). */
+.boot-lb {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.boot-msg {
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}
+
+/* ---- boot / restart takeover panels ----------------------------------------
+   Boot cannot continue (a fatal inside the card) or this page can no longer
+   reach the service it was served by (the standalone card). Same card, same
+   words-first order; the ONE alarm mark either one takes is a --color-danger
+   top edge. The action is the app-wide accent outline (.btn-accent), never a
+   filled or glowing button. */
+
+.boot-fatal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  border-top: var(--tick) solid var(--color-danger);
+}
+
+.boot-fatal-msg {
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+}
+
+.boot-err {
+  margin: 20vh auto 0;
+  width: min(var(--panel-w), 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8);
+  background: var(--color-surface);
+  border-top: var(--tick) solid var(--color-danger);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+.boot-err-hd {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.boot-err-msg {
+  font-size: 12.5px;
+  color: var(--color-neutral-400);
+  overflow-wrap: anywhere;
+}
+
+/* ---- update notice: the topbar pill and the toast ---------------------------
+   Two surfaces, one idea: a newer version exists and the running backend is not
+   it. Both speak the attention hue (--color-attn) — already the only colour in
+   this app that means "this needs you" — as an OUTLINE and a rule, never a
+   fill, so nothing competes with the terminal for the eye. The third surface,
+   the confirmation, is the `rs-` block below. */
+
+/* the topbar pill: the persistent half of the notice, immediately after the
+   connection dot. Same outlined idiom as the rest of the bar, and NOT pulsing:
+   the tab badge pulses because a session is waiting for a human right now; an
+   available update is patient. */
+.tb-update {
+  height: 20px;
+  padding: 0 var(--space-2);
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: var(--line) solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  color: var(--color-attn);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tb-update:hover {
+  background: var(--color-attn-tint);
+}
+
+/* the toast (Nocturne A8): bottom-right, above the tab strip and the
+   statusline, where no pane content and no tab lives. A surface card on the
+   dialog grammar — 1px edge, radius-md, the popover shadow — with ONE
+   attention mark: the 2px left rule. The card is never amber; the hue states
+   the kind of news, the words state the news. */
+.ut-toast {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--toast-bottom);
+  z-index: var(--z-toast);
+  width: var(--toast-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface);
+  border: var(--line) solid var(--color-neutral-800);
+  border-left: var(--tick) solid var(--color-attn);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: fadeUp var(--t-fade) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ut-toast {
+    animation: none;
+  }
+}
+
+.ut-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ut-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ut-x {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.ut-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.ut-body {
+  font-size: 12px;
+  color: var(--color-neutral-400);
+  line-height: 1.45;
+}
+
+/* the backend's own words for WHY, in the mono "one fact" voice — secondary,
+   never an instruction */
+.ut-reason {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  overflow-wrap: anywhere;
+}
+
+.ut-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* the dialog buttons, one size down: a toast is not a dialog footer */
+.ut-actions .btn-accent,
+.ut-actions .btn-quiet {
+  height: 28px;
+  padding: 0 var(--space-4);
+  font-size: 12px;
+}
+
+/* ---- restart / update confirmation (Nocturne A8) ----------------------------
+   The one question with consequences, on the same dialog grammar as the New
+   session dialog and the folder picker: a 420-wide surface card, top-anchored
+   like `pk-`, 16/500 title with a one-line sub, hairline footer, and exactly
+   one accent — the outlined commitment (the shared .btn-accent) plus the focus
+   ring. It is the ONE dialog that can open over another one (Settings ->
+   Background service -> Restart service), so its scrim claims --z-modal-top.
+
+   Three states in one card, never a fifth colour: the QUESTION (what is about
+   to close, listed on --color-bg sunk into the card, where data goes), the
+   WAIT (a spinner and the phase in words — honest, and a real percentage only
+   while bytes are actually moving), and the OUTCOME (a refusal, which touched
+   nothing and wears the attention note; or a failure, which is danger ink). */
+
+.modal-scrim.rs-scrim {
+  z-index: var(--z-modal-top);
+  align-items: flex-start;
+  padding: max(var(--space-6), calc(50vh - 250px)) var(--space-6) var(--space-6);
+  background: var(--color-scrim);
+  animation: scrimFade 0.14s ease;
+}
+
+.rs-modal {
+  width: 420px;
+  max-width: 100%;
+  /* 100% = the scrim's box minus its top-anchor padding, so the footer can
+     never be pushed below the window edge; the body scrolls instead */
+  max-height: min(88vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  animation: fadeUp 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-scrim.rs-scrim,
+  .rs-modal {
+    animation: none;
+  }
+}
+
+.rs-hd {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.rs-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rs-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.rs-sub {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.rs-x {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rs-x:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.rs-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-8) var(--space-6);
+}
+
+.rs-lead {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+  line-height: 1.5;
+}
+
+/* what is about to close: dense mono rows sunk into the app ground, the same
+   "data, not chrome" treatment the sessions panel gives session names. ~6 rows
+   before it scrolls. */
+.rs-list {
+  margin: 0;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  list-style: none;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.rs-row {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-name {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-proj {
+  color: var(--color-neutral-500);
+}
+
+.rs-more {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+/* a note about what the user is about to meet (a conversation that cannot be
+   pinned, dependencies the preflight will refuse): the attention rule on the
+   app ground, the same grammar the toast uses. Never a fill. */
+.rs-note {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-left: var(--tick) solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+  line-height: 1.5;
+}
+
+/* in flight: the boot panel's spinner, because this IS the same kind of wait */
+.rs-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+}
+
+.rs-spin {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: var(--line) solid var(--color-neutral-800);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin var(--t-spin) linear infinite; /* sanctioned: handoff §10 */
+}
+
+/* the phase in words — the news. It can be a long sentence in a 420 card. */
+.rs-step {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* the download percent, beside the phase and never instead of it. Its own rule
+   for one reason: TABULAR figures. It changes once a second for minutes, and
+   proportional digits make the whole line twitch left and right while it
+   counts — motion that carries no information, which this app does not do. */
+.rs-pct {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-fail {
+  font-size: 12.5px;
+  color: var(--color-danger);
+  line-height: 1.5;
+}
+
+/* a REFUSAL is not a failure. The preflight said no and touched nothing: the
+   backend still serves this page and every session is alive, so the red of "it
+   did not come back" would be a lie. It wears the attention idiom instead —
+   .rs-note's rule on the app ground, the same grammar the toast and the tab
+   badge use for "this needs you". No new colour. */
+.rs-fail.is-refused {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-left: var(--tick) solid var(--color-attn);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+}
+
+.rs-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-8);
+  border-top: var(--line) solid var(--color-neutral-900);
+}
+
+/* the spacer that keeps the quiet verb left and the loud ones right */
+.rs-gap {
+  flex: 1;
+}
+
+/* the manual fallback after a refused update: the quiet verb on the left of a
+   footer of outlined buttons. Same treatment as the Settings panel's own text
+   link (.sg-link) — a link is a word, never a button. */
+.rs-link {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-accent-300);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rs-link:hover {
+  color: var(--color-text);
+}
+
+/* one structural focus ring for every control in the dialog (the A4 rule) */
+.rs-modal button:focus-visible,
+.rs-modal [tabindex]:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* narrow window */
+@media (max-width: 460px) {
+  .rs-hd,
+  .rs-body,
+  .rs-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+

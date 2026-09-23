@@ -48,6 +48,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot as REPO_ROOT } from '../helpers/helpers.ts';
 import { HOLE, type Lit, literals } from '../helpers/source-scan.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const WEB_SRC = join(REPO_ROOT, 'web', 'src');
 
@@ -59,6 +60,7 @@ const WEB_SRC = join(REPO_ROOT, 'web', 'src');
  */
 const FILES: string[] = [
   'main.ts',
+  'main-shell.ts',
   ...readdirSync(join(WEB_SRC, 'ui'))
     .sort()
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
@@ -128,7 +130,7 @@ test('the separator scan actually reads the chrome (non-vacuity: files, literals
   // Canaries: real A2 copy the scanner has to see, in the files it must read.
   const canaries: [string, string][] = [
     ['main.ts', 'Session Manager'],
-    ['main.ts', 'New session'],
+    ['main-shell.ts', 'New session'],
     ['ui/statusline.ts', 'Keyboard shortcuts'],
     ['ui/tabs.ts', 'Needs you'],
     ['ui/session-state.ts', 'Working'],
@@ -188,8 +190,8 @@ test('the separator allowlist has no stale entries, and ui/theme.ts is wired to 
   const importers = FILES.filter(
     (f) => f !== 'ui/theme.ts' && /from '\.{1,2}(\/ui)?\/theme\.ts'/.test(src(f)),
   );
-  assert.deepEqual(importers, ['main.ts'], 'ui/theme.ts has one importer: main.ts');
-  assert.ok(src('main.ts').includes('initTheme(prefs)'), 'main.ts wires the theme at boot');
+  assert.deepEqual(importers, ['main-shell.ts'], 'ui/theme.ts has one importer: main-shell.ts (the shell main.ts boots)');
+  assert.ok(src('main-shell.ts').includes('initTheme(prefs)'), 'main-shell.ts wires the theme at boot');
 });
 
 // ---------------------------------------------------------------------------
@@ -197,7 +199,7 @@ test('the separator allowlist has no stale entries, and ui/theme.ts is wired to 
 // ---------------------------------------------------------------------------
 
 /** Files that name a session's state to the user (B11: the words live in session-state.ts). */
-const STATE_FILES = ['ui/session-state.ts', 'ui/sessions.ts', 'ui/panes.ts', 'ui/tabs.ts'] as const;
+const STATE_FILES = ['ui/session-state.ts', 'ui/sessions.ts', 'ui/panes.ts', 'ui/panes-status.ts', 'ui/tabs.ts'] as const;
 
 test('the Nocturne state words are the ones the chrome renders', () => {
   // Since B11 a session's state word is written once — `readoutWord` in
@@ -208,7 +210,7 @@ test('the Nocturne state words are the ones the chrome renders', () => {
   for (const word of ['Working', 'Needs your answer', 'Finished', 'Waiting for you']) {
     assert.ok(has('ui/session-state.ts', word), `the readout says ${word}`);
   }
-  for (const file of ['ui/sessions.ts', 'ui/panes.ts']) {
+  for (const file of ['ui/sessions.ts', 'ui/panes-status.ts']) {
     assert.match(
       src(file),
       /import \{[^}]*\breadoutWord\b[^}]*\} from '\.\/session-state\.ts';/,
@@ -216,7 +218,7 @@ test('the Nocturne state words are the ones the chrome renders', () => {
     );
   }
   assert.ok(
-    (litsOf.get('ui/panes.ts') as Lit[]).some((l) => l.text.startsWith('Finished, code')),
+    (litsOf.get('ui/panes-status.ts') as Lit[]).some((l) => l.text.startsWith('Finished, code')),
     'the pane pill title says Finished, code N',
   );
   assert.ok(has('ui/tabs.ts', 'Needs you'), 'the tab pill says Needs you');
@@ -323,7 +325,7 @@ test('the statusline pluralises its counts instead of writing `session(s)`', () 
 // ---------------------------------------------------------------------------
 
 test('main.ts wires the terminal colours but no theme BUTTON (the choice lives in Settings)', () => {
-  const MAIN = src('main.ts');
+  const MAIN = src('main-shell.ts');
   assert.ok(MAIN.includes('function buildShell'), 'non-vacuity: main.ts must still build the shell');
   assert.ok(/from '\.\/ui\/theme\.ts'/.test(MAIN), 'main.ts imports the theme machinery');
   // Asserted to EXIST first: `-1 < x` would make the ordering check pass for a
@@ -336,9 +338,11 @@ test('main.ts wires the terminal colours but no theme BUTTON (the choice lives i
   );
   // A2 deleted the top-bar popover and open decision 10(d) keeps it deleted:
   // the only way in is Settings → Terminal colours.
-  const themeLabels = (litsOf.get('main.ts') as Lit[]).filter((l) => /^theme$/i.test(l.text.trim()));
+  const themeLabels = (['main.ts', 'main-shell.ts'] as const).flatMap((f) =>
+    (litsOf.get(f) as Lit[]).filter((l) => /^theme$/i.test(l.text.trim())).map((l) => ({ f, l })),
+  );
   assert.deepEqual(
-    themeLabels.map((l) => `main.ts:${l.line} ${JSON.stringify(l.text)}`),
+    themeLabels.map(({ f, l }) => `${f}:${l.line} ${JSON.stringify(l.text)}`),
     [],
     'the Theme button label is gone from the top bar',
   );
@@ -346,7 +350,7 @@ test('main.ts wires the terminal colours but no theme BUTTON (the choice lives i
 
 test('tokens.css pins the three Nocturne chrome heights, and app.css builds on them', () => {
   const TOKENS = readFileSync(join(WEB_SRC, 'styles', 'tokens.css'), 'utf8');
-  const APP = readFileSync(join(WEB_SRC, 'styles', 'app.css'), 'utf8');
+  const APP = readAppCss();
   assert.ok(TOKENS.length > 1000, 'non-vacuity: tokens.css looks empty');
   for (const [name, value] of [
     ['--topbar-h', '48px'],

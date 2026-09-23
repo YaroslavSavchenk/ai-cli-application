@@ -1,0 +1,530 @@
+/*
+ * App styles: the base layer, the status dots, the keyframes, the topbar and
+ * the middle row.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-pane.css, app-pane-kinds.css, app-panels.css, app-strip.css,
+ * app-dialogs.css, app-settings.css, app-add-project.css, app-github.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- base ---------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Text for a screen reader only: off the screen, still in the accessibility
+   tree. `display: none` or `visibility: hidden` would take it out of both. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition:
+    color var(--t-btn),
+    background-color var(--t-btn),
+    border-color var(--t-btn),
+    box-shadow var(--t-slide);
+}
+
+/* Everything typed or listed as data is mono: session rows, paths, tags,
+   input values. The A2 chrome (top bar, tab strip, statusline) is Inter — in
+   Nocturne the mono face carries DATA, not chrome. */
+input,
+select,
+.proj-path,
+.proj-meta,
+.logo-glyph,
+kbd {
+  font-family: var(--font-mono);
+}
+
+/* The field ground is the terminal's own, never themed: an input is an ink
+   well, and 4px/8px are the exact numbers the field height is built on. */
+input,
+select {
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-term);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  width: 100%;
+}
+
+input::placeholder {
+  color: var(--color-neutral-700);
+}
+
+input:focus,
+select:focus {
+  border-color: var(--color-accent);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--tick) solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-text) 45%, transparent) transparent;
+}
+
+/* ---- status dots: green running / pulsing amber attention / neutral exited - */
+/* B11 (ui/session-state.ts): a claude session's transcript splits "running"
+   in two — pulsing green is-work (Claude generates or runs a tool) and still
+   amber is-wait (it ended its turn). is-run stays still green for a session
+   nothing reads a turn from (a shell, no transcript): a pulse there would
+   claim knowledge the app does not have. */
+
+.dot {
+  flex: none;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+}
+
+.dot.is-run {
+  background: var(--color-ok);
+}
+
+.dot.is-attn {
+  background: var(--color-attn);
+  animation: pulse var(--t-pulse) infinite;
+}
+
+.dot.is-work {
+  background: var(--color-ok);
+  animation: pulse var(--t-pulse) infinite;
+}
+
+.dot.is-wait {
+  background: var(--color-attn);
+}
+
+/* Working without the motion: the pill still says it, and the dot keeps the
+   green. */
+@media (prefers-reduced-motion: reduce) {
+  .dot.is-work {
+    animation: none;
+  }
+}
+
+/* Needs your answer without the motion (B8): the pill still says it, and the
+   dot keeps the amber. */
+@media (prefers-reduced-motion: reduce) {
+  .dot.is-attn {
+    animation: none;
+  }
+}
+
+/* A2: Nocturne draws a finished session as a filled neutral dot, not a
+   hollow ring (design/session-manager/session-manager-v3.html). */
+.dot.is-exit {
+  background: var(--color-neutral-700);
+}
+
+/* Shared state-colour helpers (drawer rows, GitHub facts): one word wearing
+   its own meaning, never a fill. */
+.is-warn {
+  color: var(--color-neutral-500);
+}
+
+.is-ok {
+  color: var(--color-ok);
+}
+
+.is-attn {
+  color: var(--color-attn);
+}
+
+.is-danger {
+  color: var(--color-danger);
+}
+
+/* ---- keyframes (handoff motion set) ---------------------------------------- */
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slideL {
+  from {
+    transform: translateX(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes slideR {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* the shared dialog scrim's fade — one vocabulary for every modal (ns-, sc-,
+   sg-, rs-) */
+@keyframes scrimFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* boot-step spinner (sanctioned: handoff §10) */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- topbar (Nocturne A2): a 48px instrument strip -------------------------
+   One hairline at the bottom, no fill anywhere except the ACTIVE toggle, and
+   exactly one accent: the New session outline. Everything here is written
+   against the Nocturne primitives (--color-*, --space-*, --radius-*), never
+   the legacy alias names. Type sizes are the v3 markup's own literals. */
+
+.topbar {
+  height: var(--topbar-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-6);
+  background: var(--color-bg);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.tb-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.logo-tile {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+}
+
+.logo-glyph {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-accent-300);
+}
+
+.wordmark {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tb-gap {
+  flex: 1;
+}
+
+/* the three panel toggles — one group, tight gap */
+.tb-toggles {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.tb-btn {
+  height: var(--ctl-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.tb-btn:hover {
+  background: var(--color-neutral-900);
+  color: var(--color-text);
+}
+
+.tb-btn.is-on {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* attention count on the Sessions toggle — the only warm mark in the bar */
+.tb-attn {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-attn-tint);
+  border-radius: 9px;
+  color: var(--color-attn);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tb-divider {
+  flex: none;
+  width: var(--line);
+  height: 20px;
+  margin: 0 var(--space-2);
+  background: var(--color-neutral-900);
+}
+
+.tb-conn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+}
+
+.tb-conn-dot {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+}
+
+.tb-conn-dot.is-ok {
+  background: var(--color-ok);
+}
+
+.tb-conn-dot.is-down {
+  background: var(--color-danger);
+}
+
+/* GitHub account chip + Settings icon: the same quiet outlined control, one
+   with a label, one square. */
+.tb-gh,
+.tb-icon {
+  height: var(--ctl-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-900);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+}
+
+.tb-gh:hover,
+.tb-icon:hover {
+  border-color: var(--color-neutral-700);
+  color: var(--color-text);
+}
+
+.tb-gh {
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-2);
+  font-size: 12.5px;
+  max-width: 190px;
+}
+
+.tb-gh-lb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the account's initial; 'G' before a login is known */
+.tb-gh-av {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tb-icon {
+  width: var(--ctl-h);
+  padding: 0;
+}
+
+.tb-icon svg {
+  display: block;
+}
+
+/* New session — the ONE accent outline in the bar (never a fill) */
+.tb-new {
+  height: var(--ctl-h);
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-300);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tb-new:hover {
+  background: var(--color-accent-900);
+}
+
+.tb-new:active {
+  background: var(--color-accent-800);
+}
+
+/* The Nocturne button pair, first used by the pane area's empty state (A3)
+   and since A8 the app's ONLY shared button: an outlined-accent primary — the
+   same statement the top bar's New session makes, never a fill — a quiet
+   neutral second choice, and (B10a) an outlined DANGER answer. Every dialog
+   footer, the update toast, the restart confirmation and the two boot
+   takeovers wear them; the Legacy `.btn`
+   family (ghost / green "go" / accent tint / link) was deleted in A8 once the
+   last module stopped setting it. */
+.btn-accent,
+.btn-quiet,
+.btn-danger {
+  height: 34px;
+  padding: 0 var(--space-6);
+  background: transparent;
+  border: var(--line) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-300);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.btn-accent:hover {
+  background: var(--color-accent-900);
+}
+
+.btn-quiet {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-300);
+  font-weight: 400;
+}
+
+.btn-quiet:hover {
+  border-color: var(--color-neutral-600);
+}
+
+/* The third member (Nocturne B10a): the answer that cannot be taken back. Same
+   height, padding, radius and weight as the other two — it is a button in the
+   same footer, not a bigger one — with the accent swapped for danger.
+
+   IT IS NEVER A FILL. --color-ink-on-danger stays reserved for the one red
+   GROUND in the app (the dead-pane banner); a filled red button here would be
+   the loudest thing on screen pointing at the irreversible answer, and it would
+   break the app's own grammar: a primary action is an OUTLINE. The hover is the
+   same 8% danger tint a removed line in a diff is written on. */
+.btn-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.btn-danger:hover {
+  background: var(--color-danger-tint);
+}
+
+/* ---- middle row: drawers + pane area ---------------------------------------- */
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+

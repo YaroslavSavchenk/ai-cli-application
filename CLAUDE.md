@@ -40,8 +40,8 @@ Ground rules for every session:
   and never changes behaviour; an app part does the opposite.
 - **Tests are written to `tests/README.md` (2026-09-23, user's call)** —
   folder per area, one topic per file, a test module at most 800 lines and a
-  source file at most 1 000 (`tests/repo/file-size.test.ts`, a shrink-only
-  list of older files), shared code in `tests/helpers/`.
+  source file at most 1 000 (`tests/repo/file-size.test.ts`, no exemptions),
+  shared code in `tests/helpers/`.
 - UI work must follow `/frontend-designer` (hard anti-generic-design filter).
   Terminal-related changes aren't done until `/verify-terminal` passes.
 - **Standing authorization (2026-07-18): commit AND push to origin after every

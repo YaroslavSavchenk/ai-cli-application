@@ -1,0 +1,566 @@
+/*
+ * App styles: the GitHub tab of the Add a project dialog.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-commit-view.css, app-context-menu.css
+ */
+
+/* ---- GitHub tab (Nocturne A7) --------------------------------------------
+   Same primitives, same three exclusive meanings. The connect state is one
+   quiet card sunk into the surface; connected is a ledger: the account row,
+   then the search row, then one row per repository separated by hairlines —
+   no cards, nothing filled. Two deliberate divergences from the v3 mock,
+   both load-bearing:
+
+     - the mock's "The app only needs read access" and "Connected with read
+       access" are NOT adopted: this app's grant reads AND writes every
+       repository on the account, and the honest copy for each state comes
+       from ui/github-model.ts (security design gate, 2026-07-25).
+     - the mock's per-row clone PROGRESS BAR and "Cloning 40%" are NOT
+       adopted: the backend clone is one synchronous call with no progress to
+       report, so the row shows the indeterminate spinner instead of a number
+       nothing measures.
+
+   The login renders in mono on purpose — a homoglyph or a stray space in an
+   account name has to be visible, because "check this is the account you
+   meant" is the user's only defence against a token for the wrong account. */
+
+/* a state that fills the tab: checking, connect, the device code */
+.gh-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.gh-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.gh-body {
+  max-width: 380px;
+  font-size: 13px;
+  color: var(--color-neutral-500);
+  line-height: 1.5;
+}
+
+.gh-fine {
+  max-width: 380px;
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  line-height: 1.5;
+}
+
+/* connecting: the spinner row, the instruction, the code */
+.gh-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 13px;
+  color: var(--color-neutral-400);
+}
+
+.gh-instruct {
+  font-size: 13px;
+  color: var(--color-neutral-400);
+  line-height: 1.5;
+}
+
+.gh-uri {
+  font-family: var(--font-mono);
+  color: var(--color-accent-300);
+}
+
+.gh-code {
+  padding: var(--space-3) var(--space-6);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 24px;
+  letter-spacing: 5px;
+  color: var(--color-text);
+}
+
+.gh-expiry {
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+/* small outline action (Cancel a pending flow, Disconnect): armed goes red */
+.gh-mini {
+  height: 28px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 12px;
+}
+
+.gh-mini:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.gh-mini[data-armed='1'] {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+/* ---- connected ---------------------------------------------------------- */
+
+.gh-connected {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.gh-me {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+.gh-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gh-me-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-me-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gh-me-sub {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.gh-revoke-note {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  line-height: 1.5;
+}
+
+/* search + New repository share one row; the search box grows */
+.gh-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.gh-search {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.gh-search::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.gh-search:focus {
+  border-color: var(--color-accent);
+}
+
+.gh-newrepo {
+  flex: none;
+  height: 34px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.gh-newrepo:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+}
+
+.gh-newrepo:disabled {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+/* ---- the New repository form: the one accent-outlined thing in the tab --- */
+
+.gh-newform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--line) solid var(--color-accent-800);
+  border-radius: var(--radius-md);
+  animation: fadeUp 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-newform {
+    animation: none;
+  }
+}
+
+.gh-newinput {
+  height: 32px;
+  padding: 0 var(--space-4);
+  background: var(--color-bg);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.gh-newinput::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.gh-newinput:focus {
+  border-color: var(--color-accent);
+}
+
+.gh-newinput.is-err {
+  border-color: var(--color-danger);
+}
+
+.gh-newrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.gh-newnote {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.gh-newbtn {
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.gh-newbtn:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.gh-newbtn:disabled {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+.gh-newbtn.is-create {
+  padding: 0 var(--space-4);
+  border-color: var(--color-accent);
+  color: var(--color-accent-300);
+  font-weight: 500;
+}
+
+.gh-newbtn.is-create:hover:not(:disabled) {
+  background: var(--color-accent-900);
+}
+
+.gh-newerr {
+  font-size: 12px;
+  color: var(--color-danger);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ---- one repository per row --------------------------------------------- */
+
+.gh-repos {
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-repo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.gh-repo-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gh-repo-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.gh-repo-name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gh-badge {
+  flex: none;
+  padding: 0 var(--space-2);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.gh-repo-desc {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gh-repo-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+.gh-lang-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* the row's action: Clone carries the accent (it is what the row is for),
+   Open is neutral (the repository is already here) */
+.gh-repo-actslot {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.gh-repo-act {
+  height: 28px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
+  font-size: 12px;
+}
+
+.gh-repo-act:hover:not(:disabled) {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+.gh-repo-act.is-clone {
+  border-color: var(--color-accent-700);
+  color: var(--color-accent-300);
+}
+
+.gh-repo-act.is-clone:hover:not(:disabled) {
+  background: var(--color-accent-900);
+  border-color: var(--color-accent);
+}
+
+.gh-repo-act:disabled {
+  border-color: var(--color-neutral-800);
+  color: var(--color-neutral-700);
+  cursor: default;
+}
+
+.gh-repo-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.gh-repo-err {
+  font-size: 12px;
+  color: var(--color-danger);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* the list's own states: loading, empty, failed */
+.gh-msg {
+  padding: var(--space-6);
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.gh-msg.is-err {
+  color: var(--color-danger);
+}
+
+/* ---- the pasted-token credential path ----------------------------------- */
+/* A second way to connect, offered alongside the device flow and NEVER hidden
+   by a missing OAuth client id. The token well is a field card on the same
+   sunk ground; the remember control is the checklist row; the warning stays
+   red and permanent. See ui/github.ts for the credential's full rule set. */
+
+/* OUTLINED, not sunk: the connect card and the account row own the sunk
+   --color-bg ground, and a field standing on that same ground would lose its
+   edge. An outline also separates the two offers — the action this server can
+   make, and the alternative that always works. */
+.gh-token {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+}
+
+/* .gh-title/.gh-body/.gh-fine are centred inside .gh-card; here they read as a
+   form's heading and its instructions */
+.gh-token .gh-body,
+.gh-token .gh-fine {
+  max-width: none;
+}
+
+.gh-tokenrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* the check with GitHub runs to the left of the button that started it */
+.gh-tokenrow .ap-busy {
+  margin-right: auto;
+}
+
+/* the paste field's error edge — ui/github.ts sets .is-err on an empty submit
+   and on a refused token */
+.gh-tokeninput.is-err {
+  border-color: var(--color-danger);
+}
+
+/* the warning that must never fade out of view: a token someone else supplied
+   connects this app to THEIR account */
+.gh-warn {
+  font-size: 12px;
+  color: var(--color-danger);
+  line-height: 1.5;
+}
+
+/* the connection stopped working on its own — an expiring pasted token makes
+   this routine, so it gets an explanation instead of a silent state flip */
+.gh-lost {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-attn-tint);
+  border-radius: var(--radius-md);
+  color: var(--color-attn);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* connected: the credential's facts, only the ones the server reported */
+.gh-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  line-height: 1.5;
+}
+
+.gh-fact {
+  overflow-wrap: anywhere; /* GitHub-reported scope lists can be long */
+}
+
+/* expired, or expiring within three days: needs attention now */
+.gh-fact.is-warn {
+  color: var(--color-attn);
+}
+
+/* "check this is the account you meant" — a pasted token can silently be for
+   the wrong account, and nothing else in the app would say so */
+.gh-verify {
+  font-size: 12px;
+  color: var(--color-attn);
+  line-height: 1.5;
+}
+
+/* ---- narrow window ------------------------------------------------------ */
+
+@media (max-width: 520px) {
+  .ap-hd,
+  .ap-tabs,
+  .ap-body,
+  .ap-ft {
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
+  }
+}
+
+@media (max-width: 360px) {
+  .ap-row2 {
+    grid-template-columns: 1fr;
+  }
+}
+

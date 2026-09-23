@@ -26,16 +26,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
-import { declaredTokens, usedTokens } from '../helpers/tokens-helpers.ts';
+import { projectRoot, readSources } from '../helpers/helpers.ts';
+import { declaredTokens, readAppCss, usedTokens } from '../helpers/tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const APP_CSS = read(join(STYLES, 'app.css'));
+const APP_CSS = readAppCss();
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
-const SETTINGS = read(join(UI, 'settings.ts'));
+const SETTINGS = readSources(
+  'web/src/ui/settings.ts',
+  'web/src/ui/settings-apikeys.ts',
+  'web/src/ui/settings-service.ts',
+);
 const COLOURS = read(join(UI, 'term-colours.ts'));
 
 /** The block header `tests/ui/ui-launch-a4.test.ts` uses as ITS end marker — it may never be reworded here. */
@@ -206,6 +210,7 @@ test('the Legacy settings classes A7 replaced are gone from app.css and every fr
     .filter((f) => f.endsWith('.ts'))
     .map((f) => [f, read(join(UI, f))] as const);
   tsFiles.push(['main.ts', read(join(projectRoot, 'web', 'src', 'main.ts'))]);
+  tsFiles.push(['main-shell.ts', read(join(projectRoot, 'web', 'src', 'main-shell.ts'))]);
   const offenders: string[] = [];
   for (const c of removed) {
     if (new RegExp(`\\.${c}\\b`).test(APP_CSS)) offenders.push(`app.css .${c}`);

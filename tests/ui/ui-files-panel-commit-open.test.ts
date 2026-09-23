@@ -41,7 +41,6 @@ import {
   detailOf,
   pageOf,
 } from '../helpers/commits-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
 import {
   dirRow,
   dom,
@@ -55,6 +54,7 @@ import {
   st,
   viewRender,
 } from '../helpers/ui-files-panel-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 beforeEach(resetPanel);
 
@@ -282,7 +282,7 @@ test('a long abbreviation (core.abbrev) never widens the panel — the row clips
   const row = byClass(root, 'commit-row')[0] as FakeElement;
   assert.equal(textsOf(row, 'commit-hash')[0], (SUMMARIES[0] as { hash: string }).hash);
   assert.equal(byClass(row, 'files-num').length, 2, 'both numbers are still drawn');
-  const app = readSource('web', 'src', 'styles', 'app.css');
+  const app = readAppCss();
   const rule = app.slice(app.indexOf('.commit-hash {'), app.indexOf('}', app.indexOf('.commit-hash {')));
   assert.match(rule, /max-width:/, 'the chip has a ceiling');
   assert.match(rule, /text-overflow: ellipsis;/, 'and a cut hash SHOWS that it is cut');
@@ -318,7 +318,7 @@ test('every class the Commits tab renders has a rule in app.css (a typo is an in
   collect(); // an empty repository
 
   assert.ok(seen.size > 10, `non-vacuity: ${seen.size} classes were collected`);
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

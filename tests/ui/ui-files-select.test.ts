@@ -44,7 +44,7 @@ import {
   mkSession,
   mkProject as project,
 } from '../helpers/fs-fixture.ts';
-import { readSource } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, readSource, readSources } from '../helpers/helpers.ts';
 
 /** The real panel against the fake backend of part B2 (`tests/helpers/fs-fixture.ts`). */
 const fx = makeFixture();
@@ -425,7 +425,7 @@ test('a key that is not Escape is never taken by the selection listener', async 
 });
 
 test('the mirrored ladder arm is the one main.ts really has (so this file tests the shipped one)', () => {
-  const main = readSource('web', 'src', 'main.ts');
+  const main = readSources('web/src/main.ts', 'web/src/main-shell.ts');
   assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
   const from = main.indexOf("e.key === 'Escape'");
   assert.notEqual(from, -1, 'non-vacuity: the Escape branch was found');
@@ -496,7 +496,7 @@ test('the selection is part of sig(), so a change to it alone repaints the tree'
   // WITHOUT toggling it and without clearing `lastSig` — the panel would then
   // paint no `is-sel` at all while the copy strip already named the folder.
   // Pinned here rather than rediscovered there.
-  const files = readSource('web', 'src', 'ui', 'files.ts');
+  const files = readSources(...FILES_PANEL_SOURCES);
   const from = files.indexOf('function sig(');
   assert.notEqual(from, -1, 'non-vacuity: sig() was found');
   // COMMENTS STRIPPED FIRST: sig()'s own prose says "its selected state"
@@ -584,7 +584,7 @@ test('`is-sel` has a rule behind it, and the panel really sets it (class parity)
   assert.match(css, /\.files-view \.files-row\.is-sel\b/);
   assert.match(css, /\.files-row\.is-sel \.files-name\b/);
 
-  const files = readSource('web', 'src', 'ui', 'files.ts');
+  const files = readSources(...FILES_PANEL_SOURCES);
   assert.match(files, /classList\.toggle\('is-sel'/, 'the panel must be the setter');
 
   await liveSession();

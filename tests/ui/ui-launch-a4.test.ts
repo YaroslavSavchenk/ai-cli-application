@@ -24,15 +24,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
-import { declaredTokens, usedTokens } from '../helpers/tokens-helpers.ts';
+import { projectRoot, readSources } from '../helpers/helpers.ts';
+import { declaredTokens, readAppCss, usedTokens } from '../helpers/tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
-const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const APP_CSS = read(join(STYLES, 'app.css'));
-const LAUNCH = read(join(UI, 'launch.ts'));
+const APP_CSS = readAppCss();
+const LAUNCH = readSources('web/src/ui/launch.ts', 'web/src/ui/launch-controls.ts');
 
 const BLOCK_START = '/* ---- New session dialog (Nocturne A4)';
 /** The block's own sub-headers share the `/* ---- ` shape, so the end is the NEXT dialog's header. */
@@ -154,6 +153,7 @@ test('the Legacy dialog-only classes A4 removed are gone from app.css and every 
   const removed = ['launch-fields', 'launch-custom', 'mode-seg', 'launch-kind', 'launch-check', 'launch-none', 'launch-other'];
   const tsFiles = readdirSync(UI).filter((f) => f.endsWith('.ts')).map((f) => [f, read(join(UI, f))] as const);
   tsFiles.push(['main.ts', read(join(projectRoot, 'web', 'src', 'main.ts'))]);
+  tsFiles.push(['main-shell.ts', read(join(projectRoot, 'web', 'src', 'main-shell.ts'))]);
   const offenders: string[] = [];
   for (const c of removed) {
     if (new RegExp(`\\.${c}\\b`).test(APP_CSS)) offenders.push(`app.css .${c}`);

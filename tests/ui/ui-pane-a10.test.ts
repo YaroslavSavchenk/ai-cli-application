@@ -38,7 +38,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSources } from '../helpers/helpers.ts';
 import { withoutComments as code, functionBody as fn } from '../helpers/source-scan.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
@@ -48,7 +48,7 @@ const PANES = read(join(UI, 'panes.ts'));
 const KEYS = read(join(UI, 'keys.ts'));
 const FILE_PANE = read(join(UI, 'file-pane.ts'));
 const EDITOR_PANE = read(join(UI, 'editor-pane.ts'));
-const MAIN = read(join(projectRoot, 'web', 'src', 'main.ts'));
+const MAIN = readSources('web/src/main.ts', 'web/src/main-shell.ts');
 
 /** Source with comments removed — a comment may DISCUSS what code may not do. */
 

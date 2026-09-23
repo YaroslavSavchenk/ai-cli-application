@@ -31,7 +31,8 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { byClass, byKey, descendants, installDom, type FakeElement } from '../helpers/fake-dom.ts';
-import { nextImmediate, readSource } from '../helpers/helpers.ts';
+import { nextImmediate } from '../helpers/helpers.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const dom = installDom();
 
@@ -505,7 +506,7 @@ test('every class the strip renders has a rule in app.css', async () => {
     for (const c of n.className.split(/\s+/)) if (c !== '') seen.add(c);
   }
   assert.ok(seen.size >= 8, `non-vacuity: only ${seen.size} classes were collected`);
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

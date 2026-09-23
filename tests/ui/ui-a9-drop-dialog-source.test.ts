@@ -182,7 +182,7 @@ test('the card drives the RUNNER it was handed: plan, then start, and nothing of
 });
 
 test('the Escape ladder in main.ts ranks the drop dialog after the folder picker', () => {
-  const main = frontendFiles(['.ts']).find((f) => f.name === 'web/src/main.ts')?.src ?? '';
+  const main = frontendFiles(['.ts']).find((f) => f.name === 'web/src/main-shell.ts')?.src ?? '';
   assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
   const pick = main.indexOf('} else if (isFolderPickerOpen())');
   const drop = main.indexOf('} else if (isDropDialogOpen())');

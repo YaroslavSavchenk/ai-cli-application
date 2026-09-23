@@ -1,7 +1,7 @@
 ---
 type: backlog
 created: 2026-09-08
-updated: 2026-09-22
+updated: 2026-09-23
 tags: [backlog, todo, open]
 ---
 # Backlog — still to do (living note)
@@ -223,6 +223,28 @@ app window first so one backend at a time owns runtime.json.
 - [ ] The edited-file pulse (`app.css`, Files panel) has no `prefers-reduced-motion` opt-out (the state dots got theirs in B11/B8).
 - [ ] The restart dialog says `History` where the Sessions panel says `Earlier` — user's call.
 
+## From the repo optimisation (2026-09-23, [[2026-09-23-repo-optimisation]])
+
+- [ ] **Agent meta read before it is written** (app track, a behaviour
+  change): `AgentsWatcher` re-reads `agent-<id>.meta.json` only when its
+  mtime changes. A poll that lands between the file's creation (empty) and
+  its write sees "not JSON", records the mtime, and — with the kernel's
+  coarse timestamps the write often keeps the same mtime — never re-reads:
+  the row keeps the default name `agent`. Seen as a one-off red of
+  `tests/server/agents-manager.test.ts` "watcher: the refusal is logged
+  once…" under full-suite load (5 s wait for `honest`). Fix in
+  `server/agents.ts`: key the re-read on mtime AND size, or re-read while
+  the last parse failed. Real-world odds depend on how Claude Code writes
+  the file.
+- [ ] **Sleeps that stand in for a condition** (tests only): the O5 list in
+  the log entry above — `update-check-route`, `ui-dnd-a10` (`sleep(90)` ×6),
+  `ui-files-panel-*`, `git-commits-*`/`git-changes` (`sleep(500)`), polling
+  loops in `agents-*` and `telemetry` that `waitUntil` could replace.
+- [ ] **Five functions only tests call** **(user)**: `closeActiveTab`,
+  `aliveSessionCount`, `isFolderView` (`web/src/state*.ts`), `itemsText`
+  (`web/src/ui/drop-model.ts`), `sourceTag` (`web/src/ui/github-model.ts`).
+  Removing them deletes their tests; asked 2026-09-23.
+
 ## Claude Code CLI compatibility guard (user's ask 2026-09-15, not started)
 
 The app depends on documented `claude` CLI flags and behaviour
@@ -348,7 +370,8 @@ number exists.
   VM boot vs `node` vs node-pty load vs history load) and report it in
   the boot card rather than a spinner; anything the app itself owns
   (history.json parse, git probes per project) goes lazy.
-- [ ] **Test suite wall time**: ~36 s for 2093 tests, most in
+- [ ] **Test suite wall time** (2026-09-23: 3712 tests in 56.6 s, down from
+  76.5 s after the O6 split let `node --test` spread the files): ~36 s for 2093 tests, most in
   `restart.test.ts` and `lifecycle.test.ts` spawning real backends. Share
   a backend per file where the test does not mutate lifecycle; keep the
   spawning tests but run them last so a failure elsewhere reports early.

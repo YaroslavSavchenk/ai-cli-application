@@ -1,0 +1,442 @@
+/*
+ * App styles: the commit view, the diff it shares with a diff pane, and the
+ * Files panel selected-commit state.
+ * Split from app.css (O8, 2026-09-23), rules moved in their original order;
+ * app.css is now the index that imports every piece, and that import order
+ * is the cascade order. Sibling pieces:
+ * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-github.css, app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-context-menu.css
+ */
+
+/* ---- commit view: header ---------------------------------------------------
+   The message is the title; everything under it is metadata, in the quiet
+   ramp, with the two numbers and the five-block bar as the only colour.      */
+
+.commit-vhd {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+  border-bottom: var(--line) solid var(--color-neutral-800);
+}
+
+.commit-vtop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+/* the two back controls: a chevron MARK plus plain words */
+.commit-back,
+.files-back {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  color: var(--color-neutral-300);
+  font-size: 12.5px;
+}
+
+.commit-back {
+  height: var(--ctl-h);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+}
+
+.commit-back:hover {
+  border-color: var(--color-neutral-600);
+}
+
+.commit-vtitle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.commit-vmsg {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.commit-vmeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+/* the author's initial: a mark, not a photo */
+.commit-avatar {
+  flex: none;
+  width: var(--avatar-w);
+  height: var(--avatar-w);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-800);
+  color: var(--color-accent-200);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.commit-vauthor {
+  color: var(--color-neutral-300);
+}
+
+/* the branch chip and the hash chip: data, so mono and boxed in a hairline */
+.commit-branch,
+.commit-vhash {
+  font-family: var(--font-mono);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+}
+
+.commit-branch {
+  padding: 1px 6px;
+}
+
+.commit-vhash {
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--color-neutral-400);
+}
+
+.commit-vright {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+/* Part B3: a real BUTTON (never an `<a href>` — the host drops those), and it
+   exists only when the repository really has an origin on github.com. The
+   panel's own text-link weight: a word, underlined, never a second button. */
+.commit-gh {
+  font-size: 12px;
+  color: var(--color-accent-300);
+  text-decoration: underline;
+}
+
+.commit-gh:hover {
+  color: var(--color-accent-200);
+}
+
+/* a commit that is still loading, or one the view cannot resolve: one
+   sentence, and the back control above it is the whole point of the state */
+.commit-missing {
+  padding: var(--space-6) var(--space-4);
+  font-size: 13px;
+  color: var(--color-neutral-500);
+}
+
+/* the server's own refusal, in the ink every refusal in this app wears */
+.commit-missing.is-bad {
+  color: var(--color-danger);
+}
+
+/* the quiet last row of a commit the server had to cap */
+.commit-more {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.commit-vsum {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+}
+
+.commit-vsum .files-num {
+  font-size: 12.5px;
+}
+
+/* five blocks, 1px apart: a ratio at a glance, with the real numbers beside it */
+.commit-bar {
+  display: flex;
+  gap: 1px;
+}
+
+.commit-bar-b {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--color-danger);
+}
+
+.commit-bar-b[data-kind='add'] {
+  background: var(--color-ok);
+}
+
+/* the full date and time, and who committed it when that is somebody else:
+   two more facts on the meta line, in its quietest ink */
+.commit-vwhen,
+.commit-vby {
+  color: var(--color-neutral-600);
+}
+
+/* the message BODY under the subject: the user's own text, wrapped as they
+   wrote it, on the same plain glyphs every code surface here draws */
+.commit-vtext {
+  /* first child of the column-flex scroller: never shrunk to fit the card */
+  flex: none;
+  margin: 0;
+  max-width: 78ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-neutral-400);
+}
+
+/* ---- commit view: one collapsible file, then its diff ---------------------- */
+
+.commit-vbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8) var(--space-8);
+}
+
+.diff-block {
+  /* The body is a column flex scroller: without this a long diff would be
+     SHRUNK to fit the card and clipped mid-hunk instead of scrolling. */
+  flex: none;
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.diff-hd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--panehd-h);
+  padding: 0 var(--space-4);
+  background: var(--color-surface);
+  user-select: none;
+}
+
+/* the whole left side of the header row is the fold control */
+.diff-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.diff-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* SECURITY RULE, see `.commit-fpath-t`: the path draws in the order it is
+     stored, whatever directional marks the name itself carries. */
+  unicode-bidi: isolate-override;
+  direction: ltr;
+}
+
+.diff-hd .files-num {
+  font-size: 11.5px;
+}
+
+/* the two verbs on a file block */
+.diff-act {
+  flex: none;
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-3);
+  border: var(--line) solid var(--color-neutral-800);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-400);
+  font-size: 11.5px;
+}
+
+.diff-act:hover {
+  border-color: var(--color-neutral-600);
+  color: var(--color-text);
+}
+
+/* ---- the diff itself (commit view AND a diff pane) -------------------------
+   On the terminal ground, 12px mono: the densest surface in the app, and the
+   one place where a row's GROUND carries meaning — which is exactly why it is
+   --color-term and not the themed --term-bg (part B9).                       */
+
+.diff-body {
+  background: var(--color-term);
+  padding: var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+}
+
+.diff-line[data-kind='add'] {
+  background: var(--color-ok-tint);
+}
+
+.diff-line[data-kind='del'] {
+  background: var(--color-danger-tint);
+}
+
+/* TWO number columns since part B3: a unified diff numbers the OLD file and
+   the NEW one side by side, and the side a row does not exist on stays blank.
+   `--diff-gut-w` is the WHOLE gutter, so one token still says how wide the
+   numbers are and the two halves can never drift apart. */
+.diff-n {
+  flex: none;
+  width: calc(var(--diff-gut-w) / 2);
+  padding-right: var(--space-3);
+  text-align: right;
+  color: var(--color-neutral-700);
+  user-select: none;
+}
+
+.diff-sign {
+  flex: none;
+  width: var(--diff-sign-w);
+  user-select: none;
+}
+
+.diff-t {
+  white-space: pre;
+  color: var(--color-neutral-400);
+}
+
+/* A block with no rows to draw says why — loading, binary, capped, or the
+   server's own refusal: a NOTE, never a numbered row, which would read as
+   content the file really has. */
+.diff-note {
+  padding: var(--space-3) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.diff-note.is-bad {
+  color: var(--color-danger);
+}
+
+/* a hunk header (`@@ … @@`): git's own row, in the quietest ink, carrying no
+   number of its own because it belongs to neither file */
+.diff-line[data-kind='hunk'] .diff-t {
+  color: var(--color-neutral-600);
+}
+
+.diff-line[data-kind='add'] .diff-sign,
+.diff-line[data-kind='add'] .diff-t {
+  color: var(--color-ok);
+}
+
+.diff-line[data-kind='del'] .diff-sign,
+.diff-line[data-kind='del'] .diff-t {
+  color: var(--color-danger);
+}
+
+/* ---- the Files panel's selected-commit state ------------------------------- */
+
+.files-selhd {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--line) solid var(--color-neutral-900);
+}
+
+.files-back {
+  height: var(--ctl-h-row);
+  padding: 0 var(--space-2);
+  color: var(--color-neutral-500);
+}
+
+.files-back:hover {
+  color: var(--color-text);
+}
+
+.files-selmsg {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.files-selhd .commit-meta {
+  font-size: 11.5px;
+}
+
+/* one file of the open commit: clicking it folds that file's diff in the view */
+.commit-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.commit-file:hover {
+  background: var(--color-neutral-900);
+}
+
+/* the PATH identifies the row, so it truncates at its FRONT */
+.commit-fpath {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+/* SECURITY RULE: A PATH IS DRAWN IN THE ORDER IT IS STORED. A file named
+   `src/x<RLO>txt.sj` draws as `src/js.txt` — the repository's own bytes,
+   rearranged by the text engine into a name the user never chose, on a row
+   whose whole job is to identify a file. `isolate-override` pins the visual
+   order to this element's own direction and neutralises every embedded
+   override; the two rows below keep their layout (this one truncates at the
+   FRONT, so its BOX stays `direction: rtl` and only the text inside is
+   forced left-to-right). */
+.commit-fpath-t {
+  unicode-bidi: isolate-override;
+  direction: ltr;
+}
+
+/* a folded file recedes, exactly like a closed folder in the tree */
+.commit-file.is-collapsed .commit-fpath {
+  color: var(--color-neutral-500);
+}
+
+/* the tree row of the file a pane is showing keeps a ground */
+.files-row.is-open {
+  background: var(--color-neutral-900);
+}
+

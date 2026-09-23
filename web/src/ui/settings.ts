@@ -54,16 +54,14 @@
  * anywhere in here. The per-row samples are the literal text the status line
  * draws for that item, which is terminal output, not CLI syntax.
  */
-import type { KeyedTool, KeyStatus, SessionInfo, UpdateStatus } from '../../../shared/protocol.ts';
-import { isKeyedTool, UPDATE_NEW_VERSION_AVAILABLE } from '../../../shared/protocol.ts';
+import type { KeyedTool, SessionInfo } from '../../../shared/protocol.ts';
+import { isKeyedTool } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { TOOL_CARDS, commandLabel, type ToolIconId } from './launch-args.ts';
 import { toolIcon } from './icons-tools.ts';
-import { applyRuntime, openRestartConfirm, runtimeFacts } from './update.ts';
-import { releaseSentence } from './update-model.ts';
 import { ROWS } from './shortcuts-rows.ts';
 import { buildTermColours, type TermColoursControl, type TermPair } from './term-colours.ts';
 // theme-model.ts only: the clamp that reads a prefs bag's `theme`. ui/theme.ts
@@ -94,6 +92,8 @@ import {
   sessionsWithoutStatusLine,
   type StatusLineCfg,
 } from './statusline-model.ts';
+import { createKeyRows } from './settings-apikeys.ts';
+import { createServicePage } from './settings-service.ts';
 
 /** Where an opener wants the panel to land (Nocturne B5: the launch dialog's `Add key`). */
 export interface SettingsOpenOpts {
@@ -203,50 +203,6 @@ const ITEM_ROWS: ItemRow[] = [
   },
 ];
 
-/**
- * The Preferences page's key rows, LIVE since part B5. They are listed for
- * every tool the app knows, hidden card or not (B6): a key is about the tool,
- * not about whether its card shows up in the New session dialog.
- * `tool` names the keyed tool whose field the row carries — absent = no field,
- * because there is no key this app can store for it.
- */
-interface ProviderRow {
-  icon: ToolIconId;
-  label: string;
-  keyText: string;
-  /** The keyed tool this row saves for; absent = the row is words only. */
-  tool?: KeyedTool;
-  /** The known agent's tile carries the accent family (v3). */
-  agent?: boolean;
-}
-
-/**
- * What each row says about its key, by the New session dialog's own card id.
- * Codex gets NO field on purpose (user decision 2026-09-18): a key alone does
- * not authenticate it, so the honest line is that it signs in where it runs.
- * A card with no entry here (the custom-command `Other`) gets no provider row.
- */
-const ROW_KEYS: Record<string, { keyText: string; tool?: KeyedTool; agent?: boolean }> = {
-  claude: { keyText: 'Uses your Claude login. A saved key is used instead.', tool: 'claude', agent: true },
-  codex: { keyText: 'Signs in inside the terminal' },
-  gemini: { keyText: 'Needs an API key, or a sign-in inside the terminal.', tool: 'gemini' },
-  grok: { keyText: 'Needs an API key, or a sign-in inside the terminal.', tool: 'grok' },
-  terminal: { keyText: 'No key needed' },
-};
-
-/** What the row says about the key it has: stored here, or only in the environment. */
-const KEY_SAVED = 'Saved';
-const KEY_ENV_ONLY = 'Set outside the app';
-
-/**
- * The marks and names are the New session dialog's own table (launch-args.ts
- * `TOOL_CARDS`, whose `claude` entry carries `AGENT_LABEL`) in its own order, so
- * the two surfaces cannot drift apart and the product name lives in one place.
- */
-const PROVIDER_ROWS: ProviderRow[] = TOOL_CARDS.flatMap((c) => {
-  const k = ROW_KEYS[c.id];
-  return k === undefined ? [] : [{ icon: c.icon, label: c.label, ...k }];
-});
 
 /**
  * The Defaults block on the Preferences page — LIVE since part B6, one row per
@@ -301,17 +257,6 @@ const TOOLS_FLOOR = 'Keep at least one tool visible.';
  */
 const TOOLS_FLOOR_MS = 3000;
 
-/**
- * The Background service page's own words (D4). The check asks the backend,
- * which asks the release page; the four outcomes are these, and the version in
- * the second one is the only string here that came from outside the app — it
- * passes `releaseSentence`'s shape gate before it is ever printed.
- */
-const CHECK_LABEL = 'Check for updates';
-const CHECK_BUSY = 'Checking…';
-const CHECK_NEWEST = 'You have the newest version.';
-const CHECK_INSTALLED = 'A new version is installed. Restart the service to use it.';
-const CHECK_FAILED = 'Could not check for updates.';
 
 export function initSettings(
   modalHost: HTMLElement,
@@ -495,61 +440,9 @@ export function initSettings(
     'Your tools and how the app behaves.',
   );
 
-  /** One live key row's controls, kept so the page can reflect what it learns. */
-  interface KeyRowCtl {
-    label: string;
-    input: HTMLInputElement;
-    show: HTMLButtonElement;
-    save: HTMLButtonElement;
-    remove: HTMLButtonElement;
-    state: HTMLElement;
-    err: HTMLElement;
-  }
-  const keyRows = new Map<KeyedTool, KeyRowCtl>();
-  /** Last answer from GET /api/keys; null until one arrives. */
-  let keyStatus: KeyStatus | null = null;
-
-  const provWrap = el('div', 'sg-rows');
-  for (const p of PROVIDER_ROWS) {
-    const row = el('div', 'sg-prow');
-    const mark = el('span', p.agent === true ? 'sg-mark is-agent' : 'sg-mark');
-    mark.append(toolIcon(p.icon, 14));
-    mark.setAttribute('aria-hidden', 'true');
-    const txt = el('div', 'sg-prowtxt');
-    txt.append(el('span', 'sg-rowlb', p.label), el('span', 'sg-prowkey', p.keyText));
-    row.append(mark, txt);
-    const tool = p.tool;
-    if (tool !== undefined) {
-      const inp = el('input', 'sg-keyin');
-      // Same shape as the app's one real credential field (ui/github.ts): a key
-      // is never plain text on screen unless the user asks, never offered as a
-      // saved login, and with no `name` for an autofill to match.
-      inp.type = 'password';
-      inp.autocomplete = 'new-password';
-      inp.spellcheck = false;
-      inp.placeholder = 'Paste API key';
-      inp.setAttribute('aria-label', `${p.label} key`);
-      inp.id = `sg-key-${tool}`;
-      const show = button('sg-smallbtn', 'Show', () => toggleShow(tool));
-      show.setAttribute('aria-pressed', 'false');
-      const save = button('sg-smallbtn', 'Save', () => void saveKey(tool));
-      const remove = button('sg-smallbtn', 'Remove', () => void removeKey(tool));
-      const state = el('span', 'sg-keystate', '');
-      const line = el('div', 'sg-keyline');
-      line.append(inp, show, save, remove);
-      const err = el('div', 'sg-keyerr');
-      err.setAttribute('role', 'alert');
-      err.hidden = true;
-      txt.append(line, err);
-      row.append(state);
-      // Save stays off until there is something to save — a key-shaped field
-      // with nothing in it has no verb.
-      inp.addEventListener('input', () => syncKeyRow(tool));
-      keyRows.set(tool, { label: p.label, input: inp, show, save, remove, state, err });
-    }
-    provWrap.append(row);
-  }
-  prefsPage.append(el('h3', 'sg-sub', 'API keys'), provWrap);
+  // The API keys block and its live rows are `settings-apikeys.ts` since O8,
+  // built here, above the Tools block.
+  const { keyRows, syncKeyRows, refreshKeys, clearKeyFields } = createKeyRows(prefsPage);
 
   // ---- Tools: which cards the New session dialog offers (B6, D1) ----------
   // A checked row = a visible card. The refusal for the last one is stated in
@@ -589,120 +482,6 @@ export function initSettings(
   defWrap.append(mascotRow.row, el('div', 'sg-cap', MASCOT_CAPTION));
   prefsPage.append(defWrap);
 
-  // ---- the key rows, live --------------------------------------------------
-
-  /**
-   * Reflect what the page knows onto ONE row: the state word beside the name
-   * (`Saved`, or `Set outside the app` when only the environment carries one),
-   * and which verbs can be used. The page only ever learns saved / not saved —
-   * a key never comes back from the server, so the field always starts empty.
-   */
-  function syncKeyRow(tool: KeyedTool): void {
-    const r = keyRows.get(tool);
-    if (r === undefined) return;
-    const saved = keyStatus?.saved[tool] === true;
-    const env = keyStatus?.env[tool] === true;
-    r.state.textContent = saved ? KEY_SAVED : env ? KEY_ENV_ONLY : '';
-    r.save.disabled = r.input.value.trim() === '';
-    r.remove.disabled = !saved;
-  }
-
-  function syncKeyRows(): void {
-    for (const tool of keyRows.keys()) syncKeyRow(tool);
-  }
-
-  /** Show the key that is being typed, for as long as the user asks. */
-  function toggleShow(tool: KeyedTool): void {
-    const r = keyRows.get(tool);
-    if (r === undefined) return;
-    const showing = r.input.type === 'text';
-    r.input.type = showing ? 'password' : 'text';
-    r.show.textContent = showing ? 'Show' : 'Hide';
-    r.show.setAttribute('aria-pressed', showing ? 'false' : 'true');
-  }
-
-  function keyErr(tool: KeyedTool, msg: string | null): void {
-    const r = keyRows.get(tool);
-    if (r === undefined) return;
-    r.err.textContent = msg ?? '';
-    r.err.hidden = msg === null;
-  }
-
-  /**
-   * What to SAY about a failed key call. The server's own sentences are written
-   * for the user and are rendered verbatim; a failure with no sentence (a
-   * network drop, or a status whose body the client could not read) falls back
-   * to plain words — `HTTP 413` is a status code, not something to read.
-   */
-  function keyFailure(e: unknown, fallback: string): string {
-    const msg = e instanceof Error ? e.message : '';
-    return msg !== '' && !/^HTTP \d+$/.test(msg) ? msg : fallback;
-  }
-
-  /**
-   * Hand ONE key to the backend and forget it. The field is cleared in the same
-   * turn the request is made, the local reference dies with this function, and
-   * nothing about the value is logged — only which tool was written.
-   */
-  async function saveKey(tool: KeyedTool): Promise<void> {
-    const r = keyRows.get(tool);
-    if (r === undefined) return;
-    const key = r.input.value.trim();
-    if (key === '') return;
-    keyErr(tool, null);
-    r.save.disabled = true;
-    try {
-      await api.saveKey(tool, key);
-      r.input.value = '';
-      if (r.input.type === 'text') toggleShow(tool);
-      keyStatus = withSaved(keyStatus, tool, true);
-      log.info(`key saved for ${tool}`);
-    } catch (e) {
-      // The server's sentence is written for the user; it never echoes the value.
-      keyErr(tool, keyFailure(e, 'That key was not saved.'));
-    } finally {
-      syncKeyRow(tool);
-    }
-  }
-
-  /** Forget the stored key. An environment variable set outside the app stays. */
-  async function removeKey(tool: KeyedTool): Promise<void> {
-    const r = keyRows.get(tool);
-    if (r === undefined) return;
-    keyErr(tool, null);
-    r.remove.disabled = true;
-    try {
-      await api.deleteKey(tool);
-      keyStatus = withSaved(keyStatus, tool, false);
-      log.info(`key cleared for ${tool}`);
-    } catch (e) {
-      keyErr(tool, keyFailure(e, 'That key was not removed.'));
-    } finally {
-      syncKeyRow(tool);
-    }
-  }
-
-  /** The status bag with ONE tool's saved bit replaced (never mutated in place). */
-  function withSaved(cur: KeyStatus | null, tool: KeyedTool, saved: boolean): KeyStatus {
-    const base: KeyStatus = cur ?? {
-      saved: { claude: false, gemini: false, grok: false },
-      env: { claude: false, gemini: false, grok: false },
-    };
-    return { saved: { ...base.saved, [tool]: saved }, env: { ...base.env } };
-  }
-
-  /** Re-read which keys exist. Never throws: a failed read leaves the rows blank. */
-  function refreshKeys(): void {
-    void api
-      .getKeys()
-      .then((s) => {
-        keyStatus = s;
-        syncKeyRows();
-      })
-      .catch(() => {
-        // Nothing to say: the rows simply claim no key.
-      });
-  }
 
   // ---- the Tools and Defaults rows, live (Nocturne B6) ---------------------
 
@@ -858,127 +637,9 @@ export function initSettings(
   panelEls.set('colours', colours.root);
   bodyEl.append(colours.root);
 
-  // ======================================================================
-  // Background service — the program that runs the sessions, and the one
-  // button that replaces it with the version currently on disk (2026-09-06,
-  // user's request). Two readouts and an action: no dashboard, no graphs. An
-  // INSTALLED app gets a second, quieter verb between them (2026-09-08): where
-  // to go and get a newer version. Text link, not a second button — the weight
-  // ordering says which one is the act with consequences.
-  // ======================================================================
-  const servicePage = newPage(
-    'service',
-    'Background service',
-    'Your sessions run in a service that keeps going while this window is open. Restarting it picks up a new version of the app. Every running session closes, but stays in history.',
-  );
-  const card = el('div', 'sg-svc');
-  const facts = el('div', 'sg-svcfacts');
-  const factVer = el('span', 'sg-svcver');
-  const factUp = el('span', 'sg-svcup');
-  facts.append(factVer, factUp);
-  // Only an installed app can be updated by downloading one; a developer clone
-  // updates with the tools it was cloned with, and asking a release page about
-  // it would be a question that does not apply to it.
-  const checkBtn = button('sg-link', CHECK_LABEL, () => {
-    void runCheck();
-  });
-  checkBtn.title = 'asks now whether a newer version exists';
-  checkBtn.hidden = true;
-  const restartBtn = button('sg-outbtn', 'Restart service', () => openRestartConfirm('settings'));
-  restartBtn.setAttribute('aria-haspopup', 'dialog');
-  card.append(facts, checkBtn, restartBtn);
-  servicePage.append(card);
-
-  // The answer to the check, under the facts it is about: one sentence, and —
-  // when a release is waiting online — the same act the toast offers.
-  const answer = el('div', 'sg-svcanswer');
-  answer.hidden = true;
-  answer.setAttribute('role', 'status');
-  const answerText = el('span', 'sg-svcmsg', '');
-  // The `Update` flow is the toast's and the pill's: this button only opens the
-  // question, which the update module then asks in its own words.
-  const updateBtn = button('sg-outbtn', 'Update', () => openRestartConfirm('settings-update'));
-  updateBtn.setAttribute('aria-haspopup', 'dialog');
-  updateBtn.hidden = true;
-  answer.append(answerText, updateBtn);
-  servicePage.append(answer);
-
-  /**
-   * The two readouts, refreshed on open and on every conn change (the runtime
-   * poll writes both). `Running for` is a coarse duration on purpose: this line
-   * is read once, not watched — the statusline already ticks a live clock.
-   */
-  function renderBackend(): void {
-    const f = runtimeFacts();
-    factVer.textContent = `Version ${f.version}`;
-    factUp.textContent = `Running for ${f.runningFor}`;
-    checkBtn.hidden = !st.state.installed;
-  }
-
-  /** Put an answer on the page, or take the line away again (null). */
-  function sayAnswer(text: string | null, canUpdate = false): void {
-    // Reveal BEFORE the text: a `role="status"` node filled while it is
-    // hidden is a change no screen reader announces.
-    answer.hidden = text === null;
-    answerText.textContent = text ?? '';
-    updateBtn.hidden = !canUpdate;
-  }
-
-  /** Which of the four sentences an answered check earns (D4). */
-  function checkAnswer(status: UpdateStatus): { text: string; canUpdate: boolean } {
-    if (!status.available) return { text: CHECK_NEWEST, canUpdate: false };
-    // ONLINE: the release exists but is not on this machine, so the act is to
-    // fetch it, and the sentence names the version the backend read — through
-    // the model's own shape gate, the one place a remote tag is made printable.
-    if (status.reason === UPDATE_NEW_VERSION_AVAILABLE) {
-      return { text: releaseSentence(status.release), canUpdate: true };
-    }
-    // Anything else an installed backend can report means the newer version is
-    // already here and only the running process is old.
-    return { text: CHECK_INSTALLED, canUpdate: false };
-  }
-
-  /** True while a check is out — the button is the only way in, and it waits. */
-  let checking = false;
-
-  /**
-   * Ask the backend to check NOW (Nocturne B6, D4). The button states that it
-   * is working and stops taking clicks; the answer lands on the page, and then
-   * the app re-reads the runtime the ONE way it always does, so the pill and
-   * the toast learn the same news through the same path.
-   */
-  async function runCheck(): Promise<void> {
-    if (checking) return;
-    checking = true;
-    checkBtn.disabled = true;
-    checkBtn.textContent = CHECK_BUSY;
-    sayAnswer(null);
-    let answered = false;
-    try {
-      const status = await api.checkForUpdates();
-      const a = checkAnswer(status);
-      sayAnswer(a.text, a.canUpdate);
-      answered = true;
-      log.info(`update check: ${status.reason ?? 'up to date'}`);
-    } catch {
-      sayAnswer(CHECK_FAILED);
-      log.warn('the update check did not answer');
-    } finally {
-      checking = false;
-      checkBtn.disabled = false;
-      checkBtn.textContent = CHECK_LABEL;
-    }
-    if (!answered) return;
-    // The pill, the toast and this page all read one state; nothing here
-    // writes it, and a failed re-read simply leaves the last known runtime.
-    try {
-      st.setRuntime(await api.getRuntime());
-      applyRuntime();
-      renderBackend();
-    } catch {
-      // Nothing to say: the 30 s poll asks again.
-    }
-  }
+  // The Background service page — its readouts, the update check and the
+  // restart — is `settings-service.ts` since O8, built here, in nav order.
+  const { renderBackend, sayAnswer } = createServicePage(newPage);
 
   // ---- footer --------------------------------------------------------------
   // v3's own footer: one accent-OUTLINE confirm. `.btn-accent` is the Nocturne
@@ -1151,21 +812,6 @@ export function initSettings(
   // ---- open / close --------------------------------------------------------
   let restoreTo: HTMLElement | null = null;
 
-  /**
-   * Empty every key field, drop its error and put it back to hidden. Run on
-   * BOTH open and close: a key typed and never saved must not sit in an input's
-   * `.value` for the rest of the page's life — a credential the user abandoned
-   * is one the app stops holding, in the same gesture that abandons it.
-   */
-  function clearKeyFields(): void {
-    for (const tool of keyRows.keys()) {
-      const r = keyRows.get(tool);
-      if (r === undefined) continue;
-      r.input.value = '';
-      if (r.input.type === 'text') toggleShow(tool);
-      keyErr(tool, null);
-    }
-  }
 
   function open(opts?: SettingsOpenOpts): void {
     const focusKey = opts?.focusKey !== undefined && isKeyedTool(opts.focusKey) ? opts.focusKey : null;

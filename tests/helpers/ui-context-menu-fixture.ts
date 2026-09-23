@@ -24,7 +24,7 @@ import {
   type FakeNode,
 } from './fake-dom.ts';
 import { PROJ, makeFixture, settle, type Gateway, mkSession, mkProject as project } from './fs-fixture.ts';
-import { frontendFiles } from './tokens-helpers.ts';
+import { FILES_PANEL_SOURCES, readSources } from './helpers.ts';
 
 /** The real panel against the fake backend of part B2 (`tests/helpers/fs-fixture.ts`). */
 export const fx = makeFixture();
@@ -264,4 +264,4 @@ export function activate(label: string): void {
   dispatch(dom.doc.activeElement as FakeElement, 'keydown', { key: 'Enter' });
 }
 
-export const FILES_SRC = frontendFiles(['.ts']).find((f) => f.name === 'web/src/ui/files.ts')?.src ?? '';
+export const FILES_SRC = readSources(...FILES_PANEL_SOURCES);

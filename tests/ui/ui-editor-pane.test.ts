@@ -34,7 +34,6 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource } from '../helpers/helpers.ts';
 import {
   byClass,
   descendants,
@@ -47,6 +46,7 @@ import {
 import { PROJ, makeFixture, settle } from '../helpers/fs-fixture.ts';
 import { makeEditor } from '../helpers/editor-fixture.ts';
 import { HEAD } from '../helpers/commits-fixture.ts';
+import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const dom = installDom();
 
@@ -622,13 +622,13 @@ test('every class the strip renders has a rule in app.css', async () => {
   for (const must of ['pane-tabs', 'pane-tab', 'pane-tab-pick', 'pane-dirty', 'pane-x', 'pane-gap']) {
     assert.ok(seen.has(must), `non-vacuity: the strip did not render .${must}`);
   }
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });
 
 test('the strip’s CSS is ONE new section, inserted after the pane header block', async () => {
-  const css = readSource('web', 'src', 'styles', 'app.css');
+  const css = readAppCss();
   const header = css.indexOf('/* ---- pane header (38px)');
   const section = css.indexOf('/* ---- editor pane tabs (Nocturne A10b)');
   assert.notEqual(header, -1, 'non-vacuity: the pane header block was found');
