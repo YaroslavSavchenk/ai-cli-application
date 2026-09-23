@@ -67,6 +67,25 @@ passed only because earlier tests absorbed the fixture's first listing) and
 `fs-delete` (a test used a file an earlier test created); log-sweep tests in
 `github-token` / `github-connected` stay with every test on their server.
 
+## O7 — dead code and duplicated logic in the source
+
+A report-only janitor survey first (own scanners; knip/ts-prune could not
+install offline): CSS, dependencies, TODOs and commented-out code were clean.
+Folded, each proven identical: `isJsonContentType` ×3, `isDirectory` ×2,
+`isStringArray` ×2, `USER_AGENT` ×3 → `server/config.ts`; `isUnder` ×3 + 3
+inline negations → `server/fsbrowse.ts`; `errorText`, `promiseOf`, `MONTHS`
+→ `web/src/ui/util.ts`; `firstMovableIndex` exported from `state.ts`; 8
+needless exports dropped; two comments corrected; `FsDeleteRequest` and
+`HealthResponse` now typed where used. 24 files, net −39 lines, 3712 / 0.
+Security-auditor: no findings (content-type gate and path boundary decide
+identically for every input). Skipped because the copies DIFFER:
+`${home}/projects` vs `projectsPath` (trailing slash), `baseName` ×4,
+`joinPath` ×3, `fmtAgo`/`relativeTime` wording, `numberOrNull` strictness.
+
+Waiting on the user: five functions only tests still call (`closeActiveTab`,
+`aliveSessionCount`, `isFolderView`, `itemsText`, `sourceTag`) — removing
+them deletes tests, which `tests/README.md` puts in the user's hands.
+
 ## Worth remembering
 
 - "Split it so it runs faster" is a wrong reason given for a right move: the

@@ -40,9 +40,9 @@ export function repoBasename(url: string): string {
 /**
  * THE `<home>/projects/<name>` CONVENTION — the one place that segment lives.
  * Every default project/clone destination goes through here (new blank project,
- * url clone, and github-model's defaultDest for a picked repo), so the path a
- * clone lands in and the path already-cloned detection compares against can
- * never drift apart. Both inputs are used verbatim (no trimming, no validation
+ * url clone, github-model's ownerDest for a picked repo, and its legacy
+ * defaultDest for already-cloned detection), so the path a clone lands in and
+ * the path already-cloned detection compares against can never drift apart. Both inputs are used verbatim (no trimming, no validation
  * — the callers own that).
  */
 export function projectsPath(home: string, name: string): string {

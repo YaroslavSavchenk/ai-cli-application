@@ -65,6 +65,7 @@ import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import type { SessionAgent, SessionAgentCounts, SessionTurn } from '../shared/protocol.ts';
 import { describeError, oneLine, scoped, type Logger } from './config.ts';
 import { isUuid } from './conversation.ts';
+import { isUnder } from './fsbrowse.ts';
 
 /** Poll interval per session. Same rate as the telemetry fallback poll. */
 const POLL_MS = 2_000;
@@ -277,7 +278,7 @@ export function subagentsDirFor(transcript: string, projectsRoot: string): strin
   } catch {
     return null; // Gone, unreadable, or a root that does not exist.
   }
-  if (realDir !== realRoot && !realDir.startsWith(realRoot + sep)) return null;
+  if (!isUnder(realDir, realRoot)) return null;
 
   return join(realDir, uuid, 'subagents');
 }
@@ -845,7 +846,7 @@ export class AgentsWatcher {
       if (pendingSlug(dirname(uuidDir), realRoot)) session.main.turn = 'waiting';
       return;
     }
-    if (realParent !== realRoot && !realParent.startsWith(realRoot + sep)) {
+    if (!isUnder(realParent, realRoot)) {
       this.#refuseMain(id, session, dirname(uuidDir));
       return;
     }
@@ -958,7 +959,7 @@ export class AgentsWatcher {
     } catch {
       return null; // Not created yet, gone, or no projects root at all.
     }
-    if (real !== realRoot && !real.startsWith(realRoot + sep)) {
+    if (!isUnder(real, realRoot)) {
       // Once per tracked directory, not once per poll (see refusalLogged).
       if (!session.refusalLogged) {
         session.refusalLogged = true;

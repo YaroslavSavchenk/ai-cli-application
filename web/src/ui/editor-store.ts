@@ -34,6 +34,7 @@
  * clock.
  */
 import type { FsReadResponse, FsWriteRequest, FsWriteResponse } from '../../../shared/protocol.ts';
+import { promiseOf } from './util.ts';
 
 /** The two questions the editor asks, injected by `main.ts` (never imported). */
 export interface EditorGateway {
@@ -97,14 +98,6 @@ export function editorWrite(body: FsWriteRequest): Promise<FsWriteResponse> {
   const gw = gateway;
   if (gw === null) return Promise.reject(new Error('no gateway'));
   return promiseOf(() => gw.write(body));
-}
-
-function promiseOf<T>(call: () => Promise<T>): Promise<T> {
-  try {
-    return call();
-  } catch (err) {
-    return Promise.reject(err);
-  }
 }
 
 /**

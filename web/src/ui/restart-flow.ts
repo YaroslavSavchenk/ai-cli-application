@@ -40,6 +40,7 @@
  * only honest "you can come back now".
  */
 import type { RestartResponse } from '../../../shared/protocol.ts';
+import { errorText } from './util.ts';
 
 /** How often the gap is probed. Small: the whole wait is usually one second. */
 export const HEALTH_POLL_MS = 250;
@@ -140,15 +141,6 @@ export interface RestartDeps {
   sleep(ms: number): Promise<void>;
   /** Progress for the dialog's in-flight text. */
   onPhase(phase: RestartPhase): void;
-}
-
-/** Server-supplied error text, or the given fallback. Never a body dump. */
-function errorText(body: unknown, fallback: string): string {
-  if (body !== null && typeof body === 'object') {
-    const e = (body as { error?: unknown }).error;
-    if (typeof e === 'string' && e !== '') return e;
-  }
-  return fallback;
 }
 
 /**

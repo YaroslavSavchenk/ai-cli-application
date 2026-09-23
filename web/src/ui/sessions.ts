@@ -61,7 +61,7 @@ function splitIntoActive(sessionId: string): void {
  * comes back with `--resume <id>`, any other command respawns as it was), so
  * this posts only the pane size and takes the SessionInfo it gets back.
  */
-export async function resumeEntry(entry: HistoryEntry): Promise<void> {
+async function resumeEntry(entry: HistoryEntry): Promise<void> {
   // Entry ID + whether the server can pin a real conversation; never the
   // entry's title or cwd (the drawer already shows what the user picked).
   log.info(`resume: history entry=${entry.id} conversation=${entry.conversation}`);

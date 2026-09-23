@@ -194,8 +194,8 @@ export function fmtUptime(iso: string, now: number = Date.now()): string {
   return h ? `${h}h ${m}m` : `${m}m`;
 }
 
-/** English month abbreviations for `fmtAgo`'s fallback date (locale-independent). */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** English month abbreviations (locale-independent): `fmtAgo`'s fallback date, `commit-model.ts`'s commit date. */
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
  * How long ago an ISO timestamp was, in the drawer's short vocabulary:
@@ -237,4 +237,22 @@ export function fmtCount(n: number): string {
 export function baseName(path: string): string {
   const parts = path.split('/').filter((p) => p !== '');
   return parts[parts.length - 1] ?? path;
+}
+
+/** Server-supplied error text, or the given fallback. Never a body dump. */
+export function errorText(body: unknown, fallback: string): string {
+  if (body !== null && typeof body === 'object') {
+    const e = (body as { error?: unknown }).error;
+    if (typeof e === 'string' && e !== '') return e;
+  }
+  return fallback;
+}
+
+/** Call it, and turn a synchronous throw into the rejection it should be. */
+export function promiseOf<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return call();
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }

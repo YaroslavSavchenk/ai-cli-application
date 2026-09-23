@@ -18,6 +18,8 @@
  * every renderer here takes.
  */
 
+import { MONTHS } from './util.ts';
+
 /** The five-block summary bar: green blocks first, red for the rest. */
 export const BAR_BLOCKS = 5;
 
@@ -161,8 +163,6 @@ export function shortHashOf(hash: string): string {
 // which is a different fact about the repository. The RELATIVE half is the
 // opposite question ("how long ago from now"), so it is plain epoch
 // arithmetic and carries no zone at all.
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** `YYYY-MM-DDTHH:MM:SS` with any offset — the shape `%aI` / `%cI` produce. */
 const ISO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;

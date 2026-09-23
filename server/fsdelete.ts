@@ -79,13 +79,14 @@
  */
 import { lstat, rm } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   MAX_DELETE_ITEMS,
+  type FsDeleteRequest,
   type FsDeleteResult,
   type FsDeleteResponse,
 } from '../shared/protocol.ts';
-import { errorClass, errorFrames, type Logger } from './config.ts';
+import { errorClass, errorFrames, isJsonContentType, type Logger } from './config.ts';
 import {
   FsBrowseError,
   FS_NAME_NOT_ALLOWED,
@@ -96,6 +97,7 @@ import {
   holdsStoredProject,
   isDataDirUnder,
   isSafeSegment,
+  isUnder,
   isUnderDataDir,
   resolveUnderAllowed,
 } from './fsbrowse.ts';
@@ -149,17 +151,6 @@ export const DELETE_MAX_RETRIES = 3;
 export const DELETE_RETRY_DELAY_MS = 50;
 
 /**
- * `application/json`, with or without parameters (charset), case-insensitive.
- * A TWIN of the private helper of the same name in server/api.ts: three lines,
- * copied rather than exported, so this module keeps no import of the HTTP layer
- * it is injected into. If one changes, change both.
- */
-function isJsonContentType(value: string | string[] | undefined): boolean {
-  if (typeof value !== 'string') return false;
-  return value.split(';')[0]?.trim().toLowerCase() === 'application/json';
-}
-
-/**
  * One errno, as the answer that ITEM gets. PURE — no logging, no fs — so the
  * table can be tested directly (tests/server/fs-delete.test.ts) instead of only
  * through filesystem states that are hard to produce on purpose.
@@ -201,11 +192,6 @@ export function deleteErrorFor(code: string | undefined): FsBrowseError {
   }
 }
 
-/** `p` is `root` itself or something under it. String test on resolved paths. */
-function isUnderPath(p: string, root: string): boolean {
-  return p === root || p.startsWith(root + sep);
-}
-
 /**
  * True when `p` is inside — or is — something this same request already
  * deleted. The ONE thing that turns a "not there" into `{ ok: true }`:
@@ -220,7 +206,7 @@ function isUnderPath(p: string, root: string): boolean {
  * gone — a sibling process, or a link whose target vanished.
  */
 function coveredBy(p: string, removed: readonly string[]): boolean {
-  return removed.some((done) => isUnderPath(p, done));
+  return removed.some((done) => isUnder(p, done));
 }
 
 /**
@@ -299,7 +285,7 @@ async function deleteOne(
     // missing until it was measured (2026-09-20 review).
     //
     // THE ANCHORS FIRST: an anchor is refused as the target AND as anything the
-    // target contains — `isUnderPath(anchor, target)` covers both. MEASURED
+    // target contains — `isUnder(anchor, target)` covers both. MEASURED
     // before the fix: with a project registered at `<home>/projects/foo`,
     // `paths:['<home>/projects']` answered ok and the project was gone, so
     // Ctrl+A in the Home tab plus one confirmation removed every project under
@@ -314,7 +300,7 @@ async function deleteOne(
     // registered under — be deleted. Judged on `lex` (as asked) and `target`
     // (under the real parent).
     if (
-      anchors.some((anchor) => isUnderPath(anchor, target)) ||
+      anchors.some((anchor) => isUnder(anchor, target)) ||
       holdsStoredProject(lex, projects) ||
       holdsStoredProject(target, projects)
     ) {
@@ -489,7 +475,8 @@ export async function handleDelete(
     else refuse(400, FS_PATH_BAD, false);
     return;
   }
-  const paths = (read.value as { paths?: unknown } | null)?.paths;
+  // The protocol's field name, every value still `unknown` until checked.
+  const paths = (read.value as { [K in keyof FsDeleteRequest]?: unknown } | null)?.paths;
   if (!Array.isArray(paths) || paths.length === 0) {
     refuse(400, FS_PATH_BAD, false);
     return;

@@ -46,6 +46,7 @@ import {
   scoped,
   DEFAULT_UPDATE_API_BASE,
   DEFAULT_UPDATE_ASSET_BASE,
+  USER_AGENT,
   type Logger,
 } from './config.ts';
 
@@ -62,7 +63,7 @@ export function setupAssetName(tag: string): string {
 }
 
 /** `<assetBase>/<owner>/<repo>/releases/download/<tag>/<name>` — our construction. */
-export function assetUrl(assetBase: string, tag: string, name: string): string {
+function assetUrl(assetBase: string, tag: string, name: string): string {
   return `${assetBase}/${UPDATE_OWNER}/${UPDATE_REPO}/releases/download/${tag}/${name}`;
 }
 
@@ -87,9 +88,6 @@ export const MIN_RATE_LIMIT_WAIT_MS = 60_000;
 export const MAX_RATE_LIMIT_WAIT_MS = 24 * 60 * 60 * 1000;
 /** Cap on the persisted ETag cache file. */
 export const MAX_CACHE_BYTES = 8 * 1024;
-
-/** Every request MUST carry a User-Agent (same value as github.ts). */
-const USER_AGENT = 'ai-cli-session-manager';
 
 /** An ETag is remote text that goes back out in a header: gate its charset. */
 const ETAG_SHAPE = /^(?:W\/)?"[\x21\x23-\x7e]{1,128}"$/;
@@ -356,7 +354,7 @@ export function readUpdateCheckCache(file: string, opts: AssetOptions): UpdateCh
 }
 
 /** Write the cache atomically, 0600. Best effort: a failure only costs quota. */
-export function writeUpdateCheckCache(file: string, cache: UpdateCheckCache): void {
+function writeUpdateCheckCache(file: string, cache: UpdateCheckCache): void {
   const text = JSON.stringify(cache);
   if (Buffer.byteLength(text) > MAX_CACHE_BYTES) return;
   atomicWriteFile(file, `${text}\n`);
@@ -422,7 +420,7 @@ function headerInt(res: Response, name: string): number | undefined {
  * reading — `res.text()` would have allocated the whole thing first — and a
  * body that exceeds it is an error, never a truncated parse.
  */
-export async function readCappedText(res: Response, cap: number): Promise<string> {
+async function readCappedText(res: Response, cap: number): Promise<string> {
   const body = res.body;
   if (body === null) return '';
   const reader = body.getReader();

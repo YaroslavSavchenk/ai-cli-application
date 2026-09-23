@@ -91,7 +91,7 @@ export type TabMark =
   | { kind: 'tool'; id: ToolIconId }
   | { kind: 'file'; icon: FileIcon };
 
-export function tabMark(v: st.ViewState): TabMark | null {
+function tabMark(v: st.ViewState): TabMark | null {
   if (v.root !== null && v.root !== undefined) return { kind: 'folder' };
   const first = v.slots[0];
   if (first === undefined) return null;

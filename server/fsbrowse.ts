@@ -208,8 +208,8 @@ function resolvedDataDir(): string | null {
   return dataDirReal;
 }
 
-/** `p` is `root` itself or something under it. String test on ALREADY-REAL paths. */
-function isUnder(p: string, root: string): boolean {
+/** `p` is `root` itself or something under it. A string test: callers pass resolved (or real) paths. */
+export function isUnder(p: string, root: string): boolean {
   return p === root || p.startsWith(root + sep);
 }
 

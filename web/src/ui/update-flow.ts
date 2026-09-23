@@ -42,6 +42,7 @@ import {
   type UpdateInstallStatus,
 } from '../../../shared/protocol.ts';
 import { canHideRestartDialog, type RestartPhase } from './restart-flow.ts';
+import { errorText } from './util.ts';
 
 /** The status poll, once a second — the rate the plan fixed for the readout. */
 export const STATUS_POLL_MS = 1000;
@@ -180,15 +181,6 @@ export interface UpdateDeps {
   sleep(ms: number): Promise<void>;
   /** Progress for the dialog: the phase, and the percent that belongs to it. */
   onPhase(phase: UpdatePhase, percent: number): void;
-}
-
-/** Server-supplied error text, or the given fallback. Never a body dump. */
-function errorText(body: unknown, fallback: string): string {
-  if (body !== null && typeof body === 'object') {
-    const e = (body as { error?: unknown }).error;
-    if (typeof e === 'string' && e !== '') return e;
-  }
-  return fallback;
 }
 
 /**

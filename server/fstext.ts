@@ -183,7 +183,7 @@ export function pathTooLong(raw: string): boolean {
 const STAMP_RE = /^[0-9a-f]{64}$/;
 
 /** True when `value` is a stamp this server could have produced. */
-export function isStamp(value: unknown): value is string {
+function isStamp(value: unknown): value is string {
   return typeof value === 'string' && STAMP_RE.test(value);
 }
 

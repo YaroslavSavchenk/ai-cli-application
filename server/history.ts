@@ -27,6 +27,8 @@ import {
   claudeConfigDir,
   describeError,
   errorStackOnly,
+  isDirectory,
+  isStringArray,
   scoped,
   type Logger,
 } from './config.ts';
@@ -60,14 +62,6 @@ function encodeCwd(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 function fileExists(path: string): boolean {
   try {
     statSync(path);
@@ -75,10 +69,6 @@ function fileExists(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === 'string');
 }
 
 /**

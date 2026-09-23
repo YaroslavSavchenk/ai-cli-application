@@ -433,11 +433,12 @@ export function langColor(language: string | undefined): string | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * LEGACY clone destination — `<home>/projects/<name>` — kept for two jobs only:
+ * LEGACY clone destination — `<home>/projects/<name>` — kept for one job only:
  * the already-cloned fallback below (projects registered before owner-qualified
- * paths existed) and the New Project dialog's own URL-clone suggestion, which
- * the user decided stays unchanged. The convention itself lives in
- * newproject-model's projectsPath, so the two can never drift apart.
+ * paths existed). The New Project dialog's own URL-clone suggestion, which the
+ * user decided stays unchanged, calls newproject-model's projectsPath directly
+ * (`suggestDestPath`); the convention lives there, so the two can never drift
+ * apart.
  *
  * NEW app clones from the GitHub list go through ownerDest instead.
  */

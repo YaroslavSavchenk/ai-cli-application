@@ -34,6 +34,7 @@
  */
 import * as st from '../state.ts';
 import { messageOf } from './fs-model.ts';
+import { promiseOf } from './util.ts';
 import type { GitCommitDiffResponse, GitCommitResponse } from '../../../shared/protocol.ts';
 
 /** The two questions this module asks, injected by `main.ts` (never imported). */
@@ -136,15 +137,6 @@ export function syncCommit(hash: string | null, root: string | null): void {
       entry.commit = { k: 'error', message: messageOf(err) };
       landed();
     });
-}
-
-/** Call it, and turn a synchronous throw into the rejection it should be. */
-function promiseOf<T>(call: () => Promise<T>): Promise<T> {
-  try {
-    return call();
-  } catch (err) {
-    return Promise.reject(err);
-  }
 }
 
 /** What is known about the open commit, or NULL when none is open. */

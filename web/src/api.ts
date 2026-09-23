@@ -19,6 +19,7 @@ import type {
   FsWriteResponse,
   FsUploadMode,
   FsDeleteResponse,
+  FsDeleteRequest,
   FsRenameRequest,
   FsRenameResponse,
   FsUploadResponse,
@@ -448,7 +449,7 @@ export function getPrefs(): Promise<UiPrefs> {
 }
 
 /** Replace-whole-object; server responds 200 OkResponse on success. */
-export function putPrefs(body: UiPrefs): Promise<OkResponse> {
+function putPrefs(body: UiPrefs): Promise<OkResponse> {
   return request<OkResponse>('/api/prefs', { method: 'PUT', body: JSON.stringify(body) });
 }
 
@@ -594,9 +595,10 @@ export function fsWinPath(path: string): Promise<FsWinPathResponse> {
  * the Origin gate) and nothing was touched at all.
  */
 export function fsDelete(paths: string[]): Promise<FsDeleteResponse> {
+  const body: FsDeleteRequest = { paths };
   return request<FsDeleteResponse>('/api/fs/delete', {
     method: 'POST',
-    body: JSON.stringify({ paths }),
+    body: JSON.stringify(body),
   });
 }
 

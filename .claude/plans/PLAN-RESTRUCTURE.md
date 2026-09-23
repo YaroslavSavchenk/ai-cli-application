@@ -14,7 +14,7 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | O4 | `tests/README.md`: how a test is written here, plus a size guard | landed | — | 2026-09-23 |
 | O5 | Duplicated test code into `tests/helpers/` | landed | — | 2026-09-23 |
 | O6 | Split every test file over 800 lines (38 files, 53.6k lines on 2026-09-23) | landed | — | 2026-09-23 |
-| O7 | Dead code and unused dependencies, whole repo (janitor) | todo — decided 2026-09-23 | — | |
+| O7 | Dead code and unused dependencies, whole repo (janitor) | landed (five test-only functions await the user) | — | 2026-09-23 |
 | O8 | Split every source file over 1 000 lines (14 files: 5 `server/`, `shared/protocol.ts`, 7 `web/src/`, `app.css`) | todo — decided 2026-09-23 | — | |
 
 ## Resume here

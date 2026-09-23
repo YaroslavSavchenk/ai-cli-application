@@ -38,6 +38,7 @@ import type {
   GithubCreateRepoRequest,
   GithubReposResponse,
   GithubTokenRequest,
+  HealthResponse,
   ResumeHistoryRequest,
   RuntimeStatusResponse,
   SaveKeyRequest,
@@ -93,6 +94,8 @@ import {
   describeError,
   errorClass,
   errorFrames,
+  isJsonContentType,
+  isStringArray,
   oneLine,
   scoped,
   LOG_LEVELS,
@@ -397,17 +400,6 @@ async function readJsonBodySafe(req: IncomingMessage, maxBytes: number): Promise
   }
 }
 
-/** `application/json`, with or without parameters (charset), case-insensitive. */
-function isJsonContentType(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  const type = value.split(';')[0]?.trim().toLowerCase();
-  return type === 'application/json';
-}
-
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === 'string');
-}
-
 function isValidDim(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_TERM_DIM;
 }
@@ -546,7 +538,8 @@ export function createRequestHandler(
     const method = req.method ?? 'GET';
 
     if (method === 'GET' && pathname === '/health') {
-      sendJson(res, 200, { ok: true });
+      const health: HealthResponse = { ok: true };
+      sendJson(res, 200, health);
       return;
     }
 

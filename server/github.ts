@@ -75,8 +75,10 @@ import {
   assertLoopbackApiBase,
   atomicWriteFile,
   errorStackOnly,
+  isDirectory,
   scoped,
   DEFAULT_GITHUB_API_BASE,
+  USER_AGENT,
   type Logger,
 } from './config.ts';
 import { assertVacant, ScaffoldError, CLONE_TIMEOUT_MS } from './scaffold.ts';
@@ -94,8 +96,6 @@ const REPOS_PATH = '/user/repos';
 
 /** OAuth scope requested up front (list + clone + create-repo + push, no re-auth). */
 const SCOPE = 'repo';
-/** Every GitHub request MUST carry a User-Agent. */
-const USER_AGENT = 'ai-cli-session-manager';
 /** Per-request hard timeout (device code, token poll, /user, repos page). */
 const HTTP_TIMEOUT_MS = 15_000;
 /** Poll cadence when the server omits `interval`. */
@@ -460,15 +460,6 @@ function splitOwnerRepo(rawSegments: readonly string[]): { owner: string; repo: 
     if (s === '.' || s === '..' || !GH_SEGMENT_RE.test(s)) return null;
   }
   return { owner, repo };
-}
-
-/** True when `p` is an existing directory (symlinks followed, like statSync elsewhere). */
-function isDirectory(p: string): boolean {
-  try {
-    return statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 /**

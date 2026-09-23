@@ -306,6 +306,9 @@ export const DEFAULT_UPDATE_API_BASE = 'https://api.github.com';
 /** Where release ASSETS are downloaded from when the seam is unset. */
 export const DEFAULT_UPDATE_ASSET_BASE = 'https://github.com';
 
+/** Every GitHub request (REST client, release check, asset download) MUST carry a User-Agent. */
+export const USER_AGENT = 'ai-cli-session-manager';
+
 /**
  * Resolve the release-check API base: api.github.com unless
  * AI_SM_UPDATE_API_BASE overrides it with a loopback origin (offline tests).
@@ -703,4 +706,23 @@ export function atomicWriteFile(filePath: string, contents: string): void {
   const tmpPath = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(tmpPath, contents, { mode: 0o600 });
   renameSync(tmpPath, filePath);
+}
+
+/** `application/json`, with or without parameters (charset), case-insensitive. */
+export function isJsonContentType(value: string | string[] | undefined): boolean {
+  if (typeof value !== 'string') return false;
+  return value.split(';')[0]?.trim().toLowerCase() === 'application/json';
+}
+
+export function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === 'string');
+}
+
+/** True when `p` is an existing directory (symlinks followed, like statSync elsewhere). */
+export function isDirectory(p: string): boolean {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }

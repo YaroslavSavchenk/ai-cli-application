@@ -52,7 +52,7 @@ import {
   UPDATE_ERROR_START,
 } from '../shared/protocol.ts';
 import type { UpdateCheckResult } from './buildinfo.ts';
-import { errorClass, oneLine, scoped, type Logger, type LogLevel } from './config.ts';
+import { errorClass, oneLine, scoped, USER_AGENT, type Logger, type LogLevel } from './config.ts';
 import { MAX_SETUP_BYTES, type FetchLike } from './update-release.ts';
 
 // --- Route bodies (409/422). Plain sentences: the UI renders them. -----------
@@ -549,7 +549,7 @@ export class UpdateController implements UpdateRunner {
       try {
         res = await doFetch(target.toString(), {
           method: 'GET',
-          headers: { 'User-Agent': 'ai-cli-session-manager', Accept: 'application/octet-stream' },
+          headers: { 'User-Agent': USER_AGENT, Accept: 'application/octet-stream' },
           redirect: 'manual',
           signal,
         });
@@ -797,7 +797,7 @@ function runCapture(command: string, args: string[], timeoutMs = 15_000): Promis
  * `wslpath -u` (argv, never a shell) must answer with a real directory
  * under /mnt.
  */
-export async function probeWindowsTemp(): Promise<WindowsTemp> {
+async function probeWindowsTemp(): Promise<WindowsTemp> {
   const raw = (await runCapture(CMD_PATH, ['/c', 'echo', '%TEMP%'])).split('\n')[0] ?? '';
   const win = raw.replace(/[\r\n]+$/, '').trim().replace(/\\+$/, '');
   if (!WINDOWS_TEMP_SHAPE.test(win) || win.includes('%')) {

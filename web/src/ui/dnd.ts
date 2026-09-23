@@ -306,20 +306,11 @@ function viewById(id: string): st.ViewState | undefined {
 }
 
 /**
- * The first strip position a tab may be dropped at. `Home` is always
- * `state.views[0]` and never moves, so no reorder and no extract may target
- * position 0 while it is there (user decision 4, 2026-09-15).
- */
-function firstMovableIndex(): number {
-  return st.state.views[0]?.root?.kind === 'home' ? 1 : 0;
-}
-
-/**
  * An insertion point in the strip — a tab REORDER or a pane EXTRACT — or null
  * when it would land before Home.
  */
 function insertAt(index: number, t: 'reorder' | 'extract'): Target {
-  const first = firstMovableIndex();
+  const first = st.firstMovableIndex();
   if (index < first) return null;
   return t === 'reorder' ? { t: 'reorder', index } : { t: 'extract', index };
 }

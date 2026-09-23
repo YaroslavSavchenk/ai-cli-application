@@ -821,10 +821,11 @@ export function ensureHomeView(): boolean {
 }
 
 /**
- * The lowest strip position anything may be inserted at: nothing is ever
- * placed before `Home`.
+ * The lowest strip position anything may be inserted at or dropped at:
+ * nothing is ever placed before `Home` (`state.views[0]`, never moves — user
+ * decision 4, 2026-09-15). `ui/dnd.ts` asks the same question.
  */
-function firstMovableIndex(): number {
+export function firstMovableIndex(): number {
   return state.views.length > 0 && isHome(state.views[0] as ViewState) ? 1 : 0;
 }
 

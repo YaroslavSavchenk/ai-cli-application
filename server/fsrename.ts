@@ -54,9 +54,9 @@
 import { link, lstat, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { FsRenameResponse } from '../shared/protocol.ts';
-import { errorClass, errorFrames, type Logger } from './config.ts';
+import { errorClass, errorFrames, isJsonContentType, type Logger } from './config.ts';
 import {
   FsBrowseError,
   FS_ALREADY_EXISTS,
@@ -68,6 +68,7 @@ import {
   holdsStoredProject,
   isDataDirUnder,
   isSafeSegment,
+  isUnder,
   isUnderDataDir,
   resolveUnderAllowed,
 } from './fsbrowse.ts';
@@ -100,17 +101,6 @@ export const RENAME_MAX_BYTES = 16 * 1024;
  * as opposed to "the name is taken" or "you may not": the fallback runs.
  */
 const LINK_UNSUPPORTED = new Set(['EPERM', 'EXDEV', 'ENOSYS', 'ENOTSUP']);
-
-/** Twin of the private helper in server/api.ts and server/fsdelete.ts. */
-function isJsonContentType(value: string | string[] | undefined): boolean {
-  if (typeof value !== 'string') return false;
-  return value.split(';')[0]?.trim().toLowerCase() === 'application/json';
-}
-
-/** `p` is `root` itself or something under it. String test on resolved paths. */
-function isUnderPath(p: string, root: string): boolean {
-  return p === root || p.startsWith(root + sep);
-}
 
 /** A name this route accepts: one safe segment of at most 255 UTF-8 BYTES
  *  (isSafeSegment counts UTF-16 units — `é` is one unit and two bytes). */
@@ -255,7 +245,7 @@ async function renameOne(
   //    the link's own path — so the realpath tests alone let the LINK holding
   //    a project or the data dir be renamed out from under it.
   if (
-    anchors.some((anchor) => isUnderPath(anchor, src)) ||
+    anchors.some((anchor) => isUnder(anchor, src)) ||
     anchors.includes(dst) ||
     holdsStoredProject(lex, projects) ||
     holdsStoredProject(src, projects) ||
