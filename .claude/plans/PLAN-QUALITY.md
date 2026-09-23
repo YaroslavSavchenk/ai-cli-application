@@ -9,7 +9,7 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | Q2 | Test sleeps that stand in for a condition become condition waits | landed | — | 2026-09-23 |
 | Q3 | The agents watcher re-reads a meta file it caught half-written | landed | — | 2026-09-23 |
 | Q4 | Leftovers of the O8 split: the Files panel's `ctx` getters, repeated test setup | landed | — | 2026-09-23 |
-| P0 | Measure: bundle, boot, idle CPU, scrollback replay, memory per session — a report to the user | todo — **next** | — | |
+| P0 | Measure: bundle, boot, idle CPU, scrollback replay, memory per session — a report to the user | landed — report in `memory/log/2026-09/project/2026-09-23-quality-p0-measurements.md` | — | 2026-09-23 |
 | P1+ | The speed work the user picks from P0's report | todo — the user decides after P0 | — | |
 
 ## Resume here
