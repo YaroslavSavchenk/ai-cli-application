@@ -6,7 +6,7 @@
  * is always whole on screen, and where the arrow keys go next.
  *
  * No DOM, no state, no browser. The geometry in particular HAS to be pure:
- * `tests/fake-dom.ts` measures nothing (`getBoundingClientRect` answers only
+ * `tests/helpers/fake-dom.ts` measures nothing (`getBoundingClientRect` answers only
  * the rect a test set), so a menu that positioned itself by reading the
  * document could not be tested at all. The DOM half (`ui/context-menu.ts`)
  * measures once after appending and applies the point this function returns.

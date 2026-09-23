@@ -1,7 +1,7 @@
 /**
  * "A newer version of the app is on disk" — the DOM-free MODEL behind the
  * toast, the topbar pill and the restart confirmation. No document, no fetch,
- * no timers: `tests/ui-update-model.test.ts` drives every rule here, and
+ * no timers: `tests/ui/ui-update-model.test.ts` drives every rule here, and
  * `./update.ts` is the thin glue that paints it (same split as
  * `log-core.ts` / `log.ts`).
  *

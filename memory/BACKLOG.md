@@ -43,7 +43,7 @@ priority.
   `result: unknown`.
 - [ ] The `bodyThrew` teardown guard has no meta-test (a failing body's
   assertion surviving a settle timeout). Low value; fault-injected harness.
-- [ ] **Suite can hang forever**: a failed test in `tests/github-token.test.ts`
+- [ ] **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
   leaves its in-process GitHub stub listening → the event loop never drains
   and `npm test` never returns (`--test-timeout` unset). Fix: unconditional
   `stub.stop()` in teardown and/or `--test-timeout` in the `test` script.
@@ -51,7 +51,7 @@ priority.
   non-monotonic `Date.now()` — a WSL2 clock step could false-positive; a
   tolerance or asset-name-only comparison removes the class (unproven, seen
   once, never reproduced).
-- [ ] `tests/logging.test.ts` still has fire-and-forget `void rm(dir, …)`
+- [ ] `tests/server/logging.test.ts` still has fire-and-forget `void rm(dir, …)`
   at 7 pure-logger sites (no PTY, no race) — switch to
   `await removeTempDir(dir)` for uniformity.
 
@@ -69,7 +69,7 @@ priority.
   tests; the progress throttle's intermediate percents never asserted.
 - [ ] Inno's own exit 3 (prepare-phase failure) is reported as "could not
   be started" — cosmetic.
-- [ ] `tests/bundle.test.ts` chmod-000 cases fail as root (CI is non-root).
+- [ ] `tests/server/bundle.test.ts` chmod-000 cases fail as root (CI is non-root).
 
 ## Installer leftovers (from the phase-B review, 2026-09-09)
 
@@ -182,7 +182,7 @@ app window first so one backend at a time owns runtime.json.
 
 ## From Nocturne A4 (2026-09-10)
 
-- [ ] **(user)** Two permission vocabularies: the app says `Always ask / Auto edits / Read only / No prompts` (`PERM_SHORT`), Claude Code's in-terminal status line from `server/statusline.mjs` `MODE_LABELS` says `always ask / auto-edits / plan / never ask` (pinned by `tests/statusline-script.test.ts`), mirrored by the Settings sample (`web/src/ui/settings.ts:95`) and the New Project select (`never ask (dangerous)`, `web/src/ui/newproject.ts:228`). Align in A7 (Settings + Add a project) or record the terminal line as exempt.
+- [ ] **(user)** Two permission vocabularies: the app says `Always ask / Auto edits / Read only / No prompts` (`PERM_SHORT`), Claude Code's in-terminal status line from `server/statusline.mjs` `MODE_LABELS` says `always ask / auto-edits / plan / never ask` (pinned by `tests/server/statusline-script.test.ts`), mirrored by the Settings sample (`web/src/ui/settings.ts:95`) and the New Project select (`never ask (dangerous)`, `web/src/ui/newproject.ts:228`). Align in A7 (Settings + Add a project) or record the terminal line as exempt.
 - [x] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sat below the `LEGACY ALIAS LAYER` marker — done 2026-09-14 (A8 phase 0 re-homed them; the alias block is deleted, see [[2026-09-14-nocturne-a8]]).
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
 - [x] Windows-side: the A4 dialog in the real WebView2 host — user-checked 2026-09-10 ("ziet er goed uit") and again 2026-09-13 with A4b.
@@ -202,9 +202,9 @@ app window first so one backend at a time owns runtime.json.
 ## From Nocturne A8 (2026-09-14)
 
 - [ ] **To finish A8 (2026-09-14, session ended mid-check):** (1) the user checks the Windows dev window (build `web/dist` is current): boot card, `?` shortcuts overlay (Esc returns typing to the terminal), update toast + Settings → Background service → Restart service confirmation over Settings (Cancel), projects drawer `Add project` / `Session` rows, New session dialog with NO sub-line; (2) the user's "al good" then closes A8 in the plan status line and the state memory. (The CDP re-check on the final build already passed: overlay focus on all three routes, smoke 1/2/4/7, drawer, dialog.)
-- [ ] Flake (1 in 30 full-suite runs during the A8 gate): `tests/lifecycle.test.ts` "history: every end reason is listed …" — `the newest entry sorts first` failed once; not the A6 ms-tie (insertion-index tie-break exists), the only mechanism constructed is a backwards clock step between processes under load. The assertion now dumps every entry's stamps; next occurrence says whether it was a tie or a backwards stamp. Not reproduced in 25 isolated runs.
-- [ ] Boot overlay / takeover panels are source-scan only: `createBootPanel()` in `web/src/main.ts` is module-private, so rows, marks and the Reload takeovers cannot be driven through `tests/fake-dom.ts`; exporting it (source change) would let a DOM test pin them.
-- [ ] `ui/update.ts` update half (`downloading/verifying/installing`, real `%`, `Download it yourself` on a refused update) has no DOM test: needs a timer pump in `tests/fake-dom.ts` (the double records timers, never fires them).
+- [ ] Flake (1 in 30 full-suite runs during the A8 gate): `tests/server/lifecycle.test.ts` "history: every end reason is listed …" — `the newest entry sorts first` failed once; not the A6 ms-tie (insertion-index tie-break exists), the only mechanism constructed is a backwards clock step between processes under load. The assertion now dumps every entry's stamps; next occurrence says whether it was a tie or a backwards stamp. Not reproduced in 25 isolated runs.
+- [ ] Boot overlay / takeover panels are source-scan only: `createBootPanel()` in `web/src/main.ts` is module-private, so rows, marks and the Reload takeovers cannot be driven through `tests/helpers/fake-dom.ts`; exporting it (source change) would let a DOM test pin them.
+- [ ] `ui/update.ts` update half (`downloading/verifying/installing`, real `%`, `Download it yourself` on a refused update) has no DOM test: needs a timer pump in `tests/helpers/fake-dom.ts` (the double records timers, never fires them).
 - [ ] `data-*`-keyed styling (`.grid[data-layout]`, `.pane-drop[data-zone]`, `.files-badge[data-kind]`, `[data-armed]`) has no guard that the value set the modules write matches the value set app.css styles — same class of bug as "a rule nothing sets".
 - [ ] Shortcuts overlay row cells stay lowercase fragments (byte-pinned by `ui-shortcuts-table`; since B6 the overlay and Settings → Keyboard both draw `web/src/ui/shortcuts-rows.ts`, so capitalising them is ONE data change + the pins).
 - [ ] B9 may replace the invented-but-unwired `initTheme(serverPrefs?) → { apply, current }` shape in `web/src/ui/theme.ts`; `--z-popover` was deleted (its only user was the popover) — re-add a rung if a popover returns.
@@ -213,7 +213,7 @@ app window first so one backend at a time owns runtime.json.
 
 ## From Nocturne B6 (2026-09-22)
 
-- [ ] B6 follow-ups (reviewers' notes, no defect): a manual `Check for updates` inside a failure BACKOFF still makes one outbound GET (the 403/429 `notBeforeMs` window IS honoured; a floor of a few seconds between sequential manual checks would mirror `/api/runtime`'s cache); a manual check re-arms the periodic timer to +6 h from the press (benign); `note=` is printed on an `aborted` access line too (`status 0 < 400`); no installed-bundle end-to-end test for `POST /api/update/check` (fixture: `tests/restart.test.ts` unpacked-bundle boot); `clearToolsFloor` re-entry (a second refusal while the first 3 s timer runs) and two Tools clicks within one write's flight are untested; the hidden-card fallback can select an inert card for one `/api/tools` round trip (spec-true, `applyAvailability` moves on); `update.ts` → `st.setRunStamp` seam has no test of its own; `api.updatePrefs` is GET-merge-PUT so two toggles within one round trip can lose the first (pre-existing shape, shared with `statusLine`).
+- [ ] B6 follow-ups (reviewers' notes, no defect): a manual `Check for updates` inside a failure BACKOFF still makes one outbound GET (the 403/429 `notBeforeMs` window IS honoured; a floor of a few seconds between sequential manual checks would mirror `/api/runtime`'s cache); a manual check re-arms the periodic timer to +6 h from the press (benign); `note=` is printed on an `aborted` access line too (`status 0 < 400`); no installed-bundle end-to-end test for `POST /api/update/check` (fixture: `tests/server/restart.test.ts` unpacked-bundle boot); `clearToolsFloor` re-entry (a second refusal while the first 3 s timer runs) and two Tools clicks within one write's flight are untested; the hidden-card fallback can select an inert card for one `/api/tools` round trip (spec-true, `applyAvailability` moves on); `update.ts` → `st.setRunStamp` seam has no test of its own; `api.updatePrefs` is GET-merge-PUT so two toggles within one round trip can lose the first (pre-existing shape, shared with `statusLine`).
 - [ ] The older data-dir readers (`prefs.json`, `projects.json`, `history.json`, `keys.json`, `update-check.json`, `github.json`) still `readFileSync` a path another process can create — apply the FIFO rule ([[fifo-open-blocks-main-thread]]: `O_NOFOLLOW|O_NONBLOCK` + `fstat().isFile()` + a cap before the read) to all of them in one pass, with a `mkfifo` test each (found a third time in B6 phase 3, `last-port.json`).
 - [ ] C1 phase 4: the `Notifications when a session needs you` row was dropped in B6 (decision 2) — the mascot toggle takes its place on Preferences → Defaults.
 
@@ -362,10 +362,10 @@ Named by the orchestrator when the user asked for a critical score; the
 user asked for them on the list. None is urgent; each is a janitor-sized
 pass or a test-engineer brief, not a feature.
 
-- [ ] **Split the colossi**: `tests/restart.test.ts` (3993 lines) into
+- [ ] **Split the colossi**: `tests/server/restart.test.ts` (3993 lines) into
   preflight / standby handoff / installed-mode / env files;
   `web/src/state.ts` (1810) into views+slots, tabs, persistence (v2 bag),
-  editor tabs; `tests/ui-state.test.ts` (1740) follows the split. Behaviour
+  editor tabs; `tests/ui/ui-state.test.ts` (1740) follows the split. Behaviour
   identical, suite count identical, one commit per split.
 - [ ] **Text pins → behaviour pins**: an inventory of tests that assert on
   prose or config text (regexes over workflow YAML in
@@ -408,7 +408,7 @@ pass or a test-engineer brief, not a feature.
 - Persist the verify-terminal CDP driver (Playwright's bare Chromium `~/.cache/ms-playwright/chromium-1228` + `ws`, `libnspr4`/`libnss3` unpacked locally, force a tiny `Page.captureScreenshot` before reading `.xterm-rows` because headless throttles rAF, clear `DevToolsActivePort`/`SingletonLock` before relaunch, `top` for `htop`) under `scripts/` so each part's gate stops rebuilding it from scratch — five sessions have now written it into a throwaway scratch dir (A3, A4b, A8, B5, B10 — B10's `<scratchpad>/gate/lib.mjs` was a working candidate).
 - B10 follow-ups (2026-09-20): a folder merge logs one expected `409` per existing subfolder at WARN in the browser log (`POST /api/fs/create` treated as success by the runner) — mark expected 409s debug; a server-side unit test that upload traffic never touches a session WS (gate-only evidence today); Grok `-s <uuid>` / Gemini `--session-id` pinning (B5 follow-up).
 - B13 follow-ups (2026-09-22): `commitCreate` in `web/src/ui/files.ts` keys the created row by the server's `res.path` (the REALPATH'd parent) — inside a symlinked folder the focus/selection misses the row; build the path client-side like rename does. Rename keeps no caret/scroll position in a followed editor tab, and a save in flight at the old path lands on the 404 choice. A rename answer that fails after the user cancelled the row is reported nowhere (create behaves the same). On drvfs, a case variant of a stale project's name is not caught by the rename dst check (text compare).
-- B10a follow-ups (2026-09-20): `tests/ui-files-panel.test.ts` ~1204 sleeps 90 ms real time over `web/src/ui/dnd.ts`'s 80 ms wall-clock click suppression — a clock seam in `dnd.ts` would make it deterministic (25 unrelated failures seen once under load); cut/move in the Files panel (rename landed in B13, 2026-09-22 — a move would reuse `server/fsrename.ts` + `server/fsprotect.ts` with a destination folder check); a batch `GET /api/fs/winpath`; `copiedFlash(0, 1, name)` would read `Copied … to the clipboard.` if it ever became reachable.
+- B10a follow-ups (2026-09-20): `tests/ui/ui-files-panel.test.ts` ~1204 sleeps 90 ms real time over `web/src/ui/dnd.ts`'s 80 ms wall-clock click suppression — a clock seam in `dnd.ts` would make it deterministic (25 unrelated failures seen once under load); cut/move in the Files panel (rename landed in B13, 2026-09-22 — a move would reuse `server/fsrename.ts` + `server/fsprotect.ts` with a destination folder check); a batch `GET /api/fs/winpath`; `copiedFlash(0, 1, name)` would read `Copied … to the clipboard.` if it ever became reachable.
 
 
 - [x] Drop the "Continue last conversation" checkbox? — done in Nocturne A4 (2026-09-10): Start from select.

@@ -173,16 +173,16 @@ Files: `server/statusline.mjs`, `server/session-settings.ts`,
    t)`, `stop()` on shutdown beside the other teardown.
 
 Tests (test-engineer after review; the developer writes the targeted ones it
-needs to self-verify): `tests/statusline-script.test.ts` — snapshot written
+needs to self-verify): `tests/server/statusline-script.test.ts` — snapshot written
 with the fourth arg (fields, 0600, absent-when-unknown, `enabled:false`
 still writes, write-on-change: a second identical run leaves mtime/content
 alone, a changed cost rewrites), no fourth arg → no file, unwritable dir →
-line still printed. `tests/telemetry.test.ts` — `parseSnapshot` honesty and
+line still printed. `tests/server/telemetry.test.ts` — `parseSnapshot` honesty and
 sanitising (controls stripped, caps, non-finite, > 8 KiB refused, wrong
 `v`), watcher: temp dir, write file → callback with the id; an unsafe
-filename never reaches the callback; stop() detaches. `tests/session-
+filename never reaches the callback; stop() detaches. `tests/server/session-
 settings.test.ts` — the command carries the snapshot path, quoted;
-`remove()` deletes both files. `tests/sessions.test.ts` — `setTelemetry`
+`remove()` deletes both files. `tests/server/sessions.test.ts` — `setTelemetry`
 broadcasts `info` once per change to attached clients, not for equal data,
 not for an unknown id.
 
@@ -205,7 +205,7 @@ settings.ts`, `web/src/styles/app.css`, `web/DESIGN.md`.
    - `Context`: `${contextPct}%`.
    - `Usage`: `${usage5hPct}% of 5h`; both present → `38% of 5h, 12% of
      7d` (a comma, not the mock's middle dot: the A2 copy rule in
-     `tests/ui-copy-separators.test.ts` bans `·` in `web/src` literals);
+     `tests/ui/ui-copy-separators.test.ts` bans `·` in `web/src` literals);
      only 7d → `12% of 7d`. Tone `warn` when the shown 5h (or, without
      it, 7d) value is ≥ 80.
    - `Time`: as today (running sessions only).
@@ -233,11 +233,11 @@ settings.ts`, `web/src/styles/app.css`, `web/DESIGN.md`.
    pane bar's items and where they come from (one paragraph; no line
    numbers).
 
-Tests: `tests/ui-pane-status-model.test.ts` — every item's on/off/absent
+Tests: `tests/ui/ui-pane-status-model.test.ts` — every item's on/off/absent
 case, order, tones, telemetry model beats argv, `paneBar:false` → [],
-exited keeps Cost drops Time. `tests/ui-statusline-model.test.ts` — the
+exited keeps Cost drops Time. `tests/ui/ui-statusline-model.test.ts` — the
 factory set still matches the script (already covers the new keys after
-Phase 0). A settings DOM test (pattern: `tests/ui-a7-parity.test.ts` /
+Phase 0). A settings DOM test (pattern: `tests/ui/ui-a7-parity.test.ts` /
 `fake-dom.ts`) — two switches, the Time row and its caption, items dim only
 when both are off, persist writes `paneBar` and `time`.
 

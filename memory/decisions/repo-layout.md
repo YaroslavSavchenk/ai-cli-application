@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-20
-updated: 2026-09-22
+updated: 2026-09-23
 tags: [repo, layout, memory, process]
 ---
 # Repo layout: where things live, and how they move
@@ -46,8 +46,8 @@ set the order.
    `.claude/plans/<name>/PLAN-<ID>.md`, ID spelled as the master plan spells
    it, with a `Status:` line; a spec never moves. Conventions:
    `.claude/plans/README.md`; the landing checklist is part of it.
-7. **Both layouts are enforced by the suite** — `tests/vault-layout.test.ts`
-   and `tests/plans-layout.test.ts` — and stated as ground rules in
+7. **Both layouts are enforced by the suite** — `tests/repo/vault-layout.test.ts`
+   and `tests/repo/plans-layout.test.ts` — and stated as ground rules in
    `CLAUDE.md` and under Process in `.claude/PROJECT-SCOPE.md`. A convention
    nobody checks drifts back within a week of parallel sessions.
 
@@ -114,6 +114,44 @@ The v2 files that came inside `design/session-manager/` (`README.md`,
 `session-manager-prototype.html`, `CLAUDE_CODE_PROMPT.md`, superseded by the
 v3 files) were deleted in Nocturne B8 (2026-09-22); `design/archive/handoff-v1/`
 stays.
+
+## Move map — batch 4 (2026-09-23)
+
+160 × `git mv`, filenames unchanged: `tests/<file>` → `tests/<dir>/<file>`.
+
+- `tests/ui/` (92): every `ui-*.test.ts`, `nocturne-tokens.test.ts`
+- `tests/server/` (49): agents, auth, bundle, buildinfo, discovery, `fs-*`,
+  `git-*`, `github*`, history, keys, last-port, lifecycle, logging, prefs,
+  projects, protocol, restart, `scaffold*`, session-settings, `sessions*`,
+  statusline-script, telemetry, tools, `update-*` (check-route, install,
+  release, version), winpath
+- `tests/release/` (10): build-bundle, installer-helpers, installer-script,
+  launcher-config, run-update, start-backend, release-script,
+  release-workflow, host-webmessage, icon-assets
+- `tests/repo/` (3): no-author-paths, vault-layout, plans-layout
+- `tests/helpers/` (6): helpers, fake-dom, fs-fixture, tokens-helpers,
+  commits-fixture, editor-fixture
+- `tests/fixtures/` stays
+
+`package.json`: `test` = `tests/*/*.test.ts`, `test:ui` = `tests/ui/*.test.ts`,
+`test:server` = the rest. 236 files changed, 996 lines each way; every
+changed hunk but nine was proven by script to be the path mapping, and the
+nine are the three globs, the README map, the restructure skill's glob
+example, and two tests that scanned the old flat folder (`ui-a8-tokens`,
+`ui-file-pane`) now scanning the subfolders. Suite 3710 / 0 before and after.
+
+## Codebase optimisation, O4–O8 (decided 2026-09-23)
+
+The user widened the plan from "where files live" to "the code itself":
+duplicates, unused code, long files split — tests above all, plus written
+rules for how a test is written. Answered the same day: tests first, then
+source · a test file over 800 lines and a source file over 1 000 lines is
+split, guarded by `tests/repo/file-size.test.ts` with a shrink-only list of
+grandfathered files · split pieces stay in the same folder with a prefix
+(`server/api-<topic>.ts`; the flat-folder call of 2026-09-21 holds) · the
+test rules live in `tests/README.md`. Splitting is for reading cost, not
+run-time speed — the module graph loads whole either way; the orchestrator
+told the user so before the questions.
 
 ## Rejected alternatives
 

@@ -363,7 +363,7 @@ function drainPtyMaster(
  * measured here as zero U+FFFD across 2000 three-byte glyphs (48 probe runs,
  * 20 mutation-verified test runs), while a different shape (all-multibyte tail,
  * 15 ms/frame stall) did produce exactly 2. Pinned by
- * `tests/sessions-tail.test.ts:290`; the caveat stays because the flush point
+ * `tests/server/sessions-tail.test.ts:290`; the caveat stays because the flush point
  * is node's, not ours, and may differ on other Node versions. One garbled glyph
  * instead of a lost kilobyte.
  */

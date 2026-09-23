@@ -2,7 +2,7 @@
  * Client-log ENGINE — buffering, truncation, batching, retry policy. DOM-free,
  * fetch-free, timer-free on purpose: everything the browser supplies arrives
  * through `LoggerDeps`, so `node --test` can drive the whole policy
- * deterministically (tests/ui-log.test.ts). The browser glue is `./log.ts`.
+ * deterministically (tests/ui/ui-log.test.ts). The browser glue is `./log.ts`.
  *
  * WHY THIS EXISTS. The backend runs detached — its stdout is gone and
  * `~/.ai-session-manager/server.log` is the user's only diagnostic channel. A

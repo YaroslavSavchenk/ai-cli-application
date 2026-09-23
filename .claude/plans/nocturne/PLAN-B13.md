@@ -192,7 +192,7 @@ binds F2; F2 with a TERMINAL focused still goes to the PTY.
 Name row reuse (`files.ts` ~:1844-2220): lift the input-building code of
 `insertNameRow` (~:2156-2218) into `nameRowEl({depth, kind, label, value,
 busy, error, note, onEnter, onEscape, onBlur})`; create keeps its behaviour
-(`tests/ui-files-create.test.ts` stays green UNCHANGED — the regression gate).
+(`tests/ui/ui-files-create.test.ts` stays green UNCHANGED — the regression gate).
 Sibling state `renaming: { path, dir, error } | null` with its own text, busy
 flag, token and return key and the same cancel set; `dropCreate` becomes
 `dropNaming`. In `fileRows` (~:2880) the row whose key equals the renaming
@@ -226,12 +226,12 @@ entry, no separator besides the existing one before `Delete`.
 
 - **Phase 0 (`generalist-dev`, parallel with phase 1):** protocol block,
   `rename-model.ts`, menu-model entry. Tests:
-  `tests/ui-rename-model.test.ts` (full mutation gate),
-  `tests/ui-context-menu-model.test.ts` extended.
+  `tests/ui/ui-rename-model.test.ts` (full mutation gate),
+  `tests/ui/ui-context-menu-model.test.ts` extended.
 - **Phase 1 (`backend-pty`):** `server/fsrename.ts` + `api.ts` wiring.
   Reviewers scope + **security-auditor (mandatory)** + test-engineer; one fix
   round; FULL mutation probe (path boundary = hard constraint).
-  `tests/fs-rename.test.ts` (real server child on the `fs-fixture` home): a
+  `tests/server/fs-rename.test.ts` (real server child on the `fs-fixture` home): a
   file, a folder with contents, a symlink to a folder (link renamed, target
   untouched), a dangling link; a taken name (file, folder, dangling link) →
   409 with both entries unchanged on disk; case-only on ext4; names `a/b`,
@@ -245,7 +245,7 @@ entry, no separator besides the existing one before `Delete`.
 - **Phase 2 (`terminal-ui`, `/frontend-designer`):** the `files.ts` refactor
   and rename flow, `state.retargetFiles`, the gateway, the shortcuts row.
   Reviewers scope + test-engineer (~10 mutants).
-  `tests/ui-files-rename.test.ts`: F2 and the menu both open the row in
+  `tests/ui/ui-files-rename.test.ts`: F2 and the menu both open the row in
   place with the stem selected; Esc, blur, a menu opening cancel; same name
   sends nothing; a 409 sentence under the input with the text kept; success
   refetches the parent once, selects and focuses the new key; open folders
@@ -289,7 +289,7 @@ CI watched → the user's Windows check → then release v0.4.0 on the user's go
   other errnos roll back.
 - The link fallback is also reached on ext4 (EPERM under
   `protected_hardlinks=1`); both it and the drvfs case-only branch are tested
-  in-process with spies (`tests/fs-rename.test.ts`).
+  in-process with spies (`tests/server/fs-rename.test.ts`).
 - Client: `canRename({ renamable, count })`; `nameRowEl` takes
   `{indent, caret, icon, label, value, busy, error, note, onEnter, onEscape,
   onBlur}`; a rename row is KEPT while a folder above it is being re-read

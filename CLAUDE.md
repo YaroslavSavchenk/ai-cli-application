@@ -19,7 +19,7 @@ Ground rules for every session:
 - **Repo layout is a standard (2026-09-20, user's call).** A new file goes
   where `README.md` § Repository layout and the `/memory` skill's § Layout
   say — a work-log entry at `memory/log/<YYYY-MM>/<area>/`, never loose in
-  `memory/log/`; `tests/vault-layout.test.ts` enforces the vault part. Moving,
+  `memory/log/`; `tests/repo/vault-layout.test.ts` enforces the vault part. Moving,
   renaming or regrouping files or folders goes through `/restructure-repo`
   (reference scan, a move map the user approves, `git mv` in batches, the
   suite as the gate) — never an ad-hoc `mv`. A new top-level folder or a new
@@ -29,7 +29,7 @@ Ground rules for every session:
   the status table on top (the ONE place for "where are we"); part spec
   `.claude/plans/<name>/PLAN-<ID>.md`, written before the developer starts,
   never moved. A landing updates spec status + table row + vault in the same
-  commit; `tests/plans-layout.test.ts` enforces it. What is next: read the
+  commit; `tests/repo/plans-layout.test.ts` enforces it. What is next: read the
   table in `.claude/plans/PLAN-NOCTURNE.md`.
 - **Two tracks, two phrases — never mixed (2026-09-21, user's call).** "begin
   aan <id>" (B4, B6 …) starts an APP part from

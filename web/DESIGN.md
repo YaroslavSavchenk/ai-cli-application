@@ -19,7 +19,7 @@ When in doubt, the code is the witness: `web/src/styles/tokens.css`,
 The GUI speaks plain English; CLI syntax belongs in the terminal, not in the
 chrome around it (PROJECT-SCOPE "No commands, flags, or code in the UI"). The
 rule is **display-only**: the values in `shared/protocol.ts`, the prefs keys
-and the emitted argv are untouched. `tests/ui-copy-rule.test.ts` scans every
+and the emitted argv are untouched. `tests/ui/ui-copy-rule.test.ts` scans every
 string literal in `web/src/**/*.ts` and allows a CLI-shaped one only where a
 file is listed for it.
 
@@ -34,7 +34,7 @@ info popover, shown only when asked for (2026-09-10).
   appears), `MODEL_LABEL` / `modelLabel()`, `EFFORT_LABEL` (`Default` · `Low`
   · `Medium` · `High` · `Extra high` · `Max`), `AGENT_LABEL` (`Claude Code` —
   a product name, never the command `claude`). A label change never changes
-  an emitted arg; `tests/ui-launch-args.test.ts` pins both layers.
+  an emitted arg; `tests/ui/ui-launch-args.test.ts` pins both layers.
 - **No command preview** anywhere (user, 2026-09-10 — v3 draws one; the rule
   stands). The fields are the statement of what will run. Resuming a
   conversation is the server's composition, never the browser's.
@@ -110,7 +110,7 @@ in `app.css`. Eight sections:
    overlay < drag ghost.
 
 A tint or a hover is an inline `color-mix()` at the use site, a one-off size
-a literal px; neither belongs in the token file. `tests/ui-a8-tokens.test.ts`
+a literal px; neither belongs in the token file. `tests/ui/ui-a8-tokens.test.ts`
 pins it: every `var()` declared, every token read (the handoff's unused ramp
 steps are the one named exception), retired Legacy names cannot return.
 
@@ -330,7 +330,7 @@ the outlined danger button; the primary is the accent outline.
 - **Storage honesty ceiling:** nothing may say keychain, keyring, encrypted,
   secure, vault or protected (`memory/knowledge/wsl-0600-not-a-boundary.md`);
   the strongest sentence is `storageNote(true)`. The copy lives in
-  `ui/github-model.ts`, pinned by `tests/ui-github-model.test.ts`.
+  `ui/github-model.ts`, pinned by `tests/ui/ui-github-model.test.ts`.
 
 ## Settings (`web/src/ui/settings.ts`)
 

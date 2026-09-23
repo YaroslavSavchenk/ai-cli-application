@@ -5,7 +5,7 @@
  * plain mouse input. The second reason (A10): parts A9/B10 need the window's
  * own HTML5 `dragover`/`drop` for REAL files dragged in from Explorer, so no
  * in-app drag may ride that channel and no `draggable` attribute exists
- * anywhere in `web/src` (pinned by tests/ui-dnd-a10.test.ts).
+ * anywhere in `web/src` (pinned by tests/ui/ui-dnd-a10.test.ts).
  *
  * TAB drag (source: a whole view):
  *   - onto another tab            -> merge into that view (append);

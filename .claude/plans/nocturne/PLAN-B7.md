@@ -42,7 +42,7 @@ running again.
 
 Where the directory IS: the status-line payload Claude Code hands
 `server/statusline.mjs` on every turn carries `transcript_path` (the absolute
-path of `<session-id>.jsonl`; `tests/statusline-script.test.ts` already
+path of `<session-id>.jsonl`; `tests/server/statusline-script.test.ts` already
 fixtures it). The subagents directory is `<dirname>/<basename without
 .jsonl>/subagents`. The app's own session id is NOT used: a resumed
 conversation's Claude session id is the old one, and only the payload knows it
@@ -258,16 +258,16 @@ Backend (developer: `backend-pty`):
 - `server/index.ts` — the wiring above; `stop()` beside `telemetry.stop()`
   at both shutdown sites.
 - `shared/protocol.ts` — the frozen text.
-- Tests: `tests/agents.test.ts` (new: `subagentsDirFor` refusals — relative,
+- Tests: `tests/server/agents.test.ts` (new: `subagentsDirFor` refusals — relative,
   `..`, a symlinked dir outside the root, a non-uuid basename, a control
   character, 1025 chars; `foldLine` — duplicates by `message.id`, `end_turn`
   then a later user line, a line that is not JSON, usage without cache keys;
   the watcher on a temp root — a meta without a jsonl, growth by append,
   truncation, the 15 min stale rule with a pinned clock, the 3/8 cap, the 64
-  tracked cap, `untrack`, `stop`), `tests/statusline-script.test.ts` (the
+  tracked cap, `untrack`, `stop`), `tests/server/statusline-script.test.ts` (the
   snapshot carries `transcript`, and NOT one that is not a string),
-  `tests/telemetry.test.ts` (`transcriptFromSnapshot`, the third argument),
-  `tests/protocol.test.ts` if it pins `SessionInfo` keys.
+  `tests/server/telemetry.test.ts` (`transcriptFromSnapshot`, the third argument),
+  `tests/server/protocol.test.ts` if it pins `SessionInfo` keys.
 
 Frontend (developer: `terminal-ui`):
 - `web/src/ui/pane-agents-model.ts` — new, the three functions above.
@@ -277,11 +277,11 @@ Frontend (developer: `terminal-ui`):
   empty").
 - `web/src/styles/app.css` — the B9 constraint: `.pane-agents*` inks and the
   two hairlines onto the theme's steps.
-- Tests: `tests/ui-pane-agents-model.test.ts` (new: the formats at their
+- Tests: `tests/ui/ui-pane-agents-model.test.ts` (new: the formats at their
   boundaries — 59 s / 60 s / 3599 s / 3600 s / 86400 s, 999 / 1000 / 999 949 /
   999 950 / 1 000 000; running time from `now`, finished time from `endedAt`;
   a non-claude session → []; an empty list → []), and the existing
-  `tests/ui-pane-agents.test.ts` if there is one.
+  `tests/ui/ui-pane-agents.test.ts` if there is one.
 
 Line numbers in this file drift; the seams are named by symbol.
 

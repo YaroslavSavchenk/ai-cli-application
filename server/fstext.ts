@@ -62,7 +62,7 @@
  * that can already spawn a shell. An `nlink > 1` refusal was REJECTED: pnpm's
  * `node_modules/.pnpm/**` files are hard links into its store, so such a rule
  * would refuse to open half the real files of a project. The two
- * `KNOWN LIMIT:` tests in tests/fs-text.test.ts keep this behaviour explicit.
+ * `KNOWN LIMIT:` tests in tests/server/fs-text.test.ts keep this behaviour explicit.
  *
  * MEASURED ON node v24.14.0 / Linux 6.6.87.2-microsoft-standard-WSL2, not
  * assumed (each of these decides a status code below):

@@ -22,6 +22,6 @@ aborts. Pascal itself would have been fine.
 
 Rule: a `#nn` char literal never opens a line; put it at the END of the
 previous line (`… + '.' + #13#10#13#10 +`). Pinned by
-`tests/installer-script.test.ts` ("no line in the .iss starts with a Pascal
+`tests/release/installer-script.test.ts` ("no line in the .iss starts with a Pascal
 char literal"), which lists every `[Code]` line that would be read as a
 directive. See [[2026-09-09-installer-phase-c-d]].

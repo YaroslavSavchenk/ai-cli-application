@@ -81,8 +81,8 @@ by reading. Decisions rationale: `memory/decisions/b10a-multi-select-and-delete.
   the dead-pane banner (a state, not an action).
 - `context-menu-model.ts` states "no separators, no counts" — amended in one
   place with the reason. `host-bridge.ts` `copyPathsToClipboard` takes a list.
-- `tests/ui-a8-dialogs.test.ts` guards the dialog prefixes (`sc-`/`ut-`/`rs-`/
-  `fd-`); `dd-` joins it. `tests/ui-copy-rule.test.ts` scans every literal.
+- `tests/ui/ui-a8-dialogs.test.ts` guards the dialog prefixes (`sc-`/`ut-`/`rs-`/
+  `fd-`); `dd-` joins it. `tests/ui/ui-copy-rule.test.ts` scans every literal.
 
 ## 1. Contract (Phase 0 + the backend's protocol block)
 
@@ -263,11 +263,11 @@ point under home is walked and deleted (`rm` has no one-file-system flag).
 
 ## 4. Tests
 
-- **Phase 0** — `tests/ui-files-select-model.test.ts` (rewritten: the
-  transition table), `tests/ui-delete-model.test.ts` (sentences byte for byte,
+- **Phase 0** — `tests/ui/ui-files-select-model.test.ts` (rewritten: the
+  transition table), `tests/ui/ui-delete-model.test.ts` (sentences byte for byte,
   `itemsFor` cases, `pathsOf` order, `parentsOf`, `failedKeys` alignment, the
   cap sentences equal the server's). FULL mutation gate on `delete-model.ts`.
-- **Phase 1** — `tests/fs-delete.test.ts` (real server child on a fixture
+- **Phase 1** — `tests/server/fs-delete.test.ts` (real server child on a fixture
   home): file / empty folder / tree; the symlink pair (a link to a folder:
   link gone, `victim/keep.txt` intact; a link INSIDE a deleted folder); a
   dangling link; the boundary table (outside home, data dir as target /
@@ -280,15 +280,15 @@ point under home is walked and deleted (`rm` has no one-file-system flag).
   415, 401 with `connection: close`; the errno table through `deleteErrorFor`;
   a big tree does not stall a concurrent `GET /health`; the NAME canary never
   in `server.log`, no path in any result. FULL mutation gate.
-- **Phase 2** — `tests/ui-files-delete.test.ts` (the real panel on the
+- **Phase 2** — `tests/ui/ui-files-delete.test.ts` (the real panel on the
   fixture gateway: selection semantics through real clicks, `is-sel` +
   `aria-current` parity, `Delete` present/absent per row kind, the separator
   once and not an arrow stop, Cancel deletes nothing, `Delete` sends exactly
   the paths in tree order, the Delete key cases, ctrl+a, shift+↑↓,
   ctrl+space, both cap refusals, one refresh per affected parent, the flash
   sentences incl. the server-sentence substitution, failures stay selected,
-  `Copy` on three rows), `tests/ui-context-menu-model.test.ts` extended,
-  `tests/ui-a8-dialogs.test.ts` with `dd-` as a fifth prefix, the Esc-ladder
+  `Copy` on three rows), `tests/ui/ui-context-menu-model.test.ts` extended,
+  `tests/ui/ui-a8-dialogs.test.ts` with `dd-` as a fifth prefix, the Esc-ladder
   pin. ~10 mutants. Browser evidence: ctrl+click three rows across two
   parents, Delete, confirm → exactly those three gone; 0 `resize` lines.
 

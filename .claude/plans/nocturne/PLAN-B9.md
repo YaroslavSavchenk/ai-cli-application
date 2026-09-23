@@ -141,13 +141,13 @@ re-read + sync on open, flush on close) · `web/src/main.ts` (`initTheme(prefs)`
 in `buildShell` before `initSettings`; the "no theme rides along until B9"
 comment goes) · `web/src/styles/app.css` (D3 surfaces) ·
 `web/src/styles/tokens.css` (header comment on `--term-bg` only if it lies).
-Tests (test-engineer): `tests/ui-theme-model.test.ts` rewritten to the pair
-(both shapes, per-member clamp, Nocturne fallback), `tests/ui-term-colours-a7.test.ts`
-+ `tests/ui-settings-a7.test.ts` + `tests/ui-a8-chrome.test.ts` +
-`tests/ui-copy-separators.test.ts` — the four "B9 will wire it" pins flip to
+Tests (test-engineer): `tests/ui/ui-theme-model.test.ts` rewritten to the pair
+(both shapes, per-member clamp, Nocturne fallback), `tests/ui/ui-term-colours-a7.test.ts`
++ `tests/ui/ui-settings-a7.test.ts` + `tests/ui/ui-a8-chrome.test.ts` +
+`tests/ui/ui-copy-separators.test.ts` — the four "B9 will wire it" pins flip to
 positive pins (main.ts calls `initTheme` before `initPanes`; the page still
 imports nothing from theme.ts / terminal.ts; theme.ts still builds no DOM), a
-new `tests/ui-b9-theme.test.ts` under the fake DOM: apply writes the six
+new `tests/ui/ui-b9-theme.test.ts` under the fake DOM: apply writes the six
 properties, Nocturne removes them, a Legacy bag maps to the same hexes, the
 debounce collapses a burst into one PUT that carries the last pair and keeps
 the other bag keys, the page's card click reaches the control, the re-read
@@ -162,7 +162,7 @@ path re-syncs.
   holds for the clamp of a value that IS read; a garbage member never resets
   a user's terminals. A valid Nocturne pair on the server still beats an
   amber cache (checked by the scope reviewer and pinned by
-  `tests/ui-b9-theme.test.ts`).
+  `tests/ui/ui-b9-theme.test.ts`).
 - **A2 (scope finding) the re-read on open adopts, never applies.**
   Reopening the dialog before the previous close's flush landed re-read a
   stale bag, repainted the old pair AND scheduled a PUT of it (the

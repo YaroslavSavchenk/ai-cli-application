@@ -29,7 +29,7 @@
  * flag, subcommand and CLI value each tool takes is written once, here, and the
  * UI above it only ever handles ids and labels. Each tool's argv order is FIXED
  * — model, permission, effort, then the start-from tail — and pinned byte-exact
- * by `tests/ui-launch-args.test.ts`.
+ * by `tests/ui/ui-launch-args.test.ts`.
  */
 import type { ClaudePermissionMode, PermissionMode } from '../../../shared/protocol.ts';
 
@@ -497,7 +497,7 @@ export const TOOLS: Record<AgentKind, ToolVocab> = {
  * drawer reading a raw CLI id (`gpt-6-astra`, `pro`, `grok-4.6`). Read through
  * `modelLabel` only. An id two tables share (`default`) carries the same label
  * in both, and the sentinel ids never reach argv anyway — both pinned by
- * `tests/ui-launch-args.test.ts`.
+ * `tests/ui/ui-launch-args.test.ts`.
  */
 const MODEL_LABELS: ReadonlyMap<string, string> = new Map(
   Object.values(TOOLS).flatMap((v) => v.models.map((m): [string, string] => [m.id, m.label])),

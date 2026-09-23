@@ -45,7 +45,7 @@ with 6 busy spinners pinned to cpu0. Before: `runs=60 ENOTEMPTY=6`
 (10 %). After: `runs=60 ENOTEMPTY=0`. Same recipe as
 [[pty-exit-data-race]]: starve the *consumer* side, don't just add CPU load.
 
-## Fix (tests/helpers.ts)
+## Fix (tests/helpers/helpers.ts)
 
 - `waitForLogLines(logFile, { needle: minCount }, what)` — polls the real
   log for real lines (deterministic, not a sleep).
@@ -57,7 +57,7 @@ with 6 busy spinners pinned to cpu0. Before: `runs=60 ENOTEMPTY=6`
 - `removeTempDir(dir)` — `rm` with `maxRetries: 5, retryDelay: 100`
   (ENOTEMPTY is in node's retry set) as a backstop only.
 - Applied at every `destroyAll()` → `rm(dir)` site (3 in
-  `tests/restart.test.ts`, 1 in `tests/logging.test.ts`). Requires the
+  `tests/server/restart.test.ts`, 1 in `tests/server/logging.test.ts`). Requires the
   harness logger at `debug`/`info` and pointed at `<dir>/server.log`; a
   future `warn`-level harness times out loudly after 10 s naming the
   missing needle.

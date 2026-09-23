@@ -184,7 +184,7 @@ the band maps to; full tab = existing `reject-full` flash. File row → tab chip
 - **Phase 1B — DRAG + KEYBOARD + FILES SOURCE** (parallel with 1A): `dnd.ts`,
   `files.ts`, `shortcuts.ts`, `terminal.ts` allowlist only, `main.ts` KEYDOWN
   region only, `app.css` drag-and-drop strip states + `.pane-drop` rules only,
-  `tests/fake-dom.ts` gains settable `getBoundingClientRect` +
+  `tests/helpers/fake-dom.ts` gains settable `getBoundingClientRect` +
   `elementFromPoint` stubs; pure geometry tested via `slots-model.ts`.
 - Overlap: 1A/1B share `main.ts` and `app.css` in disjoint regions named by
   block header/class, never by line.

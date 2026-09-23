@@ -98,7 +98,7 @@ const ISO_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 // ---------------------------------------------------------------------------
-// Version comparison — pure, exported, table-tested (tests/update-version.test.ts)
+// Version comparison — pure, exported, table-tested (tests/server/update-version.test.ts)
 // ---------------------------------------------------------------------------
 
 /**

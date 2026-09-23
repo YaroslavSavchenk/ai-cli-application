@@ -14,7 +14,7 @@ as "the only dialog in the family missing its v3 sub-line" and cited the
 v3 markup's `Runs on the server and keeps going when you switch tabs.`
 The orchestrator folded it into the fix list, the fixer applied it with the
 app's own noun ("background service"), and the suite stayed green — the
-literal ban in `tests/ui-copy-rule.test.ts` covered only the v3 wording.
+literal ban in `tests/ui/ui-copy-rule.test.ts` covered only the v3 wording.
 The scope reviewer's re-review caught it: `.claude/PROJECT-SCOPE.md` records
 "Header `New session`, no subtitle" (user's call 2026-09-06, "far too many
 unnecessary things") and the A4 decision that the permissions popover is

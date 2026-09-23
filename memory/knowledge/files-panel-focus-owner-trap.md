@@ -15,7 +15,7 @@ Found in [[2026-09-13-nocturne-a5]]; sits beside [[frontend-terminal-quirks]].
   2026-09-08 `/login` symptom, invisible to every test because the keys
   tests drove synthetic documents. Rule: a surface that is normally open
   may own focus INSIDE it (element-level `FOCUS_OWNER_SELECTOR`) but never
-  the screen. `tests/ui-keys.test.ts` now pins "an open Files panel does
+  the screen. `tests/ui/ui-keys.test.ts` now pins "an open Files panel does
   not own the keyboard" AND requires the literal markup to exist.
 - **Reuse a class for CSS, not for semantics.** Shared drawer styling via a
   second selector is fine; sharing the class name hands every JS query on
@@ -27,10 +27,10 @@ Found in [[2026-09-13-nocturne-a5]]; sits beside [[frontend-terminal-quirks]].
 - **A persisted wish needs its own title.** Once `leftPanel: null` survives
   a reload, "Opens when a session is running" on the Files button becomes a
   false promise; the sentence belongs to the wanted-but-not-shown state only.
-- **`tests/fake-dom.ts`** is the shared DOM double (pointer events with
+- **`tests/helpers/fake-dom.ts`** is the shared DOM double (pointer events with
   capture, `style`, `dataset`, `click()`, attribute selectors, recorded
   timers). It drives the real `files.ts` / `sessions.ts` modules with a
-  fake store; the older inline double in `tests/ui-launch-dialog.test.ts`
+  fake store; the older inline double in `tests/ui/ui-launch-dialog.test.ts`
   has select/option semantics the shared one lacks — merging them changes
   assertions, so they stay two (janitor 2026-09-13).
 - Separator keyboard contract for this app: arrow keys nudge, home / enter /

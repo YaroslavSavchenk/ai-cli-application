@@ -10,9 +10,9 @@ Measured 2026-09-20 during restructure batch 2: two full-suite runs each
 failed ONE test, a different one each time, on a diff that was proven to be
 comment-only; both pass alone and the third full run was 2915 / 0.
 
-- `tests/restart.test.ts` "REAL restart…": `update` came back `frontend
+- `tests/server/restart.test.ts` "REAL restart…": `update` came back `frontend
   rebuilt` — `web/dist` looked newer than the child's `startedAt`.
-- `tests/lifecycle.test.ts` "history: every end reason…": the newest entry
+- `tests/server/lifecycle.test.ts` "history: every end reason…": the newest entry
   did not sort first; the dump showed an entry whose `ended`
   (`…21:37:45.790Z`) lies BEFORE its own `createdAt` (`…21:37:48.115Z`).
 

@@ -90,7 +90,7 @@ export interface WebBuildOptions {
  * NOT Date.now(): this host is WSL2, whose wall clock is resynced against the
  * Windows host and was measured jumping ~1.9 s BACKWARD inside a ten-second
  * window (2026-09-16) — a real `-1795ms` was logged for a build, and
- * tests/restart.test.ts flaked on it. `process.hrtime.bigint()` only moves
+ * tests/server/restart.test.ts flaked on it. `process.hrtime.bigint()` only moves
  * forward, so a duration this file prints can never be negative.
  *
  * Only the DURATION changes. Every other clock reading in the app (mtimes,

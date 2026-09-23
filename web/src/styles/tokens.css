@@ -4,7 +4,7 @@
  * the three semantics, the terminal palette, the file-type icon colours, type,
  * app structure, motion, z-index. Since part A8 (2026-09-14) every token here
  * has a reader in the UI, with ONE stated exception: the handoff primitives
- * named in the allow-list of `tests/ui-a8-tokens.test.ts` (--color-divider,
+ * named in the allow-list of `tests/ui/ui-a8-tokens.test.ts` (--color-divider,
  * --color-accent-2 and its scale, --color-neutral-100, four --color-accent-*
  * steps), which stay because the "Nocturne primitives" block below is the
  * handoff's own file transcribed whole. The alias block that re-pointed the

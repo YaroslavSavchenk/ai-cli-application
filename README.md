@@ -336,7 +336,7 @@ not boot in its own smoke test. The release body leads with the Setup, then the
 bundle, then the host zip, and carries the Setup's SHA-256.
 
 The Node runtime the bundle ships is defined once per workflow file, as
-`NODE_VERSION`; `tests/release-workflow.test.ts` pins that `verify.yml` and
+`NODE_VERSION`; `tests/release/release-workflow.test.ts` pins that `verify.yml` and
 `release.yml` agree on it, that every action is pinned to a commit SHA, and
 that nothing is published from anything but a `v*` tag.
 
@@ -608,7 +608,7 @@ updates at all, and neither does a bundle whose version is `0.0.0-*`.
 | `server/` | The WSL-side Node backend: sessions and PTYs, HTTP + WebSocket API, history, update and restart logic, `statusline.mjs` |
 | `web/` | The browser frontend (vanilla TypeScript + Vite): `src/`, `index.html`, `mascot.html`, the design system notes in `DESIGN.md` |
 | `shared/` | `protocol.ts`, the wire contract both sides import |
-| `tests/` | The whole suite (`npm test`), fixtures in `tests/fixtures/` |
+| `tests/` | The whole suite (`npm test`): `ui/` (frontend, `npm run test:ui`), `server/` (backend), `release/` (bundle, installer, launcher, workflows), `repo/` (the layout and author-path guards), `helpers/` (shared test modules, no tests), `fixtures/` (data files) |
 | `launcher/` | Windows-side start scripts, the shortcut maker, the native WebView2 host in `launcher/host/` |
 | `installer/` | The Inno Setup script and its PowerShell helpers |
 | `scripts/` | `build-bundle.sh` (the Linux bundle) and `release.sh` (tagging) |

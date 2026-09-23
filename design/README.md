@@ -7,7 +7,7 @@
 | `archive/handoff-v1/` | The first hi-fi handoff (2026-07-20), superseded for visuals by Nocturne | yes |
 
 Both handoffs are the user's own design files, tracked since 2026-09-21 (his
-call), so `tests/nocturne-tokens.test.ts` and `tests/ui-mascot-view.test.ts`
+call), so `tests/ui/nocturne-tokens.test.ts` and `tests/ui/ui-mascot-view.test.ts`
 compare against them on every machine and in CI. Two things are left out on
 purpose: the `*:Zone.Identifier` files Windows adds to downloads, and
 `peek-mascot/support.js` — the design tool's generated runtime, third-party

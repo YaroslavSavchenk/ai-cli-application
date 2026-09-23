@@ -156,7 +156,7 @@ export function tooMany(n: number): boolean;
 
 ## 6. Phases
 
-- **Phase 0** (alone): `drop-model.ts` + `tests/ui-drop-model.test.ts`.
+- **Phase 0** (alone): `drop-model.ts` + `tests/ui/ui-drop-model.test.ts`.
 - **Brief 1 — dialog**: `drop-dialog.ts`, `main.ts` ESC-LADDER region + one
   import, `app.css` ONE new `fd-` section; tests `ui-a9-drop.test.ts` (class
   parity, tokens-only, no colour literal, both states carry the honesty line,
@@ -165,7 +165,7 @@ export function tooMany(n: number): boolean;
   button; folder rows already carry `data-k="fdir:<path>"`), `keys.ts`
   (+`OPEN_MODAL_SELECTOR`), `dnd.ts` (+`isDragging()` only),
   `shortcuts.ts` (one row), `main.ts` INIT region (one `initFileDrop` line),
-  `app.css` drag-state rules only, `tests/fake-dom.ts` (`dataTransfer` /
+  `app.css` drag-state rules only, `tests/helpers/fake-dom.ts` (`dataTransfer` /
   `clipboardData` / `relatedTarget` on events, `makeDataTransfer` helper,
   settable `innerWidth/innerHeight`; the picker is tested through an injected
   `openPicker` seam). Tests: `ui-filedrop.test.ts`.

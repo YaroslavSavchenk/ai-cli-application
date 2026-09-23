@@ -93,7 +93,7 @@ swap → teardown → go → handoff.
   pair the feature exists to remove.
 - **Passing the listening socket over IPC** stays rejected; messages-only
   IPC is a different, simpler thing and is now proven end to end from WSL
-  in `tests/restart.test.ts` (real child, real channel, same port).
+  in `tests/server/restart.test.ts` (real child, real channel, same port).
 
 Related: [[backend-restart-same-port]], [[log-everything]],
 [[session-history-resume]], [[vite-config-cwd-trap]],

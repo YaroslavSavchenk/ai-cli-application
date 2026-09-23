@@ -2,7 +2,7 @@
  * The restart HANDSHAKE, DOM-free: POST -> outcome, plus the `/health` wait
  * that decides when the replacement backend is ready. Every side effect the
  * browser would perform (fetch, clock, sleep) arrives through `RestartDeps`,
- * so `tests/ui-update-model.test.ts` drives all four outcomes and both
+ * so `tests/ui/ui-update-model.test.ts` drives all four outcomes and both
  * timeouts without a browser. `./update.ts` owns the pixels and the two
  * navigation acts (`location.reload()` / `location.href`) — the only things
  * that cannot be modelled here.
@@ -231,7 +231,7 @@ export function loopbackUrl(port: number): string {
 
 /**
  * Everything the recovery does to the world, injected so
- * `tests/ui-restart-guards.test.ts` can drive it without a browser. `reload`
+ * `tests/ui/ui-restart-guards.test.ts` can drive it without a browser. `reload`
  * and `showPanel` are the two acts a model cannot perform.
  */
 export interface RecoveryDeps {

@@ -345,7 +345,7 @@ multi-pane layouts on top.
   with the repo; commits use `182082793+YaroslavSavchenk@users.noreply.github.com`
   (set repo-locally; history is not rewritten, so older commits keep the
   author's e-mail and 13 of them still contain the old home path);
-  `tests/no-author-paths.test.ts` is the standing guard against the author's
+  `tests/repo/no-author-paths.test.ts` is the standing guard against the author's
   paths re-entering tracked files; the repo was flipped to PUBLIC on 2026-09-09 right after phase D
   landed and CI was green; **v0.2.0 is tagged only after the user has tested the Setup.exe on
   Windows** (a `workflow_dispatch` run produces it as the
@@ -573,7 +573,7 @@ multi-pane layouts on top.
   signs in inside the terminal, no field) show none. `composeSpawn()` is
   the ONE composition path for all kinds, and every pre-A4 dialog state
   emits byte-identical argv (pinned through the real dialog by
-  `tests/ui-launch-dialog.test.ts`). GONE since 2026-09-06: the
+  `tests/ui/ui-launch-dialog.test.ts`). GONE since 2026-09-06: the
   subtitle, the preset chips, the readable launch summary / ink well, the
   footer note, per-card permission descriptions, hint text and
   mechanic-explaining tooltips. The launched "agent" is still a
@@ -1463,7 +1463,7 @@ move maps in `memory/decisions/repo-layout.md`).** `README.md` § Repository
 layout is the map of where things live. The work log is
 `memory/log/<YYYY-MM>/<area>/` (areas: nocturne, backend, ui, launcher,
 github, release, project); `memory/decisions/` and `memory/knowledge/` are
-flat, with `memory/INDEX.md` grouped by theme. `tests/vault-layout.test.ts`
+flat, with `memory/INDEX.md` grouped by theme. `tests/repo/vault-layout.test.ts`
 enforces the vault rules (placement, unique basenames, INDEX coverage, no
 dead `memory/…md` citation in any tracked file). Every move of files or
 folders follows `.claude/skills/restructure-repo/SKILL.md`; the remaining
@@ -1477,7 +1477,7 @@ stands; the spec of a part is `.claude/plans/<name>/PLAN-<ID>.md`, written
 before the developer starts, carrying a `Status:` line, and it never moves
 (code and tests cite specs by path). A landing updates the spec's status,
 the part's table row, the index in that README and the vault in the same
-commit. `tests/plans-layout.test.ts` enforces the layout, the status lines,
+commit. `tests/repo/plans-layout.test.ts` enforces the layout, the status lines,
 the table-to-file agreement and that every plan citation in a tracked file
 resolves (`memory/log/` exempt: history).
 
@@ -1519,7 +1519,7 @@ depends on two undeclared node-pty internals (`fd`, `_socket`) and on
 node-pty's own `pty_nonblock(master)` for the non-blocking guarantee that
 makes a synchronous read safe, so **`node-pty` is pinned exactly to
 1.1.0** (user's decision) and a version bump means re-running
-`tests/sessions-tail.test.ts`. Accepted limit: a multi-byte character
+`tests/server/sessions-tail.test.ts`. Accepted limit: a multi-byte character
 split across the fabricated-EOF boundary can render as one replacement
 character — rare, bounded, pinned by a test (user's decision not to close
 it). Detail in `memory/knowledge/pty-exit-data-race.md`.)

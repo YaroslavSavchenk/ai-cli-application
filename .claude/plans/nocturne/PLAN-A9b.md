@@ -74,7 +74,7 @@ line numbers drift — this file names functions and regions, never lines.
 - `main.ts`'s Escape ladder is a window BUBBLE listener guarded by
   `!fromTerminal(e.target)`; its last two arms are the drawer and the Files
   panel (`filesAside.contains(document.activeElement)` → `toggleLeftPanel`).
-  `tests/ui-files-panel.test.ts` bounds that whole branch under 4000 characters.
+  `tests/ui/ui-files-panel.test.ts` bounds that whole branch under 4000 characters.
   A `keydown` listener on `.files-view` runs (bubble phase) before it, which is
   how A9b spends Escape on the selection without touching the ladder.
 - `app.css`: `.files-row:hover` and `.files-row.is-open` (A10) are BOTH
@@ -85,7 +85,7 @@ line numbers drift — this file names functions and regions, never lines.
   therefore cannot be a neutral-900 ground and cannot be an outline.
 - `tokens.css` z-scale: toast 46, modal 50, modal-top 51, overlay 60, ghost 70.
   There is no menu layer.
-- `tests/fake-dom.ts` dispatches with a real capture → target → bubble order and
+- `tests/helpers/fake-dom.ts` dispatches with a real capture → target → bubble order and
   `stopPropagation`, hit-tests `elementFromPoint` from rects a test sets, has
   settable `innerWidth`/`innerHeight`, a real `activeElement`/`focus()`, and
   records timers instead of firing them. It measures nothing: `getBoundingClientRect`
@@ -311,8 +311,8 @@ selectedFolder(): string | null;
 
 - **Phase 0** (alone): `files-select-model.ts`, `context-menu-model.ts`,
   `keys.ts` (+`isContextMenuChord` only), the `copyIntoText` move with its
-  re-export; tests `tests/ui-files-select-model.test.ts`,
-  `tests/ui-context-menu-model.test.ts`, `tests/ui-keys.test.ts` (+the chord).
+  re-export; tests `tests/ui/ui-files-select-model.test.ts`,
+  `tests/ui/ui-context-menu-model.test.ts`, `tests/ui/ui-keys.test.ts` (+the chord).
   No DOM, no CSS.
 - **Brief 1 — selection, paste rule, strip, shortcuts**: `files.ts` SELECTION
   region (the state, `sig()`, `rebuild()`, the panel-root Escape listener,
@@ -320,14 +320,14 @@ selectedFolder(): string | null;
   (`onPaste` predicate + `stopPropagation` + the new dep + the `copyIntoText`
   re-export), `main.ts` INIT region (one dep line), `shortcuts.ts` (three rows
   and the two sentences they change), `app.css` "Files panel" section only
-  (`.files-row.is-sel`). Tests: `tests/ui-filedrop.test.ts` (the paste matrix,
+  (`.files-row.is-sel`). Tests: `tests/ui/ui-filedrop.test.ts` (the paste matrix,
   the stopPropagation, the wiring assertion) and NEW
-  `tests/ui-files-select.test.ts`.
+  `tests/ui/ui-files-select.test.ts`.
 - **Brief 2 — the menu primitive and the rows**: NEW `context-menu.ts`,
   `files.ts` ROW MENU region (the delegated `contextmenu`, the row chord, the
   action map, `closeRowMenu()` at the top of `rebuild()`), `tokens.css`
   (+`--z-menu`), `app.css` ONE new `cm-` section at the end. Tests: NEW
-  `tests/ui-context-menu.test.ts`.
+  `tests/ui/ui-context-menu.test.ts`.
 - SEQUENCE, not parallel: both briefs edit `fileRows()` and both read the
   selection, so Brief 2 starts when Brief 1 has landed. Overlap contract for the
   files both touch: `files.ts` by NAMED REGION (`// ---- selection ----` and
@@ -418,4 +418,4 @@ needs a one-line `contextmenu` addition (Brief 2 checks).
 - **`--z-menu: 47`** — above the toast, below every modal.
 - **Escape lives in `files.ts`**, not as a new rung in `main.ts`'s ladder: the
   key is spent on a surface-local state, exactly as the row chords are, and the
-  ladder's length bound in `tests/ui-files-panel.test.ts` stays intact.
+  ladder's length bound in `tests/ui/ui-files-panel.test.ts` stays intact.

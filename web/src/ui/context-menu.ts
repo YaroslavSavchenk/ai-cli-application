@@ -29,7 +29,7 @@
  * own `rebuild()`).
  *
  * WHERE IT OPENS is `menuPosition()`, a pure function, because
- * `tests/fake-dom.ts` measures nothing: this module measures ONCE after
+ * `tests/helpers/fake-dom.ts` measures nothing: this module measures ONCE after
  * appending and applies the point that function returns. Flip before clamp, so
  * a menu near the right edge opens leftward and one near the bottom opens
  * upward — the pointer keeps standing on the row it belongs to.

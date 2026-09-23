@@ -103,13 +103,13 @@ const DEFAULT_CONFIG = {
   // skipping the git probe when neither bar would show a branch (see main()).
   // `time` is the bar's Session time item and is ignored here entirely (the
   // payload carries no start time). They live here so the panel's factory set
-  // and this table stay one list (tests/ui-statusline-model).
+  // and this table stay one list (tests/ui/ui-statusline-model).
   paneBar: true,
   time: true,
   // Nocturne B11: the Background agents table under the terminal
   // (web/src/ui/pane-agents-model.ts). Pane only, ignored here entirely; OFF by
   // default (user, 2026-09-22) — Claude Code draws its own task list inside the
-  // terminal. Here so the factory tables stay one list (tests/ui-statusline-model).
+  // terminal. Here so the factory tables stay one list (tests/ui/ui-statusline-model).
   paneAgents: false,
 };
 

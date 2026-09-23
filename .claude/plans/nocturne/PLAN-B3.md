@@ -107,7 +107,7 @@ Files: `server/git.ts` (or a sibling `server/git-log.ts` importing the runner â€
 export `runGitCapture` / `capturedOrFail` / `GIT_ENV` rather than copying
 them), `server/api.ts` (three GET routes beside `/api/git/changes`),
 `server/github.ts` (remote parser beside `parseGithubRepoPath`),
-`tests/git-commits.test.ts` (new), README/route docs where `/api/git/changes`
+`tests/server/git-commits.test.ts` (new), README/route docs where `/api/git/changes`
 is listed.
 
 1. **Boundary, identical to `changesFor`:** `root` through
@@ -155,8 +155,8 @@ is listed.
 7. **Sentences (constant, one each):** 400 `The app cannot open that commit.`,
    404 `This commit is no longer there.`, 500 `GIT_READ_FAILED`; the folder
    sentences are the existing ones.
-8. Tests (`tests/git-commits.test.ts`, real fixture repositories as
-   `tests/git-changes.test.ts`): paging + `more` + pinned `from`; total; empty
+8. Tests (`tests/server/git-commits.test.ts`, real fixture repositories as
+   `tests/server/git-changes.test.ts`): paging + `more` + pinned `from`; total; empty
    repository; detached head; merge against first parent; root commit; binary
    file; rename as delete + add; a subject / author with control characters,
    NUL-adjacent framing bytes and `%x01`; hash gate (short, upper-case,

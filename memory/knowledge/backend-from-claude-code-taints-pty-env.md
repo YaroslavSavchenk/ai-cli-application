@@ -29,7 +29,7 @@ which includes every CDP verify gate that ran a real claude session.
 deleted in `ptyEnv()`, named one by one. NOT `CLAUDE_CODE_*` as a prefix:
 that prefix also carries the user's own configuration
 (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, …), which must
-reach the session. Pinned in `tests/restart.test.ts` ("a PTY session never
+reach the session. Pinned in `tests/server/restart.test.ts` ("a PTY session never
 inherits the handoff variables"): the markers are banned, a
 `CLAUDE_CODE_USE_BEDROCK` survives.
 

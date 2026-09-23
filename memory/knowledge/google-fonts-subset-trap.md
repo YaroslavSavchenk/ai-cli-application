@@ -20,7 +20,7 @@ Lessons:
   `getBestCmap()` contains `A–Z`, or a canvas `measureText` in the face vs
   `system-ui` differs.
 - Pin shipped font assets by byte size + sha256 in a test
-  (`tests/nocturne-tokens.test.ts`, A1 (d3)) — a wrong subset is otherwise
+  (`tests/ui/nocturne-tokens.test.ts`, A1 (d3)) — a wrong subset is otherwise
   invisible to every gate.
 - Google's `unicode-range` for latin omits `←→✓⚙▸`; those fall back to the
   system font, same as with Barlow before.

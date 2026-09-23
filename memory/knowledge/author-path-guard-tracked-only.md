@@ -6,7 +6,7 @@ tags: [testing, ci, privacy, gotcha]
 ---
 # The author-path guard sees tracked files only
 
-`tests/no-author-paths.test.ts` (the repo is public) refuses any tracked
+`tests/repo/no-author-paths.test.ts` (the repo is public) refuses any tracked
 file carrying the author's home path, Windows user or handle. It walks
 `git ls-files`, so a NEW file that is still untracked passes the local suite
 and fails on CI the moment it is committed. Bitten 2026-09-16 (A9b Phase 0,

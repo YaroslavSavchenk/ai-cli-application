@@ -120,7 +120,7 @@ function isRenamableName(name: string): boolean {
 
 /**
  * One errno, as the answer the request gets. PURE — no logging, no fs — so the
- * table is tested directly (tests/fs-rename.test.ts).
+ * table is tested directly (tests/server/fs-rename.test.ts).
  */
 export function renameErrorFor(code: string | undefined): FsBrowseError {
   switch (code) {

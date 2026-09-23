@@ -43,7 +43,7 @@ Run `.claude/skills/restructure-repo/find-refs.sh <old-path>...` and read
 every hit. The reference classes of THIS repo — check each, the script only
 finds the textual ones:
 
-1. **Imports and configs** — `package.json` scripts (`tests/*.test.ts` globs),
+1. **Imports and configs** — `package.json` scripts (`tests/*/*.test.ts` globs),
    `tsconfig.server.json`, `web/tsconfig.json`, `vite.config.ts` +
    `web/vite.config.ts`.
 2. **CI and release** — `.github/workflows/*.yml`, `scripts/build-bundle.sh`
@@ -53,7 +53,7 @@ finds the textual ones:
    the `update.available` reasons (watch `web/src`, `web/index.html`,
    `web/mascot.html`, `web/public`, `vite.config.ts`, `shared/`),
    `server/webbuild.ts`, `server/bundle.ts`. A move here is a code change.
-4. **Tests that read files by path** — many `tests/ui-*.test.ts`,
+4. **Tests that read files by path** — many `tests/ui/ui-*.test.ts`,
    `release-workflow`, `release-script`, `nocturne-tokens`, `icon-assets`,
    `no-author-paths` (scans every TRACKED file — run the suite after
    `git add -A`).

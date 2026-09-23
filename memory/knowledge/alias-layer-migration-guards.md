@@ -22,7 +22,7 @@ disjoint stylesheet regions and disjoint TS files, the token file owned by
 ONE of them; the other spells literal px or `calc()` of surviving tokens and
 lists wishes. (2) One developer deletes the block and writes the guard.
 
-**What the guard must pin** (`tests/ui-a8-tokens.test.ts`): (a) the marker
+**What the guard must pin** (`tests/ui/ui-a8-tokens.test.ts`): (a) the marker
 text exists nowhere; (b) every `var(--x)` in CSS and every CSSOM-wrapped
 `'--x'` string in TS is declared; (c) every declared token has a reader,
 with an allow-list that asserts each entry is still declared AND still
@@ -43,7 +43,7 @@ and matched.
 a scanner over the WHOLE stylesheet counts a `@media` refinement
 (`.sc-cap { padding-left: 0 }`) as "styled", so deleting the base rule
 survives — require a rule OUTSIDE every `@media` block
-(`tests/ui-a8-block-rules.test.ts`); and a regex that only reads
+(`tests/ui/ui-a8-block-rules.test.ts`); and a regex that only reads
 single-quoted `el('div', 'name')` misses template-literal class names, so
 scan the backtick form too, with a brace-counting interpolation strip
 (otherwise `${n > 0 ? 'x' : 'y'}` shreds into `0`, `>`, `?` "classes").

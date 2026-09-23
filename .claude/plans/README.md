@@ -1,7 +1,7 @@
 # Plans — where they live and how they are written
 
 Decided 2026-09-20 (user's call; rationale in
-`memory/decisions/repo-layout.md`). `tests/plans-layout.test.ts` enforces the
+`memory/decisions/repo-layout.md`). `tests/repo/plans-layout.test.ts` enforces the
 checkable half of this file. `.claude/PROJECT-SCOPE.md` stays the current
 truth about the app; a plan says what will be built next and in which order.
 

@@ -29,7 +29,7 @@ unconditional 200 is the whole cost). Fixed in commit `1cdb766`
 (dev-flow, 2 cycles, mutants 8/8 killed, suite 1160 → 1165).
 
 **Same shape elsewhere.** The retention tests in
-`tests/installer-helpers.test.ts` assumed a monotonic wall clock for
+`tests/release/installer-helpers.test.ts` assumed a monotonic wall clock for
 ctime order; a backward step of 0.22 s during a full-suite run pruned the
 wrong fixture once. Fixed in the same commit with `proveNewer()` (re-touch
 until ctime order is proven), not by a longer sleep.

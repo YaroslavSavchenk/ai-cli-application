@@ -64,7 +64,7 @@ OUT of scope, said here so nobody reads it into the briefs:
   or a constant sentence from a `*Error` class; nothing derived from a body, a
   query or a path is ever put there.** `FsBrowseError(status, message)` is that
   class for `fsbrowse.ts`; the new routes extend it rather than invent a second.
-- **The access log already reduces a query to `?…`** and `tests/logging.test.ts`
+- **The access log already reduces a query to `?…`** and `tests/server/logging.test.ts`
   pins that a `?path=` value never reaches `server.log`. `web/src/api.ts`
   `request()` does the same on the browser side (`const route = cut === -1 ? path
   : path.slice(0,cut) + ' ?…'`), so a listing URL carrying an absolute path is
@@ -87,9 +87,9 @@ OUT of scope, said here so nobody reads it into the briefs:
   injected callback precisely so its import graph never reaches `ui/panes.ts` →
   `@xterm/xterm` (which kills `node --test`). §9 keeps that discipline: the
   backend reaches the panel as an INJECTED gateway from `main.ts`, not an
-  `import * as api`. That is also what keeps `tests/ui-files-panel.test.ts`
+  `import * as api`. That is also what keeps `tests/ui/ui-files-panel.test.ts`
   drivable without the `registerHooks` module-stub machinery
-  `tests/ui-picker-dom.test.ts` needs.
+  `tests/ui/ui-picker-dom.test.ts` needs.
 - **`files.ts` `listingFor(dest)` is SYNCHRONOUS** and answers from
   `buildTree(MOCK_FILES)`; `filedrop.ts` `offer()` calls it inline while
   building the `DropRequest`. A real listing is a fetch, so `offer()` becomes
@@ -124,7 +124,7 @@ OUT of scope, said here so nobody reads it into the briefs:
   `name=<label>`; `slotTitle` → `tabTitle` → `fileName(path)`. An absolute path
   is therefore already safe as a tab key and can never print in a chip or a log
   line.
-- **`tests/fake-dom.ts` measures nothing** and records timers instead of firing
+- **`tests/helpers/fake-dom.ts` measures nothing** and records timers instead of firing
   them; `installDom()` gives a real capture → target → bubble dispatch, a real
   `activeElement`, `dataset`, `style`, `classList` and a one-selector
   `querySelector`. Anything B2 or A9c decides by geometry has to be a pure
@@ -141,9 +141,9 @@ OUT of scope, said here so nobody reads it into the briefs:
   widening the panel. `.files-view .files-row.is-sel` is the accent ground +
   inset tick. `.files-note` is the quiet-line idiom (11.5px,
   `--color-neutral-600`).
-- `tests/ui-picker-dom.test.ts` is the established way to stub `../api.ts` for a
-  DOM test (`registerHooks` + a source string); `tests/projects.test.ts` +
-  `tests/helpers.ts` are the established way to test a ROUTE (a real server
+- `tests/ui/ui-picker-dom.test.ts` is the established way to stub `../api.ts` for a
+  DOM test (`registerHooks` + a source string); `tests/server/projects.test.ts` +
+  `tests/helpers/helpers.ts` are the established way to test a ROUTE (a real server
   child process on a `mkdtemp` data dir, discovered through `runtime.json`,
   driven with `api(server, 'GET', …)`).
 
@@ -718,7 +718,7 @@ Hand the reviewer this list, not "review the diff":
    and a violation writes a path into the access log's refusal field.
 7. **Auth.** All three routes are under `/api/` so the gate is structural; the
    check is that they are added to the token-required lists in
-   `tests/github-token.test.ts` and `tests/ui-api-auth.test.ts`.
+   `tests/server/github-token.test.ts` and `tests/ui/ui-api-auth.test.ts`.
 8. **`log everything` vs path privacy.** The rule B2 writes down:
    *directories may be logged* (the backend already logs
    `session <id> spawned: … in <cwd>`), *contents and user-typed names may not*
@@ -845,7 +845,7 @@ export function parsePorcelainZ(out: string): { path: string; status: ChangeStat
 
 Why an INJECTED gateway rather than `import * as api` in `files.ts`: the module
 already refuses to import `ui/panes.ts` so it stays drivable under `node --test`,
-and the same discipline keeps `tests/ui-files-panel.test.ts`,
+and the same discipline keeps `tests/ui/ui-files-panel.test.ts`,
 `ui-files-select.test.ts`, `ui-context-menu.test.ts` and the new create test on a
 plain fake object instead of the `registerHooks` module-stub harness. `main.ts`
 passes the real one in its INIT region, one line.
@@ -853,17 +853,17 @@ passes the real one in its INIT region, one line.
 ## 10. Phases
 
 - **Phase 0 — MODEL** (`terminal-ui`, alone, parallel with Brief A):
-  `web/src/ui/fs-model.ts` + `tests/ui-fs-model.test.ts` (+ `rowIndent` exported
+  `web/src/ui/fs-model.ts` + `tests/ui/ui-fs-model.test.ts` (+ `rowIndent` exported
   from `files-model.ts`). No DOM, no CSS, no api, no state. LANDED 2026-09-16.
 - **Brief A — BACKEND** (`backend-pty`, parallel with Phase 0):
   `shared/protocol.ts` (the five new interfaces), `server/fsbrowse.ts`
   (`resolveUnderHome`, `listEntries`, `createEntry`, `compareEntries`, the new
   sentences), NEW `server/git.ts`, `server/api.ts` (three route blocks, placed
   after the existing `--- Filesystem …` blocks), `web/src/api.ts` (three client
-  functions). Tests: NEW `tests/fs-entries.test.ts`, `tests/fs-create.test.ts`,
-  `tests/git-changes.test.ts` — real http against a booted server on a scratch
-  data dir (`tests/helpers.ts` `startTestServer` + `api()`, the
-  `tests/projects.test.ts` idiom), with a `mkdtemp` fixture tree (a dotfile, a
+  functions). Tests: NEW `tests/server/fs-entries.test.ts`, `tests/server/fs-create.test.ts`,
+  `tests/server/git-changes.test.ts` — real http against a booted server on a scratch
+  data dir (`tests/helpers/helpers.ts` `startTestServer` + `api()`, the
+  `tests/server/projects.test.ts` idiom), with a `mkdtemp` fixture tree (a dotfile, a
   symlink inside home, a symlink outside home, a broken symlink, a 1200-entry
   folder, a `git init`ed repo with a commit, a modified file, a binary file, an
   untracked file, a rename, and a repo with no commit at all) and direct unit
@@ -887,7 +887,7 @@ passes the real one in its INIT region, one line.
   existing `// ---- the row menu ----` region, `app.css` ONE new block
   (`.files-row.is-new`, `.files-newname`, `.files-row.is-newerr`),
   `shortcuts.ts` (one row + one note). Tests: NEW
-  `tests/ui-files-create.test.ts`, additions to `ui-context-menu-model`.
+  `tests/ui/ui-files-create.test.ts`, additions to `ui-context-menu-model`.
 - **SEQUENCE, not parallel, for B and C**: both edit `fileRows()` and both read
   the tree state. Overlap contract, the A9b one: `files.ts` by NAMED REGION
   (block headers, never lines), `app.css` by SECTION (B stays inside "Files
@@ -901,13 +901,13 @@ passes the real one in its INIT region, one line.
 | `web/src/ui/files.ts` | `MOCK_FILES`, `MOCK_OPEN_FOLDERS`, `MOCK_BRANCH`, `MOCK_COMMITS`, `mockCommitByHash` | keeps only the four commits symbols (B3) |
 | `web/src/ui/file-pane.ts` | `mockFileContent`, `saveMockFile`, `NO_EXAMPLE_CONTENT` | keeps `mockFileContent`/`saveMockFile` for the edits map until B4; stops using `NO_EXAMPLE_CONTENT` (§5) |
 | `web/src/ui/commit-view.ts` | `mockFileContent`, `NO_EXAMPLE_CONTENT`, `MOCK_COMMITS` | untouched (B3/B4) |
-| `tests/ui-files-model.test.ts` | `MOCK_FILES`, `MOCK_OPEN_FOLDERS` | those assertions move to a FIXTURE listing declared in the test; `MOCK_BRANCH`/`MOCK_COMMITS` assertions stay |
-| `tests/ui-files-panel.test.ts` | `MOCK_FILES`, `MOCK_OPEN_FOLDERS` (and the rows named `README.md`, `web`, `src`, `server` throughout) | a fixture tree served by the fake `FsGateway`, with the SAME names so the assertions read the same; every tree test gains an `await` for the first listing |
-| `tests/ui-files-select.test.ts` | `MOCK_OPEN_FOLDERS` as the starting shape | same fixture gateway; the "restore between tests" helper resets the fake instead of the mock |
-| `tests/ui-context-menu.test.ts` | `MOCK_OPEN = ['web','web/src','server']` (its own copy) and rows `web`, `server`, `README.md` | same fixture gateway; the local `MOCK_OPEN` constant becomes the fixture's open set |
-| `tests/ui-drop-model.test.ts` | `MOCK_FILES` for the conflict listing | a literal listing array in the test — `conflictsOf` never cared where the names came from |
-| `tests/ui-commit-model.test.ts` | `MOCK_FILES` numbers-come-from-one-derivation pin | the `MOCK_FILES` half of that test is deleted; the commits half stays |
-| `tests/ui-a6-screens.test.ts`, `ui-file-pane`, `ui-editor-pane` | contents + commits only | untouched |
+| `tests/ui/ui-files-model.test.ts` | `MOCK_FILES`, `MOCK_OPEN_FOLDERS` | those assertions move to a FIXTURE listing declared in the test; `MOCK_BRANCH`/`MOCK_COMMITS` assertions stay |
+| `tests/ui/ui-files-panel.test.ts` | `MOCK_FILES`, `MOCK_OPEN_FOLDERS` (and the rows named `README.md`, `web`, `src`, `server` throughout) | a fixture tree served by the fake `FsGateway`, with the SAME names so the assertions read the same; every tree test gains an `await` for the first listing |
+| `tests/ui/ui-files-select.test.ts` | `MOCK_OPEN_FOLDERS` as the starting shape | same fixture gateway; the "restore between tests" helper resets the fake instead of the mock |
+| `tests/ui/ui-context-menu.test.ts` | `MOCK_OPEN = ['web','web/src','server']` (its own copy) and rows `web`, `server`, `README.md` | same fixture gateway; the local `MOCK_OPEN` constant becomes the fixture's open set |
+| `tests/ui/ui-drop-model.test.ts` | `MOCK_FILES` for the conflict listing | a literal listing array in the test — `conflictsOf` never cared where the names came from |
+| `tests/ui/ui-commit-model.test.ts` | `MOCK_FILES` numbers-come-from-one-derivation pin | the `MOCK_FILES` half of that test is deleted; the commits half stays |
+| `tests/ui/ui-a6-screens.test.ts`, `ui-file-pane`, `ui-editor-pane` | contents + commits only | untouched |
 
 `memory/BACKLOG.md`'s "Mock data out of production code" item and its
 "`MOCK_FILES` is an exported const mutated at module init" item are BOTH closed
@@ -1016,7 +1016,7 @@ expected one and the row will say so); whether the 5 s Changes poll is felt on a
 large repository (the cap and the timeout bound it, the interval is one
 constant to change); the exact `git diff --numstat -z` rename form and the
 `--porcelain=v1 -z` shape are stated from knowledge — Brief A pins them with
-fixtures; whether `tests/fake-dom.ts` round-trips an `<input>`'s `value`,
+fixtures; whether `tests/helpers/fake-dom.ts` round-trips an `<input>`'s `value`,
 `readOnly`, `select()` (Brief C may owe it one small addition).
 
 ## Orchestrator defaults (adopted 2026-09-16, not confirmed one by one)

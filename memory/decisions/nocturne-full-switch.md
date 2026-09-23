@@ -33,7 +33,7 @@ RULE itself stands).
 - **xterm palette = exact sRGB hex of the oklch semantics** (ground
   `#0b0d14`, ok `#5bbd74`, attn `#f7c56d`, danger `#f2716a`; blue/magenta/
   cyan chosen on the same OKLCH lightness scale) because xterm.js's colour
-  parser takes only hex/rgb(); pinned by `tests/nocturne-tokens.test.ts`.
+  parser takes only hex/rgb(); pinned by `tests/ui/nocturne-tokens.test.ts`.
 - **Inter self-hosted** (Google's *latin* variable woff2, 48256 B, OFL) —
   the frontend-designer reject list bans Inter-by-reflex; the handoff's
   deliberate choice is sanctioned (skill text amended). See

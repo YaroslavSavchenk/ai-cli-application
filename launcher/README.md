@@ -184,7 +184,7 @@ bundle can never delete anything.
 | other | the Setup's own exit code, unchanged |
 
 `-DryRun` prints the exact `Start-Process` argv and exits 0 without hashing,
-starting or deleting anything — that is how `tests/run-update.test.ts` pins
+starting or deleting anything — that is how `tests/release/run-update.test.ts` pins
 this interface from WSL.
 
 The Setup itself reuses the distro and Linux folder recorded in

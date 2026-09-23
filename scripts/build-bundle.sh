@@ -42,7 +42,7 @@
 # official SHASUMS256.txt BEFORE anything is extracted.
 #
 # AI_SM_NODE_DIST_BASE overrides the download base (default
-# https://nodejs.org/dist). It exists as a TEST SEAM -- tests/build-bundle.test.ts
+# https://nodejs.org/dist). It exists as a TEST SEAM -- tests/release/build-bundle.test.ts
 # points it at a `file://` mirror to exercise the checksum refusal without the
 # network. It is ALLOW-LISTED: only `file://...` or exactly
 # https://nodejs.org/dist are accepted, anything else is refused before any

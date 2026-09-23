@@ -29,7 +29,7 @@
  * background window is not a screen anybody is reading.
  *
  * THE TIMER IS THE WINDOW'S. `window.setInterval` rather than the bare global,
- * so `tests/fake-dom.ts` RECORDS it instead of running it — a test drives the
+ * so `tests/helpers/fake-dom.ts` RECORDS it instead of running it — a test drives the
  * follow by calling `dom.win.intervals[0].fn()`, and no test depends on a
  * clock.
  */

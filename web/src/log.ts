@@ -22,7 +22,7 @@
  * token from `window.__AUTH__` directly.
  *
  * The batching/backoff policy — and every constant behind it — lives in
- * `./log-core.ts`, which is DOM-free so `tests/ui-log.test.ts` can drive it.
+ * `./log-core.ts`, which is DOM-free so `tests/ui/ui-log.test.ts` can drive it.
  */
 import {
   ClientLogger,

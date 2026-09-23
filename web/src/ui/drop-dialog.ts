@@ -137,7 +137,7 @@ export function isDropRunning(): boolean {
  * ranked after the folder picker and before the Add-a-project dialog. The arm
  * there is three lines and carries no comment of its own on purpose: the whole
  * decision is here, and that ladder is length-guarded
- * (`tests/ui-files-panel.test.ts`, the Escape-branch non-vacuity bound).
+ * (`tests/ui/ui-files-panel.test.ts`, the Escape-branch non-vacuity bound).
  *
  * It is the `×`, exactly: Skip while the question is up, HIDE while the copy
  * runs, and Close once it is over. Hiding is not cancelling — files that

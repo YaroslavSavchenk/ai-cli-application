@@ -23,8 +23,8 @@ proved it used a symlink TO a FIFO, and `O_NOFOLLOW` made that one pass.
 **The fix.** Open with `O_RDONLY | O_NOFOLLOW | O_NONBLOCK`: a FIFO then
 opens immediately (no writer needed), `fstat().isFile()` refuses it, and a
 regular file reads exactly as before. Two lines, both sites, pinned by
-`tests/telemetry.test.ts` ("a FIFO named like a snapshot never blocks the
-watcher") and `tests/statusline-script.test.ts` ("a FIFO planted at the
+`tests/server/telemetry.test.ts` ("a FIFO named like a snapshot never blocks the
+watcher") and `tests/server/statusline-script.test.ts` ("a FIFO planted at the
 snapshot path never hangs the turn").
 
 **The rule.** Any synchronous read of a path another process can create

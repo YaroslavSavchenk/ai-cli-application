@@ -11,7 +11,7 @@
  *
  * Every chord listed here has a visible UI control (and every drag has a
  * keyboard/button path); plain keys are never intercepted (they belong to the
- * TUI). `tests/ui-shortcuts-table.test.ts` reads this file as source and
+ * TUI). `tests/ui/ui-shortcuts-table.test.ts` reads this file as source and
  * compares it against the predicates in `ui/keys.ts`.
  *
  * FIVE rows carry a `note` (A9b added the third, A9c the fourth, B4 the
@@ -95,7 +95,7 @@ export const ROWS: Row[] = [
     what: 'copy them into that folder',
     // `Copy files here…` is spelled out rather than interpolated from
     // `COPY_LABEL` (ui/files-select-model.ts): this table is read as SOURCE by
-    // tests/ui-shortcuts-table.test.ts, whose scans match `ui: '…'` and would
+    // tests/ui/ui-shortcuts-table.test.ts, whose scans match `ui: '…'` and would
     // both go vacuous on a template literal — and a `${…}` hole in this column
     // could hide a chord the overlay claims. One wording, two spellings, and
     // the strip's own label still has exactly one definition.

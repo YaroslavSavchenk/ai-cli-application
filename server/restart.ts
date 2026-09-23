@@ -58,7 +58,7 @@
  *
  * Every dependency that touches the OS (build, spawn, health probe,
  * runtime.json read, clock, sleep, exit) is injected so the sequence can be
- * tested without a real child; `tests/restart.test.ts` also drives one REAL
+ * tested without a real child; `tests/server/restart.test.ts` also drives one REAL
  * restart.
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';

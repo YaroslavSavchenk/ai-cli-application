@@ -45,7 +45,7 @@ export class FsBrowseError extends Error {
  * (it has a `Root` quick zone, and a project you are about to register is by
  * definition not registered yet, so no anchor list could contain it).
  * Narrowing it would break Add-a-project, the GitHub clone destination and
- * their tests — tests/fs-entries.test.ts pins that this route still lists a
+ * their tests — tests/server/fs-entries.test.ts pins that this route still lists a
  * folder the panel's routes refuse. The NEW browser routes below
  * (listEntries/createEntry) are confined to the anchor list instead — read
  * that as a choice, not as an oversight here.
@@ -110,7 +110,7 @@ export function isSafeSegment(name: string): boolean {
  * purpose: it is the folder picker's "new folder" button, which must work
  * wherever the picker can browse — including the folder the user is about to
  * register as a project. createEntry() below is the confined twin, and
- * tests/fs-create.test.ts pins the asymmetry from both sides.
+ * tests/server/fs-create.test.ts pins the asymmetry from both sides.
  * `parent` must be an existing directory and
  * `name` a valid single segment; the target must not already exist. Throws
  * FsBrowseError (mapped to an HTTP status by the API layer) on any violation.

@@ -1,16 +1,21 @@
 # Plan: repo restructure and optimisation, in batches
 
-Status: see the table below (updated 2026-09-21). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/README.md`.
 
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
 | Batch 1 | The vault: work log into month/area folders, INDEX by theme | landed | — | 2026-09-20 |
 | Batch 2 | Plans into `.claude/plans/`, status table, conventions | landed | — | 2026-09-20 |
 | Batch 3 | Design sources into one `design/` home, handoffs tracked, `design-mocks/` removed | landed | — | 2026-09-21 |
-| Batch 4 | `tests/` into `ui/ server/ release/ repo/ helpers/ fixtures/`, through `/dev-flow` | todo — **next**; move map approved 2026-09-21, parked while another session edited `tests/` | — | |
+| Batch 4 | `tests/` into `ui/ server/ release/ repo/ helpers/ fixtures/`, through `/dev-flow` | landed | — | 2026-09-23 |
 | O1 | `.claude/PROJECT-SCOPE.md` back to a size one read can hold | todo — candidate, the user decides | — | |
 | O2 | `memory/BACKLOG.md`: open items apart from done ones | todo — candidate, the user decides | — | |
 | O3 | Small repairs found on the way (dead wikilinks, stale test messages) | todo — candidate, the user decides | — | |
+| O4 | `tests/README.md`: how a test is written here, plus a size guard | todo — decided 2026-09-23 | — | |
+| O5 | Duplicated test code into `tests/helpers/` | todo — decided 2026-09-23 | — | |
+| O6 | Split every test file over 800 lines (38 files, 53.6k lines on 2026-09-23) | todo — decided 2026-09-23 | — | |
+| O7 | Dead code and unused dependencies, whole repo (janitor) | todo — decided 2026-09-23 | — | |
+| O8 | Split every source file over 1 000 lines (14 files: 5 `server/`, `shared/protocol.ts`, 7 `web/src/`, `app.css`) | todo — decided 2026-09-23 | — | |
 
 ## Resume here
 
@@ -37,7 +42,7 @@ When the user says it, do this, in order:
    green (`CLAUDE.md`), table row + vault log entry + INDEX line in that commit.
 
 Where it stands (2026-09-21): batches 1–3 landed; both layouts are guarded by
-`tests/vault-layout.test.ts` and `tests/plans-layout.test.ts`; the map of the
+`tests/repo/vault-layout.test.ts` and `tests/repo/plans-layout.test.ts`; the map of the
 repo is `README.md` § Repository layout. Suite at the last landing of this
 plan: 2915 / 0 — it has grown since (B3); take a fresh baseline.
 
@@ -63,7 +68,7 @@ plan's spelling (`PLAN-A9B` -> `PLAN-A9b`, `PLAN-B10A` -> `PLAN-B10a`); 56
 files with citations rewritten (comments and docs only; `memory/log/` keeps
 the paths of its day). The master plan got a status table in place of its
 running status paragraph; conventions in `.claude/plans/README.md`, enforced
-by `tests/plans-layout.test.ts`. Rejected: a `landed/` folder (a spec would
+by `tests/repo/plans-layout.test.ts`. Rejected: a `landed/` folder (a spec would
 change path at every landing, and code comments cite specs by path).
 
 ## Batch 3 — design sources (LANDED 2026-09-21)
@@ -86,7 +91,7 @@ without `design/peek-mascot/support.js` (the design tool's generated runtime,
 no licence statement — gitignored); `/home/<author>` in the prototypes' mock
 data became `/home/you`. The two parity tests now run in full in CI.
 
-## Batch 4 — `tests/` into subfolders (through `/dev-flow`)
+## Batch 4 — `tests/` into subfolders (LANDED 2026-09-23)
 
 Approved layout (shown to the user 2026-09-21, answered "beide" / "continue"):
 
@@ -108,7 +113,7 @@ the three npm scripts (`test`, `test:ui`, `test:server` — globs), every
 a path from `import.meta`, and 337 citations of `tests/<file>` in 63 files
 outside `tests/` (scope doc, plans, vault, code comments; `memory/log/`
 exempt). CI runs `npm test`, so the workflows need no edit, but
-`tests/release-workflow.test.ts` pins workflow text — read it first.
+`tests/release/release-workflow.test.ts` pins workflow text — read it first.
 `tsconfig.server.json` includes `tests/**/*` already. Gate: the suite count
 equal to the fresh baseline, no test skipped or deleted, typecheck and build
 green, every changed line outside the moves proven to be the path mapping.
@@ -117,6 +122,32 @@ NOT while another session edits `tests/`, `server/` or `web/`.
 **`server/` (29 files) and `web/src/ui/` (54) stay flat** — decided
 2026-09-21: clear names, and hundreds of path citations plus the bundle
 scripts hang on them; a move would cost much and find nothing.
+
+## O4–O8 — codebase optimisation (decided 2026-09-23)
+
+The user widened this plan on 2026-09-23 ("het optimaliseren van de codebase
+toevoegen … vooral bij tests … richtlijnen hoe de tests geschreven moeten
+worden") and answered four questions the same day:
+
+1. **Order: tests first, then source.** Batch 4 → O4 → O5 → O6 → O7 → O8.
+2. **Thresholds: a test file over 800 lines, a source file over 1 000 lines
+   is split.** The limit becomes a rule in `tests/README.md` and a guard test
+   (`tests/repo/file-size.test.ts`) whose list of grandfathered files may
+   only shrink.
+3. **Split pieces stay in the same folder with a prefix** —
+   `server/api.ts` → `server/api.ts` + `server/api-<topic>.ts`; the
+   2026-09-21 call that `server/` and `web/src/ui/` stay flat holds.
+4. **The test guidelines live in `tests/README.md`**, cited from `CLAUDE.md`,
+   the `test-engineer` agent and `/dev-flow`.
+
+Rules for every O-part of this group: behaviour never changes — no test is
+deleted, skipped or weakened; a split test file keeps every `test(...)` name
+byte-exact, so the suite's test COUNT equals the baseline; a split source
+file keeps its public exports reachable from the old path (the old module
+re-exports) unless every importer is updated in the same commit. Why split
+at all: not run-time speed (Node and the bundler load the whole module graph
+either way) but reading cost — a reader, human or agent, opens the 300 lines
+about its topic, not 3 000.
 
 ## O1–O3 — optimisation candidates (nothing decided)
 
@@ -131,6 +162,6 @@ scripts hang on them; a move would cost much and find nothing.
   section or note.
 - **O3 — small repairs.** Seven `[[wikilinks]]` in old log entries point at
   notes of the orchestrator's own memory (outside the vault);
-  `tests/ui-mascot-view.test.ts` still says the handoff is "excluded from
+  `tests/ui/ui-mascot-view.test.ts` still says the handoff is "excluded from
   git"; `web/DESIGN.md` (963 lines) is due for its Nocturne rewrite in B8 of
   the Nocturne plan — not here.

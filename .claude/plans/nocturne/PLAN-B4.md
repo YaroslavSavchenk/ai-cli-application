@@ -114,8 +114,8 @@ refuses the TEXT above `FS_TEXT_MAX_BYTES` with 413.
 
 Files: `server/fstext.ts` (NEW: both routes' logic, pure helpers exported),
 `server/api.ts` (two routes beside `/api/fs/create`, access-log demotion of a
-200 read/write like `/api/fs/upload`), `tests/fs-text.test.ts` (NEW; real
-temp folders through `tests/fs-fixture.ts` as `fs-create.test.ts` does).
+200 read/write like `/api/fs/upload`), `tests/server/fs-text.test.ts` (NEW; real
+temp folders through `tests/helpers/fs-fixture.ts` as `fs-create.test.ts` does).
 
 1. **Boundary, identical to `createEntry` / upload:** `path` through
    `resolveUnderAllowed(path, { projects, gone: <the 404 sentence>, denied:
@@ -170,7 +170,7 @@ temp folders through `tests/fs-fixture.ts` as `fs-create.test.ts` does).
    too large to open here.`; 415 `This file is not text, so the editor cannot
    show it.`; 500 `The app could not read this file.` / `The app could not
    save this file.`; 507 `FS_DISK_FULL`.
-7. **Tests** (`tests/fs-text.test.ts`): round trip LF / CRLF / BOM / empty
+7. **Tests** (`tests/server/fs-text.test.ts`): round trip LF / CRLF / BOM / empty
    file / no trailing newline / mixed endings become uniform; `if` match →
    `changed:false`; size cap at exactly 1 MiB and 1 MiB + 1; NUL → 415;
    invalid UTF-8 → 415; a directory → 400; a FIFO (real `mkfifo`) → 415
@@ -222,8 +222,8 @@ guard), `web/src/main.ts` (Ctrl+S, Ctrl+Alt+W through the guard,
 `beforeunload`, gateway wiring), `web/src/ui/shortcuts.ts` (Ctrl+S row),
 `web/src/state.ts` (persist editor slots; `dirtyLostBy`), `web/src/ui/files-mock.ts`
 (DELETED with its tests' imports), `web/src/styles/app.css` (the conflict
-bar), tests: `tests/ui-file-pane.test.ts`, `tests/ui-editor-model.test.ts`,
-`tests/ui-state.test.ts` (persistence), a new `tests/ui-unsaved.test.ts`.
+bar), tests: `tests/ui/ui-file-pane.test.ts`, `tests/ui/ui-editor-model.test.ts`,
+`tests/ui/ui-state.test.ts` (persistence), a new `tests/ui/ui-unsaved.test.ts`.
 
 1. **Gateway, injected** like `CommitGateway`: `EditorGateway { read(path,
    ifStamp?), write(body) }` in `editor-store.ts`; `main.ts` wires

@@ -2758,7 +2758,7 @@ body.is-resizing-col {
 
 /* files dragged in from Explorer (Nocturne A9) — the same block, because they
    are the same act seen from the other side, and app.css carries exactly one
-   "drag & drop" section (pinned by tests/ui-a8-chrome.test.ts).
+   "drag & drop" section (pinned by tests/ui/ui-a8-chrome.test.ts).
    Same grammar as the in-app drags above, one rule short of it: an external
    drag is an OS gesture, so the cursor stays the OS's (no `grabbing`) and only
    the selection is frozen. NOTHING here changes layout — outlines and the
@@ -3098,7 +3098,7 @@ body.is-dnd * {
    primitive twin: --line, --tick, --font-sans, --font-mono (the A3 pane block
    uses the same four). No Legacy colour or spacing alias — A8 deleted that
    layer, and every name here is a real declaration in tokens.css
-   (tests/ui-launch-a4.test.ts). Type sizes are the v3
+   (tests/ui/ui-launch-a4.test.ts). Type sizes are the v3
    markup's own literals. One accent rule: the SELECTED card's outline and the
    Start session outline; nothing else in the dialog is blurple except the
    focus ring. Danger red belongs to exactly one card, No prompts.
@@ -3579,7 +3579,7 @@ body.is-dnd * {
    dialog use the same four; A8 phase 0 re-homed them into the Nocturne
    sections, phase 2 deleted the alias block they used to sit under). No
    Legacy colour or spacing alias — part A8 deleted those.
-   `tests/ui-settings-a7.test.ts` pins all of it.
+   `tests/ui/ui-settings-a7.test.ts` pins all of it.
 
    Grammar, shared with the New session dialog: rows are hairline-separated
    (neutral-900), controls are 1px neutral-800 outlines on nothing, the ONE
@@ -4363,7 +4363,7 @@ body.is-dnd * {
    --shadow-*) plus the four structural tokens the A3 pane and A4 dialog blocks
    also use and that have no primitive twin: --line, --tick, --font-sans,
    --font-mono (all four are plain tokens.css declarations since A8 deleted the
-   alias layer — tests/ui-addproject-a7.test.ts pins that). No
+   alias layer — tests/ui/ui-addproject-a7.test.ts pins that). No
    Legacy colour or spacing alias, no hardcoded colour. Type sizes are the v3
    markup's own literals.
 

@@ -187,7 +187,7 @@ export function chipView(status: GithubStatus | null): ChipView {
 
 // ---------------------------------------------------------------------------
 // Credential copy — the part the design gate cares most about. Every string
-// below is user-visible and is pinned by tests/ui-github-model.test.ts.
+// below is user-visible and is pinned by tests/ui/ui-github-model.test.ts.
 // ---------------------------------------------------------------------------
 
 /**

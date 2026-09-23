@@ -63,7 +63,7 @@ offer; release-notes line).
   `responseReason` is a WeakMap of CONSTANT sentences only. The access log prints
   `?…` for any query — never its values — and demotes chatty routes to `debug`.
 - `server/winpath.ts` (B5) already owns the WSL→Windows mapping: `windowsPathFor()`,
-  `isDistroName()`, tested in `tests/winpath.test.ts`. Its allow-list
+  `isDistroName()`, tested in `tests/server/winpath.test.ts`. Its allow-list
   (`[A-Za-z0-9._-]` segments) exists because **cmd.exe parses its own command
   line** — that reason does not apply to a clipboard path.
 - `launcher/host/AiSessionManagerHost.cs`: `[STAThread] Main`, args[0] = the URL,
@@ -87,11 +87,11 @@ offer; release-notes line).
 - `package.json` has exactly two runtime dependencies (`node-pty`, `ws`). Adding a
   multipart parser would be a third; it is not going to happen.
 - Tests: server routes run against a REAL server child with a fixture home
-  (`AI_SM_HOME_OVERRIDE`, `tests/fs-create.test.ts`), and `tests/helpers.ts`
+  (`AI_SM_HOME_OVERRIDE`, `tests/server/fs-create.test.ts`), and `tests/helpers/helpers.ts`
   `rawRequest()` already sends a verbatim body with an explicit `content-length`.
-  The Files panel is driven through an injected `FsGateway` (`tests/fs-fixture.ts`).
+  The Files panel is driven through an injected `FsGateway` (`tests/helpers/fs-fixture.ts`).
   Host-side PowerShell/C# sources are already scanned as TEXT by
-  `tests/launcher-config.test.ts`, `tests/nocturne-tokens.test.ts`.
+  `tests/release/launcher-config.test.ts`, `tests/ui/nocturne-tokens.test.ts`.
 
 To be re-verified in the browser during Phase 2 (established, not measured here):
 `FileSystemEntry` handles captured synchronously in `drop` stay usable after the
@@ -569,7 +569,7 @@ captured pointer is not a shape the OS drag loop supports. Decision 3 of A9 stan
 
 ## 5. Tests
 
-**Phase 1 — `tests/fs-upload.test.ts`** (a real server child on a fixture home via
+**Phase 1 — `tests/server/fs-upload.test.ts`** (a real server child on a fixture home via
 `AI_SM_HOME_OVERRIDE`, `rawRequest()` for verbatim bodies): a file lands with
 byte-identical content (hash compare) and 201 `{ bytes }`; `rel` with subfolders
 creates them; `replace` overwrites and `new` answers 409; a symlinked target is
@@ -583,28 +583,28 @@ project outside home → 201 (the anchor list); no `content-length` → 411; chu
 being read**; a body shorter than `content-length` (client abort) → no `.part`
 survives; wrong content-type → 415; GET/POST → 405; `server.log` never contains a
 canary FILE NAME or a canary BYTE SEQUENCE (the `fs-create` canary idiom); 0-byte
-file → 201. Plus `tests/winpath.test.ts`: the `windowsPathForClipboard` table
+file → 201. Plus `tests/server/winpath.test.ts`: the `windowsPathForClipboard` table
 (spaces, Unicode, parentheses, `&`, refusals for control chars, `..`, `*`, trailing
 dot/space) and `GET /api/fs/winpath` boundary/422 cases.
 **Mutation gate: FULL** (path boundary + a new write primitive = hard constraint).
 
-**Phase 2** — `tests/ui-drop-walk.test.ts` (a fake entry tree: nesting, the
+**Phase 2** — `tests/ui/ui-drop-walk.test.ts` (a fake entry tree: nesting, the
 `readEntries` 100-at-a-time loop, an empty folder, an unreadable folder, the
-early stop at 2001 files, a size-less file counting 0), `tests/ui-drop-upload.test.ts`
+early stop at 2001 files, a size-less file counting 0), `tests/ui/ui-drop-upload.test.ts`
 (a fake `UploadGateway`: order, modes per D2, keep-both names inside a folder, D4's
 partial note, `failNote` per status, a network throw, nothing rolled back, an
-oversized top-level file never sent), `tests/ui-a9-drop.test.ts` extended (the
+oversized top-level file never sent), `tests/ui/ui-a9-drop.test.ts` extended (the
 honesty line and its marker are GONE — asserted by absence so the mock cannot come
 back; rows settle from the runner, not a timer; Esc during copying still does
-nothing), and `tests/ui-filedrop.test.ts` extended (the D3 refusals flash before any
+nothing), and `tests/ui/ui-filedrop.test.ts` extended (the D3 refusals flash before any
 listing request; the picker path and the paste path reach the same `offer`).
-`tests/ui-context-menu-model.test.ts` for `canCopy`. Fake DOM + `makeDataTransfer`
+`tests/ui/ui-context-menu-model.test.ts` for `canCopy`. Fake DOM + `makeDataTransfer`
 + a fake `fetch`; **mutation cap ~10** (UI surface), full on `drop-upload.ts`'s
 mode selection (it decides overwrites).
 
 **Phase 3** — nothing runnable here: no Windows, no `csc.exe`, no clipboard. What
-IS runnable is a source-shape test (`tests/host-webmessage.test.ts`, the idiom
-`tests/launcher-config.test.ts` already uses on `.ps1`/`.cs` text): the origin check
+IS runnable is a source-shape test (`tests/release/host-webmessage.test.ts`, the idiom
+`tests/release/launcher-config.test.ts` already uses on `.ps1`/`.cs` text): the origin check
 is present in the handler, `IsWebMessageEnabled` is set where it is read, the
 allow-list refuses `..` and control characters, no path is logged, and the reply is
 sent on both outcomes. The behaviour itself is the user's Windows check.
@@ -614,7 +614,7 @@ sent on both outcomes. The behaviour itself is the user's Windows check.
 - **Phase 0 — `generalist-dev`**, in parallel with Phase 1 (no file overlap): the
   additive `drop-model.ts` (`planTargets`, `uploadMode`, `dropRefusal`, `failNote`,
   `partialNote`, the two new limits, `MAX_ITEM_BYTES` re-pointed), and
-  `tests/ui-drop-model.test.ts` extended. `planResults`'s output must not move a
+  `tests/ui/ui-drop-model.test.ts` extended. `planResults`'s output must not move a
   byte. Imports `MAX_UPLOAD_BYTES` / `FsUploadMode` from `shared/protocol.ts`,
   which Phase 1 adds (names fixed above).
 - **Phase 1 — backend** (`backend-pty` → `scope-reviewer` + `security-auditor` +

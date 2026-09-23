@@ -22,7 +22,7 @@ line numbers.
 off it".** Half (a) deleted the Legacy `.status-row/-box/-lb/-sample` family
 after grepping that half (b) had no users left; true at that moment, but only
 because half (b) had already landed. A whole-stylesheet, whole-`web/src`
-class-parity test (`tests/ui-a7-parity.test.ts`: every prefixed class set
+class-parity test (`tests/ui/ui-a7-parity.test.ts`: every prefixed class set
 in TS has a rule, every rule has a setter, deleted names have zero users)
 is what makes such a deletion safe after the fact. Add that test in the
 same part, not in the gate part.
@@ -37,7 +37,7 @@ assign them explicitly.
 mock hand-copied the tool cards' marks and labels; review caught the drift
 risk. Mock rows that mirror a real table import it.
 
-**fake-dom gotcha.** `tests/fake-dom.ts` `click()` dispatches to `disabled`
+**fake-dom gotcha.** `tests/helpers/fake-dom.ts` `click()` dispatches to `disabled`
 controls (the real DOM does not), so a "disabled until X" defence needs the
 same invariant in the handler (`if (chosen === '') return;`) to be
 assertable, and the fake's `focus()` on a disabled element is a no-op like

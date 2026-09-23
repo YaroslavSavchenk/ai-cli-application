@@ -38,7 +38,7 @@ EIO.
 
 ## Why it hid, and why the test that caught it was well built
 
-Load-dependent: `tests/sessions.test.ts:301` passed 10/10 alone and failed
+Load-dependent: `tests/server/sessions.test.ts:301` passed 10/10 alone and failed
 3-in-26 full-suite runs under contention. It surfaced when the suite grew
 288 → 391, because a single run then loads the machine enough by itself.
 
@@ -78,7 +78,7 @@ grandchild would block in the kernel with no timeout — freezing the single
 process that serves every session, the HTTP API and every WebSocket.
 
 Hence: `node-pty` is pinned **exactly** to 1.1.0 (user's decision 2026-07-25),
-and a version bump means re-running `tests/sessions-tail.test.ts` and
+and a version bump means re-running `tests/server/sessions-tail.test.ts` and
 re-checking `pty_nonblock`.
 
 Known, accepted limit: a multi-byte character split exactly across the

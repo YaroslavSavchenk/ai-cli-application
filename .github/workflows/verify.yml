@@ -35,7 +35,7 @@ permissions: {}
 
 # The single definition of the Node runtime for this workflow: what setup-node
 # installs in every job below AND what `scripts/build-bundle.sh` bundles. The
-# same value is defined once in release.yml; tests/release-workflow.test.ts pins
+# same value is defined once in release.yml; tests/release/release-workflow.test.ts pins
 # that the two agree.
 env:
   NODE_VERSION: '24.20.0'
@@ -96,8 +96,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # tests/auth.test.ts runs `npm run build` itself on a fresh checkout
-      # (tests/auth.test.ts:129); doing it here keeps that cost out of a test's
+      # tests/server/auth.test.ts runs `npm run build` itself on a fresh checkout
+      # (tests/server/auth.test.ts:129); doing it here keeps that cost out of a test's
       # own timeout and gives a clean failure if the build is what broke.
       - name: Build the frontend
         run: npm run build

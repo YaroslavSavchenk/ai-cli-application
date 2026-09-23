@@ -31,7 +31,7 @@
 #
 # NODE_VERSION below is the ONE definition of the Node runtime in this file: it
 # is what setup-node installs AND what goes into the bundle (`--node`). The same
-# value is defined once in verify.yml; tests/release-workflow.test.ts pins that
+# value is defined once in verify.yml; tests/release/release-workflow.test.ts pins that
 # the two agree.
 #
 # Triggers:

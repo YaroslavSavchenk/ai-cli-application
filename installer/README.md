@@ -34,7 +34,7 @@ exists.
 and the icons; every decision, every parse and every `wsl.exe` call lives in a
 PowerShell **5.1** helper (`pwsh` is not installed on a normal Windows PC) that
 writes a `key=value` result file the Pascal reads back. That keeps the logic
-testable from inside WSL — see `tests/installer-helpers.test.ts`, which runs
+testable from inside WSL — see `tests/release/installer-helpers.test.ts`, which runs
 every helper with `-DryRun` and runs their constant shell scripts under a real
 `sh` — and keeps the Pascal small enough to review by eye, which matters
 because ISCC only exists on Windows.
@@ -101,7 +101,7 @@ The data directory beside it (`~/.ai-session-manager/`: `runtime.json`,
 The shortcuts run `wscript.exe "{app}\launch-silent.vbs"` and carry
 `AppUserModelID = AiSessionManager` — byte-identical to what the native host
 window sets, which is what makes the taskbar show `app.ico` instead of a
-generic icon. `tests/installer-script.test.ts` pins that the three places
+generic icon. `tests/release/installer-script.test.ts` pins that the three places
 agree.
 
 ## The wizard
@@ -198,9 +198,9 @@ Every helper is safe to run by hand with `-DryRun`: it prints the exact
       -Distro Ubuntu-24.04 -AppDir /home/you/.ai-session-manager/app \
       -ResultFile /tmp/r.txt
 
-The automated versions live in `tests/installer-helpers.test.ts` (helper
+The automated versions live in `tests/release/installer-helpers.test.ts` (helper
 behaviour, including the constant shell scripts under a real `sh`) and
-`tests/installer-script.test.ts` (the `.iss` text: the GUID, no elevation, the
+`tests/release/installer-script.test.ts` (the `.iss` text: the GUID, no elevation, the
 AUMID equality, the tarball's `deleteafterinstall`, the consent copy).
 `npm test` runs both; the PowerShell half skips itself where there is no
 Windows side.

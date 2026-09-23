@@ -247,7 +247,7 @@ export function parentsOf(items: readonly DeleteItem[]): string[] {
  * `MAX_DELETE_ITEMS` so the sentence and the number cannot drift apart — from
  * each other, or from the server's refusal for the same batch
  * (`server/fsdelete.ts`, `FS_DELETE_TOO_MANY`, which `TOO_MANY_TO_DELETE`
- * equals byte for byte and `tests/ui-delete-model.test.ts` pins).
+ * equals byte for byte and `tests/ui/ui-delete-model.test.ts` pins).
  *
  * The client refuses BEFORE the request, so the user is told about a selection
  * that is too large instead of watching a whole batch bounce.

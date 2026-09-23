@@ -24,7 +24,7 @@ on `.ts` files needs 22.6+.
   under 18). npm 11 prints an `install-scripts` warning for node-pty; the
   script still ran (`build/Release/pty.node` present, `require` OK).
 - **`npm run build`** — `web/dist` is gitignored; without it
-  `tests/buildinfo.test.ts` skips one test and the served UI is 404.
+  `tests/server/buildinfo.test.ts` skips one test and the served UI is 404.
 - **Playwright Chromium** (user-level, no sudo):
   `npx --yes playwright@1.58.2 install chromium` →
   `~/.cache/ms-playwright/chromium-1208` — the verify-terminal CDP driver

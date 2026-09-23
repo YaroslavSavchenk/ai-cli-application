@@ -164,7 +164,7 @@ finished; `agentCounts` carries the totals …". Added after `agents?`:
 ```
 
 `server/statusline.mjs` `DEFAULT_CONFIG` gains `paneAgents: false` (the
-factory tables must stay one list — `tests/ui-statusline-model`), and the
+factory tables must stay one list — `tests/ui/ui-statusline-model`), and the
 prefs validation wherever `paneBar` is accepted accepts it too.
 
 Frozen server signatures (`server/agents.ts`):
@@ -226,12 +226,12 @@ Backend (`backend-pty`): `shared/protocol.ts`; `server/agents.ts` (turn fold +
 tail read + derived transcript + the new list rule + report); `server/sessions.ts`
 (`setReport`, drop `turn` at exit); `server/index.ts` (the callback);
 `server/statusline.mjs` (`paneAgents: false`); prefs validation if it
-whitelists statusLine keys. Tests: `tests/agents.test.ts` (`turnOfLine` on
+whitelists statusLine keys. Tests: `tests/server/agents.test.ts` (`turnOfLine` on
 every rule above incl. a real-shaped interrupt, `<command-name>`, synthetic
 error, task-notification; tail read of a >1 MiB transcript; a missing
 transcript → waiting; list rule on the four examples in (d); counts; a
-turn-only report with no agents), `tests/sessions*.test.ts` (`setReport`, turn
-dropped at exit), `tests/statusline-script.test.ts` / `tests/ui-statusline-model`
+turn-only report with no agents), `tests/server/sessions*.test.ts` (`setReport`, turn
+dropped at exit), `tests/server/statusline-script.test.ts` / `tests/ui/ui-statusline-model`
 (factory tables agree).
 
 Frontend (`terminal-ui`, `/frontend-designer` applies): `web/src/ui/session-state.ts`
@@ -243,7 +243,7 @@ BEL-only users); `web/src/ui/tabs.ts`; `web/src/ui/statusline.ts`;
 `web/src/ui/pane-agents.ts` (count line); `web/src/ui/statusline-model.ts`
 (`paneAgents: false` in FACTORY + KEYS); `web/src/ui/settings.ts` (the row);
 `web/src/styles/app.css` (`is-work`, `is-wait`, count line). Tests:
-`tests/ui-session-state.test.ts` (new), `tests/ui-pane-agents-model.test.ts`
+`tests/ui/ui-session-state.test.ts` (new), `tests/ui/ui-pane-agents-model.test.ts`
 (the four examples, switch off → empty, counts of 0 not drawn), existing
 statusline/tabs/sessions/settings tests updated.
 

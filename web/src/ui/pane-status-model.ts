@@ -138,7 +138,7 @@ export function paneStatusItems(
       items.push({
         k: 'Usage',
         // A comma, not the v3 mock's middle dot: decorative separators are out
-        // of the chrome's copy (A2, README-v3 — the rule tests/ui-copy-separators
+        // of the chrome's copy (A2, README-v3 — the rule tests/ui/ui-copy-separators
         // enforces), and two windows read as a list either way.
         v: parts.join(', '),
         tone: lead >= USAGE_WARN_PCT ? 'warn' : 'neutral',

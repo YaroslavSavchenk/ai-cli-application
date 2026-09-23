@@ -188,8 +188,8 @@ Routes (token + Origin/Host like every `/api` route):
    moves under Defaults and says only that.
 4. Copy rule: no flag or command anywhere (the mapping lives in
    launch-args.ts only). State words as before.
-5. Tests: `tests/ui-launch-args.test.ts` (per-tool argv tables, byte-exact;
-   pre-B5 forms unchanged), `tests/ui-launch-dialog.test.ts` through the real
+5. Tests: `tests/ui/ui-launch-args.test.ts` (per-tool argv tables, byte-exact;
+   pre-B5 forms unchanged), `tests/ui/ui-launch-dialog.test.ts` through the real
    dialog in the fake DOM (availability → inert cards, notice logic, resume
    entries, control hiding per tool), settings key rows. Mutation cap ~10
    (UI surface), except `composeSpawn` (argv = hard constraint → full probe).

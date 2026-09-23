@@ -40,7 +40,7 @@
  *      `rm(p, { recursive: true })` lstats the final component (its ENOENT says
  *      `lstat`), so a link — to a file, to a directory, or dangling — is
  *      UNLINKED and its target is untouched, and links found inside a deleted
- *      tree are unlinked the same way. tests/fs-delete.test.ts plants both and
+ *      tree are unlinked the same way. tests/server/fs-delete.test.ts plants both and
  *      asserts the outside target survives.
  *
  * A NON-SYMLINK TARGET NEEDS NO SECOND REALPATH: its parent is already real
@@ -161,7 +161,7 @@ function isJsonContentType(value: string | string[] | undefined): boolean {
 
 /**
  * One errno, as the answer that ITEM gets. PURE — no logging, no fs — so the
- * table can be tested directly (tests/fs-delete.test.ts) instead of only
+ * table can be tested directly (tests/server/fs-delete.test.ts) instead of only
  * through filesystem states that are hard to produce on purpose.
  *
  * ENOENT is a 404 here; the CALLER turns it into `{ ok: true }` when an

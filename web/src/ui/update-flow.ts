@@ -2,7 +2,7 @@
  * The in-app UPDATE handshake, DOM-free (phase E, 2026-09-09): POST once, then
  * watch `GET /api/update/status` until the new version is on disk. Written as
  * the twin of `./restart-flow.ts` — same shape, same injected side effects
- * (fetch, clock, sleep), so `tests/ui-update-model.test.ts` drives every
+ * (fetch, clock, sleep), so `tests/ui/ui-update-model.test.ts` drives every
  * outcome with no browser, no timers and no backend. `./update.ts` owns the
  * pixels and glues this half to the restart half.
  *

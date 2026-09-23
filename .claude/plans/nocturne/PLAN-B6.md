@@ -163,8 +163,8 @@ Wired in `main.ts` beside `initStatusLine(prefs?.statusLine)`.
 ## Phase 1 — backend (`backend-pty`, small)
 
 Files: `server/api.ts` (one route beside `/api/update/status`),
-`server/index.ts` (the dep), `tests/update-check-route.test.ts` (NEW, over
-real HTTP like `tests/restart.test.ts`; a fake `ReleaseChecker` through the
+`server/index.ts` (the dep), `tests/server/update-check-route.test.ts` (NEW, over
+real HTTP like `tests/server/restart.test.ts`; a fake `ReleaseChecker` through the
 deps seam, never a network).
 
 1. `deps.updateCheck?: () => Promise<UpdateStatus>`; in `index.ts`:
@@ -187,9 +187,9 @@ Files: `web/src/ui/settings.ts`, `web/src/ui/shortcuts-rows.ts` (NEW),
 `web/src/ui/shortcuts.ts` (reads the rows from the new module, nothing
 else), `web/src/styles/app.css` (the Tools block, the answer line, the
 Keyboard page's layout), `web/src/main.ts` — ONLY the `initSettings(...)`
-call (the `openShortcuts` dep goes). Tests: `tests/ui-settings-panel.test.ts`,
-`tests/ui-settings-a7.test.ts` (pins that change), `tests/ui-shortcuts-table.test.ts`
-(imports the new module), a new `tests/ui-settings-b6.test.ts`.
+call (the `openShortcuts` dep goes). Tests: `tests/ui/ui-settings-panel.test.ts`,
+`tests/ui/ui-settings-a7.test.ts` (pins that change), `tests/ui/ui-shortcuts-table.test.ts`
+(imports the new module), a new `tests/ui/ui-settings-b6.test.ts`.
 
 1. **Preferences → Tools block** (new, above `Defaults`): lead, one
    `checkRow` per `TOOL_CARDS` entry (mark + label as the key rows), checked
@@ -226,10 +226,10 @@ Files: `web/src/ui/launch.ts` (hide cards), `web/src/state.ts` (`loadUi`
 gate, the `run` stamp), `web/src/ui/tabs.ts`, `web/src/ui/sessions.ts`,
 `web/src/ui/panes.ts` (the doors), `web/src/ui/terminal.ts` (follow),
 `web/src/main.ts` — ONLY the `st.loadUi(...)` call. Tests:
-`tests/ui-launch-dialog.test.ts`, `tests/ui-state.test.ts`,
-`tests/ui-tabs*.test.ts`, `tests/ui-sessions*.test.ts`, `tests/ui-terminal*.test.ts`
+`tests/ui/ui-launch-dialog.test.ts`, `tests/ui/ui-state.test.ts`,
+`tests/ui/ui-tabs*.test.ts`, `tests/ui/ui-sessions*.test.ts`, `tests/ui/ui-terminal*.test.ts`
 (whichever exist — add beside them, never a new runner), a new
-`tests/ui-prefs-model.test.ts` for the pure module.
+`tests/ui/ui-prefs-model.test.ts` for the pure module.
 
 1. **Launch dialog:** the grid is built from `TOOL_CARDS` minus
    `getHiddenTools()`, re-evaluated on every open (a flip in Settings shows
@@ -260,7 +260,7 @@ gate, the `run` stamp), `web/src/ui/tabs.ts`, `web/src/ui/sessions.ts`,
 ## Phase 3 — the sticky port (`backend-pty`; after D5, after the phase 1 gate)
 
 Files: `server/index.ts` (the port choice, ~:625-720), a small pure module
-`server/last-port.ts` (NEW: read/write/gate), `tests/last-port.test.ts`
+`server/last-port.ts` (NEW: read/write/gate), `tests/server/last-port.test.ts`
 (NEW). Nothing in `web/`.
 
 1. ⟲ `<dataDir>/last-port.json` (`{ "port": <n> }`, 0600, atomic write like

@@ -13,7 +13,7 @@
 # Without the build (`build-mode: none`) the scan resolved only 56 % of the
 # calls and GitHub flagged the analysis quality as low.
 #
-# Same rules as the other workflows (tests/release-workflow.test.ts): every
+# Same rules as the other workflows (tests/release/release-workflow.test.ts): every
 # action pinned to a commit SHA, no permissions by default, checkout without
 # persisted credentials, no `${{ }}` inside a run: block.
 

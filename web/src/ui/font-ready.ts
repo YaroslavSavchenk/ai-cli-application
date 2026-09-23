@@ -13,7 +13,7 @@
  * The module is deliberately DOM-free and dependency-free: every input is a
  * parameter and the font set is the injected `FontFaceSetLike`, so
  * `node --test` drives it against a fake FontFaceSet with no browser
- * (`tests/ui-font-ready.test.ts`). The browser glue — reading the tokens,
+ * (`tests/ui/ui-font-ready.test.ts`). The browser glue — reading the tokens,
  * clearing glyph atlases, refitting — lives in `ui/terminal.ts`.
  *
  * "Font loaded" is not "font renders" (memory: google-fonts-subset-trap): all
