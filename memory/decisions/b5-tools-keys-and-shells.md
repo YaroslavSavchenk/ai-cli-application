@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-18
-updated: 2026-09-20
+updated: 2026-09-23
 tags: [nocturne, launch-dialog, api-keys, interop, codex, gemini, grok]
 ---
 # B5: API keys, Command Prompt, not-installed tools, resume shape (open decisions 4 + 6)
@@ -100,3 +100,57 @@ in-flight shell history (UX; a 300–500 ms grace is the user's call).
 Related: [[nocturne-full-switch]], [[session-history-resume]],
 [[terminal-sessions-and-host-exit]] (the PowerShell precedent),
 [[localhost-security-model]].
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Features (decided) — Stored API keys + the B5 spawn-time injections
+
+- **Stored API keys + the B5 spawn-time injections (Nocturne B5,
+  2026-09-18; rationale `memory/decisions/b5-tools-keys-and-shells.md`).**
+  `<dataDir>/keys.json` (0600, atomic, `{ claude?, gemini?, grok? }`) is
+  the fourth data-dir artifact holding a secret — the same ceiling as the
+  GitHub token: the value is never logged (only `key saved/cleared/rejected
+  for <tool>`), never returned to the page, never in argv. Values are gated
+  to 1–4096 printable non-space ASCII on save AND on load, so a hand-edited
+  file can never put a control character into an environment. Routes (token
+  + Origin/Host like every `/api` route): `GET /api/tools` →
+  `ToolAvailability` (an async stat-only PATH lookup in `ptyEnv()`'s PATH —
+  the probe and a spawn can never disagree — cached 5 s, never a spawn,
+  relative/empty PATH entries skipped); `GET /api/keys` → `KeyStatus`
+  (`saved` / `env` booleans); `PUT /api/keys/:tool` (`{ key }`, JSON only,
+  8 KiB cap, `400 That does not look like an API key.` / `Unknown tool.`);
+  `DELETE /api/keys/:tool` (idempotent). Two NEW narrow injections in
+  `server/sessions.ts`, beside `--settings` and `--session-id`, both by
+  `basename(command)`, PTY-only, never in `SessionInfo.args`, re-applied on
+  resume: (1) a SAVED key becomes that tool's variable in the child
+  environment (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY`; a
+  saved key beats an inherited one, no saved key = untouched, so a variable
+  set in the user's shell still reaches the CLI; known consequence: the CLI's
+  own child processes inherit it, as with any env-var key); (2) `cmd.exe`
+  launched with NO client args gets `/k pushd <windows path>` (see the
+  launch-dialog bullet). `POST /api/sessions` answers `409` when a
+  client-supplied `--resume <uuid>` targets a history entry that is still
+  live. Not built by decision: keys for Codex; `pwsh.exe`.
+
+### Features (decided) — Ending a session
+
+- **Ending a session = a signal ladder on the process GROUP (2026-09-20,
+  found by B5's verify-terminal pass; rationale in
+  `memory/decisions/b5-tools-keys-and-shells.md` § 5).** `DELETE
+  /api/sessions/:id` sends SIGHUP (`pty.kill()`, what a closing terminal
+  sends), then after 2 s SIGTERM to `-pid`, then after 3 more s SIGKILL to
+  `-pid` — node-pty's forkpty child is a session leader, so the negative pid
+  reaches every descendant the CLI spawned; each rung is skipped once the
+  whole group is gone (`process.kill(-pid, 0)` → ESRCH; a live group pins
+  its leader's pid number, so the probe cannot hit a reused pid). Server
+  shutdown and restart send SIGHUP + immediate group SIGKILL, including for
+  ladders still in flight for sessions already removed. Why: Gemini CLI 0.60
+  (a wrapper that relaunches itself as a child) ignores SIGHUP and SIGTERM
+  sent to the leader alone, so an ended session kept running with the
+  stored `GEMINI_API_KEY` in its environment after the user had removed the
+  key. Known limits, recorded: a descendant that `setsid`s out of the group
+  escapes the ladder (same uid — it could read the key anyway); a root-owned
+  member survives silently; shutdown's SIGHUP+SIGKILL in one tick loses
+  in-flight shell history (UX, user's call).

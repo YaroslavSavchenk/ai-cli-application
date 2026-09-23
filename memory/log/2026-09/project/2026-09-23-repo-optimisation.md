@@ -136,6 +136,19 @@ keeps its mtime and is never re-read), not caused by the move. Backlog.
   are tracked since 2026-09-21); the `ui-a7-parity` "four modules" comment and
   the `shared/protocol.ts` "no runtime code" header told the truth.
 
+## O1 — the scope doc back to one read
+
+`.claude/PROJECT-SCOPE.md` 1591 → 668 lines. The head and everything from
+`## Hard technical constraints` on are byte-identical; each Architecture and
+Features bullet became its current rule plus a `History:` pointer, and the
+full original bullet moved verbatim into the vault note it cited (15 notes,
+appended under "From the scope doc (moved 2026-09-23)") or into the new
+[[scope-history]]. Line-multiset check: every removed line exists in the
+vault. A scope review of round one found no invented fact but four shifted
+meanings and too many dropped current rules — keyboard ownership, launcher
+allow-lists and `--exec`, the git no-config flags, env-seam value checks,
+body caps, update guards; one fix round put them back as short sub-lines.
+
 ## Worth remembering
 
 - "Split it so it runs faster" is a wrong reason given for a right move: the
@@ -149,5 +162,8 @@ keeps its mtime and is never re-read), not caused by the move. Backlog.
 - Parallel agents on disjoint files work; the friction was naming (two
   fixture conventions from one brief) and a shared guard file — say the
   exact name pattern and keep shared files with the orchestrator.
+- Condensing a truth document: a pointer hides a rule. Keyboard, security
+  and data-integrity rules stay in the document itself, even when their
+  story moves out.
 - A negative check ("X must not appear in main.ts") silently narrows when
   the file it reads is split; review every retargeted read for that.

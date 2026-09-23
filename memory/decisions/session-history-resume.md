@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-23
 tags: [sessions, history, resume, launch, frontend, backend]
 ---
 # Session history with real per-conversation resume; lean launch dialog
@@ -98,3 +98,35 @@ words, no code or explanation".
 Related: [[no-code-in-ui-copy]], [[launch-dialog-custom-escape-hatch]],
 [[lifecycle-bound-backend]], [[localhost-security-model]],
 [[wsl-0600-not-a-boundary]]
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Architecture (decided) — Session history with real per-conversation resume
+
+- **Session history with real per-conversation resume — decided and shipped
+  2026-09-06, user's call** (reverses the 2026-07-19 "per-id `--resume` is a
+  fiction" cut; rationale in `memory/decisions/session-history-resume.md`).
+  Every session the app launches is kept across backend runs in
+  `history.json` (data dir, 0600, atomic, bounded to 200 entries, oldest
+  ENDED entries drop first, live ones never). Mechanism: a claude-kind
+  session (`basename(command) === 'claude'`) whose client args carry no
+  `--continue`/`-c`/`--resume`/`-r`/`--session-id` is spawned with an
+  injected `--session-id <app session uuid>` (PTY argv only — never in
+  `SessionInfo.args`, same rule as the injected `--settings`), so the app
+  knows the Claude conversation id; resuming spawns `claude <base args>
+  --resume <id>` server-side (`POST /api/history/:id/resume`). Every end
+  reason is listed (user-kill, exit, shutdown, crash — crash stamped at
+  boot for entries left open). Claude conversations whose transcript is
+  PROVABLY absent (nothing was ever said) are pruned at list time: only when
+  `<CLAUDE_CONFIG_DIR|~/.claude>/projects/<encoded realpath(cwd)>/` exists
+  and `<id>.jsonl` is missing — every uncertainty keeps the entry. Requires
+  **Claude Code ≥ 2.1.263** (`--session-id`, `--resume <id>`, `--effort`
+  verified there); no version probe exists. **Known limit:** a launch with
+  Start from "The last conversation in this project" (`--continue`; until
+  2026-09-10 the "Continue last conversation" checkbox) can never be pinned — its
+  entry resumes with `--continue` again (most recent conversation in that
+  folder) and its button reads "start again". A client-supplied
+  `--session-id <uuid>` / `--resume <uuid>` (custom command) is adopted as
+  the key. Blank session name → title = project name.

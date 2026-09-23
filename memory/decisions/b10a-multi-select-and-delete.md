@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-20
-updated: 2026-09-20
+updated: 2026-09-23
 tags: [nocturne, files, delete, selection, security]
 ---
 # B10a: multi-select in the Files panel + permanent delete with one confirmation
@@ -61,3 +61,36 @@ a batch winpath route, deleting from the Changes tab.
 
 Related: [[b10-file-copy-and-clipboard]], [[2026-09-16-nocturne-a9b]],
 [[2026-09-16-nocturne-b2-a9c]].
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Features (decided) — The delete route
+
+- **The delete route (Nocturne B10a, 2026-09-20; spec `.claude/plans/nocturne/PLAN-B10a.md`
+  §2; rationale `memory/decisions/b10a-multi-select-and-delete.md`) — the
+  app's first delete primitive, PERMANENT (user's decision: no trash, one
+  confirmation `Delete 3 items from src? This cannot be undone.` in the
+  page).** `POST /api/fs/delete { paths }`, ONE request per confirmed
+  action, ≤ 100 items (413 above with nothing touched), body through
+  `readJsonBodySafe` (512 KiB), `200 { results }` index-keyed — per item
+  `{ ok: true }` or `{ ok: false, status, error }` with a CONSTANT sentence,
+  no path back. Per item: absolute + NUL-free, the name through
+  `isSafeSegment` + 255 bytes, the PARENT through `resolveUnderAllowed`
+  (realpath + anchors — an intermediate symlink is judged by its real
+  location), refused: a target that IS or CONTAINS an anchor (home, a
+  project root — the parent of a project root too), the data dir as parent,
+  target or container; then one asynchronous `rm(recursive)` on the lexical
+  `join(parentReal, name)` — the final component is never resolved, so a
+  symlink is unlinked and its target untouched, wherever it points, and
+  links inside a tree are not followed; a child under an ancestor deleted
+  in the same request answers ok. Async because `rmSync` on 20k files
+  blocked every PTY for 400 ms (measured). Logging: one `[fs] POST
+  /api/fs/delete -> 200, 3 ok, 1 failed` line at info, per-item debug by
+  index, a 5xx with class + frames only (rm's messages quote the path
+  twice). Known limits, recorded: a mount point under home is walked and
+  deleted (`rm` has no one-file-system flag); the TOCTOU window
+  `fsbrowse.ts` records; a token holder could always `rm -rf` through a
+  shell — the boundary adds no privilege, it keeps the irreversible verb
+  inside home + projects and away from the anchors and the data dir.

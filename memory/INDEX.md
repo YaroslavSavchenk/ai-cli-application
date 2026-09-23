@@ -60,6 +60,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ### Process
 
+- [[scope-history]] — 2026-09-23: O1 of the restructure plan: the verbatim pre-condense wording of every `.claude/PROJECT-SCOPE.md` bullet that cites no other note (logging, port, release build, launch dialog, upload route, peek mascot, status line, pane status bar, background agents, session state, pane header, no-code-in-UI), grouped by the scope doc's sections; history, not current truth — cited bullets moved into their own notes under `## From the scope doc (moved 2026-09-23)`
 - [[repo-layout]] — 2026-09-20: where things live and how they move (user's calls): `/restructure-repo` first; docs now, code after B10; work log = `log/<YYYY-MM>/<area>/`; decisions + knowledge flat with a theme-grouped INDEX; planning has one shape (master plan + status table, part specs that never move, `.claude/plans/README.md`); both layouts enforced by tests; move maps of batches 1–2; plan `.claude/plans/PLAN-RESTRUCTURE.md`
 - [[agent-team-and-dev-flow]] — the subagent roster, strict lanes, and the develop→review→fix loop
 

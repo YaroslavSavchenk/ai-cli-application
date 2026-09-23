@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-09-23
 tags: [distribution, installer, release, launcher, packaging]
 ---
 # One installer, one self-contained bundle: the app becomes a product
@@ -116,3 +116,67 @@ A backend installed-mode + `scripts/build-bundle.sh` + start script ·
 B launcher config + Inno Setup installer + helpers · C release workflow +
 README (Install = Setup.exe; "From source" = today's steps) + UI copy ·
 D go-public prep. Each phase = one dev-flow round, committed on land.
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Architecture (decided) — Installer and self-contained bundle
+
+- **Installer and self-contained bundle — decided 2026-09-08 (user's call:
+  "a real app, frontend + backend, so other people can use it easily"),
+  IN PROGRESS; supersedes "the app itself is never packaged" above.**
+  Four user decisions: (1) the WSL side is a **self-contained bundle**
+  (`ai-session-manager-linux-x64.tar.gz`, built in CI: pinned official Node
+  24 runtime verified against nodejs.org `SHASUMS256.txt`, backend, production
+  `node_modules` with node-pty compiled on ubuntu-22.04 for glibc reach,
+  built `web/dist`, `start-backend.sh`, a version marker) — end users need no
+  Node, git or build tools; (2) **explicit opt-in for anything third-party**
+  the installer offers to install (e.g. Claude Code inside the distro) — a
+  consent page lists each item, nothing third-party is ever installed
+  silently; (3) **Inno Setup**, unsigned, per-user (no admin), with an
+  uninstaller, built on the windows runner (ISCC preinstalled); (4) **no
+  WSL2 / no distro → explain and stop** (`wsl --install` message, never
+  elevates). Working layout: WSL `~/.ai-session-manager/app/<version>/` +
+  `current` symlink (data dir untouched by install/uninstall); Windows
+  `%LOCALAPPDATA%\Programs\AI Session Manager\` with launcher scripts,
+  icon, host exe and an installer-written launcher config (distro + app
+  path; precedence env → config file → UNC-derived → defaults, same
+  allow-list gate) plus `install-info.txt` (`distro`/`appDir`/`version`,
+  key=value, the uninstaller's only input). The WSL app dir MUST end in
+  `/app` with ≥ 3 segments — enforced at install time so the uninstall guard
+  (allow-listed, ends in `/app`, holds ≥ 1 `<v>/bundle.json`) is always
+  checkable; the Windows dir page is disabled (`/DIR=` still works).
+  Retention: `current` + one previous + whatever a live pid runs from (read
+  from `runtime.json.appDir` + `kill -0`); a same-version reinstall of the
+  RUNNING version is refused (close or restart first). **Every `wsl.exe`
+  invocation in the installer helpers uses `--exec`** (measured 2026-09-08:
+  with `--` wsl.exe re-joins argv and the default shell expands `$1`/`$(…)`
+  before `sh -c` sees them; the launcher's older `-- bash -lc "<one
+  string>"` start line is safe only because that string holds nothing but
+  allow-listed values — any NEW call with positional args uses `--exec`);
+  the constant unpack/remove scripts contain no double quotes, positional
+  args are allow-listed first, and the tarball travels over stdin so no
+  Windows path ever reaches a Linux command line. Test-only seams:
+  `-DryRun` on all helpers (prints the exact argv) and `wsl-probe.ps1
+  -ListFile` (a committed UTF-16LE `wsl -l -v` fixture). Backend gains an **installed mode** (version marker
+  present): banner shows the bundle version, dependency check skipped, the
+  restart preflight serves the bundled `web/dist` instead of rebuilding,
+  `update.available` = `current` points at a different version dir than the
+  running process. v1 updates = run the newer Setup.exe (upgrades in place,
+  keeps data), then the in-app restart. ~~In-app update *checking* over the
+  network is out of scope~~ — **REVERSED 2026-09-09 evening, user's call
+  ("melding en hetzelfde knop, zoals andere apps"): phase E adds the
+  in-app updater** (see the bullet "In-app update" below); the "Check for
+  updates" link stays as the manual fallback. The clone-and-`git pull`
+  developer path keeps working unchanged. The repo goes **public** (user
+  flips; go-public prep = phase D). Release assets become: Setup exe, bundle
+  tar.gz, host zip, `SHA256SUMS.txt`.
+  **`AI_SM_NODE_DIST_BASE` is a test-only seam of `scripts/build-bundle.sh`**
+  (2026-09-08, same precedent): it may only be `file://…` or
+  `https://nodejs.org/dist`; anything else makes the script refuse before any
+  download, so "verified against nodejs.org's SHASUMS256.txt" can never
+  silently mean "verified against a mirror that agrees with itself". The sums
+  file itself is not signature-checked (accepted for v1). The bundle job is the
+  `verify / linux bundle` check in `verify.yml` and the `bundle` job in
+  `release.yml` (phase C, 2026-09-09).

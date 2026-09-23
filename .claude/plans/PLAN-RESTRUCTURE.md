@@ -8,7 +8,7 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | Batch 2 | Plans into `.claude/plans/`, status table, conventions | landed | — | 2026-09-20 |
 | Batch 3 | Design sources into one `design/` home, handoffs tracked, `design-mocks/` removed | landed | — | 2026-09-21 |
 | Batch 4 | `tests/` into `ui/ server/ release/ repo/ helpers/ fixtures/`, through `/dev-flow` | landed | — | 2026-09-23 |
-| O1 | `.claude/PROJECT-SCOPE.md` back to a size one read can hold | todo — candidate, the user decides | — | |
+| O1 | `.claude/PROJECT-SCOPE.md` back to a size one read can hold | landed | — | 2026-09-23 |
 | O2 | `memory/BACKLOG.md`: open items apart from done ones | landed | — | 2026-09-23 |
 | O3 | Small repairs found on the way (dead wikilinks, stale test messages) | landed | — | 2026-09-23 |
 | O4 | `tests/README.md`: how a test is written here, plus a size guard | landed | — | 2026-09-23 |
@@ -45,7 +45,7 @@ Where it stands (2026-09-23): batches 1–4 and O4–O8 landed; the layouts
 are guarded by `tests/repo/vault-layout.test.ts` and
 `tests/repo/plans-layout.test.ts`, file size by `tests/repo/file-size.test.ts`;
 the map of the repo is `README.md` § Repository layout, the test rules
-`tests/README.md`. Suite at the last landing: 3711 / 0. Left: O1 (the scope doc).
+`tests/README.md`. Suite at the last landing: 3711 / 0. Nothing left in this plan; new rows only on the user's word.
 
 Procedure: `/restructure-repo`. Decisions and the move maps:
 `memory/decisions/repo-layout.md`.

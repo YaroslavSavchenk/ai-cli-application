@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 tags: [nocturne, files, rename, security, editor]
 ---
 # B13: rename files and folders in the Files panel
@@ -52,3 +52,26 @@ path, the server works on the realpath'd parent).
 - Known limits: a case variant of a STALE project's name on drvfs is not
   caught by the dst check (text compare); a hard link to a protected
   symlink, or an inode reused within 5 s, is over-refused (safe direction).
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Features (decided) — The rename route
+
+- **The rename route (Nocturne B13, 2026-09-22; spec `.claude/plans/nocturne/PLAN-B13.md`
+  §1; rationale `memory/decisions/b13-rename-in-files-panel.md`).**
+  `POST /api/fs/rename { path, name }` → `200 {}` (no path back — the page
+  builds the new path from the path it SHOWS). Same folder only; the same
+  path/name checks and parent boundary as delete, in a fixed order; refused:
+  an anchor or a folder containing one (home, a project root — also as the
+  path STORED in `projects.json` and through any symlink on its chain), the
+  data dir (real, configured, and any symlink on its chain), a new name that
+  is a stored project path; a taken name is NEVER replaced (409 — link +
+  unlink for files and symlinks, lstat + rename for folders, races named in
+  `server/fsrename.ts`). Since B13, delete AND rename also refuse by
+  IDENTITY: `server/fsprotect.ts` walks every anchor, stored project path
+  and the configured data dir and records the bigint `dev:ino` of every
+  entry passed (catches symlink chains and drvfs case variants, where
+  `realpath` keeps the request's case); cached 5 s, a walk hung past 3 s
+  answers 503 and is not cached. Async fs only; logs carry statuses only.

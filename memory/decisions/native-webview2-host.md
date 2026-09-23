@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-07-23
-updated: 2026-07-24
+updated: 2026-09-23
 tags: [launcher, windows, webview2, native-host, icon, chrome]
 ---
 # Native WebView2 host to own the Windows taskbar icon
@@ -121,3 +121,77 @@ upgrade if the separate bar grates; revisit alongside the Tauri shell.
 
 Related: [[thin-windows-launcher]], [[lifecycle-bound-backend]],
 [[auto-port-discovery]], [[localhost-security-model]]
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Architecture (decided) — Windows-side launcher
+
+- **Windows-side launcher** (thin): reads the discovery file and
+  health-checks the discovered port; if the file is absent or stale, starts
+  the backend via `wsl.exe -d <distro> -- ...` (**distro and repo path are
+  derived from the launcher's own location — added 2026-09-08**: Windows sees
+  the scripts as `\\wsl.localhost\<distro>\<linux path>\launcher`, which
+  states both. `launcher/config-common.ps1` is dot-sourced by `launch.ps1` and
+  `make-shortcut.ps1` so the two can never disagree. Precedence (installer
+  phase B, 2026-09-09): `AI_SM_DISTRO`/`AI_SM_REPO_PATH` → **`launcher-config.json`
+  beside the scripts** (written by the Setup; a corrupt or non-string file is
+  an ERROR, never a fall-through) → derived from `$PSScriptRoot` → the
+  built-in defaults, which are now **EMPTY**: nothing resolvable = a
+  message naming the three fixes, never someone else's repo. Every value,
+  whatever its source, passes the same allow-list — defined ONCE in
+  `config-common.ps1` (`Test-AiSmLinuxPath`, `Test-AiSmDistroName`,
+  `Test-AiSmDataDir`; `^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\z` for the path,
+  `^[A-Za-z0-9._-]+\z` for the distro — `\z`, not `$`, which in .NET admits
+  a trailing newline) and shared with every `installer/helpers/*.ps1` — which
+  is the injection-safety gate, and a derived-but-invalid value FAILS instead
+  of falling back to a default, so the launcher never starts a backend for a
+  repo the user does not have. When the scripts are NOT on a UNC
+  path (an installed copy) the WebView2 host runs in place from `host\`;
+  the `%LOCALAPPDATA%` staging copy + `Unblock-File` pass is kept for any
+  `\\` path (the repo-clone case). Distro keeps
+  unique-prefix auto-resolution. Non-`-Silent` launches print one `Config:`
+  line naming both values and their source; `make-shortcut.ps1 -DryRun` prints
+  the resolution and the shortcut target without creating anything.), waits for
+  file + health,
+  then opens the UI. MVP launcher is a script + Edge `--app` chromeless window.
+  **Native host brought forward (decided 2026-07-23):** a lightweight
+  **WebView2** host window (uses the Evergreen runtime already present with
+  Edge; no Rust toolchain) replaces the Edge `--app` window so the app owns
+  its process → its own AppUserModelID + `app.ico` on the Windows taskbar
+  (the Edge `--app` window cannot — see the icon note under Open decisions).
+  It navigates only to `127.0.0.1:<port>`, navigation locked to that origin,
+  and falls back to the Edge `--app` window if the WebView2 runtime is
+  absent. **One sanctioned, one-way exit (2026-09-08, the `/login` fix):**
+  a user-initiated off-origin `window.open` for an exact `http`/`https`
+  target is handed to the user's default browser (ShellExecute, separate
+  process; scheme allowlist enforced in C#, `host.log` records
+  scheme+host only); every other scheme and every popup is dropped, and
+  top-level navigation stays locked. The host also returns keyboard focus
+  to the web content on window activation (the WebView2 control does not
+  do that by itself after an Alt-Tab) and grants clipboard-read to the
+  launch origin only (all other permissions denied silently). **Since
+  Nocturne B10 (2026-09-20) the host also carries ONE page→host message
+  channel**, `WebMessageReceived`, origin-locked to the launch origin
+  before a byte of the message is read: the string `copy-files\n<windows
+  path>…` (1..100 paths, each already mapped and boundary-checked by the
+  backend's `GET /api/fs/winpath`) is shape-checked only (UNC
+  `\\wsl.localhost\<distro>\…` or `<Letter>:\…`, no control chars, no
+  `/`, no `.`/`..` segment or distro, none of `* ? " < > | :`, no trailing
+  dot or space; the whole message refused on the first bad path), put on
+  the clipboard with `Clipboard.SetFileDropList` (STA UI thread, one 100 ms
+  retry), and answered `copy-files ok <n>` / `copy-files failed`; nothing
+  is opened, resolved or executed; `host.log` records a count and an
+  exception CLASS, never a path or a message; `AreHostObjectsAllowed` is
+  off; the `.cs` targets .NET Framework 4.7.2 explicitly so paths of 260+
+  chars work. No drag OUT of the app, no clipboard READ in the host. Its **window chrome is dark** (added 2026-07-24): DWM caption /
+  text / border colors + immersive dark mode, matching the `--color-bg`,
+  `--color-neutral-200` and `--color-neutral-800` tokens (the Legacy alias
+  names `--bg-app`/`--text-hd`/`--edge` died in Nocturne A8, 2026-09-14), because the DWM-drawn caption is outside
+  the page and showed a white bar above the dark UI when maximized. The
+  user chose this **DWM-coloring route over a frameless window with a
+  custom in-page title strip**; frameless stays available as a later
+  upgrade if the separate bar starts to grate. A full **Tauri** shell (tray,
+  native folder picker) remains the later upgrade; this host is the minimum
+  that fixes the taskbar identity.

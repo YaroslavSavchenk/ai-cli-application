@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 tags: [nocturne, editor, files, security, persistence]
 ---
 # B4: the editor pane reads, saves, follows and survives
@@ -74,3 +74,95 @@ module — is deleted with this part.
 [[fifo-open-blocks-main-thread]] (the read's open flags),
 [[path-normalization-delete-primitive]] (the boundary),
 [[log-everything]] (counts, never contents).
+
+## From the scope doc (moved 2026-09-23)
+
+Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condensed it; the scope doc holds the current rule.
+
+### Features (decided) — Commit view and editor panes
+
+- **Commit view and editor panes** (Nocturne A6, landed 2026-09-13; file
+  panes since A10 and file TABS inside them since A10b, both 2026-09-15;
+  the commit view and the diff tabs on real data since B3, 2026-09-21; the
+  file body on the real file since B4, 2026-09-22): the commit view
+  is one more column in the middle row, mounted as a flex sibling in the
+  order Projects, Files, commit view, pane grid, Sessions. The **commit
+  view** replaces the pane area (the grid is
+  `hidden`; terminals are NOT disposed and `panes.render()` refuses to
+  build or reconcile while the grid is hidden — a deferred render runs on
+  return): card on neutral-900, "Back to sessions", title, author initial
+  avatar, "committed <when>" with the full date and time, `Committed by
+  <name>` when the committer differs, the message body, the branch chip
+  (absent on a detached head), the short-hash chip, "Open on GitHub" ONLY
+  when `origin` is on github.com (absent otherwise, never disabled — user
+  decision 2026-09-21), `N files changed +A -D` with a
+  five-block bar, one collapsible block per file with a unified diff and
+  "Open file" / "Changes". The Files panel's Commits tab shows the
+  selected commit (message, meta, per-file rows that fold the view's
+  blocks, "All commits"). An **editor pane** is a pane like a terminal
+  (same card, same 38 px header, the terminal ground): its header is a
+  strip of 26 px tab chips (file name, amber dot when unsaved, `×` per tab —
+  a `×` here closes files and ends nothing),
+  a grab area, and the pane's own `×` ("Close this pane and its N files");
+  the body is the ACTIVE tab's line-number gutter + textarea with the
+  file's text and a bottom bar (`Save` / `Saving…` / `Saved`), or a
+  read-only diff for a "Changes in <hash>" tab (from the commit view).
+  Switching tabs swaps the body only —
+  neighbouring terminals are never resized or re-attached, and a tab's
+  caret survives a round trip. Opening a file never narrows the grid.
+  **Editor live** (B4, landed 2026-09-22; user decisions in
+  `memory/decisions/b4-editor-live.md`, spec
+  `.claude/plans/nocturne/PLAN-B4.md`): the body reads the file through
+  `GET /api/fs/read` (text only, 1 MiB at most, UTF-8 without a NUL byte;
+  a refusal — 413 too large, 415 not text, 403, 404 — is drawn as the
+  pane's one sentence, no field, no Save; line endings and a BOM are
+  preserved across a save, text travels LF-normalised). `Save` (the
+  button, or Ctrl+S while the keyboard is in the text — the only place
+  the app takes that key; a terminal keeps its XOFF) writes in place
+  through `PUT /api/fs/write` with the STAMP it read (the server's
+  SHA-256 of the bytes on disk, opaque to the page); a file that changed
+  since answers 409 `This file changed on disk since you opened it.`, a
+  vanished one 404, and the bottom bar offers `Overwrite` (my text wins,
+  no stamp, recreates a gone file) and `Load from disk` (my changes go);
+  keystrokes typed while a write is out stay unsaved. A CLEAN tab
+  FOLLOWS its file on disk: the active tab of every editor pane on screen
+  re-reads with `if=<stamp>` on one shared 5 s timer (skipped while the
+  document is hidden, the body parked, a request out, or after a refusal),
+  a change lands in place with the caret clamped and the scroll kept — a
+  dirty tab is never touched by a follow answer or a follow refusal, and a
+  follow answer that a save overtook is dropped. Unsaved text lives only
+  in memory, keyed by path so the same file in two panes shares it; it is
+  NEVER dropped without a question: an OPEN that would evict the fourth tab
+  of a full strip (the amendment below), closing a file tab, an editor pane or
+  a whole tab that would orphan unsaved text (a file still shown elsewhere
+  is not lost) asks `Discard unsaved changes to <name>?` / `… to N files?`
+  (`Discard` in danger ink, `Keep editing` the default and Esc — the
+  delete dialog's shape), and a reload or window close goes through the
+  browser's `beforeunload` question while any file is unsaved (disarmed
+  for the app's own restart handoff and auth-loss reload). KNOWN LIMITS,
+  recorded: the backend's grace timer after the last window closed is the
+  one door that cannot ask; a HARD LINK inside the boundary to a file
+  outside it (or to the data dir's own files) is read and written through
+  — `realpath` cannot see it, the planter already runs as the user, the
+  requester already holds the shell-spawning token; an `nlink` refusal was
+  rejected because pnpm's store is hard links; a file being edited by the
+  editor and rewritten by a tool at the same instant is settled by the
+  stamp, never merged. Server side (`server/fstext.ts`): the same anchor
+  boundary as `/api/fs/create`, the data dir refused, the fd judged before
+  the path is trusted (`O_NOFOLLOW|O_NONBLOCK`, a regular file only — a
+  FIFO, socket, device or planted link answers 415 without a hang), the
+  stamp compared and the bytes written on ONE descriptor (inode, mode,
+  links and owner stay; a read-only file answers 403), counts-only logging.
+  The last mock module (`web/src/ui/files-mock.ts`) went with this part.
+  The pane chords (Ctrl+Alt+arrows,
+  Ctrl+Alt+W, Ctrl+Alt+PageUp/PageDown unshifted, Ctrl+Alt+M) and the
+  tab-switch chords (Ctrl+Alt+1..9) are ignored while a commit view is up;
+  Ctrl+Alt+Shift+PageUp/PageDown (reorder tabs) stays live. Esc closes the commit view
+  (rank: after every dialog, before drawers and the Files panel) and hands
+  the keyboard to the terminal. New `ChangeKind` `'screen'` = something
+  other than the panes fills the pane area; the pane module ignores it.
+  Code surfaces (editor, diff, paths) draw plain glyphs — no font
+  ligatures — like the terminal. Since B4 nothing in the app is mock: the
+  editor draws the file, the commit view and the diff tabs draw the
+  repository. Esc inside a file pane's textarea
+  belongs to the textarea and closes nothing.
