@@ -29,7 +29,6 @@ import {
   revokeNote,
   scopesNote,
   sourceLabel,
-  sourceTag,
   storageNote,
   tokenErrText,
 } from '../../web/src/ui/github-model.ts';
@@ -167,17 +166,10 @@ test('chipView: NOTHING it returns could be a credential — only account + sour
 });
 
 // ---------------------------------------------------------------------------
-// sourceTag / sourceLabel — the credential the user is actually holding
+// sourceLabel — the credential the user is actually holding
 // ---------------------------------------------------------------------------
 
-// NOTE (Nocturne A2, 2026-09-10): `sourceTag` has NO production caller any more
-// — the top-bar chip stopped rendering the credential tag (it moved into the
-// accessible name). The function and this test are kept for the panel work in
-// later parts; part A8's janitor pass decides whether both go.
-test('sourceTag / sourceLabel: each path has one name, and an unknown source has none', () => {
-  assert.equal(sourceTag('pat'), 'token');
-  assert.equal(sourceTag('device'), 'sign-in');
-  assert.equal(sourceTag(undefined), '');
+test('sourceLabel: each path has one name, and an unknown source has none', () => {
   assert.equal(sourceLabel('pat'), 'pasted token');
   assert.equal(sourceLabel('device'), 'signed in with GitHub');
   assert.equal(sourceLabel(undefined), '');

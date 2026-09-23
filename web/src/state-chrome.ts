@@ -224,13 +224,6 @@ export function setFilesWidth(px: number, commit = true): number {
   return w;
 }
 
-/** Sessions that have not exited — the v3 `alive` list. */
-export function aliveSessionCount(): number {
-  let n = 0;
-  for (const s of state.sessions.values()) if (s.status !== 'exited') n += 1;
-  return n;
-}
-
 /**
  * Is the Files panel on screen: the user wants it AND the Projects drawer is
  * not borrowing the left side. A session is not part of the question — the

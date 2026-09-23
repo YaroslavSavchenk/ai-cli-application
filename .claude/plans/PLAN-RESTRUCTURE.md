@@ -9,12 +9,12 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | Batch 3 | Design sources into one `design/` home, handoffs tracked, `design-mocks/` removed | landed | — | 2026-09-21 |
 | Batch 4 | `tests/` into `ui/ server/ release/ repo/ helpers/ fixtures/`, through `/dev-flow` | landed | — | 2026-09-23 |
 | O1 | `.claude/PROJECT-SCOPE.md` back to a size one read can hold | todo — candidate, the user decides | — | |
-| O2 | `memory/BACKLOG.md`: open items apart from done ones | todo — candidate, the user decides | — | |
-| O3 | Small repairs found on the way (dead wikilinks, stale test messages) | todo — candidate, the user decides | — | |
+| O2 | `memory/BACKLOG.md`: open items apart from done ones | landed | — | 2026-09-23 |
+| O3 | Small repairs found on the way (dead wikilinks, stale test messages) | landed | — | 2026-09-23 |
 | O4 | `tests/README.md`: how a test is written here, plus a size guard | landed | — | 2026-09-23 |
 | O5 | Duplicated test code into `tests/helpers/` | landed | — | 2026-09-23 |
 | O6 | Split every test file over 800 lines (38 files, 53.6k lines on 2026-09-23) | landed | — | 2026-09-23 |
-| O7 | Dead code and unused dependencies, whole repo (janitor) | landed (five test-only functions await the user) | — | 2026-09-23 |
+| O7 | Dead code and unused dependencies, whole repo (janitor) | landed | — | 2026-09-23 |
 | O8 | Split every source file over 1 000 lines (14 files: 5 `server/`, `shared/protocol.ts`, 7 `web/src/`, `app.css`) | landed | — | 2026-09-23 |
 
 ## Resume here
@@ -45,9 +45,7 @@ Where it stands (2026-09-23): batches 1–4 and O4–O8 landed; the layouts
 are guarded by `tests/repo/vault-layout.test.ts` and
 `tests/repo/plans-layout.test.ts`, file size by `tests/repo/file-size.test.ts`;
 the map of the repo is `README.md` § Repository layout, the test rules
-`tests/README.md`. Suite at the last landing: 3711 / 0. Left: O1–O3
-(candidates, the user decides) and the five test-only functions of O7
-(`memory/BACKLOG.md`, asked 2026-09-23).
+`tests/README.md`. Suite at the last landing: 3711 / 0. Left: O1 (the scope doc).
 
 Procedure: `/restructure-repo`. Decisions and the move maps:
 `memory/decisions/repo-layout.md`.

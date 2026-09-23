@@ -41,6 +41,7 @@ import {
   mkProject as project,
 } from '../helpers/fs-fixture.ts';
 import {
+  aliveSessionCount,
   bindRootNow,
   body,
   changeCalls,
@@ -507,7 +508,7 @@ test('the Home tab is HOME, whatever is running in another tab', async () => {
   rootNow = HOME;
   panel.render();
   await settle();
-  assert.equal(st.aliveSessionCount(), 1, 'non-vacuity: the session is still running');
+  assert.equal(aliveSessionCount(), 1, 'non-vacuity: the session is still running');
   assert.equal(textsOf(root, 'files-proj')[0], 'Home', 'the header follows the tab, not the session');
   assert.deepEqual(
     textsOf(root, 'files-name'),

@@ -157,7 +157,7 @@ function fixtureTokens(): Map<string, string> {
 
 test('A1 (a0): the committed fixture is a faithful snapshot of the handoff styles.css (when the handoff is present)', (t) => {
   if (!existsSync(DS_DIR)) {
-    t.skip(`${rel(DS_DIR)} is not present (local design asset, excluded from git) — fixture parity cannot be checked here`);
+    t.skip(`${rel(DS_DIR)} is not present in this checkout — fixture parity cannot be checked here`);
     return;
   }
   const dirs = readdirSync(DS_DIR).filter((d) => d.startsWith('nocturne-'));

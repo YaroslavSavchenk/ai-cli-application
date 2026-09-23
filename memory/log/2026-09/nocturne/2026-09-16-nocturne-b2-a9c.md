@@ -20,7 +20,7 @@ creates for real. Spec `.claude/PLAN-B2.md` (Plan agent, ~1000 lines).
 - Home = home: with nothing focused the panel shows the home tree, not the
   project of "the first live session anywhere" (A5's header rule).
 - Lean dev-flow rules 1–11 (`.claude/skills/dev-flow/SKILL.md`,
-  [[lean-dev-flow]]) after the user asked why Brief A took four hours;
+  `lean-dev-flow` (auto-memory)) after the user asked why Brief A took four hours;
   the mutant cap is for UI surfaces only, hard-constraint code keeps the
   full probe ("verliezen wij kwaliteit?" — no).
 
@@ -72,13 +72,13 @@ creates for real. Spec `.claude/PLAN-B2.md` (Plan agent, ~1000 lines).
   `font-size` or the base input rule changes its face.
 - A session-limit kill mid-mutation and a mutation gate running beside
   readers both produced "the tree changed under my review"; readers first,
-  mutation gate after ([[no-mutation-gate-parallel-with-reviewers]],
-  [[aborted-agents-check-tree]]).
+  mutation gate after (`no-mutation-gate-parallel-with-reviewers` (auto-memory),
+  `aborted-agents-check-tree` (auto-memory)).
 - Session analysis: 32 agents, 355 agent-minutes, 54 full-suite runs (≈34
   min waiting), each agent 4–6 min re-reading the same docs → the lean
   rules, `test:ui`/`test:server` scripts, agents read only the constraint
   sections, follow-ups go to the same agent via SendMessage
-  ([[reuse-agents-sendmessage]]).
+  (`reuse-agents-sendmessage` (auto-memory)).
 
 ## Review
 
@@ -98,7 +98,7 @@ Esc ladder create → selection → panel with the terminal keyboard at the end;
 right-click matrix (tree background = app menu; header, tabs, state and
 Changes rows, terminal, chrome, tab strip, statusline = system menu, xterm
 moves its textarea). Ran twice: the first run was killed by the session
-limit before its backend answered ([[aborted-agents-check-tree]] applied).
+limit before its backend answered (`aborted-agents-check-tree` (auto-memory) applied).
 
 ## Windows check
 

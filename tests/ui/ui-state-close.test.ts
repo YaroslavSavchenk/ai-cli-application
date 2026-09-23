@@ -100,7 +100,7 @@ test('closeTab: the LAST tab takes the pane with it, down the closeSlot ladder',
   assert.equal(st.state.views.some((x) => x.id === r.id), false);
 });
 
-test('closeTab / closeActiveTab: a terminal, a bad index and an unknown view are refused', () => {
+test('closeTab: a terminal, a bad index and an unknown view are refused', () => {
   st.initServer([], [mkSession('s1')]);
   st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [sess('s1'), ed('a.ts', 'b.ts')]);
@@ -108,12 +108,7 @@ test('closeTab / closeActiveTab: a terminal, a bad index and an unknown view are
   assert.equal(st.closeTab(v.id, 1, 5), false);
   assert.equal(st.closeTab(v.id, 1, -1), false);
   assert.equal(st.closeTab('nope', 0, 0), false);
-  assert.equal(st.closeActiveTab(v.id, 0), false, 'and ctrl+alt+w does nothing on a terminal');
   assert.deepEqual(shape(v), ['s:s1', ['f:a.ts', 'f:b.ts']]);
-
-  (v.slots[1] as EditorSlot).active = 0;
-  assert.equal(st.closeActiveTab(v.id, 1), true);
-  assert.deepEqual(shape(v), ['s:s1', ['f:b.ts']], 'it closes the tab that is on screen');
 });
 
 test('setActiveTab: raises a tab by index, and is silent when it is already up', () => {

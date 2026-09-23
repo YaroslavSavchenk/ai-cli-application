@@ -32,7 +32,6 @@ import {
   destLine,
   dragCountText,
   hasFiles,
-  itemsText,
   keepBothName,
   planResults,
   progressText,
@@ -99,18 +98,6 @@ test('destLine and DROP_HINT: the ghost names the destination, or asks for one',
   assert.equal(say(destLine(1, 'Home')), 'Copy 1 item into Home');
   assert.equal(say(destLine(2, 'Session Manager')), 'Copy 2 items into Session Manager');
   assert.equal(say(DROP_HINT), 'Drop on a folder or a pane.');
-});
-
-test('itemsText: what the items ARE, once the drop can say', () => {
-  assert.equal(say(itemsText([file('a.md')])), '1 file');
-  assert.equal(say(itemsText([file('a.md'), file('b.md')])), '2 files');
-  assert.equal(say(itemsText([folder('web')])), '1 folder');
-  assert.equal(say(itemsText([folder('web'), folder('server')])), '2 folders');
-  assert.equal(say(itemsText([file('a.md'), file('b.md'), folder('web')])), '2 files and 1 folder');
-  assert.equal(say(itemsText([file('a.md'), folder('web'), folder('server')])), '1 file and 2 folders');
-  assert.equal(say(itemsText([file('a.md'), folder('web')])), '1 file and 1 folder');
-  // Unreachable through the UI (an empty drop opens no dialog); total anyway.
-  assert.equal(say(itemsText([])), '0 items');
 });
 
 // ---------------------------------------------------------------------------
@@ -492,7 +479,7 @@ test('a real listing makes README.md and web the conflicts at the root', () => {
 // ---------------------------------------------------------------------------
 
 test('non-vacuity: the sweeps below read every sentence this module builds', () => {
-  assert.ok(PRODUCED.length >= 55, `only ${PRODUCED.length} strings collected`);
+  assert.ok(PRODUCED.length >= 47, `only ${PRODUCED.length} strings collected`); // 55 before itemsText (8) went, 2026-09-23
   assert.ok(PRODUCED.includes('Copy 3 items into src'));
   assert.ok(PRODUCED.includes('README.md already exists in src'));
   assert.ok(PRODUCED.includes('Copied 2 files and 1 folder into src. 1 skipped.'));
@@ -519,7 +506,7 @@ test('no produced string carries a path separator when the inputs are plain name
   const strings: string[] = [...PRODUCED, DROP_HINT];
   for (const dest of dests) {
     strings.push(destLine(items.length, dest), copyingHeader(items.length, dest));
-    strings.push(progressText(1, items.length, dest), itemsText(items));
+    strings.push(progressText(1, items.length, dest));
     strings.push(conflictTitle(conflictsOf(items, listing), dest));
     for (const choice of ['replace', 'keep-both', 'skip'] as const) {
       const plan = planResults(items, listing, choice);

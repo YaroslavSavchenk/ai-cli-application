@@ -7,20 +7,12 @@ tags: [backlog, todo, open]
 # Backlog — still to do (living note)
 
 Single list of what is known to be NOT done. Read it at the start of a
-session; tick or delete items when they land; add a log entry when one does.
+session; when an item lands, tick it and move it to the archive at the end; add a log entry when one does.
 Decisions that need the user stay marked **(user)**. Ordering = rough
 priority.
 
 ## CI/CD leftovers (from [[2026-09-08-cicd-gate]], 2026-09-08)
 
-- [x] **Branch protection — DONE 2026-09-09 (user: "kun jij dat doen?")**: GitHub
-  ruleset `protect-main` (id 22649598, active) on `refs/heads/main` with
-  `deletion` + `non_fast_forward` only — force-push and branch deletion are
-  blocked, plain pushes still work, so the standing commit+push flow stands.
-  Required status checks deliberately NOT added (a ruleset requiring checks
-  blocks direct pushes). Check names if ever wanted: `verify / typecheck +
-  build`, `verify / backend test suite`, `verify / linux bundle`.
-- [x] **Janitor pass** over the CI/CD change — done 2026-09-13 with the A5 land: no dead steps, no unused inputs, `release.sh` every variable consumed.
 - [ ] **Server-side settle for shutdown**: `SessionManager.destroyAll():
   Promise<void>` resolving after the last pty `onExit`, plus a logger
   `close()`. Tests currently wait for the exit handler's last log line
@@ -57,12 +49,6 @@ priority.
 
 ## In-app updater (phase E, 2026-09-09) — what is left
 
-- [x] **User's Windows test of the one-button update — PASSED 2026-09-10
-  ("yes alles werkt nice")**: on v0.3.0 the toast offered v0.3.2 → Update →
-  the Setup ran silently (exit 0 in 6 s, staging removed) → restart handed
-  the port → running `app/v0.3.2`; retention kept v0.3.0; `host\next`
-  awaits the next launcher start. First test had shown no button
-  ([[etag-cache-verdict-not-payload]], fixed `1cdb766`).
 - [ ] Progress is not carried across a restart handoff (status resets to
   idle in the new process); the staged copy in `%TEMP%` survives.
 - [ ] `probeWindowsTemp` (real `cmd.exe` → `wslpath`) only ever injected in
@@ -127,23 +113,6 @@ Session Manager\` and `~/.ai-session-manager/app/`, and both share the
 data dir `~/.ai-session-manager/` (history, prefs, runtime.json). Close the
 app window first so one backend at a time owns runtime.json.
 
-- [x] SmartScreen on first run: "More info → Run anyway" (unsigned).
-- [x] Wizard: WSL page lists your WSL 2 distros with the default preselected;
-  folder page prefills `<home>/.ai-session-manager/app`; a folder with a
-  space is refused with a readable message; the extras (consent) page is
-  SKIPPED when `claude` is already installed, else its box is OFF; shortcut
-  page shows "Create a desktop shortcut" ticked; Ready page lists it all.
-- [x] Never a UAC prompt anywhere.
-- [x] After install: `%LOCALAPPDATA%\Programs\AI Session Manager\` holds
-  `launcher-config.json` (your distro + `<appdir>/current`) and
-  `install-info.txt`; `wsl -d <distro> -- ls ~/.ai-session-manager/app`
-  shows `0.0.0-dev+197bb9f` + `current`; no bundle tar left in `%TEMP%`.
-- [x] Shortcut launches with no console; taskbar shows `app.ico` and ONE
-  button for shortcut + window (AUMID match); no host copy appears under
-  `%LOCALAPPDATA%\ai-session-manager\host` (host runs in place).
-- [x] Settings → BACKEND shows `version 0.0.0-dev+197bb9f` and the
-  `Check for updates` link opens the Releases page in your browser without
-  navigating the app window.
 - [ ] Upgrade (test = the real v0.2.0 Setup over the 0.0.0-dev+197bb9f install): re-dispatch → newer exe → run it while the app is open: no
   "close the app" prompt; app toasts "A new version has been installed";
   Restart backend lands on the new `current`; old version dir still present.
@@ -161,9 +130,6 @@ app window first so one backend at a time owns runtime.json.
 
 ## Open decisions (user) — also listed in `.claude/PROJECT-SCOPE.md`
 
-- [x] **Repo visibility — decided 2026-09-09: public, vault included**;
-  noreply commit e-mail set; history not rewritten (author e-mail + old
-  paths remain in old commits by choice). **FLIPPED 2026-09-09 13:05Z** (`gh repo edit --visibility public`), releases page live.
 - [~] **One-click installer / real app — DECIDED 2026-09-08, phases A–D
   LANDED 2026-09-09** (see [[installer-and-self-contained-bundle]],
   [[2026-09-08-installer-phase-a]], [[2026-09-09-installer-phase-b]],
@@ -176,28 +142,20 @@ app window first so one backend at a time owns runtime.json.
 ## From the copy/add-folder fix (2026-09-10)
 
 - [ ] Server-side dedupe for `POST /api/projects` register mode (today only the dialog's `isRegistered()` guard stops duplicates).
-- [x] Windows-side: Ctrl+Shift+C / Ctrl+Insert copy in the real WebView2 host — user tested the dev window 2026-09-10: "Alles werkt".
 - [ ] Edge `--app` fallback: Ctrl+Shift+C without a selection opens DevTools inspect (WebView2 host is immune: accelerator keys off). Accept or swallow there.
 - [ ] A7 brief: carry the add-existing intent (v3 tabs New folder / Clone / From GitHub have no slot for it).
 
 ## From Nocturne A4 (2026-09-10)
 
 - [ ] **(user)** Two permission vocabularies: the app says `Always ask / Auto edits / Read only / No prompts` (`PERM_SHORT`), Claude Code's in-terminal status line from `server/statusline.mjs` `MODE_LABELS` says `always ask / auto-edits / plan / never ask` (pinned by `tests/server/statusline-script.test.ts`), mirrored by the Settings sample (`web/src/ui/settings.ts:95`) and the New Project select (`never ask (dangerous)`, `web/src/ui/newproject.ts:228`). Align in A7 (Settings + Add a project) or record the terminal line as exempt.
-- [x] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sat below the `LEGACY ALIAS LAYER` marker — done 2026-09-14 (A8 phase 0 re-homed them; the alias block is deleted, see [[2026-09-14-nocturne-a8]]).
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
-- [x] Windows-side: the A4 dialog in the real WebView2 host — user-checked 2026-09-10 ("ziet er goed uit") and again 2026-09-13 with A4b.
-- [x] Windows-side (A6) — user tested the dev window 2026-09-13: "alles goed".
 - [ ] ~~Windows-side (A6, 2026-09-13):~~ (verified, see above) commit view open/Back with a TUI running (no torn rows, WebGL intact), editor column at 54 % with typing + Save, `Changes` diff tab, Esc out of the view, ligature-free `===` in the editor, `This commit is not available.` never seen (mock only).
 - [ ] B3 owes: `syntheticDiff` → `git show <hash> -- <path>` (one diff per PATH today, so two commits sharing a file show identical rows/numbers); `DiffLine.n` → `oldNo/newNo` two-column gutter (`--diff-gut-w` sized for one); a remote datum for `Open on GitHub`.
-- [x] ~~B4 owes: unsaved-text confirm on all four doors + disk write~~ — landed 2026-09-22 ([[2026-09-22-nocturne-b4]]; backend grace stays the one silent door, known limit). Still open: `lastGoodDims` in `panes.ts` is global not per-slot (self-corrects at attach).
 - [ ] Editor caret/scroll position is lost when a commit view opens over it (text survives) — scope note A6.
-- [x] ~~`MOCK_FILES` is an exported const mutated at module init~~ — B2 Brief B (2026-09-16) deleted the FILES half of `files-mock.ts`; the contents half (B4) and commits half (B3) remain, with a header comment naming their owners.
-- [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
 - [ ] ~~Windows-side (A5, 2026-09-13):~~ (verified, see above) Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
 - [ ] `prefers-reduced-motion` guard for the two pulses (`--t-pulse` dot, `--t-pulse-edit` file rows) — scope-reviewer note 2026-09-13.
 - [ ] B3: delete `placeholderNote()` in `web/src/ui/files.ts` (one function, one call site) when the Commits tab reads real data. (The `buildTree` half is CLOSED by B2, 2026-09-16: the source is `git diff --numstat` plus `git status --porcelain` for untracked, and the revisit landed as the trailing-slash rule — an untracked directory is one `sub/` row, so it becomes a childless folder node with no caret.)
 - [ ] Nothing clamps `filesWidth` when the WINDOW shrinks under it (520 + 300 px of chrome in a 1000 px window leaves ~18 cols) — optional clamp on window resize.
-- [x] Windows-side (A4b) — user tested the dev window 2026-09-13: "alles werkt keurig" (no black frame, JetBrains Mono on the first pane, TUIs fine after resize).
 
 ## From Nocturne A8 (2026-09-14)
 
@@ -240,10 +198,6 @@ app window first so one backend at a time owns runtime.json.
   the log entry above — `update-check-route`, `ui-dnd-a10` (`sleep(90)` ×6),
   `ui-files-panel-*`, `git-commits-*`/`git-changes` (`sleep(500)`), polling
   loops in `agents-*` and `telemetry` that `waitUntil` could replace.
-- [ ] **Five functions only tests call** **(user)**: `closeActiveTab`,
-  `aliveSessionCount`, `isFolderView` (`web/src/state*.ts`), `itemsText`
-  (`web/src/ui/drop-model.ts`), `sourceTag` (`web/src/ui/github-model.ts`).
-  Removing them deletes their tests; asked 2026-09-23.
 
 ## Claude Code CLI compatibility guard (user's ask 2026-09-15, not started)
 
@@ -343,7 +297,6 @@ number exists.
   1,048,052 bytes in the A10b verify). Re-attach only the slots whose
   geometry changed, or replay the viewport plus a bounded tail and fetch
   the rest on scroll.
-- [x] ~~**Editor panes across a reload**~~ — B4 (2026-09-22, user decision D2): file + diff tabs persist, 16 per strip; unsaved text does not.
 - [ ] **Frontend bundle**: `index-*.js` is 660 kB (Vite warns above
   500 kB). xterm.js + the WebGL addon are the bulk; split the GitHub /
   Settings / update surfaces into lazy chunks, keep the terminal path in
@@ -433,10 +386,88 @@ pass or a test-engineer brief, not a feature.
 - B13 follow-ups (2026-09-22): `commitCreate` in `web/src/ui/files.ts` keys the created row by the server's `res.path` (the REALPATH'd parent) — inside a symlinked folder the focus/selection misses the row; build the path client-side like rename does. Rename keeps no caret/scroll position in a followed editor tab, and a save in flight at the old path lands on the 404 choice. A rename answer that fails after the user cancelled the row is reported nowhere (create behaves the same). On drvfs, a case variant of a stale project's name is not caught by the rename dst check (text compare).
 - B10a follow-ups (2026-09-20): `tests/ui/ui-files-panel.test.ts` ~1204 sleeps 90 ms real time over `web/src/ui/dnd.ts`'s 80 ms wall-clock click suppression — a clock seam in `dnd.ts` would make it deterministic (25 unrelated failures seen once under load); cut/move in the Files panel (rename landed in B13, 2026-09-22 — a move would reuse `server/fsrename.ts` + `server/fsprotect.ts` with a destination folder check); a batch `GET /api/fs/winpath`; `copiedFlash(0, 1, name)` would read `Copied … to the clipboard.` if it ever became reachable.
 
-
-- [x] Drop the "Continue last conversation" checkbox? — done in Nocturne A4 (2026-09-10): Start from select.
 - [ ] Should HISTORY list Claude conversations not launched by the app?
 - [ ] BitLocker check in the launcher.
 - [ ] Dead code noted, not removed: `web/src/api.ts createProject()`.
 - Known limit (documented, not planned): PowerShell `ESC[6n` replayed into a
   pane that attaches mid-replay.
+
+## Done — archive (moved out of the list above on 2026-09-23)
+
+Ticked items, grouped under the heading they sat under. History, not work:
+nothing here needs doing. New ticks move here when their item lands.
+
+### CI/CD leftovers (from [[2026-09-08-cicd-gate]], 2026-09-08)
+
+- [x] **Branch protection — DONE 2026-09-09 (user: "kun jij dat doen?")**: GitHub
+  ruleset `protect-main` (id 22649598, active) on `refs/heads/main` with
+  `deletion` + `non_fast_forward` only — force-push and branch deletion are
+  blocked, plain pushes still work, so the standing commit+push flow stands.
+  Required status checks deliberately NOT added (a ruleset requiring checks
+  blocks direct pushes). Check names if ever wanted: `verify / typecheck +
+  build`, `verify / backend test suite`, `verify / linux bundle`.
+- [x] **Janitor pass** over the CI/CD change — done 2026-09-13 with the A5 land: no dead steps, no unused inputs, `release.sh` every variable consumed.
+
+### In-app updater (phase E, 2026-09-09) — what is left
+
+- [x] **User's Windows test of the one-button update — PASSED 2026-09-10
+  ("yes alles werkt nice")**: on v0.3.0 the toast offered v0.3.2 → Update →
+  the Setup ran silently (exit 0 in 6 s, staging removed) → restart handed
+  the port → running `app/v0.3.2`; retention kept v0.3.0; `host\next`
+  awaits the next launcher start. First test had shown no button
+  ([[etag-cache-verdict-not-payload]], fixed `1cdb766`).
+
+### Owed on the Windows side (user) — the Setup.exe test, 2026-09-09
+
+- [x] SmartScreen on first run: "More info → Run anyway" (unsigned).
+- [x] Wizard: WSL page lists your WSL 2 distros with the default preselected;
+  folder page prefills `<home>/.ai-session-manager/app`; a folder with a
+  space is refused with a readable message; the extras (consent) page is
+  SKIPPED when `claude` is already installed, else its box is OFF; shortcut
+  page shows "Create a desktop shortcut" ticked; Ready page lists it all.
+- [x] Never a UAC prompt anywhere.
+- [x] After install: `%LOCALAPPDATA%\Programs\AI Session Manager\` holds
+  `launcher-config.json` (your distro + `<appdir>/current`) and
+  `install-info.txt`; `wsl -d <distro> -- ls ~/.ai-session-manager/app`
+  shows `0.0.0-dev+197bb9f` + `current`; no bundle tar left in `%TEMP%`.
+- [x] Shortcut launches with no console; taskbar shows `app.ico` and ONE
+  button for shortcut + window (AUMID match); no host copy appears under
+  `%LOCALAPPDATA%\ai-session-manager\host` (host runs in place).
+- [x] Settings → BACKEND shows `version 0.0.0-dev+197bb9f` and the
+  `Check for updates` link opens the Releases page in your browser without
+  navigating the app window.
+
+### Open decisions (user) — also listed in `.claude/PROJECT-SCOPE.md`
+
+- [x] **Repo visibility — decided 2026-09-09: public, vault included**;
+  noreply commit e-mail set; history not rewritten (author e-mail + old
+  paths remain in old commits by choice). **FLIPPED 2026-09-09 13:05Z** (`gh repo edit --visibility public`), releases page live.
+
+### From the copy/add-folder fix (2026-09-10)
+
+- [x] Windows-side: Ctrl+Shift+C / Ctrl+Insert copy in the real WebView2 host — user tested the dev window 2026-09-10: "Alles werkt".
+
+### From Nocturne A4 (2026-09-10)
+
+- [x] A8: the `ns-` dialog block and the A3 pane block use `--line`, `--tick`, `--font-sans`, `--font-mono`, which sat below the `LEGACY ALIAS LAYER` marker — done 2026-09-14 (A8 phase 0 re-homed them; the alias block is deleted, see [[2026-09-14-nocturne-a8]]).
+- [x] Windows-side: the A4 dialog in the real WebView2 host — user-checked 2026-09-10 ("ziet er goed uit") and again 2026-09-13 with A4b.
+- [x] Windows-side (A6) — user tested the dev window 2026-09-13: "alles goed".
+- [x] ~~B4 owes: unsaved-text confirm on all four doors + disk write~~ — landed 2026-09-22 ([[2026-09-22-nocturne-b4]]; backend grace stays the one silent door, known limit). Still open: `lastGoodDims` in `panes.ts` is global not per-slot (self-corrects at attach).
+- [x] ~~`MOCK_FILES` is an exported const mutated at module init~~ — B2 Brief B (2026-09-16) deleted the FILES half of `files-mock.ts`; the contents half (B4) and commits half (B3) remain, with a header comment naming their owners.
+- [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
+- [x] Windows-side (A4b) — user tested the dev window 2026-09-13: "alles werkt keurig" (no black frame, JetBrains Mono on the first pane, TUIs fine after resize).
+
+### Optimisation round — AFTER feature-complete (user's call 2026-09-15)
+
+- [x] ~~**Editor panes across a reload**~~ — B4 (2026-09-22, user decision D2): file + diff tabs persist, 16 per strip; unsaved text does not.
+
+### Queued ideas (not decided)
+
+- [x] Drop the "Continue last conversation" checkbox? — done in Nocturne A4 (2026-09-10): Start from select.
+
+### From the repo optimisation (2026-09-23)
+
+- [x] **Five functions only tests call** — removed 2026-09-23 on the user's
+  "doe het": `closeActiveTab`, `aliveSessionCount`, `isFolderView`,
+  `itemsText`, `sourceTag`, with their own tests; the non-vacuity counts that
+  used `aliveSessionCount` now count in the test fixture.

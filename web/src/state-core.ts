@@ -171,11 +171,6 @@ export function sessionIds(v: ViewState): string[] {
   return out;
 }
 
-/** Is this tab about a folder (Home or a project) rather than a bare session? */
-export function isFolderView(v: ViewState): boolean {
-  return v.root !== null;
-}
-
 interface AppState {
   sessions: Map<string, SessionInfo>;
   projects: Project[];

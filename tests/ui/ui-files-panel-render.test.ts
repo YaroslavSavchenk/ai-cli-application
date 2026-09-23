@@ -41,6 +41,7 @@ import {
 } from '../helpers/fs-fixture.ts';
 import { FILES_PANEL_SOURCES, readSource, readSources } from '../helpers/helpers.ts';
 import {
+  aliveSessionCount,
   bindRootNow,
   body,
   destName,
@@ -132,7 +133,7 @@ test('a focused pane whose session EXITED, with nothing else alive, is headed Ho
   st.markExited('s1', 0);
   panel.render();
   assert.equal(st.filesPanelVisible(), true, 'the panel survives the exit');
-  assert.equal(st.aliveSessionCount(), 0, 'non-vacuity: nothing is running');
+  assert.equal(aliveSessionCount(), 0, 'non-vacuity: nothing is running');
   assert.equal(
     textsOf(root, 'files-proj')[0],
     'Home',

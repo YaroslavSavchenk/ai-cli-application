@@ -44,6 +44,9 @@ const memoryStorage = new MemoryStorage();
 (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = memoryStorage;
 const st = await import('../../web/src/state.ts');
 
+/** Sessions that have not exited (state.ts no longer counts them: nothing in the app asked). */
+const aliveSessionCount = (): number => [...st.state.sessions.values()].filter((s) => s.status !== 'exited').length;
+
 function mkSession(id: string, status: SessionInfo['status'] = 'running'): SessionInfo {
   return {
     id,
@@ -335,11 +338,11 @@ test('visibility = the user wants it AND Projects is not covering the left side'
   // so the panel is up on an empty app (its header then reads Home).
   st.state.leftPanel = 'files';
   st.state.drawer = null;
-  assert.equal(st.aliveSessionCount(), 0);
+  assert.equal(aliveSessionCount(), 0);
   assert.equal(st.filesPanelVisible(), true, 'the panel opens with nothing running');
 
   st.initServer([], [mkSession('s1')]);
-  assert.equal(st.aliveSessionCount(), 1);
+  assert.equal(aliveSessionCount(), 1);
   assert.equal(st.filesPanelVisible(), true);
 
   st.state.leftPanel = null;
@@ -348,7 +351,7 @@ test('visibility = the user wants it AND Projects is not covering the left side'
 
 test('an EXITED session does not close the panel, and the toggle still records the wish', () => {
   st.initServer([], [mkSession('s1', 'exited'), mkSession('s2', 'exited')]);
-  assert.equal(st.aliveSessionCount(), 0, 'non-vacuity: nothing is alive');
+  assert.equal(aliveSessionCount(), 0, 'non-vacuity: nothing is alive');
   st.state.leftPanel = null;
   st.toggleLeftPanel('files');
   assert.equal(st.state.leftPanel, 'files', 'the button always answers');
@@ -624,15 +627,15 @@ test('toggleLeftPanel: over the Sessions drawer it is one change too (other side
   assert.equal(st.state.drawer, 'sessions');
 });
 
-test('aliveSessionCount counts what has not exited — and the panel no longer follows it', () => {
+test('the panel does not follow the live-session count', () => {
   st.state.drawer = null;
   st.initServer([], [mkSession('a'), mkSession('b', 'exited'), mkSession('c')]);
-  assert.equal(st.aliveSessionCount(), 2);
+  assert.equal(aliveSessionCount(), 2);
   st.state.leftPanel = 'files';
   assert.equal(st.filesPanelVisible(), true);
 
   st.state.sessions = new Map([['b', mkSession('b', 'exited')]]);
-  assert.equal(st.aliveSessionCount(), 0);
+  assert.equal(aliveSessionCount(), 0);
   assert.equal(
     st.filesPanelVisible(),
     true,

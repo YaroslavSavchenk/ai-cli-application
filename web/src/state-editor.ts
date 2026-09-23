@@ -477,14 +477,6 @@ export function closeTab(viewId: string, slot: number, tabIndex: number): boolea
   return true;
 }
 
-/** ctrl+alt+w on an editor pane: close the tab the user is looking at. */
-export function closeActiveTab(viewId: string, slot: number): boolean {
-  const v = state.views.find((x) => x.id === viewId);
-  const s = v?.slots[slot];
-  if (v === undefined || s === undefined || s.kind !== 'editor') return false;
-  return closeTab(viewId, slot, s.active);
-}
-
 /** Raise a tab by index (a click on its chip). Silent when it is already up. */
 export function setActiveTab(viewId: string, slot: number, tabIndex: number): boolean {
   const v = state.views.find((x) => x.id === viewId);

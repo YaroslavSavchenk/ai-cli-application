@@ -17,4 +17,4 @@ test file and a doc comment.
 placeholder `/home/you/...`; before the final suite run, `git add -N <new
 file>` (intent-to-add) so the guard scans it. The orchestrator checks
 `git grep sava -- <new files>` before every commit that adds files.
-See [[project-state-next-steps]] for the CI-before-squash rule it joins.
+See the orchestrator's auto-memory note `project-state-next-steps` (outside the vault) for the CI-before-squash rule it joins.

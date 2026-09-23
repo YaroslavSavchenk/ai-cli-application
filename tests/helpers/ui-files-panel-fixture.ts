@@ -39,6 +39,10 @@ export const dom = installDom();
 // The modules are imported through a computed URL: the server tsconfig must
 // not walk the browser type graph (web/tsconfig.json owns that).
 export const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
+
+/** Sessions that have not exited — the non-vacuity count some tests assert on. */
+export const aliveSessionCount = (): number =>
+  [...st.state.sessions.values()].filter((x) => x.status !== 'exited').length;
 export const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 export const M = (await import(new URL('../../web/src/ui/files-model.ts', import.meta.url).href)) as ModelModule;
 export const MODEL = (await import(new URL('../../web/src/ui/commit-model.ts', import.meta.url).href)) as {
@@ -95,7 +99,6 @@ export interface StateModule {
   FILES_W_DEFAULT: number;
   setSessions(list: SessionInfo[]): void;
   markExited(id: string, exitCode: number): void;
-  aliveSessionCount(): number;
   setProjects(list: Project[]): void;
   subscribe(fn: (kind: string) => void): void;
   toggleLeftPanel(p: 'files'): void;

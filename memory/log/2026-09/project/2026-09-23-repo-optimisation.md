@@ -121,6 +121,21 @@ One full-suite red on the way: `agents-manager` "the refusal is logged
 once…" — a pre-existing race (a meta file read between create and write
 keeps its mtime and is never re-read), not caused by the move. Backlog.
 
+## Afterwards — the user's "doe het" (five functions, O2, O3)
+
+- The five functions only tests called are gone with their own tests
+  (`closeActiveTab`, `aliveSessionCount`, `isFolderView`, `itemsText`,
+  `sourceTag`); the four non-vacuity checks on `aliveSessionCount` count in
+  the fixture now, and `ui-drop-model`'s produced-strings floor went 55 → 47
+  (exactly the eight `itemsText` sentences).
+- O2: `memory/BACKLOG.md` open items on top, the 21 ticked ones in a
+  "Done — archive" section at the end under their old headings; every line
+  kept (line multiset compared).
+- O3: eight wikilinks to the orchestrator's auto-memory made plain text; the
+  "excluded from git" comment and two skip messages corrected (the handoffs
+  are tracked since 2026-09-21); the `ui-a7-parity` "four modules" comment and
+  the `shared/protocol.ts` "no runtime code" header told the truth.
+
 ## Worth remembering
 
 - "Split it so it runs faster" is a wrong reason given for a right move: the

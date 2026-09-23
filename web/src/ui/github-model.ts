@@ -71,25 +71,6 @@ export function expiryTickMs(active: boolean, status: GithubStatus | null): numb
 /** `device` = the OAuth device flow; `pat` = a token the user pasted. */
 export type GithubSource = 'device' | 'pat';
 
-/**
- * Narrow mono tag naming the connected credential for the top-bar chip and the
- * connected row. '' when the server did not say (older server / unknown) — an
- * unknown source is left unlabelled rather than guessed, because the revocation
- * instructions differ.
- */
-/*
- * NOTE (Nocturne A2, 2026-09-10): the top-bar chip stopped RENDERING this tag
- * — the v3 account chip is an avatar plus a name — and the credential is now
- * named in the chip's accessible name and tooltip instead. The function is
- * kept for the panel work in later parts; if nothing claims it, part A8's
- * janitor pass removes it.
- */
-export function sourceTag(source: GithubSource | undefined): string {
-  if (source === 'pat') return 'token';
-  if (source === 'device') return 'sign-in';
-  return '';
-}
-
 /** Plain-language name of the connected credential; '' when unknown. */
 export function sourceLabel(source: GithubSource | undefined): string {
   if (source === 'pat') return 'pasted token';

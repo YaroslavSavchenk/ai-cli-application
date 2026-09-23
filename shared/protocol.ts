@@ -14,7 +14,9 @@
  * and flag the change in review.
  *
  * Constraints on this file: erasable TypeScript syntax only — types and
- * interfaces are fine; no enums, no namespaces, no runtime code.
+ * interfaces are fine; no enums, no namespaces; runtime code only as
+ * plain constants and tiny type guards both sides share (limits, key names,
+ * update sentences).
  */
 
 // ---------------------------------------------------------------------------

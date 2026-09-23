@@ -48,6 +48,7 @@ import {
   pageOf,
 } from '../helpers/commits-fixture.ts';
 import {
+  aliveSessionCount,
   bindRootNow,
   changeCalls,
   commitsCalls,
@@ -442,7 +443,7 @@ test('the last session exiting takes the Commits tab away under the user, and la
   panel.render();
   await settle();
   assert.equal(textsOf(root, 'files-proj')[0], 'Home');
-  assert.equal(st.aliveSessionCount(), 0, 'non-vacuity: nothing is running');
+  assert.equal(aliveSessionCount(), 0, 'non-vacuity: nothing is running');
 
   const commits = byKey(root, 'ftab:commits') as FakeElement;
   const files = byKey(root, 'ftab:files') as FakeElement;

@@ -41,7 +41,7 @@ default flash, `futureSetting` key survived a theme change byte-exact.
 Session-limit interruptions twice mid-flow; all agents resumed from
 transcript with zero lost work.
 
-**Process change ([[model-policy note in auto-memory]]):** user directive —
+**Process change (model-policy note in the orchestrator's auto-memory, outside the vault):** user directive —
 all subagents run on opus (frontmatter pins updated, dev-flow SKILL.md
 Models paragraph rewritten); Fable 5 = orchestrator thinking + final
 review only. Orchestrator now personally reviews the final diff before

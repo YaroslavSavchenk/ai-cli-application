@@ -125,8 +125,9 @@ test('class parity over the WHOLE stylesheet: no unstyled class, no dead rule, w
   const dead = [...inCss.keys()].filter((c) => !inTs.has(c)).map((c) => `${c} (app.css)`);
   assert.deepEqual(dead, [], `rules no module sets: ${dead.join('; ')}`);
 
-  // The prefixes belong to exactly the four A7 modules — a fifth module reaching
-  // into the Settings or Add-a-project styling is a boundary break, not a reuse.
+  // The prefixes belong to exactly the modules listed below (the A7 surfaces,
+  // settings.ts in its three O8 pieces) — another module reaching into the
+  // Settings or Add-a-project styling is a boundary break, not a reuse.
   const owners = new Set([...inTs.values()].flat());
   assert.deepEqual(
     [...owners].sort(),

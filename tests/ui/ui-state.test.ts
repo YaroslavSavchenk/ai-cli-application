@@ -453,12 +453,6 @@ test('ensureHomeView: a strip that already has tabs gets Home IN FRONT of them',
   assert.deepEqual(keys(st.state.views[1] as ViewState), ['s:s1'], 'never in the session tab beside it');
 });
 
-test('isFolderView: Home and a project tab are folder tabs; a session tab is not', () => {
-  assert.equal(st.isFolderView(mkView([], { kind: 'home' })), true);
-  assert.equal(st.isFolderView(mkView([], { kind: 'project', id: 'p1' })), true);
-  assert.equal(st.isFolderView(mkView([sess('s1')])), false);
-});
-
 test('viewForRoot: finds the folder tab it already made, and makes one only once', () => {
   st.initServer([], []);
   st.loadUi(REOPEN);

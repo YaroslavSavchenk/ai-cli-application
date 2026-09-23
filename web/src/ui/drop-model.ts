@@ -142,23 +142,6 @@ export function destLine(n: number, dest: string): string {
   return `Copy ${dragCountText(n)} into ${dest}`;
 }
 
-/**
- * `1 file`, `2 files`, `1 folder`, `2 files and 1 folder` — what the items
- * ARE, which is only knowable after the drop.
- *
- * An empty list answers `0 items`; the UI never asks (a drop with nothing in
- * it opens no dialog), but a total function beats a thrown one here.
- */
-export function itemsText(items: readonly DropItem[]): string {
-  let files = 0;
-  let folders = 0;
-  for (const it of items) {
-    if (it.dir) folders += 1;
-    else files += 1;
-  }
-  return countPhrase(files, folders);
-}
-
 /** `2 files`, `1 folder`, `2 files and 1 folder`, and `0 items` for neither. */
 function countPhrase(files: number, folders: number): string {
   const filePart = `${files} ${files === 1 ? 'file' : 'files'}`;
