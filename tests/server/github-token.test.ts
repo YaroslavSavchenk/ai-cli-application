@@ -22,152 +22,45 @@
  *
  * OFFLINE by construction: the connected paths run against a local node:http
  * stub standing in for api.github.com through the loopback-only
- * AI_SM_GITHUB_API_BASE seam, and the in-process cases drive the fetch seam.
- * The pasted tokens below are fakes — but every assertion treats them as real
- * credentials.
+ * AI_SM_GITHUB_API_BASE seam. The pasted tokens below are fakes — but every
+ * assertion treats them as real credentials.
+ *
+ * This file keeps every test that drives the ONE shared server child, because
+ * its last test sweeps that child's whole server.log for a fragment of the
+ * credential — a sweep over the requests of the tests before it. Split out by
+ * topic (PLAN-RESTRUCTURE O6), each with its own server children or none:
+ * `github-token-lifecycle.test.ts` (GitHub unreachable, a later 401,
+ * remember=false across a restart) and `github-token-in-process.test.ts` (the
+ * device-flow replacement and the pure helpers). The stub is
+ * `tests/helpers/github-token-fixture.ts`.
+ *
+ * NOT claimed here: a real GitHub — the stub stands in for it.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
-  GithubConnection,
   MAX_PASTED_TOKEN_LEN,
-  parseScopesHeader,
-  parseTokenExpiry,
-  validatePastedToken,
-  type FetchLike,
 } from '../../server/github.ts';
-import type { Logger } from '../../server/config.ts';
 import type { GithubStatus } from '../../shared/protocol.ts';
 import {
   api,
   rawRequest,
   readServerLog,
   startTestServer,
-  waitUntil,
   type TestServer,
-  makeTempDir,
-  removeTempDir,
 } from '../helpers/helpers.ts';
+import {
+  PASTED,
+  StubApi,
+  acceptingHandler,
+  postToken,
+} from '../helpers/github-token-fixture.ts';
 
-const noop: Logger = () => {};
-
-/** Fake pasted token used by the connected HTTP cases. */
-const PASTED = 'ghp_PASTEDdeadbeefdeadbeefdeadbeefdeadbeef';
 /** Fake token used only by the malformed-body log test — must never be logged. */
 const CANARY = 'ghp_ZQXCANARY0123456789abcdefghijKLMNOPqr';
-
-// ---------------------------------------------------------------------------
-// Local stub for the GitHub REST API. Unlike the one in github-connected.test.ts
-// this one can set RESPONSE HEADERS — x-oauth-scopes and
-// github-authentication-token-expiration are the whole point of two cases below.
-// ---------------------------------------------------------------------------
-
-interface StubRequest {
-  method: string;
-  path: string;
-  authorization: string | undefined;
-  body: string;
-}
-
-interface StubReply {
-  status: number;
-  body: unknown;
-  headers?: Record<string, string>;
-}
-
-class StubApi {
-  readonly requests: StubRequest[] = [];
-  handler: (req: StubRequest) => StubReply = () => ({ status: 500, body: { message: 'unset' } });
-
-  #server: Server = createServer((req, res) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
-      const auth = req.headers['authorization'];
-      const record: StubRequest = {
-        method: req.method ?? '',
-        path: req.url ?? '',
-        authorization: Array.isArray(auth) ? auth[0] : auth,
-        body: Buffer.concat(chunks).toString('utf8'),
-      };
-      this.requests.push(record);
-      const reply = this.handler(record);
-      res.writeHead(reply.status, {
-        'content-type': 'application/json',
-        ...(reply.headers ?? {}),
-      });
-      res.end(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body));
-    });
-  });
-  #origin = '';
-
-  get origin(): string {
-    return this.#origin;
-  }
-
-  start(): Promise<void> {
-    return new Promise((resolve) => {
-      this.#server.listen(0, '127.0.0.1', () => {
-        this.#origin = `http://127.0.0.1:${(this.#server.address() as AddressInfo).port}`;
-        resolve();
-      });
-    });
-  }
-
-  stop(): Promise<void> {
-    return new Promise((resolve) => {
-      this.#server.close(() => resolve());
-    });
-  }
-
-  reset(): void {
-    this.requests.length = 0;
-  }
-}
-
-/** The default "this token works" stub: identity + one visible repo. */
-function acceptingHandler(headers?: Record<string, string>): (req: StubRequest) => StubReply {
-  return (req) => {
-    if (req.path === '/user') {
-      return {
-        status: 200,
-        body: { login: 'octocat', id: 1 },
-        ...(headers !== undefined ? { headers } : {}),
-      };
-    }
-    if (req.path.startsWith('/user/repos')) {
-      return {
-        status: 200,
-        body: [
-          {
-            full_name: 'octocat/hello',
-            name: 'hello',
-            owner: { login: 'octocat' },
-            private: false,
-            clone_url: 'https://github.com/octocat/hello.git',
-          },
-        ],
-      };
-    }
-    return { status: 404, body: { message: 'unexpected' } };
-  };
-}
-
-/** POST /api/github/token with the app auth token and a JSON body. */
-function postToken(
-  server: TestServer,
-  body: unknown,
-): Promise<{ status: number; body: unknown }> {
-  return api(server, 'POST', '/api/github/token', body).then((r) => ({
-    status: r.status,
-    body: r.body,
-  }));
-}
 
 // ---------------------------------------------------------------------------
 // 1. The happy path, on a server with NO OAuth client id — the exact situation
@@ -826,349 +719,6 @@ test('a valid token that can see NO repositories still connects — that is a re
   assert.equal(res.status, 200, 'an empty repo list is not a broken token');
   assert.equal((res.body as GithubStatus).state, 'connected');
   await api(server, 'POST', '/api/github/disconnect');
-});
-
-test("GitHub unreachable -> 502 \"couldn't reach GitHub\" (nothing stored, nothing connected)", async () => {
-  // A loopback origin with nothing listening: ECONNREFUSED, the offline shape of
-  // "the network is the problem, not your token".
-  const dead = new StubApi();
-  await dead.start();
-  const deadOrigin = dead.origin;
-  await dead.stop();
-  const srv = await startTestServer({
-    env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: deadOrigin },
-  });
-  try {
-    const res = await postToken(srv, { token: PASTED, remember: true });
-    assert.equal(res.status, 502);
-    assert.deepEqual(res.body, { error: "couldn't reach GitHub" });
-    await assert.rejects(stat(join(srv.dataDir, 'github.json')));
-    const log = await readServerLog(srv);
-    assert.ok(log.includes('github token rejected'), 'the refusal is logged as a CONSTANT string');
-    assert.ok(!log.includes(PASTED), 'and never with the token');
-  } finally {
-    await srv.stop();
-  }
-});
-
-test('a 401 on a LATER call is distinguishable from "never connected" (V-4), and drops the credential either way', async () => {
-  // Without this the UI can only show an unexplained flip to disconnected. The
-  // 409 the app already answered for "not connected" is kept for that case; a
-  // credential that STOPPED WORKING gets its own sentence.
-  const ownStub = new StubApi();
-  await ownStub.start();
-  ownStub.handler = acceptingHandler();
-  const srv = await startTestServer({
-    env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
-  });
-  try {
-    const never = await api(srv, 'GET', '/api/github/repos');
-    assert.equal(never.status, 409);
-    assert.deepEqual(never.body, { error: 'github not connected' });
-
-    assert.equal((await postToken(srv, { token: PASTED, remember: true })).status, 200);
-
-    // The token is revoked upstream between calls.
-    ownStub.handler = () => ({ status: 401, body: { message: 'Bad credentials' } });
-    const stopped = await api(srv, 'GET', '/api/github/repos');
-    assert.equal(stopped.status, 409);
-    assert.deepEqual(stopped.body, {
-      error: 'GitHub rejected the stored credential — connect again',
-    });
-    assert.notDeepEqual(stopped.body, never.body, 'the two 409s are tellable apart');
-
-    await assert.rejects(
-      stat(join(srv.dataDir, 'github.json')),
-      'a dead credential is removed from disk, whatever its source',
-    );
-    assert.deepEqual((await api(srv, 'GET', '/api/github/status')).body, {
-      deviceFlowAvailable: false,
-      state: 'disconnected',
-    });
-    const log = await readServerLog(srv);
-    assert.ok(log.includes('github token invalid, disconnected'));
-    assert.ok(!log.includes(PASTED));
-  } finally {
-    await srv.stop();
-    await ownStub.stop();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 5. remember=false — the toggle that genuinely removes the on-disk copy
-// ---------------------------------------------------------------------------
-
-test('remember=false: nothing is written to github.json, the credential works, and a RESTART is disconnected', async () => {
-  const ownStub = new StubApi();
-  await ownStub.start();
-  ownStub.handler = acceptingHandler();
-  const root = await makeTempDir('ai-sm-ghtok-mem-');
-  const dataDir = join(root, 'data');
-  // ONE outer try/finally around BOTH server lifetimes. Previously the stub and
-  // the temp dir were cleaned up only in the SECOND block's finally, so a failed
-  // assertion in the first block left the stub HTTP server listening — which
-  // keeps the event loop alive, so `node --test` never exited — and left a temp
-  // dir holding a github.json with the (stub) credential in it. Measured while
-  // mutation-testing this file: a failing run hung until it was killed.
-  try {
-  const srv = await startTestServer({
-    dataDir,
-    env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
-  });
-  try {
-    const res = await postToken(srv, { token: PASTED, remember: false });
-    assert.equal(res.status, 200);
-    assert.equal((res.body as GithubStatus).persisted, false, 'the status says so honestly');
-    assert.equal((res.body as GithubStatus).source, 'pat');
-    await assert.rejects(
-      stat(join(dataDir, 'github.json')),
-      'remember=false writes NOTHING to disk',
-    );
-
-    // It is a fully working credential while the process lives.
-    ownStub.reset();
-    const repos = await api(srv, 'GET', '/api/github/repos');
-    assert.equal(repos.status, 200);
-    assert.equal(ownStub.requests[0]?.authorization, `Bearer ${PASTED}`);
-
-    // Nothing on disk carries it, anywhere in the data dir.
-    for (const name of ['prefs.json', 'projects.json', 'runtime.json', 'history.json']) {
-      const contents = await readFile(join(dataDir, name), 'utf8').catch(() => '');
-      assert.ok(!contents.includes(PASTED), `${name} must never carry the token`);
-    }
-    const prefs = await api(srv, 'GET', '/api/prefs');
-    assert.ok(
-      !JSON.stringify(prefs.body).includes(PASTED),
-      'GET /api/prefs returns the whole bag to the page — the token is NEVER in it',
-    );
-  } finally {
-    await srv.stop();
-  }
-
-  // Restart on the SAME data dir: disconnected, because nothing was stored.
-  const restarted = await startTestServer({
-    dataDir,
-    env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
-  });
-  try {
-    assert.deepEqual((await api(restarted, 'GET', '/api/github/status')).body, {
-      deviceFlowAvailable: false,
-      state: 'disconnected',
-    });
-  } finally {
-    await restarted.stop();
-  }
-  } finally {
-    await ownStub.stop();
-    await removeTempDir(root);
-  }
-});
-
-test('remember=false REPLACES a persisted credential and removes the older on-disk copy', async () => {
-  const ownStub = new StubApi();
-  await ownStub.start();
-  ownStub.handler = acceptingHandler();
-  const root = await makeTempDir('ai-sm-ghtok-replace-');
-  const dataDir = join(root, 'data');
-  const srv = await startTestServer({
-    dataDir,
-    env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
-  });
-  try {
-    assert.equal((await postToken(srv, { token: PASTED, remember: true })).status, 200);
-    assert.ok(await stat(join(dataDir, 'github.json')));
-
-    const second = 'ghp_SECONDdeadbeefdeadbeefdeadbeefdeadbe';
-    const res = await postToken(srv, { token: second, remember: false });
-    assert.equal(res.status, 200);
-    assert.equal((res.body as GithubStatus).persisted, false);
-    await assert.rejects(
-      stat(join(dataDir, 'github.json')),
-      'the superseded on-disk credential is gone — a restart must not resurrect it',
-    );
-
-    ownStub.reset();
-    await api(srv, 'GET', '/api/github/repos');
-    assert.equal(
-      ownStub.requests[0]?.authorization,
-      `Bearer ${second}`,
-      'exactly ONE credential is live: the newest one',
-    );
-  } finally {
-    await srv.stop();
-    await ownStub.stop();
-    await removeTempDir(root);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 6. In-process: replacement of an in-flight device flow, and the pure helpers
-// ---------------------------------------------------------------------------
-
-function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', ...headers },
-  });
-}
-
-test('pasting while a device flow is CONNECTING replaces it and cancels the in-flight poll (exactly one credential)', async () => {
-  const root = await makeTempDir('ai-sm-ghtok-poll-');
-  const file = join(root, 'github.json');
-  try {
-    let tokenPolls = 0;
-    const stubFetch: FetchLike = (url) => {
-      if (url === 'https://github.com/login/device/code') {
-        return Promise.resolve(
-          jsonResponse({
-            device_code: 'DEV-CODE-SECRET',
-            user_code: 'WDJB-MJHT',
-            verification_uri: 'https://github.com/login/device',
-            expires_in: 900,
-            interval: 0.02,
-          }),
-        );
-      }
-      if (url === 'https://github.com/login/oauth/access_token') {
-        tokenPolls += 1;
-        return Promise.resolve(jsonResponse({ error: 'authorization_pending' }));
-      }
-      if (url === 'https://api.github.com/user') {
-        return Promise.resolve(jsonResponse({ login: 'octocat' }));
-      }
-      if (url.startsWith('https://api.github.com/user/repos')) {
-        return Promise.resolve(jsonResponse([]));
-      }
-      return Promise.resolve(jsonResponse({ error: 'unexpected' }, 404));
-    };
-    const conn = new GithubConnection({
-      file,
-      log: noop,
-      clientId: 'Iv1.testclientid',
-      fetchImpl: stubFetch,
-    });
-    await conn.startDeviceFlow();
-    assert.equal(conn.status().state, 'connecting');
-    await waitUntil(() => (tokenPolls >= 1 ? true : undefined), 'first device poll', 5000, 5);
-
-    const result = await conn.connectWithToken(PASTED, true);
-    assert.ok(result.ok, 'the paste succeeds');
-    const status = conn.status();
-    assert.equal(status.state, 'connected');
-    assert.equal(status.source, 'pat', 'the pasted token WON — no merge, no fallback chain');
-    assert.ok(!('userCode' in status), 'the device flow is gone, not paused');
-
-    // The in-flight poll self-cancels via the generation counter: no further
-    // token polls, and no device-flow success can overwrite the pasted token.
-    const settled = tokenPolls;
-    await delay(200);
-    assert.equal(tokenPolls, settled, 'the superseded device poll stopped');
-    assert.equal(conn.status().source, 'pat');
-
-    const stored = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
-    assert.equal(stored['accessToken'], PASTED);
-    assert.equal(stored['source'], 'pat');
-  } finally {
-    await removeTempDir(root);
-  }
-});
-
-test('a stored record WITHOUT a source reads as the device flow, and disconnect drops it the same way', async () => {
-  const root = await makeTempDir('ai-sm-ghtok-legacy-');
-  const file = join(root, 'github.json');
-  try {
-    const { writeFile } = await import('node:fs/promises');
-    await writeFile(
-      file,
-      JSON.stringify({
-        accessToken: PASTED,
-        login: 'octocat',
-        scope: 'repo',
-        connectedAt: '2026-07-24T00:00:00Z',
-      }),
-      { mode: 0o600 },
-    );
-    const conn = new GithubConnection({ file, log: noop, clientId: 'Iv1.x' });
-    assert.deepEqual(conn.status(), {
-      deviceFlowAvailable: true,
-      state: 'connected',
-      login: 'octocat',
-      source: 'device',
-      persisted: true,
-    });
-    await conn.disconnect();
-    assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' });
-    await assert.rejects(stat(file), 'disconnect deletes github.json for either source');
-  } finally {
-    await removeTempDir(root);
-  }
-});
-
-test('connectWithToken re-validates the SHAPE in-process (no route can be bypassed by an internal caller)', async () => {
-  const root = await makeTempDir('ai-sm-ghtok-shape-');
-  try {
-    let fetches = 0;
-    const conn = new GithubConnection({
-      file: join(root, 'github.json'),
-      log: noop,
-      clientId: '',
-      fetchImpl: () => {
-        fetches += 1;
-        return Promise.resolve(jsonResponse({ login: 'octocat' }));
-      },
-    });
-    for (const bad of ['', '   ', 'ghp_a b', 'ghp_ab\u0001', 'g'.repeat(MAX_PASTED_TOKEN_LEN + 1)]) {
-      const res = await conn.connectWithToken(bad, true);
-      assert.equal(res.ok, false, `${JSON.stringify(bad.slice(0, 12))} must be refused`);
-      if (!res.ok) {
-        assert.equal(res.status, 400);
-        assert.ok(!res.message.includes('ghp_'), 'the message names the rule, never the value');
-      }
-    }
-    assert.equal(fetches, 0, 'a structurally impossible token never reaches GitHub');
-    assert.equal(conn.status().state, 'disconnected');
-  } finally {
-    await removeTempDir(root);
-  }
-});
-
-test('validatePastedToken: trims, refuses empty/over-long/whitespace/control, and has NO prefix allowlist', () => {
-  assert.deepEqual(validatePastedToken(`  ${PASTED}\n`), { ok: true, token: PASTED });
-  assert.deepEqual(validatePastedToken('anything-github-accepts'), {
-    ok: true,
-    token: 'anything-github-accepts',
-  });
-  assert.equal(validatePastedToken('').ok, false);
-  assert.equal(validatePastedToken('\t\n  ').ok, false);
-  assert.equal(
-    validatePastedToken('a'.repeat(MAX_PASTED_TOKEN_LEN)).ok,
-    true,
-    'exactly 1024 characters is fine',
-  );
-  assert.equal(validatePastedToken('a'.repeat(MAX_PASTED_TOKEN_LEN + 1)).ok, false);
-  // Interior whitespace of every flavour a clipboard can smuggle in, plus the
-  // control characters that would make a header value a splitting primitive.
-  for (const bad of ['a b', 'a\tb', 'a\nb', 'a\u00a0b', 'a\u0001b', 'a\u0000b', 'a\u2003b', 'a\ufeffb']) {
-    assert.equal(validatePastedToken(bad).ok, false, `${JSON.stringify(bad)} must be refused`);
-  }
-  const rejected = validatePastedToken('a b');
-  assert.ok(!rejected.ok && !rejected.message.includes('a b'), 'the message never quotes the value');
-});
-
-test('parseScopesHeader / parseTokenExpiry: honest about what GitHub actually said', () => {
-  assert.deepEqual(parseScopesHeader('repo, read:org'), ['repo', 'read:org']);
-  assert.deepEqual(parseScopesHeader('repo'), ['repo']);
-  assert.deepEqual(parseScopesHeader(''), [], 'a classic token with no scopes');
-  assert.deepEqual(parseScopesHeader('  ,  , repo ,'), ['repo'], 'blanks dropped');
-  assert.deepEqual(parseScopesHeader('x'.repeat(2000)), [], 'absurd header -> no claim');
-
-  assert.equal(parseTokenExpiry('2026-12-31 00:00:00 UTC'), '2026-12-31T00:00:00.000Z');
-  assert.equal(parseTokenExpiry('2026-12-31T00:00:00Z'), '2026-12-31T00:00:00.000Z');
-  assert.equal(parseTokenExpiry(null), undefined, 'absent header -> no expiry claim');
-  assert.equal(parseTokenExpiry(undefined), undefined);
-  assert.equal(parseTokenExpiry(''), undefined);
-  assert.equal(parseTokenExpiry('whenever'), undefined, 'unparseable -> no claim, never raw');
-  assert.equal(parseTokenExpiry('x'.repeat(100)), undefined);
 });
 
 // ---------------------------------------------------------------------------

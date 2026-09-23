@@ -30,10 +30,17 @@
  * they are pinned by source in `tests/ui/ui-pane-a10.test.ts`. What this file
  * proves about the dot is the FACT it draws: the dirty flip, exactly once.
  *
+ * This file: the read, typing, the save (user decision D4), and focus plus
+ * what this module may not do. The disk follow (D3) is in
+ * `tests/ui/ui-file-pane-follow.test.ts`; the diff half (part B3) and the CSS
+ * classes in `tests/ui/ui-file-pane-diff.test.ts`. Shared setup:
+ * `tests/helpers/ui-file-pane-fixture.ts`.
+ *
  * NOT claimed (browser work, `.claude/skills/verify-terminal/SKILL.md`):
  * layout, colour, scrolling, the gutter really lining up with the text, and
  * the browser's own `beforeunload` card.
  */
+
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -41,121 +48,42 @@ import { join } from 'node:path';
 import { projectRoot, readSource } from '../helpers/helpers.ts';
 import {
   byClass,
-  descendants,
   dispatch,
-  installDom,
   textsOf,
   type FakeElement,
   typeInto as type,
 } from '../helpers/fake-dom.ts';
-import { PROJ, makeFixture, settle } from '../helpers/fs-fixture.ts';
-import { BINARY_PATH, GONE_PATH, GONE_TEXT as DIFF_GONE_TEXT, HEAD, diffOf } from '../helpers/commits-fixture.ts';
+import { settle } from '../helpers/fs-fixture.ts';
+import { HEAD, diffOf } from '../helpers/commits-fixture.ts';
 import {
   CHANGED_TEXT,
   GONE_TEXT,
   NOT_TEXT_TEXT,
-  NO_READ_TEXT,
   NO_WRITE_TEXT,
   TOO_LARGE_TEXT,
-  makeEditor,
 } from '../helpers/editor-fixture.ts';
-
-const dom = installDom();
-
-interface StateModule {
-  state: { edits: Map<string, string> };
-  editorFileId(path: string): string;
-  editorDirty(id: string | null): boolean;
-  editText(id: string): string | undefined;
-  setEdit(id: string, text: string): void;
-  subscribe(fn: (kind: string) => void): void;
-}
-interface Body {
-  root: FakeElement;
-  focus(): void;
-  update(): void;
-  dispose(): void;
-}
-interface FilePaneModule {
-  filePaneBody(path: string, onDirtyFlip: () => void): Body;
-  diffPaneBody(root: string, hash: string, path: string): Body;
-}
-
-const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
-const FP = (await import(new URL('../../web/src/ui/file-pane.ts', import.meta.url).href)) as unknown as FilePaneModule;
-const STORE = (await import(new URL('../../web/src/ui/commit-store.ts', import.meta.url).href)) as {
-  setCommitGateway(gw: unknown): void;
-};
-const ES = (await import(new URL('../../web/src/ui/editor-store.ts', import.meta.url).href)) as {
-  setEditorGateway(gw: unknown): void;
-  followerCount(): number;
-  followTick(): void;
-  FOLLOW_MS: number;
-};
-
-/** Part B3: a diff pane reads git through the gateway the commit store owns. */
-const fx = makeFixture();
-STORE.setCommitGateway(fx.gateway);
-/** Part B4: a file pane reads and writes through the gateway this store owns. */
-const ed = makeEditor();
-ES.setEditorGateway(ed.gateway);
-
-/** The shape every path in the app has since part B2: absolute. */
-const PATH = '/home/you/web/src/Pane.tsx';
-const OTHER = '/home/you/web/src/App.tsx';
-const ORIGINAL = 'export function Pane() {\n  return null;\n}\n';
-/** One file of one commit, as the commit view hands it to a diff tab. */
-const DIFF_PATH = 'shared/protocol.ts';
-
-let flips = 0;
-let live: Body[] = [];
-
-/** Build a body, put it on screen, and let its read land. */
-async function mount(path: string): Promise<FakeElement> {
-  const body = FP.filePaneBody(path, () => {
-    flips += 1;
-  });
-  live.push(body);
-  // APPEND, never replace: two bodies on screen at once is a real state (two
-  // panes of one file), and detaching one would silently take it out of the
-  // disk follow — the very rule several cases below are about.
-  dom.body.append(body.root);
-  await settle();
-  return body.root;
-}
-
-/** The one field a file pane offers, or null when it offers none. */
-function field(root: FakeElement): FakeElement | null {
-  return descendants(root).find((n) => n.tagName === 'TEXTAREA') ?? null;
-}
-
-function saveBtn(root: FakeElement): FakeElement {
-  return byClass(root, 'pane-save')[0] as FakeElement;
-}
-
-/** The two answers a conflict offers, by label. */
-function act(root: FakeElement, label: string): FakeElement {
-  const hit = byClass(root, 'pane-fact').find((b) => b.textContent === label);
-  assert.ok(hit !== undefined, `no ${label} button in the bar`);
-  return hit;
-}
+import {
+  dom,
+  type Body,
+  st,
+  FP,
+  ES,
+  ed,
+  PATH,
+  OTHER,
+  ORIGINAL,
+  DIFF_PATH,
+  flips,
+  live,
+  mount,
+  field,
+  saveBtn,
+  act,
+  resetPanes,
+} from '../helpers/ui-file-pane-fixture.ts';
 
 beforeEach(() => {
-  // Whatever the last case held in flight is let go first, so one failure
-  // cannot leave every later body waiting for an answer that never comes.
-  ed.releaseReads();
-  ed.releaseWrites();
-  for (const b of live) b.dispose();
-  live = [];
-  dom.body.replaceChildren();
-  st.state.edits = new Map();
-  ed.reads.length = 0;
-  ed.writes.length = 0;
-  ed.setFile(PATH, ORIGINAL);
-  ed.setFile(OTHER, 'const a = 1;\n');
-  flips = 0;
-  dom.doc.activeElement = dom.body;
-  dom.doc.visibilityState = 'visible';
+  resetPanes();
 });
 
 // ---------------------------------------------------------------------------
@@ -503,206 +431,6 @@ test('typing while the write is out keeps the tab UNSAVED — the landing forget
 });
 
 // ---------------------------------------------------------------------------
-// The disk follow (user decision D3)
-// ---------------------------------------------------------------------------
-
-test('the follow is ONE recorded 5 s interval, and a clean tab on screen re-reads with its stamp', async () => {
-  const root = await mount(PATH);
-  const before = dom.win.intervals.length;
-  assert.ok(before >= 1, 'the store armed its timer');
-  assert.equal(
-    (dom.win.intervals[0] as { ms: number }).ms,
-    ES.FOLLOW_MS,
-    'the one rhythm the store owns',
-  );
-  await mount(OTHER);
-  assert.equal(dom.win.intervals.length, before, 'a second body arms no second timer');
-
-  ed.reads.length = 0;
-  const stamp = ed.stampOf(PATH);
-  // Through the RECORDED timer, not around it: the rhythm the app really runs
-  // on is the function that interval holds.
-  (dom.win.intervals[0] as { fn: () => void }).fn();
-  await settle();
-  assert.ok(
-    ed.reads.includes(`${PATH} if=${stamp}`),
-    `the stamp rides along: ${ed.reads.join(', ')}`,
-  );
-  // Unchanged: no text in the answer, nothing repainted.
-  assert.equal((field(root) as FakeElement).value, ORIGINAL);
-});
-
-test('a changed file is taken over: new text, new numbers, caret clamped, scroll kept', async () => {
-  const root = await mount(PATH);
-  const ta = field(root) as FakeElement;
-  ta.selectionStart = 30;
-  ta.selectionEnd = 30;
-  ta.scrollTop = 120;
-  ed.setFile(PATH, 'one\ntwo\n');
-  ES.followTick();
-  await settle();
-  assert.equal(ta.value, 'one\ntwo\n');
-  assert.equal((byClass(root, 'pane-gutter')[0] as FakeElement).textContent, '1\n2\n3');
-  assert.equal(ta.selectionStart, 'one\ntwo\n'.length, 'the caret went to the end, not to 0');
-  assert.equal(ta.scrollTop, 120, 'and the reader keeps their place');
-});
-
-test('a DIRTY tab is never polled — typed text is not overwritten by the disk', async () => {
-  const root = await mount(PATH);
-  type(field(root) as FakeElement, 'mine\n');
-  ed.setFile(PATH, 'theirs\n');
-  ed.reads.length = 0;
-  ES.followTick();
-  await settle();
-  assert.deepEqual(ed.reads, [], 'a dirty body is not even asked');
-  assert.equal((field(root) as FakeElement).value, 'mine\n');
-});
-
-test('a keystroke that lands while a follow read is out is not overwritten by the answer', async () => {
-  const root = await mount(PATH);
-  const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
-  // The file changed on disk, so the follow answer really carries text.
-  ed.setFile(PATH, 'theirs\n');
-  ed.holdRead();
-  ES.followTick();
-  assert.equal(ed.reads.length, 2, 'non-vacuity: the follow read is out');
-  // The tab was clean when the question left; it is dirty when it answers.
-  type(ta, 'mine\n');
-  ed.releaseReads();
-  await settle();
-  assert.equal(ta.value, 'mine\n', 'typed text is never overwritten from disk (D3)');
-  assert.equal(st.editText(id), 'mine\n');
-  assert.equal(saveBtn(root).textContent, 'Save');
-});
-
-test('a follow answer that lands AFTER a save replaces neither the saved text nor the newer stamp', async () => {
-  const root = await mount(PATH);
-  const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
-  // Another window changed the file: the follow read that goes out now will
-  // come back with THOSE bytes and THAT stamp.
-  ed.setFile(PATH, 'their version\n');
-  ed.reads.length = 0;
-  ed.holdRead();
-  ES.followTick();
-  assert.equal(ed.reads.length, 1, 'non-vacuity: the read is really out');
-
-  // While it is out the user types and lands a save: the normal one is refused
-  // (the file moved), Overwrite writes their text and a NEW stamp comes back.
-  type(ta, 'mine\n');
-  saveBtn(root).click();
-  await settle();
-  act(root, 'Overwrite').click();
-  await settle();
-  const saved = ed.stampOf(PATH);
-  assert.equal(ed.fileText(PATH), 'mine\n', 'non-vacuity: the save landed');
-  assert.equal(st.editorDirty(id), false);
-
-  // Only NOW does the read from before the save answer.
-  ed.releaseReads();
-  await settle();
-  assert.equal(ta.value, 'mine\n', 'the pre-save bytes may not come back on screen');
-  assert.equal(st.editorDirty(id), false, 'and the tab is still clean');
-
-  // And the stamp the body holds is the SAVE's, not the read's — the next save
-  // is compared against the version that is really on disk, so it is not
-  // refused and cannot be answered by writing stale text over it.
-  type(ta, 'mine again\n');
-  saveBtn(root).click();
-  await settle();
-  assert.equal(
-    ed.writes[ed.writes.length - 1]?.expect,
-    saved,
-    'the stamp the save came back with survived the older answer',
-  );
-  assert.deepEqual(textsOf(root, 'pane-fmsg'), [], 'so nothing was refused');
-  assert.equal(ed.fileText(PATH), 'mine again\n');
-});
-
-test('a follow refused while the tab was typed into keeps the field and the text', async () => {
-  const root = await mount(PATH);
-  const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
-  // The refusal is armed before the question leaves: this read is on its way
-  // when the user starts typing.
-  ed.failRead(PATH, 403, NO_READ_TEXT);
-  ed.holdRead();
-  ES.followTick();
-  type(ta, 'typed while it was out\n');
-  ed.releaseReads();
-  await settle();
-
-  assert.ok(field(root) !== null, 'the work is in that field: it may not be taken away');
-  assert.equal((field(root) as FakeElement).value, 'typed while it was out\n');
-  assert.equal(st.editText(id), 'typed while it was out\n');
-  assert.deepEqual(textsOf(root, 'pane-fempty'), [], 'no sentence where the file was');
-  assert.equal(saveBtn(root).textContent, 'Save', 'and the text can still be written');
-  assert.equal(saveBtn(root).disabled, false);
-});
-
-test('a PARKED body (its tab is not up) and a HIDDEN window are both left alone', async () => {
-  const root = await mount(PATH);
-  ed.reads.length = 0;
-
-  // Parked = detached, which is exactly how ui/editor-pane.ts keeps a tab
-  // nobody is looking at.
-  dom.body.replaceChildren();
-  ES.followTick();
-  await settle();
-  assert.deepEqual(ed.reads, [], 'a body that is not on screen asks nothing');
-
-  dom.body.replaceChildren(root);
-  dom.doc.visibilityState = 'hidden';
-  ES.followTick();
-  await settle();
-  assert.deepEqual(ed.reads, [], 'a background window is not a screen anybody reads');
-
-  dom.doc.visibilityState = 'visible';
-  ES.followTick();
-  await settle();
-  assert.equal(ed.reads.length, 1, 'non-vacuity: the same body does ask when it may');
-});
-
-test('a body with a request still out is skipped, and one that failed is never re-asked', async () => {
-  const root = await mount(PATH);
-  ed.reads.length = 0;
-  ed.holdRead();
-  ES.followTick();
-  assert.equal(ed.reads.length, 1);
-  ES.followTick();
-  assert.equal(ed.reads.length, 1, 'one request at a time');
-  ed.releaseReads();
-  await settle();
-
-  // A file that became unreadable: the sentence replaces the field, the TAB
-  // stays, and the follow lets it be (no stamp to compare any more).
-  ed.failRead(PATH, 415, NOT_TEXT_TEXT);
-  ES.followTick();
-  await settle();
-  assert.deepEqual(textsOf(root, 'pane-fempty'), [NOT_TEXT_TEXT]);
-  assert.equal(field(root), null);
-  ed.reads.length = 0;
-  ES.followTick();
-  await settle();
-  assert.deepEqual(ed.reads, [], 'a refused question is not asked every five seconds');
-});
-
-test('dispose() takes the body out of the follow — a closed pane asks nothing ever again', async () => {
-  const body = FP.filePaneBody(PATH, () => {});
-  dom.body.append(body.root);
-  await settle();
-  const before = ES.followerCount();
-  assert.ok(before >= 1, 'non-vacuity: it was registered');
-  body.dispose();
-  assert.equal(ES.followerCount(), before - 1);
-  ed.reads.length = 0;
-  ES.followTick();
-  await settle();
-  assert.deepEqual(ed.reads, []);
-});
-
-// ---------------------------------------------------------------------------
 // Focus, and what this module may not do
 // ---------------------------------------------------------------------------
 
@@ -760,119 +488,4 @@ test('the mock is GONE: no placeholder branch, no invented file content, no api 
     }
   }
   assert.deepEqual(offenders, [], `still importing the deleted mock: ${offenders.join(', ')}`);
-});
-
-// ---------------------------------------------------------------------------
-// The diff half (part B3)
-// ---------------------------------------------------------------------------
-
-test('a diff body is READ-ONLY: diff rows, and no field at all', async () => {
-  const body = FP.diffPaneBody(PROJ, HEAD, DIFF_PATH);
-  dom.body.replaceChildren(body.root);
-  // It says `Loading…` first and asks exactly once, with the root the tab
-  // carries and the commit it is about.
-  assert.deepEqual(textsOf(body.root, 'diff-note'), ['Loading…']);
-  assert.deepEqual(fx.diffCalls, [`${HEAD} ${DIFF_PATH}`]);
-  await settle();
-  assert.equal(field(body.root), null, 'the changes in a commit are not something to type into');
-  assert.equal(byClass(body.root, 'pane-save').length, 0, 'and nothing to save');
-  assert.equal(
-    byClass(body.root, 'diff-line').length,
-    diffOf(HEAD, DIFF_PATH).lines.length,
-    'it draws exactly the lines the answer carried',
-  );
-  // The same renderer, so the pane and the screen it came from cannot disagree.
-  assert.equal(byClass(body.root, 'diff-body').length, 1);
-  assert.equal(byClass(body.root, 'diff-n').length % 2, 0, 'two gutters per row');
-});
-
-test('a diff pane notifies NOTHING — its answer may not put the pane grid through a render', async () => {
-  const kinds: string[] = [];
-  st.subscribe((k) => kinds.push(k));
-  const body = FP.diffPaneBody(PROJ, HEAD, DIFF_PATH);
-  dom.body.replaceChildren(body.root);
-  await settle();
-  assert.ok(byClass(body.root, 'diff-line').length > 0, 'non-vacuity: the answer really landed');
-  assert.deepEqual(kinds, [], 'it paints its own node and nothing else');
-});
-
-test('a gateway that throws SYNCHRONOUSLY still builds the pane, with the sentence in it', async () => {
-  // `encodeURIComponent` throws a URIError on a lone surrogate, and a path is
-  // git's verbatim bytes. In a pane that throw would escape the BUILD — the
-  // body would never be returned and the tab would show nothing at all.
-  STORE.setCommitGateway({
-    commit: () => Promise.reject(new Error('not asked here')),
-    commitDiff: () => {
-      throw new URIError('URI malformed');
-    },
-  });
-  try {
-    const body = FP.diffPaneBody(PROJ, HEAD, 'a\ud800b');
-    dom.body.replaceChildren(body.root);
-    assert.equal(byClass(body.root, 'diff-body').length, 1, 'the pane was built');
-    await settle();
-    assert.deepEqual(textsOf(body.root, 'diff-note'), ['The app could not reach the service.']);
-    assert.equal(byClass(body.root, 'diff-line').length, 0);
-  } finally {
-    STORE.setCommitGateway(fx.gateway);
-  }
-});
-
-test('a file body built with no gateway at all still builds, and says the one honest thing', async () => {
-  ES.setEditorGateway(null);
-  try {
-    const root = await mount(PATH);
-    assert.deepEqual(textsOf(root, 'pane-fempty'), ['The app could not reach the service.']);
-    assert.equal(field(root), null);
-  } finally {
-    ES.setEditorGateway(ed.gateway);
-  }
-});
-
-test('a binary file and a refused one each draw ONE note, never a numbered row', async () => {
-  const bin = FP.diffPaneBody(PROJ, HEAD, BINARY_PATH);
-  dom.body.replaceChildren(bin.root);
-  await settle();
-  assert.equal(byClass(bin.root, 'diff-line').length, 0);
-  assert.deepEqual(textsOf(bin.root, 'diff-note'), ['Binary file.']);
-
-  const gone = FP.diffPaneBody(PROJ, HEAD, GONE_PATH);
-  dom.body.replaceChildren(gone.root);
-  await settle();
-  assert.equal(byClass(gone.root, 'diff-line').length, 0);
-  assert.deepEqual(textsOf(gone.root, 'diff-note'), [DIFF_GONE_TEXT], "the server's own sentence");
-  assert.equal((byClass(gone.root, 'diff-note')[0] as FakeElement).classList.contains('is-bad'), true);
-});
-
-test('every class a file or diff body renders has a rule in app.css', async () => {
-  const seen = new Set<string>();
-  const collect = (root: FakeElement): void => {
-    for (const n of [root, ...descendants(root)]) {
-      for (const c of n.className.split(/\s+/)) if (c !== '') seen.add(c);
-    }
-  };
-  const root = await mount(PATH);
-  collect(root);
-  type(field(root) as FakeElement, 'dirty\n');
-  collect(root);
-  // The conflict bar and the two refusal inks are classes too.
-  ed.setFile(PATH, 'theirs\n');
-  saveBtn(root).click();
-  await settle();
-  collect(root);
-  ed.failRead(OTHER, 415, NOT_TEXT_TEXT);
-  collect(await mount(OTHER));
-  collect(await mount('/home/you/never-existed.ts'));
-  const diff = FP.diffPaneBody(PROJ, HEAD, DIFF_PATH);
-  collect(diff.root);
-  await settle();
-  collect(diff.root);
-  const bin = FP.diffPaneBody(PROJ, HEAD, BINARY_PATH);
-  await settle();
-  collect(bin.root);
-
-  assert.ok(seen.size >= 10, `non-vacuity: only ${seen.size} classes were collected`);
-  const css = readSource('web', 'src', 'styles', 'app.css');
-  const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
-  assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

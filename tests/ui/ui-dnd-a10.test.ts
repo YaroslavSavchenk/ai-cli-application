@@ -1,6 +1,7 @@
 /**
  * `web/src/ui/dnd.ts` — the pointer drag layer, driven through the REAL module
- * on the DOM double in `tests/helpers/fake-dom.ts`, against the REAL `web/src/state.ts`.
+ * on the DOM double in `tests/helpers/fake-dom.ts`, against the REAL
+ * `web/src/state.ts` (shared shell: `tests/helpers/ui-dnd-a10-fixture.ts`).
  *
  * WHY THIS FILE EXISTS. Until A10 nothing drove `dnd.ts` at all: the drag paths
  * were covered by source scans and by hand. A10 put a THIRD source into it (a
@@ -15,11 +16,10 @@
  *   4. `Home` is never a tab-drag source and no strip position before it is
  *      ever a drop target (user decision 4, 2026-09-15);
  *   5. no `draggable` attribute exists anywhere in `web/src` — the window's
- *      HTML5 drop channel belongs to real files from Explorer (A9/B10);
- *   6. A10b's FOURTH source, a file-tab CHIP of an editor pane's strip: an edge
- *      splits it off, another editor pane's centre takes it over, a terminal's
- *      centre refuses it, and the three gestures that were NOT built (its own
- *      pane, a strip, the bottom tab strip) light nothing at all.
+ *      HTML5 drop channel belongs to real files from Explorer (A9/B10).
+ *
+ * A10b's FOURTH source, a file-tab CHIP of an editor pane's strip, is in
+ * `tests/ui/ui-dnd-a10-filetab.test.ts`.
  *
  * The PURE geometry (`zoneForPoint`, the 0.25 edge band) is pinned in
  * `tests/ui/ui-slots-model.test.ts` and deliberately not repeated here; this file
@@ -29,321 +29,54 @@
  * NOT claimed (browser work, `.claude/skills/verify-terminal/SKILL.md`):
  * real layout, the ghost's transform, CSS, that a split actually reflows a PTY.
  */
+
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SessionInfo } from '../../shared/protocol.ts';
-import { byClass, dispatch, installDom, setRect, type FakeElement } from '../helpers/fake-dom.ts';
+import { byClass, dispatch, type FakeElement } from '../helpers/fake-dom.ts';
 import { sleep, readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
-
-const dom = installDom();
-
-const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
-const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).href)) as DndModule;
-const SL = (await import(new URL('../../web/src/ui/statusline.ts', import.meta.url).href)) as StatuslineModule;
-
-type EditorTab = { kind: 'file'; path: string } | { kind: 'diff'; hash: string; path: string };
-/** The A10b slot model: a session, or an EDITOR pane holding a strip of tabs. */
-type PaneSlot =
-  | { kind: 'session'; id: string }
-  | { kind: 'editor'; id: string; tabs: EditorTab[]; active: number };
-type ViewRoot = { kind: 'home' } | { kind: 'project'; id: string };
-interface ViewLike {
-  id: string;
-  root: ViewRoot | null;
-  slots: PaneSlot[];
-  focused: number;
-  l3: 'L' | 'R';
-  split: { col: number; row: number };
-}
-
-interface StateModule {
-  slotTabIds(slot: PaneSlot): string[];
-  state: {
-    sessions: Map<string, SessionInfo>;
-    projects: unknown[];
-    views: ViewLike[];
-    activeViewId: string;
-    history: unknown[];
-  };
-  MAX_PANES: number;
-  activeView(): ViewLike | null;
-  subscribe(fn: (kind: string) => void): void;
-  newEditorSlot(tabs: EditorTab[]): PaneSlot;
-  slotKey(s: PaneSlot): string;
-}
-interface StatuslineModule {
-  initStatusline(container: unknown, deps: { openShortcuts(): void }): { render(): void };
-}
-interface DndModule {
-  armDrag(
-    source: unknown,
-    ignore: string | null,
-    makeSpec: () => Record<string, unknown> | null,
-  ): void;
-}
+import {
+  dom,
+  st,
+  DND,
+  type PaneSlot,
+  type ViewLike,
+  strip,
+  grid,
+  sourceRow,
+  sourceChip,
+  flashText,
+  paint,
+  centreOf,
+  leftEdgeOf,
+  chipOf,
+  dragTo,
+  emptyBox,
+  EMPTY_POINT,
+  ghost,
+  view,
+  FILE_SPEC,
+  ed,
+  shapeOf,
+  resetShell,
+} from '../helpers/ui-dnd-a10-fixture.ts';
 
 // ---------------------------------------------------------------------------
-// A shell just real enough to hit-test: a tab strip, a grid, four pane boxes.
+// The two armed sources' specs — per file: the tests below reassign them,
+// which an imported binding cannot be. The elements themselves are the
+// fixture's (`tests/helpers/ui-dnd-a10-fixture.ts`).
 // ---------------------------------------------------------------------------
-
-const PANE_W = 400;
-const PANE_H = 300;
-/** One chip of an editor pane's strip, as ui/editor-pane.ts draws it (26px). */
-const CHIP_W = 120;
-const CHIP_H = 26;
-/** Pane N occupies x in [N*400, N*400+400), y in [100, 400). */
-const GRID_TOP = 100;
-
-const strip = dom.doc.createElement('div');
-strip.className = 'tabstrip';
-setRect(strip, { left: 0, top: 0, width: 1600, height: 40 });
-const grid = dom.doc.createElement('div');
-grid.className = 'grid';
-setRect(grid, { left: 0, top: GRID_TOP, width: 1600, height: PANE_H });
-dom.body.append(strip, grid);
-
-/** The element a drag is armed on — a stand-in for a Files-panel row. */
-const sourceRow = dom.doc.createElement('button');
-dom.body.append(sourceRow);
 
 let spec: Record<string, unknown> | null = null;
 DND.armDrag(sourceRow, null, () => spec);
-
-/**
- * A stand-in for ONE chip of an editor pane's strip — the fourth drag source
- * (ui/editor-pane.ts arms the real one the same way). It lives outside the
- * grid on purpose: what it is over decides the target, what it IS decides only
- * which element recedes while the drag is in flight.
- */
-const sourceChip = dom.doc.createElement('div');
-sourceChip.className = 'pane-tab';
-dom.body.append(sourceChip);
 let chipSpec: Record<string, unknown> | null = null;
 DND.armDrag(sourceChip, '.pane-x', () => chipSpec);
 
-/**
- * The REAL statusline, mounted on a host of its own: a refusal is a SENTENCE
- * the user reads, and the only way to read it back is where it is drawn.
- * (`tests/helpers/fake-dom.ts` records `setTimeout` instead of firing it, so a flash
- * stays up until `clearFlash()` runs the timer by hand.)
- */
-const statusHost = dom.doc.createElement('div');
-dom.body.append(statusHost);
-SL.initStatusline(statusHost, { openShortcuts: () => {} });
-
-function flashText(): string {
-  return byClass(statusHost, 'status-flash')[0]?.textContent ?? '';
-}
-
-/** Run every recorded timer, which is what takes the flash back down. */
-function clearFlash(): void {
-  const due = [...dom.win.timers];
-  dom.win.timers.length = 0;
-  for (const t of due) t.fn();
-}
-
-/** Rebuild the strip's chips from `state.views`, in order. */
-function renderStrip(): void {
-  strip.replaceChildren();
-  st.state.views.forEach((v, i) => {
-    const chip = dom.doc.createElement('div');
-    chip.className = 'tab';
-    chip.dataset.viewId = v.id;
-    chip.setAttribute('data-view-id', v.id);
-    setRect(chip, { left: i * 120, top: 0, width: 120, height: 40 });
-    strip.append(chip);
-  });
-}
-
-/** Rebuild the grid's panes from the ACTIVE view, one 400x300 box each. */
-function renderGrid(): void {
-  grid.replaceChildren();
-  const v = st.activeView();
-  if (v === null) return;
-  if (v.slots.length === 0) {
-    // What ui/panes.ts renderEmpty() draws: ONE `.empty-state` box filling the
-    // grid, and no `.pane` at all — so a drop there has nothing else to hit.
-    const box = dom.doc.createElement('div');
-    box.className = 'empty-state';
-    setRect(box, { left: 0, top: GRID_TOP, width: 1600, height: PANE_H });
-    grid.append(box);
-    return;
-  }
-  v.slots.forEach((slot, i) => {
-    const pane = dom.doc.createElement('section');
-    pane.className = 'pane';
-    pane.dataset.slot = String(i);
-    pane.setAttribute('data-slot', String(i));
-    setRect(pane, { left: i * PANE_W, top: GRID_TOP, width: PANE_W, height: PANE_H });
-    // What ui/editor-pane.ts puts in the header of an editor pane: the chip
-    // strip, across the top 26px of the card. It is hit-tested here because
-    // dropping a tab on a strip is one of the gestures that must light nothing.
-    if (slot.kind === 'editor') {
-      const tabsEl = dom.doc.createElement('div');
-      tabsEl.className = 'pane-tabs';
-      setRect(tabsEl, { left: i * PANE_W, top: GRID_TOP, width: PANE_W, height: CHIP_H });
-      slot.tabs.forEach((_t, j) => {
-        const chip = dom.doc.createElement('div');
-        chip.className = 'pane-tab';
-        setRect(chip, { left: i * PANE_W + j * CHIP_W, top: GRID_TOP, width: CHIP_W, height: CHIP_H });
-        tabsEl.append(chip);
-      });
-      pane.append(tabsEl);
-    }
-    const drop = dom.doc.createElement('div');
-    drop.className = 'pane-drop';
-    drop.hidden = true;
-    const box = dom.doc.createElement('div');
-    box.className = 'pane-drop-box';
-    const lb = dom.doc.createElement('span');
-    lb.className = 'pane-drop-lb';
-    box.append(lb);
-    drop.append(box);
-    pane.append(drop);
-    grid.append(pane);
-  });
-}
-
-function paint(): void {
-  renderStrip();
-  renderGrid();
-}
-
-/** Centre of pane `i`. */
-function centreOf(i: number): { x: number; y: number } {
-  return { x: i * PANE_W + PANE_W / 2, y: GRID_TOP + PANE_H / 2 };
-}
-/** A point inside pane `i`'s LEFT edge band (outer quarter). */
-function leftEdgeOf(i: number): { x: number; y: number } {
-  return { x: i * PANE_W + 10, y: GRID_TOP + PANE_H / 2 };
-}
-/** The centre of the chip of view `id`. */
-function chipOf(id: string): { x: number; y: number } {
-  const i = st.state.views.findIndex((v) => v.id === id);
-  return { x: i * 120 + 60, y: 20 };
-}
-
-/**
- * One whole gesture: press on the armed source, move (past the 5px threshold)
- * to the point, release. Returns the drop overlay that was lit, if any.
- */
-function dragTo(p: { x: number; y: number }, opts: { cancel?: boolean } = {}): FakeElement | null {
-  dispatch(sourceRow, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 9 });
-  dispatch(dom.body, 'pointermove', { clientX: p.x, clientY: p.y, pointerId: 9 });
-  const lit = byClass(grid, 'pane-drop').find((n) => !n.hidden) ?? null;
-  if (opts.cancel === true) {
-    dispatch(dom.body, 'keydown', { key: 'Escape' });
-    return lit;
-  }
-  dispatch(dom.body, 'pointerup', { clientX: p.x, clientY: p.y, pointerId: 9 });
-  return lit;
-}
-
-/** The empty state of an empty tab, as ui/panes.ts draws it. */
-function emptyBox(): FakeElement | null {
-  return byClass(grid, 'empty-state')[0] ?? null;
-}
-
-/** A point in the middle of the empty pane area, as a pointer event carries it. */
-const EMPTY_POINT = { clientX: 800, clientY: GRID_TOP + PANE_H / 2 };
-
-/** The ghost element while a drag is in flight. */
-function ghost(): FakeElement | null {
-  return byClass(dom.body, 'drag-ghost')[0] ?? null;
-}
-
-function mkSession(id: string): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/tmp',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-  } as SessionInfo;
-}
-
-function view(over: Partial<ViewLike>): ViewLike {
-  return {
-    id: 'v',
-    root: null,
-    slots: [],
-    focused: 0,
-    l3: 'L',
-    split: { col: 0.5, row: 0.5 },
-    ...over,
-  };
-}
-
-const FILE_SPEC = { kind: 'file', path: 'web/src/Pane.tsx', label: 'Pane.tsx' };
-
-/** An editor pane holding these files, in strip order, the first one active. */
-function ed(...paths: string[]): PaneSlot {
-  return st.newEditorSlot(paths.map((path) => ({ kind: 'file', path })));
-}
-
-/** One tab, as the picture below spells it. */
-function tabName(t: EditorTab): string {
-  return t.kind === 'file' ? t.path : `${t.hash}:${t.path}`;
-}
-
-/**
- * A view's panes as one readable picture: a session id, or an editor pane's
- * tabs in strip order with the ACTIVE one starred. The pane's own `e:<n>` is
- * generated and deliberately not part of it — every assertion here is about
- * which pane holds which tab, never about the counter.
- */
-function shapeOf(v: ViewLike | null): string[] {
-  if (v === null) return [];
-  return v.slots.map((s) =>
-    s.kind === 'session'
-      ? `session ${s.id}`
-      : s.tabs.map((t, i) => (i === s.active ? `*${tabName(t)}` : tabName(t))).join(' '),
-  );
-}
-
-/** The centre of chip `j` in the strip of pane `i`. */
-function chipIn(i: number, j: number): { x: number; y: number } {
-  return { x: i * PANE_W + j * CHIP_W + CHIP_W / 2, y: GRID_TOP + CHIP_H / 2 };
-}
-
-/** A point inside pane `i`'s TOP edge band, below its strip. */
-function topEdgeOf(i: number): { x: number; y: number } {
-  return { x: i * PANE_W + PANE_W / 2, y: GRID_TOP + PANE_H * 0.1 };
-}
-
-/** The spec one chip of pane `slot`'s strip carries (ui/editor-pane.ts fileTabSpec). */
-function tabSpec(viewId: string, slot: number, tab: number): Record<string, unknown> {
-  const v = st.state.views.find((x) => x.id === viewId) as ViewLike;
-  const pane = v.slots[slot] as PaneSlot & { kind: 'editor' };
-  const t = pane.tabs[tab] as EditorTab;
-  return {
-    kind: 'filetab',
-    viewId,
-    slot,
-    slotKey: st.slotKey(pane),
-    tab,
-    tabId: t.kind === 'file' ? `f:${t.path}` : `d:${t.hash}:${t.path}`,
-    label: t.kind === 'file' ? (t.path.split('/').pop() as string) : `Changes in ${t.hash}`,
-  };
-}
-
 beforeEach(() => {
-  st.state.sessions = new Map([['s1', mkSession('s1')], ['s2', mkSession('s2')]]);
-  st.state.projects = [];
-  st.state.history = [];
-  st.state.views = [];
-  st.state.activeViewId = '';
+  resetShell();
   spec = null;
   chipSpec = null;
-  clearFlash();
-  for (const n of byClass(dom.body, 'drag-ghost')) n.remove();
 });
 
 // ===========================================================================
@@ -873,264 +606,6 @@ test('a TAB dropped on the EMPTY pane area of Home merges its panes into Home', 
   ]);
   assert.equal(st.state.views.length, 1, 'the source tab was absorbed');
   await sleep(90);
-});
-
-// ===========================================================================
-// A FILE TAB (one chip of an editor pane's strip) — Nocturne A10b
-// ===========================================================================
-
-/**
- * One whole chip gesture: press on the chip, move to the point, LOOK, release.
- * The look happens while the drag is still in flight, because half of what
- * this source promises is what the screen says before the button comes up.
- */
-function chipDragTo(
-  p: { x: number; y: number },
-  pointerId: number,
-): { lit: FakeElement | null; zone: string | undefined; label: string; invalid: boolean; marks: number } {
-  dispatch(sourceChip, 'pointerdown', { clientX: 0, clientY: 0, pointerId });
-  dispatch(dom.body, 'pointermove', { clientX: p.x, clientY: p.y, pointerId });
-  const lit = byClass(grid, 'pane-drop').find((n) => !n.hidden) ?? null;
-  const out = {
-    lit,
-    zone: lit?.dataset.zone,
-    label: lit === null ? '' : byClass(lit, 'pane-drop-lb')[0]?.textContent ?? '',
-    invalid: ghost()?.classList.contains('is-invalid') === true,
-    marks:
-      byClass(dom.body, 'is-drop').length +
-      byClass(dom.body, 'is-insert-before').length +
-      byClass(dom.body, 'is-drop-target').length,
-  };
-  dispatch(dom.body, 'pointerup', { clientX: p.x, clientY: p.y, pointerId });
-  return out;
-}
-
-test('a file tab dropped on a pane EDGE leaves for a NEW editor pane there', () => {
-  // User decision 2, A10b: this is the ONE gesture that makes a split.
-  st.state.views = [
-    view({ id: 'v1', root: { kind: 'home' }, slots: [ed('a.ts', 'b.ts')] }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 1);
-
-  const r = chipDragTo(leftEdgeOf(0), 41);
-  assert.equal(r.zone, 'left', 'the outer quarter is a SPLIT');
-  assert.equal(r.label, 'Open beside');
-  assert.equal(r.invalid, false);
-  assert.deepEqual(shapeOf(st.activeView()), ['*b.ts', '*a.ts'],
-    'the tab left for a pane of its own, and the strip it came from kept the rest');
-  assert.equal((st.activeView() as ViewLike).focused, 0, 'focus follows the tab to the new pane');
-});
-
-test('the LAST tab of a pane leaving costs no pane: the source pane goes with it', () => {
-  st.state.views = [
-    view({
-      id: 'v1',
-      root: { kind: 'home' },
-      slots: [ed('only.ts'), { kind: 'session', id: 's1' }],
-    }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 0);
-
-  // Pane 1's own bands: a 2-pane tab splits top/bottom — but the source pane
-  // is about to disappear, so the drop is measured on the 1-pane view it
-  // leaves behind, whose bands are left/right. The picture and the model must
-  // agree, or a lit box would end in a refusal.
-  const r = chipDragTo(leftEdgeOf(1), 42);
-  assert.equal(r.zone, 'left', 'the zones are the ones the DROP will have, not the ones it had');
-  assert.deepEqual(shapeOf(st.activeView()), ['*only.ts', 'session s1']);
-  assert.equal((st.activeView() as ViewLike).slots.length, 2, 'still two panes: one left, one arrived');
-  assert.equal(flashText(), '', 'a drop that lit a box never explains itself afterwards');
-});
-
-test('a file tab dropped on the centre of ANOTHER editor pane MOVES there, and the WHOLE pane lights up', () => {
-  st.state.views = [
-    view({ id: 'v1', root: { kind: 'home' }, slots: [ed('a.ts', 'b.ts'), ed('c.ts')] }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 0);
-
-  const r = chipDragTo(centreOf(1), 43);
-  assert.notEqual(r.lit, null, 'the target pane lights up');
-  assert.equal(r.zone, undefined, 'NO data-zone: the box covers the whole card, like A9\'s file drop');
-  assert.equal(r.label, 'Move it here');
-  assert.deepEqual(shapeOf(st.activeView()), ['*b.ts', 'c.ts *a.ts'],
-    'the tab joined the other strip, and is the one showing there');
-  assert.equal((st.activeView() as ViewLike).slots.length, 2, 'a move makes no pane');
-});
-
-test('the centre of a TERMINAL pane refuses a file tab, with the sentence a file ROW gets', () => {
-  st.state.views = [
-    view({
-      id: 'v1',
-      root: { kind: 'home' },
-      slots: [ed('a.ts', 'b.ts'), { kind: 'session', id: 's1' }],
-    }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 0);
-
-  const r = chipDragTo(centreOf(1), 44);
-  assert.equal(r.lit, null, 'no box: a box would promise the terminal is about to change');
-  assert.equal(r.invalid, true, 'the ghost says no');
-  assert.equal(r.marks, 0);
-  assert.equal(flashText(), 'A terminal pane cannot hold files. Drop on an edge to split.');
-  assert.deepEqual(shapeOf(st.activeView()), ['*a.ts b.ts', 'session s1'], 'nothing moved');
-});
-
-test('a file tab dropped on a FULL editor pane is REFUSED: a move never evicts (B4 amendment)', () => {
-  // The user asked for four files per pane (2026-09-22). An OPEN evicts the
-  // last chip to make room; a MOVE says so and changes nothing — the chip it
-  // would throw out is one the user put there, and this gesture names none.
-  st.state.views = [
-    view({
-      id: 'v1',
-      root: { kind: 'home' },
-      slots: [ed('a.ts', 'b.ts'), ed('c.ts', 'd.ts', 'e.ts', 'f.ts')],
-    }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 0);
-
-  const r = chipDragTo(centreOf(1), 46);
-  assert.equal(r.lit, null, 'no box: nothing is about to change in that pane');
-  assert.equal(r.invalid, true, 'the ghost says no while the pointer is over it');
-  assert.equal(r.marks, 0);
-  assert.equal(flashText(), 'This pane already holds 4 files.');
-  assert.deepEqual(
-    shapeOf(st.activeView()),
-    ['*a.ts b.ts', '*c.ts d.ts e.ts f.ts'],
-    'nothing moved, and nothing was thrown out',
-  );
-});
-
-test('a file tab the FULL pane already shows is still taken: a raise costs no room', () => {
-  st.state.views = [
-    view({
-      id: 'v1',
-      root: { kind: 'home' },
-      slots: [ed('a.ts', 'b.ts'), ed('b.ts', 'd.ts', 'e.ts', 'f.ts')],
-    }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 1);
-
-  const r = chipDragTo(centreOf(1), 47);
-  assert.notEqual(r.lit, null, 'the pane lights up: it really takes it');
-  assert.equal(flashText(), '');
-  assert.deepEqual(
-    shapeOf(st.activeView()),
-    ['*a.ts', '*b.ts d.ts e.ts f.ts'],
-    'the tab left the source and was raised where it already was',
-  );
-});
-
-test('its OWN pane, a strip, a chip and the bottom tab strip are not targets — and light nothing', () => {
-  // Three gestures that were deliberately not built (orchestrator default 4,
-  // A10b): reordering a strip, dropping a tab on a strip, and giving a tab its
-  // own tab. A target that lit up for them would promise an act that does not
-  // exist.
-  st.state.views = [
-    view({ id: 'home', root: { kind: 'home' }, slots: [] }),
-    view({ id: 'v1', root: { kind: 'home' }, slots: [ed('a.ts', 'b.ts'), ed('c.ts')] }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  const before = shapeOf(st.activeView());
-
-  let pid = 50;
-  for (const [what, point] of [
-    ['its own pane\'s centre', centreOf(0)],
-    ['its own strip', chipIn(0, 0)],
-    ['another chip in its own strip', chipIn(0, 1)],
-    ['the other pane\'s strip', chipIn(1, 0)],
-    ['the bottom tab strip', { x: 900, y: 20 }],
-    ['another tab\'s chip', chipOf('home')],
-  ] as [string, { x: number; y: number }][]) {
-    chipSpec = tabSpec('v1', 0, 0);
-    pid += 1;
-    const r = chipDragTo(point, pid);
-    assert.equal(r.lit, null, `${what} must light no box`);
-    assert.equal(r.invalid, false, `${what} must not even turn the ghost invalid`);
-    assert.equal(r.marks, 0, `${what} must mark nothing`);
-    assert.deepEqual(shapeOf(st.activeView()), before, `${what} must change nothing`);
-    assert.equal(flashText(), '', `${what} says nothing: nothing was refused`);
-  }
-});
-
-test('a FULL tab refuses an edge split for a tab whose pane stays, and says the capacity sentence', () => {
-  st.state.views = [
-    view({
-      id: 'v1',
-      root: { kind: 'home' },
-      slots: [ed('a.ts', 'b.ts'), { kind: 'session', id: 's1' }, { kind: 'session', id: 's2' }, ed('d.ts')],
-    }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 0);
-
-  const r = chipDragTo(topEdgeOf(1), 60);
-  assert.equal(r.lit, null, 'a fifth pane cannot be promised');
-  assert.equal(r.invalid, true);
-  assert.equal(flashText(), 'This tab is full. It can show 4 panes.');
-  assert.deepEqual(shapeOf(st.activeView())[0], '*a.ts b.ts', 'the strip is untouched');
-});
-
-test('a stale chip spec resolves to nothing: no visuals, no move', () => {
-  // The strip was rebuilt under the drag (the tab was closed, or the pane
-  // was). Both indices in the spec still point at something — which is exactly
-  // why the spec is resolved by KEY and by TAB ID instead.
-  st.state.views = [
-    view({ id: 'v1', root: { kind: 'home' }, slots: [ed('a.ts', 'b.ts'), ed('c.ts')] }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  const stale = tabSpec('v1', 0, 0);
-  stale.tabId = 'f:gone.ts';
-  chipSpec = stale;
-  const r = chipDragTo(centreOf(1), 61);
-  assert.equal(r.lit, null);
-  assert.equal(r.invalid, false);
-  assert.equal(r.marks, 0, 'not a chip, not a strip, not a pane outline: NOTHING lights up');
-  assert.deepEqual(shapeOf(st.activeView()), ['*a.ts b.ts', '*c.ts']);
-
-  // Same gesture, same pane, but the PANE's key is the stranger.
-  const stale2 = tabSpec('v1', 0, 0);
-  stale2.slotKey = 'e:999';
-  chipSpec = stale2;
-  const r2 = chipDragTo(centreOf(1), 62);
-  assert.equal(r2.lit, null);
-  assert.equal(r2.invalid, false, 'a gesture about nothing is not a refusal either');
-  assert.equal(r2.marks, 0);
-  assert.deepEqual(shapeOf(st.activeView()), ['*a.ts b.ts', '*c.ts']);
-});
-
-test('a dragged chip recedes — and its PANE does not: the pane is not going anywhere', () => {
-  st.state.views = [
-    view({ id: 'v1', root: { kind: 'home' }, slots: [ed('a.ts', 'b.ts'), ed('c.ts')] }),
-  ];
-  st.state.activeViewId = 'v1';
-  paint();
-  chipSpec = tabSpec('v1', 0, 0);
-
-  dispatch(sourceChip, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 63 });
-  assert.equal(sourceChip.classList.contains('is-dragging'), false, 'not yet: 0px is not a drag');
-  const c = centreOf(1);
-  dispatch(dom.body, 'pointermove', { clientX: c.x, clientY: c.y, pointerId: 63 });
-  assert.equal(sourceChip.classList.contains('is-dragging'), true, 'the chip recedes');
-  assert.equal(byClass(grid, 'pane').some((n) => n.classList.contains('is-dragging')), false,
-    'no pane recedes: only a file is moving');
-  assert.equal(byClass(dom.body, 'drag-ghost')[0]?.textContent, 'a.ts', 'the ghost carries the NAME');
-  dispatch(dom.body, 'pointerup', { clientX: c.x, clientY: c.y, pointerId: 63 });
-  assert.equal(sourceChip.classList.contains('is-dragging'), false);
 });
 
 // ===========================================================================

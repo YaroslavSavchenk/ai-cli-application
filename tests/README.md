@@ -34,8 +34,13 @@ system node is v18 and cannot load `.ts`).
   rule came in; that list may only shrink.
 - A split keeps every `test(...)` name byte-exact and moves each test whole,
   with the setup it uses. The suite's test count before and after is equal.
-- Setup that two or more of the new files need goes to `tests/helpers/`,
-  not into a copy per file.
+- Setup that two or more of the new files need goes to
+  `tests/helpers/<original-stem>-fixture.ts` (`ui-state-fixture.ts` for the
+  pieces of `ui-state.test.ts`), not into a copy per file. A `let` that test
+  bodies assign stays in the piece (an imported binding cannot be assigned).
+- Watch for order dependence: a test that relies on state an earlier test
+  left behind stays in the same piece as that test — splitting surfaced two
+  such chains (a first listing, a file another test created).
 
 ## The header
 

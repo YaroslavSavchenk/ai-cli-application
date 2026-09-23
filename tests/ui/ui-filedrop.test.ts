@@ -1,7 +1,8 @@
 /**
  * `web/src/ui/filedrop.ts` — files and folders dragged in from Windows
  * Explorer (Nocturne part A9), driven through the REAL module on the DOM
- * double in `tests/helpers/fake-dom.ts`.
+ * double in `tests/helpers/fake-dom.ts`; the hit-testable shell is
+ * `tests/helpers/ui-filedrop-fixture.ts`.
  *
  * WHY THIS FILE EXISTS. Everything this layer does is invisible until it is
  * wrong, and every way it can be wrong is silent: a `dragover` that forgets
@@ -21,11 +22,13 @@
  *      sizes and the destination's listing;
  *   4. the three endings (drop, leaving the window, the watchdog) and
  *      that each one leaves nothing behind;
- *   5. the two twins: pasting files, and the Files-panel header button through
- *      its injected picker seam;
- *   6. the channel separation — no VISUALS while an in-app pointer drag is in
- *      flight (the cancellation stays), and `web/src` still has no
- *      `draggable` attribute and no `dragstart` listener.
+ *   5. the channel separation — no VISUALS while an in-app pointer drag is in
+ *      flight (the cancellation stays).
+ *
+ * Elsewhere: the walk and the drop-level limits (B10) in
+ * `tests/ui/ui-filedrop-walk.test.ts`; the paste and picker twins and the
+ * A9b paste rule in `tests/ui/ui-filedrop-paste.test.ts`; the boot guard and
+ * the shell/CSS wiring read from source in `tests/ui/ui-filedrop-wiring.test.ts`.
  *
  * The DIALOG is injected (`openDialog`), so nothing here imports
  * `ui/drop-dialog.ts`; the pure rules it shares (`hasFiles`, `destLine`,
@@ -38,173 +41,53 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { byClass, dispatch, makeDataTransfer, type FakeFile } from '../helpers/fake-dom.ts';
 import {
-  byClass,
-  dispatch,
-  installDom,
-  makeDataTransfer,
-  setRect,
-  type FakeDataTransfer,
-  type FakeElement,
-  type FakeEvent,
-  type FakeFile,
-} from '../helpers/fake-dom.ts';
-import { APP_CSS, stripComments } from '../helpers/tokens-helpers.ts';
-import { nextImmediate, readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
-
-const dom = installDom();
-
-const FD = (await import(new URL('../../web/src/ui/filedrop.ts', import.meta.url).href)) as FileDropModule;
-const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).href)) as DndModule;
-
-interface DropItem {
-  name: string;
-  dir: boolean;
-  bytes: number | null;
-}
-/** A real folder: the NAME a drop is allowed to show, the PATH B10 will post to. */
-interface Dest {
-  path: string;
-  name: string;
-}
-interface DropRequest {
-  dest: Dest;
-  items: DropItem[];
-  listing: readonly string[];
-  returnFocus: unknown;
-}
-/** What part B10 added to the request: the walk's own answer. */
-interface WalkShape {
-  files: { top: number; rel: string; file: unknown }[];
-  folders: { top: number; rel: string }[];
-  bytes: number;
-  biggest: number;
-  unreadable: number;
-}
-interface FileDropModule {
-  initFileDrop(deps: Record<string, unknown>): void;
-  installDropGuard(): () => void;
-  openCopyFilesPicker(into?: Dest): void;
-  copyIntoText(dest: string): string;
-}
-
-/**
- * A destination for the fakes below. The PATH is never shown anywhere — every
- * visible string is built from `.name` — so these tests read the name and pin
- * the path only where the contract is about it.
- */
-function dest(name: string): Dest {
-  return { path: `/home/you/${name === 'Home' ? '' : name}`.replace(/\/$/, ''), name };
-}
-
-/**
- * Let the module's own promise chain land: since part B2 `offer()` awaits the
- * destination's listing before the dialog opens, so a drop is one microtask
- * turn away from its dialog.
- */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 10; i += 1) await Promise.resolve();
-  // Part B10 made the chain arbitrarily long: the walk awaits every
-  // `readEntries()` and every `file()` callback, so a 2000-file folder is
-  // 2000 microtask turns. One macrotask turn drains the whole queue, however
-  // deep it is — and it still cannot resolve a listing a test is HOLDING.
-  await nextImmediate();
-}
-interface DndModule {
-  armDrag(source: unknown, ignore: string | null, makeSpec: () => unknown): void;
-}
+  dom,
+  FD,
+  DND,
+  type Dest,
+  type DropRequest,
+  dest,
+  settle,
+  panel,
+  rowWeb,
+  rowSrc,
+  rowGdir,
+  rowGfile,
+  filesAside,
+  pane0,
+  pane1,
+  termHost,
+  termTextarea,
+  empty,
+  scrim,
+  field,
+  LISTINGS,
+  type FileLikeIn,
+  OVER_ROW,
+  OVER_GDIR,
+  OVER_GFILE,
+  OVER_PANEL,
+  OVER_PANE,
+  OVER_TERM,
+  OVER_EMPTY,
+  OVER_NOTHING,
+  dragOver,
+  drop,
+  ghost,
+  litClasses,
+  paneBox,
+  flushTimers,
+  FILES_DT,
+  TEXT_DT,
+} from '../helpers/ui-filedrop-fixture.ts';
 
 // ---------------------------------------------------------------------------
-// A shell just real enough to hit-test: the Files panel with two folder rows,
-// a grid with two panes (one holding a terminal), an empty state, a scrim.
+// The injected deps — per file: the tests below reassign these `let`s, which
+// an imported binding cannot be, so the state and its DEPS live here while
+// the shell they act on is `tests/helpers/ui-filedrop-fixture.ts`.
 // ---------------------------------------------------------------------------
-
-function div(cls: string, rect?: { left: number; top: number; width: number; height: number }): FakeElement {
-  const n = dom.doc.createElement('div');
-  n.className = cls;
-  if (rect !== undefined) setRect(n, rect);
-  return n;
-}
-
-const panel = div('files-view', { left: 0, top: 0, width: 300, height: 800 });
-const rowWeb = div('files-row is-dir', { left: 0, top: 100, width: 300, height: 26 });
-rowWeb.setAttribute('data-k', 'fdir:web');
-const rowSrc = div('files-row is-dir', { left: 0, top: 130, width: 300, height: 26 });
-rowSrc.setAttribute('data-k', 'fdir:web/src');
-/**
- * The `Changes` tab draws folder and file rows too (part B2), with the same
- * classes and a REPO-RELATIVE path under a `gdir:`/`gfile:` key. They are in
- * this shell because they are the one thing in the panel that LOOKS like a
- * destination and is not one.
- */
-const rowGdir = div('files-row is-dir', { left: 0, top: 200, width: 300, height: 26 });
-rowGdir.setAttribute('data-k', 'gdir:web/src');
-const rowGfile = div('files-row is-file', { left: 0, top: 230, width: 300, height: 26 });
-rowGfile.setAttribute('data-k', 'gfile:web/src/App.tsx');
-panel.append(rowWeb, rowSrc, rowGdir, rowGfile);
-/**
- * The shell's own host for the panel. `main.ts` hides THIS aside when the
- * Projects drawer takes the left column (`filesAside.hidden = !filesShown`),
- * which is the only way the panel ever leaves the screen — so a test of "the
- * panel is away" hides the host, exactly as the app does.
- */
-const filesAside = div('drawer files-panel');
-filesAside.append(panel);
-
-const grid = div('grid', { left: 300, top: 0, width: 1000, height: 400 });
-/** One pane, with the drop overlay `ui/panes.ts` builds into every card. */
-function makePane(slot: number, left: number): FakeElement {
-  const pane = div('pane', { left, top: 0, width: 500, height: 400 });
-  pane.setAttribute('data-slot', String(slot));
-  pane.dataset.slot = String(slot);
-  const drop = div('pane-drop');
-  drop.hidden = true;
-  const box = div('pane-drop-box');
-  const lb = div('pane-drop-lb');
-  box.append(lb);
-  drop.append(box);
-  pane.append(drop);
-  return pane;
-}
-const pane0 = makePane(0, 300);
-const pane1 = makePane(1, 800);
-const termHost = div('term-host', { left: 810, top: 40, width: 480, height: 340 });
-/**
- * xterm's own helper textarea, which is where a plain ctrl+v inside a focused
- * terminal really fires its `paste` — so it is BOTH a terminal target and an
- * editable one, and it carries xterm's own `paste` handler. `xtermPastes`
- * counts that handler: the app taking a paste here without stopping the event
- * would let xterm type any `text/plain` beside the files into the PTY
- * unbracketed (PLAN-A9b §2).
- */
-const termTextarea = dom.doc.createElement('textarea');
-setRect(termTextarea, { left: 810, top: 40, width: 480, height: 340 });
-let xtermPastes = 0;
-termTextarea.addEventListener('paste', () => {
-  xtermPastes += 1;
-});
-termHost.append(termTextarea);
-pane1.append(termHost);
-grid.append(pane0, pane1);
-
-const empty = div('empty-state', { left: 300, top: 420, width: 1000, height: 300 });
-const scrim = div('modal-scrim');
-scrim.hidden = true;
-const field = dom.doc.createElement('textarea');
-setRect(field, { left: 0, top: 900, width: 100, height: 20 });
-
-dom.body.append(filesAside, grid, empty, scrim, field);
-
-// ---------------------------------------------------------------------------
-// The injected deps
-// ---------------------------------------------------------------------------
-
-const LISTINGS: Record<string, string[]> = {
-  src: ['App.tsx', 'Pane.tsx'],
-  Home: ['web', 'server', 'README.md'],
-};
 
 let opened: DropRequest[] = [];
 let flashes: string[] = [];
@@ -238,6 +121,17 @@ let listingCalls = 0;
  */
 let copyRunning = false;
 
+/**
+ * xterm's own `paste` handler on its helper textarea (the fixture's
+ * `termTextarea`). `xtermPastes` counts it: the app taking a paste here
+ * without stopping the event would let xterm type any `text/plain` beside
+ * the files into the PTY unbracketed (PLAN-A9b §2).
+ */
+let xtermPastes = 0;
+termTextarea.addEventListener('paste', () => {
+  xtermPastes += 1;
+});
+
 const DEPS = {
   openDialog: (req: DropRequest) => opened.push(req),
   // Part B2: a PROMISE, and keyed by the destination's name here only because
@@ -262,71 +156,6 @@ const DEPS = {
 };
 
 FD.initFileDrop(DEPS);
-
-interface FileLikeIn {
-  name: string;
-  size?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** A point over each surface of the shell. */
-const OVER_ROW = { clientX: 150, clientY: 140 }; // the `web/src` row
-const OVER_GDIR = { clientX: 150, clientY: 210 }; // a `Changes` folder row
-const OVER_GFILE = { clientX: 150, clientY: 240 }; // a `Changes` file row
-const OVER_PANEL = { clientX: 150, clientY: 400 }; // panel, no row under it
-const OVER_PANE = { clientX: 500, clientY: 200 };
-const OVER_TERM = { clientX: 1000, clientY: 200 };
-const OVER_EMPTY = { clientX: 700, clientY: 500 };
-const OVER_NOTHING = { clientX: 1500, clientY: 870 };
-
-function at(p: { clientX: number; clientY: number }): FakeElement {
-  return dom.doc.elementFromPoint(p.clientX, p.clientY) ?? dom.body;
-}
-
-/** One `dragover`, dispatched on whatever is under the point. */
-function dragOver(
-  p: { clientX: number; clientY: number },
-  dt: FakeDataTransfer,
-  on?: FakeElement,
-): { prevented: boolean } {
-  const e = dispatch(on ?? at(p), 'dragover', { ...p, dataTransfer: dt });
-  return { prevented: e.defaultPrevented };
-}
-
-function drop(
-  p: { clientX: number; clientY: number },
-  dt: FakeDataTransfer,
-  on?: FakeElement,
-): { prevented: boolean } {
-  const e = dispatch(on ?? at(p), 'drop', { ...p, dataTransfer: dt });
-  return { prevented: e.defaultPrevented };
-}
-
-function ghost(): FakeElement | undefined {
-  return byClass(dom.body, 'drag-ghost')[0];
-}
-
-function litClasses(): string[] {
-  return byClass(dom.body, 'is-drop').map((n) => n.className);
-}
-
-function paneBox(pane: FakeElement): FakeElement {
-  return byClass(pane, 'pane-drop')[0] as FakeElement;
-}
-
-/** Fire every armed timer (the watchdog is the only one here). */
-function flushTimers(): void {
-  const armed = [...dom.win.timers];
-  dom.win.timers.length = 0;
-  for (const t of armed) t.fn();
-}
-
-const FILES_DT = (): FakeDataTransfer =>
-  makeDataTransfer({ items: [{ name: 'a.ts', size: 10 }, { name: 'b.ts', size: 20 }] });
-const TEXT_DT = (): FakeDataTransfer => makeDataTransfer({ types: ['text/plain'] });
 
 beforeEach(() => {
   opened = [];
@@ -659,192 +488,6 @@ test('exactly 200 items still lands', async () => {
 });
 
 // ===========================================================================
-// The walk and the drop-level limits (part B10, user decision D3)
-// ===========================================================================
-
-/** A folder whose tree the walk can really read. */
-const tree = (name: string, children: unknown[]): Record<string, unknown> => ({
-  name,
-  dir: true,
-  children,
-});
-
-test('a dropped FOLDER is walked, and what it holds reaches the dialog', async () => {
-  const dt = makeDataTransfer({
-    items: [
-      tree('web', [
-        { name: 'index.html', size: 10 },
-        { name: 'src', dir: true, children: [{ name: 'main.ts', size: 20 }] },
-        { name: 'empty', dir: true, children: [] },
-      ]),
-      { name: 'notes.txt', size: 5 },
-    ] as never,
-  });
-  drop(OVER_ROW, dt);
-  await settle();
-  assert.equal(opened.length, 1);
-  const req = opened[0] as DropRequest & { walk: WalkShape };
-  // The ITEMS are still the top-level things, in the A9 shape.
-  assert.deepEqual(req.items, [
-    { name: 'web', dir: true, bytes: null },
-    { name: 'notes.txt', dir: false, bytes: 5 },
-  ]);
-  // The WALK is what B10 added: every file, the empty folder, the totals.
-  assert.deepEqual(
-    req.walk.files.map((f) => `${f.top}:${f.rel}`),
-    ['0:index.html', '0:src/main.ts', '1:'],
-  );
-  assert.deepEqual(req.walk.folders, [{ top: 0, rel: 'empty' }]);
-  assert.equal(req.walk.bytes, 35);
-  assert.equal(req.walk.unreadable, 0);
-});
-
-test('more than 2000 files is refused whole, in one sentence, before any listing is asked for', async () => {
-  const many = Array.from({ length: 2001 }, (_, i) => ({ name: `f${i}.bin`, size: 1 }));
-  drop(OVER_ROW, makeDataTransfer({ items: [tree('huge', many)] as never }));
-  await settle();
-  assert.deepEqual(flashes, ['Too many files. Drop up to 2000 files at a time.']);
-  assert.deepEqual(opened, [], 'nothing partial, and no dialog to answer');
-  assert.equal(listingCalls, 0, 'a refused drop costs no request');
-});
-
-test('exactly 2000 files still lands', async () => {
-  const many = Array.from({ length: 2000 }, (_, i) => ({ name: `f${i}.bin`, size: 1 }));
-  drop(OVER_ROW, makeDataTransfer({ items: [tree('big', many)] as never }));
-  await settle();
-  assert.deepEqual(flashes, []);
-  assert.equal(opened.length, 1);
-  assert.equal((opened[0] as DropRequest & { walk: WalkShape }).walk.files.length, 2000);
-});
-
-test('more than 1 GB is refused whole, in its own sentence, before any listing', async () => {
-  const big = Array.from({ length: 3 }, (_, i) => ({ name: `v${i}.mov`, size: 400 * 1024 * 1024 }));
-  drop(OVER_ROW, makeDataTransfer({ items: [tree('video', big)] as never }));
-  await settle();
-  assert.deepEqual(flashes, ['Too much at once. Drop up to 1 GB at a time.']);
-  assert.deepEqual(opened, []);
-  assert.equal(listingCalls, 0);
-});
-
-test('a drop nothing could be read out of says so, and opens no dialog', async () => {
-  drop(OVER_ROW, makeDataTransfer({ items: [{ name: 'locked', dir: true, unreadable: true }] as never }));
-  await settle();
-  assert.deepEqual(flashes, ['The app could not read what was dropped.']);
-  assert.deepEqual(opened, []);
-  assert.equal(listingCalls, 0, 'there is nothing to ask a listing about');
-});
-
-test('one unreadable folder beside a readable one is not a refusal: the rest still copies', async () => {
-  drop(
-    OVER_ROW,
-    makeDataTransfer({
-      items: [
-        { name: 'locked', dir: true, unreadable: true },
-        tree('web', [{ name: 'a.ts', size: 3 }]),
-      ] as never,
-    }),
-  );
-  await settle();
-  assert.deepEqual(flashes, []);
-  assert.equal(opened.length, 1);
-  const req = opened[0] as DropRequest & { walk: WalkShape };
-  assert.equal(req.walk.unreadable, 1);
-  assert.equal(req.walk.files.length, 1);
-});
-
-test('a walk that THROWS is said out loud, and opens no dialog over an empty plan', async () => {
-  // A handle the browser hands over and then refuses to answer about: reading
-  // `isDirectory` throws, so `walkDrop` REJECTS instead of answering. The drop
-  // exists and the app cannot see into it — which is the same sentence an
-  // unreadable folder earns, and never a dialog listing nothing.
-  const dt = makeDataTransfer({ items: [{ name: 'boom', size: 1 }] });
-  (dt.items[0] as unknown as { webkitGetAsEntry: () => unknown }).webkitGetAsEntry = () => ({
-    name: 'boom',
-    get isDirectory(): boolean {
-      throw new Error('the handle went away with the event');
-    },
-  });
-  drop(OVER_ROW, dt);
-  await settle();
-  assert.deepEqual(flashes, ['The app could not read what was dropped.']);
-  assert.deepEqual(opened, [], 'nothing is offered for a drop the app never read');
-  assert.equal(listingCalls, 0, 'and nothing is asked of the server about it');
-});
-
-test('a second drop while a copy is still writing is refused, before any walk or listing', async () => {
-  copyRunning = true;
-  drop(OVER_ROW, makeDataTransfer({ items: [tree('web', [{ name: 'a.ts', size: 1 }])] as never }));
-  await settle();
-  assert.deepEqual(flashes, ['A copy is still running.']);
-  assert.deepEqual(opened, [], 'one copy at a time');
-  assert.equal(listingCalls, 0, 'and it costs no request');
-
-  // The paste and the picker are the same door, so they are refused there too.
-  flashes.length = 0;
-  selectedDest = dest('src');
-  dispatch(dom.body, 'paste', {
-    clipboardData: makeDataTransfer({ files: [{ name: 'b.txt', size: 9 }] }),
-  });
-  await settle();
-  picked = [{ name: 'c.txt', size: 1 }];
-  FD.openCopyFilesPicker();
-  await settle();
-  assert.deepEqual(flashes, ['A copy is still running.', 'A copy is still running.']);
-  assert.deepEqual(opened, []);
-
-  // When it is over, the next drop is taken as usual.
-  copyRunning = false;
-  flashes.length = 0;
-  drop(OVER_ROW, makeDataTransfer({ items: [{ name: 'a.ts', size: 1 }] }));
-  await settle();
-  assert.deepEqual(flashes, []);
-  assert.equal(opened.length, 1, 'the door opens again');
-});
-
-test('the refusal is answered before the WALK — and after the one check that costs nothing', async () => {
-  copyRunning = true;
-  // A drag of 201 items is refused by its NUMBER in the drop handler itself
-  // (A9: 10 000 items must be refused without reading one of them), so that
-  // sentence wins — both are a refusal, and neither reads a directory.
-  const many = Array.from({ length: 201 }, (_, i) => ({ name: `f${i}.txt`, size: 1 }));
-  drop(OVER_ROW, makeDataTransfer({ items: many }));
-  await settle();
-  assert.deepEqual(flashes, ['Too many items. Drop up to 200 at a time.']);
-  assert.deepEqual(opened, []);
-
-  // Anything that DOES reach the door hears about the copy first: before the
-  // walk, before the limits, before a listing.
-  flashes.length = 0;
-  const huge = Array.from({ length: 2500 }, (_, i) => ({ name: `f${i}.bin`, size: 1024 * 1024 }));
-  drop(OVER_ROW, makeDataTransfer({ items: [tree('huge', huge)] as never }));
-  await settle();
-  assert.deepEqual(flashes, ['A copy is still running.'], 'not the 2000-file sentence: nothing was walked');
-  assert.equal(listingCalls, 0);
-  assert.deepEqual(opened, []);
-});
-
-test('the picker and the paste reach the same door: both arrive walked', async () => {
-  picked = [{ name: 'a.txt', size: 7 }];
-  FD.openCopyFilesPicker();
-  await settle();
-  assert.equal(opened.length, 1, 'the button twin');
-  const fromButton = opened[0] as DropRequest & { walk: WalkShape };
-  assert.deepEqual(fromButton.walk.files.map((f) => f.rel), ['']);
-  assert.equal(fromButton.walk.bytes, 7);
-
-  opened = [];
-  selectedDest = dest('src');
-  dispatch(dom.body, 'paste', {
-    clipboardData: makeDataTransfer({ files: [{ name: 'b.txt', size: 9 }] }),
-  });
-  await settle();
-  assert.equal(opened.length, 1, 'the keyboard twin');
-  const fromPaste = opened[0] as DropRequest & { walk: WalkShape };
-  assert.equal(fromPaste.walk.bytes, 9);
-  assert.equal(fromPaste.walk.folders.length, 0, 'a clipboard carries no folder');
-});
-
-// ===========================================================================
 // Endings
 // ===========================================================================
 
@@ -920,418 +563,4 @@ test('an in-app pointer drag owns the visuals; the cancellation stays the window
 
   dispatch(dom.body, 'pointerup', { clientX: 10, clientY: 10, pointerId: 77 });
   source.remove();
-});
-
-// ===========================================================================
-// The twins
-// ===========================================================================
-
-test('pasting files opens the dialog on the paste destination', async () => {
-  dispatch(dom.body, 'paste', {
-    clipboardData: makeDataTransfer({ files: [{ name: 'shot.png', size: 900 }] }),
-  });
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1);
-  const req = opened[0] as DropRequest;
-  assert.equal(req.dest.name, 'src');
-  assert.deepEqual(req.items, [{ name: 'shot.png', dir: false, bytes: 900 }]);
-  assert.deepEqual(req.listing, ['App.tsx', 'Pane.tsx']);
-});
-
-test('pasting inside a terminal or a text field belongs to them, not to the app', async () => {
-  const cd = (): FakeDataTransfer => makeDataTransfer({ files: [{ name: 'shot.png', size: 9 }] });
-  dispatch(termHost, 'paste', { clipboardData: cd() });
-  dispatch(field, 'paste', { clipboardData: cd() });
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
-});
-
-test('a paste with no files on the clipboard is not ours', async () => {
-  dispatch(dom.body, 'paste', { clipboardData: makeDataTransfer({ types: ['text/plain'] }) });
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
-});
-
-test('a paste carrying an EMPTY file list opens nothing and stays the page s own', async () => {
-  // `clipboardData.files` exists and is empty — a copy that put no file on the
-  // clipboard. Opening nothing is half of it; the other half is not calling
-  // preventDefault(), or the app would silently swallow every paste that is
-  // not its own.
-  const e = dispatch(dom.body, 'paste', { clipboardData: makeDataTransfer({ files: [] }) });
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
-  assert.deepEqual(flashes, []);
-  assert.equal(e.defaultPrevented, false);
-});
-
-// ---------------------------------------------------------------------------
-// The A9b paste rule, through the DOM (PLAN-A9b §2)
-// ---------------------------------------------------------------------------
-
-/**
- * The whole decision space: files on the clipboard × a folder chosen in the
- * Files panel × the event landing in a terminal × in an editable × a modal up.
- * The expectation is written out as the RULE, not as a table of 32 answers, so
- * an implementation that happens to agree with a hand-copied table cannot pass
- * — and the four sentences of the rule are each named in the message.
- *
- * Driven through the real window listener on real elements, so the target
- * tests (`isTerminalTarget`, `isEditableTarget`) are exercised too: a focused
- * terminal pastes on xterm's helper TEXTAREA, which is both at once.
- */
-test('the paste matrix: files x selection x terminal x editable x modal, all 32 of them', async () => {
-  let taken = 0;
-  for (let bits = 0; bits < 32; bits += 1) {
-    const files = (bits & 1) !== 0;
-    const selected = (bits & 2) !== 0;
-    const inTerminal = (bits & 4) !== 0;
-    const inEditable = (bits & 8) !== 0;
-    const modal = (bits & 16) !== 0;
-
-    opened = [];
-    xtermPastes = 0;
-    selectedDest = selected ? dest('src') : null;
-    scrim.hidden = !modal;
-    // A terminal AND an editable is xterm's helper textarea — the real shape
-    // of a plain ctrl+v in a focused terminal.
-    const target = inTerminal
-      ? inTerminal && inEditable
-        ? termTextarea
-        : termHost
-      : inEditable
-        ? field
-        : dom.body;
-    const cd = files
-      ? makeDataTransfer({ files: [{ name: 'shot.png', size: 9 }] })
-      : makeDataTransfer({ types: ['text/plain'] });
-
-    const e = dispatch(target, 'paste', { clipboardData: cd });
-    const expected = files && !modal && ((!inTerminal && !inEditable) || selected);
-    const where = `files=${files} selected=${selected} terminal=${inTerminal} editable=${inEditable} modal=${modal}`;
-    await settle(); // part B2: the listing is read before the dialog opens
-    assert.equal(opened.length, expected ? 1 : 0, `dialog: ${where}`);
-    assert.equal(e.defaultPrevented, expected, `preventDefault: ${where}`);
-    // An event the app did NOT take must still be the page's own, whole: it
-    // may not be stopped either, or a field would silently lose its paste.
-    assert.equal(e.cancelBubble, expected, `stopPropagation: ${where}`);
-    if (expected) taken += 1;
-  }
-  scrim.hidden = true;
-  // 5 of 32: files and no modal narrows it to 8, and of those the app takes
-  // the four with a chosen folder plus the one landing in neither a terminal
-  // nor an editable (the A9 rule).
-  assert.equal(taken, 5, 'non-vacuity: the rule takes 5 of the 32 combinations');
-});
-
-test('a TEXT-only paste in a focused terminal is never ours, chosen folder or not', async () => {
-  // The sentence the PTY depends on: files carry no text, so the app can take
-  // a file paste from a terminal for free — but a text paste is the terminal's
-  // whatever else is true, or a login code would vanish into a dialog.
-  for (const sel of [null, dest('src')]) {
-    selectedDest = sel;
-    const e = dispatch(termTextarea, 'paste', {
-      clipboardData: makeDataTransfer({ types: ['text/plain'] }),
-    });
-    await settle(); // part B2: the listing is read before the dialog opens
-    assert.deepEqual(opened, [], `selection ${String(sel)}`);
-    assert.equal(e.defaultPrevented, false, 'the terminal keeps its own paste');
-    assert.equal(e.cancelBubble, false, 'and xterm still hears it');
-  }
-  assert.equal(xtermPastes, 2, 'non-vacuity: xterm s own handler really did run both times');
-});
-
-test('a paste TAKEN inside a terminal is stopped, so xterm s textarea handler never runs', async () => {
-  // preventDefault() alone is not enough: xterm s own `paste` handler would
-  // still fire and type any `text/plain` the Explorer clipboard carries beside
-  // its files into the PTY, unbracketed — the accident A9 decision 5 exists to
-  // prevent. Measured: deleting the stopPropagation() call leaves every other
-  // assertion in this file green.
-  selectedDest = dest('src');
-  const e = dispatch(termTextarea, 'paste', {
-    clipboardData: makeDataTransfer({ files: [{ name: 'shot.png', size: 9 }] }),
-  });
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1, 'non-vacuity: the app really took this one');
-  assert.equal(e.defaultPrevented, true);
-  assert.equal(e.cancelBubble, true);
-  assert.equal(xtermPastes, 0, 'xterm must not see a paste the app took');
-});
-
-test('a taken paste copies into the CHOSEN folder, by name, and gives the keyboard back to it', async () => {
-  selectedDest = dest('src');
-  // The selection is what `pasteDestination()` answers first (ui/files.ts);
-  // here it is injected, as every dep in this file is.
-  pasteDest = dest('src');
-  termTextarea.focus();
-  dispatch(termTextarea, 'paste', {
-    clipboardData: makeDataTransfer({ files: [{ name: 'shot.png', size: 900 }] }),
-  });
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1);
-  const req = opened[0] as DropRequest;
-  assert.equal(req.dest.name, 'src', 'a NAME, never a path');
-  assert.deepEqual(req.items, [{ name: 'shot.png', dir: false, bytes: 900 }]);
-  assert.deepEqual(req.listing, ['App.tsx', 'Pane.tsx']);
-  // `document.activeElement` at paste time: the dialog hands the keyboard back
-  // to it, so the terminal is typing again the moment the card closes. The
-  // module must not move the focus itself — there would be nothing to undo.
-  assert.equal(req.returnFocus, termTextarea);
-  assert.equal(dom.doc.activeElement, termTextarea, 'the paste moved no focus');
-  dom.doc.activeElement = dom.body;
-});
-
-test('a chosen folder does NOT hand a paste to the app while a modal is up', async () => {
-  selectedDest = dest('src');
-  scrim.hidden = false;
-  const e = dispatch(termTextarea, 'paste', {
-    clipboardData: makeDataTransfer({ files: [{ name: 'shot.png', size: 9 }] }),
-  });
-  scrim.hidden = true;
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, [], 'a modal up means nothing in the window takes a paste');
-  assert.equal(e.defaultPrevented, false);
-});
-
-test('the header button opens the picker and hands what was chosen to the dialog', async () => {
-  picked = [{ name: 'one.png', size: 10 }, { name: 'two.png', size: 20 }];
-  FD.openCopyFilesPicker();
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1);
-  const req = opened[0] as DropRequest;
-  assert.equal(req.dest.name, 'src');
-  assert.deepEqual(req.items, [
-    { name: 'one.png', dir: false, bytes: 10 },
-    { name: 'two.png', dir: false, bytes: 20 },
-  ]);
-});
-
-test('a picker the user cancelled opens no dialog', async () => {
-  picked = [];
-  FD.openCopyFilesPicker();
-  await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
-  assert.deepEqual(flashes, []);
-});
-
-test('the button title and the ghost name the destination the same way', () => {
-  assert.equal(FD.copyIntoText('src'), 'Copy files into src');
-});
-
-// ===========================================================================
-// The boot guard (before the shell exists at all)
-// ===========================================================================
-
-/**
- * The handlers a target is carrying, by type. The real layer is already wired
- * in this module, so the guard is read off the window and CALLED, never
- * dispatched at: what it does ON ITS OWN is the whole question, and a
- * dispatched event would run both handlers.
- */
-function winHandlers(type: string): { fn: (e: FakeEvent) => void; capture: boolean }[] {
-  return dom.win.handlers.filter((h) => h.type === type) as {
-    fn: (e: FakeEvent) => void;
-    capture: boolean;
-  }[];
-}
-
-/** A drag event nobody dispatches — for calling one handler in isolation. */
-function rawDrag(type: string, dt: FakeDataTransfer): FakeEvent {
-  return {
-    type,
-    key: '',
-    shiftKey: false,
-    ctrlKey: false,
-    altKey: false,
-    metaKey: false,
-    button: 0,
-    clientX: 0,
-    clientY: 0,
-    pointerId: 1,
-    target: dom.body,
-    relatedTarget: null,
-    dataTransfer: dt,
-    clipboardData: null,
-    defaultPrevented: false,
-    cancelBubble: false,
-    preventDefault(): void {
-      this.defaultPrevented = true;
-    },
-    stopPropagation(): void {
-      this.cancelBubble = true;
-    },
-    getModifierState: () => false,
-  };
-}
-
-test('the boot guard refuses a file drop on its own, before any shell exists', () => {
-  // The gap it covers is real and unbounded: boot() runs asynchronously, and a
-  // hydrate failure leaves the boot panel up for ever with no other drop
-  // listener anywhere behind it. A file dropped in that gap NAVIGATES the
-  // browser to the file and the app is gone.
-  const before = dom.win.handlers.length;
-  const off = FD.installDropGuard();
-  const added = dom.win.handlers.slice(before);
-  assert.deepEqual(added.map((h) => h.type), ['dragover', 'drop'], 'both, or the drop still fires');
-  assert.deepEqual(added.map((h) => h.capture), [true, true], 'the window decides first');
-
-  for (const type of ['dragover', 'drop']) {
-    const h = added.find((x) => x.type === type) as { fn: (e: FakeEvent) => void };
-    const dt = makeDataTransfer({ items: [{ name: 'a.ts', size: 10 }] });
-    dt.dropEffect = 'copy';
-    const e = rawDrag(type, dt);
-    h.fn(e);
-    assert.equal(e.defaultPrevented, true, `${type}: the browser may not have this drop`);
-    assert.equal(dt.dropEffect, 'none', `${type}: and the cursor says so`);
-  }
-
-  // A drag carrying no files is none of its business: dragging text into a
-  // field is still the browser's own.
-  const text = makeDataTransfer({ types: ['text/plain'] });
-  const e = rawDrag('dragover', text);
-  (added[0] as { fn: (e: FakeEvent) => void }).fn(e);
-  assert.equal(e.defaultPrevented, false);
-
-  off();
-  assert.equal(dom.win.handlers.length, before, 'its uninstaller really removes both');
-});
-
-test('initFileDrop takes the guard down before registering: never two handlers on one drop', () => {
-  const bare = winHandlers('dragover').length;
-  FD.installDropGuard();
-  assert.equal(winHandlers('dragover').length, bare + 1, 'non-vacuity: the guard is on');
-
-  // Re-wiring with the same deps re-registers nothing (the module is a
-  // singleton) — but it MUST still hand the guard's own listener back.
-  FD.initFileDrop(DEPS);
-  assert.equal(winHandlers('dragover').length, bare, 'exactly one preventDefault path stays');
-  assert.deepEqual(winHandlers('drop').length, 1, 'the real layer, and only it');
-
-  // And the real layer is untouched by the handover.
-  const dt = FILES_DT();
-  dragOver(OVER_ROW, dt);
-  assert.equal(dt.dropEffect, 'copy');
-  assert.equal(rowSrc.classList.contains('is-drop'), true);
-});
-
-test('main.ts installs the guard as the FIRST statement of boot, before any await', () => {
-  const main = readSource('web', 'src', 'main.ts');
-  const boot = main.indexOf('async function boot(');
-  assert.ok(boot > 0, 'non-vacuity: boot() must still be the entry');
-  const body = main.indexOf('{', boot) + 1;
-  const guard = main.indexOf('installDropGuard();', body);
-  assert.ok(guard > 0, 'the guard must be installed in the boot path');
-  const firstAwait = /\bawait\s/.exec(main.slice(body))?.index ?? -1;
-  assert.ok(firstAwait > 0, 'non-vacuity: boot() really does await something');
-  assert.ok(guard - body < firstAwait, 'a guard installed after an await leaves the gap open');
-  // FIRST statement: only comments and whitespace may stand in front of it.
-  const head = main.slice(body, guard).replace(/\/\/[^\n]*/g, '');
-  assert.equal(head.trim(), '', `something runs before the guard: ${head.trim()}`);
-});
-
-// ===========================================================================
-// The HTML5 channel stays ours alone
-// ===========================================================================
-
-test('every drag-state class this module sets has a rule behind it', () => {
-  // The module only ADDS these classes; with no rule behind them the drop
-  // highlight, the invalid ghost and the mid-drag selection freeze are gone
-  // and every DOM assertion above still passes (measured: deleting the two
-  // rules keeps the suite green).
-  const css = stripComments(APP_CSS);
-  assert.ok(css.length > 50_000, `non-vacuity: app.css is ${css.length} chars`);
-  assert.match(css, /\.files-row\.is-dir\.is-drop\b/);
-  assert.match(css, /\.files-view\.is-drop\b/);
-  assert.match(css, /body\.is-filedrag\b/);
-  assert.match(css, /\.drag-ghost\.is-invalid\b/);
-});
-
-test('main.ts wires the window drop layer, after the panel that answers its deps', () => {
-  // Every test above drives the module with injected deps, so the whole
-  // feature could be unwired in the shell and stay green. main.ts's import
-  // graph reaches @xterm/xterm (a browser bundle), so this is read as source,
-  // the way the A5/A9 shell-wiring assertions already are.
-  const main = readSource('web', 'src', 'main.ts');
-  assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
-  assert.match(
-    main,
-    /import \{ initFileDrop, installDropGuard, type DropRequest \} from '\.\/ui\/filedrop\.ts';/,
-  );
-  const panel = main.indexOf('const filesPanel = initFilesPanel(');
-  const wire = main.indexOf('initFileDrop({');
-  assert.ok(panel > 0 && wire > 0, 'both calls must exist');
-  assert.ok(wire > panel, 'three of its deps are that panel s own subject()');
-  const call = main.slice(wire, main.indexOf('});', wire));
-  for (const dep of [
-    'openDialog:',
-    'listingFor',
-    'destinationOfPane',
-    'destinationOfActiveView',
-    'filesPanelDestination',
-    'pasteDestination',
-    // A9b: without it a paste inside a terminal can never be the app's, and
-    // the whole "choose a folder, then paste from anywhere" decision is dead
-    // in the shell with every unit test above still green.
-    'selectedFolder',
-  ]) {
-    assert.ok(call.includes(dep), `the drop layer is wired without ${dep}`);
-  }
-  // …and the A9b dep must be the PANEL'S OWN function, not something that
-  // merely spells its name. MEASURED (gate, 2026-09-16): rewriting the line as
-  // `selectedFolder: () => null` satisfies the name scan above and leaves the
-  // ENTIRE suite green while every paste inside a terminal is silently refused
-  // — the whole of user decision 2, dead in the shell. The shorthand is what
-  // ties it to the import, so both halves are asserted.
-  assert.match(
-    call,
-    /\n\s*selectedFolder,\n/,
-    'the dep must be the shorthand for the panel s exported selectedFolder, never a stub',
-  );
-  assert.match(
-    main,
-    /import \{[^}]*\bselectedFolder,[^}]*\} from '\.\/ui\/files\.ts';/s,
-    'and it must be imported from the panel that owns the selection',
-  );
-});
-
-test('main.ts is where the copy is built: the runner, the refresh and the one log line (B10)', () => {
-  // Same reason as the test above: every unit test in this file injects
-  // `openDialog`, so the whole real copy could be unbuilt in the shell and
-  // nothing here would notice. This is the seam where the destination's PATH
-  // stops — the dialog is handed the name and a runner closed over the rest.
-  const main = readSource('web', 'src', 'main.ts');
-  const open = main.indexOf('function openDrop(');
-  assert.ok(open > 0, 'the drop is handed over by a function of its own');
-  const body = main.slice(open, main.indexOf('\n  }\n', open));
-  assert.ok(body.includes('createDropRun({'), 'the runner is built here');
-  for (const line of ['dest: req.dest,', 'walk: req.walk,', 'listing: req.listing,']) {
-    assert.ok(body.includes(line), `the runner is built without ${line}`);
-  }
-  assert.ok(body.includes('api.fsUpload(dir, rel, mode, body)'), 'put is the upload route');
-  assert.ok(body.includes("api.fsCreate(dir, name, 'folder')"), 'an empty folder is the create route');
-  assert.ok(body.includes('dest: req.dest.name,'), 'the dialog gets a NAME and never a path');
-  // After the copy, once: the panel re-reads and ONE line is logged, counts only.
-  assert.ok(body.includes('refreshAfterDrop(req.dest);'), 'the panel is refreshed after the drop');
-  assert.ok(body.includes('api.logDrop('), 'one summary line per drop');
-  assert.equal(
-    body.split('refreshAfterDrop(').length - 1,
-    1,
-    'refreshed ONCE per drop, never per file',
-  );
-  assert.match(
-    main,
-    /import \{ createDropRun \} from '\.\/ui\/drop-upload\.ts';/,
-    'the runner comes from the module that owns the writes',
-  );
-  assert.match(main, /import \{[^}]*\brefreshAfterDrop,[^}]*\} from '\.\/ui\/files\.ts';/s);
-});
-
-test('web/src has no `draggable` attribute and adds no `dragstart` listener', () => {
-  const root = join(projectRoot, 'web', 'src');
-  const files = filesUnder(root, /\.(ts|html|css)$/);
-  assert.ok(files.length >= 20, `non-vacuity: scanned ${files.length} files`);
-  // The mirror of the `draggable` pin in tests/ui/ui-dnd-a10.test.ts: an in-app
-  // source that opted into HTML5 DnD would fire the handlers in filedrop.ts
-  // with no `Files` in its types and a target this module never resolved.
-  const offenders = files.filter((f) => /['"]dragstart['"]/.test(readFileSync(f, 'utf8')));
-  assert.deepEqual(offenders.map((f) => f.slice(root.length + 1)), []);
 });

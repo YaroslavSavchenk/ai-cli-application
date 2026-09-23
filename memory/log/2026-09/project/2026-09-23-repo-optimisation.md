@@ -53,6 +53,20 @@ swallow), `git-commits` :1729 / `git-changes` :495 (`sleep(500)`), and
 hand-rolled polling loops in `agents` and `telemetry` that `waitUntil` could
 replace. Line numbers as of `O5`'s commit.
 
+## O6 — every test file over 800 lines split by topic
+
+38 files (37 tests + `fake-dom.ts`) became 124 pieces plus 35 fixture
+modules `tests/helpers/<stem>-fixture.ts`, five agents in parallel on
+disjoint files. Test names byte-exact (sorted list identical), 3712 / 0.
+The suite got FASTER: 76.5 s → 56.6 s — `node --test` runs files in
+parallel, so smaller files spread the work. The guard's grandfathered list
+went from 52 to 14 (source files only, O8).
+
+Splitting surfaced hidden order dependence twice: `ui-files-panel` (a test
+passed only because earlier tests absorbed the fixture's first listing) and
+`fs-delete` (a test used a file an earlier test created); log-sweep tests in
+`github-token` / `github-connected` stay with every test on their server.
+
 ## Worth remembering
 
 - "Split it so it runs faster" is a wrong reason given for a right move: the
