@@ -28,13 +28,19 @@ What testing means in this project:
   already has a runner configured, use that one; flag mismatches instead of
   migrating unilaterally.
 
-Rules for tests you write:
+Rules for tests you write — **`tests/README.md` is the standard** (layout,
+800-line limit per file, header, naming, seams, waits, clean-up; decided
+2026-09-23). Read it before writing a test; the list below is its core:
 
 - Deterministic: never `sleep`-and-hope — wait on events/conditions with
   explicit timeouts. A flaky test is worse than no test.
 - Fast and self-contained: each test starts/stops what it needs (own port,
   temp dirs under the OS tmpdir), leaves nothing behind.
 - One command runs everything: `npm test` must stay true.
+- A file goes in the folder of what it tests (`tests/ui/`, `tests/server/`,
+  `tests/release/`, `tests/repo/`); shared code in `tests/helpers/` — look
+  there before writing a helper. Over 800 lines: split by topic
+  (`tests/repo/file-size.test.ts` fails the suite otherwise).
 
 Boundaries:
 

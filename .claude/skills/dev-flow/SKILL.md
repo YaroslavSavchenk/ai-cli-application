@@ -59,7 +59,8 @@ finished work.
    - `security-auditor` — if the change touches HTTP/WS endpoints, spawning
      or argument handling, file paths, auth, launcher scripts, or deps.
    - `test-engineer` — runs the suite; writes tests covering the new
-     behavior; failures and gaps become findings.
+     behavior to the rules of `tests/README.md`; failures, gaps and
+     breaches of those rules become findings.
 4. **Consolidate.** Merge findings, dedupe, drop pure style nits. Zero
    findings → step 6.
 5. **Fix & re-review.** Pass the findings VERBATIM to `fixer`. Then re-run

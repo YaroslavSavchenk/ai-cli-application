@@ -23,6 +23,17 @@ changed hunk by the path mapping; nine hunks differed, all expected (globs,
 README map, two tests that scanned the flat folder). Citations in 76 files
 outside `tests/` rewritten; `memory/log/` keeps its paths.
 
+## O4 — how a test is written
+
+`tests/README.md`: layout, one topic per file ≤ 800 lines, the header (what ·
+how · why · NOT claimed), behaviour-sentence names, the cheapest seam that
+proves the claim, condition waits not clocks, clean-up, the one allowed
+skip. `tests/repo/file-size.test.ts` enforces the size half with a
+shrink-only list of 52 grandfathered files (38 test modules, 14 source);
+both directions mutation-checked (a file dropped from the list → red; a
+file under its limit left on it → red). Cited from `CLAUDE.md`, the
+`test-engineer` agent and `/dev-flow`.
+
 ## Worth remembering
 
 - "Split it so it runs faster" is a wrong reason given for a right move: the

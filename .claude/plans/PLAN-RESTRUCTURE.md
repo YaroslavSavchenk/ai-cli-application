@@ -11,7 +11,7 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | O1 | `.claude/PROJECT-SCOPE.md` back to a size one read can hold | todo — candidate, the user decides | — | |
 | O2 | `memory/BACKLOG.md`: open items apart from done ones | todo — candidate, the user decides | — | |
 | O3 | Small repairs found on the way (dead wikilinks, stale test messages) | todo — candidate, the user decides | — | |
-| O4 | `tests/README.md`: how a test is written here, plus a size guard | todo — decided 2026-09-23 | — | |
+| O4 | `tests/README.md`: how a test is written here, plus a size guard | landed | — | 2026-09-23 |
 | O5 | Duplicated test code into `tests/helpers/` | todo — decided 2026-09-23 | — | |
 | O6 | Split every test file over 800 lines (38 files, 53.6k lines on 2026-09-23) | todo — decided 2026-09-23 | — | |
 | O7 | Dead code and unused dependencies, whole repo (janitor) | todo — decided 2026-09-23 | — | |
