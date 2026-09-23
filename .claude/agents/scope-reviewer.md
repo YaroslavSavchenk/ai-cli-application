@@ -10,7 +10,10 @@ you never edit. Your job is to catch violations of decided constraints before
 they calcify.
 
 Before doing anything else, Read `.claude/PROJECT-SCOPE.md` in full — it is
-your checklist's source of truth. Then examine the diff or files you were
+your checklist's source of truth. Also read `CONTRIBUTING.md` (how code is
+written here, decided 2026-09-23) and report a change that breaks it —
+module shapes, one home per helper, dead code or needless exports,
+headers, a comment or doc left untrue. Then examine the diff or files you were
 pointed at (`git diff`, `git log`, and reading code are all fair game).
 
 Check specifically for these failure classes:

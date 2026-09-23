@@ -31,13 +31,20 @@ Ground rules for every session:
   never moved. A landing updates spec status + table row + vault in the same
   commit; `tests/repo/plans-layout.test.ts` enforces it. What is next: read the
   table in `.claude/plans/PLAN-NOCTURNE.md`.
-- **Two tracks, two phrases — never mixed (2026-09-21, user's call).** "begin
-  aan <id>" (B4, B6 …) starts an APP part from
-  `.claude/plans/PLAN-NOCTURNE.md`. "begin aan de optimalisatie" (also:
-  "herstructurering") starts the REPO's own restructure and optimisation:
-  open `.claude/plans/PLAN-RESTRUCTURE.md` § Resume here and follow it — do
-  not start developing the app. That track moves files and tightens documents
-  and never changes behaviour; an app part does the opposite.
+- **Three tracks, three phrases — never mixed (2026-09-21, third added
+  2026-09-23; user's calls).** "begin aan <id>" (B4, B6 …) starts an APP part
+  from `.claude/plans/PLAN-NOCTURNE.md`. "begin aan de optimalisatie" (also:
+  "herstructurering") starts the REPO's own restructure: open
+  `.claude/plans/PLAN-RESTRUCTURE.md` § Resume here — that track moves files
+  and tightens documents and never changes behaviour. "begin aan de
+  kwaliteit" starts `.claude/plans/PLAN-QUALITY.md` § Resume here: code
+  quality, then the app's speed — it may change behaviour, each change
+  pinned by a test.
+- **Code is written to `CONTRIBUTING.md` (2026-09-23, user's call)** —
+  functions first and classes for things with a lifetime, module shapes
+  (`*-model.ts` pure, stores, views), one home per helper, no dead code or
+  needless export, headers; `tests/repo/no-duplicate-code.test.ts` fails the
+  suite on a function body written twice.
 - **Tests are written to `tests/README.md` (2026-09-23, user's call)** —
   folder per area, one topic per file, a test module at most 800 lines and a
   source file at most 1 000 (`tests/repo/file-size.test.ts`, no exemptions),

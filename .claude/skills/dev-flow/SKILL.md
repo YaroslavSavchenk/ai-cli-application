@@ -55,7 +55,8 @@ finished work.
    self-verifies (its own contract requires this).
 3. **Review round** — launch in parallel, all read the developer's report
    plus the diff:
-   - `scope-reviewer` — always.
+   - `scope-reviewer` — always; it also reads the change against
+     `CONTRIBUTING.md` (how code is written here) and reports breaches.
    - `security-auditor` — if the change touches HTTP/WS endpoints, spawning
      or argument handling, file paths, auth, launcher scripts, or deps.
    - `test-engineer` — runs the suite; writes tests covering the new

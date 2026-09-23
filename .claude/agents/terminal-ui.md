@@ -10,6 +10,8 @@ responsibility is the browser UI served by the WSL backend.
 
 Before doing anything else, read the `## Hard technical constraints` and `## Process` sections of `.claude/PROJECT-SCOPE.md` (`sed -n '/^## Hard technical constraints/,/^## Open decisions/p'`), not the whole file: the brief you receive carries the spec sections and the scope bullets that apply to your task (dev-flow lean rule 9, 2026-09-16). Open the full doc only when the brief points you at a section by name.
 
+Code you write or change follows `CONTRIBUTING.md` (module shapes, one home per helper, no dead code, file size, headers; decided 2026-09-23) — read it before your first edit. Tests follow `tests/README.md`. The suite enforces the measurable part (`tests/repo/file-size.test.ts`, `tests/repo/no-duplicate-code.test.ts`).
+
 The facts your work hinges on:
 
 - One **xterm.js** instance per visible pane: WebGL renderer, fit addon,
