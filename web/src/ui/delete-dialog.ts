@@ -38,7 +38,7 @@
  * opened it, Escape dispatched centrally from `main.ts`'s ladder
  * (`deleteDialogEscape`).
  */
-import { el, button, trapTab } from './util.ts';
+import { el, button, trapTab, ModalSlot } from './util.ts';
 
 /** One confirmation: what it asks, what it adds, and what a Yes means. */
 export interface DeleteRequest {
@@ -52,11 +52,11 @@ export interface DeleteRequest {
   onConfirm(): void;
 }
 
-let scrim: HTMLElement | null = null;
-let restore: HTMLElement | null = null;
+/** The card on screen and the row the keyboard goes back to (ui/util.ts). */
+const slot = new ModalSlot();
 
 export function isDeleteDialogOpen(): boolean {
-  return scrim !== null;
+  return slot.isOpen();
 }
 
 /**
@@ -65,30 +65,16 @@ export function isDeleteDialogOpen(): boolean {
  * exactly — there is no third meaning to give it here.
  */
 export function deleteDialogEscape(): void {
-  closeDialog();
-}
-
-/**
- * Take the card off the screen and hand the keyboard back to whatever opened
- * it. The DOM is removed rather than hidden (the idiom every dialog here
- * uses), which also takes `trapTab`'s listener with it.
- */
-function closeDialog(): void {
-  if (scrim === null) return;
-  scrim.remove();
-  scrim = null;
-  const back = restore;
-  restore = null;
-  if (back !== null && back.isConnected) back.focus();
+  slot.close();
 }
 
 export function openDeleteDialog(req: DeleteRequest): void {
-  if (scrim !== null) return; // one question at a time
-  restore = req.returnFocus;
+  if (slot.isOpen()) return; // one question at a time
 
   // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
   // it, and the panel's own Delete key refuses to arm while one is up.
-  scrim = el('div', 'modal-scrim dd-scrim');
+  const scrim = el('div', 'modal-scrim dd-scrim');
+  slot.hold(scrim, req.returnFocus);
   const modal = el('div', 'dd-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
@@ -104,11 +90,11 @@ export function openDeleteDialog(req: DeleteRequest): void {
   // the way out on the left, the answer on the right — and here the answer is
   // the one that cannot be taken back, so it is the only `.btn-danger` in the
   // app.
-  const cancelBtn = button('btn-quiet', 'Cancel', () => closeDialog());
+  const cancelBtn = button('btn-quiet', 'Cancel', () => slot.close());
   const deleteBtn = button('btn-danger', 'Delete', () => {
     // Closed FIRST, then acted on: closing hands the keyboard back to the row
     // the act came from, and what follows rebuilds those rows.
-    closeDialog();
+    slot.close();
     req.onConfirm();
   });
   const ft = el('footer', 'dd-ft');
@@ -118,7 +104,7 @@ export function openDeleteDialog(req: DeleteRequest): void {
   scrim.append(modal);
   scrim.addEventListener('mousedown', (e) => {
     // The backdrop is Cancel, like Escape and like the button.
-    if (e.target === scrim) closeDialog();
+    if (e.target === scrim) slot.close();
   });
   trapTab(modal);
   (document.querySelector('.modal-host') ?? document.body).append(scrim);

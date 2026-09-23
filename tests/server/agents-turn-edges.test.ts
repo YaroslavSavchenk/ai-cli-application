@@ -22,7 +22,7 @@ import { appendFile, chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promis
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { AgentsWatcher, subagentsDirFor } from '../../server/agents.ts';
-import { sleep, IS_ROOT, makeTempDir } from '../helpers/helpers.ts';
+import { sleep, IS_ROOT, makeTempDir, waitUntil } from '../helpers/helpers.ts';
 import {
   UUID,
   OTHER_UUID,
@@ -44,6 +44,8 @@ import {
   appendMain,
   filler,
   plantAgents,
+  NO_REPORT_MS,
+  WATCHER_POLL_MS,
 } from '../helpers/agents-fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -124,7 +126,7 @@ test('watcher: NO stale rule for the turn — a long tool call hours old still r
     w.watcher.track('sess-1', w.dir);
     const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
     assert.equal(report.turn, 'working');
-    await sleep(150);
+    await sleep(NO_REPORT_MS);
     assert.deepEqual(w.seen.map((s) => s.report.turn), ['working'], 'never flips to waiting by age');
   } finally {
     await w.cleanup();
@@ -147,7 +149,7 @@ test('watcher: a MISSING PARENT directory is not a missing transcript — no tur
     // One missing component under a subfolder of the root, not the root itself.
     await mkdir(join(w.root, '-x'), { recursive: true });
     w.watcher.track('sess-nested', join(w.root, '-x', '-slug', UUID, 'subagents'));
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0])}`);
   } finally {
     await w.cleanup();
@@ -222,7 +224,7 @@ test('watcher: PENDING slug folder created as a SYMLINK out of the root is refus
     await symlink(outside, join(w.root, '-slug'));
     const report = await waitForReport(w.seen, (r) => r.turn === undefined);
     assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
-    await sleep(150);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.some((s) => s.report.turn === 'working' || s.agents.length > 0), false, JSON.stringify(w.seen));
     assert.equal(w.logs.some((l) => l.includes('resolves outside the projects root, refused')), true, w.logs.join(' | '));
   } finally {
@@ -249,11 +251,14 @@ test('watcher: the tick budget is shared ROUND ROBIN — a busy first session ca
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-a', join(slugA, UUID, 'subagents'));
     watcher.track('sess-b', join(slugB, OTHER_UUID, 'subagents'));
-    const deadline = Date.now() + 10_000;
-    while (!seen.some((s) => s.id === 'sess-a' && s.report.turn === 'waiting')) {
-      if (Date.now() >= deadline) throw new Error(`A never got its verdict; ${JSON.stringify(seen.map((s) => [s.id, s.report.turn]))}`);
-      await sleep(10);
-    }
+    await waitUntil(
+      () => (seen.some((s) => s.id === 'sess-a' && s.report.turn === 'waiting') ? true : undefined),
+      'A to get its verdict',
+      10_000,
+      10,
+    ).catch((err: unknown) => {
+      throw new Error(`${String(err)}; ${JSON.stringify(seen.map((s) => [s.id, s.report.turn]))}`);
+    });
     const order = seen.map((s) => `${s.id}:${s.report.turn}`);
     assert.equal(order[0], 'sess-b:working', `B went first, while A was still reading; order ${JSON.stringify(order)}`);
     assert.deepEqual(order, ['sess-b:working', 'sess-a:waiting']);
@@ -318,7 +323,7 @@ test('watcher: a tracked directory whose last component is not `subagents` deriv
     await appendMain(w, [REAL.prompt]); // `<root>/-slug/<UUID>.jsonl` would say working
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', join(w.root, '-slug', UUID, 'elsewhere'));
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await w.cleanup();
@@ -333,9 +338,18 @@ test('watcher: a main transcript under a SIBLING of the root (`<root>-evil`) is 
     await writeFile(join(evil, '-slug', `${UUID}.jsonl`), `${REAL.prompt}\n`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', join(evil, '-slug', UUID, 'subagents'));
-    await sleep(200);
+    // The refusal is a condition, not a clock: a slow first poll still logs it.
+    // Then the silence: no report over the polls after it.
+    await waitUntil(
+      () => (w.logs.some((l) => l.includes('resolves outside the projects root, refused')) ? true : undefined),
+      'the refusal line',
+      5_000,
+      10,
+    ).catch((err: unknown) => {
+      throw new Error(`${String(err)}; logs ${w.logs.join(' | ')}`);
+    });
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
-    assert.equal(w.logs.some((l) => l.includes('resolves outside the projects root, refused')), true, w.logs.join(' | '));
   } finally {
     await w.cleanup();
     await rm(evil, { recursive: true, force: true });
@@ -353,7 +367,7 @@ test('watcher: a transcript that cannot be looked up (EACCES) is not "missing" �
     await chmod(parent, 0o600); // no search bit: realpath and lstat of the file fail EACCES
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await chmod(parent, 0o700).catch(() => {});
@@ -393,7 +407,7 @@ test('watcher: the tail RESYNCS — a partial first line that would parse from m
     await writeFile(mainFile(w), `${filler(8 * 1024)}${'x'.repeat(500)} ${tail}`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `the partial first line counted; got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await w.cleanup();
@@ -421,7 +435,7 @@ test('watcher: bytes read from the MAIN transcript are spent from the tick budge
 test('watcher: a session untracked by the consumer MID-SWEEP is not polled on its stale record', async () => {
   const root = realpathSync(await makeTempDir('ai-sm-agentsweep-'));
   const seen: string[] = [];
-  const watcher = new AgentsWatcher(() => {}, { projectsRoot: root, pollMs: 20 });
+  const watcher = new AgentsWatcher(() => {}, { projectsRoot: root, pollMs: WATCHER_POLL_MS });
   try {
     for (const [slug, uuid] of [['-a', UUID], ['-b', OTHER_UUID]] as const) {
       await mkdir(join(root, slug), { recursive: true });
@@ -434,12 +448,10 @@ test('watcher: a session untracked by the consumer MID-SWEEP is not polled on it
       seen.push(id);
       if (id === 'sess-a') watcher.untrack('sess-b'); // e.g. B exited meanwhile
     });
-    const deadline = Date.now() + 5_000;
-    while (!seen.includes('sess-a')) {
-      if (Date.now() >= deadline) throw new Error('A never reported');
-      await sleep(10);
-    }
-    await sleep(100);
+    await waitUntil(() => (seen.includes('sess-a') ? true : undefined), 'A to report', 5_000, 10);
+    // Proves B does NOT report: A untracked it on the same sweep, and any later
+    // sweep would have reached B within NO_REPORT_MS (ten polls).
+    await sleep(NO_REPORT_MS);
     assert.deepEqual(seen, ['sess-a'], 'B was untracked before its turn in the same sweep');
   } finally {
     watcher.stop();

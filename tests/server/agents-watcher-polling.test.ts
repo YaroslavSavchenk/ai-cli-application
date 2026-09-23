@@ -27,7 +27,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionAgent } from '../../shared/protocol.ts';
 import { AgentsWatcher, type AgentsReport } from '../../server/agents.ts';
-import { sleep, makeTempDir } from '../helpers/helpers.ts';
+import { sleep, makeTempDir, waitUntil } from '../helpers/helpers.ts';
 import {
   ESC,
   UUID,
@@ -42,6 +42,9 @@ import {
   appendLines,
   waitFor,
   waitForReport,
+  MANY_POLLS_MS,
+  NO_REPORT_MS,
+  WATCHER_POLL_MS,
 } from '../helpers/agents-fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -53,7 +56,10 @@ test('watcher: no directory, no agents, no callback — an empty table is never 
   try {
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir); // Claude Code has not created it yet.
-    await sleep(200);
+    // The one turn-only report is a condition; that nothing follows it is the
+    // silence after it.
+    await waitForReport(w.seen, (r) => r.turn === 'waiting');
+    await sleep(NO_REPORT_MS);
     // B11: no agent table is announced — but the session's own transcript is
     // not there either (its slug folder is still PENDING, B11 F1), so it sits
     // at its first prompt: ONE turn-only report, not a single agent row.
@@ -61,7 +67,7 @@ test('watcher: no directory, no agents, no callback — an empty table is never 
     assert.deepEqual(w.seen.map((s) => s.report), turnOnly);
     // And an existing but empty directory is the same: nothing new to say.
     await mkdir(w.dir, { recursive: true });
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.deepEqual(w.seen.map((s) => s.report), turnOnly);
   } finally {
     await w.cleanup();
@@ -76,7 +82,7 @@ test('watcher: an unchanged list is delivered exactly once', async () => {
     await appendLines(w.dir, 'b6', [assistantLine('2026-09-16T10:00:00.000Z', 'm1', { output_tokens: 1 }, 'end_turn')]);
     w.watcher.track('sess-1', w.dir);
     await waitFor(w.seen, (a) => a.length === 1);
-    await sleep(200); // ~10 more polls over an unchanged directory.
+    await sleep(NO_REPORT_MS); // Ten more polls over an unchanged directory.
     assert.equal(w.seen.length, 1, 'one broadcast per real change, and none for a re-read');
   } finally {
     await w.cleanup();
@@ -119,7 +125,7 @@ test('watcher: track() with the SAME directory keeps the offsets; another one re
     await waitFor(w.seen, (a) => a.length === 1);
     const calls = w.seen.length;
     w.watcher.track('sess-1', w.dir); // The status line reports the same path every turn.
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, calls, 'the same path is a no-op, not a re-read');
 
     // A resumed conversation reports a DIFFERENT transcript: fresh state.
@@ -147,7 +153,7 @@ test('watcher: stop() detaches, is idempotent, and forgets every tracked session
     assert.equal(w.watcher.trackedCount, 0);
     const calls = w.seen.length;
     await writeMeta(w.dir, 'be', { agentType: 'late', description: '' });
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, calls, 'nothing is delivered after stop()');
     // track() after stop() is refused rather than silently queued.
     w.watcher.track('sess-2', w.dir);
@@ -192,7 +198,7 @@ test('watcher: a directory that disappears mid-flight is a skipped poll, not a c
     const calls = w.seen.length;
     const rows = w.seen[w.seen.length - 1]?.agents;
     await rm(join(w.root, '-slug'), { recursive: true, force: true });
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     // The last list stands — what those agents cost is still true. (B11: the
     // transcript's parent is gone too, so the turn becomes unknown: that is the
     // one delivery allowed, and it carries the same rows.)
@@ -228,12 +234,20 @@ test('watcher: a symlink at the <uuid> component is refused on every poll, not f
   const seen: Seen[] = [];
   const watcher = new AgentsWatcher((level, message) => logs.push(`${level}: ${message}`), {
     projectsRoot: root,
-    pollMs: 20,
+    pollMs: WATCHER_POLL_MS,
   });
   try {
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(slug, UUID, 'subagents'));
-    await sleep(300); // ~15 polls.
+    // The refusal is a condition; that it is logged ONCE is the silence over
+    // the fifteen polls after it.
+    await waitUntil(
+      () => (logs.some((l) => l.includes('resolves outside the projects root')) ? true : undefined),
+      'the refusal line',
+      5_000,
+      10,
+    );
+    await sleep(MANY_POLLS_MS);
     // B11: the session's own transcript (`<slug>/<uuid>.jsonl`, inside the
     // root) does not exist, so a turn-only 'waiting' report is expected — but
     // not one agent from outside.
@@ -334,12 +348,20 @@ test('watcher: the REFUSAL log line cannot be forged either', async () => {
   const seen: Seen[] = [];
   const watcher = new AgentsWatcher((level, message) => logs.push(`${level}: ${message}`), {
     projectsRoot: root,
-    pollMs: 20,
+    pollMs: WATCHER_POLL_MS,
   });
   try {
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(root, nasty, UUID, 'subagents'));
-    await sleep(120); // ~6 polls, each of which refuses and logs.
+    // Wait for the first refusal (a condition), then ten more polls, each of
+    // which refuses and logs.
+    await waitUntil(
+      () => (logs.some((l) => l.includes('resolves outside the projects root')) ? true : undefined),
+      'the refusal line',
+      5_000,
+      10,
+    );
+    await sleep(NO_REPORT_MS);
     assert.deepEqual(seen, [], 'nothing outside the root is ever delivered');
     assert.equal(
       logs.some((l) => l.includes('resolves outside the projects root')),

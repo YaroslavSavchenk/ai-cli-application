@@ -23,7 +23,7 @@
  * dispatched centrally from main.ts.
  */
 import * as api from '../api.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, trapTab, ModalSlot } from './util.ts';
 import { folderIcon } from './icons.ts';
 import { breadcrumbs, parentDir } from './newproject-model.ts';
 
@@ -43,29 +43,24 @@ export interface PickerOpts {
   onSelect(path: string): void;
 }
 
-let scrim: HTMLElement | null = null;
-let restore: HTMLElement | null = null;
+/** The picker on screen and the element the keyboard goes back to (ui/util.ts). */
+const slot = new ModalSlot();
 
 export function isFolderPickerOpen(): boolean {
-  return scrim !== null;
+  return slot.isOpen();
 }
 
 export function closeFolderPicker(): void {
-  if (scrim === null) return;
-  scrim.remove();
-  scrim = null;
-  const back = restore;
-  restore = null;
-  if (back !== null && back.isConnected) back.focus();
+  slot.close();
 }
 
 export function openFolderPicker(opts: PickerOpts): void {
-  if (scrim !== null) return; // one picker at a time
-  restore = opts.restoreTo ?? null;
+  if (slot.isOpen()) return; // one picker at a time
 
   // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
   // it. Everything visual is the `pk-` block in app.css (Nocturne A7).
-  scrim = el('div', 'modal-scrim pk-scrim');
+  const scrim = el('div', 'modal-scrim pk-scrim');
+  slot.hold(scrim, opts.restoreTo ?? null);
   const modal = el('div', 'pk-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');

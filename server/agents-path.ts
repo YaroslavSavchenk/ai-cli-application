@@ -12,9 +12,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import { isUuid } from './conversation.ts';
 import { isUnder } from './fsbrowse.ts';
-
-/** C0/C1 controls and DEL. A path containing one is never a path we opened. */
-const CONTROL_CHAR = /[\u0000-\u001F\u007F-\u009F]/;
+import { CONTROL_CHAR } from './sanitise.ts';
 
 /**
  * The subagents directory for a snapshot's transcript path, or null when the

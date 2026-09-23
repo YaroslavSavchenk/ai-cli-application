@@ -21,7 +21,7 @@
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { HistoryEntry, SessionEndReason, SessionInfo } from '../shared/protocol.ts';
+import { isClaudeCommand, type HistoryEntry, type SessionEndReason, type SessionInfo } from '../shared/protocol.ts';
 import {
   atomicWriteFile,
   claudeConfigDir,
@@ -381,7 +381,7 @@ export class SessionHistory {
     // they are not prune decisions.
     if (entry.ended === null) return false;
     if (!entry.conversation) return false;
-    if (basename(entry.command) !== 'claude') return false;
+    if (!isClaudeCommand(entry.command)) return false;
     if (!isUuid(entry.id)) return false; // Never let a non-uuid reach a path.
     counted();
     // From here on every outcome is a real decision. Only `prune` gets its own

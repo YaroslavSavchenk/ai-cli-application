@@ -40,7 +40,7 @@
  *     file (a symlink is refused instead of followed, a FIFO refused instead
  *     of blocking the main thread forever);
  *   - every string that leaves here is control-stripped and capped like
- *     clean() in server/telemetry.ts, and every number is a finite integer.
+ *     clean() in server/sanitise.ts, and every number is a finite integer.
  *
  * HONESTY RULE (B1, memory/decisions/pane-status-bar-data-source.md): a value
  * the files did not carry is never invented. A message with no usage adds 0 —
@@ -71,12 +71,11 @@ import type { SessionAgent, SessionTurn } from '../shared/protocol.ts';
 import { describeError, oneLine, scoped, type Logger } from './config.ts';
 import { isUuid } from './conversation.ts';
 import { isUnder } from './fsbrowse.ts';
+import { clean, plainObject } from './sanitise.ts';
 import {
-  clean,
   foldLine,
   isoOf,
   newFold,
-  plainObject,
   sameReport,
   turnOfLine,
   type AgentFold,
@@ -220,8 +219,10 @@ function newTurnState(): TurnState {
 
 interface TrackedAgent {
   id: string;
-  /** mtimeMs of the meta file we last parsed; -1 = never parsed one. */
+  /** mtimeMs of the meta file when we last read it; -1 = never read it. */
   metaMtimeMs: number;
+  /** Size of the meta file when we last read it; -1 = never read it (Q3). */
+  metaSize: number;
   /** mtimeMs of the meta file as last stat'ed — the startedAt fallback. */
   metaAtMs: number;
   name: string;
@@ -420,6 +421,7 @@ export class AgentsWatcher {
         agent = {
           id: meta.id,
           metaMtimeMs: -1,
+          metaSize: -1,
           metaAtMs: meta.mtimeMs,
           name: 'agent',
           task: '',
@@ -430,8 +432,17 @@ export class AgentsWatcher {
       agent.metaAtMs = meta.mtimeMs;
       // Re-read only when it changed: the meta is written once at spawn, so
       // this is one stat per agent per poll and no read at all in steady state.
-      if (agent.metaMtimeMs !== meta.mtimeMs) {
+      // "Changed" is mtime OR size (Q3, .claude/plans/PLAN-QUALITY.md): a poll
+      // can land between the file's creation (empty) and its write, and the
+      // write often keeps the SAME mtime (the kernel stamps at tick
+      // granularity), so an mtime-only check never read it again and the row
+      // kept `agent` for good. The write always changes the size (0 -> ~200
+      // bytes, or a partial write -> the whole). A file that stays broken
+      // keeps its stamp and is never re-read — no retry loop, no spin, and
+      // its debug line is logged once per change as before.
+      if (agent.metaMtimeMs !== meta.mtimeMs || agent.metaSize !== meta.size) {
         agent.metaMtimeMs = meta.mtimeMs;
+        agent.metaSize = meta.size;
         this.#readMeta(dir, agent);
       }
       this.#readTranscript(dir, agent, budget);
@@ -613,18 +624,18 @@ export class AgentsWatcher {
   }
 
   /**
-   * Every `agent-<hex>.meta.json` in the directory, with its mtime. null means
-   * the directory could not be listed — which is the ordinary state until
-   * Claude Code spawns the session's first subagent.
+   * Every `agent-<hex>.meta.json` in the directory, with its mtime and size.
+   * null means the directory could not be listed — which is the ordinary state
+   * until Claude Code spawns the session's first subagent.
    */
-  #listMetas(dir: string): { id: string; mtimeMs: number }[] | null {
+  #listMetas(dir: string): { id: string; mtimeMs: number; size: number }[] | null {
     let names: string[];
     try {
       names = readdirSync(dir);
     } catch {
       return null;
     }
-    const metas: { id: string; mtimeMs: number }[] = [];
+    const metas: { id: string; mtimeMs: number; size: number }[] = [];
     let scanned = 0;
     for (const name of names) {
       const match = META_FILE.exec(name);
@@ -640,7 +651,7 @@ export class AgentsWatcher {
         continue; // Vanished between readdir and stat.
       }
       if (!stat.isFile()) continue; // A directory or FIFO wearing the name.
-      metas.push({ id: match[1] as string, mtimeMs: stat.mtimeMs });
+      metas.push({ id: match[1] as string, mtimeMs: stat.mtimeMs, size: stat.size });
     }
     return metas;
   }

@@ -36,7 +36,8 @@ import {
   readServerLog,
   removeTempDir,
   startTestServer,
-  sleep,
+  waitForLogLines,
+  waitUntil,
   makeTempDirSync,
   readSource,
 } from '../helpers/helpers.ts';
@@ -112,6 +113,13 @@ interface RouteCtx {
   checker: FakeChecker;
   /** The server.log this handler writes — the access line lives here. */
   logFile: string;
+  /**
+   * How many requests have reached the dep (the route's call into
+   * `updateCheck`) — the condition "both requests are in the handler", which
+   * `checker.calls` cannot show: a second caller that adopts the in-flight
+   * promise never calls the checker.
+   */
+  entered: () => number;
 }
 
 /**
@@ -134,7 +142,7 @@ async function withRoute(
   const sessions = new SessionManager(log, history);
   const checker = fakeChecker({ ...(opts.manual === true ? { manual: true } : {}) });
   let inFlight: Promise<UpdateStatus> | undefined;
-  const updateCheck = (): Promise<UpdateStatus> =>
+  const shared = (): Promise<UpdateStatus> =>
     (inFlight ??= checker
       .checkNow()
       .then(() =>
@@ -149,6 +157,12 @@ async function withRoute(
       .finally(() => {
         inFlight = undefined;
       }));
+  // The dep the route gets: the shared check above, counting who reached it.
+  let entered = 0;
+  const updateCheck = (): Promise<UpdateStatus> => {
+    entered += 1;
+    return shared();
+  };
   let boundPort = 0;
   const server: Server = createServer(
     createRequestHandler({
@@ -175,7 +189,7 @@ async function withRoute(
   boundPort = (server.address() as { port: number }).port;
   let bodyThrew = false;
   try {
-    await fn({ port: boundPort, token, checker, logFile });
+    await fn({ port: boundPort, token, checker, logFile, entered: () => entered });
   } catch (err) {
     bodyThrew = true;
     throw err;
@@ -323,7 +337,7 @@ test('POST /api/update/check: two concurrent POSTs run ONE check and both get th
     const second = post(ctx);
     // Both requests are in the handler before the check is allowed to finish:
     // the second one must adopt the promise the first one created.
-    await sleep(50);
+    await waitUntil(() => (ctx.entered() >= 2 ? true : undefined), 'both requests in the dep', 5_000, 5);
     assert.equal(ctx.checker.calls, 1, 'the second click never doubles the GitHub request');
     ctx.checker.finish();
     const [a, b] = await Promise.all([first, second]);
@@ -342,13 +356,13 @@ test('POST /api/update/check: two concurrent POSTs run ONE check and both get th
 test('POST /api/update/check: the shared promise is RELEASED — a later POST checks again', async () => {
   await withRoute({ manual: true }, async (ctx) => {
     const first = post(ctx);
-    await sleep(20);
+    await waitUntil(() => (ctx.checker.calls === 1 ? true : undefined), 'the first check to start', 5_000, 5);
     ctx.checker.finish();
     assert.equal((await first).status, 200);
 
     ctx.checker.next = { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: RELEASE };
     const second = post(ctx);
-    await sleep(20);
+    await waitUntil(() => (ctx.entered() >= 2 ? true : undefined), 'the second request in the dep', 5_000, 5);
     assert.equal(ctx.checker.calls, 2, 'the in-flight promise did not survive its own check');
     ctx.checker.finish();
     assert.equal((JSON.parse((await second).body) as UpdateStatus).reason, 'a new version is available');
@@ -360,8 +374,8 @@ test('POST /api/update/check: the outcome reaches the access line as a CONSTANT 
     await post(ctx);
     ctx.checker.next = { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: RELEASE };
     await post(ctx);
-    // The lines are written on response close; give the handler a tick.
-    await sleep(50);
+    // The lines are written on response close: wait for both access lines.
+    await waitForLogLines(ctx.logFile, { 'note=': 2 }, 'both access lines with a note', 5_000);
     const log = readFileSync(ctx.logFile, 'utf8');
     const notes = [
       ...log.matchAll(/POST \/api\/update\/check [^\n]*? note=("(?:[^"\\]|\\.)*")/g),
@@ -409,7 +423,8 @@ test('POST /api/update/check: nothing the CALLER sent reaches the access line', 
       body: '{"note":"BODYCANARY"}',
     });
     assert.equal(res.status, 200);
-    await sleep(50);
+    // The line is written on response close: wait for it, then read it.
+    await waitForLogLines(ctx.logFile, { 'note=': 1 }, 'the access line with a note', 5_000);
     const log = readFileSync(ctx.logFile, 'utf8');
     for (const canary of ['QUERYCANARY', 'AGENTCANARY', 'BODYCANARY', `127.0.0.1:${ctx.port}`]) {
       assert.ok(!log.includes(canary), `${canary} must never reach server.log`);

@@ -7,22 +7,23 @@
  *
  * 2026-09-10 added the New-folder tab's create-vs-add decision
  * (`probeFromList` -> `blankIntent`) and the name an ADDED folder gets
- * (`addedProjectName`, `baseName`). The same chain is driven end to end
+ * (`addedProjectName`). The same chain is driven end to end
  * against a real backend and real temp dirs in tests/server/projects.test.ts; here it
  * is the pure mapping, every outcome of GET /api/fs/list included.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { joinPath } from '../../web/src/ui/fs-model.ts';
 import {
-  joinPath,
   parentDir,
   repoBasename,
   suggestProjectPath,
   suggestDestPath,
   breadcrumbs,
   addedProjectName,
-  baseName,
   blankIntent,
+  projectsDirOf,
+  projectsPath,
   probeFromList,
 } from '../../web/src/ui/newproject-model.ts';
 import type { FolderProbe } from '../../web/src/ui/newproject-model.ts';
@@ -151,12 +152,26 @@ test('addedProjectName: what the user typed wins (trimmed); blank or whitespace 
   assert.equal(addedProjectName('', '/'), '');
 });
 
-test('baseName: last segment of an absolute path; trailing slashes ignored; `/` and "" have none', () => {
-  assert.equal(baseName('/a/b'), 'b');
-  assert.equal(baseName('/a/b/'), 'b');
-  assert.equal(baseName('/a/b//'), 'b');
-  assert.equal(baseName('/a'), 'a');
-  assert.equal(baseName('/'), '');
-  assert.equal(baseName('//'), '');
-  assert.equal(baseName(''), '');
+// Part Q1: the module's own `baseName` went (ui/slots-model.ts `fileName` is
+// the one last-segment rule); the name a folder OFFERS is `addedProjectName`
+// with nothing typed, and it keeps every answer `baseName` gave — including
+// none for the root, where `fileName` itself answers `/` for a label.
+test('the name a folder offers: last segment of an absolute path; trailing slashes ignored; `/` and "" have none', () => {
+  const offered = (path: string): string => addedProjectName('', path);
+  assert.equal(offered('/a/b'), 'b');
+  assert.equal(offered('/a/b/'), 'b');
+  assert.equal(offered('/a/b//'), 'b');
+  assert.equal(offered('/a'), 'a');
+  assert.equal(offered('/'), '');
+  assert.equal(offered('//'), '');
+  assert.equal(offered(''), '');
+});
+
+test('projectsDirOf: `<home>/projects` with one separator, whatever the home looks like', () => {
+  // The dialog used to write `${home}/projects` inline: a home ending in `/`
+  // gave `//projects`. The helper goes through the one join.
+  assert.equal(projectsDirOf('/home/you'), '/home/you/projects');
+  assert.equal(projectsDirOf('/home/you/'), '/home/you/projects');
+  assert.equal(projectsDirOf('/'), '/projects');
+  assert.equal(projectsPath('/home/you/', 'api'), '/home/you/projects/api', 'the destination uses the same folder');
 });

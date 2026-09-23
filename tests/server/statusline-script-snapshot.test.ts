@@ -26,6 +26,14 @@ import { join } from 'node:path';
 import { sleep } from '../helpers/helpers.ts';
 import { SCRIPT, runStatusline, runRaw, fixture, makeWorkspace } from '../helpers/statusline-script-fixture.ts';
 
+/**
+ * A clock-separation wait (tests/README.md § Time): a rewrite of the snapshot
+ * would carry a LATER mtime than the first run's, so "mtime unchanged" means
+ * "not rewritten" only once the clock has moved. 20 ms is well past the
+ * file system's timestamp granularity here (ns on ext4).
+ */
+const MTIME_TICK_MS = 20;
+
 // ---------------------------------------------------------------------------
 // The SNAPSHOT (Nocturne B1): the optional fourth argument
 //
@@ -187,7 +195,7 @@ test('snapshot is written ONLY on change: an identical second run leaves content
     await runWithSnapshot('default', ws.prefs, snapshot, payload);
     const first = await readFile(snapshot, 'utf8');
     const firstStat = await stat(snapshot);
-    await sleep(20);
+    await sleep(MTIME_TICK_MS);
 
     await runWithSnapshot('default', ws.prefs, snapshot, payload);
     const second = await readFile(snapshot, 'utf8');

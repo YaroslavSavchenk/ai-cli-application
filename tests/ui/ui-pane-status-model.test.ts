@@ -167,7 +167,7 @@ test('Mode: every PERM_SHORT mode reads exactly its own label (default excepted)
   for (const mode of modes) {
     const s = session({ args: ['--permission-mode', mode] });
     if (mode === 'default') {
-      // `permFromArgs` returns null for `default` (web/src/ui/util.ts) — the
+      // `permFromArgs` returns null for `default` (web/src/ui/format-model.ts) — the
       // CLI's own default is not a claim this bar makes.
       assert.deepEqual(keys(s), ['Time'], 'default mode shows no Mode item');
       continue;

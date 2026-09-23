@@ -27,7 +27,7 @@ import { AgentsWatcher } from '../../server/agents.ts';
 import { resolveDataPaths, type Logger } from '../../server/config.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
-import { sleep, makeTempDir } from '../helpers/helpers.ts';
+import { sleep, makeTempDir, waitUntil } from '../helpers/helpers.ts';
 import {
   UUID,
   type Seen,
@@ -37,6 +37,8 @@ import {
   makeManager,
   ROW,
   report,
+  MANY_POLLS_MS,
+  WATCHER_POLL_MS,
 } from '../helpers/agents-fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -149,11 +151,12 @@ test('SessionManager: isLive is false for an EXITED session, which stays listed'
     watcher.track(info.id, join(root, 'subagents'));
     assert.equal(watcher.trackedCount, 1);
 
-    const deadline = Date.now() + 10_000;
-    while (manager.get(info.id)?.status !== 'exited') {
-      if (Date.now() >= deadline) throw new Error('the session never exited');
-      await sleep(20);
-    }
+    await waitUntil(
+      () => (manager.get(info.id)?.status === 'exited' ? true : undefined),
+      'the session to exit',
+      10_000,
+      20,
+    );
     assert.equal(manager.has(info.id), true, 'still listed until DELETE...');
     assert.equal(manager.isLive(info.id), false, '...but not live');
     assert.equal(watcher.trackedCount, 0, 'onExit untracked it');
@@ -205,13 +208,20 @@ test('watcher: the refusal is logged once, and a directory that becomes legal sa
   const seen: Seen[] = [];
   const watcher = new AgentsWatcher((level, message) => logs.push(`${level}: ${message}`), {
     projectsRoot: root,
-    pollMs: 20,
+    pollMs: WATCHER_POLL_MS,
   });
   const count = (needle: string): number => logs.filter((l) => l.includes(needle)).length;
   try {
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(link, 'subagents'));
-    await sleep(200); // ~10 polls.
+    // The refusal is a condition; ONCE is the silence over many polls after it.
+    await waitUntil(
+      () => (count('resolves outside the projects root') > 0 ? true : undefined),
+      'the refusal line',
+      5_000,
+      10,
+    );
+    await sleep(MANY_POLLS_MS);
     assert.equal(count('resolves outside the projects root'), 1, logs.join('\n'));
 
     // The user (or an installer) replaces the symlink with the real thing.
@@ -219,7 +229,13 @@ test('watcher: the refusal is logged once, and a directory that becomes legal sa
     await mkdir(join(link, 'subagents'), { recursive: true });
     await writeMeta(join(link, 'subagents'), 'ab', { agentType: 'honest', description: '' });
     await waitFor(seen, (a) => a[0]?.name === 'honest');
-    await sleep(100); // ~5 more polls, all of them legal now.
+    await waitUntil(
+      () => (count('now inside the projects root') > 0 ? true : undefined),
+      'the recovery line',
+      5_000,
+      10,
+    );
+    await sleep(MANY_POLLS_MS); // Fifteen more polls, all of them legal now.
     assert.equal(count('now inside the projects root'), 1, 'the recovery is said once too');
     assert.equal(count('resolves outside the projects root'), 1, 'and the refusal is not repeated');
   } finally {
@@ -257,11 +273,12 @@ test('SessionManager: a RUNNING agent row is finished by the exit, and only that
     };
     manager.setReport(info.id, report([done, live], { counts: { running: 3, finished: 7 }, turn: 'working' }));
 
-    const deadline = Date.now() + 10_000;
-    while (manager.get(info.id)?.status !== 'exited') {
-      if (Date.now() >= deadline) throw new Error('the session never exited');
-      await sleep(20);
-    }
+    await waitUntil(
+      () => (manager.get(info.id)?.status === 'exited' ? true : undefined),
+      'the session to exit',
+      10_000,
+      20,
+    );
     const rows = manager.get(info.id)?.agents as SessionAgent[];
     assert.equal(rows.length, 2);
     assert.deepEqual(rows[0], done, 'a finished row is not touched');
@@ -288,11 +305,12 @@ test('SessionManager: a session with NO agents gets no list at exit', async () =
   const manager = new SessionManager(log, history);
   try {
     const info = manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
-    const deadline = Date.now() + 10_000;
-    while (manager.get(info.id)?.status !== 'exited') {
-      if (Date.now() >= deadline) throw new Error('the session never exited');
-      await sleep(20);
-    }
+    await waitUntil(
+      () => (manager.get(info.id)?.status === 'exited' ? true : undefined),
+      'the session to exit',
+      10_000,
+      20,
+    );
     assert.equal(manager.get(info.id)?.agents, undefined, 'absent, never an empty table');
     manager.destroy(info.id);
   } finally {

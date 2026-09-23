@@ -15,7 +15,8 @@
  * key glyph. Connection state is the top bar's dot.
  */
 import * as st from '../state.ts';
-import { el, fmtUptime } from './util.ts';
+import { el } from './util.ts';
+import { fmtUptime } from './format-model.ts';
 
 interface Deps {
   openShortcuts(): void;

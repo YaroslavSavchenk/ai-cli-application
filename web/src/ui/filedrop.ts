@@ -43,7 +43,7 @@
  * is noise nobody can read mid-drag.
  */
 import { flash } from './statusline.ts';
-import { isDragging } from './dnd.ts';
+import { ghostTransform, isDragging } from './dnd.ts';
 import { isEditableTarget, isTerminalTarget, OPEN_MODAL_SELECTOR } from './keys.ts';
 import { fileName } from './slots-model.ts';
 import { el } from './util.ts';
@@ -334,12 +334,12 @@ function begin(): void {
 
 /**
  * The ghost rides the cursor exactly as the pointer-drag ghost does
- * (ui/dnd.ts `positionGhost`), including the static tilt — one drag ghost in
+ * (ui/dnd.ts `ghostTransform`), including the static tilt — one drag ghost in
  * this app, one look, whichever channel produced it.
  */
 function positionGhost(x: number, y: number): void {
   if (ghost === null) return;
-  ghost.style.transform = `translate(${x + 14}px, ${y + 10}px) rotate(-2deg)`;
+  ghost.style.transform = ghostTransform(x, y);
 }
 
 /**

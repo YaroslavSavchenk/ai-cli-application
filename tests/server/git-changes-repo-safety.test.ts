@@ -44,6 +44,14 @@ import {
   startChangesServer,
 } from '../helpers/git-changes-fixture.ts';
 
+/**
+ * A clock-separation wait, deliberate (tests/README.md § Time): git treats an
+ * index entry whose mtime is not older than the index itself as "racily
+ * clean" and re-hashes it, so the rewrite must land in an EARLIER second than
+ * the status run. One second of timestamp granularity plus 100 ms of margin.
+ */
+const RACY_TIMESTAMP_WAIT_MS = 1100;
+
 let server: TestServer;
 let root: string;
 let home: string;
@@ -183,7 +191,7 @@ test('a changes call never rewrites .git/index — GIT_OPTIONAL_LOCKS=0', async 
   // content does not, which is exactly the state a plain `git status` answers
   // by refreshing the index.
   await writeFile(join(quiet, 'a.txt'), 'a\nb\n');
-  await sleep(1100); // past git's racy-timestamp window
+  await sleep(RACY_TIMESTAMP_WAIT_MS); // past git's racy-timestamp window
   const before_ = (await stat(join(quiet, '.git', 'index'))).mtimeMs;
 
   const res = await changes(server, quiet);
@@ -195,7 +203,7 @@ test('a changes call never rewrites .git/index — GIT_OPTIONAL_LOCKS=0', async 
 
   // Non-vacuity: the SAME state, through a plain git, does move it.
   await writeFile(join(quiet, 'a.txt'), 'a\nb\n');
-  await sleep(1100);
+  await sleep(RACY_TIMESTAMP_WAIT_MS);
   const beforePlain = (await stat(join(quiet, '.git', 'index'))).mtimeMs;
   execFileSync('git', ['status', '--porcelain'], { cwd: quiet, encoding: 'utf8' });
   assert.notEqual(

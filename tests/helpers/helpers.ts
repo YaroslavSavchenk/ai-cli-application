@@ -355,6 +355,41 @@ export async function waitForLog(
   );
 }
 
+/**
+ * Wait until server.log stops growing: the same size for LOG_QUIET_POLLS polls
+ * LOG_QUIET_INTERVAL_MS apart (10 x 50 ms, no less than the 500 ms pause it
+ * replaced; the pipe chunks queued behind a SIGKILL land within ms on an idle
+ * host, and a busy runner that keeps writing only makes the wait longer). For
+ * a line that must be written ONCE: counting before the late writers are done
+ * lets a regression pass by being read too early. Counts polls, not
+ * wall-clock time — WSL2's wall clock jumps.
+ */
+const LOG_QUIET_POLLS = 10;
+const LOG_QUIET_INTERVAL_MS = 50;
+export async function waitForLogQuiet(
+  server: TestServer,
+  timeoutMs = 15_000,
+): Promise<string> {
+  let lastSize = -1;
+  let stable = 0;
+  return waitUntil(
+    async () => {
+      const log = await readServerLog(server);
+      const size = Buffer.byteLength(log);
+      if (size !== lastSize) {
+        lastSize = size;
+        stable = 0;
+        return undefined;
+      }
+      stable += 1;
+      return stable >= LOG_QUIET_POLLS ? log : undefined;
+    },
+    `server.log to stop growing for ${LOG_QUIET_POLLS} polls`,
+    timeoutMs,
+    LOG_QUIET_INTERVAL_MS,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // REST helpers
 // ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@
  *   - Everything the answer contains is UNTRUSTED. The asset URLs we hand on
  *     are CONSTRUCTED by us from the tag and then required to be EQUAL to what
  *     the API reported; a URL that differs is a refusal, not a download. The
- *     tag itself passes bundle.ts's VERSION_SHAPE before it is used in a path.
+ *     tag itself passes VERSION_SHAPE (shared/protocol-runtime.ts) before it is used in a path.
  *   - The `AI_SM_UPDATE_API_BASE` seam is loopback-only (server/config.ts) and
  *     the process refuses to start otherwise; with the seam set, the asset host
  *     allow-list collapses to exactly that origin, so an offline test can never
@@ -37,8 +37,7 @@
  */
 import { readFileSync, unlinkSync } from 'node:fs';
 import type { UpdateRelease, UpdateStatus } from '../shared/protocol.ts';
-import { UPDATE_NEW_VERSION_AVAILABLE } from '../shared/protocol.ts';
-import { VERSION_SHAPE } from './bundle.ts';
+import { UPDATE_NEW_VERSION_AVAILABLE, VERSION_SHAPE } from '../shared/protocol.ts';
 import {
   atomicWriteFile,
   errorClass,

@@ -470,6 +470,12 @@ test('an anchor that was NEVER listed and is now GONE still cannot 500 another a
   }
 });
 
+/**
+ * Past the realpath cache's window — a clock-separation wait, deliberate
+ * (tests/README.md § Time): the TTL plus 200 ms for the timer turn.
+ */
+const PAST_ANCHOR_TTL_MS = ANCHOR_REALPATH_TTL_MS + 200;
+
 test(`anchorsFor caches one project path's realpath for ${ANCHOR_REALPATH_TTL_MS}ms`, async () => {
   // IN-PROCESS, not through the server child: the cache is what is under test,
   // and the route's own `realpathSync(?path=)` would answer 404 for a folder
@@ -490,7 +496,7 @@ test(`anchorsFor caches one project path's realpath for ${ANCHOR_REALPATH_TTL_MS
     'and still is INSIDE the window — that is the realpath that was not repeated',
   );
 
-  await sleep(ANCHOR_REALPATH_TTL_MS + 200);
+  await sleep(PAST_ANCHOR_TTL_MS);
   assert.equal(
     anchorsFor([cached]).includes(real),
     false,
@@ -512,7 +518,7 @@ test(`anchorsFor caches one project path's realpath for ${ANCHOR_REALPATH_TTL_MS
     false,
     'inside the window the cached NEGATIVE still stands (that is the realpath not repeated)',
   );
-  await sleep(ANCHOR_REALPATH_TTL_MS + 200);
+  await sleep(PAST_ANCHOR_TTL_MS);
   assert.ok(
     anchorsFor([cached]).includes(real),
     'past the window a folder that came BACK is an anchor again',

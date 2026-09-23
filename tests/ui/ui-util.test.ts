@@ -1,17 +1,17 @@
 /**
- * `web/src/ui/util.ts` — the parts that need no DOM: argv tag derivation
+ * `web/src/ui/format-model.ts` (split from `ui/util.ts`) — argv tag derivation
  * (`modelFromArgs` / `permFromArgs`, R2 statusline/pane-card tags; the
  * permission tag renders the plain-language short form from `PERM_SHORT`, the
  * CLI value never reaches the DOM) and
- * `fmtUptime` (Nocturne statusline `Up 31m` / `Up 2h 15m`), plus `fmtAgo`/`baseName`/`fmtCount` (the
- * sessions drawer's HISTORY section: when an entry last ran, and the folder
- * name for a cwd the app cannot name). `el`/`button`/`armButton`/`ArmedSet`/
+ * `fmtUptime` (Nocturne statusline `Up 31m` / `Up 2h 15m`), `relativeTime`
+ * (the app's one "5 minutes ago", part Q1) and `fmtCount` (every history
+ * count). util.ts's `el`/`button`/`armButton`/`ArmedSet`/
  * `trapTab` all touch the DOM in ways this file doesn't attempt — see the
  * terminal-ui skill for manual verification.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelFromArgs, permFromArgs, fmtUptime, fmtAgo, baseName, fmtCount } from '../../web/src/ui/util.ts';
+import { modelFromArgs, permFromArgs, fmtUptime, relativeTime, fmtCount } from '../../web/src/ui/format-model.ts';
 
 // ---------------------------------------------------------------------------
 // modelFromArgs
@@ -185,64 +185,137 @@ test('fmtUptime: an unparsable timestamp renders as an em dash', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fmtAgo (sessions drawer, HISTORY meta line) — `now` is injected, no clock stub
+// relativeTime — the app's ONE relative time (user decision 2026-09-23,
+// `.claude/plans/PLAN-QUALITY.md` decision 1: "5 minutes ago" everywhere). It
+// replaced the sessions drawer's `fmtAgo` (`5 min ago`, `yesterday`, `6 Sep`)
+// and the GitHub list's `relTime` (`5m ago`) in part Q1, and came here from
+// `ui/commit-model.ts`; their tests came with it and now pin the one form.
+// `now` is injected, no clock stub.
 // ---------------------------------------------------------------------------
 
 const NOW = Date.parse('2026-09-06T12:00:00.000Z');
-const ago = (ms: number): string => fmtAgo(new Date(NOW - ms).toISOString(), NOW);
+const ago = (ms: number): string => relativeTime(new Date(NOW - ms).toISOString(), NOW);
 const SEC = 1000;
 const MIN = 60 * SEC;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-test('fmtAgo: under a minute reads `just now`', () => {
+test('relativeTime: under a minute reads `just now`', () => {
   assert.equal(ago(0), 'just now');
   assert.equal(ago(59 * SEC), 'just now');
 });
 
-test('fmtAgo: minutes, then hours, at the exact boundaries', () => {
-  assert.equal(ago(60 * SEC), '1 min ago');
-  assert.equal(ago(5 * MIN), '5 min ago');
-  assert.equal(ago(59 * MIN), '59 min ago');
-  assert.equal(ago(HOUR), '1 h ago');
-  assert.equal(ago(3 * HOUR), '3 h ago');
-  assert.equal(ago(23 * HOUR), '23 h ago');
+test('relativeTime: minutes, then hours, at the exact boundaries', () => {
+  assert.equal(ago(60 * SEC), '1 minute ago');
+  assert.equal(ago(5 * MIN), '5 minutes ago');
+  assert.equal(ago(59 * MIN), '59 minutes ago');
+  assert.equal(ago(HOUR), '1 hour ago');
+  assert.equal(ago(3 * HOUR), '3 hours ago');
+  assert.equal(ago(23 * HOUR), '23 hours ago');
 });
 
-test('fmtAgo: one day reads `yesterday`, two or more count days', () => {
-  assert.equal(ago(DAY), 'yesterday');
-  assert.equal(ago(2 * DAY - 1), 'yesterday');
-  assert.equal(ago(2 * DAY), '2 d ago');
-  assert.equal(ago(4 * DAY), '4 d ago');
-  assert.equal(ago(6 * DAY), '6 d ago');
+test('relativeTime: one day reads `1 day ago`, two or more count days', () => {
+  assert.equal(ago(DAY), '1 day ago');
+  assert.equal(ago(2 * DAY - 1), '1 day ago');
+  assert.equal(ago(2 * DAY), '2 days ago');
+  assert.equal(ago(4 * DAY), '4 days ago');
+  assert.equal(ago(6 * DAY), '6 days ago');
 });
 
-test('fmtAgo: a week or more falls back to a short date, with the year only when it differs', () => {
-  assert.equal(fmtAgo('2026-08-30T12:00:00.000Z', NOW), '30 Aug');
-  assert.equal(fmtAgo('2025-12-31T12:00:00.000Z', NOW), '31 Dec 2025');
+test('relativeTime: a week or more counts weeks, then months, never falls back to a date', () => {
+  assert.equal(relativeTime('2026-08-30T12:00:00.000Z', NOW), '1 week ago');
+  assert.equal(relativeTime('2025-12-31T12:00:00.000Z', NOW), '8 months ago', '249 days, a month is 30');
 });
 
-test('fmtAgo: a timestamp in the future reads `just now` — clock skew is not an event', () => {
-  assert.equal(fmtAgo(new Date(NOW + HOUR).toISOString(), NOW), 'just now');
+test('relativeTime: a timestamp in the future reads `just now` — clock skew is not an event', () => {
+  assert.equal(relativeTime(new Date(NOW + HOUR).toISOString(), NOW), 'just now');
 });
 
-test('fmtAgo: an unparsable timestamp renders as an em dash, never a fabricated age', () => {
-  assert.equal(fmtAgo('not-a-date', NOW), '—');
+test('relativeTime: an unparsable timestamp says nothing, never a fabricated age', () => {
+  assert.equal(relativeTime('not-a-date', NOW), '');
+  assert.equal(relativeTime('not a date', NOW), '');
 });
 
-// ---------------------------------------------------------------------------
-// baseName (history folder label for a cwd with no known project)
-// ---------------------------------------------------------------------------
-
-test('baseName: the last path segment', () => {
-  assert.equal(baseName('/home/you/projects/web-ui'), 'web-ui');
-  assert.equal(baseName('/home/you/projects/web-ui/'), 'web-ui');
-  assert.equal(baseName('/srv'), 'srv');
+test('relativeTime: absent / empty / unparseable input renders nothing', () => {
+  assert.equal(relativeTime('', NOW), '', 'the GitHub list hands over `pushedAt ?? ""`');
+  assert.equal(relativeTime('yesterday', NOW), '');
+  assert.equal(relativeTime('2026-13-45T99:99:99Z', NOW), '');
 });
 
-test('baseName: a path with nothing to take falls back to the input itself', () => {
-  assert.equal(baseName('/'), '/');
-  assert.equal(baseName(''), '');
+test('relativeTime: seconds never show — anything short of the 60 s boundary is "just now"', () => {
+  assert.equal(ago(1 * SEC), 'just now');
+  assert.equal(ago(60 * SEC - 1), 'just now');
+});
+
+test('relativeTime: the 60s boundary crosses to minutes', () => {
+  assert.equal(ago(60 * SEC), '1 minute ago');
+  assert.equal(ago(119 * SEC), '1 minute ago', 'minutes floor');
+  assert.equal(ago(59 * MIN), '59 minutes ago');
+});
+
+test('relativeTime: the 60m boundary crosses to hours', () => {
+  assert.equal(ago(60 * MIN), '1 hour ago');
+  assert.equal(ago(90 * MIN), '1 hour ago', 'hours floor');
+  assert.equal(ago(23 * HOUR), '23 hours ago');
+});
+
+test('relativeTime: the 24h boundary crosses to days', () => {
+  assert.equal(ago(24 * HOUR), '1 day ago');
+  assert.equal(ago(47 * HOUR), '1 day ago', 'days floor');
+  assert.equal(ago(6 * DAY), '6 days ago');
+});
+
+test('relativeTime: the 7d boundary crosses to weeks, the 30d one to months (a month is a flat 30 days)', () => {
+  assert.equal(ago(7 * DAY), '1 week ago');
+  assert.equal(ago(14 * DAY - 1), '1 week ago', 'weeks floor');
+  assert.equal(ago(29 * DAY), '4 weeks ago');
+  assert.equal(ago(30 * DAY), '1 month ago');
+  assert.equal(ago(59 * DAY), '1 month ago');
+  assert.equal(ago(60 * DAY), '2 months ago');
+  assert.equal(ago(359 * DAY), '11 months ago');
+  assert.equal(ago(364 * DAY), '12 months ago', 'a flat 30-day month reaches 12 before the 365-day year');
+});
+
+test('relativeTime: the 365d boundary crosses to years', () => {
+  assert.equal(ago(365 * DAY), '1 year ago');
+  assert.equal(ago(729 * DAY), '1 year ago');
+  assert.equal(ago(730 * DAY), '2 years ago');
+  assert.equal(ago(3650 * DAY), '10 years ago');
+});
+
+test('relativeTime: a future timestamp (clock skew) degrades to "just now", never a negative age', () => {
+  assert.equal(relativeTime(new Date(NOW + 5 * MIN).toISOString(), NOW), 'just now');
+  assert.equal(relativeTime(new Date(NOW + 365 * DAY).toISOString(), NOW), 'just now');
+});
+
+test('relativeTime: the same instant ages as `now` advances — the clock is the caller’s', () => {
+  const iso = new Date(NOW).toISOString();
+  assert.equal(relativeTime(iso, NOW), 'just now');
+  assert.equal(relativeTime(iso, NOW + 5 * MIN), '5 minutes ago');
+  assert.equal(relativeTime(iso, NOW + 5 * HOUR), '5 hours ago');
+  assert.equal(relativeTime(iso, NOW + 5 * DAY), '5 days ago');
+});
+
+test('the relative half is said in plain words, pluralised, from the clock it is given', () => {
+  const at = (ms: number): string => new Date(NOW - ms).toISOString();
+  assert.equal(relativeTime(at(5_000), NOW), 'just now');
+  assert.equal(relativeTime(at(60_000), NOW), '1 minute ago');
+  assert.equal(relativeTime(at(5 * 60_000), NOW), '5 minutes ago');
+  assert.equal(relativeTime(at(3600_000), NOW), '1 hour ago');
+  assert.equal(relativeTime(at(3 * 3600_000), NOW), '3 hours ago');
+  assert.equal(relativeTime(at(24 * 3600_000), NOW), '1 day ago');
+  assert.equal(relativeTime(at(6 * 24 * 3600_000), NOW), '6 days ago');
+  assert.equal(relativeTime(at(8 * 24 * 3600_000), NOW), '1 week ago');
+  assert.equal(relativeTime(at(40 * 24 * 3600_000), NOW), '1 month ago');
+  assert.equal(relativeTime(at(400 * 24 * 3600_000), NOW), '1 year ago');
+  assert.equal(relativeTime(at(800 * 24 * 3600_000), NOW), '2 years ago');
+  // A clock that runs ahead of the commit's: the app cannot know which of the
+  // two is wrong, and "in 3 hours" is the one thing that is certainly false.
+  assert.equal(relativeTime(at(-3 * 3600_000), NOW), 'just now');
+  // It is computed against the clock it is HANDED, so a list open for an hour
+  // says so on its next repaint.
+  const iso = at(3600_000);
+  assert.equal(relativeTime(iso, NOW + 3600_000), '2 hours ago');
 });
 
 // ---------------------------------------------------------------------------

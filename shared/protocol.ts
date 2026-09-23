@@ -92,7 +92,7 @@ export interface SessionInfo {
   /**
    * True when the server injected `--settings <file>` into the spawned argv to
    * give THIS session Claude Code's own status line. Only ever true for
-   * claude-kind sessions (basename(command) === 'claude') whose client-supplied
+   * claude-kind sessions (`isClaudeCommand(command)`) whose client-supplied
    * args did not already carry `--settings`.
    *
    * `args` above deliberately does NOT contain the injected flag — it stays the

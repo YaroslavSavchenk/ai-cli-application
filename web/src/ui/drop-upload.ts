@@ -29,7 +29,8 @@
  */
 import type { FsUploadMode } from '../../../shared/protocol.ts';
 import { formatError, log } from '../log.ts';
-import type { Destination } from './fs-model.ts';
+import { joinPath, type Destination } from './fs-model.ts';
+import { statusOf } from './editor-model.ts';
 import {
   failNote,
   partialNote,
@@ -81,17 +82,6 @@ export interface DropRun {
    * other two numbers do.
    */
   failed(): number;
-}
-
-/** The status a rejection carries, or 0 when it was not an answer at all. */
-function statusOf(err: unknown): number {
-  const n = (err as { status?: unknown } | null)?.status;
-  return typeof n === 'number' ? n : 0;
-}
-
-/** `/home/you` + `web` → `/home/you/web`. The one place a path is built. */
-function join(dir: string, seg: string): string {
-  return dir.endsWith('/') ? `${dir}${seg}` : `${dir}/${seg}`;
 }
 
 /**
@@ -178,7 +168,8 @@ export function createDropRun(args: {
             // Nothing is rolled back and nothing is abandoned: the next file of
             // this folder is still attempted, and the row counts what failed.
             failed += 1;
-            last = statusOf(err);
+            // 0 is the row's "no answer at all" (a network failure).
+            last = statusOf(err) ?? 0;
           }
           step();
         }
@@ -195,11 +186,11 @@ export function createDropRun(args: {
               // there answers, and that is the outcome asked for.
               if (status !== 409) {
                 failed += 1;
-                last = status;
+                last = status ?? 0;
                 break;
               }
             }
-            dir = join(dir, seg);
+            dir = joinPath(dir, seg);
           }
           step();
         }

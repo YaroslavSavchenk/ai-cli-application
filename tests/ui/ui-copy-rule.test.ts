@@ -15,13 +15,13 @@
  * THE RULE, mechanically: a string literal that has a CLI/code SHAPE is only
  * allowed if it is listed in ALLOWED for that specific file, which is where the
  * three legitimate roles live —
- *   1. argv tokens that are composed or parsed (launch-args, util, sessions),
+ *   1. argv tokens that are composed or parsed (launch-args, format-model, sessions),
  *   2. CSS custom-property names, same `--x` shape by coincidence (terminal,
  *      theme, panes),
  *   3. the ONE construction-exempt display spot: the launch dialog's
  *      custom-command field and its literal command echo (user's call —
  *      that field's content IS a command).
- * The list is per FILE, so an argv token that is legitimate in `util.ts` still
+ * The list is per FILE, so an argv token that is legitimate in `format-model.ts` still
  * fails the moment it appears in `settings.ts` or `github.ts`.
  *
  * This is a source-shape guard, not a substitute for reading the UI: it cannot
@@ -35,6 +35,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { projectRoot as REPO_ROOT, readSource } from '../helpers/helpers.ts';
 import { HOLE, readLiteral, literals } from '../helpers/source-scan.ts';
+import { VERSION_SHAPE } from '../../shared/protocol.ts';
 
 const WEB_SRC = join(REPO_ROOT, 'web', 'src');
 
@@ -111,7 +112,7 @@ const ALLOWED: Record<string, string[]> = {
     // Grok
     '--always-approve',
   ],
-  'ui/util.ts': [
+  'ui/format-model.ts': [
     '--model',
     '--model=',
     '--dangerously-skip-permissions',
@@ -508,6 +509,10 @@ test('phase E: the update dialog prints a version only through the shape gate', 
     false,
     'the DOM half must not touch the raw version: the gate is in ui/update-model.ts',
   );
+  // Since part Q1 the gate is the ONE VERSION_SHAPE the server uses too
+  // (shared/protocol-runtime.ts): the model imports it and tests with it.
   const modelSrc = readFileSync(join(WEB_SRC, 'ui', 'update-model.ts'), 'utf8');
-  assert.match(modelSrc, /export const VERSION_SHAPE = \/\^v\?\[0-9\]\[A-Za-z0-9\._\+-\]\{0,63\}\$\//);
+  assert.match(modelSrc, /\bVERSION_SHAPE,[\s\S]*\} from '\.\.\/\.\.\/\.\.\/shared\/protocol\.ts';/);
+  assert.match(modelSrc, /VERSION_SHAPE\.test\(version\)/);
+  assert.equal(VERSION_SHAPE.source, '^v?[0-9][A-Za-z0-9._+-]{0,63}$', 'the shape itself is unchanged');
 });

@@ -4,18 +4,20 @@
  *
  * Proven through a REAL PTY: fake `gemini` and `claude` executables on the test
  * server's PATH print the variable they were given, and the test reads it back
- * over the session WebSocket. The injection is keyed on `basename(command)`, so
- * the same launch through `bash` must see nothing.
+ * over the session WebSocket. The injection is keyed on the command's last `/`
+ * or `\` segment (the shared `commandBase`), so the same launch through `bash`
+ * must see nothing.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   api,
   createSession,
   readServerLog,
   startTestServer,
+  waitForLog,
   wsUrl,
   WsClient,
   type TestServer,
@@ -59,6 +61,11 @@ before(async () => {
   // The claude double also receives the `--settings` / `--session-id`
   // injections; this test asserts the ENV line only.
   await writeFile(join(binDir, 'claude'), printer('ANTHROPIC_API_KEY'), { mode: 0o755 });
+  // Linux allows `\` in a file name: these two are found on PATH by exactly the
+  // backslash command a Windows-minded user would type.
+  await writeFile(join(binDir, 'C:\\x\\claude'), printer('ANTHROPIC_API_KEY'), { mode: 0o755 });
+  await writeFile(join(binDir, 'C:\\x\\claude.exe'), printer('ANTHROPIC_API_KEY'), { mode: 0o755 });
+  await writeFile(join(binDir, 'C:\\x\\gemini'), printer('GEMINI_API_KEY'), { mode: 0o755 });
   const path = `${binDir}:${process.env['PATH'] ?? ''}`;
   plain = await startTestServer({
     env: { PATH: path, ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', XAI_API_KEY: '' },
@@ -173,15 +180,56 @@ test('the key goes into the environment ONLY: not into the PTY argv, not into se
   assert.equal((await api(plain, 'DELETE', '/api/keys/grok')).status, 200);
 });
 
-test('a keyed tool launched by ABSOLUTE PATH still gets its variable (basename rule)', async () => {
+test('a keyed tool launched by ABSOLUTE PATH still gets its variable (last-segment rule)', async () => {
   // The custom-command escape hatch (`/home/you/bin/gemini`) must behave like
-  // the card: every injection in create() is keyed on basename(command).
+  // the card: every injection in create() is keyed on commandBase(command).
   assert.equal((await api(plain, 'PUT', '/api/keys/gemini', { key: SAVED_GEMINI })).status, 200);
   assert.equal(
     keyLine(await spawnAndRead(plain, join(binDir, 'gemini'))),
     `K=${SAVED_GEMINI}`,
     'a full path to the same executable is the same tool',
   );
+});
+
+test('a command whose last `\\` segment is `claude` gets the claude key; `claude.exe` does not', async () => {
+  // The same rule as --settings and --session-id (isClaudeCommand, Q1).
+  assert.equal((await api(plain, 'PUT', '/api/keys/claude', { key: SAVED_CLAUDE })).status, 200);
+  try {
+    assert.equal(keyLine(await spawnAndRead(plain, 'C:\\x\\claude')), `K=${SAVED_CLAUDE}`);
+    assert.equal(keyLine(await spawnAndRead(plain, 'C:\\x\\claude.exe')), 'K=', 'claude.exe is not Claude Code');
+  } finally {
+    assert.equal((await api(plain, 'DELETE', '/api/keys/claude')).status, 200);
+  }
+});
+
+test('a keyed tool whose last `\\` segment names it gets its key: `C:\\x\\gemini`', async () => {
+  // One rule for every tool (commandBase, Q1), not just for claude.
+  assert.equal((await api(plain, 'PUT', '/api/keys/gemini', { key: SAVED_GEMINI })).status, 200);
+  assert.equal(keyLine(await spawnAndRead(plain, 'C:\\x\\gemini')), `K=${SAVED_GEMINI}`);
+});
+
+test('a claude path with a trailing `/` gets NEITHER the key nor --settings — the two never disagree', async () => {
+  // commandBase('/…/claude/') is '' — no tool. The spawn itself fails (exit 1),
+  // so the proof is the server's own record: statusline, the settings dir, and
+  // the debug line that names every key injection. The same launch WITHOUT the
+  // slash shows that line, so its absence here means something.
+  assert.equal((await api(plain, 'PUT', '/api/keys/claude', { key: SAVED_CLAUDE })).status, 200);
+  try {
+    const opts = { args: [], cwd: workDir, cols: 80, rows: 24 };
+    const slashed = await createSession(plain, { command: `${join(binDir, 'claude')}/`, ...opts });
+    const bare = await createSession(plain, { command: join(binDir, 'claude'), ...opts });
+    assert.equal(slashed.statusline, undefined, 'no --settings');
+    assert.equal(bare.statusline, true);
+    await waitForLog(plain, `${bare.id} using the stored API key for claude`);
+    const log = await readServerLog(plain);
+    assert.equal(log.includes(`${slashed.id} using the stored API key`), false, 'no key');
+    const settings = await readdir(join(plain.dataDir, 'session-settings'));
+    assert.equal(settings.includes(`${slashed.id}.json`), false);
+    await api(plain, 'DELETE', `/api/sessions/${slashed.id}`);
+    await api(plain, 'DELETE', `/api/sessions/${bare.id}`);
+  } finally {
+    assert.equal((await api(plain, 'DELETE', '/api/keys/claude')).status, 200);
+  }
 });
 
 test('DELETE /api/keys/:tool stops the injection', async () => {

@@ -15,21 +15,17 @@
  * app knows the Claude conversation id and can spawn `--resume <id>`.
  *
  * Deliberately narrow, exactly like the `--settings` status-line injection:
- * ONLY `basename(command) === 'claude'` is touched, and the injected flag never
- * enters SessionInfo.args.
+ * ONLY a command `isClaudeCommand` names (`shared/protocol-settings.ts`, the
+ * rule the browser uses too) is touched, and the injected flag never enters
+ * SessionInfo.args.
  */
-import { basename } from 'node:path';
+import { isClaudeCommand } from '../shared/protocol.ts';
 
 /** Claude requires a real UUID for `--session-id`; anything else is not one. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
-}
-
-/** True for the CLI we know these flags for. Everything else stays generic. */
-export function isClaudeCommand(command: string): boolean {
-  return basename(command) === 'claude';
 }
 
 export interface ConversationPlan {

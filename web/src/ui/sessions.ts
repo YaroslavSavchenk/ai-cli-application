@@ -24,13 +24,14 @@
  * FOLDERS (the user's own framing, 2026-09-06) even though the v3 reference
  * draws one flat list: the folders are a decided feature, not a style.
  */
-import type { HistoryEntry } from '../../../shared/protocol.ts';
+import { isClaudeCommand, type HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
-import { el, button, ArmedSet, fmtAgo, modelFromArgs, fmtCount } from './util.ts';
+import { el, button, ArmedSet } from './util.ts';
+import { relativeTime, modelFromArgs, fmtCount } from './format-model.ts';
 import { readoutClass, readoutWord, sessionReadout } from './session-state.ts';
-import { commandLabel, isClaudeCommand, modelLabel, toolIconFor } from './launch-args.ts';
+import { commandLabel, modelLabel, toolIconFor } from './launch-args.ts';
 import { toolIcon } from './icons-tools.ts';
 import { groupHistory, scheduleHistoryRefresh } from './history.ts';
 import { killSession, requestTerminalFocus, focusedPaneDims } from './panes.ts';
@@ -289,7 +290,9 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     line.append(dot, toolIcon(toolIconFor(entry.command), 13, 'sess-tool'), el('span', 'sess-name is-hist', entry.title));
 
     const meta = el('div', 'sess-meta is-hist');
-    const parts = [fmtAgo(entry.lastUsedAt)];
+    // An age the app cannot read is left out, never printed as a blank slot.
+    const when = relativeTime(entry.lastUsedAt, Date.now());
+    const parts = when === '' ? [] : [when];
     // What RAN, for everything that is not the known agent: without it a shell
     // entry is indistinguishable from a claude one (the ACTIVE rows say it in
     // their model slot; history rows have no model to say). Claude rows are
@@ -299,9 +302,12 @@ export function initSessionsDrawer(host: HTMLElement): { render(): void } {
     if (model !== null) parts.push(modelLabel(model));
     const crashed = entry.ended?.reason === 'crash';
     if (crashed) parts.push('crashed');
-    // Sentence case: this line starts with a moment in time ("Yesterday").
-    const text = parts.join(', ');
-    meta.textContent = text.charAt(0).toUpperCase() + text.slice(1);
+    // Sentence case, but only when the line starts with a moment in time
+    // ("Just now"): without one it starts with a command, echoed exactly as
+    // typed (`foo`, never `Foo`). A line with nothing to say keeps the em dash
+    // an unreadable age showed before Q1, never an empty slot.
+    const text = parts.length === 0 ? '—' : parts.join(', ');
+    meta.textContent = when === '' ? text : text.charAt(0).toUpperCase() + text.slice(1);
     meta.classList.toggle('is-danger', crashed);
 
     // `Continue` is a promise about ONE conversation, so it keys on the pin,

@@ -136,6 +136,35 @@ test('fileName: the segment rule, on the shapes a real tree hands over', () => {
   assert.equal(fileName(''), '');
 });
 
+// Part Q1 folded three more last-segment helpers into `fileName` (ui/util.ts
+// `baseName`, ui/commit-model.ts `fileName`, ui/newproject-model.ts
+// `baseName`); their tests moved here with it.
+
+test('fileName is the last segment — the only part of a path a tab label shows', () => {
+  assert.equal(fileName('web/src/Pane.tsx'), 'Pane.tsx');
+  assert.equal(fileName('README.md'), 'README.md');
+  assert.equal(fileName(''), '');
+});
+
+test('fileName: the last path segment', () => {
+  assert.equal(fileName('/home/you/projects/web-ui'), 'web-ui');
+  assert.equal(fileName('/home/you/projects/web-ui/'), 'web-ui');
+  assert.equal(fileName('/srv'), 'srv');
+});
+
+test('fileName: a path with nothing to take falls back to the input itself', () => {
+  assert.equal(fileName('/'), '/');
+  assert.equal(fileName(''), '');
+});
+
+test('fileName: a folder path with a trailing slash names the folder, never an empty label', () => {
+  // The commit list's own copy split on `/` and took the last piece, so git's
+  // collapsed new-folder row (`sub/`) and any folder written with a trailing
+  // slash came out as ''. A label is for a human: the folder is `sub`.
+  assert.equal(fileName('sub/'), 'sub');
+  assert.equal(fileName('/home/you/web//'), 'web');
+});
+
 // ---------------------------------------------------------------------------
 // zoneForPoint — the bands
 // ---------------------------------------------------------------------------

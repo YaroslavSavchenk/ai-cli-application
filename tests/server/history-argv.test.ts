@@ -90,6 +90,19 @@ test('planConversation: injects for a bare claude launch, adopts a client uuid, 
   ]);
 });
 
+test('planConversation: the agent is named by its last segment on either separator, exactly', () => {
+  // Part Q1: the server used path.basename (only `/`), the browser cut both
+  // `/` and `\`, so a `C:\x\claude` session read as Claude in the drawer and
+  // was never pinned to a conversation here. One rule now (isClaudeCommand in
+  // shared/protocol-settings.ts): both separators, and nothing else relaxed.
+  for (const command of ['/usr/bin/claude', 'C:\\x\\claude', 'D:\\tools/claude']) {
+    assert.deepEqual(planConversation(command, [], SID).injected, ['--session-id', SID], command);
+  }
+  for (const command of ['C:\\x\\claude.exe', 'claude.exe', 'Claude', '/usr/bin/claude-code', 'claude\\']) {
+    assert.deepEqual(planConversation(command, [], SID).injected, [], command);
+  }
+});
+
 test('stripConversationArgs removes only the resume/session flags (and their values)', () => {
   assert.deepEqual(
     stripConversationArgs([

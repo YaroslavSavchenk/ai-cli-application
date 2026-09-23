@@ -216,7 +216,7 @@ test('never names a non-claude session — no other agent ever had a status line
 });
 
 test('matches on the LAST path segment, exactly as the server decides it', () => {
-  // server/sessions.ts spawns with basename(command) === 'claude', so an
+  // server/sessions.ts injects --settings when isClaudeCommand(command), so an
   // absolute path to the same binary is the same case and must be named too.
   const list = [
     session({ id: 'p', title: 'abs-path', command: '/home/you/.local/bin/claude' }),
@@ -226,6 +226,17 @@ test('matches on the LAST path segment, exactly as the server decides it', () =>
     sessionsWithoutStatusLine(list).map((s) => s.title),
     ['abs-path', 'relative'],
   );
+});
+
+test('a backslash path is cut on `\\` too — `C:\\x\\claude` is named, `C:\\x\\claude.exe` is not', () => {
+  // The server's one rule (isClaudeCommand, Q1): the spawn injects --settings
+  // for the first and nothing for the second, so only the first can miss it.
+  const list = [
+    session({ id: 'w', title: 'backslash', command: 'C:\\x\\claude' }),
+    session({ id: 'e', title: 'exe', command: 'C:\\x\\claude.exe' }),
+    session({ id: 'c', title: 'capital', command: 'C:\\x\\Claude' }),
+  ];
+  assert.deepEqual(sessionsWithoutStatusLine(list).map((s) => s.title), ['backslash']);
 });
 
 test('an empty session set produces no notice at all', () => {

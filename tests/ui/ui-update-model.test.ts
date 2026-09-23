@@ -287,7 +287,7 @@ test('the "Continue last conversation" footnote appears only when such a session
 test('the footnote is CLAUDE-only: a custom command whose `-c` means something else is not a resume', () => {
   // `ssh -c aes256-gcm@openssh.com host` and `sh -c '…'` both carry a -c that
   // has nothing to do with a Claude conversation. The rule is the server's:
-  // basename(command) === 'claude' (server/conversation.ts).
+  // isClaudeCommand (shared/protocol-settings.ts, what server/conversation.ts applies).
   const ssh = summarizeRunning(
     [mkSession({ command: 'ssh', args: ['-c', 'aes256-gcm@openssh.com', 'box'] })],
     nameOf,

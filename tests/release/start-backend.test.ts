@@ -226,9 +226,16 @@ function markerOf(app: App, which: 'bundled' | 'path' | 'next'): Promise<Record<
   );
 }
 
+/**
+ * How long a launch that must NOT happen gets to happen before it is denied
+ * (tests/README.md § Time). A stub node records its launch within a few ms of
+ * being exec'd; 300 ms is many of those even on a slow runner.
+ */
+const NEVER_LAUNCHED_MS = 300;
+
 /** Give a launch that must NOT happen time to happen before denying it. */
 async function assertNeverLaunched(app: App): Promise<void> {
-  await sleep(300);
+  await sleep(NEVER_LAUNCHED_MS);
   assert.equal(await app.marker('bundled'), null, 'the bundled runtime was started');
   assert.equal(await app.marker('path'), null, 'a PATH node was started');
 }
@@ -344,7 +351,7 @@ test('start-backend: `current` moving DURING the launch cannot swap the runtime'
     assert.equal(m['cwd'], app.versionDir);
     // And the link really did move — otherwise this test proves nothing.
     assert.equal(await realpath(app.currentDir), nextDir, 'the wrapper must have flipped `current`');
-    await sleep(300);
+    await sleep(NEVER_LAUNCHED_MS);
     assert.equal(
       await app.marker('next'),
       null,

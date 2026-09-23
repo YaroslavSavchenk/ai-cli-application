@@ -36,7 +36,8 @@
  */
 import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { readWebBuild, type UpdateCheckResult } from './buildinfo.ts';
+import { VERSION_SHAPE } from '../shared/protocol.ts';
+import { UPDATE_CHECK_CACHE_MS, readWebBuild, type UpdateCheckResult } from './buildinfo.ts';
 import { oneLine } from './config.ts';
 import { REFUSED_STANDBY, RestartRefusal } from './restart.ts';
 
@@ -74,8 +75,8 @@ const MAX_BUNDLE_BYTES = 4_096;
 // A version is `v0.2.0` or `0.0.0-dev+699cd2c`: a digit, or `v` then a digit.
 // ONE contract with scripts/build-bundle.sh, which uses the same shape — there
 // the leading anchor is also what keeps `.`, `..` and a leading `-` out of a
-// directory name and an argv slot.
-export const VERSION_SHAPE = /^v?[0-9][A-Za-z0-9._+-]{0,63}$/;
+// directory name and an argv slot. The shape itself is VERSION_SHAPE in
+// shared/protocol-runtime.ts: the browser gates the tag it prints with it too.
 const COMMIT_SHAPE = /^[0-9a-f]{7,40}$/;
 const NODE_VERSION_SHAPE = /^v?\d{1,3}(\.\d{1,3}){2}$/;
 // `Date.parse` is NOT a shape check: V8 accepts free text inside parentheses
@@ -172,9 +173,6 @@ export function readBundleInfo(appRoot: string, opts: ReadBundleOptions = {}): B
 export const UPDATE_NEW_VERSION_INSTALLED = 'a new version is installed';
 
 const NO_UPDATE: UpdateCheckResult = { available: false, reason: null };
-
-/** Same window as the dev checker: the UI polls every 30 s, this absorbs bursts. */
-export const UPDATE_CHECK_CACHE_MS = 5_000;
 
 export interface InstalledUpdateOptions {
   /** The version dir this process runs from (`<app>/<version>`). */

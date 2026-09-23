@@ -14,11 +14,10 @@
  */
 import { lstatSync, readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
+import { FULL_HASH } from '../shared/protocol.ts';
 
 /** Short git hash length, matching `git rev-parse --short`'s default here. */
 const SHORT_HASH_LEN = 7;
-
-const FULL_HASH = /^[0-9a-f]{40}$/;
 
 function readTextFile(path: string): string | undefined {
   try {
@@ -208,7 +207,11 @@ export interface UpdateCheckOptions {
   maxScanEntries?: number;
 }
 
-/** Result cache window: the UI polls every 30 s, so this only absorbs bursts. */
+/**
+ * Result cache window of an update checker — this dev-clone one and the
+ * installed one in server/bundle.ts: the UI polls every 30 s, so this only
+ * absorbs bursts.
+ */
 export const UPDATE_CHECK_CACHE_MS = 5_000;
 
 const NO_UPDATE: UpdateCheckResult = { available: false, reason: null };

@@ -18,7 +18,7 @@
  * (`SessionInfo.statusline === true`). Sessions started before that existed need
  * a relaunch — `sessionsWithoutStatusLine()` is what the panel's notice names.
  */
-import type { SessionInfo, UiPrefs, UiStatusLine } from '../../../shared/protocol.ts';
+import { isClaudeCommand, type SessionInfo, type UiPrefs, type UiStatusLine } from '../../../shared/protocol.ts';
 
 /** Fully-resolved toggles (every key present) — what the panel renders from. */
 export type StatusLineCfg = Required<UiStatusLine>;
@@ -89,9 +89,27 @@ export function statusLineDefaults(): StatusLineCfg {
  * resolves it.
  */
 export function clampStatusLine(raw: unknown): StatusLineCfg {
+  return clampToggles(raw, FACTORY, KEYS);
+}
+
+/**
+ * The one clamp for a bag of ON/OFF toggles that crossed a JSON boundary: a
+ * copy of `factory` with each of `keys` taken from `raw` only when it is a
+ * real boolean there. Anything that is not an object, and every foreign key,
+ * changes nothing. The status line (above) and the behaviour preferences
+ * (ui/prefs-model.ts) both resolve through it (Q1: they carried it twice).
+ */
+export function clampToggles<K extends string>(
+  raw: unknown,
+  factory: Readonly<Record<K, boolean>>,
+  keys: readonly K[],
+): Record<K, boolean> {
   const o = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const out = { ...FACTORY };
-  for (const k of KEYS) if (typeof o[k] === 'boolean') out[k] = o[k];
+  const out: Record<K, boolean> = { ...factory };
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === 'boolean') out[k] = v;
+  }
   return out;
 }
 
@@ -129,8 +147,9 @@ export function statusLinePatch(cfg: StatusLineCfg): UiPrefs {
  * injects the per-session settings file at spawn, so these predate the feature
  * (or predate this backend run) and cannot grow one without being relaunched.
  *
- * Matching mirrors the server exactly (server/sessions.ts): the last path
- * segment of `command` is 'claude'. Anything else is a different agent and never
+ * Matching is the server's own rule (`isClaudeCommand`, which server/sessions.ts
+ * applies at spawn): the last `/` or `\` segment of `command` is exactly
+ * 'claude'. Anything else is a different agent and never
  * had a status line to miss. Exited sessions are excluded — relaunching one is
  * the exited-pane banner's job, not a settings nag.
  */
@@ -139,8 +158,7 @@ export function sessionsWithoutStatusLine(sessions: Iterable<SessionInfo>): Sess
   for (const s of sessions) {
     if (s.status !== 'running') continue;
     if (s.statusline === true) continue;
-    const base = s.command.split('/').pop();
-    if (base === 'claude') out.push(s);
+    if (isClaudeCommand(s.command)) out.push(s);
   }
   return out;
 }

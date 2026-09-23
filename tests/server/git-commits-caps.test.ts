@@ -30,8 +30,8 @@ import type { GitCommitsResponse } from '../../shared/protocol.ts';
 import {
   readServerLog,
   waitForLog,
+  waitForLogQuiet,
   type TestServer,
-  sleep,
   removeTempDir,
 } from '../helpers/helpers.ts';
 import { commits, makeCommitsHome, startFakeGitServer } from '../helpers/git-commits-fixture.ts';
@@ -59,8 +59,8 @@ test('a `git log` that floods stdout is killed and the request fails — it does
   assert.equal(res.status, 500, JSON.stringify(res.body));
   assert.deepEqual(res.body, { error: 'The app could not read this repository.' });
   await waitForLog(fakeServer, '[git] git log produced more than 2097152 bytes; killed');
-  await sleep(500); // past the chunks queued behind the SIGKILL
-  const log = await readServerLog(fakeServer);
+  // Past the chunks queued behind the SIGKILL: count once the log is quiet.
+  const log = await waitForLogQuiet(fakeServer);
   const warns = log.match(/git log produced more than 2097152 bytes; killed/g) ?? [];
   assert.equal(warns.length, 1, `exactly one warn line per capped request, got ${warns.length}`);
   const killed = (log.match(/\[git\] git: [^\n]*/g) ?? []).filter((l) => l.includes('killed'));

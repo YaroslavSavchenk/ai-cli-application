@@ -12,7 +12,8 @@
  *   1. hit-testing -> target: which pane, which zone, which tab chip;
  *   2. the refusals — a terminal pane's centre, a full tab — as the ghost's
  *      state AND as what state.ts was (not) asked to do;
- *   3. Escape cancels, and a finished drag swallows its click;
+ *   3. Escape cancels, a finished drag swallows its click, and the ghost's
+ *      transform follows the cursor;
  *   4. `Home` is never a tab-drag source and no strip position before it is
  *      ever a drop target (user decision 4, 2026-09-15);
  *   5. no `draggable` attribute exists anywhere in `web/src` — the window's
@@ -27,7 +28,8 @@
  * thing with its answer.
  *
  * NOT claimed (browser work, `.claude/skills/verify-terminal/SKILL.md`):
- * real layout, the ghost's transform, CSS, that a split actually reflows a PTY.
+ * real layout, how the ghost's transform paints, CSS, that a split actually
+ * reflows a PTY.
  */
 
 import { test, beforeEach } from 'node:test';
@@ -35,8 +37,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { byClass, dispatch, type FakeElement } from '../helpers/fake-dom.ts';
-import { sleep, readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
+import { readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
 import {
+  advanceClickClock,
   dom,
   st,
   DND,
@@ -386,7 +389,7 @@ test('Escape cancels the drag: no pane changes, no ghost, no visuals left behind
   );
 });
 
-test('a finished drag swallows the click that follows it', async () => {
+test('a finished drag swallows the click that follows it', () => {
   st.state.views = [
     view({ id: 'v1', root: { kind: 'home' }, slots: [ed('old.ts')] }),
   ];
@@ -408,17 +411,36 @@ test('a finished drag swallows the click that follows it', async () => {
 
   // It is a short window, not a mode: once it is over, clicks work again.
   //
-  // WAITS ON THE CLOCK `dnd.ts` READS. The swallow is `Date.now() + 80`, and a
-  // timer is scheduled on the MONOTONIC clock — the two can disagree by a few
-  // milliseconds on this host, which made a single `setTimeout(90)` return
-  // while `Date.now()` still said the window was open (observed once in a full
-  // `npm run test:ui`, 2026-09-16). Turning the wait into a poll of the same
-  // clock the code under test uses removes the race instead of widening it.
-  const open = Date.now() + 100;
-  while (Date.now() < open) await sleep(10);
+  // STEPS THE CLOCK `dnd.ts` READS (the fixture owns it through
+  // `setClickSwallowClock`). Waiting the window out in real time raced: a timer
+  // runs on the MONOTONIC clock and `Date.now()` could still say the window was
+  // open (observed once in a full `npm run test:ui`, 2026-09-16). One tick
+  // short of the window the click is still eaten; at its end it goes through.
+  advanceClickClock(DND.CLICK_SWALLOW_MS - 1);
+  probe.click();
+  assert.equal(clicks, 0, 'still inside the window one millisecond before its end');
+  advanceClickClock(1);
   probe.click();
   assert.equal(clicks, 1);
   probe.remove();
+});
+
+test('the ghost sits below-right of the cursor with a static tilt, from the one shared transform', () => {
+  st.state.views = [view({ id: 'v1', root: { kind: 'home' }, slots: [ed('old.ts')] })];
+  st.state.activeViewId = 'v1';
+  paint();
+  spec = FILE_SPEC;
+  // The look itself, pinned: ui/filedrop.ts draws its Explorer ghost from the
+  // same function, so this string is what both channels show.
+  assert.equal(DND.ghostTransform(60, 40), 'translate(74px, 50px) rotate(-2deg)');
+
+  dispatch(sourceRow, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 16 });
+  dispatch(dom.body, 'pointermove', { clientX: 60, clientY: 40, pointerId: 16 });
+  assert.equal(ghost()?.style.transform, DND.ghostTransform(60, 40), 'placed at the first move');
+  dispatch(dom.body, 'pointermove', { clientX: 300, clientY: 90, pointerId: 16 });
+  assert.equal(ghost()?.style.transform, DND.ghostTransform(300, 90), 'and follows the cursor');
+  dispatch(dom.body, 'keydown', { key: 'Escape' });
+  assert.equal(ghost(), null);
 });
 
 // ===========================================================================
@@ -444,7 +466,7 @@ test('the Home chip is never a tab-drag SOURCE, however the spec was built', () 
   assert.equal(st.state.views[0]?.id, 'home', 'and it is still the first tab');
 });
 
-test('no drop position before Home exists: dragging onto its LEFT edge targets nothing', async () => {
+test('no drop position before Home exists: dragging onto its LEFT edge targets nothing', () => {
   st.state.views = [
     view({ id: 'home', root: { kind: 'home' }, slots: [{ kind: 'session', id: 's1' }] }),
     view({ id: 'v1', root: null, slots: [{ kind: 'session', id: 's2' }] }),
@@ -464,7 +486,6 @@ test('no drop position before Home exists: dragging onto its LEFT edge targets n
   dispatch(dom.body, 'pointerup', { clientX: 5, clientY: 20, pointerId: 12 });
   assert.equal(st.state.views[0]?.id, 'home', 'the fixed first tab is still first');
   assert.equal(st.state.views[1]?.id, 'v1');
-  await sleep(90);
 });
 
 // ===========================================================================
@@ -487,7 +508,7 @@ test('an EDITOR pane swaps with a terminal pane like any other pane', () => {
   assert.deepEqual(shapeOf(st.activeView()), ['session s1', '*a.ts']);
 });
 
-test('an EDITOR pane cannot be extracted to its own tab, and cannot be moved into another', async () => {
+test('an EDITOR pane cannot be extracted to its own tab, and cannot be moved into another', () => {
   // Decision 5, 2026-09-15: moving an open file to another tab was not asked
   // for. The two targets simply never light up for it.
   st.state.views = [
@@ -515,8 +536,6 @@ test('an EDITOR pane cannot be extracted to its own tab, and cannot be moved int
   dispatch(dom.body, 'pointerup', { clientX: 900, clientY: 20, pointerId: 13 });
   assert.equal(st.state.views.length, 2, 'no new tab');
 
-  await sleep(90);
-
   // Onto the Home chip: a move-to-view.
   const target = chipOf('home');
   dispatch(sourceRow, 'pointerdown', { clientX: 0, clientY: 0, pointerId: 14 });
@@ -524,10 +543,9 @@ test('an EDITOR pane cannot be extracted to its own tab, and cannot be moved int
   assert.equal((strip.children[0] as FakeElement).classList.contains('is-drop'), false);
   dispatch(dom.body, 'pointerup', { clientX: target.x, clientY: target.y, pointerId: 14 });
   assert.deepEqual(st.state.views[0]?.slots, [], 'Home did not take the file');
-  await sleep(90);
 });
 
-test('a SESSION pane still extracts to its own tab — and never before Home', async () => {
+test('a SESSION pane still extracts to its own tab — and never before Home', () => {
   st.state.views = [
     view({ id: 'home', root: { kind: 'home' }, slots: [] }),
     view({
@@ -547,14 +565,13 @@ test('a SESSION pane still extracts to its own tab — and never before Home', a
   dispatch(dom.body, 'pointerup', { clientX: 900, clientY: 20, pointerId: 15 });
   assert.equal(st.state.views.length, 3);
   assert.equal(st.state.views[0]?.id, 'home', 'Home is untouched at the front');
-  await sleep(90);
 });
 
 // ===========================================================================
 // The EMPTY pane area of an empty tab is a drop target (normally Home)
 // ===========================================================================
 
-test('a file dropped on the EMPTY pane area of Home opens there, and the BOX lights up', async () => {
+test('a file dropped on the EMPTY pane area of Home opens there, and the BOX lights up', () => {
   // Home stands empty at first paint, so this is the first drop a user can
   // make. Before A10's fix it resolved to nothing: no pane, no flash, no file.
   st.state.views = [
@@ -579,10 +596,9 @@ test('a file dropped on the EMPTY pane area of Home opens there, and the BOX lig
 
   assert.deepEqual(shapeOf(st.state.views[0] ?? null), ['*web/src/Pane.tsx']);
   assert.equal(st.state.activeViewId, 'home');
-  await sleep(90);
 });
 
-test('a TAB dropped on the EMPTY pane area of Home merges its panes into Home', async () => {
+test('a TAB dropped on the EMPTY pane area of Home merges its panes into Home', () => {
   st.state.views = [
     view({ id: 'home', root: { kind: 'home' }, slots: [] }),
     view({
@@ -605,7 +621,6 @@ test('a TAB dropped on the EMPTY pane area of Home merges its panes into Home', 
     { kind: 'session', id: 's2' },
   ]);
   assert.equal(st.state.views.length, 1, 'the source tab was absorbed');
-  await sleep(90);
 });
 
 // ===========================================================================

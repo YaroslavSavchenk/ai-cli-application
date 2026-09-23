@@ -36,8 +36,11 @@ system node is v18 and cannot load `.ts`).
   with the setup it uses. The suite's test count before and after is equal.
 - Setup that two or more of the new files need goes to
   `tests/helpers/<original-stem>-fixture.ts` (`ui-state-fixture.ts` for the
-  pieces of `ui-state.test.ts`), not into a copy per file. A `let` that test
-  bodies assign stays in the piece (an imported binding cannot be assigned).
+  pieces of `ui-state.test.ts`), not into a copy per file. State that test
+  bodies assign lives in the fixture as one mutable object (`export const
+  world = { … }` plus `resetWorld()`, as `helpers/ui-filedrop-fixture.ts`
+  does) — an imported `let` cannot be assigned, and a copy per piece is
+  a duplicate.
 - Watch for order dependence: a test that relies on state an earlier test
   left behind stays in the same piece as that test — splitting surfaced two
   such chains (a first listing, a file another test created).
@@ -100,6 +103,11 @@ their own server.
   wait is a named constant with a comment on its size.
 - Never a local `sleep`/`delay` helper — use `sleep(ms)`, `nextImmediate()`
   or `settleTimers()` from `helpers/helpers.ts`.
+- A log that is still being written: `waitForLogQuiet(server)` (size stable
+  for 10 polls) instead of a fixed pause.
+- A module that reads the wall clock for a UI rule gets a clock seam the test
+  drives (`setClickSwallowClock` in `web/src/ui/dnd.ts`), so a test steps
+  time instead of sleeping past it.
 - Clocks and dates: pass a fixed `now` (see `helpers/commits-fixture.ts`);
   never depend on the machine's time zone or on the date of the run.
 

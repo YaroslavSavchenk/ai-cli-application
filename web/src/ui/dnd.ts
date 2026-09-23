@@ -186,12 +186,36 @@ export function isDragging(): boolean {
   return drag !== null;
 }
 
+/**
+ * How long the click that follows a completed/cancelled drag is swallowed:
+ * long enough for the browser's own click after pointerup, short enough that
+ * the user's next deliberate click is never lost.
+ */
+export const CLICK_SWALLOW_MS = 80;
+
+/** The clock the swallow window is measured on. */
+let swallowClock: () => number = Date.now;
+
+/**
+ * Swap the clock the click swallow reads (default `Date.now`). A test seam:
+ * tests step a fake clock past the window instead of waiting it out in real
+ * time, which raced the monotonic timer clock on a slow runner.
+ */
+export function setClickSwallowClock(now: () => number): void {
+  swallowClock = now;
+}
+
 /** Swallow the click that follows a completed/cancelled drag. */
 let suppressClicksUntil = 0;
+
+function swallowNextClick(): void {
+  suppressClicksUntil = swallowClock() + CLICK_SWALLOW_MS;
+}
+
 document.addEventListener(
   'click',
   (e) => {
-    if (Date.now() < suppressClicksUntil) {
+    if (swallowClock() < suppressClicksUntil) {
       e.preventDefault();
       e.stopPropagation();
     }
@@ -253,7 +277,7 @@ function onUp(e: PointerEvent): void {
   if (drag === null || e.pointerId !== drag.pointerId) return;
   const d = drag;
   if (d.started) {
-    suppressClicksUntil = Date.now() + 80;
+    swallowNextClick();
     drop(d);
   }
   cleanup();
@@ -261,7 +285,7 @@ function onUp(e: PointerEvent): void {
 
 function onCancel(e: PointerEvent): void {
   if (drag === null || e.pointerId !== drag.pointerId) return;
-  if (drag.started) suppressClicksUntil = Date.now() + 80;
+  if (drag.started) swallowNextClick();
   cleanup();
 }
 
@@ -269,7 +293,7 @@ function onKey(e: KeyboardEvent): void {
   if (drag === null || e.key !== 'Escape') return;
   e.preventDefault();
   e.stopPropagation();
-  if (drag.started) suppressClicksUntil = Date.now() + 80;
+  if (drag.started) swallowNextClick();
   cleanup();
 }
 
@@ -290,11 +314,18 @@ function begin(e: PointerEvent): void {
   positionGhost(e.clientX, e.clientY);
 }
 
+/**
+ * Where a drag ghost sits for a cursor at (x, y): just below-right of it, with
+ * a slight static tilt so it reads as "picked up" without any motion. The ONE
+ * home of that look — ui/filedrop.ts's ghost for files from Explorer uses it
+ * too, so both channels draw the same ghost.
+ */
+export function ghostTransform(x: number, y: number): string {
+  return `translate(${x + 14}px, ${y + 10}px) rotate(-2deg)`;
+}
+
 function positionGhost(x: number, y: number): void {
-  if (drag?.ghost != null) {
-    // Slight static tilt: the ghost reads as "picked up" without any motion.
-    drag.ghost.style.transform = `translate(${x + 14}px, ${y + 10}px) rotate(-2deg)`;
-  }
+  if (drag?.ghost != null) drag.ghost.style.transform = ghostTransform(x, y);
 }
 
 // --------------------------------------------------------------------------

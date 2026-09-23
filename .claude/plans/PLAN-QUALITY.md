@@ -5,11 +5,11 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
 | Q0 | `CONTRIBUTING.md`: how code is written here, plus guards that enforce what can be measured | landed | — | 2026-09-23 |
-| Q1 | Duplicates that differ in behaviour: one home each, the correct variant, a test per edge | todo — **next** | — | |
-| Q2 | Test sleeps that stand in for a condition become condition waits | todo | — | |
-| Q3 | The agents watcher re-reads a meta file it caught half-written | todo | — | |
-| Q4 | Leftovers of the O8 split: the Files panel's `ctx` getters, repeated test setup | todo | — | |
-| P0 | Measure: bundle, boot, idle CPU, scrollback replay, memory per session — a report to the user | todo | — | |
+| Q1 | Duplicates that differ in behaviour: one home each, the correct variant, a test per edge | landed | — | 2026-09-23 |
+| Q2 | Test sleeps that stand in for a condition become condition waits | landed | — | 2026-09-23 |
+| Q3 | The agents watcher re-reads a meta file it caught half-written | landed | — | 2026-09-23 |
+| Q4 | Leftovers of the O8 split: the Files panel's `ctx` getters, repeated test setup | landed | — | 2026-09-23 |
+| P0 | Measure: bundle, boot, idle CPU, scrollback replay, memory per session — a report to the user | todo — **next** | — | |
 | P1+ | The speed work the user picks from P0's report | todo — the user decides after P0 | — | |
 
 ## Resume here

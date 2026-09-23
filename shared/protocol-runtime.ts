@@ -128,6 +128,27 @@ export interface UpdateStatus {
  * status — the checker never rejects, a failure is a log line.
  */
 
+/**
+ * A release or bundle version the app may print and use: `v0.2.0` or
+ * `0.0.0-dev+699cd2c` — a digit, or `v` then a digit, then at most 63 of a
+ * plain charset. ONE contract with scripts/build-bundle.sh, which uses the
+ * same shape. The server gates `bundle.json` and a release tag with it (the
+ * leading anchor keeps `.`, `..` and a leading `-` out of a directory name and
+ * an argv slot); the browser gates the tag it prints in the update notice (a
+ * release is written by someone who is not the user).
+ */
+export const VERSION_SHAPE = /^v?[0-9][A-Za-z0-9._+-]{0,63}$/;
+
+/**
+ * A real TCP port, 1-65535. Every port this app reads was written by another
+ * process (runtime.json, a restart's 202 body); a 0, -1, 1e9 or fractional
+ * value would be probed, logged and handed out as a navigation target, so
+ * anything else is treated as "not written yet".
+ */
+export function isPort(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
 /** A published release the installed app could update to (phase E). */
 export interface UpdateRelease {
   /** The release tag, e.g. `v0.3.0`; gated by the backend's VERSION_SHAPE. */

@@ -53,6 +53,9 @@ before(async () => {
   await mkdir(workDir);
   await mkdir(spacedDir);
   await writeFile(join(binDir, 'cmd.exe'), CMD_DOUBLE, { mode: 0o755 });
+  // Linux allows `\` in a file name: the double is found on PATH by the
+  // Windows-style command itself.
+  await writeFile(join(binDir, 'C:\\Windows\\cmd.exe'), CMD_DOUBLE, { mode: 0o755 });
   // A second, NON-cmd double with the same behaviour: the tail belongs to
   // cmd.exe alone, not to "any launch that carries no arguments".
   await writeFile(join(binDir, 'zsh'), CMD_DOUBLE, { mode: 0o755 });
@@ -126,9 +129,21 @@ test('client args are never touched: cmd.exe /c dir gets no tail', async () => {
   assert.deepEqual(info.args, ['/c', 'dir']);
 });
 
-test('cmd.exe launched by absolute path gets the same tail (basename rule)', async () => {
+test('cmd.exe launched by absolute path gets the same tail (last-segment rule)', async () => {
   const info = await createSession(server, {
     command: join(binDir, 'cmd.exe'),
+    args: [],
+    cwd: workDir,
+    cols: 80,
+    rows: 24,
+  });
+  assert.deepEqual(await argvOf(server, info), ['/k', 'pushd', uncPathFor(workDir)]);
+  assert.deepEqual(info.args, []);
+});
+
+test('cmd.exe named by a backslash path gets the same tail (one last-segment rule, `/` and `\\`)', async () => {
+  const info = await createSession(server, {
+    command: 'C:\\Windows\\cmd.exe',
     args: [],
     cwd: workDir,
     cols: 80,

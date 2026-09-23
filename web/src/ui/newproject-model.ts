@@ -9,12 +9,8 @@
  */
 
 import type { FsListResponse } from '../../../shared/protocol.ts';
-
-/** Join a single segment onto an absolute directory (no normalization beyond a trailing-slash trim). */
-export function joinPath(dir: string, seg: string): string {
-  if (dir === '/') return `/${seg}`;
-  return `${dir.replace(/\/+$/, '')}/${seg}`;
-}
+import { joinPath } from './fs-model.ts';
+import { fileName } from './slots-model.ts';
 
 /** Parent of an absolute path (`/` is its own parent). */
 export function parentDir(path: string): string {
@@ -38,6 +34,15 @@ export function repoBasename(url: string): string {
 }
 
 /**
+ * `<home>/projects` — the folder every default destination sits in. The
+ * picker opens there when it exists, and already-cloned detection compares
+ * against it.
+ */
+export function projectsDirOf(home: string): string {
+  return joinPath(home, 'projects');
+}
+
+/**
  * THE `<home>/projects/<name>` CONVENTION — the one place that segment lives.
  * Every default project/clone destination goes through here (new blank project,
  * url clone, github-model's ownerDest for a picked repo, and its legacy
@@ -46,7 +51,7 @@ export function repoBasename(url: string): string {
  * — the callers own that).
  */
 export function projectsPath(home: string, name: string): string {
-  return joinPath(joinPath(home, 'projects'), name);
+  return joinPath(projectsDirOf(home), name);
 }
 
 /**
@@ -130,13 +135,6 @@ export function blankIntent(probe: FolderProbe): BlankIntent {
   return probe === 'nonEmpty' ? 'add' : 'create';
 }
 
-/** Last segment of an absolute path (`/` and `''` have none). */
-export function baseName(path: string): string {
-  const trimmed = path.replace(/\/+$/, '');
-  if (trimmed === '') return '';
-  return trimmed.slice(trimmed.lastIndexOf('/') + 1);
-}
-
 /**
  * The name an ADDED folder gets: whatever the user typed, or — when they typed
  * nothing — the folder's own basename, which is the name they already gave it
@@ -145,5 +143,10 @@ export function baseName(path: string): string {
  */
 export function addedProjectName(typedName: string, path: string): string {
   const typed = typedName.trim();
-  return typed !== '' ? typed : baseName(path);
+  if (typed !== '') return typed;
+  // `fileName` answers a path that has no segment (`/`, `//`) with the path
+  // itself, which a label wants; a project NAME never is a path, so the
+  // filesystem root offers no name and the user types one.
+  const base = fileName(path);
+  return base.includes('/') ? '' : base;
 }

@@ -117,7 +117,13 @@ export function slotTitle(slot: PaneSlot, sessionTitle?: string | null): string 
   return active === undefined ? '…' : tabTitle(active);
 }
 
-/** The last segment of a path — the only part of it any label may show. */
+/**
+ * The last segment of a path — the only part of it any label may show. The
+ * app's ONE last-segment rule (Q1 folded three more copies into it): a
+ * trailing `/` is ignored, so a folder path written `/home/you/web/` is still
+ * named `web`; a path with no segment at all (`/`, '') answers itself, because
+ * a label for the root is better as `/` than empty.
+ */
 export function fileName(path: string): string {
   const segments = path.split('/').filter((s) => s !== '');
   return segments[segments.length - 1] ?? path;

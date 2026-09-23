@@ -47,15 +47,16 @@ import type { CreateProjectRequest, PermissionMode } from '../../../shared/proto
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
+import { ensureHome, homeDir, homeHasFolder } from './home-store.ts';
 import { openFolderPicker } from './picker.ts';
 import { MODELS } from './launch-args.ts';
 import { createGithubPanel } from './github.ts';
 import {
   addedProjectName,
-  baseName,
   blankIntent,
   parentDir,
   probeFromList,
+  projectsDirOf,
   suggestProjectPath,
   suggestDestPath,
   type BlankIntent,
@@ -85,10 +86,9 @@ export function isNewProjectDialogOpen(): boolean {
   return ctl?.isOpen() ?? false;
 }
 
-// Home + `<home>/projects` are resolved ONCE from GET /api/fs/list (the default
-// path is $HOME) and cached across opens — no hardcoded `/home/...`.
-let homeDir: string | null = null;
-let projectsDir: string | null = null; // `<home>/projects` if it exists, else null
+// Home is ui/home-store.ts's (one GET /api/fs/list, cached for the page);
+// `<home>/projects` is derived from it here, null when that folder is absent.
+let projectsDir: string | null = null;
 
 export function initNewProjectDialog(modalHost: HTMLElement): void {
   // ---- scrim + card --------------------------------------------------------
@@ -321,11 +321,11 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   let cloning = false;
 
   function effectiveBlankPath(): string {
-    return blankTouched ? blankChosen : suggestProjectPath(homeDir, nameInput.value);
+    return blankTouched ? blankChosen : suggestProjectPath(homeDir(), nameInput.value);
   }
 
   function effectiveClonePath(): string {
-    return cloneTouched ? cloneChosen : suggestDestPath(homeDir, urlInput.value);
+    return cloneTouched ? cloneChosen : suggestDestPath(homeDir(), urlInput.value);
   }
 
   function renderBlankPath(): void {
@@ -334,8 +334,9 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
       blankPathText.textContent = p;
       blankPathText.classList.toggle('is-suggested', !blankTouched);
     } else {
+      const home = homeDir();
       blankPathText.textContent =
-        homeDir !== null ? `${homeDir}/projects/…` : 'Browse to choose a location';
+        home !== null ? `${projectsDirOf(home)}/…` : 'Browse to choose a location';
       blankPathText.classList.add('is-suggested');
     }
   }
@@ -360,7 +361,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
       // The folder already carries a name; offer it rather than asking again —
       // over an empty field or the name an earlier pick filled in, never over
       // one the user typed.
-      const suggested = baseName(effectiveBlankPath());
+      const suggested = addedProjectName('', effectiveBlankPath());
       const current = nameInput.value;
       if (suggested !== '' && (current.trim() === '' || current === autoName)) {
         nameInput.value = suggested;
@@ -435,8 +436,9 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
       destText.textContent = p;
       destText.classList.toggle('is-suggested', !cloneTouched);
     } else {
+      const home = homeDir();
       destText.textContent =
-        homeDir !== null ? `${homeDir}/projects/<repo>` : 'Browse to choose a location';
+        home !== null ? `${projectsDirOf(home)}/<repo>` : 'Browse to choose a location';
       destText.classList.add('is-suggested');
     }
   }
@@ -478,8 +480,8 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     openFolderPicker({
       modalHost,
       title: 'Select project folder',
-      initial: blankTouched && p !== '' ? parentDir(p) : (projectsDir ?? homeDir ?? undefined),
-      home: homeDir,
+      initial: blankTouched && p !== '' ? parentDir(p) : (projectsDir ?? homeDir() ?? undefined),
+      home: homeDir(),
       projectsDir,
       restoreTo: blankPathRow,
       onSelect: (chosen) => {
@@ -496,8 +498,8 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     openFolderPicker({
       modalHost,
       title: 'Select destination folder',
-      initial: cloneTouched && p !== '' ? parentDir(p) : (projectsDir ?? homeDir ?? undefined),
-      home: homeDir,
+      initial: cloneTouched && p !== '' ? parentDir(p) : (projectsDir ?? homeDir() ?? undefined),
+      home: homeDir(),
       projectsDir,
       restoreTo: destRow,
       onSelect: (chosen) => {
@@ -642,7 +644,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     scrim.hidden = false;
     setMode(initialMode); // unhidden first so the per-mode focus lands
     // Resolve home (+ whether ~/projects exists) once, then refresh suggestions.
-    void ensureHome().then(() => {
+    void resolveHome().then(() => {
       if (scrim.hidden) return;
       renderBlankPath();
       renderClonePath();
@@ -660,19 +662,13 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
   ctl = { open, close, isOpen: () => !scrim.hidden };
 }
 
-/** Resolve real $HOME + whether `<home>/projects` exists, from ONE fs/list. Cached. */
-async function ensureHome(): Promise<void> {
-  if (homeDir !== null) return;
-  try {
-    const res = await api.fsList(); // no path → backend's $HOME
-    homeDir = res.path;
-    projectsDir = res.dirs.includes('projects')
-      ? res.path === '/'
-        ? '/projects'
-        : `${res.path}/projects`
-      : null;
-  } catch {
-    // Leave home null — Browse still works (server $HOME default); the caller
-    // shows a "Browse to choose a location" hint until a path is picked.
-  }
+/**
+ * Resolve the home folder (cached in ui/home-store.ts) and whether
+ * `<home>/projects` exists. While home is unknown Browse still works (the
+ * server's $HOME default) and the dialog shows a "Browse to choose a location"
+ * hint until a path is picked.
+ */
+async function resolveHome(): Promise<void> {
+  const home = await ensureHome(api.fsList);
+  projectsDir = home !== null && homeHasFolder('projects') ? projectsDirOf(home) : null;
 }

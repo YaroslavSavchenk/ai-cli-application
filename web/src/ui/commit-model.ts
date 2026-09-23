@@ -4,7 +4,8 @@
  * and no state import, so `node --test` can drive all of it.
  *
  * What lives here: the five-block add/del bar, the author's initial, the way a
- * commit's own timestamp is read and said, the plural copy, the collapse key a
+ * commit's own timestamp is read (the relative half is ui/format-model.ts's
+ * `relativeTime` since Q1), the plural copy, the collapse key a
  * file block is remembered by, the two sentences a block can carry instead of a
  * diff, and the GitHub address the one sanctioned exit is handed. What does NOT
  * live here: the data (the backend's `git log` / `git show`, through
@@ -18,7 +19,9 @@
  * every renderer here takes.
  */
 
-import { MONTHS } from './util.ts';
+import { FULL_HASH } from '../../../shared/protocol.ts';
+import { MONTHS } from './format-model.ts';
+
 
 /** The five-block summary bar: green blocks first, red for the rest. */
 export const BAR_BLOCKS = 5;
@@ -93,11 +96,6 @@ export function blockDomId(hash: string, path: string): string {
   return `diffblock-${key.replace(/[^A-Za-z0-9_-]+/g, '-')}-${tail}`;
 }
 
-/** Last path segment — the only part of a path a tab label ever shows. */
-export function fileName(path: string): string {
-  return path.split('/').pop() ?? path;
-}
-
 // ---------------------------------------------------------------------------
 // Copy (part B3)
 // ---------------------------------------------------------------------------
@@ -162,7 +160,8 @@ export function shortHashOf(hash: string): string {
 // move a commit made at 00:30 to the previous day for a reader one zone west,
 // which is a different fact about the repository. The RELATIVE half is the
 // opposite question ("how long ago from now"), so it is plain epoch
-// arithmetic and carries no zone at all.
+// arithmetic and carries no zone at all — `relativeTime` in ui/format-model.ts, the
+// app's one relative time (Q1).
 
 /** `YYYY-MM-DDTHH:MM:SS` with any offset — the shape `%aI` / `%cI` produce. */
 const ISO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
@@ -189,49 +188,12 @@ export function fullDateTime(iso: string): string {
   return `${date} at ${m[4]}:${m[5]}`;
 }
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-const WEEK = 7 * DAY;
-/** Calendar months and years vary; a relative line is an ORDER of magnitude. */
-const MONTH = 30 * DAY;
-const YEAR = 365 * DAY;
-
-function ago(n: number, unit: string): string {
-  return `${n} ${n === 1 ? unit : `${unit}s`} ago`;
-}
-
-/**
- * How long ago, in words, at the moment it is DRAWN — `now` is handed in so a
- * test never depends on a clock and so a list that has been open for an hour
- * says so on its next repaint.
- *
- * A timestamp in the future (a commit made on a machine whose clock runs
- * ahead) reads `just now` rather than a negative age: the app cannot know
- * which of the two clocks is wrong, and "in 3 hours" is the one thing that is
- * certainly false.
- */
-export function relativeTime(iso: string, now: number): string {
-  const at = Date.parse(iso);
-  if (Number.isNaN(at)) return '';
-  const d = now - at;
-  if (d < MINUTE) return 'just now';
-  if (d < HOUR) return ago(Math.floor(d / MINUTE), 'minute');
-  if (d < DAY) return ago(Math.floor(d / HOUR), 'hour');
-  if (d < WEEK) return ago(Math.floor(d / DAY), 'day');
-  if (d < MONTH) return ago(Math.floor(d / WEEK), 'week');
-  if (d < YEAR) return ago(Math.floor(d / MONTH), 'month');
-  return ago(Math.floor(d / YEAR), 'year');
-}
-
 // ---------------------------------------------------------------------------
 // The one address this screen can leave for (D2, part B3)
 // ---------------------------------------------------------------------------
 
 /** `owner` / `repo` as GitHub itself allows them — the server's own pattern. */
 const GH_NAME = /^[A-Za-z0-9._-]{1,100}$/;
-/** A commit's identity: the full hash, lower case, as every response carries it. */
-const FULL_HASH = /^[0-9a-f]{40}$/;
 
 /**
  * The commit's page on github.com, or NULL when any of the three parts is not

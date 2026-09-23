@@ -42,7 +42,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
 - **Session history with real per-conversation resume** (user's call
   2026-09-06). Every launched session is kept in `history.json` (data dir,
   0600, atomic, ≤ 200 entries, oldest ENDED entries drop first, live ones
-  never). A claude-kind session (`basename(command) === 'claude'`) whose
+  never). A claude-kind session (`isClaudeCommand(command)`, `shared/protocol-settings.ts`:
+  the command's last `/` or `\` segment is exactly `claude`) whose
   client args carry no `--continue`/`-c`/`--resume`/`-r`/`--session-id` gets
   an injected `--session-id <app session uuid>` (PTY argv only — never in
   `SessionInfo.args`); `POST /api/history/:id/resume` spawns `claude <base
@@ -237,7 +238,7 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   the page, never in argv; 1–4096 printable non-space ASCII, gated on save
   AND load. Routes: `GET /api/tools`, `GET /api/keys` (`saved`/`env`),
   `PUT /api/keys/:tool` (JSON only, 8 KiB cap), `DELETE /api/keys/:tool`. Injections in
-  `server/sessions.ts` (by `basename(command)`, PTY-only, re-applied on
+  `server/sessions.ts` (by the command's last `/` or `\` segment, `commandBase`; PTY-only, re-applied on
   resume): a SAVED key → `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` /
   `XAI_API_KEY` (beats an inherited one); `cmd.exe` with no args →
   `/k pushd`. No keys for Codex. History:

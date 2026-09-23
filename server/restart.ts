@@ -63,7 +63,7 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type { Duplex } from 'node:stream';
-import type { RuntimeInfo, RestartResponse } from '../shared/protocol.ts';
+import { isPort, type RuntimeInfo, type RestartResponse } from '../shared/protocol.ts';
 import { describeError, errorStackOnly, oneLine, scoped, type Logger } from './config.ts';
 
 /** How long the old process waits for the child to own runtime.json + answer /health. */
@@ -115,17 +115,6 @@ export class RestartRefusal extends Error {
     this.name = 'RestartRefusal';
     this.refusal = refusal;
   }
-}
-
-/**
- * A real TCP port. The child writes runtime.json, but this process must not
- * trust a half-written or corrupted one: a 0/-1/1e9/fractional value would be
- * probed, formatted into a log line and handed to the UI as a navigation
- * target. Anything outside 1-65535 is treated as "not written yet" — the poll
- * simply keeps waiting until the deadline.
- */
-function isPort(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535;
 }
 
 export interface RestartOutcome {

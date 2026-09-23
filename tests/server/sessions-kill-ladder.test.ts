@@ -47,6 +47,15 @@ import {
   harness,
 } from '../helpers/sessions-kill-fixture.ts';
 
+/**
+ * The margin the "no signal" waits below give a wrong signal to show up in
+ * `kills` (tests/README.md § Time: a wait that proves something did NOT
+ * happen): past a rung's due time, or after the rung's own probe. A signal
+ * the ladder sends follows its probe within the same timer turn, so half a
+ * second is many turns even on a slow runner.
+ */
+const NO_SIGNAL_MARGIN_MS = 500;
+
 before(async () => {
   await setupKillFixture();
 });
@@ -390,7 +399,7 @@ test('T13 the ladder is called off AT the exit, not left to expire on a freed pi
 
     // Past the first rung: a ladder left to expire would touch this group here,
     // and by then the pid number can belong to any process on the machine.
-    await sleep(KILL_TERM_MS + 500);
+    await sleep(KILL_TERM_MS + NO_SIGNAL_MARGIN_MS);
     assert.deepEqual(
       kills.slice(mark).filter(([pid]) => pid === -leader),
       [],
@@ -437,7 +446,7 @@ test('T14 a group that empties before the first rung is checked, found gone, and
       KILL_TERM_MS + 1_500,
       25,
     );
-    await sleep(500);
+    await sleep(NO_SIGNAL_MARGIN_MS);
     assert.deepEqual(
       kills.slice(mark).filter(([pid, sig]) => pid === -leader && sig !== 0),
       [],
@@ -477,7 +486,7 @@ test('T15 destroy(id, "shutdown") itself kills the group at once — it never ta
       kills.some(([pid, sig]) => pid === -leader && sig === 'SIGKILL'),
       `SIGKILL must go to the GROUP (-${String(leader)}); kills: ${JSON.stringify(kills)}`,
     );
-    await sleep(KILL_TERM_MS + 500);
+    await sleep(KILL_TERM_MS + NO_SIGNAL_MARGIN_MS);
     assert.equal(
       lines.some((l) => l.includes('still running')),
       false,
@@ -527,7 +536,7 @@ test('T16 a group that empties at the SIGTERM rung is checked again, and never S
       KILL_KILL_MS + 1_500,
       25,
     );
-    await sleep(500);
+    await sleep(NO_SIGNAL_MARGIN_MS);
     assert.deepEqual(
       kills.slice(mark).filter(([pid, sig]) => pid === -leader && sig !== 0),
       [],

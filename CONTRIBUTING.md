@@ -44,7 +44,7 @@ behaviour by passing functions in.
 | Shape | Holds | May import |
 | --- | --- | --- |
 | `*-model.ts` | pure rules: parse, decide, format, the copy text | other models, `shared/` — no DOM, no app state, no I/O |
-| `*-store.ts`, `state*.ts` | app state and its changes, notifications | models |
+| `*-store.ts`, `state*.ts` | app state and its changes, notifications; I/O is passed in, never imported | models, `util.ts`'s `promiseOf` |
 | view module (`files.ts`, `panes.ts` …) | DOM, event handlers, wiring | models, stores, `util.ts` |
 | `server/api-<family>.ts` | one family of HTTP routes | `server/api-http.ts` plumbing, the domain modules |
 | `server/<domain>.ts` | one domain (sessions, git, github, fs …) | `server/config.ts`, other domains |
@@ -72,12 +72,20 @@ Before writing a helper, look for it. The shared homes:
 - `server/config.ts` — data dir, file writes (atomic, 0600), request
   predicates (`isJsonContentType`, `isStringArray`, `isDirectory`),
   `USER_AGENT`.
+- `server/sanitise.ts` — cleaning untrusted text for logs and rows
+  (`clean`, `plainObject`, `CONTROL_CHAR`).
 - `server/fsbrowse.ts` — the path boundary (`isUnder`) and file-system
   listing.
-- `web/src/ui/util.ts` — DOM helpers, formatting (`MONTHS`, times),
-  `errorText`, `promiseOf`.
+- `web/src/ui/format-model.ts` — pure formatting: `relativeTime` (the one
+  "5 minutes ago"), `MONTHS`, uptime and counts.
+- `web/src/ui/util.ts` — DOM helpers only (`el`, `button`, `ModalSlot`),
+  plus `errorText` and `promiseOf`.
+- `web/src/ui/fs-model.ts` `joinPath`, `web/src/ui/slots-model.ts`
+  `fileName` (a path's last segment) — path text in the browser.
+- `web/src/ui/home-store.ts` — the one cache of the user's home folder.
 - `shared/protocol*.ts` — anything the server and the browser must agree on
-  (limits, shapes, sentences).
+  (limits, shapes, sentences, and the shared predicates `commandBase`,
+  `isClaudeCommand`, `isPort`, `VERSION_SHAPE`, `FULL_HASH`).
 
 The same function body in two source files fails the suite
 (`tests/repo/no-duplicate-code.test.ts`). Two helpers that LOOK alike but
@@ -90,6 +98,9 @@ imports nothing from `server/`.
 
 - Export only what another module imports. A test is a legitimate importer
   only for a model's rules — not for a function the app no longer calls.
+  One more: a named test seam that replaces a clock or a timer
+  (`setClickSwallowClock` in `web/src/ui/dnd.ts`) so a test steps time
+  instead of sleeping — say so in its doc comment.
 - A function the app no longer calls is deleted with its test, in the
   change that stopped calling it. Not "kept for later": git keeps it.
 - No commented-out code, no `TODO` without a backlog item

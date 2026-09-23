@@ -96,6 +96,14 @@ async function withManager(
 /** A bash that rings the bell once per line it reads, and otherwise idles. */
 const BELL_ON_LINE = ['-c', 'while IFS= read -r _; do printf "\\a"; done'];
 
+/**
+ * A clock-separation wait (tests/README.md § Time): `pendingSince` is an ISO
+ * stamp with millisecond resolution, so a stamp that must MOVE (or visibly
+ * stay put) needs the clock to have ticked since the last one. 5 ms is five
+ * ticks.
+ */
+const STAMP_TICK_MS = 5;
+
 async function ringBell(m: SessionManager, id: string, client: FakeClient): Promise<void> {
   const before = client.frames.filter((f) => f.type === 'attention').length;
   m.write(id, 'x\r');
@@ -196,7 +204,7 @@ test('C1 turnEnded: the turn going back to working clears it and pendingSince; t
     assert.equal('turnEnded' in (m.get(info.id) as SessionInfo), false, 'absent, not false');
 
     // The next end of turn is news again, with a NEW stamp.
-    await sleep(5);
+    await sleep(STAMP_TICK_MS);
     m.setReport(info.id, turn('waiting'));
     assert.equal(m.get(info.id)?.turnEnded, true);
     assert.ok((m.get(info.id)?.pendingSince as string) > (stamped as string), 'a fresh pending gets a fresh stamp');
@@ -253,12 +261,12 @@ test('C1 pendingSince: BEL stamps it, a turn ending later KEEPS it, working keep
     assert.ok(Date.parse(stamped as string) >= t0);
 
     // A second bell: already pending — the stamp does not move.
-    await sleep(5);
+    await sleep(STAMP_TICK_MS);
     await ringBell(m, info.id, client);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'a second BEL keeps the stamp');
 
     // The turn ends: turnEnded joins, the ORDER key stays the oldest.
-    await sleep(5);
+    await sleep(STAMP_TICK_MS);
     m.setReport(info.id, turn('waiting'));
     assert.equal(m.get(info.id)?.turnEnded, true);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'already pending: kept, not re-stamped');
@@ -292,7 +300,7 @@ test('C1 pendingSince: a turn ending first stamps it; a BEL after keeps it', asy
     m.setReport(info.id, turn('waiting'));
     const stamped = m.get(info.id)?.pendingSince;
     assert.ok(isIso(stamped));
-    await sleep(5);
+    await sleep(STAMP_TICK_MS);
     await ringBell(m, info.id, client);
     assert.equal(m.get(info.id)?.pendingSince, stamped);
   });

@@ -11,6 +11,13 @@
 // Working-tree changes (GET /api/git/changes)
 // ---------------------------------------------------------------------------
 
+/**
+ * A commit's identity as every response carries it: the full hash, 40 hex,
+ * lower case. The server gates what it reads out of `.git` with it, the
+ * browser gates the one github.com address it builds with it.
+ */
+export const FULL_HASH = /^[0-9a-f]{40}$/;
+
 /** GET /api/git/changes?root=<abs> — how one file differs from the last commit. */
 export type ChangeStatus = 'modified' | 'new' | 'deleted' | 'renamed';
 

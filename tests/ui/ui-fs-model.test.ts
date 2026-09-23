@@ -166,6 +166,14 @@ test('joinPath places exactly one separator, at the filesystem root too', () => 
   assert.equal(joinPath('/', 'home'), '/home');
 });
 
+test('joinPath: every trailing slash goes, so a doubled one never becomes `//` in a path', () => {
+  // Part Q1 folded the drop upload's own join into this one; that copy trimmed
+  // ONE slash, so a destination written `/home/you//` built `/home/you//a.txt`.
+  assert.equal(joinPath('/home/you//', 'a.txt'), '/home/you/a.txt');
+  assert.equal(joinPath('//', 'home'), '/home', 'a root written twice is still the root');
+  assert.equal(joinPath('', 'home'), '/home', 'an empty dir is read as the root, never as a relative path');
+});
+
 test('parentPath: one level up, and the root is its own parent', () => {
   assert.equal(parentPath('/home/you/projects/web'), '/home/you/projects');
   assert.equal(parentPath('/home/you/projects/web/'), '/home/you/projects');

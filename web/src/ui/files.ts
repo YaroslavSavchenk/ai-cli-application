@@ -82,7 +82,7 @@ import type {
   GitCommitsResponse,
   SessionInfo,
 } from '../../../shared/protocol.ts';
-import { share, type FilesCtx, type Tab } from './files-ctx.ts';
+import { share, type CorePart, type FilesCtx, type Tab } from './files-ctx.ts';
 import { noteFocus, pasteDestination, projectDest, setLive, type Subject } from './files-destinations.ts';
 import { createTree } from './files-tree.ts';
 import { createGit } from './files-git.ts';
@@ -244,7 +244,9 @@ export function initFilesPanel(
   // share this ONE `ctx`: every state member on it is an accessor over the
   // single `let` its owner declares (`files-ctx.ts`).
   const ctx = {} as FilesCtx;
-  share(ctx, {
+  const core: CorePart = {
+    // State: a getter (and, where another piece writes it, a setter) over this
+    // closure's `let`.
     get wish() { return wish; },
     get tab() { return tab; },
     set tab(v) { tab = v; },
@@ -255,8 +257,10 @@ export function initFilesPanel(
     set deleting(v) { deleting = v; },
     get focusAfterDelete() { return focusAfterDelete; },
     set focusAfterDelete(v) { focusAfterDelete = v; },
+    // The shell's elements: getters, because all but `root` are built further
+    // down, after the pieces — a plain value here would read them before
+    // their `const` exists.
     get root() { return root; },
-    openRowMenuFor,
     get tabBtns() { return tabBtns; },
     get projName() { return projName; },
     get summary() { return summary; },
@@ -266,6 +270,8 @@ export function initFilesPanel(
     get body() { return body; },
     get selHd() { return selHd; },
     get copyBtn() { return copyBtn; },
+    // Functions and the injected deps.
+    openRowMenuFor,
     syncCopyStrip,
     subject,
     currentRoot,
@@ -275,7 +281,8 @@ export function initFilesPanel(
     fs,
     onLeaveScreen,
     now,
-  });
+  };
+  share(ctx, core);
   share(ctx, createTree(ctx));
   share(ctx, createGit(ctx));
   share(ctx, createKeys(ctx));

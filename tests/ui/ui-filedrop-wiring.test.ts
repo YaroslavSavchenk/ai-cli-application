@@ -20,129 +20,24 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  dispatch,
-  makeDataTransfer,
-  type FakeDataTransfer,
-  type FakeEvent,
-  type FakeFile,
-} from '../helpers/fake-dom.ts';
+import { makeDataTransfer, type FakeDataTransfer, type FakeEvent } from '../helpers/fake-dom.ts';
 import { APP_CSS, stripComments } from '../helpers/tokens-helpers.ts';
 import { readSource, readSources, projectRoot, filesUnder } from '../helpers/helpers.ts';
 import {
   dom,
   FD,
-  type Dest,
   type DropRequest,
   dest,
   rowSrc,
-  filesAside,
-  termTextarea,
-  scrim,
-  LISTINGS,
-  type FileLikeIn,
   OVER_ROW,
   dragOver,
   FILES_DT,
+  DEPS,
+  world,
+  resetWorld,
 } from '../helpers/ui-filedrop-fixture.ts';
 
-// ---------------------------------------------------------------------------
-// The injected deps — per file: the tests below reassign these `let`s, which
-// an imported binding cannot be, so the state and its DEPS live here while
-// the shell they act on is `tests/helpers/ui-filedrop-fixture.ts`.
-// ---------------------------------------------------------------------------
-
-let opened: DropRequest[] = [];
-let flashes: string[] = [];
-let paneDest: Dest | null = dest('Home');
-/** Which refusal `destinationOfPane` reports when it names no folder (A9 F6). */
-let paneWhy: 'session' | 'tab' = 'session';
-let panelDest: Dest | null = dest('nocturne');
-let viewDest: Dest | null = dest('Home');
-let pasteDest: Dest | null = dest('src');
-/** A9b: the folder the user CHOSE in the panel, or nothing chosen. */
-let selectedDest: Dest | null = null;
-let picked: FakeFile[] = [];
-
-/**
- * Part B2: the listing is a real request, so a test can hold it and let the
- * world move while it travels — which is the only way to see WHEN `offer()`
- * reads the focus. Off by default: every other test answers at once.
- */
-let deferListing = false;
-let releaseListing: (() => void) | null = null;
-/**
- * How many listing REQUESTS were made (part B10). The drop-level refusals must
- * answer without one: a drop that is refused whole may not cost a round trip,
- * and a counter is the only way to see a request that was never made.
- */
-let listingCalls = 0;
-/**
- * Part B10 fix round: the drop dialog answers whether a copy is still writing
- * (`isDropRunning`), and a second drop while it is must be refused before it
- * is walked — two runs would race the panel refresh that follows a drop.
- */
-let copyRunning = false;
-
-/**
- * xterm's own `paste` handler on its helper textarea (the fixture's
- * `termTextarea`). `xtermPastes` counts it: the app taking a paste here
- * without stopping the event would let xterm type any `text/plain` beside
- * the files into the PTY unbracketed (PLAN-A9b §2).
- */
-let xtermPastes = 0;
-termTextarea.addEventListener('paste', () => {
-  xtermPastes += 1;
-});
-
-const DEPS = {
-  openDialog: (req: DropRequest) => opened.push(req),
-  // Part B2: a PROMISE, and keyed by the destination's name here only because
-  // this file's fakes are named that way — the module passes the whole
-  // destination through and reads nothing but what the dep answers.
-  listingFor: (d: Dest) => {
-    listingCalls += 1;
-    const answer = LISTINGS[d.name] ?? [];
-    if (!deferListing) return Promise.resolve(answer);
-    return new Promise<readonly string[]>((resolve) => {
-      releaseListing = () => resolve(answer);
-    });
-  },
-  destinationOfPane: () => (paneDest === null ? { dest: null, why: paneWhy } : { dest: paneDest }),
-  destinationOfActiveView: () => viewDest,
-  filesPanelDestination: () => panelDest,
-  pasteDestination: () => pasteDest,
-  selectedFolder: () => selectedDest,
-  copyRunning: () => copyRunning,
-  openPicker: (take: (files: readonly FileLikeIn[]) => void) => take(picked),
-  flash: (m: string) => flashes.push(m),
-};
-
-FD.initFileDrop(DEPS);
-
-beforeEach(() => {
-  opened = [];
-  flashes = [];
-  paneDest = dest('Home');
-  paneWhy = 'session';
-  panelDest = dest('nocturne');
-  viewDest = dest('Home');
-  pasteDest = dest('src');
-  selectedDest = null;
-  xtermPastes = 0;
-  picked = [];
-  deferListing = false;
-  releaseListing = null;
-  listingCalls = 0;
-  copyRunning = false;
-  scrim.hidden = true;
-  filesAside.hidden = false;
-  dom.win.timers.length = 0;
-  // Every test starts with no drag on screen (the previous one may have ended
-  // on a drop, which clears, or on nothing).
-  dispatch(dom.body, 'dragleave', { clientX: 0, clientY: 0, relatedTarget: null });
-  dom.doc.activeElement = dom.body;
-});
+beforeEach(resetWorld);
 
 // ===========================================================================
 // The boot guard (before the shell exists at all)

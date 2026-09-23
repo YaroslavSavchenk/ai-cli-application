@@ -12,8 +12,8 @@
  * `server/statusline.mjs` is out of scope by extension: it runs standalone and
  * imports nothing from `server/` on purpose.
  *
- * `KNOWN` lists the pairs found when the guard came in; part Q1 folds them and
- * empties the list. It may only shrink: a pair that is gone must leave it.
+ * `KNOWN` listed the pairs found when the guard came in; part Q1 folded them
+ * and emptied it. It may only shrink: a pair that is gone must leave it.
  *
  * NOT claimed: near-duplicates that differ by a character (review catches
  * those, `CONTRIBUTING.md` says what to do), duplicated logic inside a longer
@@ -25,13 +25,8 @@ import { readSource, trackedFiles } from '../helpers/helpers.ts';
 
 const MIN_BODY = 80;
 
-/** Found on 2026-09-23 and scheduled for Q1. Remove a line when its pair is folded. */
-const KNOWN = new Set<string>([
-  'server/agents-fold.ts:plainObject = server/telemetry.ts:plainObject',
-  'server/restart.ts:isPort = web/src/ui/restart-flow.ts:isPort',
-  'web/src/ui/delete-dialog.ts:closeDialog = web/src/ui/picker.ts:closeFolderPicker',
-  'web/src/ui/prefs-model.ts:clampBehaviour = web/src/ui/statusline-model.ts:clampStatusLine',
-]);
+/** The four pairs found on 2026-09-23 were folded by part Q1: empty, and it stays so. */
+const KNOWN = new Set<string>([]);
 
 const sources = trackedFiles().filter((p) => /^(server|web\/src|shared)\/.*\.ts$/.test(p) && !p.endsWith('.d.ts'));
 

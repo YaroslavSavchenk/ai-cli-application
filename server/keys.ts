@@ -8,7 +8,8 @@
  *   - `<dataDir>/keys.json`, written atomically with mode 0600 (atomicWriteFile,
  *     the same store shape as prefs.ts and the GitHub token);
  *   - the child ENVIRONMENT of a session spawned for exactly that tool
- *     (server/sessions.ts, by `basename(command)`), never its argv.
+ *     (server/sessions.ts, by the command's last `/` or `\` segment — the
+ *     shared `commandBase`), never its argv.
  *
  * WHERE IT NEVER GOES: server.log (not the value, not a fragment, not a masked
  * form, not a length), any HTTP response (GET /api/keys answers saved/not saved

@@ -21,8 +21,8 @@
  *     SNAPSHOT_FILE and only the capture group is ever joined into a path, so
  *     no `..`, no separator, no absolute path can arrive through an event;
  *   - every string is control-stripped and capped exactly like the script's
- *     clean() (an ESC smuggled through a branch name must not reach a terminal
- *     or the DOM), every number must be finite and in range, and every key the
+ *     clean() (server/sanitise.ts; an ESC smuggled through a branch name must
+ *     not reach a terminal or the DOM), every number must be finite and in range, and every key the
  *     schema does not know is dropped.
  *
  * Nothing in here ever throws into a watcher callback or a timer: a bad file is
@@ -50,6 +50,7 @@ import {
 import { join } from 'node:path';
 import type { SessionTelemetry } from '../shared/protocol.ts';
 import { describeError, scoped, type Logger } from './config.ts';
+import { CONTROL_CHAR, MAX_AT_MS, clean, plainObject } from './sanitise.ts';
 
 /**
  * Hard ceiling on a snapshot file. The real ones are ~150 bytes; anything past
@@ -77,9 +78,6 @@ const DEBOUNCE_MS = 150;
 /** Poll interval of the fallback path (no inotify, or a directory watch that died). */
 const POLL_MS = 2_000;
 
-/** The latest ms epoch we believe: past this, the file is lying about its clock. */
-const MAX_AT_MS = Date.UTC(3000, 0, 1);
-
 /** Cost above this is not a session's spend but a corrupt number: refused. */
 const MAX_COST_USD = 1_000_000;
 
@@ -95,24 +93,6 @@ const MAX_LINES = 1_000_000_000;
  */
 const MAX_TRANSCRIPT = 1024;
 
-/** C0/C1 controls and DEL: never in a path we opened, so never in one we accept. */
-const CONTROL_CHAR = /[\u0000-\u001F\u007F-\u009F]/;
-
-/**
- * Terminal- and DOM-safe single-line text: strip C0/C1 controls and DEL,
- * collapse whitespace, cap at MAX_FIELD. The twin of clean() in
- * server/statusline.mjs (which cannot be imported — it runs in another
- * process); '' means "no honest value", i.e. the key is left out.
- */
-function clean(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  const stripped = value
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return stripped.length > MAX_FIELD ? stripped.slice(0, MAX_FIELD) : stripped;
-}
-
 /** Finite number or undefined (NaN, Infinity, strings and objects are not values). */
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -125,13 +105,6 @@ function pct(value: unknown): number | undefined {
   if (n < 0) return 0;
   if (n > 100) return 100;
   return Math.floor(n);
-}
-
-/** Plain object or undefined (arrays and null are not snapshots). */
-function plainObject(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }
 
 /**
@@ -161,9 +134,9 @@ export function parseSnapshot(text: string): SessionTelemetry | null {
   if (at === undefined || at < 0 || at > MAX_AT_MS) return null;
   const telemetry: SessionTelemetry = { at: new Date(at).toISOString() };
 
-  const model = clean(raw['model']);
+  const model = clean(raw['model'], MAX_FIELD);
   if (model !== '') telemetry.model = model;
-  const branch = clean(raw['branch']);
+  const branch = clean(raw['branch'], MAX_FIELD);
   if (branch !== '') telemetry.branch = branch;
 
   const cost = num(raw['cost']);

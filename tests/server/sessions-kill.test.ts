@@ -47,6 +47,19 @@ import {
   harness,
 } from '../helpers/sessions-kill-fixture.ts';
 
+/**
+ * Past the moment the SIGKILL rung WOULD fire (tests/README.md § Time: a wait
+ * that proves something did NOT happen): both rungs, 2000 + 3000 ms, plus a
+ * second of margin for the timer turn and the log write.
+ */
+const PAST_BOTH_RUNGS_MS = KILL_TERM_MS + KILL_KILL_MS + 1_000;
+
+/**
+ * "Well inside the 2 s first rung": the ladder is armed and has not fired —
+ * the state destroyAll() has to find.
+ */
+const INSIDE_FIRST_RUNG_MS = 100;
+
 let server: TestServer;
 
 before(async () => {
@@ -115,7 +128,7 @@ test('T2 a CLI that ignores only SIGHUP dies at the SIGTERM rung — no SIGKILL'
 
   // Wait past the moment the SIGKILL rung WOULD have fired (2000+3000 ms),
   // otherwise "no SIGKILL line" would only mean "not yet".
-  await sleep(Math.max(0, deletedAt + 6_000 - Date.now()));
+  await sleep(Math.max(0, deletedAt + PAST_BOTH_RUNGS_MS - Date.now()));
   const log = await readServerLog(server);
   assert.ok(
     log.includes(
@@ -149,7 +162,7 @@ test('T3 an ordinary CLI still dies on the plain SIGHUP: no escalation line at a
     'SIGHUP alone must still end an ordinary CLI, well before the first rung',
   );
 
-  await sleep(Math.max(0, deletedAt + 6_000 - Date.now()));
+  await sleep(Math.max(0, deletedAt + PAST_BOTH_RUNGS_MS - Date.now()));
   const log = await readServerLog(server);
   assert.equal(
     log.includes(`${info.id} still running`),
@@ -226,7 +239,7 @@ test('T5 pid-reuse guard: a session that exits before the first rung is never si
     manager.destroy(info.id, 'user');
     await waitAllGone(pids, 'the ordinary CLI to die on SIGHUP', 4_000);
     // Past BOTH rungs: the timers have run and found the group already gone.
-    await sleep(KILL_TERM_MS + KILL_KILL_MS + 1000);
+    await sleep(PAST_BOTH_RUNGS_MS);
 
     assert.equal(
       // Signal 0 is the liveness PROBE, not a signal: only real signals count.
@@ -332,7 +345,7 @@ test('T7 a DELETE still escalating when the server shuts down is finished off, n
     // the service (or the launcher stops the backend). destroyAll() no longer
     // knows this session — the ladder does.
     manager.destroy(info.id, 'user');
-    await sleep(100);
+    await sleep(INSIDE_FIRST_RUNG_MS);
     manager.destroyAll();
 
     await waitAllGone(pids, 'leader and child to be gone right after destroyAll', 1_000);

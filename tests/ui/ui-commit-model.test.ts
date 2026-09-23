@@ -1,7 +1,9 @@
 /**
  * `web/src/ui/commit-model.ts` — the arithmetic and the copy of the commits
  * list and the commit view (Nocturne A6, live since B3), with no DOM: the
- * five-block bar, the author's initial, the two ways one timestamp is said,
+ * five-block bar, the author's initial, the absolute way one timestamp is said
+ * (the relative one, `relativeTime`, moved to ui/format-model.ts in part Q1 and is
+ * pinned in `tests/ui/ui-util.test.ts`),
  * the plural sentences, the collapse key, the block id and the ONE address
  * this screen may leave for.
  *
@@ -45,11 +47,9 @@ const M = (await import(new URL('../../web/src/ui/commit-model.ts', import.meta.
   shortHashOf(hash: string): string;
   absoluteDate(iso: string): string;
   fullDateTime(iso: string): string;
-  relativeTime(iso: string, now: number): string;
   githubCommitUrl(owner: string, repo: string, hash: string): string | null;
   collapseKey(hash: string, path: string): string;
   blockDomId(hash: string, path: string): string;
-  fileName(path: string): string;
 };
 
 /** A hash of the shape every response carries: 40 hex, lower case. */
@@ -95,12 +95,6 @@ test('a collapse key is per commit AND per path, so two commits never share a fo
     M.collapseKey('474d891', 'server/ws.ts'),
     M.collapseKey('9b2e1f0', 'server/ws.ts'),
   );
-});
-
-test('fileName is the last segment — the only part of a path a tab label shows', () => {
-  assert.equal(M.fileName('web/src/Pane.tsx'), 'Pane.tsx');
-  assert.equal(M.fileName('README.md'), 'README.md');
-  assert.equal(M.fileName(''), '');
 });
 
 // ---------------------------------------------------------------------------
@@ -267,29 +261,6 @@ test('a timestamp the app cannot parse prints NOTHING, never machine text', () =
   }
   assert.equal(M.absoluteDate('not a date'), '');
   assert.equal(M.fullDateTime('not a date'), '');
-  assert.equal(M.relativeTime('not a date', NOW), '');
-});
-
-test('the relative half is said in plain words, pluralised, from the clock it is given', () => {
-  const at = (ms: number): string => new Date(NOW - ms).toISOString();
-  assert.equal(M.relativeTime(at(5_000), NOW), 'just now');
-  assert.equal(M.relativeTime(at(60_000), NOW), '1 minute ago');
-  assert.equal(M.relativeTime(at(5 * 60_000), NOW), '5 minutes ago');
-  assert.equal(M.relativeTime(at(3600_000), NOW), '1 hour ago');
-  assert.equal(M.relativeTime(at(3 * 3600_000), NOW), '3 hours ago');
-  assert.equal(M.relativeTime(at(24 * 3600_000), NOW), '1 day ago');
-  assert.equal(M.relativeTime(at(6 * 24 * 3600_000), NOW), '6 days ago');
-  assert.equal(M.relativeTime(at(8 * 24 * 3600_000), NOW), '1 week ago');
-  assert.equal(M.relativeTime(at(40 * 24 * 3600_000), NOW), '1 month ago');
-  assert.equal(M.relativeTime(at(400 * 24 * 3600_000), NOW), '1 year ago');
-  assert.equal(M.relativeTime(at(800 * 24 * 3600_000), NOW), '2 years ago');
-  // A clock that runs ahead of the commit's: the app cannot know which of the
-  // two is wrong, and "in 3 hours" is the one thing that is certainly false.
-  assert.equal(M.relativeTime(at(-3 * 3600_000), NOW), 'just now');
-  // It is computed against the clock it is HANDED, so a list open for an hour
-  // says so on its next repaint.
-  const iso = at(3600_000);
-  assert.equal(M.relativeTime(iso, NOW + 3600_000), '2 hours ago');
 });
 
 // ---------------------------------------------------------------------------

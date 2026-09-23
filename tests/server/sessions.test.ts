@@ -506,6 +506,15 @@ async function putSnapshot(id: string, body: Record<string, unknown>): Promise<v
   await rename(`${file}.tmp`, file);
 }
 
+/**
+ * How long the telemetry path gets to broadcast a frame it must NOT send
+ * (tests/README.md § Time). The server's snapshot watcher debounces a file
+ * event by 150 ms: 600 ms is four windows, so a broadcast that was coming has
+ * come; 400 ms (after a frame already arrived) is still more than two.
+ */
+const NO_BROADCAST_MS = 600;
+const NO_SECOND_BROADCAST_MS = 400;
+
 /** The `info` frames a client has seen that carry telemetry. */
 function telemetryFrames(c: WsClient): SessionInfo[] {
   return c.messages
@@ -537,7 +546,7 @@ test('a snapshot on disk becomes SessionInfo.telemetry and one `info` broadcast 
     // The same file again (what an idle session's refresh would leave behind):
     // no change, so no second broadcast.
     await putSnapshot(info.id, first);
-    await sleep(600);
+    await sleep(NO_BROADCAST_MS);
     assert.equal(telemetryFrames(c).length, 1, 'equal telemetry is not news');
 
     // A real change is broadcast, exactly once.
@@ -546,7 +555,7 @@ test('a snapshot on disk becomes SessionInfo.telemetry and one `info` broadcast 
       () => (telemetryFrames(c).length > 1 ? true : undefined),
       'the second info frame',
     );
-    await sleep(400);
+    await sleep(NO_SECOND_BROADCAST_MS);
     assert.equal(telemetryFrames(c).length, 2, 'one broadcast per change, not one per poll');
     assert.equal(telemetryFrames(c)[1]?.telemetry?.costUsd, 0.99);
   } finally {
@@ -562,7 +571,7 @@ test('a snapshot for an id that is not a session is ignored, and the server keep
     // A file whose session never existed (or ended a moment ago): no session is
     // ever created from a snapshot, and nothing is broadcast.
     await putSnapshot('deadbeef-0000-4000-8000-000000000000', { v: 1, at: Date.now(), model: 'Ghost' });
-    await sleep(600);
+    await sleep(NO_BROADCAST_MS);
     assert.deepEqual(telemetryFrames(c), []);
 
     // The real session still gets its own telemetry afterwards.

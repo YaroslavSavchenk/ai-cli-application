@@ -1,7 +1,8 @@
 /**
  * The pure half of server/agents.ts: what one transcript LINE means. The
- * sanitisers every sourced string and number passes through (clean, isoAt,
- * tokenField, …), the per-agent fold (foldLine), the wire comparisons
+ * sanitisers every sourced string and number passes through (isoAt,
+ * tokenField, …; clean and plainObject are server/sanitise.ts's since Q1),
+ * the per-agent fold (foldLine), the wire comparisons
  * (sameAgents, sameReport) and the B11 turn verdict (turnOfLine). No I/O.
  *
  * Split from server/agents.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
@@ -10,9 +11,8 @@
  * server/agents-path.ts (the transcript-path boundary, subagentsDirFor).
  */
 import type { SessionAgent, SessionAgentCounts, SessionTurn } from '../shared/protocol.ts';
+import { MAX_AT_MS, plainObject } from './sanitise.ts';
 
-/** The latest ms epoch we believe: past this, the file is lying about its clock. */
-const MAX_AT_MS = Date.UTC(3000, 0, 1);
 
 /**
  * Token counts above this are corruption, not spend (the largest real figure
@@ -20,26 +20,6 @@ const MAX_AT_MS = Date.UTC(3000, 0, 1);
  * row is still worth drawing.
  */
 const MAX_TOKENS = 1e12;
-
-/** Terminal- and DOM-safe single-line text. The twin of clean() in server/telemetry.ts. */
-export function clean(value: unknown, max: number): string {
-  if (typeof value !== 'string') return '';
-  const stripped = value
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return stripped.length > max ? stripped.slice(0, max) : stripped;
-}
-
-/**
- * Plain object or undefined (arrays and null are not records). A deliberate
- * twin of plainObject() in server/telemetry.ts, which is module-private there.
- */
-export function plainObject(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
 
 /**
  * A transcript timestamp as a canonical ISO-8601 string, or '' when the line

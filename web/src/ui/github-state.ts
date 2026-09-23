@@ -1,7 +1,8 @@
 /**
  * GitHub connection — the SHARED STATUS CONTROLLER: the status, the repo list
- * and its load state, the poll and its cadence, the clones in flight, the
- * resolved home folder, and the disconnect that drops the local credential.
+ * and its load state, the poll and its cadence, the clones in flight, and the
+ * disconnect that drops the local credential (the resolved home folder is
+ * ui/home-store.ts since Q1).
  * The chip and the New Project dialog's GitHub tab both read it; neither owns
  * it. Every write to this state happens in this module.
  *
@@ -51,28 +52,10 @@ export function emit(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2c helpers: home resolution + ApiError narrowing (the destination path,
-// already-cloned detection, and the error copy itself live in github-model.ts).
+// Phase 2c helpers: ApiError narrowing (the destination path, already-cloned
+// detection, and the error copy itself live in github-model.ts; the home folder
+// they need is ui/home-store.ts since Q1).
 // ---------------------------------------------------------------------------
-
-/**
- * Real $HOME, resolved ONCE from GET /api/fs/list (the same source
- * newproject.ts uses — NEVER hardcoded `/home/...`) and cached. Retried on
- * every call until it succeeds; null until then (clone/create surface a
- * "couldn't resolve your home directory" error rather than guessing a path).
- */
-export let homeDir: string | null = null;
-
-export async function ensureHome(): Promise<string | null> {
-  if (homeDir !== null) return homeDir;
-  try {
-    const res = await api.fsList(); // no path → backend's $HOME
-    if (res.path !== '') homeDir = res.path;
-  } catch {
-    // Leave null — the caller reports it; a later call retries.
-  }
-  return homeDir;
-}
 
 /**
  * Honest clone-error copy: prefer the server's real `{error}` message; fall

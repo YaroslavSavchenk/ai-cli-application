@@ -18,6 +18,7 @@
  * exception is `mascot`, whose shape the server checks on PUT).
  */
 import type { UiBehaviour, UiPrefs } from '../../../shared/protocol.ts';
+import { clampToggles } from './statusline-model.ts';
 
 /** Fully-resolved behaviour toggles (every key present). */
 export type BehaviourCfg = Required<UiBehaviour>;
@@ -40,10 +41,7 @@ export function behaviourDefaults(): BehaviourCfg {
  * non-boolean member takes its factory default.
  */
 export function clampBehaviour(raw: unknown): BehaviourCfg {
-  const o = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const out = { ...FACTORY };
-  for (const k of KEYS) if (typeof o[k] === 'boolean') out[k] = o[k];
-  return out;
+  return clampToggles(raw, FACTORY, KEYS);
 }
 
 let behaviour: BehaviourCfg = { ...FACTORY };

@@ -38,10 +38,10 @@
  * hook or file reports it (user decision, 2026-09-16), so it has no row and no
  * placeholder at all.
  */
-import type { SessionInfo, SessionTelemetry } from '../../../shared/protocol.ts';
-import { isClaudeCommand, modelLabel } from './launch-args.ts';
+import { isClaudeCommand, type SessionInfo, type SessionTelemetry } from '../../../shared/protocol.ts';
+import { modelLabel } from './launch-args.ts';
 import type { StatusLineCfg } from './statusline-model.ts';
-import { fmtUptime, modelFromArgs, permFromArgs } from './util.ts';
+import { fmtUptime, modelFromArgs, permFromArgs } from './format-model.ts';
 
 /** How a value reads: plain data, a window running out, or a removed safety net. */
 export type StatusTone = 'neutral' | 'warn' | 'danger';

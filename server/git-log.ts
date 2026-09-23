@@ -94,7 +94,7 @@ import {
   FsBrowseError,
   resolveUnderAllowed,
 } from './fsbrowse.ts';
-import { capturedOrFail, runGitCapture } from './git.ts';
+import { capturedOrFail, numberOrNull, runGitCapture } from './git.ts';
 import { parseGithubRemote } from './github.ts';
 import { isExistingDirectory } from './projects.ts';
 
@@ -400,14 +400,6 @@ export function parseLogRecords(out: string, fieldCount: number): LogRecord[] {
     records.push({ fields, numstat });
   }
   return records;
-}
-
-/** `-` (git's binary marker) and anything unparsable become null, never 0. */
-function numberOrNull(raw: string): number | null {
-  if (raw === '-') return null;
-  if (!/^\d{1,12}$/.test(raw)) return null;
-  const n = Number(raw);
-  return Number.isSafeInteger(n) ? n : null;
 }
 
 /**

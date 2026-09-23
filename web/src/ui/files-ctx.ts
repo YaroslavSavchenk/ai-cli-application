@@ -9,7 +9,15 @@
  * with the same `ctx` object. Each piece of panel state is still ONE `let`,
  * declared in the piece that owns its region; what another piece reads or
  * writes goes through that owner's accessor on `ctx` — never a second copy.
- * The `*Part` interfaces below say which piece owns what.
+ * The `*Part` interfaces below say which piece owns what; each owner builds
+ * its part as that type. A member belongs on a part only while another piece
+ * reads it, and it is writable only while another piece writes it.
+ *
+ * Why accessors and not one plain state object (Q4, 2026-09-23): a plain
+ * object would let every piece write every field, and each owner would
+ * reach its own state as `state.x` instead of its `let` — the name-row keys
+ * included. The `readonly` members here are the one-owner rule, checked by
+ * the compiler.
  */
 import type * as st from '../state.ts';
 import type { Selection } from './files-select-model.ts';
@@ -31,7 +39,6 @@ export interface CorePart {
   deleting: Set<string> | null;
   focusAfterDelete: { gone: ReadonlySet<string>; candidates: string[] } | null;
   readonly root: HTMLElement;
-  openRowMenuFor(key: string, at: { x: number; y: number }): void;
   readonly tabBtns: Map<Tab, HTMLButtonElement>;
   readonly projName: HTMLElement;
   readonly summary: HTMLElement;
@@ -41,6 +48,7 @@ export interface CorePart {
   readonly body: HTMLElement;
   readonly selHd: HTMLElement;
   readonly copyBtn: HTMLButtonElement;
+  openRowMenuFor(key: string, at: { x: number; y: number }): void;
   syncCopyStrip(): void;
   subject(): Subject;
   currentRoot(): st.ViewRoot;

@@ -289,11 +289,18 @@ export function parseNumstatZ(out: string): Map<string, { add: number | null; de
   return byPath;
 }
 
-/** `-` (git's binary marker) and anything unparsable become null, never 0. */
-function numberOrNull(raw: string): number | null {
+/**
+ * One numstat count: `-` (git's binary marker) and anything that is not a
+ * plain run of digits become null, never 0 and never a guess. Strict because
+ * git prints nothing else — `12abc` or ` 3` is not a count git wrote, so it is
+ * not read as 12 or 3 (Q1 kept this strict form of the two copies that
+ * existed; server/git-log.ts reads its numstat through it too).
+ */
+export function numberOrNull(raw: string): number | null {
   if (raw === '-') return null;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : null;
+  if (!/^\d{1,12}$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
 }
 
 /**

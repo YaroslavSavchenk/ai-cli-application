@@ -195,7 +195,7 @@ export interface UiTools {
 // Keys live in `<dataDir>/keys.json` (0600, atomic) — the same ceiling as the
 // GitHub token: readable by the user's own account, never logged. At spawn a
 // SAVED key is set as that tool's variable in the child environment only, for
-// exactly that tool (`basename(command)`), never in argv.
+// exactly that tool (`commandBase(command)`, below), never in argv.
 
 /** Which launchable executables the backend finds on its PATH. */
 export interface ToolAvailability {
@@ -223,6 +223,28 @@ export const KEY_ENV: Record<KeyedTool, string> = {
   gemini: 'GEMINI_API_KEY',
   grok: 'XAI_API_KEY',
 };
+
+/**
+ * The last path segment of a command, both separators cut: the command is
+ * whatever the user typed, so `/usr/bin/claude` and `C:\tools\claude` are
+ * both named by their last part. The server and the browser classify a
+ * command by this one rule (Q1, `.claude/plans/PLAN-QUALITY.md`).
+ */
+export function commandBase(command: string): string {
+  const parts = command.split(/[/\\]/);
+  return parts[parts.length - 1] ?? command;
+}
+
+/**
+ * True for the CLI the app knows the flags of (resume, session id, model).
+ * Everything else stays generic: a custom command that merely happens to take
+ * a `-c` flag is not a Claude session. Exact and case-sensitive — `claude.exe`
+ * and `Claude` are not it, the same as before the server and the browser
+ * shared this rule.
+ */
+export function isClaudeCommand(command: string): boolean {
+  return commandBase(command) === 'claude';
+}
 
 /** GET /api/keys response. */
 export interface KeyStatus {

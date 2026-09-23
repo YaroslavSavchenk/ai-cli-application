@@ -41,8 +41,8 @@ import {
   readServerLog,
   startTestServer,
   waitForLog,
+  waitForLogQuiet,
   type TestServer,
-  sleep,
   removeTempDir,
   readSource,
   git,
@@ -480,10 +480,9 @@ test('a git that floods stdout is killed and the request fails — it does not g
   assert.deepEqual(res.body, { error: 'The app could not read this repository.' });
   await waitForLog(fakeServer, '[git] git: rev-parse 0, rev-parse 0, branch 0, diff killed');
   // The chunks already queued behind the SIGKILL keep arriving for a moment;
-  // wait past them before counting, or a regression could pass by being read
-  // too early.
-  await sleep(500);
-  const log = await readServerLog(fakeServer);
+  // wait until the log stops growing before counting, or a regression could
+  // pass by being read too early.
+  const log = await waitForLogQuiet(fakeServer);
   assert.match(log, /\[git\] git diff produced more than 2097152 bytes; killed/);
   // ONE capped request = ONE warn line and ONE `killed`. The cap handler used
   // to fire again on every buffered chunk that arrived after the kill (`capped`

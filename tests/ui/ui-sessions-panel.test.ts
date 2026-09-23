@@ -404,13 +404,15 @@ test('an earlier row starts with a moment in time, in sentence case', () => {
     mkEntry('h1', {
       command: '/bin/bash',
       args: ['-l'],
-      lastUsedAt: new Date(Date.now() - 30 * 3600_000).toISOString(),
+      // Seconds old: the age reads `just now`, the one form that opens with a
+      // word since part Q1 made every age "5 minutes ago" (was 30 h, `Yesterday`).
+      lastUsedAt: new Date(Date.now() - 10_000).toISOString(),
     }),
   ];
   draw();
   assert.equal(
     textsOf(root, 'sess-meta')[0],
-    'Yesterday, Bash',
+    'Just now, Bash',
     'the line opens with a word, so it opens with a capital',
   );
 });
@@ -418,8 +420,24 @@ test('an earlier row starts with a moment in time, in sentence case', () => {
 test('an earlier row an hour old reads its age, and a crash is marked', () => {
   st.state.history = [mkEntry('h1', { ended: { at: new Date().toISOString(), reason: 'crash' } })];
   draw();
-  assert.equal(textsOf(root, 'sess-meta')[0], '1 h ago, crashed');
+  assert.equal(textsOf(root, 'sess-meta')[0], '1 hour ago, crashed');
   assert.ok((byClass(root, 'sess-meta')[0] as FakeElement).classList.contains('is-danger'));
+});
+
+test('an earlier row with an unreadable age echoes a custom command exactly as typed', () => {
+  // The history file accepts any string as `lastUsedAt`; with no age to lead
+  // the line, it starts with the command, and a command is never re-cased.
+  st.state.history = [mkEntry('h1', { command: 'foo', lastUsedAt: 'not a date' })];
+  draw();
+  assert.equal(textsOf(root, 'sess-meta')[0], 'foo', 'never `Foo`');
+});
+
+test('an earlier row with nothing to say shows the em dash, never an empty line', () => {
+  // A claude row (no command slot) with no model, no crash and no readable age:
+  // the em dash the unreadable age showed before part Q1.
+  st.state.history = [mkEntry('h2', { lastUsedAt: 'not a date' })];
+  draw();
+  assert.equal(textsOf(root, 'sess-meta')[0], '—');
 });
 
 test('the empty state names the way out', () => {

@@ -22,7 +22,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AGENT_LABEL, SHELLS, commandLabel, isClaudeCommand } from '../../web/src/ui/launch-args.ts';
+import { AGENT_LABEL, SHELLS, commandLabel } from '../../web/src/ui/launch-args.ts';
+import { isClaudeCommand } from '../../shared/protocol.ts';
 import { projectRoot as REPO_ROOT } from '../helpers/helpers.ts';
 
 const SESSIONS = join(REPO_ROOT, 'web', 'src', 'ui', 'sessions.ts');
@@ -101,6 +102,16 @@ test('commandLabel: resemblance is never enough — only an exact match is relab
 const historyMetaLabel = (command: string): string | null =>
   isClaudeCommand(command) ? null : commandLabel(command);
 
+test('isClaudeCommand: the agent by its last segment, cut on `/` and `\\`, exact and case-sensitive', () => {
+  // One rule for the server and the browser since part Q1 (shared/protocol-settings.ts).
+  for (const c of ['claude', '/usr/bin/claude', './claude', 'C:\\x\\claude', 'D:\\tools/claude']) {
+    assert.equal(isClaudeCommand(c), true, c);
+  }
+  for (const c of ['C:\\x\\claude.exe', 'claude.exe', 'Claude', 'claude-code', 'claude/', 'claude\\', '']) {
+    assert.equal(isClaudeCommand(c), false, c);
+  }
+});
+
 test('history meta: a claude entry adds NOTHING — its model tag already names it', () => {
   for (const c of ['claude', '/home/you/.local/bin/claude', './claude']) {
     assert.equal(historyMetaLabel(c), null, c);
@@ -129,14 +140,15 @@ test('the sessions drawer really composes its history meta from this rule (sourc
     body.includes("el('div', 'sess-meta is-hist')"),
     'historyRow must still build a sess-meta line (Nocturne A5: the earlier-run variant)',
   );
-  assert.ok(body.includes('fmtAgo(entry.lastUsedAt)'), 'historyRow must still show the age');
+  assert.ok(body.includes('relativeTime(entry.lastUsedAt, Date.now())'), 'historyRow must still show the age');
   assert.ok(
     body.includes('if (!isClaudeCommand(entry.command)) parts.push(commandLabel(entry.command));'),
     'historyRow must push commandLabel for non-claude entries only',
   );
   // And it must be the SHARED helper, not a second table copied into the drawer.
   assert.ok(
-    src.includes("import { commandLabel, isClaudeCommand, modelLabel, toolIconFor } from './launch-args.ts';"),
+    src.includes("import { commandLabel, modelLabel, toolIconFor } from './launch-args.ts';") &&
+      src.includes("import { isClaudeCommand, type HistoryEntry } from '../../../shared/protocol.ts';"),
     'the drawer must import the shared vocabulary, never redefine it',
   );
   assert.equal(src.includes('export function commandLabel'), false, 'commandLabel must not live here anymore');

@@ -26,11 +26,13 @@
  */
 import {
   UPDATE_NEW_VERSION_AVAILABLE,
+  VERSION_SHAPE,
+  isClaudeCommand,
   type SessionInfo,
   type UpdateRelease,
   type UpdateStatus,
 } from '../../../shared/protocol.ts';
-import { hasContinueFlag, isClaudeCommand } from './launch-args.ts';
+import { hasContinueFlag } from './launch-args.ts';
 
 /**
  * - `hidden`     nothing to say (no update, or a restart finished the story)
@@ -269,8 +271,9 @@ export function reasonSentence(reason: string | null | undefined): string | null
  * THE VERSION GATE. `release.version` is the only string in this whole feature
  * that comes from OUTSIDE the app — a tag read out of a GitHub release — and
  * `releaseSentence()` puts it in front of a human. The backend gates it too
- * (VERSION_SHAPE), but the sentence is written here, so the gate is repeated
- * here: a tag is a short version-ish word and nothing else. Anything with a
+ * with the same VERSION_SHAPE (`shared/protocol-runtime.ts`), but the sentence
+ * is written here, so the gate is repeated here: a tag is a short version-ish
+ * word and nothing else. Anything with a
  * space, a quote, an angle bracket, a newline, a semicolon, or more than 64
  * characters is not printed at all — the generic sentence is, which says the
  * same true thing without quoting a stranger.
@@ -278,10 +281,9 @@ export function reasonSentence(reason: string | null | undefined): string | null
  * (Nothing on this path can execute a string; this is about what the user is
  * asked to trust with their eyes, and about a toast that cannot be turned into
  * a billboard by whoever can publish a release.)
+ *
+ * True when the tag may be shown as-is.
  */
-export const VERSION_SHAPE = /^v?[0-9][A-Za-z0-9._+-]{0,63}$/;
-
-/** True when the tag may be shown as-is. */
 export function showableVersion(version: string | null | undefined): boolean {
   return typeof version === 'string' && VERSION_SHAPE.test(version);
 }

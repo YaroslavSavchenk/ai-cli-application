@@ -18,7 +18,7 @@ import { AgentsWatcher, type AgentsReport } from '../../server/agents.ts';
 import type { Logger } from '../../server/config.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
-import { sleep, makeTempDir } from './helpers.ts';
+import { makeTempDir, waitUntil } from './helpers.ts';
 
 export const ESC = String.fromCharCode(27);
 export const NUL = String.fromCharCode(0);
@@ -90,6 +90,22 @@ export interface Harness {
   cleanup: () => Promise<void>;
 }
 
+/** The poll interval of every `makeWatcher` watcher, and of the tests' own. */
+export const WATCHER_POLL_MS = 20;
+
+/**
+ * How long a test gives the watcher to report something it must NOT
+ * (tests/README.md § Time): ten polls. A change is reported in the same tick
+ * that reads it, so a report that was coming has come by then.
+ */
+export const NO_REPORT_MS = 10 * WATCHER_POLL_MS;
+
+/**
+ * Fifteen polls: for a thing that must happen ONCE however many polls pass (a
+ * refusal or a recovery logged once, not once per poll).
+ */
+export const MANY_POLLS_MS = 15 * WATCHER_POLL_MS;
+
 /** A watcher over a real `<root>/<slug>/<uuid>/subagents` directory. */
 export async function makeWatcher(
   opts: { now?: () => number; create?: boolean; readBudgetBytes?: number } = {},
@@ -101,7 +117,7 @@ export async function makeWatcher(
   const logs: string[] = [];
   const watcher = new AgentsWatcher((level, message) => logs.push(`${level}: ${message}`), {
     projectsRoot: root,
-    pollMs: 20,
+    pollMs: WATCHER_POLL_MS,
     ...(opts.now === undefined ? {} : { now: opts.now }),
     ...(opts.readBudgetBytes === undefined ? {} : { readBudgetBytes: opts.readBudgetBytes }),
   });
@@ -130,30 +146,44 @@ export async function appendLines(dir: string, id: string, lines: string[]): Pro
   await appendFile(join(dir, `agent-${id}.jsonl`), lines.map((l) => `${l}\n`).join(''), { mode: 0o600 });
 }
 
+/**
+ * `waitUntil`, with the calls seen so far in the failure: a timeout that says
+ * what the watcher DID report is the one worth reading.
+ */
+async function waitOnSeen<T>(fn: () => T | undefined, ms: number, last: () => unknown, seen: Seen[]): Promise<T> {
+  try {
+    return await waitUntil(fn, 'the watcher to report a matching list', ms, 10);
+  } catch (err) {
+    throw new Error(
+      `${err instanceof Error ? err.message : String(err)}; ${seen.length} call(s), last = ${JSON.stringify(last())}`,
+    );
+  }
+}
+
 /** Wait until `seen`'s last list satisfies `ok`, or fail after `ms`. */
 export async function waitFor(seen: Seen[], ok: (agents: SessionAgent[]) => boolean, ms = 5_000): Promise<SessionAgent[]> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const last = seen[seen.length - 1]?.agents;
-    if (last !== undefined && ok(last)) return last;
-    if (Date.now() >= deadline) {
-      throw new Error(`timed out; ${seen.length} call(s), last = ${JSON.stringify(seen[seen.length - 1])}`);
-    }
-    await sleep(10);
-  }
+  return waitOnSeen(
+    () => {
+      const last = seen[seen.length - 1]?.agents;
+      return last !== undefined && ok(last) ? last : undefined;
+    },
+    ms,
+    () => seen[seen.length - 1],
+    seen,
+  );
 }
 
 /** Wait until `seen`'s last REPORT satisfies `ok`, or fail after `ms`. */
 export async function waitForReport(seen: Seen[], ok: (report: AgentsReport) => boolean, ms = 5_000): Promise<AgentsReport> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const last = seen[seen.length - 1]?.report;
-    if (last !== undefined && ok(last)) return last;
-    if (Date.now() >= deadline) {
-      throw new Error(`timed out; ${seen.length} call(s), last = ${JSON.stringify(seen[seen.length - 1]?.report)}`);
-    }
-    await sleep(10);
-  }
+  return waitOnSeen(
+    () => {
+      const last = seen[seen.length - 1]?.report;
+      return last !== undefined && ok(last) ? last : undefined;
+    },
+    ms,
+    () => seen[seen.length - 1]?.report,
+    seen,
+  );
 }
 
 /**

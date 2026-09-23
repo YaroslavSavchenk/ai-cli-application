@@ -54,7 +54,8 @@ import type { HistoryEntry, KeyStatus, ToolAvailability } from '../../../shared/
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
-import { el, button, trapTab, fmtAgo } from './util.ts';
+import { el, button, trapTab } from './util.ts';
+import { relativeTime } from './format-model.ts';
 import { infoIcon } from './icons.ts';
 import { toolIcon } from './icons-tools.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
@@ -646,7 +647,8 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     }
     if (kind === 'claude') {
       for (const e of resumeEntries()) {
-        const opt = el('option', '', `${e.title}, ${fmtAgo(e.lastUsedAt)}`);
+        const when = relativeTime(e.lastUsedAt, Date.now());
+        const opt = el('option', '', when === '' ? e.title : `${e.title}, ${when}`);
         opt.value = e.id;
         startSel.append(opt);
       }

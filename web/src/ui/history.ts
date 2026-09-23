@@ -23,7 +23,7 @@ import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { formatError, log } from '../log.ts';
-import { baseName } from './util.ts';
+import { fileName } from './slots-model.ts';
 
 const DEBOUNCE_MS = 300;
 
@@ -132,7 +132,7 @@ export function groupHistory(
   for (const e of entries) {
     const pname = projectName(e.projectId);
     const key = pname !== null && e.projectId !== undefined ? `p:${e.projectId}` : `c:${e.cwd}`;
-    const label = pname ?? baseName(e.cwd);
+    const label = pname ?? fileName(e.cwd);
     const g = groups.get(key);
     if (g === undefined) groups.set(key, { key, label, entries: [e] });
     else g.entries.push(e);

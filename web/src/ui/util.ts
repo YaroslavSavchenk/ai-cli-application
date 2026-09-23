@@ -1,5 +1,4 @@
 /** Tiny DOM helpers shared by the UI modules. No framework — by decision. */
-import { PERM_SHORT, isPerm } from './launch-args.ts';
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -133,110 +132,37 @@ export function trapTab(container: HTMLElement): void {
 }
 
 /**
- * Model tag from a session's argv (`--model x` / `--model=x`, and since B5 the
- * short `-m x` the other three agents take) — tags derive client-side from
- * SessionInfo.args; the protocol carries no tag fields.
- *
- * Only the SPACE form of the short flag is read: Codex, Gemini CLI and Grok are
- * all spawned by this app as `-m <id>`, and guessing at `-m<id>` / `-m=<id>`
- * would start reading a custom command's unrelated `-m` as a model.
+ * One modal at a time, and the element the keyboard goes back to when it
+ * closes. The card is taken off the screen by REMOVING its scrim rather than
+ * hiding it (the idiom every dialog here uses), which also takes `trapTab`'s
+ * listener with it; focus then returns to the opener, if it is still on the
+ * page. The folder picker and the delete confirmation each hold one (Q1: they
+ * carried the same close function twice).
  */
-export function modelFromArgs(args: string[]): string | null {
-  const i = args.indexOf('--model');
-  const next = args[i + 1];
-  if (i !== -1 && typeof next === 'string' && next !== '') return next;
-  const eq = args.find((a) => a.startsWith('--model='));
-  const v = eq?.slice('--model='.length);
-  if (v !== undefined && v !== '') return v;
-  const j = args.indexOf('-m');
-  const short = j !== -1 ? args[j + 1] : undefined;
-  return typeof short === 'string' && short !== '' ? short : null;
-}
+export class ModalSlot {
+  #scrim: HTMLElement | null = null;
+  #restore: HTMLElement | null = null;
 
-/**
- * Permission tag from argv, in the UI's plain words (`PERM_SHORT`, the pane
- * status bar's Mode value): both bypass forms read "No prompts", `acceptEdits`
- * reads "Auto edits", `plan` reads "Read only". Danger (red tag) for both bypass
- * forms; null for default/absent (no tag shown at all — unchanged). A mode
- * outside the known four (only reachable from a custom command the user typed)
- * is shown verbatim: inventing a translation for it would be dishonest.
- */
-export function permFromArgs(args: string[]): { label: string; danger: boolean } | null {
-  if (args.includes('--dangerously-skip-permissions')) {
-    return { label: PERM_SHORT.bypassPermissions, danger: true };
+  isOpen(): boolean {
+    return this.#scrim !== null;
   }
-  const i = args.indexOf('--permission-mode');
-  const next = i !== -1 ? args[i + 1] : undefined;
-  const v =
-    typeof next === 'string' && next !== ''
-      ? next
-      : args.find((a) => a.startsWith('--permission-mode='))?.slice('--permission-mode='.length);
-  if (typeof v !== 'string' || v === '' || v === 'default') return null;
-  return { label: isPerm(v) ? PERM_SHORT[v] : v, danger: v === 'bypassPermissions' };
-}
 
-/**
- * Uptime since an ISO timestamp in the v3 handoff's form — `31m`, `2h 15m`
- * (the statusline prints it as `Up …`; the Legacy form was `HH:MM:SS`, and a
- * second-by-second uptime is a readout nobody reads). Hours are shown only
- * once there is at least one, and never wrap; seconds are never shown. An
- * unparsable timestamp renders as an em dash.
- *
- * `now` is injectable (same pattern as `fmtAgo`) so the pane status bar's
- * model can be tested without a clock stub; the statusline passes nothing.
- */
-export function fmtUptime(iso: string, now: number = Date.now()): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
-  const s = Math.max(0, Math.floor((now - t) / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h ? `${h}h ${m}m` : `${m}m`;
-}
+  /** `scrim` is the open modal now; `restore` gets the keyboard back on close. */
+  hold(scrim: HTMLElement, restore: HTMLElement | null): void {
+    this.#scrim = scrim;
+    this.#restore = restore;
+  }
 
-/** English month abbreviations (locale-independent): `fmtAgo`'s fallback date, `commit-model.ts`'s commit date. */
-export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/**
- * How long ago an ISO timestamp was, in the drawer's short vocabulary:
- * `just now` (< 1 min) · `5 min ago` (< 1 h) · `3 h ago` (< 1 day) ·
- * `yesterday` (< 2 days) · `4 d ago` (< 7 days) · else a short date
- * (`6 Sep`, plus the year when it is not the current one).
- *
- * `now` is injectable so the formatter is testable without a clock stub. An
- * unparseable timestamp yields the app's empty-value glyph rather than a lie;
- * a timestamp in the future reads `just now` (clock skew is not an event).
- */
-export function fmtAgo(iso: string, now: number = Date.now()): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
-  const sec = Math.floor((now - t) / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} min ago`;
-  const hours = Math.floor(min / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 2) return 'yesterday';
-  if (days < 7) return `${days} d ago`;
-  const d = new Date(t);
-  const short = `${d.getDate()} ${MONTHS[d.getMonth()] ?? ''}`;
-  return d.getFullYear() === new Date(now).getFullYear() ? short : `${short} ${d.getFullYear()}`;
-}
-
-/**
- * A count for a badge or header — capped at `9+` past nine (user's request
- * 2026-09-08: a full number there is "far too unwieldy"). Every history count
- * the UI shows goes through this so they never disagree.
- */
-export function fmtCount(n: number): string {
-  return n > 9 ? '9+' : String(n);
-}
-
-/** Last path segment of an absolute path — a folder the app cannot name is still a folder. */
-export function baseName(path: string): string {
-  const parts = path.split('/').filter((p) => p !== '');
-  return parts[parts.length - 1] ?? path;
+  /** Take the card off the screen and hand the keyboard back. A no-op when none is open. */
+  close(): void {
+    const scrim = this.#scrim;
+    if (scrim === null) return;
+    scrim.remove();
+    this.#scrim = null;
+    const back = this.#restore;
+    this.#restore = null;
+    if (back !== null && back.isConnected) back.focus();
+  }
 }
 
 /** Server-supplied error text, or the given fallback. Never a body dump. */

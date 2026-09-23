@@ -108,11 +108,12 @@ done
 
 [ -n "$VERSION" ] || die "Missing --version. $usage"
 # Exactly the shape the backend accepts when it reads bundle.json (VERSION_SHAPE
-# in server/bundle.ts): anything else would build a bundle that refuses to enter
-# installed mode. It must start with a digit or `v<digit>`, which is what a
-# version looks like AND what keeps `.`, `..` and a leading `-` out: this string
-# is a directory name under build/bundle (`rm -rf "$STAGE"` would wipe build/
-# itself for `..`) and a tar member argument.
+# in shared/protocol-runtime.ts, read by server/bundle.ts): anything else would
+# build a bundle that refuses to enter installed mode. It must start with a
+# digit or `v<digit>`, which is what a version looks like AND what keeps `.`,
+# `..` and a leading `-` out: this string is a directory name under build/bundle
+# (`rm -rf "$STAGE"` would wipe build/ itself for `..`) and a tar member
+# argument.
 if ! [[ "$VERSION" =~ ^v?[0-9][A-Za-z0-9._+-]{0,63}$ ]]; then
   die "\"$VERSION\" is not a usable bundle version: it must start with a digit or v<digit>, then letters, digits, . _ + - only, up to 64 more characters (e.g. v0.2.0 or 0.0.0-dev+abc1234)."
 fi

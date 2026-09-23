@@ -20,6 +20,20 @@ export const st = (await import(new URL('../../web/src/state.ts', import.meta.ur
 export const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).href)) as DndModule;
 export const SL = (await import(new URL('../../web/src/ui/statusline.ts', import.meta.url).href)) as StatuslineModule;
 
+/**
+ * The clock `dnd.ts` measures its post-drag click swallow on, owned by the
+ * tests (`setClickSwallowClock`): a test steps it with `advanceClickClock`
+ * instead of sleeping through the 80 ms window in real time, and
+ * `resetShell` steps it past any window a previous test left open.
+ */
+let clickClock = 0;
+DND.setClickSwallowClock(() => clickClock);
+
+/** Move the swallow's clock forward by `ms`. */
+export function advanceClickClock(ms: number): void {
+  clickClock += ms;
+}
+
 export type EditorTab = { kind: 'file'; path: string } | { kind: 'diff'; hash: string; path: string };
 /** The A10b slot model: a session, or an EDITOR pane holding a strip of tabs. */
 export type PaneSlot =
@@ -59,6 +73,9 @@ export interface DndModule {
     ignore: string | null,
     makeSpec: () => Record<string, unknown> | null,
   ): void;
+  CLICK_SWALLOW_MS: number;
+  setClickSwallowClock(now: () => number): void;
+  ghostTransform(x: number, y: number): string;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,4 +332,6 @@ export function resetShell(): void {
   st.state.activeViewId = '';
   clearFlash();
   for (const n of byClass(dom.body, 'drag-ghost')) n.remove();
+  // No test inherits the click swallow of the drag that ended the last one.
+  advanceClickClock(DND.CLICK_SWALLOW_MS);
 }

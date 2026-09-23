@@ -25,7 +25,8 @@
  * sentence is the one `storageNote` returns.
  */
 import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
-import { joinPath, projectsPath } from './newproject-model.ts';
+import { joinPath } from './fs-model.ts';
+import { projectsDirOf, projectsPath } from './newproject-model.ts';
 
 // ---------------------------------------------------------------------------
 // Cadence — the "which interval applies for this state" decisions. The actual
@@ -337,28 +338,6 @@ export function fmtExpiry(iso: string | undefined, now: number): string {
   return `expires in ${mm}:${ss}`;
 }
 
-/**
- * Compact relative time for the repo "pushed …" line, measured from `now`
- * (ms epoch); '' for absent/bad input. Ladder: <60s just now, <60m Nm, <24h
- * Nh, <30d Nd, <12mo Nmo, else Ny (a month is a flat 30 days).
- */
-export function relTime(iso: string | undefined, now: number): string {
-  if (iso === undefined || iso === '') return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const sec = Math.floor((now - t) / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
-}
-
 // ---------------------------------------------------------------------------
 // GitHub Linguist language colors — EXTERNAL DATA (a language's canonical
 // color), deliberately NOT app-palette tokens and NOT in tokens.css. Set inline
@@ -474,7 +453,7 @@ function endsWithOwnerRepo(path: string, owner: string, name: string): boolean {
  * mis-identification the owner-qualified paths exist to remove.
  */
 function ourCloneOwner(path: string, home: string, name: string): string | null {
-  const prefix = `${joinPath(home, 'projects')}/`;
+  const prefix = `${projectsDirOf(home)}/`;
   const trimmed = path.replace(/\/+$/, '');
   if (!trimmed.startsWith(prefix)) return null;
   const parts = trimmed.slice(prefix.length).split('/');

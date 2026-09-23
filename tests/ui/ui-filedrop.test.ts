@@ -41,14 +41,11 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { byClass, dispatch, makeDataTransfer, type FakeFile } from '../helpers/fake-dom.ts';
+import { byClass, dispatch, makeDataTransfer } from '../helpers/fake-dom.ts';
 import {
   dom,
-  FD,
   DND,
-  type Dest,
   type DropRequest,
-  dest,
   settle,
   panel,
   rowWeb,
@@ -59,12 +56,9 @@ import {
   pane0,
   pane1,
   termHost,
-  termTextarea,
   empty,
   scrim,
   field,
-  LISTINGS,
-  type FileLikeIn,
   OVER_ROW,
   OVER_GDIR,
   OVER_GFILE,
@@ -81,105 +75,11 @@ import {
   flushTimers,
   FILES_DT,
   TEXT_DT,
+  world,
+  resetWorld,
 } from '../helpers/ui-filedrop-fixture.ts';
 
-// ---------------------------------------------------------------------------
-// The injected deps — per file: the tests below reassign these `let`s, which
-// an imported binding cannot be, so the state and its DEPS live here while
-// the shell they act on is `tests/helpers/ui-filedrop-fixture.ts`.
-// ---------------------------------------------------------------------------
-
-let opened: DropRequest[] = [];
-let flashes: string[] = [];
-let paneDest: Dest | null = dest('Home');
-/** Which refusal `destinationOfPane` reports when it names no folder (A9 F6). */
-let paneWhy: 'session' | 'tab' = 'session';
-let panelDest: Dest | null = dest('nocturne');
-let viewDest: Dest | null = dest('Home');
-let pasteDest: Dest | null = dest('src');
-/** A9b: the folder the user CHOSE in the panel, or nothing chosen. */
-let selectedDest: Dest | null = null;
-let picked: FakeFile[] = [];
-
-/**
- * Part B2: the listing is a real request, so a test can hold it and let the
- * world move while it travels — which is the only way to see WHEN `offer()`
- * reads the focus. Off by default: every other test answers at once.
- */
-let deferListing = false;
-let releaseListing: (() => void) | null = null;
-/**
- * How many listing REQUESTS were made (part B10). The drop-level refusals must
- * answer without one: a drop that is refused whole may not cost a round trip,
- * and a counter is the only way to see a request that was never made.
- */
-let listingCalls = 0;
-/**
- * Part B10 fix round: the drop dialog answers whether a copy is still writing
- * (`isDropRunning`), and a second drop while it is must be refused before it
- * is walked — two runs would race the panel refresh that follows a drop.
- */
-let copyRunning = false;
-
-/**
- * xterm's own `paste` handler on its helper textarea (the fixture's
- * `termTextarea`). `xtermPastes` counts it: the app taking a paste here
- * without stopping the event would let xterm type any `text/plain` beside
- * the files into the PTY unbracketed (PLAN-A9b §2).
- */
-let xtermPastes = 0;
-termTextarea.addEventListener('paste', () => {
-  xtermPastes += 1;
-});
-
-const DEPS = {
-  openDialog: (req: DropRequest) => opened.push(req),
-  // Part B2: a PROMISE, and keyed by the destination's name here only because
-  // this file's fakes are named that way — the module passes the whole
-  // destination through and reads nothing but what the dep answers.
-  listingFor: (d: Dest) => {
-    listingCalls += 1;
-    const answer = LISTINGS[d.name] ?? [];
-    if (!deferListing) return Promise.resolve(answer);
-    return new Promise<readonly string[]>((resolve) => {
-      releaseListing = () => resolve(answer);
-    });
-  },
-  destinationOfPane: () => (paneDest === null ? { dest: null, why: paneWhy } : { dest: paneDest }),
-  destinationOfActiveView: () => viewDest,
-  filesPanelDestination: () => panelDest,
-  pasteDestination: () => pasteDest,
-  selectedFolder: () => selectedDest,
-  copyRunning: () => copyRunning,
-  openPicker: (take: (files: readonly FileLikeIn[]) => void) => take(picked),
-  flash: (m: string) => flashes.push(m),
-};
-
-FD.initFileDrop(DEPS);
-
-beforeEach(() => {
-  opened = [];
-  flashes = [];
-  paneDest = dest('Home');
-  paneWhy = 'session';
-  panelDest = dest('nocturne');
-  viewDest = dest('Home');
-  pasteDest = dest('src');
-  selectedDest = null;
-  xtermPastes = 0;
-  picked = [];
-  deferListing = false;
-  releaseListing = null;
-  listingCalls = 0;
-  copyRunning = false;
-  scrim.hidden = true;
-  filesAside.hidden = false;
-  dom.win.timers.length = 0;
-  // Every test starts with no drag on screen (the previous one may have ended
-  // on a drop, which clears, or on nothing).
-  dispatch(dom.body, 'dragleave', { clientX: 0, clientY: 0, relatedTarget: null });
-  dom.doc.activeElement = dom.body;
-});
+beforeEach(resetWorld);
 
 // ===========================================================================
 // Targets and their visuals
@@ -229,7 +129,7 @@ test('over a pane: the pane-drop overlay shows, with no zone and the copy label'
 });
 
 test('over a pane whose session has no project: invalid, and the drop says why', async () => {
-  paneDest = null;
+  world.paneDest = null;
   const dt = FILES_DT();
   dragOver(OVER_PANE, dt);
   assert.equal(dt.dropEffect, 'none');
@@ -238,16 +138,16 @@ test('over a pane whose session has no project: invalid, and the drop says why',
 
   drop(OVER_PANE, FILES_DT());
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, [], 'nothing may be copied into a folder we cannot name');
-  assert.deepEqual(flashes, ['This session has no project folder yet.']);
+  assert.deepEqual(world.opened, [], 'nothing may be copied into a folder we cannot name');
+  assert.deepEqual(world.flashes, ['This session has no project folder yet.']);
 });
 
 test('over a FILE pane in a tab with no folder at all: the refusal says tab, not session', async () => {
   // `destinationOfPane` answers WHY it has no name (part A9 F6): a file or a
   // diff pane in a plain session tab has no session of its own to talk about,
   // so the sentence may not blame one.
-  paneDest = null;
-  paneWhy = 'tab';
+  world.paneDest = null;
+  world.paneWhy = 'tab';
   const dt = FILES_DT();
   dragOver(OVER_PANE, dt);
   assert.equal(dt.dropEffect, 'none');
@@ -255,8 +155,8 @@ test('over a FILE pane in a tab with no folder at all: the refusal says tab, not
 
   drop(OVER_PANE, FILES_DT());
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
-  assert.deepEqual(flashes, ['This tab has no project folder yet.']);
+  assert.deepEqual(world.opened, []);
+  assert.deepEqual(world.flashes, ['This tab has no project folder yet.']);
 });
 
 test('a FILES drag over the terminal inside a pane resolves to that pane, and its drop lands', async () => {
@@ -275,8 +175,8 @@ test('a FILES drag over the terminal inside a pane resolves to that pane, and it
   const dropped = drop(OVER_TERM, FILES_DT(), termHost);
   assert.equal(dropped.prevented, true);
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1, 'the dialog opens instead of the file');
-  assert.equal((opened[0] as DropRequest).dest.name, 'Home');
+  assert.equal(world.opened.length, 1, 'the dialog opens instead of the file');
+  assert.equal((world.opened[0] as DropRequest).dest.name, 'Home');
   assert.equal(paneBox(pane1).hidden, true, 'and the overlay goes with the drop');
 });
 
@@ -296,7 +196,7 @@ test('a modal is up: every target is invalid', async () => {
 
   drop(OVER_ROW, FILES_DT());
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
+  assert.deepEqual(world.opened, []);
 });
 
 test('the Files panel hidden behind the Projects drawer is no target at all', async () => {
@@ -320,8 +220,8 @@ test('the Files panel hidden behind the Projects drawer is no target at all', as
 
   drop(OVER_ROW, FILES_DT());
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, [], 'a panel that is off screen resolves no destination');
-  assert.deepEqual(flashes, [], 'and there is nothing to say about a drop on nothing');
+  assert.deepEqual(world.opened, [], 'a panel that is off screen resolves no destination');
+  assert.deepEqual(world.flashes, [], 'and there is nothing to say about a drop on nothing');
 });
 
 test('moving between targets clears the previous one', () => {
@@ -356,7 +256,7 @@ test('a text drag over a terminal is cancelled, with no visuals at all', async (
   const dropped = drop(OVER_TERM, TEXT_DT(), termHost);
   assert.equal(dropped.prevented, true);
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
+  assert.deepEqual(world.opened, []);
 });
 
 test('a text drag anywhere else is left completely alone', () => {
@@ -383,8 +283,8 @@ test('a drop hands the dialog the destination, the top-level items and the listi
 
   assert.equal(prevented, true);
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1, 'exactly one dialog per drop');
-  const req = opened[0] as DropRequest;
+  assert.equal(world.opened.length, 1, 'exactly one dialog per drop');
+  const req = world.opened[0] as DropRequest;
   assert.equal(req.dest.name, 'src');
   assert.deepEqual(req.items, [
     { name: 'report.md', dir: false, bytes: 120 },
@@ -406,8 +306,8 @@ test('a drop hands over the folder row that had the keyboard, so it can get it b
   rowSrc.focus();
   drop(OVER_ROW, FILES_DT());
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1);
-  assert.equal((opened[0] as DropRequest).returnFocus, rowSrc);
+  assert.equal(world.opened.length, 1);
+  assert.equal((world.opened[0] as DropRequest).returnFocus, rowSrc);
 });
 
 test('the dialog gets the element the drop came FROM, not the one focused a round trip later', async () => {
@@ -416,20 +316,20 @@ test('the dialog gets the element the drop came FROM, not the one focused a roun
   // focus moves for reasons of its own while a request travels (a pane
   // closing, a toast, the user tabbing), and a dialog that handed the keyboard
   // to whatever held it a round trip later would hand it to a stranger.
-  deferListing = true;
+  world.deferListing = true;
   rowSrc.focus();
   drop(OVER_ROW, FILES_DT());
   await settle();
-  assert.deepEqual(opened, [], 'non-vacuity: the dialog really is waiting for the listing');
+  assert.deepEqual(world.opened, [], 'non-vacuity: the dialog really is waiting for the listing');
 
   field.focus();
   assert.equal(dom.doc.activeElement, field, 'non-vacuity: the keyboard really moved meanwhile');
-  (releaseListing as () => void)();
+  (world.releaseListing as () => void)();
   await settle();
-  assert.equal(opened.length, 1);
-  assert.equal((opened[0] as DropRequest).returnFocus, rowSrc, 'the row the drop came from');
+  assert.equal(world.opened.length, 1);
+  assert.equal((world.opened[0] as DropRequest).returnFocus, rowSrc, 'the row the drop came from');
   assert.deepEqual(
-    (opened[0] as DropRequest).listing,
+    (world.opened[0] as DropRequest).listing,
     ['App.tsx', 'Pane.tsx'],
     'and the listing it waited for, not the empty one it started with',
   );
@@ -449,42 +349,42 @@ test('a Changes-tab row is no folder to copy into: the panel s own root takes th
   assert.equal(ghost()?.textContent, 'Copy 2 items into nocturne', 'never `src`');
   drop(OVER_GDIR, dt);
   await settle();
-  assert.equal(opened.length, 1);
-  assert.deepEqual((opened[0] as DropRequest).dest, panelDest);
+  assert.equal(world.opened.length, 1);
+  assert.deepEqual((world.opened[0] as DropRequest).dest, world.panelDest);
 
   // A changed FILE row is not a target of its own either, for the same reason.
-  opened = [];
+  world.opened = [];
   const dt2 = FILES_DT();
   dragOver(OVER_GFILE, dt2);
   assert.equal(rowGfile.classList.contains('is-drop'), false);
   assert.equal(ghost()?.textContent, 'Copy 2 items into nocturne');
   drop(OVER_GFILE, dt2);
   await settle();
-  assert.deepEqual((opened[0] as DropRequest).dest, panelDest);
+  assert.deepEqual((world.opened[0] as DropRequest).dest, world.panelDest);
 });
 
 test('a drop over nothing opens nothing and says nothing', async () => {
   drop(OVER_NOTHING, FILES_DT());
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
-  assert.deepEqual(flashes, []);
+  assert.deepEqual(world.opened, []);
+  assert.deepEqual(world.flashes, []);
 });
 
 test('more than 200 items is refused with one sentence, before any dialog', async () => {
   const many = Array.from({ length: 201 }, (_, i) => ({ name: `f${i}.txt`, size: 1 }));
   drop(OVER_ROW, makeDataTransfer({ items: many }));
-  assert.deepEqual(flashes, ['Too many items. Drop up to 200 at a time.']);
+  assert.deepEqual(world.flashes, ['Too many items. Drop up to 200 at a time.']);
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
+  assert.deepEqual(world.opened, []);
 });
 
 test('exactly 200 items still lands', async () => {
   const many = Array.from({ length: 200 }, (_, i) => ({ name: `f${i}.txt`, size: 1 }));
   drop(OVER_ROW, makeDataTransfer({ items: many }));
-  assert.deepEqual(flashes, []);
+  assert.deepEqual(world.flashes, []);
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.equal(opened.length, 1);
-  assert.equal((opened[0] as DropRequest).items.length, 200);
+  assert.equal(world.opened.length, 1);
+  assert.equal((world.opened[0] as DropRequest).items.length, 200);
 });
 
 // ===========================================================================
@@ -559,7 +459,7 @@ test('an in-app pointer drag owns the visuals; the cancellation stays the window
   const dropped = drop(OVER_ROW, FILES_DT());
   assert.equal(dropped.prevented, true, 'the drop the browser would navigate to is taken away from it');
   await settle(); // part B2: the listing is read before the dialog opens
-  assert.deepEqual(opened, []);
+  assert.deepEqual(world.opened, []);
 
   dispatch(dom.body, 'pointerup', { clientX: 10, clientY: 10, pointerId: 77 });
   source.remove();

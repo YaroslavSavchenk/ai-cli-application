@@ -57,6 +57,7 @@ import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, armButton } from './util.ts';
+import { relativeTime } from './format-model.ts';
 import {
   GH_SEARCH_DEBOUNCE_MS,
   chipView,
@@ -67,7 +68,6 @@ import {
   fmtTokenExpiry,
   langColor,
   ownerDest,
-  relTime,
   rememberNote,
   rememberSample,
   revokeNote,
@@ -84,9 +84,7 @@ import {
   credentialLost,
   drop,
   emit,
-  ensureHome,
   forgetCredentialLost,
-  homeDir,
   loadRepos,
   onGithubUpdate,
   poll,
@@ -97,6 +95,7 @@ import {
   setTabOpen,
   status,
 } from './github-state.ts';
+import { ensureHome, homeDir } from './home-store.ts';
 
 // The shared status controller lives in `github-state.ts` since O8; main.ts
 // keeps booting it from here.
@@ -492,7 +491,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       newNameInput.focus();
       return;
     }
-    const home = await ensureHome();
+    const home = await ensureHome(api.fsList);
     if (home === null) {
       newErr.textContent = 'couldn’t resolve your home directory — try again';
       newErr.hidden = false;
@@ -787,7 +786,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       meta.append(el('span', '', r.language)); // untrusted → textContent
       hasLang = true;
     }
-    const pushed = relTime(r.pushedAt, Date.now());
+    const pushed = relativeTime(r.pushedAt ?? '', Date.now());
     if (pushed !== '') {
       // A comma, attached to the text it follows — never a separator element
       // in its own flex slot (A2 copy rules).
@@ -810,7 +809,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     /** Repaint the action + status area from current state (cloning set + projects). */
     function paint(): void {
       const inFlightClone = cloning.has(r.fullName);
-      const project = clonedProject(r, homeDir, st.state.projects);
+      const project = clonedProject(r, homeDir(), st.state.projects);
       actionSlot.replaceChildren();
       statusSlot.replaceChildren();
       statusSlot.hidden = true;
@@ -849,7 +848,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     async function startClone(): Promise<void> {
       if (cloning.has(r.fullName)) return;
       rowErr = '';
-      const home = await ensureHome();
+      const home = await ensureHome(api.fsList);
       if (home === null) {
         rowErr = 'couldn’t resolve your home directory — try again';
         paint();
@@ -934,9 +933,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
         // Resolve $HOME so path-based already-cloned detection + the clone
         // destination are ready; rebuild the list once it lands (name-based
         // detection already works without it).
-        if (homeDir === null) {
-          void ensureHome().then(() => {
-            if (active && status?.state === 'connected' && homeDir !== null) {
+        if (homeDir() === null) {
+          void ensureHome(api.fsList).then(() => {
+            if (active && status?.state === 'connected' && homeDir() !== null) {
               bumpReposVersion();
               emit();
             }

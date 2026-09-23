@@ -39,10 +39,9 @@
  * waiting on them. The tone stays in `AgentTone` because the vocabulary is the
  * pane's, not this table's.
  */
-import type { SessionAgent, SessionInfo } from '../../../shared/protocol.ts';
+import { isClaudeCommand, type SessionAgent, type SessionInfo } from '../../../shared/protocol.ts';
 import type { AgentRow } from './pane-agents.ts';
 import type { StatusLineCfg } from './statusline-model.ts';
-import { isClaudeCommand } from './launch-args.ts';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;

@@ -4,7 +4,8 @@
  * transcript, the transcript read INCREMENTALLY and re-read after it shrank,
  * the pinned-clock stale rule (strictly past 15 minutes), the row caps and the
  * tracked cap, and every file that is not what its name says (a symlink, a
- * directory, a FIFO, a bad name, a meta that is not JSON, an over-long line).
+ * directory, a FIFO, a bad name, a meta that is not JSON, an over-long line),
+ * and a meta caught half-written (Q3, .claude/plans/PLAN-QUALITY.md).
  *
  * How: a real watcher over a real temp `<root>/<slug>/<uuid>/subagents`
  * directory, waiting on its reports (`makeWatcher`, `waitFor` in
@@ -23,7 +24,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { appendFile, mkdir, symlink, truncate, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, rename, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionAgent } from '../../shared/protocol.ts';
 import { type AgentsReport } from '../../server/agents.ts';
@@ -44,6 +45,7 @@ import {
   appendLines,
   waitFor,
   waitForReport,
+  NO_REPORT_MS,
 } from '../helpers/agents-fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -254,8 +256,8 @@ test('watcher: with nothing running, ONE finished row is sent — the most recen
     w.watcher.track('sess-1', w.dir);
     await waitFor(w.seen, (a) => a.length === 1 && a[0]?.state === 'finished');
     await waitForReport(w.seen, (r) => r.counts.finished === 5);
-    // A few polls of settling time: nothing more may arrive.
-    await sleep(120);
+    // Ten polls of settling time: nothing more may arrive.
+    await sleep(NO_REPORT_MS);
     const last = w.seen[w.seen.length - 1]?.report as AgentsReport;
     assert.deepEqual(last.agents.map((r) => r.name), ['fin-4'], `the freshest result only; got ${JSON.stringify(last)}`);
     assert.deepEqual(last.counts, { running: 0, finished: 5 });
@@ -291,7 +293,7 @@ test('watcher: a SYMLINK named like a transcript is refused, not followed', asyn
     assert.equal(rows[0]?.state, 'running');
     assert.equal(rows[0]?.startedAt, new Date(NOW_S * 1_000).toISOString(), 'the meta mtime, not the bait');
     // And it stays that way over the next polls: the refusal is not a race.
-    await sleep(120);
+    await sleep(NO_REPORT_MS);
     const last = w.seen[w.seen.length - 1]?.agents as SessionAgent[];
     assert.equal(last[0]?.tokens, 0);
     assert.equal(last[0]?.state, 'running');
@@ -310,7 +312,7 @@ test('watcher: a DIRECTORY named like a meta makes no row at all', async () => {
     await writeMeta(w.dir, 'ab', { agentType: 'real-one', description: '' }, NOW_S);
     w.watcher.track('sess-1', w.dir);
     const rows = await waitFor(w.seen, (a) => a.length >= 1);
-    await sleep(120);
+    await sleep(NO_REPORT_MS);
     const last = w.seen[w.seen.length - 1]?.agents as SessionAgent[];
     assert.equal(last.length, 1, `only the real agent; got ${JSON.stringify(last)}`);
     assert.equal(last[0]?.id, 'ab');
@@ -473,6 +475,52 @@ test('watcher: a meta that is not JSON, or has no agentType, still makes an hone
       assert.equal(row.name, 'agent', `${row.id}: the fallback, never a guess`);
       assert.equal(row.task, '');
     }
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a meta caught EMPTY is read again once its write lands with the same mtime (Q3)', async () => {
+  // The race (.claude/plans/PLAN-QUALITY.md § Q3): a poll lands between the
+  // meta's creation and its write, and the write keeps the same coarse mtime.
+  // The JSON arrives by rename from a sibling pinned to that same mtime, so no
+  // poll can ever see a different mtime in between — only the size changes.
+  const w = await makeWatcher();
+  try {
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    await writeMeta(w.dir, 'c1', '', NOW_S);
+    w.watcher.track('sess-1', w.dir);
+    // One poll has read the empty meta: its row is out, on the placeholder.
+    const first = await waitFor(w.seen, (a) => a.length === 1);
+    assert.equal(first[0]?.name, 'agent');
+    const staged = join(w.dir, 'staged.tmp');
+    await writeFile(staged, JSON.stringify({ agentType: 'honest', description: 'late write' }));
+    await utimes(staged, NOW_S, NOW_S);
+    await rename(staged, join(w.dir, 'agent-c1.meta.json'));
+    const rows = await waitFor(w.seen, (a) => a[0]?.name === 'honest', 2_000);
+    assert.equal(rows[0]?.task, 'late write');
+    assert.equal(rows[0]?.startedAt, new Date(NOW_S * 1_000).toISOString(), 'the mtime really stayed put');
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test('watcher: a meta that stays broken is not read again on every poll (Q3)', async () => {
+  // Every read of a broken meta logs its debug line, so the lines count the
+  // reads. Transcript growth proves later polls really ran.
+  const w = await makeWatcher();
+  try {
+    w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+    await writeMeta(w.dir, 'c2', 'not json at all');
+    await writeMeta(w.dir, 'c3', `{"agentType":"big","description":"${'x'.repeat(9_000)}"}`); // over 8 KiB
+    w.watcher.track('sess-1', w.dir);
+    await waitFor(w.seen, (a) => a.length === 2);
+    for (let i = 1; i <= 3; i++) {
+      await appendLines(w.dir, 'c2', [assistantLine(`2026-09-16T10:00:0${i}.000Z`, `m${i}`, { output_tokens: 1 })]);
+      await waitFor(w.seen, (a) => a.find((r) => r.id === 'c2')?.tokens === i);
+    }
+    assert.equal(w.logs.filter((l) => l.includes('agent c2: meta is not JSON')).length, 1);
+    assert.equal(w.logs.filter((l) => l.includes('agent c3: meta unreadable')).length, 1);
   } finally {
     await w.cleanup();
   }

@@ -25,7 +25,7 @@ import {
   TelemetryWatcher,
   transcriptFromSnapshot,
 } from '../../server/telemetry.ts';
-import { sleep, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
+import { sleep, makeTempDir, removeTempDir, waitUntil } from '../helpers/helpers.ts';
 
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
@@ -33,6 +33,26 @@ const DEL = String.fromCharCode(127);
 
 /** The fallback poll interval in server/telemetry.ts (not exported; kept in step here). */
 const POLL_MS = 2_000;
+
+/**
+ * The waits below that prove something did NOT happen (tests/README.md §
+ * Time). The watcher debounces each file event by 150 ms (DEBOUNCE_MS in
+ * server/telemetry.ts, not exported): PAST_DEBOUNCE_MS is four of those
+ * windows, so a watcher that would act on a write has acted by then.
+ */
+const PAST_DEBOUNCE_MS = 600;
+/**
+ * Long enough for a write's inotify event to land, well short of the 150 ms
+ * debounce: the moment a timer is pending and has not fired yet.
+ */
+const INSIDE_DEBOUNCE_MS = 50;
+/**
+ * A stop() that must land inside the debounce even on a slow runner: short,
+ * so a stalled timer turn cannot carry it past the 150 ms window.
+ */
+const EARLY_IN_DEBOUNCE_MS = 20;
+/** One full fallback poll pass, plus 500 ms of margin for the pass itself. */
+const ONE_POLL_PASS_MS = POLL_MS + 500;
 
 /** A fixed mtime (whole seconds, so it survives utimes exactly) for the poll test. */
 const PINNED_MTIME_S = 1_700_000_000;
@@ -303,13 +323,14 @@ async function writeSnapshot(dir: string, name: string, body: unknown): Promise<
 
 /** Wait until `seen` holds at least `count` entries, or fail after `ms`. */
 async function waitForSeen(seen: Seen[], count: number, ms = 5_000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (seen.length < count) {
-    if (Date.now() >= deadline) {
-      throw new Error(`timed out waiting for ${count} telemetry callback(s), got ${seen.length}`);
-    }
-    await sleep(25);
-  }
+  await waitUntil(
+    () => (seen.length >= count ? true : undefined),
+    `${count} telemetry callback(s)`,
+    ms,
+    25,
+  ).catch((err: unknown) => {
+    throw new Error(`${String(err)}, got ${seen.length}`);
+  });
 }
 
 test('watcher: a snapshot appearing in the directory is reported with its session id', async () => {
@@ -370,7 +391,7 @@ test('watcher: a filename that is not a session id NEVER reaches the callback', 
     await writeFile(join(w.dir, '..', 'escape.json'), JSON.stringify(body));
 
     // Give the watcher far longer than its debounce to do the wrong thing.
-    await sleep(600);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.equal(w.seen.length, 0, 'nothing was joined into a path or parsed');
 
     // And a legitimate name in the same directory still works, so the test
@@ -391,7 +412,7 @@ test('watcher: a file that vanished (its session ended) is skipped silently', as
     await writeFile(gone, JSON.stringify({ v: 1, at: Date.now(), model: 'Opus 5' }));
     // Removed inside the debounce window: the read finds nothing.
     await unlink(gone);
-    await sleep(600);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.deepEqual(w.seen, [], 'no callback for a session that is already gone');
     assert.equal(w.logs.some((l) => l.startsWith('error: ')), false, 'and nothing louder than debug');
   } finally {
@@ -405,7 +426,7 @@ test('watcher: garbage in the directory is ignored, and the watcher keeps workin
     w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-bad.json', 'not json at all');
     await writeSnapshot(w.dir, 'sess-v2.json', { v: 2, at: Date.now() });
-    await sleep(600);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.equal(w.seen.length, 0, 'neither a broken file nor a future schema is acted on');
     await writeSnapshot(w.dir, 'sess-good.json', { v: 1, at: Date.now(), model: 'Opus 5' });
     await waitForSeen(w.seen, 1);
@@ -424,7 +445,7 @@ test('watcher: stop() detaches — a write afterwards is never reported', async 
 
     w.watcher.stop();
     await writeSnapshot(w.dir, 'sess-2.json', { v: 1, at: Date.now(), model: 'Sonnet 5' });
-    await sleep(500);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.equal(w.seen.length, 1, 'a stopped watcher reports nothing');
     w.watcher.stop(); // Idempotent.
   } finally {
@@ -438,9 +459,9 @@ test('watcher: a write still in flight when stop() lands is dropped, not deliver
     w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-1.json', { v: 1, at: Date.now(), model: 'Opus 5' });
     // Inside the ~150 ms debounce: the pending timer must be cleared by stop().
-    await sleep(20);
+    await sleep(EARLY_IN_DEBOUNCE_MS);
     w.watcher.stop();
-    await sleep(500);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.deepEqual(w.seen, []);
   } finally {
     await w.cleanup();
@@ -472,16 +493,17 @@ test('watcher: a directory fs.watch cannot take falls back to polling and catche
     // a later file carrying that same mtime reads as "unchanged" forever and
     // the bar never updates again.
     await unlink(file);
-    await sleep(POLL_MS + 500); // One full pass with the file absent.
+    await sleep(ONE_POLL_PASS_MS); // One full pass with the file absent.
     await writeSnapshot(w.dir, 'sess-polled.json', { v: 1, at: Date.now(), model: 'Sonnet 5' });
     await utimes(file, PINNED_MTIME_S, PINNED_MTIME_S);
-    const deadline = Date.now() + 8_000;
-    while (!w.seen.some((s) => s.telemetry.model === 'Sonnet 5')) {
-      if (Date.now() >= deadline) {
-        throw new Error(`the session that came back was never reported: ${JSON.stringify(w.seen)}`);
-      }
-      await sleep(50);
-    }
+    await waitUntil(
+      () => (w.seen.some((s) => s.telemetry.model === 'Sonnet 5') ? true : undefined),
+      'the session that came back to be reported',
+      8_000,
+      50,
+    ).catch((err: unknown) => {
+      throw new Error(`${String(err)}: ${JSON.stringify(w.seen)}`);
+    });
   } finally {
     await w.cleanup();
   }
@@ -509,7 +531,7 @@ test('watcher #read: a SYMLINK named like a snapshot is refused, never followed'
     await writeFile(outside, JSON.stringify({ v: 1, at: Date.now(), model: 'Planted' }), { mode: 0o600 });
     await symlink(outside, join(w.dir, 'sess-link.json'));
 
-    await sleep(600); // Far past the 150 ms debounce.
+    await sleep(PAST_DEBOUNCE_MS); // Far past the 150 ms debounce.
     assert.equal(w.seen.length, 0, 'a symlink is not a snapshot, whatever it points at');
 
     // Control: the watcher is not simply dead.
@@ -530,7 +552,7 @@ test('watcher #read: a file bigger than 8 KiB is refused, and never parsed', asy
     // is someone filling the bar's read buffer, not a session reporting.
     const big = JSON.stringify({ v: 1, at: Date.now(), model: 'Opus 5', pad: 'x'.repeat(9 * 1024) });
     await writeSnapshot(w.dir, 'sess-big.json', big);
-    await sleep(600);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.equal(w.seen.length, 0, 'over the cap is refused, not truncated into something plausible');
 
     await writeSnapshot(w.dir, 'sess-small.json', { v: 1, at: Date.now(), model: 'Opus 5' });
@@ -624,7 +646,7 @@ test('watcher: stop() clears the pending debounce — a restart never delivers t
   try {
     w.watcher.start((id, telemetry, transcript) => w.seen.push({ id, telemetry, transcript }));
     await writeSnapshot(w.dir, 'sess-stale.json', { v: 1, at: Date.now(), model: 'Stale' });
-    await sleep(50); // The event has landed; its 150 ms timer is pending.
+    await sleep(INSIDE_DEBOUNCE_MS); // The event has landed; its 150 ms timer is pending.
     w.watcher.stop();
 
     // A restart (index.ts does exactly this across a backend restart) installs a
@@ -632,7 +654,7 @@ test('watcher: stop() clears the pending debounce — a restart never delivers t
     // ignored: whatever it would deliver describes the run that ended.
     const later: Seen[] = [];
     w.watcher.start((id, telemetry, transcript) => later.push({ id, telemetry, transcript }));
-    await sleep(600);
+    await sleep(PAST_DEBOUNCE_MS);
     assert.equal(later.length, 0, 'nothing left over from before stop() fires into the new callback');
     assert.equal(w.seen.length, 0, 'and nothing reached the old one either');
 

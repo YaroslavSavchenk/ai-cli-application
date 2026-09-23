@@ -3,14 +3,16 @@
  * `ui/github.ts`. DOM-free by construction, so `node --test` imports it
  * directly (same split as theme-model / newproject-model); fixtures (a fixed
  * `now`, repo and project builders) in `tests/helpers/ui-github-model-fixture.ts`.
- * This file: the token-expiry and device-code expiry formats, relative time,
- * Linguist language colours, and the poll/tick cadence. Split from
- * `tests/ui/ui-github-model.test.ts`.
+ * This file: the token-expiry and device-code expiry formats, Linguist
+ * language colours, and the poll/tick cadence. Split from
+ * `tests/ui/ui-github-model.test.ts`. The repo list's relative time was
+ * `relTime` (`5m ago`) until part Q1 folded it into ui/util.ts's
+ * `relativeTime` (`5 minutes ago`); its tests moved to `tests/ui/ui-util.test.ts`.
  *
  * The reason these were untestable before: every clock-dependent format read
  * `Date.now()` internally. `now` is now an injected ms-epoch parameter, so
- * every boundary below (59s/60s, 59m/60m, 23h/24h, 29d/30d, 11mo/12mo, and
- * expiry-already-past) is asserted at an exact instant, not approximately.
+ * every boundary below (expiry-already-past included) is asserted at an exact
+ * instant, not approximately.
  *
  * NOT claimed: that the panel really re-renders on the tick, and the colour
  * dot as drawn (browser work, `.claude/skills/verify-terminal/SKILL.md`).
@@ -29,7 +31,6 @@ import {
   fmtTokenExpiry,
   langColor,
   pollIntervalMs,
-  relTime,
 } from '../../web/src/ui/github-model.ts';
 import { NOW, SEC, MIN, HOUR, DAY, ago, ahead } from '../helpers/ui-github-model-fixture.ts';
 
@@ -135,68 +136,6 @@ test('fmtExpiry: the same instant with a later `now` counts down — the clock i
   assert.equal(fmtExpiry(iso, NOW), 'expires in 02:00');
   assert.equal(fmtExpiry(iso, NOW + 30 * SEC), 'expires in 01:30');
   assert.equal(fmtExpiry(iso, NOW + 2 * MIN), 'code expired — cancel and retry');
-});
-
-// ---------------------------------------------------------------------------
-// relTime — now injected
-// ---------------------------------------------------------------------------
-
-test('relTime: absent / empty / unparseable input renders nothing', () => {
-  assert.equal(relTime(undefined, NOW), '');
-  assert.equal(relTime('', NOW), '');
-  assert.equal(relTime('yesterday', NOW), '');
-  assert.equal(relTime('2026-13-45T99:99:99Z', NOW), '');
-});
-
-test('relTime: under a minute is "just now"', () => {
-  assert.equal(relTime(ago(0), NOW), 'just now');
-  assert.equal(relTime(ago(1 * SEC), NOW), 'just now');
-  assert.equal(relTime(ago(59 * SEC), NOW), 'just now');
-});
-
-test('relTime: the 60s boundary crosses to minutes', () => {
-  assert.equal(relTime(ago(60 * SEC), NOW), '1m ago');
-  assert.equal(relTime(ago(119 * SEC), NOW), '1m ago', 'minutes floor');
-  assert.equal(relTime(ago(59 * MIN), NOW), '59m ago');
-});
-
-test('relTime: the 60m boundary crosses to hours', () => {
-  assert.equal(relTime(ago(60 * MIN), NOW), '1h ago');
-  assert.equal(relTime(ago(90 * MIN), NOW), '1h ago', 'hours floor');
-  assert.equal(relTime(ago(23 * HOUR), NOW), '23h ago');
-});
-
-test('relTime: the 24h boundary crosses to days', () => {
-  assert.equal(relTime(ago(24 * HOUR), NOW), '1d ago');
-  assert.equal(relTime(ago(47 * HOUR), NOW), '1d ago', 'days floor');
-  assert.equal(relTime(ago(29 * DAY), NOW), '29d ago');
-});
-
-test('relTime: the 30d boundary crosses to months (a month is a flat 30 days)', () => {
-  assert.equal(relTime(ago(30 * DAY), NOW), '1mo ago');
-  assert.equal(relTime(ago(59 * DAY), NOW), '1mo ago');
-  assert.equal(relTime(ago(60 * DAY), NOW), '2mo ago');
-  assert.equal(relTime(ago(359 * DAY), NOW), '11mo ago');
-});
-
-test('relTime: the 12mo (360d) boundary crosses to years', () => {
-  assert.equal(relTime(ago(360 * DAY), NOW), '1y ago');
-  assert.equal(relTime(ago(719 * DAY), NOW), '1y ago');
-  assert.equal(relTime(ago(720 * DAY), NOW), '2y ago');
-  assert.equal(relTime(ago(3600 * DAY), NOW), '10y ago');
-});
-
-test('relTime: a future timestamp (clock skew) degrades to "just now", never a negative age', () => {
-  assert.equal(relTime(ahead(5 * MIN), NOW), 'just now');
-  assert.equal(relTime(ahead(365 * DAY), NOW), 'just now');
-});
-
-test('relTime: the same instant ages as `now` advances — the clock is the caller’s', () => {
-  const iso = ago(0);
-  assert.equal(relTime(iso, NOW), 'just now');
-  assert.equal(relTime(iso, NOW + 5 * MIN), '5m ago');
-  assert.equal(relTime(iso, NOW + 5 * HOUR), '5h ago');
-  assert.equal(relTime(iso, NOW + 5 * DAY), '5d ago');
 });
 
 // ---------------------------------------------------------------------------

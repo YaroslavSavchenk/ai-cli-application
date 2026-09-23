@@ -39,7 +39,7 @@
  * races the listener handover. Polling `/health` on the same origin is the
  * only honest "you can come back now".
  */
-import type { RestartResponse } from '../../../shared/protocol.ts';
+import { isPort, type RestartResponse } from '../../../shared/protocol.ts';
 import { errorText } from './util.ts';
 
 /** How often the gap is probed. Small: the whole wait is usually one second. */
@@ -143,21 +143,13 @@ export interface RestartDeps {
   onPhase(phase: RestartPhase): void;
 }
 
-/**
- * A real TCP port. `port` is only ever used to BUILD A NAVIGATION URL
- * (`loopbackUrl`), so `Number.isFinite` is not enough: 0, -1, 1e9 and 8080.5
- * are all finite and would each produce an address this window is asked to go
- * to. Only 1-65535 integers pass; anything else makes the body unparseable and
- * the flow waits on THIS origin instead of navigating somewhere invented.
- */
-function isPort(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535;
-}
-
 /** The 202 body, or null when it is not the shape the contract promises. */
 export function parseRestartBody(body: unknown): RestartResponse | null {
   if (body === null || typeof body !== 'object') return null;
   const o = body as Record<string, unknown>;
+  // `port` only ever BUILDS A NAVIGATION URL (`loopbackUrl`): a 0, -1, 1e9 or
+  // 8080.5 would each be an address this window is sent to, so an unparseable
+  // body makes the flow wait on THIS origin instead.
   if (!isPort(o.port)) return null;
   if (typeof o.startedAt !== 'string') return null;
   if (typeof o.samePort !== 'boolean') return null;

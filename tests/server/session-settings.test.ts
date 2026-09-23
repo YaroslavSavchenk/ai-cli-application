@@ -460,12 +460,40 @@ test('a non-claude command is never touched (the launcher stays generic)', async
   }
 });
 
+test('a command whose last `\\` segment is `claude` gets --settings like --session-id; `claude.exe` gets neither', async () => {
+  // One rule for "is this Claude Code?" (isClaudeCommand, Q1): the settings
+  // injection and the conversation pin must agree. Linux allows `\` in a file
+  // name, so the stub really is named `C:\x\claude` and the PTY really spawns it.
+  const server = await startTestServer();
+  const dir = await makeTempDir('ai-sm-stubbackslash-');
+  try {
+    const stub = '#!/bin/bash\necho "ARGV<$*>"\nexec sleep 300\n';
+    const claude = join(dir, 'C:\\x\\claude');
+    const exe = join(dir, 'C:\\x\\claude.exe');
+    await writeFile(claude, stub, { mode: 0o755 });
+    await writeFile(exe, stub, { mode: 0o755 });
+
+    const named = await createSession(server, { command: claude, args: [], cwd: projectRoot, cols: 80, rows: 24 });
+    assert.equal(named.statusline, true);
+    const file = join(server.dataDir, 'session-settings', `${named.id}.json`);
+    assert.equal(await spawnedArgv(server, named.id), `--settings ${file} --session-id ${named.id}`);
+
+    const other = await createSession(server, { command: exe, args: [], cwd: projectRoot, cols: 80, rows: 24 });
+    assert.equal(other.statusline, undefined);
+    assert.equal(await spawnedArgv(server, other.id), '', 'not Claude Code: the argv is the client argv');
+    assert.deepEqual(await readdir(join(server.dataDir, 'session-settings')), [`${named.id}.json`]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await server.stop();
+  }
+});
+
 test('the settings file is removed when the session EXITS and when it is DELETED', async () => {
   const server = await startTestServer();
   const stub = await makeStubClaude();
   const shortLived = join(stub.dir, 'quick');
   try {
-    // A `claude` that exits immediately: same basename rule, different lifetime.
+    // A `claude` that exits immediately: same last-segment rule, different lifetime.
     await mkdir(shortLived);
     const quickBin = join(shortLived, 'claude');
     await writeFile(quickBin, '#!/bin/bash\nexit 7\n');

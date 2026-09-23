@@ -23,7 +23,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ServerMessage, SessionAgent, SessionInfo } from '../../shared/protocol.ts';
 import { sameReport, turnOfLine, type AgentsReport } from '../../server/agents.ts';
-import { sleep, makeTempDir } from '../helpers/helpers.ts';
+import { sleep, makeTempDir, waitUntil } from '../helpers/helpers.ts';
 import {
   UUID,
   OTHER_UUID,
@@ -42,6 +42,8 @@ import {
   appendMain,
   filler,
   plantAgents,
+  MANY_POLLS_MS,
+  NO_REPORT_MS,
 } from '../helpers/agents-fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -152,7 +154,7 @@ test('watcher: a MISSING transcript reads waiting — a turn-only report, no age
     w.watcher.track('sess-1', w.dir);
     const report = await waitForReport(w.seen, (r) => r.turn === 'waiting');
     assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 }, turn: 'waiting' });
-    await sleep(120);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 1, 'an unchanged turn is delivered once');
   } finally {
     await w.cleanup();
@@ -167,13 +169,13 @@ test('watcher: the turn follows the transcript as it grows — prompt, tool, ans
     w.watcher.track('sess-1', w.dir);
     await waitForReport(w.seen, (r) => r.turn === 'working');
     await appendMain(w, [REAL.toolUse, REAL.toolResult]);
-    await sleep(100);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen[w.seen.length - 1]?.report.turn, 'working');
     await appendMain(w, [REAL.endTurn]);
     await waitForReport(w.seen, (r) => r.turn === 'waiting');
     // A local command after the answer changes nothing.
     await appendMain(w, [REAL.commandName, REAL.commandStdout]);
-    await sleep(100);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen[w.seen.length - 1]?.report.turn, 'waiting');
     await appendMain(w, [REAL.prompt]);
     await waitForReport(w.seen, (r) => r.turn === 'working');
@@ -196,7 +198,7 @@ test('watcher: a transcript with no counting line has NO turn and says nothing',
     await appendMain(w, [REAL.meta, REAL.commandName, JSON.stringify({ type: 'system' }), 'torn{']);
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, 'no agents and no turn: nothing to announce');
   } finally {
     await w.cleanup();
@@ -212,7 +214,7 @@ test('watcher: first sight reads only the TAIL — a counting line before the la
     await writeFile(mainFile(w), `${REAL.prompt}\n${filler(TURN_TAIL_BYTES + 64 * 1024)}`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `the head was read; got ${JSON.stringify(w.seen[0]?.report)}`);
     // And from here on it is incremental: the next line is seen.
     await appendMain(w, [REAL.endTurn]);
@@ -237,7 +239,7 @@ test('watcher: the tail drops its PARTIAL first line, and keeps one that starts 
     await writeFile(mainFile(a), body, { mode: 0o600 });
     a.watcher.start((id, report) => a.seen.push({ id, agents: report.agents, report }));
     a.watcher.track('sess-1', a.dir);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(a.seen.length, 0, `the partial first line counted; got ${JSON.stringify(a.seen[0]?.report)}`);
   } finally {
     await a.cleanup();
@@ -302,7 +304,15 @@ test('watcher: a SYMLINK at the main transcript is refused — even one pointing
     await symlink(decoy, mainFile(w));
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await sleep(250);
+    // The refusal is a condition: wait for it. That it stays ONE is the
+    // silence after it, over many polls.
+    await waitUntil(
+      () => (w.logs.some((l) => l.includes('resolves outside the projects root, refused')) ? true : undefined),
+      'the symlink refusal',
+      5_000,
+      10,
+    );
+    await sleep(MANY_POLLS_MS);
     assert.equal(w.seen.length, 0, `followed the symlink; got ${JSON.stringify(w.seen[0]?.report)}`);
     const refusals = w.logs.filter((l) => l.includes('resolves outside the projects root, refused'));
     assert.equal(refusals.length, 1, `once, not once per poll; logs ${JSON.stringify(w.logs)}`);
@@ -312,7 +322,7 @@ test('watcher: a SYMLINK at the main transcript is refused — even one pointing
       await writeFile(join(outside, 'secret.jsonl'), `${REAL.endTurn}\n`, { mode: 0o600 });
       await rm(mainFile(w));
       await symlink(join(outside, 'secret.jsonl'), mainFile(w));
-      await sleep(200);
+      await sleep(NO_REPORT_MS);
       assert.equal(w.seen.length, 0);
     } finally {
       await rm(outside, { recursive: true, force: true });
@@ -335,7 +345,7 @@ test('watcher: a DANGLING symlink at the main transcript is not "missing" — no
     await symlink(join(w.root, 'nowhere.jsonl'), mainFile(w));
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await w.cleanup();
@@ -359,7 +369,7 @@ test('watcher: a PARENT directory swapped for a symlink out of the root is refus
     // The verdict goes AWAY (refused), it never becomes the outside file's 'waiting'.
     const report = await waitForReport(w.seen, (r) => r.turn === undefined);
     assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
-    await sleep(150);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.some((s) => s.report.turn === 'waiting'), false);
     assert.equal(w.logs.filter((l) => l.includes('resolves outside the projects root, refused')).length, 1);
   } finally {
@@ -390,7 +400,7 @@ test('watcher: a tracked directory not shaped `<parent>/<uuid>/subagents` derive
     await writeFile(join(w.root, '-slug', 'not-a-uuid.jsonl'), `${REAL.prompt}\n`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', odd);
-    await sleep(200);
+    await sleep(NO_REPORT_MS);
     assert.equal(w.seen.length, 0);
   } finally {
     await w.cleanup();
@@ -485,11 +495,12 @@ test('SessionManager: the exit drops `turn` in the frame before `exit`, and a la
     m.manager.setReport(info.id, report([], { turn: 'working' }));
     assert.equal(m.manager.get(info.id)?.turn, 'working');
 
-    const deadline = Date.now() + 10_000;
-    while (m.manager.get(info.id)?.status !== 'exited') {
-      if (Date.now() >= deadline) throw new Error('the session never exited');
-      await sleep(20);
-    }
+    await waitUntil(
+      () => (m.manager.get(info.id)?.status === 'exited' ? true : undefined),
+      'the session to exit',
+      10_000,
+      20,
+    );
     assert.equal(m.manager.get(info.id)?.turn, undefined);
     const exitAt = client.frames.findIndex((f) => f.type === 'exit');
     assert.ok(exitAt > 0);

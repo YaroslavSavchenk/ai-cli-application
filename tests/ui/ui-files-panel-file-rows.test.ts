@@ -8,7 +8,8 @@
  * REAL `web/src/state.ts`, `ui/util.ts`, `ui/icons.ts`, `ui/files-model.ts`,
  * `ui/fs-model.ts`, `ui/commit-model.ts` and `ui/commit-store.ts`, with the
  * backend a fake `FsGateway` (`tests/helpers/fs-fixture.ts` over
- * `tests/helpers/commits-fixture.ts`) — no HTTP, no module stubbing, no clock.
+ * `tests/helpers/commits-fixture.ts`) — no HTTP, no module stubbing, no real
+ * clock: `ui/dnd.ts`'s post-drag click swallow runs on a clock this file owns.
  * Booted once per file by `tests/helpers/ui-files-panel-fixture.ts` and reset
  * before every test (`resetPanel`).
  *
@@ -31,7 +32,7 @@ import {
   settle,
   mkProject as project,
 } from '../helpers/fs-fixture.ts';
-import { FILES_PANEL_SOURCES, sleep, readSources } from '../helpers/helpers.ts';
+import { FILES_PANEL_SOURCES, readSources } from '../helpers/helpers.ts';
 import {
   bindRootNow,
   dirRow,
@@ -66,6 +67,16 @@ bindRootNow({
 });
 
 beforeEach(resetPanel);
+
+// The SAME `ui/dnd.ts` instance files.ts arms its rows with (one module URL).
+// Its click swallow is measured on this clock, so the drag test below steps it
+// past the window instead of sleeping through 80 ms of real time.
+const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).href)) as {
+  CLICK_SWALLOW_MS: number;
+  setClickSwallowClock(now: () => number): void;
+};
+let clickClock = 0;
+DND.setClickSwallowClock(() => clickClock);
 
 // ---------------------------------------------------------------------------
 // A file row as a source: click, drag, chord (Nocturne A10)
@@ -139,8 +150,9 @@ test('a file row is a pointer drag source — and says so, naming its keyboard t
   assert.equal(file.classList.contains('is-dragging'), false);
   assert.equal(anyFileSlot(), false, 'a drag onto nothing opens nothing');
   // ui/dnd.ts swallows the click that a finished drag would otherwise fire,
-  // for 80ms of REAL time. Wait it out, or the next test's click is eaten.
-  await sleep(90);
+  // for CLICK_SWALLOW_MS. Step its clock past that window, or the next test's
+  // click is eaten.
+  clickClock += DND.CLICK_SWALLOW_MS;
 });
 
 test('ctrl+alt+enter on a focused row splits the focused pane — the twin of the edge drop', async () => {

@@ -216,7 +216,10 @@ function trimSlashes(path: string): string {
 }
 
 /**
- * A folder path plus one segment. `name` is a segment the caller has already
+ * A folder path plus one segment — the app's ONE join (Q1 folded the New
+ * Project dialog's and the drop upload's copies into it): every trailing `/`
+ * of `dir` is trimmed, so there is never a `//`, and the root stays `/`
+ * (`/` + `home` is `/home`). `name` is a segment the caller has already
  * put through `nameProblem` (or a name the server listed), so this never has
  * to interpret it — it only places the separator, and places exactly one even
  * at the filesystem root.

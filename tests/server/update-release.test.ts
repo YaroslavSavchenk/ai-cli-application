@@ -38,6 +38,14 @@ import {
   LATEST_RELEASE_PATH,
 } from '../../server/update-release.ts';
 import { sleep, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
+
+/**
+ * How long a manual check gets to resolve WRONGLY (on the old status) while
+ * the periodic run is still mid-request — a wait that proves something did
+ * NOT happen (tests/README.md § Time). A promise chain settles in microtasks;
+ * 50 ms is thousands of turns.
+ */
+const STILL_PENDING_MS = 50;
 import {
   CURRENT,
   type Seen,
@@ -130,7 +138,7 @@ test('release check: a check asked while one is IN FLIGHT adopts it instead of r
     const manual = fx.checker.checkNow().then(() => {
       manualDone = true;
     });
-    await sleep(50);
+    await sleep(STILL_PENDING_MS);
     assert.equal(manualDone, false, 'the manual check did NOT resolve on the old status');
     assert.equal(fx.checker.status().available, false, 'and nothing was applied yet');
 
@@ -197,7 +205,7 @@ test('release check: a manual check landing inside the PERIODIC run adopts it �
     const manual = checker.checkNow().then(() => {
       manualDone = true;
     });
-    await sleep(50);
+    await sleep(STILL_PENDING_MS);
     assert.equal(manualDone, false, 'the button did not resolve on the pre-check status');
     assert.equal(stub.requests.length, 1, 'and it started no second request');
     assert.equal(checker.status().available, false, 'nothing applied while the run is open');

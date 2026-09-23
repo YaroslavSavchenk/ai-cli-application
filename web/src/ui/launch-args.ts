@@ -1,7 +1,7 @@
 /**
  * Launch-dialog argv vocabulary and composition — DOM-free, xterm-free, so
  * plain `node:test` can import it (same pattern as `modelFromArgs` /
- * `permFromArgs` in `./util.ts`). `launch.ts` renders these; nothing here
+ * `permFromArgs` in `./format-model.ts`). `launch.ts` renders these; nothing here
  * touches the document.
  *
  * This file is also the single source of the PLAIN-LANGUAGE copy for the
@@ -31,7 +31,7 @@
  * — model, permission, effort, then the start-from tail — and pinned byte-exact
  * by `tests/ui/ui-launch-args.test.ts`.
  */
-import type { ClaudePermissionMode, PermissionMode } from '../../../shared/protocol.ts';
+import { commandBase, type ClaudePermissionMode, type PermissionMode } from '../../../shared/protocol.ts';
 
 /** What the known agent is CALLED in the UI — a product name, not a command. */
 export const AGENT_LABEL = 'Claude Code';
@@ -683,24 +683,6 @@ export function composeSpawn(f: LaunchForm): SpawnSpec | null {
  */
 export function hasContinueFlag(args: readonly string[]): boolean {
   return args.includes('--continue') || args.includes('-c');
-}
-
-/**
- * Is this the known agent? The SAME rule the server's history/resume path uses
- * (`basename(command) === 'claude'`, server/conversation.ts): a custom command
- * that merely happens to take a `-c` flag is not a Claude session and must not
- * be told anything about Claude conversations.
- *
- * Both separators are cut, because the command is whatever the user typed.
- */
-export function isClaudeCommand(command: string): boolean {
-  return commandBase(command) === 'claude';
-}
-
-/** The last path segment of a command, both separators cut (it is user input). */
-function commandBase(command: string): string {
-  const parts = command.split(/[/\\]/);
-  return parts[parts.length - 1] ?? command;
 }
 
 /**

@@ -7,9 +7,11 @@
  * terminal), an empty state, a scrim — plus the points over each surface and
  * the dispatch helpers. Not a test.
  *
- * The injected deps and their mutable state stay in each test file: the tests
- * reassign them, which an imported binding cannot be. Each file calls
- * `FD.initFileDrop(DEPS)` itself — one process per file, one wiring each.
+ * The injected deps and the state they answer from are ONE mutable object,
+ * `world`: the tests reassign that state (`world.opened = …`), which an
+ * imported `let` could not be. `FD.initFileDrop(DEPS)` runs once, here, on
+ * import — `node --test` gives each test file its own process, so that is
+ * still one wiring per file. Each file registers `beforeEach(resetWorld)`.
  */
 import {
   byClass,
@@ -19,6 +21,7 @@ import {
   setRect,
   type FakeDataTransfer,
   type FakeElement,
+  type FakeFile,
 } from './fake-dom.ts';
 import { nextImmediate } from './helpers.ts';
 
@@ -143,10 +146,9 @@ export const termHost = div('term-host', { left: 810, top: 40, width: 480, heigh
 /**
  * xterm's own helper textarea, which is where a plain ctrl+v inside a focused
  * terminal really fires its `paste` — so it is BOTH a terminal target and an
- * editable one. xterm's own `paste` handler on it is registered (and counted)
- * by the test file that needs it (`xtermPastes`).
+ * editable one. xterm's own `paste` handler on it is registered (and counted,
+ * `world.xtermPastes`) below, before the module is wired.
  */
-
 export const termTextarea = dom.doc.createElement('textarea');
 setRect(termTextarea, { left: 810, top: 40, width: 480, height: 340 });
 
@@ -231,3 +233,113 @@ export function flushTimers(): void {
 export const FILES_DT = (): FakeDataTransfer =>
   makeDataTransfer({ items: [{ name: 'a.ts', size: 10 }, { name: 'b.ts', size: 20 }] });
 export const TEXT_DT = (): FakeDataTransfer => makeDataTransfer({ types: ['text/plain'] });
+
+// ---------------------------------------------------------------------------
+// The injected deps and the state they answer from. One object, so a test
+// piece can assign `world.x` (an imported binding cannot be assigned); the
+// shell they act on is above.
+// ---------------------------------------------------------------------------
+
+export interface World {
+  opened: DropRequest[];
+  flashes: string[];
+  paneDest: Dest | null;
+  /** Which refusal `destinationOfPane` reports when it names no folder (A9 F6). */
+  paneWhy: 'session' | 'tab';
+  panelDest: Dest | null;
+  viewDest: Dest | null;
+  pasteDest: Dest | null;
+  /** A9b: the folder the user CHOSE in the panel, or nothing chosen. */
+  selectedDest: Dest | null;
+  picked: FakeFile[];
+  /**
+   * Part B2: the listing is a real request, so a test can hold it and let the
+   * world move while it travels — which is the only way to see WHEN `offer()`
+   * reads the focus. Off by default: every other test answers at once.
+   */
+  deferListing: boolean;
+  releaseListing: (() => void) | null;
+  /**
+   * How many listing REQUESTS were made (part B10). The drop-level refusals must
+   * answer without one: a drop that is refused whole may not cost a round trip,
+   * and a counter is the only way to see a request that was never made.
+   */
+  listingCalls: number;
+  /**
+   * Part B10 fix round: the drop dialog answers whether a copy is still writing
+   * (`isDropRunning`), and a second drop while it is must be refused before it
+   * is walked — two runs would race the panel refresh that follows a drop.
+   */
+  copyRunning: boolean;
+  /**
+   * xterm's own `paste` handler on its helper textarea (`termTextarea` above)
+   * counts here: the app taking a paste there without stopping the event
+   * would let xterm type any `text/plain` beside the files into the PTY
+   * unbracketed (PLAN-A9b §2).
+   */
+  xtermPastes: number;
+}
+
+/** The state every test starts from. */
+function freshWorld(): World {
+  return {
+    opened: [],
+    flashes: [],
+    paneDest: dest('Home'),
+    paneWhy: 'session',
+    panelDest: dest('nocturne'),
+    viewDest: dest('Home'),
+    pasteDest: dest('src'),
+    selectedDest: null,
+    picked: [],
+    deferListing: false,
+    releaseListing: null,
+    listingCalls: 0,
+    copyRunning: false,
+    xtermPastes: 0,
+  };
+}
+
+export const world: World = freshWorld();
+
+termTextarea.addEventListener('paste', () => {
+  world.xtermPastes += 1;
+});
+
+export const DEPS = {
+  openDialog: (req: DropRequest) => world.opened.push(req),
+  // Part B2: a PROMISE, and keyed by the destination's name here only because
+  // these fakes are named that way — the module passes the whole
+  // destination through and reads nothing but what the dep answers.
+  listingFor: (d: Dest) => {
+    world.listingCalls += 1;
+    const answer = LISTINGS[d.name] ?? [];
+    if (!world.deferListing) return Promise.resolve(answer);
+    return new Promise<readonly string[]>((resolve) => {
+      world.releaseListing = () => resolve(answer);
+    });
+  },
+  destinationOfPane: () =>
+    world.paneDest === null ? { dest: null, why: world.paneWhy } : { dest: world.paneDest },
+  destinationOfActiveView: () => world.viewDest,
+  filesPanelDestination: () => world.panelDest,
+  pasteDestination: () => world.pasteDest,
+  selectedFolder: () => world.selectedDest,
+  copyRunning: () => world.copyRunning,
+  openPicker: (take: (files: readonly FileLikeIn[]) => void) => take(world.picked),
+  flash: (m: string) => world.flashes.push(m),
+};
+
+FD.initFileDrop(DEPS);
+
+/** Every test's `beforeEach`: the state back to its start, the shell at rest. */
+export function resetWorld(): void {
+  Object.assign(world, freshWorld());
+  scrim.hidden = true;
+  filesAside.hidden = false;
+  dom.win.timers.length = 0;
+  // Every test starts with no drag on screen (the previous one may have ended
+  // on a drop, which clears, or on nothing).
+  dispatch(dom.body, 'dragleave', { clientX: 0, clientY: 0, relatedTarget: null });
+  dom.doc.activeElement = dom.body;
+}

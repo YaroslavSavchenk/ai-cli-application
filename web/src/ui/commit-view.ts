@@ -39,6 +39,7 @@
  */
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
+import { relativeTime } from './format-model.ts';
 import { caretLeftIcon } from './icons.ts';
 import {
   BINARY_TEXT,
@@ -48,12 +49,10 @@ import {
   blockDomId,
   collapseKey,
   committedByText,
-  fileName,
   filesChangedText,
   fullDateTime,
   githubCommitUrl,
   moreFilesText,
-  relativeTime,
 } from './commit-model.ts';
 import {
   askDiff,
@@ -64,7 +63,7 @@ import {
   syncCommit,
   type Asked,
 } from './commit-store.ts';
-import { rootForSubject } from './slots-model.ts';
+import { fileName, rootForSubject } from './slots-model.ts';
 import { caretGlyph } from './files-model.ts';
 import { LOADING_TEXT, joinPath } from './fs-model.ts';
 import { openExternal } from './open-external.ts';

@@ -8,8 +8,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { joinPath } from '../../web/src/ui/fs-model.ts';
 import {
-  joinPath,
   parentDir,
   repoBasename,
   breadcrumbs,

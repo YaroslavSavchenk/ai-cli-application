@@ -18,9 +18,10 @@
  * ended session can be RESUMED on this or a later run (history.ts).
  *
  * FOUR agent-specific behaviours live here, all deliberately narrow, all keyed
- * on `basename(command)` and all confined to the PTY's argv/env — none of them
- * ever enters SessionInfo.args (so history stores the CLIENT's argv and a
- * resume re-injects from scratch):
+ * on the command's last `/` or `\` segment (the shared `commandBase` /
+ * `isClaudeCommand`, Q1) and all confined to the PTY's argv/env —
+ * none of them ever enters SessionInfo.args (so history stores the CLIENT's
+ * argv and a resume re-injects from scratch):
  *   - claude: a per-session settings file injected as `--settings <file>` so
  *     Claude Code draws OUR status line (session-settings.ts);
  *   - claude: an injected `--session-id <uuid>` pinning the launch to a
@@ -43,7 +44,7 @@ import { basename } from 'node:path';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
-import { isKeyedTool, KEY_ENV } from '../shared/protocol.ts';
+import { commandBase, isClaudeCommand, isKeyedTool, KEY_ENV } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
 import { planCmdStart } from './winpath.ts';
@@ -260,9 +261,15 @@ export class SessionManager {
     // remembers — a resume must get a FRESH settings file, not a path this
     // boot's wipe already removed.
     let spawnArgs = [...opts.args];
-    const tool = basename(opts.command);
+    // Which tool this is has ONE answer, the shared last-segment rule cut on `/`
+    // AND `\` (commandBase / isClaudeCommand, Q1) — the one planConversation
+    // uses for --session-id. So `C:\tools\claude` gets --settings and its key
+    // exactly as it gets the conversation pin, and every keyed tool and cmd.exe
+    // is named the same way.
+    const tool = commandBase(opts.command);
+    const claude = isClaudeCommand(opts.command);
     let statusline = false;
-    if (this.#settings !== undefined && tool === 'claude' && !hasSettingsArg(opts.args)) {
+    if (this.#settings !== undefined && claude && !hasSettingsArg(opts.args)) {
       const file = this.#settings.write(id, parsePermissionMode(opts.args));
       if (file !== undefined) {
         spawnArgs = [...spawnArgs, '--settings', file];

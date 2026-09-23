@@ -12,6 +12,7 @@
  */
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
+import { relativeTime } from './format-model.ts';
 import { openFileGuarded } from './unsaved.ts';
 import { fileName } from './slots-model.ts';
 import { caretLeftIcon, folderIcon } from './icons.ts';
@@ -34,7 +35,6 @@ import {
   filesChangedText,
   fullDateTime,
   moreFilesText,
-  relativeTime,
 } from './commit-model.ts';
 import { commitAsked } from './commit-store.ts';
 import type { GitChangesResponse, GitCommitSummary, GitCommitsResponse } from '../../../shared/protocol.ts';
