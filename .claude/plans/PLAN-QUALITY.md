@@ -14,7 +14,7 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | P2 | Split and close keep the panes that did not move (no replay for them) | landed | — | 2026-09-23 |
 | P3 | One resize per pane at boot; cache headers for the hashed `/assets/*` | landed | — | 2026-09-23 |
 | P4 | Successful polls: one summary line a minute instead of one line each (the idle log −97 %) | landed | — | 2026-09-23 |
-| P5 | Tab switch without a replay (inactive tabs kept alive) | todo — **next**, the user decides (P1–P4 measured again: tab switch 1→4 still ~200–250 ms) | — | |
+| P5 | Tab switch without a replay: inactive tabs stay alive, at most 12 live terminals, least recently seen tab falls back | landed | — | 2026-09-23 |
 
 ## Resume here
 
@@ -61,8 +61,12 @@ volgende keer dit wel op zo'n manier gedaan wordt". Answers the same day:
    once, as before. The browser ships no line for a quiet success. Every
    other request logs as before; the 2026-09-06 "log everything" rule
    otherwise holds.
-   **Tab switch (P5) waits**: re-measure after P1–P4, then decide on keeping
-   inactive tabs alive (memory and the WebGL context limit).
+   **Tab switch (P5)**: after P1–P4 a switch to a 4-pane tab still took
+   ~220 ms (xterm parsing the replay). The user: "doe het, p5" — inactive
+   tabs stay alive. The orchestrator set the bounds: at most 12 live
+   terminals (Chromium allows ~16 WebGL contexts), the least recently seen
+   tab's terminals are disposed first and replay on return as before; a
+   hidden pane never marks its session as seen.
 
 ## Fixed rules for every part
 

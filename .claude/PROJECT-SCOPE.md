@@ -23,8 +23,13 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   spawns each session in a real pseudo-terminal via **node-pty**, streams I/O
   over **WebSocket**, and serves the frontend over HTTP.
 - **Frontend: vanilla TypeScript + Vite** — no UI framework (decided
-  2026-07-18). Terminal rendering via **xterm.js**, one instance per visible
-  pane. WebGL renderer, fit addon for sizing, bounded scrollback.
+  2026-07-18). Terminal rendering via **xterm.js**, one instance per pane of the
+  active tab AND of recently seen tabs (since 2026-09-23, PLAN-QUALITY P5:
+  an inactive tab's terminals stay alive, hidden, at most
+  `MAX_LIVE_TERMINALS` = 12; the least recently seen tab is disposed first
+  and replays on return; a hidden pane sends no resize and acks no BEL).
+  WebGL renderer (its context released explicitly on dispose), fit addon
+  for sizing, bounded scrollback.
 - **Sessions are first-class server-side objects.** The PTY and its state live
   in the backend; the browser is only a view. Sessions keep running when their
   pane is hidden; reopening a window reattaches with scrollback replayed.

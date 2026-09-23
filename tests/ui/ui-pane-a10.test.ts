@@ -109,8 +109,8 @@ test('a slot that changes KIND is converted in place — never through a rebuild
   // `tests/ui/ui-panes-relayout.test.ts`.
   assert.match(
     render,
-    /if \(v\.id !== renderedViewId\) rebuild\(v, count\);\s*else relayout\(v, count\);/,
-    'the rebuild signature is the TAB, not the layout or the contents',
+    /if \(v\.id !== renderedViewId\) switchTab\(v, count\);\s*else \{\s*enforceCap\(v\);\s*relayout\(v, count\);/,
+    'the switch signature is the TAB (P5: a switch parks, it no longer rebuilds), not the layout or the contents',
   );
   const relayout = fn(PANES, 'function relayout(v: st.ViewState, count: number): void {');
   assert.match(relayout, /planCards\(/, 'the cards are kept by the reuse rule');

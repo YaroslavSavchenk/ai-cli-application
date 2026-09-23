@@ -402,9 +402,11 @@ under `prefers-reduced-motion`; the word says it without them.
 
 ## Guarantees
 
-- Resize chain: every geometry change (divider, panel toggle, tab switch,
-  split change) flows container resize → FitAddon → ws `resize` →
-  `pty.resize`.
+- Resize chain: every geometry change (divider, panel toggle, split
+  change) flows container resize → FitAddon → ws `resize` → `pty.resize`.
+  A tab that comes back from parking (PLAN-QUALITY P5) takes the path
+  `show()` → FitAddon → ws `resize` once, only when its size changed while
+  hidden.
 - Plain keys (Ctrl+C, Esc, arrows) are never intercepted; app chords are the
   Ctrl+Alt family with the AltGraph guard (PROJECT-SCOPE, Hard technical
   constraints).

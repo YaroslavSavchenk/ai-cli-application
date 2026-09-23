@@ -116,6 +116,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-09
 
+- [[2026-09-23-quality-p5]] — P5 landed: inactive tabs stay alive (≤ 12 terminals, LRU tab evicted), return 0 B / ~35 ms instead of 1.37 MB / ~250 ms, +~140 MiB at the cap; WebGL contexts released on dispose (52 warnings → 0); verify caught a torn `top` after a hidden resize — xterm's renderer is paused while display:none, fit only after its IntersectionObserver
 - [[2026-09-23-quality-p1-p4]] — P1–P4 landed: replay = last 5200 lines, split/close keep unmoved panes (0 B instead of 2.6–3.8 MB), one boot resize, immutable assets (warm load 8 kB), poll summary line (idle log 64 → 1 line/min); verify-terminal V1–V9 PASS; the tab switch (~220 ms) is P5's question
 - [[2026-09-23-quality-p0-measurements]] — P0: the app's cost measured (boot 160 ms, idle ~0.2 % CPU; the real cost is scrollback replay: 3.8–5.1 MB and up to 1.1 s stall per split/tab switch; no static cache headers; double resize at boot; poll = 94 % of the idle log); ten ranked proposals, the user picks
 - [[2026-09-23-quality-q0]] — **Q0–Q4 landed** — quality track opened (`PLAN-QUALITY.md`, "begin aan de kwaliteit"; code quality first, then speed measured and chosen by the user); Q0: `CONTRIBUTING.md` (how code is written: functions first, module shapes, one home per helper, no dead code) + `tests/repo/no-duplicate-code.test.ts` (found 4 pairs, shrink-only list for Q1)

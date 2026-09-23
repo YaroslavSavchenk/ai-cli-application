@@ -5,12 +5,9 @@
  * socket, never disposed, never attached again — and only a NEW pane attaches.
  *
  * How: the REAL panes.ts, on the DOM double (`helpers/fake-dom.ts`), driven by
- * the REAL state transitions (`web/src/state.ts`). `registerHooks` swaps the
- * five imports that cannot run here for recorders: `./terminal.ts` (xterm is a
- * browser bundle — the stub TerminalView records construct, attach, focus and
- * dispose), `../api.ts`, `./dnd.ts`, `./editor-pane.ts` and `./panes-status.ts`
- * (the header readout, which this file does not judge). The same seam
- * `tests/ui/ui-sessions-panel.test.ts` uses.
+ * the REAL state transitions (`web/src/state.ts`). The five imports that cannot
+ * run here are recorders (`tests/helpers/ui-panes-fixture.ts`, shared with the
+ * P5 tab-switch tests in `tests/ui/ui-panes-park.test.ts`).
  *
  * Why it matters: a terminal that is re-attached costs a full scrollback
  * replay (P0: 1.28 MB and ~240 ms per pane on a 2→3 split) and looks, on
@@ -23,85 +20,20 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
-import { dispatch, installDom, type FakeElement } from '../helpers/fake-dom.ts';
-import { st, resetState, activeTab, sess } from '../helpers/ui-state-fixture.ts';
-
-const dom = installDom();
-
-/** One stub TerminalView, as panes.ts built it. */
-interface FakeView {
-  container: FakeElement;
-  id: string | null;
-  disposed: boolean;
-  focusCalls: number;
-}
-const H = { views: [] as FakeView[] };
-(globalThis as unknown as { __panesHarness: typeof H }).__panesHarness = H;
-
-const STUB_SRC: Record<string, string> = {
-  terminal: `
-    const H = globalThis.__panesHarness;
-    export class TerminalView {
-      constructor(container) { this.container = container; this.id = null; this.disposed = false; this.focusCalls = 0; H.views.push(this); }
-      connect(id) { this.id = id; }
-      proposeDims() { return { cols: 80, rows: 24 }; }
-      focus() { this.focusCalls++; this.container.focus(); }
-      sendSeen() {}
-      dispose() { this.disposed = true; }
-    }`,
-  api: `export async function markSeen() {}`,
-  dnd: `export function armDrag() {}`,
-  'editor-pane': `
-    export function editorPane() { return { update() {}, focus() {}, holdsFocus() { return false; }, dispose() {} }; }`,
-  'panes-status': `
-    export async function killSession() {}
-    export function updateHeader() {}
-    export function updateNote() {}
-    export function updateStatus() {}`,
-};
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if ((context.parentURL ?? '').endsWith('/web/src/ui/panes.ts')) {
-      const m = /^(?:\.\.\/(api)|\.\/(terminal|dnd|editor-pane|panes-status))\.ts$/.exec(specifier);
-      const name = m?.[1] ?? m?.[2];
-      if (name !== undefined) return { url: `panes-stub:${name}`, shortCircuit: true };
-    }
-    return nextResolve(specifier, context);
-  },
-  load(url, context, nextLoad) {
-    if (url.startsWith('panes-stub:')) {
-      return { format: 'module', source: STUB_SRC[url.slice('panes-stub:'.length)], shortCircuit: true };
-    }
-    return nextLoad(url, context);
-  },
-});
-
-const P = await import('../../web/src/ui/panes.ts');
-const grid = dom.doc.createElement('div');
-dom.body.append(grid);
-P.initPanes(grid as unknown as HTMLElement, () => {});
-
-type View = ReturnType<typeof activeTab>;
-
-/** The active tab holding `ids` (one tab per id in `others`), drawn. */
-function tab(ids: string[], others: string[] = []): View {
-  const v = activeTab(ids, others);
-  st.notify('ui');
-  return v;
-}
-
-const cards = (): FakeElement[] =>
-  grid.children.filter((n): n is FakeElement => (n as FakeElement).classList?.contains('pane') === true);
-const dividers = (): FakeElement[] =>
-  grid.children.filter((n): n is FakeElement => (n as FakeElement).classList?.contains('divider') === true);
-const live = (): FakeView[] => H.views.filter((x) => !x.disposed);
-
-/** The live terminal of every session, by id — the identity a relayout must keep. */
-function terminals(): Map<string, FakeView> {
-  return new Map(live().map((x) => [x.id as string, x]));
-}
+import { dispatch, type FakeElement } from '../helpers/fake-dom.ts';
+import { st, resetState, sess } from '../helpers/ui-state-fixture.ts';
+import {
+  dom,
+  grid,
+  H,
+  tab,
+  cards,
+  dividers,
+  live,
+  terminals,
+  type FakeView,
+  type View,
+} from '../helpers/ui-panes-fixture.ts';
 
 /** Every card stands at its slot, says so, and holds the terminal of that slot's session. */
 function assertGridMatches(v: View, what: string): void {
@@ -119,7 +51,7 @@ function assertGridMatches(v: View, what: string): void {
 
 beforeEach(() => {
   resetState();
-  H.views.length = 0;
+  H.reset();
 });
 
 test('split 2→3 attaches ONLY the newcomer; the two kept terminals are the same instances', () => {
@@ -151,7 +83,7 @@ test('split onto the TOP of the left pane: every old terminal moves with its car
 test('close 3→2 (Own tab) from every slot: nothing attaches, only the leaver is disposed', () => {
   for (const out of [0, 1, 2]) {
     resetState();
-    H.views.length = 0;
+    H.reset();
     const ids = ['s1', 's2', 's3'];
     const v = tab(ids);
     const before = terminals();
@@ -171,7 +103,7 @@ test('close 3→2 (Own tab) from every slot: nothing attaches, only the leaver i
 test('extract 4→3 from every slot: the 2x2 remaps, no terminal re-attaches, the cards follow', () => {
   for (const out of [0, 1, 2, 3]) {
     resetState();
-    H.views.length = 0;
+    H.reset();
     const v = tab(['s1', 's2', 's3', 's4']);
     const before = terminals();
     st.extractSession(`s${out + 1}`);
@@ -191,16 +123,6 @@ test('swap two terminals: both cards move, nothing attaches, nothing is disposed
   assert.equal(live().length, 2, 'none was disposed');
   assert.equal(terminals().get('s1'), before.get('s1'));
   assertGridMatches(v, 'swap');
-});
-
-test('a tab switch still rebuilds: the other tab attaches, this one is disposed (P5 is the user’s call)', () => {
-  const v = tab(['s1', 's2'], ['s3']);
-  const other = st.state.views[2] as View;
-  st.setActiveView(other.id);
-  assert.equal(live().length, 1, 'only the other tab’s terminal is alive');
-  assert.equal(live()[0]?.id, 's3');
-  st.setActiveView(v.id);
-  assert.equal(H.views.length, 5, 'coming back attaches both again');
 });
 
 test('the pane that had the keyboard gets it back after its card moved', () => {

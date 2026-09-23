@@ -6,15 +6,25 @@
  * beside a running session.
  *
  * Sessions exist independently of views; this module only attaches and
- * detaches xterm views. Terminals exist only for the active view's SESSION
- * slots; switching TABS disposes and re-attaches (the server replays the
- * scrollback's tail, `REPLAY_MAX_LINES`). Within one tab a pane keeps its card — and so its terminal and its
- * socket — for as long as its content stays in the tab (`relayout`, Quality
- * part P2): a split, a close, an extract or a swap moves the card in the grid
- * and its own ResizeObserver refits it, so only a pane NEW to the tab
- * attaches. A slot that merely changes CONTENT is converted in place
- * (`reconcileSlot`), so swapping a file with the terminal beside it
+ * detaches xterm views. Within one tab a pane keeps its card — and so its
+ * terminal and its socket — for as long as its content stays in the tab
+ * (`relayout`, Quality part P2): a split, a close, an extract or a swap moves
+ * the card in the grid and its own ResizeObserver refits it, so only a pane
+ * NEW to the tab attaches. A slot that merely changes CONTENT is converted in
+ * place (`reconcileSlot`), so swapping a file with the terminal beside it
  * re-attaches nothing.
+ *
+ * Across tabs (Quality part P5): the tab the user leaves is PARKED, not
+ * disposed — its session cards move into a hidden holder with their terminals
+ * and sockets alive, output keeps streaming into them, and coming back puts
+ * the same cards back in the grid with no attach and no replay (`switchTab`,
+ * `ui/panes-park.ts`). Editor panes are torn down on park as before (their state
+ * lives in state.ts). At most `MAX_LIVE_TERMINALS` terminals live at once; over
+ * that the least recently seen parked tab is disposed (`enforceCap`) and
+ * attaches and replays on return, as every tab did before P5. A parked pane is
+ * never ON SCREEN (`isDrawn`): it acks no BEL, takes no keyboard and sends
+ * no resize — the `Needs you` badge of a tab you are not looking at behaves
+ * exactly as it did when that tab had no terminal at all.
  *
  * A pane (Nocturne part A3) is a neutral-900 card holding, top to bottom: a
  * 38px header, the exited/lost banner when there is one, and the body on the
@@ -55,7 +65,8 @@
  * Split by O8 (2026-09-23): what a session pane SHOWS about its session — the
  * header readout, the status bar and agents table, the exited/lost banner with
  * its relaunch, and `killSession` (re-exported here) — lives in
- * `panes-status.ts`. The grid, the slots, the terminals, resize and focus stay
+ * `panes-status.ts`. The parked tabs and their cap (P5) live in
+ * `panes-park.ts`. The grid, the slots, the terminals, resize and focus stay
  * here.
  */
 import type { SessionInfo } from '../../../shared/protocol.ts';
@@ -70,6 +81,7 @@ import { editorPane, type EditorPane } from './editor-pane.ts';
 import { tabIdOf } from './editor-model.ts';
 import { slotTitle } from './slots-model.ts';
 import { planCards } from './pane-reuse-model.ts';
+import { enforceCap, initParking, parkTab, pruneParked, takeBack } from './panes-park.ts';
 import { killSession, updateHeader, updateNote, updateStatus } from './panes-status.ts';
 
 export { killSession } from './panes-status.ts';
@@ -165,6 +177,7 @@ let lastGoodDims: { cols: number; rows: number } | null = null;
 export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): void {
   grid = gridEl;
   openLaunch = openLaunchDialog;
+  initParking(teardown);
   st.subscribe((kind) => {
     if (kind === 'ui') render();
     else if (kind === 'sessions') {
@@ -331,6 +344,7 @@ function render(): void {
   // exactly as it was; `refreshPaneArea()` replays it the moment the grid is
   // back (main.ts calls it on the same 'screen' notification that unhides it).
   if (gridHidden()) return;
+  pruneParked();
   const v = st.activeView();
   // `Home` is always a view (A10), so `null` is only the moment before
   // `loadUi()` has run. It and an EMPTY tab draw the same thing.
@@ -339,13 +353,16 @@ function render(): void {
     return;
   }
   const count = v.slots.length;
-  // A rebuild disposes and re-attaches every terminal in the tab, so only a
-  // TAB switch takes it. Everything inside one tab — a split, a close, an
-  // extract, a swap, a file dropped on a terminal — goes through `relayout`,
-  // which keeps every pane whose content stayed (Quality P2: a 2→3 split used
-  // to replay all three terminals).
-  if (v.id !== renderedViewId) rebuild(v, count);
-  else relayout(v, count);
+  // Everything inside one tab — a split, a close, an extract, a swap, a file
+  // dropped on a terminal — goes through `relayout`, which keeps every pane
+  // whose content stayed (Quality P2: a 2→3 split used to replay all three
+  // terminals). A TAB switch parks the tab left and takes back the cards of
+  // the tab shown (P5), then lays it out the same way.
+  if (v.id !== renderedViewId) switchTab(v, count);
+  else {
+    enforceCap(v);
+    relayout(v, count);
+  }
   applyFocus();
 }
 
@@ -371,8 +388,7 @@ function renderEmpty(v: st.ViewState | null): void {
   const home = v !== null && v.root?.kind === 'home';
   const sig = home ? '__empty-home' : '__empty';
   if (renderedViewId === sig) return;
-  for (const s of slots) teardown(s);
-  slots = [];
+  park();
   renderedViewId = sig;
   renderedCount = -1;
   lastFocusKey = '';
@@ -398,23 +414,58 @@ function renderEmpty(v: st.ViewState | null): void {
   grid.replaceChildren(box);
 }
 
-function rebuild(v: st.ViewState, count: number): void {
-  for (const s of slots) teardown(s);
-  slots = [];
+/**
+ * A TAB switch (Quality P5). The tab being left is parked; the tab being shown
+ * takes back the cards it was parked with — same terminals, same sockets, so
+ * the server replays nothing — and is then laid out exactly like a relayout of
+ * itself: a card it no longer needs is disposed, a pane new to it attaches
+ * (all of them for a tab that was never parked or was evicted). The cap is
+ * enforced BEFORE anything is built, so a new terminal never takes a WebGL
+ * context the browser would have to steal from another. Each terminal that
+ * comes back is fitted once on its real box (`TerminalView.show`).
+ */
+function switchTab(v: st.ViewState, count: number): void {
+  park();
+  const back = takeBack(v.id);
+  enforceCap(v);
+  slots = back ?? [];
   renderedViewId = v.id;
   lastFocusKey = '';
   grid.replaceChildren();
-  applyShape(v, count);
+  dividers = [];
+  renderedCount = -1; // The new tab's shape and dividers, whatever it was.
   applySplit(v);
-  // The cards go into the grid first; reconcileSlot fills them AFTER that —
-  // xterm must open on an attached, measurable node.
-  for (let i = 0; i < count; i++) {
-    const s = createSlot(i);
-    grid.append(s.root);
-    slots.push(s);
+  relayout(v, count);
+  for (const s of back ?? []) {
+    if (slots.includes(s) && s.pay?.kind === 'session') s.pay.view?.show();
   }
-  buildDividers(v);
-  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
+}
+
+/**
+ * Leave the rendered tab. A tab that still exists and is not the one about to
+ * be drawn is PARKED (`ui/panes-park.ts`); anything else — a tab that was
+ * closed, the same tab drawn empty — is disposed.
+ */
+function park(): void {
+  const leaving = slots;
+  slots = [];
+  const id = renderedViewId;
+  if (id !== st.activeView()?.id && st.state.views.some((x) => x.id === id)) {
+    parkTab(id, leaving);
+    return;
+  }
+  for (const s of leaving) {
+    teardown(s);
+    s.root.remove();
+  }
+}
+
+/**
+ * Is this card in the drawn tab — not parked on a hidden one (P5)? With
+ * `!gridHidden()` beside it, that is "on screen": only such a pane acks a BEL.
+ */
+function isDrawn(s: Slot): boolean {
+  return slots[s.index] === s;
 }
 
 /**
@@ -762,7 +813,8 @@ function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEv
         v.id === renderedViewId &&
         v.focused === s.index &&
         document.hasFocus() &&
-        !gridHidden()
+        !gridHidden() &&
+        isDrawn(s)
       ) {
         clearAttentionIfPending(s);
       }
@@ -780,9 +832,12 @@ function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEv
         v.id === renderedViewId &&
         v.focused === s.index &&
         document.hasFocus() &&
-        !gridHidden()
+        !gridHidden() &&
+        isDrawn(s)
       ) {
         // Attention arrived on the focused, VISIBLE pane: acknowledge at once.
+        // A PARKED pane (P5) can share the focused pane's index; `isDrawn`
+        // is what keeps its BEL from being acked for a tab nobody sees.
         ackSeen(pay, sessionId);
       } else {
         st.setAttention(sessionId, true);

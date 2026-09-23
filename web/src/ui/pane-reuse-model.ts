@@ -20,8 +20,16 @@
  *      pre-P2 behaviour for a file dropped on a terminal.
  *   3. else a new card.
  *
- * A card no slot takes is torn down by the caller. No DOM and no state here:
- * `tests/ui/ui-pane-reuse-model.test.ts` drives it directly.
+ * A card no slot takes is torn down by the caller.
+ *
+ * Since Quality part P5 the same holds ACROSS tabs: a tab the user leaves is
+ * parked, not disposed — its terminals stay alive, hidden, and keep reading
+ * their sockets — so coming back replays nothing (P1–P4 still left ~220 ms of
+ * xterm parsing 4 × 5 000 lines on every switch to a 4-pane tab). What bounds
+ * that is `tabsToEvict` below.
+ *
+ * No DOM and no state here: `tests/ui/ui-pane-reuse-model.test.ts` drives it
+ * directly.
  */
 
 /**
@@ -50,4 +58,46 @@ export function planCards(prev: readonly string[], next: readonly string[]): (nu
     }
     return null;
   });
+}
+
+/**
+ * At most this many terminals are alive at once, the visible tab's and every
+ * parked tab's together (Quality P5). Each live terminal holds a WebGL
+ * context, and Chromium keeps ~16 per page: one more and it silently LOSES
+ * the oldest context (xterm then falls back to its slow DOM renderer in a pane
+ * nobody chose). 12 leaves margin for the other canvases a page may hold, and
+ * also bounds memory: every live terminal keeps its `SCROLLBACK_LINES`
+ * (5 000) of scrollback in the page.
+ */
+export const MAX_LIVE_TERMINALS = 12;
+
+/** One parked (hidden, kept-alive) tab, as `tabsToEvict` weighs it. */
+interface ParkedTab {
+  /** The view id of the tab. */
+  id: string;
+  /** How many live terminals its cards hold. */
+  live: number;
+  /** When it was last on screen — any increasing number; lower = longer ago. */
+  seen: number;
+}
+
+/**
+ * Which parked tabs to dispose so that the visible tab's `activeLive`
+ * terminals plus the parked ones stay within `cap`: the LEAST RECENTLY SEEN
+ * first, one whole tab at a time, until the total fits. The visible tab is
+ * never in `parked` and so is never evicted — a tab with more panes than the
+ * cap keeps all of its own and every parked tab goes. A parked tab holding no
+ * terminal frees nothing and is left alone. An evicted tab falls back to the
+ * pre-P5 behaviour: attach and replay when the user returns to it.
+ */
+export function tabsToEvict(parked: readonly ParkedTab[], activeLive: number, cap: number): string[] {
+  let total = activeLive + parked.reduce((n, t) => n + t.live, 0);
+  const out: string[] = [];
+  for (const t of [...parked].sort((a, b) => a.seen - b.seen)) {
+    if (total <= cap) break;
+    if (t.live === 0) continue;
+    out.push(t.id);
+    total -= t.live;
+  }
+  return out;
 }

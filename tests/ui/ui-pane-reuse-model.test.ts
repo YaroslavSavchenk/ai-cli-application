@@ -13,13 +13,17 @@
  * per pane and a 240 ms stall for a 2→3 split). Nothing on screen says it
  * happened except a flicker, so only a test notices it coming back.
  *
+ * Since P5 the file also drives `tabsToEvict`, the cap on live terminals
+ * across parked tabs: least recently seen first, whole tabs, the shown tab
+ * never.
+ *
  * NOT claimed: that `ui/panes.ts` follows the plan (that is
  * `tests/ui/ui-panes-relayout.test.ts`, on the DOM double), nor that a moved
  * canvas keeps its WebGL context (a browser check, recorded in the P2 log).
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { planCards } from '../../web/src/ui/pane-reuse-model.ts';
+import { MAX_LIVE_TERMINALS, planCards, tabsToEvict } from '../../web/src/ui/pane-reuse-model.ts';
 import { st, resetState, activeTab, keys, ed } from '../helpers/ui-state-fixture.ts';
 
 /** Which OLD key each new slot's card showed, or 'new' — readable in a diff. */
@@ -130,4 +134,34 @@ test('a file pane beside two terminals: a split keeps all three cards', () => {
   const file = ed('/home/you/a.ts');
   v.slots.push(file);
   assert.deepEqual(across(v, () => st.moveSessionToView('s2', v.id)), ['s:s1@0', `${file.id}@1`, 'new']);
+});
+
+// ---------------------------------------------------------------------------
+// P5: which parked tabs go when the live terminals exceed the cap
+// ---------------------------------------------------------------------------
+
+const t = (id: string, live: number, seen: number): { id: string; live: number; seen: number } => ({ id, live, seen });
+
+test('the cap is 12 live terminals: under Chromium’s ~16 WebGL contexts, with margin', () => {
+  assert.equal(MAX_LIVE_TERMINALS, 12);
+});
+
+test('at or under the cap nothing is evicted', () => {
+  assert.deepEqual(tabsToEvict([t('a', 4, 1), t('b', 4, 2)], 4, 12), [], 'exactly 12');
+  assert.deepEqual(tabsToEvict([], 4, 12), [], 'no parked tab');
+});
+
+test('over the cap the LEAST RECENTLY SEEN parked tab goes first, whole, and only as many as needed', () => {
+  assert.deepEqual(tabsToEvict([t('b', 4, 2), t('a', 4, 1), t('c', 4, 3)], 4, 12), ['a'], 'lowest seen, not list order');
+  assert.deepEqual(tabsToEvict([t('a', 4, 1), t('b', 4, 2), t('c', 4, 3)], 4, 8), ['a', 'b'], 'two to fit a smaller cap');
+  assert.deepEqual(tabsToEvict([t('a', 1, 1), t('b', 4, 2), t('c', 4, 3)], 4, 12), ['a'], 'one terminal over: the one-pane LRU tab is enough');
+});
+
+test('a parked tab holding no terminal frees nothing and is skipped', () => {
+  assert.deepEqual(tabsToEvict([t('files', 0, 1), t('a', 4, 2), t('b', 4, 3), t('c', 1, 4)], 4, 12), ['a']);
+});
+
+test('a shown tab with more panes than the cap keeps them all: every parked tab goes, and only those', () => {
+  assert.deepEqual(tabsToEvict([t('a', 4, 1), t('b', 2, 2)], 14, 12), ['a', 'b']);
+  assert.deepEqual(tabsToEvict([], 14, 12), [], 'nothing to evict — the shown tab is never a candidate');
 });

@@ -10,6 +10,12 @@
  * - Resize: ResizeObserver -> 75ms debounce -> fit -> send cols/rows over
  *   the socket ONLY when they actually changed. Missing this renders TUIs
  *   as garbage (see PROJECT-SCOPE).
+ * - Hidden (Quality P5): a view on a tab the user left is parked by
+ *   ui/panes.ts, `hide()` — it keeps its socket, its WebGL context and its
+ *   buffer, and output keeps streaming in, but it sends NO resize (its box is
+ *   0x0; a window resize meanwhile is not its business). `show()` fits it once
+ *   on its real box and sends at most one resize: when its cols/rows changed,
+ *   or when the PTY's own size (the last `info`) no longer matches.
  * - Attach flow: on every replay frame the terminal is reset() first, then
  *   the replay is written, then live data streams (server guarantees order).
  * - Follow output (part B6): a preference read on every write. ON pins the
@@ -190,6 +196,8 @@ export class TerminalView {
   readonly term: Terminal;
   readonly #fit = new FitAddon();
   #webgl: WebglAddon | null = null;
+  /** The canvases the WebGL addon added — the one holding its context is among them. */
+  #webglCanvases: HTMLCanvasElement[] = [];
   #socket: SessionSocket | null = null;
   #events: TerminalEvents | null = null;
   /** Log identity only — the socket owns the real attachment. */
@@ -199,6 +207,14 @@ export class TerminalView {
   readonly #container: HTMLElement;
   readonly #observer: ResizeObserver;
   #debounce: number | null = null;
+  /** False while parked on a hidden tab (P5): no fit, no resize. */
+  #shown = true;
+  /** `show()` was called and waits for xterm's renderer to be back (see there). */
+  #showPending = false;
+  /** Tells this view when its container is rendered again; null where the browser has none. */
+  readonly #visibility: IntersectionObserver | null;
+  /** The PTY's size as last reported (`info`) or sent by this view. */
+  #pty: { cols: number; rows: number } | null = null;
 
   constructor(container: HTMLElement) {
     this.#container = container;
@@ -296,14 +312,25 @@ export class TerminalView {
         webgl.dispose(); // xterm falls back to the DOM renderer.
         if (this.#webgl === webgl) this.#webgl = null;
       });
+      const before = new Set(container.querySelectorAll('canvas'));
       this.term.loadAddon(webgl);
       this.#webgl = webgl;
+      this.#webglCanvases = [...container.querySelectorAll('canvas')].filter((c) => !before.has(c));
     } catch {
       // WebGL unavailable — DOM renderer fallback.
     }
     this.#fitNow(false);
     this.#observer = new ResizeObserver(() => this.#scheduleFit());
     this.#observer.observe(container);
+    // Created AFTER term.open(): observers are notified in creation order, so
+    // xterm's own IntersectionObserver (which un-pauses its renderer) has run
+    // by the time this one fits. xterm only pauses where the API exists, so
+    // without it there is nothing to wait for.
+    this.#visibility =
+      typeof IntersectionObserver === 'function'
+        ? new IntersectionObserver((entries) => this.#handleVisibility(entries), { threshold: 0 })
+        : null;
+    this.#visibility?.observe(container);
   }
 
   /** Measured pane dimensions for POST /api/sessions. Fallback 80x24, clamped 1..1000. */
@@ -359,18 +386,12 @@ export class TerminalView {
       },
       onInfo: (session) => {
         events.onInfo(session);
+        this.#pty = session.status === 'running' ? { cols: session.cols, rows: session.rows } : null;
         // Another client may have resized the PTY while we were away —
-        // reconcile it with this view's actual dimensions.
-        if (
-          session.status === 'running' &&
-          (session.cols !== this.term.cols || session.rows !== this.term.rows)
-        ) {
-          log.debug(
-            `resize ${sessionId} → ${this.term.cols}x${this.term.rows} (reconcile: pty had ${session.cols}x${session.rows})`,
-          );
-          this.#socket?.sendResize(this.term.cols, this.term.rows);
-          events.onDims(this.term.cols, this.term.rows);
-        }
+        // reconcile it with this view's actual dimensions. Not while hidden
+        // (P5): a parked view's size is stale by definition; `show()` does
+        // this same reconcile once it has a box again.
+        if (this.#shown) this.#reconcile('reconcile');
       },
       onExit: (exitCode) => events.onExit(exitCode),
       onAttention: () => events.onAttention(),
@@ -378,6 +399,72 @@ export class TerminalView {
     };
     log.debug(`attach ${sessionId} at ${this.term.cols}x${this.term.rows}`);
     this.#socket = new SessionSocket(sessionId, handlers);
+  }
+
+  /**
+   * Send this view's cols/rows when the PTY's last known size differs. True
+   * when it sent. `why` only names the cause in the log line.
+   */
+  #reconcile(why: string): boolean {
+    const pty = this.#pty;
+    if (pty === null || (pty.cols === this.term.cols && pty.rows === this.term.rows)) return false;
+    log.debug(
+      `resize ${this.#sessionId ?? '-'} → ${this.term.cols}x${this.term.rows} (${why}: pty had ${pty.cols}x${pty.rows})`,
+    );
+    this.#sendResize();
+    return true;
+  }
+
+  #sendResize(): void {
+    this.#socket?.sendResize(this.term.cols, this.term.rows);
+    this.#pty = { cols: this.term.cols, rows: this.term.rows };
+    this.#events?.onDims(this.term.cols, this.term.rows);
+  }
+
+  /**
+   * The tab this view sits on was left (Quality P5): stop fitting. The view
+   * stays connected and keeps writing output into its buffer.
+   */
+  hide(): void {
+    this.#shown = false;
+    this.#showPending = false;
+    if (this.#debounce !== null) clearTimeout(this.#debounce);
+    this.#debounce = null;
+  }
+
+  /**
+   * Back on screen, on its real box: ONE fit, and at most one resize — the
+   * fit's own (cols/rows changed while hidden) or, failing that, the reconcile
+   * with a PTY size another client set meanwhile.
+   *
+   * NOT at once: the fit waits for the container's first intersection report.
+   * xterm pauses its renderer while the node is `display: none` and learns it
+   * is back only from its own IntersectionObserver, a frame later. A resize in
+   * that gap is half applied: the buffer reflows, the renderer's dimensions
+   * wait, and the scrollbar syncs to the NEW line count against the OLD canvas
+   * height — clamping the scroll position (old rows − new rows) lines short of
+   * the bottom and feeding that back as a user scroll. A program on the normal
+   * screen (`top`) then draws its new frame under stale rows, for good
+   * (/verify-terminal P5, 2026-09-23). Visible panes never hit it: their
+   * renderer is not paused.
+   */
+  show(): void {
+    if (this.#debounce !== null) clearTimeout(this.#debounce);
+    this.#debounce = null;
+    if (this.#visibility === null) this.#fitShown();
+    else this.#showPending = true;
+  }
+
+  #handleVisibility(entries: IntersectionObserverEntry[]): void {
+    const last = entries[entries.length - 1];
+    if (!this.#showPending || last === undefined || !last.isIntersecting) return;
+    this.#showPending = false;
+    this.#fitShown();
+  }
+
+  #fitShown(): void {
+    this.#shown = true;
+    if (!this.#fitNow(true)) this.#reconcile('shown');
   }
 
   #scheduleFit(): void {
@@ -388,15 +475,18 @@ export class TerminalView {
     }, RESIZE_DEBOUNCE_MS);
   }
 
-  #fitNow(report: boolean): void {
-    // A hidden/collapsed container would fit to nonsense; skip.
-    if (this.#container.clientWidth < 20 || this.#container.clientHeight < 20) return;
+  /** Fit to the container; true when it SENT a resize (report on and a real change). */
+  #fitNow(report: boolean): boolean {
+    // A parked view (P5), or a hidden/collapsed container, would fit to
+    // nonsense; skip.
+    if (!this.#shown) return false;
+    if (this.#container.clientWidth < 20 || this.#container.clientHeight < 20) return false;
     const beforeCols = this.term.cols;
     const beforeRows = this.term.rows;
     try {
       this.#fit.fit();
     } catch {
-      return;
+      return false;
     }
     if (report && (this.term.cols !== beforeCols || this.term.rows !== beforeRows)) {
       // Only on a REAL change (the guard above), so a drag costs one line at
@@ -404,9 +494,10 @@ export class TerminalView {
       log.debug(
         `resize ${this.#sessionId ?? '-'} → ${this.term.cols}x${this.term.rows} (was ${beforeCols}x${beforeRows})`,
       );
-      this.#socket?.sendResize(this.term.cols, this.term.rows);
-      this.#events?.onDims(this.term.cols, this.term.rows);
+      this.#sendResize();
+      return true;
     }
+    return false;
   }
 
   focus(): void {
@@ -426,7 +517,8 @@ export class TerminalView {
    * re-spelled with one trailing space — identical to the CSS parser,
    * different to `!==`. `clearTextureAtlas()` is a no-op under the DOM
    * renderer (xterm calls its renderer's method optionally), so the WebGL
-   * fallback needs no guard here.
+   * fallback needs no guard here. A hidden view (Quality P5) skips the fit
+   * here; its resize, if the cell changed, is sent by `show()` instead.
    */
   reloadFont(): void {
     const family = this.term.options.fontFamily ?? '';
@@ -478,6 +570,22 @@ export class TerminalView {
     }
   }
 
+  /**
+   * Give the WebGL context back NOW. `@xterm/addon-webgl` 0.19 only removes
+   * its canvas on dispose (no `loseContext`), so the context keeps counting
+   * toward Chromium's ~16 per page until a GC — and the `MAX_LIVE_TERMINALS`
+   * arithmetic (Quality P5) assumes an evicted or closed terminal frees its
+   * own at once. Asked ONLY of the addon's own canvases: `getContext` on a
+   * canvas without one would create a context, and on a 2d canvas it answers
+   * null.
+   */
+  #releaseWebgl(): void {
+    for (const canvas of this.#webglCanvases) {
+      canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+    this.#webglCanvases = [];
+  }
+
   sendSeen(): void {
     this.#socket?.sendSeen();
   }
@@ -485,9 +593,11 @@ export class TerminalView {
   dispose(): void {
     liveViews.delete(this);
     this.#observer.disconnect();
+    this.#visibility?.disconnect();
     if (this.#debounce !== null) clearTimeout(this.#debounce);
     this.#socket?.close();
     this.#socket = null;
+    if (this.#webgl !== null) this.#releaseWebgl();
     this.#webgl = null;
     this.term.dispose(); // Disposes loaded addons (fit, webgl) too.
   }
