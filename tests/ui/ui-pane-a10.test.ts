@@ -101,14 +101,20 @@ test('a slot that changes KIND is converted in place — never through a rebuild
     PANES.indexOf('function render(): void'),
     PANES.indexOf('function renderEmpty'),
   );
-  // The rebuild decision is the tab, the pane COUNT and the 3-split variant.
-  // Adding the slot keys to it would turn every swap into a full re-attach.
+  // The rebuild decision is the TAB alone (Quality P2, 2026-09-23: before it
+  // the pane count and the 3-split variant were in it too, and a split
+  // re-attached every terminal in the tab). Adding the slot keys to it would
+  // turn every swap into a full re-attach. Which card a slot keeps is
+  // `ui/pane-reuse-model.ts`'s rule, driven for real in
+  // `tests/ui/ui-panes-relayout.test.ts`.
   assert.match(
     render,
-    /if \(\s*v\.id !== renderedViewId \|\|\s*count !== renderedCount \|\|\s*\(count === 3 && v\.l3 !== renderedL3\)\s*\)/,
-    'the rebuild signature is the LAYOUT, not the contents',
+    /if \(v\.id !== renderedViewId\) rebuild\(v, count\);\s*else relayout\(v, count\);/,
+    'the rebuild signature is the TAB, not the layout or the contents',
   );
-  assert.match(render, /reconcileSlot\(i, v\.slots\[i\] \?\? null\)/, 'contents go through reconcileSlot');
+  const relayout = fn(PANES, 'function relayout(v: st.ViewState, count: number): void {');
+  assert.match(relayout, /planCards\(/, 'the cards are kept by the reuse rule');
+  assert.match(relayout, /reconcileSlot\(i, v\.slots\[i\] \?\? null\)/, 'contents go through reconcileSlot');
   // A10b: and the key carries no TAB id either. Raising a file in one strip
   // would otherwise change the signature of the TAB and re-attach (and replay)
   // every terminal sitting beside it — PLAN-A10b §2, verify-terminal §5.

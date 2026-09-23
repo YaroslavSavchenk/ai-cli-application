@@ -55,6 +55,7 @@ import {
 import {
   api,
   createSession,
+  readServerLog,
   removeTempDir,
   startTestServer,
   waitForLog,
@@ -431,29 +432,34 @@ test('every request logs one line — and NEVER the query string values', async 
   }
 });
 
-test('the high-frequency polls are demoted to debug: /api/client-log and /api/update/status', async () => {
+test('a successful poll writes no access line of its own; shutdown writes their count', async () => {
+  // Quality P4 (user's call 2026-09-23): the polls were 94 % of the idle log.
+  // Per request they are only COUNTED; the count reaches the file as one
+  // summary line a minute — and at shutdown, which is the one this test can
+  // reach without waiting a minute (the timer itself: logging-polls.test.ts).
   const server = await startTestServer();
   try {
-    const shipped = await api(server, 'POST', '/api/client-log', { entries: [] });
-    assert.equal(shipped.status, 204);
-    const status = await api(server, 'GET', '/api/update/status');
-    assert.equal(status.status, 200, 'the status route answers 200 in this harness');
+    assert.equal((await api(server, 'POST', '/api/client-log', { entries: [] })).status, 204);
+    assert.equal((await api(server, 'GET', '/api/update/status')).status, 200);
+    assert.equal((await api(server, 'GET', '/api/sessions')).status, 200);
+    assert.equal((await api(server, 'GET', '/api/sessions')).status, 200);
+    // A request that is NOT a poll keeps its info line — and marks the point
+    // by which every poll above had finished.
+    await api(server, 'GET', '/api/history');
+    await waitForLog(server, '[http] GET /api/history -> 200');
 
-    const log = await waitForLog(server, '[http] GET /api/update/status');
+    server.child.kill('SIGTERM');
+    await server.exit;
+    const log = await readServerLog(server);
+    for (const route of ['POST /api/client-log ->', 'GET /api/update/status ->', 'GET /api/sessions ->']) {
+      assert.ok(!log.includes(`[http] ${route}`), `no per-request line for ${route}`);
+    }
     assert.match(
       log,
-      /\[debug\] \[http\] POST \/api\/client-log -> 204/,
-      'the log-shipping POST is written at debug',
+      /\[debug\] \[http\] polls last \d+s: POST \/api\/client-log 204 ×1, GET \/api\/update\/status 200 ×1, GET \/api\/sessions 200 ×2\n/,
+      'shutdown writes the partial window: route, status and count, in first-seen order',
     );
-    assert.match(
-      log,
-      /\[debug\] \[http\] GET \/api\/update\/status -> 200/,
-      'the 1 Hz update-progress poll is written at debug too',
-    );
-    assert.ok(
-      !/\[info\] \[http\] GET \/api\/update\/status/.test(log),
-      'never at info — it would bury the rest of the file for the whole install',
-    );
+    assert.match(log, /\[info\] \[http\] GET \/api\/history -> 200/, 'a non-poll 200 is unchanged');
   } finally {
     await server.stop();
   }

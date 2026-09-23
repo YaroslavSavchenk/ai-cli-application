@@ -27,6 +27,7 @@ import type { WebSocket } from 'ws';
 import type { ServerMessage, SessionInfo } from '../../shared/protocol.ts';
 import type { AgentsReport } from '../../server/agents.ts';
 import { createRefusalLimiter, scoped, type Logger } from '../../server/config.ts';
+import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import { ProjectStore } from '../../server/projects.ts';
@@ -129,7 +130,7 @@ test('C1 turnEnded: working -> waiting sets it and stamps pendingSince, in ONE i
     assert.equal('turnEnded' in info, false, 'a new session carries neither flag');
     assert.equal('pendingSince' in info, false);
     const client = new FakeClient();
-    assert.equal(m.attach(info.id, client.asWs()), true);
+    assert.notEqual(m.attach(info.id, client.asWs()), null);
 
     m.setReport(info.id, turn('working'));
     const base = client.infoFrames().length;
@@ -406,6 +407,7 @@ test('C1 served + seen paths: /mascot.html carries the token like index.html; PO
   });
   let boundPort = 0;
   const allowRefusalLine = createRefusalLimiter(scoped(log, 'http'));
+  const polls = new PollTally({ log: scoped(log, 'http') });
   const server: Server = createServer(
     createRequestHandler({
       token,
@@ -424,6 +426,7 @@ test('C1 served + seen paths: /mascot.html carries the token like index.html; PO
       webDistDir: join(dir, 'dist'),
       log,
       allowRefusalLine,
+      polls,
     }),
   );
   server.on('upgrade', createUpgradeHandler({ token, getPort: () => boundPort, sessions, lifecycle, log, allowRefusalLine }));
@@ -515,6 +518,7 @@ test('C1 served + seen paths: /mascot.html carries the token like index.html; PO
     // The detach armed the REAL 10-minute grace timer: without stop() the
     // event loop never drains and `node --test` hangs.
     lifecycle.stop();
+    polls.stop();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await settleAndRemove(sessions, logs, dir);

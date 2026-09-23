@@ -21,32 +21,20 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { createLogger, scoped, createRefusalLimiter } from '../../server/config.ts';
-import { ProjectStore } from '../../server/projects.ts';
-import { PrefsStore } from '../../server/prefs.ts';
-import { SessionHistory } from '../../server/history.ts';
-import { SessionManager } from '../../server/sessions.ts';
-import { GithubConnection } from '../../server/github.ts';
 import {
-  createRequestHandler,
   CLIENT_LOG_MAX_BYTES,
   CLIENT_LOG_MAX_ENTRIES,
   CLIENT_LOG_MAX_MESSAGE,
   CLIENT_LOG_MAX_PER_MINUTE,
 } from '../../server/api.ts';
 import {
-  destroyAllAndSettle,
   rawRequest,
   readServerLog,
-  removeTempDir,
   startTestServer,
   waitForLog,
   waitUntil,
 } from '../helpers/helpers.ts';
-import { tempDir, postClientLog } from '../helpers/logging-fixture.ts';
+import { postClientLog, withInProcessApi } from '../helpers/logging-fixture.ts';
 
 // ---------------------------------------------------------------------------
 // 5. POST /api/client-log
@@ -314,108 +302,8 @@ test('POST /api/client-log: CR, ESC, NUL and DEL cannot forge a second log line'
 // 9. The client-log rate-limit WINDOW (the gap the last gate reported open)
 // ---------------------------------------------------------------------------
 
-/**
- * The per-minute client-log budget lives INSIDE createRequestHandler
- * (server/api.ts) and reads the clock through a bare `Date.now()`, so the
- * window reset cannot be reached from a spawned server without waiting a real
- * minute. It CAN be reached by mounting the very same handler in this process
- * and moving the clock: the handler is exported, and `Date.now` is the only
- * time source the budget consults.
- *
- * This is a real HTTP server with the real request handler — not a hand-rolled
- * req/res double — so the auth gate, the body reader, the entry caps and the
- * budget are all the production code paths.
- */
-interface InProcessApi {
-  port: number;
-  token: string;
-  logFile: string;
-  readLog: () => string;
-  /** Move the INJECTED clock forward; the real one is never monkeypatched. */
-  advance: (ms: number) => void;
-}
-
-async function withInProcessApi(fn: (ctx: InProcessApi) => Promise<void>): Promise<void> {
-  const dir = tempDir();
-  const logFile = join(dir, 'server.log');
-  const log = createLogger(logFile, 'debug');
-  const token = 'a'.repeat(64);
-  // The clock SEAM the budgets read (ApiDeps.now / createWindowLimiter.now).
-  // Injected, not monkeypatched: a global Date.now swap also moves the log's
-  // own timestamps and anything else that happens to run in this process.
-  let offsetMs = 0;
-  const now = (): number => Date.now() + offsetMs;
-  const history = new SessionHistory(join(dir, 'history.json'), log);
-  const sessions = new SessionManager(log, history);
-  // `boundPort` (not server.address()) because getPort is captured while the
-  // server is still being constructed — a self-referential initializer.
-  let boundPort = 0;
-  const server: Server = createServer(
-    createRequestHandler({
-      token,
-      getPort: () => boundPort,
-      getStartedAt: () => new Date().toISOString(),
-      projects: new ProjectStore(join(dir, 'projects.json'), log),
-      prefs: new PrefsStore(join(dir, 'prefs.json'), log),
-      sessions,
-      history,
-      github: new GithubConnection({
-        file: join(dir, 'github.json'),
-        log,
-        clientId: undefined,
-        apiBase: 'https://api.github.com',
-      }),
-      webDistDir: join(dir, 'dist'),
-      log,
-      allowRefusalLine: createRefusalLimiter(scoped(log, 'http'), now),
-      now,
-    }),
-  );
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as { port: number }).port;
-  boundPort = port;
-  let bodyThrew = false;
-  try {
-    await fn({
-      port,
-      token,
-      logFile,
-      readLog: () => {
-        try {
-          return readFileSync(logFile, 'utf8');
-        } catch {
-          return '';
-        }
-      },
-      advance: (ms) => {
-        offsetMs += ms;
-      },
-    });
-  } catch (err) {
-    bodyThrew = true;
-    throw err;
-  } finally {
-    // destroyAll() only kills the ptys; node-pty's `exit` lands ticks later and
-    // its handler appends to server.log — a write that recreates the file in
-    // the middle of the removal below and fails it with ENOTEMPTY.
-    // A settle TIMEOUT must never replace the body's error: without this, a
-    // failed assertion is reported as a teardown timeout and the real failure
-    // is invisible.
-    // Stashed, not thrown here: a throw inside `finally` would skip the two
-    // cleanups below, leaking the listener (so `node --test` never drains) and
-    // the temp dir. It is rethrown after them.
-    let settleErr: { err: unknown } | undefined;
-    try {
-      await destroyAllAndSettle(sessions, logFile);
-    } catch (err) {
-      if (bodyThrew) console.error(err);
-      else settleErr = { err };
-    }
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await removeTempDir(dir);
-    if (settleErr) throw settleErr.err;
-  }
-}
+// The in-process harness (withInProcessApi) is in helpers/logging-fixture.ts:
+// the budget's clock cannot be moved in a spawned server.
 
 test('client-log budget: the window RESETS — the next minute gets a fresh budget and a fresh warn', async () => {
   await withInProcessApi(async (ctx) => {

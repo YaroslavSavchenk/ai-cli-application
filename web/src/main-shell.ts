@@ -344,10 +344,6 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   }
   st.subscribe(applyScreenLayout);
 
-  // Last: its first render needs the grid mounted and sized. The dialog
-  // opener is injected to avoid a panes ↔ launch import cycle.
-  initPanes(grid, () => openLaunchDialog());
-
   function updateChrome(): void {
     // The same set as the statusline's `N waiting for you`: BELs only (user,
     // 2026-09-22 — an ended turn shows on its pane, not in the counts).
@@ -392,6 +388,20 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   sessionsDrawer.render();
   projectsDrawer.render();
   filesPanel.render();
+
+  // The panes LAST, after the chrome above has its first content: the Files
+  // panel, the drawers and the tab strip are flex siblings of the grid, so
+  // until they are drawn the grid is bigger than it will be. A terminal built
+  // before them measured that bigger box, attached at it, and then sent a
+  // SECOND resize 55 ms later when the chrome landed (Quality P0: 190x48, then
+  // back to 152x46, on every pane at every boot — part P3a). Built here, the
+  // first fit is the final size and a boot sends at most one resize per pane:
+  // the attach reconcile, and only when the PTY had another size. Subscribed
+  // after the chrome for the same reason: a notification that changes both
+  // (a drawer opens as a pane is added) lays the chrome out before a new
+  // terminal measures itself. The dialog opener is injected to avoid a
+  // panes ↔ launch import cycle.
+  initPanes(grid, () => openLaunchDialog());
 
   // ---- global keyboard -----------------------------------------------------
 

@@ -56,7 +56,11 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   A blank session name makes the title the project name (the Launch Name
   placeholder is the selected project's name).
   History: `memory/decisions/session-history-resume.md`.
-- **Logging: everything, by default** (user's call 2026-09-06). `server.log`
+- **Logging: everything, by default** (user's call 2026-09-06; since 2026-09-23
+  a successful poll of `/api/sessions`, `/api/runtime`, `/api/prefs`,
+  `/api/update/status` or `/api/client-log` is one `debug` summary line a
+  minute, a failed or ≥ 1 s poll is written at once —
+  `memory/decisions/log-everything.md`). `server.log`
   is the backend's ONLY diagnostic channel; `<ISO> [level] [component]
   message`, levels `debug|info|warn|error`, `AI_SM_LOG_LEVEL` (default
   `debug`). **Never written:** the app

@@ -183,6 +183,19 @@ app window first so one backend at a time owns runtime.json.
 
 ## From the repo optimisation (2026-09-23, [[2026-09-23-repo-optimisation]])
 
+## From the quality track (2026-09-23, [[2026-09-23-quality-p1-p4]])
+
+- [ ] **Replay of very long lines**: `replayTail` counts `\n`, so output of
+  2000-char lines still replays the whole 1 MiB ring. A wrap-aware cut
+  needs the pane's cols and escape-aware widths.
+- [ ] **First text without key events after a focus move**: in the verify
+  gate, CDP `Input.insertText` into a pane right after Ctrl+Alt+Arrow moved
+  focus away was dropped once (real keystrokes fine). Probably the chord's
+  keyup landing in the other pane's textarea. Matters for IME/dictation as
+  the very first input after such a move. Not re-run on the old code.
+- [ ] **A deleted session's pane header** shows the id prefix with a
+  "Working" pill and "Lost" together — cosmetic, predates P1–P4.
+
 ## Claude Code CLI compatibility guard (user's ask 2026-09-15, not started)
 
 The app depends on documented `claude` CLI flags and behaviour

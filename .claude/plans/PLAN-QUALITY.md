@@ -10,7 +10,11 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | Q3 | The agents watcher re-reads a meta file it caught half-written | landed | — | 2026-09-23 |
 | Q4 | Leftovers of the O8 split: the Files panel's `ctx` getters, repeated test setup | landed | — | 2026-09-23 |
 | P0 | Measure: bundle, boot, idle CPU, scrollback replay, memory per session — a report to the user | landed — report in `memory/log/2026-09/project/2026-09-23-quality-p0-measurements.md` | — | 2026-09-23 |
-| P1+ | The speed work the user picks from P0's report | todo — the user decides after P0 | — | |
+| P1 | Replay only what the terminal keeps: the last 5000 lines of the ring | landed | — | 2026-09-23 |
+| P2 | Split and close keep the panes that did not move (no replay for them) | landed | — | 2026-09-23 |
+| P3 | One resize per pane at boot; cache headers for the hashed `/assets/*` | landed | — | 2026-09-23 |
+| P4 | Successful polls: one summary line a minute instead of one line each (the idle log −97 %) | landed | — | 2026-09-23 |
+| P5 | Tab switch without a replay (inactive tabs kept alive) | todo — **next**, the user decides (P1–P4 measured again: tab switch 1→4 still ~200–250 ms) | — | |
 
 ## Resume here
 
@@ -44,6 +48,21 @@ volgende keer dit wel op zo'n manier gedaan wordt". Answers the same day:
 3. **A new master plan with its own phrase** (this file).
 4. **Speed: measure first, then the user picks** (P0 is a report, P1+ waits
    for the user's word).
+
+5. **P0's picks (2026-09-23): P1–P4 are built** (the four the report
+   ranked first). **Logging decision amended:** the user chose "poll lines
+   quieter" (log −94 %). The default log level is `debug`, so demoting alone
+   would change nothing; what shipped (the orchestrator's refinement, put to
+   the user at the landing): a SUCCESSFUL (2xx, under `SLOW_POLL_MS` =
+   1 000 ms) `GET /api/sessions`, `/api/runtime`, `/api/prefs`,
+   `/api/update/status` or `POST /api/client-log` writes no line of its
+   own; the server writes one `debug` summary per minute with the counts per
+   route and status (and at shutdown). A failed or slow poll is written at
+   once, as before. The browser ships no line for a quiet success. Every
+   other request logs as before; the 2026-09-06 "log everything" rule
+   otherwise holds.
+   **Tab switch (P5) waits**: re-measure after P1–P4, then decide on keeping
+   inactive tabs alive (memory and the WebGL context limit).
 
 ## Fixed rules for every part
 

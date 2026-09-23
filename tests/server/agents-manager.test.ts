@@ -68,7 +68,7 @@ test('SessionManager.setReport: one `info` broadcast per REAL change, carrying a
   try {
     const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
-    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     assert.equal(client.agentFrames().length, 0, 'the attach info carries no agents yet');
     const base = client.infoFrames().length;
 

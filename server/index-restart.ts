@@ -21,6 +21,7 @@ import { readWebBuild, dependenciesInStep } from './buildinfo.ts';
 import { resolveInstalledTarget, type InstalledTarget } from './bundle.ts';
 import type { SessionManager } from './sessions.ts';
 import type { TelemetryWatcher } from './telemetry.ts';
+import type { PollTally } from './poll-log.ts';
 import type { AgentsWatcher } from './agents.ts';
 import type { SessionHistory } from './history.ts';
 import type { LifecycleController } from './lifecycle.ts';
@@ -55,6 +56,8 @@ export interface RestartWiring {
   telemetry: TelemetryWatcher;
   agents: AgentsWatcher;
   releaseChecker: ReleaseChecker | undefined;
+  /** The successful-poll counter: stopped here so the last window is written. */
+  polls: PollTally;
   server: Server;
   upgrade: UpgradeHandler;
   openSockets: Set<Socket>;
@@ -78,6 +81,7 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
     telemetry,
     agents,
     releaseChecker,
+    polls,
     server,
     upgrade,
     openSockets,
@@ -108,6 +112,7 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
       telemetry.stop();
       agents.stop();
       releaseChecker?.stop();
+      polls.stop();
       history.endAllLive('shutdown');
       sessions.destroyAll();
       server.close(); // Releases the LISTENING socket; the in-flight request lives on.

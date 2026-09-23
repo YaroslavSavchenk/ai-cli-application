@@ -34,6 +34,7 @@ import {
 import { createUpdateChecker } from '../../server/buildinfo.ts';
 import { createRequestHandler } from '../../server/api.ts';
 import { createLogger, createRefusalLimiter, scoped } from '../../server/config.ts';
+import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import { ProjectStore } from '../../server/projects.ts';
@@ -76,6 +77,7 @@ async function withRoute(
             return Promise.resolve(typeof outcome === 'function' ? outcome() : outcome);
           },
         };
+  const polls = new PollTally({ log: scoped(log, 'http') });
   let boundPort = 0;
   const server: Server = createServer(
     createRequestHandler({
@@ -96,6 +98,7 @@ async function withRoute(
       ...(runner === undefined ? {} : { restart: runner }),
       log,
       allowRefusalLine: createRefusalLimiter(scoped(log, 'http')),
+      polls,
     }),
   );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -117,6 +120,7 @@ async function withRoute(
     // cleanups below, leaking the listener (so `node --test` never drains) and
     // the temp dir. It is rethrown after them.
     let settleErr: { err: unknown } | undefined;
+    polls.stop();
     try {
       await destroyAllAndSettle(sessions, join(dir, 'server.log'));
     } catch (err) {
@@ -374,6 +378,7 @@ async function withRuntimeRoute(
   const token = 'd'.repeat(64);
   const history = new SessionHistory(join(dir, 'history.json'), log);
   const sessions = new SessionManager(log, history);
+  const polls = new PollTally({ log: scoped(log, 'http') });
   let boundPort = 0;
   const server: Server = createServer(
     createRequestHandler({
@@ -394,6 +399,7 @@ async function withRuntimeRoute(
       ...(checkUpdate === undefined ? {} : { checkUpdate }),
       log,
       allowRefusalLine: createRefusalLimiter(scoped(log, 'http')),
+      polls,
     }),
   );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -414,6 +420,7 @@ async function withRuntimeRoute(
     // cleanups below, leaking the listener (so `node --test` never drains) and
     // the temp dir. It is rethrown after them.
     let settleErr: { err: unknown } | undefined;
+    polls.stop();
     try {
       await destroyAllAndSettle(sessions, join(dir, 'server.log'));
     } catch (err) {

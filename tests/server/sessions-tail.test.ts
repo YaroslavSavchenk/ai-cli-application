@@ -122,7 +122,7 @@ test('final output written just before exit survives into the replay when the re
     // 20 ms burnt per broadcast frame keeps the pty drain permanently behind
     // the writer, so the kernel still holds output when the child exits.
     const live = new StallingClient(20);
-    assert.equal(manager.attach(info.id, live.asWs()), true);
+    assert.notEqual(manager.attach(info.id, live.asWs()), null);
 
     const code = await whenExited(manager, info.id);
     assert.equal(code, 0, 'the session must exit cleanly');
@@ -145,7 +145,7 @@ test('final output written just before exit survives into the replay when the re
 
     // 2. The scrollback a reattaching client replays holds the same tail.
     const reattach = new StallingClient();
-    assert.equal(manager.attach(info.id, reattach.asWs()), true);
+    assert.notEqual(manager.attach(info.id, reattach.asWs()), null);
     const replay = reattach.frames[0];
     assert.equal(replay?.type, 'replay', 'attach must replay first');
     const replayed = replay.type === 'replay' ? replay.data : '';
@@ -183,7 +183,7 @@ test('detached session: the final output is buffered even with no client attache
     assert.equal(code, 0);
 
     const c = new StallingClient();
-    assert.equal(manager.attach(info.id, c.asWs()), true);
+    assert.notEqual(manager.attach(info.id, c.asWs()), null);
     const replay = c.frames[0];
     const replayed = replay?.type === 'replay' ? replay.data : '';
     assert.ok(
@@ -207,7 +207,7 @@ test('a rescued tail still raises attention: a BEL in the final output sets the 
       rows: 24,
     });
     const live = new StallingClient(20);
-    assert.equal(manager.attach(info.id, live.asWs()), true);
+    assert.notEqual(manager.attach(info.id, live.asWs()), null);
     await whenExited(manager, info.id);
 
     assert.ok(live.text().includes('BELL_MARK_c7'), 'the final output must arrive');
@@ -246,7 +246,7 @@ test('the rescued tail is delivered EXACTLY once — byte-exact, no duplication,
       rows: 24,
     });
     const live = new StallingClient(20);
-    assert.equal(manager.attach(info.id, live.asWs()), true);
+    assert.notEqual(manager.attach(info.id, live.asWs()), null);
 
     const code = await whenExited(manager, info.id);
     assert.equal(code, 7, 'a non-zero exit code must survive the rescued teardown');
@@ -260,7 +260,7 @@ test('the rescued tail is delivered EXACTLY once — byte-exact, no duplication,
 
     // Scrollback: same, and it is what a reattaching client is promised.
     const reattach = new StallingClient();
-    assert.equal(manager.attach(info.id, reattach.asWs()), true);
+    assert.notEqual(manager.attach(info.id, reattach.asWs()), null);
     const replay = reattach.frames[0];
     assert.equal(replay?.type, 'replay');
     const replayed = replay.type === 'replay' ? replay.data : '';
@@ -301,11 +301,11 @@ test('a multi-byte UTF-8 tail is rescued without corruption (no replacement char
       rows: 24,
     });
     const live = new StallingClient(20);
-    assert.equal(manager.attach(info.id, live.asWs()), true);
+    assert.notEqual(manager.attach(info.id, live.asWs()), null);
     assert.equal(await whenExited(manager, info.id), 0);
 
     const reattach = new StallingClient();
-    assert.equal(manager.attach(info.id, reattach.asWs()), true);
+    assert.notEqual(manager.attach(info.id, reattach.asWs()), null);
     const replay = reattach.frames[0];
     const replayed = replay?.type === 'replay' ? replay.data : '';
 

@@ -105,6 +105,21 @@ export const C = '/home/you/README.md';
 export const HASH40 = 'a'.repeat(40);
 
 export const sess = (id: string): PaneSlot => ({ kind: 'session', id });
+
+/**
+ * The ACTIVE tab holding the sessions `ids`, plus one tab of its own per id in
+ * `others` — built by hand, because the server would give every session its
+ * own tab first (Quality P2: the relayout tests move sessions between them).
+ */
+export function activeTab(ids: string[], others: string[] = []): ViewState {
+  st.initServer([], [...ids, ...others].map((id) => mkSession(id)));
+  st.loadUi(REOPEN);
+  st.state.views = [home()];
+  const v = addView(null, ids.map(sess));
+  for (const id of others) addView(null, [sess(id)]);
+  st.state.activeViewId = v.id;
+  return v;
+}
 export const ftab = (path: string): EditorTab => ({ kind: 'file', path });
 export const dtab = (hash: string, path: string): EditorTab => ({ kind: 'diff', hash, path, root: REPO });
 /** The folder a diff tab is read from (B3) — one repository for the whole file. */

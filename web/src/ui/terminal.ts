@@ -3,7 +3,8 @@
  *
  * - WebGL renderer with try/catch fallback to the DOM renderer; a lost WebGL
  *   context disposes the addon (xterm falls back automatically).
- * - Bounded scrollback (5000 lines).
+ * - Bounded scrollback (SCROLLBACK_LINES, shared/protocol.ts: the server cuts
+ *   its replay to the same number, PLAN-QUALITY P1).
  * - Theme is built from the --xt-* tokens in tokens.css: the terminal
  *   palette and the app palette are one system.
  * - Resize: ResizeObserver -> 75ms debounce -> fit -> send cols/rows over
@@ -37,7 +38,7 @@ import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
-import type { SessionInfo } from '../../../shared/protocol.ts';
+import { SCROLLBACK_LINES, type SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
 import { isCopyChord, isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
@@ -51,7 +52,6 @@ import {
   type FontWaitResult,
 } from './font-ready.ts';
 
-const SCROLLBACK_LINES = 5000;
 const RESIZE_DEBOUNCE_MS = 75;
 const DIM_MIN = 1;
 const DIM_MAX = 1000;

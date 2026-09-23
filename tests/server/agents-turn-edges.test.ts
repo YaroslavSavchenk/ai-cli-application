@@ -464,7 +464,7 @@ test('SessionManager.setReport: only the FINISHED total moving is a change too â
   try {
     const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
-    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     m.manager.setReport(info.id, report([ROW], { counts: { running: 1, finished: 0 } }));
     const n = client.infoFrames().length;
     m.manager.setReport(info.id, report([ROW], { counts: { running: 1, finished: 3 } }));

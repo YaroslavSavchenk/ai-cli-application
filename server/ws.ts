@@ -213,9 +213,8 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
   }
 
   function attachClient(ws: WebSocket, sessionId: string): void {
-    // Read BEFORE attach: attach() is what replays the buffer.
-    const replayBytes = sessions.scrollbackBytes(sessionId);
-    if (!sessions.attach(sessionId, ws)) {
+    const replayBytes = sessions.attach(sessionId, ws);
+    if (replayBytes === null) {
       // Session vanished between the check and the upgrade completing.
       wsLog('info', `attach failed for session ${sessionId}: session vanished before upgrade`);
       ws.close(1011, 'session not found');

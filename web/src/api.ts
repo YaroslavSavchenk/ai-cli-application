@@ -130,10 +130,22 @@ export function onAuthError(fn: () => void): void {
  * is not answering.
  */
 /**
- * Routes whose 2xx is not worth a line each — the `route` form, with the query
- * already reduced to `?…`. One entry today: the per-file upload of a drop.
+ * Requests whose 2xx is not worth a line each — `METHOD route`, the query
+ * already reduced to `?…` (the method matters: `POST /api/sessions` is a
+ * launch, never quiet). The per-file upload of a drop (B10), and the polls
+ * (Quality P4, user's call 2026-09-23): the session list every 3 s and the
+ * update notice every 30 s, whose success the server already counts in its
+ * one-a-minute poll summary (server/poll-log.ts) — a line here would also
+ * cost a `POST /api/client-log` that carries nothing else. The same GETs at
+ * boot and in Settings are quiet too; a failure of any of them still writes
+ * its warn/error line below.
  */
-const QUIET_ON_SUCCESS = new Set(['/api/fs/upload ?…']);
+const QUIET_ON_SUCCESS = new Set([
+  'PUT /api/fs/upload ?…',
+  'GET /api/sessions',
+  'GET /api/runtime',
+  'GET /api/prefs',
+]);
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? 'GET';
@@ -185,7 +197,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   // very same route for the very same reason. The per-drop summary (`logDrop`)
   // is the record; every REFUSAL above still writes its warn line, because
   // that is the one a reader is looking for.
-  if (!QUIET_ON_SUCCESS.has(route)) log.debug(`api ${method} ${route} → ${res.status} ${took()}ms`);
+  if (!QUIET_ON_SUCCESS.has(`${method} ${route}`)) log.debug(`api ${method} ${route} → ${res.status} ${took()}ms`);
   return body as T;
 }
 

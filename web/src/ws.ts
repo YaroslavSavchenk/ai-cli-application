@@ -7,8 +7,8 @@
  *
  * Server->client attach ordering (protocol contract): 'replay' once, then
  * 'info', then 'exit' if already exited, then live 'data'. On EVERY (re)open
- * the server replays the full scrollback — the replay handler must reset the
- * terminal first (ui/terminal.ts does).
+ * the server replays the scrollback's last REPLAY_MAX_LINES lines — the replay
+ * handler must reset the terminal first (ui/terminal.ts does).
  *
  * Reconnect: on unexpected close, back off 0.5s..5s (x2). Before each retry
  * the session's existence is checked via GET /api/sessions — if it is gone

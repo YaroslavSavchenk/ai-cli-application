@@ -426,7 +426,28 @@ export interface CreateSessionRequest {
 // JSON text frames; terminal bytes are UTF-8 strings. Multiple concurrent
 // clients per session are allowed.
 
-/** Sent exactly once on attach, BEFORE any live data. `data` is the whole scrollback ring buffer. */
+/**
+ * Lines of scrollback a browser terminal keeps (xterm's `scrollback` option,
+ * web/src/ui/terminal.ts). Shared because the server's replay is cut to it:
+ * sending more than the terminal keeps is parsed and thrown away (P0 measured
+ * ~68 % of a full 1 MiB replay discarded — PLAN-QUALITY P1, 2026-09-23).
+ */
+export const SCROLLBACK_LINES = 5000;
+
+/**
+ * Lines an attach replays at most: the terminal's scrollback plus one screen.
+ * xterm holds `SCROLLBACK_LINES + rows`; 200 covers the tallest realistic pane
+ * (a taller one misses only the oldest lines at the far top of its history).
+ * Derived from SCROLLBACK_LINES so the two can never drift apart.
+ */
+export const REPLAY_MAX_LINES = SCROLLBACK_LINES + 200;
+
+/**
+ * Sent exactly once on attach, BEFORE any live data. `data` is the tail of
+ * the scrollback ring buffer holding its last REPLAY_MAX_LINES lines (the
+ * whole ring when it holds fewer), cut right after a newline
+ * (server/sessions-output.ts `replayTail`).
+ */
 export interface ReplayMessage {
   type: 'replay';
   data: string;

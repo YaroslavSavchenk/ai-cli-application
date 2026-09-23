@@ -70,6 +70,7 @@ import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler, type ApiDeps } from './api.ts';
+import { PollTally } from './poll-log.ts';
 import { createUpgradeHandler } from './ws.ts';
 import { STANDBY_TIMEOUT_MS } from './restart.ts';
 import { commitFrontend, discardFrontend } from './webbuild.ts';
@@ -415,6 +416,13 @@ const getStartedAt = (): string => startedAt;
 const allowRefusalLine = createRefusalLimiter(scoped(log, 'log'));
 
 /**
+ * The successful-poll counter (Quality P4, server/poll-log.ts): one summary
+ * line a minute. Owned here so shutdown() and the restart teardown stop it,
+ * which writes the last partial window.
+ */
+const polls = new PollTally({ log: scoped(log, 'http') });
+
+/**
  * "Is the code on disk newer than this process?" for GET /api/runtime — the
  * signal behind the UI's update notice. Computed per request (cached ~5 s in
  * the checker), NOT at boot: the whole point is code that landed after we
@@ -591,6 +599,7 @@ const apiDeps: ApiDeps = {
   update: updater,
   log,
   allowRefusalLine,
+  polls,
 };
 const server = createServer(createRequestHandler(apiDeps));
 const upgrade = createUpgradeHandler({
@@ -805,6 +814,7 @@ const restart = createRestartController({
   telemetry,
   agents,
   releaseChecker,
+  polls,
   server,
   upgrade,
   openSockets,
@@ -851,6 +861,7 @@ function shutdown(cause: string): void {
   telemetry.stop();
   agents.stop();
   releaseChecker?.stop();
+  polls.stop();
   // A frontend build in flight is this process's child: it must not outlive us
   // writing into web/dist-next, and its half-written output goes with it.
   if (buildChild !== undefined && buildChild.exitCode === null && buildChild.signalCode === null) {

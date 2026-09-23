@@ -1,8 +1,8 @@
 /**
  * The output side of a session, as pure building blocks: the byte-capped
- * scrollback ring buffer, the scan for a REAL bell (not an OSC terminator),
- * and the rescue of a session's final output from the pty master before
- * node-pty closes it.
+ * scrollback ring buffer, the tail of it an attach replays (PLAN-QUALITY P1),
+ * the scan for a REAL bell (not an OSC terminator), and the rescue of a
+ * session's final output from the pty master before node-pty closes it.
  *
  * Split from server/sessions.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
  * byte-exact; server/sessions.ts re-exports what was public. Sibling pieces:
@@ -62,9 +62,53 @@ export class RingBuffer {
     return this.#bytes;
   }
 
-  toString(): string {
-    return Buffer.concat(this.#chunks).toString('utf8');
+  /** The ring's bytes, oldest first — what `replayTail` cuts without decoding. */
+  toBuffer(): Buffer {
+    return Buffer.concat(this.#chunks);
   }
+
+  toString(): string {
+    return this.toBuffer().toString('utf8');
+  }
+}
+
+/**
+ * The part of the ring an attach replays: its last `maxLines` lines, cut
+ * right AFTER a `\n` (PLAN-QUALITY P1, 2026-09-23). The ring keeps 1 MiB, but
+ * the browser terminal keeps only `SCROLLBACK_LINES` plus one screen
+ * (`REPLAY_MAX_LINES`, shared/protocol.ts); everything older was parsed and
+ * thrown away on every attach, tab switch and reload.
+ *
+ * Lines are counted as the terminal counts rows: `n` newlines make `n + 1`
+ * lines, the last one being the (possibly empty) line the cursor is on. A
+ * `\n`-line wider than the pane wraps into several rows, so this can only
+ * send MORE rows than the terminal keeps, never fewer — except for scrolling
+ * that comes without a `\n` (VT, FF, ESC D, CSI S), rare in CLI output.
+ *
+ * Why cut after a newline, and on bytes: 0x0A never occurs inside a UTF-8
+ * multi-byte sequence nor inside the CSI/SGR sequences CLIs print, so the
+ * replay starts on a clean line and a clean character. CRLF output keeps its
+ * `\r` with the dropped line; the replay starts with the next line's text.
+ *
+ * Fallback when the ring holds `maxLines` lines or fewer — including a ring
+ * with no newline at all (one 1 MiB line): the whole ring, exactly as before
+ * P1, bounded by SCROLLBACK_MAX_BYTES. Anywhere else there is no safe cut: a
+ * byte offset could land inside an escape sequence or a character.
+ *
+ * Known and accepted (P0): terminal modes set before the cut — alternate
+ * screen, colours, cursor visibility, bracketed paste — are not replayed.
+ * That was already true once the 1 MiB ring wrapped; the live stream and the
+ * next repaint of a TUI restore them.
+ */
+export function replayTail(ring: Buffer, maxLines: number): Buffer {
+  let pos = ring.byteLength;
+  for (let i = 0; i < maxLines; i++) {
+    // `pos === 0` must not reach lastIndexOf: a negative offset counts from the END.
+    const nl = pos === 0 ? -1 : ring.lastIndexOf(0x0a, pos - 1);
+    if (nl === -1) return ring;
+    pos = nl;
+  }
+  return ring.subarray(pos + 1);
 }
 
 /**

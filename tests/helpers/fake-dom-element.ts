@@ -177,6 +177,25 @@ export class FakeElement extends FakeNode {
     this.children = [];
     this.append(...nodes);
   }
+  /**
+   * Put `node` before `ref` (one of this node's children), or last for null —
+   * MOVING it when it already stands somewhere, as the DOM does. A browser
+   * takes the keyboard away from a node that is moved (remove + insert), and so
+   * does this: `ui/panes.ts` moves a pane card on a split or a close (Quality
+   * P2) and has to hand the focus back afterwards.
+   */
+  insertBefore<T extends FakeNode>(node: T, ref: FakeNode | null): T {
+    if (node instanceof FakeElement && node.contains(getDoc().activeElement)) {
+      getDoc().activeElement = getBody();
+    }
+    const from = node.parentNode;
+    if (from !== null) from.children.splice(from.children.indexOf(node), 1);
+    const at = ref === null ? this.children.length : this.children.indexOf(ref);
+    if (at === -1) throw new Error('insertBefore: the reference node is not a child of this node');
+    node.parentNode = this;
+    this.children.splice(at, 0, node);
+    return node;
+  }
   /** Detach from the parent — how a dialog that is CREATED on open goes away. */
   remove(): void {
     const parent = this.parentNode;

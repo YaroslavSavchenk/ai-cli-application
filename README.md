@@ -7,7 +7,7 @@ a real pseudo-terminal (node-pty), streams I/O over WebSocket, and serves a
 vanilla-TypeScript frontend (xterm.js) with projects, launch presets, and
 multi-pane tab layouts. Sessions are server-side objects: hiding a pane,
 switching tabs, or reloading the page never ends them, and reattaching
-replays the full scrollback. The backend's lifetime is bound to UI presence
+replays the scrollback (its last 5 200 lines — what the terminal keeps). The backend's lifetime is bound to UI presence
 (decided and implemented 2026-07-19; see
 `memory/decisions/lifecycle-bound-backend.md`): closing the last app window
 starts a ~30 s grace timer, after which the backend ends all sessions and

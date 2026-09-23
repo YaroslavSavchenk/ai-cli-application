@@ -15,6 +15,12 @@
  * method, pathname, status, duration, response bytes, and for 4xx/5xx the
  * constant refusal sentence. Never the query string's values (only `?…`),
  * never a body, never a header, never the token. /assets/* logs at debug.
+ * A successful poll is counted instead of written: one summary line a minute
+ * (Quality P4, server/poll-log.ts).
+ *
+ * CACHING (Quality P3b, 2026-09-23): the content-hashed Vite output under
+ * /assets/ is `immutable` for a year; the two entry documents stay
+ * `no-store`; every other static file keeps no cache header.
  *
  * POST /api/client-log ships the BROWSER's own log lines into server.log
  * (`[client] …`), because the page's console dies with the tab while
@@ -81,6 +87,7 @@ import { projectRoutes } from './api-projects.ts';
 import { fsRoutes } from './api-fs.ts';
 import { gitRoutes } from './api-git.ts';
 import { sessionRoutes } from './api-sessions.ts';
+import { type PollTally, isQuietPoll } from './poll-log.ts';
 
 // The route families moved out of this file by the O8 split (2026-09-23);
 // every name importable from server/api.ts before it still is.
@@ -116,6 +123,16 @@ const FRAME_PROTECTION_HEADERS = {
   'content-security-policy': "frame-ancestors 'none'",
   'x-frame-options': 'DENY',
 } as const;
+
+/**
+ * For the Vite output under /assets/ only (Quality P3b, 2026-09-23 — P0 found
+ * every load re-downloading ~1.2 MB). Safe to cache for a year because every
+ * name there carries its content hash (`index-<hash>.js`, the fonts): a
+ * restart or update swaps web/dist, a new build gets NEW names, and the
+ * `no-store` entry document — fetched fresh every load — is what points at
+ * them. A stale asset can never be asked for by a current page.
+ */
+const HASHED_ASSET_CACHE = 'public, max-age=31536000, immutable';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -201,12 +218,17 @@ export interface ApiDeps {
   allowRefusalLine: () => boolean;
   /** Clock SEAM for the client-log budget window; tests inject one. */
   now?: () => number;
+  /**
+   * The poll counter (server/poll-log.ts), owned and stopped by
+   * server/index.ts so shutdown writes the last window.
+   */
+  polls: PollTally;
 }
 
 export function createRequestHandler(
   deps: ApiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { token, projects, prefs, sessions, history, github, keys, webDistDir, log } = deps;
+  const { token, projects, prefs, sessions, history, github, keys, webDistDir, log, polls } = deps;
   const tools = deps.tools ?? cachedProbe({ env: () => ptyEnv() });
   const httpLog = scoped(log, 'http');
   const clientLog = scoped(log, 'client');
@@ -419,11 +441,16 @@ export function createRequestHandler(
       sendError(res, 403, 'forbidden');
       return;
     }
+    // Only a file that EXISTS under web/dist/assets/: a 404 there (sendError
+    // below) carries no cache header, so an asset that appears later — a
+    // build finishing — is not hidden behind a cached miss.
+    const hashed = resolved.startsWith(join(webDistDir, 'assets') + sep);
     try {
       const content = await readFile(resolved);
       responseBytes.set(res, content.byteLength);
       res.writeHead(200, {
         'content-type': CONTENT_TYPES[extname(resolved)] ?? 'application/octet-stream',
+        ...(hashed ? { 'cache-control': HASHED_ASSET_CACHE } : {}),
         ...FRAME_PROTECTION_HEADERS,
       });
       res.end(content);
@@ -480,9 +507,17 @@ export function createRequestHandler(
       // a 4xx or 5xx there is a real diagnostic, and its caller already holds
       // the token. Everything else shares the one budget.
       if (!mayLog(res)) return;
+      // A successful, prompt poll is counted, not written (Quality P4): the
+      // summary line in server/poll-log.ts is its record. A failed or slow
+      // one falls through to its own line below, as loud as before.
+      if (isQuietPoll(method, route, status, ms)) {
+        polls.count(method, route, status);
+        return;
+      }
       // The log-shipping POST is demoted: it fires every couple of seconds per
       // open window and logging it at info would roughly double the steady
-      // state volume of the file it is feeding. The update-progress GET is
+      // state volume of the file it is feeding (its prompt 2xx is counted
+      // above; this keeps a SLOW one at debug). The update-progress GET is
       // demoted for the same reason — the UI polls it at 1 Hz for the whole
       // install (and once per page boot), so at info it would bury everything
       // else in the file.

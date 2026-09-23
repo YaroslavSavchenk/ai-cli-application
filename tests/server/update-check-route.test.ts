@@ -25,6 +25,7 @@ import { UPDATE_NOT_AVAILABLE } from '../../server/update-install.ts';
 import { UPDATE_NEW_VERSION_INSTALLED } from '../../server/bundle.ts';
 import { composeUpdateStatus, type ReleaseChecker } from '../../server/update-release.ts';
 import { createLogger, createRefusalLimiter, scoped } from '../../server/config.ts';
+import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import { ProjectStore } from '../../server/projects.ts';
@@ -163,6 +164,7 @@ async function withRoute(
     entered += 1;
     return shared();
   };
+  const polls = new PollTally({ log: scoped(log, 'http') });
   let boundPort = 0;
   const server: Server = createServer(
     createRequestHandler({
@@ -183,6 +185,7 @@ async function withRoute(
       ...(opts.wire === false ? {} : { updateCheck }),
       log,
       allowRefusalLine: createRefusalLimiter(scoped(log, 'http')),
+      polls,
     }),
   );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -199,6 +202,7 @@ async function withRoute(
     // replace the body's failure, and always close the listener so `node
     // --test` can drain.
     let settleErr: { err: unknown } | undefined;
+    polls.stop();
     try {
       await destroyAllAndSettle(sessions, logFile);
     } catch (err) {

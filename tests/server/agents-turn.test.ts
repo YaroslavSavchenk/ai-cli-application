@@ -458,7 +458,7 @@ test('SessionManager.setReport: a turn-only report sets `turn` and no agent fiel
   try {
     const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
-    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     const base = client.infoFrames().length;
 
     m.manager.setReport(info.id, report([], { turn: 'waiting' }));
@@ -491,7 +491,7 @@ test('SessionManager: the exit drops `turn` in the frame before `exit`, and a la
   try {
     const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 0.3'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
-    assert.equal(m.manager.attach(info.id, client.asWs()), true);
+    assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     m.manager.setReport(info.id, report([], { turn: 'working' }));
     assert.equal(m.manager.get(info.id)?.turn, 'working');
 

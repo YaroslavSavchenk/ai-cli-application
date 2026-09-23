@@ -3,8 +3,10 @@
  *
  * A session = a real PTY (node-pty) + metadata + a bounded scrollback ring
  * buffer. It exists independently of any browser connection; clients attach
- * and detach freely and the whole buffer is replayed on attach. On PTY exit
- * the session stays listed (status 'exited', buffer intact) until DELETEd.
+ * and detach freely and the buffer's tail — the last REPLAY_MAX_LINES lines,
+ * what a browser terminal keeps (PLAN-QUALITY P1) — is replayed on attach.
+ * On PTY exit the session stays listed (status 'exited', buffer intact) until
+ * DELETEd.
  *
  * Ending a session signals the PTY's PROCESS GROUP, not just its leader, so a
  * CLI that does its work in a child (Gemini CLI) cannot be left behind holding
@@ -44,7 +46,7 @@ import { basename } from 'node:path';
 import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
-import { commandBase, isClaudeCommand, isKeyedTool, KEY_ENV } from '../shared/protocol.ts';
+import { commandBase, isClaudeCommand, isKeyedTool, KEY_ENV, REPLAY_MAX_LINES } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
 import { planCmdStart } from './winpath.ts';
@@ -54,7 +56,7 @@ import { sameTelemetry } from './telemetry.ts';
 import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
-import { rescueFinalOutput, RingBuffer, scanForBell, SCROLLBACK_MAX_BYTES } from './sessions-output.ts';
+import { replayTail, rescueFinalOutput, RingBuffer, scanForBell, SCROLLBACK_MAX_BYTES } from './sessions-output.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
 // of this module keeps its surface.
@@ -241,15 +243,6 @@ export class SessionManager {
    */
   isLive(id: string): boolean {
     return this.#sessions.get(id)?.info.status === 'running';
-  }
-
-  /**
-   * Bytes attach() would replay right now (0 for an unknown session). Read by
-   * the WS layer so the log can state how much scrollback a client received —
-   * the count only, never the content.
-   */
-  scrollbackBytes(id: string): number {
-    return this.#sessions.get(id)?.buffer.byteLength ?? 0;
   }
 
   /** Spawn the PTY and register the session. Throws if the spawn fails. */
@@ -476,28 +469,31 @@ export class SessionManager {
   }
 
   /**
-   * Attach a client: replay the whole scrollback buffer FIRST, then an info
+   * Attach a client: replay the scrollback buffer's tail (replayTail) FIRST, then an info
    * snapshot (and an exit notice if already exited), then live traffic.
    * ws frames are delivered in send order per socket, and the client is only
    * added to the broadcast set after replay is queued, so replay always
    * precedes any live data on this socket.
+   * Returns the replayed byte count (the WS layer logs the count, never the
+   * content), or null for an unknown session.
    */
-  attach(id: string, ws: WebSocket): boolean {
+  attach(id: string, ws: WebSocket): number | null {
     const session = this.#sessions.get(id);
-    if (session === undefined) return false;
+    if (session === undefined) return null;
+    const replay = replayTail(session.buffer.toBuffer(), REPLAY_MAX_LINES);
     this.#slog(
       'debug',
-      `${id} attach: replaying ${session.buffer.byteLength} bytes, status ${session.info.status}, ` +
-        `${session.clients.size + 1} client(s) after this one`,
+      `${id} attach: replaying ${replay.byteLength} of ${session.buffer.byteLength} ring bytes, ` +
+        `status ${session.info.status}, ${session.clients.size + 1} client(s) after this one`,
     );
-    this.#send(ws, { type: 'replay', data: session.buffer.toString() });
+    this.#send(ws, { type: 'replay', data: replay.toString('utf8') });
     this.#send(ws, { type: 'info', session: { ...session.info } });
     if (session.info.status === 'exited') {
       this.#send(ws, { type: 'exit', exitCode: session.info.exitCode ?? 0 });
     }
     session.clients.add(ws);
     ws.on('close', () => session.clients.delete(ws));
-    return true;
+    return replay.byteLength;
   }
 
   write(id: string, data: string): void {

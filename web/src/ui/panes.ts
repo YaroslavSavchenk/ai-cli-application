@@ -7,10 +7,14 @@
  *
  * Sessions exist independently of views; this module only attaches and
  * detaches xterm views. Terminals exist only for the active view's SESSION
- * slots; switching tabs or changing the split shape disposes and re-attaches
- * (the server replays the full buffer). A slot that merely changes CONTENT is
- * converted in place (`reconcileSlot`), so swapping a file with the terminal
- * beside it re-attaches nothing.
+ * slots; switching TABS disposes and re-attaches (the server replays the
+ * scrollback's tail, `REPLAY_MAX_LINES`). Within one tab a pane keeps its card — and so its terminal and its
+ * socket — for as long as its content stays in the tab (`relayout`, Quality
+ * part P2): a split, a close, an extract or a swap moves the card in the grid
+ * and its own ResizeObserver refits it, so only a pane NEW to the tab
+ * attaches. A slot that merely changes CONTENT is converted in place
+ * (`reconcileSlot`), so swapping a file with the terminal beside it
+ * re-attaches nothing.
  *
  * A pane (Nocturne part A3) is a neutral-900 card holding, top to bottom: a
  * 38px header, the exited/lost banner when there is one, and the body on the
@@ -65,6 +69,7 @@ import { armDrag } from './dnd.ts';
 import { editorPane, type EditorPane } from './editor-pane.ts';
 import { tabIdOf } from './editor-model.ts';
 import { slotTitle } from './slots-model.ts';
+import { planCards } from './pane-reuse-model.ts';
 import { killSession, updateHeader, updateNote, updateStatus } from './panes-status.ts';
 
 export { killSession } from './panes-status.ts';
@@ -119,6 +124,7 @@ type Payload = SessionPayload | EditorPayload;
  * in the OTHER panes are never touched when this one changes kind.
  */
 interface Slot {
+  /** Where the card stands now; a relayout moves a card and updates this. */
   index: number;
   /** The `.pane` card; attached to the grid for as long as the layout holds. */
   root: HTMLElement;
@@ -142,6 +148,8 @@ let openLaunch: () => void = () => {};
 let renderedViewId = '';
 let renderedCount = -1;
 let renderedL3: st.L3 = 'L';
+/** The split dividers of the current shape; rebuilt only when the shape changes. */
+let dividers: HTMLElement[] = [];
 let lastFocusKey = '';
 /**
  * The last cols/rows any TerminalView measured for itself. Only read when the
@@ -313,12 +321,12 @@ export function focusedPaneDims(): { cols: number; rows: number } {
 // --------------------------------------------------------------------------
 
 function render(): void {
-  // EVERY path below can construct a TerminalView (a rebuild does, and so does
-  // a reconcile whose slot changed kind or session), and xterm must open on an
-  // attached, MEASURABLE node — opening or measuring one on a hidden grid can
-  // permanently downgrade the WebGL renderer and leaves the new view at
-  // xterm's default 80x24, which `connect()` then sends to a PTY that is not
-  // (memory: frontend-terminal-quirks). While the commit view covers the pane
+  // EVERY path below can construct a TerminalView (a rebuild does, and so do a
+  // relayout that adds a pane and a reconcile whose slot changed kind or
+  // session), and xterm must open on an attached, MEASURABLE node — opening or
+  // measuring one on a hidden grid can permanently downgrade the WebGL
+  // renderer and leaves the new view at xterm's default 80x24, which
+  // `connect()` then sends to a PTY that is not (memory: frontend-terminal-quirks). While the commit view covers the pane
   // area the whole render is therefore refused and the pane area is left
   // exactly as it was; `refreshPaneArea()` replays it the moment the grid is
   // back (main.ts calls it on the same 'screen' notification that unhides it).
@@ -331,15 +339,13 @@ function render(): void {
     return;
   }
   const count = v.slots.length;
-  if (v.id !== renderedViewId || count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
-    rebuild(v, count);
-  } else {
-    // NOT a rebuild when a slot merely changed CONTENT: a rebuild disposes and
-    // re-attaches every terminal in the tab, and a swap of two panes would
-    // then cost an attach (and a full replay) for the sessions that never
-    // moved. `reconcileSlot` converts one pane in place instead.
-    for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
-  }
+  // A rebuild disposes and re-attaches every terminal in the tab, so only a
+  // TAB switch takes it. Everything inside one tab — a split, a close, an
+  // extract, a swap, a file dropped on a terminal — goes through `relayout`,
+  // which keeps every pane whose content stayed (Quality P2: a 2→3 split used
+  // to replay all three terminals).
+  if (v.id !== renderedViewId) rebuild(v, count);
+  else relayout(v, count);
   applyFocus();
 }
 
@@ -396,19 +402,81 @@ function rebuild(v: st.ViewState, count: number): void {
   for (const s of slots) teardown(s);
   slots = [];
   renderedViewId = v.id;
+  lastFocusKey = '';
+  grid.replaceChildren();
+  applyShape(v, count);
+  applySplit(v);
+  // The cards go into the grid first; reconcileSlot fills them AFTER that —
+  // xterm must open on an attached, measurable node.
+  for (let i = 0; i < count; i++) {
+    const s = createSlot(i);
+    grid.append(s.root);
+    slots.push(s);
+  }
+  buildDividers(v);
+  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
+}
+
+/**
+ * The same tab, drawn again (Quality part P2). Each slot takes a card by the
+ * rule in `ui/pane-reuse-model.ts`: the card already showing its content, else
+ * the card at its index (converted in place), else a new one. A kept card is
+ * MOVED — its terminal, socket and scrollback go with it, so it is never
+ * re-attached and the server replays nothing for it — and the grid is in its
+ * final shape before anything is measured:
+ *
+ *   1. cards no slot takes are disposed and leave the grid;
+ *   2. the shape attributes and the dividers change (only when the shape did);
+ *   3. the cards are put in slot order — grid auto-placement IS the slot map
+ *      (app-pane.css), so the order is what places a pane;
+ *   4. only then `reconcileSlot` fills a new or converted card, so a NEW
+ *      terminal opens on the final layout.
+ *
+ * A kept terminal whose box changed size is refit by its own ResizeObserver
+ * (ui/terminal.ts: debounce → fit → ONE resize over its socket, only when
+ * cols/rows really changed). The canvas is moved, not rebuilt: the P2
+ * browser check found the WebGL renderer still active after every move.
+ */
+function relayout(v: st.ViewState, count: number): void {
+  const plan = planCards(
+    slots.map((s) => s.key),
+    v.slots.map((slot) => st.slotKey(slot)),
+  );
+  const next = plan.map((from, i) => (from === null ? createSlot(i) : (slots[from] as Slot)));
+  for (const s of slots) {
+    if (next.includes(s)) continue;
+    teardown(s);
+    s.root.remove();
+  }
+  slots = next;
+  slots.forEach((s, i) => {
+    s.index = i;
+    s.root.dataset.slot = String(i);
+  });
+  if (count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
+    for (const d of dividers) d.remove();
+    applyShape(v, count);
+    buildDividers(v);
+  }
+  // Moving a node that holds the keyboard blurs it. The focus key alone does
+  // not always change (the pane can keep its index), so a lost focus is
+  // re-handed explicitly — to the pane that had it, by applyFocus.
+  const had = document.activeElement;
+  slots.forEach((s, i) => {
+    const at = grid.children[i];
+    if (at !== s.root) grid.insertBefore(s.root, at ?? null);
+  });
+  if (document.activeElement !== had) lastFocusKey = '';
+  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
+}
+
+/** The grid's split shape: pane count and 3-pane variant, as CSS reads them. */
+function applyShape(v: st.ViewState, count: number): void {
   renderedCount = count;
   renderedL3 = v.l3;
-  lastFocusKey = '';
   grid.dataset.layout = String(st.viewLayout(v));
   if (count === 3) grid.dataset.l3 = v.l3;
   else delete grid.dataset.l3;
-  grid.replaceChildren();
-  applySplit(v);
-  // createSlot appends its card to the grid; reconcileSlot fills it AFTER
-  // that — xterm must open on an attached, measurable node.
-  for (let i = 0; i < count; i++) slots.push(createSlot(i));
-  buildDividers(v);
-  for (let i = 0; i < slots.length; i++) reconcileSlot(i, v.slots[i] ?? null);
 }
 
 // --------------------------------------------------------------------------
@@ -433,9 +501,12 @@ function applySplitNow(): void {
 
 function buildDividers(v: st.ViewState): void {
   const n = v.slots.length;
-  if (n >= 2) grid.append(makeDivider('col', v, null));
+  dividers = [];
+  if (n >= 2) dividers.push(makeDivider('col', v, null));
   // 3 panes: the row divider only spans the stacked column (L = right, R = left).
-  if (n >= 3) grid.append(makeDivider('row', v, n === 3 ? v.l3 : null));
+  if (n >= 3) dividers.push(makeDivider('row', v, n === 3 ? v.l3 : null));
+  // After the cards: relayout places card i at grid child i.
+  grid.append(...dividers);
 }
 
 /**
@@ -641,7 +712,7 @@ function buildSessionPane(s: Slot, sessionId: string): void {
 
   extractBtn.addEventListener('click', () => st.extractSession(sessionId));
 
-  // The mount is attached (the card has been in the grid since the rebuild),
+  // The mount is attached (rebuild and relayout put the card in the grid first),
   // so xterm can measure itself.
   pay.view = new TerminalView(termHost);
   pay.view.connect(sessionId, slotEvents(s, pay, sessionId));
@@ -792,9 +863,11 @@ function buildDropOverlay(): HTMLElement {
 
 /**
  * The chrome of one pane, empty: the card, the header, the banner, the body
- * and the drop overlay. What it SHOWS arrives through `reconcileSlot`, so the
- * card is already attached to the grid by the time a TerminalView is built on
- * it (xterm must open on an attached, measurable node).
+ * and the drop overlay. The CALLER puts it in the grid; what it SHOWS arrives
+ * through `reconcileSlot` after that, so the card is attached by the time a
+ * TerminalView is built on it (xterm must open on an attached, measurable
+ * node). Its handlers read `slot.index`, never a captured index: a relayout
+ * moves the card (Quality P2).
  */
 function createSlot(index: number): Slot {
   const root = el('section', 'pane');
@@ -805,10 +878,9 @@ function createSlot(index: number): Slot {
   note.hidden = true;
   const body = el('div', 'pane-body');
   root.append(hd, note, body, el('div', 'pane-foot'), buildDropOverlay());
-  root.addEventListener('mousedown', () => st.focusPane(index), true);
-  grid.append(root);
 
   const slot: Slot = { index, root, hd, body, key: '', note, pay: null };
+  root.addEventListener('mousedown', () => st.focusPane(slot.index), true);
 
   // Header drag: onto another pane = swap; onto the tab strip = extract (an
   // editor pane has no own tab to be extracted into — ui/dnd.ts answers null
@@ -821,13 +893,13 @@ function createSlot(index: number): Slot {
     // The name comes from the MODEL, so an editor pane is called after the tab
     // it is showing right now (`slotTitle`) without this module knowing what a
     // tab is.
-    const live = st.activeView()?.slots[index];
+    const live = st.activeView()?.slots[slot.index];
     if (live === undefined) return null;
     const label = slotTitle(live, live.kind === 'session' ? st.state.sessions.get(live.id)?.title : undefined);
     return {
       kind: 'pane',
       viewId: renderedViewId,
-      slot: index,
+      slot: slot.index,
       slotKey: slot.key,
       label,
     };

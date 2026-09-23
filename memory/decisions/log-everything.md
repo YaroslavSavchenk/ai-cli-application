@@ -1,13 +1,25 @@
 ---
 type: decision
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-23
 tags: [logging, observability, security, backend, frontend]
 ---
 # Log everything — server.log as the single diagnostic channel
 
 **Status:** decided (2026-09-06, user's call: "ik wil dat jij ook logging
 toevoegt, dat alles gelogd wordt").
+**Amended 2026-09-23 (user's call "poll lines quieter", answering the P0
+measurement of `.claude/plans/PLAN-QUALITY.md`; the shape is the
+orchestrator's refinement, because the default level is `debug`):** a
+SUCCESSFUL poll — 2xx and under `SLOW_POLL_MS` = 1 000 ms — of
+`GET /api/sessions`, `/api/runtime`, `/api/prefs`, `/api/update/status` or
+`POST /api/client-log` writes no line of its own. `server/poll-log.ts`
+counts it and writes ONE `debug` line per minute (and at shutdown):
+`polls last 60s: GET /api/sessions 200 ×20, …` — routes and statuses
+only. A failed or slow poll is written at once, as loud as before, and the
+browser ships no line for a quiet success (`QUIET_ON_SUCCESS` in
+`web/src/api.ts`). P0 measured the poll as 94 % of the idle log; after:
+1 line a minute. Everything else still logs.
 
 ## Trigger
 

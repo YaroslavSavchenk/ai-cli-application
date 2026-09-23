@@ -23,6 +23,8 @@ interface FetchCall {
 }
 
 const calls: FetchCall[] = [];
+/** `METHOD url` → a status the fake answers instead (with an error body). */
+const fake = { failures: new Map<string, number>() };
 const listeners = new Map<string, (() => void)[]>();
 
 function addListener(type: string, fn: () => void): void {
@@ -46,6 +48,10 @@ const fakeDocument = {
   init: FetchCall['init'],
 ): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => {
   calls.push({ url, init });
+  const failure = fake.failures.get(`${init.method ?? 'GET'} ${url}`);
+  if (failure !== undefined) {
+    return { ok: false, status: failure, json: async () => ({ error: 'backend fault' }) };
+  }
   // A url carrying REFUSE answers 409, so the quiet-on-success rule below can
   // be read from both sides in one fake.
   if (url.includes('REFUSE')) {
@@ -188,4 +194,71 @@ test('the upload body is RAW and announced as bytes, never as JSON', async () =>
   assert.equal(put.init.headers?.['content-type'], 'application/octet-stream');
   assert.equal(put.init.body, body as unknown as string, 'the File itself, not a string');
   assert.ok(put.url.includes('mode=replace'));
+});
+
+// ---------------------------------------------------------------------------
+// Quiet polls (Quality P4, user's call 2026-09-23)
+// ---------------------------------------------------------------------------
+
+test('a successful poll ships no line — and so no POST /api/client-log at all', async () => {
+  // Empty the buffer left by earlier tests, then start counting from here.
+  await shippedMessages();
+  calls.length = 0;
+  await api.getSessions();
+  await api.getRuntime();
+  await api.getPrefs();
+  await settle();
+  for (const fn of listeners.get('pagehide') ?? []) fn();
+  await settle();
+  const urls = calls.map((c) => `${c.init.method ?? 'GET'} ${c.url}`);
+  // Non-vacuity: the three polls really were made.
+  assert.deepEqual(urls.slice(0, 3), ['GET /api/sessions', 'GET /api/runtime', 'GET /api/prefs']);
+  assert.deepEqual(
+    urls.filter((u) => u.endsWith('/api/client-log')),
+    [],
+    `a quiet success leaves nothing to ship: ${JSON.stringify(urls)}`,
+  );
+});
+
+test('the quiet rule keys on the METHOD: a launch on the polled path still writes its line', async () => {
+  calls.length = 0;
+  await api.createSession({ command: 'bash', args: [], cwd: '/home/you', cols: 80, rows: 24 });
+  await api.updatePrefs({});
+  await settle();
+  const messages = await shippedMessages();
+  assert.ok(
+    messages.some((m) => m.startsWith('api POST /api/sessions → 200 ')),
+    `POST /api/sessions is not a poll: ${JSON.stringify(messages)}`,
+  );
+  assert.ok(
+    messages.some((m) => m.startsWith('api PUT /api/prefs → 200 ')),
+    `PUT /api/prefs is not a poll: ${JSON.stringify(messages)}`,
+  );
+});
+
+test('a FAILED poll keeps its line at the old level: warn for a 4xx, error for a 5xx', async () => {
+  calls.length = 0;
+  fake.failures.set('GET /api/sessions', 500);
+  fake.failures.set('GET /api/runtime', 404);
+  try {
+    await assert.rejects(() => api.getSessions());
+    await assert.rejects(() => api.getRuntime());
+  } finally {
+    fake.failures.clear();
+  }
+  await settle();
+  const shipped: { level: string; message: string }[] = [];
+  for (const fn of listeners.get('pagehide') ?? []) fn();
+  await settle();
+  for (const call of calls) {
+    if (call.url !== '/api/client-log') continue;
+    const body = JSON.parse(call.init.body ?? '{"entries":[]}') as {
+      entries: { level: string; message: string }[];
+    };
+    shipped.push(...body.entries);
+  }
+  const sessions = shipped.find((e) => e.message.startsWith('api GET /api/sessions → 500 '));
+  const runtime = shipped.find((e) => e.message.startsWith('api GET /api/runtime → 404 '));
+  assert.equal(sessions?.level, 'error', `the 5xx poll is an error line: ${JSON.stringify(shipped)}`);
+  assert.equal(runtime?.level, 'warn', `the 4xx poll is a warn line: ${JSON.stringify(shipped)}`);
 });
