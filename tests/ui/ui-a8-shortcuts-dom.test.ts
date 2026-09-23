@@ -29,7 +29,15 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
+import {
+  byClass,
+  descendants,
+  dispatch,
+  installDom,
+  textsOf,
+  type FakeElement,
+  oneByClass as one,
+} from '../helpers/fake-dom.ts';
 
 const dom = installDom();
 
@@ -64,12 +72,6 @@ const overlay = SC.initShortcuts(modalHost, () => {
 });
 const scrim = modalHost.children[0] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
-
-const one = (root: FakeElement, cls: string): FakeElement => {
-  const hit = byClass(root, cls)[0];
-  assert.ok(hit !== undefined, `no .${cls}`);
-  return hit;
-};
 
 /** Open from the opener button, the way every real opener does. */
 function openFromOpener(): void {

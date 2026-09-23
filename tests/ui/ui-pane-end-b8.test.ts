@@ -30,6 +30,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from '../helpers/helpers.ts';
 import { dispatch, installDom, type FakeElement } from '../helpers/fake-dom.ts';
+import { withoutComments as code, functionBody as fn } from '../helpers/source-scan.ts';
 
 const dom = installDom();
 
@@ -52,19 +53,8 @@ const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).hr
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const read = (p: string): string => readFileSync(p, 'utf8');
 /** Source with comments removed — a comment may DISCUSS what code may not do. */
-const code = (src: string): string =>
-  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const PANES_CODE = code(read(join(UI, 'panes.ts')));
 const APP_CSS = read(join(projectRoot, 'web', 'src', 'styles', 'app.css'));
-
-/** The body of a named function, from its signature to the next top-level `}`. */
-function fn(src: string, signature: string): string {
-  const at = src.indexOf(signature);
-  assert.notEqual(at, -1, `non-vacuity: ${signature} was not found`);
-  const end = src.indexOf('\n}', at);
-  assert.notEqual(end, -1, `non-vacuity: ${signature} has no end`);
-  return src.slice(at, end + 2);
-}
 
 afterEach(() => {
   P.setBehaviour({}); // the factory setting: confirm ON

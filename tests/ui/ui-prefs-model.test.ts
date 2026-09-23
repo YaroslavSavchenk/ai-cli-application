@@ -19,9 +19,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { readSource } from '../helpers/helpers.ts';
 import {
   behaviourDefaults,
   behaviourPatch,
@@ -165,7 +163,7 @@ test('a boot that reads prefs.json twice is idempotent — no accumulation acros
 // drops every tab the user had open — the exact loss D3 exists to prevent.
 // ---------------------------------------------------------------------------
 
-const MAIN = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
+const MAIN = readSource('web', 'src', 'main.ts');
 
 test('B6 D3 boot order: runtime and prefs are in BEFORE loadUi reads the bag', () => {
   assert.ok(MAIN.includes('function boot('), 'non-vacuity: main.ts still boots');

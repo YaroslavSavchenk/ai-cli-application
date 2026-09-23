@@ -10,11 +10,20 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FsCreateResponse, FsMkdirResponse, Project } from '../../shared/protocol.ts';
-import { api, rawRequest, readServerLog, startTestServer, waitForLog, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  rawRequest,
+  readServerLog,
+  startTestServer,
+  waitForLog,
+  type TestServer,
+  SKIP_IF_ROOT,
+  makeTempDir,
+  removeTempDir,
+} from '../helpers/helpers.ts';
 
 let server: TestServer;
 let root: string;
@@ -28,7 +37,7 @@ let outside: string;
 const NAME_CANARY = 'CREATEDNAMECANARY_qz.txt';
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fscre-')));
+  root = await realpath(await makeTempDir('ai-sm-fscre-'));
   home = join(root, 'home');
   evil = join(root, 'homeevil');
   outside = join(root, 'outside');
@@ -44,7 +53,7 @@ after(async () => {
   if (server !== undefined) await server.stop();
   if (root !== undefined) {
     await chmod(join(home, 'readonly'), 0o700).catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -172,7 +181,7 @@ test("the app's own data dir is LISTED but never written into", async () => {
   );
 });
 
-test('an unwritable parent answers 403 with the CREATE sentence', { skip: process.getuid?.() === 0 ? 'running as root' : false }, async () => {
+test('an unwritable parent answers 403 with the CREATE sentence', { skip: SKIP_IF_ROOT }, async () => {
   const ro = join(home, 'readonly');
   await mkdir(ro);
   await chmod(ro, 0o500);

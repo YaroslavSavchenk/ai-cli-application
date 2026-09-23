@@ -14,8 +14,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { KeyStatus } from '../../shared/protocol.ts';
 import { isKeyShaped, normalizeKey, KEY_MAX_CHARS } from '../../server/keys.ts';
@@ -26,6 +25,8 @@ import {
   readServerLog,
   startTestServer,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 /** A value shaped exactly like a real key, unique enough to grep for. */
@@ -36,7 +37,7 @@ let server: TestServer;
 let workDir: string;
 
 before(async () => {
-  workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-keys-work-')));
+  workDir = await realpath(await makeTempDir('ai-sm-keys-work-'));
   // The three variables are cleared so `env` in KeyStatus is deterministic
   // whatever the developer's own shell exports.
   server = await startTestServer({
@@ -46,7 +47,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
+  if (workDir !== undefined) await removeTempDir(workDir);
 });
 
 test('isKeyShaped: the validation table', () => {
@@ -344,7 +345,7 @@ async function withSeededKeys(
   content: string,
   body: (server: TestServer) => Promise<void>,
 ): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-keys-seed-'));
+  const root = await makeTempDir('ai-sm-keys-seed-');
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { mode: 0o700, recursive: true });
   await writeFile(join(dataDir, 'keys.json'), content, { mode: 0o600 });
@@ -356,7 +357,7 @@ async function withSeededKeys(
     await body(seeded);
   } finally {
     await seeded.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 }
 

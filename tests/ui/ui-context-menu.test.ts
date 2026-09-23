@@ -36,9 +36,8 @@
  */
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import {
   byClass,
@@ -51,7 +50,9 @@ import {
   FakeElement,
   type FakeNode,
 } from '../helpers/fake-dom.ts';
-import { PROJ, makeFixture, settle, type Gateway } from '../helpers/fs-fixture.ts';
+import { PROJ, makeFixture, settle, type Gateway, mkSession, mkProject as project } from '../helpers/fs-fixture.ts';
+import { readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
+import { assignedClasses } from '../helpers/source-scan.ts';
 
 /** The real panel against the fake backend of part B2 (`tests/helpers/fs-fixture.ts`). */
 const fx = makeFixture();
@@ -77,7 +78,6 @@ const realAppend = dom.body.append.bind(dom.body);
   }
 };
 
-const here = dirname(fileURLToPath(import.meta.url));
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 const FD = (await import(new URL('../../web/src/ui/filedrop.ts', import.meta.url).href)) as FileDropModule;
@@ -206,26 +206,6 @@ dom.win.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   ladderSaw += 1;
 });
-
-function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/you/work',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
-}
-
-function project(id: string, name: string): Project {
-  return { id, name, path: `/work/${name}`, createdAt: new Date().toISOString() } as Project;
-}
 
 /** A live session in a project — the panel's normal world, header `api`. */
 async function liveSession(): Promise<void> {
@@ -1144,16 +1124,8 @@ test('only ui/files.ts and the menu card itself register a contextmenu listener'
   // `ui/context-menu.ts` is the one addition, and it is scoped to the OPEN
   // card only: the browser's own contextmenu for the key that opened the menu
   // targets an entry inside it, out of reach of the panel's delegated listener.
-  const rootDir = join(here, '..', '..', 'web', 'src');
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (/\.(ts|html|css)$/.test(e.name)) files.push(full);
-    }
-  };
-  walk(rootDir);
+  const rootDir = join(projectRoot, 'web', 'src');
+  const files = filesUnder(rootDir, /\.(ts|html|css)$/);
   assert.ok(files.length >= 20, `non-vacuity: scanned ${files.length} files`);
   const offenders = files.filter((f) => /['"]contextmenu['"]/.test(readFileSync(f, 'utf8')));
   assert.deepEqual(
@@ -1206,23 +1178,6 @@ test('the row menu region closes the menu at the top of every rebuild', () => {
 // ---------------------------------------------------------------------------
 // The block: class parity, tokens only, no colour literal
 // ---------------------------------------------------------------------------
-
-/** Class names a module really ASSIGNS (the `ui-a8-dialogs.test.ts` scanner). */
-function assignedClasses(src: string): string[] {
-  const out: string[] = [];
-  const push = (s: string): void => {
-    for (const c of s.replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) if (c !== '') out.push(c);
-  };
-  for (const re of [
-    /\bel\(\s*'[a-zA-Z0-9]+'\s*,\s*'([^']*)'/g,
-    /\bbutton\(\s*'([^']*)'/g,
-    /\.className\s*=\s*'([^']*)'/g,
-    /classList\.(?:add|remove|toggle)\(\s*'([^']*)'/g,
-  ]) {
-    for (const m of src.matchAll(re)) push(m[1] as string);
-  }
-  return out;
-}
 
 /** The `cm-` section: the last one in app.css, so it runs to the end. */
 function cmSection(): string {
@@ -1288,7 +1243,7 @@ test('no colour literal in the cm- section or in the module that paints it', () 
 });
 
 test('--z-menu is declared once, sits between the toast and the modals, and is read here only', () => {
-  const tokens = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'tokens.css'), 'utf8');
+  const tokens = readSource('web', 'src', 'styles', 'tokens.css');
   const decl = [...tokens.matchAll(/^\s*--z-menu:\s*(\d+);/gm)];
   assert.equal(decl.length, 1, 'declared exactly once');
   assert.equal(decl[0]?.[1], '47');

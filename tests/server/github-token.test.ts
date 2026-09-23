@@ -30,8 +30,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
@@ -51,6 +50,8 @@ import {
   startTestServer,
   waitUntil,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 const noop: Logger = () => {};
@@ -901,7 +902,7 @@ test('remember=false: nothing is written to github.json, the credential works, a
   const ownStub = new StubApi();
   await ownStub.start();
   ownStub.handler = acceptingHandler();
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghtok-mem-'));
+  const root = await makeTempDir('ai-sm-ghtok-mem-');
   const dataDir = join(root, 'data');
   // ONE outer try/finally around BOTH server lifetimes. Previously the stub and
   // the temp dir were cleaned up only in the SECOND block's finally, so a failed
@@ -959,7 +960,7 @@ test('remember=false: nothing is written to github.json, the credential works, a
   }
   } finally {
     await ownStub.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -967,7 +968,7 @@ test('remember=false REPLACES a persisted credential and removes the older on-di
   const ownStub = new StubApi();
   await ownStub.start();
   ownStub.handler = acceptingHandler();
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghtok-replace-'));
+  const root = await makeTempDir('ai-sm-ghtok-replace-');
   const dataDir = join(root, 'data');
   const srv = await startTestServer({
     dataDir,
@@ -996,7 +997,7 @@ test('remember=false REPLACES a persisted credential and removes the older on-di
   } finally {
     await srv.stop();
     await ownStub.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -1012,7 +1013,7 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
 }
 
 test('pasting while a device flow is CONNECTING replaces it and cancels the in-flight poll (exactly one credential)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghtok-poll-'));
+  const root = await makeTempDir('ai-sm-ghtok-poll-');
   const file = join(root, 'github.json');
   try {
     let tokenPolls = 0;
@@ -1068,12 +1069,12 @@ test('pasting while a device flow is CONNECTING replaces it and cancels the in-f
     assert.equal(stored['accessToken'], PASTED);
     assert.equal(stored['source'], 'pat');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('a stored record WITHOUT a source reads as the device flow, and disconnect drops it the same way', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghtok-legacy-'));
+  const root = await makeTempDir('ai-sm-ghtok-legacy-');
   const file = join(root, 'github.json');
   try {
     const { writeFile } = await import('node:fs/promises');
@@ -1099,12 +1100,12 @@ test('a stored record WITHOUT a source reads as the device flow, and disconnect 
     assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' });
     await assert.rejects(stat(file), 'disconnect deletes github.json for either source');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('connectWithToken re-validates the SHAPE in-process (no route can be bypassed by an internal caller)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghtok-shape-'));
+  const root = await makeTempDir('ai-sm-ghtok-shape-');
   try {
     let fetches = 0;
     const conn = new GithubConnection({
@@ -1127,7 +1128,7 @@ test('connectWithToken re-validates the SHAPE in-process (no route can be bypass
     assert.equal(fetches, 0, 'a structurally impossible token never reaches GitHub');
     assert.equal(conn.status().state, 'disconnected');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 

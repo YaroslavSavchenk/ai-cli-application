@@ -21,7 +21,6 @@ import {
   existsSync,
   lutimesSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -29,7 +28,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   readServerCommit,
@@ -45,13 +43,13 @@ import {
   UPDATE_FRONTEND_SOURCE_CHANGED,
   UPDATE_SERVER_FILES_EDITED,
 } from '../../server/buildinfo.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, IS_ROOT, makeTempDirSync } from '../helpers/helpers.ts';
 
 const HASH = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const SHORT = 'a1b2c3d';
 
 function fixture(): string {
-  return mkdtempSync(join(tmpdir(), 'ai-sm-buildinfo-'));
+  return makeTempDirSync('ai-sm-buildinfo-');
 }
 
 /** Write `.git/<relative path>` under `root`, creating parent dirs. */
@@ -536,7 +534,7 @@ test('update check: the recursive scan stops at its entry budget — the ceiling
   // of entries walked before the newest file exact rather than probable.
   assert.equal(MAX_SCAN_ENTRIES, 2_000, 'the shipped default');
 
-  const root = mkdtempSync(join(tmpdir(), 'ai-sm-scan-'));
+  const root = makeTempDirSync('ai-sm-scan-');
   try {
     repoFixture(root);
     ageFixture(root);
@@ -729,7 +727,7 @@ test('update check: a symlink pointing OUT of web/src is measured, never followe
 });
 
 test('update check: a web/src subdirectory that cannot be read is no signal, never a failed probe', async () => {
-  if (process.getuid?.() === 0) return; // root reads everything; nothing to prove.
+  if (IS_ROOT) return; // root reads everything; nothing to prove.
   await withFixture((root) => {
     repoFixture(root);
     ageFixture(root);

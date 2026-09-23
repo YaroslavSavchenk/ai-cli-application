@@ -20,13 +20,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../../shared/protocol.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
+import { makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 const silent = (): void => {};
 
@@ -74,12 +73,12 @@ interface Harness {
 }
 
 async function harness(): Promise<Harness> {
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-tail-'));
+  const dir = await makeTempDir('ai-sm-tail-');
   const history = new SessionHistory(join(dir, 'history.json'), silent);
   return {
     manager: new SessionManager(silent, history),
     cleanup: async () => {
-      await rm(dir, { recursive: true, force: true });
+      await removeTempDir(dir);
     },
   };
 }

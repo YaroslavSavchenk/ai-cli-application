@@ -18,7 +18,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource } from '../helpers/helpers.ts';
 
 const WORKFLOWS = join(projectRoot, '.github', 'workflows');
 
@@ -349,7 +349,7 @@ test('the payload layout matches what the .iss expects', () => {
   // flat in installer/payload/host.
   assert.match(releaseYml, /name: ai-session-manager-linux-x64\n\s*path: installer\/payload$/m);
   assert.match(releaseYml, /name: AiSessionManagerHost-win-x64\n\s*path: installer\/payload\/hostzip$/m);
-  const iss = readFileSync(join(projectRoot, 'installer', 'ai-session-manager.iss'), 'utf8');
+  const iss = readSource('installer', 'ai-session-manager.iss');
   assert.ok(iss.includes('#define BundleTar "payload\\ai-session-manager-linux-x64.tar.gz"'));
   assert.ok(iss.includes('#define HostDir "payload\\host"'));
 });

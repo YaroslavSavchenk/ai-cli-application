@@ -15,9 +15,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   BADGE_KINDS,
   PLAIN_FILE,
@@ -27,9 +26,7 @@ import {
 } from '../../web/src/ui/files-model.ts';
 import { FILE_ICON_PATHS } from '../../web/src/ui/icons-files.ts';
 import { DIFF_TAB_ICON, tabIcon } from '../../web/src/ui/slots-model.ts';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8');
+import { projectRoot as ROOT, readSource as read } from '../helpers/helpers.ts';
 
 const is = (name: string, icon: FileIcon['icon'], kind: FileIcon['kind'], why?: string): void => {
   assert.deepEqual(fileIconFor(name), { icon, kind }, why ?? name);

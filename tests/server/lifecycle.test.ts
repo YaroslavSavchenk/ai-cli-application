@@ -24,8 +24,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { HistoryEntry } from '../../shared/protocol.ts';
@@ -44,6 +43,8 @@ import {
   WsClient,
   type ExitInfo,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 /** Await the server's exit within `timeoutMs` (fails the test otherwise). */
@@ -182,7 +183,7 @@ test('reconnect within the grace cancels shutdown; a second presence holds the s
 });
 
 test('a session WS alone (zero presence) holds the server; its close leads to shutdown that records the running session as shutdown', async () => {
-  const workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-work-')));
+  const workDir = await realpath(await makeTempDir('ai-sm-work-'));
   const server = await startTestServer({
     env: { AI_SM_STARTUP_GRACE_MS: '2500', AI_SM_GRACE_MS: '600000' },
   });
@@ -222,14 +223,14 @@ test('a session WS alone (zero presence) holds the server; its close leads to sh
     assert.equal(new Date(entry.ended.at).toISOString(), entry.ended.at, 'ended.at must be ISO-8601');
   } finally {
     await server.stop();
-    await rm(workDir, { recursive: true, force: true });
+    await removeTempDir(workDir);
   }
 });
 
 test('history: every end reason is listed and persists across runs; SIGKILL stamps crash at boot; DELETE forgets; auth 401', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-lifecycle-'));
+  const root = await makeTempDir('ai-sm-lifecycle-');
   const dataDir = join(root, 'data');
-  const workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-work-')));
+  const workDir = await realpath(await makeTempDir('ai-sm-work-'));
   let running: TestServer | undefined;
   try {
     // --- Run A: one user-killed, one naturally exited, one left running ----
@@ -389,13 +390,13 @@ test('history: every end reason is listed and persists across runs; SIGKILL stam
     running = undefined;
   } finally {
     if (running !== undefined) await running.stop();
-    await rm(root, { recursive: true, force: true });
-    await rm(workDir, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(workDir);
   }
 });
 
 test('invalid grace env values warn and fall back to defaults; a corrupt history.json is ignored harmlessly', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-lifecycle-'));
+  const root = await makeTempDir('ai-sm-lifecycle-');
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   // A previous run's history that a hard cut left truncated/corrupt.
@@ -422,7 +423,7 @@ test('invalid grace env values warn and fall back to defaults; a corrupt history
     assert.deepEqual((await api(server, 'GET', '/api/history')).body, []);
   } finally {
     await server.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 

@@ -17,7 +17,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,7 +32,15 @@ import {
 } from '../../server/github.ts';
 import type { Logger } from '../../server/config.ts';
 import type { GithubRepo } from '../../shared/protocol.ts';
-import { api, rawRequest, startTestServer, waitUntil, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  rawRequest,
+  startTestServer,
+  waitUntil,
+  type TestServer,
+  makeTempDir,
+  removeTempDir,
+} from '../helpers/helpers.ts';
 
 const noop: Logger = () => {};
 const SECRET = 'gho_SUPER_SECRET_TOKEN_do_not_leak';
@@ -255,7 +263,7 @@ test('filterRepos: case-insensitive substring over name/owner/fullName/descripti
 // ---------------------------------------------------------------------------
 
 test('device flow: connecting -> connected; token persisted 0600, NEVER in status; then disconnect drops github.json', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-'));
+  const root = await makeTempDir('ai-sm-gh-');
   const file = join(root, 'github.json');
   try {
     let tokenPolls = 0;
@@ -339,12 +347,12 @@ test('device flow: connecting -> connected; token persisted 0600, NEVER in statu
     await assert.rejects(stat(file), 'github.json must be deleted on disconnect');
     await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('load-on-construction: a github.json with a token boots connected; a 401 on repos invalidates it (-> disconnected, file deleted)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh401-'));
+  const root = await makeTempDir('ai-sm-gh401-');
   const file = join(root, 'github.json');
   try {
     await writeFile(
@@ -365,12 +373,12 @@ test('load-on-construction: a github.json with a token boots connected; a 401 on
     assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' }, '401 invalidated the token');
     await assert.rejects(stat(file), 'github.json removed after 401 invalidation');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('no clientId: startDeviceFlow -> not-configured; listRepos -> 409 (not connected); status deviceFlowAvailable:false', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-unconf-'));
+  const root = await makeTempDir('ai-sm-gh-unconf-');
   try {
     const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: '' });
     assert.deepEqual(conn.status(), { deviceFlowAvailable: false, state: 'disconnected' });
@@ -378,7 +386,7 @@ test('no clientId: startDeviceFlow -> not-configured; listRepos -> 409 (not conn
     assert.deepEqual(started, { ok: false, reason: 'not-configured' });
     await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -391,7 +399,7 @@ test('no clientId: startDeviceFlow -> not-configured; listRepos -> 409 (not conn
 // ---------------------------------------------------------------------------
 
 test('status() while connecting exposes userCode/verificationUri/expiresAt but NO login, NO token, NO device_code', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-connecting-'));
+  const root = await makeTempDir('ai-sm-gh-connecting-');
   const file = join(root, 'github.json');
   try {
     const stub: FetchLike = (url) => {
@@ -427,12 +435,12 @@ test('status() while connecting exposes userCode/verificationUri/expiresAt but N
 
     await conn.disconnect(); // clear the pending poll timer before teardown
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('poll edge: slow_down grows the interval (no re-poll within the original cadence) and keeps connecting', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-slow-'));
+  const root = await makeTempDir('ai-sm-gh-slow-');
   const file = join(root, 'github.json');
   try {
     let tokenPolls = 0;
@@ -471,13 +479,13 @@ test('poll edge: slow_down grows the interval (no re-poll within the original ca
 
     await conn.disconnect();
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 for (const errCode of ['expired_token', 'access_denied'] as const) {
   test(`poll edge: ${errCode} -> disconnected, token never stored, polling stops`, async () => {
-    const root = await mkdtemp(join(tmpdir(), `ai-sm-gh-${errCode}-`));
+    const root = await makeTempDir(`ai-sm-gh-${errCode}-`);
     const file = join(root, 'github.json');
     try {
       let tokenPolls = 0;
@@ -518,13 +526,13 @@ for (const errCode of ['expired_token', 'access_denied'] as const) {
 
       await assert.rejects(conn.listRepos(), (e) => e instanceof GithubError && e.status === 409);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await removeTempDir(root);
     }
   });
 }
 
 test('bounded: the device-code expiry stops polling and returns to disconnected (never connects, no token)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-expiry-'));
+  const root = await makeTempDir('ai-sm-gh-expiry-');
   const file = join(root, 'github.json');
   try {
     let tokenPolls = 0;
@@ -561,12 +569,12 @@ test('bounded: the device-code expiry stops polling and returns to disconnected 
     await delay(200);
     assert.equal(tokenPolls, settled, 'polling stopped at expiry — it does not poll forever');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('bounded: polling is hard-capped at MAX_POLLS (exactly 300 token polls) then disconnects', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-maxpolls-'));
+  const root = await makeTempDir('ai-sm-gh-maxpolls-');
   const file = join(root, 'github.json');
   try {
     let tokenPolls = 0;
@@ -602,12 +610,12 @@ test('bounded: polling is hard-capped at MAX_POLLS (exactly 300 token polls) the
     assert.equal(tokenPolls, 300, 'exactly MAX_POLLS token polls, then a hard stop');
     await assert.rejects(stat(file), 'the poll cap must never write a token');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('not configured (empty clientId): status/device/repos/disconnect make ZERO network calls', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-noconf-nofetch-'));
+  const root = await makeTempDir('ai-sm-gh-noconf-nofetch-');
   try {
     let fetchCalls = 0;
     const stub: FetchLike = () => {
@@ -626,12 +634,12 @@ test('not configured (empty clientId): status/device/repos/disconnect make ZERO 
     await conn.disconnect();
     assert.equal(fetchCalls, 0, 'the not-configured guard short-circuits before any fetch');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('storage: malformed / missing-token / absent github.json on construction -> disconnected, no crash, no fetch', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-storage-'));
+  const root = await makeTempDir('ai-sm-gh-storage-');
   try {
     let fetchCalls = 0;
     const stub: FetchLike = () => {
@@ -657,12 +665,12 @@ test('storage: malformed / missing-token / absent github.json on construction ->
 
     assert.equal(fetchCalls, 0, 'construction + status never touch the network');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('listRepos: sends the stored token as a Bearer, drops unmappable entries, stops after a short page', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-repos-'));
+  const root = await makeTempDir('ai-sm-gh-repos-');
   const file = join(root, 'github.json');
   try {
     await writeFile(
@@ -695,7 +703,7 @@ test('listRepos: sends the stored token as a Bearer, drops unmappable entries, s
     assert.equal(authHeader, `Bearer ${SECRET}`, 'the stored token is sent as a Bearer (server-side only)');
     assert.ok(!JSON.stringify(repos).includes(SECRET), 'the mapped repo list never contains the token');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -718,7 +726,7 @@ async function connectedConn(
 }
 
 test('createRepo: POSTs /user/repos with Bearer header + JSON body; maps to GithubRepo; token never in the result', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create-'));
+  const root = await makeTempDir('ai-sm-gh-create-');
   try {
     let calledMethod: string | undefined;
     let authHeader: string | undefined;
@@ -763,12 +771,12 @@ test('createRepo: POSTs /user/repos with Bearer header + JSON body; maps to Gith
     assert.deepEqual(sentBody, { name: 'newrepo', private: true, description: 'made in app' });
     assert.ok(!JSON.stringify(repo).includes(SECRET), 'the created repo shape never contains the token');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('createRepo: 422 from GitHub -> clean GithubError(422), no raw body / no token surfaced', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create422-'));
+  const root = await makeTempDir('ai-sm-gh-create422-');
   try {
     const stub: FetchLike = (url, init) => {
       if (url === 'https://api.github.com/user/repos' && (init?.method ?? 'GET') === 'POST') {
@@ -785,12 +793,12 @@ test('createRepo: 422 from GitHub -> clean GithubError(422), no raw body / no to
       '422 surfaces a clean message, never the raw GitHub body',
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('createRepo: requires connected state (409 when disconnected)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create409-'));
+  const root = await makeTempDir('ai-sm-gh-create409-');
   try {
     const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: 'Iv1.x' });
     await assert.rejects(
@@ -798,13 +806,13 @@ test('createRepo: requires connected state (409 when disconnected)', async () =>
       (e) => e instanceof GithubError && e.status === 409,
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('cloneAuthenticated: cloneUrl is validated FIRST — non-github host / non-https / -leading / creds / port -> 400', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-cloneval-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-clonework-')));
+  const root = await makeTempDir('ai-sm-gh-cloneval-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-clonework-'));
   try {
     // Not connected: cloneUrl is rejected BEFORE the connection/token is touched,
     // proving the token can never be aimed at a non-github host.
@@ -831,14 +839,14 @@ test('cloneAuthenticated: cloneUrl is validated FIRST — non-github host / non-
       );
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: a valid github url passes validation, then requires a connection (409 when disconnected)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-clone409-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-clone409w-')));
+  const root = await makeTempDir('ai-sm-gh-clone409-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-clone409w-'));
   try {
     const conn = new GithubConnection({ file: join(root, 'github.json'), log: noop, clientId: 'Iv1.x' });
     await assert.rejects(
@@ -847,14 +855,14 @@ test('cloneAuthenticated: a valid github url passes validation, then requires a 
       'valid url + not connected -> 409 (validation passed)',
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: the token goes ONLY via GIT_ASKPASS env — NEVER into argv or the clone url', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-cloneargv-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-cloneargvw-')));
+  const root = await makeTempDir('ai-sm-gh-cloneargv-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-cloneargvw-'));
   try {
     let capturedCmd: string | undefined;
     let capturedArgs: string[] | undefined;
@@ -907,14 +915,14 @@ test('cloneAuthenticated: the token goes ONLY via GIT_ASKPASS env — NEVER into
     assert.equal(capturedStdio, 'ignore', 'git output is never buffered/logged (could echo a credential)');
     assert.equal(capturedShell, false, 'no shell — argv only');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: reuses the no-clobber rule — a non-empty dest -> 409 (never runs git)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-clobber-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-clobberw-')));
+  const root = await makeTempDir('ai-sm-gh-clobber-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-clobberw-'));
   try {
     let spawned = false;
     const spawnStub: SpawnLike = () => {
@@ -939,8 +947,8 @@ test('cloneAuthenticated: reuses the no-clobber rule — a non-empty dest -> 409
     assert.equal(spawned, false, 'git is never spawned when the dest is non-empty');
     assert.equal(await readFile(join(dest, 'keep.txt'), 'utf8'), 'precious\n', 'existing file untouched');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
@@ -953,8 +961,8 @@ test('cloneAuthenticated: an UN-NORMALIZED dest is resolved before any filesyste
   // — which the kernel resolves through the `..`, emptying <victim>.
   // cloneAuthenticated now normalizes FIRST, so every decision (stat, mkdir,
   // git argv, cleanup) is about the same directory: the resolved one.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-dotdot-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-dotdotw-')));
+  const root = await makeTempDir('ai-sm-gh-dotdot-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-dotdotw-'));
   try {
     const victim = join(work, 'important');
     const { mkdir } = await import('node:fs/promises');
@@ -987,8 +995,8 @@ test('cloneAuthenticated: an UN-NORMALIZED dest is resolved before any filesyste
     assert.equal(existsSync(join(victim, 'acme')), false, 'no owner directory was materialised');
     assert.equal(spawned, false, 'the resolved dest is non-empty, so git is never spawned');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
@@ -1017,8 +1025,8 @@ function landingPair(work: string): { landing: string; raw: string } {
 }
 
 test('cloneAuthenticated: git and the owner-dir allowance both act on the RESOLVED dest — no directory is materialised for the raw string', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-res1-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-res1w-')));
+  const root = await makeTempDir('ai-sm-gh-res1-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-res1w-'));
   try {
     const { landing, raw } = landingPair(work);
     let gitDest: string | undefined;
@@ -1042,8 +1050,8 @@ test('cloneAuthenticated: git and the owner-dir allowance both act on the RESOLV
     assert.equal(existsSync(join(landing, 'acme')), false, 'and nothing is left behind afterwards either');
     assert.ok(existsSync(landing), 'the destination itself is untouched');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
@@ -1052,8 +1060,8 @@ test('cloneAuthenticated: `existedBefore` is decided on the RESOLVED dest — a 
   // Reading it from the raw string makes statSync fail (ENOENT on the missing
   // `acme` component) -> existedBefore=false -> the recursive rmSync then runs
   // on the RESOLVED, pre-existing directory.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-res2-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-res2w-')));
+  const root = await makeTempDir('ai-sm-gh-res2-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-res2w-'));
   try {
     const { landing, raw } = landingPair(work);
     const conn = await connectedConn(root, {
@@ -1069,8 +1077,8 @@ test('cloneAuthenticated: `existedBefore` is decided on the RESOLVED dest — a 
     assert.ok(existsSync(landing), 'the pre-existing destination survives the failure cleanup');
     assert.equal(existsSync(join(landing, 'acme')), false, 'and no owner directory was created for the raw string');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
@@ -1081,8 +1089,8 @@ test('cloneAuthenticated: the credential-leak guard reads the RESOLVED .git/conf
   // by itself. So this is defence in depth over that accident — it fails if the
   // leak guard is removed, reordered before the clone, or pointed at a path
   // that path.join does not normalize for it.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-res3-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-res3w-')));
+  const root = await makeTempDir('ai-sm-gh-res3-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-res3w-'));
   try {
     const { landing, raw } = landingPair(work);
     const conn = await connectedConn(root, {
@@ -1103,8 +1111,8 @@ test('cloneAuthenticated: the credential-leak guard reads the RESOLVED .git/conf
       'the leak is still detected, and the message never echoes the token',
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
@@ -1127,8 +1135,8 @@ function fakeChild(code: number, onSpawn?: () => void): ChildProcess {
 }
 
 test('cloneAuthenticated: #buildAuthenticatedGithubUrl also rejects a control char and an over-length url (400, before any spawn)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-urlextra-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-urlextraw-')));
+  const root = await makeTempDir('ai-sm-gh-urlextra-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-urlextraw-'));
   try {
     let spawned = false;
     const conn = new GithubConnection({
@@ -1149,14 +1157,14 @@ test('cloneAuthenticated: #buildAuthenticatedGithubUrl also rejects a control ch
     }
     assert.equal(spawned, false, 'a url rejected by validation never reaches git');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: the throwaway askpass script prints the token from env, NEVER embeds it, is mode 0700, and is deleted afterward', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-askpass-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-askpassw-')));
+  const root = await makeTempDir('ai-sm-gh-askpass-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-askpassw-'));
   try {
     let askPath: string | undefined;
     let askBody: string | undefined;
@@ -1182,14 +1190,14 @@ test('cloneAuthenticated: the throwaway askpass script prints the token from env
     assert.equal(askMode, 0o700, 'the askpass script is mode 0700 (owner-only)');
     assert.ok(askPath !== undefined && !existsSync(askPath), 'the throwaway askpass script is deleted after the clone');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: a .git/config that leaked the token aborts 500 (clean message) and removes the freshly-created dest', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-leak-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-leakw-')));
+  const root = await makeTempDir('ai-sm-gh-leak-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-leakw-'));
   try {
     const dest = join(work, 'cloned');
     const spawnStub: SpawnLike = () =>
@@ -1212,14 +1220,14 @@ test('cloneAuthenticated: a .git/config that leaked the token aborts 500 (clean 
     );
     assert.ok(!existsSync(dest), 'the poisoned clone is removed — no token is left on disk');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: a clean .git/config (no token) is accepted and the clone is kept (leak guard does not false-positive)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-clean-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-cleanw-')));
+  const root = await makeTempDir('ai-sm-gh-clean-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-cleanw-'));
   try {
     const dest = join(work, 'cloned');
     const spawnStub: SpawnLike = () =>
@@ -1237,14 +1245,14 @@ test('cloneAuthenticated: a clean .git/config (no token) is accepted and the clo
     await conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest);
     assert.ok(existsSync(join(dest, '.git', 'config')), 'a clean clone is kept');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: a non-zero git exit -> 502 and the partial dest WE created is removed', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-fail-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-failw-')));
+  const root = await makeTempDir('ai-sm-gh-fail-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-failw-'));
   try {
     const dest = join(work, 'cloned');
     const spawnStub: SpawnLike = () =>
@@ -1262,14 +1270,14 @@ test('cloneAuthenticated: a non-zero git exit -> 502 and the partial dest WE cre
     );
     assert.ok(!existsSync(dest), 'a dest WE created is removed on clone failure (no partial left behind)');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('cloneAuthenticated: never spawns git when it will refuse — not-connected (409) and a missing parent (400)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-nospawn-'));
-  const work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gh-nospawnw-')));
+  const root = await makeTempDir('ai-sm-gh-nospawn-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-nospawnw-'));
   try {
     let spawned = false;
     const spy: SpawnLike = () => fakeChild(0, () => { spawned = true; });
@@ -1293,13 +1301,13 @@ test('cloneAuthenticated: never spawns git when it will refuse — not-connected
 
     assert.equal(spawned, false, 'git is never spawned on a refused clone');
   } finally {
-    await rm(root, { recursive: true, force: true });
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(root);
+    await removeTempDir(work);
   }
 });
 
 test('createRepo: omits `description` from the request body when not provided (body is exactly { name, private })', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-nodesc-'));
+  const root = await makeTempDir('ai-sm-gh-nodesc-');
   try {
     let sentBody: unknown;
     const stub: FetchLike = (url, init) => {
@@ -1322,12 +1330,12 @@ test('createRepo: omits `description` from the request body when not provided (b
       'the description key is absent, not sent as undefined/null',
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('createRepo: a 401 from GitHub invalidates the token (-> disconnected, github.json deleted) and throws 409', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-gh-create401-'));
+  const root = await makeTempDir('ai-sm-gh-create401-');
   const file = join(root, 'github.json');
   try {
     const stub: FetchLike = (url, init) =>
@@ -1344,13 +1352,13 @@ test('createRepo: a 401 from GitHub invalidates the token (-> disconnected, gith
     assert.deepEqual(conn.status(), { deviceFlowAvailable: true, state: 'disconnected' }, '401 invalidated the token');
     await assert.rejects(stat(file), 'github.json is removed after the 401 invalidation');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('createRepo: an unmappable 201 payload -> 502; a 5xx -> clean 502 (never the raw github body)', async () => {
-  const rootA = await mkdtemp(join(tmpdir(), 'ai-sm-gh-c502a-'));
-  const rootB = await mkdtemp(join(tmpdir(), 'ai-sm-gh-c502b-'));
+  const rootA = await makeTempDir('ai-sm-gh-c502a-');
+  const rootB = await makeTempDir('ai-sm-gh-c502b-');
   try {
     // (1) 201 but the payload cannot be mapped (no full_name / owner / clone_url).
     const unmappable = await connectedConn(rootA, {
@@ -1378,7 +1386,7 @@ test('createRepo: an unmappable 201 payload -> 502; a 5xx -> clean 502 (never th
       'a 5xx -> clean 502, never the raw github body',
     );
   } finally {
-    await rm(rootA, { recursive: true, force: true });
-    await rm(rootB, { recursive: true, force: true });
+    await removeTempDir(rootA);
+    await removeTempDir(rootB);
   }
 });

@@ -10,11 +10,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { byClass, installDom, type FakeElement } from '../helpers/fake-dom.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -63,7 +61,7 @@ test('no BEL -> no segment at all, even with sessions waiting', () => {
 });
 
 test('the Sessions badge counts the same set (main.ts reads attentionCount)', () => {
-  const main = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   const chrome = main.slice(main.indexOf('function updateChrome'));
   assert.ok(chrome.length > 100, 'non-vacuity: updateChrome exists');
   const body = chrome.slice(0, chrome.indexOf('sessionsBadge.textContent'));

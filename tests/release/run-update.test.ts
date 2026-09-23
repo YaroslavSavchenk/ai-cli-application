@@ -38,10 +38,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { accessSync, constants, readFileSync } from 'node:fs';
-import { copyFile, mkdir, rm, stat, writeFile } from 'node:fs/promises';
-import { delimiter, join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { readFileSync } from 'node:fs';
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { projectRoot, onPath, exists } from '../helpers/helpers.ts';
 
 const scriptPath = join(projectRoot, 'launcher', 'run-update.ps1');
 const script = readFileSync(scriptPath, 'utf8');
@@ -121,20 +121,6 @@ test('run-update.ps1: only an update staging directory can ever be deleted', () 
 });
 
 // --- environment probing ----------------------------------------------------
-
-function onPath(exe: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, exe);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
 
 const powershell = onPath('powershell.exe');
 const wslpathBin = onPath('wslpath');
@@ -243,15 +229,6 @@ function runUpdate(staging: Staging, args: string[]): Promise<RunResult> {
     ],
     staging.linux,
   );
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // --- -DryRun: the exact argv ------------------------------------------------

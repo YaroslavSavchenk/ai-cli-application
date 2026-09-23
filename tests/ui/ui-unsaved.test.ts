@@ -25,7 +25,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource } from '../helpers/helpers.ts';
 import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
 import { settle } from '../helpers/fs-fixture.ts';
 
@@ -231,7 +231,7 @@ test("the question isolates the name's direction", async () => {
     'the sentence itself is unchanged',
   );
   // The class has to mean something: the rule is in app.css, with the isolation.
-  const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const at = css.indexOf('.ud-name {');
   assert.notEqual(at, -1, 'app.css must carry a .ud-name rule');
   const rule = css.slice(at, css.indexOf('}', at));
@@ -604,7 +604,7 @@ test('after disarm, beforeunload asks nothing even while dirty', () => {
   // not a call site.
   let checked = 0;
   for (const rel of ['web/src/ui/update.ts', 'web/src/main.ts']) {
-    const src = readFileSync(join(projectRoot, ...rel.split('/')), 'utf8');
+    const src = readSource(...rel.split('/'));
     for (const line of src.split('\n')) {
       if (!line.includes('location.reload()')) continue;
       const code = line.trim();
@@ -626,7 +626,7 @@ test('main.ts wires the browser question and ranks this card in its Escape ladde
   // main.ts imports @xterm/xterm through ui/panes.ts and cannot be loaded here,
   // so the WIRING is read from source — the two lines that make the module
   // above reachable at all.
-  const src = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
+  const src = readSource('web', 'src', 'main.ts');
   assert.match(src, /addEventListener\('beforeunload'/, 'the reload question must be wired');
   assert.match(src, /unloadGuard\(e\)/, 'and it must be THIS decision, not a second copy of it');
   assert.ok(src.includes('closeActiveTabGuarded('), 'ctrl+alt+w goes through the guard');
@@ -643,7 +643,7 @@ test('every door in the app goes through a guard — no raw closer is left anywh
   // The greppable half of D1: a `×` that called the state mutator directly
   // would be a door with no question, and nothing else in the suite would see
   // it (the mutator itself is right, and its own tests stay green).
-  const pane = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'editor-pane.ts'), 'utf8');
+  const pane = readSource('web', 'src', 'ui', 'editor-pane.ts');
   for (const call of ['st.closeSlot(', 'st.closeTab(']) {
     assert.equal(pane.includes(call), false, `ui/editor-pane.ts still closes without asking: ${call}`);
   }
@@ -653,7 +653,7 @@ test('every door in the app goes through a guard — no raw closer is left anywh
   // The tab strip's `×` is the one door whose ACT is more than a close (it ends
   // the sessions in the tab first), so the raw `st.closeView` is legitimate —
   // INSIDE that act. What must not happen is the BUTTON calling it.
-  const tabs = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'tabs.ts'), 'utf8');
+  const tabs = readSource('web', 'src', 'ui', 'tabs.ts');
   const from = tabs.indexOf("const close = button('tab-x'");
   assert.notEqual(from, -1, 'non-vacuity: the tab × must still be built here');
   const handler = tabs.slice(from, tabs.indexOf('wrap.append(close)', from));

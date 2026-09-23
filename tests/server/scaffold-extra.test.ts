@@ -24,33 +24,23 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { validateCloneUrl, cloneRepo, ScaffoldError } from '../../server/scaffold.ts';
 import { isSafeSegment } from '../../server/fsbrowse.ts';
-import { api, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import { api, startTestServer, type TestServer, makeTempDir, removeTempDir, exists } from '../helpers/helpers.ts';
 
 let server: TestServer;
 let work: string;
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 before(async () => {
   server = await startTestServer();
-  work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-scaffold-extra-')));
+  work = await realpath(await makeTempDir('ai-sm-scaffold-extra-'));
 });
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (work !== undefined) await rm(work, { recursive: true, force: true });
+  if (work !== undefined) await removeTempDir(work);
 });
 
 // ---------------------------------------------------------------------------

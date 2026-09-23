@@ -29,7 +29,6 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -38,7 +37,6 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Duplex } from 'node:stream';
@@ -96,10 +94,13 @@ import {
   waitForLogLines,
   waitUntil,
   WsClient,
+  IS_ROOT,
+  makeTempDirSync,
+  readSource,
 } from '../helpers/helpers.ts';
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'ai-sm-restart-'));
+  return makeTempDirSync('ai-sm-restart-');
 }
 
 /**
@@ -114,7 +115,7 @@ function tempDir(): string {
  * `dist-prev` are created beside it, inside the temp dir.
  */
 function webDistCopy(): { dir: string; served: string; remove: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'ai-sm-webdist-'));
+  const dir = makeTempDirSync('ai-sm-webdist-');
   const served = join(dir, 'dist');
   const source = join(projectRoot, 'web', 'dist');
   if (existsSync(source)) cpSync(source, served, { recursive: true });
@@ -905,7 +906,7 @@ test('web build: the DURATION is measured on a monotonic clock, never the wall c
   // is checkable is that the default branch reads a clock that cannot go
   // backwards, and that nothing later re-reads the wall clock for the same
   // number.
-  const src = readFileSync(join(projectRoot, 'server', 'webbuild.ts'), 'utf8');
+  const src = readSource('server', 'webbuild.ts');
   const fn = /function elapsedMs\([\s\S]*?\n\}/.exec(src);
   assert.ok(fn !== null, 'server/webbuild.ts still measures the duration through elapsedMs()');
   const body = fn[0];
@@ -1442,7 +1443,7 @@ test('web build: the FIRST rename failing refuses without touching the served bu
   // `dist` -> `dist-prev` is refused (the parent directory is not writable), so
   // the swap never starts. Nothing has moved, so there is nothing to restore —
   // and the refusal must still name the build reason, not a crash.
-  if (process.getuid?.() === 0) return; // root ignores the mode bits; nothing to prove.
+  if (IS_ROOT) return; // root ignores the mode bits; nothing to prove.
   const fx = buildFixture();
   const webDir = join(fx.root, 'web');
   try {
@@ -1763,7 +1764,7 @@ test('the staging directories a restart creates are gitignored — a crashed res
   // for the length of two renames; a restart that dies in between leaves one on
   // disk. Neither is ever committed — and an ignored path is the only thing that
   // keeps `git status` honest for the developer who looks right after a crash.
-  const ignore = readFileSync(join(projectRoot, '.gitignore'), 'utf8')
+  const ignore = readSource('.gitignore')
     .split('\n')
     .map((line) => line.trim());
   for (const entry of ['web/dist/', 'web/dist-next/', 'web/dist-prev/']) {
@@ -2654,7 +2655,7 @@ test('AI_SM_WEB_DIST_DIR: a bad value makes the server refuse to start — exit 
     { value: '/', expect: /AI_SM_WEB_DIST_DIR must be a normalized absolute directory path/ },
   ];
   for (const { value, expect } of cases) {
-    const root = mkdtempSync(join(tmpdir(), 'ai-sm-webdist-refuse-'));
+    const root = makeTempDirSync('ai-sm-webdist-refuse-');
     const dataDir = join(root, 'data');
     try {
       const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {
@@ -3456,7 +3457,7 @@ function makeBundleVersion(
 function installedApp(versions: { name: string; broken?: boolean; noModules?: boolean }[]): InstalledAppFixture {
   // realpath'ed: server/bundle.ts compares realpaths, and the boot banner
   // prints the directory the process resolved itself to.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-app-')));
+  const root = realpathSync(makeTempDirSync('ai-sm-app-'));
   for (const v of versions) {
     makeBundleVersion(root, v.name, {
       ...(v.broken === true ? { broken: true } : {}),
@@ -3905,7 +3906,7 @@ test('installed mode + AI_SM_WEB_DIST_DIR: the SEAM is what gets served, the BUN
   // Nothing in a real install sets this variable; a test that quietly assumed
   // the seam also moved the verification would be wrong about both.
   const app = installedApp([{ name: 'v1' }, { name: 'v2' }]);
-  const served = mkdtempSync(join(tmpdir(), 'ai-sm-seamdist-'));
+  const served = makeTempDirSync('ai-sm-seamdist-');
   try {
     mkdirSync(join(served, 'assets'), { recursive: true });
     writeFileSync(join(served, 'index.html'), '<!doctype html><title>seam</title>');

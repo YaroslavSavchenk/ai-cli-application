@@ -18,7 +18,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
+import { settleTimers as settle } from '../helpers/helpers.ts';
 
 interface FetchCall {
   url: string;
@@ -71,11 +71,6 @@ for (const level of ['debug', 'info', 'warn', 'error'] as const) {
 }
 
 const mod = await import('../../web/src/log.ts');
-
-/** Let the logger's promise chain settle (send -> decide -> maybe again). */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 8; i++) await delay(0);
-}
 
 const bodyEntries = (call: FetchCall): { level: string; at: string; message: string }[] =>
   (JSON.parse(call.init.body as string) as { entries: { level: string; at: string; message: string }[] })

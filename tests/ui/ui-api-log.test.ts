@@ -15,7 +15,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
+import { settleTimers as settle } from '../helpers/helpers.ts';
 
 interface FetchCall {
   url: string;
@@ -70,11 +70,6 @@ for (const level of ['debug', 'info', 'warn', 'error'] as const) {
 const api = await import('../../web/src/api.ts');
 const logMod = await import('../../web/src/log.ts');
 logMod.initLogging();
-
-/** Let the logger's promise chain settle. */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 8; i++) await delay(0);
-}
 
 /** Force delivery of everything buffered (the pagehide path) and read it back. */
 async function shippedMessages(): Promise<string[]> {

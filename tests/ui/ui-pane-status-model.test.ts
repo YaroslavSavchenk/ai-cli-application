@@ -37,8 +37,6 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { SessionInfo, SessionTelemetry } from '../../shared/protocol.ts';
 import { paneStatusItems, type PaneStatusItem } from '../../web/src/ui/pane-status-model.ts';
 import { PERM_SHORT, type Perm } from '../../web/src/ui/launch-args.ts';
@@ -46,7 +44,7 @@ import {
   statusLineDefaults,
   type StatusLineCfg,
 } from '../../web/src/ui/statusline-model.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 /** A fixed clock and a `createdAt` a known distance before it. */
 const NOW = Date.parse('2026-09-10T12:00:00.000Z');
@@ -593,7 +591,7 @@ test('no key outside the v3 set is ever produced, and Skill never appears', () =
 });
 
 test('the module names the v3 keys and no source-less one (no faked Skill)', () => {
-  const SRC = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'pane-status-model.ts'), 'utf8');
+  const SRC = readSource('web', 'src', 'ui', 'pane-status-model.ts');
   assert.ok(SRC.includes('export function paneStatusItems'), 'non-vacuity: wrong file');
   // Comments are stripped: the header explains WHY Skill is absent, and that
   // explanation must stay legal while the code stays clean.

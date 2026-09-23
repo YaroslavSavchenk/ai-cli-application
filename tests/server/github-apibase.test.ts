@@ -28,10 +28,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DEFAULT_GITHUB_API_BASE,
@@ -39,7 +38,7 @@ import {
   resolveGithubApiBase,
 } from '../../server/config.ts';
 import { GithubConnection, GithubError, type FetchLike } from '../../server/github.ts';
-import { waitUntil } from '../helpers/helpers.ts';
+import { waitUntil, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 /** Fake token: never a real credential, but treated as one by every assertion. */
 const SECRET = 'gho_STUB_ONLY_NEVER_A_REAL_TOKEN';
@@ -221,7 +220,7 @@ test('resolveGithubApiBase: a bad value THROWS (index.ts turns that into a refus
 // ---------------------------------------------------------------------------
 
 test('GithubConnection: an in-process caller CANNOT aim the token off loopback (constructor re-validates)', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghbase-ctor-'));
+  const root = await makeTempDir('ai-sm-ghbase-ctor-');
   try {
     const file = join(root, 'github.json');
     for (const bad of [
@@ -238,12 +237,12 @@ test('GithubConnection: an in-process caller CANNOT aim the token off loopback (
       );
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('GithubConnection: absent / empty / whitespace / the literal default apiBase all construct cleanly', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghbase-ok-'));
+  const root = await makeTempDir('ai-sm-ghbase-ok-');
   try {
     const file = join(root, 'github.json');
     for (const ok of [undefined, '', '   ', DEFAULT_GITHUB_API_BASE, 'http://127.0.0.1:8787', 'http://[::1]:8787']) {
@@ -255,7 +254,7 @@ test('GithubConnection: absent / empty / whitespace / the literal default apiBas
       );
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -264,7 +263,7 @@ test('GithubConnection: absent / empty / whitespace / the literal default apiBas
 // ---------------------------------------------------------------------------
 
 test('the API-base override does NOT move the device flow: code+token stay on github.com, only /user and /user/repos follow it', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghbase-flow-'));
+  const root = await makeTempDir('ai-sm-ghbase-flow-');
   try {
     const file = join(root, 'github.json');
     const base = 'http://127.0.0.1:9'; // never contacted — every call goes through the seam
@@ -345,7 +344,7 @@ test('the API-base override does NOT move the device flow: code+token stay on gi
 
     await conn.disconnect(); // stop the poll timer / drop github.json
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -404,7 +403,7 @@ test('a REDIRECTING api base is REFUSED, never followed — a token-bearing requ
   // up to 20 times, making the backend issue attacker-chosen outbound requests
   // whose bodies are then parsed as a repo list; Authorization stripping across
   // origins is undici's behaviour, not a guarantee this repo owns.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghbase-redirect-'));
+  const root = await makeTempDir('ai-sm-ghbase-redirect-');
   const target = await startRecorder(() => ({
     status: 200,
     body: JSON.stringify([
@@ -448,12 +447,12 @@ test('a REDIRECTING api base is REFUSED, never followed — a token-bearing requ
     }
   } finally {
     await target.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('a SAME-ORIGIN redirect is refused too — the hop undici would still send the token on', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghbase-redirect-same-'));
+  const root = await makeTempDir('ai-sm-ghbase-redirect-same-');
   const srv = await startRecorder((path) =>
     path.startsWith('/user/repos')
       ? { status: 307, location: '/elsewhere', body: '' }
@@ -470,7 +469,7 @@ test('a SAME-ORIGIN redirect is refused too — the hop undici would still send 
     assert.deepEqual(srv.paths, ['/user/repos?per_page=100&sort=pushed&page=1'], '/elsewhere is never fetched');
   } finally {
     await srv.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -480,7 +479,7 @@ test('createRepo — the token-bearing POST refuses a redirect too (the GET path
   // undici re-issue it as a GET at the new target, a 307 forwards the JSON body
   // verbatim. Both are refused because every request goes through the one #http
   // chokepoint — this pins that the POST really goes through it.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghbase-redirect-post-'));
+  const root = await makeTempDir('ai-sm-ghbase-redirect-post-');
   const target = await startRecorder(() => ({
     status: 201,
     body: JSON.stringify({
@@ -523,6 +522,6 @@ test('createRepo — the token-bearing POST refuses a redirect too (the GET path
     }
   } finally {
     await target.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

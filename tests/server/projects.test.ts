@@ -4,8 +4,8 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { chmod, mkdir, readdir, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { FsListResponse, Project } from '../../shared/protocol.ts';
 import { blankIntent, probeFromList } from '../../web/src/ui/newproject-model.ts';
@@ -16,6 +16,9 @@ import {
   wsUrl,
   WsClient,
   type TestServer,
+  IS_ROOT,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 let server: TestServer;
@@ -23,7 +26,7 @@ let workDir: string;
 
 before(async () => {
   server = await startTestServer();
-  workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-proj-')));
+  workDir = await realpath(await makeTempDir('ai-sm-proj-'));
   await mkdir(join(workDir, 'b_dir'));
   await mkdir(join(workDir, 'a_dir'));
   await writeFile(join(workDir, 'plain.txt'), 'not a directory\n');
@@ -33,7 +36,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
+  if (workDir !== undefined) await removeTempDir(workDir);
 });
 
 test('defaultMode `standard` is still ACCEPTED and round-trips — the UI dropped the option, the schema did not', async () => {
@@ -193,7 +196,7 @@ test('fs/list rejects relative paths, 404s on missing/non-dirs, defaults to $HOM
 
 /** Fixture dirs under a private temp root, one per kind of content. */
 async function emptyFlagFixtures(): Promise<{ root: string; dirs: Record<string, string> }> {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-empty-')));
+  const root = await realpath(await makeTempDir('ai-sm-empty-'));
   const dirs = {
     empty: join(root, 'empty'),
     fileOnly: join(root, 'file-only'),
@@ -237,7 +240,7 @@ test('fs/list `empty`: true ONLY for a directory with no entries at all — a fi
     assert.deepEqual(a.dirs, b.dirs);
     assert.notEqual(a.empty, b.empty);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -263,7 +266,7 @@ test('fs/list `empty` -> probe -> intent, end to end: the dialog creates into an
       assert.equal(blankIntent(probe), intent, `${label}: probe ${probe} (HTTP ${res.status})`);
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -299,15 +302,15 @@ test('the intent the probe picks is one the backend ACCEPTS: create:true for emp
     }
   } finally {
     for (const id of created) await api(server, 'DELETE', `/api/projects/${id}`);
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test(
   'fs/list answers 403 for a folder it may not read, which the probe maps to unknown -> create (never add)',
-  { skip: process.getuid?.() === 0 ? 'root ignores directory mode bits' : false },
+  { skip: IS_ROOT ? 'root ignores directory mode bits' : false },
   async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-locked-')));
+    const root = await realpath(await makeTempDir('ai-sm-locked-'));
     const locked = join(root, 'locked');
     await mkdir(locked);
     await writeFile(join(locked, 'secret.txt'), 'x\n');
@@ -319,7 +322,7 @@ test(
       assert.equal(blankIntent(probeFromList(null, res.status)), 'create');
     } finally {
       await chmod(locked, 0o700);
-      await rm(root, { recursive: true, force: true });
+      await removeTempDir(root);
     }
   },
 );

@@ -39,6 +39,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from '../helpers/helpers.ts';
+import { withoutComments as code, functionBody as fn } from '../helpers/source-scan.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const read = (p: string): string => readFileSync(p, 'utf8');
@@ -50,19 +51,8 @@ const EDITOR_PANE = read(join(UI, 'editor-pane.ts'));
 const MAIN = read(join(projectRoot, 'web', 'src', 'main.ts'));
 
 /** Source with comments removed — a comment may DISCUSS what code may not do. */
-const code = (src: string): string =>
-  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 const PANES_CODE = code(PANES);
-
-/** The body of a named function, from its signature to the next top-level `}`. */
-function fn(src: string, signature: string): string {
-  const at = src.indexOf(signature);
-  assert.notEqual(at, -1, `non-vacuity: ${signature} was not found`);
-  const end = src.indexOf('\n}', at);
-  assert.notEqual(end, -1, `non-vacuity: ${signature} has no end`);
-  return src.slice(at, end + 2);
-}
 
 test('non-vacuity: this really reads the A10 pane module, and it really needs xterm', () => {
   assert.ok(PANES.length > 5000, 'panes.ts looks empty');

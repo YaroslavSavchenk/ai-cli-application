@@ -10,11 +10,18 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionInfo } from '../../shared/protocol.ts';
-import { api, createSession, startTestServer, waitUntil, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  createSession,
+  startTestServer,
+  waitUntil,
+  type TestServer,
+  makeTempDir,
+  removeTempDir,
+} from '../helpers/helpers.ts';
 
 const CLAUDE_DOUBLE = `#!/bin/sh
 out="$AI_SM_TEST_SHIM_OUT"
@@ -33,7 +40,7 @@ let workDir: string;
 let server: TestServer;
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-livresume-')));
+  root = await realpath(await makeTempDir('ai-sm-livresume-'));
   const binDir = join(root, 'bin');
   shimOut = join(root, 'shim-out');
   workDir = join(root, 'work');
@@ -52,7 +59,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 /** The argv of the n-th claude launch, one token per line. */

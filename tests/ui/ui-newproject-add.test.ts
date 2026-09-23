@@ -22,12 +22,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readSource } from '../helpers/helpers.ts';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const NEWPROJECT = readFileSync(join(REPO_ROOT, 'web', 'src', 'ui', 'newproject.ts'), 'utf8');
+const NEWPROJECT = readSource('web', 'src', 'ui', 'newproject.ts');
 
 /** Source of a nested `async function <name>(): Promise<void> { … }` (4-space body, 2-space close). */
 function fnBody(name: string): string {

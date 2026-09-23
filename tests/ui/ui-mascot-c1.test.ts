@@ -27,8 +27,6 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import {
   FAILS_TO_ZERO,
@@ -43,9 +41,7 @@ import {
 import { MascotModel, REACTIONS } from '../../web/src/mascot/model.ts';
 import { clampMascot, getMascotEnabled, initMascot, mascotPatch } from '../../web/src/ui/prefs-model.ts';
 import { onFocusSession, parseFocusSession, type HostWindow } from '../../web/src/ui/host-bridge.ts';
-
-const REPO = new URL('../..', import.meta.url);
-const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, REPO)), 'utf8');
+import { readSource as read } from '../helpers/helpers.ts';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';

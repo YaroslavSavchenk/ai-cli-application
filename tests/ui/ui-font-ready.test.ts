@@ -38,7 +38,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource } from '../helpers/helpers.ts';
 import {
   allLoaded,
   ensureFontsLoaded,
@@ -311,7 +311,7 @@ test('watchFontArrival: no font API and no specs install no listener at all', ()
 // ---------------------------------------------------------------------------
 
 test('main.ts waits for the font BEFORE the shell, and arms the watch between the two', () => {
-  const main = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   const wait = main.indexOf('await fontReady');
   const watch = main.indexOf('watchTerminalFont()');
   const shell = main.indexOf('buildShell(root, prefs)');
@@ -327,7 +327,7 @@ test('main.ts waits for the font BEFORE the shell, and arms the watch between th
 });
 
 test('the font wait is a boot-panel row of its own, and can never reject into boot()', () => {
-  const main = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   // A rejection here would abort boot() AFTER the other rows settled and the
   // overlay removed itself — a dark window with no message (boot() has no
   // catcher: `void boot(app)`). Settling at the source also means the early
@@ -354,7 +354,7 @@ test('the font wait is a boot-panel row of its own, and can never reject into bo
 });
 
 test('the late-font repair reuses the ONE resize path — it does not re-implement it', () => {
-  const src = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'terminal.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'terminal.ts');
   const body = /reloadFont\(\): void \{([\s\S]*?)\n  \}/.exec(src);
   assert.ok(body, 'terminal.ts must have a reloadFont() method');
   const code = (body[1] as string).replace(/^\s*\/\/.*$/gm, '');
@@ -468,7 +468,7 @@ test('primaryFamily: the shapes a hand-edited token can really take', () => {
 // Everything BEHIND this glue is driven for real above.
 // ---------------------------------------------------------------------------
 
-const TERMINAL_SRC = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'terminal.ts'), 'utf8');
+const TERMINAL_SRC = readSource('web', 'src', 'ui', 'terminal.ts');
 /** Source without comments — a comment may DISCUSS what the code may not do. */
 const terminalCode = TERMINAL_SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
@@ -558,7 +558,7 @@ test('reloadFont re-spells the font stack so xterm RE-MEASURES the cell (an equa
  * being forced to say what happens to it.
  */
 const FONT_WAIT_RESULTS: readonly string[] = (() => {
-  const src = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'font-ready.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'font-ready.ts');
   const union = /export type FontWaitResult =([^;]+);/.exec(src);
   assert.ok(union, 'font-ready.ts must export the FontWaitResult union');
   return [...(union[1] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string);
@@ -586,7 +586,7 @@ test('the boot row fails for EVERY outcome the user ends up paying for: timeout 
   // width, and the boot panel says it went fine. 'failed' covers a rejected
   // load; 'unparseable' a malformed --font-mono / --fs-term — both are cases
   // nobody would otherwise see.
-  const main = readFileSync(join(projectRoot, 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   const then = /void fontReady\.then\(\(result\) => \{\s*if \(([^)]*(?:\)[^)]*)*?)\) \{/.exec(main);
   assert.ok(then, 'main.ts must settle the row from fontReady with an if on the result');
   const isFailure = decide(then[1] as string);
@@ -603,7 +603,7 @@ test('loadTerminalFont logs every outcome except the free one — silence is how
   // its lines through /api/client-log, so this debug line is the ONLY trace
   // that a pane started on the fallback face. 'already' is the one outcome
   // worth nothing: the face was there, no time was spent, nothing happened.
-  const src = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'terminal.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'terminal.ts');
   const fn = /export async function loadTerminalFont\(\)[\s\S]*?\n\}/.exec(src);
   assert.ok(fn, 'loadTerminalFont must exist');
   const line = /if \(([^)]*(?:\)[^)]*)*?)\) log\.debug\(`terminal font: \$\{result\}`\)/.exec(fn[0]);

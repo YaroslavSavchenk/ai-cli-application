@@ -44,6 +44,7 @@ import {
   type DropItem,
   type ItemResult,
 } from '../../web/src/ui/drop-model.ts';
+import { assignedClasses } from '../helpers/source-scan.ts';
 
 const dom = installDom();
 
@@ -701,23 +702,6 @@ test('nothing the card renders carries a path, a byte count or a decorative dash
 
 const MODULE = frontendFiles(['.ts']).find((f) => f.name === 'web/src/ui/drop-dialog.ts');
 const MODULE_SRC = MODULE?.src ?? '';
-
-/** Class names a module really ASSIGNS (the `ui-a8-dialogs.test.ts` scanner). */
-function assignedClasses(src: string): string[] {
-  const out: string[] = [];
-  const push = (s: string): void => {
-    for (const c of s.replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) if (c !== '') out.push(c);
-  };
-  for (const re of [
-    /\bel\(\s*'[a-zA-Z0-9]+'\s*,\s*'([^']*)'/g,
-    /\bbutton\(\s*'([^']*)'/g,
-    /\.className\s*=\s*'([^']*)'/g,
-    /classList\.(?:add|remove|toggle)\(\s*'([^']*)'/g,
-  ]) {
-    for (const m of src.matchAll(re)) push(m[1] as string);
-  }
-  return out;
-}
 
 /**
  * The `fd-` section's own rules. `mySections` ends a section at the next

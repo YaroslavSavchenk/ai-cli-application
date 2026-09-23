@@ -29,11 +29,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readBundleInfo } from '../../server/bundle.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, makeTempDir, removeTempDir, exists } from '../helpers/helpers.ts';
 
 const SCRIPT = join(projectRoot, 'scripts', 'build-bundle.sh');
 const BASH = '/bin/bash';
@@ -58,7 +57,7 @@ interface FakeRepo {
  * and (unless `noWebDist`) a built frontend.
  */
 async function makeRepo(opts: { noWebDist?: boolean } = {}): Promise<FakeRepo> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-bundle-'));
+  const root = await makeTempDir('ai-sm-bundle-');
   const dir = join(root, 'repo');
   await mkdir(join(dir, 'scripts'), { recursive: true });
   await copyFile(SCRIPT, join(dir, 'scripts', 'build-bundle.sh'));
@@ -128,15 +127,6 @@ function runBuild(
       resolve({ code, stdout, stderr, out: `${stdout}${stderr}` }),
     );
   });
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Nothing was downloaded and nothing was staged. */
@@ -364,7 +354,7 @@ test('build-bundle: the bundle.json it writes is one the BACKEND accepts', async
   const glibcBlock = cut('GLIBC_LINE="$(ldd --version', '# --- 3.');
   const markerBlock = cut('COMMIT="$(git -C "$REPO"', '# --- 9.');
 
-  const stage = await mkdtemp(join(tmpdir(), 'ai-sm-marker-'));
+  const stage = await makeTempDir('ai-sm-marker-');
   try {
     const harness = [
       'set -euo pipefail',
@@ -400,7 +390,7 @@ test('build-bundle: the bundle.json it writes is one the BACKEND accepts', async
     assert.ok(info.commit === null || /^[0-9a-f]{7,40}$/.test(info.commit));
     assert.ok(!Number.isNaN(Date.parse(info.builtAt)), `builtAt must parse: ${info.builtAt}`);
   } finally {
-    await rm(stage, { recursive: true, force: true });
+    await removeTempDir(stage);
   }
 });
 
@@ -451,7 +441,7 @@ test('build-bundle: the tar call is argv-safe — a version that LOOKS like a fl
   );
   const tarBlock = script.slice(a, b);
 
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-tar-'));
+  const root = await makeTempDir('ai-sm-tar-');
   const stageRoot = join(root, 'stage');
   const outDir = join(root, 'out');
   const version = '--remove-files';
@@ -504,7 +494,7 @@ test('build-bundle: the tar call is argv-safe — a version that LOOKS like a fl
     // And the staging tree is still there: `--remove-files` was never honoured.
     assert.equal(await exists(staged), true, 'the staged file was REMOVED — tar parsed the version as an option');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -532,7 +522,7 @@ test('build-bundle: the bundle ships run-update.ps1 — an installed app that ca
     'the preflight must name run-update.ps1',
   );
 
-  const stage = await mkdtemp(join(tmpdir(), 'ai-sm-stage-'));
+  const stage = await makeTempDir('ai-sm-stage-');
   try {
     const harness = [
       'set -euo pipefail',
@@ -571,6 +561,6 @@ test('build-bundle: the bundle ships run-update.ps1 — an installed app that ca
     // …while the script that IS executed in Linux stays executable.
     assert.equal((await stat(join(stage, 'launcher', 'start-backend.sh'))).mode & 0o777, 0o755);
   } finally {
-    await rm(stage, { recursive: true, force: true });
+    await removeTempDir(stage);
   }
 });

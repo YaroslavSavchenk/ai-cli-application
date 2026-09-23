@@ -33,12 +33,11 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '../../shared/protocol.ts';
-import { api, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import { api, startTestServer, type TestServer, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 /**
  * A `git` double resolved through PATH. Records one line per init/clone —
@@ -133,7 +132,7 @@ async function projectPaths(): Promise<string[]> {
 }
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-normalize-')));
+  root = await realpath(await makeTempDir('ai-sm-normalize-'));
   const shimDir = join(root, 'bin');
   await mkdir(shimDir);
   await writeFile(join(shimDir, 'git'), GIT_DOUBLE, { mode: 0o755 });
@@ -152,7 +151,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 // ---------------------------------------------------------------------------

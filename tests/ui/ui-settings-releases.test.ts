@@ -50,14 +50,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { isOpenableLink } from '../../web/src/ui/keys.ts';
 import { UPDATE_OWNER, UPDATE_REPO } from '../../server/update-release.ts';
-
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const read = (...p: string[]): string => readFileSync(join(REPO_ROOT, ...p), 'utf8');
+import { readSource as read } from '../helpers/helpers.ts';
 
 const SETTINGS = read('web', 'src', 'ui', 'settings.ts');
 const RELEASES = read('web', 'src', 'ui', 'releases.ts');

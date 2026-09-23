@@ -16,8 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { UpdateRelease, UpdateStatus } from '../../shared/protocol.ts';
 import { UPDATE_NEW_VERSION_AVAILABLE } from '../../shared/protocol.ts';
@@ -33,15 +32,17 @@ import { PrefsStore } from '../../server/prefs.ts';
 import { GithubConnection } from '../../server/github.ts';
 import {
   destroyAllAndSettle,
-  projectRoot,
   rawRequest,
   readServerLog,
   removeTempDir,
   startTestServer,
+  sleep,
+  makeTempDirSync,
+  readSource,
 } from '../helpers/helpers.ts';
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'ai-sm-update-check-'));
+  return makeTempDirSync('ai-sm-update-check-');
 }
 
 const RELEASE: UpdateRelease = {
@@ -322,7 +323,7 @@ test('POST /api/update/check: two concurrent POSTs run ONE check and both get th
     const second = post(ctx);
     // Both requests are in the handler before the check is allowed to finish:
     // the second one must adopt the promise the first one created.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await sleep(50);
     assert.equal(ctx.checker.calls, 1, 'the second click never doubles the GitHub request');
     ctx.checker.finish();
     const [a, b] = await Promise.all([first, second]);
@@ -341,13 +342,13 @@ test('POST /api/update/check: two concurrent POSTs run ONE check and both get th
 test('POST /api/update/check: the shared promise is RELEASED — a later POST checks again', async () => {
   await withRoute({ manual: true }, async (ctx) => {
     const first = post(ctx);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await sleep(20);
     ctx.checker.finish();
     assert.equal((await first).status, 200);
 
     ctx.checker.next = { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: RELEASE };
     const second = post(ctx);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await sleep(20);
     assert.equal(ctx.checker.calls, 2, 'the in-flight promise did not survive its own check');
     ctx.checker.finish();
     assert.equal((JSON.parse((await second).body) as UpdateStatus).reason, 'a new version is available');
@@ -360,7 +361,7 @@ test('POST /api/update/check: the outcome reaches the access line as a CONSTANT 
     ctx.checker.next = { available: true, reason: UPDATE_NEW_VERSION_AVAILABLE, release: RELEASE };
     await post(ctx);
     // The lines are written on response close; give the handler a tick.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await sleep(50);
     const log = readFileSync(ctx.logFile, 'utf8');
     const notes = [
       ...log.matchAll(/POST \/api\/update\/check [^\n]*? note=("(?:[^"\\]|\\.)*")/g),
@@ -408,7 +409,7 @@ test('POST /api/update/check: nothing the CALLER sent reaches the access line', 
       body: '{"note":"BODYCANARY"}',
     });
     assert.equal(res.status, 200);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await sleep(50);
     const log = readFileSync(ctx.logFile, 'utf8');
     for (const canary of ['QUERYCANARY', 'AGENTCANARY', 'BODYCANARY', `127.0.0.1:${ctx.port}`]) {
       assert.ok(!log.includes(canary), `${canary} must never reach server.log`);
@@ -428,7 +429,7 @@ test('POST /api/update/check: nothing the CALLER sent reaches the access line', 
  * one in-flight promise is shared and then cleared.
  */
 test('server/index.ts wires the dep from the release checker and shares one in-flight check', () => {
-  const src = readFileSync(join(projectRoot, 'server', 'index.ts'), 'utf8');
+  const src = readSource('server', 'index.ts');
   assert.match(src, /const checker = releaseChecker;/, 'the checker decides whether the dep exists');
   assert.match(src, /checker === undefined\s*\?\s*undefined/, 'no checker -> no dep -> the 503');
   assert.match(src, /updateCheckInFlight \?\?=/, 'concurrent callers share the promise');
@@ -501,7 +502,7 @@ test('POST /api/update/check on a developer clone: 503 from the real backend, no
  * instead of being left to the first route that sets both.
  */
 test('the access line gates note= to <400 and reason= to >=400', () => {
-  const src = readFileSync(join(projectRoot, 'server', 'api.ts'), 'utf8');
+  const src = readSource('server', 'api.ts');
   assert.match(
     src,
     /if \(status >= 400 && reason !== undefined\) parts\.push\(`reason=\$\{JSON\.stringify\(reason\)\}`\);/,

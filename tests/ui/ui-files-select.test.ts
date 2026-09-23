@@ -32,20 +32,25 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, type FakeElement } from '../helpers/fake-dom.ts';
 import { APP_CSS, stripComments } from '../helpers/tokens-helpers.ts';
-import { HOME, PROJ, makeFixture, settle, type Gateway } from '../helpers/fs-fixture.ts';
+import {
+  HOME,
+  PROJ,
+  makeFixture,
+  settle,
+  type Gateway,
+  mkSession,
+  mkProject as project,
+} from '../helpers/fs-fixture.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 /** The real panel against the fake backend of part B2 (`tests/helpers/fs-fixture.ts`). */
 const fx = makeFixture();
 
 const dom = installDom();
 
-const here = dirname(fileURLToPath(import.meta.url));
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 const FD = (await import(new URL('../../web/src/ui/filedrop.ts', import.meta.url).href)) as FileDropModule;
@@ -148,26 +153,6 @@ dom.win.addEventListener('keydown', (e) => {
   ladderClosed += 1;
   st.toggleLeftPanel('files');
 });
-
-function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/you/work',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
-}
-
-function project(id: string, name: string): Project {
-  return { id, name, path: `/work/${name}`, createdAt: new Date().toISOString() } as Project;
-}
 
 /** Which folder the panel is rooted at right now — the row keys are absolute. */
 let rootNow = PROJ;
@@ -440,7 +425,7 @@ test('a key that is not Escape is never taken by the selection listener', async 
 });
 
 test('the mirrored ladder arm is the one main.ts really has (so this file tests the shipped one)', () => {
-  const main = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
   const from = main.indexOf("e.key === 'Escape'");
   assert.notEqual(from, -1, 'non-vacuity: the Escape branch was found');
@@ -511,7 +496,7 @@ test('the selection is part of sig(), so a change to it alone repaints the tree'
   // WITHOUT toggling it and without clearing `lastSig` — the panel would then
   // paint no `is-sel` at all while the copy strip already named the folder.
   // Pinned here rather than rediscovered there.
-  const files = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
+  const files = readSource('web', 'src', 'ui', 'files.ts');
   const from = files.indexOf('function sig(');
   assert.notEqual(from, -1, 'non-vacuity: sig() was found');
   // COMMENTS STRIPPED FIRST: sig()'s own prose says "its selected state"
@@ -599,7 +584,7 @@ test('`is-sel` has a rule behind it, and the panel really sets it (class parity)
   assert.match(css, /\.files-view \.files-row\.is-sel\b/);
   assert.match(css, /\.files-row\.is-sel \.files-name\b/);
 
-  const files = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
+  const files = readSource('web', 'src', 'ui', 'files.ts');
   assert.match(files, /classList\.toggle\('is-sel'/, 'the panel must be the setter');
 
   await liveSession();

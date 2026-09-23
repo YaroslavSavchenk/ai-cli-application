@@ -25,8 +25,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { HistoryEntry, Project, SessionInfo } from '../../shared/protocol.ts';
 import { planConversation, resumeSpawn, stripConversationArgs } from '../../server/conversation.ts';
@@ -37,6 +36,7 @@ import {
   startTestServer,
   waitUntil,
   type TestServer,
+  makeTempDir,
 } from '../helpers/helpers.ts';
 
 /**
@@ -74,7 +74,7 @@ interface Fixture {
 async function fixture(
   seedHistory?: (workDir: string) => readonly unknown[],
 ): Promise<Fixture> {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-history-')));
+  const root = await realpath(await makeTempDir('ai-sm-history-'));
   const dataDir = join(root, 'data');
   const workDir = join(root, 'work');
   const shimDir = join(root, 'bin');
@@ -182,7 +182,7 @@ interface UnitStore {
 
 /** A SessionHistory over a scratch file, with its log captured — no server. */
 async function unitStore(name: string): Promise<UnitStore> {
-  const root = await mkdtemp(join(tmpdir(), `ai-sm-history-${name}-`));
+  const root = await makeTempDir(`ai-sm-history-${name}-`);
   const lines: string[] = [];
   const log = (level: string, msg: string): void => void lines.push(`${level} ${msg}`);
   const file = join(root, 'history.json');
@@ -455,7 +455,7 @@ function fakeInfo(n: number): SessionInfo {
 }
 
 test('history is bounded at HISTORY_MAX: the oldest ENDED entry drops, a live one never does', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-history-unit-'));
+  const root = await makeTempDir('ai-sm-history-unit-');
   const file = join(root, 'history.json');
   const lines: string[] = [];
   const log = (level: string, msg: string): void => void lines.push(`${level} ${msg}`);
@@ -506,7 +506,7 @@ test('list() is newest-first even when two entries share a lastUsedAt to the mil
   // there left the order to the array, which made the newest-first list a coin
   // flip (observed as a 1-in-4 flake in tests/server/lifecycle.test.ts). The entry
   // appended LATER was created later and must sort first.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-history-tie-'));
+  const root = await makeTempDir('ai-sm-history-tie-');
   const file = join(root, 'history.json');
   const log = (): void => {};
   try {

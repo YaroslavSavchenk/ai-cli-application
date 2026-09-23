@@ -10,7 +10,7 @@
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import fsp, { lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import fsp, { lstat, mkdir, realpath } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +29,7 @@ import {
   type ProtectedSet,
   type WalkFs,
 } from '../../server/fsprotect.ts';
+import { nextImmediate, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 interface FakeEntry { ino: number; link?: string }
 
@@ -180,7 +181,7 @@ test('a REJECTED build is not cached: the next request builds again', async () =
     return Promise.reject(new Error('boom'));
   };
   await assert.rejects(protectedSetFor(['/r'], [], { timeoutMs: 50, build: failing }), /boom/);
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
   const ok: ProtectedSet = new Map();
   assert.equal(await protectedSetFor(['/r'], [], { timeoutMs: 50, build: async () => ok }), ok);
   assert.equal(builds, 1, 'the second request did not reuse the rejected promise');
@@ -195,7 +196,7 @@ test('a finished set is reused for the same roots; different roots build anew', 
     return new Map();
   };
   await protectedSetFor(['/a'], [], { build });
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
   await protectedSetFor(['/a'], [], { build });
   assert.equal(builds, 1);
   await protectedSetFor(['/a', '/b'], [], { build });
@@ -262,14 +263,14 @@ test('a finished set EXPIRES after PROTECT_TTL_MS (5 s): the next request walks 
       return new Map();
     };
     await protectedSetFor(['/ttl'], [], { build });
-    await new Promise((r) => setImmediate(r)); // the `at` stamp lands
+    await nextImmediate(); // the `at` stamp lands
     now += PROTECT_TTL_MS - 1;
     await protectedSetFor(['/ttl'], [], { build });
     assert.equal(builds, 1, 'still fresh 1 ms before the TTL');
     now += 1;
     await protectedSetFor(['/ttl'], [], { build });
     assert.equal(builds, 2, 'expired AT the TTL');
-    await new Promise((r) => setImmediate(r));
+    await nextImmediate();
     // The TTL counts from when the walk FINISHED, not from when it started.
     now += PROTECT_TTL_MS - 1;
     await protectedSetFor(['/ttl'], [], { build });
@@ -297,7 +298,7 @@ test('the TTL counts from the FINISH: a slow walk is fresh for 5 s after it land
     now += 10 * PROTECT_TTL_MS; // the walk takes "50 s"
     finish(new Map());
     await first;
-    await new Promise((r) => setImmediate(r));
+    await nextImmediate();
     now += PROTECT_TTL_MS - 1;
     await protectedSetFor(['/slow'], [], { build });
     assert.equal(builds, 1);
@@ -329,7 +330,7 @@ test('the REAL walk lstats with { bigint: true } (drvfs inodes exceed 2^53)', as
 });
 
 test('protectedSetForRequest walks the anchors, every STORED project path and the configured data dir', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsprot-')));
+  const root = await realpath(await makeTempDir('ai-sm-fsprot-'));
   const saved = process.env['AI_SM_DATA_DIR'];
   try {
     const anchor = join(root, 'anchor');
@@ -348,6 +349,6 @@ test('protectedSetForRequest walks the anchors, every STORED project path and th
     if (saved === undefined) delete process.env['AI_SM_DATA_DIR'];
     else process.env['AI_SM_DATA_DIR'] = saved;
     resetProtectedSetCache();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

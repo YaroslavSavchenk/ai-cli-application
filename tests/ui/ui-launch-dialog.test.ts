@@ -56,6 +56,7 @@ import type { ToolAvailability, KeyStatus, HistoryEntry } from '../../shared/pro
 // The prefs model is pure and DOM-free (no stub needed): the same module
 // instance the dialog reads `getHiddenTools()` from on every open.
 import { initHiddenTools } from '../../web/src/ui/prefs-model.ts';
+import { nextImmediate } from '../helpers/helpers.ts';
 
 // ===========================================================================
 // DOM double
@@ -534,7 +535,7 @@ function press(key: string, shiftKey = false): FakeEvent {
 
 /** Let launch()'s awaits settle: bounded event-loop turns, no clock. */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise<void>((r) => setImmediate(r));
+  for (let i = 0; i < 20; i++) await nextImmediate();
 }
 
 /** Press Start session and hand back the POST body it sent (or null: no POST). */

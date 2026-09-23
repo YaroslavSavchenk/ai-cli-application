@@ -31,9 +31,6 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   byClass,
   byKey,
@@ -60,9 +57,9 @@ import {
   diffOf,
   hashOf,
 } from '../helpers/commits-fixture.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 const dom = installDom();
-const here = dirname(fileURLToPath(import.meta.url));
 
 type EditorTab =
   | { kind: 'file'; path: string }
@@ -287,7 +284,7 @@ test('`Committed by` appears only when the committer is somebody else', async ()
 
 test('no honesty line is left anywhere on this screen — the mock is gone', async () => {
   await open(HEAD);
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'commit-view.ts');
   for (const dead of ['placeholderNote', 'Example commit', 'files-mock', 'syntheticDiff']) {
     assert.equal(src.includes(dead), false, `${dead} died with part B3`);
   }
@@ -310,7 +307,7 @@ test('`Open on GitHub` is a BUTTON, and only when the repository really has one'
   for (const text of [gh.textContent, gh.title]) {
     assert.equal(/https?:\/\//.test(text), false, `an address in UI copy: ${text}`);
   }
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'commit-view.ts');
   assert.equal(/el\('a'|setAttribute\('href'|\.href =/.test(src), false, 'not even a `#`');
 });
 
@@ -344,7 +341,7 @@ test('its click calls the ONE exit with the commit`s address, and logs no addres
   ]);
   delete win.open;
   // The log line is the SHAPE of the act; the address is nobody's business.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'commit-view.ts');
   assert.match(src, /log\.debug\('open commit on github'\)/);
   assert.equal(src.includes('window.open('), false, 'it goes through the shared exit');
   assert.match(src, /import \{ openExternal \} from '\.\/open-external\.ts';/);
@@ -757,7 +754,7 @@ test('a repository path is drawn in the order it is STORED (bidi spoof)', () => 
   // `src/x<RLO>txt.sj` draws as `src/js.txt` unless the surface pins the
   // order. Every place a repo path (or a file name out of one) is drawn
   // carries the rule.
-  const css = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   for (const sel of ['.diff-path', '.commit-fpath-t', '.pane-tab-pick']) {
     const at = css.indexOf(`${sel} {`);
     assert.notEqual(at, -1, `${sel} has a rule`);
@@ -834,7 +831,7 @@ test('both openers open the pane BEFORE closing the view — one layout pass, no
   // The pane area is covered while the pane is added, so ui/panes.ts refuses
   // to build anything; closing the view then unhides the grid and the deferred
   // render draws the new layout ONCE. The other order builds the panes twice.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'commit-view.ts');
   for (const [key, opener, call] of [
     ['diffopen', 'openFile', 'openFileGuarded('],
     ['diffchanges', 'changes', 'openDiffGuarded('],
@@ -879,8 +876,8 @@ test('a file from a commit lands in the tab the view was standing over', async (
 // The shell wiring (web/src/main.ts) and the pane-area guard (ui/panes.ts)
 // ---------------------------------------------------------------------------
 
-const MAIN = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
-const PANES = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'panes.ts'), 'utf8');
+const MAIN = readSource('web', 'src', 'main.ts');
+const PANES = readSource('web', 'src', 'ui', 'panes.ts');
 
 test('main.ts builds the commit screen as a flex sibling of the grid, and NO editor column', () => {
   assert.ok(MAIN.includes('function buildShell'), 'non-vacuity: main.ts still builds the shell');
@@ -941,7 +938,7 @@ test('the panes refuse to render at all against a hidden grid — the WebGL trap
     'nothing is read before the guard',
   );
   assert.match(
-    readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8'),
+    readSource('web', 'src', 'styles', 'app.css'),
     /\[hidden\] \{\s*display: none !important;/,
     'the hidden flag has to be real for the guard to mean anything',
   );
@@ -952,7 +949,7 @@ test('the grid coming back on screen acks the focused pane\'s attention itself �
   // badge raised under the view stayed until the next window focus (verify
   // run 2026-09-13). refreshPaneArea() takes that ack, gated on a visible
   // grid AND a focused window.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'panes.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'panes.ts');
   const fn = /export function refreshPaneArea\(\): void \{[\s\S]*?\n\}/.exec(src);
   assert.ok(fn, 'refreshPaneArea found');
   assert.match(fn[0], /render\(\);/);
@@ -967,7 +964,7 @@ test('a hidden grid acknowledges NO attention badge on a live BEL or an info fra
   // document has focus" alone, so a BEL under the commit view was seen 1 ms
   // after it was raised (server.log: attention raised → seen). Both
   // predicates must also ask whether the grid is on screen.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'panes.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'panes.ts');
   const onInfo = /onInfo: \(info: SessionInfo\) => \{[\s\S]*?clearAttentionIfPending\(s\);/.exec(src);
   assert.ok(onInfo, 'onInfo ack block found');
   assert.match(onInfo[0], /document\.hasFocus\(\) &&\s*!gridHidden\(\)/, 'info-frame ack is gated on a visible grid');
@@ -1016,7 +1013,7 @@ test('a hidden grid is never MEASURED for a new PTY either (scope review R3)', (
 });
 
 test('nothing narrows the grid any more — the panes keep the whole row (A10)', () => {
-  const css = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   assert.equal(css.includes('is-narrow'), false, 'the 46% rule died with the editor column');
   assert.equal(css.includes('.editor-'), false, 'and so did the whole editor family');
   // Non-vacuity: the pane area itself is definitely still styled here.
@@ -1083,7 +1080,7 @@ test('`paneChord` names EVERY chord that moves a pane, the digits included', () 
 });
 
 test('neither screen is persisted: the UI bag writes the same keys it did in A5', () => {
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'state.ts'), 'utf8');
+  const src = readSource('web', 'src', 'state.ts');
   const save = src.slice(src.indexOf('function saveUi'), src.indexOf('function loadUi'));
   assert.ok(save.length > 200, 'non-vacuity: saveUi was found');
   for (const key of ['openCommit', 'edits', 'commitCollapsed']) {
@@ -1244,12 +1241,12 @@ test('a diff is asked for BY COMMIT: the request carries the hash, not only the 
   // the renderer takes the ANSWER, which is what lets a diff PANE reuse it.
   await open(HEAD);
   for (const call of fx.diffCalls) assert.match(call, new RegExp(`^${HEAD} `));
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'commit-view.ts');
   assert.match(src, /export function diffBox\(asked: Asked<GitCommitDiffResponse>\): HTMLElement/);
   assert.match(src, /askDiff\(f\.path\);/, 'the store is asked per file');
-  const store = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-store.ts'), 'utf8');
+  const store = readSource('web', 'src', 'ui', 'commit-store.ts');
   assert.match(store, /gw\.commitDiff\(entry\.root, entry\.hash, path\)/, 'hash and root both travel');
-  const fp = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  const fp = readSource('web', 'src', 'ui', 'file-pane.ts');
   assert.match(fp, /fetchDiff\(root, hash, path\)/, 'and so does the diff PANE (A10)');
   assert.match(fp, /diffBox\(asked\)/, 'which draws through the SAME renderer');
 });
@@ -1307,7 +1304,7 @@ test('a diff row is TEXT, never markup — the user`s own source reaches textCon
   const box = CV.diffBox({ k: 'ready', value: marked });
   assert.deepEqual(textsOf(box, 'diff-t'), ['<img src=x onerror="boom">']);
   assert.equal(byClass(box, 'diff-t').length, 1, 'one span, not a parsed tree');
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-view.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'commit-view.ts');
   assert.equal(src.includes('innerHTML'), false, 'nothing here ever parses a string');
 });
 
@@ -1315,7 +1312,7 @@ test('code surfaces draw plain glyphs — ONE ligature rule, named as a design-s
   // The terminal renders no ligatures; an editor that prints `===` as one long
   // glyph shows code the pane beside it cannot show, and hides the difference
   // between `==` and `===`.
-  const css = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const at = css.indexOf('font-variant-ligatures: none');
   assert.notEqual(at, -1, 'the rule exists');
   assert.equal(
@@ -1378,7 +1375,7 @@ test('every class the commit screen renders has a rule in app.css (a typo is an 
   st.closeCommitView();
 
   assert.ok(seen.size > 25, `non-vacuity: ${seen.size} classes were collected`);
-  const css = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

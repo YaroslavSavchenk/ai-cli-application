@@ -21,11 +21,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
-import { chmod, lstat, mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, lstat, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolveDataPaths } from '../../server/config.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, sleep, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 const SCRIPT = join(projectRoot, 'server', 'statusline.mjs');
 
@@ -119,7 +118,7 @@ function fixture(dir: string, sessionId = 'sess-1'): Fixture {
 
 /** temp workspace: `git` = a real repo on branch `main`, `plain` = not a repo. */
 async function makeWorkspace(): Promise<{ root: string; repo: string; plain: string; prefs: string }> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-statusline-'));
+  const root = await makeTempDir('ai-sm-statusline-');
   const repo = join(root, 'repo');
   const plain = join(root, 'plain');
   await mkdir(repo);
@@ -704,7 +703,7 @@ test('the file the script writes IS DataPaths.statuslineCacheFile — the two mu
   // it at boot. Drift between them would silently stop the boot wipe from
   // wiping anything. Both real sites run here: the real resolver produces the
   // path, the real script writes the file.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-cachepath-'));
+  const root = await makeTempDir('ai-sm-cachepath-');
   const dataDir = join(root, 'data');
   const repo = join(root, 'repo');
   const previous = process.env['AI_SM_DATA_DIR'];
@@ -732,7 +731,7 @@ test('the file the script writes IS DataPaths.statuslineCacheFile — the two mu
   } finally {
     if (previous === undefined) delete process.env['AI_SM_DATA_DIR'];
     else process.env['AI_SM_DATA_DIR'] = previous;
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -913,7 +912,7 @@ test('snapshot is written ONLY on change: an identical second run leaves content
     await runWithSnapshot('default', ws.prefs, snapshot, payload);
     const first = await readFile(snapshot, 'utf8');
     const firstStat = await stat(snapshot);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await sleep(20);
 
     await runWithSnapshot('default', ws.prefs, snapshot, payload);
     const second = await readFile(snapshot, 'utf8');

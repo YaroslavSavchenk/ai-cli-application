@@ -36,27 +36,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { accessSync, constants, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, copyFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { join } from 'node:path';
+import { projectRoot, makeTempDir, removeTempDir, readSource, onPath } from '../helpers/helpers.ts';
 
 // --- environment probing ----------------------------------------------------
-
-function onPath(exe: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, exe);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
 
 const powershell = onPath('powershell.exe');
 const wslpathBin = onPath('wslpath');
@@ -352,7 +336,7 @@ let probePromise: Promise<Probe> | null = null;
 
 function probe(): Promise<Probe> {
   probePromise ??= (async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ai-sm-lcfg-'));
+    const dir = await makeTempDir('ai-sm-lcfg-');
     try {
       const script = join(dir, 'probe.ps1');
       const casesFile = join(dir, 'cases.json');
@@ -882,7 +866,7 @@ test('AI_SM_REPO_PATH crosses WSL interop with WSLENV=<var>/w and wins over the 
   // The README tells users to set these from Windows, but the launcher is also
   // started from inside WSL; without the /w flag the value never arrives at
   // powershell.exe at all, so the override would silently do nothing.
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-lcfg-'));
+  const dir = await makeTempDir('ai-sm-lcfg-');
   try {
     const script = join(dir, 'env.ps1');
     await writeFile(
@@ -973,7 +957,7 @@ test('launch.ps1 -Status from a launcher copied to a spaced path exits 1 and nev
   // default once the location is a WSL path — even when what it derives is
   // unusable. Falling back here would start a backend for the author's repo
   // inside someone else's clone.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-lcfg-'));
+  const root = await makeTempDir('ai-sm-lcfg-');
   try {
     const repoDir = join(root, 'ai sm test');
     const launcherDir = join(repoDir, 'launcher');
@@ -1013,7 +997,7 @@ test('launch.ps1 -Status from a launcher copied to a spaced path exits 1 and nev
     // built-in defaults are empty since the installer exists, so there is not
     // even a value left to fall back TO - assert that too, in both scripts.
     for (const script of ['launch.ps1', 'make-shortcut.ps1']) {
-      const text = readFileSync(join(projectRoot, 'launcher', script), 'utf8');
+      const text = readSource('launcher', script);
       assert.equal(
         /^\$DefaultRepoPath\s*=\s*'([^']*)'/m.exec(text)?.[1],
         '',
@@ -1032,7 +1016,7 @@ test('launch.ps1 -Status from a launcher copied to a spaced path exits 1 and nev
     assert.ok(!res.out.includes('runtime.json'), `must fail before touching runtime.json:\n${res.out}`);
     assert.ok(!res.out.includes('Backend:'), `must never reach the -Status report:\n${res.out}`);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -1224,7 +1208,7 @@ let hostNextPromise: Promise<HostNextProbe> | null = null;
 
 function hostNext(): Promise<HostNextProbe> {
   hostNextPromise ??= (async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ai-sm-hostnext-'));
+    const dir = await makeTempDir('ai-sm-hostnext-');
     try {
       const script = join(dir, 'hostnext.ps1');
       await writeFile(script, HOSTNEXT_PS1, 'ascii');

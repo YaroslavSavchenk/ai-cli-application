@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import type { HistoryEntry, Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
+import { nextImmediate } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -341,7 +342,7 @@ test('Continue posts the entry id and nothing else decides the argv', async () =
   draw();
   H.nextResume = mkSession('new-1', { projectId: 'p1' });
   (byKey(root, 'hist-resume:h1') as FakeElement).click();
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
   assert.deepEqual(H.resumed, ['h1']);
   assert.ok(st.state.sessions.has('new-1'), 'the session it got back is adopted');
 });
@@ -357,7 +358,7 @@ test('forgetting an entry is armed too, and the armed word is Forget', async () 
   assert.equal(armedBtn.textContent, 'Forget');
   assert.equal(armedBtn.getAttribute('aria-label'), 'forget h1 now');
   armedBtn.click();
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
   assert.deepEqual(H.forgotten, ['h1']);
 });
 
@@ -372,7 +373,7 @@ test('Clear (all) is armed as well, and says what it will do', async () => {
   const armedBtn = byKey(root, 'hist-clear-all') as FakeElement;
   assert.equal(armedBtn.textContent, 'Clear them all?');
   armedBtn.click();
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
   assert.equal(H.forgotAll, 1);
 });
 

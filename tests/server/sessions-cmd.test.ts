@@ -11,8 +11,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { HistoryEntry, SessionInfo } from '../../shared/protocol.ts';
 import {
@@ -24,6 +23,8 @@ import {
   wsUrl,
   WsClient,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 const DISTRO = 'Ubuntu-24.04';
@@ -44,7 +45,7 @@ let server: TestServer;
 let noDistro: TestServer;
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-cmd-')));
+  root = await realpath(await makeTempDir('ai-sm-cmd-'));
   binDir = join(root, 'bin');
   workDir = join(root, 'work');
   spacedDir = join(root, 'with space');
@@ -63,7 +64,7 @@ before(async () => {
 after(async () => {
   if (server !== undefined) await server.stop();
   if (noDistro !== undefined) await noDistro.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 /** The argv the double reported, read off the session's own scrollback. */

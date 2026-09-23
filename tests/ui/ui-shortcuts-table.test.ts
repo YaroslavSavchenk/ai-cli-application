@@ -36,12 +36,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { isCopyChord, isLinkActivation, isPasteChord } from '../../web/src/ui/keys.ts';
 import type { KeyChord } from '../../web/src/ui/keys.ts';
+import { projectRoot as REPO_ROOT, readSource } from '../helpers/helpers.ts';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The rows themselves; since B6 they are their own module (both surfaces read it). */
 const SHORTCUTS = join(REPO_ROOT, 'web', 'src', 'ui', 'shortcuts-rows.ts');
 /** The overlay that renders them — it still owns the standing footer note. */
@@ -734,7 +733,7 @@ test('ctrl+s is handled by the FIELD, not by the window — and the terminal nev
   assert.equal(/'s'\s*\|\||k === 's'/.test(mainChordBlock()), false, 'not an app chord');
   assert.equal(/key === 's'/.test(main), false, "main.ts must not claim the field's key");
 
-  const filePane = readFileSync(join(REPO_ROOT, 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  const filePane = readSource('web', 'src', 'ui', 'file-pane.ts');
   assert.match(filePane, /ta\.addEventListener\('keydown'/, 'the FIELD listens');
   assert.match(filePane, /e\.key !== 's' && e\.key !== 'S'/, 'and it is this chord it acts on');
   assert.match(filePane, /e\.preventDefault\(\)/, "the browser's own save dialog must not open");

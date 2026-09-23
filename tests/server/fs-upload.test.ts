@@ -19,15 +19,24 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleUpload, parseContentLength, splitRel } from '../../server/fsupload.ts';
 import type { FsUploadResponse, Project } from '../../shared/protocol.ts';
 import { MAX_UPLOAD_BYTES } from '../../shared/protocol.ts';
-import { api, readServerLog, startTestServer, waitForLog, waitUntil, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  readServerLog,
+  startTestServer,
+  waitForLog,
+  waitUntil,
+  type TestServer,
+  SKIP_IF_ROOT,
+  makeTempDir,
+  removeTempDir,
+} from '../helpers/helpers.ts';
 
 let server: TestServer;
 let root: string;
@@ -47,7 +56,7 @@ const work = (): string => join(home, 'work');
 const sha = (data: Buffer | string): string => createHash('sha256').update(data).digest('hex');
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsup-')));
+  root = await realpath(await makeTempDir('ai-sm-fsup-'));
   home = join(root, 'home');
   evil = join(root, 'homeevil');
   outside = join(root, 'outside');
@@ -61,7 +70,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 // ---------------------------------------------------------------------------
@@ -815,7 +824,7 @@ test('a duplicated query parameter resolves to the FIRST value', async () => {
 });
 
 test('an unwritable destination is a 403, never a 500', {
-  skip: process.getuid?.() === 0 ? 'running as root' : false,
+  skip: SKIP_IF_ROOT,
 }, async () => {
   const readonly = join(home, 'readonly-upload');
   await mkdir(readonly);

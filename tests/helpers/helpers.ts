@@ -7,24 +7,150 @@
  * (SIGTERM + temp dir removal) when finished.
  *
  * All waiting is condition-based with explicit timeouts — never bare sleeps.
+ * `sleep()` below is for the few fixed pauses that ARE the test (a window
+ * that must pass, a TTL that must run out); where a condition exists, wait
+ * on it with `waitUntil` instead.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { accessSync, constants, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import type {
   ClientMessage,
+  HistoryEntry,
   RuntimeInfo,
   ServerMessage,
   SessionInfo,
 } from '../../shared/protocol.ts';
 
 export const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * A fixed pause of `ms` milliseconds. Looks `setTimeout` up at call time, so
+ * a test that swaps the global timer gets the same behaviour an inline
+ * `new Promise((r) => setTimeout(r, ms))` had.
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Eight zero-delay timer turns: long enough for a logger's send → decide → send-again chain. */
+export async function settleTimers(): Promise<void> {
+  for (let i = 0; i < 8; i++) await delay(0);
+}
+
+/** One `setImmediate` turn: every callback already queued has run. */
+export function nextImmediate(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+/** The part of a fetch `Response` the frontend's JSON calls read: 200 with `body`, or a 500. */
+export function jsonResponse(
+  body: unknown,
+  ok: boolean,
+): { ok: boolean; status: number; json: () => Promise<unknown> } {
+  return { ok, status: ok ? 200 : 500, json: async () => body };
+}
+
+/** A finished Claude conversation in the history list, `id` everywhere it shows. */
+export function mkHistoryEntry(id: string): HistoryEntry {
+  return {
+    id,
+    conversation: true,
+    sessionId: `s-${id}`,
+    cwd: '/tmp/work',
+    command: 'claude',
+    args: ['--model', 'opus'],
+    title: id,
+    createdAt: '2026-09-06T10:00:00.000Z',
+    lastUsedAt: '2026-09-06T10:00:00.000Z',
+    ended: { at: '2026-09-06T11:00:00.000Z', reason: 'exit' },
+  };
+}
+
+/** True when the suite runs as root, which ignores file mode bits. */
+export const IS_ROOT = process.getuid?.() === 0;
+
+/** `{ skip: SKIP_IF_ROOT }` for a test that proves a permission refusal. */
+export const SKIP_IF_ROOT: string | false = IS_ROOT ? 'running as root' : false;
+
+/** A fresh directory `<os tmpdir>/<prefix>XXXXXX`; remove it with `removeTempDir`. */
+export function makeTempDir(prefix: string): Promise<string> {
+  return mkdtemp(join(tmpdir(), prefix));
+}
+
+/** `makeTempDir` for synchronous setup code. */
+export function makeTempDirSync(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+/** A file of this checkout as text: `readSource('web', 'src', 'main.ts')` or `readSource('web/src/main.ts')`. */
+export function readSource(...parts: string[]): string {
+  return readFileSync(join(projectRoot, ...parts), 'utf8');
+}
+
+/** Every file under `dir`, recursively in readdir order, whose NAME matches `re`. */
+export function filesUnder(dir: string, re: RegExp): string[] {
+  const files: string[] = [];
+  const walk = (d: string): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (re.test(e.name)) files.push(full);
+    }
+  };
+  walk(dir);
+  return files;
+}
+
+/** Every path git tracks in this checkout, repo-relative. */
+export function trackedFiles(): string[] {
+  const out = execFileSync('git', ['ls-files', '-z'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  return out.split('\0').filter((p) => p.length > 0);
+}
+
+/** The first executable `exe` on PATH, or null. */
+export function onPath(exe: string): string | null {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, exe);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null;
+}
+
+/** Whether `path` exists (anything `stat` can see). */
+export async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** git, argv only, with an identity of its own so a developer's config cannot break it. */
+export function git(cwd: string, ...args: string[]): string {
+  return execFileSync(
+    'git',
+    ['-c', 'user.email=t@example.com', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', ...args],
+    { cwd, encoding: 'utf8' },
+  );
+}
 
 /** Poll `fn` until it returns a defined value; throw after `timeoutMs`. */
 export async function waitUntil<T>(

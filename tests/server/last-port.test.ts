@@ -25,7 +25,6 @@ import {
   closeSync,
   constants as fsConstants,
   mkdirSync,
-  mkdtempSync,
   openSync,
   readFileSync,
   readdirSync,
@@ -35,7 +34,6 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Logger } from '../../server/config.ts';
@@ -45,7 +43,7 @@ import {
   readLastPort,
   writeLastPort,
 } from '../../server/last-port.ts';
-import { readServerLog, startTestServer } from '../helpers/helpers.ts';
+import { readServerLog, startTestServer, makeTempDirSync, readSource, projectRoot } from '../helpers/helpers.ts';
 
 /** A logger that keeps every line, so a test can assert what was said — once. */
 function capture(): { log: Logger; lines: string[] } {
@@ -54,7 +52,7 @@ function capture(): { log: Logger; lines: string[] } {
 }
 
 function scratchDir(): string {
-  return mkdtempSync(join(tmpdir(), 'ai-sm-lastport-'));
+  return makeTempDirSync('ai-sm-lastport-');
 }
 
 /** What a child process answered — or that it had to be killed for blocking. */
@@ -73,9 +71,7 @@ type ChildRead = {
  */
 function readLastPortInChild(dir: string, file: string): ChildRead {
   const helper = join(dir, 'read-in-child.mjs');
-  const moduleUrl = pathToFileURL(
-    join(import.meta.dirname, '..', '..', 'server', 'last-port.ts'),
-  ).href;
+  const moduleUrl = pathToFileURL(join(projectRoot, 'server', 'last-port.ts')).href;
   writeFileSync(
     helper,
     `import { readLastPort } from ${JSON.stringify(moduleUrl)};\n` +
@@ -309,7 +305,7 @@ test('choosePortHint: a handoff hint wins over the file, the file wins over auto
 });
 
 test('server/index.ts really consults the module (source-shape pin)', () => {
-  const src = readFileSync(join(import.meta.dirname, '..', '..', 'server', 'index.ts'), 'utf8');
+  const src = readSource('server', 'index.ts');
   assert.match(src, /from '\.\/last-port\.ts'/);
   assert.match(src, /readLastPort\(paths\.lastPortFile, boot\)/);
   assert.match(src, /writeLastPort\(paths\.lastPortFile, port, boot\)/);
@@ -335,7 +331,7 @@ test('server/index.ts really consults the module (source-shape pin)', () => {
  * green until this pin existed.
  */
 test('server/last-port.ts keeps both read caps and the atomic write (shape pin)', () => {
-  const src = readFileSync(join(import.meta.dirname, '..', '..', 'server', 'last-port.ts'), 'utf8');
+  const src = readSource('server', 'last-port.ts');
   assert.match(src, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW \| fsConstants\.O_NONBLOCK/);
   assert.match(src, /if \(!stat\.isFile\(\) \|\| stat\.size > MAX_LAST_PORT_BYTES\)/);
   assert.match(src, /if \(read > MAX_LAST_PORT_BYTES\)/);

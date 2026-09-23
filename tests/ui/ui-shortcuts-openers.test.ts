@@ -37,14 +37,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { isCopyChord, isLinkActivation, isPasteChord } from '../../web/src/ui/keys.ts';
 import type { KeyChord } from '../../web/src/ui/keys.ts';
-
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const read = (...p: string[]): string => readFileSync(join(REPO_ROOT, ...p), 'utf8');
+import { readSource as read } from '../helpers/helpers.ts';
 
 const MAIN = read('web', 'src', 'main.ts');
 const SETTINGS = read('web', 'src', 'ui', 'settings.ts');

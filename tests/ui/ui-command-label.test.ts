@@ -21,11 +21,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { AGENT_LABEL, SHELLS, commandLabel, isClaudeCommand } from '../../web/src/ui/launch-args.ts';
+import { projectRoot as REPO_ROOT } from '../helpers/helpers.ts';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SESSIONS = join(REPO_ROOT, 'web', 'src', 'ui', 'sessions.ts');
 
 // ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ import type {
   FsWriteRequest,
   FsWriteResponse,
 } from '../../shared/protocol.ts';
+import { FakeApiError } from './fs-fixture.ts';
 
 /** The server's own sentences for the refusals this part can answer (PLAN-B4 §6). */
 export const CHANGED_TEXT = 'This file changed on disk since you opened it.';
@@ -40,15 +41,6 @@ export const TOO_LARGE_TEXT = 'This file is too large to open here.';
 export const NOT_TEXT_TEXT = 'This file is not text, so the editor cannot show it.';
 export const NO_READ_TEXT = 'You do not have permission to read this file.';
 export const NO_WRITE_TEXT = 'You do not have permission to change this file.';
-
-/** What `web/src/api.ts` rejects with: a status and the server's sentence. */
-export class FakeApiError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 interface Blob {
   text: string;

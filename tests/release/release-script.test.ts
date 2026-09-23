@@ -23,10 +23,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, makeTempDir } from '../helpers/helpers.ts';
 
 const SCRIPT = join(projectRoot, 'scripts', 'release.sh');
 
@@ -156,7 +155,7 @@ interface Fakes {
 
 /** Write the two doubles plus their canned answers into a fresh temp dir. */
 async function makeFakes(canned: Canned = {}): Promise<Fakes> {
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-release-'));
+  const dir = await makeTempDir('ai-sm-release-');
   await writeFile(join(dir, 'git'), GIT_DOUBLE, { mode: 0o755 });
   if (canned.noGh !== true) {
     await writeFile(join(dir, 'gh'), GH_DOUBLE, { mode: 0o755 });

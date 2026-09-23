@@ -9,32 +9,30 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Project } from '../../shared/protocol.ts';
-import { api, rawRequest, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  rawRequest,
+  startTestServer,
+  type TestServer,
+  makeTempDir,
+  removeTempDir,
+  exists,
+} from '../helpers/helpers.ts';
 
 let server: TestServer;
 let work: string;
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 before(async () => {
   server = await startTestServer();
-  work = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-scaffold-')));
+  work = await realpath(await makeTempDir('ai-sm-scaffold-'));
 });
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (work !== undefined) await rm(work, { recursive: true, force: true });
+  if (work !== undefined) await removeTempDir(work);
 });
 
 test('create-local (create:true) makes the dir + git init + registers it', async () => {

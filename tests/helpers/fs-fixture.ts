@@ -31,6 +31,8 @@ import type {
   GitCommitDiffResponse,
   GitCommitResponse,
   GitCommitsResponse,
+  Project,
+  SessionInfo,
 } from '../../shared/protocol.ts';
 
 /** The home folder the FIRST listing (the one with no path) teaches the panel. */
@@ -45,6 +47,28 @@ export const PROJ = '/work/api';
 export const PROJ2 = '/work/tools';
 /** The working directory of a session with no project — its own root since B2. */
 export const SCRATCH = '/home/you/scratch';
+
+/** A running session for the panel's tab and row tests; `over` wins. */
+export function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
+  return {
+    id,
+    title: id,
+    command: 'claude',
+    args: [],
+    cwd: '/home/you/work',
+    status: 'running',
+    cols: 80,
+    rows: 24,
+    createdAt: new Date().toISOString(),
+    attention: false,
+    ...over,
+  } as SessionInfo;
+}
+
+/** A registered project; its folder is `/work/<name>` unless `path` says otherwise. */
+export function mkProject(id: string, name: string, path = `/work/${name}`): Project {
+  return { id, name, path, createdAt: new Date().toISOString() } as Project;
+}
 
 export interface Entry {
   name: string;

@@ -9,8 +9,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ToolAvailability } from '../../shared/protocol.ts';
 import {
@@ -20,7 +19,7 @@ import {
   TOOL_EXECUTABLES,
   TOOLS_CACHE_MS,
 } from '../../server/tools.ts';
-import { api, rawRequest, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import { api, rawRequest, startTestServer, type TestServer, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 let root: string;
 let binDir: string;
@@ -35,7 +34,7 @@ let server: TestServer;
  * codex, powershell.exe -> absent
  */
 before(async () => {
-  root = await mkdtemp(join(tmpdir(), 'ai-sm-tools-'));
+  root = await makeTempDir('ai-sm-tools-');
   binDir = join(root, 'bin');
   await mkdir(binDir);
   await writeFile(join(binDir, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -51,7 +50,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 const EXPECTED: ToolAvailability = {

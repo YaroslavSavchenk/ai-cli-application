@@ -26,7 +26,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { HistoryEntry, SessionInfo } from '../../shared/protocol.ts';
+import type { SessionInfo } from '../../shared/protocol.ts';
+import { mkHistoryEntry as mkEntry } from '../helpers/helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Browser shims — installed BEFORE the modules under test are imported
@@ -81,21 +82,6 @@ const st = await import('../../web/src/state.ts');
 const hist = await import('../../web/src/ui/history.ts');
 
 // ---------------------------------------------------------------------------
-
-function mkEntry(id: string): HistoryEntry {
-  return {
-    id,
-    conversation: true,
-    sessionId: `s-${id}`,
-    cwd: '/tmp/work',
-    command: 'claude',
-    args: ['--model', 'opus'],
-    title: id,
-    createdAt: '2026-09-06T10:00:00.000Z',
-    lastUsedAt: '2026-09-06T10:00:00.000Z',
-    ended: { at: '2026-09-06T11:00:00.000Z', reason: 'exit' },
-  };
-}
 
 function mkSession(id: string, status: SessionInfo['status'] = 'running'): SessionInfo {
   return {

@@ -38,8 +38,16 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
-import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
+import { projectRoot, readSource } from '../helpers/helpers.ts';
+import {
+  byClass,
+  descendants,
+  dispatch,
+  installDom,
+  textsOf,
+  type FakeElement,
+  typeInto as type,
+} from '../helpers/fake-dom.ts';
 import { PROJ, makeFixture, settle } from '../helpers/fs-fixture.ts';
 import { BINARY_PATH, GONE_PATH, GONE_TEXT as DIFF_GONE_TEXT, HEAD, diffOf } from '../helpers/commits-fixture.ts';
 import {
@@ -130,11 +138,6 @@ function act(root: FakeElement, label: string): FakeElement {
   const hit = byClass(root, 'pane-fact').find((b) => b.textContent === label);
   assert.ok(hit !== undefined, `no ${label} button in the bar`);
   return hit;
-}
-
-function type(ta: FakeElement, value: string): void {
-  ta.value = value;
-  dispatch(ta, 'input');
 }
 
 beforeEach(() => {
@@ -731,7 +734,7 @@ test('two panes on the SAME file share one unsaved text, and one Save cleans bot
 });
 
 test('the mock is GONE: no placeholder branch, no invented file content, no api import', () => {
-  const src = readFileSync(join(projectRoot, 'web', 'src', 'ui', 'file-pane.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'file-pane.ts');
   for (const dead of [
     'files-mock',
     'mockFileContent',
@@ -869,7 +872,7 @@ test('every class a file or diff body renders has a rule in app.css', async () =
   collect(bin.root);
 
   assert.ok(seen.size >= 10, `non-vacuity: only ${seen.size} classes were collected`);
-  const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

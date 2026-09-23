@@ -42,9 +42,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { byClass, dispatch, installDom, type FakeElement } from '../helpers/fake-dom.ts';
+import { nextImmediate, readSource, jsonResponse as res } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -121,10 +121,6 @@ let gatePut = false;
 const held: (() => void)[] = [];
 /** One PUT fails with a 500, the way a backend restart mid-write would. */
 let failNextPut = false;
-
-function res(body: unknown, ok: boolean): { ok: boolean; status: number; json: () => Promise<unknown> } {
-  return { ok, status: ok ? 200 : 500, json: async () => body };
-}
 
 (dom.win as unknown as Record<string, unknown>).__AUTH__ = 'b9-test-token';
 (globalThis as unknown as Record<string, unknown>).fetch = async (
@@ -252,13 +248,11 @@ const PHOSPHOR: TermPair = { ground: T.GROUNDS[1]?.hex as string, text: T.RAMPS[
 // Driving helpers — conditions, never clocks
 // ---------------------------------------------------------------------------
 
-const tick = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
-
 /** Turn the event loop until `cond` holds, or fail — no sleep, no wall clock. */
 async function until(what: string, cond: () => boolean): Promise<void> {
   for (let i = 0; i < 500; i += 1) {
     if (cond()) return;
-    await tick();
+    await nextImmediate();
   }
   assert.fail(`timed out waiting for: ${what}`);
 }
@@ -819,7 +813,7 @@ test('the page hands the control the pair and nothing else (a recording double s
 // D3 — which surfaces follow the themed ground, in app.css
 // ===========================================================================
 
-const APP_CSS = readFileSync(new URL('../../web/src/styles/app.css', import.meta.url), 'utf8');
+const APP_CSS = readSource('web/src/styles/app.css');
 /** Comments carry the word `--term-bg` in prose; only DECLARATIONS count here. */
 const APP_RULES = APP_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -867,7 +861,7 @@ test('D3: an EDITOR pane’s body is kept off the themed ground too (a pane with
   assert.ok(rule !== null, 'app.css must carry the editor-pane body rule');
   assert.match(rule[2] as string, /background:\s*var\(--color-term\)/, 'the UNTHEMED twin, like .pane-file');
   // And the class it hangs on is kept in step with the payload by ui/panes.ts.
-  const PANES = readFileSync(new URL('../../web/src/ui/panes.ts', import.meta.url), 'utf8');
+  const PANES = readSource('web/src/ui/panes.ts');
   assert.match(PANES, /classList\.add\('is-editor'\)/, 'buildEditorPane marks the card');
   assert.match(PANES, /classList\.remove\('is-editor'\)/, 'teardown takes it off again');
 });
@@ -896,7 +890,7 @@ function bodyOf(src: string, signature: string): string {
 }
 
 test('D3: `is-editor` goes on in buildEditorPane and off in teardown — unconditionally, in both', () => {
-  const PANES = readFileSync(new URL('../../web/src/ui/panes.ts', import.meta.url), 'utf8');
+  const PANES = readSource('web/src/ui/panes.ts');
   const build = bodyOf(PANES, 'function buildEditorPane(s: Slot, slot: st.EditorSlot, index: number): void {');
   const tear = bodyOf(PANES, 'function teardown(s: Slot): void {');
   // A statement at the function's own indentation: not inside an `if`, a loop
@@ -939,7 +933,7 @@ test('D3: the `.sg-note` honesty-line rule is gone with the last mock page', () 
 // The boot wire in main.ts (source pin — there is no DOM boot here)
 // ===========================================================================
 
-const MAIN_TS = readFileSync(new URL('../../web/src/main.ts', import.meta.url), 'utf8');
+const MAIN_TS = readSource('web/src/main.ts');
 
 test('main.ts builds the theme BEFORE the settings panel and long before the first terminal', () => {
   const at = (needle: string): number => {

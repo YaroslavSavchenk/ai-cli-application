@@ -8,8 +8,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UiPrefs } from '../../shared/protocol.ts';
 import {
@@ -18,6 +17,8 @@ import {
   readServerLog,
   startTestServer,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 let server: TestServer;
@@ -158,7 +159,7 @@ test('DELETE /api/prefs is not a route: 405', async () => {
 });
 
 test('readJsonBody cap is parameterized per-route: a body over PREFS_MAX_BYTES (64 KiB) but under the generic MAX_BODY_BYTES (1 MiB) is rejected on /api/prefs but accepted on /api/sessions', async () => {
-  const workDir = await mkdtemp(join(tmpdir(), 'ai-sm-prefs-cap-'));
+  const workDir = await makeTempDir('ai-sm-prefs-cap-');
   try {
     // 100 KiB: > PREFS_MAX_BYTES (64 KiB), well under MAX_BODY_BYTES (1 MiB).
     const filler = 'x'.repeat(100 * 1024);
@@ -189,7 +190,7 @@ test('readJsonBody cap is parameterized per-route: a body over PREFS_MAX_BYTES (
     const got = await api(server, 'GET', '/api/prefs');
     assert.notDeepEqual(got.body, { filler }, 'the rejected prefs PUT must not have been stored');
   } finally {
-    await rm(workDir, { recursive: true, force: true });
+    await removeTempDir(workDir);
   }
 });
 
@@ -221,7 +222,7 @@ test('concurrent PUTs to /api/prefs never corrupt the file: the end state is exa
 });
 
 test('a corrupt prefs.json is tolerated: GET returns {} and the parse failure is logged, never a crash', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-prefs-corrupt-'));
+  const root = await makeTempDir('ai-sm-prefs-corrupt-');
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   await writeFile(join(dataDir, 'prefs.json'), '{ not: valid json', { mode: 0o600 });
@@ -245,12 +246,12 @@ test('a corrupt prefs.json is tolerated: GET returns {} and the parse failure is
     assert.deepEqual(got2.body, { theme: { ground: '#07090c', text: '#d8ffd8' } });
   } finally {
     await corrupt.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('a prefs.json holding a JSON array (wrong shape) is also tolerated: starts empty', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-prefs-array-'));
+  const root = await makeTempDir('ai-sm-prefs-array-');
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   await writeFile(join(dataDir, 'prefs.json'), '[1,2,3]', { mode: 0o600 });
@@ -262,6 +263,6 @@ test('a prefs.json holding a JSON array (wrong shape) is also tolerated: starts 
     assert.deepEqual(got.body, {});
   } finally {
     await wrongShape.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });

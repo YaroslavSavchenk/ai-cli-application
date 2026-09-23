@@ -32,7 +32,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import type { FsListResponse, Project } from '../../shared/protocol.ts';
-import { byClass, dispatch, installDom, textsOf, type FakeElement, FakeText } from '../helpers/fake-dom.ts';
+import {
+  byClass,
+  dispatch,
+  installDom,
+  textsOf,
+  type FakeElement,
+  FakeText,
+  oneByClass as one,
+} from '../helpers/fake-dom.ts';
 
 const dom = installDom();
 
@@ -174,12 +182,6 @@ const settle = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
-};
-
-const one = (root: FakeElement, cls: string): FakeElement => {
-  const hit = byClass(root, cls)[0];
-  assert.ok(hit !== undefined, `no .${cls}`);
-  return hit;
 };
 
 /** The picker's scrim is whatever the picker appended to the host, i.e. the last. */

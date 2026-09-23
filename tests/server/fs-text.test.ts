@@ -25,7 +25,6 @@ import {
   link,
   lstat,
   mkdir,
-  mkdtemp,
   readFile,
   realpath,
   rm,
@@ -34,7 +33,6 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { errorClass } from '../../server/config.ts';
 import { decodeText, encodeText, errnoTag, stampOf, textErrorFor } from '../../server/fstext.ts';
@@ -48,6 +46,9 @@ import {
   waitForLog,
   type ApiResult,
   type TestServer,
+  SKIP_IF_ROOT,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 let server: TestServer;
@@ -67,7 +68,7 @@ const TEXT_CANARY = 'TEXTBYTESCANARY_7f3d';
 const work = (): string => join(home, 'work');
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fstxt-')));
+  root = await realpath(await makeTempDir('ai-sm-fstxt-'));
   home = join(root, 'home');
   evil = join(root, 'homeevil');
   outside = join(root, 'outside');
@@ -84,7 +85,7 @@ after(async () => {
   if (root !== undefined) {
     // A 0444 file and a 0500 folder must not be able to defeat the teardown.
     await chmod(join(work(), 'readonly.txt'), 0o600).catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -1032,7 +1033,7 @@ test('a save keeps the inode, the mode and every hard link — it is never a ren
 
 test(
   'a file the user cannot write answers 403 and keeps its bytes',
-  { skip: process.getuid?.() === 0 ? 'running as root' : false },
+  { skip: SKIP_IF_ROOT },
   async () => {
     const path = await plant('readonly.txt', 'precious\n');
     const body = readBody(await read(path));
@@ -1076,7 +1077,7 @@ test('PIN: Overwrite truncates a BINARY file the read side refused — "mine win
 
 test(
   'a file the user cannot READ answers 403 with the READ sentence',
-  { skip: process.getuid?.() === 0 ? 'running as root' : false },
+  { skip: SKIP_IF_ROOT },
   async () => {
     // The other half of the 403: the write side is pinned on a 0444 file above,
     // and the read side needs a mode that refuses the owner outright.

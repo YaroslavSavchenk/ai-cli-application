@@ -80,7 +80,7 @@ fails the suite on them).
 | a UI panel's plumbing | the real UI module on the DOM double | `installDom`, `dispatch`, `byClass`, `byKey` in `helpers/fake-dom.ts` |
 | a Files panel flow | a fake file-system gateway | `makeFixture`, `settle` in `helpers/fs-fixture.ts` |
 | a CSS token or section rule | read the stylesheet | `helpers/tokens-helpers.ts` |
-| wiring that only exists in `main.ts` | read the source text | last resort: it pins text, not behaviour; say why in a comment |
+| wiring that only exists in `main.ts` | read the source text | `readSource`, `helpers/source-scan.ts` — last resort: it pins text, not behaviour; say why in a comment |
 
 A server child is a real process boot: start ONE per file in `before`,
 stop it in `after`, and give tests their own paths inside it rather than
@@ -93,14 +93,16 @@ their own server.
   depends on is a flake on the CI runner (slower, UTC, no Windows interop):
   the one exception is proving that something did NOT happen, and then the
   wait is a named constant with a comment on its size.
-- Never a local `sleep`/`delay` helper — use the shared one.
+- Never a local `sleep`/`delay` helper — use `sleep(ms)`, `nextImmediate()`
+  or `settleTimers()` from `helpers/helpers.ts`.
 - Clocks and dates: pass a fixed `now` (see `helpers/commits-fixture.ts`);
   never depend on the machine's time zone or on the date of the run.
 
 ## Isolation and clean-up
 
-- Temp files only under `mkdtemp(join(tmpdir(), '<topic>-'))`, removed in
-  `after` with `removeTempDir`. Never write inside the repo.
+- Temp files only in `await makeTempDir('<topic>-')` (`makeTempDirSync` in
+  synchronous setup), removed in `after` with `removeTempDir`. Never write
+  inside the repo.
 - A test never touches the user's real data dir, home or running app.
   `startTestServer` gives each child its own temp data dir
   (`AI_SM_DATA_DIR`); a test on the file system also sets
@@ -110,8 +112,19 @@ their own server.
 - A test is independent of order and of the other files: `node --test` runs
   files in parallel.
 - A test that cannot run as root (permission refusals) skips with a reason:
-  `{ skip: process.getuid?.() === 0 ? 'running as root' : false }`. No other
-  skips, no `.only`, no `.todo` in a commit.
+  `{ skip: SKIP_IF_ROOT }` (`IS_ROOT` for the boolean), both from
+  `helpers/helpers.ts`. No other skips, no `.only`, no `.todo` in a commit.
+
+## Shared helpers — look here first
+
+| Need | Helper |
+| --- | --- |
+| repo root, a source file as text, files under a folder, tracked files | `projectRoot`, `readSource`, `filesUnder`, `trackedFiles` (`helpers.ts`) |
+| a program on PATH, a path that exists, git with a fixed identity | `onPath`, `exists`, `git` (`helpers.ts`) |
+| a fetch `Response` for the frontend, a history entry | `jsonResponse`, `mkHistoryEntry` (`helpers.ts`) |
+| string literals, class names, a function body out of source text | `helpers/source-scan.ts` |
+| sessions and projects for the Files panel | `mkSession`, `mkProject` (`fs-fixture.ts`) |
+| one element by class, typing into a textarea | `oneByClass`, `typeInto` (`fake-dom.ts`) |
 
 ## Mocks
 

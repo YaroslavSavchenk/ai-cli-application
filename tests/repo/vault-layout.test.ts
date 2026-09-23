@@ -28,25 +28,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource, trackedFiles } from '../helpers/helpers.ts';
 
 /** The one list. A new area is a decision: add it here AND in the memory skill. */
 const LOG_AREAS = new Set(['nocturne', 'backend', 'ui', 'launcher', 'github', 'release', 'project']);
 
 /** Files that sit at the vault root and are not notes of a folder. */
 const ROOT_FILES = new Set(['memory/INDEX.md', 'memory/BACKLOG.md']);
-
-function trackedFiles(): string[] {
-  const out = execFileSync('git', ['ls-files', '-z'], {
-    cwd: projectRoot,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return out.split('\0').filter((p) => p.length > 0);
-}
 
 const tracked = trackedFiles();
 const vault = tracked.filter((p) => p.startsWith('memory/') && p.endsWith('.md'));
@@ -97,7 +87,7 @@ test('basenames are unique across the vault (wikilinks resolve by filename)', ()
 });
 
 test('memory/INDEX.md lists every note, and lists nothing that does not exist', () => {
-  const index = readFileSync(join(projectRoot, 'memory/INDEX.md'), 'utf8');
+  const index = readSource('memory/INDEX.md');
   const listed = new Set([...index.matchAll(/^- \[\[([^\]|#]+)/gm)].map((m) => m[1].trim()));
   const notes = new Set(vault.filter((p) => p !== 'memory/INDEX.md').map((p) => basename(p, '.md')));
   assert.ok(listed.size > 50, `INDEX.md lists only ${listed.size} notes - did its line format change?`);

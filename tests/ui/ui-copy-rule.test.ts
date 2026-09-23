@@ -32,14 +32,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
+import { projectRoot as REPO_ROOT, readSource } from '../helpers/helpers.ts';
+import { HOLE, readLiteral, literals } from '../helpers/source-scan.ts';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WEB_SRC = join(REPO_ROOT, 'web', 'src');
-
-/** Stand-in for a `${…}` interpolation, so a template's literal text is still checked. */
-const HOLE = '\u0000';
 
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -47,93 +44,6 @@ function tsFiles(dir: string): string[] {
     const p = join(dir, entry);
     if (statSync(p).isDirectory()) out.push(...tsFiles(p));
     else if (p.endsWith('.ts') && !p.endsWith('.d.ts')) out.push(p);
-  }
-  return out;
-}
-
-interface Lit {
-  text: string;
-  line: number;
-}
-
-/** Read one string/template literal starting at the quote `src[i]`. */
-function readLiteral(src: string, i: number): { text: string; end: number } {
-  const quote = src[i];
-  let j = i + 1;
-  let text = '';
-  while (j < src.length) {
-    const c = src[j];
-    if (c === '\\') {
-      text += src[j + 1] ?? '';
-      j += 2;
-      continue;
-    }
-    if (c === quote) return { text, end: j + 1 };
-    if (quote === '`' && c === '$' && src[j + 1] === '{') {
-      j = skipExpression(src, j + 2);
-      text += HOLE;
-      continue;
-    }
-    text += c;
-    j += 1;
-  }
-  return { text, end: j };
-}
-
-/** Skip a `${ … }` expression, including nested braces, strings and templates. */
-function skipExpression(src: string, i: number): number {
-  let depth = 1;
-  let j = i;
-  while (j < src.length) {
-    const c = src[j];
-    if (c === "'" || c === '"' || c === '`') {
-      j = readLiteral(src, j).end;
-      continue;
-    }
-    if (c === '{') depth += 1;
-    else if (c === '}') {
-      depth -= 1;
-      if (depth === 0) return j + 1;
-    }
-    j += 1;
-  }
-  return j;
-}
-
-/** Every string/template literal in `src`, with comments skipped entirely. */
-function literals(src: string): Lit[] {
-  const out: Lit[] = [];
-  let i = 0;
-  let line = 1;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === '\n') {
-      line += 1;
-      i += 1;
-      continue;
-    }
-    if (c === '/' && src[i + 1] === '/') {
-      while (i < src.length && src[i] !== '\n') i += 1;
-      continue;
-    }
-    if (c === '/' && src[i + 1] === '*') {
-      i += 2;
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
-        if (src[i] === '\n') line += 1;
-        i += 1;
-      }
-      i += 2;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') {
-      const startLine = line;
-      const { text, end } = readLiteral(src, i);
-      for (let k = i; k < end; k += 1) if (src[k] === '\n') line += 1;
-      out.push({ text, line: startLine });
-      i = end;
-      continue;
-    }
-    i += 1;
   }
   return out;
 }
@@ -479,7 +389,7 @@ test('the exact strings the 2026-07-25 copy pass removed never come back', () =>
 // follow). The reason itself is logged beside every refusal.
 
 test('the server-side restart refusals are UI copy and obey the UI copy rule', () => {
-  const src = readFileSync(join(REPO_ROOT, 'server', 'restart.ts'), 'utf8');
+  const src = readSource('server', 'restart.ts');
   const refusals: { name: string; text: string }[] = [];
   for (const line of src.split('\n')) {
     const match = /^export const (REFUSED_[A-Z_]+) = (['"`])/.exec(line);
@@ -558,7 +468,7 @@ function codeOnly(src: string): string {
 test('phase E: no frontend module reads a release’s download addresses', () => {
   // Non-vacuity: the fields really are in the contract, so "not found in
   // web/src" means "not used", not "renamed and this test forgot".
-  const protocolSrc = readFileSync(join(REPO_ROOT, 'shared', 'protocol.ts'), 'utf8');
+  const protocolSrc = readSource('shared', 'protocol.ts');
   for (const field of ['setupUrl', 'sumsUrl']) {
     assert.ok(protocolSrc.includes(`${field}:`), `shared/protocol.ts must still declare ${field}`);
   }

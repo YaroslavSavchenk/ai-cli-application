@@ -26,9 +26,6 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import {
   buildTree,
@@ -39,23 +36,10 @@ import {
   type FileChange,
 } from '../../web/src/ui/files-model.ts';
 import { branchLabel } from '../../web/src/ui/commit-model.ts';
+import { MemoryStorage } from '../helpers/fake-dom.ts';
+import { readSource } from '../helpers/helpers.ts';
 
-// state.ts touches localStorage inside function bodies; same shim as tests/ui/ui-state.test.ts.
-class MemoryStorage {
-  #map = new Map<string, string>();
-  getItem(k: string): string | null {
-    return this.#map.has(k) ? (this.#map.get(k) as string) : null;
-  }
-  setItem(k: string, v: string): void {
-    this.#map.set(k, v);
-  }
-  removeItem(k: string): void {
-    this.#map.delete(k);
-  }
-  clear(): void {
-    this.#map.clear();
-  }
-}
+// state.ts touches localStorage inside function bodies.
 const memoryStorage = new MemoryStorage();
 (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = memoryStorage;
 const st = await import('../../web/src/state.ts');
@@ -374,10 +358,7 @@ test('an EXITED session does not close the panel, and the toggle still records t
 test('the panel starts WANTED, so it appears by itself with the first session', () => {
   // A module-level default, which this runner's shared singleton cannot show
   // after the reset above — so it is read where it is declared.
-  const src = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'src', 'state.ts'),
-    'utf8',
-  );
+  const src = readSource('web', 'src', 'state.ts');
   const init = src.slice(src.indexOf('export const state: AppState = {'));
   assert.ok(init.length > 100, 'non-vacuity: the state initializer was found');
   assert.match(init.slice(0, 400), /leftPanel: 'files',/);

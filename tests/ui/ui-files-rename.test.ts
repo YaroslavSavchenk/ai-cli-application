@@ -23,21 +23,18 @@
  */
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
 import { APP_CSS, declaredTokens, mySections, stripComments, usedTokens } from '../helpers/tokens-helpers.ts';
-import { FakeApiError, PROJ, makeFixture, settle } from '../helpers/fs-fixture.ts';
+import { FakeApiError, PROJ, makeFixture, settle, mkSession, mkProject as project } from '../helpers/fs-fixture.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 const fx = makeFixture();
 const dom = installDom();
 
-const here = dirname(fileURLToPath(import.meta.url));
-const FILES_SRC = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
-const MAIN_SRC = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
-const API_SRC = readFileSync(join(here, '..', '..', 'web', 'src', 'api.ts'), 'utf8');
+const FILES_SRC = readSource('web', 'src', 'ui', 'files.ts');
+const MAIN_SRC = readSource('web', 'src', 'main.ts');
+const API_SRC = readSource('web', 'src', 'api.ts');
 
 type EditorTab =
   | { kind: 'file'; path: string }
@@ -116,24 +113,6 @@ dom.win.addEventListener('keydown', (e) => {
   winKeys.push(e.key);
 });
 
-function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/you/work',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
-}
-function project(id: string, name: string, path = `/work/${name}`): Project {
-  return { id, name, path, createdAt: new Date().toISOString() } as Project;
-}
 function focusSession(id: string): void {
   const v = st.state.views.find((x) =>
     x.slots.some(

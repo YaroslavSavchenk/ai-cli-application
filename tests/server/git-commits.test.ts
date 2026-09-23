@@ -19,8 +19,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   GitCommitDiffResponse,
@@ -43,7 +42,19 @@ import {
 } from '../../server/git-log.ts';
 import { parseGithubRemote } from '../../server/github.ts';
 import { FS_PATH_BAD } from '../../server/fsbrowse.ts';
-import { api, rawRequest, readServerLog, startTestServer, waitForLog, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  rawRequest,
+  readServerLog,
+  startTestServer,
+  waitForLog,
+  type TestServer,
+  sleep,
+  makeTempDir,
+  removeTempDir,
+  git,
+  readSource,
+} from '../helpers/helpers.ts';
 
 let server: TestServer;
 let fakeServer: TestServer;
@@ -66,15 +77,6 @@ const REMOTE_TOKEN = 'ghp_TOKENCANARY_qz0123456789';
 /** A file name that must never reach server.log. */
 const PATH_CANARY = 'GITPATHCANARY_qz.txt';
 
-/** git, argv only, with an identity of its own so a developer's config cannot break it. */
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(
-    'git',
-    ['-c', 'user.email=t@example.com', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', ...args],
-    { cwd, encoding: 'utf8' },
-  );
-}
-
 /** git with a chosen author/committer NAME (the hostile-ident fixtures). */
 function gitAs(cwd: string, name: string, ...args: string[]): string {
   return execFileSync(
@@ -88,7 +90,7 @@ const revOf = (cwd: string, rev: string): string =>
   execFileSync('git', ['rev-parse', rev], { cwd, encoding: 'utf8' }).trim();
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gitlog-')));
+  root = await realpath(await makeTempDir('ai-sm-gitlog-'));
   home = join(root, 'home');
   repo = join(home, 'repo');
   await mkdir(home);
@@ -278,7 +280,7 @@ before(async () => {
 after(async () => {
   if (server !== undefined) await server.stop();
   if (fakeServer !== undefined) await fakeServer.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 const q = (params: Record<string, string | undefined>): string =>
@@ -1677,18 +1679,14 @@ test('the shared runner and the new env entries are pinned in server/git.ts', as
   // The behavioural tests above cannot tell `--no-ext-diff` (which pins today's
   // DEFAULT for log/show) from nothing at all, and cannot see which env the
   // spawn is handed. Both are the promise, so both are pinned here.
-  const src = await import('node:fs/promises').then((fs) =>
-    fs.readFile(new URL('../../server/git.ts', import.meta.url), 'utf8'),
-  );
+  const src = readSource('server', 'git.ts');
   assert.match(src, /GIT_LITERAL_PATHSPECS: '1'/, 'a pathspec is a file name, never a pattern');
   assert.match(src, /GIT_NO_LAZY_FETCH: '1'/, 'a promisor remote is never contacted mid-read');
   assert.match(src, /LC_ALL: 'C'/);
   assert.match(src, /env: \{ \.\.\.process\.env, \.\.\.GIT_ENV \}/, 'and every spawn gets it');
   assert.equal([...src.matchAll(/spawn\(/g)].length, 1, 'still exactly one spawn site in the runner');
 
-  const logSrc = await import('node:fs/promises').then((fs) =>
-    fs.readFile(new URL('../../server/git-log.ts', import.meta.url), 'utf8'),
-  );
+  const logSrc = readSource('server', 'git-log.ts');
   assert.equal(/spawn\(/.test(logSrc), false, 'the commit module spawns nothing of its own');
   assert.equal(/shell:\s*true/.test(logSrc), false, 'and composes no command line');
   for (const flag of [
@@ -1728,7 +1726,7 @@ test('a `git log` that floods stdout is killed and the request fails — it does
   assert.equal(res.status, 500, JSON.stringify(res.body));
   assert.deepEqual(res.body, { error: 'The app could not read this repository.' });
   await waitForLog(fakeServer, '[git] git log produced more than 2097152 bytes; killed');
-  await new Promise((r) => setTimeout(r, 500)); // past the chunks queued behind the SIGKILL
+  await sleep(500); // past the chunks queued behind the SIGKILL
   const log = await readServerLog(fakeServer);
   const warns = log.match(/git log produced more than 2097152 bytes; killed/g) ?? [];
   assert.equal(warns.length, 1, `exactly one warn line per capped request, got ${warns.length}`);

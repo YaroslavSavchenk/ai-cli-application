@@ -26,9 +26,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { appendFile, chmod, mkdir, mkdtemp, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { ServerMessage, SessionAgent, SessionInfo } from '../../shared/protocol.ts';
@@ -45,6 +45,7 @@ import {
 import { resolveDataPaths, type Logger } from '../../server/config.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
+import { sleep, IS_ROOT, makeTempDir } from '../helpers/helpers.ts';
 
 const ESC = String.fromCharCode(27);
 const NUL = String.fromCharCode(0);
@@ -52,8 +53,6 @@ const DEL = String.fromCharCode(127);
 
 const UUID = '0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09';
 const OTHER_UUID = '11111111-2222-4333-8444-555555555555';
-
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The constants in server/agents.ts (not exported; kept in step here). */
 const STALE_MS = 15 * 60 * 1000;
@@ -71,7 +70,7 @@ const NOW_S = Math.floor(Date.now() / 1_000);
 
 /** A real projects root with one `<slug>` in it, realpath'd like the code does. */
 async function makeRoot(): Promise<{ base: string; root: string; slug: string; cleanup: () => Promise<void> }> {
-  const base = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agents-')));
+  const base = realpathSync(await makeTempDir('ai-sm-agents-'));
   const root = join(base, 'projects');
   const slug = join(root, '-home-u-projects-app');
   await mkdir(slug, { recursive: true });
@@ -483,7 +482,7 @@ interface Harness {
 async function makeWatcher(
   opts: { now?: () => number; create?: boolean; readBudgetBytes?: number } = {},
 ): Promise<Harness> {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentw-')));
+  const root = realpathSync(await makeTempDir('ai-sm-agentw-'));
   const dir = join(root, '-slug', UUID, 'subagents');
   if (opts.create !== false) await mkdir(dir, { recursive: true });
   const seen: Seen[] = [];
@@ -528,7 +527,7 @@ async function waitFor(seen: Seen[], ok: (agents: SessionAgent[]) => boolean, ms
     if (Date.now() >= deadline) {
       throw new Error(`timed out; ${seen.length} call(s), last = ${JSON.stringify(seen[seen.length - 1])}`);
     }
-    await delay(10);
+    await sleep(10);
   }
 }
 
@@ -541,7 +540,7 @@ async function waitForReport(seen: Seen[], ok: (report: AgentsReport) => boolean
     if (Date.now() >= deadline) {
       throw new Error(`timed out; ${seen.length} call(s), last = ${JSON.stringify(seen[seen.length - 1]?.report)}`);
     }
-    await delay(10);
+    await sleep(10);
   }
 }
 
@@ -750,7 +749,7 @@ test('watcher: with nothing running, ONE finished row is sent — the most recen
     await waitFor(w.seen, (a) => a.length === 1 && a[0]?.state === 'finished');
     await waitForReport(w.seen, (r) => r.counts.finished === 5);
     // A few polls of settling time: nothing more may arrive.
-    await delay(120);
+    await sleep(120);
     const last = w.seen[w.seen.length - 1]?.report as AgentsReport;
     assert.deepEqual(last.agents.map((r) => r.name), ['fin-4'], `the freshest result only; got ${JSON.stringify(last)}`);
     assert.deepEqual(last.counts, { running: 0, finished: 5 });
@@ -786,7 +785,7 @@ test('watcher: a SYMLINK named like a transcript is refused, not followed', asyn
     assert.equal(rows[0]?.state, 'running');
     assert.equal(rows[0]?.startedAt, new Date(NOW_S * 1_000).toISOString(), 'the meta mtime, not the bait');
     // And it stays that way over the next polls: the refusal is not a race.
-    await delay(120);
+    await sleep(120);
     const last = w.seen[w.seen.length - 1]?.agents as SessionAgent[];
     assert.equal(last[0]?.tokens, 0);
     assert.equal(last[0]?.state, 'running');
@@ -805,7 +804,7 @@ test('watcher: a DIRECTORY named like a meta makes no row at all', async () => {
     await writeMeta(w.dir, 'ab', { agentType: 'real-one', description: '' }, NOW_S);
     w.watcher.track('sess-1', w.dir);
     const rows = await waitFor(w.seen, (a) => a.length >= 1);
-    await delay(120);
+    await sleep(120);
     const last = w.seen[w.seen.length - 1]?.agents as SessionAgent[];
     assert.equal(last.length, 1, `only the real agent; got ${JSON.stringify(last)}`);
     assert.equal(last[0]?.id, 'ab');
@@ -1090,7 +1089,7 @@ test('watcher: no directory, no agents, no callback — an empty table is never 
   try {
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir); // Claude Code has not created it yet.
-    await delay(200);
+    await sleep(200);
     // B11: no agent table is announced — but the session's own transcript is
     // not there either (its slug folder is still PENDING, B11 F1), so it sits
     // at its first prompt: ONE turn-only report, not a single agent row.
@@ -1098,7 +1097,7 @@ test('watcher: no directory, no agents, no callback — an empty table is never 
     assert.deepEqual(w.seen.map((s) => s.report), turnOnly);
     // And an existing but empty directory is the same: nothing new to say.
     await mkdir(w.dir, { recursive: true });
-    await delay(200);
+    await sleep(200);
     assert.deepEqual(w.seen.map((s) => s.report), turnOnly);
   } finally {
     await w.cleanup();
@@ -1113,7 +1112,7 @@ test('watcher: an unchanged list is delivered exactly once', async () => {
     await appendLines(w.dir, 'b6', [assistantLine('2026-09-16T10:00:00.000Z', 'm1', { output_tokens: 1 }, 'end_turn')]);
     w.watcher.track('sess-1', w.dir);
     await waitFor(w.seen, (a) => a.length === 1);
-    await delay(200); // ~10 more polls over an unchanged directory.
+    await sleep(200); // ~10 more polls over an unchanged directory.
     assert.equal(w.seen.length, 1, 'one broadcast per real change, and none for a re-read');
   } finally {
     await w.cleanup();
@@ -1156,7 +1155,7 @@ test('watcher: track() with the SAME directory keeps the offsets; another one re
     await waitFor(w.seen, (a) => a.length === 1);
     const calls = w.seen.length;
     w.watcher.track('sess-1', w.dir); // The status line reports the same path every turn.
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, calls, 'the same path is a no-op, not a re-read');
 
     // A resumed conversation reports a DIFFERENT transcript: fresh state.
@@ -1184,7 +1183,7 @@ test('watcher: stop() detaches, is idempotent, and forgets every tracked session
     assert.equal(w.watcher.trackedCount, 0);
     const calls = w.seen.length;
     await writeMeta(w.dir, 'be', { agentType: 'late', description: '' });
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, calls, 'nothing is delivered after stop()');
     // track() after stop() is refused rather than silently queued.
     w.watcher.track('sess-2', w.dir);
@@ -1229,7 +1228,7 @@ test('watcher: a directory that disappears mid-flight is a skipped poll, not a c
     const calls = w.seen.length;
     const rows = w.seen[w.seen.length - 1]?.agents;
     await rm(join(w.root, '-slug'), { recursive: true, force: true });
-    await delay(200);
+    await sleep(200);
     // The last list stands — what those agents cost is still true. (B11: the
     // transcript's parent is gone too, so the turn becomes unknown: that is the
     // one delivery allowed, and it carries the same rows.)
@@ -1253,7 +1252,7 @@ test('watcher: a symlink at the <uuid> component is refused on every poll, not f
   // `subagents` are appended after it, and readdir/stat follow every component
   // (O_NOFOLLOW guards the final file, not the path to it). Without the
   // per-poll re-check this delivered a meta file from outside the root.
-  const base = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentsym-')));
+  const base = realpathSync(await makeTempDir('ai-sm-agentsym-'));
   const root = join(base, 'projects');
   const slug = join(root, '-slug');
   const outside = join(base, 'outside');
@@ -1270,7 +1269,7 @@ test('watcher: a symlink at the <uuid> component is refused on every poll, not f
   try {
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(slug, UUID, 'subagents'));
-    await delay(300); // ~15 polls.
+    await sleep(300); // ~15 polls.
     // B11: the session's own transcript (`<slug>/<uuid>.jsonl`, inside the
     // root) does not exist, so a turn-only 'waiting' report is expected — but
     // not one agent from outside.
@@ -1360,7 +1359,7 @@ test('watcher: the REFUSAL log line cannot be forged either', async () => {
   // the directory refused for resolving outside the root. That string is the
   // one from the snapshot, so a newline in it would write a whole fake line
   // into server.log — and an ESC would repaint the terminal reading it.
-  const base = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentlog-')));
+  const base = realpathSync(await makeTempDir('ai-sm-agentlog-'));
   const root = join(base, 'projects');
   const outside = join(base, 'outside');
   await mkdir(root, { recursive: true });
@@ -1376,7 +1375,7 @@ test('watcher: the REFUSAL log line cannot be forged either', async () => {
   try {
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(root, nasty, UUID, 'subagents'));
-    await delay(120); // ~6 polls, each of which refuses and logs.
+    await sleep(120); // ~6 polls, each of which refuses and logs.
     assert.deepEqual(seen, [], 'nothing outside the root is ever delivered');
     assert.equal(
       logs.some((l) => l.includes('resolves outside the projects root')),
@@ -1601,7 +1600,7 @@ async function makeManager(): Promise<{
   root: string;
   cleanup: () => Promise<void>;
 }> {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-setagents-')));
+  const root = realpathSync(await makeTempDir('ai-sm-setagents-'));
   const logs: string[] = [];
   const log: Logger = (level, message) => logs.push(`${level}: ${message}`);
   const watcher = new AgentsWatcher(log, { projectsRoot: root, pollMs: 60_000 });
@@ -1733,7 +1732,7 @@ test('SessionManager: isLive is false for an EXITED session, which stays listed'
   // cannot answer it: a session stays listed after its PTY exits, so a
   // snapshot landing after onExit (a 150 ms debounce, or a 2 s poll) would
   // re-track a dead session and never untrack it again.
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-islive-')));
+  const root = realpathSync(await makeTempDir('ai-sm-islive-'));
   const log: Logger = () => {};
   const watcher = new AgentsWatcher(log, { projectsRoot: root, pollMs: 60_000 });
   const history = new SessionHistory(join(root, 'history.json'), log);
@@ -1748,7 +1747,7 @@ test('SessionManager: isLive is false for an EXITED session, which stays listed'
     const deadline = Date.now() + 10_000;
     while (manager.get(info.id)?.status !== 'exited') {
       if (Date.now() >= deadline) throw new Error('the session never exited');
-      await delay(20);
+      await sleep(20);
     }
     assert.equal(manager.has(info.id), true, 'still listed until DELETE...');
     assert.equal(manager.isLive(info.id), false, '...but not live');
@@ -1764,7 +1763,7 @@ test('SessionManager: isLive is false for an EXITED session, which stays listed'
 test('config: claudeProjectsDir follows CLAUDE_CONFIG_DIR, like server/history.ts does', async () => {
   // A user who set the variable would otherwise get a table that never
   // appears, with nothing in the log to say why.
-  const base = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-cfgdir-')));
+  const base = realpathSync(await makeTempDir('ai-sm-cfgdir-'));
   const dataBefore = process.env['AI_SM_DATA_DIR'];
   const claudeBefore = process.env['CLAUDE_CONFIG_DIR'];
   try {
@@ -1789,7 +1788,7 @@ test('config: claudeProjectsDir follows CLAUDE_CONFIG_DIR, like server/history.t
 });
 
 test('watcher: the refusal is logged once, and a directory that becomes legal says so once', async () => {
-  const base = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentonce-')));
+  const base = realpathSync(await makeTempDir('ai-sm-agentonce-'));
   const root = join(base, 'projects');
   const slug = join(root, '-slug');
   const outside = join(base, 'outside');
@@ -1807,7 +1806,7 @@ test('watcher: the refusal is logged once, and a directory that becomes legal sa
   try {
     watcher.start((id, report) => seen.push({ id, agents: report.agents, report }));
     watcher.track('sess-1', join(link, 'subagents'));
-    await delay(200); // ~10 polls.
+    await sleep(200); // ~10 polls.
     assert.equal(count('resolves outside the projects root'), 1, logs.join('\n'));
 
     // The user (or an installer) replaces the symlink with the real thing.
@@ -1815,7 +1814,7 @@ test('watcher: the refusal is logged once, and a directory that becomes legal sa
     await mkdir(join(link, 'subagents'), { recursive: true });
     await writeMeta(join(link, 'subagents'), 'ab', { agentType: 'honest', description: '' });
     await waitFor(seen, (a) => a[0]?.name === 'honest');
-    await delay(100); // ~5 more polls, all of them legal now.
+    await sleep(100); // ~5 more polls, all of them legal now.
     assert.equal(count('now inside the projects root'), 1, 'the recovery is said once too');
     assert.equal(count('resolves outside the projects root'), 1, 'and the refusal is not repeated');
   } finally {
@@ -1827,7 +1826,7 @@ test('watcher: the refusal is logged once, and a directory that becomes legal sa
 test('SessionManager: a RUNNING agent row is finished by the exit, and only that row', async () => {
   // Claude Code runs its subagents in-process: none of them outlives the host
   // session, and a row left 'running' would tick in the browser forever.
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-exitrows-')));
+  const root = realpathSync(await makeTempDir('ai-sm-exitrows-'));
   const log: Logger = () => {};
   const history = new SessionHistory(join(root, 'history.json'), log);
   history.load();
@@ -1856,7 +1855,7 @@ test('SessionManager: a RUNNING agent row is finished by the exit, and only that
     const deadline = Date.now() + 10_000;
     while (manager.get(info.id)?.status !== 'exited') {
       if (Date.now() >= deadline) throw new Error('the session never exited');
-      await delay(20);
+      await sleep(20);
     }
     const rows = manager.get(info.id)?.agents as SessionAgent[];
     assert.equal(rows.length, 2);
@@ -1877,7 +1876,7 @@ test('SessionManager: a RUNNING agent row is finished by the exit, and only that
 });
 
 test('SessionManager: a session with NO agents gets no list at exit', async () => {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-exitnorows-')));
+  const root = realpathSync(await makeTempDir('ai-sm-exitnorows-'));
   const log: Logger = () => {};
   const history = new SessionHistory(join(root, 'history.json'), log);
   history.load();
@@ -1887,7 +1886,7 @@ test('SessionManager: a session with NO agents gets no list at exit', async () =
     const deadline = Date.now() + 10_000;
     while (manager.get(info.id)?.status !== 'exited') {
       if (Date.now() >= deadline) throw new Error('the session never exited');
-      await delay(20);
+      await sleep(20);
     }
     assert.equal(manager.get(info.id)?.agents, undefined, 'absent, never an empty table');
     manager.destroy(info.id);
@@ -2103,7 +2102,7 @@ test('watcher: a MISSING transcript reads waiting — a turn-only report, no age
     w.watcher.track('sess-1', w.dir);
     const report = await waitForReport(w.seen, (r) => r.turn === 'waiting');
     assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 }, turn: 'waiting' });
-    await delay(120);
+    await sleep(120);
     assert.equal(w.seen.length, 1, 'an unchanged turn is delivered once');
   } finally {
     await w.cleanup();
@@ -2118,13 +2117,13 @@ test('watcher: the turn follows the transcript as it grows — prompt, tool, ans
     w.watcher.track('sess-1', w.dir);
     await waitForReport(w.seen, (r) => r.turn === 'working');
     await appendMain(w, [REAL.toolUse, REAL.toolResult]);
-    await delay(100);
+    await sleep(100);
     assert.equal(w.seen[w.seen.length - 1]?.report.turn, 'working');
     await appendMain(w, [REAL.endTurn]);
     await waitForReport(w.seen, (r) => r.turn === 'waiting');
     // A local command after the answer changes nothing.
     await appendMain(w, [REAL.commandName, REAL.commandStdout]);
-    await delay(100);
+    await sleep(100);
     assert.equal(w.seen[w.seen.length - 1]?.report.turn, 'waiting');
     await appendMain(w, [REAL.prompt]);
     await waitForReport(w.seen, (r) => r.turn === 'working');
@@ -2147,7 +2146,7 @@ test('watcher: a transcript with no counting line has NO turn and says nothing',
     await appendMain(w, [REAL.meta, REAL.commandName, JSON.stringify({ type: 'system' }), 'torn{']);
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, 'no agents and no turn: nothing to announce');
   } finally {
     await w.cleanup();
@@ -2169,7 +2168,7 @@ test('watcher: first sight reads only the TAIL — a counting line before the la
     await writeFile(mainFile(w), `${REAL.prompt}\n${filler(TURN_TAIL_BYTES + 64 * 1024)}`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `the head was read; got ${JSON.stringify(w.seen[0]?.report)}`);
     // And from here on it is incremental: the next line is seen.
     await appendMain(w, [REAL.endTurn]);
@@ -2194,7 +2193,7 @@ test('watcher: the tail drops its PARTIAL first line, and keeps one that starts 
     await writeFile(mainFile(a), body, { mode: 0o600 });
     a.watcher.start((id, report) => a.seen.push({ id, agents: report.agents, report }));
     a.watcher.track('sess-1', a.dir);
-    await delay(200);
+    await sleep(200);
     assert.equal(a.seen.length, 0, `the partial first line counted; got ${JSON.stringify(a.seen[0]?.report)}`);
   } finally {
     await a.cleanup();
@@ -2259,17 +2258,17 @@ test('watcher: a SYMLINK at the main transcript is refused — even one pointing
     await symlink(decoy, mainFile(w));
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await delay(250);
+    await sleep(250);
     assert.equal(w.seen.length, 0, `followed the symlink; got ${JSON.stringify(w.seen[0]?.report)}`);
     const refusals = w.logs.filter((l) => l.includes('resolves outside the projects root, refused'));
     assert.equal(refusals.length, 1, `once, not once per poll; logs ${JSON.stringify(w.logs)}`);
     // A symlink out of the tree, to a file that would say something: same.
-    const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-out-')));
+    const outside = realpathSync(await makeTempDir('ai-sm-turn-out-'));
     try {
       await writeFile(join(outside, 'secret.jsonl'), `${REAL.endTurn}\n`, { mode: 0o600 });
       await rm(mainFile(w));
       await symlink(join(outside, 'secret.jsonl'), mainFile(w));
-      await delay(200);
+      await sleep(200);
       assert.equal(w.seen.length, 0);
     } finally {
       await rm(outside, { recursive: true, force: true });
@@ -2292,7 +2291,7 @@ test('watcher: a DANGLING symlink at the main transcript is not "missing" — no
     await symlink(join(w.root, 'nowhere.jsonl'), mainFile(w));
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await w.cleanup();
@@ -2303,7 +2302,7 @@ test('watcher: a PARENT directory swapped for a symlink out of the root is refus
   // subagentsDirFor checked the parent once, at track(); the watcher checks it
   // again on every poll, so a symlink planted afterwards is caught.
   const w = await makeWatcher({ create: false });
-  const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-parent-')));
+  const outside = realpathSync(await makeTempDir('ai-sm-turn-parent-'));
   try {
     await mkdir(join(w.root, '-slug'), { recursive: true });
     await appendMain(w, [REAL.prompt]);
@@ -2316,7 +2315,7 @@ test('watcher: a PARENT directory swapped for a symlink out of the root is refus
     // The verdict goes AWAY (refused), it never becomes the outside file's 'waiting'.
     const report = await waitForReport(w.seen, (r) => r.turn === undefined);
     assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
-    await delay(150);
+    await sleep(150);
     assert.equal(w.seen.some((s) => s.report.turn === 'waiting'), false);
     assert.equal(w.logs.filter((l) => l.includes('resolves outside the projects root, refused')).length, 1);
   } finally {
@@ -2347,7 +2346,7 @@ test('watcher: a tracked directory not shaped `<parent>/<uuid>/subagents` derive
     await writeFile(join(w.root, '-slug', 'not-a-uuid.jsonl'), `${REAL.prompt}\n`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', odd);
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0);
   } finally {
     await w.cleanup();
@@ -2462,7 +2461,7 @@ test('SessionManager: the exit drops `turn` in the frame before `exit`, and a la
     const deadline = Date.now() + 10_000;
     while (m.manager.get(info.id)?.status !== 'exited') {
       if (Date.now() >= deadline) throw new Error('the session never exited');
-      await delay(20);
+      await sleep(20);
     }
     assert.equal(m.manager.get(info.id)?.turn, undefined);
     const exitAt = client.frames.findIndex((f) => f.type === 'exit');
@@ -2562,7 +2561,7 @@ test('watcher: NO stale rule for the turn — a long tool call hours old still r
     w.watcher.track('sess-1', w.dir);
     const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
     assert.equal(report.turn, 'working');
-    await delay(150);
+    await sleep(150);
     assert.deepEqual(w.seen.map((s) => s.report.turn), ['working'], 'never flips to waiting by age');
   } finally {
     await w.cleanup();
@@ -2575,7 +2574,7 @@ test('watcher: a MISSING PARENT directory is not a missing transcript — no tur
   // F1, pending) — means "at the first prompt". A parent missing deeper than
   // that, or missing outside the root, may not be read at all.
   const w = await makeWatcher({ create: false });
-  const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-noparent-')));
+  const outside = realpathSync(await makeTempDir('ai-sm-turn-noparent-'));
   try {
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     // Two missing components: `<root>/-a` and `<root>/-a/-b`.
@@ -2585,7 +2584,7 @@ test('watcher: a MISSING PARENT directory is not a missing transcript — no tur
     // One missing component under a subfolder of the root, not the root itself.
     await mkdir(join(w.root, '-x'), { recursive: true });
     w.watcher.track('sess-nested', join(w.root, '-x', '-slug', UUID, 'subagents'));
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0])}`);
   } finally {
     await w.cleanup();
@@ -2648,7 +2647,7 @@ test('watcher: PENDING slug folder — waiting, then the folder appears and the 
 
 test('watcher: PENDING slug folder created as a SYMLINK out of the root is refused — no turn, no agents', async () => {
   const w = await makeWatcher({ create: false });
-  const outside = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-turn-pendsym-')));
+  const outside = realpathSync(await makeTempDir('ai-sm-turn-pendsym-'));
   try {
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
@@ -2660,7 +2659,7 @@ test('watcher: PENDING slug folder created as a SYMLINK out of the root is refus
     await symlink(outside, join(w.root, '-slug'));
     const report = await waitForReport(w.seen, (r) => r.turn === undefined);
     assert.deepEqual(report, { agents: [], counts: { running: 0, finished: 0 } });
-    await delay(150);
+    await sleep(150);
     assert.equal(w.seen.some((s) => s.report.turn === 'working' || s.agents.length > 0), false, JSON.stringify(w.seen));
     assert.equal(w.logs.some((l) => l.includes('resolves outside the projects root, refused')), true, w.logs.join(' | '));
   } finally {
@@ -2674,7 +2673,7 @@ test('watcher: the tick budget is shared ROUND ROBIN — a busy first session ca
   // before its verdict: 5 ticks. Session B needs one small line. In a fixed
   // order B would get nothing until A caught up; round robin starts B first
   // within two ticks, so B's verdict arrives while A is still reading.
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentrr-')));
+  const root = realpathSync(await makeTempDir('ai-sm-agentrr-'));
   const seen: Seen[] = [];
   const watcher = new AgentsWatcher(() => {}, { projectsRoot: root, pollMs: 40, readBudgetBytes: 256 * 1024 });
   try {
@@ -2690,7 +2689,7 @@ test('watcher: the tick budget is shared ROUND ROBIN — a busy first session ca
     const deadline = Date.now() + 10_000;
     while (!seen.some((s) => s.id === 'sess-a' && s.report.turn === 'waiting')) {
       if (Date.now() >= deadline) throw new Error(`A never got its verdict; ${JSON.stringify(seen.map((s) => [s.id, s.report.turn]))}`);
-      await delay(10);
+      await sleep(10);
     }
     const order = seen.map((s) => `${s.id}:${s.report.turn}`);
     assert.equal(order[0], 'sess-b:working', `B went first, while A was still reading; order ${JSON.stringify(order)}`);
@@ -2738,9 +2737,6 @@ test('watcher: the 4 MiB PER-FILE cap holds on the main transcript — a 5 MiB g
 // B11 mutation gate: tests for the mutants the suite above let through
 // ---------------------------------------------------------------------------
 
-/** Permission-based refusals mean nothing to root (CAP_DAC_OVERRIDE reads everything). */
-const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
-
 test('subagentsDirFor: a slug name the filesystem cannot even look up (ENAMETOOLONG) is not pending', async () => {
   // pendingSlug accepts ONLY a truly missing folder (lstat ENOENT); any other
   // lstat error — here a 300-byte component — is a refusal, not "not there yet".
@@ -2759,7 +2755,7 @@ test('watcher: a tracked directory whose last component is not `subagents` deriv
     await appendMain(w, [REAL.prompt]); // `<root>/-slug/<UUID>.jsonl` would say working
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', join(w.root, '-slug', UUID, 'elsewhere'));
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await w.cleanup();
@@ -2774,7 +2770,7 @@ test('watcher: a main transcript under a SIBLING of the root (`<root>-evil`) is 
     await writeFile(join(evil, '-slug', `${UUID}.jsonl`), `${REAL.prompt}\n`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', join(evil, '-slug', UUID, 'subagents'));
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
     assert.equal(w.logs.some((l) => l.includes('resolves outside the projects root, refused')), true, w.logs.join(' | '));
   } finally {
@@ -2783,7 +2779,7 @@ test('watcher: a main transcript under a SIBLING of the root (`<root>-evil`) is 
   }
 });
 
-test('watcher: a transcript that cannot be looked up (EACCES) is not "missing" — no turn, never waiting', { skip: ROOT_USER }, async () => {
+test('watcher: a transcript that cannot be looked up (EACCES) is not "missing" — no turn, never waiting', { skip: IS_ROOT }, async () => {
   // Only lstat ENOENT means "at the first prompt"; a parent folder this user
   // may not search is an unreadable transcript, not an absent one.
   const w = await makeWatcher({ create: false });
@@ -2794,7 +2790,7 @@ test('watcher: a transcript that cannot be looked up (EACCES) is not "missing" �
     await chmod(parent, 0o600); // no search bit: realpath and lstat of the file fail EACCES
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await chmod(parent, 0o700).catch(() => {});
@@ -2802,7 +2798,7 @@ test('watcher: a transcript that cannot be looked up (EACCES) is not "missing" �
   }
 });
 
-test('watcher: a main transcript that becomes UNOPENABLE loses its verdict — the old one is not kept', { skip: ROOT_USER }, async () => {
+test('watcher: a main transcript that becomes UNOPENABLE loses its verdict — the old one is not kept', { skip: IS_ROOT }, async () => {
   const w = await makeWatcher({ create: false });
   try {
     await mkdir(join(w.root, '-slug'), { recursive: true });
@@ -2834,7 +2830,7 @@ test('watcher: the tail RESYNCS — a partial first line that would parse from m
     await writeFile(mainFile(w), `${filler(8 * 1024)}${'x'.repeat(500)} ${tail}`, { mode: 0o600 });
     w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
     w.watcher.track('sess-1', w.dir);
-    await delay(200);
+    await sleep(200);
     assert.equal(w.seen.length, 0, `the partial first line counted; got ${JSON.stringify(w.seen[0]?.report)}`);
   } finally {
     await w.cleanup();
@@ -2860,7 +2856,7 @@ test('watcher: bytes read from the MAIN transcript are spent from the tick budge
 });
 
 test('watcher: a session untracked by the consumer MID-SWEEP is not polled on its stale record', async () => {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-agentsweep-')));
+  const root = realpathSync(await makeTempDir('ai-sm-agentsweep-'));
   const seen: string[] = [];
   const watcher = new AgentsWatcher(() => {}, { projectsRoot: root, pollMs: 20 });
   try {
@@ -2878,9 +2874,9 @@ test('watcher: a session untracked by the consumer MID-SWEEP is not polled on it
     const deadline = Date.now() + 5_000;
     while (!seen.includes('sess-a')) {
       if (Date.now() >= deadline) throw new Error('A never reported');
-      await delay(10);
+      await sleep(10);
     }
-    await delay(100);
+    await sleep(100);
     assert.deepEqual(seen, ['sess-a'], 'B was untracked before its turn in the same sweep');
   } finally {
     watcher.stop();

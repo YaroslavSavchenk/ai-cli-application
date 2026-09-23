@@ -9,8 +9,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   api,
@@ -20,6 +19,8 @@ import {
   wsUrl,
   WsClient,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 const SAVED_GEMINI = 'AIza-saved-0PENSESAME-11';
@@ -46,7 +47,7 @@ let plain: TestServer;
 let inherited: TestServer;
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-keysenv-')));
+  root = await realpath(await makeTempDir('ai-sm-keysenv-'));
   binDir = join(root, 'bin');
   workDir = join(root, 'work');
   await mkdir(binDir);
@@ -70,7 +71,7 @@ before(async () => {
 after(async () => {
   if (plain !== undefined) await plain.stop();
   if (inherited !== undefined) await inherited.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 /** Spawn `command` in the fixture dir and return everything it printed. */

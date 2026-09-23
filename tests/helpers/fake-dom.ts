@@ -17,6 +17,7 @@
  * Layout, CSS, hit-testing, screen-reader output and real focus policy stay
  * with `.claude/skills/verify-terminal/SKILL.md` and the browser.
  */
+import assert from 'node:assert/strict';
 
 export type Handler = (e: FakeEvent) => void;
 
@@ -915,4 +916,17 @@ export function byKey(root: FakeElement, key: string): FakeElement | null {
 /** Visible text of every descendant carrying `cls`. */
 export function textsOf(root: FakeElement, cls: string): string[] {
   return byClass(root, cls).map((n) => n.textContent);
+}
+
+/** The first element with class `cls` under `root`; fails the test when there is none. */
+export function oneByClass(root: FakeElement, cls: string): FakeElement {
+  const hit = byClass(root, cls)[0];
+  assert.ok(hit !== undefined, `no .${cls}`);
+  return hit;
+}
+
+/** Put `value` in a text field and fire the `input` event a keystroke would. */
+export function typeInto(ta: FakeElement, value: string): void {
+  ta.value = value;
+  dispatch(ta, 'input');
 }

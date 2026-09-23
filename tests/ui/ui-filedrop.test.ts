@@ -38,9 +38,8 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   byClass,
   dispatch,
@@ -53,10 +52,10 @@ import {
   type FakeFile,
 } from '../helpers/fake-dom.ts';
 import { APP_CSS, stripComments } from '../helpers/tokens-helpers.ts';
+import { nextImmediate, readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
-const here = dirname(fileURLToPath(import.meta.url));
 const FD = (await import(new URL('../../web/src/ui/filedrop.ts', import.meta.url).href)) as FileDropModule;
 const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).href)) as DndModule;
 
@@ -111,7 +110,7 @@ async function settle(): Promise<void> {
   // `readEntries()` and every `file()` callback, so a 2000-file folder is
   // 2000 microtask turns. One macrotask turn drains the whole queue, however
   // deep it is — and it still cannot resolve a listing a test is HOLDING.
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
 }
 interface DndModule {
   armDrag(source: unknown, ignore: string | null, makeSpec: () => unknown): void;
@@ -1215,7 +1214,7 @@ test('initFileDrop takes the guard down before registering: never two handlers o
 });
 
 test('main.ts installs the guard as the FIRST statement of boot, before any await', () => {
-  const main = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   const boot = main.indexOf('async function boot(');
   assert.ok(boot > 0, 'non-vacuity: boot() must still be the entry');
   const body = main.indexOf('{', boot) + 1;
@@ -1251,7 +1250,7 @@ test('main.ts wires the window drop layer, after the panel that answers its deps
   // feature could be unwired in the shell and stay green. main.ts's import
   // graph reaches @xterm/xterm (a browser bundle), so this is read as source,
   // the way the A5/A9 shell-wiring assertions already are.
-  const main = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   assert.ok(main.length > 10_000, 'non-vacuity: main.ts');
   assert.match(
     main,
@@ -1299,7 +1298,7 @@ test('main.ts is where the copy is built: the runner, the refresh and the one lo
   // `openDialog`, so the whole real copy could be unbuilt in the shell and
   // nothing here would notice. This is the seam where the destination's PATH
   // stops — the dialog is handed the name and a runner closed over the rest.
-  const main = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
+  const main = readSource('web', 'src', 'main.ts');
   const open = main.indexOf('function openDrop(');
   assert.ok(open > 0, 'the drop is handed over by a function of its own');
   const body = main.slice(open, main.indexOf('\n  }\n', open));
@@ -1327,16 +1326,8 @@ test('main.ts is where the copy is built: the runner, the refresh and the one lo
 });
 
 test('web/src has no `draggable` attribute and adds no `dragstart` listener', () => {
-  const root = join(here, '..', '..', 'web', 'src');
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (/\.(ts|html|css)$/.test(e.name)) files.push(full);
-    }
-  };
-  walk(root);
+  const root = join(projectRoot, 'web', 'src');
+  const files = filesUnder(root, /\.(ts|html|css)$/);
   assert.ok(files.length >= 20, `non-vacuity: scanned ${files.length} files`);
   // The mirror of the `draggable` pin in tests/ui/ui-dnd-a10.test.ts: an in-app
   // source that opted into HTML5 DnD would fire the handlers in filedrop.ts

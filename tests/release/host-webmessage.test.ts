@@ -29,7 +29,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource } from '../helpers/helpers.ts';
 
 const HOST_CS = join(projectRoot, 'launcher', 'host', 'AiSessionManagerHost.cs');
 const cs = readFileSync(HOST_CS, 'utf8');
@@ -85,7 +85,7 @@ test('host: the exe declares its target framework, so path handling is not the l
   );
   // In the source, not in an .exe.config: the launcher ships four files, so
   // the build script must not produce or copy a config file.
-  const build = readFileSync(join(projectRoot, 'launcher', 'build-host.ps1'), 'utf8');
+  const build = readSource('launcher', 'build-host.ps1');
   assert.doesNotMatch(build, /exe\.config/);
 });
 

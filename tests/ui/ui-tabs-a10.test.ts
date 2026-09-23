@@ -31,6 +31,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { byClass, byKey, descendants, installDom, type FakeElement } from '../helpers/fake-dom.ts';
+import { nextImmediate, readSource } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -349,7 +350,7 @@ test('Home has no × and no drag handle at all', () => {
 
 /** `killView` is async (it awaits every kill); let its tail run. */
 async function settle(): Promise<void> {
-  await new Promise((r) => setImmediate(r));
+  await nextImmediate();
 }
 
 test('× on a tab holding only files closes it in ONE click, and ends nothing', async () => {
@@ -489,9 +490,6 @@ test('the same unsaved file in two tabs marks BOTH chips — the text belongs to
 });
 
 test('every class the strip renders has a rule in app.css', async () => {
-  const { readFileSync } = await import('node:fs');
-  const { join } = await import('node:path');
-  const { projectRoot } = await import('../helpers/helpers.ts');
   st.setSessions([session('s1', { attention: true })]);
   st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
   draw([
@@ -507,7 +505,7 @@ test('every class the strip renders has a rule in app.css', async () => {
     for (const c of n.className.split(/\s+/)) if (c !== '') seen.add(c);
   }
   assert.ok(seen.size >= 8, `non-vacuity: only ${seen.size} classes were collected`);
-  const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });

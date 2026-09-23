@@ -21,10 +21,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, makeTempDirSync } from '../helpers/helpers.ts';
 
 const SCRIPT = join(projectRoot, 'launcher', 'make-icon.mjs');
 
@@ -97,7 +96,7 @@ test('make-icon.mjs --check --preview: mutually exclusive, and the tree is untou
     encoding: 'utf8',
     timeout: 60_000,
   });
-  const scratch = mkdtempSync(join(tmpdir(), 'ai-sm-icon-preview-'));
+  const scratch = makeTempDirSync('ai-sm-icon-preview-');
   try {
     for (const args of [
       ['--check', '--preview', scratch],

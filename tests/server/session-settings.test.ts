@@ -21,8 +21,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile, readdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, readFile, rm, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { stat } from 'node:fs/promises';
@@ -43,6 +42,8 @@ import {
   WsClient,
   wsUrl,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 // ---------------------------------------------------------------------------
@@ -96,7 +97,7 @@ async function makeStore(dirName = 'session-settings'): Promise<{
   store: SessionSettingsStore;
   logs: string[];
 }> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-store-'));
+  const root = await makeTempDir('ai-sm-store-');
   const dir = join(root, dirName);
   const snapshotDir = join(root, 'statusline-snapshots');
   const logs: string[] = [];
@@ -145,7 +146,7 @@ test('write() creates the directory when it is missing, and remove() is idempote
 test('a data dir holding spaces and quotes is QUOTED into the shell command, never able to reshape it', async () => {
   // statusLine.command is run through a shell by Claude Code, so the only
   // defence for an awkward (or hostile) data-dir path is the quoting.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-store-'));
+  const root = await makeTempDir('ai-sm-store-');
   const awkward = join(root, "it's a dir; rm -rf $HOME");
   const logs: string[] = [];
   try {
@@ -184,7 +185,7 @@ test('a data dir holding spaces and quotes is QUOTED into the shell command, nev
       `[${awkward}/statusline-snapshots/sess-1.json]`,
     ]);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -304,7 +305,7 @@ test('resetDir() wipes the snapshot directory too and recreates it 0700', async 
 
 /** A stub executable named `claude` that echoes its argv and then blocks. */
 async function makeStubClaude(): Promise<{ dir: string; bin: string }> {
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-stubclaude-'));
+  const dir = await makeTempDir('ai-sm-stubclaude-');
   const bin = join(dir, 'claude');
   await writeFile(bin, '#!/bin/bash\necho "ARGV<$*>"\nexec sleep 300\n');
   await chmod(bin, 0o755);
@@ -498,7 +499,7 @@ test('boot wipes BOTH status-line leftovers: the session-settings directory (070
   // — it is a file any process running as this user can write, and the script
   // prints its contents into the terminal, so a leftover is a poisoned string
   // waiting for a session id collision.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-settings-boot-'));
+  const root = await makeTempDir('ai-sm-settings-boot-');
   const dataDir = join(root, 'data');
   const settingsDir = join(dataDir, 'session-settings');
   const snapshotDir = join(dataDir, 'statusline-snapshots');
@@ -531,7 +532,7 @@ test('boot wipes BOTH status-line leftovers: the session-settings directory (070
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 

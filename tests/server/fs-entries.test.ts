@@ -20,11 +20,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { chmod, mkdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { FsEntriesResponse, FsListResponse, Project } from '../../shared/protocol.ts';
 import {
   anchorsFor,
@@ -47,6 +45,12 @@ import {
   WsClient,
   wsUrl,
   type TestServer,
+  sleep,
+  SKIP_IF_ROOT,
+  makeTempDir,
+  makeTempDirSync,
+  removeTempDir,
+  projectRoot,
 } from '../helpers/helpers.ts';
 
 let server: TestServer;
@@ -58,8 +62,6 @@ let outside: string;
 /** `<outside>evil` — the prefix trap against a PROJECT anchor. */
 let outsideEvil: string;
 
-const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-
 /** A name that must NEVER reach server.log (it is an entry name, = user content). */
 const ENTRY_CANARY = 'ENTRYNAMECANARY_qz.txt';
 
@@ -67,7 +69,7 @@ const ENTRY_CANARY = 'ENTRYNAMECANARY_qz.txt';
 const PATH_CANARY = 'PATHCANARY_qz';
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsent-')));
+  root = await realpath(await makeTempDir('ai-sm-fsent-'));
   home = join(root, 'home');
   evil = join(root, 'homeevil');
   outside = join(root, 'outside');
@@ -143,7 +145,7 @@ after(async () => {
   if (server !== undefined) await server.stop();
   if (root !== undefined) {
     await chmod(join(home, 'locked'), 0o700).catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -278,7 +280,7 @@ test('the documented sentences: 400 / 403 / 404, each a constant with no path in
   assert.deepEqual((await list(`${home}/nope`)).body, { error: 'This folder is no longer there.' });
 });
 
-test('an unreadable folder answers 403 with the READ sentence', { skip: process.getuid?.() === 0 ? 'running as root' : false }, async () => {
+test('an unreadable folder answers 403 with the READ sentence', { skip: SKIP_IF_ROOT }, async () => {
   const res = await list(join(home, 'locked'));
   assert.equal(res.status, 403);
   assert.deepEqual(res.body, { error: 'You do not have permission to read this folder.' });
@@ -488,7 +490,7 @@ test(`anchorsFor caches one project path's realpath for ${ANCHOR_REALPATH_TTL_MS
     'and still is INSIDE the window — that is the realpath that was not repeated',
   );
 
-  await new Promise((r) => setTimeout(r, ANCHOR_REALPATH_TTL_MS + 200));
+  await sleep(ANCHOR_REALPATH_TTL_MS + 200);
   assert.equal(
     anchorsFor([cached]).includes(real),
     false,
@@ -510,7 +512,7 @@ test(`anchorsFor caches one project path's realpath for ${ANCHOR_REALPATH_TTL_MS
     false,
     'inside the window the cached NEGATIVE still stands (that is the realpath not repeated)',
   );
-  await new Promise((r) => setTimeout(r, ANCHOR_REALPATH_TTL_MS + 200));
+  await sleep(ANCHOR_REALPATH_TTL_MS + 200);
   assert.ok(
     anchorsFor([cached]).includes(real),
     'past the window a folder that came BACK is an anchor again',
@@ -573,7 +575,7 @@ test('AI_SM_HOME_OVERRIDE: a bad value makes the server refuse to start — exit
     { value: join(home, 'plain.txt'), expect: /AI_SM_HOME_OVERRIDE must name an existing directory/ },
   ];
   for (const { value, expect } of cases) {
-    const dir = mkdtempSync(join(tmpdir(), 'ai-sm-homeover-refuse-'));
+    const dir = makeTempDirSync('ai-sm-homeover-refuse-');
     const dataDir = join(dir, 'data');
     try {
       const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {

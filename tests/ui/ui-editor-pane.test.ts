@@ -34,9 +34,7 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { readSource } from '../helpers/helpers.ts';
 import {
   byClass,
   descendants,
@@ -44,6 +42,7 @@ import {
   installDom,
   textsOf,
   type FakeElement,
+  typeInto as type,
 } from '../helpers/fake-dom.ts';
 import { PROJ, makeFixture, settle } from '../helpers/fs-fixture.ts';
 import { makeEditor } from '../helpers/editor-fixture.ts';
@@ -191,11 +190,6 @@ function labels(): string[] {
 /** The one field the active tab's body offers, or null (a diff offers none). */
 function field(): FakeElement | null {
   return descendants(body).find((n) => n.tagName === 'TEXTAREA') ?? null;
-}
-
-function type(ta: FakeElement, value: string): void {
-  ta.value = value;
-  dispatch(ta, 'input');
 }
 
 beforeEach(async () => {
@@ -628,13 +622,13 @@ test('every class the strip renders has a rule in app.css', async () => {
   for (const must of ['pane-tabs', 'pane-tab', 'pane-tab-pick', 'pane-dirty', 'pane-x', 'pane-gap']) {
     assert.ok(seen.has(must), `non-vacuity: the strip did not render .${must}`);
   }
-  const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });
 
 test('the strip’s CSS is ONE new section, inserted after the pane header block', async () => {
-  const css = readFileSync(join(projectRoot, 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const header = css.indexOf('/* ---- pane header (38px)');
   const section = css.indexOf('/* ---- editor pane tabs (Nocturne A10b)');
   assert.notEqual(header, -1, 'non-vacuity: the pane header block was found');

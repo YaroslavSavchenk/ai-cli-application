@@ -30,20 +30,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
 import {
   copyFile,
   mkdir,
-  mkdtemp,
   readFile,
   realpath,
   rm,
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import { projectRoot, waitUntil } from '../helpers/helpers.ts';
+import { join } from 'node:path';
+import { projectRoot, waitUntil, sleep, makeTempDir, onPath } from '../helpers/helpers.ts';
 
 const SCRIPT = join(projectRoot, 'launcher', 'start-backend.sh');
 /** Absolute: one test replaces PATH entirely, so a bare `bash` would not resolve. */
@@ -54,20 +51,6 @@ const VERSION = 'v0.2.0';
 const NEXT_VERSION = 'v0.3.0';
 
 // --- environment probing ----------------------------------------------------
-
-function onPath(exe: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, exe);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
 
 /** The externals the script itself calls. Without them there is nothing to test. */
 const EXTERNALS = ['dirname', 'setsid', 'nohup'] as const;
@@ -139,7 +122,7 @@ exit 0
 }
 
 async function makeApp(opts: AppOptions = {}): Promise<App> {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-startbe-')));
+  const root = await realpath(await makeTempDir('ai-sm-startbe-'));
   const versionDir = join(root, 'app', VERSION);
   await mkdir(join(versionDir, 'launcher'), { recursive: true });
   await copyFile(SCRIPT, join(versionDir, 'launcher', 'start-backend.sh'));
@@ -245,7 +228,7 @@ function markerOf(app: App, which: 'bundled' | 'path' | 'next'): Promise<Record<
 
 /** Give a launch that must NOT happen time to happen before denying it. */
 async function assertNeverLaunched(app: App): Promise<void> {
-  await new Promise((r) => setTimeout(r, 300));
+  await sleep(300);
   assert.equal(await app.marker('bundled'), null, 'the bundled runtime was started');
   assert.equal(await app.marker('path'), null, 'a PATH node was started');
 }
@@ -361,7 +344,7 @@ test('start-backend: `current` moving DURING the launch cannot swap the runtime'
     assert.equal(m['cwd'], app.versionDir);
     // And the link really did move — otherwise this test proves nothing.
     assert.equal(await realpath(app.currentDir), nextDir, 'the wrapper must have flipped `current`');
-    await new Promise((res) => setTimeout(res, 300));
+    await sleep(300);
     assert.equal(
       await app.marker('next'),
       null,

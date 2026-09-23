@@ -23,24 +23,12 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource as read, trackedFiles } from '../helpers/helpers.ts';
 
 const SPEC_STATES = ['DRAFT', 'DECIDED', 'STARTED', 'LANDED', 'DROPPED'];
 const TABLE_HEAD = '| Part | What | State | Spec | Landed |';
-
-function trackedFiles(): string[] {
-  const out = execFileSync('git', ['ls-files', '-z'], {
-    cwd: projectRoot,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return out.split('\0').filter((p) => p.length > 0);
-}
-
-const read = (rel: string): string => readFileSync(join(projectRoot, rel), 'utf8');
 
 const tracked = trackedFiles();
 const inPlans = tracked.filter((p) => p.startsWith('.claude/plans/'));

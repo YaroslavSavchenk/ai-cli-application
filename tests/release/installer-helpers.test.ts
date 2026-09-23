@@ -30,8 +30,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import {
-  accessSync,
-  constants,
   readFileSync,
   statSync,
   symlinkSync,
@@ -39,11 +37,10 @@ import {
   existsSync,
   readdirSync,
 } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
-import { delimiter, join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { join } from 'node:path';
+import { projectRoot, sleep, makeTempDir, removeTempDir, onPath } from '../helpers/helpers.ts';
 
 const helpersDir = join(projectRoot, 'installer', 'helpers');
 const readHelper = (name: string) => readFileSync(join(helpersDir, name), 'utf8');
@@ -160,7 +157,7 @@ async function makeBundle(root: string, version: string, withPty = true): Promis
  * by name. Real installs are minutes apart; these run back to back, so they
  * wait one tick out rather than testing a coin flip.
  */
-const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 20));
+const settle = () => sleep(20);
 
 /**
  * ...and waiting is not enough: `settle()` assumes a MONOTONIC wall clock.
@@ -188,7 +185,7 @@ async function install(root: string, appDir: string, version: string, live = '-'
 }
 
 test('unpack script: a fresh install lands the version dir and points current at it', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'home', '.ai-session-manager', 'app');
     await makeBundle(root, 'v0.2.0');
@@ -201,12 +198,12 @@ test('unpack script: a fresh install lands the version dir and points current at
     // No staging leftovers.
     assert.ok(!readdirSync(appDir).some((n) => n.startsWith('.incoming') || n.startsWith('.current.new')));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('unpack script: retention keeps current + exactly one previous version', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     for (const v of ['v0.1.0', 'v0.2.0', 'v0.3.0']) await makeBundle(root, v);
@@ -222,12 +219,12 @@ test('unpack script: retention keeps current + exactly one previous version', as
     assert.match(third.out, /AI_SM_PRUNED=v0\.1\.0/);
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.2.0,v0.3.0');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('unpack script: the version dir a LIVE backend runs from is never pruned', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     for (const v of ['v0.1.0', 'v0.2.0', 'v0.3.0']) await makeBundle(root, v);
@@ -241,12 +238,12 @@ test('unpack script: the version dir a LIVE backend runs from is never pruned', 
     assert.doesNotMatch(third.out, /AI_SM_PRUNED/, 'nothing may be pruned here');
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.1.0,v0.2.0,v0.3.0');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('unpack script: reinstalling the same version replaces it and drops the .old copy', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     await makeBundle(root, 'v0.2.0');
@@ -255,7 +252,7 @@ test('unpack script: reinstalling the same version replaces it and drops the .ol
     assert.equal(again.code, 0, again.out);
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.2.0');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -265,7 +262,7 @@ test('unpack script: reinstalling the version a LIVE backend runs from is REFUSE
   // a later install can prune the real live inode dir under `.old`. So this
   // case is refused outright, before anything in the app dir is touched — the
   // user closes the window (or uses Restart backend) and runs Setup again.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     await makeBundle(root, 'v0.2.0');
@@ -287,7 +284,7 @@ test('unpack script: reinstalling the version a LIVE backend runs from is REFUSE
     assert.equal(ok.code, 0, ok.out);
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.2.0');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -300,7 +297,7 @@ test('unpack script: prune never rm -rf`s a word-split `..` fragment, so the DAT
   // and exits 1, so the data dir survives but `set -e` ABORTS the install
   // right after `current` was swapped (no AI_SM_OK, no retention). The point
   // stands either way: a fragment of a directory name is not a version dir.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const dataDir = join(root, '.ai-session-manager');
     const appDir = join(dataDir, 'app');
@@ -332,7 +329,7 @@ test('unpack script: prune never rm -rf`s a word-split `..` fragment, so the DAT
       readdirSync(appDir).join('|'),
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -342,7 +339,7 @@ test('unpack script: a directory named `-x` is skipped, never handed to rm as an
   // A `-x` also breaks the LISTING (`ls` parses it as options, exit 2 into
   // /dev/null), so a third, older version dir is present: retention must
   // still run and still drop exactly that one, or the loop iterated nothing.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     for (const v of ['v0.0.9', 'v0.1.0', 'v0.2.0']) await makeBundle(root, v);
@@ -366,7 +363,7 @@ test('unpack script: a directory named `-x` is skipped, never handed to rm as an
     assert.ok(existsSync(join(dash, 'bundle.json')), 'a name rm cannot be told apart from a flag is left alone');
     assert.equal(readdirSync(appDir).sort().join(','), '-x,current,v0.1.0,v0.2.0');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -375,7 +372,7 @@ test('unpack script: a directory name with a space is skipped whole, and costs n
   // the phantom `v2` matched the REAL v2, took the one kept-previous slot and
   // had the real one pruned as if it were a third copy. Read line-wise, the
   // name arrives whole and the charset guard rejects it.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     for (const v of ['v1', 'v2', 'v3']) await makeBundle(root, v);
@@ -398,7 +395,7 @@ test('unpack script: a directory name with a space is skipped whole, and costs n
     assert.ok(existsSync(join(spaced, 'bundle.json')), 'a name the charset guard rejects is left alone');
     assert.equal(readdirSync(appDir).sort().join(','), ['v0 v2', 'current', 'v2', 'v3'].sort().join(','));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -424,7 +421,7 @@ test('unpack script: the prune `rm` names its target as `./<dir>`, never as a ba
 });
 
 test('unpack script: a bundle whose native module does not load fails, and current does not move', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     await makeBundle(root, 'v0.2.0');
@@ -437,12 +434,12 @@ test('unpack script: a bundle whose native module does not load fails, and curre
     // The working install is untouched: no v0.3.0 dir, current still v0.2.0.
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.2.0');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('unpack script: an archive without <version>/bundle.json is refused', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     await makeBundle(root, 'v0.2.0');
@@ -453,7 +450,7 @@ test('unpack script: an archive without <version>/bundle.json is refused', async
     assert.match(res.out, /AI_SM_ERR=no_bundle_json/);
     assert.ok(!existsSync(join(appDir, 'current')));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -535,7 +532,7 @@ async function makeHostileTar(root: string, version: string, members: HostileMem
 }
 
 test('unpack script: an archive with a `..` member is refused and writes nothing outside the staging dir', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     const tar = await makeHostileTar(root, 'v0.2.0', [
@@ -557,12 +554,12 @@ test('unpack script: an archive with a `..` member is refused and writes nothing
     // And the staging directory is gone, so the failure leaves no debris.
     assert.equal(readdirSync(appDir).length, 0, readdirSync(appDir).join(','));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('unpack script: an absolute-path member stays inside the staging dir and dies with it', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     const absTarget = join(root, 'pwned-abs.txt');
@@ -583,12 +580,12 @@ test('unpack script: an absolute-path member stays inside the staging dir and di
       'the version dir holds the bundle and nothing the archive smuggled in',
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('unpack script: a member written through a symlinked directory is refused', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-inst-'));
+  const root = await makeTempDir('ai-sm-inst-');
   try {
     const appDir = join(root, 'app');
     const tar = await makeHostileTar(root, 'v0.2.0', [
@@ -602,7 +599,7 @@ test('unpack script: a member written through a symlinked directory is refused',
     assert.ok(!existsSync(join(appDir, 'pwned-sym.txt')));
     assert.equal(readdirSync(appDir).length, 0, readdirSync(appDir).join(','));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -621,7 +618,7 @@ async function makeInstalled(root: string): Promise<string> {
 }
 
 test('remove script: removes the app dir and nothing else in the data dir', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-uninst-'));
+  const root = await makeTempDir('ai-sm-uninst-');
   try {
     const appDir = await makeInstalled(root);
     const res = await runSh(removeScript, [appDir]);
@@ -639,12 +636,12 @@ test('remove script: removes the app dir and nothing else in the data dir', asyn
     assert.equal(gone.code, 0, gone.out);
     assert.match(gone.out, /AI_SM_GONE=1/);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('remove script: refuses the data dir, a shallow path, a `..` path and a foreign dir', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-uninst-'));
+  const root = await makeTempDir('ai-sm-uninst-');
   try {
     const appDir = await makeInstalled(root);
     const dataDir = join(root, 'home', 'u', '.ai-session-manager');
@@ -671,25 +668,11 @@ test('remove script: refuses the data dir, a shallow path, a `..` path and a for
     assert.ok(existsSync(join(dataDir, 'history.json')));
     assert.ok(existsSync(foreign));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 // --- the PowerShell side ----------------------------------------------------
-
-function onPath(exe: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, exe);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
 
 const powershell = onPath('powershell.exe');
 const wslpathBin = onPath('wslpath');
@@ -736,7 +719,7 @@ async function toWin(linuxPath: string): Promise<string> {
 
 /** Runs a helper and returns its stdout plus the parsed result file. */
 async function helper(name: string, args: string[]): Promise<{ res: RunResult; keys: Map<string, string> }> {
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-helper-'));
+  const dir = await makeTempDir('ai-sm-helper-');
   try {
     const resultFile = join(dir, 'result.txt');
     const res = await run(powershell!, [
@@ -758,7 +741,7 @@ async function helper(name: string, args: string[]): Promise<{ res: RunResult; k
     }
     return { res, keys };
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 }
 
@@ -937,7 +920,7 @@ test('wsl-probe reads the in-distro probe answer through the same UTF-16LE NULs'
   assert.ok(fnText, 'wsl-probe.ps1 must still define Get-AiSmProbeValue');
   assert.ok(fnText.includes('$Key'), fnText);
 
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-probe-'));
+  const dir = await makeTempDir('ai-sm-probe-');
   try {
     const answer =
       'AISM_USER=you\r\n' +
@@ -971,7 +954,7 @@ test('wsl-probe reads the in-distro probe answer through the same UTF-16LE NULs'
       'every key must read back verbatim out of UTF-16LE bytes',
     );
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });
 
@@ -980,7 +963,7 @@ test('the allow-list gates end at the STRING end: a trailing newline never passe
   // accepted "/home/you/app\n" — a value that would then reach a wsl.exe
   // command line with the newline still on it. Every pattern therefore ends
   // in \z. All four gates are checked here because they share one rule.
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-anchor-'));
+  const dir = await makeTempDir('ai-sm-anchor-');
   try {
     const script = join(dir, 'anchor.ps1');
     await writeFile(
@@ -1014,12 +997,12 @@ $out += 'version=[' + [bool](Test-AiSmBundleVersion 'v0.2.0') + '/' + [bool](Tes
       'every gate must accept the value and reject the same value plus a newline',
     );
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });
 
 test('the launcher config the installer writes is exactly what the launcher reads back', { skip }, async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-cfg-'));
+  const dir = await makeTempDir('ai-sm-cfg-');
   try {
     const script = join(dir, 'probe.ps1');
     await writeFile(
@@ -1056,6 +1039,6 @@ $resolved = Resolve-AiSmConfig -ScriptRoot 'C:\Programs\AI Session Manager' -Con
     // No BOM: Inno reads these files line by line.
     assert.notEqual(readFileSync(join(dir, 'launcher-config.json'))[0], 0xef);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeTempDir(dir);
   }
 });

@@ -19,6 +19,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { updatePrefs } from '../../web/src/api.ts';
 import type { UiPrefs } from '../../shared/protocol.ts';
+import { jsonResponse as makeRes } from '../helpers/helpers.ts';
 
 interface Captured {
   path: string;
@@ -30,10 +31,6 @@ const realFetch = globalThis.fetch;
 let calls: Captured[] = [];
 let getBody: unknown = {};
 let getOk = true;
-
-function makeRes(body: unknown, ok: boolean): { ok: boolean; status: number; json: () => Promise<unknown> } {
-  return { ok, status: ok ? 200 : 500, json: async () => body };
-}
 
 /** The single PUT body the write eventually sends (the merged bag). */
 function putBody(): unknown {

@@ -36,10 +36,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, trackedFiles } from '../helpers/helpers.ts';
 
 /** Never spelled out: see the self-scan note above. */
 const A = 'sa' + 'va';
@@ -65,15 +64,6 @@ const BINARY_EXT = new Set([
   '.gz', '.tgz', '.zip', '.xz', '.bz2', '.7z',
   '.pdf', '.exe', '.dll', '.node', '.wasm', '.bin', '.jsonl',
 ]);
-
-function trackedFiles(): string[] {
-  const out = execFileSync('git', ['ls-files', '-z'], {
-    cwd: projectRoot,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return out.split('\0').filter((p) => p.length > 0);
-}
 
 test('no tracked file carries the author\u2019s home path, windows user or handle', () => {
   const allowed = new Map(ALLOWED.map((a) => [a.path, a.reason]));

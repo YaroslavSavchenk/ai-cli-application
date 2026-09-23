@@ -26,6 +26,7 @@ import {
   shouldRefocusTerminal,
 } from '../../web/src/ui/keys.ts';
 import type { DocumentLike, FocusTarget, KeyChord, MouseChord } from '../../web/src/ui/keys.ts';
+import { projectRoot } from '../helpers/helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Element doubles — a `closest` that answers for a listed set of selectors,
@@ -561,9 +562,8 @@ test('isContextMenuChord never collides with the copy and paste chords', () => {
 
 test('the selector constants still name markup the frontend actually produces', async () => {
   const { readdirSync, readFileSync, statSync } = await import('node:fs');
-  const { dirname, join } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const WEB_SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'src');
+  const { join } = await import('node:path');
+  const WEB_SRC = join(projectRoot, 'web', 'src');
 
   const sources: string[] = [];
   const walk = (dir: string): void => {

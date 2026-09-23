@@ -21,8 +21,7 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
@@ -55,7 +54,17 @@ import {
   type SpawnLike,
 } from '../../server/update-install.ts';
 import { setupAssetName, SUMS_ASSET_NAME, UPDATE_OWNER, UPDATE_REPO } from '../../server/update-release.ts';
-import { api, presenceUrl, projectRoot, startTestServer, waitUntil, WsClient } from '../helpers/helpers.ts';
+import {
+  api,
+  presenceUrl,
+  projectRoot,
+  startTestServer,
+  waitUntil,
+  WsClient,
+  makeTempDir,
+  removeTempDir,
+  readSource,
+} from '../helpers/helpers.ts';
 
 const VERSION = 'v0.3.0';
 const SETUP_NAME = setupAssetName(VERSION);
@@ -141,7 +150,7 @@ async function makeController(
     setupTimeoutMs?: number;
   } = {},
 ): Promise<Harness> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-install-'));
+  const root = await makeTempDir('ai-sm-update-install-');
   const updatesDir = join(root, 'updates');
   const launched: LaunchSetupArgs[] = [];
   const lines: string[] = [];
@@ -177,7 +186,7 @@ async function makeController(
     root,
     launched,
     lines,
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    cleanup: () => removeTempDir(root),
   };
 }
 
@@ -452,7 +461,7 @@ test('update: exit 0 but `current` never moves is a failure, not a success', asy
 
 test('update: the launcher refusing to start maps to its own sentence', async () => {
   const stub = await startAssets();
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-start-'));
+  const root = await makeTempDir('ai-sm-update-start-');
   const controller = new UpdateController({
     log: () => {},
     updatesDir: join(root, 'updates'),
@@ -471,7 +480,7 @@ test('update: the launcher refusing to start maps to its own sentence', async ()
     assert.equal(status.state, 'failed');
     assert.equal(status.error, UPDATE_ERROR_START);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -566,7 +575,7 @@ test('update: a Setup that outruns its timeout fails, but the flight is HELD unt
 
 test('update: nothing on offer, and a developer clone, are refused with 422 before any request', async () => {
   const stub = await startAssets();
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-422-'));
+  const root = await makeTempDir('ai-sm-update-422-');
   try {
     const base = {
       log: () => {},
@@ -585,7 +594,7 @@ test('update: nothing on offer, and a developer clone, are refused with 422 befo
     assert.deepEqual(clone.status(), { state: 'idle', version: null, percent: 0, error: null });
     assert.equal(stub.hits.length, 0, 'a refused update never touches the network');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -617,7 +626,7 @@ test('update: an install clears every OTHER version directory it finds', async (
 });
 
 test('cleanupUpdatesDir: removes the whole tree and never throws on an absent one', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-clean-'));
+  const root = await makeTempDir('ai-sm-update-clean-');
   try {
     const dir = join(root, 'updates');
     mkdirSync(join(dir, VERSION), { recursive: true });
@@ -627,7 +636,7 @@ test('cleanupUpdatesDir: removes the whole tree and never throws on an absent on
     cleanupUpdatesDir(dir); // Idempotent.
     cleanupUpdatesDir(join(root, 'never-existed'));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -736,7 +745,7 @@ test('the interop binaries are absolute paths, never a PATH lookup', () => {
   // wslpath translates the path an installer is then executed from; resolving
   // it through an inherited PATH is not something this pipeline does. The bare
   // name survives only as a fallback for a distro that keeps it elsewhere.
-  const src = readFileSync(join(projectRoot, 'server', 'update-install.ts'), 'utf8');
+  const src = readSource('server', 'update-install.ts');
   assert.match(src, /existsSync\(WSLPATH_PATH\) \? WSLPATH_PATH : 'wslpath'/);
   assert.doesNotMatch(src, /runCapture\('wslpath'/, 'never spawned by bare name outright');
 });
@@ -783,7 +792,7 @@ function fakeChild(): {
 }
 
 test('interop launcher: the exact argv, the staging copy, and a detached-but-watched child', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-interop-'));
+  const root = await makeTempDir('ai-sm-update-interop-');
   try {
     // A fake install: <appDir>/launcher/run-update.ps1 is what the bundle ships.
     const appDir = join(root, 'app', VERSION);
@@ -868,7 +877,7 @@ test('interop launcher: the exact argv, the staging copy, and a detached-but-wat
     assert.deepEqual(await readFile(join(stageLinux, SETUP_NAME)), SETUP_BYTES);
     assert.equal(await readFile(join(stageLinux, RUN_UPDATE_SCRIPT), 'utf8'), '# the windows script\n');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -876,7 +885,7 @@ test('interop launcher: a 170-character %TEMP% still composes argv slots that fi
   // The %TEMP% gate caps at 180 characters and the argv gate at 259
   // (MAX_PATH - 1) exactly so this case works: staging adds the directory
   // name, the version and the Setup name on top of whatever Windows reports.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-longtemp-'));
+  const root = await makeTempDir('ai-sm-update-longtemp-');
   try {
     const appDir = join(root, 'app', VERSION);
     mkdirSync(join(appDir, 'launcher'), { recursive: true });
@@ -917,7 +926,7 @@ test('interop launcher: a 170-character %TEMP% still composes argv slots that fi
     assert.ok(setupWin.length > 200, 'and it is longer than the old 200-character cap allowed');
     assert.ok(setupWin.length <= 259, 'while still fitting MAX_PATH - 1');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -926,7 +935,7 @@ test('interop launcher: the composed staged path is length-checked BEFORE anythi
   // own, but `<temp>\ai-session-manager-update\<version>\<setup name>`. With the
   // longest legal %TEMP% and a long release tag it does not fit — and the
   // refusal has to come before the ~100 MiB staging copy, not after it.
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-maxpath-'));
+  const root = await makeTempDir('ai-sm-update-maxpath-');
   try {
     const appDir = join(root, 'app', VERSION);
     mkdirSync(join(appDir, 'launcher'), { recursive: true });
@@ -989,12 +998,12 @@ test('interop launcher: the composed staged path is length-checked BEFORE anythi
     );
     assert.ok(!existsSync(join(stage, longName)), 'and the Setup itself certainly was not');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('interop launcher: a FAILED run writes the script output at warn, capped at 64 KiB', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-interop3-'));
+  const root = await makeTempDir('ai-sm-update-interop3-');
   try {
     const appDir = join(root, 'app', VERSION);
     mkdirSync(join(appDir, 'launcher'), { recursive: true });
@@ -1051,12 +1060,12 @@ test('interop launcher: a FAILED run writes the script output at warn, capped at
       'the truncation is stated, not hidden',
     );
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
 test('interop launcher: a bundle without run-update.ps1, and a bad hash, refuse before any spawn', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-interop2-'));
+  const root = await makeTempDir('ai-sm-update-interop2-');
   try {
     const appDir = join(root, 'app', VERSION);
     mkdirSync(appDir, { recursive: true });
@@ -1094,7 +1103,7 @@ test('interop launcher: a bundle without run-update.ps1, and a bad hash, refuse 
     );
     assert.equal(spawns, 0, 'nothing was ever spawned');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -1191,7 +1200,7 @@ test('boot: the update timing seams are capped at the Node timer maximum — nev
 });
 
 test('boot: <dataDir>/updates is wiped, so nothing downloaded in a previous run can be executed', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-boot-'));
+  const root = await makeTempDir('ai-sm-update-boot-');
   const dataDir = join(root, 'data');
   try {
     // A leftover from a killed run: a verified-looking exe and a half download.
@@ -1208,7 +1217,7 @@ test('boot: <dataDir>/updates is wiped, so nothing downloaded in a previous run 
     }
     await delay(50);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -1259,7 +1268,7 @@ function installedApp(root: string, version: string): { appRoot: string; entry: 
 
 test('LIFECYCLE: an install in flight defers the idle shutdown; the process still exits once it has settled', async () => {
   const stub = await startAssets();
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-update-idle-')));
+  const root = realpathSync(await makeTempDir('ai-sm-update-idle-'));
   const app = installedApp(join(root, 'app'), 'v0.2.0');
   /** Set by the stalled asset handler; called to let the download finish. */
   let releaseDownload: (() => void) | undefined;
@@ -1373,7 +1382,7 @@ test('LIFECYCLE: an install in flight defers the idle shutdown; the process stil
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -1468,7 +1477,7 @@ test('END TO END: POST /api/restart is refused with 409 while an install is down
   // <dataDir>/updates at boot — so a handoff started mid-download would delete
   // the half-written .part with nothing left to report it.
   const stub = await startAssets();
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-update-restart-')));
+  const root = realpathSync(await makeTempDir('ai-sm-update-restart-'));
   const app = installedApp(join(root, 'app'), 'v0.2.0');
   let releaseDownload: (() => void) | undefined;
   try {
@@ -1537,14 +1546,14 @@ test('END TO END: POST /api/restart is refused with 409 while an install is down
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
 
 test('END TO END: an installed backend finds v0.3.0, reports it, and POST /api/update really downloads and verifies it', async () => {
   const stub = await startAssets();
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-update-e2e-')));
+  const root = realpathSync(await makeTempDir('ai-sm-update-e2e-'));
   const app = installedApp(join(root, 'app'), 'v0.2.0');
   try {
     serveLatestRelease(stub);
@@ -1617,7 +1626,7 @@ test('END TO END: an installed backend finds v0.3.0, reports it, and POST /api/u
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -1630,7 +1639,7 @@ test('END TO END: a DOWNGRADE re-judges the cached release — /api/runtime offe
   // the one a NEWER run left behind and the OLDER backend must reach the offer
   // through a 304 alone — the API sends it no release at all.
   const stub = await startAssets();
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-update-downgrade-')));
+  const root = realpathSync(await makeTempDir('ai-sm-update-downgrade-'));
   const app = installedApp(join(root, 'app'), 'v0.2.0');
   const dataDir = join(root, 'data');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -1699,7 +1708,7 @@ test('END TO END: a DOWNGRADE re-judges the cached release — /api/runtime offe
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -1709,7 +1718,7 @@ test('END TO END: a 0.0.0-dev bundle makes ZERO outbound requests — the promis
   // scripts/build-bundle.sh stamps without a tag) is older than every release,
   // so asking would only nag a developer with an update it must never install.
   const stub = await startAssets();
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'ai-sm-update-dev-')));
+  const root = realpathSync(await makeTempDir('ai-sm-update-dev-'));
   const app = installedApp(join(root, 'app'), '0.0.0-dev+abc1234');
   try {
     // The release API and both assets are served — nothing must ask for them.
@@ -1765,7 +1774,7 @@ test('END TO END: a 0.0.0-dev bundle makes ZERO outbound requests — the promis
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });

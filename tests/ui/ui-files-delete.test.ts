@@ -29,9 +29,6 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, FakeElement } from '../helpers/fake-dom.ts';
 import {
@@ -43,13 +40,13 @@ import {
   type DeleteResult,
   type Gateway,
 } from '../helpers/fs-fixture.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 const fx = makeFixture();
 const dom = installDom();
 
-const here = dirname(fileURLToPath(import.meta.url));
 /** main.ts bootstraps the whole app on import, so its wiring is read as source. */
-const MAIN = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
+const MAIN = readSource('web', 'src', 'main.ts');
 
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
@@ -1146,7 +1143,7 @@ test('the Escape ladder ranks the confirmation after the folder picker and befor
 });
 
 test('the panel still imports no HTTP of its own — the delete goes through the injected gateway', () => {
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'files.ts');
   assert.ok(src.length > 10_000, 'non-vacuity: ui/files.ts');
   assert.equal(/from '\.\.\/api\.ts'/.test(src), false, 'the panel may not know about HTTP');
   assert.match(src, /fs\.delete\(pathsOf\(items\)\)/, 'one request, the model s list of paths');

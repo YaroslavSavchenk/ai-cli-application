@@ -45,106 +45,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { projectRoot as REPO_ROOT } from '../helpers/helpers.ts';
+import { HOLE, type Lit, literals } from '../helpers/source-scan.ts';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WEB_SRC = join(REPO_ROOT, 'web', 'src');
-
-/**
- * Stand-in for a `${…}` interpolation, so a template's literal text is still
- * checked. A character that cannot occur in source, deliberately: with a SPACE
- * here a signature join like `` `${a}|${b}` `` would read as ` | ` and be
- * reported as a separator it is not.
- */
-const HOLE = '\u0000';
-
-interface Lit {
-  text: string;
-  line: number;
-}
-
-/** Read one string/template literal starting at the quote `src[i]`. */
-function readLiteral(src: string, i: number): { text: string; end: number } {
-  const quote = src[i];
-  let j = i + 1;
-  let text = '';
-  while (j < src.length) {
-    const c = src[j];
-    if (c === '\\') {
-      text += src[j + 1] ?? '';
-      j += 2;
-      continue;
-    }
-    if (c === quote) return { text, end: j + 1 };
-    if (quote === '`' && c === '$' && src[j + 1] === '{') {
-      j = skipExpression(src, j + 2);
-      text += HOLE;
-      continue;
-    }
-    text += c;
-    j += 1;
-  }
-  return { text, end: j };
-}
-
-/** Skip a `${ … }` expression, including nested braces, strings and templates. */
-function skipExpression(src: string, i: number): number {
-  let depth = 1;
-  let j = i;
-  while (j < src.length) {
-    const c = src[j];
-    if (c === "'" || c === '"' || c === '`') {
-      j = readLiteral(src, j).end;
-      continue;
-    }
-    if (c === '{') depth += 1;
-    else if (c === '}') {
-      depth -= 1;
-      if (depth === 0) return j + 1;
-    }
-    j += 1;
-  }
-  return j;
-}
-
-/** Every string/template literal in `src`, with comments skipped entirely. */
-function literals(src: string): Lit[] {
-  const out: Lit[] = [];
-  let i = 0;
-  let line = 1;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === '\n') {
-      line += 1;
-      i += 1;
-      continue;
-    }
-    if (c === '/' && src[i + 1] === '/') {
-      while (i < src.length && src[i] !== '\n') i += 1;
-      continue;
-    }
-    if (c === '/' && src[i + 1] === '*') {
-      i += 2;
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
-        if (src[i] === '\n') line += 1;
-        i += 1;
-      }
-      i += 2;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') {
-      const startLine = line;
-      const { text, end } = readLiteral(src, i);
-      for (let k = i; k < end; k += 1) if (src[k] === '\n') line += 1;
-      out.push({ text, line: startLine });
-      i = end;
-      continue;
-    }
-    i += 1;
-  }
-  return out;
-}
 
 /**
  * The chrome A2 owns: the shell itself plus every UI module. Practically every

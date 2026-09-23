@@ -19,8 +19,7 @@ import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   UPDATE_NEW_VERSION_AVAILABLE,
@@ -38,7 +37,7 @@ import {
   UPDATE_REPO,
   LATEST_RELEASE_PATH,
 } from '../../server/update-release.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, sleep, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 const CURRENT = 'v0.2.0';
 
@@ -122,7 +121,7 @@ async function makeChecker(
   lines: string[];
   cleanup: () => Promise<void>;
 }> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-check-'));
+  const root = await makeTempDir('ai-sm-update-check-');
   const cacheFile = opts.cacheFile ?? join(root, 'update-check.json');
   const lines = opts.lines ?? [];
   const checker = createReleaseChecker({
@@ -142,7 +141,7 @@ async function makeChecker(
     lines,
     cleanup: async () => {
       checker.stop();
-      await rm(root, { recursive: true, force: true });
+      await removeTempDir(root);
     },
   };
 }
@@ -231,7 +230,7 @@ test('release check: a check asked while one is IN FLIGHT adopts it instead of r
     const manual = fx.checker.checkNow().then(() => {
       manualDone = true;
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await sleep(50);
     assert.equal(manualDone, false, 'the manual check did NOT resolve on the old status');
     assert.equal(fx.checker.status().available, false, 'and nothing was applied yet');
 
@@ -263,7 +262,7 @@ test('release check: a check asked while one is IN FLIGHT adopts it instead of r
  */
 test('release check: a manual check landing inside the PERIODIC run adopts it — ONE request', async () => {
   const stub = await startStub();
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-timer-'));
+  const root = await makeTempDir('ai-sm-update-timer-');
   const lines: string[] = [];
   const checker = createReleaseChecker({
     currentVersion: CURRENT,
@@ -298,7 +297,7 @@ test('release check: a manual check landing inside the PERIODIC run adopts it �
     const manual = checker.checkNow().then(() => {
       manualDone = true;
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await sleep(50);
     assert.equal(manualDone, false, 'the button did not resolve on the pre-check status');
     assert.equal(stub.requests.length, 1, 'and it started no second request');
     assert.equal(checker.status().available, false, 'nothing applied while the run is open');
@@ -316,7 +315,7 @@ test('release check: a manual check landing inside the PERIODIC run adopts it �
   } finally {
     answer?.();
     checker.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -389,7 +388,7 @@ test('release check: the cache holds the LATEST RELEASE, so a DOWNGRADE still ge
   // v0.3.0 to test the button, every check answered 304, and the verdict was
   // never recomputed — the Update button stayed hidden forever.
   const stub = await startStub();
-  const shared = await mkdtemp(join(tmpdir(), 'ai-sm-update-shared-'));
+  const shared = await makeTempDir('ai-sm-update-shared-');
   const cacheFile = join(shared, 'update-check.json');
   /** The STATUS the stub really served, per request: no assertion here is
    *  allowed to pass because a 200 quietly rebuilt what a 304 must preserve. */
@@ -471,14 +470,14 @@ test('release check: the cache holds the LATEST RELEASE, so a DOWNGRADE still ge
       await rm(c.root, { recursive: true, force: true });
     }
   } finally {
-    await rm(shared, { recursive: true, force: true });
+    await removeTempDir(shared);
     await stub.close();
   }
 });
 
 test('release check: an OLD-SHAPE cache file is no cache — the next ask is unconditional', async () => {
   const stub = await startStub();
-  const shared = await mkdtemp(join(tmpdir(), 'ai-sm-update-oldshape-'));
+  const shared = await makeTempDir('ai-sm-update-oldshape-');
   const cacheFile = join(shared, 'update-check.json');
   const oldRelease = {
     version: 'v0.3.0',
@@ -521,7 +520,7 @@ test('release check: an OLD-SHAPE cache file is no cache — the next ask is unc
       }
     }
   } finally {
-    await rm(shared, { recursive: true, force: true });
+    await removeTempDir(shared);
     await stub.close();
   }
 });
@@ -530,7 +529,7 @@ test('release check: a 200 with no usable ETag DROPS the cache file — the next
   // persist() has no validator to write, and a descriptor kept beside a stale
   // ETag would be re-adopted for a release that may be gone. The file goes.
   const stub = await startStub();
-  const shared = await mkdtemp(join(tmpdir(), 'ai-sm-update-noetag-'));
+  const shared = await makeTempDir('ai-sm-update-noetag-');
   const cacheFile = join(shared, 'update-check.json');
   try {
     // First: a normal 200 WITH an ETag writes the cache.
@@ -596,7 +595,7 @@ test('release check: a 200 with no usable ETag DROPS the cache file — the next
       await rm(last.root, { recursive: true, force: true });
     }
   } finally {
-    await rm(shared, { recursive: true, force: true });
+    await removeTempDir(shared);
     await stub.close();
   }
 });
@@ -638,7 +637,7 @@ test('release check: a malformed, oversized or non-200 answer offers nothing and
 
 test('release check: 403 with a rate-limit reset backs off and asks NOTHING until the window ends', async () => {
   const stub = await startStub();
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-rl-'));
+  const root = await makeTempDir('ai-sm-update-rl-');
   const lines: string[] = [];
   let clock = 1_000_000;
   const checker = createReleaseChecker({
@@ -685,7 +684,7 @@ test('release check: 403 with a rate-limit reset backs off and asks NOTHING unti
     assert.equal(checker.status().release?.version, 'v0.3.0');
   } finally {
     checker.stop();
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
     await stub.close();
   }
 });
@@ -836,7 +835,7 @@ test('release check: a refused release is refused END TO END, over the wire', as
 // ---------------------------------------------------------------------------
 
 test('readUpdateCheckCache: a doctored cache file can never point the downloader anywhere', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-cache-'));
+  const root = await makeTempDir('ai-sm-update-cache-');
   const file = join(root, 'update-check.json');
   const opts = { currentVersion: CURRENT, assetBase: 'https://github.com' };
   const good = {
@@ -906,7 +905,7 @@ test('readUpdateCheckCache: a doctored cache file can never point the downloader
     await rm(file);
     assert.equal(readUpdateCheckCache(file, opts), null);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -941,7 +940,7 @@ async function expectRefusedStart(value: string): Promise<{
   dataDir: string;
   root: string;
 }> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-update-refuse-'));
+  const root = await makeTempDir('ai-sm-update-refuse-');
   const dataDir = join(root, 'data');
   const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {
     cwd: projectRoot,

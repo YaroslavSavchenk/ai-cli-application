@@ -24,7 +24,6 @@ import assert from 'node:assert/strict';
 import {
   chmodSync,
   mkdirSync,
-  mkdtempSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -44,7 +43,7 @@ import {
 } from '../../server/bundle.ts';
 import { createUpdateChecker } from '../../server/buildinfo.ts';
 import { REFUSED_STANDBY, RestartRefusal } from '../../server/restart.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, makeTempDirSync } from '../helpers/helpers.ts';
 
 const GOOD: BundleInfo = {
   version: 'v0.2.0',
@@ -56,7 +55,7 @@ const GOOD: BundleInfo = {
 };
 
 function tempRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'ai-sm-bundle-'));
+  return makeTempDirSync('ai-sm-bundle-');
 }
 
 async function withRoot(fn: (root: string) => void | Promise<void>): Promise<void> {

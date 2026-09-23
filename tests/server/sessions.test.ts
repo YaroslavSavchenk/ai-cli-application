@@ -11,8 +11,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { realpath, rename, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { SessionInfo, ServerMessage } from '../../shared/protocol.ts';
 import {
@@ -25,6 +24,9 @@ import {
   wsUrl,
   WsClient,
   type TestServer,
+  sleep,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 let server: TestServer;
@@ -32,12 +34,12 @@ let workDir: string;
 
 before(async () => {
   server = await startTestServer();
-  workDir = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-work-')));
+  workDir = await realpath(await makeTempDir('ai-sm-work-'));
 });
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
+  if (workDir !== undefined) await removeTempDir(workDir);
 });
 
 test('create returns SessionInfo, session is listed, title defaults to the cwd last segment', async () => {
@@ -535,7 +537,7 @@ test('a snapshot on disk becomes SessionInfo.telemetry and one `info` broadcast 
     // The same file again (what an idle session's refresh would leave behind):
     // no change, so no second broadcast.
     await putSnapshot(info.id, first);
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await sleep(600);
     assert.equal(telemetryFrames(c).length, 1, 'equal telemetry is not news');
 
     // A real change is broadcast, exactly once.
@@ -544,7 +546,7 @@ test('a snapshot on disk becomes SessionInfo.telemetry and one `info` broadcast 
       () => (telemetryFrames(c).length > 1 ? true : undefined),
       'the second info frame',
     );
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await sleep(400);
     assert.equal(telemetryFrames(c).length, 2, 'one broadcast per change, not one per poll');
     assert.equal(telemetryFrames(c)[1]?.telemetry?.costUsd, 0.99);
   } finally {
@@ -560,7 +562,7 @@ test('a snapshot for an id that is not a session is ignored, and the server keep
     // A file whose session never existed (or ended a moment ago): no session is
     // ever created from a snapshot, and nothing is broadcast.
     await putSnapshot('deadbeef-0000-4000-8000-000000000000', { v: 1, at: Date.now(), model: 'Ghost' });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await sleep(600);
     assert.deepEqual(telemetryFrames(c), []);
 
     // The real session still gets its own telemetry afterwards.

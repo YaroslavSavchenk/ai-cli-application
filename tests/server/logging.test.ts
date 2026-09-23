@@ -28,7 +28,6 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -36,7 +35,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createLogger,
@@ -83,10 +81,11 @@ import {
   wsUrl,
   WsClient,
   type TestServer,
+  makeTempDirSync,
 } from '../helpers/helpers.ts';
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'ai-sm-log-'));
+  return makeTempDirSync('ai-sm-log-');
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +384,7 @@ test('boot banner: AI_SM_GITHUB_API_BASE with userinfo is redacted even as the s
   // The brief's exact case. This value ALSO makes the server refuse to start
   // (assertLoopbackApiBase), and the banner runs before that refusal — so the
   // redaction has to hold on the one path where the value is known-hostile.
-  const root = mkdtempSync(join(tmpdir(), 'ai-sm-log-refuse-'));
+  const root = makeTempDirSync('ai-sm-log-refuse-');
   const dataDir = join(root, 'data');
   try {
     const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {
@@ -416,7 +415,7 @@ test('boot banner: AI_SM_GITHUB_API_BASE with userinfo is redacted even as the s
     assert.ok(!log.includes('PWCANARY9'), 'the password appears NOWHERE in server.log');
     assert.ok(!stderr.includes('PWCANARY9'), 'nor on stderr');
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -1178,7 +1177,7 @@ test('history prune writes ONE summary line per list, not one per surviving entr
   // refresh regression fully restored. Verified by mutation: re-adding
   //   if (verdict === 'keep') this.#hlog('debug', `prune check ... keep ...`)
   // to server/history.ts leaves an unseeded version of this test green.
-  const root = mkdtempSync(join(tmpdir(), 'ai-sm-log-prune-'));
+  const root = makeTempDirSync('ai-sm-log-prune-');
   const dataDir = join(root, 'data');
   const claudeConfigDir = join(root, 'claude-config');
   const workDir = join(root, 'work');
@@ -1265,7 +1264,7 @@ test('history prune writes ONE summary line per list, not one per surviving entr
       await server.stop();
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 

@@ -10,8 +10,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   isDistroName,
@@ -21,7 +20,7 @@ import {
   windowsPathForClipboard,
 } from '../../server/winpath.ts';
 import type { FsWinPathResponse, Project } from '../../shared/protocol.ts';
-import { api, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import { api, startTestServer, type TestServer, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 const DISTRO = 'Ubuntu-24.04';
 
@@ -206,7 +205,7 @@ let outside: string;
 const winFor = (path: string): string => `\\\\wsl.localhost\\${DISTRO}${path.replace(/\//g, '\\')}`;
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-winpath-')));
+  root = await realpath(await makeTempDir('ai-sm-winpath-'));
   home = join(root, 'home');
   outside = join(root, 'outside');
   await mkdir(join(home, 'work'), { recursive: true });
@@ -227,7 +226,7 @@ before(async () => {
 after(async () => {
   if (server !== undefined) await server.stop();
   if (noDistro !== undefined) await noDistro.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 const winpath = (target: TestServer, path: string): Promise<{ status: number; body: unknown }> =>

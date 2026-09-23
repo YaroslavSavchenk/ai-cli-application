@@ -32,6 +32,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot } from '../helpers/helpers.ts';
+import { withoutComments as code } from '../helpers/source-scan.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
@@ -45,8 +46,6 @@ const APP_CSS = read(join(STYLES, 'app.css'));
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 
 /** Source with comments removed — a comment may DISCUSS what code may not do. */
-const code = (src: string): string =>
-  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 const PANES_CODE = code(PANES);
 const AGENTS_CODE = code(AGENTS);

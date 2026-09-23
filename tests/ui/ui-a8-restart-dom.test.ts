@@ -37,7 +37,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import type { SessionInfo, UpdateStatus } from '../../shared/protocol.ts';
-import { byClass, dispatch, installDom, type FakeElement } from '../helpers/fake-dom.ts';
+import { byClass, dispatch, installDom, type FakeElement, oneByClass as one } from '../helpers/fake-dom.ts';
 
 const dom = installDom();
 
@@ -167,11 +167,6 @@ const scrim = modalHost.children[modalHost.children.length - 1] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
 const toast = modalHost.children[modalHost.children.length - 2] as FakeElement;
 
-const one = (root: FakeElement, cls: string): FakeElement => {
-  const hit = byClass(root, cls)[0];
-  assert.ok(hit !== undefined, `no .${cls}`);
-  return hit;
-};
 const texts = (cls: string): string[] => byClass(modal, cls).map((n) => n.textContent);
 /** The footer button whose label is this, whatever its state. */
 const btn = (label: string): FakeElement => {

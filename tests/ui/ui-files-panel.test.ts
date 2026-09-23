@@ -37,9 +37,6 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import {
   byClass,
@@ -62,6 +59,7 @@ import {
   settle,
   type Changes,
   type Gateway,
+  mkProject as project,
 } from '../helpers/fs-fixture.ts';
 import {
   BRANCH,
@@ -75,6 +73,7 @@ import {
   hashOf,
   pageOf,
 } from '../helpers/commits-fixture.ts';
+import { sleep, readSource } from '../helpers/helpers.ts';
 
 /** The fake backend every test below drives the panel against (`fs-fixture.ts`). */
 const fx = makeFixture();
@@ -84,7 +83,6 @@ const dom = installDom();
 
 // The modules are imported through a computed URL: the server tsconfig must
 // not walk the browser type graph (web/tsconfig.json owns that).
-const here = dirname(fileURLToPath(import.meta.url));
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 const M = (await import(new URL('../../web/src/ui/files-model.ts', import.meta.url).href)) as ModelModule;
@@ -287,10 +285,6 @@ function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
     attention: false,
     ...over,
   } as SessionInfo;
-}
-
-function project(id: string, name: string): Project {
-  return { id, name, path: `/work/${name}`, createdAt: new Date().toISOString() } as Project;
 }
 
 /**
@@ -1045,7 +1039,7 @@ test('a dead focused pane does not blank the header — it names what is left, o
   assert.equal(st.filesPanelVisible(), true, 'the panel survives the last session');
   assert.equal(textsOf(root, 'files-proj')[0], 'Home');
 
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'files.ts');
   // A11 turned the lookup into one `subject()` the header and `repoKnown()`
   // both read; the constant it falls back to is still the guard here.
   assert.match(src, /name: 'Home', home: true/);
@@ -1064,7 +1058,7 @@ test('nothing in the tree pulses: no source says which files a session is touchi
     [],
     'a guessed pulse would be the panel inventing what a session is doing',
   );
-  const app = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const app = readSource('web', 'src', 'styles', 'app.css');
   assert.match(app, /\.files-row\.is-busy \{/, 'the hook survives for whenever the source arrives');
 });
 
@@ -1224,7 +1218,7 @@ test('a file row is a pointer drag source — and says so, naming its keyboard t
   assert.equal(anyFileSlot(), false, 'a drag onto nothing opens nothing');
   // ui/dnd.ts swallows the click that a finished drag would otherwise fire,
   // for 80ms of REAL time. Wait it out, or the next test's click is eaten.
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 });
 
 test('ctrl+alt+enter on a focused row splits the focused pane — the twin of the edge drop', async () => {
@@ -1450,7 +1444,7 @@ test('no honesty line is left in the panel at all — every tab is real (B3)', a
   await settle();
   assert.deepEqual(textsOf(root, 'files-note'), []);
 
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'files.ts');
   for (const dead of ['placeholderNote', 'Example data', 'files-mock', 'MOCK_COMMITS']) {
     assert.equal(src.includes(dead), false, `${dead} died with part B3`);
   }
@@ -2387,7 +2381,7 @@ test('a long abbreviation (core.abbrev) never widens the panel — the row clips
   const row = byClass(root, 'commit-row')[0] as FakeElement;
   assert.equal(textsOf(row, 'commit-hash')[0], (SUMMARIES[0] as { hash: string }).hash);
   assert.equal(byClass(row, 'files-num').length, 2, 'both numbers are still drawn');
-  const app = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const app = readSource('web', 'src', 'styles', 'app.css');
   const rule = app.slice(app.indexOf('.commit-hash {'), app.indexOf('}', app.indexOf('.commit-hash {')));
   assert.match(rule, /max-width:/, 'the chip has a ceiling');
   assert.match(rule, /text-overflow: ellipsis;/, 'and a cut hash SHOWS that it is cut');
@@ -2423,7 +2417,7 @@ test('every class the Commits tab renders has a rule in app.css (a typo is an in
   collect(); // an empty repository
 
   assert.ok(seen.size > 10, `non-vacuity: ${seen.size} classes were collected`);
-  const css = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const css = readSource('web', 'src', 'styles', 'app.css');
   const missing = [...seen].filter((c) => !css.includes(`.${c}`)).sort();
   assert.deepEqual(missing, [], `classes with no rule in app.css: ${missing.join(', ')}`);
 });
@@ -2442,13 +2436,13 @@ test('a rebuild keeps the keyboard where it was (folder rows are re-created whol
 // The shell wiring (web/src/main.ts), read from the source
 // ---------------------------------------------------------------------------
 
-const MAIN = readFileSync(join(here, '..', '..', 'web', 'src', 'main.ts'), 'utf8');
+const MAIN = readSource('web', 'src', 'main.ts');
 
 test('the panel knows no absolute path of its own: home is LEARNED from the first listing', () => {
   // The one request with no path at all is what teaches the app where home is
   // (§4a). A panel that guessed instead would be right on this machine and
   // wrong on the next one, and nothing on screen would say which.
-  const src = readFileSync(join(here, '../../web/src/ui/files.ts'), 'utf8');
+  const src = readSource('web/src/ui/files.ts');
   assert.match(src, /fs\.entries\(\)\s*\n\s*\.then/, 'the home probe carries no path');
   // The prose says `/home/...` where it explains the rule, so the check is on
   // the CODE: a string literal is what a guess would have to be written as.
@@ -2481,7 +2475,7 @@ test('main.ts constructs the panel — on the aside it just created', () => {
     'the client functions are handed over by name',
   );
   assert.match(MAIN, /setCommitGateway\(fsGateway\);/, 'and the commit store gets the same one');
-  const files = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
+  const files = readSource('web', 'src', 'ui', 'files.ts');
   assert.equal(
     /from '\.\.\/api\.ts'/.test(files),
     false,
@@ -2603,9 +2597,9 @@ test('every colour family the model can emit is defined in tokens.css and mapped
   // The classifier only NAMES a family; `--badge-<kind>-fg` and the
   // `[data-kind]` rule are what colour the icon. A kind added or renamed on
   // one side only renders a grey glyph, which no DOM test can see.
-  const model = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files-model.ts'), 'utf8');
-  const tokens = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'tokens.css'), 'utf8');
-  const app = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const model = readSource('web', 'src', 'ui', 'files-model.ts');
+  const tokens = readSource('web', 'src', 'styles', 'tokens.css');
+  const app = readSource('web', 'src', 'styles', 'app.css');
   const list = model.slice(model.indexOf('export const BADGE_KINDS = ['), model.indexOf('] as const;'));
   const kinds = new Set(Array.from(list.matchAll(/'([a-z]+)'/g), (m) => m[1] as string));
   assert.ok(kinds.size >= 13, `non-vacuity: found ${kinds.size} families in files-model.ts`);
@@ -2889,13 +2883,13 @@ test('every row state has a rule, and every rule has a setter (class parity)', (
   // A class with no rule paints nothing and no DOM test can see it; a rule
   // with no setter is dead CSS the next reader trusts. Part B2 adds `is-state`
   // and `is-err` to this vocabulary.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
-  const app = readFileSync(join(here, '..', '..', 'web', 'src', 'styles', 'app.css'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'files.ts');
+  const app = readSource('web', 'src', 'styles', 'app.css');
   // Two other modules put a class on a row of this panel: the drop layer
   // lights the folder under the pointer (`is-drop`), and the in-app drag
   // recedes the row it picked up (`is-dragging`).
-  const drop = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'filedrop.ts'), 'utf8');
-  const dnd = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'dnd.ts'), 'utf8');
+  const drop = readSource('web', 'src', 'ui', 'filedrop.ts');
+  const dnd = readSource('web', 'src', 'ui', 'dnd.ts');
   const all = `${src}\n${drop}\n${dnd}`;
 
   /** The `is-*` states a `.files-row` can wear, by the rules that style them. */
@@ -2937,9 +2931,9 @@ test('every row state has a rule, and every rule has a setter (class parity)', (
 test('every sentence the panel can print follows the copy rules', () => {
   // A scan over the strings part B2 added, in the module that prints them:
   // no path, no flag, no command, no key name, and a full stop on a sentence.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'files.ts'), 'utf8');
-  const fsModel = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'fs-model.ts'), 'utf8');
-  const commitModel = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'commit-model.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'files.ts');
+  const fsModel = readSource('web', 'src', 'ui', 'fs-model.ts');
+  const commitModel = readSource('web', 'src', 'ui', 'commit-model.ts');
   const sentences = [
     'The app could not reach the service.',
     'Loading…',

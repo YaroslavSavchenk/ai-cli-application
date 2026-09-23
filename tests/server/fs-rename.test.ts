@@ -26,7 +26,6 @@ import fsp, {
   link,
   lstat,
   mkdir,
-  mkdtemp,
   readdir,
   readFile,
   readlink,
@@ -38,7 +37,6 @@ import fsp, {
 } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '../../shared/protocol.ts';
 import {
@@ -53,7 +51,17 @@ import {
   renameErrorFor,
 } from '../../server/fsrename.ts';
 import { FS_PROTECT_UNAVAILABLE, protectedSetFor, resetProtectedSetCache, type ProtectedSet } from '../../server/fsprotect.ts';
-import { api, rawRequest, readServerLog, startTestServer, waitForLog, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  rawRequest,
+  readServerLog,
+  startTestServer,
+  waitForLog,
+  type TestServer,
+  SKIP_IF_ROOT,
+  makeTempDir,
+  removeTempDir,
+} from '../helpers/helpers.ts';
 
 let server: TestServer;
 let root: string;
@@ -72,7 +80,7 @@ const PATH_BAD = 'The app cannot open that folder.';
 const ALREADY_EXISTS = 'Something with that name already exists here.';
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsren-')));
+  root = await realpath(await makeTempDir('ai-sm-fsren-'));
   home = join(root, 'home');
   evil = join(root, 'homeevil');
   outside = join(root, 'outside');
@@ -88,7 +96,7 @@ after(async () => {
   if (server !== undefined) await server.stop();
   if (root !== undefined) {
     await chmod(join(home, 'readonly'), 0o700).catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
+    await removeTempDir(root);
   }
 });
 
@@ -422,7 +430,7 @@ test('the data dir, a child of it, and a rename ONTO its name are refused', asyn
 });
 
 test('a folder CONTAINING a nested custom data dir is refused', async () => {
-  const nestRoot = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsren2-')));
+  const nestRoot = await realpath(await makeTempDir('ai-sm-fsren2-'));
   const nestHome = join(nestRoot, 'home');
   const nestData = join(nestHome, 'dd', 'data');
   await mkdir(join(nestHome, 'dd'), { recursive: true });
@@ -449,7 +457,7 @@ test('a folder CONTAINING a nested custom data dir is refused', async () => {
     assert.equal((await ask(join(nestHome, 'other'), 'other2')).status, 200);
   } finally {
     await second.stop();
-    await rm(nestRoot, { recursive: true, force: true });
+    await removeTempDir(nestRoot);
   }
 });
 
@@ -477,7 +485,7 @@ test('a path outside home and every project is the outside-home refusal', async 
   assert.ok(existsSync(join(evil, 'x.txt')));
 });
 
-test('an unwritable parent is a 403 with the RENAME sentence', { skip: process.getuid?.() === 0 ? 'running as root' : false }, async () => {
+test('an unwritable parent is a 403 with the RENAME sentence', { skip: SKIP_IF_ROOT }, async () => {
   const ro = join(home, 'readonly');
   await mkdir(ro);
   await writeFile(join(ro, 'locked.txt'), 'L\n');
@@ -603,7 +611,7 @@ test('a project registered THROUGH a symlink: the link and a symlinked ancestor 
 });
 
 test('a data dir CONFIGURED through a symlink: the link holding it is refused', async () => {
-  const nestRoot = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsren3-')));
+  const nestRoot = await realpath(await makeTempDir('ai-sm-fsren3-'));
   const nestHome = join(nestRoot, 'home');
   const realDd = join(nestHome, 'real-dd');
   await mkdir(realDd, { recursive: true });
@@ -619,7 +627,7 @@ test('a data dir CONFIGURED through a symlink: the link holding it is refused', 
     assert.ok(existsSync(join(ddlink, 'data', 'runtime.json')), 'the configured path still reaches the data dir');
   } finally {
     await second.stop();
-    await rm(nestRoot, { recursive: true, force: true });
+    await removeTempDir(nestRoot);
   }
 });
 
@@ -650,7 +658,7 @@ test('P10: a link deeper in a stored project chain, and the folder it sits in, a
 
 test('P12: a link deeper in the CONFIGURED data dir chain is refused as the data dir', async () => {
   // AI_SM_DATA_DIR=<home>/x/dl/data, `x -> y`, `y/dl -> z`.
-  const nestRoot = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsren4-')));
+  const nestRoot = await realpath(await makeTempDir('ai-sm-fsren4-'));
   const nestHome = join(nestRoot, 'home');
   const y = join(nestHome, 'y');
   const z = join(nestHome, 'z');
@@ -677,7 +685,7 @@ test('P12: a link deeper in the CONFIGURED data dir chain is refused as the data
     assert.ok(existsSync(join(nestHome, 'x', 'dl', 'data', 'runtime.json')), 'the configured path still works');
   } finally {
     await second.stop();
-    await rm(nestRoot, { recursive: true, force: true });
+    await removeTempDir(nestRoot);
   }
 });
 
@@ -855,7 +863,7 @@ test('STALE set: a link on an UNNORMALISED stored path, asked through a second l
 test('STALE set: the data dir configured through links — the link on `lex`, and the real folder holding it', async () => {
   // AI_SM_DATA_DIR=<nh>/seg/../via/ddl/data (unnormalised on purpose),
   // `via -> R`, `R/ddl -> realdd`.
-  const nestRoot = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsren5-')));
+  const nestRoot = await realpath(await makeTempDir('ai-sm-fsren5-'));
   const nh = join(nestRoot, 'home');
   const R = join(nh, 'R');
   const realdd = join(nh, 'realdd');
@@ -886,14 +894,14 @@ test('STALE set: the data dir configured through links — the link on `lex`, an
     assert.ok(existsSync(join(nh, 'via', 'ddl', 'data', 'runtime.json')), 'the configured path still works');
   } finally {
     await second.stop();
-    await rm(nestRoot, { recursive: true, force: true });
+    await removeTempDir(nestRoot);
   }
 });
 
 test('STALE set: the configured data dir link, asked through a second link, is refused by `src`', async () => {
   // AI_SM_DATA_DIR=<nh>/ddl/data, `ddl -> realdd`; asked as `<nh>/back/ddl`
   // with `back -> nh`: only `src` (`<nh>/ddl`) holds the configured path.
-  const nestRoot = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-fsren6-')));
+  const nestRoot = await realpath(await makeTempDir('ai-sm-fsren6-'));
   const nh = join(nestRoot, 'home');
   const realdd = join(nh, 'realdd');
   await mkdir(realdd, { recursive: true });
@@ -909,7 +917,7 @@ test('STALE set: the configured data dir link, asked through a second link, is r
     assert.ok(existsSync(join(nh, 'ddl', 'data', 'runtime.json')));
   } finally {
     await second.stop();
-    await rm(nestRoot, { recursive: true, force: true });
+    await removeTempDir(nestRoot);
   }
 });
 

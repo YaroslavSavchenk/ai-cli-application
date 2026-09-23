@@ -33,11 +33,18 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { api, readServerLog, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  readServerLog,
+  startTestServer,
+  type TestServer,
+  makeTempDir,
+  removeTempDir,
+} from '../helpers/helpers.ts';
 import type { GithubRepo, Project } from '../../shared/protocol.ts';
 // The frontend's own (DOM-free) destination + already-cloned logic, imported so
 // ONE test can prove the two layers agree instead of asserting them separately.
@@ -152,7 +159,7 @@ async function resetRecordings(): Promise<void> {
 }
 
 before(async () => {
-  root = await mkdtemp(join(tmpdir(), 'ai-sm-ghclone-'));
+  root = await makeTempDir('ai-sm-ghclone-');
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { mode: 0o700 });
   // Pre-seed github.json so the server boots already CONNECTED (StoredToken shape).
@@ -188,7 +195,7 @@ before(async () => {
 
 after(async () => {
   if (server !== undefined) await server.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 test('a successful clone returns 201, registers the project, and derives the name from the clone url', async () => {

@@ -18,9 +18,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, realpath, rm, rename, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
+import { chmod, mkdir, realpath, rm, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ChangedFile, GitChangesResponse, Project } from '../../shared/protocol.ts';
 import { GIT_READ_FAILED, MAX_CHANGED_FILES, parseNumstatZ, parsePorcelainZ } from '../../server/git.ts';
@@ -31,7 +30,19 @@ import {
   FS_PATH_BAD,
   FS_READ_FAILED,
 } from '../../server/fsbrowse.ts';
-import { api, rawRequest, readServerLog, startTestServer, waitForLog, type TestServer } from '../helpers/helpers.ts';
+import {
+  api,
+  rawRequest,
+  readServerLog,
+  startTestServer,
+  waitForLog,
+  type TestServer,
+  sleep,
+  makeTempDir,
+  removeTempDir,
+  readSource,
+  git,
+} from '../helpers/helpers.ts';
 
 let server: TestServer;
 let fakeServer: TestServer;
@@ -48,17 +59,8 @@ const STDERR_CANARY = 'STDERRCANARY_qz';
 /** A segment of the `?root=` the CLIENT sends: it must reach no log line either. */
 const ROOT_CANARY = 'ROOTCANARY_qz';
 
-/** git, argv only, with an identity of its own so a developer's config cannot break it. */
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(
-    'git',
-    ['-c', 'user.email=t@example.com', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', ...args],
-    { cwd, encoding: 'utf8' },
-  );
-}
-
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-gitch-')));
+  root = await realpath(await makeTempDir('ai-sm-gitch-'));
   home = join(root, 'home');
   repo = join(home, 'repo');
   await mkdir(home);
@@ -165,7 +167,7 @@ before(async () => {
 after(async () => {
   if (server !== undefined) await server.stop();
   if (fakeServer !== undefined) await fakeServer.stop();
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 const changes = (
@@ -490,7 +492,7 @@ test('a git that floods stdout is killed and the request fails — it does not g
   // The chunks already queued behind the SIGKILL keep arriving for a moment;
   // wait past them before counting, or a regression could pass by being read
   // too early.
-  await new Promise((r) => setTimeout(r, 500));
+  await sleep(500);
   const log = await readServerLog(fakeServer);
   assert.match(log, /\[git\] git diff produced more than 2097152 bytes; killed/);
   // ONE capped request = ONE warn line and ONE `killed`. The cap handler used
@@ -566,7 +568,7 @@ test('server/git.ts spawns git by ARGV only: shell false, stderr discarded, no c
   // ever interpolated into a shell string") is about the day a user value
   // enters an argument, and a behavioural test cannot hold a promise about a
   // line that does not exist yet. So the option itself is pinned.
-  const src = readFileSync(new URL('../../server/git.ts', import.meta.url), 'utf8');
+  const src = readSource('server/git.ts');
   assert.match(src, /shell: false/, 'argv, never a shell');
   assert.equal(/shell:\s*true/.test(src), false, 'and no shell anywhere in the module');
   assert.match(src, /GIT_TERMINAL_PROMPT: '0'/, 'a remote can never park a child on a prompt');
@@ -724,7 +726,7 @@ test('the fsmonitor override is `false`, not `true` — pinned in the source, an
   // exactly why a behavioural test cannot hold this line down). A read-only tab
   // that polls every 5 s must start no daemon in the user's repository, so the
   // value is pinned here, with the reason, rather than left to drift.
-  const src = readFileSync(new URL('../../server/git.ts', import.meta.url), 'utf8');
+  const src = readSource('server/git.ts');
   assert.match(src, /GIT_CONFIG_COUNT: '1'/, 'exactly one -c equivalent');
   assert.match(src, /GIT_CONFIG_KEY_0: 'core\.fsmonitor'/, 'and it is core.fsmonitor');
   assert.match(src, /GIT_CONFIG_VALUE_0: 'false'/, 'set to false — never true, never a program');
@@ -752,7 +754,7 @@ test('a changes call never rewrites .git/index — GIT_OPTIONAL_LOCKS=0', async 
   // content does not, which is exactly the state a plain `git status` answers
   // by refreshing the index.
   await writeFile(join(quiet, 'a.txt'), 'a\nb\n');
-  await new Promise((r) => setTimeout(r, 1100)); // past git's racy-timestamp window
+  await sleep(1100); // past git's racy-timestamp window
   const before_ = (await stat(join(quiet, '.git', 'index'))).mtimeMs;
 
   const res = await changes(server, quiet);
@@ -764,7 +766,7 @@ test('a changes call never rewrites .git/index — GIT_OPTIONAL_LOCKS=0', async 
 
   // Non-vacuity: the SAME state, through a plain git, does move it.
   await writeFile(join(quiet, 'a.txt'), 'a\nb\n');
-  await new Promise((r) => setTimeout(r, 1100));
+  await sleep(1100);
   const beforePlain = (await stat(join(quiet, '.git', 'index'))).mtimeMs;
   execFileSync('git', ['status', '--porcelain'], { cwd: quiet, encoding: 'utf8' });
   assert.notEqual(

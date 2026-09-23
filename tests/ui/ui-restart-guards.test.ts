@@ -26,9 +26,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readSource } from '../helpers/helpers.ts';
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -411,10 +409,7 @@ test('a session socket 401 DURING the recovery parks the pane instead of killing
 // call at the source level. It is a stopgap and reads like one; it is not a
 // substitute for `.claude/skills/verify-terminal/SKILL.md`.
 
-const updateSrc = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'src', 'ui', 'update.ts'),
-  'utf8',
-);
+const updateSrc = readSource('web', 'src', 'ui', 'update.ts');
 
 /**
  * The block opened by `header`, up to its own closing brace — identified by

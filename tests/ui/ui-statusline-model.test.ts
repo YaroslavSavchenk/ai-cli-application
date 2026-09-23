@@ -18,7 +18,6 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import {
   DEAD_PREFS_KEYS,
   clampStatusLine,
@@ -31,6 +30,7 @@ import {
   type StatusLineCfg,
 } from '../../web/src/ui/statusline-model.ts';
 import type { SessionInfo } from '../../shared/protocol.ts';
+import { readSource } from '../helpers/helpers.ts';
 
 /** The factory set, transcribed from DEFAULT_CONFIG in server/statusline.mjs. */
 const FACTORY: StatusLineCfg = {
@@ -57,7 +57,7 @@ test('statusLineDefaults() is the factory set (ON: paneBar/model/mode/branch/cos
 test('the factory set matches server/statusline.mjs DEFAULT_CONFIG exactly — the panel and the drawn line must agree', () => {
   // Read from the script itself: the two tables are allowed to move, but only
   // together. A drift here means a toggle shows OFF while the item is drawn.
-  const text = readFileSync(new URL('../../server/statusline.mjs', import.meta.url), 'utf8');
+  const text = readSource('server/statusline.mjs');
   const block = /const DEFAULT_CONFIG = \{([^}]*)\}/.exec(text);
   assert.ok(block !== null, 'DEFAULT_CONFIG must still exist in server/statusline.mjs');
   const fromScript: Record<string, boolean> = {};

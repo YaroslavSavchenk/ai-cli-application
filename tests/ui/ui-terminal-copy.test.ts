@@ -20,12 +20,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readSource } from '../helpers/helpers.ts';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const TERMINAL = readFileSync(join(REPO_ROOT, 'web', 'src', 'ui', 'terminal.ts'), 'utf8');
+const TERMINAL = readSource('web', 'src', 'ui', 'terminal.ts');
 
 /** The body of xterm's custom key handler, up to the ctrl+alt reservation that follows it. */
 function keyHandler(): string {

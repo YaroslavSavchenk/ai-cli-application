@@ -31,15 +31,14 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { byClass, dispatch, installDom, setRect, type FakeElement } from '../helpers/fake-dom.ts';
+import { sleep, readSource, projectRoot, filesUnder } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
-const here = dirname(fileURLToPath(import.meta.url));
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).href)) as DndModule;
 const SL = (await import(new URL('../../web/src/ui/statusline.ts', import.meta.url).href)) as StatuslineModule;
@@ -449,7 +448,7 @@ test('the refusal SAYS why, and the sentence names the way out', () => {
   // The flash lives in the statusline module; what is pinned here is that the
   // drop layer holds exactly one sentence for this case and that it points at
   // the edges.
-  const src = readFileSync(join(here, '..', '..', 'web', 'src', 'ui', 'dnd.ts'), 'utf8');
+  const src = readSource('web', 'src', 'ui', 'dnd.ts');
   const m = /const REJECT_SESSION_CENTRE =\s*\n?\s*'([^']*)'/.exec(src);
   assert.notEqual(m, null, 'the sentence must still be a named constant');
   const text = m?.[1] ?? '';
@@ -683,7 +682,7 @@ test('a finished drag swallows the click that follows it', async () => {
   // `npm run test:ui`, 2026-09-16). Turning the wait into a poll of the same
   // clock the code under test uses removes the race instead of widening it.
   const open = Date.now() + 100;
-  while (Date.now() < open) await new Promise((r) => setTimeout(r, 10));
+  while (Date.now() < open) await sleep(10);
   probe.click();
   assert.equal(clicks, 1);
   probe.remove();
@@ -732,7 +731,7 @@ test('no drop position before Home exists: dragging onto its LEFT edge targets n
   dispatch(dom.body, 'pointerup', { clientX: 5, clientY: 20, pointerId: 12 });
   assert.equal(st.state.views[0]?.id, 'home', 'the fixed first tab is still first');
   assert.equal(st.state.views[1]?.id, 'v1');
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 });
 
 // ===========================================================================
@@ -783,7 +782,7 @@ test('an EDITOR pane cannot be extracted to its own tab, and cannot be moved int
   dispatch(dom.body, 'pointerup', { clientX: 900, clientY: 20, pointerId: 13 });
   assert.equal(st.state.views.length, 2, 'no new tab');
 
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 
   // Onto the Home chip: a move-to-view.
   const target = chipOf('home');
@@ -792,7 +791,7 @@ test('an EDITOR pane cannot be extracted to its own tab, and cannot be moved int
   assert.equal((strip.children[0] as FakeElement).classList.contains('is-drop'), false);
   dispatch(dom.body, 'pointerup', { clientX: target.x, clientY: target.y, pointerId: 14 });
   assert.deepEqual(st.state.views[0]?.slots, [], 'Home did not take the file');
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 });
 
 test('a SESSION pane still extracts to its own tab — and never before Home', async () => {
@@ -815,7 +814,7 @@ test('a SESSION pane still extracts to its own tab — and never before Home', a
   dispatch(dom.body, 'pointerup', { clientX: 900, clientY: 20, pointerId: 15 });
   assert.equal(st.state.views.length, 3);
   assert.equal(st.state.views[0]?.id, 'home', 'Home is untouched at the front');
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 });
 
 // ===========================================================================
@@ -847,7 +846,7 @@ test('a file dropped on the EMPTY pane area of Home opens there, and the BOX lig
 
   assert.deepEqual(shapeOf(st.state.views[0] ?? null), ['*web/src/Pane.tsx']);
   assert.equal(st.state.activeViewId, 'home');
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 });
 
 test('a TAB dropped on the EMPTY pane area of Home merges its panes into Home', async () => {
@@ -873,7 +872,7 @@ test('a TAB dropped on the EMPTY pane area of Home merges its panes into Home', 
     { kind: 'session', id: 's2' },
   ]);
   assert.equal(st.state.views.length, 1, 'the source tab was absorbed');
-  await new Promise((r) => setTimeout(r, 90));
+  await sleep(90);
 });
 
 // ===========================================================================
@@ -1142,16 +1141,8 @@ test('no `draggable` attribute exists anywhere in web/src — in-app drags are p
   // The window's own dragover/drop belongs to REAL files dragged in from
   // Explorer (parts A9/B10). An in-app source that opted into HTML5 DnD would
   // fire those handlers with nothing useful in the DataTransfer.
-  const root = join(here, '..', '..', 'web', 'src');
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (/\.(ts|html|css)$/.test(e.name)) files.push(full);
-    }
-  };
-  walk(root);
+  const root = join(projectRoot, 'web', 'src');
+  const files = filesUnder(root, /\.(ts|html|css)$/);
   assert.ok(files.length >= 20, `non-vacuity: scanned ${files.length} files`);
   // The ATTRIBUTE, not the English word: the two files that explain why there
   // is no HTML5 drag channel say `draggable` in prose, and must keep saying it.

@@ -31,8 +31,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
@@ -44,6 +43,9 @@ import {
   startTestServer,
   waitUntil,
   type TestServer,
+  sleep,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 /**
@@ -193,7 +195,7 @@ const hupLeaderTerm = (): string => join(binDir, 'hup-leader-term-child');
 const ladderBackend = (): string => join(root, 'ladder-exit-backend.ts');
 
 before(async () => {
-  root = await realpath(await mkdtemp(join(tmpdir(), 'ai-sm-kill-')));
+  root = await realpath(await makeTempDir('ai-sm-kill-'));
   binDir = join(root, 'bin');
   workDir = join(root, 'work');
   pidDir = join(root, 'pids');
@@ -225,7 +227,7 @@ after(async () => {
       }
     }
   }
-  if (root !== undefined) await rm(root, { recursive: true, force: true });
+  if (root !== undefined) await removeTempDir(root);
 });
 
 function pidFile(): string {
@@ -279,8 +281,6 @@ async function waitAllGone(pids: number[], what: string, timeoutMs: number): Pro
   );
   for (const p of pids) leftovers.delete(p);
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
 // T1-T3: DELETE /api/sessions/:id, through the real server
@@ -428,7 +428,7 @@ interface Harness {
  * function), and is restored by cleanup().
  */
 async function harness(): Promise<Harness> {
-  const dir = await mkdtemp(join(tmpdir(), 'ai-sm-killh-'));
+  const dir = await makeTempDir('ai-sm-killh-');
   const lines: string[] = [];
   const log = (level: LogLevel, message: string): void => {
     lines.push(`${level} ${message}`);
@@ -453,7 +453,7 @@ async function harness(): Promise<Harness> {
     },
     cleanup: async () => {
       process.kill = realKill;
-      await rm(dir, { recursive: true, force: true });
+      await removeTempDir(dir);
     },
   };
 }

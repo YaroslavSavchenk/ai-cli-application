@@ -31,8 +31,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   api,
@@ -41,6 +40,8 @@ import {
   readServerLog,
   startTestServer,
   type TestServer,
+  makeTempDir,
+  removeTempDir,
 } from '../helpers/helpers.ts';
 
 /** Fake token: never a real credential, but treated as one by every assertion. */
@@ -158,7 +159,7 @@ function rawRepo(n: number): Record<string, unknown> {
  * a freshly booted server loads it and starts CONNECTED.
  */
 async function seedConnectedDataDir(prefix: string): Promise<{ root: string; dataDir: string }> {
-  const root = await mkdtemp(join(tmpdir(), prefix));
+  const root = await makeTempDir(prefix);
   const dataDir = join(root, 'data');
   await mkdir(dataDir, { mode: 0o700 });
   await writeFile(
@@ -489,7 +490,7 @@ test('connected POST /api/github/repos: body validation rejects BEFORE any call 
 test('connected POST /api/github/clone: the github.com host-lock still holds — AI_SM_GITHUB_API_BASE does NOT loosen it', async () => {
   stub.reset();
   stub.handler = () => ({ status: 200, body: { message: 'must not be reached' } });
-  const work = await mkdtemp(join(tmpdir(), 'ai-sm-ghc-clonelock-'));
+  const work = await makeTempDir('ai-sm-ghc-clonelock-');
   try {
     const bad = [
       stub.origin + '/o/r.git', // the overridden API base itself is NOT a clone target
@@ -519,12 +520,12 @@ test('connected POST /api/github/clone: the github.com host-lock still holds —
       'a refused clone never registers a project',
     );
   } finally {
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(work);
   }
 });
 
 test('connected POST /api/github/clone: dest rules refuse before git is ever spawned (400 relative / 400 missing parent / 409 non-empty)', async () => {
-  const work = await mkdtemp(join(tmpdir(), 'ai-sm-ghc-clonedest-'));
+  const work = await makeTempDir('ai-sm-ghc-clonedest-');
   try {
     const url = 'https://github.com/octocat/hello.git';
     assert.equal(
@@ -561,7 +562,7 @@ test('connected POST /api/github/clone: dest rules refuse before git is ever spa
       'a refused clone never registers a project',
     );
   } finally {
-    await rm(work, { recursive: true, force: true });
+    await removeTempDir(work);
   }
 });
 
@@ -716,7 +717,7 @@ test('AI_SM_GITHUB_API_BASE unset/empty: unchanged default behaviour (api.github
 async function expectRefusedStart(
   apiBase: string,
 ): Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr: string; dataDir: string; root: string }> {
-  const root = await mkdtemp(join(tmpdir(), 'ai-sm-ghc-refuse-'));
+  const root = await makeTempDir('ai-sm-ghc-refuse-');
   const dataDir = join(root, 'data');
   const child = spawn(process.execPath, [join(projectRoot, 'server', 'index.ts')], {
     cwd: projectRoot,

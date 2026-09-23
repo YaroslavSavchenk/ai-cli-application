@@ -26,7 +26,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSource } from '../helpers/helpers.ts';
 
 const issPath = join(projectRoot, 'installer', 'ai-session-manager.iss');
 const iss = readFileSync(issPath, 'utf8');
@@ -98,9 +98,9 @@ test('installer: there is no [Run] section - Setup starts nothing at the end', (
 
 test('installer: AppUserModelID is byte-identical in the .iss, the host source and make-shortcut.ps1', () => {
   const fromIss = /^#define AumId "([^"]+)"$/m.exec(iss)?.[1];
-  const cs = readFileSync(join(projectRoot, 'launcher', 'host', 'AiSessionManagerHost.cs'), 'utf8');
+  const cs = readSource('launcher', 'host', 'AiSessionManagerHost.cs');
   const fromCs = /private const string AppUserModelId = "([^"]+)";/.exec(cs)?.[1];
-  const ps1 = readFileSync(join(projectRoot, 'launcher', 'make-shortcut.ps1'), 'utf8');
+  const ps1 = readSource('launcher', 'make-shortcut.ps1');
   const fromPs1 = /^\$AppUserModelId = '([^']+)'$/m.exec(ps1)?.[1];
 
   assert.equal(fromIss, 'AiSessionManager');

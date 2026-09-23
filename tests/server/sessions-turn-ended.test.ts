@@ -21,8 +21,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { ServerMessage, SessionInfo } from '../../shared/protocol.ts';
@@ -36,9 +35,7 @@ import { GithubConnection } from '../../server/github.ts';
 import { LifecycleController } from '../../server/lifecycle.ts';
 import { createRequestHandler } from '../../server/api.ts';
 import { createUpgradeHandler } from '../../server/ws.ts';
-import { WsClient, removeTempDir, waitUntil } from '../helpers/helpers.ts';
-
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+import { WsClient, removeTempDir, waitUntil, sleep, makeTempDirSync } from '../helpers/helpers.ts';
 
 /** SessionManager only touches readyState/OPEN, send() and on('close'). */
 class FakeClient {
@@ -83,7 +80,7 @@ async function settleAndRemove(m: SessionManager, logs: string[], dir: string): 
 async function withManager(
   fn: (m: SessionManager, root: string, logs: string[]) => Promise<void>,
 ): Promise<void> {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-turn-ended-')));
+  const root = realpathSync(makeTempDirSync('ai-sm-turn-ended-'));
   const logs: string[] = [];
   const log: Logger = (level, message) => logs.push(`${level}: ${message}`);
   const history = new SessionHistory(join(root, 'history.json'), log);
@@ -199,7 +196,7 @@ test('C1 turnEnded: the turn going back to working clears it and pendingSince; t
     assert.equal('turnEnded' in (m.get(info.id) as SessionInfo), false, 'absent, not false');
 
     // The next end of turn is news again, with a NEW stamp.
-    await delay(5);
+    await sleep(5);
     m.setReport(info.id, turn('waiting'));
     assert.equal(m.get(info.id)?.turnEnded, true);
     assert.ok((m.get(info.id)?.pendingSince as string) > (stamped as string), 'a fresh pending gets a fresh stamp');
@@ -256,12 +253,12 @@ test('C1 pendingSince: BEL stamps it, a turn ending later KEEPS it, working keep
     assert.ok(Date.parse(stamped as string) >= t0);
 
     // A second bell: already pending — the stamp does not move.
-    await delay(5);
+    await sleep(5);
     await ringBell(m, info.id, client);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'a second BEL keeps the stamp');
 
     // The turn ends: turnEnded joins, the ORDER key stays the oldest.
-    await delay(5);
+    await sleep(5);
     m.setReport(info.id, turn('waiting'));
     assert.equal(m.get(info.id)?.turnEnded, true);
     assert.equal(m.get(info.id)?.pendingSince, stamped, 'already pending: kept, not re-stamped');
@@ -295,7 +292,7 @@ test('C1 pendingSince: a turn ending first stamps it; a BEL after keeps it', asy
     m.setReport(info.id, turn('waiting'));
     const stamped = m.get(info.id)?.pendingSince;
     assert.ok(isIso(stamped));
-    await delay(5);
+    await sleep(5);
     await ringBell(m, info.id, client);
     assert.equal(m.get(info.id)?.pendingSince, stamped);
   });
@@ -387,7 +384,7 @@ test('C1 exit: turnEnded held past an unknown turn still goes in ONE info frame 
 // ---------------------------------------------------------------------------
 
 test('C1 served + seen paths: /mascot.html carries the token like index.html; POST /seen and WS {type:"seen"} clear attention and KEEP turnEnded + pendingSince', async () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ai-sm-turn-ended-http-')));
+  const dir = realpathSync(makeTempDirSync('ai-sm-turn-ended-http-'));
   const logs: string[] = [];
   const log: Logger = (level, message) => logs.push(`${level}: ${message}`);
   const token = 'c'.repeat(64);
