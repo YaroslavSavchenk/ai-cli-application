@@ -53,6 +53,14 @@ clips drawing and clicks.
 - With `ShouldDetectMonitorScaleChanges` left on, a DPI-unaware host gets
   the monitor scale as its rasterization scale. Pin it to the host's own
   scale (1.0 here).
+- **Visual hosting brings its own trap:** msedgewebview2 creates a
+  TOP-LEVEL `Chrome_WidgetWin_1` at the controller's bounds. It is layered
+  with alpha 0, NOACTIVATE, not topmost and WITHOUT `WS_EX_TRANSPARENT`, so
+  it swallows clicks for every window below it in that rect (open bug
+  WebView2Feedback #5668). The host ORs `WS_EX_TRANSPARENT` into exactly
+  that window: the browser pid, the class, LAYERED+NOACTIVATE and the
+  bounds must all match. It is found by a `probe.ps1`-style z-order dump,
+  not by looking at the screen.
 - The probe technique itself (a known-colour backdrop, then a screen
   `BitBlt`, then pixel classes) is reusable for any "is this window really
   transparent" question. Without `CAPTUREBLT`,

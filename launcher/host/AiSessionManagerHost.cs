@@ -968,6 +968,20 @@ namespace AiSessionManager
         // mouse input it needs and applies its cursor
         // (MascotOverlayForm.WndProc).
         //
+        // ONE STRAY WINDOW (WebView2Feedback #5668, no fix upstream): under
+        // visual hosting the browser process still makes a top-level
+        // Chrome_WidgetWin_1 of its own at the overlay's exact bounds - layered
+        // with alpha 0, NOACTIVATE, no owner, not topmost - WITHOUT
+        // WS_EX_TRANSPARENT, so it still hit-tests: an invisible 220 x 340
+        // dead zone over everything below it in z-order (the desktop at
+        // least), where a click lands nowhere. The host ORs WS_EX_TRANSPARENT
+        // into exactly that window (MakeStrayInputWindowClickThrough), after
+        // the controller exists and again on every count message, in case
+        // Chromium makes it anew. Hit-testing is all that changes: the page's
+        // input comes through SendMouseInput anyway, and the window is never
+        // hidden or moved (Chromium may take a hidden one as occluded and stop
+        // rendering).
+        //
         // The page tells the host what to show; the host decides nothing else.
         // Two strings, both JSON, both matched WHOLE against the exact shape
         // JSON.stringify gives them on the page (web/src/mascot/feed.ts), key
@@ -1053,6 +1067,9 @@ namespace AiSessionManager
         // re-scale the region without waiting for the page.
         private static double[][] _overlayRects;
         private static string _overlayScreenName;
+        // One line each per overlay life: the stray window fixed, or refused.
+        private static bool _strayWindowFixLogged;
+        private static bool _strayWindowFailLogged;
 
         [DllImport("user32.dll")]
         private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
@@ -1137,6 +1154,8 @@ namespace AiSessionManager
 
                 _overlay = overlay;
                 _overlayRects = null;
+                _strayWindowFixLogged = false;
+                _strayWindowFailLogged = false;
 
                 // The handle first, then an EMPTY region, then the place - all
                 // before the first show, so the window never flashes a frame.
@@ -1254,6 +1273,7 @@ namespace AiSessionManager
                 core.WebMessageReceived += OverlayWebView_WebMessageReceived;
                 core.ProcessFailed += OverlayWebView_ProcessFailed;
                 core.Navigate(new Uri(_launchOrigin, MascotPagePath).AbsoluteUri);
+                MakeStrayInputWindowClickThrough();
             }
             catch (Exception ex)
             {
@@ -1348,6 +1368,144 @@ namespace AiSessionManager
                 Log("mascot overlay: its composition objects could not be released ("
                     + ex.GetType().Name + "); non-fatal.");
             }
+        }
+
+        // The stray window (region note, ONE STRAY WINDOW). Found among the
+        // top-level windows of its class and changed only when EVERY test in
+        // IsStrayInputWindow holds: the MAIN window's WebView2 shares the
+        // browser process, and its windows must stay exactly as they are.
+        // SetWindowLongPtr on another process's window of the same integrity
+        // level is allowed for GWL_EXSTYLE. 64-bit entry points: the host is
+        // built /platform:x64 only.
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter,
+            string className, string windowName);
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder className,
+            int maxCount);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+        private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr newLong);
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        private const string StrayInputWindowClass = "Chrome_WidgetWin_1";
+        private const int GwlExStyle = -20;
+        private const long WsExTransparent = 0x00000020;
+        private const long WsExLayered = 0x00080000;
+        private const long WsExNoActivate = 0x08000000;
+        // A bound on the walk, far above any real count of Chromium windows:
+        // a list that changes under the walk can never make it spin.
+        private const int MaxStrayWindowScan = 512;
+
+        // Never throws, never changes anything but that one bit: a failure
+        // logs one line per overlay life and leaves every window as it was.
+        private static void MakeStrayInputWindowClickThrough()
+        {
+            MascotOverlayForm overlay = _overlay;
+            CoreWebView2CompositionController cc = _overlayController;
+            if (overlay == null || overlay.IsDisposed || cc == null)
+            {
+                return;
+            }
+            try
+            {
+                uint browserProcessId = cc.CoreWebView2.BrowserProcessId;
+                Rectangle bounds = overlay.Bounds;
+                bool changed = false;
+                bool refused = false;
+                IntPtr hwnd = IntPtr.Zero;
+                for (int i = 0; i < MaxStrayWindowScan; i++)
+                {
+                    hwnd = FindWindowEx(IntPtr.Zero, hwnd, StrayInputWindowClass, null);
+                    if (hwnd == IntPtr.Zero)
+                    {
+                        break;
+                    }
+                    if (!IsStrayInputWindow(hwnd, browserProcessId, bounds))
+                    {
+                        continue;
+                    }
+                    long exStyle = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+                    if ((exStyle & WsExTransparent) != 0)
+                    {
+                        continue;
+                    }
+                    // The old style is never 0 here (LAYERED is in it), so a 0
+                    // answer can only mean the call was refused.
+                    if (SetWindowLongPtr(hwnd, GwlExStyle, new IntPtr(exStyle | WsExTransparent))
+                        == IntPtr.Zero)
+                    {
+                        refused = true;
+                    }
+                    else
+                    {
+                        changed = true;
+                    }
+                }
+                if (changed && !_strayWindowFixLogged)
+                {
+                    _strayWindowFixLogged = true;
+                    Log("mascot overlay: WebView2's Chrome_WidgetWin_1 window made click-through.");
+                }
+                if (refused && !_strayWindowFailLogged)
+                {
+                    _strayWindowFailLogged = true;
+                    Log("mascot overlay: WebView2's Chrome_WidgetWin_1 window refused click-through; non-fatal.");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!_strayWindowFailLogged)
+                {
+                    _strayWindowFailLogged = true;
+                    Log("mascot overlay: WebView2's Chrome_WidgetWin_1 window could not be checked ("
+                        + ex.GetType().Name + "); non-fatal.");
+                }
+            }
+        }
+
+        // ALL of: the overlay's browser process, the class exactly (FindWindowEx
+        // compares it case-blind), LAYERED and NOACTIVATE, and the overlay's
+        // bounds to the pixel.
+        private static bool IsStrayInputWindow(IntPtr hwnd, uint browserProcessId, Rectangle bounds)
+        {
+            uint processId;
+            GetWindowThreadProcessId(hwnd, out processId);
+            if (processId == 0 || processId != browserProcessId)
+            {
+                return false;
+            }
+            System.Text.StringBuilder className = new System.Text.StringBuilder(64);
+            if (GetClassName(hwnd, className, className.Capacity) == 0
+                || !string.Equals(className.ToString(), StrayInputWindowClass, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            long exStyle = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+            if ((exStyle & WsExLayered) == 0 || (exStyle & WsExNoActivate) == 0)
+            {
+                return false;
+            }
+            NativeRect r;
+            if (!GetWindowRect(hwnd, out r))
+            {
+                return false;
+            }
+            return r.Left == bounds.Left && r.Top == bounds.Top
+                && r.Right == bounds.Right && r.Bottom == bounds.Bottom;
         }
 
         // The overlay's page: the exact launch origin AND /mascot.html AND no
@@ -1605,6 +1763,9 @@ namespace AiSessionManager
 
         private static void HandleMascotCount(Match m)
         {
+            // Every count, 0 included: the stray window blocks clicks whether
+            // a mascot shows or not.
+            MakeStrayInputWindowClickThrough();
             int count = m.Groups["count"].Value[0] - '0';
             if (count == 0)
             {

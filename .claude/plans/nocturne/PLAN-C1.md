@@ -285,3 +285,18 @@ Additions made while building the fix (2026-09-26, reviewed):
    window); it reads no environment variable and takes no path. The
    installed app and a clone launch on the default data dir are unchanged.
    The dev command is in `launcher/README.md`.
+8. **A stray input window made click-through.** Found in the DEV run.
+   Visual hosting makes msedgewebview2 create a top-level
+   `Chrome_WidgetWin_1` at the overlay's bounds. It is layered, alpha 0,
+   NOACTIVATE, not topmost, and has NO `WS_EX_TRANSPARENT`, so it swallowed
+   clicks for every window below it in that 220 x 340 rect: open bug
+   https://github.com/MicrosoftEdge/WebView2Feedback/issues/5668. After the
+   controller exists, and on every count message, the host ORs
+   `WS_EX_TRANSPARENT` into exactly the window that is ALL of:
+   - owned by the overlay's browser process;
+   - of the class `Chrome_WidgetWin_1`, compared ordinally;
+   - LAYERED and NOACTIVATE;
+   - at the overlay's exact bounds.
+
+   It never hides or moves the window. The four conditions are pinned by
+   `tests/release/host-overlay-stray.test.ts`.
