@@ -15,8 +15,16 @@
  *      reads the session's OWN transcript, `<transcript dir>/<session id>.jsonl`
  *      (derived from the tracked directory, never taken from the snapshot
  *      again), and folds its lines into a turn verdict — 'working' or
- *      'waiting' (turnOfLine()). Same boundary, same open discipline, same
+ *      'waiting' (foldTurnLine()). Same boundary, same open discipline, same
  *      budgets; only its TAIL is read on first sight.
+ *   5. Nocturne C2 (.claude/plans/nocturne/PLAN-C2.md): the same fold keeps
+ *      the background subagents / workflows the session launched and that
+ *      have not reported back. A turn that ENDED reads 'working' while one of
+ *      them is alive — launched less than STALE_MS ago, or its files written
+ *      less than STALE_MS ago (a subagent: its row here; a workflow run:
+ *      server/agents-workflows.ts). A question to the user reads 'waiting'
+ *      whatever runs. That one verdict is SessionInfo.turn, which
+ *      SessionManager turns into turnEnded (C1).
  *
  * THE PATH IS UNTRUSTED, and so is everything under it. The snapshot lives in
  * the data dir, an ordinary directory any process running as this user can
@@ -52,8 +60,12 @@
  *
  * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the transcript-path
  * boundary (subagentsDirFor) lives in server/agents-path.ts; the pure line
- * fold, wire comparisons and turn verdict in server/agents-fold.ts. Both
- * re-exported here.
+ * fold, wire comparisons and turn verdict in server/agents-fold.ts.
+ * subagentsDirFor and the agent fold / wire comparisons are re-exported here;
+ * the turn fold is not (since C2 its one entry, foldTurnLine, is imported from
+ * server/agents-fold.ts directly). C2 (2026-09-26) added
+ * server/agents-workflows.ts, a workflow run's liveness, which only this
+ * module calls.
  */
 import {
   closeSync,
@@ -73,24 +85,28 @@ import { isUuid } from './conversation.ts';
 import { isUnder } from './fsbrowse.ts';
 import { clean, plainObject } from './sanitise.ts';
 import {
+  AGENT_HEX,
   foldLine,
+  foldTurnLine,
   isoOf,
   newFold,
+  newTurnFold,
   sameReport,
-  turnOfLine,
   type AgentFold,
   type AgentsReport,
+  type TurnFold,
 } from './agents-fold.ts';
 import { pendingSlug } from './agents-path.ts';
+import { checkWorkflows } from './agents-workflows.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
-// of this module keeps its surface.
+// of this module keeps its surface. (C2 made turnOfLine private to the fold:
+// foldTurnLine is its one entry, imported from server/agents-fold.ts.)
 export {
   foldLine,
   newFold,
   sameAgents,
   sameReport,
-  turnOfLine,
   type AgentFold,
   type AgentsReport,
 } from './agents-fold.ts';
@@ -137,6 +153,15 @@ const MAX_META_BYTES = 8 * 1024;
  */
 const STALE_MS = 15 * 60 * 1000;
 
+/**
+ * C2: a launched subagent whose row FINISHED less than this long ago (by its
+ * own end stamp) still counts as alive — its task notification lands a moment
+ * after its last line, and without this the turn would read 'waiting' for the
+ * poll in between (a mascot flash). A killed agent that never notifies costs
+ * only this much.
+ */
+const FINISH_GRACE_MS = 10_000;
+
 /** Most agents tracked per session, newest `.meta.json` by mtime winning. */
 const MAX_AGENTS = 64;
 
@@ -171,10 +196,10 @@ const MAX_TASK = 120;
 
 /**
  * The two filenames Claude Code writes per subagent. The capture group is the
- * ONLY thing ever joined into a path — `^[a-f0-9]{1,32}$` cannot express `..`,
- * a separator or an absolute path.
+ * ONLY thing ever joined into a path — AGENT_HEX (server/agents-fold.ts, the
+ * id shape's one home) cannot express `..`, a separator or an absolute path.
  */
-const META_FILE = /^agent-([a-f0-9]{1,32})\.meta\.json$/;
+const META_FILE = new RegExp(`^agent-(${AGENT_HEX})\\.meta\\.json$`);
 
 // ---------------------------------------------------------------------------
 // The watcher
@@ -208,13 +233,13 @@ interface TurnState {
   offset: number;
   carry: Buffer;
   resyncing: boolean;
-  /** The verdict of the last counting line; undefined = none seen yet. */
-  turn: SessionTurn | undefined;
+  /** What its lines said: the main verdict, a question, the open launches (C2). */
+  fold: TurnFold;
 }
 
 /** A turn state that has read nothing: the next read starts at the tail. */
 function newTurnState(): TurnState {
-  return { offset: -1, carry: Buffer.alloc(0), resyncing: false, turn: undefined };
+  return { offset: -1, carry: Buffer.alloc(0), resyncing: false, fold: newTurnFold() };
 }
 
 interface TrackedAgent {
@@ -247,6 +272,8 @@ interface TrackedSession {
   refusalLogged: boolean;
   /** Same once-only rule for a refused main transcript (B11). */
   mainRefusalLogged: boolean;
+  /** Same once-only rule for a refused workflow run directory (C2). */
+  workflowRefusalLogged: boolean;
 }
 
 /**
@@ -315,6 +342,7 @@ export class AgentsWatcher {
       main: newTurnState(),
       refusalLogged: false,
       mainRefusalLogged: false,
+      workflowRefusalLogged: false,
     });
     // oneLine: the path came from a snapshot file and names directories this
     // process did not create — a newline in it would forge a whole log line.
@@ -374,9 +402,9 @@ export class AgentsWatcher {
     // subagents directory existing (it usually does not: most sessions never
     // spawn a subagent), and it shares this tick's byte budget.
     this.#readMain(id, session, budget);
-    this.#pollAgents(id, session, budget);
+    const dir = this.#pollAgents(id, session, budget);
 
-    const report = this.#report(session);
+    const report = this.#report(id, session, dir);
     if (session.last === undefined && report.agents.length === 0 && report.turn === undefined) {
       return; // Nothing to say yet.
     }
@@ -392,8 +420,12 @@ export class AgentsWatcher {
     }
   }
 
-  /** Refresh the tracked agents from the subagents directory, when it may be read. */
-  #pollAgents(id: string, session: TrackedSession, budget: { left: number }): void {
+  /**
+   * Refresh the tracked agents from the subagents directory, when it may be
+   * read. Returns that directory's real path as checked on THIS poll (C2's
+   * workflow liveness looks under it), or null when it may not be read.
+   */
+  #pollAgents(id: string, session: TrackedSession, budget: { left: number }): string | null {
     // THE BOUNDARY, RE-CHECKED EVERY TICK. subagentsDirFor() only realpath'd
     // the transcript's own directory; the `<uuid>` and `subagents` components
     // were appended AFTER that, and readdirSync/statSync follow every
@@ -403,9 +435,9 @@ export class AgentsWatcher {
     // attached browser. Re-checked per tick rather than once at track(),
     // because the symlink can be planted at any moment afterwards.
     const dir = this.#realDirUnderRoot(id, session);
-    if (dir === null) return;
+    if (dir === null) return null;
     const metas = this.#listMetas(dir);
-    if (metas === null) return; // Directory not created yet: normal, not an error.
+    if (metas === null) return dir; // Directory not created yet: normal, not an error.
 
     // Newest meta files win when there are more agents than we will track.
     metas.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.id < b.id ? -1 : 1));
@@ -447,6 +479,7 @@ export class AgentsWatcher {
       }
       this.#readTranscript(dir, agent, budget);
     }
+    return dir;
   }
 
   /**
@@ -466,7 +499,9 @@ export class AgentsWatcher {
    *
    * States: a file that does not exist (lstat ENOENT — Claude Code creates it
    * at the first prompt) is 'waiting'; a refused or unreadable one has no
-   * verdict; a readable one keeps the verdict of its last counting line.
+   * verdict; a readable one keeps the verdict of its last counting line, and
+   * (C2) the question flag and the launches its lines left open. Any reset
+   * forgets all of it: a shrunk or replaced file is folded again from its tail.
    */
   #readMain(id: string, session: TrackedSession, budget: { left: number }): void {
     const uuidDir = dirname(session.dir);
@@ -492,7 +527,7 @@ export class AgentsWatcher {
       // B11 F1: the slug folder does not exist YET (one missing component
       // directly under the real root) — Claude Code has written nothing, so
       // the session sits at its first prompt. Anything else missing: no turn.
-      if (pendingSlug(dirname(uuidDir), realRoot)) session.main.turn = 'waiting';
+      if (pendingSlug(dirname(uuidDir), realRoot)) session.main.fold.turn = 'waiting';
       return;
     }
     if (!isUnder(realParent, realRoot)) {
@@ -514,7 +549,7 @@ export class AgentsWatcher {
         missing = (err as NodeJS.ErrnoException).code === 'ENOENT';
       }
       this.#resetMain(session);
-      if (missing) session.main.turn = 'waiting';
+      if (missing) session.main.fold.turn = 'waiting';
       return;
     }
     if (realFile !== file) {
@@ -566,10 +601,9 @@ export class AgentsWatcher {
       if (read <= 0) return;
       budget.left -= read;
       state.offset += read;
-      splitLines(state, buffer.subarray(0, read), (line) => {
-        const verdict = turnOfLine(line.toString('utf8'));
-        if (verdict !== undefined) state.turn = verdict;
-      });
+      // C2: the fold dates a launch line without a believable stamp by this.
+      const seenMs = this.#now();
+      splitLines(state, buffer.subarray(0, read), (line) => foldTurnLine(state.fold, line.toString('utf8'), seenMs));
     } catch (err) {
       this.#log('debug', `${id}: transcript read failed: ${describeError(err)}`);
     } finally {
@@ -730,9 +764,10 @@ export class AgentsWatcher {
 
   /**
    * The report this session makes: the rows (B11 (d) list rule), the totals
-   * over every tracked agent, and the main transcript's verdict.
+   * over every tracked agent, and the session verdict (C2, #sessionTurn).
+   * `dir` is the subagents directory as realpath'd on this poll, or null.
    */
-  #report(session: TrackedSession): AgentsReport {
+  #report(id: string, session: TrackedSession, dir: string | null): AgentsReport {
     const now = this.#now();
     const running: SessionAgent[] = [];
     const finished: SessionAgent[] = [];
@@ -754,9 +789,55 @@ export class AgentsWatcher {
       agents,
       counts: { running: running.length, finished: finished.length },
     };
-    const turn = session.main.turn;
+    const turn = this.#sessionTurn(id, session, dir, running, finished, now);
     if (turn !== undefined) report.turn = turn;
     return report;
+  }
+
+  /**
+   * THE SESSION VERDICT (PLAN-C2 § The rule 4): the main verdict, except that
+   * a turn which ENDED — 'waiting', and not because Claude asked a question —
+   * reads 'working' while at least one launch it left open is alive (§ The
+   * rule 3): launched less than STALE_MS ago, or
+   *   - a subagent whose row here is running (not finished, not stale — the
+   *     very rule #row draws; `running` holds every such row, not only the
+   *     ones on the wire), or whose row finished less than FINISH_GRACE_MS
+   *     ago (justFinished),
+   *   - a workflow run with an agent transcript written less than STALE_MS
+   *     ago (server/agents-workflows.ts; looked at last, and only when
+   *     nothing cheaper already said alive).
+   * A question wins over background work: Claude waits for the user.
+   */
+  #sessionTurn(
+    id: string,
+    session: TrackedSession,
+    dir: string | null,
+    running: readonly SessionAgent[],
+    finished: readonly SessionAgent[],
+    now: number,
+  ): SessionTurn | undefined {
+    const { turn, asking, launches } = session.main.fold;
+    if (turn !== 'waiting' || asking || launches.size === 0) return turn;
+    const runs: string[] = [];
+    for (const launch of launches.values()) {
+      if (now - launch.atMs < STALE_MS) return 'working';
+      if (
+        launch.kind === 'agent' &&
+        launch.ref !== '' &&
+        (running.some((row) => row.id === launch.ref) ||
+          finished.some((row) => row.id === launch.ref && justFinished(row, now)))
+      ) {
+        return 'working';
+      }
+      if (launch.kind === 'workflow' && launch.ref !== '') runs.push(launch.ref);
+    }
+    if (dir === null || runs.length === 0) return 'waiting';
+    const check = checkWorkflows(dir, runs, now - STALE_MS);
+    if (check === 'refused' && !session.workflowRefusalLogged) {
+      session.workflowRefusalLogged = true;
+      this.#log('debug', `${id}: a workflow run directory resolves elsewhere, refused`);
+    }
+    return check === 'alive' ? 'working' : 'waiting';
   }
 
   /** One agent's row: only what its two files said. */
@@ -884,6 +965,16 @@ function splitLines(
   }
   // Copied, not aliased: subarray keeps the whole chunk alive otherwise.
   state.carry = Buffer.from(rest);
+}
+
+/**
+ * A finished row whose own end stamp is less than FINISH_GRACE_MS old (C2).
+ * A stamp AHEAD of the clock gets no grace: it was written before we read it,
+ * so only a planted date can be ahead, and it must not hold 'working' forever.
+ */
+function justFinished(row: SessionAgent, now: number): boolean {
+  const age = now - Date.parse(row.endedAt ?? '');
+  return age >= 0 && age < FINISH_GRACE_MS;
 }
 
 /** Compare two ISO stamps (or ids) as plain strings — ISO-8601 sorts lexically. */

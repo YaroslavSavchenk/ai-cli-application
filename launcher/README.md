@@ -81,8 +81,9 @@ message instead of quietly starting a different backend. The installation
 folder also holds `install-info.txt` (`distro`, `appDir`, `version`), which is
 what the uninstaller reads before offering to remove the WSL side, and
 `host\AiSessionManagerHost.exe`, which is run **in place** — the
-`%LOCALAPPDATA%\ai-session-manager\host` staging copy exists only for the
-clone case, where the exe would otherwise run from a UNC path.
+`%LOCALAPPDATA%\ai-session-manager\host` staging copy (`…-dev\host` for a
+dev instance) exists only for the clone case, where the exe would otherwise
+run from a UNC path.
 
 The Setup never writes `host\` directly: it installs the host into
 **`host\next\`**, and `launch.ps1` promotes that folder into `host\` at the
@@ -269,8 +270,11 @@ Notes:
   No match, or an ambiguous match (`Ubuntu-22.04` **and** `Ubuntu-24.04`),
   is an error listing what `wsl.exe -l -q` reports — set `AI_SM_DISTRO` to
   the exact name.
-- `$DataDir` — backend data dir, default `~/.ai-session-manager`, at the
-  top of `launch.ps1`; override with `AI_SM_DATA_DIR`.
+- `$DataDir` — backend data dir, default `~/.ai-session-manager`
+  (`$AiSmDefaultDataDir` in `config-common.ps1`); override with
+  `AI_SM_DATA_DIR`. From the clone, any other value is a second instance, and
+  its native host window gets its own Windows-side folder too — see
+  [Native host](#native-host-taskbar-icon).
 - There is **no built-in fallback repo or distro** any more. `launch.ps1
   -Status` on a launcher that can resolve nothing prints `No launcher
   configuration found: …` and exits 1.
@@ -339,8 +343,9 @@ runs the exe from there directly; `launch.ps1` looks in `host\` first, then
 About the SmartScreen warning: this exe is **not code-signed**, because
 signing needs a paid certificate. In practice you should not see a warning
 — the launcher copies the exe to `%LOCALAPPDATA%\ai-session-manager\host\`
-and runs `Unblock-File` on the copy before starting it, and files coming in
-through the WSL share carry no Mark-of-the-Web for Windows to react to. If
+(`…-dev\host\` for a dev instance) and runs `Unblock-File` on the copy
+before starting it, and files coming in through the WSL share carry no
+Mark-of-the-Web for Windows to react to. If
 Windows does show "Windows protected your PC", it is because the download
 itself was marked: choose **More info → Run anyway**. Only do that for a
 zip you downloaded from this project's own releases page and, ideally, whose
@@ -422,6 +427,24 @@ The host writes two files under `%LOCALAPPDATA%\ai-session-manager\`:
 this to confirm Tier 1 succeeded) and `host.log` (UTC-stamped fatal/init
 diagnostics). Its WebView2 profile lives in
 `%LOCALAPPDATA%\ai-session-manager\webview2\`.
+
+**A dev instance beside the installed app.** A launch from the clone
+(`launch.ps1` run off the `\\wsl.localhost\…` share) on any backend data dir
+other than the default is a second instance, and its host keeps all of the
+above — the staged exe copy, `host-ready`, `host.log` and the WebView2
+profile — in `%LOCALAPPDATA%\ai-session-manager-dev\` instead, so it gets its
+own WebView2 browser process and never touches the installed app's folder.
+The dev flow, from the repo root inside WSL, after `build-host.ps1` (bash
+must pass `\$env` through untouched and fill in the `$(wslpath …)` itself):
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\$env:AI_SM_DATA_DIR='~/.ai-session-manager-dev'; & '$(wslpath -w launcher/launch.ps1)'"
+
+`launch.ps1` decides this (`Test-AiSmDevInstance` in `config-common.ps1`)
+and tells the host with one fixed switch, `--dev-instance`, after the URL;
+the host picks one of its two fixed folder names from it and refuses any
+other argument. No path ever crosses to the host. The installed app —
+whatever its data dir — and a clone launch on the default data dir are
+unchanged.
 
 ## Run
 

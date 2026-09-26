@@ -23,9 +23,8 @@
  * NOT claimed (a browser and a human eye, no automation here): that anything
  * is visible, that the screen edge really clips the bodies, that the
  * animations look right, that a click target is where the mascot is drawn, or
- * that `web/src/mascot/main.ts` mounts — main.ts imports a .css and reads
- * `window.location`, so it is not loadable under `node:test`; what it does is
- * unpinned, see the report's coverage note.
+ * what `web/src/mascot/main.ts` wires beyond its resize re-report
+ * (`tests/ui/ui-mascot-resize.test.ts` mounts it, its .css import stubbed).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

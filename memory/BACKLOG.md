@@ -1,7 +1,7 @@
 ---
 type: backlog
 created: 2026-09-08
-updated: 2026-09-23
+updated: 2026-09-26
 tags: [backlog, todo, open]
 ---
 # Backlog — still to do (living note)
@@ -167,6 +167,8 @@ app window first so one backend at a time owns runtime.json.
 - [ ] Shortcuts overlay row cells stay lowercase fragments (byte-pinned by `ui-shortcuts-table`; since B6 the overlay and Settings → Keyboard both draw `web/src/ui/shortcuts-rows.ts`, so capitalising them is ONE data change + the pins).
 - [ ] B9 may replace the invented-but-unwired `initTheme(serverPrefs?) → { apply, current }` shape in `web/src/ui/theme.ts`; `--z-popover` was deleted (its only user was the popover) — re-add a rung if a popover returns.
 - [ ] The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
+- [ ] **Host file size** (scope review 2026-09-26): `launcher/host/AiSessionManagerHost.cs` is 2385 lines — `tests/repo/file-size.test.ts` does not measure `launcher/`; move the peek-mascot overlay (`MascotOverlayForm`, DComp interop, the overlay region as a `partial` of `HostApp`) into its own `.cs` and teach `launcher/build-host.ps1` (and the release workflow) to compile both; whether the size guard should cover `launcher/` is **(user)**.
+- [ ] `server/agents.ts` is at 992 of 1000 lines after C2 — the next change there needs a split by topic first.
 - [ ] C# constant NAMES `TokenBgApp` / `TokenTextHd` / `TokenEdge` in `launcher/host/AiSessionManagerHost.cs` echo dead alias names (values correct, pinned by `nocturne-tokens` A1 (f)); rename when the host is next rebuilt.
 
 ## From Nocturne B6 (2026-09-22)

@@ -2,7 +2,9 @@
 config-common.ps1 - shared distro / repo-path resolution for the launcher.
 
 Dot-sourced by launch.ps1 and make-shortcut.ps1 so the two can never
-disagree about which distro and which clone they are talking about.
+disagree about which distro and which clone they are talking about. Also
+the one home of the backend's default data dir and of which Windows-side
+folder a launch's native host owns (Test-AiSmDevInstance).
 
 Why this exists: both scripts used to hardcode one machine's distro name and
 clone path, so a downloaded copy started the wrong repo in the wrong distro
@@ -81,6 +83,41 @@ function Test-AiSmDataDir {
     param([string]$Path)
     if (-not $Path) { return $false }
     return [bool]($Path -match $AiSmDataDirPattern)
+}
+
+# ======================== the Windows-side instance =========================
+# The native host keeps four things on the Windows side: the staged copy of
+# itself (clone launches only), the ready sentinel, host.log and its WebView2
+# profile. The installed app, and a clone launch on the DEFAULT backend data
+# dir, keep them in %LOCALAPPDATA%\ai-session-manager\. A CLONE launch on any
+# OTHER data dir is a second instance - the dev flow runs AI_SM_DATA_DIR=
+# ~/.ai-session-manager-dev beside the installed app - and keeps them in
+# %LOCALAPPDATA%\ai-session-manager-dev\, so it never joins the installed
+# app's WebView2 browser process, profile, sentinel or log. The installed
+# launcher is never a second instance, whatever AI_SM_DATA_DIR says: the
+# installed app stays exactly as it was (its profile, its host.log, the
+# folder its uninstaller removes).
+#
+# Two fixed names and nothing in between: launch.ps1 tells the host which
+# with ONE fixed switch ($AiSmHostDevSwitch), never with a path, and the host
+# derives the same folder from the same two names (AiSessionManagerHost.cs,
+# DataFolderName / DevDataFolderName - tests/release/host-instance.test.ts
+# holds the two sides equal).
+$AiSmDefaultDataDir     = '~/.ai-session-manager'
+$AiSmWindowsDataName    = 'ai-session-manager'
+$AiSmWindowsDevDataName = 'ai-session-manager-dev'
+$AiSmHostDevSwitch      = '--dev-instance'
+
+function Test-AiSmDevInstance {
+    # The one rule for a second instance; launch.ps1 takes both the host's
+    # folder and the switch from it. $true for a CLONE launch - $ScriptRoot on
+    # the \\wsl.localhost share, the same test launch.ps1 stages the host exe
+    # on - with any data dir but the default, spelled exactly as the default
+    # (case-sensitive: a Linux path). A different spelling of the same folder
+    # counts as a second instance too - that only costs a fresh WebView2
+    # profile, never a shared one. An installed launcher never is one.
+    param([string]$DataDir, [string]$ScriptRoot)
+    return ($ScriptRoot.StartsWith('\\') -and $DataDir -cne $AiSmDefaultDataDir)
 }
 
 function Get-AiSmFileConfig {

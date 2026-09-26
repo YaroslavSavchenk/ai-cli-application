@@ -12,19 +12,26 @@
  *   - `attn`    — a BEL (`attention`): Claude asked something. Amber, pulsing.
  *   - `exited`  — the PTY is gone. Grey. Beats `turn`, which the server drops at
  *                 exit anyway; a stale one is ignored here too.
- *   - `waiting` — the transcript says Claude ended its turn. Amber, still.
- *   - `working` — the transcript says Claude is generating or running a tool.
- *                 Green, pulsing.
+ *   - `waiting` — the transcript says Claude ended its turn, or asked a
+ *                 question / a plan to approve. Amber, still.
+ *   - `working` — the transcript says Claude is generating or running a
+ *                 tool, or background work it launched still runs. Green,
+ *                 pulsing.
  *   - `running` — alive, but nothing this app reads says which of the two:
  *                 every non-claude session, a claude session spawned without
  *                 the injected status line, a refused transcript. Green,
  *                 STILL — a pulse would claim knowledge the app does not have.
  *
+ * THE SERVER'S RULE (`turn`, Nocturne C2, `.claude/plans/nocturne/PLAN-C2.md`):
+ * a session that ended its turn while background subagents or workflows it
+ * launched still run reads `working` — Claude is not done; it reads `waiting`
+ * (Waiting for you) once that work is over and Claude ended its turn, and at
+ * once when Claude asks a question (`AskUserQuestion`) or a plan to approve
+ * (`ExitPlanMode`), whatever still runs. Background shells never count.
+ *
  * KNOWN LIMIT: Claude Code's permission prompt writes nothing to the
  * transcript (its last line is the assistant's `tool_use`), so a session
- * sitting on one reads `working` until its BEL fires and `attn` wins. An
- * orchestrating session that ended its turn while its background agents run
- * reads `waiting` — true: the user can type.
+ * sitting on one reads `working` until its BEL fires and `attn` wins.
  *
  * `waiting` is a READOUT, never a nag: it raises no `attention`, no
  * notification, no taskbar flash, no `seen` bookkeeping. Those stay BEL-only

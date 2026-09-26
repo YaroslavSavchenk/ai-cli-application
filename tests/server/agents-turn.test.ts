@@ -1,19 +1,24 @@
 /**
  * server/agents.ts — Nocturne B11 (.claude/plans/nocturne/PLAN-B11.md): the
- * turn read from the session's OWN transcript (turnOfLine, sameReport, the
- * watcher's tail-first read, its share of the tick budget, truncation, and
- * the symlink / FIFO / parent-swap refusals at the main transcript) and the
- * list rule (d) — which running and finished rows are sent — plus the turn on
- * SessionManager's frames (turn-only reports, the exit dropping `turn`).
+ * turn read from the session's OWN transcript (the per-line rule, sameReport,
+ * the watcher's tail-first read, its share of the tick budget, truncation,
+ * and the symlink / FIFO / parent-swap refusals at the main transcript) and
+ * the list rule (d) — which running and finished rows are sent — plus the
+ * turn on SessionManager's frames (turn-only reports, the exit dropping
+ * `turn`).
  *
- * How: turnOfLine on REAL-shaped lines cut down from real Claude Code 2.1.27x
- * transcripts; a real watcher over a real temp directory and a real
- * SessionManager with a frame-keeping fake client
+ * How: the per-line rule on REAL-shaped lines cut down from real Claude Code
+ * 2.1.27x transcripts, through foldTurnLine (server/agents-fold.ts — the
+ * watcher's one entry since C2); a real watcher over a real temp directory
+ * and a real SessionManager with a frame-keeping fake client
  * (`tests/helpers/agents-fixture.ts`).
  *
  * NOT claimed here: the mutants the B11 review and mutation gates found —
  * `tests/server/agents-turn-edges.test.ts`; B7's rows —
- * `tests/server/agents-watcher.test.ts`; the pane bar that draws the turn.
+ * `tests/server/agents-watcher.test.ts`; C2's questions and background
+ * launches — `tests/server/agents-launch-fold.test.ts` and
+ * `tests/server/agents-launch-watcher.test.ts`; the pane bar that draws the
+ * turn.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +27,8 @@ import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ServerMessage, SessionAgent, SessionInfo } from '../../shared/protocol.ts';
-import { sameReport, turnOfLine, type AgentsReport } from '../../server/agents.ts';
+import { sameReport, type AgentsReport } from '../../server/agents.ts';
+import { foldTurnLine, newTurnFold } from '../../server/agents-fold.ts';
 import { sleep, makeTempDir, waitUntil } from '../helpers/helpers.ts';
 import {
   UUID,
@@ -50,6 +56,17 @@ import {
 // Nocturne B11 — the turn (the session's own transcript) and the list rule
 // (.claude/plans/nocturne/PLAN-B11.md)
 // ---------------------------------------------------------------------------
+
+/**
+ * B11's per-line rule, read through the one entry the watcher uses since C2
+ * (foldTurnLine): a fresh fold, one line, its main verdict. A line that does
+ * not count leaves the fold's verdict undefined.
+ */
+function turnOfLine(line: string): AgentsReport['turn'] {
+  const fold = newTurnFold();
+  foldTurnLine(fold, line, 0);
+  return fold.turn;
+}
 
 test('turnOfLine: every rule of PLAN-B11 § The turn rule, on real-shaped lines', () => {
   // A prompt, a tool_result and a task-notification start (or continue) a turn.
@@ -327,12 +344,20 @@ test('watcher: a SYMLINK at the main transcript is refused — even one pointing
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
-    // Replaced by a real file: read again, and the recovery is logged.
+    // Replaced by a real file: read again, and the recovery is logged. A poll
+    // can land between the rm and the write and see the name MISSING — also
+    // 'waiting', but that path logs no recovery — so the log is waited for as
+    // a condition, not asserted on the first readout.
     await rm(mainFile(w));
     await writeFile(mainFile(w), `${REAL.endTurn}\n`, { mode: 0o600 });
     const report = await waitForReport(w.seen, (r) => r.turn !== undefined);
     assert.equal(report.turn, 'waiting');
-    assert.equal(w.logs.some((l) => l.includes('now inside the projects root, reading it again')), true);
+    await waitUntil(
+      () => (w.logs.some((l) => l.includes('now inside the projects root, reading it again')) ? true : undefined),
+      'the recovery log',
+      5_000,
+      10,
+    );
   } finally {
     await w.cleanup();
   }
@@ -443,7 +468,8 @@ test('watcher: agents AND a turn travel in one report; the turn changing alone i
     const first = await waitForReport(w.seen, (r) => r.agents.length === 1 && r.turn === 'working');
     assert.deepEqual(first.counts, { running: 1, finished: 0 });
     const calls = w.seen.length;
-    // The orchestrator ends its turn while its agent still runs: waiting.
+    // The orchestrator ends its turn while an agent still runs that this
+    // transcript never launched (C2 counts only launches it read): waiting.
     await appendMain(w, [REAL.endTurn]);
     const next = await waitForReport(w.seen, (r) => r.turn === 'waiting');
     assert.equal(w.seen.length, calls + 1);

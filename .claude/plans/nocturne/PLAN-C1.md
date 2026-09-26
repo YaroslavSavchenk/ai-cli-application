@@ -206,3 +206,82 @@ Phase 3 — host (`wsl-launcher`): `launcher/host/AiSessionManagerHost.cs`
   (set on working → waiting, cleared only by working and at exit, never by
   `seen`). A BEL (`attention`) keeps the look-ack.
 
+
+## Fix after release (2026-09-26; wins over the items above)
+
+User (2026-09-26): "Als er iets fullscreen is, zoals een game of whatever.
+Verschijnt mascotte niet, maar moet wel. En mascotte krijgt af en toe zwarte
+achtergrond." Investigated live on the user's machine the same night:
+
+- **Black background — cause proven.** The overlay's transparency was a
+  colour key (`TransparencyKey` on the form) under a windowed WebView2 whose
+  Chromium child is `WS_EX_NOREDIRECTIONBITMAP` (DirectComposition). A probe
+  window built the same way, over a pure-green backdrop, showed green around
+  a test square at first and an OPAQUE background after ONE resize of the
+  window, for good (move, hide/show, region changes, reloads never brought it
+  back). The host resizes / moves the overlay on every display change
+  (`DisplaySettingsChanged`, work-area change, DPI change): a game switching
+  resolution, a monitor waking, a taskbar change — then the mascot has a
+  box around it until the app restarts. The same probe with **WebView2
+  visual hosting** (`CoreWebView2CompositionController` on a
+  `WS_EX_NOREDIRECTIONBITMAP` form, DirectComposition, per-pixel alpha, no
+  colour key) stayed transparent through every one of those triggers.
+- **Fullscreen — not what it looked like.** The user's game (RDR2) runs
+  BORDERLESS (Windows reports `QUNS_BUSY`, not a D3D exclusive mode); the
+  overlay sits above it in z-order, its page stays visible (rAF ~144 fps,
+  animations finish), and with the mascot switched on it showed over the
+  game, transparent (user: "Mascot, transparent"). The mascot had been
+  switched OFF in Settings since 2026-09-23. What stays genuinely broken:
+  a fullscreen window that is itself TOPMOST (DXGI/SDL fullscreen, some video
+  players) and comes to the front AFTER the overlay was raised — the overlay
+  only re-asserted `HWND_TOPMOST` when it went from nothing to something.
+  True exclusive fullscreen stays the known limit (decision 15): no window of
+  another process can draw there.
+
+**The fix (host only, `launcher/host/AiSessionManagerHost.cs`):**
+
+1. The overlay hosts its WebView2 through visual hosting: the form gets
+   `WS_EX_NOREDIRECTIONBITMAP` (no `TransparencyKey`, not layered, paints
+   nothing), a DirectComposition device + target + root visual (`dcomp.dll`,
+   hand-written COM interop, C# 5), and
+   `CreateCoreWebView2CompositionControllerAsync(overlay.Handle)` on the MAIN
+   window's environment, `RootVisualTarget` = the root visual,
+   `DefaultBackgroundColor` transparent, `IsVisible` always true, `Bounds`
+   following the form. Scale stays 1 (no DPI awareness, amendment above).
+2. Mouse input the page needs is forwarded with `SendMouseInput` (move,
+   left down / up / double-click, leave via `TrackMouseEvent`); the cursor
+   follows `CursorChanged`. The window still never activates
+   (`MA_NOACTIVATE`), and the window region (the page's rects) still decides
+   where clicks land at all.
+3. Everything else is unchanged: the region, the empty-region "hidden", the
+   origin / navigation / new-window / permission locks, the message shapes,
+   the crash reload cap, placement, display events, disposal.
+4. While a mascot shows, the overlay re-asserts `HWND_TOPMOST` (no activate)
+   whenever the foreground window changes (`SetWinEventHook`,
+   `EVENT_SYSTEM_FOREGROUND`, out of context) and on every count message —
+   not only on nothing → something.
+
+Additions made while building the fix (2026-09-26, reviewed):
+
+5. **`TopMost` property dropped** on the overlay form: WinForms ACTIVATES a
+   form whose `TopMost` is set when it is shown (whatever
+   `ShowWithoutActivation` says), which took activation from the main window
+   at app start. `WS_EX_TOPMOST` stays set through `CreateParams` and the
+   re-asserts above, so the overlay is still topmost.
+6. **One late re-assert** 500 ms after a foreground change (restarted by
+   every change, one `SetWindowPos`): DXGI / SDL fullscreen windows make
+   themselves topmost while activating, AFTER the foreground event fired.
+7. **A DEV instance of the host is isolated from the installed app** (user,
+   2026-09-26: "doe dit in dev en niet in deze versie van session manager").
+   Before, a clone launch staged and ran the host in
+   `%LOCALAPPDATA%\ai-session-manager\`. That is the installed app's own
+   folder: its `host.log`, its WebView2 profile, and so its browser
+   process. A dev host crash could take the live app down. Now a CLONE
+   launch (launch.ps1 from `\\wsl.localhost\…`) with a NON-default
+   `AI_SM_DATA_DIR` passes the fixed switch `--dev-instance`. The host then
+   uses `%LOCALAPPDATA%\ai-session-manager-dev\` for all four: staged copy,
+   ready sentinel, host.log and webview2 profile. The host accepts only that
+   exact switch after the URL (any other word: log + exit 2, before a
+   window); it reads no environment variable and takes no path. The
+   installed app and a clone launch on the default data dir are unchanged.
+   The dev command is in `launcher/README.md`.

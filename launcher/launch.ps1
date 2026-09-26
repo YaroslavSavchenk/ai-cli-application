@@ -43,6 +43,16 @@ script's own location under the WSL share
 when none of the three states a value, the launcher says so and stops - it
 never guesses a distro or someone else's clone. See config-common.ps1.
 
+Data dir: AI_SM_DATA_DIR, default ~/.ai-session-manager. From a clone (this
+script on the \\wsl.localhost share) any other value is a second instance
+(the dev flow runs AI_SM_DATA_DIR=~/.ai-session-manager-dev beside the
+installed app), and its native host window keeps its Windows-side files -
+the staged exe copy, host-ready, host.log and the WebView2 profile - in
+%LOCALAPPDATA%\ai-session-manager-dev\ instead of the installed app's
+%LOCALAPPDATA%\ai-session-manager\, so the two never share a browser process.
+The host learns which from one fixed switch (--dev-instance), never a path.
+The installed launcher is never a second instance, whatever the data dir.
+
 Injection safety: no client/runtime string is ever interpolated into a
 shell or PowerShell command. The only strings that reach WSL command lines
 are the config values below - whatever their source, including derivation
@@ -78,7 +88,8 @@ param(
 # name still gets the guided error listing what is installed.
 $DefaultDistro   = ''
 $DefaultRepoPath = ''
-$DataDir = if ($env:AI_SM_DATA_DIR) { $env:AI_SM_DATA_DIR } else { '~/.ai-session-manager' }
+# The backend data dir ($DataDir) is resolved right after config-common.ps1
+# is loaded: AI_SM_DATA_DIR, else $AiSmDefaultDataDir defined there.
 # Seconds to wait for runtime.json + health after starting the backend
 # (must absorb a cold WSL boot).
 $StartTimeoutSec = 90
@@ -140,6 +151,11 @@ if (-not (Test-Path -LiteralPath $commonPs1)) {
     Fail "config-common.ps1 not found next to this script ($commonPs1) - copy the whole launcher folder, not just launch.ps1."
 }
 . $commonPs1
+
+# A clone launch on any data dir but the default is a second instance with its
+# own Windows-side folder as well (Test-AiSmDevInstance, used in
+# Open-NativeHost).
+$DataDir = if ($env:AI_SM_DATA_DIR) { $env:AI_SM_DATA_DIR } else { $AiSmDefaultDataDir }
 
 # -ConfigDir: the installed launcher reads launcher-config.json from its own
 # folder. A corrupt one THROWS out of Resolve-AiSmConfig rather than falling
@@ -331,8 +347,19 @@ function Open-NativeHost([string]$Url) {
         return $false
     }
 
+    # The Windows folder this launch's host owns (Test-AiSmDevInstance in
+    # config-common.ps1): ai-session-manager-dev\ for a clone launch on a
+    # non-default data dir - its own staged copy, sentinel, host.log and
+    # WebView2 profile, so a dev window never joins the installed app's
+    # browser process - else the installed app's ai-session-manager\. The
+    # host is told with the one fixed switch and derives the same folder
+    # itself; no path ever crosses to it.
+    $devInstance   = Test-AiSmDevInstance -DataDir $DataDir -ScriptRoot $PSScriptRoot
+    $instanceName  = if ($devInstance) { $AiSmWindowsDevDataName } else { $AiSmWindowsDataName }
+    $hostArgs      = @($Url)
+    if ($devInstance) { $hostArgs += $AiSmHostDevSwitch }
     $localAppData  = [Environment]::GetFolderPath('LocalApplicationData')
-    $readySentinel = Join-Path $localAppData 'ai-session-manager\host-ready'
+    $readySentinel = Join-Path (Join-Path $localAppData $instanceName) 'host-ready'
 
     if ($PSScriptRoot -and -not $PSScriptRoot.StartsWith('\\')) {
         # Installed (or otherwise copied onto a real drive): run the exe where
@@ -346,7 +373,7 @@ function Open-NativeHost([string]$Url) {
         # "Open File - Security Warning" that blocks invisibly under the silent
         # launcher (so nothing ever opens), and .NET's ExtractAssociatedIcon
         # rejects UNC paths. Stage exe + DLLs into %LOCALAPPDATA% and run there.
-        $localDir = Join-Path $localAppData 'ai-session-manager\host'
+        $localDir = Join-Path (Join-Path $localAppData $instanceName) 'host'
         $hostExe  = Join-Path $localDir 'AiSessionManagerHost.exe'
         try {
             if (-not (Test-Path -LiteralPath $localDir)) {
@@ -373,9 +400,10 @@ function Open-NativeHost([string]$Url) {
     Remove-Item -LiteralPath $readySentinel -Force -ErrorAction SilentlyContinue
 
     try {
-        # $Url is the only string on the command line (validated by the caller
-        # as http://127.0.0.1:<port>/), passed as a single argument.
-        $p = Start-Process -FilePath $hostExe -ArgumentList $Url -PassThru -ErrorAction Stop
+        # $Url (validated by the caller as http://127.0.0.1:<port>/) and, for
+        # a second instance, the fixed switch: the only strings on the command
+        # line, neither with a space in it.
+        $p = Start-Process -FilePath $hostExe -ArgumentList $hostArgs -PassThru -ErrorAction Stop
     } catch {
         Write-Host "Native host failed to start ($($_.Exception.Message)) - using the Edge --app fallback."
         return $false

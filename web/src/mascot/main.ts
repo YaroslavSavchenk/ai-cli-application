@@ -160,6 +160,12 @@ function mount(root: HTMLElement): MascotController {
       onCount: (count) => model.setCount(count),
       onAuthLost: reloadForToken,
     });
+    // Under visual hosting the page can first lay out at the WebView's
+    // pre-bounds size and get its real 220 x 340 a moment later. rects()
+    // measures against the viewport, so a report made in between would leave
+    // the host's region off the mascot until the next settle: say it again on
+    // every resize (the reporter drops a message that did not change).
+    window.addEventListener('resize', report);
     // The host shows an empty region until it hears a count; say 0 at once.
     report();
     feed.start();
@@ -169,6 +175,7 @@ function mount(root: HTMLElement): MascotController {
     setCount: (n) => model.setCount(n),
     getCount: () => model.getCount(),
     destroy: () => {
+      window.removeEventListener('resize', report);
       feed?.stop();
       for (const t of openTimers) clearTimeout(t);
       openTimers.clear();

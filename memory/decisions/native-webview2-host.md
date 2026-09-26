@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-07-23
-updated: 2026-09-23
+updated: 2026-09-26
 tags: [launcher, windows, webview2, native-host, icon, chrome]
 ---
 # Native WebView2 host to own the Windows taskbar icon
@@ -195,3 +195,24 @@ Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condens
   upgrade if the separate bar starts to grate. A full **Tauri** shell (tray,
   native folder picker) remains the later upgrade; this host is the minimum
   that fixes the taskbar identity.
+
+## Dev instance isolated (2026-09-26)
+
+User: "doe dit in dev en niet in deze versie van session manager". A clone
+launch used to stage and run the host in the installed app's own
+`%LOCALAPPDATA%\ai-session-manager\`: its host.log, its WebView2 profile,
+and so its browser process. A dev-host crash could take the live app down,
+and with it the Claude session running inside it.
+
+Now a CLONE launch with a non-default `AI_SM_DATA_DIR` passes the one fixed
+switch `--dev-instance`, and the host uses
+`%LOCALAPPDATA%\ai-session-manager-dev\` for all four of those things. The
+installed launcher never passes it.
+
+Rejected alternatives:
+
+- a free path through an env var: the host must not take a directory from
+  the environment;
+- counting any non-default data dir as dev, the installed app included: an
+  installed app with a custom data dir would have silently lost its tab
+  layout, and its `-dev` folder would outlive the uninstaller.

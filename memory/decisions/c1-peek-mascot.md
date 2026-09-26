@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-26
 tags: [nocturne, mascot, overlay, host, session-state]
 ---
 # Peek mascot: when, where, what a click does (part C1, decisions 12–16)
@@ -31,3 +31,17 @@ turn.
 
 Spec `.claude/plans/nocturne/PLAN-C1.md`. Related: [[native-webview2-host]],
 [[nocturne-full-switch]].
+
+## After the release (2026-09-26)
+
+- **Black box around the mascot**: the colour-key transparency died after
+  any resize of the overlay ([[webview2-colour-key-loses-transparency]]).
+  The overlay now uses WebView2 visual hosting (DirectComposition,
+  per-pixel alpha).
+- **Fullscreen** (user: "verschijnt mascotte niet, maar moet wel"): the
+  user's game ran borderless. The overlay was above it, and it showed there
+  once the mascot was switched back on (it had been off in Settings since
+  2026-09-23). The overlay now also re-asserts topmost on every foreground
+  change and every count message, for fullscreen windows that are
+  themselves topmost. Decision 15 (true exclusive fullscreen) stands.
+- **What counts** changed in C2: [[c2-mascot-waits-for-background-work]].

@@ -145,7 +145,13 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   message, `copy-files\n<windows path>…` (origin locked, 1..100 paths,
   shape-checked, the whole message refused on the first bad path,
   `Clipboard.SetFileDropList`, `host.log` counts only, no clipboard READ,
-  no drag out); dark DWM window chrome. Tauri stays the later upgrade. History: `memory/decisions/native-webview2-host.md`.
+  no drag out); dark DWM window chrome. Tauri stays the later upgrade.
+  **A dev instance never touches the installed app** (user, 2026-09-26): a
+  CLONE launch on a non-default `AI_SM_DATA_DIR` passes the fixed switch
+  `--dev-instance`, and the host keeps its staged copy, sentinel, `host.log`
+  and WebView2 profile in `%LOCALAPPDATA%\ai-session-manager-dev\` (own
+  browser process); the host takes that one exact switch and nothing else.
+  History: `memory/decisions/native-webview2-host.md`.
 - **Release build / distribution.** `.github/workflows/verify.yml` is the
   one definition of "verified" (checks `verify / typecheck + build`,
   `verify / backend test suite` on ubuntu-latest, `verify / linux bundle`
@@ -371,11 +377,16 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
 - **Peek mascot** (Nocturne C1). The user's pixel-art Claude
   (`design/peek-mascot/`) peeks around the right edge of the app window's
   monitor, over other programs, one per PENDING session, max 3. Pending =
-  `SessionInfo.turnEnded` (kept until Claude works again or the session
-  ends) or a BEL `attention` (until the pane is looked at). `/mascot.html`
+  `SessionInfo.turnEnded` (the session verdict `turn` went working →
+  waiting — so not while its background subagents / workflows run, and yes
+  when Claude asks a question or a plan approval (C2); kept until Claude
+  works again or the session ends) or a BEL `attention` (until the pane is
+  looked at). `/mascot.html`
   carries the auth token, polls every 2 s, rises after 1.5 s; the Windows
-  host keeps a TopMost, no-activate, transparent WebView2 window whose
-  REGION is the reported rects (never hidden). `prefs.mascot = { enabled }`
+  host keeps a topmost (re-asserted while a mascot shows and on every
+  foreground change), no-activate WebView2 window in VISUAL hosting
+  (DirectComposition, per-pixel alpha — a colour key lost its transparency
+  after any resize) whose REGION is the reported rects (never hidden). `prefs.mascot = { enabled }`
   (default ON). History: `memory/decisions/scope-history.md` § Features —
   Peek mascot; spec `.claude/plans/nocturne/PLAN-C1.md`.
 - **App settings panel** — persisted server-side in `prefs.json` via
@@ -425,7 +436,13 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
 - **Session state: Working vs. Waiting for you** (Nocturne B11). A Claude
   session's readout comes from its own transcript (B7 boundary and
   budgets): the last counting line decides `waiting` or `working`;
-  `SessionInfo.turn`, dropped at exit. Order: Needs your answer (BEL) >
+  `SessionInfo.turn`, dropped at exit. Since C2 (user, 2026-09-26: one rule
+  for the pane and the mascot) a pending `AskUserQuestion` / `ExitPlanMode`
+  reads `waiting`, and an ended turn reads `working` while a background
+  launch it made (`Agent`/`Task`/`Workflow`, a `SendMessage` resume) is
+  still open (no task notification yet) and alive (< 15 min old, or its
+  B7 row / workflow run files live); background shells never count. Spec
+  `.claude/plans/nocturne/PLAN-C2.md`. Order: Needs your answer (BEL) >
   Finished > Waiting for you > Working. Waiting shows on the session's own
   pane, row and tab dot only; badges, `Needs you`, `attention`, `seen` and
   notifications stay BEL-only. Known limit: a permission prompt reads

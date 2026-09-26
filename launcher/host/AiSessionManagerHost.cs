@@ -13,6 +13,16 @@
 // does not monitor or kill the backend. Backend lifetime stays bound to UI
 // presence (the page's presence WebSocket), exactly as the browser window did.
 //
+// Its Windows-side files (host-ready, host.log, the WebView2 profile, the
+// optional local app.ico) live in %LOCALAPPDATA%\ai-session-manager\ - or, when
+// launch.ps1 passes the ONE fixed switch --dev-instance as args[1] (a clone
+// launch on a non-default backend data dir: the dev flow beside the installed
+// app; the installed launcher never passes it), in
+// %LOCALAPPDATA%\ai-session-manager-dev\, so the two never share a WebView2
+// browser process, profile, sentinel or log. The switch selects one of two
+// fixed folder names; no path is ever taken from the command line or the
+// environment.
+//
 // Four things the host does for the page beyond showing it: it hands the
 // keyboard back to the web content whenever the window is activated (WebView2
 // runs the page in its own HWND tree, so an Alt-Tab away and back could leave
@@ -41,6 +51,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -110,6 +121,16 @@ namespace AiSessionManager
         private const int TokenTextHd = 0xE4E7F5;
         private const int TokenEdge = 0x3F424D;
 
+        // The Windows-side folder under %LOCALAPPDATA% (see the file header):
+        // the installed app's, or the second instance's when launch.ps1 passes
+        // DevInstanceSwitch. All three must stay byte-equal to
+        // $AiSmWindowsDataName / $AiSmWindowsDevDataName / $AiSmHostDevSwitch
+        // in launcher/config-common.ps1: launch.ps1 waits for host-ready in the
+        // folder IT computed (tests/release/host-instance.test.ts).
+        private const string DataFolderName = "ai-session-manager";
+        private const string DevDataFolderName = "ai-session-manager-dev";
+        private const string DevInstanceSwitch = "--dev-instance";
+
         private static string _dataDir;
         private static string _readySentinel;
         private static string _logFile;
@@ -132,9 +153,13 @@ namespace AiSessionManager
             // under the matching shortcut and shows app.ico.
             SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
 
+            // The folder is settled before anything is logged, so a refused
+            // command line from a dev launch is logged in the dev folder too.
+            bool devInstance = IsDevInstance(args);
             string localAppData = Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData);
-            _dataDir = Path.Combine(localAppData, "ai-session-manager");
+            _dataDir = Path.Combine(localAppData,
+                devInstance ? DevDataFolderName : DataFolderName);
             _readySentinel = Path.Combine(_dataDir, "host-ready");
             _logFile = Path.Combine(_dataDir, "host.log");
 
@@ -151,6 +176,15 @@ namespace AiSessionManager
                 if (args == null || args.Length < 1 || string.IsNullOrEmpty(args[0]))
                 {
                     Log("no URL argument supplied (args[0] is required)");
+                    return 2;
+                }
+                // After the URL, the one switch or nothing: an unknown word
+                // there is a caller bug, and running anyway would put this
+                // window in the installed app's folder and browser process.
+                if (args.Length > 2 || (args.Length == 2 && !devInstance))
+                {
+                    Log("unexpected argument after the URL (only " + DevInstanceSwitch
+                        + " is accepted)");
                     return 2;
                 }
 
@@ -199,6 +233,14 @@ namespace AiSessionManager
                 Log("fatal: " + ex);
                 return 3;
             }
+        }
+
+        // args[1] is exactly the fixed switch: compared ordinally, never a
+        // prefix, never case-folded, never carrying a value.
+        private static bool IsDevInstance(string[] args)
+        {
+            return args != null && args.Length >= 2
+                && string.Equals(args[1], DevInstanceSwitch, StringComparison.Ordinal);
         }
 
         private static bool IsAllowedHost(string host)
@@ -352,7 +394,9 @@ namespace AiSessionManager
             {
                 Log("ExtractIconEx failed (" + ex.Message + "); trying the local app.ico copy.");
             }
-            // 3) Windows-local app.ico copy placed by make-shortcut.ps1.
+            // 3) Windows-local app.ico copy placed by make-shortcut.ps1 - in the
+            //    installed instance's folder only; a dev instance never reads
+            //    that folder and has 1) and 2), off its local staged copy.
             try
             {
                 string ico = Path.Combine(_dataDir, "app.ico");
@@ -912,6 +956,18 @@ namespace AiSessionManager
         // a transparent background, on <launch origin>/mascot.html - never with
         // a query string (the page's ?demo strip stays unreachable here).
         //
+        // VISUAL HOSTING (PLAN-C1 § Fix after release): the page draws through
+        // a CoreWebView2CompositionController into a DirectComposition visual
+        // tree on the form, and the form has no GDI surface at all
+        // (WS_EX_NOREDIRECTIONBITMAP) - per-pixel alpha, no colour key. The
+        // first build keyed a colour out (TransparencyKey) around a windowed
+        // WebView2 control, and that transparent area turned opaque for good
+        // after ONE resize of the form - which the host does on every display
+        // change: a black box around the mascot until the app restarted. The
+        // page has no window of its own this way, so the form hands it the
+        // mouse input it needs and applies its cursor
+        // (MascotOverlayForm.WndProc).
+        //
         // The page tells the host what to show; the host decides nothing else.
         // Two strings, both JSON, both matched WHOLE against the exact shape
         // JSON.stringify gives them on the page (web/src/mascot/feed.ts), key
@@ -933,6 +989,15 @@ namespace AiSessionManager
         // intensive timer throttling (chained timers woken once a MINUTE): the
         // page's 2 s poll would then show a finished session's mascot up to a
         // minute late, in exactly the common case of "nothing for a while".
+        //
+        // ON TOP: while a mascot shows, the window re-asserts HWND_TOPMOST -
+        // never activating, never moving - on every count message with rects
+        // and whenever the foreground window changes (a WinEvent hook), then
+        // once more OverlayLateRaiseMs after the last change. A fullscreen
+        // window that is topmost itself (DXGI/SDL fullscreen, some video
+        // players) otherwise covers the mascot as soon as it comes to the
+        // front, and such a window raises itself WHILE it activates - after
+        // the foreground event has already fired.
         //
         // Known limit (decision 15, accepted by the user): a game in true
         // EXCLUSIVE fullscreen owns the display and no window can draw over it,
@@ -972,14 +1037,17 @@ namespace AiSessionManager
             @"^\{""type"":""mascot-open"",""session"":""(?<session>[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})""\}\z",
             RegexOptions.CultureInvariant);
 
-        // The form's own background and its colour key: the window paints this
-        // colour and Windows keys it out, so where the transparent WebView2
-        // shows the form behind it, the desktop shows through instead. A colour
-        // nothing on the page uses.
-        private static readonly Color OverlayKeyColor = Color.FromArgb(1, 0, 1);
-
         private static MascotOverlayForm _overlay;
-        private static WebView2 _overlayWebView;
+        // The page's controller, once it exists; null before that and after
+        // the overlay is dropped.
+        private static CoreWebView2CompositionController _overlayController;
+        // The DirectComposition tree the page draws into: the device, the
+        // form's target, and the root visual the controller hangs its own
+        // visuals under (its RootVisualTarget). Released in
+        // DisposeMascotOverlay.
+        private static IDCompositionDevice _overlayDevice;
+        private static IDCompositionTarget _overlayTarget;
+        private static IDCompositionVisual _overlayRootVisual;
         // The last rects the page reported (validated, clamped, CSS px), or
         // null while nothing is shown. Kept so a DPI or monitor change can
         // re-scale the region without waiting for the page.
@@ -1003,6 +1071,12 @@ namespace AiSessionManager
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
         [DllImport("user32.dll")]
         private static extern bool IsIconic(IntPtr hWnd);
+        // A device with no rendering device of its own: the controller brings
+        // the content. PreserveSig = false turns a failing HRESULT into an
+        // exception, which the creating step catches and logs as one line.
+        [DllImport("dcomp.dll", PreserveSig = false)]
+        private static extern void DCompositionCreateDevice2(IntPtr renderingDevice,
+            [In] ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object device);
 
         private const int RgnOr = 2;
         private static readonly IntPtr HwndTopmost = new IntPtr(-1);
@@ -1054,21 +1128,14 @@ namespace AiSessionManager
                 overlay.ShowInTaskbar = false;
                 overlay.StartPosition = FormStartPosition.Manual;
                 overlay.AutoScaleMode = AutoScaleMode.None;
-                overlay.TopMost = true;
-                overlay.BackColor = OverlayKeyColor;
-                overlay.TransparencyKey = OverlayKeyColor;
+                // NOT the TopMost property: WinForms focuses a TopMost form
+                // when it is shown, ShowWithoutActivation or not, and the
+                // overlay would take the activation from the app window at
+                // start. WS_EX_TOPMOST comes from MascotOverlayForm.CreateParams
+                // and RaiseOverlay re-asserts it.
                 overlay.DpiChanged += Overlay_DpiChanged;
 
-                WebView2 wv = new WebView2();
-                wv.Dock = DockStyle.Fill;
-                // Before initialization: the controller takes it at creation.
-                wv.DefaultBackgroundColor = Color.Transparent;
-                wv.CoreWebView2InitializationCompleted += OverlayWebView_InitCompleted;
-                wv.NavigationStarting += OverlayWebView_NavigationStarting;
-                overlay.Controls.Add(wv);
-
                 _overlay = overlay;
-                _overlayWebView = wv;
                 _overlayRects = null;
 
                 // The handle first, then an EMPTY region, then the place - all
@@ -1076,16 +1143,27 @@ namespace AiSessionManager
                 IntPtr handle = overlay.Handle;
                 ApplyOverlayRegion();
                 PlaceOverlay();
+                // The visual tree before the show too: where DirectComposition
+                // is refused, the overlay is dropped without ever appearing.
+                CreateOverlayComposition(handle);
                 // ShowWithoutActivation (MascotOverlayForm) makes this
                 // SW_SHOWNOACTIVATE: the window the user is in keeps the focus.
                 overlay.Show();
                 SubscribeDisplayEvents();
+                WatchForeground();
 
                 // The MAIN window's environment: same browser process, same
-                // profile. Source is never set on this control - it would start
-                // a second environment of its own; the page is navigated to in
-                // the init handler instead.
-                wv.EnsureCoreWebView2Async(env);
+                // profile. The continuation runs on this UI thread (the
+                // WinForms synchronization context), where the controller
+                // must be used.
+                Task<CoreWebView2CompositionController> pending =
+                    env.CreateCoreWebView2CompositionControllerAsync(handle);
+                pending.ContinueWith(
+                    delegate(Task<CoreWebView2CompositionController> done)
+                    {
+                        OverlayController_Created(overlay, done);
+                    },
+                    TaskScheduler.FromCurrentSynchronizationContext());
             }
             catch (Exception ex)
             {
@@ -1095,27 +1173,61 @@ namespace AiSessionManager
             }
         }
 
-        private static void OverlayWebView_InitCompleted(
-            object sender, CoreWebView2InitializationCompletedEventArgs e)
+        // The tree the page draws into: a device, a target on the form
+        // (topmost: over anything GDI could draw - on this window, nothing),
+        // and a root visual that becomes the controller's RootVisualTarget.
+        // Each lands in its static the moment it exists, so
+        // DisposeMascotOverlay releases whatever a failure part-way left.
+        private static void CreateOverlayComposition(IntPtr handle)
         {
-            WebView2 wv = sender as WebView2;
-            if (wv == null || wv != _overlayWebView)
+            Guid iid = typeof(IDCompositionDevice).GUID;
+            object device;
+            DCompositionCreateDevice2(IntPtr.Zero, ref iid, out device);
+            _overlayDevice = (IDCompositionDevice)device;
+            _overlayTarget = _overlayDevice.CreateTargetForHwnd(handle, true);
+            _overlayRootVisual = _overlayDevice.CreateVisual();
+            _overlayTarget.SetRoot(_overlayRootVisual);
+            _overlayDevice.Commit();
+        }
+
+        // The controller exists, or could not be made. An overlay dropped in
+        // the meantime (the app closing) has no use for it: it is closed.
+        private static void OverlayController_Created(
+            MascotOverlayForm overlay, Task<CoreWebView2CompositionController> done)
+        {
+            CoreWebView2CompositionController cc =
+                done.Status == TaskStatus.RanToCompletion ? done.Result : null;
+            if (overlay != _overlay || overlay.IsDisposed)
             {
-                // An overlay already dropped: nothing to set up.
+                CloseOverlayController(cc);
                 return;
             }
-            if (e == null || !e.IsSuccess || wv.CoreWebView2 == null)
+            if (cc == null)
             {
-                string detail = (e == null || e.InitializationException == null)
-                    ? "no detail" : e.InitializationException.GetType().Name;
+                string detail = done.Exception == null
+                    ? "no detail" : done.Exception.GetBaseException().GetType().Name;
                 Log("mascot overlay: WebView2 initialization failed (" + detail
                     + "); the app window is unaffected.");
                 DeferDisposeMascotOverlay();
                 return;
             }
+            _overlayController = cc;
             try
             {
-                CoreWebView2Settings s = wv.CoreWebView2.Settings;
+                // The page's scale is the host's to set, never the monitor's
+                // (SyncOverlayController says why).
+                cc.ShouldDetectMonitorScaleChanges = false;
+                // Before the page loads: the controller paints no background
+                // of its own, so what the page leaves transparent stays so.
+                cc.DefaultBackgroundColor = Color.Transparent;
+                cc.RootVisualTarget = _overlayRootVisual;
+                // Always visible to Chromium: "hidden" is the empty region.
+                cc.IsVisible = true;
+                SyncOverlayController();
+                overlay.AttachController(cc, OverlayInput_Failed);
+
+                CoreWebView2 core = cc.CoreWebView2;
+                CoreWebView2Settings s = core.Settings;
                 s.AreDevToolsEnabled = false;
                 s.AreBrowserAcceleratorKeysEnabled = false;
                 s.AreHostObjectsAllowed = false;
@@ -1135,17 +1247,106 @@ namespace AiSessionManager
                 {
                     // Older runtime without these two: cosmetic, carry on.
                 }
-                wv.CoreWebView2.NewWindowRequested += OverlayWebView_NewWindowRequested;
-                wv.CoreWebView2.PermissionRequested += OverlayWebView_PermissionRequested;
-                wv.CoreWebView2.WebMessageReceived += OverlayWebView_WebMessageReceived;
-                wv.CoreWebView2.ProcessFailed += OverlayWebView_ProcessFailed;
-                wv.CoreWebView2.Navigate(new Uri(_launchOrigin, MascotPagePath).AbsoluteUri);
+                // The navigation lock before the first navigation.
+                core.NavigationStarting += OverlayWebView_NavigationStarting;
+                core.NewWindowRequested += OverlayWebView_NewWindowRequested;
+                core.PermissionRequested += OverlayWebView_PermissionRequested;
+                core.WebMessageReceived += OverlayWebView_WebMessageReceived;
+                core.ProcessFailed += OverlayWebView_ProcessFailed;
+                core.Navigate(new Uri(_launchOrigin, MascotPagePath).AbsoluteUri);
             }
             catch (Exception ex)
             {
                 Log("mascot overlay could not load its page (" + ex.GetType().Name
                     + "); the app window is unaffected.");
                 DeferDisposeMascotOverlay();
+            }
+        }
+
+        // The page's box follows the form: Bounds = the client rect, and the
+        // page's scale = the region's scale (OverlayScale), so CSS px x that
+        // scale = window px - the 220 x 340 stage fills the window exactly and
+        // the rects the page reports land where the region puts them. Left to
+        // itself (ShouldDetectMonitorScaleChanges, switched off at creation)
+        // the controller would take the monitor's scale AND the user's text
+        // size setting, and with either above 100 % the stage would overflow
+        // the window and the region miss the mascots. OverlayScale is 1.0 while
+        // this process is not DPI aware (PLAN-C1, "No DPI awareness in v1":
+        // Windows scales the whole window itself).
+        private static void SyncOverlayController()
+        {
+            MascotOverlayForm overlay = _overlay;
+            CoreWebView2CompositionController cc = _overlayController;
+            if (overlay == null || overlay.IsDisposed || cc == null)
+            {
+                return;
+            }
+            cc.RasterizationScale = OverlayScale();
+            cc.Bounds = new Rectangle(Point.Empty, overlay.ClientSize);
+            // The page's idea of where it sits on the screen follows a move.
+            cc.NotifyParentWindowPositionChanged();
+            IDCompositionDevice device = _overlayDevice;
+            if (device != null)
+            {
+                device.Commit();
+            }
+        }
+
+        // MascotOverlayForm hands the page its mouse input; the first input
+        // the controller refuses ends the overlay: a mascot that still takes
+        // the clicks on it but can no longer answer them is worse than none.
+        private static void OverlayInput_Failed(Exception ex)
+        {
+            Log("mascot overlay: mouse input could not reach the page ("
+                + ex.GetType().Name + "); the app window is unaffected.");
+            // Deferred: this runs inside the overlay's own window procedure.
+            DeferDisposeMascotOverlay();
+        }
+
+        private static void CloseOverlayController(CoreWebView2CompositionController cc)
+        {
+            if (cc == null)
+            {
+                return;
+            }
+            try
+            {
+                cc.Close();
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay: its WebView2 could not be closed (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        private static void ReleaseOverlayComposition()
+        {
+            IDCompositionVisual visual = _overlayRootVisual;
+            IDCompositionTarget target = _overlayTarget;
+            IDCompositionDevice device = _overlayDevice;
+            _overlayRootVisual = null;
+            _overlayTarget = null;
+            _overlayDevice = null;
+            try
+            {
+                if (visual != null)
+                {
+                    Marshal.FinalReleaseComObject(visual);
+                }
+                if (target != null)
+                {
+                    Marshal.FinalReleaseComObject(target);
+                }
+                if (device != null)
+                {
+                    Marshal.FinalReleaseComObject(device);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay: its composition objects could not be released ("
+                    + ex.GetType().Name + "); non-fatal.");
             }
         }
 
@@ -1252,14 +1453,14 @@ namespace AiSessionManager
 
         private static void ReloadMascotOverlay()
         {
-            WebView2 wv = _overlayWebView;
-            if (_overlay == null || wv == null || wv.IsDisposed || wv.CoreWebView2 == null)
+            CoreWebView2CompositionController cc = _overlayController;
+            if (_overlay == null || cc == null)
             {
                 return;
             }
             try
             {
-                wv.CoreWebView2.Reload();
+                cc.CoreWebView2.Reload();
             }
             catch (Exception ex)
             {
@@ -1453,8 +1654,8 @@ namespace AiSessionManager
 
         // null = nothing to show (an empty region); otherwise the union of the
         // rects. Going from nothing to something re-places the window (the
-        // working area may have changed since) and puts it back on top of the
-        // other topmost windows, without activating it.
+        // working area may have changed since); EVERY count with rects puts it
+        // back on top of the other topmost windows, without activating it.
         private static void ShowMascotRects(double[][] rects)
         {
             MascotOverlayForm overlay = _overlay;
@@ -1466,17 +1667,145 @@ namespace AiSessionManager
             {
                 bool wasEmpty = _overlayRects == null;
                 _overlayRects = rects;
-                if (rects != null && wasEmpty)
+                if (rects != null)
                 {
-                    PlaceOverlay();
-                    SetWindowPos(overlay.Handle, HwndTopmost, 0, 0, 0, 0,
-                        SwpNoMove | SwpNoSize | SwpNoActivate);
+                    if (wasEmpty)
+                    {
+                        PlaceOverlay();
+                    }
+                    RaiseOverlay();
                 }
                 ApplyOverlayRegion();
             }
             catch (Exception ex)
             {
                 Log("mascot overlay could not be updated (" + ex.GetType().Name + "); non-fatal.");
+            }
+        }
+
+        // HWND_TOPMOST again - the top of the topmost band - while a mascot
+        // shows. Never activates, never moves or sizes: this runs on every
+        // foreground change, and the window the user is in keeps the focus.
+        private static void RaiseOverlay()
+        {
+            MascotOverlayForm overlay = _overlay;
+            if (overlay == null || overlay.IsDisposed || !overlay.IsHandleCreated
+                || _overlayRects == null)
+            {
+                return;
+            }
+            SetWindowPos(overlay.Handle, HwndTopmost, 0, 0, 0, 0,
+                SwpNoMove | SwpNoSize | SwpNoActivate);
+        }
+
+        // The foreground watch (ON TOP, region note). Out of context: the
+        // callback runs on THIS UI thread, from its message loop - no
+        // marshalling. The delegate is a static readonly field for the whole
+        // process: user32 holds it as a native pointer the GC cannot see, and
+        // an event already queued may still arrive after UnhookWinEvent.
+        private delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd,
+            int idObject, int idChild, uint eventThread, uint eventTime);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax,
+            IntPtr hmodWinEventProc, WinEventProc callback, uint idProcess, uint idThread,
+            uint flags);
+        [DllImport("user32.dll")]
+        private static extern bool UnhookWinEvent(IntPtr hook);
+
+        private const uint EventSystemForeground = 0x0003;
+        private const uint WinEventOutOfContext = 0x0000;
+        // The late raise: a window that makes itself topmost does it while
+        // it activates (a DXGI swap chain entering fullscreen, an SDL window),
+        // after the foreground event this host was told about. One raise half
+        // a second after the LAST change catches that, for one SetWindowPos.
+        private const int OverlayLateRaiseMs = 500;
+
+        private static readonly WinEventProc ForegroundHookProc = Foreground_Changed;
+        private static IntPtr _foregroundHook;
+        private static System.Windows.Forms.Timer _lateRaiseTimer;
+
+        private static void WatchForeground()
+        {
+            if (_foregroundHook != IntPtr.Zero)
+            {
+                return;
+            }
+            _foregroundHook = SetWinEventHook(EventSystemForeground, EventSystemForeground,
+                IntPtr.Zero, ForegroundHookProc, 0, 0, WinEventOutOfContext);
+            if (_foregroundHook == IntPtr.Zero)
+            {
+                // The count messages still raise the window.
+                Log("mascot overlay: foreground changes cannot be watched; non-fatal.");
+            }
+            System.Windows.Forms.Timer late = new System.Windows.Forms.Timer();
+            late.Interval = OverlayLateRaiseMs;
+            late.Tick += LateRaiseTimer_Tick;
+            _lateRaiseTimer = late;
+        }
+
+        private static void UnwatchForeground()
+        {
+            IntPtr hook = _foregroundHook;
+            System.Windows.Forms.Timer late = _lateRaiseTimer;
+            _foregroundHook = IntPtr.Zero;
+            _lateRaiseTimer = null;
+            try
+            {
+                if (hook != IntPtr.Zero)
+                {
+                    UnhookWinEvent(hook);
+                }
+                if (late != null)
+                {
+                    late.Stop();
+                    late.Dispose();
+                }
+            }
+            catch (Exception)
+            {
+                // Going away anyway.
+            }
+        }
+
+        private static void Foreground_Changed(IntPtr hook, uint eventType, IntPtr hwnd,
+            int idObject, int idChild, uint eventThread, uint eventTime)
+        {
+            // Nothing may unwind into user32's callback.
+            try
+            {
+                if (_overlay == null || _overlayRects == null)
+                {
+                    return;
+                }
+                RaiseOverlay();
+                System.Windows.Forms.Timer late = _lateRaiseTimer;
+                if (late != null)
+                {
+                    late.Stop();
+                    late.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not be raised (" + ex.GetType().Name + "); non-fatal.");
+            }
+        }
+
+        private static void LateRaiseTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                System.Windows.Forms.Timer late = sender as System.Windows.Forms.Timer;
+                if (late != null)
+                {
+                    late.Stop();
+                }
+                RaiseOverlay();
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay could not be raised (" + ex.GetType().Name + "); non-fatal.");
             }
         }
 
@@ -1553,6 +1882,8 @@ namespace AiSessionManager
             int h = (int)Math.Round(MascotStageHeight * scale);
             overlay.Bounds = new Rectangle(area.Right - w, area.Top + (area.Height - h) / 2, w, h);
             _overlayScreenName = screen.DeviceName;
+            // The page has no window to follow the form's on its own.
+            SyncOverlayController();
         }
 
         private static void MainForm_MovedOrResized(object sender, EventArgs e)
@@ -1648,8 +1979,11 @@ namespace AiSessionManager
             DisposeMascotOverlay();
         }
 
-        // From inside the overlay's own WebView2 events the control must not be
-        // disposed under its feet: the main window's message loop does it next.
+        // Called from inside the overlay's own callbacks - the WebView2
+        // continuation that creates and loads its controller, and its window
+        // procedure (OverlayInput_Failed) - so the controller and the form must
+        // not be closed and disposed under their feet: the main window's
+        // message loop does it next.
         private static void DeferDisposeMascotOverlay()
         {
             try
@@ -1668,13 +2002,32 @@ namespace AiSessionManager
             DisposeMascotOverlay();
         }
 
+        // In this order: no more events or input, the controller closed (its
+        // visuals leave the tree), the composition objects released, then the
+        // window. Each step on its own, so one failure never skips the rest.
         private static void DisposeMascotOverlay()
         {
             UnsubscribeDisplayEvents();
+            UnwatchForeground();
             MascotOverlayForm overlay = _overlay;
+            CoreWebView2CompositionController cc = _overlayController;
             _overlay = null;
-            _overlayWebView = null;
+            _overlayController = null;
             _overlayRects = null;
+            if (overlay != null)
+            {
+                try
+                {
+                    overlay.DetachController();
+                }
+                catch (Exception ex)
+                {
+                    Log("mascot overlay: its input could not be detached (" + ex.GetType().Name
+                        + "); non-fatal.");
+                }
+            }
+            CloseOverlayController(cc);
+            ReleaseOverlayComposition();
             if (overlay == null)
             {
                 return;
@@ -1684,9 +2037,10 @@ namespace AiSessionManager
                 overlay.Close();
                 overlay.Dispose();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Going away anyway.
+                Log("mascot overlay: its window could not be closed (" + ex.GetType().Name
+                    + "); non-fatal.");
             }
         }
 
@@ -1732,14 +2086,51 @@ namespace AiSessionManager
     }
 
     // The peek-mascot window (C1). Everything that must be true BEFORE the
-    // handle exists lives here: extended styles are fixed at creation.
+    // handle exists lives here (extended styles are fixed at creation), and
+    // so does the page's mouse input: with visual hosting the page has no
+    // window of its own, so every mouse message lands HERE and the ones the
+    // page needs are handed on to its controller.
     internal sealed class MascotOverlayForm : Form
     {
         private const int WsExTopmost = 0x00000008;
         private const int WsExToolWindow = 0x00000080;
+        private const int WsExNoRedirectionBitmap = 0x00200000;
         private const int WsExNoActivate = 0x08000000;
+        private const int WmSetCursor = 0x0020;
         private const int WmMouseActivate = 0x0021;
+        private const int WmMouseMove = 0x0200;
+        private const int WmLButtonDown = 0x0201;
+        private const int WmLButtonUp = 0x0202;
+        private const int WmLButtonDblClk = 0x0203;
+        private const int WmMouseLeave = 0x02A3;
         private const int MaNoActivate = 3;
+        private const int HtClient = 1;
+        private const uint TmeLeave = 0x00000002;
+        // MK_LBUTTON .. MK_XBUTTON2, the key flags in a mouse message's
+        // wParam - CoreWebView2MouseEventVirtualKeys copies them bit for bit.
+        private const int MouseKeyFlags = 0x007F;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TrackMouseEventInfo
+        {
+            public int Size;
+            public uint Flags;
+            public IntPtr Window;
+            public uint HoverTime;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool TrackMouseEvent(ref TrackMouseEventInfo track);
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetCursor(IntPtr cursor);
+
+        // Set once the page's controller exists; null before and after.
+        private CoreWebView2CompositionController _controller;
+        // Told ONCE, about the first input the controller refused.
+        private Action<Exception> _inputFailed;
+        // TrackMouseEvent(TME_LEAVE) is armed: the pointer is over the window,
+        // and WM_MOUSELEAVE comes when it goes.
+        private bool _leaveArmed;
 
         // Show() becomes SW_SHOWNOACTIVATE: showing never takes the focus.
         protected override bool ShowWithoutActivation
@@ -1750,28 +2141,249 @@ namespace AiSessionManager
         // TOOLWINDOW: no taskbar button, not in Alt-Tab. NOACTIVATE: a click
         // does not make this the active window (a game or an editor keeps the
         // keyboard; the click still reaches the page). TOPMOST: over other
-        // programs. WS_EX_LAYERED comes from the base (TransparencyKey).
+        // programs. NOREDIRECTIONBITMAP: no GDI surface at all - what shows is
+        // the DirectComposition tree the page draws into, with per-pixel
+        // alpha, so the window is neither layered nor colour-keyed.
         protected override CreateParams CreateParams
         {
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.ExStyle |= WsExTopmost | WsExToolWindow | WsExNoActivate;
+                cp.ExStyle |= WsExTopmost | WsExToolWindow | WsExNoRedirectionBitmap
+                    | WsExNoActivate;
                 return cp;
             }
         }
 
-        // The click lands in the WebView2's child windows, which pass
-        // WM_MOUSEACTIVATE up to this top-level window: answer "do not
-        // activate" so the click goes through to the page and nothing else.
+        // Nothing to paint: there is no GDI surface to paint on.
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+        }
+
+        // From now on the page gets this window's mouse input and sets its
+        // cursor. inputFailed hears of the first input the controller refuses;
+        // forwarding stops right there.
+        internal void AttachController(CoreWebView2CompositionController controller,
+            Action<Exception> inputFailed)
+        {
+            _controller = controller;
+            _inputFailed = inputFailed;
+            controller.CursorChanged += Controller_CursorChanged;
+        }
+
+        // Forwarding stops first, so a failing unsubscribe cannot leave it on.
+        internal void DetachController()
+        {
+            CoreWebView2CompositionController controller = _controller;
+            _controller = null;
+            _inputFailed = null;
+            if (controller != null)
+            {
+                controller.CursorChanged -= Controller_CursorChanged;
+            }
+        }
+
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WmMouseActivate)
+            switch (m.Msg)
             {
-                m.Result = new IntPtr(MaNoActivate);
-                return;
+                case WmMouseActivate:
+                    // "Do not activate": the click still reaches the page, the
+                    // window the user is in keeps the focus.
+                    m.Result = new IntPtr(MaNoActivate);
+                    return;
+                case WmSetCursor:
+                    if (LowWord(m.LParam) == HtClient && ApplyPageCursor())
+                    {
+                        m.Result = new IntPtr(1);
+                        return;
+                    }
+                    break;
+                case WmMouseMove:
+                    if (Forward(CoreWebView2MouseEventKind.Move, ref m))
+                    {
+                        return;
+                    }
+                    break;
+                case WmLButtonDown:
+                    if (Forward(CoreWebView2MouseEventKind.LeftButtonDown, ref m))
+                    {
+                        return;
+                    }
+                    break;
+                case WmLButtonUp:
+                    if (Forward(CoreWebView2MouseEventKind.LeftButtonUp, ref m))
+                    {
+                        return;
+                    }
+                    break;
+                case WmLButtonDblClk:
+                    if (Forward(CoreWebView2MouseEventKind.LeftButtonDoubleClick, ref m))
+                    {
+                        return;
+                    }
+                    break;
+                case WmMouseLeave:
+                    if (Forward(CoreWebView2MouseEventKind.Leave, ref m))
+                    {
+                        return;
+                    }
+                    break;
             }
             base.WndProc(ref m);
         }
+
+        // One mouse message to the page: the key flags from the wParam's low
+        // word, the point in client px from the lParam (signed - a captured
+        // move off the window is negative), which is the page's CSS px at the
+        // scale the host sets. False = no controller: WinForms handles the
+        // message as it always would.
+        private bool Forward(CoreWebView2MouseEventKind kind, ref Message m)
+        {
+            CoreWebView2CompositionController controller = _controller;
+            if (controller == null)
+            {
+                return false;
+            }
+            try
+            {
+                if (kind == CoreWebView2MouseEventKind.Move && !_leaveArmed)
+                {
+                    // The page must hear when the pointer leaves (its hover
+                    // state), and Windows only says so when asked, once.
+                    _leaveArmed = ArmLeave();
+                }
+                else if (kind == CoreWebView2MouseEventKind.Leave)
+                {
+                    _leaveArmed = false;
+                }
+                if (kind == CoreWebView2MouseEventKind.LeftButtonDown
+                    || kind == CoreWebView2MouseEventKind.LeftButtonDoubleClick)
+                {
+                    // The release must reach the page too, even off the mascot.
+                    Capture = true;
+                }
+                CoreWebView2MouseEventVirtualKeys keys = CoreWebView2MouseEventVirtualKeys.None;
+                Point point = Point.Empty;
+                if (kind != CoreWebView2MouseEventKind.Leave)
+                {
+                    keys = (CoreWebView2MouseEventVirtualKeys)(LowWord(m.WParam) & MouseKeyFlags);
+                    point = new Point(SignedLowWord(m.LParam), SignedHighWord(m.LParam));
+                }
+                controller.SendMouseInput(kind, keys, 0, point);
+                if (kind == CoreWebView2MouseEventKind.LeftButtonUp && Capture)
+                {
+                    Capture = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Action<Exception> failed = _inputFailed;
+                _controller = null;
+                _inputFailed = null;
+                if (failed != null)
+                {
+                    failed(ex);
+                }
+            }
+            return true;
+        }
+
+        private bool ArmLeave()
+        {
+            TrackMouseEventInfo track = new TrackMouseEventInfo();
+            track.Size = Marshal.SizeOf(typeof(TrackMouseEventInfo));
+            track.Flags = TmeLeave;
+            track.Window = Handle;
+            return TrackMouseEvent(ref track);
+        }
+
+        // The page changed its cursor (the hand over a mascot). Windows asks
+        // for a cursor only when the mouse moves (WM_SETCURSOR), so with the
+        // pointer over this window the new one is applied now.
+        private void Controller_CursorChanged(object sender, object e)
+        {
+            if (_leaveArmed || Capture)
+            {
+                ApplyPageCursor();
+            }
+        }
+
+        // The page's cursor, set at once and never kept (the HCURSOR is the
+        // controller's). False = no controller or no cursor: WinForms then
+        // sets the arrow. A controller that fails here is left to the next
+        // forwarded input to report.
+        private bool ApplyPageCursor()
+        {
+            CoreWebView2CompositionController controller = _controller;
+            if (controller == null)
+            {
+                return false;
+            }
+            try
+            {
+                IntPtr cursor = controller.Cursor;
+                if (cursor == IntPtr.Zero)
+                {
+                    return false;
+                }
+                SetCursor(cursor);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static int LowWord(IntPtr value)
+        {
+            return (int)(value.ToInt64() & 0xFFFF);
+        }
+
+        private static int SignedLowWord(IntPtr value)
+        {
+            return unchecked((short)(value.ToInt64() & 0xFFFF));
+        }
+
+        private static int SignedHighWord(IntPtr value)
+        {
+            return unchecked((short)((value.ToInt64() >> 16) & 0xFFFF));
+        }
+    }
+
+    // DirectComposition, declared by hand (the in-box csc has no Windows SDK
+    // projection): only the slots the overlay calls, in dcomp.h vtable order
+    // - WaitForCommitCompletion and GetFrameStatistics are declared only to
+    // keep the two after them in place. Not PreserveSig: a failing HRESULT
+    // throws, and the overlay's step that made the call logs it as one line.
+    [ComImport]
+    [Guid("C37EA93A-E7AA-450D-B16F-9746CB0407F3")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDCompositionDevice
+    {
+        void Commit();
+        void WaitForCommitCompletion();
+        void GetFrameStatistics(IntPtr statistics);
+        IDCompositionTarget CreateTargetForHwnd(IntPtr hwnd,
+            [MarshalAs(UnmanagedType.Bool)] bool topmost);
+        IDCompositionVisual CreateVisual();
+    }
+
+    [ComImport]
+    [Guid("EACDD04C-117E-4E17-88F4-D1B12B0E3D89")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDCompositionTarget
+    {
+        void SetRoot(IDCompositionVisual visual);
+    }
+
+    // No method is called on the root visual: it only travels - to the
+    // target's SetRoot and to the controller's RootVisualTarget.
+    [ComImport]
+    [Guid("4D93059D-097B-4651-9A60-F0F25116E2F3")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IDCompositionVisual
+    {
     }
 }

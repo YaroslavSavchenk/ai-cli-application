@@ -127,15 +127,20 @@ export interface SessionInfo {
   /** Nocturne B11: totals behind `agents` (present exactly when `agents` is). */
   agentCounts?: SessionAgentCounts;
   /**
-   * Nocturne B11: the transcript's verdict. Absent = unknown (no transcript
-   * path known, refused path, no counting line yet, a non-claude session); a
-   * known transcript Claude Code has not written yet reads 'waiting'. Dropped
-   * when the session exits.
+   * Nocturne B11: the transcript's verdict — since C2
+   * (.claude/plans/nocturne/PLAN-C2.md) the SESSION's: 'working' also while
+   * background subagents / workflows Claude launched still run after its
+   * turn ended; 'waiting' at once when it asks a question or a plan to
+   * approve. Absent = unknown (no transcript path known, refused path, no
+   * counting line yet, a non-claude session); a known transcript Claude Code
+   * has not written yet reads 'waiting'. Dropped when the session exits.
    */
   turn?: SessionTurn;
   /**
    * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The signal): true once
-   * `turn` went 'working' -> 'waiting' (Claude ended its turn). Never set by
+   * `turn` went 'working' -> 'waiting' (Claude ended its turn with no
+   * background work of its own left running, or asked the user something —
+   * C2). Never set by
    * a first readout of 'waiting' (a fresh session at its first prompt, or the
    * backend's first read of an old transcript) nor for a session without a
    * turn readout. Cleared ONLY when `turn` goes back to 'working' and at
@@ -212,8 +217,10 @@ export interface SessionAgent {
 /**
  * Nocturne B11: what a Claude session is doing between BELs, read from its own
  * transcript (server/agents.ts, PLAN-B11 § The turn rule): 'working' — Claude
- * is generating or running a tool; 'waiting' — it ended its turn and waits for
- * input.
+ * is generating or running a tool, or (C2, PLAN-C2 § The rule) its turn ended
+ * while background subagents / workflows it launched still run; 'waiting' —
+ * it ended its turn with none of those alive, or asked a question / a plan to
+ * approve, and waits for input.
  */
 export type SessionTurn = 'working' | 'waiting';
 

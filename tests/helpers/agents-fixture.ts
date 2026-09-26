@@ -1,14 +1,16 @@
 /**
- * Shared fixtures for the `server/agents.ts` tests (Nocturne B7 and B11):
+ * Shared fixtures for the `server/agents.ts` tests (Nocturne B7, B11 and C2):
  * `tests/server/agents.test.ts` and its `agents-*.test.ts` siblings.
  *
  * Constants kept in step with server/agents.ts, a realpath'd projects root,
  * transcript line builders (Claude Code's own shapes, and REAL lines cut down
- * from real 2.1.27x transcripts), an AgentsWatcher harness over a real temp
+ * from real 2.1.27x transcripts; C2's questions, background launches and
+ * their notifications at the end), an AgentsWatcher harness over a real temp
  * `<root>/<slug>/<uuid>/subagents` directory with waits on its reports, and a
  * SessionManager wired to a watcher with a fake `ws` client that keeps every
  * frame.
  */
+import assert from 'node:assert/strict';
 import { appendFile, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -382,4 +384,225 @@ export async function plantAgents(dir: string, running: number, finished: number
       assistantLine(`2026-09-16T11:${String(i).padStart(2, '0')}:00.000Z`, `m${i}`, { output_tokens: 1 }, 'end_turn'),
     ]);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Nocturne C2 (.claude/plans/nocturne/PLAN-C2.md): questions and background
+// launches in the session's own transcript. Shapes cut down from this
+// machine's transcripts (Claude Code 2.1.27x-2.1.280, measured 2026-09-26).
+// ---------------------------------------------------------------------------
+
+/** A tool_use id the way Claude Code writes one. */
+export function toolId(n: number): string {
+  return `toolu_01JMRGSDa5ThQwVnDeAn${String(n).padStart(4, '0')}`;
+}
+
+/** An ISO stamp `ms` milliseconds before `now` (a launch's age). */
+export function agoIso(now: number, ms: number): string {
+  return new Date(now - ms).toISOString();
+}
+
+/**
+ * An assistant line carrying ONE tool_use block — Claude Code writes each
+ * content block of a message as its own line. `timestamp` undefined = a line
+ * without one.
+ */
+export function toolUseLine(
+  timestamp: string | undefined,
+  id: string,
+  name: string,
+  extra: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({
+    parentUuid: 'p',
+    isSidechain: false,
+    message: {
+      model: 'claude-opus-5-5',
+      id: `msg_${id}`,
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'tool_use', id, name, input: { description: 'd' }, caller: { type: 'direct' } }],
+      stop_reason: 'tool_use',
+    },
+    type: 'assistant',
+    ...(timestamp === undefined ? {} : { timestamp }),
+    ...extra,
+  });
+}
+
+/** A user line carrying the tool_result for `id`: a string, or text blocks (the Agent tool's form). */
+export function toolResultLine(timestamp: string, id: string, content: string | { type: 'text'; text: string }[]): string {
+  return JSON.stringify({
+    parentUuid: 'p',
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content }] },
+    timestamp,
+  });
+}
+
+/** The Agent tool's text when the subagent went to the background. */
+export function asyncAgentText(agentId: string): string {
+  return (
+    'Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, ' +
+    `including the agentId below, into a user-facing reply.)\nagentId: ${agentId} (internal ID - do not mention to user. ` +
+    `Use SendMessage with to: '${agentId}', summary: '<5-10 word recap>' to continue this agent.)\n` +
+    'The agent is working in the background. You will be notified automatically when it completes.\n' +
+    `output_file: /tmp/claude-1000/-home-you-projects-app/${UUID}/tasks/${agentId}.output`
+  );
+}
+
+/** The Workflow tool's text when the run went to the background. */
+export function workflowText(runId: string, taskId = 'w094cbwm2'): string {
+  const session = `/home/you/.claude/projects/-home-you-projects-app/${UUID}`;
+  return (
+    `Workflow launched in background. Task ID: ${taskId}\nSummary: weekly review prep\n` +
+    `Transcript dir: ${session}/subagents/workflows/${runId}\n` +
+    `Script file: ${session}/workflows/scripts/prep-${runId}.js\nRun ID: ${runId}\n`
+  );
+}
+
+/** The SendMessage tool's text when it resumed a finished subagent. */
+export function resumeText(agentId: string): string {
+  return JSON.stringify({
+    success: true,
+    message: `Resuming agent ${agentId.slice(0, 7)}`,
+    resumedAgentId: agentId,
+    pin: { id: agentId, name: agentId, ref: 'e83aea' },
+  });
+}
+
+/** Claude Code's completion notice for a background task. */
+export function notificationText(toolUseId: string, taskId: string): string {
+  return (
+    `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n` +
+    `<output-file>/tmp/claude-1000/x/tasks/${taskId}.output</output-file>\n<status>completed</status>\n` +
+    `<summary>Agent "B4 phase 1" finished</summary>\n<result>Report.</result>\n</task-notification>`
+  );
+}
+
+/** The notice as a `user` line: how it arrives while Claude is idle. */
+export function notificationLine(timestamp: string, toolUseId: string, taskId: string): string {
+  return JSON.stringify({
+    parentUuid: 'p',
+    isSidechain: false,
+    type: 'user',
+    message: { role: 'user', content: notificationText(toolUseId, taskId) },
+    timestamp,
+    origin: { kind: 'task-notification' },
+    promptSource: 'system',
+  });
+}
+
+/** The notice as a `queued_command` attachment: how it arrives while Claude is busy. */
+export function queuedNotificationLine(timestamp: string, toolUseId: string, taskId: string): string {
+  return JSON.stringify({
+    parentUuid: 'p',
+    isSidechain: false,
+    attachment: {
+      type: 'queued_command',
+      prompt: notificationText(toolUseId, taskId),
+      commandMode: 'task-notification',
+      timestamp,
+    },
+    type: 'attachment',
+    timestamp,
+  });
+}
+
+/** A launch that went to the background: the tool_use line and its result (Agent's text-block form). */
+export function agentLaunch(timestamp: string, id: string, agentId: string): string[] {
+  return [
+    toolUseLine(timestamp, id, 'Agent'),
+    toolResultLine(timestamp, id, [{ type: 'text', text: asyncAgentText(agentId) }]),
+  ];
+}
+
+/** A workflow launch: the tool_use line and its result (Workflow's plain-string form). */
+export function workflowLaunch(timestamp: string, id: string, runId: string): string[] {
+  return [toolUseLine(timestamp, id, 'Workflow'), toolResultLine(timestamp, id, workflowText(runId))];
+}
+
+/** An `AskUserQuestion` (or `ExitPlanMode`) line, and the user's answer to it. */
+export function questionLine(timestamp: string, id: string, name = 'AskUserQuestion'): string {
+  return toolUseLine(timestamp, id, name);
+}
+export function answerLine(timestamp: string, id: string): string {
+  return toolResultLine(timestamp, id, 'Your questions have been answered: "Live test"="Yes, switch it on".');
+}
+
+/** The metadata lines Claude Code writes around a question; none of them counts. */
+export const METADATA_LINES = [
+  JSON.stringify({ type: 'last-prompt', lastPrompt: 'go', leafUuid: 'l', sessionId: UUID }),
+  JSON.stringify({ type: 'ai-title', aiTitle: 't', sessionId: UUID }),
+  JSON.stringify({ type: 'mode', mode: 'normal', sessionId: UUID }),
+  JSON.stringify({ type: 'permission-mode', permissionMode: 'default', sessionId: UUID }),
+  JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: '<task-notification>\n<task-id>x</task-id>' }),
+];
+
+// ---------------------------------------------------------------------------
+// C2 harness: the session verdict on a stepped clock, and SessionManager's
+// `turnEnded` fed by it (tests/server/agents-launch-watcher.test.ts and
+// tests/server/agents-launch-edges.test.ts).
+// ---------------------------------------------------------------------------
+
+/** A watcher on a clock the test steps. */
+export async function clocked(): Promise<{ w: Harness; clock: { now: number } }> {
+  const clock = { now: Date.now() };
+  const w = await makeWatcher({ now: () => clock.now });
+  return { w, clock };
+}
+
+/** Start `w`'s watcher, keeping every report in `w.seen`, and track its directory as `sess-1`. */
+export function startTracking(w: Harness): void {
+  w.watcher.start((id, report) => w.seen.push({ id, agents: report.agents, report }));
+  w.watcher.track('sess-1', w.dir);
+}
+
+/** Every turn `w`'s watcher delivered, in order. */
+export function turnsOf(w: Harness): (string | undefined)[] {
+  return w.seen.map((s) => s.report.turn);
+}
+
+/** A running subagent row: its meta and one fresh transcript line. */
+export async function runningAgent(w: Harness, id: string): Promise<void> {
+  await writeMeta(w.dir, id, { agentType: 'backend-pty', description: 'B4 phase 1' });
+  await appendLines(w.dir, id, [userLine(new Date().toISOString())]);
+}
+
+interface Wired {
+  w: Harness;
+  m: Awaited<ReturnType<typeof makeManager>>;
+  id: string;
+  client: FakeClient;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * A SessionManager session fed by a harness watcher, the way server/index.ts
+ * wires them; `now` steps the watcher's clock (the launch-time rule), never
+ * the manager's.
+ */
+export async function wired(opts: { now?: () => number } = {}): Promise<Wired> {
+  const w = await makeWatcher(opts.now === undefined ? {} : { now: opts.now });
+  const m = await makeManager();
+  const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+  const client = new FakeClient();
+  assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
+  w.watcher.start((_, report) => m.manager.setReport(info.id, report));
+  return {
+    w,
+    m,
+    id: info.id,
+    client,
+    cleanup: async (): Promise<void> => {
+      await w.cleanup();
+      await m.cleanup();
+    },
+  };
+}
+
+/** The last `info` frame `client` got that satisfies `ok`, waited for. */
+export async function waitInfo(client: FakeClient, ok: (s: SessionInfo) => boolean, what: string): Promise<SessionInfo> {
+  return waitUntil(() => client.infoFrames().filter(ok).at(-1), what, 5_000, 10);
 }
