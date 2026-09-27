@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-09-27
 tags: [nocturne, mascot, session-state, subagents, workflows, transcript]
 ---
 # C2: one session verdict — Working while background work runs, Waiting when Claude asks
@@ -35,7 +35,18 @@ you".
 - Alive = launched less than 15 min ago, OR its B7 row runs (or finished
   less than 10 s ago), OR its `subagents/workflows/<runId>/agent-*.jsonl`
   files are fresh.
-- Background shells never count. The permission prompt stays BEL-only.
+- Background shells never count.
+- **2026-09-27 amendment** (DEV check, user: "Hij zegt dat die actief is,
+  terwijl hij wacht op input"). Claude Code writes an open
+  `AskUserQuestion` line only AFTER the answer, so the transcript test
+  could never fire in time. The verdict now also reads Claude Code's OSC 0
+  terminal title (`✳ ` = idle, a spinner = working, measured also during a
+  20 s foreground tool). A transcript that says the turn runs, plus an idle
+  title for 3 s or more, reads waiting. User's call: a question, a plan
+  approval AND a permission prompt all count. The title can't tell them
+  apart, and this settles B11's permission-prompt limit. Rejected
+  alternative: recognising the question screen by its text ("Enter to
+  select"), which breaks on any wording change.
 
 **Rejected alternatives:**
 

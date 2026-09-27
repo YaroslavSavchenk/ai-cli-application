@@ -1,7 +1,7 @@
 ---
 type: log
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-09-27
 tags: [nocturne, mascot, c1, c2, webview2, launcher, session-state]
 ---
 # 2026-09-26 — Mascot: black box fixed, fullscreen understood, C2 (waits for background work, comes for questions)
@@ -63,6 +63,38 @@ rule. All of it in DEV, on a branch, never in the installed app (see
   mutant, no scratch backend) and it was resumed.
 
 **Suite** 3452 (C1) → 3873, all green; typecheck and build green.
+
+## 2026-09-27 — the DEV check found the question gap
+
+- **User:** "Hij zegt dat die actief is, terwijl hij wacht op input … de
+  enige issue is met die vragen". The workflows worked.
+- **Measured:** Claude Code 2.1.283 writes an open `AskUserQuestion`
+  `tool_use` line only AFTER the answer (a monitor saw it land 50 min
+  late, together with the answer). The transcript can't show an open
+  question.
+- **Signal found:** in real PTY captures, Claude Code's OSC 0 title is
+  `✳ ` whenever Claude is idle — for a question, a plan approval, a
+  permission prompt, and a turn end. It is a spinner while the model
+  streams AND while a foreground tool runs.
+- **User's call:** all three kinds of waiting count. This settles B11's
+  permission-prompt limit.
+- **Built** (`backend-pty`):
+  - `scanOutput` replaces `scanForBell`: one OSC machine, and it fixes two
+    split-escape BEL misreads;
+  - `titleIdleSince` in SessionManager (title text never kept);
+  - the pure `server/agents-verdict.ts`;
+  - the rule: transcript working + idle title for 3 s or more, counted from
+    the later of the idle stamp and the turn start → waiting.
+- **Reviews:**
+  - security clean;
+  - scope: a turn-start flash fixed with `max(titleIdleSince,
+    workingSince)`, a discarded title now reads not idle, and comments fixed;
+  - test gate: 16 tests (one is a differential BEL-parity model against the
+    old scanner), 97 mutants / 11 equivalent, no bug;
+  - `/verify-terminal` scoped: 1, 7 (BEL, title-BEL, split title) and 9 all
+    PASS. The question read Waiting after 4.9 s and the permission prompt
+    after 4.75 s.
+- **Suite** 3917 green.
 
 ## Next
 

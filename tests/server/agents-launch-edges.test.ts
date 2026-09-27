@@ -69,7 +69,7 @@ const AGENT = 'a790bda5878f4d7ef';
 const OTHER = 'b31c0ffee';
 const RUN = 'wf_998cfcac-d41';
 
-/** FINISH_GRACE_MS in server/agents.ts (not exported; kept in step here). */
+/** FINISH_GRACE_MS in server/agents-verdict.ts (not exported; kept in step here). */
 const FINISH_GRACE_MS = 10_000;
 
 // ---------------------------------------------------------------------------

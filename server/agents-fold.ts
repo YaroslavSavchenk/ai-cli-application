@@ -10,8 +10,9 @@
  *
  * Split from server/agents.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
  * byte-exact; server/agents.ts re-exports what was public. Sibling pieces:
- * server/agents.ts (AgentsWatcher: the poll, the bounded reads, the rows, the
- * session verdict), server/agents-path.ts (the transcript-path boundary,
+ * server/agents.ts (AgentsWatcher: the poll, the bounded reads, the rows),
+ * server/agents-verdict.ts (the session verdict built on this fold, and
+ * STALE_MS), server/agents-path.ts (the transcript-path boundary,
  * subagentsDirFor) and server/agents-workflows.ts (C2: a workflow run's
  * liveness from its directory).
  */
@@ -226,6 +227,13 @@ const TURN_ENDING_STOPS = new Set(['end_turn', 'stop_sequence', 'refusal', 'max_
  * `tool_result` of the next `user` line — also in the 3 messages that made
  * another tool call beside the question (the question came last in each), so
  * the last counting line is enough and no question id needs remembering.
+ *
+ * That is the file's ORDER. Its write TIMING is another matter (measured on
+ * the DEV check, 2026-09-27, Claude Code 2.1.283): the question's line lands
+ * only AFTER the answer, together with it, so this rule rarely fires while
+ * the question is open. The live sign is the terminal title
+ * (server/agents-verdict.ts); this rule stays because it is harmless, and
+ * right should a later Claude Code write the line in time.
  */
 const QUESTION_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
@@ -274,14 +282,19 @@ type LineTurn = SessionTurn | 'asking';
  *   - `assistant` whose stop reason ends a turn → 'waiting'; any other
  *     (`tool_use`, `pause_turn`, null) → 'working'.
  *
- * KNOWN LIMIT: Claude Code's permission prompt writes nothing to the
- * transcript (the last line is the assistant's `tool_use`), so a session
- * waiting on one reads 'working' — the BEL (`attention`) is what says "needs
- * your answer" then. No stale rule: a long tool call is still working. An
- * orchestrating session that ended its turn while background subagents or
- * workflows it launched still run reads 'waiting' HERE; the session verdict
- * (AgentsWatcher, PLAN-C2 § The rule 4) turns that into 'working' while one
- * of those launches (TurnFold.launches) is alive.
+ * What this line-by-line rule CANNOT see, and the session verdict
+ * (server/agents-verdict.ts) adds:
+ *   - Claude waiting on the user while the file still says the turn runs: a
+ *     permission prompt writes nothing, and Claude Code 2.1.283 writes a
+ *     question's `tool_use` line only after the answer. Here that reads
+ *     'working'; the verdict reads 'waiting' once the session's terminal
+ *     title has been Claude Code's idle mark for 3 s (PLAN-C2 § Fix after
+ *     the DEV check).
+ *   - An orchestrating session that ended its turn while background
+ *     subagents or workflows it launched still run: 'waiting' here, 'working'
+ *     in the verdict while one of those launches (TurnFold.launches) is alive
+ *     (PLAN-C2 § The rule 4).
+ * No stale rule: a long tool call is still working.
  */
 function turnOfLine(raw: Record<string, unknown>): LineTurn | undefined {
   const message = plainObject(raw['message']);

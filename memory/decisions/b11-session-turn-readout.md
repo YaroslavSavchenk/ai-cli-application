@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-27
 tags: [nocturne, session-state, transcripts, background-agents]
 ---
 # Session state Working vs. Waiting for you, the agents-table switch, the many-agents rule (part B11)
@@ -37,7 +37,9 @@ Orchestrator defaults (flippable): pulse only where the turn is KNOWN (a
 shell keeps still green Working); the tab dot follows, the tab's `Needs
 you` pill stays BEL-only; the Sessions badge counts like the statusline;
 waiting never notifies (attention stays BEL-only). Known limit: the
-permission prompt writes nothing to the transcript → Working unless BEL.
+permission prompt writes nothing to the transcript → Working unless BEL
+(settled 2026-09-27 by [[c2-mascot-waits-for-background-work]]: the idle
+terminal title).
 
 Spec: `.claude/plans/nocturne/PLAN-B11.md`. Related:
 [[b7-background-agents-source]], [[pane-status-bar-data-source]].

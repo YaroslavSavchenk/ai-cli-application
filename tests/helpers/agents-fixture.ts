@@ -2,7 +2,8 @@
  * Shared fixtures for the `server/agents.ts` tests (Nocturne B7, B11 and C2):
  * `tests/server/agents.test.ts` and its `agents-*.test.ts` siblings.
  *
- * Constants kept in step with server/agents.ts, a realpath'd projects root,
+ * Constants kept in step with server/agents.ts (STALE_MS imported from
+ * server/agents-verdict.ts, its one home), a realpath'd projects root,
  * transcript line builders (Claude Code's own shapes, and REAL lines cut down
  * from real 2.1.27x transcripts; C2's questions, background launches and
  * their notifications at the end), an AgentsWatcher harness over a real temp
@@ -29,8 +30,10 @@ export const DEL = String.fromCharCode(127);
 export const UUID = '0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09';
 export const OTHER_UUID = '11111111-2222-4333-8444-555555555555';
 
+/** The liveness clock, from its one home (server/agents-verdict.ts). */
+export { STALE_MS } from '../../server/agents-verdict.ts';
+
 /** The constants in server/agents.ts (not exported; kept in step here). */
-export const STALE_MS = 15 * 60 * 1000;
 export const MAX_AGENTS = 64;
 export const MAX_RUNNING_ROWS = 4;
 export const MAX_LINE = 1024 * 1024;
@@ -110,7 +113,12 @@ export const MANY_POLLS_MS = 15 * WATCHER_POLL_MS;
 
 /** A watcher over a real `<root>/<slug>/<uuid>/subagents` directory. */
 export async function makeWatcher(
-  opts: { now?: () => number; create?: boolean; readBudgetBytes?: number } = {},
+  opts: {
+    now?: () => number;
+    create?: boolean;
+    readBudgetBytes?: number;
+    titleIdleSince?: (id: string) => number | undefined;
+  } = {},
 ): Promise<Harness> {
   const root = realpathSync(await makeTempDir('ai-sm-agentw-'));
   const dir = join(root, '-slug', UUID, 'subagents');
@@ -122,6 +130,7 @@ export async function makeWatcher(
     pollMs: WATCHER_POLL_MS,
     ...(opts.now === undefined ? {} : { now: opts.now }),
     ...(opts.readBudgetBytes === undefined ? {} : { readBudgetBytes: opts.readBudgetBytes }),
+    ...(opts.titleIdleSince === undefined ? {} : { titleIdleSince: opts.titleIdleSince }),
   });
   return {
     root,
@@ -583,10 +592,25 @@ interface Wired {
  * wires them; `now` steps the watcher's clock (the launch-time rule), never
  * the manager's.
  */
-export async function wired(opts: { now?: () => number } = {}): Promise<Wired> {
-  const w = await makeWatcher(opts.now === undefined ? {} : { now: opts.now });
+export async function wired(
+  opts: {
+    now?: () => number;
+    /** The session's bash args; default a 30 s sleep. TITLE_BASH sets window titles on demand. */
+    args?: string[];
+    /**
+     * The watcher's title stamp (C2 DEV-check fix): a function the test
+     * drives, or 'manager' — this SessionManager's own stamp for the session.
+     */
+    titleIdleSince?: ((id: string) => number | undefined) | 'manager';
+  } = {},
+): Promise<Wired> {
   const m = await makeManager();
-  const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+  const info = m.manager.create({ command: 'bash', args: opts.args ?? ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+  const title = opts.titleIdleSince === 'manager' ? (): number | undefined => m.manager.titleIdleSince(info.id) : opts.titleIdleSince;
+  const w = await makeWatcher({
+    ...(opts.now === undefined ? {} : { now: opts.now }),
+    ...(title === undefined ? {} : { titleIdleSince: title }),
+  });
   const client = new FakeClient();
   assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
   w.watcher.start((_, report) => m.manager.setReport(info.id, report));
@@ -605,4 +629,40 @@ export async function wired(opts: { now?: () => number } = {}): Promise<Wired> {
 /** The last `info` frame `client` got that satisfies `ok`, waited for. */
 export async function waitInfo(client: FakeClient, ok: (s: SessionInfo) => boolean, what: string): Promise<SessionInfo> {
   return waitUntil(() => client.infoFrames().filter(ok).at(-1), what, 5_000, 10);
+}
+
+/**
+ * A bash that, for each word it reads, sets a window title (OSC 0) and then
+ * prints `DONE-<word>`: `idle` = Claude Code's idle mark (`✳ Claude Code`),
+ * `spin` = its spinner (`◐ Claude Code`), `plain` = a shell's own title,
+ * `long` = an idle-looking title past the scan's 256-character cap, `ctl` =
+ * an idle-looking title with a tab in it (both discarded by the scan);
+ * `exit` ends it. The C2 DEV-check fix reads exactly these titles.
+ */
+export const TITLE_BASH = [
+  '-c',
+  'while IFS= read -r w; do case $w in ' +
+    "idle) printf '\\033]0;\\342\\234\\263 Claude Code\\007' ;; " +
+    "spin) printf '\\033]0;\\342\\227\\220 Claude Code\\007' ;; " +
+    "plain) printf '\\033]0;you@host: ~\\007' ;; " +
+    "long) printf '\\033]0;\\342\\234\\263 %0300d\\007' 0 ;; " +
+    "ctl) printf '\\033]0;\\342\\234\\263 a\\tb\\007' ;; " +
+    'exit) exit 0 ;; ' +
+    "esac; printf 'DONE-%s\\n' \"$w\"; done",
+];
+
+/**
+ * Send `word` to a TITLE_BASH session and wait until its `DONE-<word>` marker
+ * came back: the title printed before it has been scanned by then.
+ */
+export async function sendTitle(manager: SessionManager, id: string, client: FakeClient, word: string): Promise<void> {
+  const marker = `DONE-${word}`;
+  const count = (): number =>
+    client.frames
+      .map((f) => (f.type === 'data' ? f.data : ''))
+      .join('')
+      .split(marker).length - 1;
+  const before = count();
+  manager.write(id, `${word}\r`);
+  await waitUntil(() => (count() > before ? true : undefined), `the ${word} title`, 10_000, 10);
 }

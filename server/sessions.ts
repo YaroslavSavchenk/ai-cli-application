@@ -38,8 +38,9 @@
  * resume/session flag is never given a second one.
  *
  * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the scrollback ring, bell
- * scan and final-output rescue live in server/sessions-output.ts; the PTY's
- * environment (ptyEnv) in server/sessions-env.ts. Both re-exported here.
+ * and title scan and final-output rescue live in server/sessions-output.ts;
+ * the PTY's environment (ptyEnv) in server/sessions-env.ts. Both re-exported
+ * here (the ring and its cap).
  */
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
@@ -56,7 +57,15 @@ import { sameTelemetry } from './telemetry.ts';
 import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
-import { replayTail, rescueFinalOutput, RingBuffer, scanForBell, SCROLLBACK_MAX_BYTES } from './sessions-output.ts';
+import {
+  newOutputScan,
+  replayTail,
+  rescueFinalOutput,
+  RingBuffer,
+  scanOutput,
+  SCROLLBACK_MAX_BYTES,
+  type OutputScanState,
+} from './sessions-output.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
 // of this module keeps its surface.
@@ -109,8 +118,15 @@ interface Session {
   pty: pty.IPty | null;
   buffer: RingBuffer;
   clients: Set<WebSocket>;
-  /** OSC-string parser state for bell detection, carried across data chunks. */
-  inOsc: boolean;
+  /** The output scan's state (bell and window title), carried across data chunks. */
+  scan: OutputScanState;
+  /**
+   * C2 DEV-check fix: Date.now() when the program's window title last turned
+   * Claude Code's idle mark (`✳ …`); undefined while it is anything else, or
+   * never set. Only this stamp is kept — never the title text (untrusted
+   * program output: not stored, logged or sent).
+   */
+  titleIdleSince: number | undefined;
   /**
    * I/O accounting for the log ONLY — byte COUNTS, never bytes. A PTY can
    * produce thousands of chunks a second and its content may hold anything the
@@ -245,6 +261,16 @@ export class SessionManager {
     return this.#sessions.get(id)?.info.status === 'running';
   }
 
+  /**
+   * C2 DEV-check fix: when this session's window title last turned Claude
+   * Code's idle mark (a Date.now() ms), or undefined — no such session, it
+   * exited, or its title is anything else. Read by the agents watcher's
+   * session verdict (server/agents-verdict.ts), injected in server/index.ts.
+   */
+  titleIdleSince(id: string): number | undefined {
+    return this.#sessions.get(id)?.titleIdleSince;
+  }
+
   /** Spawn the PTY and register the session. Throws if the spawn fails. */
   create(opts: CreateSessionOptions): SessionInfo {
     const id = randomUUID();
@@ -341,7 +367,8 @@ export class SessionManager {
         session.trimmedBytes += dropped;
       }),
       clients: new Set(),
-      inOsc: false,
+      scan: newOutputScan(),
+      titleIdleSince: undefined,
       outBytes: 0,
       outChunks: 0,
       trimmedBytes: 0,
@@ -363,7 +390,8 @@ export class SessionManager {
       session.outChunks += 1;
       this.#flushOutputLog(id, session, false);
       this.#broadcast(session, { type: 'data', data });
-      if (scanForBell(data, session)) {
+      const scan = scanOutput(data, session.scan);
+      if (scan.bell) {
         session.info.attention = true;
         // C1: a BEL makes the session pending too; the `attention` frame is
         // the news on the wire, `pendingSince` rides the next info / GET.
@@ -371,6 +399,10 @@ export class SessionManager {
         this.#slog('debug', `${id} attention raised (BEL in output)`);
         this.#broadcast(session, { type: 'attention' });
       }
+      // C2: an idle title keeps the stamp of the FIRST idle one (Claude Code
+      // repaints its title about every second); any other title clears it.
+      if (scan.titleIdle === true) session.titleIdleSince ??= Date.now();
+      else if (scan.titleIdle === false) session.titleIdleSince = undefined;
     };
 
     proc.onData(handleOutput);
@@ -391,6 +423,8 @@ export class SessionManager {
       session.info.status = 'exited';
       session.info.exitCode = exitCode;
       session.pty = null;
+      // Nothing waits on the title of a process that is gone.
+      session.titleIdleSince = undefined;
       if (statusline) this.#settings?.remove(id);
       // The process is gone, so no new subagent can appear: stop polling its
       // transcripts. The list already on info stands — what it cost is still

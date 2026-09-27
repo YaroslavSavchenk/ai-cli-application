@@ -379,7 +379,7 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   monitor, over other programs, one per PENDING session, max 3. Pending =
   `SessionInfo.turnEnded` (the session verdict `turn` went working →
   waiting — so not while its background subagents / workflows run, and yes
-  when Claude asks a question or a plan approval (C2); kept until Claude
+  when Claude asks a question, a plan approval or a permission (C2); kept until Claude
   works again or the session ends) or a BEL `attention` (until the pane is
   looked at). `/mascot.html`
   carries the auth token, polls every 2 s, rises after 1.5 s; the Windows
@@ -445,8 +445,15 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   `.claude/plans/nocturne/PLAN-C2.md`. Order: Needs your answer (BEL) >
   Finished > Waiting for you > Working. Waiting shows on the session's own
   pane, row and tab dot only; badges, `Needs you`, `attention`, `seen` and
-  notifications stay BEL-only. Known limit: a permission prompt reads
-  Working unless the BEL fires. History:
+  notifications stay BEL-only. Since the C2 DEV check (user, 2026-09-27): Claude
+  Code writes an open question's line only after the answer, so the verdict
+  also reads Claude Code's OSC 0/2 terminal title. The transcript says the
+  turn runs, and the title has been idle (`✳ `) for at least 3 s (counted
+  from the later of that and the verdict turning working) → `waiting`. This
+  covers a question, a plan approval AND a permission prompt, and it beats
+  open launches. Only a derived `titleIdleSince` stamp is kept; the title
+  text is never stored, logged or sent. Known limit: a Claude Code that sets
+  no title keeps the transcript-only verdict. History:
   `memory/decisions/scope-history.md` § Features — Session state.
 - **Session pane header** (A3; End session since B8). Left to right: state
   dot, session name, project NAME, spacer, state pill, degraded-connection

@@ -112,8 +112,9 @@ mascot bullets).
 - DEV check (never the installed app): a Claude session in the dev window
   that launches a background agent and ends its turn reads Working and shows
   no mascot until the agent reports back and Claude ends its turn; a
-  question shows a mascot at once (after the page's 1.5 s rise) and it
-  leaves when answered; a workflow likewise.
+  question, plan approval or permission prompt shows a mascot within about
+  7 s (at least 3 s of idle title, at most one 2 s poll, then the page's
+  1.5 s rise), and it leaves when answered; a workflow likewise.
 
 ## Amendments while building (2026-09-26; they win over the items above)
 
@@ -159,3 +160,67 @@ mascot bullets).
 - An agent row that finished counts as alive for 10 s more. The task
   notification lands a moment after the agent's last line, and this stops a
   one-poll mascot flash in between.
+
+## Fix after the DEV check (2026-09-27; wins over the items above)
+
+User on the DEV check: "Hij zegt dat die actief is, terwijl hij wacht op
+input … de enige issue is met die vragen" (the workflows worked).
+
+- **Cause (measured):** Claude Code 2.1.283 writes the `AskUserQuestion`
+  `tool_use` line to the transcript only AFTER the question is answered.
+  A monitor on a live transcript saw the line (stamped 09:33:06) land at
+  10:23:39, together with its answer. While the question is open, the file
+  holds nothing new, so rule 1's transcript test can never fire in time.
+  The line order in the file looked sequential; the write timing was not.
+- **The signal that works: Claude Code's terminal title (OSC 0).** Measured
+  in a real PTY:
+
+  | State | Title |
+  | --- | --- |
+  | Idle | `✳ <title>` (U+2733 and a space) |
+  | Working: model streaming AND a foreground tool running (a 20 s `sleep`) | a spinner glyph (`◐`/`◑`/…), repainted about every second |
+  | The question on screen, the transcript still saying the turn runs | `✳` |
+  | The turn ended (also with a background shell left running) | `✳` |
+  | A permission prompt ("Do you want to proceed? 1. Yes 2. No"; measured 2026-09-27 with `--permission-mode default` and an `ask` rule) | `✳`, no spinner until it is answered |
+  | Plan approval ("Ready to code? … Would you like to proceed?", `--permission-mode plan`) | `✳` |
+
+- **Decided (user, 2026-09-27):** every kind of waiting counts: a
+  question, a plan approval AND a permission prompt. The title cannot tell
+  them apart, and all three mean "Claude waits for you". This settles B11's
+  permission-prompt known limit.
+- **The rule, added to the session verdict:** main verdict `'working'`
+  (the transcript says the turn runs) AND the session's latest terminal
+  title is idle (`✳ `) AND that for at least `TITLE_IDLE_MS` = 3 s → treat
+  it as asking. The wire says `'waiting'`, and it beats open background
+  work, like rule 1's question. The 3 s absorbs Claude Code's transcript
+  write lag at a normal turn end: the title turns idle before the
+  `end_turn` line is written. Without the wait, a turn that ends while
+  background work is alive would flash a mascot.
+- **Where:** the PTY output scanner (`server/sessions-output.ts`, which
+  already tracks OSC state for the BEL scan) captures OSC 0/2 title text,
+  bounded, across chunks. `SessionManager` keeps only a derived
+  `titleIdleSince` per session. The title text itself is never stored
+  beyond the scan, logged or sent to a browser. The watcher reads it
+  through an injected callback. The rule itself is `sessionTurn()` in
+  `server/agents-verdict.ts`, which the watcher's `#sessionTurn` calls. A
+  session whose program never sets such a title keeps the transcript-only
+  verdict.
+- Rule 1's transcript test for `AskUserQuestion` / `ExitPlanMode` stays:
+  it is harmless, and right if a later Claude Code writes the line earlier.
+- The idle age counts from the LATER of the title's idle stamp and the
+  moment the transcript's main verdict turned `'working'` (scope review).
+  Without that, a background agent that reports back makes Claude start a
+  turn, the old idle stamp is minutes old, and the mascot flashes before
+  the spinner title arrives.
+- One scanner for the BEL and the title (`scanOutput`) also fixes two
+  split-escape misreads of the old `scanForBell`. An `ESC ]` split across
+  chunks no longer turns the title's closing BEL into a false bell. A split
+  `ESC \` no longer swallows the next real BEL. `attention` stays BEL-only.
+- Known limit: a Working phase shorter than one 2 s poll after an answer is
+  not seen. `turnEnded` then stays set across the answer, and the mascot
+  keeps its slot and its `pendingSince` instead of leaving and coming back.
+- Known limit (test gate, 2026-09-27; the orchestrator's call, no practical
+  impact): the scanner knows the 7-bit forms only (`ESC ]`, `ESC \`, BEL).
+  The 8-bit C1 `OSC`/`ST` (U+009D/U+009C) and C1 characters inside a title
+  are treated as the old `scanForBell` treated them. Claude Code writes
+  7-bit titles.

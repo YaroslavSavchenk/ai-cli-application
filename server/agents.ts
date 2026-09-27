@@ -23,8 +23,12 @@
  *      them is alive — launched less than STALE_MS ago, or its files written
  *      less than STALE_MS ago (a subagent: its row here; a workflow run:
  *      server/agents-workflows.ts). A question to the user reads 'waiting'
- *      whatever runs. That one verdict is SessionInfo.turn, which
- *      SessionManager turns into turnEnded (C1).
+ *      whatever runs — and since the 2026-09-27 DEV-check fix so does a turn
+ *      the transcript says runs while the session's terminal title has been
+ *      Claude Code's idle mark for 3 s (a question, a plan approval or a
+ *      permission prompt on screen; titleIdleSince, injected). The rule
+ *      itself is server/agents-verdict.ts. That one verdict is
+ *      SessionInfo.turn, which SessionManager turns into turnEnded (C1).
  *
  * THE PATH IS UNTRUSTED, and so is everything under it. The snapshot lives in
  * the data dir, an ordinary directory any process running as this user can
@@ -64,8 +68,9 @@
  * subagentsDirFor and the agent fold / wire comparisons are re-exported here;
  * the turn fold is not (since C2 its one entry, foldTurnLine, is imported from
  * server/agents-fold.ts directly). C2 (2026-09-26) added
- * server/agents-workflows.ts, a workflow run's liveness, which only this
- * module calls.
+ * server/agents-workflows.ts, a workflow run's liveness, and (2026-09-27)
+ * server/agents-verdict.ts, the session verdict and STALE_MS; only this
+ * module calls either.
  */
 import {
   closeSync,
@@ -97,6 +102,7 @@ import {
   type TurnFold,
 } from './agents-fold.ts';
 import { pendingSlug } from './agents-path.ts';
+import { STALE_MS, sessionTurn } from './agents-verdict.ts';
 import { checkWorkflows } from './agents-workflows.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
@@ -143,24 +149,6 @@ const MAX_LINE = 1024 * 1024;
 
 /** A `.meta.json` is ~200 bytes; anything past this is not one. */
 const MAX_META_BYTES = 8 * 1024;
-
-/**
- * A running agent whose transcript has not been touched for this long is shown
- * finished. A killed agent (TaskStop, a usage-limit abort) leaves no end
- * marker at all, so without this rule its dot would spin forever. 15 minutes
- * is above the longest single tool call Claude Code allows (10 minutes), so a
- * live agent waiting on one is never declared dead.
- */
-const STALE_MS = 15 * 60 * 1000;
-
-/**
- * C2: a launched subagent whose row FINISHED less than this long ago (by its
- * own end stamp) still counts as alive — its task notification lands a moment
- * after its last line, and without this the turn would read 'waiting' for the
- * poll in between (a mascot flash). A killed agent that never notifies costs
- * only this much.
- */
-const FINISH_GRACE_MS = 10_000;
 
 /** Most agents tracked per session, newest `.meta.json` by mtime winning. */
 const MAX_AGENTS = 64;
@@ -212,6 +200,12 @@ export interface AgentsWatcherOptions {
   now?: () => number;
   /** Bytes all transcripts together may cost one tick; default MAX_READ_PER_TICK. */
   readBudgetBytes?: number;
+  /**
+   * C2 DEV-check fix: when session `id`'s terminal title last turned idle, on
+   * the `now` clock (SessionManager.titleIdleSince); absent = the title is
+   * never consulted and the verdict is the transcript's alone.
+   */
+  titleIdleSince?: (id: string) => number | undefined;
 }
 
 /** Per-transcript read state: where we stopped, and what we made of it. */
@@ -235,11 +229,17 @@ interface TurnState {
   resyncing: boolean;
   /** What its lines said: the main verdict, a question, the open launches (C2). */
   fold: TurnFold;
+  /**
+   * When `fold.turn` last moved to 'working' (this watcher's clock, the time
+   * the line was read); undefined until it does. Reset with the fold. The
+   * verdict ages an idle title from it (server/agents-verdict.ts).
+   */
+  workingSince: number | undefined;
 }
 
 /** A turn state that has read nothing: the next read starts at the tail. */
 function newTurnState(): TurnState {
-  return { offset: -1, carry: Buffer.alloc(0), resyncing: false, fold: newTurnFold() };
+  return { offset: -1, carry: Buffer.alloc(0), resyncing: false, fold: newTurnFold(), workingSince: undefined };
 }
 
 interface TrackedAgent {
@@ -294,6 +294,7 @@ export class AgentsWatcher {
   readonly #pollMs: number;
   readonly #now: () => number;
   readonly #readBudget: number;
+  readonly #titleIdleSince: ((id: string) => number | undefined) | undefined;
   readonly #sessions = new Map<string, TrackedSession>();
   #timer: NodeJS.Timeout | undefined;
   /** Ticks so far: which session a sweep starts at (round robin, B11 F2). */
@@ -307,6 +308,7 @@ export class AgentsWatcher {
     this.#pollMs = options.pollMs ?? POLL_MS;
     this.#now = options.now ?? Date.now;
     this.#readBudget = options.readBudgetBytes ?? MAX_READ_PER_TICK;
+    this.#titleIdleSince = options.titleIdleSince;
   }
 
   /**
@@ -601,9 +603,15 @@ export class AgentsWatcher {
       if (read <= 0) return;
       budget.left -= read;
       state.offset += read;
-      // C2: the fold dates a launch line without a believable stamp by this.
+      // C2: the fold dates a launch line without a believable stamp by this,
+      // and a turn that starts on one of these lines is stamped with it —
+      // line by line, so a turn that ended and restarted in one read counts.
       const seenMs = this.#now();
-      splitLines(state, buffer.subarray(0, read), (line) => foldTurnLine(state.fold, line.toString('utf8'), seenMs));
+      splitLines(state, buffer.subarray(0, read), (line) => {
+        const was = state.fold.turn;
+        foldTurnLine(state.fold, line.toString('utf8'), seenMs);
+        if (state.fold.turn === 'working' && was !== 'working') state.workingSince = seenMs;
+      });
     } catch (err) {
       this.#log('debug', `${id}: transcript read failed: ${describeError(err)}`);
     } finally {
@@ -795,18 +803,11 @@ export class AgentsWatcher {
   }
 
   /**
-   * THE SESSION VERDICT (PLAN-C2 § The rule 4): the main verdict, except that
-   * a turn which ENDED — 'waiting', and not because Claude asked a question —
-   * reads 'working' while at least one launch it left open is alive (§ The
-   * rule 3): launched less than STALE_MS ago, or
-   *   - a subagent whose row here is running (not finished, not stale — the
-   *     very rule #row draws; `running` holds every such row, not only the
-   *     ones on the wire), or whose row finished less than FINISH_GRACE_MS
-   *     ago (justFinished),
-   *   - a workflow run with an agent transcript written less than STALE_MS
-   *     ago (server/agents-workflows.ts; looked at last, and only when
-   *     nothing cheaper already said alive).
-   * A question wins over background work: Claude waits for the user.
+   * The session verdict (server/agents-verdict.ts, sessionTurn) for this poll:
+   * the fold and when its turn was read starting (TurnState.workingSince),
+   * plus two inputs from outside the transcript — the session's title stamp,
+   * and the workflow check against the subagents directory as realpath'd on
+   * this poll (null: no workflow can be looked at).
    */
   #sessionTurn(
     id: string,
@@ -816,28 +817,23 @@ export class AgentsWatcher {
     finished: readonly SessionAgent[],
     now: number,
   ): SessionTurn | undefined {
-    const { turn, asking, launches } = session.main.fold;
-    if (turn !== 'waiting' || asking || launches.size === 0) return turn;
-    const runs: string[] = [];
-    for (const launch of launches.values()) {
-      if (now - launch.atMs < STALE_MS) return 'working';
-      if (
-        launch.kind === 'agent' &&
-        launch.ref !== '' &&
-        (running.some((row) => row.id === launch.ref) ||
-          finished.some((row) => row.id === launch.ref && justFinished(row, now)))
-      ) {
-        return 'working';
-      }
-      if (launch.kind === 'workflow' && launch.ref !== '') runs.push(launch.ref);
-    }
-    if (dir === null || runs.length === 0) return 'waiting';
-    const check = checkWorkflows(dir, runs, now - STALE_MS);
-    if (check === 'refused' && !session.workflowRefusalLogged) {
-      session.workflowRefusalLogged = true;
-      this.#log('debug', `${id}: a workflow run directory resolves elsewhere, refused`);
-    }
-    return check === 'alive' ? 'working' : 'waiting';
+    return sessionTurn({
+      fold: session.main.fold,
+      running,
+      finished,
+      now,
+      titleIdleSince: this.#titleIdleSince?.(id),
+      workingSince: session.main.workingSince,
+      workflowsAlive: (runs) => {
+        if (dir === null) return false;
+        const check = checkWorkflows(dir, runs, now - STALE_MS);
+        if (check === 'refused' && !session.workflowRefusalLogged) {
+          session.workflowRefusalLogged = true;
+          this.#log('debug', `${id}: a workflow run directory resolves elsewhere, refused`);
+        }
+        return check === 'alive';
+      },
+    });
   }
 
   /** One agent's row: only what its two files said. */
@@ -965,16 +961,6 @@ function splitLines(
   }
   // Copied, not aliased: subarray keeps the whole chunk alive otherwise.
   state.carry = Buffer.from(rest);
-}
-
-/**
- * A finished row whose own end stamp is less than FINISH_GRACE_MS old (C2).
- * A stamp AHEAD of the clock gets no grace: it was written before we read it,
- * so only a planted date can be ahead, and it must not hold 'working' forever.
- */
-function justFinished(row: SessionAgent, now: number): boolean {
-  const age = now - Date.parse(row.endedAt ?? '');
-  return age >= 0 && age < FINISH_GRACE_MS;
 }
 
 /** Compare two ISO stamps (or ids) as plain strings — ISO-8601 sorts lexically. */

@@ -1,7 +1,8 @@
 /**
  * The output side of a session, as pure building blocks: the byte-capped
  * scrollback ring buffer, the tail of it an attach replays (PLAN-QUALITY P1),
- * the scan for a REAL bell (not an OSC terminator), and the rescue of a
+ * the scan for a REAL bell (not an OSC terminator) and — Nocturne C2's
+ * DEV-check fix — for Claude Code's idle window title, and the rescue of a
  * session's final output from the pty master before node-pty closes it.
  *
  * Split from server/sessions.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
@@ -112,31 +113,164 @@ export function replayTail(ring: Buffer, maxLines: number): Buffer {
 }
 
 /**
- * True when the chunk contains a REAL bell — not the 0x07 that terminates an
- * OSC string. Shells repaint window titles ("\x1b]0;user@host: dir\x07") on
- * every prompt, so counting those BELs raises spurious attention on
- * background sessions after any repaint (e.g. a resize). OSC state carries
- * across chunk boundaries via the session's `inOsc` flag; OSC ends at BEL or
- * ST (ESC backslash).
+ * Longest window title the scan follows (C2 DEV-check fix). Claude Code's are
+ * `<glyph> <short topic>`, well under this; a longer one is DISCARDED, never
+ * cut short — a title we did not read whole is not one we vouch for as idle.
+ * A discarded title still reads as NOT idle: it is a new title all the same,
+ * so an old idle stamp must not outlive it (a false 'waiting' while Claude
+ * works).
  */
-export function scanForBell(data: string, session: { inOsc: boolean }): boolean {
+const TITLE_MAX = 256;
+
+/** U+2733 EIGHT SPOKED ASTERISK: Claude Code's title glyph while it is idle. */
+const IDLE_GLYPH = 0x2733;
+
+/**
+ * What the output scan carries from one chunk to the next, per session.
+ * Holds no title TEXT — only how far the current one got and whether it still
+ * looks idle.
+ */
+export interface OutputScanState {
+  /** Inside an OSC string (ESC ] … BEL or ESC \). */
+  inOsc: boolean;
+  /** The chunk ended on an ESC: what it starts depends on the next chunk's first character. */
+  esc: boolean;
+  /**
+   * Where the current OSC stands as a window title: reading its number
+   * (`num`), reading an OSC 0 / OSC 2 title (`title`), an OSC 0 / OSC 2 title
+   * discarded — a control character, a stray ESC, past TITLE_MAX — that ends
+   * as NOT idle (`dropped`), or any other OSC, skipped to its end (`skip`).
+   */
+  osc: 'num' | 'title' | 'dropped' | 'skip';
+  /** The OSC number read so far (at most 3 digits). */
+  oscNum: string;
+  /** Title characters read so far. */
+  titleLen: number;
+  /**
+   * Whether the title so far matches Claude Code's idle form: `✳` alone, or
+   * `✳ ` and more. False until a first character, so an empty title is not idle.
+   */
+  titleIdle: boolean;
+}
+
+/** A scan state for a session that has printed nothing yet. */
+export function newOutputScan(): OutputScanState {
+  return { inOsc: false, esc: false, osc: 'skip', oscNum: '', titleLen: 0, titleIdle: false };
+}
+
+/** What one chunk said. */
+export interface OutputScan {
+  /** A REAL bell — not the 0x07 that terminates an OSC string. */
+  bell: boolean;
+  /**
+   * The LAST window title (OSC 0 or OSC 2) the chunk completed, as one fact:
+   * true = Claude Code's idle mark (`✳` alone, or `✳ ` then anything), false =
+   * any other title, a discarded one included; undefined = the chunk
+   * completed no title.
+   */
+  titleIdle: boolean | undefined;
+}
+
+/**
+ * Scan one chunk of PTY output for a REAL bell and for window titles, in ONE
+ * pass over one OSC state machine.
+ *
+ * THE BELL: shells repaint window titles ("\x1b]0;user@host: dir\x07") on
+ * every prompt, so counting the 0x07 that ends an OSC would raise spurious
+ * attention on background sessions after any repaint (e.g. a resize). An OSC
+ * ends at BEL or ST (ESC backslash).
+ *
+ * THE TITLE (C2 DEV-check fix, PLAN-C2 § Fix after the DEV check): Claude Code
+ * sets OSC 0 to `✳ <topic>` while idle and to a spinner glyph while it works;
+ * with a question or permission prompt on screen it is idle while its
+ * transcript still says the turn runs. The title is untrusted program output:
+ * only the one boolean leaves here, and no text is kept, not even across
+ * chunks — the state holds a length and a match flag.
+ *
+ * Across chunks: OSC state, the OSC number, the title's progress, and an ESC
+ * that ended the previous chunk (so `ESC ]` and `ESC \` split in two are still
+ * a start and an end) all carry over in `state`.
+ */
+export function scanOutput(data: string, state: OutputScanState): OutputScan {
   let bell = false;
+  let titleIdle: boolean | undefined;
   for (let i = 0; i < data.length; i++) {
     const c = data.charCodeAt(i);
-    if (session.inOsc) {
-      if (c === 0x07) session.inOsc = false;
-      else if (c === 0x1b && data.charCodeAt(i + 1) === 0x5c) {
-        session.inOsc = false;
+    if (state.esc) {
+      // The previous chunk ended on an ESC; this character completes it.
+      state.esc = false;
+      if (state.inOsc ? c === 0x5c : c === 0x5d) {
+        if (state.inOsc) titleIdle = endOsc(state) ?? titleIdle;
+        else startOsc(state);
+        continue;
+      }
+      if (state.inOsc) dropOsc(state); // An ESC inside a title: not one we read.
+    }
+    if (state.inOsc) {
+      if (c === 0x07) {
+        titleIdle = endOsc(state) ?? titleIdle;
+      } else if (c === 0x1b) {
+        if (i + 1 >= data.length) state.esc = true;
+        else if (data.charCodeAt(i + 1) === 0x5c) {
+          titleIdle = endOsc(state) ?? titleIdle;
+          i++;
+        } else {
+          dropOsc(state);
+        }
+      } else {
+        oscChar(state, c);
+      }
+    } else if (c === 0x1b) {
+      if (i + 1 >= data.length) state.esc = true;
+      else if (data.charCodeAt(i + 1) === 0x5d) {
+        startOsc(state);
         i++;
       }
-    } else if (c === 0x1b && data.charCodeAt(i + 1) === 0x5d) {
-      session.inOsc = true;
-      i++;
     } else if (c === 0x07) {
       bell = true;
     }
   }
-  return bell;
+  return { bell, titleIdle };
+}
+
+function startOsc(state: OutputScanState): void {
+  state.inOsc = true;
+  state.osc = 'num';
+  state.oscNum = '';
+  state.titleLen = 0;
+  state.titleIdle = false;
+}
+
+/** One character inside an OSC string (not its terminator). */
+function oscChar(state: OutputScanState, c: number): void {
+  if (state.osc === 'num') {
+    if (c >= 0x30 && c <= 0x39 && state.oscNum.length < 3) state.oscNum += String.fromCharCode(c);
+    else if (c === 0x3b && (state.oscNum === '0' || state.oscNum === '2')) state.osc = 'title';
+    else state.osc = 'skip';
+    return;
+  }
+  if (state.osc !== 'title') return;
+  if (c < 0x20 || c === 0x7f || ++state.titleLen > TITLE_MAX) {
+    state.osc = 'dropped'; // A control character, or past the cap: discarded whole.
+    return;
+  }
+  if (state.titleLen === 1) state.titleIdle = c === IDLE_GLYPH;
+  else if (state.titleLen === 2) state.titleIdle = state.titleIdle && c === 0x20;
+}
+
+/** A stray ESC inside an OSC: a title becomes a discarded one, an OSC number becomes no title. */
+function dropOsc(state: OutputScanState): void {
+  if (state.osc === 'title') state.osc = 'dropped';
+  else if (state.osc === 'num') state.osc = 'skip';
+}
+
+/** The OSC ended: the title it completed as idle / not idle (a discarded one: not idle), or undefined when it was no title. */
+function endOsc(state: OutputScanState): boolean | undefined {
+  state.inOsc = false;
+  const osc = state.osc;
+  state.osc = 'skip';
+  if (osc === 'title') return state.titleIdle;
+  return osc === 'dropped' ? false : undefined;
 }
 
 /**

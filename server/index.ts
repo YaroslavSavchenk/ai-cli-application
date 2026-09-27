@@ -325,9 +325,11 @@ const keys = new KeyStore(paths.keysFile, log);
  *
  * Constructed BEFORE the SessionManager because the manager holds it: a
  * session that exits or is deleted must stop being polled, and the manager is
- * the only place that knows when that happened.
+ * the only place that knows when that happened. C2: it reads each session's
+ * title stamp (titleIdleSince) at poll time only, once `sessions` exists.
  */
-const agents = new AgentsWatcher(log, { projectsRoot: paths.claudeProjectsDir });
+const titleIdleSince = (id: string): number | undefined => sessions.titleIdleSince(id);
+const agents = new AgentsWatcher(log, { projectsRoot: paths.claudeProjectsDir, titleIdleSince });
 const sessions = new SessionManager(log, history, sessionSettings, keys, agents);
 /**
  * The status-line snapshots the script writes for each claude session, back

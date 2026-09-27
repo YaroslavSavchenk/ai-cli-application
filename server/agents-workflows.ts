@@ -33,7 +33,8 @@
  *
  * A topic of server/agents.ts in a file of its own from the start (C2,
  * 2026-09-26), so that module stays under CONTRIBUTING.md's 1 000 lines; it
- * was never part of it. Sibling pieces: server/agents.ts (AgentsWatcher — the only caller),
+ * was never part of it. Sibling pieces: server/agents.ts (AgentsWatcher — the
+ * only caller), server/agents-verdict.ts (the session verdict this feeds),
  * server/agents-fold.ts (where the run id comes from) and
  * server/agents-path.ts (the transcript-path boundary).
  */

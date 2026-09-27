@@ -121,8 +121,11 @@ designer; no code words). Absent = on.
 
 - A game in true exclusive fullscreen cannot be drawn over by any window
   (decision 15).
-- Claude Code's permission prompt writes nothing to the transcript — it
-  shows a mascot only through its BEL (B11's limit).
+- ~~Claude Code's permission prompt writes nothing to the transcript — it
+  shows a mascot only through its BEL (B11's limit).~~ Settled by C2
+  (2026-09-27): Claude Code's idle terminal title while the turn runs reads
+  Waiting for you (`.claude/plans/nocturne/PLAN-C2.md` § Fix after the DEV
+  check).
 
 ## Files
 

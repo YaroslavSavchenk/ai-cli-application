@@ -5,8 +5,10 @@
  *
  * Split from server/agents.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
  * byte-exact; server/agents.ts re-exports subagentsDirFor. Sibling pieces:
- * server/agents.ts (AgentsWatcher: the poll, the bounded reads, the rows) and
- * server/agents-fold.ts (the pure line fold, wire comparisons and turn verdict).
+ * server/agents.ts (AgentsWatcher: the poll, the bounded reads, the rows),
+ * server/agents-fold.ts (the pure line fold, wire comparisons and turn
+ * verdict), server/agents-verdict.ts (the session verdict) and
+ * server/agents-workflows.ts (a workflow run's liveness).
  */
 import { lstatSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
