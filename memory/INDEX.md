@@ -69,6 +69,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ### Backend and PTY
 
+- [[claude-code-title-is-the-idle-signal]] — 2026-09-27: Claude Code 2.1.283 writes an OPEN `AskUserQuestion` line to the transcript only after the answer (file order ≠ write timing — monitor live, don't read afterwards); its OSC 0 title is the live signal: `✳ ` idle (question, permission prompt, plan approval, turn end), spinner working (model AND foreground tool)
 - [[backend-from-claude-code-taints-pty-env]] — 2026-09-17: a backend started from a Claude Code terminal passed `CLAUDECODE` / `CLAUDE_CODE_CHILD_SESSION` … into every PTY, so app-launched claudes ran as nested children with transcript saving OFF (no resume); `ptyEnv()` now strips the parent markers by name, never the `CLAUDE_CODE_*` prefix (user config)
 - [[fifo-open-blocks-main-thread]] — 2026-09-17: a planted FIFO hangs a synchronous `openSync` before `isFile()` can refuse it (froze the backend AND the status-line script); `O_NOFOLLOW` is not a FIFO defence — open with `O_NONBLOCK` too, test with a real `mkfifo`
 - [[etag-cache-verdict-not-payload]] — 2026-09-10 incident: the release check cached the VERDICT ("not newer") beside GitHub's ETag; after a downgrade a 304 re-used it and the Update button never appeared. Cache only what the validator covers, derive version-relative decisions at use time, rename the field so old files fail the read; same shape: ctime-order tests assumed a monotonic clock (`proveNewer`)
