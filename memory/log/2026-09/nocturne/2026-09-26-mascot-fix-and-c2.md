@@ -96,11 +96,14 @@ rule. All of it in DEV, on a branch, never in the installed app (see
     after 4.75 s.
 - **Suite** 3917 green.
 
+## Verified
+
+2026-09-27, the user in DEV: "vragen werken nu, mascotte is goed. Alles
+klopt". Fast-forwarded `mascot-detection` into `main`; CI + CodeQL watched.
+
 ## Next
 
-- DEV Windows check with the user (dev backend on
-  `~/.ai-session-manager-dev`, dev window isolated). Then merge to `main`
-  and a release (v0.4.1) are the user's call.
+- A release (v0.4.1) is the user's call.
 - Backlog:
   - `launcher/host/AiSessionManagerHost.cs` is 2385 lines (not under the
     size guard; a `partial` split is suggested);
