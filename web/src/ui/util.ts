@@ -132,12 +132,68 @@ export function trapTab(container: HTMLElement): void {
 }
 
 /**
+ * Who gets the keyboard when a closing dialog's opener cannot take it back:
+ * the focused pane (`ui/panes.ts` `requestTerminalFocus`). Injected once at
+ * boot by `main-shell.ts` rather than imported, because `ui/panes.ts` imports
+ * this module (Nocturne D4). Until then — and in a test that never sets it —
+ * it does nothing.
+ */
+let focusFallback: () => void = () => {};
+
+/** Boot wiring: the one place the fallback of `restoreFocus` is set. */
+export function setFocusFallback(fn: () => void): void {
+  focusFallback = fn;
+}
+
+/**
+ * Could `node` take the keyboard right now? On the page, not `<body>` (where
+ * focus sits when nothing has it: focusing it back is a no-op, so the typed
+ * keys would reach no PTY), and with a box — nothing on the way up `hidden`
+ * and not `display: none` (`offsetParent`), or `focus()` silently fails and
+ * the keyboard lands on `<body>` all the same. The rule `ui/update.ts` had
+ * for its own dialog, given to every dialog (Nocturne D4).
+ *
+ * `offsetParent` is ALSO null for an element that is itself `position: fixed`
+ * (and for `<body>`), so a fixed-position control used as an opener would be
+ * refused and the keyboard would go to the fallback instead. No opener is one
+ * today (the fixed boxes — toast, context menu, scrims — are containers); a
+ * focusable opener that becomes fixed needs this rule revisited.
+ */
+function canTakeFocus(node: HTMLElement): boolean {
+  return (
+    node !== document.body &&
+    node.isConnected &&
+    node.closest('[hidden]') === null &&
+    node.offsetParent !== null
+  );
+}
+
+/**
+ * Hand the keyboard back after a dialog, menu or overlay closes: to `target`
+ * (what had it when the card opened) when it can still take it, else to
+ * `opts.fallback` — the focused pane's terminal by default. `opts.last` is the
+ * control for when neither took it (no session on screen): Settings' gear.
+ */
+export function restoreFocus(
+  target: HTMLElement | null,
+  opts: { fallback?: () => void; last?: HTMLElement } = {},
+): void {
+  if (target !== null && canTakeFocus(target)) {
+    target.focus();
+    return;
+  }
+  (opts.fallback ?? focusFallback)();
+  const now = document.activeElement;
+  if (opts.last !== undefined && !(now instanceof HTMLElement && canTakeFocus(now))) opts.last.focus();
+}
+
+/**
  * One modal at a time, and the element the keyboard goes back to when it
  * closes. The card is taken off the screen by REMOVING its scrim rather than
  * hiding it (the idiom every dialog here uses), which also takes `trapTab`'s
- * listener with it; focus then returns to the opener, if it is still on the
- * page. The folder picker and the delete confirmation each hold one (Q1: they
- * carried the same close function twice).
+ * listener with it; focus then returns to the opener through `restoreFocus`.
+ * The folder picker, the delete confirmation and the project editor each hold
+ * one (Q1: they carried the same close function twice).
  */
 export class ModalSlot {
   #scrim: HTMLElement | null = null;
@@ -161,7 +217,7 @@ export class ModalSlot {
     this.#scrim = null;
     const back = this.#restore;
     this.#restore = null;
-    if (back !== null && back.isConnected) back.focus();
+    restoreFocus(back);
   }
 }
 

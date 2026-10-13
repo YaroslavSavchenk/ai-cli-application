@@ -685,3 +685,24 @@ test('nothing the card renders carries a path, a byte count or a decorative dash
     assert.equal(/\d+ (?:bytes|KB|MB|MiB)/.test(s), false, `a size reached the card: ${s}`);
   }
 });
+
+test('D4: a drop opened with nothing focused gives the keyboard to the focused pane on Close', async () => {
+  await reset();
+  // The fallback main-shell.ts injects at boot (`requestTerminalFocus`); util.ts
+  // is the dialog's REAL module.
+  const U = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
+    setFocusFallback(fn: () => void): void;
+  };
+  const terminal = dom.doc.createElement('textarea');
+  dom.body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  dom.doc.activeElement = dom.body; // a paste with nothing focused
+  driver = makeDriver([file('notes.txt')], [], undefined);
+  FD.openDropDialog({ dest: 'Home', items: [file('notes.txt')], listing: [], returnFocus: dom.body, run: driver.run });
+  await finish();
+  btn('Close').click();
+  assert.equal(FD.isDropDialogOpen(), false);
+  assert.equal(dom.doc.activeElement, terminal, 'not <body>: the typed keys reach the PTY');
+  U.setFocusFallback(() => {});
+  terminal.remove();
+});

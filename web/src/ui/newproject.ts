@@ -46,7 +46,7 @@
 import type { CreateProjectRequest } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 import { ensureHome, homeDir, homeHasFolder } from './home-store.ts';
 import { openFolderPicker } from './picker.ts';
 import { prefControls } from './project-prefs.ts';
@@ -614,7 +614,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     if (scrim.hidden || cloning) return; // never close mid-clone
     githubPanel.setActive(false); // pause the GitHub poll cadence
     scrim.hidden = true;
-    if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();
+    restoreFocus(restoreTo);
     restoreTo = null;
   }
 

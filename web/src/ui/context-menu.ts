@@ -42,7 +42,7 @@
  * roving focus IS the menu's selected row, and a menu opened with the pointer
  * would otherwise show no selected entry at all while the arrow keys move it.
  */
-import { el, button } from './util.ts';
+import { el, button, restoreFocus } from './util.ts';
 import {
   menuPosition,
   nextItem,
@@ -84,12 +84,19 @@ export function isRowMenuOpen(): boolean {
 }
 
 /**
- * Take the menu away and hand the keyboard back to the row it came from — but
- * only when that row is still on screen (`ui/picker.ts`'s rule): a rebuild may
- * have replaced it, and focusing a detached element drops the keyboard on
- * `<body>`, where no key reaches anything.
+ * Take the menu away and hand the keyboard back to the row it came from when
+ * that row can still take it (a rebuild may have replaced it), else to the
+ * focused pane — never `<body>`, where no key reaches anything (Nocturne D4).
  */
 export function closeRowMenu(): void {
+  takeDown(true);
+}
+
+/**
+ * `handBack` false: the keyboard already MOVED somewhere else (the focusin
+ * closer — the user tabbed or clicked away), and that is where it stays.
+ */
+function takeDown(handBack: boolean): void {
   if (menu === null) return;
   for (const off of listeners) off();
   listeners = [];
@@ -98,7 +105,7 @@ export function closeRowMenu(): void {
   menu = null;
   const back = restore;
   restore = null;
-  if (back !== null && back.isConnected) back.focus();
+  if (handBack) restoreFocus(back);
 }
 
 export function openRowMenu(req: RowMenuRequest): void {
@@ -182,7 +189,7 @@ export function openRowMenu(req: RowMenuRequest): void {
   on(document, 'focusin', (e) => {
     const t = e.target;
     if (t instanceof Node && box.contains(t)) return;
-    closeRowMenu();
+    takeDown(false);
   }, false);
 
   // The browser's OWN `contextmenu` for the key that opened this menu. Windows

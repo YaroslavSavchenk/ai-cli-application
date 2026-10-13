@@ -7,9 +7,12 @@
  * This file is also the single source of the PLAIN-LANGUAGE copy for the
  * permission vocabulary (PROJECT-SCOPE "No commands, flags, or code in the
  * UI", 2026-07-25). Two layers, deliberately separate:
- *   - VALUES (`Perm`, `Effort`, `composeArgs`) are the CLI contract and never
- *     change: `claude --permission-mode acceptEdits --effort high --continue`
- *     is still exactly what gets spawned.
+ *   - VALUES (`Perm`, `Effort`, `composeArgs`) are the stored contract and
+ *     never change: `claude --permission-mode acceptEdits --effort high
+ *     --continue` is still exactly what gets spawned. `Perm` is the app's own
+ *     value (what projects, prefs and the dialog store); the CLI value it
+ *     reaches argv as comes from `CLAUDE_PERMISSION_FLAG` in
+ *     `shared/protocol.ts` (Always ask `default` → `manual` since D5).
  *   - LABELS (`PERM_SHORT`) are what the user reads. Changing a label must
  *     never change an emitted arg.
  *
@@ -26,12 +29,15 @@
  * 2026-09-18 (Nocturne B5): three more agents (Codex, Gemini CLI, Grok) and two
  * more shells (Zsh, Command Prompt). THIS FILE IS THE ONLY PLACE THE PER-TOOL
  * CLI MAPPING MAY LIVE (`.claude/plans/nocturne/PLAN-B5.md`, "Verified CLI contracts"): every
- * flag, subcommand and CLI value each tool takes is written once, here, and the
+ * flag, subcommand and CLI value each tool takes is written once, here (the one
+ * exception: Claude Code's permission values, `CLAUDE_PERMISSION_FLAG` in
+ * `shared/protocol.ts`, because the server reads them back too), and the
  * UI above it only ever handles ids and labels. Each tool's argv order is FIXED
  * — model, permission, effort, then the start-from tail — and pinned byte-exact
  * by `tests/ui/ui-launch-args.test.ts`.
  */
 import {
+  CLAUDE_PERMISSION_FLAG,
   CLAUDE_PERMISSION_MODES,
   PROJECT_EFFORTS,
   commandBase,
@@ -92,12 +98,12 @@ const MODEL_ALIASES: ReadonlyMap<string, { id: string; label: string }> = new Ma
 /** The group label the older models sit under, in every Claude model select. */
 export const OLDER_MODELS_LABEL = 'Older models';
 
-/** The dialog's permission vocabulary IS the shared contract type (all four CLI modes). */
+/** The dialog's permission vocabulary IS the shared contract type (the app's four modes). */
 export type Perm = ClaudePermissionMode;
 
 /**
- * The permission cards, in grid order: `mode` is the CLI value that reaches
- * argv, `danger` decides the red treatment (which the card keeps selected or
+ * The permission cards, in grid order: `mode` is the app's value, which
+ * reaches argv mapped through `CLAUDE_PERMISSION_FLAG`, `danger` decides the red treatment (which the card keeps selected or
  * not — the warning never disappears). The user-visible words come from
  * `PERM_SHORT`; there is no second label table anymore. The modes and their
  * order are the shared `CLAUDE_PERMISSION_MODES`.
@@ -111,8 +117,9 @@ export const PERMS: { mode: Perm; danger: boolean }[] = CLAUDE_PERMISSION_MODES.
  * The ONE label table for permission modes: the launch dialog's permission
  * cards, its info popover AND the pane status bar's Mode value (`permFromArgs`
  * in ./util.ts). Total over the vocabulary so the map can't drift from `Perm`.
- * `default` renders no pane Mode at all (see `permFromArgs`), but it IS a card
- * in the dialog.
+ * `default` renders no pane Mode at all (see `permFromArgs`) — launched as
+ * `manual` since D5, or `default` / no flag in an older argv alike — but it IS
+ * a card in the dialog.
  *
  * Sentence case since Nocturne A4 (2026-09-10), the v3 handoff's own words —
  * the pane status bar follows because it reads this same table.
@@ -178,9 +185,15 @@ export interface SpawnSpec {
  * THE claude argv composer — single source of truth. `currentSpawn()` in
  * launch.ts is the only caller, and its output IS the POST /api/sessions body.
  *
- * Order is fixed: model, then permission mode (omitted when `default`), then
- * effort (omitted when `default` — the sentinel names no level), then
- * `--continue` last.
+ * Order is fixed: model, then permission mode, then effort (omitted when
+ * `default` — the sentinel names no level), then `--continue` last.
+ *
+ * The permission mode is ALWAYS passed, Always ask included (D5, user decision
+ * 17, 2026-10-13): with no flag Claude Code picks its own mode — 2.1.283 opened
+ * in `auto mode` with no `defaultMode` in `~/.claude/settings.json` — and
+ * Always ask would not keep its promise. The CLI value comes from
+ * `CLAUDE_PERMISSION_FLAG` (Always ask → `manual`, the name 2.1.287 documents;
+ * `default` is hidden there).
  */
 export function composeArgs(
   model: string,
@@ -190,7 +203,7 @@ export function composeArgs(
   resumeId?: string,
 ): string[] {
   const args = ['--model', model];
-  if (perm !== 'default') args.push('--permission-mode', perm);
+  args.push('--permission-mode', CLAUDE_PERMISSION_FLAG[perm]);
   if (effort !== 'default') args.push('--effort', effort);
   // ONE conversation named by id beats "whatever the folder's latest is": the
   // Start from select offers both, and a chosen entry is the more specific ask
@@ -795,7 +808,7 @@ export function permFromDefaultMode(mode: PermissionMode | undefined): Perm | nu
 // Launch-dialog pre-selection + precedence
 // ---------------------------------------------------------------------------
 
-/** True when `v` is one of the four CLI permission modes. */
+/** True when `v` is one of the app's four permission modes (not the CLI names). */
 export function isPerm(v: unknown): v is Perm {
   return isClaudePermissionMode(v);
 }

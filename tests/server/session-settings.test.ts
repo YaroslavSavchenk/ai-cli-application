@@ -57,9 +57,15 @@ test('parsePermissionMode: absent -> default; the four known values pass; anythi
   assert.equal(parsePermissionMode(['--permission-mode', 'plan']), 'plan');
   assert.equal(parsePermissionMode(['--permission-mode', 'bypassPermissions']), 'bypassPermissions');
   assert.equal(parsePermissionMode(['--permission-mode=plan']), 'plan');
-  // Claude Code 2.1.220 also accepts auto/manual/dontAsk — real modes we have
-  // no honest label for, so they are 'unknown' (the item is then omitted)
-  // rather than being drawn as "always ask".
+  // D5: Always ask is launched as `manual` (Claude Code's documented name) and
+  // reads exactly like no flag — and so does an older or hand-typed `default`.
+  assert.equal(parsePermissionMode(['--model', 'opus', '--permission-mode', 'manual']), 'default');
+  assert.equal(parsePermissionMode(['--permission-mode=manual']), 'default');
+  assert.equal(parsePermissionMode(['--model', 'opus', '--permission-mode', 'default']), 'default');
+  // Claude Code also accepts auto/dontAsk — real modes we have no honest
+  // label for, so they are 'unknown' (the item is then omitted) rather than
+  // being drawn as "always ask".
+  assert.equal(parsePermissionMode(['--permission-mode', 'auto']), 'unknown');
   assert.equal(parsePermissionMode(['--permission-mode', 'dontAsk']), 'unknown');
   assert.equal(parsePermissionMode(['--permission-mode', '; rm -rf /']), 'unknown');
   assert.equal(parsePermissionMode(['--permission-mode']), 'unknown');

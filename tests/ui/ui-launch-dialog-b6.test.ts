@@ -141,7 +141,7 @@ test('B6 D1: a bag that hides all six keeps the first card — the dialog can ne
     await openReady({});
     assert.deepEqual(shownTools(), ['Claude Code']);
     assert.equal(checked(tool('Claude Code')), true);
-    assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5'], 'and it still launches what it always did');
+    assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'], 'and it still launches what it always did');
   });
 });
 

@@ -103,6 +103,49 @@ test('the keyboard moving anywhere else closes it', async () => {
   outside.remove();
 });
 
+/** The REAL ui/util.ts the menu restores through; its fallback is what main-shell.ts injects. */
+const U = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
+  setFocusFallback(fn: () => void): void;
+};
+
+test('D4: the keyboard moved elsewhere stays where the user put it — no hand-back', async () => {
+  await liveSession();
+  const terminal = dom.doc.createElement('textarea');
+  dom.body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  row('web').focus();
+  rightClick(row('web'));
+  const outside = dom.doc.createElement('button');
+  dom.body.append(outside);
+  outside.focus();
+  assert.equal(menuEl(), undefined, 'the focusin closed it');
+  assert.equal(dom.doc.activeElement, outside, 'not pulled back to the row, nor sent to the terminal');
+  U.setFocusFallback(() => {});
+  outside.remove();
+  terminal.remove();
+});
+
+test('D4: a menu opened with nothing focused gives the keyboard to the focused pane on Escape', async () => {
+  await liveSession();
+  const terminal = dom.doc.createElement('textarea');
+  dom.body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  dom.doc.activeElement = dom.body;
+  (CM as unknown as { openRowMenu(req: Record<string, unknown>): void }).openRowMenu({
+    items: [{ action: 'copy', label: 'Copy', enabled: true }],
+    at: { x: 10, y: 10 },
+    label: 'web',
+    returnFocus: dom.body,
+    onChoose: () => {},
+  });
+  assert.ok(menuEl() !== undefined, 'the menu is up');
+  dispatch(items()[0] as FakeElement, 'keydown', { key: 'Escape' });
+  assert.equal(menuEl(), undefined);
+  assert.equal(dom.doc.activeElement, terminal, 'not <body>: the typed keys reach the PTY');
+  U.setFocusFallback(() => {});
+  terminal.remove();
+});
+
 test('a scroll, a window resize and the window losing focus each close it', async () => {
   await liveSession();
   for (const type of ['scroll', 'resize', 'blur']) {

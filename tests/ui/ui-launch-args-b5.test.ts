@@ -220,7 +220,10 @@ test('B5 composeSpawn: a value from ANOTHER tool never reaches this tool’s arg
   const got: Record<string, unknown> = {};
   for (const k of KINDS) got[k] = composeSpawn(form({ ...full, kind: k }));
   assert.deepEqual(got, {
-    claude: { command: 'claude', args: ['--model', 'fable', '--effort', 'max', '--resume', 'conv-1'] },
+    claude: {
+      command: 'claude',
+      args: ['--model', 'fable', '--permission-mode', 'manual', '--effort', 'max', '--resume', 'conv-1'],
+    },
     codex: {
       command: 'codex',
       args: ['-m', 'gpt-6-astra', '-a', 'on-request', '-s', 'read-only', '-c', 'model_reasoning_effort=xhigh', 'resume', '--last'],
@@ -234,23 +237,25 @@ test('B5 composeSpawn: a value from ANOTHER tool never reaches this tool’s arg
 
 test('B5 claude resume: a conversation id replaces --continue, never joins it', () => {
   assert.deepEqual(composeArgs('opus', 'default', false, 'default', 'abc-123'), [
-    '--model', 'opus', '--resume', 'abc-123',
+    '--model', 'opus', '--permission-mode', 'manual', '--resume', 'abc-123',
   ]);
   // Both asked for: the named conversation is the more specific ask and wins.
   const both = composeArgs('opus', 'default', true, 'default', 'abc-123');
-  assert.deepEqual(both, ['--model', 'opus', '--resume', 'abc-123']);
+  assert.deepEqual(both, ['--model', 'opus', '--permission-mode', 'manual', '--resume', 'abc-123']);
   assert.equal(both.includes('--continue'), false);
-  // An absent or empty id changes nothing about the pre-B5 argv.
-  assert.deepEqual(composeArgs('opus', 'default', true, 'default', ''), ['--model', 'opus', '--continue']);
-  assert.deepEqual(composeArgs('opus', 'default', true, 'default', undefined), ['--model', 'opus', '--continue']);
-  assert.deepEqual(composeArgs('opus', 'default', false, 'default'), ['--model', 'opus']);
+  // An absent or empty id changes nothing about the pre-B5 argv (Always ask's
+  // explicit mode is D5's, not the resume id's).
+  const cont = ['--model', 'opus', '--permission-mode', 'manual', '--continue'];
+  assert.deepEqual(composeArgs('opus', 'default', true, 'default', ''), cont);
+  assert.deepEqual(composeArgs('opus', 'default', true, 'default', undefined), cont);
+  assert.deepEqual(composeArgs('opus', 'default', false, 'default'), ['--model', 'opus', '--permission-mode', 'manual']);
   // The tail stays LAST, after model, mode and effort.
   assert.deepEqual(composeArgs('sonnet', 'plan', true, 'high', 'zz'), [
     '--model', 'sonnet', '--permission-mode', 'plan', '--effort', 'high', '--resume', 'zz',
   ]);
   assert.deepEqual(composeSpawn(form({ resumeId: 'q-9', continueLast: true })), {
     command: 'claude',
-    args: ['--model', 'claude-opus-5-5', '--resume', 'q-9'],
+    args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual', '--resume', 'q-9'],
   });
 });
 

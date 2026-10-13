@@ -79,7 +79,7 @@ import {
 import { deleteDialogEscape, isDeleteDialogOpen } from './ui/delete-dialog.ts';
 import { focusOwnerOpen, isEditableTarget, isTerminalTarget, shouldRefocusTerminal } from './ui/keys.ts';
 import { formatError, log } from './log.ts';
-import { el, button } from './ui/util.ts';
+import { el, button, setFocusFallback } from './ui/util.ts';
 import { gearIcon } from './ui/icons.ts';
 
 const POLL_MS = 3000;
@@ -403,6 +403,10 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   // terminal measures itself. The dialog opener is injected to avoid a
   // panes ↔ launch import cycle.
   initPanes(grid, () => openLaunchDialog());
+  // Every dialog, menu and overlay hands the keyboard back through
+  // ui/util.ts restoreFocus; when its opener cannot take it (it was <body>, or
+  // is gone), it goes to the focused pane. Injected: ui/panes.ts imports util.
+  setFocusFallback(requestTerminalFocus);
 
   // ---- global keyboard -----------------------------------------------------
 

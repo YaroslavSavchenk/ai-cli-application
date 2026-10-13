@@ -54,7 +54,7 @@ import type { HistoryEntry, KeyStatus, ToolAvailability } from '../../../shared/
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 import { relativeTime } from './format-model.ts';
 import { infoIcon } from './icons.ts';
 import { toolIcon } from './icons-tools.ts';
@@ -958,8 +958,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     scrim.hidden = true;
     // Return the keyboard where it came from — opening from a terminal
     // restores the terminal; otherwise fall back to the focused pane.
-    if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();
-    else requestTerminalFocus();
+    restoreFocus(restoreTo);
     restoreTo = null;
   }
 

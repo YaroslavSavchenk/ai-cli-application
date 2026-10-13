@@ -38,13 +38,17 @@
  * two users, no second set of values.
  */
 import * as st from '../state.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 import { discardQuestion, filePathOf, tabIdOf } from './editor-model.ts';
 import { fileName } from './slots-model.ts';
 
 let scrim: HTMLElement | null = null;
 let restore: HTMLElement | null = null;
-/** Answers the card that is up; null while none is. */
+/**
+ * Answers the card that is up; null while none is. Called SYNCHRONOUSLY on the
+ * answer, before the keyboard is handed back, so a door the answer closes is
+ * gone by then (Nocturne D4).
+ */
 let answer: ((discard: boolean) => void) | null = null;
 
 /**
@@ -79,7 +83,12 @@ export function discardDialogEscape(): void {
   close(false);
 }
 
-/** Take the card away and answer whoever asked. */
+/**
+ * Take the card away, answer whoever asked, THEN hand the keyboard back: a
+ * Discard closes the chip or pane whose × asked, and focusing that × first
+ * would leave the keyboard on <body> once it is removed (Nocturne D4). Gone by
+ * now, it sends the keyboard to the focused pane instead.
+ */
 function close(discard: boolean): void {
   if (scrim === null) return;
   scrim.remove();
@@ -88,8 +97,8 @@ function close(discard: boolean): void {
   restore = null;
   const reply = answer;
   answer = null;
-  if (back !== null && back.isConnected) back.focus();
   reply?.(discard);
+  restoreFocus(back);
 }
 
 /**
@@ -99,18 +108,27 @@ function close(discard: boolean): void {
  * An empty list is answered `true` without a card: there is nothing to lose.
  * A second call while a card is up is answered `false` — one question at a
  * time, and the answer to a question nobody can see is "do nothing".
+ *
+ * A callback, not a promise (Nocturne D4): it runs INSIDE the answer, so what
+ * the guards close is closed before the keyboard is handed back — a promise
+ * would run them a microtask after the restore, onto a × about to vanish.
  */
 export function confirmDiscard(
   ids: readonly string[],
-  returnFocus?: HTMLElement | null,
-): Promise<boolean> {
-  if (ids.length === 0) return Promise.resolve(true);
-  if (scrim !== null) return Promise.resolve(false);
-  return new Promise<boolean>((resolve) => {
-    answer = resolve;
-    restore = returnFocus ?? null;
-    open(ids.map((id) => fileName(filePathOf(id))));
-  });
+  returnFocus: HTMLElement | null | undefined,
+  onAnswer: (discard: boolean) => void,
+): void {
+  if (ids.length === 0) {
+    onAnswer(true);
+    return;
+  }
+  if (scrim !== null) {
+    onAnswer(false);
+    return;
+  }
+  answer = onAnswer;
+  restore = returnFocus ?? null;
+  open(ids.map((id) => fileName(filePathOf(id))));
 }
 
 /**
@@ -299,7 +317,7 @@ function guard(ids: string[], returnFocus: HTMLElement | null | undefined, act: 
     act();
     return;
   }
-  void confirmDiscard(ids, returnFocus).then((discard) => {
+  confirmDiscard(ids, returnFocus, (discard) => {
     if (discard) act();
   });
 }

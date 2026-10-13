@@ -209,6 +209,13 @@ export function oneByClass(root: FakeElement, cls: string): FakeElement {
   return hit;
 }
 
+/** The button under `root` whose text is exactly `label`; fails the test when there is none. */
+export function buttonByLabel(root: FakeElement, label: string): FakeElement {
+  const hit = descendants(root).find((n) => n.tagName === 'BUTTON' && n.textContent === label);
+  assert.ok(hit !== undefined, `no ${label} button on screen`);
+  return hit;
+}
+
 /** Put `value` in a text field and fire the `input` event a keystroke would. */
 export function typeInto(ta: FakeElement, value: string): void {
   ta.value = value;

@@ -143,6 +143,19 @@ test('resumeSpawn: --resume for a pinned conversation, --continue for claude wit
     resumeSpawn({ id: 'app-session-id', conversation: false, command: 'bash', args: ['-c', 'sleep 1'] }),
     { command: 'bash', args: ['-c', 'sleep 1'] },
   );
+  // D5: a resume carries whatever mode flag the session was started with —
+  // `manual` (since D5), `default` (hand-typed), or none (older sessions) —
+  // byte for byte; nothing is added, stripped or translated.
+  for (const ask of [
+    ['--model', 'opus', '--permission-mode', 'manual'],
+    ['--model', 'opus', '--permission-mode', 'default'],
+    ['--model', 'opus'],
+  ]) {
+    assert.deepEqual(resumeSpawn({ id: CLIENT_UUID, conversation: true, command: 'claude', args: ask }), {
+      command: 'claude',
+      args: [...ask, '--resume', CLIENT_UUID],
+    });
+  }
 });
 
 test('planConversation: the --flag=value forms are recognised, uppercase uuids count, and a client picker flag is never fought', () => {

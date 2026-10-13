@@ -50,7 +50,7 @@
  * directory from it (server/agents.ts), and only the payload knows it.
  * Without the argument the script behaves exactly as it did before B1.
  *
- * <permission-mode> is one of the four values in MODE_LABELS, or anything else
+ * <permission-mode> is one of the four app modes in MODE_LABELS, or anything else
  * (e.g. 'unknown') to omit the mode item. It is an ARGUMENT because the payload
  * does not carry the permission mode — verified against Claude Code 2.1.220,
  * whose status-line payload builder passes permissionMode only into its model
@@ -75,7 +75,11 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-/** The four `--permission-mode` values the app launches with, in plain words. */
+/**
+ * The four app permission modes the server parsed from the session's argv and
+ * passes as argv[2] (`parsePermissionMode` — `manual` already reads `default`
+ * there), in plain words.
+ */
 const MODE_LABELS = {
   default: 'always ask',
   acceptEdits: 'auto-edits',

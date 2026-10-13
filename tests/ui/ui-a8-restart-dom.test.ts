@@ -523,3 +523,23 @@ test('a press on the backdrop closes the question; a press inside the card does 
   dispatch(scrim, 'mousedown');
   assert.equal(UP.isRestartConfirmOpen(), false);
 });
+
+test('D4: opened with nothing focused, closing gives the keyboard to the focused pane, not <body>', async () => {
+  reset();
+  // The fallback main-shell.ts injects at boot (`requestTerminalFocus`); util.ts
+  // is the dialog's REAL module.
+  const U = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
+    setFocusFallback(fn: () => void): void;
+  };
+  const terminal = dom.doc.createElement('textarea');
+  dom.body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  setSessions(session('s1'));
+  dom.doc.activeElement = dom.body; // a click on empty chrome, then the opener
+  UP.openRestartConfirm('settings');
+  btn('Cancel').click();
+  assert.equal(UP.isRestartConfirmOpen(), false);
+  assert.equal(dom.doc.activeElement, terminal, 'the typed keys reach the PTY again');
+  U.setFocusFallback(() => {});
+  terminal.remove();
+});

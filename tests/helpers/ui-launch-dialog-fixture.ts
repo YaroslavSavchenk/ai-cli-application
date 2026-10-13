@@ -140,6 +140,17 @@ export class FakeElement extends FakeNode {
   get offsetParent(): unknown {
     return this.rendered ? body : null;
   }
+  /**
+   * Only the ONE selector `web/src/ui/util.ts` restoreFocus asks (Nocturne
+   * D4): "this or anything on the way up hidden". Anything else is a harness
+   * gap and must fail loudly.
+   */
+  closest(sel: string): FakeElement | null {
+    assert.equal(sel, '[hidden]', 'harness only implements closest("[hidden]")');
+    let x: FakeElement | null = this;
+    while (x !== null && !x.hidden) x = x.parentNode;
+    return x;
+  }
   override get textContent(): string {
     return this.children.map((c) => c.textContent).join('');
   }
@@ -531,10 +542,12 @@ export function openWith(projects: Project[], opts?: { projectId?: string }): vo
   assert.equal(L.isLaunchDialogOpen(), true);
 }
 
-/** The claude argv the PRE-A4 dialog sent, from its own recipe (model, mode, effort, --continue). */
+/**
+ * The claude argv the PRE-A4 dialog sent, from its own recipe (model, mode, effort, --continue) —
+ * with D5's one change (2026-10-13): Always ask passes `--permission-mode manual` too.
+ */
 export function preA4(model: string, perm: string, effort: string, cont: boolean): string[] {
-  const a = ['--model', model];
-  if (perm !== 'default') a.push('--permission-mode', perm);
+  const a = ['--model', model, '--permission-mode', perm === 'default' ? 'manual' : perm];
   if (effort !== 'default') a.push('--effort', effort);
   if (cont) a.push('--continue');
   return a;

@@ -122,11 +122,11 @@ test('B12: every Tool card holds its tool’s real logo in the tile — one per 
   }
 });
 
-test('defaults: an untouched dialog sends exactly `claude --model claude-opus-5-5` for the project, no title', async () => {
+test('defaults: an untouched dialog sends exactly `claude --model claude-opus-5-5 --permission-mode manual` for the project, no title', async () => {
   openWith([PROJ]);
   userClick(tool('Claude Code'));
   const post = await launch();
-  assert.deepEqual(post, { projectId: 'p1', command: 'claude', args: ['--model', 'claude-opus-5-5'], cols: 120, rows: 40 });
+  assert.deepEqual(post, { projectId: 'p1', command: 'claude', args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'], cols: 120, rows: 40 });
   assert.equal(L.isLaunchDialogOpen(), false, 'a successful launch closes the dialog');
   assert.deepEqual(H.upserted.at(-1), 'sess-' + H.posts.length, 'the new session gets its tab');
 });
@@ -494,7 +494,7 @@ test('open(): Effort and Start from reset every open; kind, shell and command te
   L.openLaunchDialog();
   assert.equal(byName('effort').value, 'default');
   assert.equal(byName('start').value, 'fresh');
-  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5'], 'a reopened dialog never silently continues');
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'], 'a reopened dialog never silently continues');
 
   openWith([PROJ]);
   userClick(tool('Other'));
@@ -527,7 +527,7 @@ test('project defaults: model and mode come from the selected project on open', 
   L.closeLaunchDialog();
   L.openLaunchDialog();
   assert.ok(checked(permCard('Always ask')));
-  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5', '--permission-mode', 'manual']);
 });
 
 test('project intent (drawer row +): back to Claude Code for THAT project, its defaults layered on', async () => {
@@ -538,7 +538,7 @@ test('project intent (drawer row +): back to Claude Code for THAT project, its d
   openWith([PROJ, P2], { projectId: 'p2' });
   assert.ok(checked(tool('Claude Code')), 'a stale Other cannot hijack a project launch');
   assert.equal(byName('project').value, 'p2');
-  assert.deepEqual(await launch(), { projectId: 'p2', command: 'claude', args: ['--model', 'claude-sonnet-5-5'], cols: 120, rows: 40 });
+  assert.deepEqual(await launch(), { projectId: 'p2', command: 'claude', args: ['--model', 'claude-sonnet-5-5', '--permission-mode', 'manual'], cols: 120, rows: 40 });
 });
 
 test('a failed launch keeps the dialog open with the error, and Start session usable again', async () => {
@@ -568,6 +568,26 @@ test('closing hands the keyboard back; the outside press and Cancel both close',
   L.openLaunchDialog();
   dispatch(scrim().children[0] as FakeElement, 'mousedown');
   assert.equal(L.isLaunchDialogOpen(), true, 'a press on the modal itself does not');
+});
+
+test('D4: opened with nothing focused, closing gives the keyboard to the focused pane, not <body>', async () => {
+  // The fallback main-shell.ts injects at boot (`requestTerminalFocus`), as an
+  // element whose focus the test can see; util.ts is the dialog's REAL module.
+  const U = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
+    setFocusFallback(fn: () => void): void;
+  };
+  const terminal = new FakeElement('textarea');
+  body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  L.closeLaunchDialog();
+  doc.activeElement = body; // a click on empty chrome, or a chord, opened it
+  H.projects = [PROJ];
+  L.openLaunchDialog();
+  assert.notEqual(doc.activeElement, body, 'the dialog took the keyboard');
+  userClick(buttonText('Cancel'));
+  assert.equal(L.isLaunchDialogOpen(), false);
+  assert.equal(doc.activeElement, terminal, 'the typed keys reach the PTY again');
+  U.setFocusFallback(() => {});
 });
 
 test('no command preview: nothing in the rendered dialog spells the argv — before, and WHILE the launch is in flight', async () => {

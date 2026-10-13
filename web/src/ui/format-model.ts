@@ -9,7 +9,8 @@
  * `pane-status-model.ts`) imported util.ts, a DOM module, for these. util.ts
  * keeps the DOM helpers, `ModalSlot`, `errorText` and `promiseOf`.
  */
-import { PERM_SHORT, isPerm } from './launch-args.ts';
+import { claudePermissionFromFlag } from '../../../shared/protocol.ts';
+import { PERM_SHORT } from './launch-args.ts';
 
 /**
  * Model tag from a session's argv (`--model x` / `--model=x`, and since B5 the
@@ -36,7 +37,9 @@ export function modelFromArgs(args: string[]): string | null {
  * Permission tag from argv, in the UI's plain words (`PERM_SHORT`, the pane
  * status bar's Mode value): both bypass forms read "No prompts", `acceptEdits`
  * reads "Auto edits", `plan` reads "Read only". Danger (red tag) for both bypass
- * forms; null for default/absent (no tag shown at all — unchanged). A mode
+ * forms; null for Always ask under either CLI name — `manual`, what the app
+ * launches since D5, or `default` — and for no flag at all (an older session's
+ * argv): no tag shown at all, unchanged. A mode
  * outside the known four (only reachable from a custom command the user typed)
  * is shown verbatim: inventing a translation for it would be dishonest.
  */
@@ -50,8 +53,10 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
     typeof next === 'string' && next !== ''
       ? next
       : args.find((a) => a.startsWith('--permission-mode='))?.slice('--permission-mode='.length);
-  if (typeof v !== 'string' || v === '' || v === 'default') return null;
-  return { label: isPerm(v) ? PERM_SHORT[v] : v, danger: v === 'bypassPermissions' };
+  if (typeof v !== 'string' || v === '') return null;
+  const mode = claudePermissionFromFlag(v);
+  if (mode === 'default') return null;
+  return { label: mode !== undefined ? PERM_SHORT[mode] : v, danger: mode === 'bypassPermissions' };
 }
 
 /**

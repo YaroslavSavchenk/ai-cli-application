@@ -244,7 +244,14 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   prompts`) · Start from (fresh / the last conversation / an ENDED
   conversation of the project → `--resume <id>`, `409` when it is live).
   The per-tool argv mapping lives ONLY in `web/src/ui/launch-args.ts`
-  (order model → permission → effort → start tail, pinned byte-exact);
+  (order model → permission → effort → start tail, pinned byte-exact;
+  Claude Code's `Always ask` passes `--permission-mode manual` explicitly
+  since D5, 2026-10-13 — with no flag Claude Code picked its own mode, and
+  `manual` is the name 2.1.287 documents (`default` is hidden there),
+  accepted since Claude Code 2.1.200 per its changelog, below the 2.1.263
+  floor; the app's stored value stays `default`, mapped in
+  `CLAUDE_PERMISSION_FLAG` in `shared/protocol.ts`, the one permission
+  table the server reads back too);
   `composeSpawn()` is the one composition path. One on-demand permissions
   info popover (Esc closes it first); no command preview. Gemini CLI and Grok show `Add key` when
   no key is saved or inherited. The launched agent stays a configurable

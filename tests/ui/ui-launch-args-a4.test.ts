@@ -102,7 +102,7 @@ test('A4 tool cards: each selectable card spawns exactly what its old segment sp
     byCard[t.id] = composeSpawn(form({ kind: t.kind, customLine: 'htop --tree' }));
   }
   assert.deepEqual(byCard, {
-    claude: { command: 'claude', args: ['--model', 'claude-opus-5-5'] },
+    claude: { command: 'claude', args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'] },
     codex: { command: 'codex', args: ['-a', 'on-request', '-s', 'read-only'] },
     gemini: { command: 'gemini', args: [] },
     grok: { command: 'grok', args: [] },
@@ -153,11 +153,11 @@ test('A4 Start from: `The last conversation in this project` IS the old checkbox
 
   assert.deepEqual(composeSpawn(form({ continueLast: continueFromStart('continue') })), {
     command: 'claude',
-    args: ['--model', 'claude-opus-5-5', '--continue'],
+    args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual', '--continue'],
   });
   assert.deepEqual(composeSpawn(form({ continueLast: continueFromStart('fresh') })), {
     command: 'claude',
-    args: ['--model', 'claude-opus-5-5'],
+    args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'],
   });
   // The checkbox's hardest case, now reached through the select.
   assert.deepEqual(
@@ -173,15 +173,16 @@ test('A4 Start from: `The last conversation in this project` IS the old checkbox
 
 test('A4 full matrix: model x permission card x effort x Start from -> the pre-A4 argv, spelled out', () => {
   // Pre-A4 recipe, written independently of composeArgs: `claude --model <m>`,
-  // then `--permission-mode <p>` unless always-ask, then `--effort <e>` unless
+  // then `--permission-mode <p>` — always-ask included since D5 (2026-10-13;
+  // before it, always-ask passed no flag) as Claude Code's documented `manual`
+  // — then `--effort <e>` unless
   // default, then `--continue` when the checkbox (now: Start from) said so.
   let n = 0;
   for (const m of MODELS) {
     for (const p of PERMS) {
       for (const e of EFFORTS) {
         for (const s of START_FROM) {
-          const expected: string[] = ['--model', m];
-          if (p.mode !== 'default') expected.push('--permission-mode', p.mode);
+          const expected: string[] = ['--model', m, '--permission-mode', p.mode === 'default' ? 'manual' : p.mode];
           if (e !== 'default') expected.push('--effort', e);
           if (s.value === 'continue') expected.push('--continue');
           const got = composeSpawn(

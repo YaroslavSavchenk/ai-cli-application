@@ -38,7 +38,9 @@ export * from './protocol-git.ts';
 export type PermissionMode = 'standard' | 'skip-permissions';
 
 /**
- * The four Claude Code `--permission-mode` values, in launch-dialog vocabulary.
+ * The app's four permission modes, in launch-dialog vocabulary — what projects,
+ * prefs and the dialog store. The CLI value each reaches `--permission-mode` as
+ * is `CLAUDE_PERMISSION_FLAG` below (they differ only for `default`).
  * Distinct from the legacy 2-value `PermissionMode` above (which projects still
  * use): this is what the launch dialog's permission cards and the settings
  * panel's default speak. launch-args.ts's `Perm` aliases this.
@@ -49,6 +51,32 @@ export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 /** True when `v` is one of the four modes — the one membership check, server and browser. */
 export function isClaudePermissionMode(v: unknown): v is ClaudePermissionMode {
   return typeof v === 'string' && (CLAUDE_PERMISSION_MODES as readonly string[]).includes(v);
+}
+
+/**
+ * What Claude Code's `--permission-mode` is told for each mode — the app's own
+ * value is kept everywhere it is stored (projects, prefs, dialog state), so
+ * only the emitted argv speaks the CLI's name. D5 (user, 2026-10-13): Always
+ * ask is `manual`, the documented name — Claude Code 2.1.287's help lists
+ * acceptEdits / auto / bypassPermissions / manual / dontAsk / plan, and its
+ * parser still takes `default` only as a hidden value.
+ */
+export const CLAUDE_PERMISSION_FLAG: Readonly<Record<ClaudePermissionMode, string>> = {
+  default: 'manual',
+  acceptEdits: 'acceptEdits',
+  plan: 'plan',
+  bypassPermissions: 'bypassPermissions',
+};
+
+/**
+ * A `--permission-mode` value read off a session's argv → the app's mode, or
+ * undefined for a value the app never launches with. Both names of Always ask
+ * count: `manual` (launched since D5) and `default` (a hand-typed or older
+ * argv); a session with no flag at all is the caller's to read as `default`.
+ */
+export function claudePermissionFromFlag(v: string): ClaudePermissionMode | undefined {
+  if (isClaudePermissionMode(v)) return v;
+  return CLAUDE_PERMISSION_MODES.find((m) => CLAUDE_PERMISSION_FLAG[m] === v);
 }
 
 /**

@@ -121,6 +121,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
+- [[2026-10-13-d4-d5-focus-always-ask]] — D4: one restoreFocus helper (not <body>, connected, not hidden, offsetParent) falling back to the focused terminal at every dialog close; D5: Always ask → --permission-mode manual (app keeps storing default, CLAUDE_PERMISSION_FLAG maps it)
 - [[2026-10-13-q5-index-split]] — Q5: server/index.ts 994 → 663 lines; boot banner, stores and update wiring moved into server/index-{banner,stores,update}.ts as factories; identical boot logs old vs new
 - [[2026-10-13-q6-host-split]] — Q6: AiSessionManagerHost.cs 2 550 lines → four `partial` files (core / clipboard / overlay / overlay-window), build-host.ps1 fixed list pinned against tracked host/*.cs, size guard covers launcher/; move proof + real csc build identical size
 - [[2026-10-13-q7-suite-never-hangs]] — Q7: a leftover listener/child kept node --test alive forever (--test-timeout doesn't help, --test-force-exit loses results); exit guard via --import ends a file 60 s after its last hook, results kept; stub leaks fixed

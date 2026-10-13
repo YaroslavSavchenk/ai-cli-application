@@ -108,10 +108,10 @@ test('a pool id is itself; an unknown id falls back to Opus 5.5 (and is no pool 
   assert.equal(poolModel(undefined), undefined);
 });
 
-test('argv: Opus 5.5 launches exactly `claude --model claude-opus-5-5`, byte for byte', () => {
+test('argv: Opus 5.5 launches exactly `claude --model claude-opus-5-5 --permission-mode manual`, byte for byte', () => {
   assert.deepEqual(composeSpawn(form({ model: 'claude-opus-5-5' })), {
     command: 'claude',
-    args: ['--model', 'claude-opus-5-5'],
+    args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'],
   });
   assert.deepEqual(composeSpawn(form({ model: 'claude-opus-4-8', perm: 'plan', effort: 'high' })), {
     command: 'claude',

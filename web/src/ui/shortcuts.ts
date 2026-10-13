@@ -10,7 +10,7 @@
  * carry one, and the standing footnote about everything the app does not take.
  */
 import { ROWS } from './shortcuts-rows.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 
 export interface ShortcutsOverlay {
   toggle(): void;
@@ -76,10 +76,7 @@ export function initShortcuts(modalHost: HTMLElement, refocus: () => void): Shor
     scrim.hidden = true;
     // Return the keyboard where it came from — opening from a terminal
     // restores the terminal; otherwise fall back to the focused pane.
-    // (`<body>` is where focus sits when nothing is focused: focusing it back
-    // is a no-op and would leave the typed keys reaching no PTY.)
-    if (restoreTo !== null && restoreTo !== document.body && restoreTo.isConnected) restoreTo.focus();
-    else refocus();
+    restoreFocus(restoreTo, { fallback: refocus });
     restoreTo = null;
   }
 

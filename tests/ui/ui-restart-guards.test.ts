@@ -460,16 +460,18 @@ test('ui/update.ts: closing the dialog never focuses a HIDDEN element — the te
   // The bug this pins (2026-09-08): `Hide` during the preflight put focus back
   // on the pill or the toast, both `hidden` in the restarting state, so focus
   // fell to <body> and no keystroke reached the PTY. Same fallback as the
-  // launch dialog: the focused pane's terminal.
+  // launch dialog: the focused pane's terminal. Since Nocturne D4 that rule
+  // (connected, not <body>, nothing hidden, a box) is ui/util.ts restoreFocus,
+  // shared by every dialog and pinned by behaviour in tests/ui/ui-restore-focus.test.ts.
   assert.match(
     updateSrc,
-    /import \{ requestTerminalFocus \} from '\.\/panes\.ts';/,
-    'the fallback comes from the panes module, like web/src/ui/launch.ts',
+    /import \{[^}]*\brestoreFocus\b[^}]*\} from '\.\/util\.ts';/,
+    'the restore comes from the one helper in web/src/ui/util.ts',
   );
+  assert.ok(!updateSrc.includes('function restoreFocus('), 'and update.ts keeps no copy of its own');
   const close = bodyOf(updateSrc, 'function closeConfirm(');
-  const restore = bodyOf(updateSrc, 'function restoreFocus(');
   assert.equal(
-    (close.match(/restoreFocus\(\)/g) ?? []).length,
+    (close.match(/restoreFocus\(restoreTo\)/g) ?? []).length,
     2,
     'BOTH exits — the hide path and the normal close — go through the same helper',
   );
@@ -477,10 +479,6 @@ test('ui/update.ts: closing the dialog never focuses a HIDDEN element — the te
     !/restoreTo\.focus\(\)/.test(close),
     'and neither of them focuses restoreTo directly any more',
   );
-  assert.match(restore, /requestTerminalFocus\(\)/, 'the fallback is the terminal, never <body>');
-  for (const guard of [/\.isConnected/, /\.hidden/, /closest\('\[hidden\]'\)/, /offsetParent/]) {
-    assert.match(restore, guard, `an unfocusable restoreTo must be detected: ${String(guard)}`);
-  }
 });
 
 test('ui/update.ts: the dialog can be HIDDEN during the preflight, and nothing is aborted with it', () => {

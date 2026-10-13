@@ -79,7 +79,7 @@ test('a model from Older models launches its pinned id', async () => {
   openWith([PROJ]);
   userClick(tool('Claude Code'));
   pickByLabel(byName('model'), 'Opus 4.8');
-  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-4-8']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-4-8', '--permission-mode', 'manual']);
 });
 
 test('picking another project inside the dialog applies ITS preferences', async () => {
@@ -108,7 +108,7 @@ test('a project with no preferences, picked after one with them, lands on the fa
   assert.equal(byName('model').value, 'claude-opus-5-5');
   assert.ok(checked(permCard('Always ask')), 'a No prompts preference never rides along to the next project');
   assert.equal(byName('effort').value, 'default');
-  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5', '--permission-mode', 'manual']);
 });
 
 test('a field changed by hand survives a project switch; the untouched ones follow the project', async () => {
@@ -162,6 +162,26 @@ test('a No prompts preference does not arm Codex or Gemini — and Claude Code s
   assert.ok(checked(permCard('No prompts')), 'back on Claude Code the preference shows again');
 });
 
+test('D5: a project that prefers Always ask launches Claude Code with `--permission-mode manual`, Grok without it', async () => {
+  // The explicit preference beats the legacy bypass beside it (resolvePerm's tiers).
+  const ASK: Project = { ...PROJ, id: 'p4', name: 'ask', defaultPerm: 'default', defaultMode: 'skip-permissions' };
+  await openReady({ projects: [ASK] });
+  userClick(tool('Claude Code'));
+  assert.ok(checked(permCard('Always ask')));
+  assert.deepEqual(await launch(), {
+    projectId: 'p4',
+    command: 'claude',
+    args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'],
+    cols: 120,
+    rows: 40,
+  });
+
+  await openReady({ projects: [ASK] });
+  userClick(tool('Grok'));
+  assert.ok(checked(permCard('Always ask')));
+  assert.deepEqual((await launch())?.args, [], 'Grok never gets a claude flag');
+});
+
 test('a dialog that opens on a remembered Codex never starts it armed from the project', async () => {
   await openReady({ projects: [PROJ] });
   userClick(tool('Codex'));
@@ -196,7 +216,7 @@ test('a hostile hand-edited model preference never reaches the argv: the fallbac
   openWith([{ ...PROJ, defaultModel: '--dangerously-skip-permissions' }]);
   userClick(tool('Claude Code'));
   assert.equal(byName('model').value, 'claude-opus-5-5');
-  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5', '--permission-mode', 'manual']);
 });
 
 test('project intent (drawer row Session) lays THAT project’s preferences on', async () => {

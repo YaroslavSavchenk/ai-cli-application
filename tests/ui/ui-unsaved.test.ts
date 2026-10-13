@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRoot, readSource, readSources } from '../helpers/helpers.ts';
-import { byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
+import { buttonByLabel, byClass, descendants, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
 import { settle } from '../helpers/fs-fixture.ts';
 import { readAppCss } from '../helpers/tokens-helpers.ts';
 
@@ -68,7 +68,11 @@ interface StateModule {
   retargetFiles(from: string, to: string): boolean;
 }
 interface UnsavedModule {
-  confirmDiscard(ids: readonly string[], returnFocus?: FakeElement | null): Promise<boolean>;
+  confirmDiscard(
+    ids: readonly string[],
+    returnFocus: FakeElement | null | undefined,
+    onAnswer: (discard: boolean) => void,
+  ): void;
   isDiscardDialogOpen(): boolean;
   discardDialogEscape(): void;
   closeTabGuarded(viewId: string, slot: number, tab: number, returnFocus?: FakeElement | null): void;
@@ -102,6 +106,11 @@ interface UnsavedModule {
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as unknown as StateModule;
 const U = (await import(new URL('../../web/src/ui/unsaved.ts', import.meta.url).href)) as unknown as UnsavedModule;
 
+/** The question as a promise of its answer — `confirmDiscard` takes a callback (D4). */
+function confirm(ids: readonly string[], returnFocus?: FakeElement | null): Promise<boolean> {
+  return new Promise((resolve) => U.confirmDiscard(ids, returnFocus, resolve));
+}
+
 const A = '/home/you/web/src/Pane.tsx';
 const B = '/home/you/web/src/App.tsx';
 const HASH = 'a'.repeat(40);
@@ -121,9 +130,7 @@ function card(): FakeElement | null {
 }
 
 function answer(label: string): FakeElement {
-  const hit = descendants(dom.body).find((n) => n.tagName === 'BUTTON' && n.textContent === label);
-  assert.ok(hit !== undefined, `no ${label} button on screen`);
-  return hit;
+  return buttonByLabel(dom.body, label);
 }
 
 beforeEach(() => {
@@ -205,13 +212,13 @@ test('a terminal pane is not a door: ctrl+alt+w on one has no tab to close', () 
 // ---------------------------------------------------------------------------
 
 test('the question NAMES one file, COUNTS several, and never shows a path', async () => {
-  const one = U.confirmDiscard([st.editorFileId(A)]);
+  const one = confirm([st.editorFileId(A)]);
   assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Pane.tsx?']);
   assert.equal((card() as FakeElement).textContent.includes('/home/you'), false, 'no path in the card');
   answer('Keep editing').click();
   assert.equal(await one, false);
 
-  const many = U.confirmDiscard([st.editorFileId(A), st.editorFileId(B)]);
+  const many = confirm([st.editorFileId(A), st.editorFileId(B)]);
   assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to 2 files?']);
   answer('Keep editing').click();
   assert.equal(await many, false);
@@ -222,7 +229,7 @@ test("the question isolates the name's direction", async () => {
   // reorders the sentence around itself unless the name is isolated — the rule
   // `.pane-tab-pick` and `.commit-fpath-t` already carry, and this card is the
   // one other place a name is printed.
-  const asked = U.confirmDiscard([st.editorFileId(A)]);
+  const asked = confirm([st.editorFileId(A)]);
   const name = byClass(dom.body, 'ud-name')[0];
   assert.ok(name !== undefined, 'the name is its own node');
   assert.equal(name.textContent, 'Pane.tsx', 'and it is exactly the name');
@@ -243,7 +250,7 @@ test("the question isolates the name's direction", async () => {
 });
 
 test('the card is a modal the rest of the app can see, and the SAFE answer holds the keyboard', async () => {
-  const asked = U.confirmDiscard([st.editorFileId(A)]);
+  const asked = confirm([st.editorFileId(A)]);
   // ui/keys.ts finds an open dialog by `.modal-scrim`: the keyboard rules and
   // the external-drop guard both have to know a question is up.
   const scrim = byClass(dom.body, 'modal-scrim')[0] as FakeElement;
@@ -260,27 +267,27 @@ test('the card is a modal the rest of the app can see, and the SAFE answer holds
 
 test('Discard answers true; Escape, the backdrop and Keep editing all answer false', async () => {
   const id = st.editorFileId(A);
-  const yes = U.confirmDiscard([id]);
+  const yes = confirm([id]);
   answer('Discard').click();
   assert.equal(await yes, true);
   assert.equal(card(), null);
 
-  const no = U.confirmDiscard([id]);
+  const no = confirm([id]);
   const scrim = byClass(dom.body, 'modal-scrim')[0] as FakeElement;
   dispatch(scrim, 'mousedown');
   assert.equal(await no, false, 'the backdrop is the way out');
 
-  const esc = U.confirmDiscard([id]);
+  const esc = confirm([id]);
   U.discardDialogEscape();
   assert.equal(await esc, false);
 });
 
 test('an empty list is answered without a card; a second question while one is up is refused', async () => {
-  assert.equal(await U.confirmDiscard([]), true, 'nothing to lose, nothing to ask');
+  assert.equal(await confirm([]), true, 'nothing to lose, nothing to ask');
   assert.equal(card(), null);
 
-  const first = U.confirmDiscard([st.editorFileId(A)]);
-  assert.equal(await U.confirmDiscard([st.editorFileId(B)]), false, 'one question at a time');
+  const first = confirm([st.editorFileId(A)]);
+  assert.equal(await confirm([st.editorFileId(B)]), false, 'one question at a time');
   assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Pane.tsx?']);
   answer('Discard').click();
   assert.equal(await first, true);
@@ -289,7 +296,7 @@ test('an empty list is answered without a card; a second question while one is u
 test('the keyboard goes back to the control the question was asked from', async () => {
   const from = dom.doc.createElement('button');
   dom.body.append(from);
-  const asked = U.confirmDiscard([st.editorFileId(A)], from);
+  const asked = confirm([st.editorFileId(A)], from);
   answer('Discard').click();
   await asked;
   assert.equal(dom.doc.activeElement, from);

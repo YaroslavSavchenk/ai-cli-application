@@ -68,8 +68,13 @@ import { assertPlainCopy, form } from '../helpers/ui-launch-args-fixture.ts';
 // composeArgs (claude mode)
 // ---------------------------------------------------------------------------
 
-test('composeArgs: default perm + no effort + no continue -> model only', () => {
-  assert.deepEqual(composeArgs('opus', 'default', false, 'default'), ['--model', 'opus']);
+test('composeArgs: default perm + no effort + no continue -> model, then `--permission-mode manual` (D5)', () => {
+  assert.deepEqual(composeArgs('opus', 'default', false, 'default'), [
+    '--model',
+    'opus',
+    '--permission-mode',
+    'manual',
+  ]);
 });
 
 test('composeArgs: non-default perm adds --permission-mode <mode>', () => {
@@ -85,6 +90,8 @@ test('composeArgs: a chosen effort adds --effort <level>', () => {
   assert.deepEqual(composeArgs('opus', 'default', false, 'high'), [
     '--model',
     'opus',
+    '--permission-mode',
+    'manual',
     '--effort',
     'high',
   ]);
@@ -107,10 +114,12 @@ test('composeArgs: continue appends --continue LAST', () => {
   ]);
 });
 
-test('composeArgs: continue without a mode or an effort -> --continue straight after the model', () => {
+test('composeArgs: continue with Always ask and no effort -> --continue straight after the mode', () => {
   assert.deepEqual(composeArgs('haiku', 'default', true, 'default'), [
     '--model',
     'haiku',
+    '--permission-mode',
+    'manual',
     '--continue',
   ]);
 });
@@ -128,10 +137,10 @@ test('composeArgs: every effort level in the vocabulary emits itself verbatim, e
   for (const e of EFFORTS) {
     const args = composeArgs('opus', 'default', false, e);
     if (e === 'default') {
-      assert.deepEqual(args, ['--model', 'opus'], 'the sentinel adds nothing');
+      assert.deepEqual(args, ['--model', 'opus', '--permission-mode', 'manual'], 'the sentinel adds nothing');
       continue;
     }
-    assert.deepEqual(args, ['--model', 'opus', '--effort', e]);
+    assert.deepEqual(args, ['--model', 'opus', '--permission-mode', 'manual', '--effort', e]);
   }
 });
 
@@ -140,8 +149,8 @@ test('composeArgs: the full cross product keeps its fixed order (model, mode, ef
     for (const e of EFFORTS) {
       for (const cont of [false, true]) {
         const args = composeArgs('sonnet', p.mode, cont, e);
-        const expected = ['--model', 'sonnet'];
-        if (p.mode !== 'default') expected.push('--permission-mode', p.mode);
+        // Written independently of CLAUDE_PERMISSION_FLAG: Always ask is `manual` on the CLI (D5).
+        const expected = ['--model', 'sonnet', '--permission-mode', p.mode === 'default' ? 'manual' : p.mode];
         if (e !== 'default') expected.push('--effort', e);
         if (cont) expected.push('--continue');
         assert.deepEqual(args, expected, `${p.mode} / ${e} / continue=${cont}`);
@@ -307,7 +316,7 @@ test('composeSpawn: the claude kind is `claude` + composeArgs, unchanged', () =>
   });
   assert.deepEqual(composeSpawn(form({ continueLast: true })), {
     command: 'claude',
-    args: ['--model', 'claude-opus-5-5', '--continue'],
+    args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual', '--continue'],
   });
 });
 
@@ -346,7 +355,7 @@ test('composeSpawn: every kind answers, and only the composed kind is read', () 
   // selected kind and ignore the rest.
   const full = form({ kind: 'claude', shell: 'powershell', customLine: 'htop' });
   const byKind: Record<LaunchKind, unknown> = {
-    claude: { command: 'claude', args: ['--model', 'claude-opus-5-5'] },
+    claude: { command: 'claude', args: ['--model', 'claude-opus-5-5', '--permission-mode', 'manual'] },
     // The three B5 agents with no per-tool field set: their own defaults.
     codex: { command: 'codex', args: ['-a', 'on-request', '-s', 'read-only'] },
     gemini: { command: 'gemini', args: [] },

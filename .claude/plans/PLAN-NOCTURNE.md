@@ -38,8 +38,8 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | D1 | Project preferences that work and can be edited (Edit in the project row), the full Claude model pool with Older models | verified | `.claude/plans/nocturne/PLAN-D1.md` | 2026-10-13 |
 | D2 | A backend that shuts down deletes runtime.json only when it still names itself (never a newer backend's) | landed | — | 2026-10-13 |
 | D3 | `launch.ps1 -Stop` removes runtime.json only when it still names the pid it stopped (D2's twin on the Windows side) | landed | — | 2026-10-13 |
-| D4 | Closing a dialog always gives the keyboard back to a terminal, never to the page body | todo | — | — |
-| D5 | "Always ask" really asks: the launch passes `--permission-mode default` | todo | — | — |
+| D4 | Closing a dialog always gives the keyboard back to a terminal, never to the page body | landed | — | 2026-10-13 |
+| D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | landed | — | 2026-10-13 |
 | D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | todo | `.claude/plans/nocturne/PLAN-D6.md` | — |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
@@ -244,7 +244,7 @@ Fixed rules for every part:
 - Opening a dialog with nothing focused records `<body>` as the restore target; on close the typed keys then reach no PTY. `web/src/ui/shortcuts.ts` already guards it (`restoreTo !== document.body`, else `refocus()`); `launch.ts`, `newproject.ts`, `settings.ts` and the shared `util.ts` modal slot (picker, …) do not. One helper in `web/src/ui/util.ts` (restore to the element when it is connected and not `<body>`, else the focused pane's terminal) used by every restore site, including `context-menu.ts`, `drop-dialog.ts`, `unsaved.ts`; a fake-DOM test per site class. No spec.
 
 ### D5. "Always ask" really asks (added 2026-10-13, user's pick; backlog § From Nocturne A8; decision 17)
-- `web/src/ui/launch-args.ts` emits no flag for the `default` mode, so Claude Code keeps whatever mode it picks itself (2.1.283 opened in `auto mode`). "Always ask" now passes `--permission-mode default`; the pane's Mode readout (`permFromArgs`) and the history resume path read the explicit flag the same as the old absence. The byte-exact argv pins change with it. `/verify-terminal` ends it (a launched session shows Claude's default mode). No spec.
+- `web/src/ui/launch-args.ts` emits no flag for the `default` mode, so Claude Code keeps whatever mode it picks itself (2.1.283 opened in `auto mode`). "Always ask" now passes `--permission-mode manual` (decision 17 as amended; the app keeps storing `default`, mapped by `CLAUDE_PERMISSION_FLAG` in `shared/protocol.ts`); the pane's Mode readout (`permFromArgs`) and the history resume path read the explicit flag the same as the old absence. The byte-exact argv pins change with it. `/verify-terminal` ends it (a launched session shows Claude's default mode). No spec.
 
 ### D6. Claude Code compatibility guard (added 2026-10-13, the user's 2026-09-15 ask; backlog § Claude Code CLI compatibility guard; decisions 18–19; spec `.claude/plans/nocturne/PLAN-D6.md`)
 - A `claude --version` probe at boot, carried in `GET /api/runtime`, compared with a supported range baked into the build; shown on the boot card and Settings → Background service; a dismissible notice outside the range with Check for updates; a claude session that dies within seconds of its launch is flagged with its first line; every release records the Claude Code version it was verified against.
@@ -266,7 +266,7 @@ Fixed rules for every part:
 14. ~~C1 — count semantics: one mascot per session waiting for an answer you have not looked at yet (= today's attention badges), max 3 — or only the session you last worked in.~~ DECIDED 2026-09-22 (user): a session counts once Claude ends its turn OR rings the bell, until the user looks at it; max 3 (spec `.claude/plans/nocturne/PLAN-C1.md`).
 15. ~~C1 — accept the exclusive-fullscreen limit (no overlay can draw over a true exclusive-fullscreen game; borderless / optimised fullscreen and video are fine), or is a different mechanism wanted for that case.~~ DECIDED 2026-09-22 (user): accepted, a recorded known limit.
 16. ~~C1 — reduced motion: the handoff describes no behaviour for the OS "reduce motion" setting, yet the overlay's idle bob/blink run forever at the monitor edge; the app's own CSS honours the setting everywhere. Add it (still the same art, no motion), defer to C1, or decline.~~ DECIDED 2026-09-22 (user): the same art, no motion.
-17. ~~D5 — "Always ask" passes no flag, so Claude Code may start in its own mode: pass `--permission-mode default` explicitly (it changes what the launch dialog promises)?~~ DECIDED 2026-10-13 (user): yes, explicitly.
+17. ~~D5 — "Always ask" passes no flag, so Claude Code may start in its own mode: pass `--permission-mode default` explicitly (it changes what the launch dialog promises)?~~ DECIDED 2026-10-13 (user): yes, explicitly. AMENDED the same day (user, at D5): pass `manual`, not `default` — Claude Code 2.1.287 documents `acceptEdits / auto / bypassPermissions / manual / dontAsk / plan`; `default` is accepted but hidden; `manual` exists since 2.1.200, below the 2.1.263 floor.
 18. ~~D6 — what the out-of-range notice offers~~ DECIDED 2026-10-13 (user, the orchestrator's advice): the app's own Check for updates only; no link to the GitHub releases page.
 19. ~~D6 — can the notice be dismissed~~ DECIDED 2026-10-13 (user, the orchestrator's advice): yes, until a different Claude Code version is seen; the dismissal survives a restart.
 

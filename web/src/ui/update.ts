@@ -56,10 +56,9 @@
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 import { commandLabel } from './launch-args.ts';
 import { disarmUnloadGuard } from './unsaved.ts';
-import { requestTerminalFocus } from './panes.ts';
 import {
   CONTINUE_NOTE,
   PILL_TIP_RESTARTING,
@@ -574,35 +573,16 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
       hiddenMidFlow = true;
       log.info('the dialog was hidden while the backend works; the flow keeps running');
       scrim.hidden = true;
-      restoreFocus();
+      // `Hide` during the preflight: the dialog was opened from the toast or
+      // the settings panel, both hidden by now, so the keyboard goes to the
+      // focused pane's terminal (ui/util.ts restoreFocus), never <body>.
+      restoreFocus(restoreTo);
       return; // restoreTo is kept: the dialog is coming back.
     }
     if (phase === 'confirm') log.info(`${mode} confirm cancelled`);
     scrim.hidden = true;
-    restoreFocus();
+    restoreFocus(restoreTo);
     restoreTo = null;
-  }
-
-  /**
-   * Put the keyboard back where it came from — and NOT on an element that is
-   * gone from the screen. `Hide` during the preflight is exactly that case: the
-   * dialog was opened from the toast or the settings panel, and by then those
-   * are hidden, so `focus()` would land on <body> and no key would reach the
-   * PTY. Same fallback as the launch dialog: the focused pane's terminal.
-   */
-  function restoreFocus(): void {
-    const back = restoreTo;
-    if (
-      back !== null &&
-      back.isConnected &&
-      !back.hidden &&
-      back.closest('[hidden]') === null &&
-      back.offsetParent !== null
-    ) {
-      back.focus();
-      return;
-    }
-    requestTerminalFocus();
   }
 
   /** Put a hidden-mid-flow dialog back on screen. A no-op when it never left. */

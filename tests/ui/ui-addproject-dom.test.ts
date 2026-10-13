@@ -533,6 +533,26 @@ test('an error message that looks like markup lands as ONE text node', async () 
   assert.equal(err().textContent, evil, 'and it is rendered verbatim, tags and all');
 });
 
+test('D4: opened with nothing focused, closing gives the keyboard to the focused pane, not <body>', async () => {
+  // The fallback main-shell.ts injects at boot (`requestTerminalFocus`), as an
+  // element whose focus the test can see; util.ts is the dialog's REAL module.
+  const U = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
+    setFocusFallback(fn: () => void): void;
+  };
+  const terminal = dom.doc.createElement('textarea');
+  dom.body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  NP.closeNewProjectDialog();
+  dom.doc.activeElement = dom.body; // a click on empty chrome opened it
+  NP.openNewProjectDialog('blank');
+  await settle();
+  assert.equal(NP.isNewProjectDialogOpen(), true);
+  cancel().click();
+  assert.equal(NP.isNewProjectDialogOpen(), false);
+  assert.equal(dom.doc.activeElement, terminal, 'the typed keys reach the PTY again');
+  U.setFocusFallback(() => {});
+});
+
 test('neither module mentions innerHTML at all (untrusted paths, urls and errors are text)', () => {
   const ui = join(projectRoot, 'web', 'src', 'ui');
   for (const f of ['newproject.ts', 'github.ts', 'picker.ts', 'settings.ts', 'term-colours.ts', 'project-edit.ts', 'project-prefs.ts']) {

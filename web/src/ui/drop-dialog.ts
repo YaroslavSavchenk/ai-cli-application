@@ -51,7 +51,7 @@
  * opened it. Escape is dispatched centrally from `main.ts` (`dropDialogEscape`)
  * like every sibling dialog's.
  */
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 import { flash } from './statusline.ts';
 import { formatError, log } from '../log.ts';
 import {
@@ -161,7 +161,7 @@ function takeDown(): void {
   scrim = null;
   const back = restore;
   restore = null;
-  if (back !== null && back.isConnected) back.focus();
+  restoreFocus(back);
 }
 
 /** The card is over: nothing of this drop is coming back. */

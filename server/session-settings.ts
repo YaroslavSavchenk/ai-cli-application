@@ -34,7 +34,7 @@
  */
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isClaudePermissionMode, type ClaudePermissionMode } from '../shared/protocol.ts';
+import { claudePermissionFromFlag, type ClaudePermissionMode } from '../shared/protocol.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 
 /**
@@ -78,8 +78,10 @@ export function hasSettingsArg(args: readonly string[]): boolean {
 
 /**
  * The session's permission mode as the status line should describe it, read off
- * the launch argv. No `--permission-mode` at all means Claude Code's default
- * (ask every time). The LAST occurrence wins, matching the CLI parser.
+ * the launch argv. No `--permission-mode` at all (a session launched before
+ * D5) is read as Always ask — though Claude Code then picks its own mode
+ * (2.1.283 opened in `auto mode`), which is why the app now always passes one.
+ * The LAST occurrence wins, matching the CLI parser.
  */
 export function parsePermissionMode(args: readonly string[]): StatuslineMode {
   let raw: string | undefined;
@@ -91,12 +93,14 @@ export function parsePermissionMode(args: readonly string[]): StatuslineMode {
     else if (arg.startsWith('--permission-mode=')) raw = arg.slice('--permission-mode='.length);
   }
   if (raw === undefined) return 'default';
-  // The four modes this app launches with (`CLAUDE_PERMISSION_MODES`). Claude
-  // Code 2.1.220 itself accepts more (`auto`, `manual`, `dontAsk`) and no
-  // longer accepts the literal `default` — which is why 'default' here means
-  // "no --permission-mode argument was passed", and any OTHER explicit value
-  // becomes 'unknown' rather than being mislabelled as one of ours.
-  return isClaudePermissionMode(raw) ? raw : 'unknown';
+  // The four modes this app launches with, by either name
+  // (`claudePermissionFromFlag`): Always ask is `manual` since D5 — the name
+  // Claude Code 2.1.287 documents — and `default` (hidden there, still parsed)
+  // in a hand-typed or older argv, so both read 'default', as does "no
+  // --permission-mode argument was passed". Claude Code accepts more (`auto`,
+  // `dontAsk`): any OTHER explicit value becomes 'unknown' rather than being
+  // mislabelled as one of ours.
+  return claudePermissionFromFlag(raw) ?? 'unknown';
 }
 
 export interface SessionSettingsConfig {

@@ -59,7 +59,7 @@ import { isKeyedTool } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
-import { el, button, trapTab } from './util.ts';
+import { el, button, restoreFocus, trapTab } from './util.ts';
 import { TOOL_CARDS, commandLabel, type ToolIconId } from './launch-args.ts';
 import { toolIcon } from './icons-tools.ts';
 import { ROWS } from './shortcuts-rows.ts';
@@ -900,8 +900,8 @@ export function initSettings(
     clearToolsFloor();
     scrim.hidden = true;
     anchor.setAttribute('aria-expanded', 'false');
-    if (restoreTo !== null && restoreTo.isConnected) restoreTo.focus();
-    else anchor.focus();
+    // No pane to take it (no session on screen): the gear that opened us.
+    restoreFocus(restoreTo, { last: anchor });
     restoreTo = null;
   }
 

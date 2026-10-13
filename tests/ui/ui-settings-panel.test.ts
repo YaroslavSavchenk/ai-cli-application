@@ -123,6 +123,30 @@ test('the footer holds one accent-outline Done that closes and hands focus back'
   assert.equal(dom.doc.activeElement, anchor);
 });
 
+test('D4: opened with nothing focused, closing gives the keyboard to the focused pane, not <body>', async () => {
+  // The fallback main-shell.ts injects at boot (`requestTerminalFocus`), as an
+  // element whose focus the test can see; util.ts is the panel's REAL module.
+  const U = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
+    setFocusFallback(fn: () => void): void;
+  };
+  const terminal = dom.doc.createElement('textarea');
+  dom.body.append(terminal);
+  U.setFocusFallback(() => terminal.focus());
+  panel.close();
+  dom.doc.activeElement = dom.body; // a click on empty chrome opened it
+  panel.open();
+  await settle();
+  panel.close();
+  assert.equal(dom.doc.activeElement, terminal, 'the typed keys reach the PTY again');
+  // No session on screen: the pane takes nothing, so the gear does — never <body>.
+  U.setFocusFallback(() => {});
+  dom.doc.activeElement = dom.body;
+  panel.open();
+  await settle();
+  panel.close();
+  assert.equal(dom.doc.activeElement, anchor, 'with no pane to take it, the gear that opens Settings');
+});
+
 test('a click on the scrim closes; a click inside the card does not', async () => {
   panel.open();
   await settle();
