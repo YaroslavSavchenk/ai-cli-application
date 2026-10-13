@@ -6,8 +6,9 @@
 # query packs move even when the code does not).
 #
 # The TypeScript and the workflows are scanned without a build. The C# host
-# is a single source file compiled by the in-box .NET Framework csc.exe on
-# Windows (launcher/build-host.ps1, the same step release.yml runs), so it
+# is four source files of one partial class (launcher/host/*.cs, cut by Q6)
+# compiled by the in-box .NET Framework csc.exe on Windows
+# (launcher/build-host.ps1, the same step release.yml runs), so it
 # gets a manual build on a Windows runner: CodeQL's tracer watches that
 # csc.exe call and sees every referenced assembly (WinForms, WebView2).
 # Without the build (`build-mode: none`) the scan resolved only 56 % of the

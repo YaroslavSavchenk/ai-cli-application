@@ -2,8 +2,10 @@
  * The page -> host message channel that puts FILES on the Windows clipboard
  * (Nocturne B10 phase 3, plan `.claude/plans/nocturne/PLAN-B10.md` §4).
  *
- * WHAT THIS TEST IS. A source-shape test over the TEXT of
- * `launcher/host/AiSessionManagerHost.cs`, the idiom
+ * WHAT THIS TEST IS. A source-shape test over the TEXT of the host —
+ * `launcher/host/AiSessionManagerHost-clipboard.cs` for the channel, the
+ * first file `AiSessionManagerHost.cs` for its init lines and the assembly
+ * attribute, all four parts for the log rule (Q6 cut the host), the idiom
  * `tests/release/launcher-config.test.ts` and `tests/release/installer-script.test.ts` already
  * use on the launcher's `.ps1`/`.cs` sources. Nothing here runs the host:
  * there is no Windows, no `csc.exe` and no clipboard on the machine `npm test`
@@ -27,20 +29,24 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { projectRoot, readSource } from '../helpers/helpers.ts';
+import { readSource, readSources } from '../helpers/helpers.ts';
+import { HOST_SOURCES } from '../helpers/host-sources.ts';
 
-const HOST_CS = join(projectRoot, 'launcher', 'host', 'AiSessionManagerHost.cs');
-const cs = readFileSync(HOST_CS, 'utf8');
+/** The copy-files channel's part of the host (the whole region). */
+const CLIPBOARD_CS = 'launcher/host/AiSessionManagerHost-clipboard.cs';
+const cs = readSource(CLIPBOARD_CS);
+/** The host's first part: Main, the window, the WebView init. */
+const mainCs = readSource('launcher/host/AiSessionManagerHost.cs');
+/** All four parts as one text, for the rules that bind the whole host. */
+const host = readSources(...HOST_SOURCES);
 
-/** The body of a `private static … Name(` member, up to the next member. */
-function member(name: string): string {
-  const start = cs.indexOf(`private static void ${name}(`);
-  const startAny = start === -1 ? cs.indexOf(`private static bool ${name}(`) : start;
-  assert.notEqual(startAny, -1, `${name} not found in AiSessionManagerHost.cs`);
-  const next = cs.indexOf('\n        private static', startAny + 10);
-  return cs.slice(startAny, next === -1 ? cs.length : next);
+/** The body of a `private static … Name(` member of `text`, up to the next member. */
+function member(name: string, text: string = cs): string {
+  const start = text.indexOf(`private static void ${name}(`);
+  const startAny = start === -1 ? text.indexOf(`private static bool ${name}(`) : start;
+  assert.notEqual(startAny, -1, `${name} not found in the host source`);
+  const next = text.indexOf('\n        private static', startAny + 10);
+  return text.slice(startAny, next === -1 ? text.length : next);
 }
 
 const handler = member('WebView_WebMessageReceived');
@@ -63,7 +69,7 @@ const region = (() => {
 // --- the channel is opened where it is read --------------------------------
 
 test('host: IsWebMessageEnabled is set explicitly, beside the other Settings lines', () => {
-  const init = member('WebView_InitCompleted');
+  const init = member('WebView_InitCompleted', mainCs);
   assert.match(init, /wv\.CoreWebView2\.Settings\.IsWebMessageEnabled = true;/);
   // Beside the two lockdown settings, i.e. in the same block that is only
   // reached when initialization succeeded.
@@ -80,7 +86,7 @@ test('host: the exe declares its target framework, so path handling is not the l
   // which Clipboard.SetFileDropList calls on every entry - throw for any path
   // of 260+ characters, while this host accepts 4096.
   assert.match(
-    cs,
+    mainCs,
     /\[assembly: System\.Runtime\.Versioning\.TargetFramework\(\s*"\.NETFramework,Version=v4\.7\.2", FrameworkDisplayName = "\.NET Framework 4\.7\.2"\)\]/,
   );
   // In the source, not in an .exe.config: the launcher ships four files, so
@@ -280,7 +286,7 @@ function logArguments(text: string): string[] {
 }
 
 test('host: no copy-files log line carries an exception MESSAGE', () => {
-  // Region-scoped: the older handlers in this file log ex.Message and are not
+  // Region-scoped: the older handlers in the host log ex.Message and are not
   // this phase's. Here it would be a leak - Clipboard.SetFileDropList
   // validates each entry with Path.GetFullPath and rethrows an
   // ArgumentException whose message interpolates THE PATH.
@@ -294,7 +300,7 @@ test('host: no copy-files log line carries an exception MESSAGE', () => {
 });
 
 test('host: no log line can carry a path', () => {
-  const args = logArguments(cs);
+  const args = logArguments(host);
   assert.ok(args.length >= 10, `expected the host's Log calls, found ${args.length}`);
   // Every variable that holds a path or the raw message, by name. They are
   // named so this test can be a grep: if a later edit logs one of them, the

@@ -27,7 +27,11 @@ system node is v18 and cannot load `.ts`).
 
 ## Size: one file, one topic, at most 800 lines
 
-- **A test file stays at or under 800 lines** (a source file: 1 000). Over
+- **A test file stays at or under 800 lines** (a source file in `server/`,
+  `web/src/` or `shared/`: 1 000, and since Q6, 2026-10-13, every tracked
+  text file under `launcher/` too — `.cs .ps1 .psm1 .cmd .vbs .sh .mjs .md`;
+  `tests/repo/file-size.test.ts` also pins `launcher/build-host.ps1`'s source
+  list to the tracked `launcher/host/*.cs`). Over
   that, it holds more than one topic — split it by topic, not by line count:
   `restart.test.ts` becomes `restart-<topic>.test.ts` files, each with its
   own header. The guard has no exemptions: the 52 files over the limit when

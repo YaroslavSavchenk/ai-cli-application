@@ -117,7 +117,13 @@ upgrade if the separate bar grates; revisit alongside the Tauri shell.
   one file / ~20 lines and went direct, per the trivial-edit carve-out.)
 - The `wsl-launcher` agent's full structural proof is in this session's log.
 - Keep the token constants in `AiSessionManagerHost.cs` in sync with
-  `web/src/styles/tokens.css` — nothing enforces it (no C# in the test suite).
+  `web/src/styles/tokens.css` — `tests/ui/nocturne-tokens.test.ts` (A1 f)
+  enforces it by reading the C# source (corrected 2026-10-13, Q6: the earlier
+  "nothing enforces it" predates that pin).
+- Since Q6 (2026-10-13, `.claude/plans/quality/PLAN-Q6.md`) the host is four
+  files of one `partial class HostApp` — `AiSessionManagerHost.cs`,
+  `-clipboard.cs`, `-overlay.cs`, `-overlay-window.cs` — compiled from a fixed
+  list in `launcher/build-host.ps1`; the size guard covers `launcher/`.
 
 Related: [[thin-windows-launcher]], [[lifecycle-bound-backend]],
 [[auto-port-discovery]], [[localhost-security-model]]

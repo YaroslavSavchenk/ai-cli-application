@@ -121,6 +121,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
+- [[2026-10-13-q6-host-split]] — Q6: AiSessionManagerHost.cs 2 550 lines → four `partial` files (core / clipboard / overlay / overlay-window), build-host.ps1 fixed list pinned against tracked host/*.cs, size guard covers launcher/; move proof + real csc build identical size
 - [[2026-10-13-q7-suite-never-hangs]] — Q7: a leftover listener/child kept node --test alive forever (--test-timeout doesn't help, --test-force-exit loses results); exit guard via --import ends a file 60 s after its last hook, results kept; stub leaks fixed
 - [[2026-10-13-d3-launch-stop-owner]] — D3: `launch.ps1 -Stop` removes a stale runtime.json only when its pid line still names the stopped pid, in ONE `wsl.exe --exec sh -c` step (args as $1/$2; HOME fail-closed); ConvertTo-AiSmScriptLine → config-common.ps1
 - [[2026-10-13-plan-d3-d6-q5-q8]] — planning: the user picked 8 backlog items → D3–D6 (launch.ps1 -Stop, focus back to a terminal, Always ask flag, Claude Code compat guard spec) + Q5–Q8 (index.ts split, host .cs split + launcher/ size guard, suite-hang proof, FIFO-safe readers); decisions 17–19

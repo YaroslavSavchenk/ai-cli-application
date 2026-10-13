@@ -33,10 +33,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { projectRoot, readSource, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
+import { projectRoot, readSource, readSources, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
+import { HOST_SOURCES } from '../helpers/host-sources.ts';
 import { powershell, run, skip, toWindowsPath } from '../helpers/launcher-config-fixture.ts';
 
-const cs = readSource('launcher', 'host', 'AiSessionManagerHost.cs');
+// All four parts of the host as one text (Q6): a folder name, an argument
+// rule or a data path in ANY part is held to the pins below.
+const cs = readSources(...HOST_SOURCES);
 const common = readSource('launcher', 'config-common.ps1');
 const launch = readSource('launcher', 'launch.ps1');
 

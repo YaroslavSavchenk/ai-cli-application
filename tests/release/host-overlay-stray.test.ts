@@ -1,6 +1,6 @@
 /**
  * The peek-mascot overlay's stray-window fix in the Windows host
- * (`launcher/host/AiSessionManagerHost.cs`, Nocturne C1 fix after release,
+ * (`launcher/host/AiSessionManagerHost-overlay.cs`, Nocturne C1 fix after release,
  * `.claude/plans/nocturne/PLAN-C1.md` § Fix after release): under WebView2
  * visual hosting the browser process makes a top-level `Chrome_WidgetWin_1`
  * at the overlay's bounds, layered with alpha 0 but without
@@ -27,7 +27,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readSource } from '../helpers/helpers.ts';
 
-const cs = readSource('launcher', 'host', 'AiSessionManagerHost.cs');
+const cs = readSource('launcher', 'host', 'AiSessionManagerHost-overlay.cs');
 
 /** Comments out, whitespace collapsed: the code's shape. */
 function code(text: string): string {
@@ -41,7 +41,7 @@ function code(text: string): string {
 /** The code of one `private static <type> Name(` member, up to the next member. */
 function member(signature: string): string {
   const start = cs.indexOf(signature);
-  assert.notEqual(start, -1, `${signature} not found in AiSessionManagerHost.cs`);
+  assert.notEqual(start, -1, `${signature} not found in AiSessionManagerHost-overlay.cs`);
   const next = cs.indexOf('\n        private ', start + signature.length);
   return code(cs.slice(start, next === -1 ? cs.length : next));
 }

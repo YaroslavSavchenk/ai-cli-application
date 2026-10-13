@@ -51,7 +51,10 @@ launcher still reads the port from runtime.json, nothing is hardcoded. Always
 | `start-backend.sh` | Linux side: detached (`setsid`) backend start; prefers a bundled runtime, falls back to PATH/nvm |
 | `run-update.ps1` | Windows side of the in-app update: re-hashes the Setup exe the backend downloaded, then runs it silently (`/SILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`) and removes the staging directory |
 | `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
-| `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1) |
+| `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1): `Main`, the window, the WebView, links; one `partial class HostApp` with the three parts below |
+| `host/AiSessionManagerHost-clipboard.cs` | the page → host channel that puts files on the Windows clipboard |
+| `host/AiSessionManagerHost-overlay.cs` | the peek-mascot overlay: its design note, state, creation, composition, stray-window fix, navigation, reload |
+| `host/AiSessionManagerHost-overlay-window.cs` | the overlay's display events, web messages, foreground hook, placement / DPI, open / dispose; `MascotOverlayForm`; the DirectComposition interfaces |
 | `host/build/` | build output (exe + WebView2 DLLs) — build it, or unzip the release asset here; **git-ignored, never committed** |
 | `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
 
@@ -297,7 +300,8 @@ Build it once (needs network the first time, for the WebView2 NuGet package):
 
 What it does:
 
-- Compiles `host/AiSessionManagerHost.cs` with the **in-box** Framework C#
+- Compiles the four `host/AiSessionManagerHost*.cs` files (a fixed list in
+  the script, never a glob) with the **in-box** Framework C#
   compiler (`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`) — no
   .NET SDK required — into `host/build/AiSessionManagerHost.exe`, a tiny
   framework-dependent x64 exe with `app.ico` embedded as its Win32 icon.

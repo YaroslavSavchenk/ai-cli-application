@@ -1,6 +1,6 @@
 # Q6 — The Windows host in files of at most 1 000 lines, and the size guard covers `launcher/`
 
-Status: DECIDED 2026-10-13 (the user's pick from `memory/BACKLOG.md` § From Nocturne A8 "Host file size"; the user's answer the same day: the guard measures everything under `launcher/`, same 1 000-line limit).
+Status: LANDED 2026-10-13 (four `partial` files 708/308/707/907 lines, move proof clean, real csc build 330 240 B as before; the user rebuilds on Windows); earlier: DECIDED 2026-10-13 (the user's pick from `memory/BACKLOG.md` § From Nocturne A8 "Host file size"; the user's answer the same day: the guard measures everything under `launcher/`, same 1 000-line limit).
 
 Part Q6 of `.claude/plans/PLAN-QUALITY.md`. Conventions: `.claude/plans/README.md`.
 

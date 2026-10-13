@@ -1,6 +1,7 @@
 <#
 build-host.ps1 - one-time (re-runnable) build of the native WebView2 host
-(launcher\host\AiSessionManagerHost.cs) into launcher\host\build\.
+(launcher\host\AiSessionManagerHost*.cs, four files of one partial class)
+into launcher\host\build\.
 
 What it does:
   1. Resolves the in-box Framework C# compiler (NO .NET SDK required).
@@ -48,13 +49,23 @@ $PkgSize    = 8913598
 # --- Paths -----------------------------------------------------------------
 $LauncherDir = $PSScriptRoot
 $HostDir  = Join-Path $LauncherDir 'host'
-$SrcFile  = Join-Path $HostDir 'AiSessionManagerHost.cs'
+# The host's four source files (one partial class HostApp, cut by Q6), as a
+# FIXED list - not a glob, so a stray .cs in host\ is never compiled in. A
+# test pins this list to the tracked launcher/host/*.cs.
+$SrcFiles = @(
+    (Join-Path $HostDir 'AiSessionManagerHost.cs'),
+    (Join-Path $HostDir 'AiSessionManagerHost-clipboard.cs'),
+    (Join-Path $HostDir 'AiSessionManagerHost-overlay.cs'),
+    (Join-Path $HostDir 'AiSessionManagerHost-overlay-window.cs')
+)
 $BuildDir = Join-Path $HostDir 'build'
 $IconPath = Join-Path $LauncherDir 'app.ico'
 $OutExe   = Join-Path $BuildDir 'AiSessionManagerHost.exe'
 
 if (-not (Test-Path -LiteralPath $Csc))      { Fail "csc.exe not found at $Csc" }
-if (-not (Test-Path -LiteralPath $SrcFile))  { Fail "host source not found at $SrcFile" }
+foreach ($SrcFile in $SrcFiles) {
+    if (-not (Test-Path -LiteralPath $SrcFile)) { Fail "host source not found at $SrcFile" }
+}
 if (-not (Test-Path -LiteralPath $IconPath)) { Fail "app.ico not found at $IconPath (run: node launcher/make-icon.mjs)" }
 
 # --- Download + verify the .nupkg ------------------------------------------
@@ -141,9 +152,8 @@ $cscArgs = @(
     ('/reference:' + $WinFormsDll),
     '/reference:System.Windows.Forms.dll',
     '/reference:System.Drawing.dll',
-    ('/out:' + $OutExe),
-    $SrcFile
-)
+    ('/out:' + $OutExe)
+) + $SrcFiles
 Write-Host "Compiling with $Csc ..."
 & $Csc @cscArgs
 if ($LASTEXITCODE -ne 0) {
