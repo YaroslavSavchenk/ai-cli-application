@@ -1,6 +1,6 @@
 # Plan: code quality first, then the app's speed
 
-Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-10-13, Q5–Q8 added). Conventions: `.claude/plans/README.md`.
 
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
@@ -15,6 +15,10 @@ Status: see the table below (updated 2026-09-23). Conventions: `.claude/plans/RE
 | P3 | One resize per pane at boot; cache headers for the hashed `/assets/*` | landed | — | 2026-09-23 |
 | P4 | Successful polls: one summary line a minute instead of one line each (the idle log −97 %) | landed | — | 2026-09-23 |
 | P5 | Tab switch without a replay: inactive tabs stay alive, at most 12 live terminals, least recently seen tab falls back | landed | — | 2026-09-23 |
+| Q5 | `server/index.ts` (994 of 1 000 lines) split: the construction and wiring block into its own `server/index-<topic>.ts` | todo | — | — |
+| Q6 | The Windows host in files of at most 1 000 lines, and the size guard measures everything under `launcher/` | todo | `.claude/plans/quality/PLAN-Q6.md` | — |
+| Q7 | The suite always returns: a failing test cannot leave a listening stub that keeps `npm test` alive | todo | — | — |
+| Q8 | Every data-dir reader opens its file the FIFO-safe way (`readSmallRegularFile`) | todo | — | — |
 
 ## Resume here
 
@@ -114,3 +118,36 @@ volgende keer dit wel op zo'n manier gedaan wordt". Answers the same day:
   backend and page (pollers), bytes replayed on a split/close, RSS with
   0/4/12 idle sessions. Report with a proposal per item (the backlog §
   Optimisation round has the candidates); the user picks.
+
+Added 2026-10-13 (the user's picks from `memory/BACKLOG.md`; the user's
+answer the same day: the size guard covers `launcher/` with the same
+1 000-line limit):
+
+- **Q5** — `server/index.ts` is at 994 lines (backlog § From Nocturne A8,
+  found at 999). Move the construction/wiring block into
+  `server/index-<topic>.ts`, the way `server/index-restart.ts` was cut. No
+  behaviour change; the suite and a boot smoke are the gate.
+- **Q6** — `launcher/host/AiSessionManagerHost.cs` (2 550 lines) is cut by
+  topic into `partial` files; `launcher/build-host.ps1` and the workflows
+  compile all of them; `tests/repo/file-size.test.ts` measures every
+  tracked file under `launcher/` at 1 000. Spec
+  `.claude/plans/quality/PLAN-Q6.md`. The host is rebuilt on Windows by
+  the user afterwards (the CI `installer` job compiles it first).
+- **Q7** — backlog § CI/CD leftovers "Suite can hang forever". Since
+  2026-09-16 the `test` script carries `--test-timeout=120000` and
+  `tests/server/github-token.test.ts` stops its shared stub in `after()`.
+  First PROVE whether a failing test with a listening `StubApi` still keeps
+  its file's process (and so `npm test`) alive — a test-timeout ends the
+  test, not the handles it left. If it does: every `StubApi`/temp server in
+  `tests/server/github-token*.test.ts` stopped in a `finally` or `after`,
+  plus a guard that fails a test file whose process outlives its tests. If
+  it does not: tick the backlog line with the proof.
+- **Q8** — the house rule ([[fifo-open-blocks-main-thread]]): a data-dir
+  file another process can create is opened `O_NOFOLLOW|O_NONBLOCK`,
+  `fstat().isFile()`, size-capped — `readSmallRegularFile` in
+  `server/config.ts`. Still on plain `readFileSync`: `server/prefs.ts`,
+  `server/projects.ts`, `server/history.ts`, `server/keys.ts`,
+  `server/github.ts`, `server/update-release.ts` (`update-check.json`) and
+  the `readRuntime` seam in `server/index-restart.ts`. One pass, a cap per
+  file, a `mkfifo` test each (the reader returns, the file counts as
+  absent/invalid, a WARN line). A symlink is refused the same way.

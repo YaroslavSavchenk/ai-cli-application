@@ -35,7 +35,7 @@ priority.
   `result: unknown`.
 - [ ] The `bodyThrew` teardown guard has no meta-test (a failing body's
   assertion surviving a settle timeout). Low value; fault-injected harness.
-- [ ] **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
+- [ ] Planned as Q7 (`.claude/plans/PLAN-QUALITY.md`, 2026-10-13). **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
   leaves its in-process GitHub stub listening → the event loop never drains
   and `npm test` never returns (`--test-timeout` unset). Fix: unconditional
   `stub.stop()` in teardown and/or `--test-timeout` in the `test` script.
@@ -166,21 +166,21 @@ app window first so one backend at a time owns runtime.json.
 - [ ] `data-*`-keyed styling (`.grid[data-layout]`, `.pane-drop[data-zone]`, `.files-badge[data-kind]`, `[data-armed]`) has no guard that the value set the modules write matches the value set app.css styles — same class of bug as "a rule nothing sets".
 - [ ] Shortcuts overlay row cells stay lowercase fragments (byte-pinned by `ui-shortcuts-table`; since B6 the overlay and Settings → Keyboard both draw `web/src/ui/shortcuts-rows.ts`, so capitalising them is ONE data change + the pins).
 - [ ] B9 may replace the invented-but-unwired `initTheme(serverPrefs?) → { apply, current }` shape in `web/src/ui/theme.ts`; `--z-popover` was deleted (its only user was the popover) — re-add a rung if a popover returns.
-- [ ] The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
-- [ ] **Host file size** (scope review 2026-09-26): `launcher/host/AiSessionManagerHost.cs` is 2385 lines — `tests/repo/file-size.test.ts` does not measure `launcher/`; move the peek-mascot overlay (`MascotOverlayForm`, DComp interop, the overlay region as a `partial` of `HostApp`) into its own `.cs` and teach `launcher/build-host.ps1` (and the release workflow) to compile both; whether the size guard should cover `launcher/` is **(user)**.
-- [ ] **"Always ask" does not force prompts** (verify-terminal 2026-09-27): `web/src/ui/launch-args.ts` skips the `default` permission mode, so no `--permission-mode` flag is passed and Claude Code 2.1.283 opened in `auto mode` although `~/.claude/settings.json` sets no `defaultMode`. Pass `--permission-mode default` explicitly for "Always ask"? **(user)** — it changes what the launch dialog promises.
-- [ ] `server/index.ts` is at 999 of 1000 lines after the C2 title fix (scope review 2026-09-27) — split the construction/wiring block into `server/index-<topic>.ts` (like `server/index-restart.ts`) before the next line lands there.
+- [ ] Planned as D4 (`.claude/plans/PLAN-NOCTURNE.md`, 2026-10-13). The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
+- [ ] Planned as Q6 (`.claude/plans/quality/PLAN-Q6.md`, 2026-10-13; user: the guard covers `launcher/`). **Host file size** (scope review 2026-09-26): `launcher/host/AiSessionManagerHost.cs` is 2385 lines — `tests/repo/file-size.test.ts` does not measure `launcher/`; move the peek-mascot overlay (`MascotOverlayForm`, DComp interop, the overlay region as a `partial` of `HostApp`) into its own `.cs` and teach `launcher/build-host.ps1` (and the release workflow) to compile both; whether the size guard should cover `launcher/` is **(user)**.
+- [ ] Planned as D5 (2026-10-13; user: pass the flag). **"Always ask" does not force prompts** (verify-terminal 2026-09-27): `web/src/ui/launch-args.ts` skips the `default` permission mode, so no `--permission-mode` flag is passed and Claude Code 2.1.283 opened in `auto mode` although `~/.claude/settings.json` sets no `defaultMode`. Pass `--permission-mode default` explicitly for "Always ask"? **(user)** — it changes what the launch dialog promises.
+- [ ] Planned as Q5 (2026-10-13). `server/index.ts` is at 999 of 1000 lines after the C2 title fix (scope review 2026-09-27) — split the construction/wiring block into `server/index-<topic>.ts` (like `server/index-restart.ts`) before the next line lands there.
 - [ ] C# constant NAMES `TokenBgApp` / `TokenTextHd` / `TokenEdge` in `launcher/host/AiSessionManagerHost.cs` echo dead alias names (values correct, pinned by `nocturne-tokens` A1 (f)); rename when the host is next rebuilt.
 
 ## From Nocturne B6 (2026-09-22)
 
 - [ ] B6 follow-ups (reviewers' notes, no defect): a manual `Check for updates` inside a failure BACKOFF still makes one outbound GET (the 403/429 `notBeforeMs` window IS honoured; a floor of a few seconds between sequential manual checks would mirror `/api/runtime`'s cache); a manual check re-arms the periodic timer to +6 h from the press (benign); `note=` is printed on an `aborted` access line too (`status 0 < 400`); no installed-bundle end-to-end test for `POST /api/update/check` (fixture: `tests/server/restart.test.ts` unpacked-bundle boot); `clearToolsFloor` re-entry (a second refusal while the first 3 s timer runs) and two Tools clicks within one write's flight are untested; the hidden-card fallback can select an inert card for one `/api/tools` round trip (spec-true, `applyAvailability` moves on); `update.ts` → `st.setRunStamp` seam has no test of its own; `api.updatePrefs` is GET-merge-PUT so two toggles within one round trip can lose the first (pre-existing shape, shared with `statusLine`).
-- [ ] The older data-dir readers (`prefs.json`, `projects.json`, `history.json`, `keys.json`, `update-check.json`, `github.json`) still `readFileSync` a path another process can create — apply the FIFO rule ([[fifo-open-blocks-main-thread]]: `O_NOFOLLOW|O_NONBLOCK` + `fstat().isFile()` + a cap before the read) to all of them in one pass, with a `mkfifo` test each (found a third time in B6 phase 3, `last-port.json`).
+- [ ] Planned as Q8 (2026-10-13). The older data-dir readers (`prefs.json`, `projects.json`, `history.json`, `keys.json`, `update-check.json`, `github.json`) still `readFileSync` a path another process can create — apply the FIFO rule ([[fifo-open-blocks-main-thread]]: `O_NOFOLLOW|O_NONBLOCK` + `fstat().isFile()` + a cap before the read) to all of them in one pass, with a `mkfifo` test each (found a third time in B6 phase 3, `last-port.json`).
 - [ ] C1 phase 4: the `Notifications when a session needs you` row was dropped in B6 (decision 2) — the mascot toggle takes its place on Preferences → Defaults.
 
 ## From Nocturne C1 (2026-09-22)
 
-- [ ] `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
+- [ ] Planned as D3 (2026-10-13). `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
 - [ ] The edited-file pulse (`app.css`, Files panel) has no `prefers-reduced-motion` opt-out (the state dots got theirs in B11/B8).
 - [ ] The restart dialog says `History` where the Sessions panel says `Earlier` — user's call.
 
@@ -209,7 +209,7 @@ silently: a launch that exits at once, a history entry that never resumes,
 a statusline that stays empty. The user wants this VISIBLE in the app, not
 buried in `server.log`.
 
-- [ ] **Version probe at boot**: run `claude --version` once (argv, no
+- [ ] Planned as D6 (`.claude/plans/nocturne/PLAN-D6.md`, 2026-10-13; the user's two questions below answered there). **Version probe at boot**: run `claude --version` once (argv, no
   shell), cache it in `GET /api/runtime` (`claudeVersion`, null when the
   binary is missing), compare against a `SUPPORTED_CLAUDE` range baked
   into the build (minimum = the verified floor; maximum = the newest

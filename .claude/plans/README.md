@@ -105,3 +105,8 @@ Part specs, `nocturne/`:
 - `PLAN-B13.md` — rename files and folders in the Files panel (F2 + row menu; anchors and data dir protected by identity)
 - `PLAN-C2.md` — the mascot waits until Claude is really done (background subagents / workflows), and comes when Claude asks you something
 - `PLAN-D1.md` — project preferences that work and can be edited, the full Claude model pool (newest first, Older models below)
+- `PLAN-D6.md` — the Claude Code compatibility guard: the version in Settings, a notice outside the tested range, a launch that dies at once flagged
+
+Part specs, `quality/`:
+
+- `PLAN-Q6.md` — the Windows host cut into four `partial` files of at most 1 000 lines; the size guard measures `launcher/`
