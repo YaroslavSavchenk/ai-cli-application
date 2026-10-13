@@ -15,7 +15,8 @@
  * Lifetime is bound to UI presence (decided 2026-07-19): the frontend holds
  * a presence WebSocket; when no presence and no session clients remain, a
  * grace timer (LifecycleController) expires into the same clean shutdown as
- * SIGTERM — history 'shutdown', kill PTYs, remove runtime.json, exit 0. The
+ * SIGTERM — history 'shutdown', kill PTYs, remove its own runtime.json
+ * (runtime-file.ts: only while it still names this process), exit 0. The
  * crash-safe session history (history.ts) lets any ended session be resumed
  * later, on this run or a future one.
  *
@@ -48,6 +49,7 @@ import {
   resolveUpdateApiBase,
 } from './config.ts';
 import { choosePortHint, readLastPort, writeLastPort } from './last-port.ts';
+import { removeOwnRuntimeFile } from './runtime-file.ts';
 import {
   readServerCommit,
   readWebBuild,
@@ -887,11 +889,7 @@ function shutdown(cause: string): void {
   // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
   history.endAllLive('shutdown');
   sessions.destroyAll();
-  try {
-    unlinkSync(paths.runtimeFile);
-  } catch {
-    // Already gone.
-  }
+  removeOwnRuntimeFile(paths.runtimeFile, { pid: process.pid, startedAt }, log);
   server.close();
   // Force exit even if some socket lingers.
   setTimeout(() => process.exit(0), 500).unref();
@@ -990,11 +988,7 @@ process.on('uncaughtException', (err) => {
   // Not during a restart handoff: runtime.json is the CHILD's by then. And not
   // in a standby before `go` either: there it is the live PARENT's.
   if (!restart.inProgress && !standbyWaiting) {
-    try {
-      unlinkSync(paths.runtimeFile);
-    } catch {
-      // Already gone.
-    }
+    removeOwnRuntimeFile(paths.runtimeFile, { pid: process.pid, startedAt }, log);
   }
   process.exit(1);
 });

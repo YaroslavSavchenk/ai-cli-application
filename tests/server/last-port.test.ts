@@ -326,15 +326,25 @@ test('server/index.ts really consults the module (source-shape pin)', () => {
  *     with the exact same mode, and only a reader catching the half-written
  *     file ever notices the difference.
  *
- * Measured 2026-09-22: mutants that dropped `!stat.isFile()`, the size gate,
+ * Measured 2026-09-22 (the caps were in last-port.ts then; config.ts
+ * readSmallRegularFile since Nocturne D2): mutants that dropped `!stat.isFile()`, the size gate,
  * the post-read cap or `atomicWriteFile` all left tests/server/last-port.test.ts
  * green until this pin existed.
  */
 test('server/last-port.ts keeps both read caps and the atomic write (shape pin)', () => {
   const src = readSource('server', 'last-port.ts');
-  assert.match(src, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW \| fsConstants\.O_NONBLOCK/);
-  assert.match(src, /if \(!stat\.isFile\(\) \|\| stat\.size > MAX_LAST_PORT_BYTES\)/);
-  assert.match(src, /if \(read > MAX_LAST_PORT_BYTES\)/);
+  // Since Nocturne D2 the judged open and both caps live in ONE helper,
+  // config.ts readSmallRegularFile (shared with server/runtime-file.ts): pin
+  // that last-port reads through it with its own cap, and the helper's shape.
+  assert.match(src, /readSmallRegularFile\(file, MAX_LAST_PORT_BYTES\)/);
+  const helper = readSource('server', 'config.ts');
+  assert.match(helper, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW \| fsConstants\.O_NONBLOCK/);
+  assert.match(helper, /if \(!stat\.isFile\(\) \|\| stat\.size > maxBytes\)/);
+  assert.match(helper, /if \(read > maxBytes\)/);
+  // The post-read cap is only alive when the read asks for ONE byte more than
+  // the cap (a file grown between fstat and read); a read of `maxBytes` makes
+  // it dead code no behaviour test can tell apart (D2 mutation probe).
+  assert.match(helper, /readSync\(fd, buffer, 0, maxBytes \+ 1, 0\)/, 'the read asks for cap + 1 bytes');
   assert.match(src, /atomicWriteFile\(file, JSON\.stringify\(\{ port \}\)/);
   assert.doesNotMatch(src, /\bwriteFileSync\(/, 'the write goes through atomicWriteFile only');
 });

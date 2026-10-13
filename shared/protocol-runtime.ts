@@ -13,7 +13,7 @@
 
 /**
  * Written atomically with mode 0600 on startup; removed on clean
- * SIGINT/SIGTERM shutdown. Read by the Windows-side launcher and tooling.
+ * SIGINT/SIGTERM shutdown by the backend it names only (server/runtime-file.ts). Read by the Windows-side launcher and tooling.
  */
 export interface RuntimeInfo {
   /** OS-assigned port the server is listening on (127.0.0.1 only). */

@@ -1,7 +1,7 @@
 ---
 type: backlog
 created: 2026-09-08
-updated: 2026-09-26
+updated: 2026-10-13
 tags: [backlog, todo, open]
 ---
 # Backlog — still to do (living note)
@@ -180,7 +180,7 @@ app window first so one backend at a time owns runtime.json.
 
 ## From Nocturne C1 (2026-09-22)
 
-- [ ] **A backend that shuts down deletes a NEWER backend's `runtime.json`.** Seen on the dev data dir 2026-09-22 21:32Z: the old backend (port 38757) hit its idle grace and shut down 9 s after a new one (port 37323) had written `runtime.json`; the file was gone afterwards while the new backend ran on. The shutdown path should delete the file only when it still names its own pid. Pre-existing lifecycle bug, not C1. HIT AGAIN the same night on a dev relaunch: `start-backend.sh` found no `runtime.json`, started a SECOND backend, and the old one entered its idle grace (sessions would have died with it). Priority: first thing after the release.
+- [ ] `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
 - [ ] The edited-file pulse (`app.css`, Files panel) has no `prefers-reduced-motion` opt-out (the state dots got theirs in B11/B8).
 - [ ] The restart dialog says `History` where the Sessions panel says `Earlier` — user's call.
 
@@ -396,6 +396,10 @@ pass or a test-engineer brief, not a feature.
 
 Ticked items, grouped under the heading they sat under. History, not work:
 nothing here needs doing. New ticks move here when their item lands.
+
+### From Nocturne C1 (2026-09-22)
+
+- [x] **A backend that shuts down deletes a NEWER backend's `runtime.json`.** Seen on the dev data dir 2026-09-22 21:32Z: the old backend (port 38757) hit its idle grace and shut down 9 s after a new one (port 37323) had written `runtime.json`; the file was gone afterwards while the new backend ran on. The shutdown path should delete the file only when it still names its own pid. Pre-existing lifecycle bug, not C1. HIT AGAIN the same night on a dev relaunch: `start-backend.sh` found no `runtime.json`, started a SECOND backend, and the old one entered its idle grace (sessions would have died with it). Priority: first thing after the release. **DONE 2026-10-13 (D2, [[2026-10-13-d2-runtime-json-owner]]):** removed only when its pid + startedAt are this process's.
 
 ### CI/CD leftovers (from [[2026-09-08-cicd-gate]], 2026-09-08)
 

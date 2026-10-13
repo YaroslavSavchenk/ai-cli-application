@@ -36,6 +36,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | B13 | Rename files and folders in the Files panel (user: before the v0.4.0 release) | verified | `.claude/plans/nocturne/PLAN-B13.md` | 2026-09-23 |
 | C2 | Mascot waits while background subagents / workflows run, comes for Claude's questions; the pane readout follows the same rule | verified | `.claude/plans/nocturne/PLAN-C2.md` | 2026-09-27 |
 | D1 | Project preferences that work and can be edited (Edit in the project row), the full Claude model pool with Older models | verified | `.claude/plans/nocturne/PLAN-D1.md` | 2026-10-13 |
+| D2 | A backend that shuts down deletes runtime.json only when it still names itself (never a newer backend's) | landed | — | 2026-10-13 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -228,6 +229,9 @@ Fixed rules for every part:
 
 ### D1. Project preferences + model pool (added 2026-10-13, user's ask; spec `.claude/plans/nocturne/PLAN-D1.md`)
 - Preferences re-resolve on a project switch inside the New session dialog; an Edit button per project row (name, model, permission mode, effort); the model select lists pinned versions, newest first, older under "Older models".
+
+### D2. runtime.json belongs to whoever it names (added 2026-10-13, user: "begin aan de runtime.json bug"; backlog § From Nocturne C1)
+- Shutdown and the uncaught-exception path delete `runtime.json` only when its `pid` + `startedAt` are this process's; a newer backend's file is left alone. No spec: small enough to brief from here.
 
 ## Open decisions (user decides; do not settle silently)
 1. ~~Old theme popover~~ DECIDED: drop the popover; Legacy UI removed entirely (see above). Amended 2026-09-10 evening (user): colour customisation itself returns as a Nocturne Settings page — see A7, B9 and decision 10.

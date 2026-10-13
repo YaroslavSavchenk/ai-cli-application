@@ -30,8 +30,8 @@
  * which auto-picks. The 1024 floor is what keeps a planted value from asking
  * for a privileged port at all.
  */
-import { closeSync, constants as fsConstants, fstatSync, openSync, readSync } from 'node:fs';
-import { atomicWriteFile, describeError, type Logger } from './config.ts';
+import { atomicWriteFile, describeError, readSmallRegularFile, type Logger } from './config.ts';
+import { plainObject } from './sanitise.ts';
 
 /** A tiny file: anything larger is not ours, so do not even parse it. */
 const MAX_LAST_PORT_BYTES = 1024;
@@ -51,69 +51,33 @@ export function isUserPort(n: unknown): boolean {
  * The remembered port, or null. Never throws: a missing file is the first run
  * and says nothing; anything else odd costs one debug line and an auto-pick.
  *
- * THE OPEN IS JUDGED, NEVER THE PATH TWICE (the house rule for any synchronous
- * read of a path another process can create —
- * memory/knowledge/fifo-open-blocks-main-thread.md): `O_NOFOLLOW | O_NONBLOCK`,
- * then `fstat` on that fd must say a REGULAR file no larger than the cap BEFORE
- * the first read. This runs on the main thread before the listener exists, so a
- * FIFO planted at the path would otherwise block the boot until a writer
- * appeared, and a symlink to /dev/zero would read without end — the cap after
- * the read is too late for both.
+ * The read is config.ts `readSmallRegularFile` (the judged open, the house rule
+ * for a path another process can create): this runs on the main thread before
+ * the listener exists, so a planted FIFO or a link to /dev/zero must not stall
+ * the boot.
  */
 export function readLastPort(file: string, log: Logger): number | null {
-  let fd: number;
-  try {
-    fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
-  } catch (err) {
-    // ENOENT is the normal first run. ELOOP (a symlink: the app wrote this file
-    // itself, so a link here is not ours) and everything else is one debug line.
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      log('debug', 'last port file unreadable, auto-picking');
-    }
-    return null;
-  }
-  let text: string;
-  try {
-    const stat = fstatSync(fd);
-    // A directory, a FIFO or a device never gets read at all.
-    if (!stat.isFile() || stat.size > MAX_LAST_PORT_BYTES) {
-      log('debug', 'last port file unreadable, auto-picking');
-      return null;
-    }
-    const buffer = Buffer.allocUnsafe(MAX_LAST_PORT_BYTES + 1);
-    const read = readSync(fd, buffer, 0, MAX_LAST_PORT_BYTES + 1, 0);
-    if (read > MAX_LAST_PORT_BYTES) {
-      log('debug', 'last port file unreadable, auto-picking');
-      return null;
-    }
-    text = buffer.subarray(0, read).toString('utf8');
-  } catch {
+  const read = readSmallRegularFile(file, MAX_LAST_PORT_BYTES);
+  // Missing is the normal first run and says nothing.
+  if (read.kind === 'missing') return null;
+  const port = read.kind === 'text' ? portOf(read.text) : undefined;
+  if (port === undefined) {
     log('debug', 'last port file unreadable, auto-picking');
     return null;
-  } finally {
-    try {
-      closeSync(fd);
-    } catch {
-      // Nothing to do about a failed close.
-    }
   }
+  return port;
+}
+
+/** The `port` of a JSON object text when it is a user port, else undefined. */
+function portOf(text: string): number | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    log('debug', 'last port file unreadable, auto-picking');
-    return null;
+    return undefined;
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    log('debug', 'last port file unreadable, auto-picking');
-    return null;
-  }
-  const port = (parsed as Record<string, unknown>)['port'];
-  if (!isUserPort(port)) {
-    log('debug', 'last port file unreadable, auto-picking');
-    return null;
-  }
-  return port as number;
+  const port = plainObject(parsed)?.['port'];
+  return isUserPort(port) ? (port as number) : undefined;
 }
 
 /**

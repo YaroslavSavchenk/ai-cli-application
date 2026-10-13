@@ -28,7 +28,7 @@ is instead bound to UI presence (decided and implemented 2026-07-19; see
 `memory/decisions/lifecycle-bound-backend.md`): every app window holds a
 presence WebSocket, and when the last one closes the backend waits a ~30 s
 grace period (so reloads and accidental closes reattach harmlessly), then
-ends all sessions, removes runtime.json, and exits. **Closing the window
+ends all sessions, removes its own runtime.json, and exits. **Closing the window
 ends your sessions** — nothing keeps running in the background. `-Stop`
 shuts down immediately, skipping the grace. Nothing is lost: every session
 is kept in the backend's session history and can be resumed later, on this

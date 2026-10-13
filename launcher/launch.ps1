@@ -28,7 +28,7 @@ How it works:
     start-backend.sh) so it never dies with this launcher or its wsl.exe
     calls. Its lifetime is bound to UI presence, not to any process here:
     ~30 s after the last app window closes (or ~120 s if no window ever
-    connects) the backend ends all sessions, removes runtime.json, and
+    connects) the backend ends all sessions, removes its own runtime.json, and
     exits on its own. See memory/decisions/lifecycle-bound-backend.md.
   - Cold WSL boot adds seconds; after starting we poll file + health for up
     to $StartTimeoutSec seconds with progress output.
@@ -543,7 +543,7 @@ if ($Stop) {
         Invoke-InDistro @('rm', '-f', "$DataDir/runtime.json")
         exit 0
     }
-    # The server removes runtime.json on clean SIGTERM; wait for that.
+    # The server removes its own runtime.json on clean SIGTERM; wait for that.
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 500
         Invoke-InDistro @('test', '-e', "$DataDir/runtime.json")

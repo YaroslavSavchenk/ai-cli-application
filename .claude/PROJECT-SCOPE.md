@@ -38,7 +38,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   UI presence** (user's call 2026-07-19): the presence WebSocket
   `/ws/presence` counts open windows; when the last closes, a 30 s grace
   (`AI_SM_GRACE_MS`) lets reloads reattach, then the backend ends all
-  sessions, removes runtime.json and exits; a 120 s startup grace
+  sessions, removes its own runtime.json (only while the file still names
+  its pid and startedAt — D2) and exits; a 120 s startup grace
   (`AI_SM_STARTUP_GRACE_MS`) runs until the first-ever presence. Manual
   `-Stop` overrides. The presence channel answers `ping`/`pong` (inbound
   frames ≤ 1 KiB, no lifecycle effect). Authed `GET /api/runtime` body is

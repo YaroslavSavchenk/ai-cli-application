@@ -25,6 +25,11 @@ import {
   mkdirSync,
   appendFileSync,
   chmodSync,
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  openSync,
+  readSync,
   writeFileSync,
   realpathSync,
   renameSync,
@@ -706,6 +711,50 @@ export function atomicWriteFile(filePath: string, contents: string): void {
   const tmpPath = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(tmpPath, contents, { mode: 0o600 });
   renameSync(tmpPath, filePath);
+}
+
+/**
+ * What `readSmallRegularFile` found: the text, nothing at the path (ENOENT), or
+ * something there that is not readable as one of the app's own small files.
+ */
+type SmallFileRead = { kind: 'text'; text: string } | { kind: 'missing' } | { kind: 'unreadable' };
+
+/**
+ * Read a small file the app wrote itself into the data dir, where another
+ * process can create the path. Never throws.
+ *
+ * THE OPEN IS JUDGED, NEVER THE PATH TWICE (the house rule for any synchronous
+ * read of such a path — memory/knowledge/fifo-open-blocks-main-thread.md):
+ * `O_NOFOLLOW | O_NONBLOCK`, then `fstat` on that fd must say a REGULAR file no
+ * larger than `maxBytes` BEFORE the first read. These reads run on the main
+ * thread, so a FIFO planted at the path would block until a writer appeared,
+ * and a symlink to /dev/zero would read without end — a cap after the read is
+ * too late for both. A symlink (ELOOP) is 'unreadable': the app writes these
+ * files itself, so a link is not ours.
+ */
+export function readSmallRegularFile(file: string, maxBytes: number): SmallFileRead {
+  let fd: number;
+  try {
+    fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' };
+  }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > maxBytes) return { kind: 'unreadable' };
+    const buffer = Buffer.allocUnsafe(maxBytes + 1);
+    const read = readSync(fd, buffer, 0, maxBytes + 1, 0);
+    if (read > maxBytes) return { kind: 'unreadable' };
+    return { kind: 'text', text: buffer.subarray(0, read).toString('utf8') };
+  } catch {
+    return { kind: 'unreadable' };
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      // Nothing to do about a failed close.
+    }
+  }
 }
 
 /** `application/json`, with or without parameters (charset), case-insensitive. */
