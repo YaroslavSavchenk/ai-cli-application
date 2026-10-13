@@ -20,6 +20,12 @@
  * crash-safe session history (history.ts) lets any ended session be resumed
  * later, on this run or a future one.
  *
+ * This file is the composition root — boot order, listen, signal handlers,
+ * shutdown, the standby handoff. Construction blocks live beside it, each
+ * called at the point it ran from: index-banner.ts (the boot banner),
+ * index-stores.ts (stores and watchers), index-update.ts (update checks and
+ * the updater), index-restart.ts (the restart wiring); split O8 and Quality Q5.
+ *
  * Runs directly on Node 24 native type stripping: erasable syntax only,
  * relative imports carry explicit .ts extensions.
  */
@@ -27,13 +33,11 @@ import { createServer } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
-import { unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RuntimeInfo, UpdateStatus } from '../shared/protocol.ts';
+import type { RuntimeInfo } from '../shared/protocol.ts';
 import {
   resolveDataPaths,
-  resolveGithubApiBase,
   resolveHomeBoundary,
   resolveWebDistDir,
   resolveLogLevel,
@@ -43,52 +47,23 @@ import {
   atomicWriteFile,
   createRefusalLimiter,
   oneLine,
-  MAX_LOG_BYTES,
-  DEFAULT_GITHUB_API_BASE,
-  DEFAULT_UPDATE_API_BASE,
-  resolveUpdateApiBase,
 } from './config.ts';
 import { choosePortHint, readLastPort, writeLastPort } from './last-port.ts';
 import { removeOwnRuntimeFile } from './runtime-file.ts';
-import {
-  readServerCommit,
-  readWebBuild,
-  mtimeOf,
-  createUpdateChecker,
-} from './buildinfo.ts';
-import {
-  readBundleInfo,
-  createInstalledUpdateChecker,
-} from './bundle.ts';
+import { readServerCommit, readWebBuild } from './buildinfo.ts';
+import { readBundleInfo } from './bundle.ts';
 import { generateToken } from './auth.ts';
-import { ProjectStore } from './projects.ts';
-import { PrefsStore } from './prefs.ts';
-import { SessionManager } from './sessions.ts';
-import { SessionSettingsStore } from './session-settings.ts';
-import { KeyStore } from './keys.ts';
-import { TelemetryWatcher } from './telemetry.ts';
-import { AgentsWatcher, subagentsDirFor } from './agents.ts';
-import { SessionHistory } from './history.ts';
-import { GithubConnection } from './github.ts';
+import { subagentsDirFor } from './agents.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { createRequestHandler, type ApiDeps } from './api.ts';
 import { PollTally } from './poll-log.ts';
 import { createUpgradeHandler } from './ws.ts';
 import { STANDBY_TIMEOUT_MS } from './restart.ts';
 import { commitFrontend, discardFrontend } from './webbuild.ts';
+import { logBootBanner, logWebBuild } from './index-banner.ts';
+import { createStores } from './index-stores.ts';
+import { createUpdateWiring } from './index-update.ts';
 import { createRestartController } from './index-restart.ts';
-import {
-  CHECK_INTERVAL_MS,
-  composeUpdateStatus,
-  createReleaseChecker,
-  releaseCheckSupported,
-  type ReleaseChecker,
-} from './update-release.ts';
-import {
-  cleanupUpdatesDir,
-  createInteropLauncher,
-  UpdateController,
-} from './update-install.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -102,9 +77,10 @@ const repoRoot = join(serverDir, '..');
  * VERSION DIR of the install (`<app>/<version>`), with `<app>/current` naming
  * the version the launcher starts.
  *
- * Five things branch on it, all in this file: the banner line, the update
- * check, the dependency preflight, what the restart preflight verifies and who
- * it hands the port to. Everything else — data dir, ports, sessions, history,
+ * Five things branch on it, all in this file and its index-* pieces: the
+ * banner line (index-banner.ts), the update check (index-update.ts), the
+ * dependency preflight, what the restart preflight verifies and who it hands
+ * the port to (index-restart.ts). Everything else — data dir, ports, sessions, history,
  * logging — is identical, and with no marker present the developer path is
  * byte-for-byte what it was.
  */
@@ -123,7 +99,8 @@ const installed = bundle !== null;
 // server/index.ts </dev/null >/dev/null 2>&1` (launcher/start-backend.sh), so
 // stderr goes nowhere and the user would see only the launcher's "did not
 // become healthy" timeout. Same shape as the AI_SM_GITHUB_API_BASE refusal
-// below; the message is already one-lined by resolveWebDistDir.
+// in server/index-stores.ts; the message is already one-lined by
+// resolveWebDistDir.
 let webDistDir: string;
 try {
   webDistDir = resolveWebDistDir(repoRoot);
@@ -151,29 +128,10 @@ try {
 // ---------------------------------------------------------------------------
 // Boot banner. The first lines of every run answer "which code is this?" —
 // server commit, server/index.ts mtime, frontend bundle, data dir, log level,
-// and every AI_SM_* override in effect. Motivated by a real incident
-// (2026-09-06): a freshly built UI talking to a backend started before the
-// feature existed showed an empty HISTORY section, and the log gave the user
-// nothing to go on. NO SECRET goes in here: token-shaped env values are
-// redacted by name and the auth token is never printed at all.
+// and every AI_SM_* override in effect. The lines and their reasons live in
+// server/index-banner.ts (Quality Q5 split, 2026-10-13).
 // ---------------------------------------------------------------------------
 const boot = scoped(log, 'boot');
-/** Env names whose VALUE is never logged, whatever else they are. */
-const SECRETISH_ENV = /TOKEN|SECRET|PASSWORD|PASSWD|KEY|CRED|AUTH/i;
-/**
- * A URL with USERINFO (`scheme://user:password@host`). Measured, not
- * hypothetical: AI_SM_GITHUB_API_BASE is a URL and the server's own refusal
- * path deliberately declines to echo it for exactly this reason
- * (assertLoopbackApiBase). The banner must not undo that.
- */
-const URL_WITH_USERINFO = /\/\/[^/\s@]*:[^/\s@]*@/;
-
-/** The value as it may be logged: redacted whenever it could carry a secret. */
-function envValueForLog(name: string, raw: string): string {
-  if (SECRETISH_ENV.test(name)) return '<redacted by name>';
-  if (URL_WITH_USERINFO.test(raw)) return '<redacted: embeds credentials>';
-  return JSON.stringify(oneLine(raw));
-}
 const serverCommit = readServerCommit(repoRoot);
 let webBuild = readWebBuild(webDistDir);
 
@@ -195,185 +153,34 @@ const standbyMode = process.env['AI_SM_STANDBY'] === '1';
 /** True from module load until `go`: this process must not touch the data dir. */
 let standbyWaiting = standbyMode && sendToParent !== undefined;
 
-boot('info', `ai-cli-application backend starting (node ${process.version}, pid ${process.pid})`);
-boot('info', `data dir ${paths.dataDir}`);
-boot(
-  'info',
-  `log level ${logLevel.level} (AI_SM_LOG_LEVEL ${
-    logLevel.raw === undefined ? 'unset, default' : `= ${JSON.stringify(oneLine(logLevel.raw))}`
-  }${logLevel.valid ? '' : ' — unrecognized, using the default'}), rotation at ${MAX_LOG_BYTES} bytes, 2 kept generations`,
-);
-// SET means non-empty: every consumer in this codebase (resolveDataPaths,
-// resolveGithubApiBase, envMs) treats '' as unset, so an empty value is not an
-// override and must not be reported as one.
-for (const name of Object.keys(process.env).filter((n) => n.startsWith('AI_SM_')).sort()) {
-  const raw = process.env[name] ?? '';
-  if (raw === '') continue;
-  boot('info', `env ${name}=${envValueForLog(name, raw)}`);
-}
-// Which code is this? An install answers with its bundle marker (there is no
-// .git in a packaged tree, so the commit line would always read "unknown"), a
-// clone with the checked-out commit. Every field of the marker is charset-gated
-// in server/bundle.ts — this line prints untrusted disk content otherwise.
-if (bundle !== null) {
-  boot(
-    'info',
-    `installed build ${bundle.version} (commit ${bundle.commit ?? 'unknown'}, ` +
-      `node ${bundle.nodeVersion}, built ${oneLine(bundle.builtAt)}, app dir ${oneLine(repoRoot)})`,
-  );
-} else {
-  // An unreadable (not absent) bundle.json makes the line below a possible
-  // LIE: this may be an INSTALL running as a clone for the rest of its life.
-  for (const line of bundleWarnings) boot('warn', line);
-  boot(
-    'info',
-    `server code ${serverCommit ?? 'commit unknown'} (server/index.ts mtime ${
-      mtimeOf(join(serverDir, 'index.ts')) ?? 'unknown'
-    })`,
-  );
-}
-// A restart handoff (POST /api/restart) says so in one line, so the log reads
-// as one continuous story across the two processes.
-// The value is our OWN env, but a log line is a text record: an unvalidated
-// string could carry anything a future caller puts there, so only a plain pid
-// is printed and everything else is named as invalid.
+/** Set by a restart handoff: printed by the banner, and the standby's parent. */
 const restartedFrom = process.env['AI_SM_RESTARTED_FROM'];
-if (restartedFrom !== undefined && restartedFrom !== '') {
-  boot(
-    'info',
-    /^\d{1,10}$/.test(restartedFrom)
-      ? `restarted from pid ${restartedFrom}`
-      : `restarted from pid <invalid> (${JSON.stringify(oneLine(restartedFrom))})`,
-  );
-}
-/**
- * The frontend identity line. In a standby child it is printed at `go`, not
- * here: the parent's preflight swaps a freshly built web/dist into place while
- * this process waits, so anything read at module load names the OLD bundle.
- */
-function logWebBuild(): void {
-  boot(
-    'info',
-    webBuild.indexMtime === null
-      ? 'web build: web/dist missing — the UI will not be served'
-      : `web build ${webBuild.asset ?? 'no assets/index-*.js'} (build id ${
-          webBuild.buildId ?? 'unknown'
-        }, web/dist/index.html mtime ${webBuild.indexMtime})`,
-  );
-}
-if (!standbyWaiting) logWebBuild();
-
-const projects = new ProjectStore(paths.projectsFile, log);
-const prefs = new PrefsStore(paths.prefsFile, log);
-const history = new SessionHistory(paths.historyFile, log);
-// A standby reads the file WITHOUT stamping or rewriting it: those entries
-// belong to the parent that is still running them. The full load runs at `go`.
-history.load({ readOnly: standbyWaiting });
-// Per-session `--settings` files giving claude sessions our status line. The
-// script is run by a FOREIGN process (claude), so it is named by absolute path
-// and run with this very node binary — never by a name resolved through the
-// child's PATH. Any file left by a previous run is wiped: sessions do not
-// survive a restart.
-const sessionSettings = new SessionSettingsStore(
-  {
-    dir: paths.sessionSettingsDir,
-    snapshotDir: paths.statuslineSnapshotDir,
-    scriptPath: join(serverDir, 'statusline.mjs'),
-    prefsFile: paths.prefsFile,
-    nodePath: process.execPath,
-  },
-  log,
-);
-/**
- * Wipe what no session may inherit across a run. Deferred to `go` in a standby:
- * `session-settings/` holds the `--settings` files of the PARENT's live claude
- * sessions, and the statusline cache is written by those very sessions.
- */
-function resetSessionArtifacts(): void {
-  sessionSettings.resetDir();
-  // Same reasoning for the status line's git-branch cache (written by the
-  // script, keyed by claude session id): those sessions are gone, so every
-  // entry is stale — and a leftover written by anything else must not outlive
-  // a restart.
-  try {
-    unlinkSync(paths.statuslineCacheFile);
-  } catch {
-    // Absent (the normal case) or unremovable — the script tolerates either.
-  }
-}
-/**
- * IN-APP UPDATE (phase E): drop `<dataDir>/updates` — a `.part` from a killed
- * download, or a Setup.exe from a release nobody ran, must never be reused.
- * The only file this app ever executes is one it verified in the CURRENT run.
- * Deferred to `go` in a standby, like every other data-dir mutation.
- */
-function resetUpdateArtifacts(): void {
-  cleanupUpdatesDir(paths.updatesDir, log);
-}
-if (!standbyWaiting) {
-  resetSessionArtifacts();
-  resetUpdateArtifacts();
-}
-/**
- * Stored API keys (Nocturne B5). Constructed beside prefs/github and handed to
- * BOTH consumers: the SessionManager, which sets a saved key as that tool's
- * variable in the child environment at spawn, and the API, which only ever
- * reports saved/not-saved. The value never appears in server.log or a response.
- */
-const keys = new KeyStore(paths.keysFile, log);
-/**
- * The subagents Claude Code ran for a session (Nocturne B7), polled out of its
- * own transcripts under paths.claudeProjectsDir — which is also the boundary
- * every transcript path from a snapshot is checked against (server/agents.ts).
- *
- * Constructed BEFORE the SessionManager because the manager holds it: a
- * session that exits or is deleted must stop being polled, and the manager is
- * the only place that knows when that happened. C2: it reads each session's
- * title stamp (titleIdleSince) at poll time only, once `sessions` exists.
- */
-const titleIdleSince = (id: string): number | undefined => sessions.titleIdleSince(id);
-const agents = new AgentsWatcher(log, { projectsRoot: paths.claudeProjectsDir, titleIdleSince });
-const sessions = new SessionManager(log, history, sessionSettings, keys, agents);
-/**
- * The status-line snapshots the script writes for each claude session, back
- * into SessionInfo.telemetry (and from there to every attached client as the
- * existing `info` message) — the pane status bar's data source, B1.
- *
- * Started in beginListening(), NOT here: in a standby child the wipe of the
- * directory is deferred to `go`, and watching a directory that is about to be
- * removed and recreated would watch the wrong inode.
- */
-const telemetry = new TelemetryWatcher(paths.statuslineSnapshotDir, log);
-// GitHub connection. The OAuth client_id comes from env; absent/empty disables
-// only the DEVICE FLOW (status.deviceFlowAvailable=false, POST /api/github/device
-// answers a clean not-available signal). The PASTED-TOKEN path and every
-// connected operation keep working without it — that is the whole point of the
-// second credential path (2026-07-25).
-// AI_SM_GITHUB_API_BASE re-points the REST API for offline tests — loopback
-// only; a non-loopback value throws here and the server refuses to start
-// (before listen, so no runtime.json is ever written).
-let githubApiBase: string;
-try {
-  githubApiBase = resolveGithubApiBase();
-} catch (err) {
-  // The reason must reach server.log: in production this process is started as
-  // `setsid --fork nohup node server/index.ts </dev/null >/dev/null 2>&1`
-  // (launcher/start-backend.sh), so stderr goes to /dev/null and the user would
-  // otherwise see only the launcher's "did not become healthy" timeout. The
-  // message never carries a credential (the embedded-credential branch of
-  // assertLoopbackApiBase refuses without echoing the value).
-  log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
-  throw err; // unchanged otherwise: uncaught at module eval -> stderr + exit 1.
-}
-if (githubApiBase !== DEFAULT_GITHUB_API_BASE) {
-  log('warn', `github REST api base overridden via AI_SM_GITHUB_API_BASE: ${githubApiBase}`);
-}
-const github = new GithubConnection({
-  file: paths.githubFile,
-  log,
-  clientId: process.env['AI_SM_GITHUB_CLIENT_ID'],
-  apiBase: githubApiBase,
+logBootBanner(boot, {
+  dataDir: paths.dataDir,
+  logLevel,
+  bundle,
+  bundleWarnings,
+  serverCommit,
+  repoRoot,
+  serverDir,
+  restartedFrom,
 });
+if (!standbyWaiting) logWebBuild(boot, webBuild);
+
+// The stores and watchers, and the wipe of what no run may inherit (deferred to
+// `go` in a standby): server/index-stores.ts (Quality Q5 split, 2026-10-13).
+const {
+  projects,
+  prefs,
+  history,
+  keys,
+  agents,
+  sessions,
+  telemetry,
+  github,
+  resetSessionArtifacts,
+  resetUpdateArtifacts,
+} = createStores({ log, paths, serverDir, standbyWaiting });
 /**
  * Absolute ceiling on deferring the idle shutdown for an install: the download
  * budget (15 min) plus the Setup budget (15 min) plus a minute of slack. The
@@ -427,159 +234,21 @@ const allowRefusalLine = createRefusalLimiter(scoped(log, 'log'));
  */
 const polls = new PollTally({ log: scoped(log, 'http') });
 
-/**
- * "Is the code on disk newer than this process?" for GET /api/runtime — the
- * signal behind the UI's update notice. Computed per request (cached ~5 s in
- * the checker), NOT at boot: the whole point is code that landed after we
- * started.
- */
-// Installed mode has ONE honest signal on disk — `<app>/current` points at
-// another version dir — and none of the six developer heuristics can fire in a
-// packaged tree (no .git, no lockfile stamp, no sources). See server/bundle.ts.
-const installedCheck = installed
-  ? createInstalledUpdateChecker({ appDir: repoRoot, startedAt: getStartedAt })
-  : undefined;
-
-// ---------------------------------------------------------------------------
-// IN-APP UPDATE (phase E, 2026-09-09) — the ONLINE half of the same question.
-//
-// AI_SM_UPDATE_API_BASE re-points the anonymous `releases/latest` GET (and with
-// it the host an update executable may be downloaded from) — loopback only, and
-// a non-loopback value refuses the start here, before `listen`, so no
-// runtime.json is ever written. Same shape and same reason as the
-// AI_SM_GITHUB_API_BASE refusal: stderr goes to /dev/null in production, so the
-// reason has to reach server.log.
-// ---------------------------------------------------------------------------
-let updateApiBase: string;
-try {
-  updateApiBase = resolveUpdateApiBase();
-} catch (err) {
-  log('error', `refusing to start: ${err instanceof Error ? err.message : String(err)}`);
-  throw err;
-}
-if (updateApiBase !== DEFAULT_UPDATE_API_BASE) {
-  log('warn', `release check api base overridden via AI_SM_UPDATE_API_BASE: ${updateApiBase}`);
-}
-
-/**
- * Millisecond seam, same contract as AI_SM_GRACE_MS: invalid falls back loudly.
- *
- * FLOORED AT ONE SECOND. These two seams move the clock of a loop that talks to
- * api.github.com, and `0` (or 5) would turn it into a request flood against
- * someone else's service from a machine the user thought was idle. A value
- * below the floor is raised to it and said out loud; the test suite only ever
- * needs "sooner", never "as fast as the CPU allows".
- */
-const UPDATE_ENV_MIN_MS = 1_000;
-/**
- * CAPPED AT THE NODE TIMER MAXIMUM (2^31-1 ms). setTimeout silently treats a
- * larger delay as 1 ms, so an over-large seam would produce the exact flood the
- * floor above exists to prevent instead of the "practically never" the value
- * asks for.
- */
-const UPDATE_ENV_MAX_MS = 2_147_483_647;
-function updateEnvMs(name: string, fallback: number): number | undefined {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
-    boot('warn', `${name} must be a non-negative integer (ms), got ${JSON.stringify(oneLine(raw))}; using ${fallback}`);
-    return undefined;
-  }
-  if (value < UPDATE_ENV_MIN_MS) {
-    boot('warn', `${name}=${value} is below the ${UPDATE_ENV_MIN_MS}ms floor; using ${UPDATE_ENV_MIN_MS}`);
-    return UPDATE_ENV_MIN_MS;
-  }
-  if (value > UPDATE_ENV_MAX_MS) {
-    boot('warn', `${name}=${value} is above the ${UPDATE_ENV_MAX_MS}ms timer maximum; using ${UPDATE_ENV_MAX_MS}`);
-    return UPDATE_ENV_MAX_MS;
-  }
-  return value;
-}
-const firstCheckMs = updateEnvMs('AI_SM_UPDATE_FIRST_MS', 20_000);
-const checkIntervalMs = updateEnvMs('AI_SM_UPDATE_INTERVAL_MS', CHECK_INTERVAL_MS);
-
-/**
- * The periodic release check. Built ONLY for an installed bundle whose version
- * is a real release: a developer clone and a `0.0.0-dev+<sha>` bundle make zero
- * outbound requests, which is the promise this project makes about itself.
- */
-let releaseChecker: ReleaseChecker | undefined;
-if (bundle !== null) {
-  if (releaseCheckSupported(bundle.version)) {
-    releaseChecker = createReleaseChecker({
-      currentVersion: bundle.version,
-      apiBase: updateApiBase,
-      cacheFile: paths.updateCheckFile,
-      log,
-      ...(firstCheckMs !== undefined ? { firstCheckMs } : {}),
-      ...(checkIntervalMs !== undefined ? { intervalMs: checkIntervalMs } : {}),
-    });
-  } else {
-    boot(
-      'debug',
-      `online release check disabled for build ${oneLine(bundle.version)} (not a released version)`,
-    );
-  }
-}
-
-// COMPOSITION (the scope bullet): installed-on-disk beats available-online. A
-// bundle that is already unpacked is one restart away; a release still has to
-// be downloaded, verified and installed.
-const checkUpdate = installedCheck !== undefined
-  ? () => composeUpdateStatus(installedCheck(), releaseChecker?.status())
-  : createUpdateChecker({
-      repoRoot,
-      serverDir,
-      sharedDir: join(repoRoot, 'shared'),
-      webDistDir,
-      bootCommit: serverCommit,
-      bootAsset: () => webBuild.asset,
-      startedAt: getStartedAt,
-    });
-
-/**
- * POST /api/update/check (Nocturne B6) — the user asking "is there anything
- * new?" right now instead of waiting for the timer. Defined ONLY when there IS
- * a checker: on a developer clone or an unreleased bundle the route answers 503
- * rather than quietly making the outbound request this project promises not to
- * make.
- *
- * SERIALISED on one module-level promise: two windows pressing the button (or a
- * double click) share the check in flight instead of doubling the GitHub
- * request. The composed status is read AFTER the check resolves, so the answer
- * already carries whatever it found — and `checkNow()` never rejects, so a
- * failure simply answers the last known status.
- */
-const checker = releaseChecker;
-let updateCheckInFlight: Promise<UpdateStatus> | undefined;
-const updateCheck =
-  checker === undefined
-    ? undefined
-    : (): Promise<UpdateStatus> =>
-        (updateCheckInFlight ??= checker
-          .checkNow()
-          .then(() => checkUpdate())
-          .finally(() => {
-            updateCheckInFlight = undefined;
-          }));
-
-/**
- * POST /api/update — download, verify, and start the Setup on Windows. The
- * Windows launch is injected so the pipeline is testable on Linux; here it is
- * the real WSL interop spawn. A developer clone gets a controller too, and it
- * answers 422 ("only in the installed app") instead of a bare 503, which is a
- * different and more honest thing to say.
- */
-const updater = new UpdateController({
+// The update check, the online release check and POST /api/update's
+// controller: server/index-update.ts (Quality Q5 split, 2026-10-13). A
+// non-loopback AI_SM_UPDATE_API_BASE throws out of this call and refuses the
+// start, before listen.
+const { releaseChecker, checkUpdate, updateCheck, updater } = createUpdateWiring({
   log,
-  updatesDir: paths.updatesDir,
-  installed,
-  release: () => releaseChecker?.release(),
-  installedCheck: () => installedCheck?.() ?? { available: false, reason: null },
-  launchSetup: createInteropLauncher({ log, appDir: repoRoot }),
-  // With the seam set, the asset host allow-list collapses to exactly it.
-  ...(updateApiBase !== DEFAULT_UPDATE_API_BASE ? { seamOrigin: updateApiBase } : {}),
+  boot,
+  paths,
+  repoRoot,
+  serverDir,
+  webDistDir,
+  bundle,
+  serverCommit,
+  getStartedAt,
+  getWebAsset: () => webBuild.asset,
 });
 
 // Mutable so the restart controller — which needs `server`, which needs this —
@@ -796,7 +465,7 @@ function beginListening(): void {
 function adoptWebBuild(): void {
   webBuild = readWebBuild(webDistDir);
   apiDeps.webAsset = webBuild.asset;
-  logWebBuild();
+  logWebBuild(boot, webBuild);
 }
 
 // ---------------------------------------------------------------------------

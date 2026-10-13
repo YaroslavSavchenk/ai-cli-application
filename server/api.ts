@@ -192,7 +192,7 @@ export interface ApiDeps {
    * the SAME composed status `checkUpdate` returns. Absent when this backend has
    * no checker at all (a developer clone, or a bundle whose version is not a
    * release) and in unit-test harnesses: the route then answers 503 instead of
-   * pretending. SERIALISATION is the provider's job (server/index.ts shares one
+   * pretending. SERIALISATION is the provider's job (server/index-update.ts shares one
    * in-flight promise), so two windows asking at once ask GitHub once.
    */
   updateCheck?: () => Promise<UpdateStatus>;

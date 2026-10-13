@@ -89,7 +89,7 @@ export interface DataPaths {
   statuslineSnapshotDir: string;
   /**
    * Git-branch cache written by server/statusline.mjs (mode 0600), keyed by
-   * Claude Code session id. Deleted at boot by server/index.ts: no session
+   * Claude Code session id. Deleted at boot by server/index-stores.ts: no session
    * survives a restart, so a leftover is at best useless and at worst a
    * poisoned string from a previous run.
    *
@@ -102,7 +102,7 @@ export interface DataPaths {
   /**
    * IN-APP UPDATE (2026-09-09, phase E). Where a downloaded Setup.exe and its
    * `SHA256SUMS.txt` are written (mode 0700, `<version>` subdirectory per
-   * release). WIPED AT BOOT by server/index.ts: a half-downloaded `.part`, or
+   * release). WIPED AT BOOT by server/index-stores.ts: a half-downloaded `.part`, or
    * an exe from a release that was never run, must never be reused — the only
    * runnable file is one this process verified in THIS run.
    */
@@ -431,8 +431,8 @@ export interface ResolvedLogLevel {
  * Effective minimum log level from AI_SM_LOG_LEVEL (debug|info|warn|error),
  * defaulting to 'debug' — the user's standing request is that everything is
  * logged unless they say otherwise. An unrecognized value never silences the
- * log: it falls back to the default and is reported by the caller (index.ts
- * writes the boot banner line).
+ * log: it falls back to the default and is reported by the caller
+ * (server/index-banner.ts writes the boot banner line).
  */
 export function resolveLogLevel(value = process.env['AI_SM_LOG_LEVEL']): ResolvedLogLevel {
   const raw = value === undefined || value === '' ? undefined : value;

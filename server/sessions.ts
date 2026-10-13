@@ -265,7 +265,7 @@ export class SessionManager {
    * C2 DEV-check fix: when this session's window title last turned Claude
    * Code's idle mark (a Date.now() ms), or undefined — no such session, it
    * exited, or its title is anything else. Read by the agents watcher's
-   * session verdict (server/agents-verdict.ts), injected in server/index.ts.
+   * session verdict (server/agents-verdict.ts), injected in server/index-stores.ts.
    */
   titleIdleSince(id: string): number | undefined {
     return this.#sessions.get(id)?.titleIdleSince;

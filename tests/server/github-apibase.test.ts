@@ -19,7 +19,8 @@
  * Also covered here and nowhere else:
  *   - GithubConnection's constructor RE-validation (the "defense in depth"
  *     claim in server/github.ts: an in-process caller must not be able to aim
- *     the token at a non-loopback host even though index.ts already checked);
+ *     the token at a non-loopback host even though server/index-stores.ts
+ *     already checked);
  *   - the claim that the override re-points ONLY the REST base — the device-flow
  *     urls (github.com) stay hardcoded.
  *
@@ -209,7 +210,7 @@ test('resolveGithubApiBase: a padded loopback value is trimmed, validated and no
   assert.equal(withEnv('http://localhost:5555/', resolveGithubApiBase), 'http://localhost:5555');
 });
 
-test('resolveGithubApiBase: a bad value THROWS (index.ts turns that into a refusal to start)', () => {
+test('resolveGithubApiBase: a bad value THROWS (server/index-stores.ts turns that into a refusal to start)', () => {
   assert.throws(() => withEnv('https://api.evil.example.com', resolveGithubApiBase), /must point at a loopback host/);
   assert.throws(() => withEnv('http://127.0.0.1:1/x', resolveGithubApiBase), /must be a bare origin/);
   assert.throws(() => withEnv('nonsense', resolveGithubApiBase), /must be an absolute URL/);

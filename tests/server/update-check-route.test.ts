@@ -41,6 +41,7 @@ import {
   waitUntil,
   makeTempDirSync,
   readSource,
+  readSources,
 } from '../helpers/helpers.ts';
 
 function tempDir(): string {
@@ -445,10 +446,12 @@ test('POST /api/update/check: nothing the CALLER sent reaches the access line', 
  * checker; server/index.ts builds the real one from the real ReleaseChecker and
  * cannot be imported (it is a boot script). This reads its source so the two
  * cannot drift apart silently: the dep exists only when there IS a checker, and
- * one in-flight promise is shared and then cleared.
+ * one in-flight promise is shared and then cleared. Since Quality Q5 the dep is
+ * built in server/index-update.ts and handed to the api deps in index.ts, so
+ * the pin reads both as one text.
  */
 test('server/index.ts wires the dep from the release checker and shares one in-flight check', () => {
-  const src = readSource('server', 'index.ts');
+  const src = readSources('server/index.ts', 'server/index-update.ts');
   assert.match(src, /const checker = releaseChecker;/, 'the checker decides whether the dep exists');
   assert.match(src, /checker === undefined\s*\?\s*undefined/, 'no checker -> no dep -> the 503');
   assert.match(src, /updateCheckInFlight \?\?=/, 'concurrent callers share the promise');

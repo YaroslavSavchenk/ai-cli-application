@@ -169,7 +169,7 @@ app window first so one backend at a time owns runtime.json.
 - [ ] Planned as D4 (`.claude/plans/PLAN-NOCTURNE.md`, 2026-10-13). The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
 - [x] LANDED as Q6 2026-10-13 (four `partial` files; the size guard measures `launcher/`). **Host file size** (scope review 2026-09-26): `launcher/host/AiSessionManagerHost.cs` is 2385 lines — `tests/repo/file-size.test.ts` does not measure `launcher/`; move the peek-mascot overlay (`MascotOverlayForm`, DComp interop, the overlay region as a `partial` of `HostApp`) into its own `.cs` and teach `launcher/build-host.ps1` (and the release workflow) to compile both; whether the size guard should cover `launcher/` is **(user)**.
 - [ ] Planned as D5 (2026-10-13; user: pass the flag). **"Always ask" does not force prompts** (verify-terminal 2026-09-27): `web/src/ui/launch-args.ts` skips the `default` permission mode, so no `--permission-mode` flag is passed and Claude Code 2.1.283 opened in `auto mode` although `~/.claude/settings.json` sets no `defaultMode`. Pass `--permission-mode default` explicitly for "Always ask"? **(user)** — it changes what the launch dialog promises.
-- [ ] Planned as Q5 (2026-10-13). `server/index.ts` is at 999 of 1000 lines after the C2 title fix (scope review 2026-09-27) — split the construction/wiring block into `server/index-<topic>.ts` (like `server/index-restart.ts`) before the next line lands there.
+- [x] LANDED as Q5 2026-10-13 (index.ts 663 lines; index-banner / index-stores / index-update). `server/index.ts` is at 999 of 1000 lines after the C2 title fix (scope review 2026-09-27) — split the construction/wiring block into `server/index-<topic>.ts` (like `server/index-restart.ts`) before the next line lands there.
 - [ ] C# constant NAMES `TokenBgApp` / `TokenTextHd` / `TokenEdge` in `launcher/host/AiSessionManagerHost.cs` echo dead alias names (values correct, pinned by `nocturne-tokens` A1 (f)); rename when the host is next rebuilt.
 
 ## From Nocturne B6 (2026-09-22)
@@ -188,6 +188,8 @@ app window first so one backend at a time owns runtime.json.
 
 ## From the quality track (2026-09-23, [[2026-09-23-quality-p1-p4]])
 
+- [ ] Flake seen once under full-suite load (2026-10-13, Q5 landing run): `tests/server/statusline-script.test.ts` "a POISONED cache entry is sanitized ON READ …" failed in 62 ms; 3/3 green alone. Next occurrence: capture the assertion message.
+- [ ] (user) A claude session with no `--permission-mode` (pre-D5 history resumes, custom launches) still reads `always ask` in the status line although Claude Code may run in auto mode (`server/session-settings.ts` `parsePermissionMode`, absence → `default`). Show it as unknown instead? Changes the readout's meaning.
 - [ ] **Replay of very long lines**: `replayTail` counts `\n`, so output of
   2000-char lines still replays the whole 1 MiB ring. A wrap-aware cut
   needs the pane's cols and escape-aware widths.

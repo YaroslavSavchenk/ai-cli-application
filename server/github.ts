@@ -29,8 +29,9 @@
  * "stored on this machine, readable by your own user account" — no more.
  *
  * Config: the OAuth App client_id comes from env AI_SM_GITHUB_CLIENT_ID (passed
- * in by index.ts). Absent/empty means only that the DEVICE FLOW is unavailable
- * (status.deviceFlowAvailable=false, startDeviceFlow -> not-configured); the
+ * in by server/index-stores.ts). Absent/empty means only that the DEVICE FLOW
+ * is unavailable (status.deviceFlowAvailable=false, startDeviceFlow ->
+ * not-configured); the
  * pasted-token path and every connected operation keep working, because they
  * need a credential, not a client id. No client_secret is used or stored — a
  * public OAuth app's device flow does not need one. Device-flow scope = `repo`.
@@ -243,7 +244,7 @@ export class GithubConnection {
     this.#file = options.file;
     this.#log = options.log;
     this.#ghlog = scoped(options.log, 'github');
-    // Defense in depth: even though index.ts already validated the env value,
+    // Defense in depth: even though index-stores.ts already validated the env value,
     // re-validate here so no in-process caller can point the token elsewhere.
     const base = (options.apiBase ?? '').trim();
     this.#apiBase =
