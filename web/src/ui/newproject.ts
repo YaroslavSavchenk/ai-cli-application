@@ -43,13 +43,14 @@
  * Untrusted display: every path (fs-derived) and url basename renders via
  * textContent — never innerHTML.
  */
-import type { CreateProjectRequest, PermissionMode } from '../../../shared/protocol.ts';
+import type { CreateProjectRequest } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { el, button, trapTab } from './util.ts';
 import { ensureHome, homeDir, homeHasFolder } from './home-store.ts';
 import { openFolderPicker } from './picker.ts';
-import { MODELS } from './launch-args.ts';
+import { prefControls } from './project-prefs.ts';
+import { createPrefFields, NAME_REQUIRED, NO_PREFS, PREFS_SCOPE } from './project-prefs-model.ts';
 import { createGithubPanel } from './github.ts';
 import {
   addedProjectName,
@@ -188,54 +189,13 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     gitBox.textContent = gitInit ? '\u2713' : '';
   }
 
-  // Optional per-project launch defaults — two selects side by side, blank =
-  // the field is OMITTED from the request. PermissionMode here is the
-  // TWO-value PROJECT default ('standard' | 'skip-permissions'), not the four
-  // CLI launch modes.
-  const defaultsRow = el('div', 'ap-row2');
-  const modelField = el('label', 'ap-field');
-  const modelLb = el('span', 'ap-lb', 'Default model ');
-  modelLb.append(el('span', 'ap-opt', '(optional)'));
-  modelField.append(modelLb);
-  const modelSel = el('select');
-  modelSel.name = 'defaultModel';
-  const modelNone = el('option', '', 'no default');
-  modelNone.value = '';
-  modelSel.append(modelNone);
-  for (const m of MODELS) {
-    const opt = el('option', '', m);
-    opt.value = m;
-    modelSel.append(opt);
-  }
-  modelField.append(modelSel);
+  // The project's launch preferences (D1): the same three selects as the Edit
+  // project dialog, built in ONE place. No preference = the field is left out
+  // of the request; the legacy two-value `defaultMode` is no longer sent.
+  const prefs = prefControls();
+  const prefsNote = el('div', 'ap-note', PREFS_SCOPE);
 
-  const modeField = el('label', 'ap-field');
-  const modeLb = el('span', 'ap-lb', 'Default permission mode ');
-  modeLb.append(el('span', 'ap-opt', '(optional)'));
-  modeField.append(modeLb);
-  const modeSel = el('select');
-  modeSel.name = 'defaultMode';
-  const modeNone = el('option', '', 'no default');
-  modeNone.value = '';
-  modeSel.append(modeNone);
-  // Only the danger value is offered (user's call, 2026-07-25): `standard` is
-  // behaviourally identical to "no default" (permFromDefaultMode returns null
-  // for it), so showing it promised a choice it does not make — and relabelling
-  // it "Always ask" would promise enforcement the value does not deliver. The
-  // stored value is untouched: a project.json that already carries `standard`
-  // keeps being accepted (see submitBlank), no schema/server change.
-  const modeOpts: { value: PermissionMode; label: string }[] = [
-    { value: 'skip-permissions', label: 'never ask (dangerous)' },
-  ];
-  for (const o of modeOpts) {
-    const opt = el('option', '', o.label);
-    opt.value = o.value;
-    modeSel.append(opt);
-  }
-  modeField.append(modeSel);
-  defaultsRow.append(modelField, modeField);
-
-  blankPanel.append(nameField, blankPathField, blankCaption, gitRow, defaultsRow);
+  blankPanel.append(nameField, blankPathField, blankCaption, gitRow, prefs.row, prefsNote);
 
   // Clone panel -------------------------------------------------------------
   const clonePanel = el('div', 'ap-panel');
@@ -539,7 +499,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
    *     is. Nothing is created, nothing is initialised, nothing in the folder
    *     is touched.
    *
-   * Per-project defaults ride along either way; a blank/"no default" select
+   * The project's preferences ride along either way; a No preference select
    * omits its field. Backend errors render inline, unchanged.
    */
   async function submitBlank(): Promise<void> {
@@ -547,7 +507,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     const name =
       intent === 'add' ? addedProjectName(nameInput.value, path) : nameInput.value.trim();
     if (name === '') {
-      showErr('A project name is required.');
+      showErr(NAME_REQUIRED);
       nameInput.focus();
       return;
     }
@@ -555,11 +515,11 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
       showErr('Choose a folder with Browse.');
       return;
     }
-    const body: Omit<CreateProjectRequest, 'create' | 'gitInit'> = { name, path };
-    const modelVal = modelSel.value;
-    if (modelVal !== '') body.defaultModel = modelVal;
-    const modeVal = modeSel.value;
-    if (modeVal === 'standard' || modeVal === 'skip-permissions') body.defaultMode = modeVal;
+    const body: Omit<CreateProjectRequest, 'create' | 'gitInit'> = {
+      name,
+      path,
+      ...createPrefFields(prefs.read()),
+    };
     submittingBlank = true;
     syncPrimary();
     try {
@@ -636,8 +596,7 @@ export function initNewProjectDialog(modalHost: HTMLElement): void {
     gitInit = true;
     syncGit();
     syncIntent();
-    modelSel.value = '';
-    modeSel.value = '';
+    prefs.write(NO_PREFS);
     err.hidden = true;
     renderBlankPath();
     renderClonePath();

@@ -273,6 +273,7 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
     'web/src/ui/launch.ts',
     'web/src/ui/newproject.ts',
     'web/src/ui/picker.ts',
+    'web/src/ui/project-edit.ts',
     'web/src/ui/settings.ts',
     'web/src/ui/shortcuts.ts',
     'web/src/ui/unsaved.ts',

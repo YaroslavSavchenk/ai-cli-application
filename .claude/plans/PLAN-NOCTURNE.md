@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design/session-manager, v3)
 
-Status: see the table below (updated 2026-09-27; shipped as v0.4.0 on 2026-09-23). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-10-13; shipped as v0.4.0 on 2026-09-23). Conventions: `.claude/plans/README.md`.
 Each part starts only on the user's word ("begin aan <id>"); rows are in the order of work.
 
 | Part | What | State | Spec | Landed |
@@ -35,6 +35,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15; decisions 12–16 settled 2026-09-22) | verified | `.claude/plans/nocturne/PLAN-C1.md` | 2026-09-22 |
 | B13 | Rename files and folders in the Files panel (user: before the v0.4.0 release) | verified | `.claude/plans/nocturne/PLAN-B13.md` | 2026-09-23 |
 | C2 | Mascot waits while background subagents / workflows run, comes for Claude's questions; the pane readout follows the same rule | verified | `.claude/plans/nocturne/PLAN-C2.md` | 2026-09-27 |
+| D1 | Project preferences that work and can be edited (Edit in the project row), the full Claude model pool with Older models | landed | `.claude/plans/nocturne/PLAN-D1.md` | 2026-10-13 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -222,6 +223,11 @@ Fixed rules for every part:
 - Order inside C1: 2 → 4 → 3 (the Windows window last; it needs a `build-host.ps1` build and a user check on Windows). Runs through `/dev-flow`; phase 3 through `wsl-launcher`; `security-auditor` on phases 2 and 3 (token in a second served page, a new host window).
 
 ---
+
+## Track D — after the v0.4.0 release (fixes and asks)
+
+### D1. Project preferences + model pool (added 2026-10-13, user's ask; spec `.claude/plans/nocturne/PLAN-D1.md`)
+- Preferences re-resolve on a project switch inside the New session dialog; an Edit button per project row (name, model, permission mode, effort); the model select lists pinned versions, newest first, older under "Older models".
 
 ## Open decisions (user decides; do not settle silently)
 1. ~~Old theme popover~~ DECIDED: drop the popover; Legacy UI removed entirely (see above). Amended 2026-09-10 evening (user): colour customisation itself returns as a Nocturne Settings page — see A7, B9 and decision 10.

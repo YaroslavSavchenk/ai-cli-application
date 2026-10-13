@@ -13,8 +13,8 @@
  * Phosphor Icons (https://phosphoricons.com), MIT — licence text committed at
  * ../assets/icons/LICENSE-Phosphor.txt. Paths are copied from the v3 handoff —
  * except INFO_PATH, which the handoff does not have and is drawn here, and
- * X_PATH, which the handoff does not have either and is copied from Phosphor's
- * own published "x" (regular) instead.
+ * X_PATH and PENCIL_PATH, which the handoff does not have either and are
+ * copied from Phosphor's own published "x" and "pencil-simple" (regular).
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -63,6 +63,14 @@ const CARET_LEFT_PATH = 'M152.7,41.4L164,52.7L88.7,128L164,203.3L152.7,214.6L66.
  */
 const X_PATH =
   'M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z';
+
+/**
+ * Phosphor "pencil-simple" (regular), 256x256 viewBox — the Edit project
+ * button in a Projects drawer row (D1). Not in the v3 handoff; copied from
+ * Phosphor's own published glyph (same MIT licence), like X_PATH.
+ */
+const PENCIL_PATH =
+  'M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z';
 
 /**
  * One transcribed glyph: its path data, the grid it was drawn on (Phosphor
@@ -126,4 +134,9 @@ export function infoIcon(): SVGSVGElement {
 /** The X glyph at 14px, inside a pane header's 24px End session button (B8). */
 export function xIcon(): SVGSVGElement {
   return icon(X_PATH, 14);
+}
+
+/** The pencil glyph at 13px, inside a Projects drawer row's 24px Edit button (D1). */
+export function pencilIcon(): SVGSVGElement {
+  return icon(PENCIL_PATH, 13);
 }

@@ -32,7 +32,7 @@ info popover, shown only when asked for (2026-09-10).
 - **One label table per vocabulary**, in `web/src/ui/launch-args.ts`, read by
   every surface that names the thing: `PERM_SHORT` (`Always ask` ·
   `Auto edits` · `Read only` · `No prompts`; the last one red wherever it
-  appears), `MODEL_LABEL` / `modelLabel()`, `EFFORT_LABEL` (`Default` · `Low`
+  appears), `CLAUDE_MODELS` (the model pool's labels) / `modelLabel()`, `EFFORT_LABEL` (`Default` · `Low`
   · `Medium` · `High` · `Extra high` · `Max`), `AGENT_LABEL` (`Claude Code` —
   a product name, never the command `claude`). A label change never changes
   an emitted arg; `tests/ui/ui-launch-args.test.ts` pins both layers.

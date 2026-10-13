@@ -24,7 +24,7 @@ export function assertPlainCopy(text: string, where: string): void {
 export function form(over: Partial<LaunchForm> = {}): LaunchForm {
   return {
     kind: 'claude',
-    model: 'opus',
+    model: 'claude-opus-5-5',
     perm: 'default',
     continueLast: false,
     effort: 'default',

@@ -21,7 +21,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   composeArgs,
-  MODELS,
+  CLAUDE_MODELS,
   PERMS,
   EFFORTS,
   KINDS,
@@ -250,7 +250,7 @@ test('B5 claude resume: a conversation id replaces --continue, never joins it', 
   ]);
   assert.deepEqual(composeSpawn(form({ resumeId: 'q-9', continueLast: true })), {
     command: 'claude',
-    args: ['--model', 'opus', '--resume', 'q-9'],
+    args: ['--model', 'claude-opus-5-5', '--resume', 'q-9'],
   });
 });
 
@@ -339,8 +339,9 @@ test('B5 tool vocabularies: the model and effort tables, spelled out', () => {
       ['high', 'High'],
     ],
   );
-  // Claude Code's own tables are the pre-B5 ones, reused rather than re-typed.
-  assert.deepEqual(TOOLS.claude.models.map((m) => m.id), [...MODELS]);
+  // Claude Code's own tables are reused rather than re-typed (the model pool is
+  // D1's `CLAUDE_MODELS`, pinned in `ui-launch-args-d1.test.ts`).
+  assert.equal(TOOLS.claude.models, CLAUDE_MODELS);
   assert.deepEqual(TOOLS.claude.efforts.map((e) => e.id), [...EFFORTS]);
   assert.equal(TOOLS.claude.command, 'claude');
 });

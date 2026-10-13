@@ -129,6 +129,16 @@ test('POST /api/projects rejects non-directories, relative paths and bad fields'
   assert.deepEqual(listed.body, [], 'rejected bodies must not create projects');
 });
 
+test('POST /api/projects with a body that is not a JSON object answers 400 with its sentence and creates nothing', async () => {
+  const before = (await api(server, 'GET', '/api/projects')).body;
+  for (const body of [[], 'x', null, 7]) {
+    const res = await api(server, 'POST', '/api/projects', body);
+    assert.equal(res.status, 400, `${JSON.stringify(body)}: ${JSON.stringify(res.body)}`);
+    assert.deepEqual(res.body, { error: 'request body must be a JSON object' }, JSON.stringify(body));
+  }
+  assert.deepEqual((await api(server, 'GET', '/api/projects')).body, before, 'nothing registered');
+});
+
 test('a session created via projectId runs in the project directory', async () => {
   const created = await api(server, 'POST', '/api/projects', { name: 'Beta', path: workDir });
   assert.equal(created.status, 201);

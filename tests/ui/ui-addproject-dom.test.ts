@@ -469,6 +469,50 @@ test('the create path sends the git-init flag the row shows, and the optional se
   assert.equal(err().hidden, true);
 });
 
+test('D1: the create path sends the three preferences chosen, as pool values, and never defaultMode', async () => {
+  await reopen();
+  const sel = (name: string): FakeElement => {
+    const hit = byClass(blankPanel(), 'ap-field')
+      .flatMap((f) => f.children)
+      .find((c): c is FakeElement => (c as FakeElement).name === name);
+    assert.ok(hit !== undefined, `no [name=${name}] on the New folder tab`);
+    return hit;
+  };
+  for (const name of ['defaultModel', 'defaultPerm', 'defaultEffort']) {
+    assert.equal((sel(name).children[0] as FakeElement).textContent, 'No preference', name);
+    assert.equal(sel(name).value, '', `${name} opens on No preference`);
+  }
+  assert.ok(
+    sel('defaultModel').children.some((c) => (c as FakeElement).tagName === 'OPTGROUP'),
+    'the Older models group, as in the launch dialog',
+  );
+  assert.equal(one(blankPanel(), 'ap-row3').children.length, 3, 'one row, three fields');
+  nameInput().value = 'prefs';
+  dispatch(nameInput(), 'input');
+  sel('defaultModel').value = 'claude-opus-4-8';
+  sel('defaultPerm').value = 'bypassPermissions';
+  sel('defaultEffort').value = 'xhigh';
+  H.localAnswer = deferred<Project>();
+  primary().click();
+  await settle();
+  assert.deepEqual(H.localCalls.at(-1), {
+    name: 'prefs',
+    path: '/home/tester/projects/prefs',
+    defaultModel: 'claude-opus-4-8',
+    defaultPerm: 'bypassPermissions',
+    defaultEffort: 'xhigh',
+    gitInit: true,
+  });
+  H.localAnswer.resolve({ id: 'p2', name: 'prefs', path: '/home/tester/projects/prefs', createdAt: new Date().toISOString() });
+  await settle();
+  await reopen();
+  assert.deepEqual(
+    ['defaultModel', 'defaultPerm', 'defaultEffort'].map((n) => sel(n).value),
+    ['', '', ''],
+    'a fresh open resets the preferences',
+  );
+});
+
 // ===========================================================================
 // Errors are text, never markup
 // ===========================================================================
@@ -491,7 +535,7 @@ test('an error message that looks like markup lands as ONE text node', async () 
 
 test('neither module mentions innerHTML at all (untrusted paths, urls and errors are text)', () => {
   const ui = join(projectRoot, 'web', 'src', 'ui');
-  for (const f of ['newproject.ts', 'github.ts', 'picker.ts', 'settings.ts', 'term-colours.ts']) {
+  for (const f of ['newproject.ts', 'github.ts', 'picker.ts', 'settings.ts', 'term-colours.ts', 'project-edit.ts', 'project-prefs.ts']) {
     const src = readFileSync(join(ui, f), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     assert.equal(/innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment/.test(code), false, f);

@@ -45,6 +45,7 @@ import type {
   SessionInfo,
   ToolAvailability,
   UiPrefs,
+  UpdateProjectRequest,
   UpdateStatus,
 } from '../../shared/protocol.ts';
 import { UPLOAD_CONTENT_TYPE } from '../../shared/protocol.ts';
@@ -245,6 +246,18 @@ export function fsMkdir(parent: string, name: string): Promise<FsMkdirResponse> 
 
 export function deleteProject(id: string): Promise<OkResponse> {
   return request<OkResponse>(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/**
+ * Rename a project or change its launch preferences (D1): only the fields in
+ * `patch` change, a `null` clears that preference. 200 with the updated
+ * Project; the folder is never touched.
+ */
+export function updateProject(id: string, patch: UpdateProjectRequest): Promise<Project> {
+  return request<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
 }
 
 export function getSessions(): Promise<SessionInfo[]> {

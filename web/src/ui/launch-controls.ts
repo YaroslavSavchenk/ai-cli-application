@@ -1,9 +1,10 @@
 /**
  * The New session dialog's building blocks: the card radiogroup every card
  * grid in it is made of (Tool, Permissions, Shell), the group label those
- * grids point at, the per-tool select filler, and the two small tables the
- * dialog reads before the backend has said anything (`ASSUMED`) and when it
- * decides whether a tool needs the key notice (`keyToolFor`).
+ * grids point at, the per-tool select filler (the project dialogs use it too
+ * since D1), and the two small tables the dialog reads before the backend has
+ * said anything (`ASSUMED`) and when it decides whether a tool needs the key
+ * notice (`keyToolFor`).
  *
  * Split from `ui/launch.ts` (O8, 2026-09-23), code moved as it stood; the
  * last three were closure-local helpers of `initLaunchDialog()` that read
@@ -11,7 +12,7 @@
  */
 import type { KeyedTool, ToolAvailability } from '../../../shared/protocol.ts';
 import { el, button } from './util.ts';
-import type { Choice, LaunchKind } from './launch-args.ts';
+import { OLDER_MODELS_LABEL, type Choice, type LaunchKind } from './launch-args.ts';
 
 
 /** One card of a card radiogroup. */
@@ -183,14 +184,21 @@ export function groupLabel(id: string, text: string): HTMLElement {
   return lb;
 }
 
-/** Fill a select from a per-tool table: the option SHOWS a label, HOLDS an id. */
+/**
+ * Fill a select from a per-tool table: the option SHOWS a label, HOLDS an id.
+ * The entries marked `older` (Claude Code's pool, D1) go under ONE
+ * "Older models" group after the rest; the newest stay plain options.
+ */
 export function fillChoices(sel: HTMLSelectElement, choices: readonly Choice[]): void {
   sel.replaceChildren();
+  const older = el('optgroup');
+  older.label = OLDER_MODELS_LABEL;
   for (const c of choices) {
     const opt = el('option', '', c.label);
     opt.value = c.id;
-    sel.append(opt);
+    (c.older === true ? older : sel).append(opt);
   }
+  if (older.children.length > 0) sel.append(older);
 }
 
 /**

@@ -31,13 +31,66 @@
  * — model, permission, effort, then the start-from tail — and pinned byte-exact
  * by `tests/ui/ui-launch-args.test.ts`.
  */
-import { commandBase, type ClaudePermissionMode, type PermissionMode } from '../../../shared/protocol.ts';
+import {
+  CLAUDE_PERMISSION_MODES,
+  PROJECT_EFFORTS,
+  commandBase,
+  isClaudePermissionMode,
+  type ClaudePermissionMode,
+  type PermissionMode,
+  type ProjectEffort,
+} from '../../../shared/protocol.ts';
 
 /** What the known agent is CALLED in the UI — a product name, not a command. */
 export const AGENT_LABEL = 'Claude Code';
 
-/** Handoff model list — the dialog launches `claude` (server spawns argv, never shell). */
-export const MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+/**
+ * Claude Code's model pool (D1, `.claude/plans/nocturne/PLAN-D1.md`, user
+ * 2026-10-13): pinned full ids, so `Opus 5.5` always launches
+ * `claude-opus-5-5` and never whatever the alias points at next month. The
+ * newest of each family first, in this order, as plain options; every older
+ * model the installed Claude Code (2.1.287) knows after them, under the
+ * "Older models" group (`older`). Ids and names are the CLI's own alias map
+ * and model table. A new model = this list is updated (and `MODEL_ALIASES`).
+ */
+export const CLAUDE_MODELS: readonly Choice[] = [
+  { id: 'claude-fable-5-1', label: 'Fable 5.1' },
+  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+  { id: 'claude-opus-5', label: 'Opus 5', older: true },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5', older: true },
+  { id: 'claude-fable-5', label: 'Fable 5', older: true },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', older: true },
+  { id: 'claude-opus-4-7', label: 'Opus 4.7', older: true },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', older: true },
+  { id: 'claude-opus-4-5', label: 'Opus 4.5', older: true },
+  { id: 'claude-opus-4-1', label: 'Opus 4.1', older: true },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', older: true },
+  { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', older: true },
+];
+
+/**
+ * The model a Claude Code launch starts on when its project names none —
+ * NAMED, not "the first entry" (Fable 5.1 heads the list). Before D1 the
+ * fallback was the bare `opus`, which is this model: behaviour unchanged.
+ */
+export const MODEL_FALLBACK = 'claude-opus-5-5';
+
+/**
+ * The bare aliases every pre-D1 `projects.json` holds, read as today's newest
+ * of that family (user decision 2026-10-13), and the word an old history row
+ * with `--model opus` still reads as (`modelLabel`).
+ */
+const MODEL_ALIASES: ReadonlyMap<string, { id: string; label: string }> = new Map([
+  ['fable', { id: 'claude-fable-5-1', label: 'Fable' }],
+  ['opus', { id: 'claude-opus-5-5', label: 'Opus' }],
+  ['sonnet', { id: 'claude-sonnet-5-5', label: 'Sonnet' }],
+  ['haiku', { id: 'claude-haiku-4-5', label: 'Haiku' }],
+]);
+
+/** The group label the older models sit under, in every Claude model select. */
+export const OLDER_MODELS_LABEL = 'Older models';
 
 /** The dialog's permission vocabulary IS the shared contract type (all four CLI modes). */
 export type Perm = ClaudePermissionMode;
@@ -46,14 +99,13 @@ export type Perm = ClaudePermissionMode;
  * The permission cards, in grid order: `mode` is the CLI value that reaches
  * argv, `danger` decides the red treatment (which the card keeps selected or
  * not — the warning never disappears). The user-visible words come from
- * `PERM_SHORT`; there is no second label table anymore.
+ * `PERM_SHORT`; there is no second label table anymore. The modes and their
+ * order are the shared `CLAUDE_PERMISSION_MODES`.
  */
-export const PERMS: { mode: Perm; danger: boolean }[] = [
-  { mode: 'default', danger: false },
-  { mode: 'acceptEdits', danger: false },
-  { mode: 'plan', danger: false },
-  { mode: 'bypassPermissions', danger: true },
-];
+export const PERMS: { mode: Perm; danger: boolean }[] = CLAUDE_PERMISSION_MODES.map((mode) => ({
+  mode,
+  danger: mode === 'bypassPermissions',
+}));
 
 /**
  * The ONE label table for permission modes: the launch dialog's permission
@@ -91,26 +143,15 @@ export const PERM_HELP: Record<Perm, string> = {
  * — picking it leaves the CLI on whatever it does by itself, which is not the
  * same as naming a level.
  */
-export const EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const EFFORTS = ['default', ...PROJECT_EFFORTS] as const;
 export type Effort = (typeof EFFORTS)[number];
-
-/**
- * What the Model and Effort selects SHOW (Nocturne A4: capitalised, as in the
- * v3 handoff). Display only — the option VALUE stays the MODELS / EFFORTS id,
- * which is what reaches argv, so a label change can never change a spawn.
- */
-export const MODEL_LABEL: Record<(typeof MODELS)[number], string> = {
-  opus: 'Opus',
-  sonnet: 'Sonnet',
-  haiku: 'Haiku',
-  fable: 'Fable',
-};
 
 /**
  * A model id as the UI says it anywhere a session is named (the pane status
  * bar, the sessions drawer, the history rows): a known id reads as the word
- * the dialog showed for it — Claude Code's own `MODEL_LABEL` and, since B5,
- * every other tool's model (`-m gpt-6-astra` reads `GPT-6 Astra`). Anything
+ * the dialog showed for it — Claude Code's pool (and, since D1, its bare
+ * aliases: `--model opus` reads `Opus`) and, since B5, every other tool's
+ * model (`-m gpt-6-astra` reads `GPT-6 Astra`). Anything
  * else (a custom command's own `--model` value) is echoed verbatim — never
  * relabelled. The table is `MODEL_LABELS` below, built from `TOOLS`.
  */
@@ -363,10 +404,14 @@ export function continueFromStart(v: string): boolean {
 // docs.x.ai/build for Grok Build (NOT installed locally — its argv is from the
 // docs and unverified on this machine).
 
-/** One option of a per-tool select: the id that reaches argv, the word shown. */
+/**
+ * One option of a per-tool select: the id that reaches argv, the word shown,
+ * and (Claude Code's pool only, D1) whether it sits under "Older models".
+ */
 export interface Choice {
   readonly id: string;
   readonly label: string;
+  readonly older?: true;
 }
 
 /** One start-from option: the select's value, the words shown. */
@@ -382,6 +427,8 @@ export interface ToolVocab {
   readonly models: readonly Choice[];
   /** The model id that emits NOTHING (the CLI keeps its own default). */
   readonly modelNone: string;
+  /** The model the select shows before anything is chosen (D1: Claude's is named). */
+  readonly modelStart: string;
   /** Empty = this tool has no effort levels and the control is hidden. */
   readonly efforts: readonly Choice[];
   /** The effort id that emits NOTHING. */
@@ -442,8 +489,9 @@ export const GROK_PERM_HINT = 'Grok switches this inside the session';
 export const TOOLS: Record<AgentKind, ToolVocab> = {
   claude: {
     command: 'claude',
-    models: MODELS.map((m) => ({ id: m, label: MODEL_LABEL[m] })),
+    models: CLAUDE_MODELS,
     modelNone: '',
+    modelStart: MODEL_FALLBACK,
     efforts: EFFORTS.map((e) => ({ id: e, label: EFFORT_LABEL[e] })),
     effortNone: 'default',
     inertPerms: [],
@@ -453,6 +501,7 @@ export const TOOLS: Record<AgentKind, ToolVocab> = {
     command: 'codex',
     models: CODEX_MODELS,
     modelNone: 'default',
+    modelStart: 'default',
     efforts: CODEX_EFFORTS,
     effortNone: 'default',
     inertPerms: [],
@@ -466,6 +515,7 @@ export const TOOLS: Record<AgentKind, ToolVocab> = {
     command: 'gemini',
     models: GEMINI_MODELS,
     modelNone: 'auto',
+    modelStart: 'auto',
     efforts: [],
     effortNone: '',
     inertPerms: [],
@@ -478,6 +528,7 @@ export const TOOLS: Record<AgentKind, ToolVocab> = {
     command: 'grok',
     models: GROK_MODELS,
     modelNone: 'default',
+    modelStart: 'default',
     efforts: GROK_EFFORTS,
     effortNone: 'default',
     inertPerms: [
@@ -494,14 +545,15 @@ export const TOOLS: Record<AgentKind, ToolVocab> = {
 /**
  * EVERY model id any tool offers -> the word the dialog showed for it, built
  * from `TOOLS` so a table edit cannot leave the pane status bar or the sessions
- * drawer reading a raw CLI id (`gpt-6-astra`, `pro`, `grok-4.6`). Read through
- * `modelLabel` only. An id two tables share (`default`) carries the same label
- * in both, and the sentinel ids never reach argv anyway — both pinned by
- * `tests/ui/ui-launch-args.test.ts`.
+ * drawer reading a raw CLI id (`gpt-6-astra`, `pro`, `grok-4.6`), plus Claude
+ * Code's bare aliases (D1). Read through `modelLabel` only. An id two tables
+ * share (`default`) carries the same label in both, and the sentinel ids never
+ * reach argv anyway — both pinned by `tests/ui/ui-launch-args.test.ts`.
  */
-const MODEL_LABELS: ReadonlyMap<string, string> = new Map(
-  Object.values(TOOLS).flatMap((v) => v.models.map((m): [string, string] => [m.id, m.label])),
-);
+const MODEL_LABELS: ReadonlyMap<string, string> = new Map([
+  ...Object.values(TOOLS).flatMap((v) => v.models.map((m): [string, string] => [m.id, m.label])),
+  ...[...MODEL_ALIASES].map(([alias, a]): [string, string] => [alias, a.label]),
+]);
 
 /** True when `v` is one of the tool's model ids (the select's own vocabulary). */
 export function isToolModel(kind: AgentKind, v: unknown): boolean {
@@ -743,16 +795,14 @@ export function permFromDefaultMode(mode: PermissionMode | undefined): Perm | nu
 // Launch-dialog pre-selection + precedence
 // ---------------------------------------------------------------------------
 
-const PERM_SET: ReadonlySet<string> = new Set(PERMS.map((p) => p.mode));
-
 /** True when `v` is one of the four CLI permission modes. */
 export function isPerm(v: unknown): v is Perm {
-  return typeof v === 'string' && PERM_SET.has(v);
+  return isClaudePermissionMode(v);
 }
 
-/** True when `v` is one of the four dialog model ids. */
-export function isModelId(v: unknown): v is (typeof MODELS)[number] {
-  return typeof v === 'string' && (MODELS as readonly string[]).includes(v);
+/** True when `v` is one of Claude Code's pool ids (a bare alias is not). */
+export function isModelId(v: unknown): v is string {
+  return typeof v === 'string' && CLAUDE_MODELS.some((m) => m.id === v);
 }
 
 /** True when `v` is one of the effort levels (incl. the `default` sentinel). */
@@ -761,27 +811,35 @@ export function isEffort(v: unknown): v is Effort {
 }
 
 /**
- * Precedence chain for the launch dialog's pre-selected model:
- *   explicit project defaultModel  >  hardcoded MODELS[0].
- * Only models in MODELS win; anything else falls through to the fallback. The
- * per-launch choice always beats both — the dialog stays editable after this
- * resolves (it runs once per open).
- *
- * The middle tier used to be an app-wide default in the settings panel; it was
- * removed 2026-07-26 with the rest of the retired settings, so a project's own
- * default is now the only stored preference.
+ * A stored model preference -> the pool id it means: a pool id is itself, a
+ * bare alias is today's newest of its family (`opus` -> `claude-opus-5-5`),
+ * and anything else (absent, unknown, a retired id) falls back to
+ * `MODEL_FALLBACK`. The per-launch choice always beats it — the launch dialog
+ * layers this under what the user changed by hand (`launch-prefs-model.ts`).
  */
-export function resolveModel(projectModel: string | undefined): (typeof MODELS)[number] {
-  return isModelId(projectModel) ? projectModel : MODELS[0];
+export function resolveModel(projectModel: string | undefined): string {
+  return poolModel(projectModel) ?? MODEL_FALLBACK;
+}
+
+/** A stored model -> its pool id (a bare alias = its family's newest), or undefined for anything else. */
+export function poolModel(stored: string | undefined): string | undefined {
+  if (isModelId(stored)) return stored;
+  return stored !== undefined ? MODEL_ALIASES.get(stored)?.id : undefined;
 }
 
 /**
- * Precedence chain for the launch dialog's pre-selected permission mode:
- *   explicit project defaultMode (skip-permissions → bypass)  >  hardcoded
- *   'default'. The project's legacy 2-value mode only asserts a preference when
- *   it is `skip-permissions`; `standard`/absent assert nothing and land on the
- *   ask-first fallback.
+ * A project's permission preference: `defaultPerm` (D1) wins; else the legacy
+ * two-value `defaultMode` (`skip-permissions` -> bypass, `standard` asserts
+ * nothing); else Always ask.
  */
-export function resolvePerm(projectMode: PermissionMode | undefined): Perm {
-  return permFromDefaultMode(projectMode) ?? 'default';
+export function resolvePerm(
+  projectPerm: ClaudePermissionMode | undefined,
+  projectMode: PermissionMode | undefined,
+): Perm {
+  return isPerm(projectPerm) ? projectPerm : (permFromDefaultMode(projectMode) ?? 'default');
+}
+
+/** A project's effort preference, or the `default` sentinel (emits nothing). */
+export function resolveEffort(projectEffort: ProjectEffort | undefined): Effort {
+  return isEffort(projectEffort) ? projectEffort : 'default';
 }

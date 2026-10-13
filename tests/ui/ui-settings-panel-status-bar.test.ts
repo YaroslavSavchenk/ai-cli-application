@@ -86,7 +86,8 @@ test('the Status bar page renders the three switches, the eight items and their 
     'works with a Claude Pro or Max account, and appears after the session’s first reply',
   ]);
   // The sample beside a row IS the text the status line draws.
-  assert.equal(byClass(row(page, 'Model'), 'sg-val')[0]?.textContent, 'opus');
+  // Claude Code hands the line its model's display name (D1: `Opus 5.5`).
+  assert.equal(byClass(row(page, 'Model'), 'sg-val')[0]?.textContent, 'Opus 5.5');
   assert.equal(byClass(row(page, 'Session time'), 'sg-val')[0]?.textContent, '2h 15m');
 });
 
@@ -120,7 +121,7 @@ test('the preview strip shows the enabled items, and says so when there are none
   ]);
   assert.equal(bar.children[0]?.textContent, 'Example', 'and it comes FIRST, before any item');
   assert.equal(byClass(bar, 'sg-previtem').length, 5, 'the marker is not an item');
-  assert.deepEqual(textsOf(bar, 'sg-prevval'), ['opus', 'always ask', 'git:main', '$0.42', 'ctx 62%']);
+  assert.deepEqual(textsOf(bar, 'sg-prevval'), ['Opus 5.5', 'always ask', 'git:main', '$0.42', 'ctx 62%']);
 
   row(page, 'Cost so far').click();
   assert.equal(statusPatch().cost, false, 'the toggle is persisted');

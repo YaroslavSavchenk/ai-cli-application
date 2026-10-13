@@ -119,6 +119,8 @@ export class FakeElement extends FakeNode {
   type = '';
   placeholder = '';
   autocomplete = '';
+  /** A form control's `name` — how the project dialogs' selects are found (D1). */
+  name = '';
   /**
    * `<input>` state the UI modules really set (A9c: the Files panel's name row
    * makes its input read-only while the create is in flight, and turns the
@@ -274,7 +276,9 @@ export class FakeElement extends FakeNode {
     return this.#value ?? '';
   }
   set value(v: string) {
-    this.#value = v;
+    // HTML select semantics (D1 fix F1): a value no option carries selects
+    // nothing, and the select then reads ''.
+    this.#value = this.tagName === 'SELECT' && !hasOptionValued(this, v) ? '' : v;
   }
 
   /** What a real text field does with `setSelectionRange` (part B4). */
@@ -454,4 +458,9 @@ export function descendants(root: FakeElement): FakeElement[] {
     if (c instanceof FakeElement) out.push(c, ...descendants(c));
   }
   return out;
+}
+
+/** True when an `<option>` under `sel` (optgroups included) carries `value`. */
+function hasOptionValued(sel: FakeElement, value: string): boolean {
+  return descendants(sel).some((o) => o.tagName === 'OPTION' && o.value === value);
 }

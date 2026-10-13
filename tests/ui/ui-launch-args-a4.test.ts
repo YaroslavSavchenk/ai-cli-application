@@ -23,7 +23,6 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   composeArgs,
-  MODELS,
   PERMS,
   PERM_SHORT,
   EFFORTS,
@@ -36,7 +35,6 @@ import {
   isShellId,
   shellSpawn,
   PERM_HELP,
-  MODEL_LABEL,
   modelLabel,
   EFFORT_LABEL,
   NOT_INSTALLED,
@@ -49,6 +47,15 @@ import {
   TOOLS,
   commandLabel,
 } from '../../web/src/ui/launch-args.ts';
+
+/**
+ * Claude Code's model ids and the words its select shows for them. Since D1
+ * the pool is a table of choices (`TOOLS.claude.models`, 14 pinned ids); the
+ * pool itself — order, groups, aliases — is pinned in
+ * `ui-launch-args-d1.test.ts`.
+ */
+const MODELS = TOOLS.claude.models.map((m) => m.id);
+const MODEL_LABEL: Record<string, string> = Object.fromEntries(TOOLS.claude.models.map((m) => [m.id, m.label]));
 import { TOOL_ICON_PATHS } from '../../web/src/ui/icons-tools.ts';
 import type {
   ShellId,
@@ -95,7 +102,7 @@ test('A4 tool cards: each selectable card spawns exactly what its old segment sp
     byCard[t.id] = composeSpawn(form({ kind: t.kind, customLine: 'htop --tree' }));
   }
   assert.deepEqual(byCard, {
-    claude: { command: 'claude', args: ['--model', 'opus'] },
+    claude: { command: 'claude', args: ['--model', 'claude-opus-5-5'] },
     codex: { command: 'codex', args: ['-a', 'on-request', '-s', 'read-only'] },
     gemini: { command: 'gemini', args: [] },
     grok: { command: 'grok', args: [] },
@@ -146,11 +153,11 @@ test('A4 Start from: `The last conversation in this project` IS the old checkbox
 
   assert.deepEqual(composeSpawn(form({ continueLast: continueFromStart('continue') })), {
     command: 'claude',
-    args: ['--model', 'opus', '--continue'],
+    args: ['--model', 'claude-opus-5-5', '--continue'],
   });
   assert.deepEqual(composeSpawn(form({ continueLast: continueFromStart('fresh') })), {
     command: 'claude',
-    args: ['--model', 'opus'],
+    args: ['--model', 'claude-opus-5-5'],
   });
   // The checkbox's hardest case, now reached through the select.
   assert.deepEqual(
@@ -186,7 +193,7 @@ test('A4 full matrix: model x permission card x effort x Start from -> the pre-A
       }
     }
   }
-  assert.equal(n, 4 * 4 * 6 * 2, 'the matrix must really cover every state');
+  assert.equal(n, 14 * 4 * 6 * 2, 'the matrix must really cover every state');
 });
 
 test('A4 other card: the custom line with and without a project spawns what it always did', () => {
@@ -200,7 +207,11 @@ test('A4 other card: the custom line with and without a project spawns what it a
 });
 
 test('A4 display labels: capitalised model and effort words, the VALUES unchanged', () => {
-  assert.deepEqual(MODEL_LABEL, { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' });
+  assert.deepEqual(Object.values(MODEL_LABEL), [
+    'Fable 5.1', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 4.5',
+    'Opus 5', 'Sonnet 5', 'Fable 5', 'Opus 4.8', 'Opus 4.7', 'Opus 4.6', 'Opus 4.5', 'Opus 4.1',
+    'Sonnet 4.6', 'Sonnet 4.5',
+  ]);
   assert.deepEqual(EFFORT_LABEL, {
     default: 'Default',
     low: 'Low',
@@ -236,7 +247,7 @@ test('A4 copy rule: no label the dialog shows ever reaches argv, and every one i
   }
   // Across the whole matrix, argv carries values only — never a display word.
   const displayOnly = new Set(
-    shown.filter((t) => !(MODELS as readonly string[]).includes(t) && !(EFFORTS as readonly string[]).includes(t)),
+    shown.filter((t) => !MODELS.includes(t) && !(EFFORTS as readonly string[]).includes(t)),
   );
   for (const m of MODELS) {
     for (const p of PERMS) {
@@ -428,7 +439,7 @@ test('A4 Start from: the FIRST option (what a select shows when nothing else is 
 });
 
 test('A4 select labels: MODEL_LABEL and EFFORT_LABEL are keyed by exactly their vocabulary, in order, all distinct', () => {
-  assert.deepEqual(Object.keys(MODEL_LABEL), [...MODELS]);
+  assert.deepEqual(Object.keys(MODEL_LABEL), MODELS);
   assert.deepEqual(Object.keys(EFFORT_LABEL), [...EFFORTS]);
   for (const table of [MODEL_LABEL, EFFORT_LABEL] as Record<string, string>[]) {
     const labels = Object.values(table);
@@ -449,7 +460,8 @@ test('modelLabel: a known model id reads as its MODEL_LABEL; any other value is 
   for (const m of MODELS) assert.equal(modelLabel(m), MODEL_LABEL[m], m);
   assert.equal(modelLabel('opus'), 'Opus');
   // A custom command's own --model value is never relabelled by resemblance.
-  for (const raw of ['Opus', 'OPUS', 'opus ', 'claude-opus-4-1', 'gpt-5', '']) assert.equal(modelLabel(raw), raw, raw);
+  // (`claude-opus-4-1` was the example here until D1 made it a pool id, `Opus 4.1`.)
+  for (const raw of ['Opus', 'OPUS', 'opus ', 'claude-opus-9', 'gpt-5', '']) assert.equal(modelLabel(raw), raw, raw);
   // A value that names an Object.prototype member must not be looked up in the
   // table (`MODEL_LABEL[id] ?? id` would render `function toString() {...}` in
   // the drawer for a custom `--model toString`); only the MODELS guard admits a key.

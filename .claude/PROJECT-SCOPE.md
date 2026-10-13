@@ -219,7 +219,9 @@ Same shape as Architecture: the current rule here, history and the full
 pre-2026-09-23 wording in the note named at the end of each bullet.
 
 - **Projects**: stored in a `projects.json` — `{ id, name, path,
-  defaultModel, defaultMode, createdAt }` (full schema: `shared/protocol.ts`). UI shows the project *name* everywhere (a project-less terminal session,
+  defaultModel, defaultPerm, defaultEffort, createdAt }` (`defaultMode`:
+  legacy, read only; full schema: `shared/protocol.ts`). Editable via `PATCH
+  /api/projects/:id` — name and preferences, never the path (D1, 2026-10-13). UI shows the project *name* everywhere (a project-less terminal session,
   launched into the home folder, is grouped under that folder's last
   segment in the Sessions panel's `Earlier` list — never a full path); the raw path
   appears only as secondary metadata inside the manage-projects view (needed
@@ -483,8 +485,8 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   project**; the known agent shows as `Claude Code`, the shells as `Bash` /
   `PowerShell`; no command preview, no variable names in the chrome.
   Known exceptions (aligning them is open, backlog): the in-terminal
-  status line's `MODE_LABELS` incl. `plan`, its Settings preview, the Add a
-  project dialog's `never ask (dangerous)`. Carve-out: the Setup wizard's
+  status line's `MODE_LABELS` incl. `plan`, its Settings preview (the Add
+  a project dialog's `never ask (dangerous)` is gone since D1, 2026-10-13). Carve-out: the Setup wizard's
   WSL and consent pages MUST show the exact fix and third-party commands.
   Exempt: the custom-command field and terminal content. **UI language
   stays English.** A UI copy rule only — docs, code, commits and briefs are

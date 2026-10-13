@@ -102,3 +102,4 @@ Part specs, `nocturne/`:
 - `PLAN-C1.md` — the peek mascot: a small Claude at the monitor edge when a session is done or asks you something
 - `PLAN-B13.md` — rename files and folders in the Files panel (F2 + row menu; anchors and data dir protected by identity)
 - `PLAN-C2.md` — the mascot waits until Claude is really done (background subagents / workflows), and comes when Claude asks you something
+- `PLAN-D1.md` — project preferences that work and can be edited, the full Claude model pool (newest first, Older models below)

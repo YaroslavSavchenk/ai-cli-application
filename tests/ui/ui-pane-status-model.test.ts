@@ -141,7 +141,13 @@ test('Model: the `--model=<value>` form, a known id reads as its dialog label', 
 });
 
 test('Model: an id outside the dialog list is shown verbatim, byte-exact', () => {
-  assert.equal(valueOf(session({ args: ['--model', 'claude-opus-4-1'] }), 'Model'), 'claude-opus-4-1');
+  assert.equal(valueOf(session({ args: ['--model', 'claude-opus-9'] }), 'Model'), 'claude-opus-9');
+});
+
+test('Model: a pinned pool id reads as its name, and an old bare alias still reads as a word (D1)', () => {
+  assert.equal(valueOf(session({ args: ['--model', 'claude-opus-5-5'] }), 'Model'), 'Opus 5.5');
+  assert.equal(valueOf(session({ args: ['--model', 'claude-opus-4-1'] }), 'Model'), 'Opus 4.1');
+  assert.equal(valueOf(session({ args: ['--model', 'fable'] }), 'Model'), 'Fable');
 });
 
 test('Model: absent / valueless flag -> no Model item at all', () => {

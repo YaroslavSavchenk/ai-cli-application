@@ -1,7 +1,8 @@
 /**
  * The project /api routes: list/create (register or create a directory),
- * clone a repo into a new project, and delete a project — plus the display
- * name a clone url yields (shared with the GitHub clone route).
+ * clone a repo into a new project, edit (PATCH: name + launch preferences,
+ * Nocturne D1, `.claude/plans/nocturne/PLAN-D1.md`) and delete a project —
+ * plus the display name a clone url yields (shared with the GitHub clone route).
  *
  * Split from server/api.ts (O8, 2026-09-23): a pure move, behaviour and
  * error sentences unchanged. Siblings: server/api.ts (dispatcher, gates,
@@ -11,10 +12,17 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, isAbsolute } from 'node:path';
-import type { CloneProjectRequest, CreateProjectRequest } from '../shared/protocol.ts';
+import {
+  isClaudePermissionMode,
+  isProjectEffort,
+  type CloneProjectRequest,
+  type CreateProjectRequest,
+  type UpdateProjectRequest,
+} from '../shared/protocol.ts';
 import { isExistingDirectory } from './projects.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
 import { describeError } from './config.ts';
+import { plainObject } from './sanitise.ts';
 import { NEXT, readJsonBody, sendError, sendJson, type ApiContext, type RouteResult } from './api-http.ts';
 
 /**
@@ -28,6 +36,43 @@ export function repoNameFromUrl(url: string): string | undefined {
   const segment = trimmed.split(/[/:]/).pop() ?? '';
   const name = segment.replace(/\.git$/i, '').trim();
   return name === '' ? undefined : name.slice(0, 128);
+}
+
+/**
+ * A stored model id reaches the claude argv as `--model <id>` (an argv array,
+ * never a shell): it may not start with `-`, so it can never read as a flag.
+ * A pattern, not the model pool — a new model must not need a backend change
+ * (the UI offers only the pool). Matches aliases (`opus`) and full ids.
+ */
+const MODEL_ID = /^[a-z0-9][a-z0-9.-]{0,63}$/;
+
+type ProjectPrefs = Pick<UpdateProjectRequest, 'defaultModel' | 'defaultPerm' | 'defaultEffort'>;
+
+/**
+ * The launch preferences out of a POST or PATCH body — the one home of their
+ * rules. `nullClears` (PATCH) admits `null` = delete the preference; POST has
+ * nothing to delete. An absent field stays absent. Returns the refusal
+ * sentence when any field is invalid, so the caller writes nothing.
+ */
+function readPrefs(body: Record<string, unknown>, nullClears: boolean): { prefs: ProjectPrefs } | { error: string } {
+  const prefs: ProjectPrefs = {};
+  const { defaultModel, defaultPerm, defaultEffort } = body;
+  if (defaultModel === null && nullClears) prefs.defaultModel = null;
+  else if (typeof defaultModel === 'string' && MODEL_ID.test(defaultModel)) prefs.defaultModel = defaultModel;
+  else if (defaultModel !== undefined) {
+    return { error: 'defaultModel must be a model id: lowercase letters, digits, dots and dashes' };
+  }
+  if (defaultPerm === null && nullClears) prefs.defaultPerm = null;
+  else if (isClaudePermissionMode(defaultPerm)) prefs.defaultPerm = defaultPerm;
+  else if (defaultPerm !== undefined) {
+    return { error: "defaultPerm must be 'default', 'acceptEdits', 'plan' or 'bypassPermissions'" };
+  }
+  if (defaultEffort === null && nullClears) prefs.defaultEffort = null;
+  else if (isProjectEffort(defaultEffort)) prefs.defaultEffort = defaultEffort;
+  else if (defaultEffort !== undefined) {
+    return { error: "defaultEffort must be 'low', 'medium', 'high', 'xhigh' or 'max'" };
+  }
+  return { prefs };
 }
 
 /** /api/projects, /api/projects/clone, /api/projects/:id. */
@@ -48,7 +93,12 @@ export async function projectRoutes(
       return;
     }
     if (method === 'POST') {
-      const body = (await readJsonBody(req)) as Partial<CreateProjectRequest>;
+      const raw = plainObject(await readJsonBody(req));
+      if (raw === undefined) {
+        sendError(res, 400, 'request body must be a JSON object');
+        return;
+      }
+      const body = raw as Partial<CreateProjectRequest>;
       if (typeof body.name !== 'string' || body.name.trim() === '') {
         sendError(res, 400, 'name is required');
         return;
@@ -59,10 +109,12 @@ export async function projectRoutes(
       }
       // Validate the cheap fields BEFORE any filesystem side effect, so a bad
       // defaultMode never leaves a freshly created directory behind.
-      if (body.defaultModel !== undefined && typeof body.defaultModel !== 'string') {
-        sendError(res, 400, 'defaultModel must be a string');
+      const read = readPrefs(raw, false);
+      if ('error' in read) {
+        sendError(res, 400, read.error);
         return;
       }
+      const { defaultModel, defaultPerm, defaultEffort } = read.prefs;
       if (
         body.defaultMode !== undefined &&
         body.defaultMode !== 'standard' &&
@@ -111,8 +163,10 @@ export async function projectRoutes(
       const project = projects.create({
         name: body.name.trim(),
         path: createdPath,
-        ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
+        ...(typeof defaultModel === 'string' ? { defaultModel } : {}),
         ...(body.defaultMode !== undefined ? { defaultMode: body.defaultMode } : {}),
+        ...(typeof defaultPerm === 'string' ? { defaultPerm } : {}),
+        ...(typeof defaultEffort === 'string' ? { defaultEffort } : {}),
       });
       sendJson(res, 201, project);
       return;
@@ -178,6 +232,35 @@ export async function projectRoutes(
         return;
       }
       sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (method === 'PATCH') {
+      // Everything is checked before the store is touched: a 400 writes nothing.
+      const body = plainObject(await readJsonBody(req));
+      if (body === undefined) {
+        sendError(res, 400, 'request body must be a JSON object');
+        return;
+      }
+      // Same rule as POST: a string, stored trimmed, not empty. Never the path.
+      const { name } = body;
+      if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
+        sendError(res, 400, 'name must be a non-empty string');
+        return;
+      }
+      const read = readPrefs(body, true);
+      if ('error' in read) {
+        sendError(res, 400, read.error);
+        return;
+      }
+      const updated = projects.update(id, {
+        ...(typeof name === 'string' ? { name: name.trim() } : {}),
+        ...read.prefs,
+      });
+      if (updated === undefined) {
+        sendError(res, 404, 'project not found');
+        return;
+      }
+      sendJson(res, 200, updated);
       return;
     }
     sendError(res, 405, 'method not allowed');

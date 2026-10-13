@@ -43,7 +43,13 @@ export type PermissionMode = 'standard' | 'skip-permissions';
  * use): this is what the launch dialog's permission cards and the settings
  * panel's default speak. launch-args.ts's `Perm` aliases this.
  */
-export type ClaudePermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const;
+export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
+
+/** True when `v` is one of the four modes — the one membership check, server and browser. */
+export function isClaudePermissionMode(v: unknown): v is ClaudePermissionMode {
+  return typeof v === 'string' && (CLAUDE_PERMISSION_MODES as readonly string[]).includes(v);
+}
 
 /**
  * A project as stored in projects.json in the data dir
@@ -55,10 +61,23 @@ export interface Project {
   name: string;
   /** Absolute path to an existing directory. */
   path: string;
+  /** A Claude Code `--model` id (`claude-opus-5-5`); older files hold a bare alias (`opus`). */
   defaultModel?: string;
+  /** Legacy two-value mode: no longer sent by the UI; `defaultPerm` wins when both exist (D1, 2026-10-13). */
   defaultMode?: PermissionMode;
+  defaultPerm?: ClaudePermissionMode;
+  defaultEffort?: ProjectEffort;
   /** ISO-8601 timestamp. */
   createdAt: string;
+}
+
+/** A project's effort preference — Claude Code's own levels; absent = the CLI's default. */
+export const PROJECT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ProjectEffort = (typeof PROJECT_EFFORTS)[number];
+
+/** True when `v` is one of the five effort levels (the browser's `default` sentinel is not). */
+export function isProjectEffort(v: unknown): v is ProjectEffort {
+  return typeof v === 'string' && (PROJECT_EFFORTS as readonly string[]).includes(v);
 }
 
 export type SessionStatus = 'running' | 'exited';
@@ -347,6 +366,8 @@ export interface CreateProjectRequest {
   path: string;
   defaultModel?: string;
   defaultMode?: PermissionMode;
+  defaultPerm?: ClaudePermissionMode;
+  defaultEffort?: ProjectEffort;
   /**
    * When true, create the directory at `path` before registering it. Absent or
    * false = today's behavior: `path` must already be an existing directory.
@@ -357,6 +378,18 @@ export interface CreateProjectRequest {
    * directory. Defaults to true when omitted. Ignored when `create` is not set.
    */
   gitInit?: boolean;
+}
+
+/**
+ * PATCH /api/projects/:id request body (D1, `.claude/plans/nocturne/PLAN-D1.md`).
+ * Responds 200 with the updated Project. A field left out stays as it is; `null`
+ * clears that preference. Renaming never touches the folder.
+ */
+export interface UpdateProjectRequest {
+  name?: string;
+  defaultModel?: string | null;
+  defaultPerm?: ClaudePermissionMode | null;
+  defaultEffort?: ProjectEffort | null;
 }
 
 /**

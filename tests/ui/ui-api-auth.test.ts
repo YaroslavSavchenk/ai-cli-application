@@ -236,3 +236,18 @@ test("the panel's 403s are ordinary refusals: the server's sentence is thrown, t
     assert.equal(err.message, sentence, 'and the sentence reaches the panel verbatim');
   }
 });
+
+test('updateProject: ONE PATCH to /api/projects/<encoded id>, the patch as the JSON body, and the token (D1)', async () => {
+  calls.length = 0;
+  next = { status: 200, body: { id: 'a/b c', name: 'renamed', path: '/home/you/x', createdAt: '' } };
+  const out = await api.updateProject('a/b c', { name: 'renamed', defaultPerm: null });
+  assert.equal(calls.length, 1);
+  const call = calls[0] as { url: string; init: Record<string, unknown> };
+  assert.equal(call.url, '/api/projects/a%2Fb%20c', 'the id is encodeURIComponent-ed into one path segment');
+  assert.equal(call.init['method'], 'PATCH');
+  assert.equal(call.init['body'], JSON.stringify({ name: 'renamed', defaultPerm: null }), 'null travels as null: it clears');
+  const headers = call.init['headers'] as Record<string, string>;
+  assert.equal(headers['x-auth-token'], 'TOKEN-FROM-THE-PAGE');
+  assert.equal(headers['content-type'], 'application/json');
+  assert.equal(out.name, 'renamed', 'the answer is the updated project');
+});

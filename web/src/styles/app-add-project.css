@@ -70,6 +70,17 @@
   }
 }
 
+/* Edit project (D1): the same ledger, one form instead of three tabs — so a
+   narrower card, and a top anchor at about half ITS height (~170px), which
+   centres it the way the 250px anchor centres the New folder tab. */
+.modal-scrim.ap-scrim.pe-scrim {
+  padding-top: max(var(--space-6), calc(50vh - 170px));
+}
+
+.pe-modal {
+  width: 500px;
+}
+
 /* ---- header --------------------------------------------------------------- */
 
 .ap-hd {
@@ -188,10 +199,11 @@
   color: var(--color-neutral-600);
 }
 
-/* two optional fields side by side (the per-project launch defaults) */
-.ap-row2 {
+/* the project's three launch preferences side by side (D1: Model,
+   Permissions, Effort — the same row in Add a project and Edit project) */
+.ap-row3 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
@@ -225,6 +237,13 @@
 .ap-field.is-mono input {
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* a No prompts preference keeps the launch dialog's danger as the field's
+   own edge — the select's words already say it; the red says it at a glance */
+.ap-field select.is-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .ap-field input:focus,

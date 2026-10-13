@@ -59,6 +59,7 @@ import {
   closeNewProjectDialog,
   openNewProjectDialog,
 } from './ui/newproject.ts';
+import { closeProjectEdit, isProjectEditOpen } from './ui/project-edit.ts';
 import { createGithubChip, initGithub } from './ui/github.ts';
 import {
   applyRuntime,
@@ -572,6 +573,10 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
       } else if (isDropDialogOpen()) {
         e.preventDefault();
         dropDialogEscape();
+      } else if (isProjectEditOpen()) {
+        // D1: opened from a Projects drawer row; Escape is its Cancel.
+        e.preventDefault();
+        closeProjectEdit();
       } else if (isNewProjectDialogOpen()) {
         e.preventDefault();
         closeNewProjectDialog();

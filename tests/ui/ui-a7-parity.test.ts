@@ -126,8 +126,10 @@ test('class parity over the WHOLE stylesheet: no unstyled class, no dead rule, w
   assert.deepEqual(dead, [], `rules no module sets: ${dead.join('; ')}`);
 
   // The prefixes belong to exactly the modules listed below (the A7 surfaces,
-  // settings.ts in its three O8 pieces) — another module reaching into the
-  // Settings or Add-a-project styling is a boundary break, not a reuse.
+  // settings.ts in its three O8 pieces, and since D1 the Edit project dialog
+  // and the preference selects it shares with Add a project) — another module
+  // reaching into the Settings or Add-a-project styling is a boundary break,
+  // not a reuse.
   const owners = new Set([...inTs.values()].flat());
   assert.deepEqual(
     [...owners].sort(),
@@ -135,6 +137,8 @@ test('class parity over the WHOLE stylesheet: no unstyled class, no dead rule, w
       'web/src/ui/github.ts',
       'web/src/ui/newproject.ts',
       'web/src/ui/picker.ts',
+      'web/src/ui/project-edit.ts',
+      'web/src/ui/project-prefs.ts',
       'web/src/ui/settings-apikeys.ts',
       'web/src/ui/settings-service.ts',
       'web/src/ui/settings.ts',

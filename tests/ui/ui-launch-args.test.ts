@@ -38,7 +38,6 @@ import {
   isPerm,
   isModelId,
   isEffort,
-  MODELS,
   PERMS,
   PERM_SHORT,
   EFFORTS,
@@ -193,10 +192,6 @@ test('permFromDefaultMode: skip-permissions -> bypass; standard/undefined -> nul
   assert.equal(permFromDefaultMode(undefined), null);
 });
 
-test('vocabulary: 4 models per handoff', () => {
-  assert.deepEqual([...MODELS], ['opus', 'sonnet', 'haiku', 'fable']);
-});
-
 test('vocabulary: PERMS is the fixed 4-mode set, in row order, exactly one dangerous', () => {
   assert.deepEqual(PERMS, [
     { mode: 'default', danger: false },
@@ -312,7 +307,7 @@ test('composeSpawn: the claude kind is `claude` + composeArgs, unchanged', () =>
   });
   assert.deepEqual(composeSpawn(form({ continueLast: true })), {
     command: 'claude',
-    args: ['--model', 'opus', '--continue'],
+    args: ['--model', 'claude-opus-5-5', '--continue'],
   });
 });
 
@@ -351,7 +346,7 @@ test('composeSpawn: every kind answers, and only the composed kind is read', () 
   // selected kind and ignore the rest.
   const full = form({ kind: 'claude', shell: 'powershell', customLine: 'htop' });
   const byKind: Record<LaunchKind, unknown> = {
-    claude: { command: 'claude', args: ['--model', 'opus'] },
+    claude: { command: 'claude', args: ['--model', 'claude-opus-5-5'] },
     // The three B5 agents with no per-tool field set: their own defaults.
     codex: { command: 'codex', args: ['-a', 'on-request', '-s', 'read-only'] },
     gemini: { command: 'gemini', args: [] },
@@ -498,8 +493,11 @@ test('isPerm / isModelId / isEffort: only the fixed vocabularies pass', () => {
   for (const bad of ['skip-permissions', 'standard', '', 'DEFAULT', 42, null, undefined]) {
     assert.equal(isPerm(bad), false);
   }
-  for (const m of ['opus', 'sonnet', 'haiku', 'fable']) assert.ok(isModelId(m));
-  for (const bad of ['gpt-4', 'Opus', '', 3, null]) assert.equal(isModelId(bad), false);
+  for (const m of ['claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-4-1']) assert.ok(isModelId(m));
+  // A bare alias is not a pool id (D1): it RESOLVES to one (`resolveModel`).
+  for (const bad of ['opus', 'fable', 'gpt-4', 'Opus 5.5', 'claude-opus-9', '', 3, null]) {
+    assert.equal(isModelId(bad), false, String(bad));
+  }
   for (const e of ['default', 'low', 'medium', 'high', 'xhigh', 'max']) assert.ok(isEffort(e));
   for (const bad of ['ultra', 'HIGH', '', 'none', 7, null, undefined]) {
     assert.equal(isEffort(bad), false);
@@ -511,24 +509,26 @@ test('isPerm / isModelId / isEffort: only the fixed vocabularies pass', () => {
  * panel — was REMOVED 2026-07-26 with the panel section that wrote it. The
  * chains below are the whole remaining truth: a project's own default, else the
  * hardcoded fallback, with the per-launch choice always able to override both
- * (the dialog resolves once per open and stays editable).
+ * (since D1 the dialog re-lays them on every project change — a field changed
+ * by hand stays; `ui-launch-dialog-d1.test.ts`). The D1 pool, aliases and the
+ * new `defaultPerm` / `defaultEffort` tiers are in `ui-launch-args-d1.test.ts`.
  */
 
-test('resolveModel: explicit project model > hardcoded MODELS[0]', () => {
-  assert.equal(resolveModel('haiku'), 'haiku'); // project wins
-  assert.equal(resolveModel(undefined), 'opus'); // hardcoded fallback
-  assert.equal(resolveModel('gpt-4'), 'opus'); // unknown project model falls through
-  assert.equal(resolveModel(''), 'opus');
+test('resolveModel: explicit project model > the named fallback Opus 5.5', () => {
+  assert.equal(resolveModel('claude-haiku-4-5'), 'claude-haiku-4-5'); // project wins
+  assert.equal(resolveModel(undefined), 'claude-opus-5-5'); // the named fallback
+  assert.equal(resolveModel('gpt-4'), 'claude-opus-5-5'); // unknown project model falls through
+  assert.equal(resolveModel(''), 'claude-opus-5-5');
 });
 
-test('resolvePerm: project skip-permissions > hardcoded default', () => {
-  assert.equal(resolvePerm('skip-permissions'), 'bypassPermissions'); // project wins
-  assert.equal(resolvePerm(undefined), 'default'); // hardcoded fallback
+test('resolvePerm: legacy project skip-permissions > hardcoded default', () => {
+  assert.equal(resolvePerm(undefined, 'skip-permissions'), 'bypassPermissions'); // project wins
+  assert.equal(resolvePerm(undefined, undefined), 'default'); // hardcoded fallback
 });
 
 test('resolvePerm: legacy project mode `standard` never asserts a preference — it lands on the hardcoded `default`, NEVER on bypass', () => {
   // `standard` maps to NO override (permFromDefaultMode returns null).
-  assert.equal(resolvePerm('standard'), 'default');
+  assert.equal(resolvePerm(undefined, 'standard'), 'default');
 });
 
 test('vocabulary alignment: isPerm accepts EXACTLY the PERMS modes — guards PERMS/isPerm drift', () => {

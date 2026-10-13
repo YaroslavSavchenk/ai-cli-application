@@ -32,8 +32,6 @@ import assert from 'node:assert/strict';
 import {
   EFFORTS,
   EFFORT_LABEL,
-  MODELS,
-  MODEL_LABEL,
   NOT_INSTALLED,
   PERMS,
   PERM_HELP,
@@ -41,6 +39,7 @@ import {
   SHELL_CARDS,
   START_FROM,
   TOOL_CARDS,
+  TOOLS,
 } from '../../web/src/ui/launch-args.ts';
 import {
   body,
@@ -81,6 +80,10 @@ import {
   userClick,
 } from '../helpers/ui-launch-dialog-fixture.ts';
 
+/** Claude Code's pool (D1): the ids the Model select holds and the words it shows. */
+const MODELS = TOOLS.claude.models.map((m) => m.id);
+const MODEL_LABEL: Record<string, string> = Object.fromEntries(TOOLS.claude.models.map((m) => [m.id, m.label]));
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -119,11 +122,11 @@ test('B12: every Tool card holds its tool’s real logo in the tile — one per 
   }
 });
 
-test('defaults: an untouched dialog sends exactly `claude --model opus` for the project, no title', async () => {
+test('defaults: an untouched dialog sends exactly `claude --model claude-opus-5-5` for the project, no title', async () => {
   openWith([PROJ]);
   userClick(tool('Claude Code'));
   const post = await launch();
-  assert.deepEqual(post, { projectId: 'p1', command: 'claude', args: ['--model', 'opus'], cols: 120, rows: 40 });
+  assert.deepEqual(post, { projectId: 'p1', command: 'claude', args: ['--model', 'claude-opus-5-5'], cols: 120, rows: 40 });
   assert.equal(L.isLaunchDialogOpen(), false, 'a successful launch closes the dialog');
   assert.deepEqual(H.upserted.at(-1), 'sess-' + H.posts.length, 'the new session gets its tab');
 });
@@ -136,7 +139,7 @@ test('the selects SHOW labels and SEND values: every option is (vocabulary id, t
   assert.deepEqual(opts('start'), START_FROM.map((s) => [s.value, s.label]));
 });
 
-test('A4 contract through the DOM: all 192 claude states (model x permission card x effort x Start from) send the pre-A4 argv', async () => {
+test('A4 contract through the DOM: all 672 claude states (model x permission card x effort x Start from) send the pre-A4 argv', async () => {
   let n = 0;
   for (const m of MODELS) {
     for (const p of PERMS) {
@@ -159,26 +162,26 @@ test('A4 contract through the DOM: all 192 claude states (model x permission car
       }
     }
   }
-  assert.equal(n, 192);
+  assert.equal(n, 672, '14 models (D1) x 4 cards x 6 efforts x 2 starts');
 });
 
 test('A4 contract, spelled out: the hardest claude state and the two Start from choices, literal argv', async () => {
   openWith([PROJ]);
   userClick(tool('Claude Code'));
-  pickByLabel(byName('model'), 'Sonnet');
+  pickByLabel(byName('model'), 'Sonnet 5.5');
   userClick(permCard('Auto edits'));
   pickByLabel(byName('effort'), 'Extra high');
   pickByLabel(byName('start'), 'The last conversation in this project');
   assert.deepEqual((await launch())?.args, [
-    '--model', 'sonnet', '--permission-mode', 'acceptEdits', '--effort', 'xhigh', '--continue',
+    '--model', 'claude-sonnet-5-5', '--permission-mode', 'acceptEdits', '--effort', 'xhigh', '--continue',
   ]);
   openWith([PROJ]);
   userClick(tool('Claude Code'));
-  pickByLabel(byName('model'), 'Fable');
+  pickByLabel(byName('model'), 'Fable 5.1');
   userClick(permCard('No prompts'));
   pickByLabel(byName('effort'), 'Max');
   pickByLabel(byName('start'), 'A fresh conversation');
-  assert.deepEqual((await launch())?.args, ['--model', 'fable', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-fable-5-1', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
 });
 
 test('Terminal: the Bash card is `/bin/bash -l`, the PowerShell card is `powershell.exe -NoLogo`, byte for byte', async () => {
@@ -195,7 +198,7 @@ test('Terminal: the Bash card is `/bin/bash -l`, the PowerShell card is `powersh
 test('Terminal: claude choices made before switching never leak into the shell argv', async () => {
   openWith([PROJ]);
   userClick(tool('Claude Code'));
-  pickByLabel(byName('model'), 'Haiku');
+  pickByLabel(byName('model'), 'Haiku 4.5');
   userClick(permCard('No prompts'));
   pickByLabel(byName('effort'), 'Max');
   pickByLabel(byName('start'), 'The last conversation in this project');
@@ -491,7 +494,7 @@ test('open(): Effort and Start from reset every open; kind, shell and command te
   L.openLaunchDialog();
   assert.equal(byName('effort').value, 'default');
   assert.equal(byName('start').value, 'fresh');
-  assert.deepEqual((await launch())?.args, ['--model', 'opus'], 'a reopened dialog never silently continues');
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5'], 'a reopened dialog never silently continues');
 
   openWith([PROJ]);
   userClick(tool('Other'));
@@ -511,11 +514,12 @@ test('open(): Effort and Start from reset every open; kind, shell and command te
   assert.equal((await launch())?.command, 'powershell.exe');
 });
 
-test('project defaults: model and mode resolve once per open from the selected project', async () => {
+test('project defaults: model and mode come from the selected project on open', async () => {
   const P2: Project = { ...PROJ, id: 'p2', name: 'other', defaultModel: 'haiku', defaultMode: 'skip-permissions' };
   openWith([P2]);
   userClick(tool('Claude Code'));
-  assert.deepEqual((await launch())?.args, ['--model', 'haiku', '--permission-mode', 'bypassPermissions']);
+  // A stored bare alias launches today's newest of its family (D1).
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-haiku-4-5', '--permission-mode', 'bypassPermissions']);
   // A mode picked by hand is NOT carried into the next open: defaults win again.
   openWith([PROJ]);
   userClick(tool('Claude Code'));
@@ -523,7 +527,7 @@ test('project defaults: model and mode resolve once per open from the selected p
   L.closeLaunchDialog();
   L.openLaunchDialog();
   assert.ok(checked(permCard('Always ask')));
-  assert.deepEqual((await launch())?.args, ['--model', 'opus']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5']);
 });
 
 test('project intent (drawer row +): back to Claude Code for THAT project, its defaults layered on', async () => {
@@ -534,7 +538,7 @@ test('project intent (drawer row +): back to Claude Code for THAT project, its d
   openWith([PROJ, P2], { projectId: 'p2' });
   assert.ok(checked(tool('Claude Code')), 'a stale Other cannot hijack a project launch');
   assert.equal(byName('project').value, 'p2');
-  assert.deepEqual(await launch(), { projectId: 'p2', command: 'claude', args: ['--model', 'sonnet'], cols: 120, rows: 40 });
+  assert.deepEqual(await launch(), { projectId: 'p2', command: 'claude', args: ['--model', 'claude-sonnet-5-5'], cols: 120, rows: 40 });
 });
 
 test('a failed launch keeps the dialog open with the error, and Start session usable again', async () => {
@@ -583,7 +587,7 @@ test('no command preview: nothing in the rendered dialog spells the argv — bef
   };
   openWith([PROJ]);
   userClick(tool('Claude Code'));
-  pickByLabel(byName('model'), 'Sonnet');
+  pickByLabel(byName('model'), 'Sonnet 5.5');
   userClick(permCard('Auto edits'));
   pickByLabel(byName('effort'), 'Extra high');
   pickByLabel(byName('start'), 'The last conversation in this project');

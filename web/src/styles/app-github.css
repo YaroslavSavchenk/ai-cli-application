@@ -558,8 +558,9 @@
   }
 }
 
-@media (max-width: 360px) {
-  .ap-row2 {
+/* three preference selects stop fitting side by side well before 360px */
+@media (max-width: 520px) {
+  .ap-row3 {
     grid-template-columns: 1fr;
   }
 }

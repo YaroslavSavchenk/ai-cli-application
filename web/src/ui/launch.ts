@@ -77,10 +77,10 @@ import {
   isEffort,
   isStartFrom,
   shellLabel,
-  resolveModel,
-  resolvePerm,
 } from './launch-args.ts';
 import type { AgentKind, Effort, LaunchKind, Perm, ShellId, SpawnSpec } from './launch-args.ts';
+// D1: a project's preferences layered onto Claude Code's controls.
+import { layerChoice, projectChoice, type PrefField } from './launch-prefs-model.ts';
 // The card radiogroup and the dialog's small tables: `launch-controls.ts` (O8).
 import { ASSUMED, fillChoices, groupLabel, keyToolFor, radioCards } from './launch-controls.ts';
 
@@ -215,19 +215,22 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
    *
    * Effort and Start from are reset for every agent on every open (a reopened
    * dialog never silently continues); the model is not, except Claude Code's,
-   * which the selected project's own default resolves per open.
+   * which the selected project's preference sets (D1: `layerChoice`).
    */
   const chosen: Record<AgentKind, { model: string; effort: string; start: string }> = {
-    claude: { model: TOOLS.claude.models[0]?.id ?? '', effort: TOOLS.claude.effortNone, start: 'fresh' },
+    claude: { model: TOOLS.claude.modelStart, effort: TOOLS.claude.effortNone, start: 'fresh' },
     codex: { model: TOOLS.codex.modelNone, effort: TOOLS.codex.effortNone, start: 'fresh' },
     gemini: { model: TOOLS.gemini.modelNone, effort: TOOLS.gemini.effortNone, start: 'fresh' },
     grok: { model: TOOLS.grok.modelNone, effort: TOOLS.grok.effortNone, start: 'fresh' },
   };
-
+  /** The preferences the user changed by hand during THIS open (D1); they beat the project's. */
+  const byHand = new Set<PrefField>();
 
   // Permissions: labels only on the cards (the 2026-09-06 cut stands). The
   // words are PERM_SHORT — the same table the pane status bar's Mode reads.
   let perm: Perm = 'default';
+  /** The mode picked by hand this open; `perm` is what the cards show, Always ask on a tool that cannot take it. */
+  let handPerm: Perm = 'default';
   let helpOpen = false;
   const permGroup = el('div', 'ns-group ns-perm');
   const permLbRow = el('div', 'ns-lbrow');
@@ -262,7 +265,11 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       cls: p.danger ? 'is-danger' : '',
       label: PERM_SHORT[p.mode],
     })),
-    (mode) => setPerm(mode),
+    (mode) => {
+      byHand.add('perm');
+      handPerm = mode;
+      setPerm(mode);
+    },
   );
   permGroup.append(permLbRow, help, permCards.row);
 
@@ -368,12 +375,23 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
    */
   function applyToolVocab(agent: AgentKind): void {
     const v = TOOLS[agent];
+    // The selected project's preferences, re-laid on every tool switch and
+    // project change (D1) — idempotent, and a field changed by hand stays.
+    const held = chosen.claude;
+    const next = layerChoice(
+      agent,
+      { model: held.model, perm: handPerm, effort: isEffort(held.effort) ? held.effort : 'default' },
+      projectChoice(st.state.projects.find((p) => p.id === projectSel.value)),
+      byHand,
+    );
+    held.model = next.model;
+    held.effort = next.effort;
     fillChoices(modelSel, v.models);
     modelSel.value = chosen[agent].model;
     // A value no option carries selects NOTHING in a real select; fall back to
-    // the tool's own first option rather than leaving the field blank.
+    // the tool's own starting model rather than leaving the field blank.
     if (modelSel.value !== chosen[agent].model) {
-      chosen[agent].model = v.models[0]?.id ?? '';
+      chosen[agent].model = v.modelStart;
       modelSel.value = chosen[agent].model;
     }
     modelSel.disabled = false;
@@ -397,8 +415,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
 
     permCards.setInert(new Map(v.inertPerms.map((p) => [p.mode, p.hint])));
     // A mode this tool cannot be told is not a mode it silently keeps.
-    if (v.inertPerms.some((p) => p.mode === perm)) setPerm('default');
-    else permCards.select(perm);
+    setPerm(v.inertPerms.some((p) => p.mode === next.perm) ? 'default' : next.perm);
 
     startSel.disabled = false;
     // Claude Code is the one tool whose Start from lists conversations, so its
@@ -730,29 +747,6 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
     nameInput.placeholder = p?.name ?? '';
   }
 
-  /**
-   * Resolve the pre-selected model + permission ONCE per open through the
-   * unit-tested precedence chain (`resolveModel`/`resolvePerm` in
-   * launch-args.ts): explicit project default > hardcoded fallback. The
-   * selected project is whatever `projectSel.value` currently points at — a
-   * project-intent open force-selects its project before this runs; a plain
-   * open uses populateProjects()'s auto-selected first project. Called from
-   * open() only: a mid-dialog project switch deliberately does NOT re-resolve,
-   * leaving per-launch control with the user once the dialog is open.
-   */
-  function applyDefaults(): void {
-    const p = st.state.projects.find((p) => p.id === projectSel.value);
-    // `defaultModel` is a Claude Code model id, so it resolves onto THAT tool's
-    // choice — whichever tool is on screen right now. Switching to Claude Code
-    // later in this open still shows it.
-    chosen.claude.model = resolveModel(p?.defaultModel);
-    if (kind === 'claude') modelSel.value = chosen.claude.model;
-    const wanted = resolvePerm(p?.defaultMode);
-    // Never onto a card this tool cannot be told: an inert mode is not a choice.
-    const inert = isAgentKind(kind) ? TOOLS[kind].inertPerms : [];
-    setPerm(inert.some((x) => x.mode === wanted) ? 'default' : wanted);
-  }
-
   /** Start from, read in ONE place: the argv and the log line agree. */
   function currentContinue(): boolean {
     return kind === 'claude' && continueFromStart(startSel.value);
@@ -804,20 +798,21 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   projectSel.addEventListener('change', () => {
-    // A mid-dialog project switch does NOT re-resolve model/permission —
-    // defaults settle once per open (applyDefaults); per-launch control stays
-    // with the user. The name placeholder and, for Claude Code, WHICH
-    // conversations can be resumed both follow the new project.
+    // The new project's preferences apply (D1 — before it, a switch kept the
+    // first project's), except a field changed by hand; the name placeholder
+    // and, for Claude Code, WHICH conversations can be resumed follow too.
     syncNamePlaceholder();
-    if (kind === 'claude') populateStart();
+    if (isAgentKind(kind)) applyToolVocab(kind);
   });
 
   // Every per-tool choice is remembered against ITS tool, so a switch and back
   // shows what was chosen rather than what the last tool happened to hold.
   modelSel.addEventListener('change', () => {
+    if (kind === 'claude') byHand.add('model');
     if (isAgentKind(kind)) chosen[kind].model = modelSel.value;
   });
   effortSel.addEventListener('change', () => {
+    if (kind === 'claude') byHand.add('effort');
     if (isAgentKind(kind)) chosen[kind].effort = effortSel.value;
   });
 
@@ -835,7 +830,10 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   // ONE permanent subscription (state.ts has no unsubscribe — never bind per
   // open): keeps the project list fresh while the dialog shows.
   st.subscribe((kindOfChange) => {
-    if (kindOfChange === 'projects' && !scrim.hidden) populateProjects();
+    if (kindOfChange !== 'projects' || scrim.hidden) return;
+    populateProjects();
+    // An edited project's preferences show at once (D1), a hand change still wins.
+    if (isAgentKind(kind)) applyToolVocab(kind);
   });
 
   async function launch(): Promise<void> {
@@ -933,28 +931,23 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
       chosen[k].effort = TOOLS[k].effortNone;
       chosen[k].start = 'fresh';
     }
+    // A hand change counts for one open; the project's preferences come back.
+    byHand.clear();
     populateProjects();
     if (opts?.projectId !== undefined && st.state.projects.some((p) => p.id === opts.projectId)) {
       // Explicit project intent (projects-drawer row `+`) means "a Claude Code
       // session for that project" — go back to the claude kind so a stale
-      // custom command or shell can't hijack the launch, and force-select that
-      // project BEFORE defaults resolve so its defaultModel/defaultMode are
-      // layered on.
-      setKind(shownKind('claude'), false);
+      // custom command or shell can't hijack the launch, and select that
+      // project FIRST so setKind lays its preferences on.
       projectSel.value = opts.projectId;
       syncNamePlaceholder();
+      setKind(shownKind('claude'), false);
     } else {
       // A plain open keeps the kind (and its shell / command text) as the user
       // last left it — the dialog's remember-what-you-chose behaviour. A kind
       // that has since left the grid falls back to the first card in it.
       setKind(shownKind(kind), false);
     }
-    // Resolve model + permission once against the now-settled selected project
-    // (the forced project above, or populateProjects()'s auto-selected first
-    // project on a plain open). A project default names a Claude Code model, so
-    // it is layered on for that tool only. Effort and Start from reset every
-    // open — a reopened dialog never silently continues or resumes.
-    applyDefaults();
     scrim.hidden = false;
     nameInput.focus();
   }

@@ -34,22 +34,8 @@
  */
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ClaudePermissionMode } from '../shared/protocol.ts';
+import { isClaudePermissionMode, type ClaudePermissionMode } from '../shared/protocol.ts';
 import { describeError, scoped, type Logger } from './config.ts';
-
-/**
- * The four `--permission-mode` values this app launches with. Note Claude Code
- * 2.1.220 itself accepts more (`auto`, `manual`, `dontAsk`) and no longer
- * accepts the literal `default` — which is why 'default' here means "no
- * --permission-mode argument was passed", and any OTHER explicit value becomes
- * 'unknown' rather than being mislabelled as one of ours.
- */
-const KNOWN_MODES: readonly ClaudePermissionMode[] = [
-  'default',
-  'acceptEdits',
-  'plan',
-  'bypassPermissions',
-];
 
 /**
  * What the status-line script is told about the session's permission mode.
@@ -105,7 +91,12 @@ export function parsePermissionMode(args: readonly string[]): StatuslineMode {
     else if (arg.startsWith('--permission-mode=')) raw = arg.slice('--permission-mode='.length);
   }
   if (raw === undefined) return 'default';
-  return (KNOWN_MODES as readonly string[]).includes(raw) ? (raw as ClaudePermissionMode) : 'unknown';
+  // The four modes this app launches with (`CLAUDE_PERMISSION_MODES`). Claude
+  // Code 2.1.220 itself accepts more (`auto`, `manual`, `dontAsk`) and no
+  // longer accepts the literal `default` — which is why 'default' here means
+  // "no --permission-mode argument was passed", and any OTHER explicit value
+  // becomes 'unknown' rather than being mislabelled as one of ours.
+  return isClaudePermissionMode(raw) ? raw : 'unknown';
 }
 
 export interface SessionSettingsConfig {

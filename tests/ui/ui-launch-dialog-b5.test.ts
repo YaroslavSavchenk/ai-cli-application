@@ -468,7 +468,7 @@ test('B5 Start from: choosing a conversation emits --resume <id> and presets the
   assert.deepEqual(await launch(), {
     projectId: 'p1',
     command: 'claude',
-    args: ['--model', 'opus', '--resume', 'conv-a'],
+    args: ['--model', 'claude-opus-5-5', '--resume', 'conv-a'],
     title: 'auth refactor',
     cols: 120,
     rows: 40,
@@ -497,7 +497,7 @@ test('B5 Start from: switching project re-filters the list and falls back to a f
   pickByLabel(byName('project'), 'other');
   assert.deepEqual(startOpts().map(([v]) => v), ['fresh', 'continue', 'c-p2']);
   assert.equal(byName('start').value, 'fresh', 'never silently a DIFFERENT conversation');
-  assert.deepEqual((await launch())?.args, ['--model', 'opus']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5']);
 });
 
 test('B5 Start from: with no project selected, only the entries that ran in the HOME folder are offered', async () => {
@@ -555,7 +555,7 @@ test('B5: the reopened dialog never silently resumes — Start from is fresh aga
   L.openLaunchDialog();
   await settle();
   assert.equal(byName('start').value, 'fresh');
-  assert.deepEqual((await launch())?.args, ['--model', 'opus']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-opus-5-5']);
 });
 
 test('B5 copy rule: no flag, subcommand or CLI value is visible anywhere in the dialog', async () => {

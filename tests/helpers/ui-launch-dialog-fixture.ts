@@ -5,7 +5,8 @@
  *     attributes, a real capture/target/bubble event dispatch with
  *     stopPropagation, focus with `focusin`, `hidden`/`disabled`,
  *     select/option value semantics as the HTML spec has them (setting a value
- *     no option carries selects nothing).
+ *     no option carries selects nothing; an OPTGROUP's options are the
+ *     select's options).
  *   - `module.registerHooks` swaps launch.ts's non-pure imports for stubs:
  *     `../api.ts` (records the POST, answers `fsList`, tools, keys, history),
  *     `../state.ts` (a projects list the test owns), `../log.ts` (records
@@ -190,8 +191,9 @@ export class FakeElement extends FakeNode {
   }
 
   // ---- form values --------------------------------------------------------
+  /** Every OPTION in the select, in document order — those inside an OPTGROUP too (D1: Older models). */
   get options(): FakeElement[] {
-    return this.children.filter((c): c is FakeElement => c instanceof FakeElement && c.tagName === 'OPTION');
+    return descendants(this).filter((c) => c.tagName === 'OPTION');
   }
   get value(): string {
     if (this.tagName === 'SELECT') return this.options[this.selectedIndex]?.value ?? '';
@@ -298,6 +300,8 @@ export interface Project {
   path: string;
   defaultModel?: string;
   defaultMode?: string;
+  defaultPerm?: string;
+  defaultEffort?: string;
   createdAt: string;
 }
 

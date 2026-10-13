@@ -176,7 +176,7 @@ interface ItemRow {
 }
 
 const ITEM_ROWS: ItemRow[] = [
-  { key: 'model', label: 'Model', sample: 'opus' },
+  { key: 'model', label: 'Model', sample: 'Opus 5.5' },
   {
     key: 'mode',
     label: 'Permission mode',

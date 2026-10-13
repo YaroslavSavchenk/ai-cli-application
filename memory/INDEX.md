@@ -33,6 +33,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ### UI and Nocturne
 
+- [[d1-project-prefs-and-model-pool]] — 2026-10-13: D1 (user): Edit button per project row (name, model, all 4 permission modes, effort); Claude models pinned by version (`Opus 5.5` = `claude-opus-5-5`), newest 4 on top, gen 5 + Opus/Sonnet 4.x under Older models; aliases read as newest, no migration; preferences Claude-only, re-resolved on project switch, hand change wins
 - [[c2-mascot-waits-for-background-work]] — 2026-09-26: C2 (user): ONE session verdict `turn` for the pane dot/pill AND the mascot — Working while its background subagents / workflows / SendMessage-resumed agents are open and alive (launch ↔ task-notification from the transcript; alive = < 15 min, B7 row, fresh workflow files), Waiting for you on `AskUserQuestion` / `ExitPlanMode` (leaves when answered); background shells never count; file-activity-only and launch-only rejected
 - [[b6-settings-live]] — 2026-09-22: B6 (user): any New-session card can be hidden, at least one stays; the notifications row dropped until C1; `Reopen tabs on start` off = only a NEW backend run starts on Home (keyed on start time); `Check for updates` = `POST /api/update/check` now + the answer on the page; the backend keeps its last port (`last-port.json`, auto-pick = fallback) so the layout survives an app start; defaults: prefs keys `behaviour` + `tools` (never `defaults`), confirm-end = the armed two-step on every door, follow output = scroll on every write, the Keyboard page from one shared rows module
 - [[b4-editor-live]] — 2026-09-22: B4 (user): unsaved text never dropped without a question (`Discard` / `Keep editing`, `beforeunload`; backend grace = the one silent door); editor tabs survive a reload (text does not); a clean tab follows its file on disk (5 s, `if=<stamp>`); a save onto a changed file is refused (409) with `Overwrite` / `Load from disk`; defaults: Ctrl+S in the field, 1 MiB text only, eol + BOM preserved, SHA-256 stamp, in-place write on one fd, `files-mock.ts` deleted
@@ -116,6 +117,10 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 Entries live at `memory/log/<YYYY-MM>/<area>/` (areas: nocturne, backend, ui,
 launcher, github, release, project); the link target is still the filename.
+
+### 2026-10
+
+- [[2026-10-13-d1-project-prefs-models]] — D1: defaults resolved only at dialog open (wrong project) + no edit path → PATCH /api/projects/:id, Edit dialog, re-resolve on switch, versioned model pool with Older models; 86 mutants killed; suite 3994; DEV check pending
 
 ### 2026-09
 

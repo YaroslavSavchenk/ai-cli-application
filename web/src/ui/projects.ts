@@ -2,7 +2,8 @@
  * Projects drawer (handoff §6, left, 272px). Rows list projects by NAME —
  * the path shows only here, as faint mono metadata (everywhere else in the
  * UI a project is its name). Each row: name, `Session` (opens the launch
- * dialog pre-set to this project), `×` (armed two-step remove), the path, and a
+ * dialog pre-set to this project), the pencil (D1: the Edit project dialog —
+ * name and launch preferences), `×` (armed two-step remove), the path, and a
  * meta line (`N active sessions` in green, else `no active sessions`).
  *
  * `Add project` in the header opens the New Project dialog (Phase 2a: blank-create
@@ -15,6 +16,8 @@ import * as api from '../api.ts';
 import { el, button, ArmedSet } from './util.ts';
 import { openLaunchDialog } from './launch.ts';
 import { openNewProjectDialog } from './newproject.ts';
+import { openProjectEdit } from './project-edit.ts';
+import { pencilIcon } from './icons.ts';
 import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
@@ -116,6 +119,16 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
       add.setAttribute('data-k', `pnew:${p.id}`);
       add.setAttribute('aria-label', `new session in ${p.name}`);
       add.title = 'New session here';
+      // Read at click time: a save that changed only preferences keeps this
+      // row (its signature has no preferences), so `p` can be stale.
+      const edit = button('row-ic', '', () =>
+        openProjectEdit(st.state.projects.find((x) => x.id === p.id) ?? p, edit),
+      );
+      edit.append(pencilIcon());
+      edit.setAttribute('data-k', `pedit:${p.id}`);
+      edit.setAttribute('aria-label', `Edit project ${p.name}`);
+      edit.setAttribute('aria-haspopup', 'dialog');
+      edit.title = 'Edit project: name and launch preferences';
       const del = button('row-x', armed.isArmed(p.id) ? 'sure?' : '×', () => {
         if (
           armed.trigger(p.id, () => {
@@ -130,7 +143,7 @@ export function initProjectsDrawer(host: HTMLElement): ProjectsDrawer {
       del.setAttribute('data-k', `pdel:${p.id}`);
       del.setAttribute('aria-label', `remove project ${p.name}`);
       del.title = 'Remove this project. It asks first; sessions keep running.';
-      line.append(add, del);
+      line.append(add, edit, del);
       row.append(line);
       row.append(el('div', 'proj-path', p.path)); // secondary metadata: allowed here only
       const n = activeCount(p.id);

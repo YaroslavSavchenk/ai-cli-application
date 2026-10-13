@@ -197,6 +197,20 @@ test('a running row: name + state for the screen reader, project and tool undern
   );
 });
 
+test('D1: a running row names a pinned model by its version; an old bare alias still reads as a word', () => {
+  st.setSessions([
+    mkSession('s1', { projectId: 'p1', args: ['--model', 'claude-opus-5-5'] }),
+    mkSession('s2', { projectId: 'p1', args: ['--model', 'claude-opus-4-8'] }),
+    mkSession('s3', { projectId: 'p1', args: ['--model', 'sonnet'] }),
+  ]);
+  draw();
+  assert.deepEqual(textsOf(root, 'sess-meta'), [
+    'api, Claude Code Opus 5.5',
+    'api, Claude Code Opus 4.8',
+    'api, Claude Code Sonnet',
+  ]);
+});
+
 test('a waiting row says the one thing that needs the user, and marks it', () => {
   st.setSessions([mkSession('s1', { projectId: 'p1', attention: true })]);
   draw();
@@ -438,6 +452,12 @@ test('an earlier row with nothing to say shows the em dash, never an empty line'
   st.state.history = [mkEntry('h2', { lastUsedAt: 'not a date' })];
   draw();
   assert.equal(textsOf(root, 'sess-meta')[0], '—');
+});
+
+test('D1: an earlier row launched with a bare alias reads the model as a word', () => {
+  st.state.history = [mkEntry('h1', { args: ['--model', 'opus'], lastUsedAt: 'not a date' })];
+  draw();
+  assert.equal(textsOf(root, 'sess-meta')[0], 'Opus', 'never the raw `opus`');
 });
 
 test('the empty state names the way out', () => {

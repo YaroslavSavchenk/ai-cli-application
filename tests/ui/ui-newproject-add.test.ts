@@ -80,7 +80,12 @@ test('ADD sends createProject( with a body that cannot carry `create` or `gitIni
   assert.equal(addArgs.includes('gitInit'), false);
 
   // …and `body` is TYPED so neither field can be put on it later.
-  assert.match(submit, /const body: Omit<CreateProjectRequest, 'create' \| 'gitInit'> = \{ name, path \};/);
+  // (D1: the preferences spread in from `createPrefFields`, typed to the three
+  // preference keys only — it cannot carry either field.)
+  assert.match(
+    submit,
+    /const body: Omit<CreateProjectRequest, 'create' \| 'gitInit'> = \{\s*name,\s*path,\s*\.\.\.createPrefFields\(prefs\.read\(\)\),\s*\};/,
+  );
   // Nothing else in submitBlank writes either key onto the body.
   assert.equal(/body\.(create|gitInit)\b/.test(submit), false);
 

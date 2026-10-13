@@ -38,6 +38,9 @@ const APP_CSS = readAppCss();
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 const NEWPROJECT = read(join(UI, 'newproject.ts'));
 const GITHUB = read(join(UI, 'github.ts'));
+/** D1: the project preference selects and the Edit project dialog wear the same `ap-` block. */
+const PREFS = read(join(UI, 'project-prefs.ts'));
+const EDIT = read(join(UI, 'project-edit.ts'));
 
 const BLOCK_START = '/* ---- Add a project dialog (Nocturne A7)';
 /** The block's own sub-headers share the `/* ---- ` shape, so the end is the NEXT dialog's header. */
@@ -147,7 +150,7 @@ function classesIn(src: string): Set<string> {
 }
 
 test('class parity: every ap-/gh- class the two modules set has a rule, and every such rule is used', () => {
-  const inTs = new Set([...classesIn(NEWPROJECT), ...classesIn(GITHUB)]);
+  const inTs = new Set([...classesIn(NEWPROJECT), ...classesIn(GITHUB), ...classesIn(PREFS), ...classesIn(EDIT)]);
   // Element ids share the prefix (ap-title): an id is not a class.
   const ids = new Set([...NEWPROJECT.matchAll(/\.id = '(ap-[a-z0-9-]+)'/g)].map((m) => m[1] as string));
   for (const m of GITHUB.matchAll(/\.id = '(gh-[a-z0-9-]+)'/g)) ids.add(m[1] as string);
