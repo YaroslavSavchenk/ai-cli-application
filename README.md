@@ -289,7 +289,15 @@ stripping).
 
 Every test has a 120 s timeout (`--test-timeout`): the suite starts real
 backend children, and a hang there must cost one red test, not a stalled CI
-job. The slowest test today takes a few seconds.
+job. The slowest test today takes a few seconds. The timeout alone does not
+end a file whose test left a server listening or a child attached — the
+file's process then never exits and `npm test` never returns (measured on
+Node 24.14, Q7) — so the test scripts also load an exit guard
+(`--import=./tests/helpers/exit-guard.ts`): a file still holding a server,
+socket, child or timer 60 s after its tests and hooks finished is ended
+with exit code 1 and a line naming what it held, so the run goes red
+instead of stalling. (`--test-force-exit` is not used: on Node 24.14 it drops test
+results from the report.) `tests/repo/test-scripts.test.ts` pins both.
 
 The backend binds `127.0.0.1` and writes `runtime.json` to its data dir; open
 `http://127.0.0.1:<port>/` with the port from that file. The port is sticky:

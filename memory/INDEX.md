@@ -107,6 +107,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ### Build, tests and repo
 
+- [[node-test-force-exit-loses-results]] — 2026-10-13: a leftover listener/child keeps `node --test` alive forever, `--test-timeout` cancels only the test, `--test-force-exit` drops the tail of each file's report (4008 → 3959); the repo uses the exit guard `tests/helpers/exit-guard.ts` instead
 - [[wsl-clock-steps-backwards]] — 2026-09-20: WSL2 steps its clock backwards on host re-sync (`dmesg`: "Time jumped backwards"); a lone red test comparing wall-clock stamps (`restart` "frontend rebuilt", `lifecycle` history order, `ended` before `createdAt`) = check dmesg, re-run, never weaken the assertion
 - [[author-path-guard-tracked-only]] — 2026-09-16: `tests/repo/no-author-paths.test.ts` walks `git ls-files`, so new untracked files spelling the author's real home pass locally and fail on CI; briefs use `/home/you`, `git add -N` before the suite
 - [[dev-machine-setup]] — 2026-09-15: fresh WSL clone needs Node 24 via nvm (`start-backend.sh` sources nvm; node-pty ABI-bound to the installing node), `npm run build`, Playwright Chromium user-level; sudo list (jq, shellcheck, htop, unzip, libnss3/libnspr4/libatk-bridge); dev launcher on the default data dir REATTACHES to the installed v0.3.2 — use `AI_SM_DATA_DIR=~/.ai-session-manager-dev`
@@ -120,6 +121,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
+- [[2026-10-13-q7-suite-never-hangs]] — Q7: a leftover listener/child kept node --test alive forever (--test-timeout doesn't help, --test-force-exit loses results); exit guard via --import ends a file 60 s after its last hook, results kept; stub leaks fixed
 - [[2026-10-13-d3-launch-stop-owner]] — D3: `launch.ps1 -Stop` removes a stale runtime.json only when its pid line still names the stopped pid, in ONE `wsl.exe --exec sh -c` step (args as $1/$2; HOME fail-closed); ConvertTo-AiSmScriptLine → config-common.ps1
 - [[2026-10-13-plan-d3-d6-q5-q8]] — planning: the user picked 8 backlog items → D3–D6 (launch.ps1 -Stop, focus back to a terminal, Always ask flag, Claude Code compat guard spec) + Q5–Q8 (index.ts split, host .cs split + launcher/ size guard, suite-hang proof, FIFO-safe readers); decisions 17–19
 - [[2026-10-13-d2-runtime-json-owner]] — D2: shutdown deleted a NEWER backend's runtime.json → second backend; now removed only when pid + startedAt are its own (`server/runtime-file.ts`), shared safe read `readSmallRegularFile`; 57 mutants, uncaughtException tested via a NODE_OPTIONS SIGUSR2 seam; suite 4008

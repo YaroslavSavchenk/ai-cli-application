@@ -392,7 +392,7 @@ function assertNoFragment(log: string, secret: string, what: string): void {
   }
 }
 
-test('MALFORMED BODY CARRYING A SECRET: 400 invalid JSON body, and server.log holds NO fragment of it', async () => {
+test('MALFORMED BODY CARRYING A SECRET: 400 invalid JSON body, and server.log holds NO fragment of it', async (t) => {
   // Measured, not hypothetical: JSON.parse('ghp_S3CRET_TOKEN_VALUE_1234567890')
   // throws `SyntaxError: Unexpected token 'g', "ghp_S3CRET"... is not valid
   // JSON`, and the generic handler logs `request … failed: ${String(err)}`. If
@@ -405,6 +405,7 @@ test('MALFORMED BODY CARRYING A SECRET: 400 invalid JSON body, and server.log ho
   // and a 4-character fragment cannot come from anywhere else.
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = acceptingHandler();
   const srv = await startTestServer({
     env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
@@ -476,7 +477,6 @@ test('MALFORMED BODY CARRYING A SECRET: 400 invalid JSON body, and server.log ho
     assert.ok(!after.includes(PASTED), 'and it never carries the token');
   } finally {
     await srv.stop();
-    await ownStub.stop();
   }
 });
 

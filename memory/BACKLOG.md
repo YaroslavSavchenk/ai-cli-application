@@ -35,7 +35,7 @@ priority.
   `result: unknown`.
 - [ ] The `bodyThrew` teardown guard has no meta-test (a failing body's
   assertion surviving a settle timeout). Low value; fault-injected harness.
-- [ ] Planned as Q7 (`.claude/plans/PLAN-QUALITY.md`, 2026-10-13). **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
+- [x] LANDED as Q7 2026-10-13 (proved real; fixed by the exit guard `tests/helpers/exit-guard.ts`, not --test-force-exit, which loses results). **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
   leaves its in-process GitHub stub listening → the event loop never drains
   and `npm test` never returns (`--test-timeout` unset). Fix: unconditional
   `stub.stop()` in teardown and/or `--test-timeout` in the `test` script.

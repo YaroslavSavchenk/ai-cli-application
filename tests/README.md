@@ -120,6 +120,12 @@ their own server.
   `startTestServer` gives each child its own temp data dir
   (`AI_SM_DATA_DIR`); a test on the file system also sets
   `AI_SM_HOME_OVERRIDE` to a fixture home.
+- Stop every server, socket and child a test starts in `finally`/`after`
+  (`t.after(() => stub.stop())` right after it starts covers a throw before
+  the `try`). The npm scripts load `helpers/exit-guard.ts`: a file still
+  holding one 60 s after its tests and hooks is ended red, naming it — a
+  backstop against a hung run, not a licence to leak (an orphaned child
+  outlives it).
 - Kill only processes the test started, by PID. Never by name or pattern —
   the user's live app runs the same `node server/index.ts`.
 - A test is independent of order and of the other files: `node --test` runs

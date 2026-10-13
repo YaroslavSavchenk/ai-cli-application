@@ -454,9 +454,10 @@ test('after the whole connected surface: server.log NEVER contains the access to
 // Destructive: a 401 from the API invalidates the stored token (own server)
 // ---------------------------------------------------------------------------
 
-test('connected GET /api/github/repos: a 401 from the API invalidates the token -> 409, github.json deleted, status disconnected', async () => {
+test('connected GET /api/github/repos: a 401 from the API invalidates the token -> 409, github.json deleted, status disconnected', async (t) => {
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = () => ({ status: 401, body: { message: 'Bad credentials' } });
   const seeded = await seedConnectedDataDir('ai-sm-ghc-401-');
   const srv = await startTestServer({
@@ -486,7 +487,6 @@ test('connected GET /api/github/repos: a 401 from the API invalidates the token 
     assert.ok(!log.includes(SECRET), 'the log never contains the token');
   } finally {
     await srv.stop();
-    await ownStub.stop();
     await rm(seeded.root, { recursive: true, force: true });
   }
 });

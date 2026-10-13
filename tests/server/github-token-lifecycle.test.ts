@@ -66,12 +66,13 @@ test("GitHub unreachable -> 502 \"couldn't reach GitHub\" (nothing stored, nothi
   }
 });
 
-test('a 401 on a LATER call is distinguishable from "never connected" (V-4), and drops the credential either way', async () => {
+test('a 401 on a LATER call is distinguishable from "never connected" (V-4), and drops the credential either way', async (t) => {
   // Without this the UI can only show an unexplained flip to disconnected. The
   // 409 the app already answered for "not connected" is kept for that case; a
   // credential that STOPPED WORKING gets its own sentence.
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = acceptingHandler();
   const srv = await startTestServer({
     env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
@@ -105,7 +106,6 @@ test('a 401 on a LATER call is distinguishable from "never connected" (V-4), and
     assert.ok(!log.includes(PASTED));
   } finally {
     await srv.stop();
-    await ownStub.stop();
   }
 });
 
@@ -113,9 +113,10 @@ test('a 401 on a LATER call is distinguishable from "never connected" (V-4), and
 // 5. remember=false — the toggle that genuinely removes the on-disk copy
 // ---------------------------------------------------------------------------
 
-test('remember=false: nothing is written to github.json, the credential works, and a RESTART is disconnected', async () => {
+test('remember=false: nothing is written to github.json, the credential works, and a RESTART is disconnected', async (t) => {
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = acceptingHandler();
   const root = await makeTempDir('ai-sm-ghtok-mem-');
   const dataDir = join(root, 'data');
@@ -125,6 +126,10 @@ test('remember=false: nothing is written to github.json, the credential works, a
   // keeps the event loop alive, so `node --test` never exited — and left a temp
   // dir holding a github.json with the (stub) credential in it. Measured while
   // mutation-testing this file: a failing run hung until it was killed.
+  // The stub's stop is now the test's own after-hook (registered the moment it
+  // listens, so not even a throwing startTestServer() can skip it), and the
+  // exit guard (tests/helpers/exit-guard.ts, Q7) ends a leaky file red
+  // instead of letting it hang.
   try {
   const srv = await startTestServer({
     dataDir,
@@ -174,14 +179,14 @@ test('remember=false: nothing is written to github.json, the credential works, a
     await restarted.stop();
   }
   } finally {
-    await ownStub.stop();
     await removeTempDir(root);
   }
 });
 
-test('remember=false REPLACES a persisted credential and removes the older on-disk copy', async () => {
+test('remember=false REPLACES a persisted credential and removes the older on-disk copy', async (t) => {
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = acceptingHandler();
   const root = await makeTempDir('ai-sm-ghtok-replace-');
   const dataDir = join(root, 'data');
@@ -211,7 +216,6 @@ test('remember=false REPLACES a persisted credential and removes the older on-di
     );
   } finally {
     await srv.stop();
-    await ownStub.stop();
     await removeTempDir(root);
   }
 });

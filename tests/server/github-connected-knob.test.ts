@@ -45,9 +45,10 @@ import {
 // The knob itself: dormant without a client_id; refuses non-loopback values
 // ---------------------------------------------------------------------------
 
-test('no client_id + no credential: nothing is connected and ZERO calls reach the API (AI_SM_GITHUB_API_BASE cannot wake it)', async () => {
+test('no client_id + no credential: nothing is connected and ZERO calls reach the API (AI_SM_GITHUB_API_BASE cannot wake it)', async (t) => {
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = () => ({ status: 200, body: [rawRepo(1)] });
   const srv = await startTestServer({
     env: { AI_SM_GITHUB_CLIENT_ID: '', AI_SM_GITHUB_API_BASE: ownStub.origin },
@@ -72,11 +73,10 @@ test('no client_id + no credential: nothing is connected and ZERO calls reach th
     );
   } finally {
     await srv.stop();
-    await ownStub.stop();
   }
 });
 
-test('a STORED credential works with NO client_id — availability is decoupled from the OAuth App (2026-07-25)', async () => {
+test('a STORED credential works with NO client_id — availability is decoupled from the OAuth App (2026-07-25)', async (t) => {
   // This inverts the old "dormant without a client_id" expectation on purpose.
   // The pasted-token path exists precisely for a server with no OAuth App, and
   // the gate is the CREDENTIAL: `deviceFlowAvailable:false` must never disable
@@ -84,6 +84,7 @@ test('a STORED credential works with NO client_id — availability is decoupled 
   // situation it was built for.
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = () => ({ status: 200, body: [rawRepo(1)] });
   const seeded = await seedConnectedDataDir('ai-sm-ghc-nocid-');
   const srv = await startTestServer({
@@ -110,7 +111,6 @@ test('a STORED credential works with NO client_id — availability is decoupled 
     assert.ok(!JSON.stringify(repos.body).includes(SECRET));
   } finally {
     await srv.stop();
-    await ownStub.stop();
     await rm(seeded.root, { recursive: true, force: true });
   }
 });
@@ -241,9 +241,10 @@ test('AI_SM_GITHUB_API_BASE with embedded credentials: refused, and the credenti
   }
 });
 
-test('AI_SM_GITHUB_API_BASE loopback forms are accepted and logged as an override', async () => {
+test('AI_SM_GITHUB_API_BASE loopback forms are accepted and logged as an override', async (t) => {
   const ownStub = new StubApi();
   await ownStub.start();
+  t.after(() => ownStub.stop());
   ownStub.handler = () => ({ status: 200, body: [rawRepo(7)] });
   const port = new URL(ownStub.origin).port;
   const seeded = await seedConnectedDataDir('ai-sm-ghc-loopback-');
@@ -272,7 +273,6 @@ test('AI_SM_GITHUB_API_BASE loopback forms are accepted and logged as an overrid
     assert.ok(!log.includes(SECRET), 'the log never contains the token');
   } finally {
     await srv.stop();
-    await ownStub.stop();
     await rm(seeded.root, { recursive: true, force: true });
   }
 });

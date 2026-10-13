@@ -17,7 +17,7 @@ Status: see the table below (updated 2026-10-13, Q5–Q8 added). Conventions: `.
 | P5 | Tab switch without a replay: inactive tabs stay alive, at most 12 live terminals, least recently seen tab falls back | landed | — | 2026-09-23 |
 | Q5 | `server/index.ts` (994 of 1 000 lines) split: the construction and wiring block into its own `server/index-<topic>.ts` | todo | — | — |
 | Q6 | The Windows host in files of at most 1 000 lines, and the size guard measures everything under `launcher/` | todo | `.claude/plans/quality/PLAN-Q6.md` | — |
-| Q7 | The suite always returns: a failing test cannot leave a listening stub that keeps `npm test` alive | todo | — | — |
+| Q7 | The suite always returns: a failing test cannot leave a listening stub that keeps `npm test` alive | landed | — | 2026-10-13 |
 | Q8 | Every data-dir reader opens its file the FIFO-safe way (`readSmallRegularFile`) | todo | — | — |
 
 ## Resume here
