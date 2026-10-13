@@ -191,7 +191,7 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
 - **In-app update** (user's call 2026-09-09: a notification and ONE
   button). Installed mode only (a clone or `0.0.0*` bundle makes no
   request, `422`). Check (`server/update-release.ts`): 20 s after listen,
-  then 6 h; one GET to GitHub `releases/latest` with ETag, no credentials,
+  then hourly (6 h until 2026-10-13); one GET to GitHub `releases/latest` with ETag, no credentials,
   15 s timeout, 1 MiB body cap; drafts and prereleases skipped, the tag must
   match the version shape; asset names and URLs must EQUAL what the backend
   constructs; ≤ 200 MiB;

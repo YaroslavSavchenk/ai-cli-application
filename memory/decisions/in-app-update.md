@@ -96,7 +96,7 @@ Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condens
   clone-based app had with "New version available → Restart"), phase E.**
   Installed mode only; a developer clone and a `0.0.0*` bundle make no
   outbound request and answer `422` on `POST /api/update`. **Check**
-  (`server/update-release.ts`): 20 s after `listen`, then every 6 h (15 min
+  (`server/update-release.ts`): 20 s after `listen`, then every hour (6 h until 2026-10-13, user: "maak het elk uur") (15 min
   backoff × 3 on failure; never in a standby child), one GET to
   `api.github.com/repos/<owner>/<repo>/releases/latest` with ETag /
   `If-None-Match`, no credentials, 15 s timeout, 1 MiB body cap; the release

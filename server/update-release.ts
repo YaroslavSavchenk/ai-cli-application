@@ -4,7 +4,7 @@
  * Decided in `memory/decisions/in-app-update.md` (user: a notification and ONE
  * button, like other apps). This module owns the ONLINE half of the update
  * signal: one anonymous GET to `api.github.com/repos/<owner>/<repo>/releases/
- * latest`, at boot and every six hours, ETag-cached, rate-limit aware, and
+ * latest`, at boot and every hour, ETag-cached, rate-limit aware, and
  * silent on every failure. Its answer feeds `GET /api/runtime`'s `update`
  * member as `{ available: true, reason: 'a new version is available', release }`
  * — and the INSTALLED-ON-DISK signal from server/bundle.ts always wins over it
@@ -77,8 +77,8 @@ export const MAX_RELEASE_BODY_BYTES = 1024 * 1024;
 export const MAX_SETUP_BYTES = 200 * 1024 * 1024;
 /** First check after `listen` — WSL often has no network the instant Windows boots. */
 export const FIRST_CHECK_MS = 20_000;
-/** Steady-state cadence. */
-export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** Steady-state cadence: hourly (user, 2026-10-13 — six hours left a fresh release unseen for most of a day). */
+export const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** After a failure: three short retries before falling back to the normal cadence. */
 export const BACKOFF_MS = 15 * 60 * 1000;
 export const MAX_BACKOFFS = 3;

@@ -76,6 +76,7 @@ import { STANDBY_TIMEOUT_MS } from './restart.ts';
 import { commitFrontend, discardFrontend } from './webbuild.ts';
 import { createRestartController } from './index-restart.ts';
 import {
+  CHECK_INTERVAL_MS,
   composeUpdateStatus,
   createReleaseChecker,
   releaseCheckSupported,
@@ -494,7 +495,7 @@ function updateEnvMs(name: string, fallback: number): number | undefined {
   return value;
 }
 const firstCheckMs = updateEnvMs('AI_SM_UPDATE_FIRST_MS', 20_000);
-const checkIntervalMs = updateEnvMs('AI_SM_UPDATE_INTERVAL_MS', 6 * 60 * 60 * 1000);
+const checkIntervalMs = updateEnvMs('AI_SM_UPDATE_INTERVAL_MS', CHECK_INTERVAL_MS);
 
 /**
  * The periodic release check. Built ONLY for an installed bundle whose version
