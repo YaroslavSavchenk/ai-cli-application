@@ -35,7 +35,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | C1 | Peek mascot (phase 1 of 4 landed 2026-09-15; decisions 12–16 settled 2026-09-22) | verified | `.claude/plans/nocturne/PLAN-C1.md` | 2026-09-22 |
 | B13 | Rename files and folders in the Files panel (user: before the v0.4.0 release) | verified | `.claude/plans/nocturne/PLAN-B13.md` | 2026-09-23 |
 | C2 | Mascot waits while background subagents / workflows run, comes for Claude's questions; the pane readout follows the same rule | verified | `.claude/plans/nocturne/PLAN-C2.md` | 2026-09-27 |
-| D1 | Project preferences that work and can be edited (Edit in the project row), the full Claude model pool with Older models | landed | `.claude/plans/nocturne/PLAN-D1.md` | 2026-10-13 |
+| D1 | Project preferences that work and can be edited (Edit in the project row), the full Claude model pool with Older models | verified | `.claude/plans/nocturne/PLAN-D1.md` | 2026-10-13 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side

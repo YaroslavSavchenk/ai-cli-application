@@ -79,6 +79,7 @@ Master plans:
 - `PLAN-RESTRUCTURE.md` — the repo's own restructure and optimisation, in batches; the user starts it with "begin aan de optimalisatie" (never an app part — see its `## Resume here`)
 - `PLAN-QUALITY.md` — code quality first (Q0 `CONTRIBUTING.md` + guards, duplicates, test waits, the watcher race, split leftovers), then the app's speed (P0 measures, the user picks); the user starts it with "begin aan de kwaliteit"
 - `RELEASE-NOTES-v0.4.0-draft.md` — finalised in Nocturne part B8
+- `RELEASE-NOTES-v0.4.1-draft.md` — the mascot fix + C2, the quality track's speed parts, D1
 
 Part specs, `nocturne/`:
 

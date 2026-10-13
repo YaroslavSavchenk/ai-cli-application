@@ -39,5 +39,11 @@ older ones in an "Older models" group. Decisions: [[d1-project-prefs-and-model-p
   7 tests → 0. Survivors worth remembering: regex `/m` flag let
   `opus\n--x` pass; an empty "Older models" group on every other select;
   a Codex pick froze Claude's model.
-- Suite 3981 → 3994 green. DEV check with the user pending; merge to `main`
-  after.
+- Suite 3981 → 3994 green.
+
+## Verdict + release
+
+User after the DEV check: "done shit it, maak hier een release van" →
+fast-forward to `main`, CI + CodeQL, release v0.4.1 (notes
+`.claude/plans/RELEASE-NOTES-v0.4.1-draft.md`: mascot fix + C2, P1–P5 speed,
+D1).

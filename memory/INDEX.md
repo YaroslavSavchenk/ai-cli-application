@@ -120,7 +120,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
-- [[2026-10-13-d1-project-prefs-models]] — D1: defaults resolved only at dialog open (wrong project) + no edit path → PATCH /api/projects/:id, Edit dialog, re-resolve on switch, versioned model pool with Older models; 86 mutants killed; suite 3994; DEV check pending
+- [[2026-10-13-d1-project-prefs-models]] — D1: defaults resolved only at dialog open (wrong project) + no edit path → PATCH /api/projects/:id, Edit dialog, re-resolve on switch, versioned model pool with Older models; 86 mutants killed; suite 3994; user-verified, shipped in v0.4.1
 
 ### 2026-09
 
