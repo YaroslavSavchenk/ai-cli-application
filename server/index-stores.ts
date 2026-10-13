@@ -38,6 +38,8 @@ interface StoresWiring {
   serverDir: string;
   /** A standby waiting for `go` must not touch the data dir (see index.ts). */
   standbyWaiting: boolean;
+  /** The probed Claude Code version, for the early-exit log line (Nocturne D6, index-claude.ts). */
+  claudeVersion: () => string | null;
 }
 
 interface Stores {
@@ -55,7 +57,13 @@ interface Stores {
   resetUpdateArtifacts: () => void;
 }
 
-export function createStores({ log, paths, serverDir, standbyWaiting }: StoresWiring): Stores {
+export function createStores({
+  log,
+  paths,
+  serverDir,
+  standbyWaiting,
+  claudeVersion,
+}: StoresWiring): Stores {
   const projects = new ProjectStore(paths.projectsFile, log);
   const prefs = new PrefsStore(paths.prefsFile, log);
   const history = new SessionHistory(paths.historyFile, log);
@@ -126,7 +134,7 @@ export function createStores({ log, paths, serverDir, standbyWaiting }: StoresWi
    */
   const titleIdleSince = (id: string): number | undefined => sessions.titleIdleSince(id);
   const agents = new AgentsWatcher(log, { projectsRoot: paths.claudeProjectsDir, titleIdleSince });
-  const sessions = new SessionManager(log, history, sessionSettings, keys, agents);
+  const sessions = new SessionManager(log, history, sessionSettings, keys, agents, claudeVersion);
   /**
    * The status-line snapshots the script writes for each claude session, back
    * into SessionInfo.telemetry (and from there to every attached client as the

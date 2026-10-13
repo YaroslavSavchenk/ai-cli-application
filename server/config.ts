@@ -15,6 +15,9 @@
  * a detached process has. Past MAX_LOG_BYTES the file rotates through two
  * generations (server.log.1, server.log.2).
  *
+ * Also the one home of `runCapture` (Nocturne D6): run a helper program and
+ * read its short stdout — argv only, never a shell, bounded, killed on timeout.
+ *
  * NOTHING SECRET GOES IN THE LOG: not the auth token, not the GitHub token, not
  * request bodies, not Authorization headers, not query-string values, not PTY
  * input/output. 0600 is not the protection (it does not hold against the
@@ -36,6 +39,7 @@ import {
   statSync,
   truncateSync,
 } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -818,4 +822,69 @@ export function isDirectory(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+export interface RunCaptureOptions {
+  /** SIGKILL after this many ms (default 15 s); the promise then rejects `timed out`. */
+  timeoutMs?: number;
+  /** The child's environment; default this process's own. */
+  env?: Record<string, string | undefined>;
+  /** Stdout bytes kept; the rest is read and discarded (default RUN_CAPTURE_MAX_BYTES). */
+  maxBytes?: number;
+}
+
+/** Default stdout cap of runCapture: these helpers answer one short line. */
+const RUN_CAPTURE_MAX_BYTES = 4096;
+
+/**
+ * Run `command` with `args` and resolve its stdout (at most `maxBytes`,
+ * UTF-8) when it exits 0. ARGV ONLY, `shell: false`: no value is ever parsed
+ * by a shell. Stdin and stderr are ignored. Rejects with a short plain
+ * `Error` whose message the caller may log — `timed out`, `could not be
+ * started` or `exited with code <n>` — never the output.
+ *
+ * Moved from server/update-install.ts (Nocturne D6) so the Windows interop
+ * probes and the `claude --version` probe (server/claude-version.ts) share
+ * one bounded spawn. The timer is unref'd: a probe never holds the process.
+ */
+export function runCapture(
+  command: string,
+  args: string[],
+  opts: RunCaptureOptions = {},
+): Promise<string> {
+  const maxBytes = opts.maxBytes ?? RUN_CAPTURE_MAX_BYTES;
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      shell: false,
+      ...(opts.env === undefined ? {} : { env: opts.env }),
+    });
+    const chunks: Buffer[] = [];
+    let kept = 0;
+    let done = false;
+    const finish = (err?: Error): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (err !== undefined) reject(err);
+      else resolve(Buffer.concat(chunks).toString('utf8'));
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Already gone.
+      }
+      finish(new Error('timed out'));
+    }, opts.timeoutMs ?? 15_000);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.stdout?.on('data', (chunk: Buffer) => {
+      if (kept >= maxBytes) return;
+      const part = chunk.subarray(0, maxBytes - kept);
+      chunks.push(part);
+      kept += part.byteLength;
+    });
+    child.on('error', () => finish(new Error('could not be started')));
+    child.on('close', (code) => finish(code === 0 ? undefined : new Error(`exited with code ${code}`)));
+  });
 }

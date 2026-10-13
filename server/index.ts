@@ -25,6 +25,7 @@
  * called at the point it ran from: index-banner.ts (the boot banner),
  * index-stores.ts (stores and watchers), index-update.ts (update checks and
  * the updater), index-restart.ts (the restart wiring); split O8 and Quality Q5.
+ * index-claude.ts (the Claude Code version watch, Nocturne D6).
  *
  * Runs directly on Node 24 native type stripping: erasable syntax only,
  * relative imports carry explicit .ts extensions.
@@ -64,6 +65,7 @@ import { logBootBanner, logWebBuild } from './index-banner.ts';
 import { createStores } from './index-stores.ts';
 import { createUpdateWiring } from './index-update.ts';
 import { createRestartController } from './index-restart.ts';
+import { createClaudeWiring } from './index-claude.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -167,6 +169,11 @@ logBootBanner(boot, {
 });
 if (!standbyWaiting) logWebBuild(boot, webBuild);
 
+// The Claude Code version watch and the /api/tools probe that re-checks it
+// (Nocturne D6): server/index-claude.ts. Spawns nothing here; the probe starts
+// in the `listening` handler so it never delays boot.
+const { claude, tools } = createClaudeWiring({ log, installed });
+
 // The stores and watchers, and the wipe of what no run may inherit (deferred to
 // `go` in a standby): server/index-stores.ts (Quality Q5 split, 2026-10-13).
 const {
@@ -180,7 +187,7 @@ const {
   github,
   resetSessionArtifacts,
   resetUpdateArtifacts,
-} = createStores({ log, paths, serverDir, standbyWaiting });
+} = createStores({ log, paths, serverDir, standbyWaiting, claudeVersion: () => claude.version() });
 /**
  * Absolute ceiling on deferring the idle shutdown for an install: the download
  * budget (15 min) plus the Setup budget (15 min) plus a minute of slack. The
@@ -263,6 +270,8 @@ const apiDeps: ApiDeps = {
   history,
   github,
   keys,
+  tools,
+  claude: () => claude.status(),
   webDistDir,
   serverCommit,
   serverVersion: bundle?.version ?? null,
@@ -399,6 +408,10 @@ server.on('listening', () => {
   // the instant Windows boots), and a standby child never reaches this handler
   // before its `go`, so a waiting standby asks GitHub nothing.
   releaseChecker?.start();
+  // Nocturne D6: after listen, never awaited — /health and the first page load
+  // do not wait for `claude --version`; GET /api/runtime says `unknown` until it
+  // answers and the UI's 30 s poll picks the answer up.
+  void claude.start();
 });
 
 server.on('error', (err) => {
@@ -535,6 +548,7 @@ function shutdown(cause: string): void {
   telemetry.stop();
   agents.stop();
   releaseChecker?.stop();
+  claude.stop();
   polls.stop();
   // A frontend build in flight is this process's child: it must not outlive us
   // writing into web/dist-next, and its half-written output goes with it.

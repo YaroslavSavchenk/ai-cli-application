@@ -141,7 +141,7 @@ registerHooks({
 });
 
 interface UpdateModule {
-  initUpdate(modalHost: unknown): { pill: unknown };
+  initUpdate(modalHost: unknown): { pill: unknown; toasts: unknown };
   openRestartConfirm(source?: 'settings' | 'settings-update' | 'pill' | 'toast'): void;
   closeRestartConfirm(): void;
   isRestartConfirmOpen(): boolean;
@@ -165,7 +165,9 @@ UP.initUpdate(modalHost);
 /** The confirmation's scrim: the last thing initUpdate appended. */
 const scrim = modalHost.children[modalHost.children.length - 1] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
-const toast = modalHost.children[modalHost.children.length - 2] as FakeElement;
+/** The toast: the first card in the toast slot (D6 made the slot a stack). */
+const toastStack = modalHost.children[modalHost.children.length - 2] as FakeElement;
+const toast = toastStack.children[0] as FakeElement;
 
 const texts = (cls: string): string[] => byClass(modal, cls).map((n) => n.textContent);
 /** The footer button whose label is this, whatever its state. */
@@ -216,6 +218,7 @@ function reset(): void {
 // ===========================================================================
 
 test('non-vacuity: initUpdate built the toast and the confirmation, both closed', () => {
+  assert.equal(toastStack.className, 'ut-stack');
   assert.equal(toast.className, 'ut-toast');
   assert.equal(toast.hidden, true);
   assert.equal(scrim.className, 'modal-scrim rs-scrim');

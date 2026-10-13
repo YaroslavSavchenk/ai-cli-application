@@ -19,13 +19,26 @@ import { SessionHistory } from '../../server/history.ts';
 import { api, startTestServer, waitUntil, type TestServer, makeTempDir } from './helpers.ts';
 
 /**
+ * The first lines of every `claude` double: the backend runs `claude --version`
+ * once after listen (Nocturne D6, server/claude-version.ts), and a double
+ * answers it with `$AI_SM_TEST_CLAUDE_VERSION` (default `2.1.287 (Claude
+ * Code)`) and exits 0 — BEFORE recording anything, so the probe is never
+ * counted as a launch.
+ */
+export const CLAUDE_DOUBLE_VERSION = `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' "\${AI_SM_TEST_CLAUDE_VERSION:-2.1.287 (Claude Code)}"
+  exit 0
+fi
+`;
+
+/**
  * A `claude` test double resolved via PATH. Records the argv it was called with
  * as `$AI_SM_TEST_SHIM_OUT/argv-<n>` (n = 1, 2, ... in launch order) and then
  * sleeps, so the session stays 'running' until the test ends it. The launches
  * in this file are strictly sequential, so the numbering never races.
  */
-export const CLAUDE_DOUBLE = `#!/bin/sh
-out="$AI_SM_TEST_SHIM_OUT"
+export const CLAUDE_DOUBLE = `${CLAUDE_DOUBLE_VERSION}out="$AI_SM_TEST_SHIM_OUT"
 i=1
 while [ -e "$out/argv-$i" ]; do i=$((i+1)); done
 : > "$out/argv-$i.part"

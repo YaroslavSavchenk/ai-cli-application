@@ -247,7 +247,9 @@ test('every existing wire is still in the panel (A7 is a restyle, not a rewrite)
     // B6 (D4): the check asks the backend instead of opening a release page,
     // and the Keyboard page draws ui/shortcuts-rows.ts instead of linking to
     // the overlay — so those two wires are the ones below, not the old pair.
-    ['api.checkForUpdates()', 'Check for updates'],
+    // D6 moved the check itself to ui/update-check.ts, shared with the Claude
+    // Code notice; the page wires the one exported check.
+    ['runUpdateCheck(checkHooks)', 'Check for updates'],
     ["openRestartConfirm('settings')", 'the restart confirmation'],
     ["from './shortcuts-rows.ts'", 'the one keyboard table'],
     ['statusLineDefaults()', 'Reset to defaults'],

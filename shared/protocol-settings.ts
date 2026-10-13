@@ -19,7 +19,9 @@
 //   bag, so a future user-gated settings panel can add keys without a
 //   server-side schema change. The one exception (Nocturne C1): `mascot`,
 //   when present, must be exactly `{ enabled: boolean }` or the PUT is 400
-//   (validMascotPref in server/api.ts). Auth like every other /api route.
+//   (validMascotPref in server/api-app.ts). And `claudeNoticeHidden`
+//   (Nocturne D6), when not exactly an `X.Y.Z`, is dropped
+//   before the bag is stored. Auth like every other /api route.
 //
 // ONE READER exists outside the API (added 2026-07-26): server/statusline.mjs
 // — the script Claude Code runs to draw its native status line — READS
@@ -123,9 +125,9 @@ export interface UiStatusLine {
  * preserved verbatim on PUT — merge-on-write (read the bag, replace only the
  * touched key, PUT the whole thing back) happens client-side, see
  * web/src/ui/theme.ts. The HTTP layer never interprets the bag beyond the
- * shape check on `mascot` (C1); the one consumer of `statusLine` is
- * server/statusline.mjs, which reads the file directly (see the note above
- * this section).
+ * shape check on `mascot` (C1) and the `claudeNoticeHidden` drop (D6); the
+ * one consumer of `statusLine` is server/statusline.mjs, which reads the file
+ * directly (see the note above this section).
  */
 export interface UiPrefs {
   theme?: UiTheme;
@@ -133,6 +135,13 @@ export interface UiPrefs {
   behaviour?: UiBehaviour;
   tools?: UiTools;
   mascot?: UiMascot;
+  /**
+   * Nocturne D6: the Claude Code version (`X.Y.Z`) whose out-of-range notice
+   * the user hid; the notice shows again for any other version. The server
+   * DROPS the key on PUT /api/prefs unless it is exactly `X.Y.Z`
+   * (CLAUDE_VERSION_SHAPE in shared/claude-compat.ts; server/api-app.ts).
+   */
+  claudeNoticeHidden?: string;
   [key: string]: unknown;
 }
 

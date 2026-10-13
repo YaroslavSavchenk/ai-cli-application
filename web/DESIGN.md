@@ -222,7 +222,12 @@ you can read is the point; focus is the accent ring.
   twins: Ctrl+Alt+Shift+arrows and `Own tab`.
 - **Banner** under the header when the session finished (`Finished, code
   N`, `Start it again`, `End session` armed the same way) or is gone from
-  the server (`Close pane`). The buffer below stays readable.
+  the server (`Close pane`). The buffer below stays readable. A Claude
+  launch that died right after it started (D6) leads with `Claude Code
+  stopped right after it started:` and then Claude Code's own first output
+  line as text in mono (`.pane-note-line`, one line, ellipsis, the full
+  line in `title`); with no line, the lead alone without the colon. Same
+  two buttons.
 - **Terminal** on the terminal ground (`--term-bg`, themed — see Terminal
   colours).
 - **Status bar** under the terminal (B1): label + mono value pairs that
@@ -317,6 +322,11 @@ the outlined danger button; the primary is the accent outline.
 - **Shortcuts overlay**, **delete** and **drop** dialogs, the unsaved-text
   question, the restart confirmation, the update toast and the boot overlay
   all wear the same language.
+- **Claude Code notice** (`ui/claude-notice.ts`, D6): a second card in the
+  update toast's stack (`ut-stack`), under the update toast when both show.
+  Same card; the left rule is danger for a Claude Code older than the app
+  needs, attention for one newer than tested. One action, `Check for
+  updates` (the shared check, `ui/update-check.ts`), plus × and `Hide`.
 
 ### GitHub credential input — binding (design gate, `ui/github.ts`)
 
@@ -350,8 +360,8 @@ A modal with a left nav of five pages, all live:
 - **Keyboard** — the whole shortcuts table, drawn from the same rows as the
   overlay (`ui/shortcuts-rows.ts`).
 - **Terminal colours** — see below.
-- **Background service** — version, uptime, `Check for updates`, `Restart
-  service`.
+- **Background service** — version, uptime, the Claude Code version
+  against the tested range (D6), `Check for updates`, `Restart service`.
 
 ## Terminal colours (B9)
 

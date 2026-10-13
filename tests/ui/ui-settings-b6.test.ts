@@ -50,7 +50,8 @@ const dom = installDom();
 
 interface Harness {
   installed: boolean;
-  facts: { runningFor: string; version: string };
+  /** runtimeFacts(); `claude` null = no Claude Code fact (D6). */
+  facts: { runningFor: string; version: string; claude: string | null };
   prefs: UiPrefs;
   writes: { patch: UiPrefs; dead: readonly string[] }[];
   /** When set, the NEXT updatePrefs rejects with it (one write, one failure). */
@@ -76,7 +77,7 @@ interface Harness {
 
 const H: Harness = {
   installed: true,
-  facts: { runningFor: '2h 15m', version: '0.4.0' },
+  facts: { runningFor: '2h 15m', version: '0.4.0', claude: null },
   prefs: {},
   writes: [],
   nextWriteError: null,
@@ -133,7 +134,8 @@ const STUB_SRC: Record<string, string> = {
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (/\/web\/src\/ui\/settings(?:-apikeys|-service)?\.ts$/.test(context.parentURL ?? '')) {
+    // update-check.ts (D6) is the Settings page's check, moved: the same stubs.
+    if (/\/web\/src\/ui\/(?:settings(?:-apikeys|-service)?|update-check)\.ts$/.test(context.parentURL ?? '')) {
       const m = /^(?:\.\.\/(api|state|log)|\.\/(update))\.ts$/.exec(specifier);
       const name = m?.[1] ?? m?.[2];
       if (name !== undefined) return { url: `b6-stub:${name}`, shortCircuit: true };

@@ -218,17 +218,28 @@
   background: var(--color-attn-tint);
 }
 
-/* the toast (Nocturne A8): bottom-right, above the tab strip and the
-   statusline, where no pane content and no tab lives. A surface card on the
-   dialog grammar — 1px edge, radius-md, the popover shadow — with ONE
-   attention mark: the 2px left rule. The card is never amber; the hue states
-   the kind of news, the words state the news. */
-.ut-toast {
+/* the toast slot (D6): bottom-right, above the tab strip and the statusline,
+   where no pane content and no tab lives. A column, so a second card stacks
+   under the first: the update toast, then the Claude Code notice. The slot
+   itself has no box — an empty stack catches no clicks. */
+.ut-stack {
   position: fixed;
   right: var(--space-6);
   bottom: var(--toast-bottom);
   z-index: var(--z-toast);
   width: var(--toast-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  pointer-events: none;
+}
+
+/* the toast (Nocturne A8): a surface card on the dialog grammar — 1px edge,
+   radius-md, the popover shadow — with ONE attention mark: the 2px left rule.
+   The card is never amber; the hue states the kind of news, the words state
+   the news. */
+.ut-toast {
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -239,6 +250,13 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   animation: fadeUp var(--t-fade) ease;
+}
+
+/* the Claude Code notice when the installed version is OLDER than the app
+   needs (D6): its launches will fail, so the one mark is the danger hue. A
+   newer-than-tested one keeps the attention rule — it may well work. */
+.ut-toast.is-danger {
+  border-left-color: var(--color-danger);
 }
 
 @media (prefers-reduced-motion: reduce) {

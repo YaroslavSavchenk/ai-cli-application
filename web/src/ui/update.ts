@@ -92,6 +92,7 @@ import {
   type UpdatePhase,
 } from './update-flow.ts';
 import { openReleasesPage } from './releases.ts';
+import { claudeFact } from './claude-notice-model.ts';
 import {
   MSG_OTHER_PORT,
   OTHER_PORT_WAIT_MS,
@@ -193,7 +194,7 @@ export function applyRuntime(): void {
   ctl?.applyRuntime();
 }
 
-export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
+export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts: HTMLElement } {
   const notice = new UpdateNotice();
 
   // ---- topbar pill ---------------------------------------------------------
@@ -215,6 +216,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   pill.setAttribute('aria-haspopup', 'dialog');
 
   // ---- toast ---------------------------------------------------------------
+  // The toast SLOT is a stack (D6): the Claude Code notice
+  // (`./claude-notice.ts`) is appended after this toast, so when both show the
+  // update comes first and the notice sits under it, one corner, one column.
+  const toasts = el('div', 'ut-stack');
   const toast = el('div', 'ut-toast');
   toast.hidden = true;
   toast.setAttribute('role', 'status');
@@ -235,7 +240,8 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   });
   toastActions.append(button('btn-quiet', COPY.toastLater, () => dismissToast()), toastGo);
   toast.append(toastHd, toastBody, toastReason, toastActions);
-  modalHost.append(toast);
+  toasts.append(toast);
+  modalHost.append(toasts);
 
   // ---- confirmation dialog -------------------------------------------------
   // `modal-scrim` stays on the scrim: ui/keys.ts recognises an open dialog by
@@ -828,12 +834,13 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
   // One call, at boot: a reload in the middle of an install lands back on the
   // progress it left rather than on a fresh question.
   void adoptInFlight();
-  return { pill };
+  return { pill, toasts };
 }
 
 /**
- * The settings panel's two readouts, in one place so the panel does not have to
- * know how a missing value is written. `running for 3 h 41 min` · `version a1b2c3d`.
+ * The settings panel's readouts, in one place so the panel does not have to
+ * know how a missing value is written: `running for 3 h 41 min`, `version
+ * a1b2c3d`, and since D6 the Claude Code fact (null = no fact to show).
  *
  * The version fact answers "which app is running", and that has two honest
  * forms: an INSTALLED backend knows its bundle version (`v0.2.0`) and says so;
@@ -841,9 +848,14 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement } {
  * it was started from. The commit is the fallback, never a second line — one
  * fact, one slot — and the empty glyph when neither is known.
  */
-export function runtimeFacts(now: number = Date.now()): { runningFor: string; version: string } {
+export function runtimeFacts(now: number = Date.now()): {
+  runningFor: string;
+  version: string;
+  claude: string | null;
+} {
   return {
     runningFor: fmtRunningFor(st.state.serverStartedAt, now),
     version: versionFact(st.state.version, st.state.serverCommit),
+    claude: claudeFact(st.state.claude),
   };
 }

@@ -188,6 +188,7 @@ app window first so one backend at a time owns runtime.json.
 
 ## From the quality track (2026-09-23, [[2026-09-23-quality-p1-p4]])
 
+- [ ] (user) After a dialog opened by a MOUSE click closes (e.g. Settings via the gear), the keyboard returns to the opener (the gear), not the terminal — correct per D4 (opener still on the page), but typing right after goes nowhere. Prefer the terminal for mouse-opened dialogs too? (verify-terminal, 2026-10-13)
 - [ ] Flake seen once under full-suite load (2026-10-13, Q5 landing run): `tests/server/statusline-script.test.ts` "a POISONED cache entry is sanitized ON READ …" failed in 62 ms; 3/3 green alone. Next occurrence: capture the assertion message.
 - [ ] (user) A claude session with no `--permission-mode` (pre-D5 history resumes, custom launches) still reads `always ask` in the status line although Claude Code may run in auto mode (`server/session-settings.ts` `parsePermissionMode`, absence → `default`). Show it as unknown instead? Changes the readout's meaning.
 - [ ] **Replay of very long lines**: `replayTail` counts `\n`, so output of
@@ -211,7 +212,7 @@ silently: a launch that exits at once, a history entry that never resumes,
 a statusline that stays empty. The user wants this VISIBLE in the app, not
 buried in `server.log`.
 
-- [ ] Planned as D6 (`.claude/plans/nocturne/PLAN-D6.md`, 2026-10-13; the user's two questions below answered there). **Version probe at boot**: run `claude --version` once (argv, no
+- [x] LANDED as D6 2026-10-13 (probe, notice, early-exit banner, release-notes pin; [[d6-claude-code-compat-guard]]). **Version probe at boot**: run `claude --version` once (argv, no
   shell), cache it in `GET /api/runtime` (`claudeVersion`, null when the
   binary is missing), compare against a `SUPPORTED_CLAUDE` range baked
   into the build (minimum = the verified floor; maximum = the newest

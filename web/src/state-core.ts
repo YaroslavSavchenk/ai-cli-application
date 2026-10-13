@@ -11,6 +11,7 @@
  * panel, the commit view, connection readouts). `state.ts` re-exports them all.
  */
 import type { HistoryEntry, Project, SessionInfo, UpdateStatus } from '../../shared/protocol.ts';
+import type { ClaudeStatus } from '../../shared/protocol-runtime.ts';
 
 
 export type Layout = 1 | 2 | 3 | 4;
@@ -261,6 +262,12 @@ interface AppState {
    */
   update: UpdateStatus | null;
   /**
+   * The Claude Code the backend's sessions launch (Nocturne D6), from GET
+   * /api/runtime; null until fetched. `compat` is the server's verdict and is
+   * read as it stands — the browser never re-derives it from the version.
+   */
+  claude: ClaudeStatus | null;
+  /**
    * A backend restart requested from this page is in flight. It is the app's
    * "expect the server to vanish" flag: while it is true the session poll,
    * the runtime poll, both WebSocket reconnect loops and the fatal-on-401
@@ -302,6 +309,7 @@ export const state: AppState = {
   version: null,
   installed: false,
   update: null,
+  claude: null,
   restarting: false,
   backendReachable: true,
 };

@@ -3,7 +3,9 @@
  * scrollback ring buffer, the tail of it an attach replays (PLAN-QUALITY P1),
  * the scan for a REAL bell (not an OSC terminator) and — Nocturne C2's
  * DEV-check fix — for Claude Code's idle window title, and the rescue of a
- * session's final output from the pty master before node-pty closes it.
+ * session's final output from the pty master before node-pty closes it —
+ * and, Nocturne D6, the early-exit verdict and the first line it reads
+ * (`earlyExitLine`, `firstOutputLine`).
  *
  * Split from server/sessions.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
  * byte-exact; server/sessions.ts re-exports what was public. Sibling pieces:
@@ -14,6 +16,8 @@ import { fstatSync, readSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import type * as pty from 'node-pty';
 import type { Logger } from './config.ts';
+import { clean } from './sanitise.ts';
+import { EARLY_EXIT_LINE_MAX, EARLY_EXIT_MS } from '../shared/protocol.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
 export const SCROLLBACK_MAX_BYTES = 1024 * 1024;
@@ -71,6 +75,23 @@ export class RingBuffer {
   toString(): string {
     return this.toBuffer().toString('utf8');
   }
+
+  /**
+   * At most the first `maxBytes` the ring still holds, oldest first, copying
+   * only the chunks that reach into them (Nocturne D6: an early exit reads
+   * what the program said first, never the whole 1 MiB).
+   */
+  head(maxBytes: number): Buffer {
+    const parts: Buffer[] = [];
+    let taken = 0;
+    for (const chunk of this.#chunks) {
+      if (taken >= maxBytes) break;
+      const part = chunk.subarray(0, maxBytes - taken);
+      parts.push(part);
+      taken += part.byteLength;
+    }
+    return Buffer.concat(parts);
+  }
 }
 
 /**
@@ -110,6 +131,66 @@ export function replayTail(ring: Buffer, maxLines: number): Buffer {
     pos = nl;
   }
   return ring.subarray(pos + 1);
+}
+
+/** How much of the ring's head an early exit reads for its first line (Nocturne D6). */
+const EARLY_EXIT_HEAD_BYTES = 16 * 1024;
+
+/**
+ * Bidirectional formatting characters — LRM/RLM, ALM, the embeddings and
+ * overrides U+202A–202E, the isolates U+2066–2069. `clean` keeps them (they
+ * are not C0/C1), yet one of them in a line reorders what follows it on
+ * screen and in a log viewer, so the text a user reads is not the text that
+ * was printed (the "Trojan Source" trick). Untrusted program output never
+ * carries them into a banner, a runtime field or server.log.
+ */
+const BIDI_CONTROLS = /[؜‎‏‪-‮⁦-⁩]/g;
+
+/**
+ * Terminal escape sequences, whole: CSI (`ESC [` … final byte), OSC and the
+ * other string controls DCS/SOS/PM/APC (`ESC ] P X ^ _` … BEL or ST, or
+ * unterminated to the end), a charset designation (`ESC ( B`), and any other
+ * two-byte `ESC x`.
+ */
+const ESCAPE_SEQUENCE =
+  /\u001b\[[0-?]*[ -/]*[@-~]|\u001b[\]PX^_][\s\S]*?(?:\u0007|\u001b\\|$)|\u001b[()*+][\s\S]?|\u001b[\s\S]?/g;
+
+/**
+ * The first non-empty line of program output, as plain text a log line and a
+ * pane banner may carry (Nocturne D6, PLAN-D6.md § Defaults): escape sequences
+ * removed, then every bidi control (BIDI_CONTROLS) and every remaining control
+ * character (server/sanitise.ts `clean`) — a line ends at `\r` as well as
+ * `\n`, as a terminal draws it — at most `max` characters, '' when there is no
+ * such line. Also the raw-text path of the `claude --version` probe.
+ */
+export function firstOutputLine(output: string, max: number): string {
+  const plain = output.replace(ESCAPE_SEQUENCE, '').replace(BIDI_CONTROLS, '');
+  for (const line of plain.split(/\r\n|\r|\n/)) {
+    const text = clean(line, max);
+    if (text !== '') return text;
+  }
+  return '';
+}
+
+/**
+ * Nocturne D6 (PLAN-D6.md § Defaults): did this claude-kind session die right
+ * after it started? Yes when it exited NON-ZERO within EARLY_EXIT_MS of its
+ * spawn (`createdAt`, ISO) — then what it said first, read from the ring's
+ * HEAD only (at most EARLY_EXIT_HEAD_BYTES) as `firstOutputLine`, and how long
+ * it ran. Undefined for any other exit. The caller decides claude-ness and
+ * that the user did not end it (a kill is not a refusal).
+ */
+export function earlyExitLine(
+  createdAt: string,
+  now: number,
+  exitCode: number,
+  ring: RingBuffer,
+): { line: string; ranMs: number } | undefined {
+  if (exitCode === 0) return undefined;
+  const ranMs = now - Date.parse(createdAt);
+  if (!(ranMs < EARLY_EXIT_MS)) return undefined;
+  const line = firstOutputLine(ring.head(EARLY_EXIT_HEAD_BYTES).toString('utf8'), EARLY_EXIT_LINE_MAX);
+  return { line, ranMs };
 }
 
 /**

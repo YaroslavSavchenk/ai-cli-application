@@ -44,7 +44,7 @@ import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { SCROLLBACK_LINES, type SessionInfo } from '../../../shared/protocol.ts';
+import { SCROLLBACK_LINES, type EarlyExit, type SessionInfo } from '../../../shared/protocol.ts';
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
 import { isCopyChord, isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
@@ -185,7 +185,8 @@ function openTerminalLink(uri: string): void {
 
 export interface TerminalEvents {
   onInfo(session: SessionInfo): void;
-  onExit(exitCode: number): void;
+  /** `early`: the launch died right after it started (D6, ExitMessage.early). */
+  onExit(exitCode: number, early: EarlyExit | undefined): void;
   onAttention(): void;
   onConn(state: ConnState): void;
   /** Fired when a fit changed the local terminal dimensions. */
@@ -393,7 +394,7 @@ export class TerminalView {
         // this same reconcile once it has a box again.
         if (this.#shown) this.#reconcile('reconcile');
       },
-      onExit: (exitCode) => events.onExit(exitCode),
+      onExit: (exitCode, early) => events.onExit(exitCode, early),
       onAttention: () => events.onAttention(),
       onConn: (state) => events.onConn(state),
     };

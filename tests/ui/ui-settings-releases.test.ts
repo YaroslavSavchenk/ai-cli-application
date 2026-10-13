@@ -104,7 +104,11 @@ test('the address is ONE constant in code, and no part of it is UI copy', () => 
   // Legacy `.btn-link` rule is built from the alias layer part A8 deletes).
   const label = /const checkBtn = button\('sg-link', CHECK_LABEL,/.exec(SETTINGS);
   assert.notEqual(label, null, 'the check must be built with the panel’s existing text-button idiom');
-  assert.ok(SETTINGS.includes("const CHECK_LABEL = 'Check for updates';"), 'the word is still the word');
+  // D6: the word lives in ui/update-model.ts, shared with the Claude Code notice.
+  assert.ok(
+    read('web', 'src', 'ui', 'update-model.ts').includes("export const CHECK_LABEL = 'Check for updates';"),
+    'the word is still the word',
+  );
   const tip = /checkBtn\.title = '([^']*)';/.exec(SETTINGS);
   assert.notEqual(tip, null, 'a control should say what it is about to do');
   for (const text of ['Check for updates', tip?.[1] as string]) {

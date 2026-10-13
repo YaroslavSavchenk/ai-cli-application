@@ -218,7 +218,7 @@ test('the Background service page states the two facts and keeps both existing v
 
   // The runtime poll writes both facts; a conn change refreshes the readouts.
   H.installed = true;
-  H.facts = { runningFor: 'just started', version: '0.4.0' };
+  H.facts = { runningFor: 'just started', version: '0.4.0', claude: null };
   for (const fn of H.subscribers) fn('conn');
   assert.equal(byClass(page, 'sg-svcver')[0]?.textContent, 'Version 0.4.0');
   assert.equal(byClass(page, 'sg-svcup')[0]?.textContent, 'Running for just started');
@@ -240,7 +240,7 @@ test('the Background service page states the two facts and keeps both existing v
 
 test('a closed panel ignores the poll (no work, no notice churn)', () => {
   panel.close();
-  H.facts = { runningFor: '9 h', version: '9.9.9' };
+  H.facts = { runningFor: '9 h', version: '9.9.9', claude: null };
   for (const fn of H.subscribers) fn('conn');
   assert.equal(
     byClass(panelOf('service'), 'sg-svcver')[0]?.textContent,

@@ -194,7 +194,12 @@ test('class parity for sc-, ut-, rs-, fd-, dd- and ud-: no unstyled class, no de
     owners.set(prefix, set);
   }
   assert.deepEqual([...(owners.get('sc') as Set<string>)], ['web/src/ui/shortcuts.ts']);
-  assert.deepEqual([...(owners.get('ut') as Set<string>)], ['web/src/ui/update.ts']);
+  // D6: the Claude Code notice is a second card in the update toast's slot
+  // and style — the one other module allowed to wear `ut-`.
+  assert.deepEqual([...(owners.get('ut') as Set<string>)].sort(), [
+    'web/src/ui/claude-notice.ts',
+    'web/src/ui/update.ts',
+  ]);
   assert.deepEqual([...(owners.get('rs') as Set<string>)], ['web/src/ui/update.ts']);
   assert.deepEqual([...(owners.get('fd') as Set<string>)], ['web/src/ui/drop-dialog.ts']);
   assert.deepEqual([...(owners.get('dd') as Set<string>)], ['web/src/ui/delete-dialog.ts']);
@@ -297,8 +302,9 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
   assert.match(APP_RULES, /\.modal-scrim\.ud-scrim/, 'and the B4 question is anchored with it');
   // The confirmation is the ONE dialog that opens over another one.
   assert.match(APP_RULES, /\.modal-scrim\.rs-scrim\s*\{[^}]*z-index:\s*var\(--z-modal-top\)/);
-  // The toast sits over the panes and under every dialog.
-  assert.match(APP_RULES, /\.ut-toast\s*\{[^}]*z-index:\s*var\(--z-toast\)/);
+  // The toast slot sits over the panes and under every dialog (since D6 the
+  // slot is the `ut-stack` column the toasts are cards in).
+  assert.match(APP_RULES, /\.ut-stack\s*\{[^}]*z-index:\s*var\(--z-toast\)/);
 });
 
 test('no colour literal in these sections or in the modules that paint them', () => {

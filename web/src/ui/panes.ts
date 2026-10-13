@@ -69,7 +69,7 @@
  * `panes-park.ts`. The grid, the slots, the terminals, resize and focus stay
  * here.
  */
-import type { SessionInfo } from '../../../shared/protocol.ts';
+import type { EarlyExit, SessionInfo } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import type { ConnState } from '../ws.ts';
@@ -83,6 +83,7 @@ import { slotTitle } from './slots-model.ts';
 import { planCards } from './pane-reuse-model.ts';
 import { enforceCap, initParking, parkTab, pruneParked, takeBack } from './panes-park.ts';
 import { killSession, updateHeader, updateNote, updateStatus } from './panes-status.ts';
+import { noteEarlyExit } from './claude-notice.ts';
 
 export { killSession } from './panes-status.ts';
 
@@ -98,6 +99,8 @@ interface SessionPayload {
   view: TerminalView | null;
   conn: ConnState | null;
   exitCode: number | null;
+  /** Set with exitCode when the launch died right after it started (D6). */
+  early: EarlyExit | null;
   dead: boolean;
   dot: HTMLElement;
   /** Holds the session's tool mark (B12); empty until the session is known. */
@@ -745,6 +748,7 @@ function buildSessionPane(s: Slot, sessionId: string): void {
     view: null,
     conn: null,
     exitCode: null,
+    early: null,
     dead: false,
     dot,
     tool,
@@ -819,9 +823,11 @@ function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEv
         clearAttentionIfPending(s);
       }
     },
-    onExit: (exitCode) => {
+    onExit: (exitCode, early) => {
       pay.exitCode = exitCode;
+      pay.early = early ?? null;
       st.markExited(sessionId, exitCode);
+      if (early !== undefined) noteEarlyExit(sessionId, st.state.sessions.get(sessionId)?.createdAt ?? '');
       updateNote(s, pay);
       updateStatus(pay);
     },

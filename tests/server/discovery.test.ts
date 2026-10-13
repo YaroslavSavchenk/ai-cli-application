@@ -100,7 +100,7 @@ test('GET /api/runtime: token-gated, body is exactly the startedAt from runtime.
     const body = res.body as Record<string, unknown>;
     assert.deepEqual(
       Object.keys(body).sort(),
-      ['installed', 'serverCommit', 'startedAt', 'update', 'version', 'webBuild'],
+      ['claude', 'installed', 'serverCommit', 'startedAt', 'update', 'version', 'webBuild'],
       'exactly startedAt + the build identity + the live update check, and NO other keys',
     );
     // The order as the body is CONSTRUCTED (server/api.ts). Not semantic — a
@@ -114,6 +114,9 @@ test('GET /api/runtime: token-gated, body is exactly the startedAt from runtime.
       'installed',
       'webBuild',
       'update',
+      // Nocturne D6: the Claude Code version probe's answer (its own pins are
+      // in tests/server/claude-version-route.test.ts).
+      'claude',
     ]);
     // Added 2026-09-08 with installed mode: which BUNDLE this backend runs from
     // (null on a developer clone, where serverCommit is the identity instead),

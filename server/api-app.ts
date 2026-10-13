@@ -18,10 +18,11 @@ import type {
   UiPrefs,
 } from '../shared/protocol.ts';
 import { isKeyedTool } from '../shared/protocol.ts';
+import { CLAUDE_SUPPORTED, CLAUDE_VERSION_SHAPE } from '../shared/claude-compat.ts';
 import { ptyEnv } from './sessions.ts';
 import { KEY_NOT_SHAPED, KEY_UNKNOWN_TOOL } from './keys.ts';
 import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE } from './update-install.ts';
-import { isJsonContentType } from './config.ts';
+import { isJsonContentType, scoped } from './config.ts';
 import {
   NEXT,
   readJsonBody,
@@ -48,6 +49,16 @@ export function validMascotPref(v: unknown): boolean {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
   const keys = Object.keys(v);
   return keys.length === 1 && keys[0] === 'enabled' && typeof (v as { enabled: unknown }).enabled === 'boolean';
+}
+/**
+ * Nocturne D6 (PLAN-D6.md § Defaults): `claudeNoticeHidden` is a version
+ * `X.Y.Z` (CLAUDE_VERSION_SHAPE, which also caps it at 29 characters, inside
+ * the spec's 32) — the notice compares
+ * it with the probed version, so anything else could only ever mean "hidden for
+ * nothing".
+ */
+function validClaudeNoticeHidden(v: unknown): boolean {
+  return typeof v === 'string' && CLAUDE_VERSION_SHAPE.test(v);
 }
 /**
  * Dedicated body cap for PUT /api/keys/:tool — NOT the generic 1 MiB. The whole
@@ -104,6 +115,13 @@ export async function appRoutes(
         // landed AFTER this process started. Cheap (a few stats + .git/HEAD)
         // and cached inside the checker, so a 30 s UI poll costs nothing.
         update: deps.checkUpdate?.() ?? { available: false, reason: null },
+        // Nocturne D6: the probe's last answer, never a probe per request.
+        claude: deps.claude?.() ?? {
+          version: null,
+          compat: 'unknown',
+          min: CLAUDE_SUPPORTED.min,
+          testedUpTo: CLAUDE_SUPPORTED.testedUpTo,
+        },
       };
       sendJson(res, 200, body);
       return;
@@ -280,7 +298,7 @@ export async function appRoutes(
     return;
   }
 
-  // --- UI prefs (opaque bag; only `mascot`'s shape is checked, C1) -------
+  // --- UI prefs (opaque bag; `mascot` checked (C1), `claudeNoticeHidden` vetted (D6))
   if (pathname === '/api/prefs') {
     if (method === 'GET') {
       sendJson(res, 200, prefs.get());
@@ -299,7 +317,14 @@ export async function appRoutes(
         sendError(res, 400, 'prefs.mascot must be {"enabled": true|false}');
         return;
       }
-      prefs.replace(body as UiPrefs);
+      // Nocturne D6: a malformed `claudeNoticeHidden` is DROPPED, not refused —
+      // the rest of the bag is still the user's (PLAN-D6.md § Defaults).
+      const bag = { ...(body as Record<string, unknown>) };
+      if ('claudeNoticeHidden' in bag && !validClaudeNoticeHidden(bag['claudeNoticeHidden'])) {
+        delete bag['claudeNoticeHidden'];
+        scoped(ctx.log, 'prefs')('debug', 'claudeNoticeHidden is not a version; dropped');
+      }
+      prefs.replace(bag as UiPrefs);
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -308,8 +333,12 @@ export async function appRoutes(
   }
 
   // --- Launchable tools: a PATH probe of the spawn environment ------------
-  // No spawn, no shell, no network (server/tools.ts); cached ≤ 5 s, and
+  // The lookup itself spawns nothing (server/tools.ts); cached ≤ 5 s, and
   // AWAITED — the probe stats every PATH entry and must not hold the loop.
+  // Nocturne D6: a lookup that really ran tells the Claude Code version watch,
+  // which — when the `claude` binary changed — runs ONE debounced
+  // `claude --version` (argv only, no shell; server/claude-version.ts) that
+  // this response never waits for.
   if (pathname === '/api/tools') {
     if (method === 'GET') {
       sendJson(res, 200, await tools());

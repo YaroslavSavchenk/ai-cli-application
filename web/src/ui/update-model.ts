@@ -454,3 +454,29 @@ export const CONTINUE_NOTE =
 export function moreLabel(more: number): string {
   return more > 0 ? `+ ${more} more` : '';
 }
+
+/**
+ * `Check for updates` (Nocturne B6, D4) — the button's words and the answers
+ * it earns. ONE vocabulary for both places that ask: Settings → Background
+ * service and, since D6, the Claude Code notice (`./update-check.ts` runs the
+ * check itself). The version in the online answer is the only string here that
+ * came from outside the app; it passes `releaseSentence`'s shape gate first.
+ */
+export const CHECK_LABEL = 'Check for updates';
+export const CHECK_BUSY = 'Checking…';
+export const CHECK_FAILED = 'Could not check for updates.';
+const CHECK_NEWEST = 'You have the newest version.';
+const CHECK_INSTALLED = 'A new version is installed. Restart the service to use it.';
+
+/** Which of the answers an answered check earns, and whether `Update` is offered. */
+export function checkAnswer(status: UpdateStatus): { text: string; canUpdate: boolean } {
+  if (!status.available) return { text: CHECK_NEWEST, canUpdate: false };
+  // ONLINE: the release exists but is not on this machine, so the act is to
+  // fetch it, and the sentence names the version the backend read.
+  if (status.reason === UPDATE_NEW_VERSION_AVAILABLE) {
+    return { text: releaseSentence(status.release), canUpdate: true };
+  }
+  // Anything else an installed backend can report means the newer version is
+  // already here and only the running process is old.
+  return { text: CHECK_INSTALLED, canUpdate: false };
+}

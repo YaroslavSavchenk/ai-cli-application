@@ -67,6 +67,7 @@ import {
   initUpdate,
   isRestartConfirmOpen,
 } from './ui/update.ts';
+import { initClaudeNotice } from './ui/claude-notice.ts';
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { onFocusSession } from './ui/host-bridge.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
@@ -200,6 +201,8 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   // and its pill lands in the topbar cluster right after the connection dot.
   const upd = initUpdate(modalHost);
   conn.after(upd.pill);
+  // The Claude Code notice (D6) joins the update toast's stack, under it.
+  initClaudeNotice(upd.toasts, prefs, requestTerminalFocus);
   // Since B6 the panel opens no overlay of its own: its Keyboard page draws the
   // whole shortcuts table from ui/shortcuts-rows.ts, so the `openShortcuts` dep
   // (and the ordering it needed — the overlay is built after this panel) is

@@ -43,7 +43,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   (`AI_SM_STARTUP_GRACE_MS`) runs until the first-ever presence. Manual
   `-Stop` overrides. The presence channel answers `ping`/`pong` (inbound
   frames ≤ 1 KiB, no lifecycle effect). Authed `GET /api/runtime` body is
-  exactly `{ startedAt, serverCommit, version, installed, webBuild, update }`.
+  exactly `{ startedAt, serverCommit, version, installed, webBuild, update,
+  claude }` (`claude` since D6: `{ version, compat, min, testedUpTo }`).
   History: `memory/decisions/lifecycle-bound-backend.md`.
 - **Session history with real per-conversation resume** (user's call
   2026-09-06). Every launched session is kept in `history.json` (data dir,
@@ -56,7 +57,10 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   args> --resume <id>`. End reasons: user-kill, exit, shutdown, crash
   (stamped at boot). A conversation is pruned only when its projects folder
   exists and `<id>.jsonl` is missing — every uncertainty keeps it. Needs
-  Claude Code ≥ 2.1.263; no version probe. Known limit: a `--continue`
+  Claude Code ≥ 2.1.263: the supported range (2.1.263, tested up to 2.1.287)
+  lives in `shared/claude-compat.ts`, and one `claude --version` probe (argv
+  only, after listen, re-run when the binary changes) places the installed
+  version against it — it never blocks a launch (D6). Known limit: a `--continue`
   launch cannot be pinned (resumes with `--continue`, button "start again").
   A client-supplied `--session-id`/`--resume <uuid>` is adopted as the key.
   A blank session name makes the title the project name (the Launch Name
@@ -72,7 +76,9 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   `debug`). **Never written:** the app
   token, the GitHub token, stored API keys, request/response bodies,
   `Authorization`, query-string values, PTY bytes (terminal I/O is byte
-  COUNTS, ≤ 1 line/s/session), error MESSAGES of request failures (class +
+  COUNTS, ≤ 1 line/s/session; the one exception, D6: a Claude launch that
+  exits non-zero within 3 s logs its first output line at WARN — ≤ 200 chars,
+  escape-, control- and bidi-stripped), error MESSAGES of request failures (class +
   frames only). The browser logs through `POST /api/client-log` (authed;
   body ≤ 64 KiB → 413, ≤ 50 entries, message ≤ 2048 chars truncated,
   lines one-lined, 200 entries/min); UI actions are logged as SHAPE, never
@@ -496,7 +502,9 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   status line's `MODE_LABELS` incl. `plan`, its Settings preview (the Add
   a project dialog's `never ask (dangerous)` is gone since D1, 2026-10-13). Carve-out: the Setup wizard's
   WSL and consent pages MUST show the exact fix and third-party commands.
-  Exempt: the custom-command field and terminal content. **UI language
+  Exempt: the custom-command field, terminal content, and the pane's
+  early-exit banner line (D6: Claude Code's own first output line, shown as
+  text). **UI language
   stays English.** A UI copy rule only — docs, code, commits and briefs are
   unaffected. History: `memory/decisions/scope-history.md` § Features —
   No commands, flags, or code in the UI.

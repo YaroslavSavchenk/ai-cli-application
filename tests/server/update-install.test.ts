@@ -49,6 +49,7 @@ import {
   WSLPATH_PATH,
 } from '../../server/update-install.ts';
 import { SUMS_ASSET_NAME } from '../../server/update-release.ts';
+import { runCapture } from '../../server/config.ts';
 import {
   waitUntil,
   makeTempDir,
@@ -604,5 +605,30 @@ test('the interop binaries are absolute paths, never a PATH lookup', () => {
   // name survives only as a fallback for a distro that keeps it elsewhere.
   const src = readSource('server', 'update-install.ts');
   assert.match(src, /existsSync\(WSLPATH_PATH\) \? WSLPATH_PATH : 'wslpath'/);
-  assert.doesNotMatch(src, /runCapture\('wslpath'/, 'never spawned by bare name outright');
+  assert.doesNotMatch(src, /runInterop\('wslpath'/, 'never spawned by bare name outright');
+});
+
+test('the interop refusal texts: `<helper> timed out`, `could not be started`, `exited with code N`', async () => {
+  // runInterop (private: its callers reach Windows only) turns runCapture's
+  // rejection into UPDATE_ERROR_START with the helper's basename in front. The
+  // three texts are runCapture's (server/config.ts), proven here on real
+  // children; the composition is pinned on the source.
+  const dir = await makeTempDir('ai-sm-runcapture-');
+  try {
+    const slow = join(dir, 'slow');
+    writeFileSync(slow, '#!/bin/sh\nexec sleep 300\n', { mode: 0o755 });
+    const three = join(dir, 'three');
+    writeFileSync(three, '#!/bin/sh\nexit 3\n', { mode: 0o755 });
+    await assert.rejects(runCapture(slow, [], { timeoutMs: 200 }), { message: 'timed out' });
+    await assert.rejects(runCapture(join(dir, 'absent'), []), { message: 'could not be started' });
+    await assert.rejects(runCapture(three, []), { message: 'exited with code 3' });
+  } finally {
+    await removeTempDir(dir);
+  }
+  const src = readSource('server', 'update-install.ts');
+  assert.match(
+    src,
+    /const what = err instanceof Error \? err\.message : String\(err\);\s*throw new UpdateFailure\(UPDATE_ERROR_START, `\$\{basename\(command\)\} \$\{what\}`\);/,
+    'runInterop prefixes the helper name and keeps the UPDATE_ERROR_START sentence',
+  );
 });

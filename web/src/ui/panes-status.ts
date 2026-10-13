@@ -3,9 +3,9 @@
  * 2026-09-23): the header readout (state dot, tool mark, name, project NAME,
  * state pill, connection chip), the status bar and the background-agents table
  * under the terminal, the exited/lost banner with its `Start it again` and
- * `End session`, and `killSession`. `panes.ts` owns the grid, the slots and
- * the terminals, and calls in here on every render; this module reads back
- * only the rendered view's id and pane count and `requestTerminalFocus`
+ * `End session` (since D6 also the early-exit wording), and `killSession`.
+ * `panes.ts` owns the grid, the slots and the terminals, and calls in here on
+ * every render; this module reads back only the rendered view's id and pane count and `requestTerminalFocus`
  * (function-time reads through the live bindings — nothing here runs at
  * import, so the `panes.ts` <-> `panes-status.ts` cycle cannot bite).
  * Sibling: `panes.ts`.
@@ -20,6 +20,7 @@ import { flash } from './statusline.ts';
 import { getBehaviour } from './prefs-model.ts';
 import { paneStatusItems } from './pane-status-model.ts';
 import { getStatusLine } from './statusline-model.ts';
+import { exitNote } from './claude-notice-model.ts';
 import { renderAgents } from './pane-agents.ts';
 import { agentTable } from './pane-agents-model.ts';
 import { readoutClass, readoutWord, sessionReadout, type SessionReadout } from './session-state.ts';
@@ -172,11 +173,17 @@ function updateNote(s: Slot, pay: SessionPayload): void {
     armButton(delBtn, 'Sure?', () => void killSession(pay.id), {
       ask: () => getBehaviour().confirmEnd,
     });
-    s.note.replaceChildren(
-      el('span', 'pane-note-text', `Finished, code ${pay.exitCode}`),
-      relaunchBtn,
-      delBtn,
-    );
+    // A Claude launch that died right after it started (D6) says so, with
+    // Claude Code's own first line beside it — as text, never markup. The
+    // frame's `early` covers a live exit; `earlyExit` a pane attached later.
+    const note = exitNote(pay.exitCode, pay.early ?? st.state.sessions.get(pay.id)?.earlyExit);
+    const parts: HTMLElement[] = [el('span', 'pane-note-text', note.lead)];
+    if (note.line !== null) {
+      const line = el('span', 'pane-note-line', note.line);
+      line.title = note.line; // The strip keeps one row; the whole line is here.
+      parts.push(line);
+    }
+    s.note.replaceChildren(...parts, relaunchBtn, delBtn);
     return;
   }
   s.note.hidden = true;

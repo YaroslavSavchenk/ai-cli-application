@@ -15,7 +15,7 @@
  * (or the token is stale after a backend restart), the socket reports 'dead'
  * so the pane can offer close/reassign.
  */
-import type { ClientMessage, ServerMessage, SessionInfo } from '../../shared/protocol.ts';
+import type { ClientMessage, EarlyExit, ServerMessage, SessionInfo } from '../../shared/protocol.ts';
 import { ApiError, authToken, getSessions } from './api.ts';
 import { formatError, log } from './log.ts';
 import { state } from './state.ts';
@@ -38,7 +38,8 @@ export interface SocketHandlers {
   onReplay(data: string): void;
   onData(data: string): void;
   onInfo(session: SessionInfo): void;
-  onExit(exitCode: number): void;
+  /** `early`: a Claude launch that died right after it started (D6), else undefined. */
+  onExit(exitCode: number, early: EarlyExit | undefined): void;
   onAttention(): void;
   onConn(state: ConnState): void;
 }
@@ -102,10 +103,14 @@ export class SessionSocket {
         case 'info':
           this.#handlers.onInfo(msg.session);
           break;
-        case 'exit':
-          log.info(`ws session ${this.sessionId} exit code=${msg.exitCode}`);
-          this.#handlers.onExit(msg.exitCode);
+        case 'exit': {
+          // The frame is cast, not checked: `early` reaches the pane only as
+          // an object with a string line, whatever the wire carried.
+          const early = typeof msg.early?.line === 'string' ? { line: msg.early.line } : undefined;
+          log.info(`ws session ${this.sessionId} exit code=${msg.exitCode}${early === undefined ? '' : ' early'}`);
+          this.#handlers.onExit(msg.exitCode, early);
           break;
+        }
         case 'attention':
           // May repeat per BEL burst — consumers treat it as idempotent.
           this.#handlers.onAttention();

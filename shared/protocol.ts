@@ -130,6 +130,12 @@ export interface SessionInfo {
   status: SessionStatus;
   /** Present once status is 'exited'. */
   exitCode?: number;
+  /**
+   * Nocturne D6: set at exit when this claude-kind session exited non-zero
+   * within EARLY_EXIT_MS of its spawn (see EarlyExit), so a pane attached later
+   * can still show why the launch died. Absent otherwise.
+   */
+  earlyExit?: EarlyExit;
   cols: number;
   rows: number;
   /** ISO-8601 timestamp. */
@@ -534,7 +540,29 @@ export interface DataMessage {
 export interface ExitMessage {
   type: 'exit';
   exitCode: number;
+  /**
+   * Nocturne D6: present only when a claude-kind session (a fresh launch or a
+   * resume) exited non-zero within EARLY_EXIT_MS of its spawn — see
+   * SessionInfo.earlyExit. Also on the exit notice an attach to such an
+   * exited session gets.
+   */
+  early?: EarlyExit;
 }
+
+/**
+ * Nocturne D6 (`.claude/plans/nocturne/PLAN-D6.md` § Defaults): what a Claude
+ * launch that died right after it started said. `line` is the first non-empty
+ * line of its output, escape sequences and control characters stripped, at
+ * most EARLY_EXIT_LINE_MAX characters; '' when it printed nothing.
+ */
+export interface EarlyExit {
+  line: string;
+}
+
+/** A claude-kind session that exits non-zero this soon (ms) after its spawn is flagged. */
+export const EARLY_EXIT_MS = 3000;
+/** Cap, in characters, on EarlyExit.line. */
+export const EARLY_EXIT_LINE_MAX = 200;
 
 /** A BEL (0x07) was seen in output; session.attention is now true. */
 export interface AttentionMessage {

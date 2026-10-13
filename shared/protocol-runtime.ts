@@ -90,6 +90,37 @@ export interface RuntimeStatusResponse {
    * path the UI would print raw.
    */
   update: UpdateStatus;
+  /**
+   * Nocturne D6 (`.claude/plans/nocturne/PLAN-D6.md`): the Claude Code this
+   * backend's sessions launch, from a `claude --version` probe that runs once
+   * AFTER listen (and again when the binary on PATH changes). Until it answers:
+   * `version: null, compat: 'unknown'`.
+   */
+  claude: ClaudeStatus;
+}
+
+/**
+ * Where the installed Claude Code stands against the range this app was
+ * tested with (shared/claude-compat.ts holds the range and the rules):
+ * `ok` inside it, `older` below `min`, `newer` past `testedUpTo`, `missing`
+ * when `claude` is not on the sessions' PATH, `unknown` when the probe gave no
+ * `X.Y.Z` (garbage, a timeout, or not answered yet).
+ */
+export type ClaudeCompat = 'ok' | 'older' | 'newer' | 'missing' | 'unknown';
+
+/** RuntimeStatusResponse.claude. `compat` is computed server-side; the web never re-derives it. */
+export interface ClaudeStatus {
+  /**
+   * The `X.Y.Z` the probe read; for `unknown` the first 40 characters of the
+   * probe's first output line (control characters stripped), or null when it
+   * printed nothing, timed out, or has not answered yet; null for `missing`.
+   */
+  version: string | null;
+  compat: ClaudeCompat;
+  /** CLAUDE_SUPPORTED.min. */
+  min: string;
+  /** CLAUDE_SUPPORTED.testedUpTo. */
+  testedUpTo: string;
 }
 
 /**

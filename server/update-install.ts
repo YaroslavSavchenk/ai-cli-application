@@ -52,7 +52,7 @@ import {
   UPDATE_ERROR_START,
 } from '../shared/protocol.ts';
 import type { UpdateCheckResult } from './buildinfo.ts';
-import { errorClass, oneLine, scoped, USER_AGENT, type Logger, type LogLevel } from './config.ts';
+import { errorClass, oneLine, runCapture, scoped, USER_AGENT, type Logger, type LogLevel } from './config.ts';
 import { MAX_SETUP_BYTES, type FetchLike } from './update-release.ts';
 
 // --- Route bodies (409/422). Plain sentences: the UI renders them. -----------
@@ -749,42 +749,18 @@ export interface WindowsTemp {
   linux: string;
 }
 
-/** Run an interop helper and return its stdout (bounded, argv only, no shell). */
-function runCapture(command: string, args: string[], timeoutMs = 15_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'] });
-    let out = '';
-    let done = false;
-    const finish = (err?: Error): void => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      if (err !== undefined) reject(err);
-      else resolve(out);
-    };
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
-      finish(new UpdateFailure(UPDATE_ERROR_START, `${basename(command)} timed out`));
-    }, timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-    child.stdout?.on('data', (chunk: Buffer) => {
-      if (out.length < 4096) out += chunk.toString('utf8');
-    });
-    child.on('error', () =>
-      finish(new UpdateFailure(UPDATE_ERROR_START, `${basename(command)} could not be started`)),
-    );
-    child.on('close', (code) =>
-      finish(
-        code === 0
-          ? undefined
-          : new UpdateFailure(UPDATE_ERROR_START, `${basename(command)} exited with code ${code}`),
-      ),
-    );
-  });
+/**
+ * Run an interop helper and return its stdout (server/config.ts runCapture:
+ * bounded, argv only, no shell, SIGKILL at 15 s); a failure becomes the
+ * UPDATE_ERROR_START refusal with the helper's name and what went wrong.
+ */
+async function runInterop(command: string, args: string[]): Promise<string> {
+  try {
+    return await runCapture(command, args);
+  } catch (err) {
+    const what = err instanceof Error ? err.message : String(err);
+    throw new UpdateFailure(UPDATE_ERROR_START, `${basename(command)} ${what}`);
+  }
 }
 
 /**
@@ -798,13 +774,13 @@ function runCapture(command: string, args: string[], timeoutMs = 15_000): Promis
  * under /mnt.
  */
 async function probeWindowsTemp(): Promise<WindowsTemp> {
-  const raw = (await runCapture(CMD_PATH, ['/c', 'echo', '%TEMP%'])).split('\n')[0] ?? '';
+  const raw = (await runInterop(CMD_PATH, ['/c', 'echo', '%TEMP%'])).split('\n')[0] ?? '';
   const win = raw.replace(/[\r\n]+$/, '').trim().replace(/\\+$/, '');
   if (!WINDOWS_TEMP_SHAPE.test(win) || win.includes('%')) {
     throw new UpdateFailure(UPDATE_ERROR_START, 'Windows did not report a usable temp directory');
   }
   const wslpath = existsSync(WSLPATH_PATH) ? WSLPATH_PATH : 'wslpath';
-  const linux = ((await runCapture(wslpath, ['-u', win])).split('\n')[0] ?? '').trim();
+  const linux = ((await runInterop(wslpath, ['-u', win])).split('\n')[0] ?? '').trim();
   if (!linux.startsWith('/mnt/')) {
     throw new UpdateFailure(UPDATE_ERROR_START, 'the Windows temp directory is not reachable from WSL');
   }

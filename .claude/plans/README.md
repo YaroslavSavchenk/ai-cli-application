@@ -81,6 +81,7 @@ Master plans:
 - `RELEASE-NOTES-v0.4.0-draft.md` — finalised in Nocturne part B8
 - `RELEASE-NOTES-v0.4.1-draft.md` — the mascot fix + C2, the quality track's speed parts, D1
 - `RELEASE-NOTES-v0.4.2-draft.md` — the update check every hour
+- `RELEASE-NOTES-v0.4.3-draft.md` — D2–D6 and Q8: the Claude Code version guard, Always ask, focus, runtime.json, FIFO-safe reads
 
 Part specs, `nocturne/`:
 

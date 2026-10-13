@@ -3,10 +3,13 @@
  * `.claude/plans/nocturne/PLAN-B5.md`): the New session dialog draws a tool card as inert
  * ("Not installed") instead of offering a launch that would fail in the PTY.
  *
- * THE PROBE NEVER SPAWNS ANYTHING. It is a PATH lookup — regular file (symlinks
+ * THE LOOKUP NEVER SPAWNS ANYTHING. It is a PATH lookup — regular file (symlinks
  * followed), executable by this process — in the SAME environment a session is
  * spawned with (`ptyEnv()`), so the probe and the spawn cannot disagree about
- * which PATH they mean.
+ * which PATH they mean. One consequence is not the lookup's own (Nocturne D6):
+ * `cachedProbe`'s `onProbe` hook lets the Claude Code version watch
+ * (server/claude-version.ts) run ONE debounced `claude --version` — argv only,
+ * no shell — when the `claude` binary changed since its last probe.
  *
  * Deliberate refusals in the lookup:
  *   - an EMPTY PATH entry (POSIX: "the current directory") is skipped, and so is
@@ -59,21 +62,34 @@ async function isExecutableFile(file: string): Promise<boolean> {
   }
 }
 
+/**
+ * The first `<dir>/<name>` on `env.PATH`, in PATH order, that is an executable
+ * regular file — the one a spawn by bare name runs — or null. Nocturne D6's
+ * `claude --version` probe spawns exactly this path.
+ */
+export async function resolveOnPath(
+  name: string,
+  env: Record<string, string | undefined>,
+): Promise<string | null> {
+  const path = env['PATH'];
+  if (typeof path !== 'string' || path === '') return null;
+  const candidates = path
+    .split(':')
+    // See the header note on empty / relative entries.
+    .map((dir) => (dir === '' || !isAbsolute(dir) ? null : join(dir, name)));
+  const hits = await Promise.all(
+    candidates.map(async (file) => (file === null ? false : isExecutableFile(file))),
+  );
+  const first = hits.indexOf(true);
+  return first === -1 ? null : (candidates[first] ?? null);
+}
+
 /** True when `name` resolves to an executable regular file on `env.PATH`. */
 export async function findOnPath(
   name: string,
   env: Record<string, string | undefined>,
 ): Promise<boolean> {
-  const path = env['PATH'];
-  if (typeof path !== 'string' || path === '') return false;
-  const hits = await Promise.all(
-    path
-      .split(':')
-      .map(async (dir) =>
-        dir === '' || !isAbsolute(dir) ? false : isExecutableFile(join(dir, name)),
-      ), // see the header note on empty / relative entries
-  );
-  return hits.some((hit) => hit);
+  return (await resolveOnPath(name, env)) !== null;
 }
 
 /** One PATH lookup per launchable tool. No spawn, no shell, no network. */
@@ -95,6 +111,13 @@ export interface ToolsProbeOptions {
   /** MONOTONIC clock seam (default performance.now, so a wall-clock jump cannot extend the window). */
   now?: () => number;
   cacheMs?: number;
+  /**
+   * Called after every probe that really ran (not a cache hit). Nocturne D6:
+   * the Claude Code version watch hangs off it (server/index-claude.ts), so an
+   * upgrade of `claude` while the app runs is noticed the next time the New
+   * session dialog asks.
+   */
+  onProbe?: () => void;
 }
 
 /**
@@ -118,6 +141,7 @@ export function cachedProbe(opts: ToolsProbeOptions): () => Promise<ToolAvailabi
       const answer = await run;
       cached = answer;
       cachedAt = at;
+      opts.onProbe?.();
       return { ...answer };
     } finally {
       inFlight = null;

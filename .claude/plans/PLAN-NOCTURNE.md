@@ -40,7 +40,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | D3 | `launch.ps1 -Stop` removes runtime.json only when it still names the pid it stopped (D2's twin on the Windows side) | landed | — | 2026-10-13 |
 | D4 | Closing a dialog always gives the keyboard back to a terminal, never to the page body | landed | — | 2026-10-13 |
 | D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | landed | — | 2026-10-13 |
-| D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | todo | `.claude/plans/nocturne/PLAN-D6.md` | — |
+| D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | landed | `.claude/plans/nocturne/PLAN-D6.md` | 2026-10-13 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side

@@ -38,6 +38,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import type {
+  ClaudeStatus,
   ClientLogEntry,
   HealthResponse,
   ToolAvailability,
@@ -168,6 +169,13 @@ export interface ApiDeps {
    * own environment and clock.
    */
   tools?: () => Promise<ToolAvailability>;
+  /**
+   * Nocturne D6: the Claude Code version watch's answer for GET /api/runtime
+   * (server/claude-version.ts). Absent in unit-test harnesses: the body then
+   * says `version: null, compat: 'unknown'`, exactly what a backend whose probe
+   * has not answered yet says.
+   */
+  claude?: () => ClaudeStatus;
   webDistDir: string;
   /** Short git hash of the running server code, or null (GET /api/runtime). */
   serverCommit?: string | null;

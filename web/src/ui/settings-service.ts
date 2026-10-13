@@ -1,6 +1,7 @@
 /**
- * The Settings panel's Background service page: the version and uptime
- * readouts, `Check for updates` with the answer it earns (Nocturne B6, D4),
+ * The Settings panel's Background service page: the version, uptime and
+ * Claude Code readouts (D6), `Check for updates` with the answer it earns
+ * (Nocturne B6, D4; the check is `./update-check.ts`, shared since D6),
  * and `Restart service` / `Update`, which only open the restart question the
  * update module asks in its own words.
  *
@@ -8,28 +9,13 @@
  * Siblings: `settings.ts` (the modal, its nav and the other four pages),
  * `settings-apikeys.ts`, `settings-service.ts`.
  */
-import type { UpdateStatus } from '../../../shared/protocol.ts';
-import { UPDATE_NEW_VERSION_AVAILABLE } from '../../../shared/protocol.ts';
-import * as api from '../api.ts';
-import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button } from './util.ts';
-import { applyRuntime, openRestartConfirm, runtimeFacts } from './update.ts';
-import { releaseSentence } from './update-model.ts';
+import { openRestartConfirm, runtimeFacts } from './update.ts';
+import { CHECK_LABEL } from './update-model.ts';
+import { runUpdateCheck, watchCheckButton, type CheckHooks } from './update-check.ts';
 // theme-model.ts only: the clamp that reads a prefs bag's `theme`. ui/theme.ts
 // itself arrives as a dep (see SettingsDeps.theme).
-
-/**
- * The Background service page's own words (D4). The check asks the backend,
- * which asks the release page; the four outcomes are these, and the version in
- * the second one is the only string here that came from outside the app — it
- * passes `releaseSentence`'s shape gate before it is ever printed.
- */
-const CHECK_LABEL = 'Check for updates';
-const CHECK_BUSY = 'Checking…';
-const CHECK_NEWEST = 'You have the newest version.';
-const CHECK_INSTALLED = 'A new version is installed. Restart the service to use it.';
-const CHECK_FAILED = 'Could not check for updates.';
 
 /** What `initSettings()` reaches on the service page. */
 export interface ServicePart {
@@ -61,15 +47,20 @@ export function createServicePage(
   const facts = el('div', 'sg-svcfacts');
   const factVer = el('span', 'sg-svcver');
   const factUp = el('span', 'sg-svcup');
-  facts.append(factVer, factUp);
+  // D6: which Claude Code the sessions launch, against the range this app was
+  // tested with. Absent, not blank, while there is nothing honest to say.
+  const factClaude = el('span', 'sg-svcclaude');
+  factClaude.hidden = true;
+  facts.append(factVer, factUp, factClaude);
   // Only an installed app can be updated by downloading one; a developer clone
   // updates with the tools it was cloned with, and asking a release page about
   // it would be a question that does not apply to it.
   const checkBtn = button('sg-link', CHECK_LABEL, () => {
-    void runCheck();
+    void runUpdateCheck(checkHooks);
   });
   checkBtn.title = 'asks now whether a newer version exists';
   checkBtn.hidden = true;
+  watchCheckButton(checkBtn);
   const restartBtn = button('sg-outbtn', 'Restart service', () => openRestartConfirm('settings'));
   restartBtn.setAttribute('aria-haspopup', 'dialog');
   card.append(facts, checkBtn, restartBtn);
@@ -98,6 +89,8 @@ export function createServicePage(
     const f = runtimeFacts();
     factVer.textContent = `Version ${f.version}`;
     factUp.textContent = `Running for ${f.runningFor}`;
+    factClaude.textContent = f.claude ?? '';
+    factClaude.hidden = f.claude === null;
     checkBtn.hidden = !st.state.installed;
   }
 
@@ -110,61 +103,16 @@ export function createServicePage(
     updateBtn.hidden = !canUpdate;
   }
 
-  /** Which of the four sentences an answered check earns (D4). */
-  function checkAnswer(status: UpdateStatus): { text: string; canUpdate: boolean } {
-    if (!status.available) return { text: CHECK_NEWEST, canUpdate: false };
-    // ONLINE: the release exists but is not on this machine, so the act is to
-    // fetch it, and the sentence names the version the backend read — through
-    // the model's own shape gate, the one place a remote tag is made printable.
-    if (status.reason === UPDATE_NEW_VERSION_AVAILABLE) {
-      return { text: releaseSentence(status.release), canUpdate: true };
-    }
-    // Anything else an installed backend can report means the newer version is
-    // already here and only the running process is old.
-    return { text: CHECK_INSTALLED, canUpdate: false };
-  }
-
-  /** True while a check is out — the button is the only way in, and it waits. */
-  let checking = false;
-
   /**
-   * Ask the backend to check NOW (Nocturne B6, D4). The button states that it
-   * is working and stops taking clicks; the answer lands on the page, and then
-   * the app re-reads the runtime the ONE way it always does, so the pill and
-   * the toast learn the same news through the same path.
+   * This page's half of the shared check (Nocturne B6, D4; the check itself is
+   * `./update-check.ts`, which also paints the button busy): the answer lands
+   * under the facts, and the facts repaint once the re-read runtime is applied.
    */
-  async function runCheck(): Promise<void> {
-    if (checking) return;
-    checking = true;
-    checkBtn.disabled = true;
-    checkBtn.textContent = CHECK_BUSY;
-    sayAnswer(null);
-    let answered = false;
-    try {
-      const status = await api.checkForUpdates();
-      const a = checkAnswer(status);
-      sayAnswer(a.text, a.canUpdate);
-      answered = true;
-      log.info(`update check: ${status.reason ?? 'up to date'}`);
-    } catch {
-      sayAnswer(CHECK_FAILED);
-      log.warn('the update check did not answer');
-    } finally {
-      checking = false;
-      checkBtn.disabled = false;
-      checkBtn.textContent = CHECK_LABEL;
-    }
-    if (!answered) return;
-    // The pill, the toast and this page all read one state; nothing here
-    // writes it, and a failed re-read simply leaves the last known runtime.
-    try {
-      st.setRuntime(await api.getRuntime());
-      applyRuntime();
-      renderBackend();
-    } catch {
-      // Nothing to say: the 30 s poll asks again.
-    }
-  }
+  const checkHooks: CheckHooks = {
+    begin: (): void => sayAnswer(null),
+    answer: (text: string, canUpdate: boolean): void => sayAnswer(text, canUpdate),
+    applied: (): void => renderBackend(),
+  };
 
   return { renderBackend, sayAnswer };
 }

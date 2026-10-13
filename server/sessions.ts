@@ -33,6 +33,9 @@
  *     inherited one; with none saved the environment is untouched;
  *   - cmd.exe with no client args: the working-directory tail
  *     `/k pushd <windows path>`, because cmd refuses a UNC cwd (winpath.ts).
+ * One more claude-only fact is read at EXIT, not spawn (Nocturne D6): a
+ * non-zero exit within EARLY_EXIT_MS sets `info.earlyExit` and the exit
+ * frame's `early` (sessions-output.ts `earlyExitLine`), unless destroy() ended it.
  * Everything else about the spawn stays generic, a session that already carries
  * its own `--settings` is left alone, and one that already carries a
  * resume/session flag is never given a second one.
@@ -58,6 +61,7 @@ import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
 import { describeError, scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
 import {
+  earlyExitLine,
   newOutputScan,
   replayTail,
   rescueFinalOutput,
@@ -152,6 +156,11 @@ interface Session {
    * stranger's.
    */
   killTimer: NodeJS.Timeout | undefined;
+  /**
+   * D6: set by destroy() — the user (or shutdown) ended it, so a non-zero exit
+   * right after the spawn is the signal's doing, not a refusal by the CLI.
+   */
+  destroyed: boolean;
 }
 
 export interface CreateSessionOptions {
@@ -206,6 +215,11 @@ export class SessionManager {
    * (server/index.ts), which is the only place that knows it.
    */
   readonly #agents: AgentsWatcher | undefined;
+  /**
+   * Nocturne D6: the probed Claude Code version, read only for the early-exit
+   * WARN line. Absent -> the line says `unknown`.
+   */
+  readonly #claudeVersion: (() => string | null) | undefined;
 
   readonly #slog: Logger;
 
@@ -226,6 +240,7 @@ export class SessionManager {
     settings?: SessionSettingsStore,
     keys?: KeyStore,
     agents?: AgentsWatcher,
+    claudeVersion?: () => string | null,
   ) {
     this.#log = log;
     this.#slog = scoped(log, 'session');
@@ -233,6 +248,7 @@ export class SessionManager {
     this.#settings = settings;
     this.#keys = keys;
     this.#agents = agents;
+    this.#claudeVersion = claudeVersion;
   }
 
   list(): SessionInfo[] {
@@ -376,6 +392,7 @@ export class SessionManager {
       inFrames: 0,
       lastOutLogMs: Date.now(),
       killTimer: undefined,
+      destroyed: false,
     };
     this.#sessions.set(id, session);
     this.#history.recordCreate(info, {
@@ -462,6 +479,23 @@ export class SessionManager {
         changed = true;
       }
       if (syncPending(session.info)) changed = true;
+      // D6: a Claude launch (or resume) that died right after it started —
+      // the one place program output reaches server.log: its first line,
+      // escape-, bidi- and control-stripped and capped (earlyExitLine).
+      const verdict =
+        claude && !session.destroyed
+          ? earlyExitLine(session.info.createdAt, Date.now(), exitCode, session.buffer)
+          : undefined;
+      const early = verdict === undefined ? undefined : { line: verdict.line };
+      if (verdict !== undefined) {
+        session.info.earlyExit = { line: verdict.line };
+        changed = true;
+        this.#slog(
+          'warn',
+          `${id} Claude Code stopped right after it started (code ${exitCode}, after ${verdict.ranMs}ms, ` +
+            `Claude Code ${this.#claudeVersion?.() ?? 'unknown'}): ${JSON.stringify(verdict.line)}`,
+        );
+      }
       if (changed) {
         // ONE extra frame, before the exit: the client upserts this session on
         // `info` and repaints on `exit`, so the repaint already draws the
@@ -470,7 +504,7 @@ export class SessionManager {
       }
       // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
       this.#history.markEnded(id, 'exit', exitCode);
-      this.#broadcast(session, { type: 'exit', exitCode });
+      this.#broadcast(session, { type: 'exit', exitCode, ...(early === undefined ? {} : { early }) });
       // Wording kept verbatim (tests and habits key off it); the signal and the
       // final output tally are appended.
       this.#log(
@@ -523,7 +557,12 @@ export class SessionManager {
     this.#send(ws, { type: 'replay', data: replay.toString('utf8') });
     this.#send(ws, { type: 'info', session: { ...session.info } });
     if (session.info.status === 'exited') {
-      this.#send(ws, { type: 'exit', exitCode: session.info.exitCode ?? 0 });
+      const early = session.info.earlyExit;
+      this.#send(ws, {
+        type: 'exit',
+        exitCode: session.info.exitCode ?? 0,
+        ...(early === undefined ? {} : { early: { ...early } }),
+      });
     }
     session.clients.add(ws);
     ws.on('close', () => session.clients.delete(ws));
@@ -680,6 +719,7 @@ export class SessionManager {
         `${session.clients.size} client(s) attached)`,
     );
     this.#sessions.delete(id);
+    session.destroyed = true;
     // No-op when the session never had one, or when onExit already removed it.
     if (session.info.statusline === true) this.#settings?.remove(id);
     // Same for the agents poll: no session, nothing to deliver a list to.

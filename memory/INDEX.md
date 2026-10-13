@@ -33,6 +33,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ### UI and Nocturne
 
+- [[d6-claude-code-compat-guard]] — 2026-10-13 (user): notice offers Check for updates only; hidden until a different Claude Code version, survives restart, a NEW dead launch brings it back (not a reload replay); Always ask → `--permission-mode manual` (since 2.1.200); range in `shared/claude-compat.ts`, release notes pinned
 - [[d1-project-prefs-and-model-pool]] — 2026-10-13: D1 (user): Edit button per project row (name, model, all 4 permission modes, effort); Claude models pinned by version (`Opus 5.5` = `claude-opus-5-5`), newest 4 on top, gen 5 + Opus/Sonnet 4.x under Older models; aliases read as newest, no migration; preferences Claude-only, re-resolved on project switch, hand change wins
 - [[c2-mascot-waits-for-background-work]] — 2026-09-26: C2 (user): ONE session verdict `turn` for the pane dot/pill AND the mascot — Working while its background subagents / workflows / SendMessage-resumed agents are open and alive (launch ↔ task-notification from the transcript; alive = < 15 min, B7 row, fresh workflow files), Waiting for you on `AskUserQuestion` / `ExitPlanMode` (leaves when answered); background shells never count; file-activity-only and launch-only rejected
 - [[b6-settings-live]] — 2026-09-22: B6 (user): any New-session card can be hidden, at least one stays; the notifications row dropped until C1; `Reopen tabs on start` off = only a NEW backend run starts on Home (keyed on start time); `Check for updates` = `POST /api/update/check` now + the answer on the page; the backend keeps its last port (`last-port.json`, auto-pick = fallback) so the layout survives an app start; defaults: prefs keys `behaviour` + `tools` (never `defaults`), confirm-end = the armed two-step on every door, follow output = scroll on every write, the Keyboard page from one shared rows module
@@ -121,6 +122,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
+- [[2026-10-13-d6-claude-code-compat-guard]] — D6: `claude --version` probe after listen (argv, ptyEnv, 5 s, 4 KiB; re-probe on binary change ≤ 1/min), runtime `claude`, Settings fact, toast-stack notice (Hide until another version; Check for updates), early-exit banner with Claude Code's first line; v0.4.3 notes pinned to testedUpTo
 - [[2026-10-13-q8-fifo-safe-readers]] — Q8: prefs/projects/history/keys/github/update-check/runtime poll + statusline.mjs on readSmallRegularFile (O_NOFOLLOW|O_NONBLOCK, fstat, chunked cap); a refused file is set aside as .refused-<stamp> before the first write; 68 mutants, survivors killed
 - [[2026-10-13-d4-d5-focus-always-ask]] — D4: one restoreFocus helper (not <body>, connected, not hidden, offsetParent) falling back to the focused terminal at every dialog close; D5: Always ask → --permission-mode manual (app keeps storing default, CLAUDE_PERMISSION_FLAG maps it)
 - [[2026-10-13-q5-index-split]] — Q5: server/index.ts 994 → 663 lines; boot banner, stores and update wiring moved into server/index-{banner,stores,update}.ts as factories; identical boot logs old vs new

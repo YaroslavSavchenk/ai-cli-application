@@ -338,7 +338,8 @@ export function setWsLatency(ms: number | null): void {
 
 /**
  * Whole `GET /api/runtime` answer: boot time, the commit the process runs, the
- * bundle version and installed flag (2026-09-08), and the live update check.
+ * bundle version and installed flag (2026-09-08), the live update check, and
+ * since D6 the Claude Code version probe.
  * One setter so the readouts (statusline uptime, settings version, the
  * releases link, update notice) can never disagree about which poll they came
  * from.
@@ -351,17 +352,26 @@ export function setRuntime(r: RuntimeStatusResponse): void {
     state.update?.available !== r.update?.available ||
     state.update?.reason !== r.update?.reason ||
     state.update?.release?.version !== r.update?.release?.version;
+  // D6: a Claude Code upgraded while the app runs is re-probed server-side and
+  // arrives on a later poll; the notice and the Settings fact repaint on it.
+  const claudeChanged =
+    state.claude?.version !== r.claude?.version ||
+    state.claude?.compat !== r.claude?.compat ||
+    state.claude?.min !== r.claude?.min ||
+    state.claude?.testedUpTo !== r.claude?.testedUpTo;
   const changed =
     state.serverStartedAt !== r.startedAt ||
     state.serverCommit !== r.serverCommit ||
     state.version !== r.version ||
     state.installed !== r.installed ||
-    updateChanged;
+    updateChanged ||
+    claudeChanged;
   state.serverStartedAt = r.startedAt;
   state.serverCommit = r.serverCommit;
   state.version = r.version ?? null;
   state.installed = r.installed === true;
   state.update = r.update ?? null;
+  state.claude = r.claude ?? null;
   if (changed) notify('conn');
 }
 

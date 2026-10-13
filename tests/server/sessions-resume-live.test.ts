@@ -6,7 +6,7 @@
  * spawn route must refuse it with the same 409.
  *
  * The real `claude` is never spawned — a double on PATH records its argv and
- * sleeps, like the one in tests/server/history.test.ts.
+ * sleeps: the one double in tests/helpers/history-fixture.ts.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,17 +22,7 @@ import {
   makeTempDir,
   removeTempDir,
 } from '../helpers/helpers.ts';
-
-const CLAUDE_DOUBLE = `#!/bin/sh
-out="$AI_SM_TEST_SHIM_OUT"
-i=1
-while [ -e "$out/argv-$i" ]; do i=$((i+1)); done
-: > "$out/argv-$i.part"
-for a in "$@"; do printf '%s\\n' "$a" >> "$out/argv-$i.part"; done
-mv "$out/argv-$i.part" "$out/argv-$i"
-printf 'claude double ready\\n'
-sleep 300
-`;
+import { CLAUDE_DOUBLE } from '../helpers/history-fixture.ts';
 
 let root: string;
 let shimOut: string;
