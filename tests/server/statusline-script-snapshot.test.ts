@@ -24,7 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { lstat, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sleep } from '../helpers/helpers.ts';
-import { SCRIPT, runStatusline, runRaw, fixture, makeWorkspace } from '../helpers/statusline-script-fixture.ts';
+import { SCRIPT, runStatusline, runRaw, runWithDeadline, fixture, makeWorkspace } from '../helpers/statusline-script-fixture.ts';
 
 /**
  * A clock-separation wait (tests/README.md § Time): a rewrite of the snapshot
@@ -322,33 +322,6 @@ test('snapshot strings are cleaned like the line: an ESC in a model name never r
 // WSL setup, Windows — can put something else there first. Neither the read nor
 // the write may be usable against the turn.
 // ---------------------------------------------------------------------------
-
-/** Run the script with a hard deadline; a run that has to be killed is a hang. */
-function runWithDeadline(
-  args: string[],
-  payload: unknown,
-  ms: number,
-): Promise<{ out: string; err: string; code: number | null; timedOut: boolean }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [SCRIPT, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, ms);
-    child.stdout.on('data', (c: Buffer) => (out += c.toString('utf8')));
-    child.stderr.on('data', (c: Buffer) => (err += c.toString('utf8')));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ out: out.replace(/\n$/, ''), err, code, timedOut });
-    });
-    child.stdin.on('error', () => {});
-    child.stdin.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
-  });
-}
 
 test('snapshot: a FIFO planted at the snapshot path never hangs the turn', async () => {
   const ws = await makeWorkspace();

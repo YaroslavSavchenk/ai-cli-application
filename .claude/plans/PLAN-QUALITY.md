@@ -18,7 +18,7 @@ Status: see the table below (updated 2026-10-13, Q5–Q8 added). Conventions: `.
 | Q5 | `server/index.ts` (994 of 1 000 lines) split: the construction and wiring block into its own `server/index-<topic>.ts` | landed | — | 2026-10-13 |
 | Q6 | The Windows host in files of at most 1 000 lines, and the size guard measures everything under `launcher/` | landed | `.claude/plans/quality/PLAN-Q6.md` | 2026-10-13 |
 | Q7 | The suite always returns: a failing test cannot leave a listening stub that keeps `npm test` alive | landed | — | 2026-10-13 |
-| Q8 | Every data-dir reader opens its file the FIFO-safe way (`readSmallRegularFile`) | todo | — | — |
+| Q8 | Every data-dir reader opens its file the FIFO-safe way (`readSmallRegularFile`) | landed | — | 2026-10-13 |
 
 ## Resume here
 

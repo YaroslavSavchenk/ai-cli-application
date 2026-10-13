@@ -1,7 +1,8 @@
 /**
  * Shared runners and payloads for the `server/statusline.mjs` tests
  * (`tests/server/statusline-script.test.ts`,
- * `tests/server/statusline-script-snapshot.test.ts`): spawn the script the way
+ * `tests/server/statusline-script-snapshot.test.ts`,
+ * `tests/server/statusline-script-fifo.test.ts`): spawn the script the way
  * Claude Code does, a realistic status-line payload (Claude Code 2.1.220's
  * stdin JSON shape), and a temp workspace with a real git repo on `main`.
  */
@@ -12,6 +13,33 @@ import { join } from 'node:path';
 import { projectRoot, makeTempDir } from './helpers.ts';
 
 export const SCRIPT = join(projectRoot, 'server', 'statusline.mjs');
+
+/** Run the script with a hard deadline; a run that has to be killed is a hang. */
+export function runWithDeadline(
+  args: string[],
+  payload: unknown,
+  ms: number,
+): Promise<{ out: string; err: string; code: number | null; timedOut: boolean }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [SCRIPT, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, ms);
+    child.stdout.on('data', (c: Buffer) => (out += c.toString('utf8')));
+    child.stderr.on('data', (c: Buffer) => (err += c.toString('utf8')));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ out: out.replace(/\n$/, ''), err, code, timedOut });
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
+  });
+}
 
 /** Run the script the way Claude Code does; resolve with trimmed stdout + code. */
 export function runStatusline(

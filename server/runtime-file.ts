@@ -15,13 +15,25 @@
  * The decision (`runtimeFileVerdict`) is pure so a test reaches it without a
  * process; `removeOwnRuntimeFile` is the one I/O wrapper, used by both the
  * clean shutdown and the uncaughtException path in server/index.ts.
+ *
+ * Also the restart's read of the file a standby writes (`runtimeInfoReader`,
+ * Q8: moved here from server/index-restart.ts so every read of runtime.json
+ * shares the one judged open and the one cap).
  */
 import { unlinkSync } from 'node:fs';
+import type { RuntimeInfo } from '../shared/protocol.ts';
 import { readSmallRegularFile, type Logger } from './config.ts';
 import { plainObject } from './sanitise.ts';
 
-/** runtime.json is a few hundred bytes; anything larger is not ours, so not read. */
-const MAX_RUNTIME_FILE_BYTES = 4096;
+/**
+ * Read cap for runtime.json, shared by the exit path and the restart poll.
+ * The file is a few hundred bytes, EXCEPT `appDir` (the repo root or bundle
+ * dir), which nothing bounds below PATH_MAX (4096 bytes) — and JSON may escape
+ * it further. 16 KiB covers a PATH_MAX appDir plus port, token, pid and
+ * startedAt with room; at 4096 a deep checkout would be refused on every
+ * restart poll and the restart would fail (Q8 fix round). Larger is not ours.
+ */
+const MAX_RUNTIME_FILE_BYTES = 16 * 1024;
 
 /** Who this process is, as it wrote itself into runtime.json at listen. */
 interface RuntimeOwner {
@@ -82,4 +94,36 @@ export function removeOwnRuntimeFile(file: string, self: RuntimeOwner, log: Logg
   } catch {
     // Gone in between — the outcome we wanted.
   }
+}
+
+/**
+ * The restart's poll of runtime.json (server/restart.ts `#waitForChild`, every
+ * RESTART_POLL_MS): the parsed file, or undefined while it is absent, half
+ * written or not ours. The shape is not judged here — `#waitForChild` checks
+ * pid, port and startedAt before believing any of it.
+ *
+ * The judged open (memory/knowledge/fifo-open-blocks-main-thread.md): the poll
+ * runs on the main thread, so a FIFO planted at the path must not block it
+ * and a link must not be followed. Such a refusal is one warn line per reason,
+ * not one per poll (ten a second for up to RESTART_TIMEOUT_MS).
+ */
+export function runtimeInfoReader(file: string, log: Logger): () => RuntimeInfo | undefined {
+  let warned = '';
+  return () => {
+    const read = readSmallRegularFile(file, MAX_RUNTIME_FILE_BYTES);
+    if (read.kind === 'unreadable') {
+      if (read.reason !== warned) {
+        log('warn', `${file} refused: ${read.reason} — waiting for the new backend's file`);
+      }
+      warned = read.reason;
+      return undefined;
+    }
+    warned = '';
+    if (read.kind === 'missing') return undefined;
+    try {
+      return JSON.parse(read.text) as RuntimeInfo; // Shape checked by #waitForChild.
+    } catch {
+      return undefined; // Never half-written (it is renamed into place); a foreign file can be.
+    }
+  };
 }

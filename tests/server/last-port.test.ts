@@ -339,12 +339,18 @@ test('server/last-port.ts keeps both read caps and the atomic write (shape pin)'
   assert.match(src, /readSmallRegularFile\(file, MAX_LAST_PORT_BYTES\)/);
   const helper = readSource('server', 'config.ts');
   assert.match(helper, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW \| fsConstants\.O_NONBLOCK/);
-  assert.match(helper, /if \(!stat\.isFile\(\) \|\| stat\.size > maxBytes\)/);
-  assert.match(helper, /if \(read > maxBytes\)/);
+  assert.match(helper, /if \(!stat\.isFile\(\)\) return/);
+  assert.match(helper, /if \(stat\.size > maxBytes\) return tooLarge/);
+  assert.match(helper, /if \(total > maxBytes\) return tooLarge/);
   // The post-read cap is only alive when the read asks for ONE byte more than
   // the cap (a file grown between fstat and read); a read of `maxBytes` makes
-  // it dead code no behaviour test can tell apart (D2 mutation probe).
-  assert.match(helper, /readSync\(fd, buffer, 0, maxBytes \+ 1, 0\)/, 'the read asks for cap + 1 bytes');
+  // it dead code no behaviour test can tell apart (D2 mutation probe). Since
+  // Q8 the read goes in chunks, each bounded by what is left of cap + 1.
+  assert.match(
+    helper,
+    /Math\.min\(SMALL_FILE_CHUNK_BYTES, maxBytes \+ 1 - total\)/,
+    'the reads ask for cap + 1 bytes in total',
+  );
   assert.match(src, /atomicWriteFile\(file, JSON\.stringify\(\{ port \}\)/);
   assert.doesNotMatch(src, /\bwriteFileSync\(/, 'the write goes through atomicWriteFile only');
 });

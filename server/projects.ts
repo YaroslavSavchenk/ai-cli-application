@@ -6,7 +6,7 @@
  * `update` (Nocturne D1, `.claude/plans/nocturne/PLAN-D1.md`) edits a project's
  * name and launch preferences in place; the path is never editable.
  */
-import { readFileSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type {
@@ -16,7 +16,22 @@ import type {
   ProjectEffort,
   UpdateProjectRequest,
 } from '../shared/protocol.ts';
-import { atomicWriteFile, errorStackOnly, scoped, type Logger } from './config.ts';
+import {
+  atomicWriteFile,
+  errorStackOnly,
+  readSmallRegularFile,
+  scoped,
+  setAsideRefused,
+  type Logger,
+} from './config.ts';
+
+/**
+ * Read cap for projects.json (Q8). A project the writer stores is a few
+ * hundred bytes (name, path, three preferences); the list has no count limit,
+ * only each POST body's 1 MiB (MAX_BODY_BYTES, server/api-http.ts). 16 MiB is
+ * ~50 000 ordinary projects. A bigger file is not ours.
+ */
+const PROJECTS_FILE_MAX_BYTES = 16 * 1024 * 1024;
 
 /** True when `p` is an absolute path to an existing directory. */
 export function isExistingDirectory(p: string): boolean {
@@ -52,6 +67,8 @@ export class ProjectStore {
   readonly #file: string;
   readonly #log: Logger;
   #plog: Logger = () => undefined;
+  /** The load refused the file: set it aside before the first write (config.ts setAsideRefused). */
+  #refusedAtLoad = false;
 
   constructor(file: string, log: Logger) {
     this.#file = file;
@@ -136,13 +153,19 @@ export class ProjectStore {
   }
 
   #load(): void {
-    let raw: string;
-    try {
-      raw = readFileSync(this.#file, 'utf8');
-    } catch {
+    // The judged open (memory/knowledge/fifo-open-blocks-main-thread.md): a
+    // FIFO planted here would hang the boot, a link would be followed.
+    const read = readSmallRegularFile(this.#file, PROJECTS_FILE_MAX_BYTES);
+    if (read.kind === 'missing') {
       this.#plog('debug', `no ${this.#file} yet — starting with 0 projects`);
       return; // No projects.json yet — start empty.
     }
+    if (read.kind === 'unreadable') {
+      this.#refusedAtLoad = true;
+      this.#log('warn', `${this.#file} refused: ${read.reason} — starting with 0 projects, set aside at the first save`);
+      return;
+    }
+    const raw = read.text;
     try {
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error('projects.json is not an array');
@@ -158,6 +181,10 @@ export class ProjectStore {
   }
 
   #save(): void {
+    if (this.#refusedAtLoad) {
+      this.#refusedAtLoad = false;
+      setAsideRefused(this.#file, this.#log);
+    }
     atomicWriteFile(this.#file, JSON.stringify(this.#projects, null, 2) + '\n');
     this.#plog('debug', `saved ${this.#projects.length} projects to ${this.#file}`);
   }

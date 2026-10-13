@@ -401,7 +401,7 @@ test('release check: an OLD-SHAPE cache file is no cache — the next ask is unc
     ]) {
       await writeFile(cacheFile, JSON.stringify(old));
       const opts = { currentVersion: CURRENT, assetBase: stub.origin };
-      assert.equal(readUpdateCheckCache(cacheFile, opts), null, 'the old shape does not read');
+      assert.equal(readUpdateCheckCache(cacheFile, opts, () => undefined), null, 'the old shape does not read');
 
       stub.requests.length = 0;
       stub.handler = (_req, res) => {

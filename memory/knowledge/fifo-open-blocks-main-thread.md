@@ -1,7 +1,7 @@
 ---
 type: knowledge
 created: 2026-09-17
-updated: 2026-09-22
+updated: 2026-10-13
 tags: [security, filesystem, node, telemetry, statusline]
 ---
 # A named pipe in a watched directory hangs a synchronous open — O_NOFOLLOW is not enough
@@ -40,6 +40,8 @@ plants a symlink proves nothing about a FIFO; plant the FIFO itself
 launcher saw no `runtime.json` and no `/health`; a symlink to `/dev/zero`
 read without end (the byte cap ran only after the read). The rule above
 holds for every reader in the data dir, not only the watched ones — a brief
-for a new data-dir file must name it. The older readers (`prefs.json`,
-`projects.json`, `history.json`, `keys.json`, `update-check.json`) still use
-`readFileSync` and sit in the BACKLOG.
+for a new data-dir file must name it. Since Q8 (2026-10-13) every data-dir
+reader goes through `readSmallRegularFile` in `server/config.ts` (and
+`server/statusline.mjs` through its own `readRegularText`), and a refused
+file is set aside as `<file>.refused-<stamp>` before the store's first
+write, never destroyed ([[2026-10-13-q8-fifo-safe-readers]]).

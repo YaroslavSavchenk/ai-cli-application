@@ -138,23 +138,23 @@ test('verdict: startedAt compares strictly — the same text inside an array is 
   });
 });
 
-test('removeOwnRuntimeFile: the 4096-byte cap — at the cap its own file goes, one byte over it stays unread', () => {
+test('removeOwnRuntimeFile: the 16 KiB cap — at the cap its own file goes, one byte over it stays unread', () => {
   // An own identity padded to an exact size: only the size decides.
   const sized = (bytes: number): string => {
     const head = JSON.stringify({ pid: SELF.pid, startedAt: SELF.startedAt, pad: '' }).slice(0, -2);
     return head + 'x'.repeat(bytes - head.length - 2) + '"}';
   };
   withTempFile((file, lines, log) => {
-    const over = sized(4097);
-    assert.equal(Buffer.byteLength(over), 4097);
+    const over = sized(16_385);
+    assert.equal(Buffer.byteLength(over), 16_385);
     writeFileSync(file, over);
     removeOwnRuntimeFile(file, SELF, log);
     assert.equal(readFileSync(file, 'utf8'), over, 'over the cap: not read, so not ours to delete');
     assert.deepEqual(lines, ['info runtime.json left in place: unreadable']);
   });
   withTempFile((file, lines, log) => {
-    const atCap = sized(4096);
-    assert.equal(Buffer.byteLength(atCap), 4096);
+    const atCap = sized(16_384);
+    assert.equal(Buffer.byteLength(atCap), 16_384);
     writeFileSync(file, atCap);
     removeOwnRuntimeFile(file, SELF, log);
     assert.ok(!existsSync(file), 'the cap itself is allowed: own file removed');

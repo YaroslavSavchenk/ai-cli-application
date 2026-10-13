@@ -121,6 +121,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
+- [[2026-10-13-q8-fifo-safe-readers]] — Q8: prefs/projects/history/keys/github/update-check/runtime poll + statusline.mjs on readSmallRegularFile (O_NOFOLLOW|O_NONBLOCK, fstat, chunked cap); a refused file is set aside as .refused-<stamp> before the first write; 68 mutants, survivors killed
 - [[2026-10-13-d4-d5-focus-always-ask]] — D4: one restoreFocus helper (not <body>, connected, not hidden, offsetParent) falling back to the focused terminal at every dialog close; D5: Always ask → --permission-mode manual (app keeps storing default, CLAUDE_PERMISSION_FLAG maps it)
 - [[2026-10-13-q5-index-split]] — Q5: server/index.ts 994 → 663 lines; boot banner, stores and update wiring moved into server/index-{banner,stores,update}.ts as factories; identical boot logs old vs new
 - [[2026-10-13-q6-host-split]] — Q6: AiSessionManagerHost.cs 2 550 lines → four `partial` files (core / clipboard / overlay / overlay-window), build-host.ps1 fixed list pinned against tracked host/*.cs, size guard covers launcher/; move proof + real csc build identical size

@@ -46,6 +46,10 @@ import {
   releasePayload,
   makeChecker,
 } from '../helpers/update-release-fixture.ts';
+import type { Logger } from '../../server/config.ts';
+
+/** The cache read's warn sink: these gates assert the verdict, not the log. */
+const noLog: Logger = () => undefined;
 
 // ---------------------------------------------------------------------------
 // The gates — every way a published release is refused
@@ -209,7 +213,7 @@ test('readUpdateCheckCache: a doctored cache file can never point the downloader
   };
   try {
     await writeFile(file, JSON.stringify(good));
-    assert.deepEqual(readUpdateCheckCache(file, opts)?.latest, good.latest, 'the good file reads back');
+    assert.deepEqual(readUpdateCheckCache(file, opts, noLog)?.latest, good.latest, 'the good file reads back');
 
     const bad: [string, unknown][] = [
       ['a url on another host', { ...good, latest: { ...good.latest, setupUrl: 'https://evil.example.com/x.exe' } }],
@@ -230,7 +234,7 @@ test('readUpdateCheckCache: a doctored cache file can never point the downloader
     ];
     for (const [what, value] of bad) {
       await writeFile(file, JSON.stringify(value));
-      assert.equal(readUpdateCheckCache(file, opts), null, `${what} must read as no cache`);
+      assert.equal(readUpdateCheckCache(file, opts, noLog), null, `${what} must read as no cache`);
     }
 
     // A cached latest that is the version we ALREADY run is KEPT as a
@@ -244,12 +248,12 @@ test('readUpdateCheckCache: a doctored cache file can never point the downloader
       size: 5_000_000,
     };
     await writeFile(file, JSON.stringify({ ...good, latest: sameVersion }));
-    const same = readUpdateCheckCache(file, opts);
+    const same = readUpdateCheckCache(file, opts, noLog);
     assert.deepEqual(same?.latest, sameVersion, 'the descriptor survives, verdict-free');
 
     // `latest: null` = the latest release was refused for a non-version reason.
     await writeFile(file, JSON.stringify({ ...good, latest: null }));
-    assert.deepEqual(readUpdateCheckCache(file, opts), {
+    assert.deepEqual(readUpdateCheckCache(file, opts, noLog), {
       etag: good.etag,
       checkedAt: good.checkedAt,
       latest: null,
@@ -257,11 +261,11 @@ test('readUpdateCheckCache: a doctored cache file can never point the downloader
 
     // Oversized: not even parsed.
     await writeFile(file, JSON.stringify({ ...good, pad: 'x'.repeat(9000) }));
-    assert.equal(readUpdateCheckCache(file, opts), null, 'a file past 8 KiB is not a cache');
+    assert.equal(readUpdateCheckCache(file, opts, noLog), null, 'a file past 8 KiB is not a cache');
 
     // Absent.
     await rm(file);
-    assert.equal(readUpdateCheckCache(file, opts), null);
+    assert.equal(readUpdateCheckCache(file, opts, noLog), null);
   } finally {
     await removeTempDir(root);
   }

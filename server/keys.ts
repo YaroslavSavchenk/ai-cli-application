@@ -28,7 +28,6 @@
  * derived from the file's bytes is ever logged: a JSON.parse error quotes ~10
  * characters of its input, which here would be a key.
  */
-import { readFileSync } from 'node:fs';
 import {
   isKeyedTool,
   KEYED_TOOLS,
@@ -36,10 +35,17 @@ import {
   type KeyedTool,
   type KeyStatus,
 } from '../shared/protocol.ts';
-import { atomicWriteFile, scoped, type Logger } from './config.ts';
+import { atomicWriteFile, readSmallRegularFile, scoped, setAsideRefused, type Logger } from './config.ts';
 
 /** Upper bound on a stored key. No real key of these vendors comes near it. */
 export const KEY_MAX_CHARS = 4096;
+
+/**
+ * Read cap for keys.json (Q8). The writer stores at most one key per
+ * KEYED_TOOLS entry, each at most KEY_MAX_CHARS printable ASCII, pretty-printed:
+ * well under 16 KiB. 64 KiB is 4x that; a bigger file is not ours.
+ */
+const KEYS_FILE_MAX_BYTES = 64 * 1024;
 
 /** The two constant refusal sentences of PUT/DELETE /api/keys/:tool. */
 export const KEY_NOT_SHAPED = 'That does not look like an API key.';
@@ -82,6 +88,8 @@ export class KeyStore {
   readonly #file: string;
   readonly #log: Logger;
   readonly #klog: Logger;
+  /** The load refused the file: set it aside before the first write (config.ts setAsideRefused). */
+  #refusedAtLoad = false;
 
   constructor(file: string, log: Logger) {
     this.#file = file;
@@ -136,13 +144,20 @@ export class KeyStore {
   }
 
   #load(): void {
-    let raw: string;
-    try {
-      raw = readFileSync(this.#file, 'utf8');
-    } catch {
+    // The judged open (memory/knowledge/fifo-open-blocks-main-thread.md): a
+    // FIFO planted here would hang the boot, a link would be followed.
+    const read = readSmallRegularFile(this.#file, KEYS_FILE_MAX_BYTES);
+    if (read.kind === 'missing') {
       this.#klog('debug', `no ${this.#file} yet — no API keys stored`);
       return;
     }
+    if (read.kind === 'unreadable') {
+      // The reason is a fixed phrase or an errno code — never the file's bytes.
+      this.#refusedAtLoad = true;
+      this.#log('warn', `${this.#file} refused: ${read.reason} — starting with no stored keys, set aside at the first save`);
+      return;
+    }
+    const raw = read.text;
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw) as unknown;
@@ -186,6 +201,10 @@ export class KeyStore {
   }
 
   #save(): void {
+    if (this.#refusedAtLoad) {
+      this.#refusedAtLoad = false;
+      setAsideRefused(this.#file, this.#log);
+    }
     const out: Record<string, string> = {};
     for (const tool of KEYED_TOOLS) {
       const key = this.#keys.get(tool);

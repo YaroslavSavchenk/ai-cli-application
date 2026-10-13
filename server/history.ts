@@ -19,7 +19,7 @@
  * History I/O must never take the server down: every read/write is wrapped and
  * failures are logged, not thrown.
  */
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { isClaudeCommand, type HistoryEntry, type SessionEndReason, type SessionInfo } from '../shared/protocol.ts';
 import {
@@ -29,13 +29,28 @@ import {
   errorStackOnly,
   isDirectory,
   isStringArray,
+  readSmallRegularFile,
   scoped,
+  setAsideRefused,
   type Logger,
 } from './config.ts';
 import { isUuid } from './conversation.ts';
 
 /** Cap on stored entries; the oldest ENDED one is dropped past this. */
 export const HISTORY_MAX = 200;
+
+/**
+ * Read cap for history.json (Q8). The writer keeps at most HISTORY_MAX entries
+ * (live ones are never dropped, so a few more in practice); an ordinary entry
+ * is under 1 KiB pretty-printed (uuid ids, cwd, command, a handful of args,
+ * a title of at most 256 chars), so a full file is ~200 KiB. Each entry's
+ * strings come from a session-create body (<= 1 MiB, MAX_BODY_BYTES), which
+ * sets no useful bound for 200 of them. 32 MiB is ~150x a full ordinary file
+ * and still a bounded boot read. A bigger file is refused and SET ASIDE
+ * (`setAsideRefused`, config.ts) before the first write of the path, so even a
+ * legitimately huge history is kept, never overwritten.
+ */
+const HISTORY_FILE_MAX_BYTES = 32 * 1024 * 1024;
 
 /** Reasons a running server may record; 'crash' is stamped only at boot. */
 export type LiveEndReason = Exclude<SessionEndReason, 'crash'>;
@@ -123,6 +138,8 @@ export class SessionHistory {
   /** `[history] …`-tagged view of the same logger, for the detail lines. */
   readonly #hlog: Logger;
   #entries: HistoryEntry[] = [];
+  /** The load refused the file: set it aside before the first write (config.ts setAsideRefused). */
+  #refusedAtLoad = false;
 
   constructor(file: string, log: Logger) {
     this.#file = file;
@@ -436,13 +453,23 @@ export class SessionHistory {
   }
 
   #read(): HistoryEntry[] {
-    let raw: string;
-    try {
-      raw = readFileSync(this.#file, 'utf8');
-    } catch {
+    this.#refusedAtLoad = false;
+    // The judged open (memory/knowledge/fifo-open-blocks-main-thread.md): a
+    // FIFO planted here would hang the boot, a link would be followed.
+    const read = readSmallRegularFile(this.#file, HISTORY_FILE_MAX_BYTES);
+    if (read.kind === 'missing') {
       this.#hlog('info', `no history file at ${this.#file} yet — starting empty`);
       return []; // No file — nothing recorded yet.
     }
+    if (read.kind === 'unreadable') {
+      // Set aside at the first write (a writing load() makes it at once; a
+      // read-only standby load makes none): a history past the cap is the
+      // user's data, and nothing bounds an entry.
+      this.#refusedAtLoad = true;
+      this.#log('warn', `history file ${this.#file} refused: ${read.reason} — starting empty, set aside at the first write`);
+      return [];
+    }
+    const raw = read.text;
     try {
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error('not an array');
@@ -467,6 +494,10 @@ export class SessionHistory {
   }
 
   #write(): void {
+    if (this.#refusedAtLoad) {
+      this.#refusedAtLoad = false;
+      setAsideRefused(this.#file, this.#log);
+    }
     try {
       atomicWriteFile(this.#file, JSON.stringify(this.#entries, null, 2) + '\n');
       this.#hlog('debug', `wrote ${this.#entries.length} entries to ${this.#file}`);

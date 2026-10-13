@@ -35,13 +35,14 @@
  *     name, an error body) is never logged unless it passed a shape gate, and
  *     always through `oneLine()`.
  */
-import { readFileSync, unlinkSync } from 'node:fs';
+import { unlinkSync } from 'node:fs';
 import type { UpdateRelease, UpdateStatus } from '../shared/protocol.ts';
 import { UPDATE_NEW_VERSION_AVAILABLE, VERSION_SHAPE } from '../shared/protocol.ts';
 import {
   atomicWriteFile,
   errorClass,
   oneLine,
+  readSmallRegularFile,
   scoped,
   DEFAULT_UPDATE_API_BASE,
   DEFAULT_UPDATE_ASSET_BASE,
@@ -304,19 +305,27 @@ export interface UpdateCheckCache {
  * charset gating as `bundle.json`: an oversized, unparsable or partially
  * invalid file is simply "no cache", never a half-trusted object. The URLs are
  * re-CONSTRUCTED and compared rather than believed, so a doctored file cannot
- * point the downloader anywhere.
+ * point the downloader anywhere. `log` gets one warn line when the path holds
+ * something that is not ours to read (a link, a FIFO, over the cap — Q8); the
+ * content gates below stay silent, as before.
  */
-export function readUpdateCheckCache(file: string, opts: AssetOptions): UpdateCheckCache | null {
-  let raw: Buffer;
-  try {
-    raw = readFileSync(file);
-  } catch {
+export function readUpdateCheckCache(
+  file: string,
+  opts: AssetOptions,
+  log: Logger,
+): UpdateCheckCache | null {
+  // The judged open (memory/knowledge/fifo-open-blocks-main-thread.md): this
+  // runs at boot on the main thread, so a FIFO planted here would hang it and
+  // a link would be followed. MAX_CACHE_BYTES is also the WRITER's own cap.
+  const read = readSmallRegularFile(file, MAX_CACHE_BYTES);
+  if (read.kind === 'missing') return null;
+  if (read.kind === 'unreadable') {
+    log('warn', `${file} refused: ${read.reason} — no release cache`);
     return null;
   }
-  if (raw.length > MAX_CACHE_BYTES) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw.toString('utf8'));
+    parsed = JSON.parse(read.text);
   } catch {
     return null;
   }
@@ -462,7 +471,7 @@ export function createReleaseChecker(opts: ReleaseCheckerOptions): ReleaseChecke
 
   // Adopt the persisted answer immediately: the notice is on screen before the
   // first request, and the ETag makes that request cost no quota.
-  const cached = readUpdateCheckCache(opts.cacheFile, gateOpts);
+  const cached = readUpdateCheckCache(opts.cacheFile, gateOpts, log);
   let etag: string | undefined = cached?.etag;
   /** The gated latest release, whatever its order against the running version. */
   let latest: UpdateRelease | undefined = cached?.latest ?? undefined;

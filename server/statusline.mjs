@@ -67,7 +67,6 @@ import {
   constants,
   fstatSync,
   openSync,
-  readFileSync,
   readSync,
   renameSync,
   unlinkSync,
@@ -130,6 +129,18 @@ const BRANCH_TTL_MS = 5_000;
 const CACHE_STALE_MS = 60_000;
 /** Belt and braces on cache size (one entry per concurrent claude session). */
 const CACHE_MAX_ENTRIES = 64;
+/**
+ * Read cap for statusline-cache.json (Q8): CACHE_MAX_ENTRIES entries of a
+ * session id, a branch of at most MAX_FIELD chars, a cwd (at most PATH_MAX,
+ * 4096) and a timestamp — under 300 KiB even with every cwd at PATH_MAX.
+ */
+const MAX_CACHE_FILE_BYTES = 1024 * 1024;
+/**
+ * Read cap for prefs.json (Q8) — the SAME number as PREFS_FILE_MAX_BYTES in
+ * server/prefs.ts (this script imports nothing from server/, so it is
+ * repeated here): the server's own reader refuses anything larger anyway.
+ */
+const MAX_PREFS_FILE_BYTES = 4 * 1024 * 1024;
 /** A git probe that hangs must never hold the status line hostage. */
 const GIT_TIMEOUT_MS = 1_500;
 
@@ -182,7 +193,8 @@ function readConfig(prefsPath) {
   if (typeof prefsPath !== 'string' || prefsPath === '') return config;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(prefsPath, 'utf8'));
+    // readRegularText: a FIFO planted at prefs.json would hang every tick.
+    parsed = JSON.parse(readRegularText(prefsPath, MAX_PREFS_FILE_BYTES) ?? '');
   } catch {
     return config; // No prefs yet, unreadable, or not JSON: factory defaults.
   }
@@ -339,14 +351,15 @@ function writeSnapshot(file, payload, branch) {
 }
 
 /**
- * The snapshot already on disk, or undefined for "write it" — which is what
- * every refusal below means. Bounded, O_NOFOLLOW, regular files only: the data
- * dir is not a boundary (any process running as this user can plant a symlink
- * or a FIFO at this path, and a FIFO would hang the script on every 2 s tick),
- * so the server side reads this same file the same way (#read in
- * server/telemetry.ts).
+ * The text of a data-dir file, or undefined for "absent, or not ours to read".
+ * Bounded, O_NOFOLLOW, regular files only: the data dir is not a boundary (any
+ * process running as this user can plant a symlink or a FIFO at these paths,
+ * and a FIFO would hang the script on every 2 s tick), so the server side
+ * reads them the same way (readSmallRegularFile in server/config.ts — repeated
+ * here because this script imports nothing from server/). Silent on purpose:
+ * this script has no log, and stderr would reach Claude Code's status line.
  */
-function readPrevious(file) {
+function readRegularText(file, maxBytes) {
   let fd;
   try {
     // O_NONBLOCK too: a FIFO opened for reading blocks until a writer shows
@@ -357,19 +370,38 @@ function readPrevious(file) {
     return undefined; // No file yet, unreadable, or a symlink we refuse.
   }
   try {
-    if (!fstatSync(fd).isFile()) return undefined;
-    const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
-    const read = readSync(fd, buffer, 0, MAX_SNAPSHOT_BYTES + 1, 0);
-    if (read > MAX_SNAPSHOT_BYTES) return undefined;
-    return obj(JSON.parse(buffer.subarray(0, read).toString('utf8')));
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > maxBytes) return undefined;
+    // Sized from fstat, plus one byte that catches a file grown since.
+    const buffer = Buffer.allocUnsafe(stat.size + 1);
+    let total = 0;
+    for (;;) {
+      const read = readSync(fd, buffer, total, buffer.length - total, total);
+      if (read === 0) break;
+      total += read;
+      if (total === buffer.length) return undefined;
+    }
+    return buffer.subarray(0, total).toString('utf8');
   } catch {
-    return undefined; // Not JSON, or unreadable halfway.
+    return undefined; // Unreadable halfway.
   } finally {
     try {
       closeSync(fd);
     } catch {
       // Nothing to do about a failed close.
     }
+  }
+}
+
+/**
+ * The snapshot already on disk, or undefined for "write it" — which is what
+ * every refusal means (#read in server/telemetry.ts reads it the same way).
+ */
+function readPrevious(file) {
+  try {
+    return obj(JSON.parse(readRegularText(file, MAX_SNAPSHOT_BYTES) ?? ''));
+  } catch {
+    return undefined; // Not JSON, or not ours to read.
   }
 }
 
@@ -397,7 +429,7 @@ function branchFor(sessionId, cwd, cacheFile) {
   const now = Date.now();
   let cache = {};
   try {
-    const parsed = obj(JSON.parse(readFileSync(cacheFile, 'utf8')));
+    const parsed = obj(JSON.parse(readRegularText(cacheFile, MAX_CACHE_FILE_BYTES) ?? ''));
     if (parsed !== undefined) cache = parsed;
   } catch {
     cache = {};

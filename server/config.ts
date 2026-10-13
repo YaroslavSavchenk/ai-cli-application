@@ -716,8 +716,17 @@ export function atomicWriteFile(filePath: string, contents: string): void {
 /**
  * What `readSmallRegularFile` found: the text, nothing at the path (ENOENT), or
  * something there that is not readable as one of the app's own small files.
+ * `reason` is a fixed phrase, never file content, for the caller's WARN line
+ * (Q8): 'a symlink', 'not a regular file', 'larger than <n> bytes', or the
+ * errno code of a failed open or read.
  */
-type SmallFileRead = { kind: 'text'; text: string } | { kind: 'missing' } | { kind: 'unreadable' };
+type SmallFileRead =
+  | { kind: 'text'; text: string }
+  | { kind: 'missing' }
+  | { kind: 'unreadable'; reason: string };
+
+/** One read step: a store with a large cap (history) does not allocate the cap up front. */
+const SMALL_FILE_CHUNK_BYTES = 64 * 1024;
 
 /**
  * Read a small file the app wrote itself into the data dir, where another
@@ -730,30 +739,65 @@ type SmallFileRead = { kind: 'text'; text: string } | { kind: 'missing' } | { ki
  * thread, so a FIFO planted at the path would block until a writer appeared,
  * and a symlink to /dev/zero would read without end — a cap after the read is
  * too late for both. A symlink (ELOOP) is 'unreadable': the app writes these
- * files itself, so a link is not ours.
+ * files itself, so a link is not ours. The read stops one byte past the cap,
+ * so a file that grew after the fstat is refused too, never truncated.
  */
 export function readSmallRegularFile(file: string, maxBytes: number): SmallFileRead {
   let fd: number;
   try {
     fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' };
+    const code = (err as NodeJS.ErrnoException).code ?? 'open failed';
+    if (code === 'ENOENT') return { kind: 'missing' };
+    return { kind: 'unreadable', reason: code === 'ELOOP' ? 'a symlink' : code };
   }
+  const tooLarge: SmallFileRead = { kind: 'unreadable', reason: `larger than ${maxBytes} bytes` };
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.size > maxBytes) return { kind: 'unreadable' };
-    const buffer = Buffer.allocUnsafe(maxBytes + 1);
-    const read = readSync(fd, buffer, 0, maxBytes + 1, 0);
-    if (read > maxBytes) return { kind: 'unreadable' };
-    return { kind: 'text', text: buffer.subarray(0, read).toString('utf8') };
-  } catch {
-    return { kind: 'unreadable' };
+    if (!stat.isFile()) return { kind: 'unreadable', reason: 'not a regular file' };
+    if (stat.size > maxBytes) return tooLarge;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for (;;) {
+      const buffer = Buffer.allocUnsafe(Math.min(SMALL_FILE_CHUNK_BYTES, maxBytes + 1 - total));
+      const read = readSync(fd, buffer, 0, buffer.length, total);
+      if (read === 0) break;
+      total += read;
+      if (total > maxBytes) return tooLarge;
+      chunks.push(buffer.subarray(0, read));
+    }
+    return { kind: 'text', text: Buffer.concat(chunks, total).toString('utf8') };
+  } catch (err) {
+    return { kind: 'unreadable', reason: (err as NodeJS.ErrnoException).code ?? 'read failed' };
   } finally {
     try {
       closeSync(fd);
     } catch {
       // Nothing to do about a failed close.
     }
+  }
+}
+
+/**
+ * Move a file `readSmallRegularFile` refused out of the store's way, called
+ * by a store right BEFORE its first write (or unlink) of that path (Q8 fix
+ * round): the atomic write would otherwise rename over it and destroy what
+ * was there — a history past the cap is the user's own data. Not at load: a
+ * standby boot loads every store while the parent still owns the data dir
+ * and must change nothing there; a waiting standby never writes, so "before
+ * the first write" holds that rule for free. `rename(2)` moves the directory
+ * entry itself, so a symlink is moved as a link and a FIFO as a FIFO; no
+ * target is ever touched. Never throws; one warn line either way.
+ */
+export function setAsideRefused(file: string, log: Logger): void {
+  // UTC, with ':' and '.' replaced so the name is portable (drvfs refuses ':').
+  const aside = `${file}.refused-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try {
+    renameSync(file, aside);
+    log('warn', `${file} (refused at load) kept as ${aside} before the first write`);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? 'rename failed';
+    log('warn', `${file} (refused at load) could not be set aside (${code}) before the first write`);
   }
 }
 

@@ -64,13 +64,15 @@
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
 import { spawn } from 'node:child_process';
-import { readFileSync, unlinkSync } from 'node:fs';
+import { unlinkSync } from 'node:fs';
 import type { GithubRepo, GithubStatus } from '../shared/protocol.ts';
 import {
   assertLoopbackApiBase,
   atomicWriteFile,
   errorStackOnly,
+  readSmallRegularFile,
   scoped,
+  setAsideRefused,
   DEFAULT_GITHUB_API_BASE,
   USER_AGENT,
   type Logger,
@@ -120,6 +122,13 @@ const REPOS_PATH = '/user/repos';
 
 /** OAuth scope requested up front (list + clone + create-repo + push, no re-auth). */
 const SCOPE = 'repo';
+/**
+ * Read cap for github.json (Q8). The writer stores one token (a pasted one is
+ * at most GITHUB_TOKEN_MAX_BYTES = 4 KiB, server/api-github.ts; a device-flow
+ * one is far shorter), a login, a scope list and two timestamps, pretty-printed:
+ * a few KiB at most. 64 KiB is well above that; a bigger file is not ours.
+ */
+const GITHUB_FILE_MAX_BYTES = 64 * 1024;
 /** Per-request hard timeout (device code, token poll, /user, repos page). */
 const HTTP_TIMEOUT_MS = 15_000;
 /** Poll cadence when the server omits `interval`. */
@@ -230,6 +239,8 @@ export class GithubConnection {
   #source: 'device' | 'pat' = 'device';
   /** Whether the CURRENT credential is on disk. False = process memory only. */
   #persisted = false;
+  /** The load refused the file: set it aside before the first write (config.ts setAsideRefused). */
+  #refusedAtLoad = false;
   /** Classic-PAT scopes, when GitHub reported them. undefined = not reported (fine-grained). */
   #scopes: string[] | undefined;
   /** ISO-8601 credential expiry, when GitHub reported one. */
@@ -819,8 +830,17 @@ export class GithubConnection {
     this.#log('warn', 'github token invalid, disconnected');
   }
 
+  /** Both the write and the unlink of github.json would destroy a refused file: move it first. */
+  #setAsideIfRefused(): void {
+    if (this.#refusedAtLoad) {
+      this.#refusedAtLoad = false;
+      setAsideRefused(this.#file, this.#log);
+    }
+  }
+
   /** Remove github.json. Best-effort: an absent file is the desired end state. */
   #removeStore(): void {
+    this.#setAsideIfRefused();
     try {
       unlinkSync(this.#file);
     } catch {
@@ -850,6 +870,7 @@ export class GithubConnection {
    * `persisted:false` instead of promising a durability the disk refused.
    */
   #persist(): boolean {
+    this.#setAsideIfRefused();
     if (this.#token === undefined) return false;
     this.#ghlog('debug', `persisting credential store to ${this.#file}`);
     const stored: StoredToken = {
@@ -878,13 +899,20 @@ export class GithubConnection {
    * pasted-token path and therefore came from the device flow.
    */
   #load(): void {
-    let raw: string;
-    try {
-      raw = readFileSync(this.#file, 'utf8');
-    } catch {
+    // The judged open (memory/knowledge/fifo-open-blocks-main-thread.md): a
+    // FIFO planted here would hang the boot, a link would be followed.
+    const read = readSmallRegularFile(this.#file, GITHUB_FILE_MAX_BYTES);
+    if (read.kind === 'missing') {
       this.#ghlog('debug', `no ${this.#file} — starting disconnected`);
       return; // No github.json yet — start disconnected.
     }
+    if (read.kind === 'unreadable') {
+      // The reason is a fixed phrase or an errno code — never the file's bytes.
+      this.#refusedAtLoad = true;
+      this.#log('warn', `${this.#file} refused: ${read.reason} — starting disconnected, set aside at the first save`);
+      return;
+    }
+    const raw = read.text;
     try {
       const o = asRecord(JSON.parse(raw));
       const accessToken = o !== undefined ? readString(o, 'accessToken') : undefined;

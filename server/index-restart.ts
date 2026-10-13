@@ -13,9 +13,7 @@ import type { Server } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RuntimeInfo } from '../shared/protocol.ts';
 import { scoped, oneLine, type DataPaths, type Logger } from './config.ts';
 import { readWebBuild, dependenciesInStep } from './buildinfo.ts';
 import { resolveInstalledTarget, type InstalledTarget } from './bundle.ts';
@@ -40,6 +38,7 @@ import {
   swapFrontend,
 } from './webbuild.ts';
 import type { ReleaseChecker } from './update-release.ts';
+import { runtimeInfoReader } from './runtime-file.ts';
 
 /** What the restart wiring reads from the boot in server/index.ts. */
 export interface RestartWiring {
@@ -211,13 +210,7 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
           cwd: repoRoot,
           log,
         }),
-    readRuntime: () => {
-      try {
-        return JSON.parse(readFileSync(paths.runtimeFile, 'utf8')) as RuntimeInfo;
-      } catch {
-        return undefined; // Absent, half-written (it is renamed into place), unreadable.
-      }
-    },
+    readRuntime: runtimeInfoReader(paths.runtimeFile, log),
     probeHealth: async (probePort) => {
       try {
         const res = await fetch(`http://127.0.0.1:${probePort}/health`, {
