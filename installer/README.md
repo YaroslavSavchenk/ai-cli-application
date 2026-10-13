@@ -13,7 +13,7 @@ empty `PrivilegesRequiredOverridesAllowed`), it is **unsigned**, and it
 | Path | Role |
 | --- | --- |
 | `ai-session-manager.iss` | the Setup script: wizard pages, `[Files]`, `[Icons]`, and Pascal that does nothing but call helpers |
-| `helpers/helper-common.ps1` | shared prologue: locating `config-common.ps1`, the key=value result file, the `wsl.exe` runner, the launcher-config writer |
+| `helpers/helper-common.ps1` | shared prologue: locating `config-common.ps1`, the key=value result file, the `wsl.exe` runner, the launcher-config writer (the constant-script check `ConvertTo-AiSmScriptLine` lives in `launcher/config-common.ps1`) |
 | `helpers/wsl-probe.ps1` | reads: is WSL 2 there, which distros, and per distro the user, home, glibc and whether Claude Code is present |
 | `helpers/install-bundle.ps1` | unpacks the bundle inside the distro, swaps `current`, prunes, writes `launcher-config.json` + `install-info.txt` |
 | `helpers/install-thirdparty.ps1` | one opt-in third-party install (today: Claude Code) |

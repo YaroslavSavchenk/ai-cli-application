@@ -120,6 +120,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-10
 
+- [[2026-10-13-d3-launch-stop-owner]] — D3: `launch.ps1 -Stop` removes a stale runtime.json only when its pid line still names the stopped pid, in ONE `wsl.exe --exec sh -c` step (args as $1/$2; HOME fail-closed); ConvertTo-AiSmScriptLine → config-common.ps1
 - [[2026-10-13-plan-d3-d6-q5-q8]] — planning: the user picked 8 backlog items → D3–D6 (launch.ps1 -Stop, focus back to a terminal, Always ask flag, Claude Code compat guard spec) + Q5–Q8 (index.ts split, host .cs split + launcher/ size guard, suite-hang proof, FIFO-safe readers); decisions 17–19
 - [[2026-10-13-d2-runtime-json-owner]] — D2: shutdown deleted a NEWER backend's runtime.json → second backend; now removed only when pid + startedAt are its own (`server/runtime-file.ts`), shared safe read `readSmallRegularFile`; 57 mutants, uncaughtException tested via a NODE_OPTIONS SIGUSR2 seam; suite 4008
 - [[2026-10-13-d1-project-prefs-models]] — D1: defaults resolved only at dialog open (wrong project) + no edit path → PATCH /api/projects/:id, Edit dialog, re-resolve on switch, versioned model pool with Older models; 86 mutants killed; suite 3994; user-verified, shipped in v0.4.1

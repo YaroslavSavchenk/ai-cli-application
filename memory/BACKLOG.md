@@ -180,7 +180,7 @@ app window first so one backend at a time owns runtime.json.
 
 ## From Nocturne C1 (2026-09-22)
 
-- [ ] Planned as D3 (2026-10-13). `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
+- [x] LANDED as D3 2026-10-13 (one in-distro `sh -c` step removes the file only when its pid line still names the stopped pid; fails closed on an odd HOME). `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
 - [ ] The edited-file pulse (`app.css`, Files panel) has no `prefers-reduced-motion` opt-out (the state dots got theirs in B11/B8).
 - [ ] The restart dialog says `History` where the Sessions panel says `Earlier` — user's call.
 

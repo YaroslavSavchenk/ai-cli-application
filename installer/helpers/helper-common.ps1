@@ -165,22 +165,6 @@ function Invoke-AiSmWsl {
     }
 }
 
-function ConvertTo-AiSmScriptLine {
-    # A constant script is written as a here-string in the helper, so it picks
-    # up whatever line endings the file was checked out with. sh would take a
-    # trailing CR as part of the last token, so normalize to LF and refuse a
-    # script that somehow contains a double quote (that character is what
-    # delimits the script on the Windows command line).
-    param([Parameter(Mandatory)][string]$Script)
-
-    $normalized = $Script -replace "`r`n", "`n"
-    $normalized = $normalized -replace "`r", "`n"
-    if ($normalized.Contains('"')) {
-        throw 'Internal error: the constant shell script contains a double quote.'
-    }
-    $normalized
-}
-
 function Write-AiSmLauncherConfig {
     <#
     Writes the two small files the installed Windows side needs, beside the

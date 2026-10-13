@@ -470,7 +470,10 @@ Icon-click = `wscript.exe launch-silent.vbs` = hidden
   - `-Stop` — immediate shutdown, no grace period: SIGTERM to the pid from
     runtime.json, then confirm the server removed runtime.json. Running
     sessions end right away; they stay in the session history and can be
-    resumed on the next start.
+    resumed on the next start. When that pid is already gone, the stale
+    runtime.json is removed only while it still names that pid — a backend
+    that started in between keeps its file ("runtime.json now names another
+    backend - left in place").
   - `-NoBrowser` — do everything except opening the UI (scripts/tests).
 
 ## Cold boot expectations

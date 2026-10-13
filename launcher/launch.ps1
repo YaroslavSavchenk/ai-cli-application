@@ -234,6 +234,63 @@ function Invoke-InDistro {
     & wsl.exe -d $Distro -- @CommandArgs '2>/dev/null'
 }
 
+# -Stop's stale-file removal (Nocturne D3; the launcher half of D2's
+# server/runtime-file.ts rule): runtime.json is removed only while it STILL
+# names the pid this launcher read, checked and removed in ONE in-distro
+# step - a backend that wrote a new file in between keeps it. $1 is the data
+# dir (allow-listed; a leading '~/' is expanded here because --exec skips the
+# default shell), $2 the pid (a validated integer). Both arrive as positional
+# arguments, never inside this text. Exit 0 removed, 3 no file, 4 the file
+# names someone else (or is not a plain file / has no pid line / a test
+# errored) - left alone, 5 HOME is unset, relative or not made of plain path
+# characters (as start-backend.sh, it must be an absolute path; here also
+# allow-listed, because it is expanded unquoted) - nothing checked.
+# Fail closed: every test's status is kept, and only an exact "absent" /
+# "plain file, no symlink" pair goes on - an error (status 2) never counts.
+# No double quote anywhere (ConvertTo-AiSmScriptLine refuses one), so every
+# expansion is unquoted: safe because both values are allow-listed and
+# globbing is off. The server writes runtime.json pretty-printed, one key per
+# line, so the pid is the line that starts with the pid key.
+# Check-then-rm still leaves a tiny window against an atomic rename into
+# place; accepted, as in D2 - no lock file.
+$AiSmStaleRuntimeScript = @'
+set -f
+d=$1
+case $d in
+  '~'/*)
+    case $HOME in /*) ;; *) exit 5 ;; esac
+    case $HOME in *[!A-Za-z0-9._/-]*) exit 5 ;; esac
+    d=$HOME${d#'~'}
+    ;;
+esac
+f=$d/runtime.json
+[ -e $f ]; e=$?
+[ -L $f ]; l=$?
+[ -f $f ]; r=$?
+case $e$l in 11) exit 3 ;; esac
+case $l$r in 10) ;; *) exit 4 ;; esac
+p=$(sed -n 's/^[[:space:]]*.pid.[[:space:]]*:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p' $f 2>/dev/null)
+case $p in
+  $2) rm -f $f ;;
+  *) exit 4 ;;
+esac
+'@
+
+function Remove-StaleRuntimeFile([int]$ServerPid) {
+    # --exec, not Invoke-InDistro's `--`: without it wsl.exe re-joins the
+    # words for the default shell, which would expand $1/$2 to nothing
+    # (installer/README.md, "wsl.exe -- <words> is not execvp").
+    $script = ConvertTo-AiSmScriptLine -Script $AiSmStaleRuntimeScript
+    & wsl.exe -d $Distro --exec sh -c $script sh $DataDir "$ServerPid"
+    switch ($LASTEXITCODE) {
+        0 { Write-Host 'Process was already gone - removed its stale runtime.json.' }
+        3 { Write-Host 'Process was already gone - runtime.json is gone too.' }
+        4 { Write-Host 'Process was already gone; runtime.json now names another backend - left in place.' }
+        5 { Write-Host 'Process was already gone. Could not check runtime.json (WSL HOME is not a plain absolute path) - left in place.' }
+        default { Write-Host "Process was already gone; could not check runtime.json (exit $LASTEXITCODE) - left in place." }
+    }
+}
+
 function Read-RuntimeInfo {
     # Returns $null when the file is absent or unparseable. Port and pid are
     # strictly validated integers - the only runtime values reused in
@@ -539,8 +596,7 @@ if ($Stop) {
     Write-Host "Stopping backend pid $($info.ServerPid) (port $($info.Port))..."
     Invoke-InDistro @('kill', '-TERM', "$($info.ServerPid)")
     if ($LASTEXITCODE -ne 0) {
-        Write-Host 'Process was already gone - removing stale runtime.json.'
-        Invoke-InDistro @('rm', '-f', "$DataDir/runtime.json")
+        Remove-StaleRuntimeFile -ServerPid $info.ServerPid
         exit 0
     }
     # The server removes its own runtime.json on clean SIGTERM; wait for that.

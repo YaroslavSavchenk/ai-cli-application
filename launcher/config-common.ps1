@@ -85,6 +85,24 @@ function Test-AiSmDataDir {
     return [bool]($Path -match $AiSmDataDirPattern)
 }
 
+function ConvertTo-AiSmScriptLine {
+    # A constant script is written as a here-string in its script, so it picks
+    # up whatever line endings the file was checked out with. sh would take a
+    # trailing CR as part of the last token, so normalize to LF and refuse a
+    # script that somehow contains a double quote (that character is what
+    # delimits the script on the Windows command line). Here, next to the
+    # allow-list, because the launcher (launch.ps1 -Stop) and the installer
+    # helpers both hand constant scripts to `wsl.exe --exec sh -c`.
+    param([Parameter(Mandatory)][string]$Script)
+
+    $normalized = $Script -replace "`r`n", "`n"
+    $normalized = $normalized -replace "`r", "`n"
+    if ($normalized.Contains('"')) {
+        throw 'Internal error: the constant shell script contains a double quote.'
+    }
+    $normalized
+}
+
 # ======================== the Windows-side instance =========================
 # The native host keeps four things on the Windows side: the staged copy of
 # itself (clone launches only), the ready sentinel, host.log and its WebView2
