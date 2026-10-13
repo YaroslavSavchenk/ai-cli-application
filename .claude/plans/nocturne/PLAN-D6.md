@@ -1,6 +1,6 @@
 # D6 — Claude Code compatibility guard: see which version runs, hear when it is outside what this app was tested with, and see why a launch died
 
-Status: LANDED 2026-10-13 on branch `backlog-d3-q8` (server + UI halves, scope + security + test gate; DEV check by the user owed); earlier: DECIDED 2026-10-13 (the user's 2026-09-15 ask, `memory/BACKLOG.md` § Claude Code CLI compatibility guard; put in the plan on the user's pick 2026-10-13; decisions 18–19 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
+Status: LANDED 2026-10-13 (`836d1bb` on branch `backlog-d3-q8`, fast-forwarded into `main`; user-verified in DEV the same day: "alles werkt"); earlier: DECIDED 2026-10-13 (the user's 2026-09-15 ask, `memory/BACKLOG.md` § Claude Code CLI compatibility guard; put in the plan on the user's pick 2026-10-13; decisions 18–19 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
 
 Part D6 of `.claude/plans/PLAN-NOCTURNE.md` (Track D, fixes and asks after the v0.4.0 release). Conventions: `.claude/plans/README.md`.
 

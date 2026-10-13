@@ -48,3 +48,5 @@ Decisions: [[d6-claude-code-compat-guard]]. Spec: `.claude/plans/nocturne/PLAN-D
 **Lesson:** worktree-isolated agents cannot edit the main checkout, and
 one of them wrote there through `sed` anyway. After integrating a
 worktree's patch, fixes go to a non-isolated fixer in main.
+
+**Verified (user, DEV, 2026-10-13):** "alles werkt" — D3–D6 and Q5–Q8 together; the branch was fast-forwarded into `main`.

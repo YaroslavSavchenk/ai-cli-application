@@ -37,10 +37,10 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | C2 | Mascot waits while background subagents / workflows run, comes for Claude's questions; the pane readout follows the same rule | verified | `.claude/plans/nocturne/PLAN-C2.md` | 2026-09-27 |
 | D1 | Project preferences that work and can be edited (Edit in the project row), the full Claude model pool with Older models | verified | `.claude/plans/nocturne/PLAN-D1.md` | 2026-10-13 |
 | D2 | A backend that shuts down deletes runtime.json only when it still names itself (never a newer backend's) | landed | — | 2026-10-13 |
-| D3 | `launch.ps1 -Stop` removes runtime.json only when it still names the pid it stopped (D2's twin on the Windows side) | landed | — | 2026-10-13 |
-| D4 | Closing a dialog always gives the keyboard back to a terminal, never to the page body | landed | — | 2026-10-13 |
-| D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | landed | — | 2026-10-13 |
-| D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | landed | `.claude/plans/nocturne/PLAN-D6.md` | 2026-10-13 |
+| D3 | `launch.ps1 -Stop` removes runtime.json only when it still names the pid it stopped (D2's twin on the Windows side) | verified | — | 2026-10-13 |
+| D4 | Closing a dialog always gives the keyboard back to a terminal, never to the page body | verified | — | 2026-10-13 |
+| D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | verified | — | 2026-10-13 |
+| D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | verified | `.claude/plans/nocturne/PLAN-D6.md` | 2026-10-13 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
