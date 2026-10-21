@@ -107,6 +107,7 @@ Part specs, `nocturne/`:
 - `PLAN-C2.md` — the mascot waits until Claude is really done (background subagents / workflows), and comes when Claude asks you something
 - `PLAN-D1.md` — project preferences that work and can be edited, the full Claude model pool (newest first, Older models below)
 - `PLAN-D6.md` — the Claude Code compatibility guard: the version in Settings, a notice outside the tested range, a launch that dies at once flagged
+- `PLAN-D7.md` — the media viewer: images, video and PDF as a viewer tab in the editor pane, SVG with Edit as text, an image that follows the file on disk
 
 Part specs, `quality/`:
 

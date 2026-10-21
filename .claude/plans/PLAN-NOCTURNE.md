@@ -1,6 +1,6 @@
 # Plan: Nocturne redesign (design/session-manager, v3)
 
-Status: see the table below (updated 2026-10-13, D3–D6 added; shipped as v0.4.0 on 2026-09-23). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-10-21, D7 added; shipped as v0.4.0 on 2026-09-23). Conventions: `.claude/plans/README.md`.
 Each part starts only on the user's word ("begin aan <id>"); rows are in the order of work.
 
 | Part | What | State | Spec | Landed |
@@ -41,6 +41,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | D4 | Closing a dialog always gives the keyboard back to a terminal, never to the page body | verified | — | 2026-10-13 |
 | D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | verified | — | 2026-10-13 |
 | D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | verified | `.claude/plans/nocturne/PLAN-D6.md` | 2026-10-13 |
+| D7 | Media viewer: images, video and PDF open as a viewer tab in the editor pane; SVG with Edit as text; an image refreshes itself | todo | `.claude/plans/nocturne/PLAN-D7.md` | — |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -249,6 +250,9 @@ Fixed rules for every part:
 ### D6. Claude Code compatibility guard (added 2026-10-13, the user's 2026-09-15 ask; backlog § Claude Code CLI compatibility guard; decisions 18–19; spec `.claude/plans/nocturne/PLAN-D6.md`)
 - A `claude --version` probe at boot, carried in `GET /api/runtime`, compared with a supported range baked into the build; shown on the boot card and Settings → Background service; a dismissible notice outside the range with Check for updates; a claude session that dies within seconds of its launch is flagged with its first line; every release records the Claude Code version it was verified against.
 
+### D7. Media viewer (added 2026-10-21, user's ask; decisions 20–23; spec `.claude/plans/nocturne/PLAN-D7.md`)
+- A png, jpeg, mp4 or pdf clicked in the Files panel opens as a viewer tab in the editor pane instead of the "not text" sentence: images fitted (Fit / 100 %), video with the browser's controls and Range streaming, PDF in WebView2's own viewer; SVG as a picture with Edit as text; an image follows the file on disk. Media reaches `src` through a short-lived ticket bound to one path, never the app token in a URL.
+
 ## Open decisions (user decides; do not settle silently)
 1. ~~Old theme popover~~ DECIDED: drop the popover; Legacy UI removed entirely (see above). Amended 2026-09-10 evening (user): colour customisation itself returns as a Nocturne Settings page — see A7, B9 and decision 10.
 2. ~~Data sources for Cost, Context, Account usage, Active skill, Lines changed in the status bar~~ DECIDED 2026-09-16 (user, the orchestrator's advice): the payload Claude Code already hands `server/statusline.mjs` on every turn (model, cost, context %, account usage %, lines changed, git branch). The script writes a per-session snapshot into the app data dir (like its branch cache: 0600, wiped at boot), the backend carries it in the session info, and the pane status bar renders the same checklist as Settings → Status bar. Active skill has NO source in that payload and is dropped honestly. Known consequence: the same values then stand twice on screen (Claude's own line inside the terminal and the pane bar under it) unless the user switches Claude's line off in the checklist. Rejected: Claude Code hooks (more moving parts; reconsider for decision 3), keeping only Claude's own line (B1 would then be nothing).
@@ -269,6 +273,10 @@ Fixed rules for every part:
 17. ~~D5 — "Always ask" passes no flag, so Claude Code may start in its own mode: pass `--permission-mode default` explicitly (it changes what the launch dialog promises)?~~ DECIDED 2026-10-13 (user): yes, explicitly. AMENDED the same day (user, at D5): pass `manual`, not `default` — Claude Code 2.1.287 documents `acceptEdits / auto / bypassPermissions / manual / dontAsk / plan`; `default` is accepted but hidden; `manual` exists since 2.1.200, below the 2.1.263 floor.
 18. ~~D6 — what the out-of-range notice offers~~ DECIDED 2026-10-13 (user, the orchestrator's advice): the app's own Check for updates only; no link to the GitHub releases page.
 19. ~~D6 — can the notice be dismissed~~ DECIDED 2026-10-13 (user, the orchestrator's advice): yes, until a different Claude Code version is seen; the dismissal survives a restart.
+20. ~~D7 — which formats~~ DECIDED 2026-10-21 (user): images, video and PDF; no audio.
+21. ~~D7 — where a media file opens~~ DECIDED 2026-10-21 (user, the orchestrator's advice): as a file tab in the editor pane; rejected: an overlay / lightbox, both.
+22. ~~D7 — SVG~~ DECIDED 2026-10-21 (user, the orchestrator's advice): opens as a picture with an Edit as text action; rejected: text by default with a Preview action.
+23. ~~D7 — live reload~~ DECIDED 2026-10-21 (user, the orchestrator's advice): an image refreshes by itself when the file changes on disk; rejected: a manual Reload only.
 
 ## Suggested order
 A1 → A2 → A3 → A4 → A4b → A5 → A6 → A7 → A8, then A11 → A10 → A9 → A10b → A9b (user's 2026-09-15/16 priorities) → B2 + A9c (pulled forward 2026-09-16, user's ask) → B1 → B5 → B10 → B10a (user's ask 2026-09-20) → B3 → B4 → B6 → B9 → B7 → B8 → C1 (last, phase 1 already landed 2026-09-15).
