@@ -286,6 +286,10 @@ export async function startTestServer(
         return undefined; // Should not happen (atomic write), but be safe.
       }
       if (typeof parsed.port !== 'number') return undefined;
+      // A data dir reused after a SIGKILL still holds the dead run's file,
+      // and since the remembered port the new run listens on the SAME port:
+      // /health answers, but the token is the dead run's (a CI 401, v0.4.3).
+      if (parsed.pid !== child.pid) return undefined;
       try {
         const res = await fetch(`http://127.0.0.1:${parsed.port}/health`);
         if (res.status !== 200) return undefined;
