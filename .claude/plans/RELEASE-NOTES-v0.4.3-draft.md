@@ -1,5 +1,11 @@
-# v0.4.3 — Claude Code's version in view, Always ask that asks
+# v0.4.3 — Pictures, video and PDF in the app; Claude Code's version in view
 
+- **Open pictures, videos and PDFs.** Click a png, jpeg, gif, webp, mp4,
+  webm, pdf or similar file in Files and it opens in a tab: the picture
+  fitted to the pane (or at 100 %), the video with play and seek, the PDF
+  in a full viewer. An SVG shows as a picture, with Edit as text beside it.
+  A picture that changes on disk, like a render made again, updates by
+  itself; a video or PDF offers Reload.
 - **Claude Code's version is checked.** Settings → Background service shows
   which Claude Code you have and the newest version this app was tested
   with. If yours is older than the app needs, or newer than it was tested
