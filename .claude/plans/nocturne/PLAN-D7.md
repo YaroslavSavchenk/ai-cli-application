@@ -1,6 +1,6 @@
 # D7 — Media viewer: click a png, jpeg, mp4 or pdf in the Files panel and see the picture, the video or the document
 
-Status: LANDED 2026-10-21 (branch `d7-media-viewer`; the user's dev-window check owed); earlier: DECIDED 2026-10-21 (the user's ask the same day — "de png, jpeg, mp4, etc gebruikerlijk maken … dat je gwn een picture krijgt ofzo of een video"; decisions 20–23 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
+Status: LANDED 2026-10-21 (`c37beb9` on branch `d7-media-viewer`, fast-forwarded into `main`; user-verified in DEV the same day: "werkt"); earlier: DECIDED 2026-10-21 (the user's ask the same day — "de png, jpeg, mp4, etc gebruikerlijk maken … dat je gwn een picture krijgt ofzo of een video"; decisions 20–23 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
 
 Part D7 of `.claude/plans/PLAN-NOCTURNE.md` (Track D, fixes and asks after the v0.4.0 release). Conventions: `.claude/plans/README.md`.
 

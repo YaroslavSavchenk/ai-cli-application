@@ -33,6 +33,6 @@ literals (`ui-copy-separators`) and no `draggable` attribute (`ui-dnd-a10`,
 image drag off via CSS). Brief test folders were wrong (`tests/web/`,
 `tests/shared/` do not exist: `tests/ui/`, `tests/server/`).
 
-**Owed:** the user's dev-window check — decoding, layout, WebView2 PDF viewer
+**Verified** by the user in DEV the same day ("werkt"). Checked there: — decoding, layout, WebView2 PDF viewer
 (with X-Frame-Options SAMEORIGIN), Range seek, and whether keys reach the app
 while focus is inside the PDF iframe (scope-reviewer note 7).
