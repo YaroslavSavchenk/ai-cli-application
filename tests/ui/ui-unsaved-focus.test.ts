@@ -31,7 +31,6 @@ interface EditorSlot {
 interface StateModule {
   state: { views: unknown[]; activeViewId: string; edits: Map<string, string> };
   newEditorSlot(tabs: EditorTab[]): EditorSlot;
-  editorFileId(path: string): string;
   subscribe(fn: () => void): void;
 }
 interface UnsavedModule {
@@ -41,6 +40,9 @@ interface UnsavedModule {
 }
 
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as unknown as StateModule;
+const EM = (await import(new URL('../../web/src/ui/editor-model.ts', import.meta.url).href)) as {
+  fileTabId(path: string): string;
+};
 const U = (await import(new URL('../../web/src/ui/unsaved.ts', import.meta.url).href)) as unknown as UnsavedModule;
 const UT = (await import(new URL('../../web/src/ui/util.ts', import.meta.url).href)) as {
   setFocusFallback(fn: () => void): void;
@@ -65,7 +67,7 @@ beforeEach(() => {
   chipX = dom.doc.createElement('button');
   dom.body.append(terminal, chipX);
   UT.setFocusFallback(() => terminal.focus());
-  st.state.edits = new Map([[st.editorFileId(A), 'typed\n']]);
+  st.state.edits = new Map([[EM.fileTabId(A), 'typed\n']]);
   st.state.views = [
     {
       id: 'v1',

@@ -22,12 +22,19 @@
  * moment it left, so a write that lands while it is out cannot change what it
  * says.
  *
+ * MEDIA (Nocturne D7). `setMedia` puts a picture, video or PDF on the same
+ * fake disk as its `size`/`mtimeMs`/`ino` (bumping `mtimeMs` is what a change
+ * on disk is), `tickets` records every `mediaTicket` asked, `failTicket` arms
+ * one refusal, and `holdTickets` / `releaseTickets` keep answers in flight. A
+ * path with neither text nor media on the disk answers 404, like `read`.
+ *
  * TIME. There is none: `settle()` (tests/helpers/fs-fixture.ts) turns the microtask
  * queue, and fake-dom's timers are RECORDED, so the follow is driven by
  * calling `dom.win.intervals[0].fn()`.
  */
 import type {
   FsEol,
+  FsMediaTicketResponse,
   FsReadResponse,
   FsWriteRequest,
   FsWriteResponse,
@@ -49,8 +56,32 @@ interface Blob {
   bom: boolean;
 }
 
+/** A media file on the fake disk: what a ticket answer reports about it. */
+export interface MediaBlob {
+  size: number;
+  mtimeMs: number;
+  ino: number;
+}
+
 export interface EditorFixture {
-  gateway: { read(path: string, ifStamp?: string): Promise<FsReadResponse>; write(body: FsWriteRequest): Promise<FsWriteResponse> };
+  gateway: {
+    read(path: string, ifStamp?: string): Promise<FsReadResponse>;
+    write(body: FsWriteRequest): Promise<FsWriteResponse>;
+    mediaTicket(path: string): Promise<FsMediaTicketResponse>;
+  };
+  /** Every media ticket asked, as the path, in order. */
+  tickets: string[];
+  /** Every ticket string handed out, in the same order (`t1`, `t2`, …). */
+  issued: string[];
+  /** Put a media file on the fake disk (or replace it: a change on disk). */
+  setMedia(path: string, blob: MediaBlob): void;
+  /** Take a file off the fake disk (text or media). */
+  removeFile(path: string): void;
+  /** The next ticket for this path is refused with that status and sentence. */
+  failTicket(path: string, status: number, message: string): void;
+  /** Keep every ticket answer in flight until `releaseTickets()`. */
+  holdTickets(): void;
+  releaseTickets(): void;
   /** Every read, as `path` or `path if=<stamp>`, in order. */
   reads: string[];
   /** Every write body, verbatim — `expect` included, or absent. */
@@ -78,6 +109,12 @@ export function makeEditor(): EditorFixture {
   const reads: string[] = [];
   const writes: FsWriteRequest[] = [];
   const readFail = new Map<string, FakeApiError>();
+  const media = new Map<string, MediaBlob>();
+  const tickets: string[] = [];
+  const issued: string[] = [];
+  const ticketFail = new Map<string, FakeApiError>();
+  let heldTickets: (() => void)[] | null = null;
+  let ticketSeq = 0;
   let writeFail: FakeApiError | null = null;
   let heldReads: (() => void)[] | null = null;
   let heldWrites: (() => void)[] | null = null;
@@ -97,7 +134,26 @@ export function makeEditor(): EditorFixture {
   const fx: EditorFixture = {
     reads,
     writes,
+    tickets,
+    issued,
     gateway: {
+      mediaTicket(path: string): Promise<FsMediaTicketResponse> {
+        tickets.push(path);
+        // Read when ASKED, delivered when released — the `read` rule above.
+        const armed = ticketFail.get(path);
+        if (armed !== undefined) ticketFail.delete(path);
+        const blob = media.get(path);
+        ticketSeq += 1;
+        const ticket = `t${ticketSeq}`;
+        issued.push(ticket);
+        return new Promise<FsMediaTicketResponse>((resolve, reject) => {
+          when(heldTickets, () => {
+            if (armed !== undefined) reject(armed);
+            else if (blob === undefined) reject(new FakeApiError(404, GONE_TEXT));
+            else resolve({ ticket, ...blob });
+          });
+        });
+      },
       read(path: string, ifStamp?: string): Promise<FsReadResponse> {
         reads.push(ifStamp === undefined ? path : `${path} if=${ifStamp}`);
         // THE ANSWER IS READ WHEN THE QUESTION IS ASKED; only its DELIVERY is
@@ -170,6 +226,24 @@ export function makeEditor(): EditorFixture {
         eol: opts?.eol ?? 'lf',
         bom: opts?.bom ?? false,
       });
+    },
+    setMedia(path: string, blob: MediaBlob): void {
+      media.set(path, { ...blob });
+    },
+    removeFile(path: string): void {
+      disk.delete(path);
+      media.delete(path);
+    },
+    failTicket(path: string, status: number, message: string): void {
+      ticketFail.set(path, new FakeApiError(status, message));
+    },
+    holdTickets(): void {
+      heldTickets = [];
+    },
+    releaseTickets(): void {
+      const held = heldTickets ?? [];
+      heldTickets = null;
+      for (const run of held) run();
     },
     fileText(path: string): string | null {
       return disk.get(path)?.text ?? null;

@@ -22,6 +22,7 @@
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  E,
   REOPEN,
   activeId,
   addView,
@@ -225,7 +226,7 @@ test('closing the ONLY pane of a dirty file drops its unsaved text', () => {
   st.initServer([], []);
   st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
-  const id = st.editorFileId('a.ts');
+  const id = E.fileTabId('a.ts');
   st.setEdit(id, 'typed');
   assert.equal(st.editorDirty(id), true, 'precondition: the file is dirty');
 
@@ -240,7 +241,7 @@ test('the same file in TWO panes keeps its text until BOTH are gone', () => {
   st.initServer([], []);
   st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('a.ts')]);
-  const id = st.editorFileId('a.ts');
+  const id = E.fileTabId('a.ts');
   st.setEdit(id, 'typed');
 
   assert.equal(st.closeSlot(v.id, 1), true);
@@ -260,8 +261,8 @@ test('openTabAt on the CENTRE of a dirty pane keeps BOTH texts — it replaces n
   st.loadUi(REOPEN);
   assert.equal(st.openFile({ kind: 'home' }, 'a.ts', 'a.ts'), 'ok');
   const v = home();
-  const a = st.editorFileId('a.ts');
-  const b = st.editorFileId('b.ts');
+  const a = E.fileTabId('a.ts');
+  const b = E.fileTabId('b.ts');
   st.setEdit(a, 'typed in a');
   st.setEdit(b, 'typed in b');
 
@@ -282,8 +283,8 @@ test('pruneOrphanEdits walks TABS: text dies with the last tab, not with the pan
   st.initServer([], []);
   st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts'), ed('b.ts')]);
-  const a = st.editorFileId('a.ts');
-  const b = st.editorFileId('b.ts');
+  const a = E.fileTabId('a.ts');
+  const b = E.fileTabId('b.ts');
   st.setEdit(a, 'typed in a');
   st.setEdit(b, 'typed in b');
 
@@ -302,8 +303,8 @@ test('closing a TAB drops the unsaved text of every file it held', () => {
   st.initServer([], []);
   st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts', 'b.ts')]);
-  const a = st.editorFileId('a.ts');
-  const b = st.editorFileId('b.ts');
+  const a = E.fileTabId('a.ts');
+  const b = E.fileTabId('b.ts');
   st.setEdit(a, 'typed a');
   st.setEdit(b, 'typed b');
 
@@ -324,8 +325,8 @@ test('merging a tab into another keeps the unsaved text of the file in transit',
   st.loadUi(REOPEN);
   const src = addView({ kind: 'project', id: 'p1' }, [ed('a.ts')]);
   const dst = addView({ kind: 'project', id: 'p2' }, [ed('b.ts')]);
-  const a = st.editorFileId('a.ts');
-  const b = st.editorFileId('b.ts');
+  const a = E.fileTabId('a.ts');
+  const b = E.fileTabId('b.ts');
   st.setEdit(a, 'typed in a');
   st.setEdit(b, 'typed in b');
 

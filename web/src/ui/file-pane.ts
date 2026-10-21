@@ -92,12 +92,13 @@ export interface PaneBody {
  * save and Save itself — the same strip the session pane puts its status items
  * in, so a file and a terminal are the same object with different contents.
  *
+ * `id` is the tab's id (`tabIdOf`) — the key its unsaved text lives under:
+ * `f:<path>`, or `f:<path>:text` for the text view of a media file (D7).
  * `onDirtyFlip` is called when the file goes from clean to unsaved and back;
  * the pane header draws the dot, and it is the only thing a keystroke may
  * cost beyond the gutter.
  */
-export function filePaneBody(path: string, onDirtyFlip: () => void): PaneBody {
-  const id = st.editorFileId(path);
+export function filePaneBody(path: string, id: string, onDirtyFlip: () => void): PaneBody {
   const root = el('div', 'pane-file');
   const bar = el('div', 'pane-fbar');
 

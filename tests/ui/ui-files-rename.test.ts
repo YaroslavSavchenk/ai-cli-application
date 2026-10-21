@@ -70,7 +70,6 @@ interface StateModule {
   setProjects(list: Project[]): void;
   subscribe(fn: (kind: string) => void): void;
   newEditorSlot(tabs: EditorTab[]): EditorSlot;
-  editorFileId(path: string): string;
 }
 interface FilesModule {
   initFilesPanel(host: unknown, onLeaveScreen: () => void, fs: unknown): { render(): void };
@@ -86,6 +85,9 @@ interface RenameModel {
 }
 
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
+const EM = (await import(new URL('../../web/src/ui/editor-model.ts', import.meta.url).href)) as {
+  fileTabId(path: string): string;
+};
 const F = (await import(new URL('../../web/src/ui/files.ts', import.meta.url).href)) as FilesModule;
 const CM = (await import(new URL('../../web/src/ui/context-menu.ts', import.meta.url).href)) as MenuModule;
 const RM = (await import(new URL('../../web/src/ui/rename-model.ts', import.meta.url).href)) as RenameModel;
@@ -595,8 +597,8 @@ test('D3: a DIRTY file tab follows a file rename and a folder rename with its te
   const app = `${PROJ}/web/src/App.tsx`;
   const diff: EditorTab = { kind: 'diff', hash: 'a'.repeat(40), path: 'web/src/App.tsx', root: PROJ };
   v.slots.push(st.newEditorSlot([{ kind: 'file', path: design }, { kind: 'file', path: app }, diff]));
-  st.state.edits.set(st.editorFileId(design), 'typed in design\n');
-  st.state.edits.set(st.editorFileId(app), 'typed in app\n');
+  st.state.edits.set(EM.fileTabId(design), 'typed in design\n');
+  st.state.edits.set(EM.fileTabId(app), 'typed in app\n');
   panel.render();
 
   f2(fileRow('web/DESIGN.md') as FakeElement);
@@ -605,8 +607,8 @@ test('D3: a DIRTY file tab follows a file rename and a folder rename with its te
   await settle();
   const slot = v.slots[v.slots.length - 1] as EditorSlot;
   assert.deepEqual(slot.tabs[0], { kind: 'file', path: `${PROJ}/web/NOTES.md` });
-  assert.equal(st.state.edits.get(st.editorFileId(`${PROJ}/web/NOTES.md`)), 'typed in design\n');
-  assert.equal(st.state.edits.has(st.editorFileId(design)), false, 'nothing left on the old id');
+  assert.equal(st.state.edits.get(EM.fileTabId(`${PROJ}/web/NOTES.md`)), 'typed in design\n');
+  assert.equal(st.state.edits.has(EM.fileTabId(design)), false, 'nothing left on the old id');
 
   f2(dirRow('web') as FakeElement);
   type('site');
@@ -618,8 +620,8 @@ test('D3: a DIRTY file tab follows a file rename and a folder rename with its te
     { kind: 'file', path: `${PROJ}/site/src/App.tsx` },
     diff,
   ]);
-  assert.equal(st.state.edits.get(st.editorFileId(`${PROJ}/site/NOTES.md`)), 'typed in design\n');
-  assert.equal(st.state.edits.get(st.editorFileId(`${PROJ}/site/src/App.tsx`)), 'typed in app\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(`${PROJ}/site/NOTES.md`)), 'typed in design\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(`${PROJ}/site/src/App.tsx`)), 'typed in app\n');
   assert.equal(st.state.edits.size, 2, 'every text moved, none duplicated');
 });
 
@@ -627,8 +629,8 @@ test('B4: unsaved text already open AT the new name is never overwritten — ref
   await liveSession();
   // A tab still open on a file deleted outside the app, holding typed text.
   const ghost = `${PROJ}/NEW.md`;
-  st.state.edits.set(st.editorFileId(ghost), 'ghost text\n');
-  st.state.edits.set(st.editorFileId(`${PROJ}/README.md`), 'readme text\n');
+  st.state.edits.set(EM.fileTabId(ghost), 'ghost text\n');
+  st.state.edits.set(EM.fileTabId(`${PROJ}/README.md`), 'readme text\n');
   f2(fileRow('README.md') as FakeElement);
   type('NEW.md');
   pressEnter();
@@ -637,8 +639,8 @@ test('B4: unsaved text already open AT the new name is never overwritten — ref
   assert.deepEqual(textsOf(errRow() as FakeElement, 'files-name'), [RM.RENAME_UNSAVED_TAKEN]);
   assert.equal(nameField().value, 'NEW.md', 'the typed text stays');
   assert.equal(dom.doc.activeElement, nameField());
-  assert.equal(st.state.edits.get(st.editorFileId(ghost)), 'ghost text\n');
-  assert.equal(st.state.edits.get(st.editorFileId(`${PROJ}/README.md`)), 'readme text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(ghost)), 'ghost text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(`${PROJ}/README.md`)), 'readme text\n');
   // Another name is fine.
   type('OTHER.md');
   pressEnter();
@@ -648,7 +650,7 @@ test('B4: unsaved text already open AT the new name is never overwritten — ref
 
 test('B4: a FOLDER rename onto a name with unsaved text UNDER it is refused too', async () => {
   await liveSession();
-  st.state.edits.set(st.editorFileId(`${PROJ}/site/src/a.ts`), 'deep text\n');
+  st.state.edits.set(EM.fileTabId(`${PROJ}/site/src/a.ts`), 'deep text\n');
   f2(dirRow('web') as FakeElement);
   type('site');
   pressEnter();

@@ -310,6 +310,117 @@
   font-variant-ligatures: none;
 }
 
+/* ---- media viewer (Nocturne D7) ---------------------------------------------
+   A picture, a video or a PDF is a FILE PANE whose contents are drawn instead
+   of typed: the same terminal ground, the same 30px bar under it — the size
+   line on the left in the mono the gutter uses, the quiet outline controls
+   (Fit / 100 %, Edit as text, Reload) on the right. No frame, no shadow, no
+   colour that is not already a token: the picture is the content.
+
+   Fit is `max-width/max-height: 100%` and nothing else, so a picture shrinks
+   to the pane but is NEVER scaled up past its own pixels; `margin: auto` in a
+   flex box centres it while it is smaller and lets the stage scroll from the
+   top-left edge once it is larger (100 %). */
+
+.pane-mstage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+  padding: var(--space-4);
+}
+
+.pane-mstage.is-actual {
+  overflow: auto;
+}
+
+/* the stage fills the pane body, whose edge clips an outside ring: inset it */
+.pane-mstage:focus-visible {
+  outline-offset: calc(-2 * var(--line));
+}
+
+/* THE CHECKERBOARD sits on the picture's own box, so it shows exactly where
+   the picture is transparent — two GROUND shades (the terminal ground and the
+   app ground), 8px squares: a texture, never a pattern that competes. */
+.pane-mimg {
+  flex: none;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background-color: var(--color-term);
+  background-image: conic-gradient(
+    var(--color-bg) 0 25%,
+    transparent 0 50%,
+    var(--color-bg) 0 75%,
+    transparent 0
+  );
+  background-size: 16px 16px;
+  user-select: none;
+  /* no native image drag: in-app drags are pointer drags, and a picture
+     dragged out of its own pane would land in the app's file drop */
+  -webkit-user-drag: none;
+}
+
+.pane-mstage.is-actual .pane-mimg {
+  max-width: none;
+  max-height: none;
+}
+
+/* a video is fitted the same way; the browser draws its own controls */
+.pane-mvideo {
+  flex: none;
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--color-term);
+}
+
+/* the PDF viewer fills the stage edge to edge — it has its own toolbar */
+.pane-media .pane-mstage:has(.pane-mpdf) {
+  padding: 0;
+}
+
+.pane-mpdf {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: var(--color-term);
+}
+
+/* `1920 × 1080` and `284 KB`: two readings, in the gutter's mono and quiet
+   ink, set apart by the bar's own gap — no separator glyph */
+.pane-msize {
+  min-width: 0;
+  font-family: var(--font-mono);
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* `Changed on disk` is news, not a refusal: quiet ink, the attention hue as a
+   1px mark before it — never a banner over a playing video */
+.pane-mnote {
+  flex: none;
+  padding-left: var(--space-3);
+  border-left: var(--line) solid var(--color-attn);
+  color: var(--color-neutral-300);
+}
+
+.pane-mnote[hidden],
+.pane-msize[hidden],
+.pane-media .pane-fact[hidden] {
+  display: none;
+}
+
+/* the switch is a statusline value: its width does not jump between modes */
+.pane-mfit {
+  min-width: 52px;
+  font-family: var(--font-mono);
+}
+
 /* ---- empty state (no panes) --------------------------------------------------
    Words and two ways forward. No illustration, no tile, no countdown. */
 

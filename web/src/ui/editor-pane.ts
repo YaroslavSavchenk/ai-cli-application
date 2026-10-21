@@ -10,7 +10,7 @@
  * (`EditorSlot.tabs`), this module owns its DOM.
  *
  * WHAT THIS MODULE MAY IMPORT. state / util / dnd / slots-model /
- * editor-model / file-pane / unsaved — and NEVER `ui/panes.ts`, which reaches
+ * editor-model / file-pane / media-model / media-pane / unsaved — and NEVER `ui/panes.ts`, which reaches
  * @xterm/xterm and would take `node --test` down with it. The pane's chrome
  * (the card, the header element, the body element, the drop overlay) belongs
  * to panes.ts; what goes INSIDE the header and the body belongs here.
@@ -46,9 +46,11 @@ import { el, button } from './util.ts';
 import { armDrag, type DragSpec } from './dnd.ts';
 import { tabIcon, tabTitle } from './slots-model.ts';
 import { fileIcon } from './icons-files.ts';
-import { tabIdOf } from './editor-model.ts';
+import { fileTab, tabIdOf } from './editor-model.ts';
 import { diffPaneBody, filePaneBody, type PaneBody } from './file-pane.ts';
-import { closeSlotGuarded, closeTabGuarded } from './unsaved.ts';
+import { mediaPlan } from './media-model.ts';
+import { mediaPaneBody } from './media-pane.ts';
+import { closeSlotGuarded, closeTabGuarded, openTabAtGuarded } from './unsaved.ts';
 
 /** How `ui/panes.ts` drives one editor pane. */
 export interface EditorPane {
@@ -176,14 +178,32 @@ export function editorPane(hd: HTMLElement, body: HTMLElement): EditorPane {
     if (known !== undefined) return known;
     const made =
       tab.kind === 'file'
-        ? filePaneBody(tab.path, () => {
-            // The dirty flag FLIPPED: this strip's chip, the pane's own tab
-            // chip and the Files panel all read it from state.
-            st.notify('ui');
-          })
+        ? fileBody(id, tab.path, tab.asText === true)
         : diffPaneBody(tab.root, tab.hash, tab.path);
     bodies.set(id, made);
     return made;
+  }
+
+  /**
+   * A FILE tab's body, chosen by what the file is (Nocturne D7): a picture,
+   * a video or a PDF gets the viewer — unless this is its TEXT view — and
+   * every other file the text editor. Here, and not in the opener, so a tab
+   * restored after a reload builds the same body a click does.
+   */
+  function fileBody(id: string, path: string, asText: boolean): PaneBody {
+    const plan = asText ? null : mediaPlan(path);
+    if (plan !== null) {
+      // `Edit as text` opens the same file as a second tab of THIS strip,
+      // through the guarded opener (a full strip asks before it evicts).
+      return mediaPaneBody(path, plan, () => {
+        openTabAtGuarded(viewId, slotIndex, 'replace', fileTab(path, true));
+      });
+    }
+    return filePaneBody(path, id, () => {
+      // The dirty flag FLIPPED: this strip's chip, the pane's own tab chip and
+      // the Files panel all read it from state.
+      st.notify('ui');
+    });
   }
 
   function rebuildStrip(s: st.EditorSlot, active: number): void {

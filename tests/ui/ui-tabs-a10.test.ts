@@ -74,7 +74,6 @@ interface StateModule {
   setProjects(list: unknown[]): void;
   slotKey(s: Slot): string;
   /** The `state.edits` key of a file — the TAB's id, never the pane's. */
-  editorFileId(path: string): string;
   /** Forget the unsaved text and hand it back (since B4 the disk write is the
    * file pane's, once its PUT has landed); returns it, or null. */
   saveEdit(id: string): string | null;
@@ -89,6 +88,9 @@ interface TabsModule {
 }
 
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
+const EM = (await import(new URL('../../web/src/ui/editor-model.ts', import.meta.url).href)) as {
+  fileTabId(path: string): string;
+};
 const T = (await import(new URL('../../web/src/ui/tabs.ts', import.meta.url).href)) as TabsModule;
 
 const strip = dom.doc.createElement('nav');
@@ -296,7 +298,7 @@ test('an unsaved file puts the amber mark on the chip, in words as well as a sha
   draw([view({ id: 'home', root: { kind: 'home' }, slots: [pane] })]);
   assert.equal(byClass(strip, 'tab-dirty').length, 0, 'a clean file wears no mark');
 
-  st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
+  st.state.edits.set(EM.fileTabId('web/src/main.ts'), 'typed');
   draw([view({ id: 'home', root: { kind: 'home' }, slots: [pane] })]);
   assert.equal(byClass(strip, 'tab-dirty').length, 1);
   assert.deepEqual(
@@ -317,11 +319,11 @@ test('Save on the ONLY unsaved tab takes the amber mark off the chip again', () 
   const PATH = 'web/src/state.ts';
   const pane = editor([file('web/src/main.ts'), file(PATH)], 1);
   const views = (): View[] => [view({ id: 'home', root: { kind: 'home' }, slots: [pane] })];
-  st.state.edits.set(st.editorFileId(PATH), 'typed');
+  st.state.edits.set(EM.fileTabId(PATH), 'typed');
   draw(views());
   assert.equal(byClass(strip, 'tab-dirty').length, 1, 'non-vacuity: the mark is up');
 
-  assert.equal(st.saveEdit(st.editorFileId(PATH)), 'typed', 'the text was written');
+  assert.equal(st.saveEdit(EM.fileTabId(PATH)), 'typed', 'the text was written');
   draw(views());
   assert.equal(byClass(strip, 'tab-dirty').length, 0, 'and the chip stops claiming otherwise');
   assert.deepEqual(byClass(strip, 'sr-only').map((n) => n.textContent), [],
@@ -480,7 +482,7 @@ test('the same unsaved file in two tabs marks BOTH chips — the text belongs to
   draw(both());
   assert.equal(byClass(strip, 'tab-dirty').length, 0, 'non-vacuity: nothing is unsaved yet');
 
-  st.state.edits.set(st.editorFileId(PATH), 'typed once');
+  st.state.edits.set(EM.fileTabId(PATH), 'typed once');
   draw(both());
   assert.equal(byClass(strip, 'tab-dirty').length, 2, 'one entry in state.edits, two chips saying so');
   assert.deepEqual(
@@ -492,7 +494,7 @@ test('the same unsaved file in two tabs marks BOTH chips — the text belongs to
 
 test('every class the strip renders has a rule in app.css', async () => {
   st.setSessions([session('s1', { attention: true })]);
-  st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
+  st.state.edits.set(EM.fileTabId('web/src/main.ts'), 'typed');
   draw([
     view({ id: 'home', root: { kind: 'home' }, slots: [editor([file('web/src/main.ts')])] }),
     view({
@@ -570,7 +572,7 @@ test('B6: the switch is read at CLICK time — a flip reaches the strip already 
 test('B6: confirm OFF leaves the B4 unsaved question standing — two questions, never merged', async () => {
   await withConfirmOff(async () => {
     st.setSessions([session('s1')]);
-    st.state.edits.set(st.editorFileId('web/src/main.ts'), 'typed');
+    st.state.edits.set(EM.fileTabId('web/src/main.ts'), 'typed');
     draw([
       view({ id: 'home', root: { kind: 'home' }, slots: [] }),
       view({

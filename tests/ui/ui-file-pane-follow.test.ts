@@ -27,6 +27,7 @@ import { byClass, textsOf, type FakeElement, typeInto as type } from '../helpers
 import { settle } from '../helpers/fs-fixture.ts';
 import { NOT_TEXT_TEXT, NO_READ_TEXT } from '../helpers/editor-fixture.ts';
 import {
+  EM,
   dom,
   st,
   FP,
@@ -105,7 +106,7 @@ test('a DIRTY tab is never polled — typed text is not overwritten by the disk'
 test('a keystroke that lands while a follow read is out is not overwritten by the answer', async () => {
   const root = await mount(PATH);
   const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
+  const id = EM.fileTabId(PATH);
   // The file changed on disk, so the follow answer really carries text.
   ed.setFile(PATH, 'theirs\n');
   ed.holdRead();
@@ -123,7 +124,7 @@ test('a keystroke that lands while a follow read is out is not overwritten by th
 test('a follow answer that lands AFTER a save replaces neither the saved text nor the newer stamp', async () => {
   const root = await mount(PATH);
   const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
+  const id = EM.fileTabId(PATH);
   // Another window changed the file: the follow read that goes out now will
   // come back with THOSE bytes and THAT stamp.
   ed.setFile(PATH, 'their version\n');
@@ -167,7 +168,7 @@ test('a follow answer that lands AFTER a save replaces neither the saved text no
 test('a follow refused while the tab was typed into keeps the field and the text', async () => {
   const root = await mount(PATH);
   const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
+  const id = EM.fileTabId(PATH);
   // The refusal is armed before the question leaves: this read is on its way
   // when the user starts typing.
   ed.failRead(PATH, 403, NO_READ_TEXT);
@@ -233,7 +234,7 @@ test('a body with a request still out is skipped, and one that failed is never r
 });
 
 test('dispose() takes the body out of the follow — a closed pane asks nothing ever again', async () => {
-  const body = FP.filePaneBody(PATH, () => {});
+  const body = FP.filePaneBody(PATH, EM.fileTabId(PATH), () => {});
   dom.body.append(body.root);
   await settle();
   const before = ES.followerCount();

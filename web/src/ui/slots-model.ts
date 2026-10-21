@@ -84,7 +84,10 @@ export function viewLabel(
  * behind it, not by eye.
  */
 export function tabTitle(tab: EditorTab): string {
-  return tab.kind === 'file' ? fileName(tab.path) : `Changes in ${shortHashOf(tab.hash)}`;
+  if (tab.kind === 'diff') return `Changes in ${shortHashOf(tab.hash)}`;
+  // The TEXT view of a media file (D7) sits beside its picture with the same
+  // name; the chip says which of the two it is.
+  return tab.asText === true ? `${fileName(tab.path)} (text)` : fileName(tab.path);
 }
 
 /** A diff tab's icon: it shows what git says changed, so it wears git's mark. */

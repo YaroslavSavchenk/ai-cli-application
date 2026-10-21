@@ -106,7 +106,6 @@ export interface StateModule {
   openCommitView(hash: string, at: { root: string; repoRoot: string }): void;
   closeCommitView(): void;
   commitFileCollapsed(hash: string, path: string): boolean;
-  editorFileId(path: string): string;
   slotKey(s: PaneSlot): string;
   slotTabIds(s: PaneSlot): string[];
   newEditorSlot(tabs: EditorTab[]): PaneSlot;

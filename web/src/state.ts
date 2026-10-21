@@ -117,7 +117,6 @@ export {
   editText,
   saveEdit,
   retargetFiles,
-  editorFileId,
 } from './state-editor.ts';
 export {
   focusPane,

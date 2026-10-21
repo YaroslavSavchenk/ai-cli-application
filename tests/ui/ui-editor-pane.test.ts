@@ -88,7 +88,6 @@ interface StateModule {
   activeView(): ViewLike | null;
   slotKey(s: PaneSlot): string;
   setActiveTab(viewId: string, slot: number, tabIndex: number): boolean;
-  editorFileId(path: string): string;
   editorDirty(id: string | null): boolean;
   setEdit(id: string, text: string): void;
   newEditorSlot(tabs: EditorTab[]): EditorSlot;
@@ -310,7 +309,7 @@ test('B12: every chip carries its file’s type icon before the name — a diff 
 
 test('a dirty tab wears the amber dot AND says so in words — on ITS chip only', async () => {
   type(field() as FakeElement, `${ORIGINAL_B}\nchanged`);
-  assert.equal(st.editorDirty(st.editorFileId(B)), true, 'non-vacuity: state really flipped');
+  assert.equal(st.editorDirty(EM.fileTabId(B)), true, 'non-vacuity: state really flipped');
   await sync();
   const dirtyChip = chips()[1] as FakeElement;
   assert.equal(byClass(dirtyChip, 'pane-dirty').length, 1, 'the dot is on the file that changed');
@@ -334,7 +333,7 @@ test('the dirty bit is IN the strip signature: the dot appears AND goes away aga
   assert.equal(byClass(hd, 'pane-dirty').length, 1, 'non-vacuity: it appeared');
   (byClass(body, 'pane-save')[0] as FakeElement).click();
   await settle(); // the write is a request now (part B4): `Saved` is what LANDED
-  assert.equal(st.editorDirty(st.editorFileId(B)), false, 'non-vacuity: the save really landed');
+  assert.equal(st.editorDirty(EM.fileTabId(B)), false, 'non-vacuity: the save really landed');
   await sync();
   assert.equal(byClass(hd, 'pane-dirty').length, 0, 'a strip sig without the dirty bit sticks');
 });
@@ -469,7 +468,7 @@ test('a SECOND pane on the same file refreshes its Save button while the first i
   st.setActiveTab(viewId, 0, 0);
   await sync();
   type(field() as FakeElement, `${ORIGINAL_A}\ntyped in the other pane`);
-  assert.equal(st.editorDirty(st.editorFileId(A)), true, 'non-vacuity: the file is unsaved now');
+  assert.equal(st.editorDirty(EM.fileTabId(A)), true, 'non-vacuity: the file is unsaved now');
 
   const before = fieldOf(body2);
   pane2.update(second, viewId, 1);
@@ -515,7 +514,7 @@ test('a rebuilt strip hands the keyboard back to the chip that had it', async ()
   pick.focus();
   assert.equal(pane.holdsFocus(), true);
   // Something else makes the strip redraw under the user's hands.
-  st.setEdit(st.editorFileId(B), `${ORIGINAL_B}\nchanged`);
+  st.setEdit(EM.fileTabId(B), `${ORIGINAL_B}\nchanged`);
   await sync();
   assert.notEqual(byClass(chips()[0] as FakeElement, 'pane-tab-pick')[0], pick, 'it really redrew');
   assert.equal(
@@ -660,8 +659,8 @@ test('a DIRTY tab follows a file rename: new chip name, same unsaved text in the
   await sync();
   assert.deepEqual(labels(), ['Pane.tsx', 'Shell.tsx'], 'the chip names the new file');
   assert.equal((field() as FakeElement).value, typed, 'the text the user typed is still there');
-  assert.equal(st.editorDirty(st.editorFileId(moved)), true, 'and still unsaved');
-  assert.equal(st.editorDirty(st.editorFileId(B)), false, 'nothing is left on the old id');
+  assert.equal(st.editorDirty(EM.fileTabId(moved)), true, 'and still unsaved');
+  assert.equal(st.editorDirty(EM.fileTabId(B)), false, 'nothing is left on the old id');
 });
 
 test('a DIRTY tab follows a FOLDER rename; a diff tab in the same strip is left alone', async () => {

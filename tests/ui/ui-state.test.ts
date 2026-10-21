@@ -370,13 +370,12 @@ test('viewAttention reads SESSIONS only — a file never asks for anything', () 
 // A10 (user decision 2026-09-15): slots, roots, Home, files as panes
 // ===========================================================================
 
-test('slotTabIds / editorFileId: a TAB id is BYTE-IDENTICAL to fileTabId/diffTabId', () => {
+test('slotTabIds: a TAB id is BYTE-IDENTICAL to fileTabId/diffTabId', () => {
   // This is the `state.edits` contract: the key a tab is drawn under and the
   // key its unsaved text lives under are ONE string, or two panes on one file
   // would hold two different texts.
   for (const path of ['web/src/main.ts', 'LICENSE', 'a b/c:d.ts', '']) {
     assert.deepEqual(st.slotTabIds(ed(path)), [E.fileTabId(path)]);
-    assert.equal(st.editorFileId(path), E.fileTabId(path), 'one spelling for every caller');
   }
   assert.deepEqual(st.slotTabIds(edTabs(dtab('474d891', 'server/ws.ts'))), [
     E.diffTabId('474d891', 'server/ws.ts'),

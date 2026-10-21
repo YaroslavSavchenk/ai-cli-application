@@ -74,7 +74,16 @@ const STORAGE_KEY_V1 = 'ai-sm:ui:v1';
  * lives under in `state.edits`.
  */
 export type EditorTab =
-  | { kind: 'file'; path: string }
+  | {
+      kind: 'file';
+      path: string;
+      /**
+       * The TEXT view of a media file (Nocturne D7: an SVG's `Edit as text`).
+       * Absent for every other tab — `fileTab` (ui/editor-model.ts) is the one
+       * builder, and it sets this only on a media path.
+       */
+      asText?: true;
+    }
   | {
       kind: 'diff';
       /** The commit's own 40-hex hash: the IDENTITY (the chip shows 7 of it). */

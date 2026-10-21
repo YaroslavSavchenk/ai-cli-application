@@ -20,6 +20,7 @@
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  E,
   HASH40,
   REOPEN,
   REPO,
@@ -365,7 +366,7 @@ test('moveTab: a dirty file’s text survives the move — the prune runs once, 
   st.initServer([], []);
   st.loadUi(REOPEN);
   const v = addView({ kind: 'project', id: 'p1' }, [ed('a.ts'), ed('b.ts')]);
-  const a = st.editorFileId('a.ts');
+  const a = E.fileTabId('a.ts');
   st.setEdit(a, 'typed in a');
 
   assert.equal(st.moveTab(v.id, 0, 0, 1), 'ok');

@@ -68,8 +68,9 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   History: `memory/decisions/session-history-resume.md`.
 - **Logging: everything, by default** (user's call 2026-09-06; since 2026-09-23
   a successful poll of `/api/sessions`, `/api/runtime`, `/api/prefs`,
-  `/api/update/status` or `/api/client-log` is one `debug` summary line a
-  minute, a failed or ≥ 1 s poll is written at once —
+  `/api/update/status`, `/api/client-log` or `POST /api/fs/media-ticket`
+  (D7) is one `debug` summary line a minute; a served `GET /api/fs/media`
+  (200/206) is a `debug` access line, a failed or ≥ 1 s poll is written at once —
   `memory/decisions/log-everything.md`). `server.log`
   is the backend's ONLY diagnostic channel; `<ISO> [level] [component]
   message`, levels `debug|info|warn|error`, `AI_SM_LOG_LEVEL` (default
@@ -326,7 +327,8 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   `MAX_TABS = 4`: a fifth file evicts position 4, a move into a full pane is
   refused). A fixed `Home` tab is always first, never draggable or
   closable. A file opens as a tab of the editor pane in the tab of its root
-  folder (created on demand; never duplicated). Every drag has a
+  folder (created on demand; never duplicated — one exception, D7: an SVG
+  may be open twice, as its picture and as text, id `f:<path>:text`). Every drag has a
   keyboard/button equivalent (the shortcuts overlay). The arrangement is
   client-local localStorage schema v2 (views with `root` and `slots`;
   editor slots persisted as paths, never unsaved TEXT; every entry gated on
@@ -346,7 +348,10 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   sentences, counts-not-names in `server.log`): `GET /api/fs/entries`,
   `POST /api/fs/create`, `PUT /api/fs/upload`, `GET /api/fs/winpath`,
   `POST /api/fs/delete`, `POST /api/fs/rename`, `GET /api/fs/read`,
-  `PUT /api/fs/write`, `GET /api/git/changes`; the picker's `/api/fs/list`
+  `PUT /api/fs/write`, `POST /api/fs/media-ticket`, `GET /api/git/changes`
+  — plus `GET /api/fs/media`, the ONE `/api` route without the token header
+  (D7: an `<img>`/`<video>`/`<iframe>` src cannot carry it; a ticket stands
+  in, see Editor live); the picker's `/api/fs/list`
   + `/api/fs/mkdir` stay machine-wide (user decision 2026-09-16). Git via
   argv only, `core.fsmonitor` off, `GIT_OPTIONAL_LOCKS=0`,
   `GIT_NO_LAZY_FETCH=1`, `GIT_LITERAL_PATHSPECS=1`, `LC_ALL=C`, stdout
@@ -385,6 +390,24 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   view is up the pane chords and the tab-switch chords (Ctrl+Alt+1..9) are
   ignored; Ctrl+Alt+Shift+PageUp/PageDown stays live. Esc closes the commit
   view ranked after every dialog, before drawers and the Files panel.
+  **Media viewer (D7)**: an image (`png jpg jpeg gif webp avif bmp ico
+  svg`), a video (`mp4 webm mov m4v mkv ogv`) or a PDF — the kind is the
+  extension, `shared/media-kind.ts` — opens as a viewer body in the same
+  editor tab (`web/src/ui/media-pane.ts`): Fit / 100 %, `<video controls>`
+  without autoplay, WebView2's own PDF viewer in an iframe; an SVG is a
+  picture with `Edit as text`. `POST /api/fs/media-ticket {path}` (token)
+  → `{ ticket, size, mtimeMs, ino }`: 32 random bytes, in memory, bound to
+  ONE realpath, 10 min sliding, ≤ 64 alive, the SAME ticket while
+  size:mtimeMs:ino is unchanged. `GET /api/fs/media?path=&t=` needs that
+  ticket instead of the token (Host/Origin gates kept), streams one Range
+  from the fd it judged (same boundary and open as `/api/fs/read`),
+  Content-Type from the table only, `nosniff`, `no-store`, CORP
+  same-origin, `X-Frame-Options: SAMEORIGIN`; a sandbox CSP on SVG only
+  (Chromium's PDF viewer refuses a sandboxed document). The app token
+  never goes in a URL. A visible media tab rides the editor's one 5 s
+  follow timer: an image swaps to the new file after it decoded; a video
+  or PDF shows `Changed on disk` + `Reload` instead.
+  `server/fsmedia.ts`.
   Nothing in the app is mock. History:
   `memory/decisions/b4-editor-live.md`.
 - **Attention badges**: surface when a hidden session is waiting for input.

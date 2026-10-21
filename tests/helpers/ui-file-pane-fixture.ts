@@ -16,7 +16,6 @@ export const dom = installDom();
 
 export interface StateModule {
   state: { edits: Map<string, string> };
-  editorFileId(path: string): string;
   editorDirty(id: string | null): boolean;
   editText(id: string): string | undefined;
   setEdit(id: string, text: string): void;
@@ -29,12 +28,15 @@ export interface Body {
   dispose(): void;
 }
 export interface FilePaneModule {
-  filePaneBody(path: string, onDirtyFlip: () => void): Body;
+  filePaneBody(path: string, id: string, onDirtyFlip: () => void): Body;
   diffPaneBody(root: string, hash: string, path: string): Body;
 }
 
 export const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as StateModule;
 export const FP = (await import(new URL('../../web/src/ui/file-pane.ts', import.meta.url).href)) as unknown as FilePaneModule;
+export const EM = (await import(new URL('../../web/src/ui/editor-model.ts', import.meta.url).href)) as {
+  fileTabId(path: string): string;
+};
 export const STORE = (await import(new URL('../../web/src/ui/commit-store.ts', import.meta.url).href)) as {
   setCommitGateway(gw: unknown): void;
 };
@@ -64,7 +66,7 @@ export let live: Body[] = [];
 
 /** Build a body, put it on screen, and let its read land. */
 export async function mount(path: string): Promise<FakeElement> {
-  const body = FP.filePaneBody(path, () => {
+  const body = FP.filePaneBody(path, EM.fileTabId(path), () => {
     flips += 1;
   });
   live.push(body);

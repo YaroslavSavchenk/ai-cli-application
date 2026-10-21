@@ -11,7 +11,7 @@
  * panel, the commit view, connection readouts). `state.ts` re-exports them all.
  */
 import { log } from './log.ts';
-import { filePathOf, fileTabId, tabIdOf, tabKind } from './ui/editor-model.ts';
+import { fileIdParts, fileTab, fileTabId, tabIdOf, tabKind } from './ui/editor-model.ts';
 import { remapPath } from './ui/rename-model.ts';
 import {
   type Zone,
@@ -677,9 +677,9 @@ export function retargetFiles(from: string, to: string): boolean {
   const blocked = new Set<string>();
   for (const key of state.edits.keys()) {
     if (tabKind(key) !== 'file') continue;
-    const path = filePathOf(key);
+    const { path, asText } = fileIdParts(key);
     const next = remapPath(path, from, to);
-    if (next !== path && state.edits.has(fileTabId(next))) blocked.add(path);
+    if (next !== path && state.edits.has(fileTabId(next, asText))) blocked.add(path);
   }
   const follow = (path: string): string => (blocked.has(path) ? path : remapPath(path, from, to));
   let changed = false;
@@ -693,8 +693,10 @@ export function retargetFiles(from: string, to: string): boolean {
       const tabs: EditorTab[] = [];
       let active = 0;
       before.forEach((t, i) => {
+        // `fileTab` keeps the view (D7: an SVG's text tab stays its text tab)
+        // and drops it when the new name is no media file any more.
         const next: EditorTab =
-          t.kind === 'file' ? { kind: 'file', path: follow(t.path) } : t;
+          t.kind === 'file' ? fileTab(follow(t.path), t.asText === true) : t;
         const id = tabIdOf(next);
         const at = tabs.findIndex((x) => tabIdOf(x) === id);
         if (at === -1) tabs.push(next);
@@ -707,23 +709,18 @@ export function retargetFiles(from: string, to: string): boolean {
   }
   for (const [key, text] of [...state.edits]) {
     if (tabKind(key) !== 'file') continue;
-    const path = filePathOf(key);
+    const { path, asText } = fileIdParts(key);
     const next = follow(path);
     if (next === path) continue;
     changed = true;
     state.edits.delete(key);
-    state.edits.set(fileTabId(next), text);
+    state.edits.set(fileTabId(next, asText), text);
   }
   if (!changed) return false;
   log.debug('editor tabs followed a rename');
   saveUi();
   notify('ui');
   return true;
-}
-
-/** The key a file at `path` is edited under — one spelling for every caller. */
-export function editorFileId(path: string): string {
-  return fileTabId(path);
 }
 
 // Shared with the sibling pieces (O8 split glue); not part of the public face.

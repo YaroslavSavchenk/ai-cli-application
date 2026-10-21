@@ -72,7 +72,6 @@ export interface StateModule {
   openDiff(root: { kind: 'home' }, hash: string, path: string, repoRoot: string): string;
   closeSlot(viewId: string, index: number): boolean;
   closeTab(viewId: string, slot: number, tabIndex: number): boolean;
-  editorFileId(path: string): string;
   editorDirty(id: string | null): boolean;
   setEdit(id: string, text: string): void;
   saveEdit(id: string): string | null;

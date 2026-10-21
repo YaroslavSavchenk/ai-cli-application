@@ -19,6 +19,7 @@ import type { SessionManager } from './sessions.ts';
 import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
 import type { GithubConnection } from './github.ts';
+import type { MediaTickets } from './fsmedia.ts';
 import type { Logger } from './config.ts';
 
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -40,6 +41,8 @@ export interface ApiContext {
   fsLog: Logger;
   gitLog: Logger;
   projectAnchors: () => string[];
+  /** The media viewer's live tickets (server/fsmedia.ts, Nocturne D7). */
+  mediaTickets: MediaTickets;
   writeClientLog: (entries: unknown[]) => void;
 }
 

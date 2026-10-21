@@ -201,3 +201,36 @@ export interface FsWriteRequest {
 
 /** 200 of PUT /api/fs/write: the new stamp and the bytes that landed. */
 export interface FsWriteResponse { stamp: string; bytes: number }
+
+// ---------------------------------------------------------------------------
+// Media viewer (Nocturne D7) — POST /api/fs/media-ticket, GET /api/fs/media
+// ---------------------------------------------------------------------------
+//
+// A picture, a video or a PDF opens as a file tab (`.claude/plans/nocturne/PLAN-D7.md`).
+// The kind is the file's EXTENSION, from the one table in shared/media-kind.ts;
+// nothing is byte-sniffed. An `<img>`/`<video>`/`<iframe>` `src` cannot carry
+// the X-Auth-Token header, and the token never goes into a URL — so the client
+// first asks for a TICKET (authed like every route), then loads
+// `/api/fs/media?path=<abs>&t=<ticket>`. A ticket is 32 random bytes in hex,
+// held in the server's memory only (a restart forgets them), bound to ONE
+// resolved path, valid 10 minutes, at most 64 alive (the oldest is dropped).
+// One ticket per path AND file version (size:mtimeMs:ino): an ask for a file
+// that has not changed gets the SAME ticket back with its 10 minutes
+// restarted, so a tab that re-asks every 5 s keeps one stable `src` that never
+// expires; a changed file gets a NEW ticket (the old one lives on until it
+// expires or is dropped).
+// Same boundary and open rules as /api/fs/read. The media route streams the
+// file with `Range` support (200, or 206 for one `bytes=` range; 416 for a
+// multi-range or unsatisfiable one) and never logs the ticket or the path.
+//
+//   POST /api/fs/media-ticket   (X-Auth-Token)  → 200 FsMediaTicketResponse | 400 | 403 | 404 | 415
+//   GET  /api/fs/media?path=&t= (ticket)        → 200 | 206 | 403 (bad/expired/mismatched ticket) | 404 | 415 | 416
+//
+// The ticket answer doubles as the change probe: the client re-asks every 5 s
+// per visible media tab and reloads when `size`/`mtimeMs`/`ino` moved.
+
+/** POST /api/fs/media-ticket body: the media file's absolute path. */
+export interface FsMediaTicketRequest { path: string }
+
+/** 200 of POST /api/fs/media-ticket: the ticket and the file's identity now. */
+export interface FsMediaTicketResponse { ticket: string; size: number; mtimeMs: number; ino: number }

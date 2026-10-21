@@ -1,8 +1,10 @@
 /**
  * The filesystem /api routes: the folder picker's list and mkdir (anywhere on
  * the machine) and the Files panel's routes (confined to home or a registered
- * project root): entries, create, read, write, upload, delete, rename and the
- * Windows form of a path. The boundary itself lives in server/fsbrowse.ts and
+ * project root): entries, create, read, write, upload, delete, rename, the
+ * Windows form of a path and the media viewer's ticket (D7; the ticketed
+ * GET /api/fs/media itself is dispatched by server/api.ts, before the token
+ * gate). The boundary itself lives in server/fsbrowse.ts and
  * the per-route modules; this file supplies the HTTP policy they are handed.
  *
  * Split from server/api.ts (O8, 2026-09-23): a pure move, behaviour and
@@ -27,6 +29,7 @@ import {
 } from './fsbrowse.ts';
 import { handleDelete } from './fsdelete.ts';
 import { handleRename } from './fsrename.ts';
+import { handleMediaTicket } from './fsmedia.ts';
 import { handleRead, handleWrite } from './fstext.ts';
 import { handleUpload } from './fsupload.ts';
 import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
@@ -42,7 +45,7 @@ import {
   type RouteResult,
 } from './api-http.ts';
 
-/** /api/fs/* — list, mkdir, entries, create, read, write, upload, delete, rename, winpath. */
+/** /api/fs/* — list, mkdir, entries, create, read, write, media-ticket, upload, delete, rename, winpath. */
 export async function fsRoutes(
   ctx: ApiContext,
   method: string,
@@ -51,7 +54,7 @@ export async function fsRoutes(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<RouteResult> {
-  const { log, fsLog, projectAnchors } = ctx;
+  const { log, fsLog, projectAnchors, mediaTickets } = ctx;
 
   // --- Filesystem browsing ------------------------------------------------
   if (pathname === '/api/fs/list') {
@@ -205,6 +208,24 @@ export async function fsRoutes(
       sendError,
       sendErrorAndClose,
       readJson: readJsonBodySafe,
+    });
+    return;
+  }
+
+  // --- Filesystem: the media viewer's TICKET (D7) -------------------------
+  //
+  // The whole route lives in server/fsmedia.ts (the boundary, the open, the
+  // fstat and extension rules, the ticket store's rules). The ticket it hands
+  // out is what GET /api/fs/media accepts instead of the token.
+  if (pathname === '/api/fs/media-ticket') {
+    await handleMediaTicket(req, res, {
+      projects: projectAnchors,
+      log: fsLog,
+      sendJson,
+      sendError,
+      sendErrorAndClose,
+      readJson: readJsonBodySafe,
+      tickets: mediaTickets,
     });
     return;
   }

@@ -259,6 +259,15 @@ dot while unsaved, its own `×` — at most **four** per pane, then the pane's
 the editable mono text, `Save` / `Saving…` / `Saved`; a diff tab from a
 commit is read-only. A file tab is its own drag source inside the header.
 
+A picture, video or PDF tab (D7, `web/src/ui/media-pane.ts`) keeps the card
+and the bottom bar but draws the file: a picture fitted (never scaled up) on
+a checkerboard of `--color-term` / `--color-bg`, one quiet `Fit` / `100 %`
+switch; the browser's own `<video controls>`; the built-in PDF viewer. The bar
+reads `1920 × 1080` and `284 KB` as two spaced readings. An SVG adds
+`Edit as text` (a second tab, `<name> (text)`). A video or PDF that changed on
+disk shows `Changed on disk` with an amber hairline and a quiet `Reload`; a
+picture swaps by itself.
+
 ## Files panel (`web/src/ui/files.ts`)
 
 Left, resizable **200–520 px** by its right edge (pointer or arrow keys).

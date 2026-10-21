@@ -58,7 +58,6 @@ interface Eviction {
 interface StateModule {
   state: { views: ViewLike[]; activeViewId: string; edits: Map<string, string> };
   newEditorSlot(tabs: EditorTab[]): EditorSlot;
-  editorFileId(path: string): string;
   dirtyLostBy(viewId: string, slot?: number, tab?: number): string[];
   activeTabIndex(viewId: string, slot: number): number | null;
   MAX_TABS: number;
@@ -104,6 +103,9 @@ interface UnsavedModule {
 }
 
 const st = (await import(new URL('../../web/src/state.ts', import.meta.url).href)) as unknown as StateModule;
+const EM = (await import(new URL('../../web/src/ui/editor-model.ts', import.meta.url).href)) as {
+  fileTabId(path: string): string;
+};
 const U = (await import(new URL('../../web/src/ui/unsaved.ts', import.meta.url).href)) as unknown as UnsavedModule;
 
 /** The question as a promise of its answer — `confirmDiscard` takes a callback (D4). */
@@ -121,7 +123,7 @@ function view(id: string, slots: PaneSlot[], root: ViewLike['root'] = { kind: 'h
 
 /** Make the file dirty, exactly as a keystroke in its pane does. */
 function dirty(path: string, text = 'typed\n'): void {
-  st.state.edits.set(st.editorFileId(path), text);
+  st.state.edits.set(EM.fileTabId(path), text);
 }
 
 /** The card that is up, or null. */
@@ -158,7 +160,7 @@ test('a dirty tab is lost by every door that removes it — the chip, its pane, 
     view('v1', [st.newEditorSlot([{ kind: 'file', path: A }, { kind: 'file', path: B }])]),
   ];
   dirty(A);
-  const id = st.editorFileId(A);
+  const id = EM.fileTabId(A);
   assert.deepEqual(st.dirtyLostBy('v1', 0, 0), [id], 'that chip');
   assert.deepEqual(st.dirtyLostBy('v1', 0, 1), [], 'the OTHER chip loses nothing');
   assert.deepEqual(st.dirtyLostBy('v1', 0), [id], 'the pane, with both tabs');
@@ -175,7 +177,7 @@ test('a file open in TWO panes is not lost by closing one of them', () => {
   dirty(A);
   assert.deepEqual(st.dirtyLostBy('v1', 0), [], 'the other pane still shows that text');
   assert.deepEqual(st.dirtyLostBy('v1', 1), []);
-  assert.deepEqual(st.dirtyLostBy('v1'), [st.editorFileId(A)], 'both at once DOES lose it');
+  assert.deepEqual(st.dirtyLostBy('v1'), [EM.fileTabId(A)], 'both at once DOES lose it');
 });
 
 test('a file open in another TAB is not lost either, and that tab is not asked about', () => {
@@ -186,7 +188,7 @@ test('a file open in another TAB is not lost either, and that tab is not asked a
   dirty(A);
   dirty(B);
   assert.deepEqual(st.dirtyLostBy('v1'), [], 'v2 still has A');
-  assert.deepEqual(st.dirtyLostBy('v2'), [st.editorFileId(B)], 'only B is nowhere else');
+  assert.deepEqual(st.dirtyLostBy('v2'), [EM.fileTabId(B)], 'only B is nowhere else');
   assert.deepEqual(st.dirtyLostBy('nosuchview'), [], 'a view that is not there removes nothing');
 });
 
@@ -212,13 +214,13 @@ test('a terminal pane is not a door: ctrl+alt+w on one has no tab to close', () 
 // ---------------------------------------------------------------------------
 
 test('the question NAMES one file, COUNTS several, and never shows a path', async () => {
-  const one = confirm([st.editorFileId(A)]);
+  const one = confirm([EM.fileTabId(A)]);
   assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Pane.tsx?']);
   assert.equal((card() as FakeElement).textContent.includes('/home/you'), false, 'no path in the card');
   answer('Keep editing').click();
   assert.equal(await one, false);
 
-  const many = confirm([st.editorFileId(A), st.editorFileId(B)]);
+  const many = confirm([EM.fileTabId(A), EM.fileTabId(B)]);
   assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to 2 files?']);
   answer('Keep editing').click();
   assert.equal(await many, false);
@@ -229,7 +231,7 @@ test("the question isolates the name's direction", async () => {
   // reorders the sentence around itself unless the name is isolated — the rule
   // `.pane-tab-pick` and `.commit-fpath-t` already carry, and this card is the
   // one other place a name is printed.
-  const asked = confirm([st.editorFileId(A)]);
+  const asked = confirm([EM.fileTabId(A)]);
   const name = byClass(dom.body, 'ud-name')[0];
   assert.ok(name !== undefined, 'the name is its own node');
   assert.equal(name.textContent, 'Pane.tsx', 'and it is exactly the name');
@@ -250,7 +252,7 @@ test("the question isolates the name's direction", async () => {
 });
 
 test('the card is a modal the rest of the app can see, and the SAFE answer holds the keyboard', async () => {
-  const asked = confirm([st.editorFileId(A)]);
+  const asked = confirm([EM.fileTabId(A)]);
   // ui/keys.ts finds an open dialog by `.modal-scrim`: the keyboard rules and
   // the external-drop guard both have to know a question is up.
   const scrim = byClass(dom.body, 'modal-scrim')[0] as FakeElement;
@@ -266,7 +268,7 @@ test('the card is a modal the rest of the app can see, and the SAFE answer holds
 });
 
 test('Discard answers true; Escape, the backdrop and Keep editing all answer false', async () => {
-  const id = st.editorFileId(A);
+  const id = EM.fileTabId(A);
   const yes = confirm([id]);
   answer('Discard').click();
   assert.equal(await yes, true);
@@ -286,8 +288,8 @@ test('an empty list is answered without a card; a second question while one is u
   assert.equal(await confirm([]), true, 'nothing to lose, nothing to ask');
   assert.equal(card(), null);
 
-  const first = confirm([st.editorFileId(A)]);
-  assert.equal(await confirm([st.editorFileId(B)]), false, 'one question at a time');
+  const first = confirm([EM.fileTabId(A)]);
+  assert.equal(await confirm([EM.fileTabId(B)]), false, 'one question at a time');
   assert.deepEqual(textsOf(dom.body, 'ud-title'), ['Discard unsaved changes to Pane.tsx?']);
   answer('Discard').click();
   assert.equal(await first, true);
@@ -296,7 +298,7 @@ test('an empty list is answered without a card; a second question while one is u
 test('the keyboard goes back to the control the question was asked from', async () => {
   const from = dom.doc.createElement('button');
   dom.body.append(from);
-  const asked = confirm([st.editorFileId(A)], from);
+  const asked = confirm([EM.fileTabId(A)], from);
   answer('Discard').click();
   await asked;
   assert.equal(dom.doc.activeElement, from);
@@ -458,7 +460,7 @@ test('the open WAITS for the answer: Keep editing cancels the open, and the stri
   answer('Keep editing').click();
   await settle();
   assert.deepEqual(paths(slot), [A, B, C, D], 'Keep editing changed nothing at all');
-  assert.equal(st.state.edits.has(st.editorFileId(D)), true, 'the unsaved text is still there');
+  assert.equal(st.state.edits.has(EM.fileTabId(D)), true, 'the unsaved text is still there');
   assert.deepEqual(results, [], 'and the open never ran, so there is no result to report');
 });
 
@@ -469,7 +471,7 @@ test('Discard opens the fifth file and the evicted text goes with its chip', asy
   answer('Discard').click();
   await settle();
   assert.deepEqual(paths(slot), [A, B, C, E5]);
-  assert.equal(st.state.edits.has(st.editorFileId(D)), false, 'pruned by the eviction');
+  assert.equal(st.state.edits.has(EM.fileTabId(D)), false, 'pruned by the eviction');
   assert.equal(st.state.edits.size, 0);
 });
 
@@ -485,7 +487,7 @@ test('the question is about the chip that LEAVES — not about the dirty ones th
   );
   answer('Discard').click();
   await settle();
-  assert.equal(st.state.edits.has(st.editorFileId(A)), true, "A's text is still on screen");
+  assert.equal(st.state.edits.has(EM.fileTabId(A)), true, "A's text is still on screen");
   assert.deepEqual(paths(slot), [A, B, C, E5], 'and only the last chip left');
 });
 
@@ -688,8 +690,8 @@ test('a dirty tab follows a FILE rename with its text intact, in every view', ()
   const s2 = st.state.views[1]?.slots[0] as EditorSlot;
   assert.deepEqual(s1.tabs, [{ kind: 'file', path: moved }, { kind: 'file', path: B }]);
   assert.deepEqual(s2.tabs, [{ kind: 'file', path: moved }]);
-  assert.equal(st.state.edits.get(st.editorFileId(moved)), 'my work\n');
-  assert.equal(st.state.edits.has(st.editorFileId(A)), false, 'nothing left on the old id');
+  assert.equal(st.state.edits.get(EM.fileTabId(moved)), 'my work\n');
+  assert.equal(st.state.edits.has(EM.fileTabId(A)), false, 'nothing left on the old id');
   // Nothing is lost by the rename itself: the text has a tab that shows it.
   assert.deepEqual(st.dirtyLostBy('v2'), [], 'v1 still shows the moved file');
 });
@@ -718,9 +720,9 @@ test('a dirty tab follows a FOLDER rename; a prefix sibling and a DIFF tab stay 
     { kind: 'file', path: sibling },
     { kind: 'file', path: '/home/you/web/lib/App.tsx' },
   ]);
-  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/Pane.tsx')), 'a text\n');
-  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/App.tsx')), 'b text\n');
-  assert.equal(st.state.edits.get(st.editorFileId(sibling)), 'sibling text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId('/home/you/web/lib/Pane.tsx')), 'a text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId('/home/you/web/lib/App.tsx')), 'b text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(sibling)), 'sibling text\n');
   assert.equal(st.state.edits.size, 3);
 });
 
@@ -745,7 +747,7 @@ test('a rename nothing is open under changes nothing and says so', () => {
   dirty(A);
   assert.equal(st.retargetFiles('/home/you/other', '/home/you/moved'), false);
   assert.deepEqual((st.state.views[0]?.slots[0] as EditorSlot).tabs, [{ kind: 'file', path: A }]);
-  assert.ok(st.state.edits.has(st.editorFileId(A)));
+  assert.ok(st.state.edits.has(EM.fileTabId(A)));
 });
 
 test('retargetFiles never OVERWRITES unsaved text: that one file stays on its old path, text and tab', () => {
@@ -759,8 +761,8 @@ test('retargetFiles never OVERWRITES unsaved text: that one file stays on its ol
   st.retargetFiles(y, x);
   const s = st.state.views[0]?.slots[0] as EditorSlot;
   assert.deepEqual(s.tabs, [{ kind: 'file', path: x }, { kind: 'file', path: y }], 'no tab moved');
-  assert.equal(st.state.edits.get(st.editorFileId(x)), 'x text\n');
-  assert.equal(st.state.edits.get(st.editorFileId(y)), 'y text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(x)), 'x text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(y)), 'y text\n');
   // In a FOLDER rename only the blocked file stays; the rest still follow.
   const other = '/home/you/web/src/z.ts';
   st.state.views = [
@@ -773,7 +775,7 @@ test('retargetFiles never OVERWRITES unsaved text: that one file stays on its ol
   st.retargetFiles('/home/you/web/src', '/home/you/web/lib');
   const s2 = st.state.views[0]?.slots[0] as EditorSlot;
   assert.deepEqual(s2.tabs, [{ kind: 'file', path: y }, { kind: 'file', path: '/home/you/web/lib/z.ts' }]);
-  assert.equal(st.state.edits.get(st.editorFileId(y)), 'y text\n');
-  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/y.ts')), 'already there\n');
-  assert.equal(st.state.edits.get(st.editorFileId('/home/you/web/lib/z.ts')), 'z text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId(y)), 'y text\n');
+  assert.equal(st.state.edits.get(EM.fileTabId('/home/you/web/lib/y.ts')), 'already there\n');
+  assert.equal(st.state.edits.get(EM.fileTabId('/home/you/web/lib/z.ts')), 'z text\n');
 });

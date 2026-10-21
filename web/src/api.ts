@@ -13,6 +13,7 @@ import type {
   FsCreateResponse,
   FsEntriesResponse,
   FsListResponse,
+  FsMediaTicketResponse,
   FsMkdirResponse,
   FsReadResponse,
   FsWriteRequest,
@@ -139,10 +140,12 @@ export function onAuthError(fn: () => void): void {
  * one-a-minute poll summary (server/poll-log.ts) — a line here would also
  * cost a `POST /api/client-log` that carries nothing else. The same GETs at
  * boot and in Settings are quiet too; a failure of any of them still writes
- * its warn/error line below.
+ * its warn/error line below. The media ticket (Nocturne D7) is a poll too:
+ * every visible picture, video or PDF tab asks for one every 5 s.
  */
 const QUIET_ON_SUCCESS = new Set([
   'PUT /api/fs/upload ?…',
+  'POST /api/fs/media-ticket',
   'GET /api/sessions',
   'GET /api/runtime',
   'GET /api/prefs',
@@ -566,6 +569,19 @@ export function fsWrite(body: FsWriteRequest): Promise<FsWriteResponse> {
   return request<FsWriteResponse>('/api/fs/write', {
     method: 'PUT',
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * A media ticket for ONE picture, video or PDF (Nocturne D7). Authed by header
+ * like every call; the answer's `ticket` is what the media URL carries
+ * (`ui/media-model.ts` `mediaUrl`), so the app token never goes into a `src`.
+ * `size`/`mtimeMs`/`ino` are the file now — the 5 s follow compares them.
+ */
+export function fsMediaTicket(path: string): Promise<FsMediaTicketResponse> {
+  return request<FsMediaTicketResponse>('/api/fs/media-ticket', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
   });
 }
 

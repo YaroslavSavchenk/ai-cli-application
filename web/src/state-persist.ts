@@ -10,7 +10,7 @@
  * editor pane, unsaved text), `state-chrome.ts` (focus, drawers and the Files
  * panel, the commit view, connection readouts). `state.ts` re-exports them all.
  */
-import { diffTabId, fileTabId } from './ui/editor-model.ts';
+import { diffTabId, fileTab, tabIdOf } from './ui/editor-model.ts';
 import {
   MAX_PANES,
   MAX_VIEWS,
@@ -85,7 +85,9 @@ function persistView(v: ViewState): Record<string, unknown> {
             kind: 'editor',
             tabs: s.tabs.slice(0, MAX_TABS).map((t) =>
               t.kind === 'file'
-                ? { kind: 'file', path: t.path }
+                ? t.asText === true
+                  ? { kind: 'file', path: t.path, asText: true }
+                  : { kind: 'file', path: t.path }
                 : { kind: 'diff', root: t.root, hash: t.hash, path: t.path },
             ),
             active: s.active,
@@ -274,10 +276,14 @@ function validateTabs(raw: unknown): EditorTab[] {
       // ABSOLUTE only: every path the app opens a file by is absolute (part
       // B2), and a relative one would be read against a folder nobody named.
       if (path === null || !path.startsWith('/')) continue;
-      const id = fileTabId(path);
-      if (seen.has(id)) continue; // one strip never shows one file twice
+      // A media file's TEXT view (D7) is its own tab; `fileTab` keeps the
+      // flag only where it names a second view, so a hand-edited `asText` on
+      // a plain file is the plain tab.
+      const made = fileTab(path, tab.asText === true);
+      const id = tabIdOf(made);
+      if (seen.has(id)) continue; // one strip never shows one file (view) twice
       seen.add(id);
-      out.push({ kind: 'file', path });
+      out.push(made);
       continue;
     }
     if (tab.kind === 'diff') {

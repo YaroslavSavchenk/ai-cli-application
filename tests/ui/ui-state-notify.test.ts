@@ -21,6 +21,7 @@ import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkHistoryEntry as mkHistory } from '../helpers/helpers.ts';
 import {
+  E,
   REOPEN,
   REPO,
   collectKinds,
@@ -81,7 +82,7 @@ test("saveEdit notifies 'ui' (the dot it clears lives on a pane header) and a cl
   st.initServer([], []);
   st.loadUi(REOPEN);
   const { kinds } = collectKinds();
-  const id = st.editorFileId('a.ts');
+  const id = E.fileTabId('a.ts');
 
   st.setEdit(id, 'typed');
   assert.deepEqual(kinds, [], 'a keystroke never notifies — it would take the caret with it');

@@ -69,13 +69,16 @@ function makeTally(): {
   };
 }
 
-test('isQuietPoll: only a prompt 2xx of the five polled routes is counted', () => {
+test('isQuietPoll: only a prompt 2xx of the six polled routes is counted', () => {
   const rows: [string, string, number, number, boolean][] = [
     ['GET', '/api/sessions', 200, 3, true],
     ['GET', '/api/runtime', 200, 3, true],
     ['GET', '/api/prefs', 200, 3, true],
     ['GET', '/api/update/status', 200, 3, true],
     ['POST', '/api/client-log', 204, 3, true],
+    // The media viewer's ticket: its 5 s change probe (Nocturne D7).
+    ['POST', '/api/fs/media-ticket', 200, 3, true],
+    ['POST', '/api/fs/media-ticket', 403, 3, false],
     // A failure is the diagnostic: never counted.
     ['GET', '/api/sessions', 500, 3, false],
     ['GET', '/api/update/status', 503, 3, false],
@@ -95,6 +98,8 @@ test('isQuietPoll: only a prompt 2xx of the five polled routes is counted', () =
     ['GET', '/api/history', 200, 3, false],
     ['GET', '/api/git/changes', 200, 3, false],
     ['GET', '/api/sessions/abc', 200, 3, false],
+    // The media bytes themselves are not a poll (they keep a debug line).
+    ['GET', '/api/fs/media', 206, 3, false],
   ];
   for (const [method, route, status, ms, want] of rows) {
     assert.equal(isQuietPoll(method, route, status, ms), want, `${method} ${route} ${status} in ${ms}ms`);

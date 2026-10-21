@@ -249,7 +249,7 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   // B4: the editor pane reads and writes real files through its own injected
   // gateway. Same seam, same reason as the two above — `ui/file-pane.ts` never
   // imports `./api.ts`, so a file body is drivable under `node --test`.
-  setEditorGateway({ read: api.fsRead, write: api.fsWrite });
+  setEditorGateway({ read: api.fsRead, write: api.fsWrite, mediaTicket: api.fsMediaTicket });
 
   /**
    * One drop, handed over (B10). THIS is the seam where a path stops: the

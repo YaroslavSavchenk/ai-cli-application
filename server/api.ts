@@ -67,6 +67,7 @@ import {
 } from './config.ts';
 import {
   declaresBody,
+  readJsonBodySafe,
   responseBytes,
   responseNote,
   responseReason,
@@ -89,6 +90,7 @@ import { fsRoutes } from './api-fs.ts';
 import { gitRoutes } from './api-git.ts';
 import { sessionRoutes } from './api-sessions.ts';
 import { type PollTally, isQuietPoll } from './poll-log.ts';
+import { MediaTickets, handleMedia } from './fsmedia.ts';
 
 // The route families moved out of this file by the O8 split (2026-09-23);
 // every name importable from server/api.ts before it still is.
@@ -257,6 +259,8 @@ export function createRequestHandler(
    * boundary that disagrees with projects.json.
    */
   const projectAnchors = (): string[] => projects.list().map((p) => p.path);
+  /** The media viewer's tickets (D7): one store per handler, gone with the process. */
+  const mediaTickets = new MediaTickets();
 
   // Global (all clients) client-log budget: a fixed window, so a runaway page
   // cannot fill the disk. The SAME window machinery the access log uses — one
@@ -359,6 +363,26 @@ export function createRequestHandler(
       return;
     }
 
+    // THE ONE /api ROUTE WITHOUT THE TOKEN (Nocturne D7): a media element's
+    // `src` cannot carry a header, and the token never goes into a URL. The
+    // route demands a TICKET instead (server/fsmedia.ts), handed out by the
+    // token-gated POST /api/fs/media-ticket. Exactly this method and this
+    // pathname — the Host and Origin gates above still applied.
+    if (method === 'GET' && pathname === '/api/fs/media') {
+      handleMedia(req, res, url, {
+        projects: projectAnchors,
+        log: fsLog,
+        sendJson,
+        sendError,
+        sendErrorAndClose,
+        readJson: readJsonBodySafe,
+        tickets: mediaTickets,
+        onTrusted: () => authenticated.add(res),
+        recordBytes: (n) => responseBytes.set(res, n),
+      });
+      return;
+    }
+
     if (pathname.startsWith('/api/')) {
       const provided = req.headers['x-auth-token'];
       const providedToken = Array.isArray(provided) ? provided[0] : provided;
@@ -397,6 +421,7 @@ export function createRequestHandler(
     fsLog,
     gitLog,
     projectAnchors,
+    mediaTickets,
     writeClientLog,
   };
 
@@ -557,7 +582,10 @@ export function createRequestHandler(
         // rest of the file; a refusal on either stays info (or error), because
         // that is the diagnostic.
         (route === '/api/fs/read' && status === 200) ||
-        (route === '/api/fs/write' && status === 200);
+        (route === '/api/fs/write' && status === 200) ||
+        // The media viewer (D7): a video plays as a run of Range requests and
+        // every seek starts a new one. A refusal stays info (or error).
+        (route === '/api/fs/media' && (status === 200 || status === 206));
       httpLog(status >= 500 ? 'error' : quiet ? 'debug' : 'info', parts.join(' '));
     });
 

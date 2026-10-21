@@ -5,7 +5,11 @@
  *
  * A file or a diff open in a strip is identified by an ID, and the ID says
  * which:
- *   `f:<path>`            a file, editable, saveable
+ *   `f:<path>`            a file, editable, saveable — or, for a picture, a
+ *                         video or a PDF, its viewer (Nocturne D7)
+ *   `f:<path>:text`       the TEXT view of a media file (D7: an SVG's
+ *                         `Edit as text`), so the picture and its text can
+ *                         be open side by side
  *   `d:<hash>:<path>`     the changes to that file in that commit, read-only
  * That id is the key its unsaved text lives under in `state.edits` — so the
  * same file open in two panes shares one text.
@@ -19,6 +23,7 @@
  * the gutter draws, what the Save button says — are testable without a browser.
  */
 import type { EditorTab } from '../state.ts';
+import { mediaKind } from '../../../shared/media-kind.ts';
 
 export type TabKind = 'file' | 'diff';
 
@@ -27,9 +32,37 @@ export function tabKind(id: string): TabKind {
   return id.startsWith('d:') ? 'diff' : 'file';
 }
 
-/** The id a file pane is opened under. */
-export function fileTabId(path: string): string {
-  return `f:${path}`;
+/**
+ * The suffix of a media file's TEXT view (D7, frozen in
+ * `.claude/plans/nocturne/PLAN-D7.md`): `fileTabId(path) + ':text'`.
+ */
+const TEXT_VIEW = ':text';
+
+/**
+ * Does this file tab ask for the text view? Only a MEDIA path has two views:
+ * any other file opens in the text editor anyway, so a flag on it would be a
+ * second id for the same view — which is why `fileTabId` and `fileTab` both
+ * ask this one question.
+ */
+function isTextView(path: string, asText: boolean): boolean {
+  return asText && mediaKind(path) !== null;
+}
+
+/**
+ * The id a file pane is opened under; `asText` names the text view of a media
+ * file (D7) and is ignored for every other path.
+ */
+export function fileTabId(path: string, asText = false): string {
+  return `f:${path}${isTextView(path, asText) ? TEXT_VIEW : ''}`;
+}
+
+/**
+ * The file tab for a path — the ONE builder, so a tab never carries an
+ * `asText` its id would not (a text view renamed to `notes.txt` is simply that
+ * file's tab again).
+ */
+export function fileTab(path: string, asText = false): EditorTab {
+  return isTextView(path, asText) ? { kind: 'file', path, asText: true } : { kind: 'file', path };
 }
 
 /** The id a commit's per-file diff pane is opened under. */
@@ -38,13 +71,28 @@ export function diffTabId(hash: string, path: string): string {
 }
 
 /**
- * The path back out of a file id (part B4): what `fileTabId` put in. The
- * unsaved-changes question is handed `state.edits` KEYS and has to name the
- * files, so this is the one place the prefix comes off again — and the name
- * itself is still `fileName`'s job, because a path never reaches a label.
+ * A file id taken apart again: what `fileTabId` put in. The ONE parser — the
+ * unsaved-changes question names files from `state.edits` KEYS, a rename moves
+ * those keys, and both need the path and the view back. The `:text` suffix
+ * comes off only when what is left is a media path, which is exactly when
+ * `fileTabId` puts it on. Known limit (D7): a non-media file literally named
+ * `<name>.svg:text` reads as the text view of `<name>.svg`.
+ */
+export function fileIdParts(id: string): { path: string; asText: boolean } {
+  const path = id.startsWith('f:') ? id.slice(2) : id;
+  if (path.endsWith(TEXT_VIEW)) {
+    const base = path.slice(0, -TEXT_VIEW.length);
+    if (mediaKind(base) !== null) return { path: base, asText: true };
+  }
+  return { path, asText: false };
+}
+
+/**
+ * The path back out of a file id (part B4). The name itself is still
+ * `fileName`'s job, because a path never reaches a label.
  */
 export function filePathOf(id: string): string {
-  return id.startsWith('f:') ? id.slice(2) : id;
+  return fileIdParts(id).path;
 }
 
 /**
@@ -53,7 +101,7 @@ export function filePathOf(id: string): string {
  * none of them re-derives it from the parts.
  */
 export function tabIdOf(t: EditorTab): string {
-  return t.kind === 'file' ? fileTabId(t.path) : diffTabId(t.hash, t.path);
+  return t.kind === 'file' ? fileTabId(t.path, t.asText === true) : diffTabId(t.hash, t.path);
 }
 
 /**

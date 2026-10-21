@@ -36,8 +36,10 @@ export const SLOW_POLL_MS = 1_000;
 /**
  * The polled routes, as `METHOD pathname`: the page's session list (3 s) and
  * update notice (30 s), the mascot page's sessions + prefs (2 s), the update
- * progress readout (1 Hz during an install), and the browser's own log
- * shipping, which fires with every client batch.
+ * progress readout (1 Hz during an install), the browser's own log
+ * shipping, which fires with every client batch, and the media viewer's
+ * ticket (Nocturne D7), re-asked every 5 s per visible media tab as its
+ * change probe.
  */
 const POLL_ROUTES: ReadonlySet<string> = new Set([
   'GET /api/sessions',
@@ -45,6 +47,7 @@ const POLL_ROUTES: ReadonlySet<string> = new Set([
   'GET /api/prefs',
   'GET /api/update/status',
   'POST /api/client-log',
+  'POST /api/fs/media-ticket',
 ]);
 
 /**

@@ -1,7 +1,7 @@
 /**
  * The UI's pure formatters: argv tags (`modelFromArgs`, `permFromArgs`),
- * times (`fmtUptime`, `relativeTime`, `MONTHS`) and badge counts
- * (`fmtCount`). No DOM, no app state, no I/O — so a `*-model.ts` may import
+ * times (`fmtUptime`, `relativeTime`, `MONTHS`), badge counts
+ * (`fmtCount`) and file sizes (`fmtBytes`, Nocturne D7). No DOM, no app state, no I/O — so a `*-model.ts` may import
  * them and `node --test` calls them directly.
  *
  * Split from `ui/util.ts` in the Q1–Q4 fix round
@@ -129,4 +129,28 @@ export function relativeTime(iso: string, now: number): string {
  */
 export function fmtCount(n: number): string {
   return n > 9 ? '9+' : String(n);
+}
+
+/** The steps of `fmtBytes`, 1024 apart — the units Windows Explorer prints. */
+const BYTE_UNITS = ['KB', 'MB', 'GB', 'TB'] as const;
+
+/**
+ * A file size for a reader (Nocturne D7, the media viewer's bottom bar):
+ * `812 B`, `284 KB`, `4.2 MB`, `48 MB`. One decimal only below 10 of a unit,
+ * where it still says something; never a decimal on bytes. A negative or
+ * non-finite size is `0 B` — the bar must never print `NaN`.
+ */
+export function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 1024) return `${Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0} B`;
+  let v = n / 1024;
+  let i = 0;
+  // `>= 1023.5`, not `>= 1024`: a size that would ROUND to 1024 of one unit
+  // is one of the next (`1 MB`, never `1024 KB`).
+  while (v >= 1023.5 && i < BYTE_UNITS.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  // Rounded FIRST: 9.96 KB would otherwise print as `10.0 KB`.
+  const shown = v < 10 ? Math.round(v * 10) / 10 : Math.round(v);
+  return `${shown < 10 ? shown.toFixed(1).replace(/\.0$/, '') : String(shown)} ${BYTE_UNITS[i] as string}`;
 }

@@ -41,6 +41,9 @@
  *      the final NAME with `isSafeSegment` + the 255-BYTE limit, then opens
  *      `O_CREAT|O_EXCL|O_NOFOLLOW`: a link planted at that name is never
  *      followed, it answers EEXIST / ELOOP instead.
+ * Steps 1–3 of the READ live in resolveReadable() and openReadOnly(), which the
+ * media viewer (server/fsmedia.ts, Nocturne D7) calls too: one boundary for
+ * every route that reads a file's bytes.
  * TOCTOU between the realpath and the open is the accepted, documented position
  * of server/fsbrowse.ts — the same window, for the same reasons (a process able
  * to plant a symlink in the user's home at that instant already runs as that
@@ -393,6 +396,51 @@ function requireRegular(fd: number): number {
   return st.size;
 }
 
+/**
+ * Steps 1 and 2 of the boundary for a READ: `raw` through resolveUnderAllowed()
+ * with the read sentences, then the data-dir category rule. Returns the
+ * realpath every later step works on. Shared by GET /api/fs/read and the media
+ * viewer (server/fsmedia.ts, Nocturne D7), which differ only in the data-dir
+ * sentence (`dataDirRefused`).
+ */
+export function resolveReadable(raw: string, projects: string[], dataDirRefused: string): string {
+  const real = resolveUnderAllowed(raw, {
+    projects,
+    gone: FS_TEXT_GONE,
+    denied: FS_TEXT_NO_READ_PERMISSION,
+  });
+  if (isUnderDataDir(real)) throw new FsBrowseError(403, dataDirRefused);
+  return real;
+}
+
+/**
+ * Step 3's open for a READ: `O_RDONLY | O_NOFOLLOW | O_NONBLOCK` on a realpath,
+ * an errno mapped through textErrorFor(). The caller fstat's the fd before its
+ * first read and closes it.
+ *
+ * O_NOFOLLOW: `real` is a realpath, so a symlink standing here is a race or a
+ * planted name, never the link the user asked to open (that one was followed by
+ * realpath, and its TARGET is what `real` names). O_NONBLOCK: a FIFO would
+ * otherwise block the whole server in this open.
+ */
+export function openReadOnly(real: string): number {
+  try {
+    return openSync(real, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  } catch (err) {
+    throw textErrorFor((err as NodeJS.ErrnoException).code, true);
+  }
+}
+
+/** Close an fd a route opened, swallowing a second close or a broken fd. */
+export function closeQuietly(fd: number | undefined): void {
+  if (fd === undefined) return;
+  try {
+    closeSync(fd);
+  } catch {
+    // Already closed, or a broken fd: nothing left to do with it.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/fs/read
 // ---------------------------------------------------------------------------
@@ -448,25 +496,7 @@ export function handleRead(req: IncomingMessage, res: ServerResponse, url: URL, 
 
   let fd: number | undefined;
   try {
-    const real = resolveUnderAllowed(rawPath, {
-      projects: deps.projects(),
-      gone: FS_TEXT_GONE,
-      denied: FS_TEXT_NO_READ_PERMISSION,
-    });
-    if (isUnderDataDir(real)) throw new FsBrowseError(403, FS_TEXT_DATA_DIR_REFUSED);
-
-    // O_NOFOLLOW: `real` is a realpath, so a symlink standing here is a race or
-    // a planted name, never the link the user asked to edit (that one was
-    // followed by realpath, and its TARGET is what `real` names).
-    // O_NONBLOCK: a FIFO would otherwise block the whole server in this open.
-    try {
-      fd = openSync(
-        real,
-        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
-      );
-    } catch (err) {
-      throw textErrorFor((err as NodeJS.ErrnoException).code, true);
-    }
+    fd = openReadOnly(resolveReadable(rawPath, deps.projects(), FS_TEXT_DATA_DIR_REFUSED));
     // The fd is judged BEFORE the first read: a directory (400), a FIFO or a
     // device (415), and the cap BEFORE a byte is read.
     const size = requireRegular(fd);
@@ -504,13 +534,7 @@ export function handleRead(req: IncomingMessage, res: ServerResponse, url: URL, 
     }
     refuse(mapped.status, mapped.message);
   } finally {
-    if (fd !== undefined) {
-      try {
-        closeSync(fd);
-      } catch {
-        // Already closed, or a broken fd: nothing left to do with it.
-      }
-    }
+    closeQuietly(fd);
   }
 }
 
@@ -748,12 +772,6 @@ export async function handleWrite(
     }
     refuse(mapped.status, mapped.message);
   } finally {
-    if (fd !== undefined) {
-      try {
-        closeSync(fd);
-      } catch {
-        // Already closed, or a broken fd: nothing left to do with it.
-      }
-    }
+    closeQuietly(fd);
   }
 }

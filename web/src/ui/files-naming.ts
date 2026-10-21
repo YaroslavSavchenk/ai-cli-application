@@ -11,6 +11,7 @@
  * `files-naming.ts`, `files-render.ts`.
  */
 import * as st from '../state.ts';
+import { filePathOf, tabKind } from './editor-model.ts';
 import { el } from './util.ts';
 import { openFileGuarded } from './unsaved.ts';
 import { afterRowActivate, keyIsDir, keyPath, rowKey } from './files-select-model.ts';
@@ -611,8 +612,8 @@ export function createNaming(ctx: FilesCtx): NamingPart {
     // it) would be overwritten by the text that follows the rename. Refused
     // here, before anything moves on disk.
     const editPaths = [...st.state.edits.keys()]
-      .filter((k) => k.startsWith('f:'))
-      .map((k) => k.slice(2));
+      .filter((k) => tabKind(k) === 'file')
+      .map((k) => filePathOf(k));
     if (hasUnsavedAt(editPaths, renamedPath(path, name))) {
       failRename(RENAME_UNSAVED_TAKEN);
       return;

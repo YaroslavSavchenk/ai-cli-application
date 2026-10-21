@@ -63,6 +63,7 @@ import {
   TOO_LARGE_TEXT,
 } from '../helpers/editor-fixture.ts';
 import {
+  EM,
   dom,
   type Body,
   st,
@@ -97,7 +98,7 @@ test('non-vacuity: the fake disk really holds those two files, and the commit re
 });
 
 test('a file body says `Loading…` and then IS the file: one read, the text, the numbers, Save', async () => {
-  const body = FP.filePaneBody(PATH, () => {});
+  const body = FP.filePaneBody(PATH, EM.fileTabId(PATH), () => {});
   live.push(body);
   dom.body.append(body.root);
   // Before the answer: one quiet line, in the slot the sentence would take.
@@ -172,7 +173,7 @@ test('a dirty file whose read fails still shows its unsaved text and offers Over
   // the chip dot is on and the close guard asks about it — so a sentence with
   // no field would leave the user told about text they cannot see or write.
   const gone = '/home/you/deleted-under-the-tab.ts';
-  const id = st.editorFileId(gone);
+  const id = EM.fileTabId(gone);
   st.setEdit(id, 'work nobody has on disk\n');
   const root = await mount(gone);
 
@@ -205,7 +206,7 @@ test('the FIRST keystroke flips the pane to unsaved — and only the first', asy
   const root = await mount(PATH);
   const ta = field(root) as FakeElement;
   type(ta, `${ORIGINAL}a`);
-  assert.equal(st.editorDirty(st.editorFileId(PATH)), true, 'the file is unsaved now');
+  assert.equal(st.editorDirty(EM.fileTabId(PATH)), true, 'the file is unsaved now');
   assert.equal(flips, 1, 'the header dot and the tab chip are redrawn once');
   const save = saveBtn(root);
   assert.equal(save.textContent, 'Save');
@@ -253,7 +254,7 @@ test('Save writes the text to the backend with the stamp it read, says so while 
     { path: PATH, text: 'const answer = 42;\n', eol: 'lf', bom: false, expect: stamp },
   ]);
   assert.equal(ed.fileText(PATH), 'const answer = 42;\n', 'the text reached the disk');
-  assert.equal(st.editorDirty(st.editorFileId(PATH)), false, 'and the file is clean again');
+  assert.equal(st.editorDirty(EM.fileTabId(PATH)), false, 'and the file is clean again');
   assert.equal(save.textContent, 'Saved');
   assert.equal(save.disabled, true);
   assert.equal(save.classList.contains('is-dirty'), false);
@@ -317,7 +318,7 @@ test('ctrl+s in the field saves it; every other chord in there is left alone', a
   assert.equal(e.defaultPrevented, true, "the browser's own save-page dialog must not open");
   await settle();
   assert.equal(ed.fileText(PATH), 'saved by keyboard\n');
-  assert.equal(st.editorDirty(st.editorFileId(PATH)), false);
+  assert.equal(st.editorDirty(EM.fileTabId(PATH)), false);
 });
 
 test('409: the conflict bar offers the two answers and the text STAYS unsaved', async () => {
@@ -333,7 +334,7 @@ test('409: the conflict bar offers the two answers and the text STAYS unsaved', 
     byClass(root, 'pane-fact').map((b) => b.textContent),
     ['Overwrite', 'Load from disk'],
   );
-  assert.equal(st.editText(st.editorFileId(PATH)), 'my version\n', 'nothing was dropped');
+  assert.equal(st.editText(EM.fileTabId(PATH)), 'my version\n', 'nothing was dropped');
   assert.equal(ed.fileText(PATH), 'their version\n', 'and nothing was written');
   const save = saveBtn(root);
   assert.equal(save.textContent, 'Save', 'Save is pressable again');
@@ -353,7 +354,7 @@ test('Overwrite writes again with NO expect — my text wins — and the bar goe
   assert.equal(ed.writes.length, 2);
   assert.equal('expect' in (ed.writes[1] as object), false, 'an Overwrite checks nothing');
   assert.equal(ed.fileText(PATH), 'my version\n');
-  assert.equal(st.editorDirty(st.editorFileId(PATH)), false);
+  assert.equal(st.editorDirty(EM.fileTabId(PATH)), false);
   assert.deepEqual(textsOf(root, 'pane-fmsg'), [], 'the conflict is over');
   assert.deepEqual(byClass(root, 'pane-fact'), []);
 });
@@ -371,7 +372,7 @@ test('Load from disk drops the unsaved entry, takes the bytes on disk, and clamp
   act(root, 'Load from disk').click();
   await settle();
   assert.equal(ta.value, 'short\n', 'the file on disk is what is on screen');
-  assert.equal(st.editorDirty(st.editorFileId(PATH)), false, 'the unsaved entry is gone');
+  assert.equal(st.editorDirty(EM.fileTabId(PATH)), false, 'the unsaved entry is gone');
   assert.equal(ta.selectionStart, 'short\n'.length, 'the caret cannot stand past the end');
   assert.equal(
     (byClass(root, 'pane-gutter')[0] as FakeElement).textContent,
@@ -391,7 +392,7 @@ test('a refusal with nothing to choose between is stated in the bar, and Save st
   assert.deepEqual(textsOf(root, 'pane-fmsg'), [NO_WRITE_TEXT]);
   assert.deepEqual(byClass(root, 'pane-fact'), [], 'there is no choice to offer');
   assert.equal(saveBtn(root).disabled, false);
-  assert.equal(st.editText(st.editorFileId(PATH)), 'cannot land\n', 'still unsaved');
+  assert.equal(st.editText(EM.fileTabId(PATH)), 'cannot land\n', 'still unsaved');
 });
 
 test('typing while the write is out keeps the tab UNSAVED — the landing forgets only the text it wrote', async () => {
@@ -402,7 +403,7 @@ test('typing while the write is out keeps the tab UNSAVED — the landing forget
   // them from disk.
   const root = await mount(PATH);
   const ta = field(root) as FakeElement;
-  const id = st.editorFileId(PATH);
+  const id = EM.fileTabId(PATH);
   type(ta, 'first version\n');
   ed.holdWrite();
   saveBtn(root).click();

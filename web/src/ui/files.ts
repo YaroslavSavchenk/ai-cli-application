@@ -55,6 +55,7 @@
  * they share one context object (`files-ctx.ts`).
  */
 import * as st from '../state.ts';
+import { filePathOf, tabKind } from './editor-model.ts';
 import { el, button } from './util.ts';
 import { flashOpenResult } from './dnd.ts';
 import { openFileGuarded, openTabAtGuarded } from './unsaved.ts';
@@ -661,12 +662,14 @@ export function initFilesPanel(
    * A10b: it walks the TABS of every pane. A file is not a pane any more — it
    * is one chip in an editor pane's strip — and `slotKey` answers that pane's
    * own `e:<n>`, which no path can ever equal. (That is exactly what this line
-   * asked before, and it had gone silently dead: `editorFileId` is the TAB id,
-   * never a slot key.)
+   * asked before, and it had gone silently dead: a file's id is a TAB id,
+   * never a slot key.) A file has two tab ids since D7 — `f:<path>` and its
+   * text view `f:<path>:text` — so the match is on `filePathOf`, not one id.
    */
   function pathIsOpen(path: string): boolean {
-    const id = st.editorFileId(path);
-    return st.state.views.some((v) => v.slots.some((slot) => st.slotTabIds(slot).includes(id)));
+    // Either view of a media file counts (D7): its picture, or its text.
+    const shows = (id: string): boolean => tabKind(id) === 'file' && filePathOf(id) === path;
+    return st.state.views.some((v) => v.slots.some((slot) => st.slotTabIds(slot).some(shows)));
   }
 
   /**

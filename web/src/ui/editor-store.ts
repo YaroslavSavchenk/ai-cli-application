@@ -28,15 +28,25 @@
  * And the tick itself does nothing at all while the document is hidden: a
  * background window is not a screen anybody is reading.
  *
+ * MEDIA BODIES RIDE THE SAME CLOCK (Nocturne D7, `ui/media-pane.ts`): a
+ * picture, video or PDF tab registers the same `FileFollower` — never dirty,
+ * its stamp the `size:mtimeMs:ino` of its last ticket — and its `follow()`
+ * asks for a fresh ticket. Still ONE interval for the whole app.
+ *
  * THE TIMER IS THE WINDOW'S. `window.setInterval` rather than the bare global,
  * so `tests/helpers/fake-dom.ts` RECORDS it instead of running it — a test drives the
  * follow by calling `dom.win.intervals[0].fn()`, and no test depends on a
  * clock.
  */
-import type { FsReadResponse, FsWriteRequest, FsWriteResponse } from '../../../shared/protocol.ts';
+import type {
+  FsMediaTicketResponse,
+  FsReadResponse,
+  FsWriteRequest,
+  FsWriteResponse,
+} from '../../../shared/protocol.ts';
 import { promiseOf } from './util.ts';
 
-/** The two questions the editor asks, injected by `main.ts` (never imported). */
+/** The three questions the editor asks, injected by `main.ts` (never imported). */
 export interface EditorGateway {
   /**
    * One text file. `ifStamp` = the stamp already held: the answer is
@@ -46,6 +56,12 @@ export interface EditorGateway {
   read(path: string, ifStamp?: string): Promise<FsReadResponse>;
   /** Write one text file back, with the stamp it was edited from. */
   write(body: FsWriteRequest): Promise<FsWriteResponse>;
+  /**
+   * A media ticket (D7): what an `<img>`/`<video>`/`<iframe>` `src` carries
+   * instead of the auth header, and the file's `size`/`mtimeMs`/`ino` now —
+   * the follow's change probe.
+   */
+  mediaTicket(path: string): Promise<FsMediaTicketResponse>;
 }
 
 /** How often a clean file on screen asks whether it changed (D3). */
@@ -100,8 +116,15 @@ export function editorWrite(body: FsWriteRequest): Promise<FsWriteResponse> {
   return promiseOf(() => gw.write(body));
 }
 
+/** Ask for a media ticket through the gateway, with the same guard. */
+export function editorMediaTicket(path: string): Promise<FsMediaTicketResponse> {
+  const gw = gateway;
+  if (gw === null) return Promise.reject(new Error('no gateway'));
+  return promiseOf(() => gw.mediaTicket(path));
+}
+
 /**
- * Put one body under the follow. Called by `filePaneBody` on build; the pane
+ * Put one body under the follow. Called by `filePaneBody` and `mediaPaneBody` on build; the pane
  * drops it again through `dispose()` (`ui/editor-pane.ts` parks bodies and
  * gives them up with the pane), so a body that outlived its pane can never
  * keep asking about a file nobody has open.
