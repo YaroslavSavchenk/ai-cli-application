@@ -7,6 +7,10 @@
  * for a source pin that must hold over every part: a copy in another part must
  * not slip by. `tests/release/host-instance.test.ts` and the log rule of
  * `tests/release/host-webmessage.test.ts` read it that way.
+ *
+ * `csharpCode` / `csharpMember` are the comment-blind readers the overlay pins
+ * share (`tests/release/host-overlay-stray.test.ts`,
+ * `tests/release/host-overlay-app-active.test.ts`).
  */
 export const HOST_SOURCES = [
   'launcher/host/AiSessionManagerHost.cs',
@@ -14,3 +18,20 @@ export const HOST_SOURCES = [
   'launcher/host/AiSessionManagerHost-overlay.cs',
   'launcher/host/AiSessionManagerHost-overlay-window.cs',
 ] as const;
+
+/** C# source with comments out and whitespace collapsed: the code's shape, so a comment can never satisfy a pin. */
+export function csharpCode(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The code (`csharpCode`) of the member that starts at `signature` in `cs`, up to the next `private` member. */
+export function csharpMember(cs: string, signature: string, file: string): string {
+  const start = cs.indexOf(signature);
+  if (start === -1) throw new Error(`${signature} not found in ${file}`);
+  const next = cs.indexOf('\n        private ', start + signature.length);
+  return csharpCode(cs.slice(start, next === -1 ? cs.length : next));
+}

@@ -109,6 +109,7 @@ Part specs, `nocturne/`:
 - `PLAN-D1.md` — project preferences that work and can be edited, the full Claude model pool (newest first, Older models below)
 - `PLAN-D6.md` — the Claude Code compatibility guard: the version in Settings, a notice outside the tested range, a launch that dies at once flagged
 - `PLAN-D7.md` — the media viewer: images, video and PDF as a viewer tab in the editor pane, SVG with Edit as text, an image that follows the file on disk
+- `PLAN-D8.md` — the mascot steps back (slides behind the screen edge) while the app is the active window, peeks out again when you leave
 
 Part specs, `quality/`:
 

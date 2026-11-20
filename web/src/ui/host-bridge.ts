@@ -18,9 +18,13 @@
  *     page → host:  copy-files\n<windows path>\n<windows path>…
  *     host → page:  copy-files ok <n>   |   copy-files failed
  *     host → page:  {"type":"focus-session","session":"<uuid>"}   (C1)
+ *     host → mascot page:  {"type":"app-active","active":true|false}   (D8)
  *
- * The one JSON message is the host forwarding a click on a peek mascot
- * (Nocturne C1): it is a string too, parsed strictly below.
+ * The JSON messages are the host forwarding a click on a peek mascot
+ * (Nocturne C1) and, to the separate mascot page (`web/src/mascot/main.ts`),
+ * whether the app window is the active one (Nocturne D8,
+ * `.claude/plans/nocturne/PLAN-D8.md`): strings too, each parsed strictly
+ * below — this module is their one home.
  *
  * The paths are WINDOWS paths the BACKEND produced (`GET /api/fs/winpath`,
  * behind the same boundary every other filesystem route sits behind), so this
@@ -151,11 +155,53 @@ export function parseFocusSession(data: unknown): string | null {
  * listened to. Answers the unsubscribe.
  */
 export function onFocusSession(fn: (sessionId: string) => void, w?: HostWindow): () => void {
+  return onHostMessage(parseFocusSession, fn, w);
+}
+
+// ---------------------------------------------------------------------------
+// host → mascot page: app-active (Nocturne D8, .claude/plans/nocturne/PLAN-D8.md
+// § Frozen contract)
+// ---------------------------------------------------------------------------
+
+/** Longer than either valid message by far; anything past it is not parsed at all. */
+const ACTIVE_MAX_CHARS = 100;
+
+/**
+ * Read a host message as `{"type":"app-active","active":<boolean>}` — the
+ * host saying whether the app window is now the foreground window. A string
+ * whose JSON is a plain object with `type === "app-active"` and a boolean
+ * `active`; anything else is `null` and ignored, never an error.
+ */
+export function parseAppActive(data: unknown): boolean | null {
+  if (typeof data !== 'string' || data.length > ACTIVE_MAX_CHARS) return null;
+  let msg: unknown;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) return null;
+  const { type, active } = msg as { type: unknown; active: unknown };
+  if (type !== 'app-active' || typeof active !== 'boolean') return null;
+  return active;
+}
+
+/**
+ * Call `fn` with every valid `app-active` the host posts. No host (a plain
+ * browser, `node --test`) → nothing is listened to, so the page never hears
+ * "active" and keeps its mascots out. Answers the unsubscribe.
+ */
+export function onAppActive(fn: (active: boolean) => void, w?: HostWindow): () => void {
+  return onHostMessage(parseAppActive, fn, w);
+}
+
+/** Listen for host messages that `parse` accepts (non-null) and hand each to `fn`. */
+function onHostMessage<T>(parse: (data: unknown) => T | null, fn: (value: T) => void, w?: HostWindow): () => void {
   const channel = hostWindow(w)?.chrome?.webview;
   if (channel == null) return () => {};
   const onMessage = (e: { data?: unknown }): void => {
-    const id = parseFocusSession(e.data);
-    if (id !== null) fn(id);
+    const value = parse(e.data);
+    if (value !== null) fn(value);
   };
   channel.addEventListener('message', onMessage);
   return () => channel.removeEventListener('message', onMessage);

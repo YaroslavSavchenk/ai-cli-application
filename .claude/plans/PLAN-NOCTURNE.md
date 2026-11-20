@@ -42,6 +42,7 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | verified | — | 2026-10-13 |
 | D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | verified | `.claude/plans/nocturne/PLAN-D6.md` | 2026-10-13 |
 | D7 | Media viewer: images, video and PDF open as a viewer tab in the editor pane; SVG with Edit as text; an image refreshes itself | verified | `.claude/plans/nocturne/PLAN-D7.md` | 2026-10-21 |
+| D8 | The mascot steps back (slides behind the screen edge) while the app is the active window, peeks out again when you leave | landed | `.claude/plans/nocturne/PLAN-D8.md` | 2026-11-20 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
@@ -277,6 +278,7 @@ Fixed rules for every part:
 21. ~~D7 — where a media file opens~~ DECIDED 2026-10-21 (user, the orchestrator's advice): as a file tab in the editor pane; rejected: an overlay / lightbox, both.
 22. ~~D7 — SVG~~ DECIDED 2026-10-21 (user, the orchestrator's advice): opens as a picture with an Edit as text action; rejected: text by default with a Preview action.
 23. ~~D7 — live reload~~ DECIDED 2026-10-21 (user, the orchestrator's advice): an image refreshes by itself when the file changes on disk; rejected: a manual Reload only.
+24. ~~D8 — when the mascot hides, and how~~ DECIDED 2026-11-20 (user, the orchestrator's advice both times): while the app window is the ACTIVE window (rejected: whenever it is visible / not minimised); it slides back behind the screen edge (~250 ms, short fade), the peek in reverse (rejected: a fade on the spot; a wave first). Replaces decision 14's "shown even with the app in front" for visibility only.
 
 ## Suggested order
 A1 → A2 → A3 → A4 → A4b → A5 → A6 → A7 → A8, then A11 → A10 → A9 → A10b → A9b (user's 2026-09-15/16 priorities) → B2 + A9c (pulled forward 2026-09-16, user's ask) → B1 → B5 → B10 → B10a (user's ask 2026-09-20) → B3 → B4 → B6 → B9 → B7 → B8 → C1 (last, phase 1 already landed 2026-09-15).

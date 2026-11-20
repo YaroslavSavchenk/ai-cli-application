@@ -39,6 +39,7 @@ import {
   setRect,
   type Dom,
 } from '../helpers/fake-dom.ts';
+import { withAnimations } from '../helpers/mascot-page.ts';
 
 const dom: Dom = installDom();
 
@@ -542,7 +543,9 @@ test('every keyframe block is the handoff\'s, character for character', (t) => {
     return;
   }
   const wanted = readFileSync(README_PATH, 'utf8').split('\n').filter((l) => l.startsWith('@keyframes'));
-  const shipped = CSS.split('\n').filter((l) => l.startsWith('@keyframes'));
+  // `pmRetreat` is Nocturne D8's step back, not the handoff's (pinned in
+  // tests/ui/ui-mascot-presence.test.ts).
+  const shipped = CSS.split('\n').filter((l) => l.startsWith('@keyframes') && !l.startsWith('@keyframes pmRetreat'));
   assert.equal(wanted.length, 10, 'the handoff lists ten');
   for (const line of wanted) {
     const name = line.slice('@keyframes '.length).split(' ')[0];
@@ -609,19 +612,8 @@ function mountSettling(): { model: Model; view: View; root: FakeElement; settled
 }
 
 /** Give every position layer a `getAnimations()` for the length of `fn`. */
-async function withAnimations(
-  list: () => { finished: Promise<unknown> }[],
-  fn: () => Promise<void>,
-): Promise<void> {
-  const proto = FakeElement.prototype as unknown as Record<string, unknown>;
-  proto.getAnimations = function (this: FakeElement) {
-    return String(this.className).includes('pm-pos') ? list() : [];
-  };
-  try {
-    await fn();
-  } finally {
-    delete proto.getAnimations;
-  }
+function withPosAnimations(list: () => { finished: Promise<unknown> }[], fn: () => Promise<void>): Promise<void> {
+  return withAnimations((el) => String(el.className).includes('pm-pos'), list, fn);
 }
 
 test('rects(): each settled mascot is its reaction box + 16 px, rounded OUTWARD, clipped to the page, slot order', () => {
@@ -643,7 +635,7 @@ test('rects(): each settled mascot is its reaction box + 16 px, rounded OUTWARD,
 test('rects(): while an entrance runs a mascot claims the whole stage, then settles and says so', async () => {
   let done!: () => void;
   const finished = new Promise<void>((res) => (done = res));
-  await withAnimations(
+  await withPosAnimations(
     () => [{ finished }],
     async () => {
       const { model, view, root, settled } = mountSettling();
@@ -662,7 +654,7 @@ test('rects(): while an entrance runs a mascot claims the whole stage, then sett
 });
 
 test('rects(): with no running animation (reduced motion) a mascot is settled the moment it is drawn', async () => {
-  await withAnimations(
+  await withPosAnimations(
     () => [],
     async () => {
       const { model, view, root, settled } = mountSettling();
@@ -680,7 +672,7 @@ test('rects(): a position MOVE alone (the .7s bottom transition) is watched too,
   let done!: () => void;
   const finished = new Promise<void>((res) => (done = res));
   let running: { finished: Promise<unknown> }[] = [];
-  await withAnimations(
+  await withPosAnimations(
     () => running,
     async () => {
       const { model, view, root, settled } = mountSettling();

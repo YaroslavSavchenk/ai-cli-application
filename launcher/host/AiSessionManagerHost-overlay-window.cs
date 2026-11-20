@@ -7,8 +7,9 @@
 //
 // Holds the second half of the "Peek-mascot overlay (Nocturne C1)" region
 // (its design note opens -overlay.cs): display events, the overlay's
-// web messages, the foreground hook, region / placement / DPI, open and
-// dispose; then MascotOverlayForm and the DirectComposition interfaces.
+// web messages, the foreground hook (which also feeds D8's app-active
+// state, kept in -overlay.cs), region / placement / DPI, open and dispose;
+// then MascotOverlayForm and the DirectComposition interfaces.
 
 using System;
 using System.Drawing;
@@ -332,7 +333,16 @@ namespace AiSessionManager
             // Nothing may unwind into user32's callback.
             try
             {
-                if (_overlay == null || _overlayRects == null)
+                if (_overlay == null)
+                {
+                    return;
+                }
+                // D8 (decision 24) first, whether a mascot shows or not: the
+                // page must know the app went to the front even while nothing
+                // is out, or a session that turns pending then would peek over
+                // the app. Posts only on a change (PostAppActive).
+                TellOverlayAppActive();
+                if (_overlayRects == null)
                 {
                     return;
                 }

@@ -8,7 +8,8 @@
  *
  * The keyframes below are VERBATIM from
  * `design/peek-mascot/README.md` §Keyframes — high fidelity,
- * final. Do not retime, re-ease or "improve" them.
+ * final. Do not retime, re-ease or "improve" them. The one keyframe that is
+ * not the handoff's, `pmRetreat` (Nocturne D8), lives in its own section.
  */
 
 /* ---- stage --------------------------------------------------------------- */
@@ -91,6 +92,28 @@
 @keyframes wave { 0% { transform: rotate(0); } 15% { transform: rotate(-50deg); } 30% { transform: rotate(-20deg); } 45% { transform: rotate(-55deg); } 60% { transform: rotate(-20deg); } 75% { transform: rotate(-50deg); } 100% { transform: rotate(0); } }
 @keyframes waveBody { 0%,100% { transform: rotate(0); } 30% { transform: rotate(3deg) translateX(-2px); } 70% { transform: rotate(3deg) translateX(-2px); } }
 
+/* ---- stepping back (Nocturne D8, .claude/plans/nocturne/PLAN-D8.md) ------- */
+
+/*
+ * The app became the active window: the whole stage slides back behind the
+ * right edge it peeks from — the peek in reverse. 250 ms ease-in, the fade
+ * only in the last 100 ms (60% of 250), so the slide reads as a slide and not
+ * a dissolve. `translate(100%)` is the stage's own 220 px: every slot's body
+ * starts at least 120 px in from the edge, so all of it ends past it (the page
+ * clips at its edge, mascot.html). `forwards` keeps the stage there until the
+ * view empties it; the return is each mascot's own entrance, unchanged.
+ * Translate keeps the stage's `-50%` centring, which the slide overrides.
+ */
+@keyframes pmRetreat {
+  from { transform: translate(0, -50%); opacity: 1; }
+  60% { opacity: 1; }
+  to { transform: translate(100%, -50%); opacity: 0; }
+}
+
+.pm-stage.pm-away {
+  animation: pmRetreat 0.25s ease-in forwards;
+}
+
 /* ---- reduced motion (Nocturne C1, decision 16) ---------------------------- */
 
 /*
@@ -104,9 +127,12 @@
  * `!important` is load-bearing: the view writes every animation as an INLINE
  * style (view.ts), and only an important author rule outranks one. The
  * universal selector reaches the eyes' blink and the waving arm, which are
- * inline on SVG groups deep inside the reaction layer.
+ * inline on SVG groups deep inside the reaction layer. The stage is in the
+ * list for D8's step back: no slide, the mascots are simply gone, and they
+ * come back without their entrance.
  */
 @media (prefers-reduced-motion: reduce) {
+  .pm-stage,
   .pm-pos,
   .pm-pos * {
     animation: none !important;
@@ -145,6 +171,11 @@
 
 .pm-demo button:hover {
   border-color: #d97757;
+}
+
+.pm-demo button[aria-pressed='true'] {
+  border-color: #d97757;
+  color: #d97757;
 }
 
 .pm-demo button:focus-visible {

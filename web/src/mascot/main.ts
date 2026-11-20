@@ -14,10 +14,17 @@
  * host (`window.chrome.webview` absent) nothing is posted; the page still
  * polls and draws.
  *
+ * While the app window is the ACTIVE window the mascots step back behind the
+ * edge (Nocturne D8, `.claude/plans/nocturne/PLAN-D8.md`): the host says so
+ * with `{"type":"app-active","active":true|false}` (parsed in
+ * ../ui/host-bridge.ts), ./presence.ts runs the steps. Until it hears, the
+ * page assumes not active.
+ *
  * `?demo` is the other mode: no polling, no host messages, a small dev-only
- * control strip and the app's own background, so the art can be exercised by
- * hand in a normal browser window (`&count=N` sets the starting count). The
- * host never adds a query string.
+ * control strip (with an "App active" toggle on the same D8 path) and the
+ * app's own background, so the art can be exercised by hand in a normal
+ * browser window (`&count=N` sets the starting count). The host never adds a
+ * query string.
  *
  * Either way the rest of the world can drive or read the count:
  *
@@ -26,8 +33,10 @@
  *   window.aiSmMascot.destroy()
  */
 import './mascot.css';
+import { onAppActive } from '../ui/host-bridge.ts';
 import { HostReporter, MascotFeed, type HttpFailure } from './feed.ts';
 import { MascotModel, REACTIONS } from './model.ts';
+import { MascotPresence } from './presence.ts';
 import { MascotView } from './view.ts';
 
 /** The one interface the rest of the world has to this page. */
@@ -119,9 +128,8 @@ function mount(root: HTMLElement): MascotController {
 
   const model = new MascotModel({
     onChange: (state) => {
-      view.render(state);
+      presence.changed(state);
       onCount?.(state.count);
-      report();
     },
   });
 
@@ -145,10 +153,12 @@ function mount(root: HTMLElement): MascotController {
     onSettle: report,
   });
 
+  const presence = new MascotPresence({ model, view, report });
   view.render(model.snapshot());
+  let offActive = (): void => {};
 
   if (demo) {
-    onCount = demoStrip(root, model);
+    onCount = demoStrip(root, model, presence);
     document.body.style.background = DEMO_BG;
     const start = Number(params.get('count') ?? '0');
     model.setCount(start);
@@ -166,6 +176,7 @@ function mount(root: HTMLElement): MascotController {
     // the host's region off the mascot until the next settle: say it again on
     // every resize (the reporter drops a message that did not change).
     window.addEventListener('resize', report);
+    offActive = onAppActive((active) => presence.setActive(active));
     // The host shows an empty region until it hears a count; say 0 at once.
     report();
     feed.start();
@@ -176,6 +187,7 @@ function mount(root: HTMLElement): MascotController {
     getCount: () => model.getCount(),
     destroy: () => {
       window.removeEventListener('resize', report);
+      offActive();
       feed?.stop();
       for (const t of openTimers) clearTimeout(t);
       openTimers.clear();
@@ -186,11 +198,12 @@ function mount(root: HTMLElement): MascotController {
 }
 
 /**
- * The dev-only strip: what the count is, and the two ways to change it.
- * Buttons, so the keyboard reaches them; no other affordance on the page is
- * interactive. Never rendered without `?demo`.
+ * The dev-only strip: what the count is, the two ways to change it, and the
+ * "App active" toggle that stands in for the host's `app-active` (D8) on the
+ * same path. Buttons, so the keyboard reaches them; no other affordance on
+ * the page is interactive. Never rendered without `?demo`.
  */
-function demoStrip(root: HTMLElement, model: MascotModel): (count: number) => void {
+function demoStrip(root: HTMLElement, model: MascotModel, presence: MascotPresence): (count: number) => void {
   const strip = document.createElement('div');
   strip.className = 'pm-demo';
 
@@ -208,6 +221,17 @@ function demoStrip(root: HTMLElement, model: MascotModel): (count: number) => vo
   fewer.textContent = '− resolved';
   fewer.addEventListener('click', () => model.setCount(model.getCount() - 1));
   strip.appendChild(fewer);
+
+  const active = document.createElement('button');
+  active.type = 'button';
+  active.textContent = 'App active';
+  active.setAttribute('aria-pressed', 'false');
+  active.addEventListener('click', () => {
+    const on = active.getAttribute('aria-pressed') !== 'true';
+    active.setAttribute('aria-pressed', String(on));
+    presence.setActive(on);
+  });
+  strip.appendChild(active);
 
   root.appendChild(strip);
 

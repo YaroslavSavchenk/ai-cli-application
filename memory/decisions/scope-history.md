@@ -296,6 +296,16 @@ per-part detail. The scope doc holds the current rule; this note is history, not
   `focus-session` to the main page. `prefs.mascot = { enabled }` (Settings →
   Preferences, `Peek mascot`, default ON) is the one prefs key the server
   validates. Under the OS reduced-motion setting the art stands still.
+- **D8 (user's ask 2026-11-20, decision 24):** while the app window (or a
+  window it root-owns) is the FOREGROUND window, no mascot shows: the whole
+  stage slides back behind the right edge (250 ms ease-in, fade over the
+  last 100 ms) and the mascots peek out again with the normal entrance when
+  another program becomes active. Replaces "shows one even with the app in
+  front" for visibility only — counting is unchanged. The host posts
+  `{"type":"app-active","active":true|false}` to the overlay page on a
+  change and after each successful load; while away the page reports
+  `"rects":[]` (empty region). Reduced motion: no slide. Spec
+  `.claude/plans/nocturne/PLAN-D8.md`.
 
 ### Features — Terminal status line
 

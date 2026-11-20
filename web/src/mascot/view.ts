@@ -21,6 +21,13 @@
  * their variant changes — which is also what (re)starts the wave and blink
  * animations inside them.
  *
+ * STEPPING BACK (Nocturne D8, `.claude/plans/nocturne/PLAN-D8.md`): `retreat`
+ * puts `.pm-away` on the STAGE — one 250 ms slide of every mascot back behind
+ * the right edge, on the one element no render writes to, so it never fights
+ * the inline entrance on a position layer. `comeBack` takes it off and empties
+ * the stage, so the next render builds every mascot anew and its existing
+ * entrance plays again.
+ *
  * The stage is `aria-hidden`: the mascots are decorative art — a click makes
  * one laugh or wave, and in the host then brings the app to that session,
  * which the app itself also offers — and the page carries no text. The real
@@ -178,6 +185,13 @@ export class MascotView {
   private readonly onPoke: (slot: number) => void;
   private readonly onSettle: (() => void) | null;
   private readonly slots = new Map<number, SlotNodes>();
+  /** True from `retreat` until `comeBack`: every mascot claims the whole stage in `rects()`. */
+  private leaving = false;
+  /**
+   * Bumped by `retreat`, `comeBack` and `destroy`, so a retreat that was called
+   * back, or that outlived the view, reports nothing.
+   */
+  private leave = 0;
 
   constructor(root: HTMLElement, options: MascotViewOptions) {
     this.onPoke = options.onPoke;
@@ -206,7 +220,9 @@ export class MascotView {
    * mascot MOVES (its entrance, or its position transition) it answers the
    * whole stage instead — the climb, the squeeze and the .7s move travel
    * through space the settled box does not cover, and a region clips drawing
-   * and clicks — and `onSettle` asks for the tight box after.
+   * and clicks — and `onSettle` asks for the tight box after. While the mascots step back
+   * (`retreat`) every one claims the whole stage too: the slide leaves its
+   * settled box, and a region that clipped it would cut the slide off.
    */
   rects(): BoxRect[] {
     const out: BoxRect[] = [];
@@ -215,7 +231,7 @@ export class MascotView {
     const ordered = [...this.slots.entries()].sort((a, b) => a[0] - b[0]);
     for (const [, nodes] of ordered) {
       let box = { left: vw - STAGE_W, top: (vh - STAGE_H) / 2, right: vw, bottom: (vh + STAGE_H) / 2 };
-      if (!nodes.entering && typeof nodes.react.getBoundingClientRect === 'function') {
+      if (!nodes.entering && !this.leaving && typeof nodes.react.getBoundingClientRect === 'function') {
         const r = nodes.react.getBoundingClientRect();
         box = {
           left: r.left - RECT_MARGIN,
@@ -233,8 +249,41 @@ export class MascotView {
     return out;
   }
 
+  /**
+   * Slide every mascot back behind the right edge (`.pm-away` on the stage)
+   * and call `done` when the slide is over. The stage's OWN `getAnimations()`
+   * lists only that slide; under `prefers-reduced-motion` the stylesheet
+   * removes it, the list is empty, and `done` runs at once — no motion.
+   */
+  retreat(done: () => void): void {
+    const leave = ++this.leave;
+    this.leaving = true;
+    this.stage.classList.add('pm-away');
+    const stage = this.stage as HTMLDivElement & { getAnimations?: () => Animation[] };
+    const running = typeof stage.getAnimations === 'function' ? stage.getAnimations() : [];
+    if (running.length === 0) {
+      done();
+      return;
+    }
+    void Promise.allSettled(running.map((a) => a.finished)).then(() => {
+      if (this.leave === leave) done();
+    });
+  }
+
+  /**
+   * Back to the edge: no slide on the stage, no mascot in it. The next
+   * `render` draws each one with its entrance, as when it first appeared.
+   */
+  comeBack(): void {
+    this.leave++;
+    this.leaving = false;
+    this.stage.classList.remove('pm-away');
+    this.render({ count: 0, slots: [] });
+  }
+
   /** Remove everything this view put in the page. */
   destroy(): void {
+    this.leave++;
     this.slots.clear();
     this.stage.remove();
   }

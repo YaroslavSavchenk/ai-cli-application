@@ -123,6 +123,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-11
 
+- [[2026-11-20-d8-mascot-steps-back]] — D8: host posts app-active (foreground = main form or root-owned) on change + after each overlay load; page slides `.pm-stage` back (250 ms), rects = stage while leaving, [] when away, real rects before the entrance; two layered guards each need their own test
 - [[2026-11-20-dependabot-security-updates]] — Dependabot ("github bot"): vite 8.1.5 → 8.3.8 (source-map-js 1.2.4 via postcss) + ws 8.23.0 in one bump, 6 alerts closed, audit 0; verify-terminal driven over HTTP+WS on dev; released as v0.4.4
 
 ### 2026-10

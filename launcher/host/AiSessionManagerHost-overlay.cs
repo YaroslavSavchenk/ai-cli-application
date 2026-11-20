@@ -7,8 +7,8 @@
 //
 // Holds the first half of the "Peek-mascot overlay (Nocturne C1)" region:
 // its design note, consts, fields, P/Invokes, creation, composition,
-// the stray-window fix, navigation lock and reload. The rest is in
-// -overlay-window.cs.
+// the stray-window fix, navigation lock and reload, and D8's app-active
+// state (posted to the page). The rest is in -overlay-window.cs.
 
 using System;
 using System.Drawing;
@@ -67,6 +67,11 @@ namespace AiSessionManager
         //
         //     {"type":"mascot-count","count":N,"rects":[[x,y,w,h],...]}
         //     {"type":"mascot-open","session":"<uuid>"}
+        //
+        // The host tells the page ONE thing (D8, decision 24 - the app-active
+        // section at the end of this file): whether the app window is the
+        // window the user is in. The page then steps its mascots back behind
+        // the edge and reports "rects":[] - the empty region below.
         //
         // WHERE the mascots are: the rects, in CSS px of the 220 x 340 page. The
         // window's region (SetWindowRgn) is their union, scaled by the
@@ -349,6 +354,7 @@ namespace AiSessionManager
                 core.NewWindowRequested += OverlayWebView_NewWindowRequested;
                 core.PermissionRequested += OverlayWebView_PermissionRequested;
                 core.WebMessageReceived += OverlayWebView_WebMessageReceived;
+                core.NavigationCompleted += OverlayWebView_NavigationCompleted;
                 core.ProcessFailed += OverlayWebView_ProcessFailed;
                 core.Navigate(new Uri(_launchOrigin, MascotPagePath).AbsoluteUri);
                 MakeStrayInputWindowClickThrough();
@@ -702,6 +708,110 @@ namespace AiSessionManager
             {
                 Log("mascot overlay: reload failed (" + ex.GetType().Name + "); non-fatal.");
             }
+        }
+
+        // --- App active (Nocturne D8, decision 24) ----------------------------
+        //
+        // While the app window is the ACTIVE window, no mascot shows: the page
+        // slides its mascots back behind the edge and peeks them out again when
+        // another program comes to the front. Only the host sees the
+        // foreground, so the host owns the truth and the page owns the motion.
+        // "Active" = the foreground window is the main window or a window it
+        // owns (a dialog, a menu: GA_ROOTOWNER). The overlay never counts: it
+        // never activates and has no owner, and it is excluded by handle anyway.
+        //
+        // Exactly these two strings, and only when the state CHANGES - the
+        // foreground hook fires for every window switch on the desktop.
+        private const string AppActiveMessage = "{\"type\":\"app-active\",\"active\":true}";
+        private const string AppInactiveMessage = "{\"type\":\"app-active\",\"active\":false}";
+        private const uint GaRootOwner = 3;
+
+        // What the page was last told; null = nothing since its last load (a
+        // loaded page starts as "not active" and has heard nothing yet).
+        private static bool? _appActivePosted;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+        private static bool IsAppWindow(IntPtr hwnd)
+        {
+            Form main = _form;
+            MascotOverlayForm overlay = _overlay;
+            if (hwnd == IntPtr.Zero || main == null || main.IsDisposed || !main.IsHandleCreated)
+            {
+                return false;
+            }
+            if (overlay != null && !overlay.IsDisposed && overlay.IsHandleCreated
+                && hwnd == overlay.Handle)
+            {
+                return false;
+            }
+            IntPtr app = main.Handle;
+            return hwnd == app || GetAncestor(hwnd, GaRootOwner) == app;
+        }
+
+        // GetForegroundWindow, not the hook's hwnd: the hook's events are
+        // queued, and the window in front NOW is the state the page must show.
+        // Its own try: called from user32's callback, and a failed post must
+        // never cost the raise that follows it.
+        private static void TellOverlayAppActive()
+        {
+            try
+            {
+                PostAppActive(IsAppWindow(GetForegroundWindow()));
+            }
+            catch (Exception ex)
+            {
+                Log("mascot overlay: the app-active state could not be read (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        private static void PostAppActive(bool active)
+        {
+            MascotOverlayForm overlay = _overlay;
+            CoreWebView2CompositionController cc = _overlayController;
+            if (overlay == null || overlay.IsDisposed || cc == null)
+            {
+                return;
+            }
+            if (_appActivePosted.HasValue && _appActivePosted.Value == active)
+            {
+                return;
+            }
+            try
+            {
+                CoreWebView2 core = cc.CoreWebView2;
+                if (core == null)
+                {
+                    return;
+                }
+                core.PostWebMessageAsString(active ? AppActiveMessage : AppInactiveMessage);
+                _appActivePosted = active;
+            }
+            catch (Exception ex)
+            {
+                // Unknown now: the next foreground change posts again.
+                _appActivePosted = null;
+                Log("mascot overlay: app-active could not be posted (" + ex.GetType().Name
+                    + "); non-fatal.");
+            }
+        }
+
+        // The first load, and every reload after a crash (ProcessFailed): a
+        // fresh page has lost what it was told, so it is told again whatever
+        // was posted before. A failed navigation has no page to tell.
+        private static void OverlayWebView_NavigationCompleted(
+            object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (e == null || !e.IsSuccess)
+            {
+                return;
+            }
+            _appActivePosted = null;
+            TellOverlayAppActive();
         }
     }
 }

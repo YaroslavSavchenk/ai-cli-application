@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-22
-updated: 2026-09-26
+updated: 2026-11-20
 tags: [nocturne, mascot, overlay, host, session-state]
 ---
 # Peek mascot: when, where, what a click does (part C1, decisions 12–16)
@@ -45,3 +45,14 @@ Spec `.claude/plans/nocturne/PLAN-C1.md`. Related: [[native-webview2-host]],
   change and every count message, for fullscreen windows that are
   themselves topmost. Decision 15 (true exclusive fullscreen) stands.
 - **What counts** changed in C2: [[c2-mascot-waits-for-background-work]].
+
+## D8 (2026-11-20): steps back while the app is active
+
+User: "maak ook zo dat wanneer de app open is mascotte niet zichtbaar is,
+dat hij verwijnt, kleine effect". Decision 24 replaces decision 14's
+"shown even with the app in front" — for VISIBILITY only; which sessions
+count (C1/C2) is unchanged. While the app window (or a window it
+root-owns) is the foreground window, the stage slides back behind the edge
+(250 ms, short fade) and the mascots peek out again when another program is
+active. Rejected: hiding whenever the app is merely visible; a fade on the
+spot; a wave first. Spec `.claude/plans/nocturne/PLAN-D8.md`.

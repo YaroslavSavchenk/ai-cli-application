@@ -19,6 +19,11 @@
  * What it does NOT own: sessions. The model is driven purely by a number;
  * which sessions are pending, the 1.5 s rise hold and the prefs switch live
  * in ./feed.ts (Nocturne C1), which hands this model the count.
+ *
+ * It also holds the pure rules of PRESENCE (Nocturne D8,
+ * `.claude/plans/nocturne/PLAN-D8.md`): whether the mascots that exist are
+ * out at the screen edge or stepped back behind it because the app is the
+ * active window — `nextPresence` and `drawnState`, wired by ./presence.ts.
  */
 
 /** Never more than three mascots, whatever the app asks for. */
@@ -158,6 +163,42 @@ export function poses(count: number): Pose[] {
 }
 
 /**
+ * Where the mascots are relative to the screen edge (Nocturne D8):
+ *   out      at the edge, as C1 draws them
+ *   leaving  sliding back behind the edge (the view's retreat is running)
+ *   away     behind it: nothing drawn, nothing reported as a rect
+ */
+export type Presence = 'out' | 'leaving' | 'away';
+
+/**
+ * The presence to move to, given where the mascots are, whether the app is
+ * the active window and whether a click reaction is still playing.
+ * - Not active → out, from anywhere (the existing entrance brings them back).
+ * - Active while out → leaving — but only once no reaction plays: the
+ *   laugh/wave that asked the host to bring the app forward finishes first.
+ * - `leaving` becomes `away` only when the view says the retreat ended; this
+ *   rule never skips it.
+ */
+export function nextPresence(now: Presence, active: boolean, reacting: boolean): Presence {
+  if (!active) return 'out';
+  if (now === 'out') return reacting ? 'out' : 'leaving';
+  return now;
+}
+
+/**
+ * What the view draws in a presence: the whole snapshot while out; no mascot
+ * while away (the count stays real — the host hears it with no rects); and
+ * `null` while leaving — the drawing is left as it is, so the retreat slides
+ * the mascots that were out and a count change in those 250 ms shows nothing
+ * new.
+ */
+export function drawnState(state: MascotState, presence: Presence): MascotState | null {
+  if (presence === 'out') return state;
+  if (presence === 'away') return { count: state.count, slots: [] };
+  return null;
+}
+
+/**
  * The mascot state machine. One instance per page; `destroy()` clears every
  * timer it ever set.
  */
@@ -237,6 +278,11 @@ export class MascotModel {
     }, REACTIONS[pick].dur);
     this.emit();
     return pick;
+  }
+
+  /** Is any visible mascot still playing a click reaction (laugh / wave)? */
+  isReacting(): boolean {
+    return this.moods.some((mood, i) => i < this.count && mood !== 'idle');
   }
 
   /** What the view draws right now. A fresh object every call. */

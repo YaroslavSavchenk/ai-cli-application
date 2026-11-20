@@ -426,7 +426,11 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   foreground change), no-activate WebView2 window in VISUAL hosting
   (DirectComposition, per-pixel alpha — a colour key lost its transparency
   after any resize) whose REGION is the reported rects (never hidden). `prefs.mascot = { enabled }`
-  (default ON). History: `memory/decisions/scope-history.md` § Features —
+  (default ON). While the app window (or a window it root-owns) is the
+  foreground window no mascot shows (D8, decision 24): the stage slides back
+  behind the edge (250 ms) and peeks out again when the user leaves; the
+  host posts `{"type":"app-active","active":true|false}` on a change and
+  after each successful load, and the page reports `"rects":[]` while away. History: `memory/decisions/scope-history.md` § Features —
   Peek mascot; spec `.claude/plans/nocturne/PLAN-C1.md`.
 - **App settings panel** — persisted server-side in `prefs.json` via
   `/api/prefs`; a left-nav modal: Status bar, Preferences (API keys: one
