@@ -5,9 +5,10 @@
  *
  * Split from server/sessions.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
  * byte-exact; server/sessions.ts re-exports ptyEnv. Sibling pieces:
- * server/sessions.ts (SessionManager: the PTY spawn, resize, kill ladder and
- * lifecycle) and server/sessions-output.ts (scrollback ring, bell scan,
- * final-output rescue).
+ * server/sessions.ts (SessionManager: launch composition and lifecycle),
+ * server/sessions-output.ts (bell and title scan, replay tail) and, since
+ * Nocturne D9 P1, server/pty-table.ts (the PTY spawn, resize, scrollback
+ * ring, final-output rescue and kill ladder).
  */
 
 /**

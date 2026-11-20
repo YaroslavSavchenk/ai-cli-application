@@ -184,7 +184,7 @@ test('T4 shutdown kills the group immediately: SIGHUP then SIGKILL, no waiting',
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: trapBoth(),
       args: [file],
@@ -227,7 +227,7 @@ test('T5 pid-reuse guard: a session that exits before the first rung is never si
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: plain(),
       args: [file],
@@ -270,7 +270,7 @@ test('T6 the ladder follows the GROUP: a leader that honours SIGHUP does not sav
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: hupLeader(),
       args: [file],
@@ -331,7 +331,7 @@ test('T7 a DELETE still escalating when the server shuts down is finished off, n
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: trapBoth(),
       args: [file],

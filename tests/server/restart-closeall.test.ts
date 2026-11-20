@@ -76,7 +76,7 @@ test('upgrade.closeAll: closes every OPEN socket with 1012 and counts each one e
     assert.equal(upgrade.closeAll(1012, 'service restart'), 0, 'nothing connected, nothing closed');
 
     // One session channel and two presence windows: closeAll spans BOTH servers.
-    const session = sessions.create({
+    const session = await sessions.create({
       cwd: '/tmp',
       command: 'bash',
       args: ['-lc', 'sleep 30'],

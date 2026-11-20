@@ -117,7 +117,7 @@ export async function sessionRoutes(
         }
       }
       try {
-        const info = sessions.create({
+        const info = await sessions.create({
           ...(projectId !== undefined ? { projectId } : {}),
           cwd,
           command: body.command,
@@ -199,7 +199,7 @@ export async function sessionRoutes(
         : undefined;
     const spawn = resumeSpawn(entry);
     try {
-      const info = sessions.create({
+      const info = await sessions.create({
         ...(projectId !== undefined ? { projectId } : {}),
         cwd: entry.cwd,
         command: spawn.command,

@@ -1,7 +1,7 @@
 ---
 type: knowledge
 created: 2026-07-24
-updated: 2026-07-25
+updated: 2026-11-20
 tags: [pty, sessions, scrollback, race, node-pty, libuv]
 ---
 # A session's last output was lost at exit — libuv's synthetic EOF
@@ -55,10 +55,12 @@ Two things worth copying:
 
 ## The fix
 
-`server/sessions.ts`: wrap `destroy` on node-pty's internal master read stream
-and synchronously `readSync` the fd there, feeding bytes into the *same*
-handler `onData` uses (one ingress — same ring buffer, same broadcast, same
-BEL/attention scan). No clock: the loop ends on the kernel (EIO/EAGAIN/0).
+`server/pty-table.ts` (`rescueFinalOutput`; in `server/sessions.ts`, later
+`server/sessions-output.ts`, until Nocturne D9 P1 on 2026-11-20): wrap
+`destroy` on node-pty's internal master read stream and synchronously
+`readSync` the fd there, feeding bytes into the *same* handler `onData` uses
+(one ingress — the table's ring and its output event, which SessionManager
+turns into the same mirror ring, broadcast and BEL/attention scan). No clock: the loop ends on the kernel (EIO/EAGAIN/0).
 Ordering is free — `destroy` runs before the socket `'close'`, and node-pty
 emits `'exit'` from that `'close'`, so rescued data always precedes the exit
 frame.

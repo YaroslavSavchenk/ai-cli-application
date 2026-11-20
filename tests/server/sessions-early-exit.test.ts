@@ -26,7 +26,8 @@ import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ExitMessage, RuntimeStatusResponse, SessionInfo } from '../../shared/protocol.ts';
 import { EARLY_EXIT_LINE_MAX, EARLY_EXIT_MS } from '../../shared/protocol.ts';
-import { earlyExitLine, firstOutputLine, RingBuffer } from '../../server/sessions-output.ts';
+import { earlyExitLine, firstOutputLine } from '../../server/sessions-output.ts';
+import { RingBuffer } from '../../server/pty-table.ts';
 import {
   api,
   createSession,
@@ -50,7 +51,7 @@ const DOUBLE = `${CLAUDE_DOUBLE_VERSION}for a in "$@"; do
   case "$a" in
     --d6-fail-now) printf '\\033[?25l\\r\\n  \\033[31m${REFUSAL}\\033[0m\\r\\nsecond line\\r\\n'; exit 2 ;;
     --d6-fail-soon) sleep 1; printf '${REFUSAL}\\r\\n'; exit 1 ;;
-    --d6-fail-late) printf 'late\\r\\n'; sleep 4; exit 2 ;;
+    --d6-fail-late) printf 'late\\r\\n'; sleep 6; exit 2 ;;
     --d6-silent) exit 3 ;;
     --d6-exit-ok) printf 'bye\\r\\n'; exit 0 ;;
     --d6-hup-fails) trap 'exit 1' HUP; printf 'ready\\r\\n'; sleep 300 & wait; exit 0 ;;
@@ -243,7 +244,9 @@ test('a shell session exiting 2 at once is not an early exit', async () => {
   assert.ok(!(await readServerLog(server)).includes(`${info.id} Claude Code stopped`));
 });
 
-test('a claude exiting 2 after 4 s is not an early exit', async () => {
+// 6 s, not 4: the WSL wall clock steps back ~1 s every ~30 s (D9 P1 gate,
+// 2026-11-20) and the verdict is wall-clock time against EARLY_EXIT_MS 3 s.
+test('a claude exiting 2 after 6 s is not an early exit', async () => {
   const info = await launch(['--d6-fail-late']);
   const done = await exited(info.id, 15_000);
   assert.equal(done.exitCode, 2);

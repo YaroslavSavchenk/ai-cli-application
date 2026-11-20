@@ -462,7 +462,7 @@ test('watcher: a session untracked by the consumer MID-SWEEP is not polled on it
 test('SessionManager.setReport: only the FINISHED total moving is a change too — one frame', async () => {
   const m = await makeManager();
   try {
-    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+    const info = await m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
     assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     m.manager.setReport(info.id, report([ROW], { counts: { running: 1, finished: 0 } }));

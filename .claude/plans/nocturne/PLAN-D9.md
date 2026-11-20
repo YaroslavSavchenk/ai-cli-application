@@ -1,6 +1,6 @@
 # D9 — Sessions survive an update: a pty-host keeps the terminals, the backend re-attaches
 
-Status: DECIDED 2026-11-20 (the user's ask the same day — "ik wil dat wnr een update is de sessies niet afgesloten hoeven te worden. Dus als je een update uitvoert dat na de update alles gewoon open is"; approach and decisions 25–27 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
+Status: STARTED 2026-11-20 (P1 landed: the PTY layer behind PtyHost, in-process; P2–P5 to go); earlier: DECIDED 2026-11-20 (the user's ask the same day — "ik wil dat wnr een update is de sessies niet afgesloten hoeven te worden. Dus als je een update uitvoert dat na de update alles gewoon open is"; approach and decisions 25–27 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
 
 Part D9 of `.claude/plans/PLAN-NOCTURNE.md` (Track D, fixes and asks after the v0.4.0 release). Conventions: `.claude/plans/README.md`.
 
@@ -55,6 +55,9 @@ Part D9 of `.claude/plans/PLAN-NOCTURNE.md` (Track D, fixes and asks after the v
 - Socket path limit with test temp dirs — measure in P2.
 - `pause()` with node-pty 1.1.0 vs the rescue patch of `socket.destroy` — re-check in P2.
 - Pty-host processes leaking out of the test suite — every fixture kills its pty-host; short idle seam.
+- (P1 reviews) Once spawn crosses a socket the `create()` await is real I/O: (a) a session in `#ptys` but not yet in `#sessions` is invisible to `destroy`/`destroyAll` — a shutdown or restart in that window leaves a live PTY nobody owns (possibly holding an API key in its env) → a pending-spawn set that `destroy`/`destroyAll`/`detachAll` respect; (b) an `exit` that beats the `spawned` reply runs `markEnded` before `recordCreate` (a live history entry that never ends) → the client queues frames after `spawned` until the spawn continuation ran, and history registration survives an early exit; (c) two concurrent resumes of one conversation no longer share a tick between the 409 check and going live → a per-conversation in-flight guard.
+- (P1 gate) `SessionManager` has no injectable `PtyHost`, so a missing `host.forget` (a table entry of up to 1 MiB leaked per deleted session) is invisible to tests → P2/P3 add the seam and a test.
+- (P1 reviews) The interface still lacks `detach` and a "host lost" event (P2 adds both); `setMeta`'s 16 KiB cap must be checked client-side (no-reply verb); a full 1 MiB `snapshot` ring does not fit the ≤ 1 MiB frame with a JSON envelope → a binary snapshot frame kind.
 
 ## Out of scope
 

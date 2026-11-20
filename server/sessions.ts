@@ -40,14 +40,21 @@
  * its own `--settings` is left alone, and one that already carries a
  * resume/session flag is never given a second one.
  *
- * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the scrollback ring, bell
- * and title scan and final-output rescue live in server/sessions-output.ts;
- * the PTY's environment (ptyEnv) in server/sessions-env.ts. Both re-exported
- * here (the ring and its cap).
+ * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the bell and title scan,
+ * the replay tail and the early-exit line live in server/sessions-output.ts;
+ * the PTY's environment (ptyEnv) in server/sessions-env.ts.
+ *
+ * Nocturne D9 P1 (.claude/plans/nocturne/PLAN-D9.md): the PTY itself — spawn,
+ * input, resize, the raw ring, the final-output rescue, the kill ladder — sits
+ * behind the `PtyHost` interface (server/pty-host-api.ts over
+ * server/pty-table.ts), so a pty-host process can own it later. This class
+ * composes the launch (argv, env, settings, key) and interprets the output
+ * (bell, title, early exit, history, logging); it keeps its own MIRROR of the
+ * ring (`Session.buffer`), fed by the host's output events, so `attach()`
+ * stays synchronous whoever owns the PTY.
  */
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import * as pty from 'node-pty';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
 import { commandBase, isClaudeCommand, isKeyedTool, KEY_ENV, REPLAY_MAX_LINES } from '../shared/protocol.ts';
@@ -58,23 +65,15 @@ import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import { sameTelemetry } from './telemetry.ts';
 import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
-import { describeError, scoped, type Logger } from './config.ts';
+import { scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
-import {
-  earlyExitLine,
-  newOutputScan,
-  replayTail,
-  rescueFinalOutput,
-  RingBuffer,
-  scanOutput,
-  SCROLLBACK_MAX_BYTES,
-  type OutputScanState,
-} from './sessions-output.ts';
+import { earlyExitLine, newOutputScan, replayTail, scanOutput, type OutputScanState } from './sessions-output.ts';
+import { RingBuffer, SCROLLBACK_MAX_BYTES, type PtyExitRecord } from './pty-table.ts';
+import { createInProcessPtyHost, type PtyHost } from './pty-host-api.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
 // of this module keeps its surface.
 export { ptyEnv } from './sessions-env.ts';
-export { RingBuffer, SCROLLBACK_MAX_BYTES } from './sessions-output.ts';
 
 /**
  * Last-resort session title: the working directory's own last segment.
@@ -94,32 +93,13 @@ function cwdTitle(cwd: string): string {
 /** Minimum gap between per-session output summary lines (debug). */
 export const OUTPUT_LOG_INTERVAL_MS = 1000;
 
-/**
- * Kill escalation, step two (DELETE only). A TUI that honours SIGHUP is gone
- * within milliseconds, so 2 s is already generous for one that flushes state
- * to disk before it leaves.
- */
-export const KILL_TERM_AFTER_MS = 2000;
-/**
- * Kill escalation, step three (DELETE only): 3 s more for a TUI that does
- * honour SIGTERM but is slow about it, before the signal it cannot refuse.
- */
-export const KILL_KILL_AFTER_MS = 3000;
-
-/**
- * The one pid shape the kill ladder may turn into a process-group signal. A
- * seatbelt: `pty.pid` is always a real child pid, but `process.kill(-0, …)`
- * would signal the backend's own group and `process.kill(-(-1), …)` is a
- * signal to pid 1, so anything that is not a plain positive child pid is
- * refused before it can become a negative one.
- */
-export function signalableChildPid(pid: number): boolean {
-  return Number.isInteger(pid) && pid > 1;
-}
-
 interface Session {
   info: SessionInfo;
-  pty: pty.IPty | null;
+  /** True from the spawn until the PTY's exit is reported or destroy() kills it. */
+  ptyLive: boolean;
+  /** Claude-kind (isClaudeCommand): the early-exit verdict applies at exit. */
+  claude: boolean;
+  /** The MIRROR of the host's ring (D9 P1): what attach() replays and the early exit reads. */
   buffer: RingBuffer;
   clients: Set<WebSocket>;
   /** The output scan's state (bell and window title), carried across data chunks. */
@@ -145,17 +125,6 @@ interface Session {
   inBytes: number;
   inFrames: number;
   lastOutLogMs: number;
-  /**
-   * Pending escalation step (SIGTERM or SIGKILL). Cancelled when the PTY's
-   * whole process GROUP is gone — never merely when its leader exited: a
-   * worker child that ignored the signal keeps running in that group, and
-   * ending it is the entire point of the ladder. A live group also pins its
-   * leader's pid NUMBER (Linux frees a number only when nothing references it
-   * under any type, PGID included), so while the group answers `kill(-pid, 0)`
-   * the negative pid is still THIS session's group and can never be a
-   * stranger's.
-   */
-  killTimer: NodeJS.Timeout | undefined;
   /**
    * D6: set by destroy() — the user (or shutdown) ended it, so a non-zero exit
    * right after the spawn is the signal's doing, not a refusal by the CLI.
@@ -224,15 +193,18 @@ export class SessionManager {
   readonly #slog: Logger;
 
   /**
-   * Kill ladders still in flight, by session id: the session itself is already
-   * out of #sessions, so this map is the ONLY handle destroyAll() has on a
-   * process the ladder has not reached yet. Without it, a DELETE followed
-   * within 5 s by Restart service / Update / launcher stop would leave exactly
-   * the process the ladder exists to end, with its API key, outliving us.
+   * Who owns the PTYs (D9 P1): in-process today, a pty-host process from P3.
+   * Every byte and signal goes through it; nothing here imports node-pty.
    */
-  readonly #escalating = new Map<string, { pid: number }>();
-  /** The group probe warns about an unexpected errno at most once per run. */
-  #groupProbeWarned = false;
+  readonly #host: PtyHost;
+  /**
+   * Sessions whose PTY has not reported its exit yet, by id — DESTROYED ones
+   * included. destroy() takes a session out of #sessions at once, but its PTY
+   * still reports output and then its exit (the history stamp no-ops, the exit
+   * and totals lines are still written), so the host's events are routed
+   * through this map, not #sessions.
+   */
+  readonly #ptys = new Map<string, Session>();
 
   constructor(
     log: Logger,
@@ -249,6 +221,19 @@ export class SessionManager {
     this.#keys = keys;
     this.#agents = agents;
     this.#claudeVersion = claudeVersion;
+    this.#host = createInProcessPtyHost(log);
+    this.#host.listen({
+      output: (id, data) => {
+        const session = this.#ptys.get(id);
+        if (session !== undefined) this.#onOutput(id, session, data);
+      },
+      exit: (id, record) => {
+        const session = this.#ptys.get(id);
+        if (session === undefined) return;
+        this.#ptys.delete(id);
+        this.#onExit(id, session, record);
+      },
+    });
   }
 
   list(): SessionInfo[] {
@@ -287,8 +272,8 @@ export class SessionManager {
     return this.#sessions.get(id)?.titleIdleSince;
   }
 
-  /** Spawn the PTY and register the session. Throws if the spawn fails. */
-  create(opts: CreateSessionOptions): SessionInfo {
+  /** Spawn the PTY and register the session. Rejects if the spawn fails. */
+  async create(opts: CreateSessionOptions): Promise<SessionInfo> {
     const id = randomUUID();
     // Status line: claude-kind sessions only, and never over a client's own
     // --settings. `spawnArgs` is what the PTY gets; `opts.args` is what the
@@ -342,21 +327,6 @@ export class SessionManager {
       else this.#log('warn', `cmd.exe: working directory not passed (${start.reason})`);
     }
 
-    let proc: pty.IPty;
-    try {
-      proc = pty.spawn(opts.command, spawnArgs, {
-        name: 'xterm-256color',
-        cols: opts.cols,
-        rows: opts.rows,
-        cwd: opts.cwd,
-        env,
-      });
-    } catch (err) {
-      // A failed spawn must not leave its settings file behind.
-      if (statusline) this.#settings?.remove(id);
-      throw err;
-    }
-
     const info: SessionInfo = {
       id,
       ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
@@ -367,18 +337,19 @@ export class SessionManager {
       status: 'running',
       cols: opts.cols,
       rows: opts.rows,
+      // Stamped when the spawn is asked for (D9 P1; before it, right after a
+      // synchronous spawn): the early-exit window (EARLY_EXIT_MS, 3 s) counts
+      // from here, so a forkpty — or, from P3, a socket round trip — is inside
+      // it. Milliseconds against seconds; the verdict cannot turn on it.
       createdAt: new Date().toISOString(),
       attention: false,
       ...(statusline ? { statusline: true } : {}),
     };
 
-    // The ladder outlives `session.pty` (destroy() nulls it), so the pid the
-    // group is addressed by is captured once, here.
-    const ptyPid = proc.pid;
-
     const session: Session = {
       info,
-      pty: proc,
+      ptyLive: true,
+      claude,
       buffer: new RingBuffer(SCROLLBACK_MAX_BYTES, (dropped) => {
         session.trimmedBytes += dropped;
       }),
@@ -391,133 +362,33 @@ export class SessionManager {
       inBytes: 0,
       inFrames: 0,
       lastOutLogMs: Date.now(),
-      killTimer: undefined,
       destroyed: false,
     };
+    // Routed BEFORE the spawn is asked for: a host behind a socket may deliver
+    // this PTY's first output before its spawn answer has been read.
+    this.#ptys.set(id, session);
+    let pid: number;
+    try {
+      ({ pid } = await this.#host.spawn({
+        id,
+        file: opts.command,
+        argv: spawnArgs,
+        cwd: opts.cwd,
+        env,
+        cols: opts.cols,
+        rows: opts.rows,
+      }));
+    } catch (err) {
+      this.#ptys.delete(id);
+      // A failed spawn must not leave its settings file behind.
+      if (statusline) this.#settings?.remove(id);
+      throw err;
+    }
     this.#sessions.set(id, session);
     this.#history.recordCreate(info, {
       id: opts.historyId ?? plan.id,
       conversation: plan.conversation,
       baseArgs: plan.baseArgs,
-    });
-
-    const handleOutput = (data: string): void => {
-      session.buffer.append(data);
-      session.outBytes += Buffer.byteLength(data);
-      session.outChunks += 1;
-      this.#flushOutputLog(id, session, false);
-      this.#broadcast(session, { type: 'data', data });
-      const scan = scanOutput(data, session.scan);
-      if (scan.bell) {
-        session.info.attention = true;
-        // C1: a BEL makes the session pending too; the `attention` frame is
-        // the news on the wire, `pendingSince` rides the next info / GET.
-        syncPending(session.info);
-        this.#slog('debug', `${id} attention raised (BEL in output)`);
-        this.#broadcast(session, { type: 'attention' });
-      }
-      // C2: an idle title keeps the stamp of the FIRST idle one (Claude Code
-      // repaints its title about every second); any other title clears it.
-      if (scan.titleIdle === true) session.titleIdleSince ??= Date.now();
-      else if (scan.titleIdle === false) session.titleIdleSince = undefined;
-    };
-
-    proc.onData(handleOutput);
-    // The child's last bytes can outlive node-pty's read stream; rescue them
-    // into the SAME path, before onExit stamps the session 'exited'.
-    rescueFinalOutput(proc, handleOutput, this.#log);
-
-    proc.onExit(({ exitCode, signal }) => {
-      // The LEADER is gone; the ladder is only called off when the whole group
-      // is. A CLI whose top-level process honours SIGHUP but whose worker child
-      // ignores it would otherwise leave that child running forever — with the
-      // stored API key in its environment.
-      if (session.killTimer !== undefined && this.#groupGone(ptyPid)) {
-        clearTimeout(session.killTimer);
-        session.killTimer = undefined;
-        this.#escalating.delete(id);
-      }
-      session.info.status = 'exited';
-      session.info.exitCode = exitCode;
-      session.pty = null;
-      // Nothing waits on the title of a process that is gone.
-      session.titleIdleSince = undefined;
-      if (statusline) this.#settings?.remove(id);
-      // The process is gone, so no new subagent can appear: stop polling its
-      // transcripts. The list already on info stands — what it cost is still
-      // true after the session ended.
-      this.#agents?.untrack(id);
-      // ...but a row still marked 'running' is no longer true: Claude Code runs
-      // its subagents IN-PROCESS, so none of them outlived this exit, and the
-      // browser would go on counting `now - startedAt` forever. The exit is the
-      // fact the app knows, and its clock is the one that stamps the end.
-      const endedAt = new Date().toISOString();
-      const agents = session.info.agents;
-      let changed = false;
-      if (agents !== undefined && agents.some((a) => a.state === 'running')) {
-        session.info.agents = agents.map((a) =>
-          a.state === 'running' ? { ...a, state: 'finished' as const, endedAt } : a,
-        );
-        changed = true;
-      }
-      // The totals follow the same fact (B11): nothing tracked runs any more.
-      const counts = session.info.agentCounts;
-      if (counts !== undefined && counts.running > 0) {
-        session.info.agentCounts = { running: 0, finished: counts.running + counts.finished };
-        changed = true;
-      }
-      // B11: the turn verdict describes a live Claude; an exited session has
-      // none (the UI ignores it there anyway, but the wire must not claim it).
-      if (session.info.turn !== undefined) {
-        delete session.info.turn;
-        changed = true;
-      }
-      // C1: an ended turn is no longer news once the session is gone (a BEL's
-      // `attention` stays, as before — and so does its `pendingSince`).
-      if (session.info.turnEnded !== undefined) {
-        delete session.info.turnEnded;
-        changed = true;
-      }
-      if (syncPending(session.info)) changed = true;
-      // D6: a Claude launch (or resume) that died right after it started —
-      // the one place program output reaches server.log: its first line,
-      // escape-, bidi- and control-stripped and capped (earlyExitLine).
-      const verdict =
-        claude && !session.destroyed
-          ? earlyExitLine(session.info.createdAt, Date.now(), exitCode, session.buffer)
-          : undefined;
-      const early = verdict === undefined ? undefined : { line: verdict.line };
-      if (verdict !== undefined) {
-        session.info.earlyExit = { line: verdict.line };
-        changed = true;
-        this.#slog(
-          'warn',
-          `${id} Claude Code stopped right after it started (code ${exitCode}, after ${verdict.ranMs}ms, ` +
-            `Claude Code ${this.#claudeVersion?.() ?? 'unknown'}): ${JSON.stringify(verdict.line)}`,
-        );
-      }
-      if (changed) {
-        // ONE extra frame, before the exit: the client upserts this session on
-        // `info` and repaints on `exit`, so the repaint already draws the
-        // corrected rows.
-        this.#broadcast(session, { type: 'info', session: { ...session.info } });
-      }
-      // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
-      this.#history.markEnded(id, 'exit', exitCode);
-      this.#broadcast(session, { type: 'exit', exitCode, ...(early === undefined ? {} : { early }) });
-      // Wording kept verbatim (tests and habits key off it); the signal and the
-      // final output tally are appended.
-      this.#log(
-        'info',
-        `session ${id} exited with code ${exitCode}` +
-          `${signal === undefined || signal === 0 ? '' : ` (signal ${signal})`}`,
-      );
-      this.#flushOutputLog(id, session, true);
-      this.#slog(
-        'info',
-        `${id} totals: scrollback ${session.buffer.byteLength} bytes, ` +
-          `${session.clients.size} client(s) attached at exit`,
-      );
     });
 
     // The FULL spawned argv, injections included (`--settings <file>`,
@@ -529,11 +400,120 @@ export class SessionManager {
     );
     this.#slog(
       'debug',
-      `${id} created: pid ${proc.pid}, title ${JSON.stringify(info.title)}, ` +
+      `${id} created: pid ${pid}, title ${JSON.stringify(info.title)}, ` +
         `project ${info.projectId ?? 'none'}, statusline ${statusline}, ` +
         `history key ${opts.historyId ?? plan.id} (conversation ${plan.conversation})`,
     );
     return { ...info };
+  }
+
+  /** One chunk of PTY output: mirror ring, log counts, broadcast, bell and title scan. */
+  #onOutput(id: string, session: Session, data: string): void {
+    session.buffer.append(data);
+    session.outBytes += Buffer.byteLength(data);
+    session.outChunks += 1;
+    this.#flushOutputLog(id, session, false);
+    this.#broadcast(session, { type: 'data', data });
+    const scan = scanOutput(data, session.scan);
+    if (scan.bell) {
+      session.info.attention = true;
+      // C1: a BEL makes the session pending too; the `attention` frame is
+      // the news on the wire, `pendingSince` rides the next info / GET.
+      syncPending(session.info);
+      this.#slog('debug', `${id} attention raised (BEL in output)`);
+      this.#broadcast(session, { type: 'attention' });
+    }
+    // C2: an idle title keeps the stamp of the FIRST idle one (Claude Code
+    // repaints its title about every second); any other title clears it.
+    if (scan.titleIdle === true) session.titleIdleSince ??= Date.now();
+    else if (scan.titleIdle === false) session.titleIdleSince = undefined;
+  }
+
+  /** The PTY exited (the host already called off a ladder whose group is gone). */
+  #onExit(id: string, session: Session, record: PtyExitRecord): void {
+    const exitCode = record.code;
+    const signal = record.signal;
+    session.info.status = 'exited';
+    session.info.exitCode = exitCode;
+    session.ptyLive = false;
+    // Nothing waits on the title of a process that is gone.
+    session.titleIdleSince = undefined;
+    if (session.info.statusline === true) this.#settings?.remove(id);
+    // The process is gone, so no new subagent can appear: stop polling its
+    // transcripts. The list already on info stands — what it cost is still
+    // true after the session ended.
+    this.#agents?.untrack(id);
+    // ...but a row still marked 'running' is no longer true: Claude Code runs
+    // its subagents IN-PROCESS, so none of them outlived this exit, and the
+    // browser would go on counting `now - startedAt` forever. The exit is the
+    // fact the app knows, and its clock is the one that stamps the end.
+    const endedAt = new Date(record.at).toISOString();
+    const agents = session.info.agents;
+    let changed = false;
+    if (agents !== undefined && agents.some((a) => a.state === 'running')) {
+      session.info.agents = agents.map((a) =>
+        a.state === 'running' ? { ...a, state: 'finished' as const, endedAt } : a,
+      );
+      changed = true;
+    }
+    // The totals follow the same fact (B11): nothing tracked runs any more.
+    const counts = session.info.agentCounts;
+    if (counts !== undefined && counts.running > 0) {
+      session.info.agentCounts = { running: 0, finished: counts.running + counts.finished };
+      changed = true;
+    }
+    // B11: the turn verdict describes a live Claude; an exited session has
+    // none (the UI ignores it there anyway, but the wire must not claim it).
+    if (session.info.turn !== undefined) {
+      delete session.info.turn;
+      changed = true;
+    }
+    // C1: an ended turn is no longer news once the session is gone (a BEL's
+    // `attention` stays, as before — and so does its `pendingSince`).
+    if (session.info.turnEnded !== undefined) {
+      delete session.info.turnEnded;
+      changed = true;
+    }
+    if (syncPending(session.info)) changed = true;
+    // D6: a Claude launch (or resume) that died right after it started —
+    // the one place program output reaches server.log: its first line,
+    // escape-, bidi- and control-stripped and capped (earlyExitLine).
+    const verdict =
+      session.claude && !session.destroyed
+        ? earlyExitLine(session.info.createdAt, record.at, exitCode, session.buffer)
+        : undefined;
+    const early = verdict === undefined ? undefined : { line: verdict.line };
+    if (verdict !== undefined) {
+      session.info.earlyExit = { line: verdict.line };
+      changed = true;
+      this.#slog(
+        'warn',
+        `${id} Claude Code stopped right after it started (code ${exitCode}, after ${verdict.ranMs}ms, ` +
+          `Claude Code ${this.#claudeVersion?.() ?? 'unknown'}): ${JSON.stringify(verdict.line)}`,
+      );
+    }
+    if (changed) {
+      // ONE extra frame, before the exit: the client upserts this session on
+      // `info` and repaints on `exit`, so the repaint already draws the
+      // corrected rows.
+      this.#broadcast(session, { type: 'info', session: { ...session.info } });
+    }
+    // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
+    this.#history.markEnded(id, 'exit', exitCode);
+    this.#broadcast(session, { type: 'exit', exitCode, ...(early === undefined ? {} : { early }) });
+    // Wording kept verbatim (tests and habits key off it); the signal and the
+    // final output tally are appended.
+    this.#log(
+      'info',
+      `session ${id} exited with code ${exitCode}` +
+        `${signal === null || signal === 0 ? '' : ` (signal ${signal})`}`,
+    );
+    this.#flushOutputLog(id, session, true);
+    this.#slog(
+      'info',
+      `${id} totals: scrollback ${session.buffer.byteLength} bytes, ` +
+        `${session.clients.size} client(s) attached at exit`,
+    );
   }
 
   /**
@@ -571,11 +551,11 @@ export class SessionManager {
 
   write(id: string, data: string): void {
     const session = this.#sessions.get(id);
-    if (session === undefined || session.pty === null) return;
+    if (session === undefined || !session.ptyLive) return;
     // Counted, never logged per frame: one ws `input` frame is one keystroke.
     session.inBytes += Buffer.byteLength(data);
     session.inFrames += 1;
-    session.pty.write(data);
+    this.#host.write(id, data);
     this.#flushOutputLog(id, session, false);
   }
 
@@ -587,7 +567,7 @@ export class SessionManager {
     }
     session.info.cols = cols;
     session.info.rows = rows;
-    if (session.pty !== null) session.pty.resize(cols, rows);
+    if (session.ptyLive) this.#host.resize(id, cols, rows);
     else this.#slog('debug', `${id} resize ${cols}x${rows} recorded but the pty has exited`);
   }
 
@@ -703,7 +683,7 @@ export class SessionManager {
    * escalation; the history stamp stays 'user-kill' (endAllLive() has already
    * stamped 'shutdown' by then, and the first stamp wins).
    *
-   * The signal ladder is in #escalateKill / #signalGroup below: SIGHUP first
+   * The signal ladder is the host's (server/pty-table.ts `kill`): SIGHUP first
    * either way, then (user) SIGTERM and SIGKILL to the process group, or
    * (shutdown) SIGKILL to it at once.
    */
@@ -724,33 +704,17 @@ export class SessionManager {
     if (session.info.statusline === true) this.#settings?.remove(id);
     // Same for the agents poll: no session, nothing to deliver a list to.
     this.#agents?.untrack(id);
-    if (session.pty !== null) {
-      // Stamp BEFORE kill so the async onExit's 'exit' stamp is the no-op.
+    if (session.ptyLive) {
+      // Stamp BEFORE kill so the async exit's 'exit' stamp is the no-op.
       // At server shutdown endAllLive() ran first, so THIS is the no-op.
       this.#history.markEnded(id, 'user-kill');
-      // Captured before the field is cleared: the escalation signals the pid,
-      // not the (already detached) IPty.
-      const pid = session.pty.pid;
-      try {
-        session.pty.kill();
-      } catch (err) {
-        this.#log('warn', `session ${id} kill failed: ${describeError(err)}`);
-      }
-      session.pty = null;
-      if (by === 'shutdown') {
-        // No grace at shutdown: sessions die with the server by design, and a
-        // process that ignores SIGHUP must not outlive the backend carrying an
-        // API key in its environment. `-pid` is unambiguous here: the group was
-        // alive a line ago, and a live group pins its leader's pid number.
-        this.#slog(
-          'info',
-          `${id} killed for shutdown with SIGHUP; sending SIGKILL to its process group immediately`,
-        );
-        this.#signalGroup(id, pid, 'SIGKILL');
-      } else {
-        this.#escalateKill(id, session, pid);
-      }
+      session.ptyLive = false;
+      // SIGHUP, then the ladder (DELETE) or SIGKILL to the group at once
+      // (shutdown): server/pty-table.ts `kill`.
+      this.#host.kill(id, by === 'shutdown' ? 'now' : 'ladder');
     }
+    // The host drops its entry once the PTY has reported its exit.
+    this.#host.forget(id);
     for (const ws of session.clients) {
       try {
         ws.close(1000, 'session deleted');
@@ -769,120 +733,9 @@ export class SessionManager {
     this.#slog('info', `destroying all ${ids.length} session(s) for shutdown`);
     for (const id of ids) this.destroy(id, 'shutdown');
     // Sessions already DELETEd whose ladder is still counting down: the caller
-    // exits the process right after this returns and the ladder's timers are
-    // unref'd, so anything still alive here would survive the backend. Same
-    // treatment as a live session at shutdown — SIGKILL to the group, now.
-    for (const [id, { pid }] of this.#escalating) {
-      if (this.#groupGone(pid)) continue;
-      this.#slog(
-        'info',
-        `${id} killed for shutdown with SIGHUP; sending SIGKILL to its process group immediately`,
-      );
-      this.#signalGroup(id, pid, 'SIGKILL');
-    }
-    this.#escalating.clear();
-  }
-
-  /**
-   * DELETE's signal ladder after the SIGHUP `pty.kill()` already sent: SIGTERM
-   * to the process group after KILL_TERM_AFTER_MS, SIGKILL after a further
-   * KILL_KILL_AFTER_MS, each step skipped once the whole GROUP is gone.
-   *
-   * Measured 2026-09-20: Gemini CLI 0.60 (a `node` wrapper that relaunches
-   * itself as a `node --max-old-space-size=…` CHILD) ignores both SIGHUP and
-   * SIGTERM, so a deleted gemini session and its child kept running — and kept
-   * GEMINI_API_KEY in their environment after the user had removed that key.
-   * Only SIGKILL ended them.
-   *
-   * Both timers are unref'd: an escalation in flight never keeps the process
-   * alive, and shutdown takes the immediate path anyway.
-   */
-  #escalateKill(id: string, session: Session, pid: number): void {
-    this.#escalating.set(id, { pid });
-    const term = setTimeout(() => {
-      session.killTimer = undefined;
-      if (this.#groupGone(pid)) {
-        this.#escalating.delete(id);
-        return;
-      }
-      this.#slog(
-        'info',
-        `${id} still running ${KILL_TERM_AFTER_MS}ms after SIGHUP; sending SIGTERM to its process group`,
-      );
-      this.#signalGroup(id, pid, 'SIGTERM');
-      const kill = setTimeout(() => {
-        session.killTimer = undefined;
-        this.#escalating.delete(id);
-        if (this.#groupGone(pid)) return;
-        this.#slog(
-          'info',
-          `${id} still running ${KILL_KILL_AFTER_MS}ms after SIGTERM; sending SIGKILL to its process group`,
-        );
-        this.#signalGroup(id, pid, 'SIGKILL');
-      }, KILL_KILL_AFTER_MS);
-      kill.unref();
-      session.killTimer = kill;
-    }, KILL_TERM_AFTER_MS);
-    term.unref();
-    session.killTimer = term;
-  }
-
-  /**
-   * True when the PTY's process group holds NO process any more — the only
-   * safe "stop signalling" answer, and a stronger one than "its leader exited":
-   * a worker child that ignored the signal still lives in that group.
-   *
-   * It doubles as the pid-reuse guard. Linux frees a pid NUMBER only once
-   * nothing references it under any type — PGID and SID included — so a group
-   * that still answers pins its leader's number even after the leader itself
-   * was reaped. A successful `kill(-pid, 0)` therefore proves `-pid` is still
-   * THIS session's group and never a stranger that inherited the number.
-   *
-   * Anything other than ESRCH (EPERM, or an errno we did not foresee) is read
-   * as "alive": the ladder may then signal in vain, which is harmless, while
-   * the opposite mistake leaks a process.
-   */
-  #groupGone(pid: number): boolean {
-    if (!signalableChildPid(pid)) return true;
-    try {
-      process.kill(-pid, 0);
-      return false;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ESRCH') return true;
-      if (code !== 'EPERM' && !this.#groupProbeWarned) {
-        this.#groupProbeWarned = true;
-        this.#log('warn', `process group probe failed, assuming alive: ${describeError(err)}`);
-      }
-      return false;
-    }
-  }
-
-  /**
-   * Signal the PTY's whole PROCESS GROUP. node-pty's forkpty child calls
-   * setsid(), so `pty.pid` IS the group leader and the negative pid reaches
-   * every descendant the CLI spawned — which is the only way to end a wrapper
-   * whose real work runs in a child.
-   *
-   * ESRCH means the group is already gone: the ordinary race with onExit, not
-   * an error. The pid guard is a seatbelt only — `process.kill(-1, …)` would
-   * signal every process this user owns, so a pid that is not a plain child
-   * pid is never signalled.
-   */
-  #signalGroup(id: string, pid: number, signal: 'SIGTERM' | 'SIGKILL'): void {
-    if (!signalableChildPid(pid)) {
-      this.#log('warn', `session ${id} not signalling process group: implausible pid ${pid}`);
-      return;
-    }
-    try {
-      process.kill(-pid, signal);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
-      this.#log(
-        'warn',
-        `session ${id} ${signal} to process group ${pid} failed: ${describeError(err)}`,
-      );
-    }
+    // exits the process right after this returns, so the host finishes them
+    // off now (server/pty-table.ts `shutdownAll`).
+    this.#host.shutdownAll();
   }
 
   /**

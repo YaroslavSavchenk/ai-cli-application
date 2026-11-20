@@ -39,7 +39,7 @@ async function withTitleSession(
 ): Promise<void> {
   const m = await makeManager();
   try {
-    const info = m.manager.create({ command: 'bash', args: TITLE_BASH, cwd: m.root, cols: 80, rows: 24 });
+    const info = await m.manager.create({ command: 'bash', args: TITLE_BASH, cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
     assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     await fn(m, info.id, client);
@@ -134,14 +134,14 @@ test('C2 title: output with no title in it — plain text, the echo of a typed l
 test('C2 title: each session keeps its OWN stamp — an idle title in one never stamps another, a spinner in one never clears another, a new session starts with none', async () => {
   const m = await makeManager();
   try {
-    const open = (): { id: string; client: FakeClient } => {
-      const info = m.manager.create({ command: 'bash', args: TITLE_BASH, cwd: m.root, cols: 80, rows: 24 });
+    const open = async (): Promise<{ id: string; client: FakeClient }> => {
+      const info = await m.manager.create({ command: 'bash', args: TITLE_BASH, cwd: m.root, cols: 80, rows: 24 });
       const client = new FakeClient();
       assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
       return { id: info.id, client };
     };
-    const a = open();
-    const b = open();
+    const a = await open();
+    const b = await open();
     await sendTitle(m.manager, a.id, a.client, 'idle');
     const stampA = m.manager.titleIdleSince(a.id);
     assert.equal(typeof stampA, 'number', 'a is idle');
@@ -153,7 +153,7 @@ test('C2 title: each session keeps its OWN stamp — an idle title in one never 
     // A session created after another one was idle and exited starts with nothing.
     m.manager.write(a.id, 'exit\r');
     await waitUntil(() => (m.manager.get(a.id)?.status === 'exited' ? true : undefined), 'a to exit', 10_000, 20);
-    const c = open();
+    const c = await open();
     await sendTitle(m.manager, c.id, c.client, 'text');
     assert.equal(m.manager.titleIdleSince(c.id), undefined, 'a new session: no stamp');
   } finally {

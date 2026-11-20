@@ -78,7 +78,7 @@ test('T8 a group signal that races the group away (ESRCH) is silent; any other e
     // race with onExit, which a warning line would turn into noise on every
     // tidy shutdown.
     const fileA = pidFile();
-    const a = manager.create({
+    const a = await manager.create({
       cwd: workDir,
       command: trapBoth(),
       args: [fileA],
@@ -106,7 +106,7 @@ test('T8 a group signal that races the group away (ESRCH) is silent; any other e
     // EPERM (or any errno the ladder cannot explain away): the process may be
     // outliving us with an API key in its environment, so it must be in the log.
     const fileB = pidFile();
-    const b = manager.create({
+    const b = await manager.create({
       cwd: workDir,
       command: trapBoth(),
       args: [fileB],
@@ -148,7 +148,7 @@ test('T9 a group probe answered EPERM counts as ALIVE: the ladder runs on, no wa
   const { manager, lines, kills, setFault, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: plain(),
       args: [file],
@@ -267,7 +267,7 @@ test('T11 a ladder that is over leaves the register: shutdown after it signals n
     // One session whose ladder is called off at its exit, one that runs every
     // rung to the SIGKILL.
     const quickFile = pidFile();
-    const quick = manager.create({
+    const quick = await manager.create({
       cwd: workDir,
       command: plain(),
       args: [quickFile],
@@ -276,7 +276,7 @@ test('T11 a ladder that is over leaves the register: shutdown after it signals n
     });
     const quickPids = await pidsFrom(quickFile, 1);
     const trapFile = pidFile();
-    const stubborn = manager.create({
+    const stubborn = await manager.create({
       cwd: workDir,
       command: trapBoth(),
       args: [trapFile],
@@ -319,7 +319,7 @@ test('T12 destroyAll clears the register: a second shutdown pass signals nothing
   const { manager, lines, kills, setFault, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: hupLeaderTerm(),
       args: [file],
@@ -373,7 +373,7 @@ test('T13 the ladder is called off AT the exit, not left to expire on a freed pi
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: plain(),
       args: [file],
@@ -414,7 +414,7 @@ test('T14 a group that empties before the first rung is checked, found gone, and
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: hupLeaderShort(),
       args: [file],
@@ -465,7 +465,7 @@ test('T15 destroy(id, "shutdown") itself kills the group at once — it never ta
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: trapBoth(),
       args: [file],
@@ -501,7 +501,7 @@ test('T16 a group that empties at the SIGTERM rung is checked again, and never S
   const { manager, lines, kills, cleanup } = await harness();
   try {
     const file = pidFile();
-    const info = manager.create({
+    const info = await manager.create({
       cwd: workDir,
       command: hupLeaderTerm(),
       args: [file],

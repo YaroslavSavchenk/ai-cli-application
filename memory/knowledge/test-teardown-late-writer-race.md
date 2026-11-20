@@ -1,7 +1,7 @@
 ---
 type: knowledge
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-11-20
 tags: [tests, flake, ci, sessions, logging, race, teardown]
 ---
 # ENOTEMPTY on temp-dir teardown — the pty exit handler writes after `destroyAll()`
@@ -15,10 +15,11 @@ seen locally on WSL2. Root-caused and fixed the same day (tests only).
 ## Mechanism
 
 1. `SessionManager.destroyAll()` → `destroy(id, 'shutdown')` →
-   `session.pty.kill()` and returns **synchronously**. The pty's `exit` is
-   not awaited.
-2. Ticks later node-pty emits `exit`; the handler (`server/sessions.ts`,
-   `onExit`) writes — all with **sync** fs calls — into the data dir:
+   `host.kill(id, 'now')` (server/pty-table.ts since Nocturne D9 P1, before
+   that `session.pty.kill()`) and returns **synchronously**. The pty's `exit`
+   is not awaited.
+2. Ticks later node-pty emits `exit`; the PtyTable's `onExit` records it and
+   hands it to SessionManager's `#onExit` (`server/sessions.ts`), which writes — all with **sync** fs calls — into the data dir:
    `history.markEnded` (no-op here: `destroy()` already stamped
    `user-kill`), `session … exited with code`, `#flushOutputLog(force)`,
    and last `<id> totals: scrollback N bytes, M client(s) attached at exit`

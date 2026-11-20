@@ -667,8 +667,9 @@ becomes a real behavioral test.)
 (Settled 2026-07-25: **lost final PTY output after session exit — FIXED.**
 Root cause was not node-pty event ordering but **libuv**: on POLLHUP
 `uv__stream_io` short-circuits to a synthetic EOF without re-reading, so
-bytes still held by the kernel are discarded. `server/sessions-output.ts`
-(`rescueFinalOutput`, called from `server/sessions.ts`) now wraps `destroy` on node-pty's internal master read stream and
+bytes still held by the kernel are discarded. `server/pty-table.ts`
+(`rescueFinalOutput`, called from its spawn; in `server/sessions-output.ts`
+until Nocturne D9 P1) now wraps `destroy` on node-pty's internal master read stream and
 synchronously drains the fd there, feeding bytes into the same handler
 `onData` uses — one ingress, no clock, loop ends on EIO/EAGAIN/0. This
 depends on two undeclared node-pty internals (`fd`, `_socket`) and on

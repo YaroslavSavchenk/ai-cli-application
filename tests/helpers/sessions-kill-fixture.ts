@@ -1,6 +1,7 @@
 /**
  * Shared fixture for the process-group kill tests
- * (`tests/server/sessions-kill.test.ts`, `tests/server/sessions-kill-ladder.test.ts`):
+ * (`tests/server/sessions-kill.test.ts`, `tests/server/sessions-kill-ladder.test.ts`,
+ * `tests/server/pty-table-kill.test.ts`):
  * the fake CLIs (shell scripts that ignore exactly the signals the real
  * gemini wrapper ignores), the out-of-process ladder backend, the temp root
  * they are written into, pid bookkeeping with a SIGKILL backstop, and the
@@ -103,7 +104,7 @@ import { SessionManager } from '${new URL('../../server/sessions.ts', import.met
 const [cwd, command, file, holdRaw, histPath] = process.argv.slice(2);
 const noop = () => {};
 const manager = new SessionManager(noop, new SessionHistory(histPath, noop));
-const info = manager.create({ cwd, command, args: [file], cols: 80, rows: 24 });
+const info = await manager.create({ cwd, command, args: [file], cols: 80, rows: 24 });
 
 let pids = [];
 const deadline = Date.now() + 15000;
@@ -134,6 +135,19 @@ const hold = Number(holdRaw);
 if (hold > 0) setTimeout(() => {}, hold);
 `;
 
+/**
+ * Deaf to SIGHUP, ended by SIGTERM, and ALONE in its process group (`exec`
+ * keeps an ignored signal ignored): when node-pty reports its exit after the
+ * SIGTERM rung, the whole group is gone with it — no worker child can race
+ * the exit's own group probe.
+ */
+const HUP_DEAF_ALONE = `#!/bin/sh
+trap '' HUP
+printf '%s\\n' "$$" > "$1"
+printf 'READY\\n'
+exec sleep 300
+`;
+
 /** An ordinary CLI: SIGHUP ends it, so no escalation may ever be reached. */
 const PLAIN = `#!/bin/sh
 printf '%s\\n' "$$" > "$1"
@@ -141,7 +155,7 @@ printf 'READY\\n'
 exec sleep 300
 `;
 
-/** Mirrors server/sessions.ts KILL_TERM_AFTER_MS / KILL_KILL_AFTER_MS. */
+/** Mirrors server/pty-table.ts KILL_TERM_AFTER_MS / KILL_KILL_AFTER_MS. */
 export const KILL_TERM_MS = 2000;
 export const KILL_KILL_MS = 3000;
 
@@ -160,6 +174,7 @@ export const plain = (): string => join(binDir, 'plain-cli');
 export const hupLeader = (): string => join(binDir, 'hup-leader-trap-child');
 export const hupLeaderShort = (): string => join(binDir, 'hup-leader-short-child');
 export const hupLeaderTerm = (): string => join(binDir, 'hup-leader-term-child');
+export const hupDeafAlone = (): string => join(binDir, 'hup-deaf-alone');
 /** The out-of-process backend of T10, written into the temp root. */
 export const ladderBackend = (): string => join(root, 'ladder-exit-backend.ts');
 
@@ -178,6 +193,7 @@ export async function setupKillFixture(): Promise<void> {
   await writeFile(hupLeader(), HUP_LEADER_TRAP_CHILD, { mode: 0o755 });
   await writeFile(hupLeaderShort(), HUP_LEADER_SHORT_CHILD, { mode: 0o755 });
   await writeFile(hupLeaderTerm(), HUP_LEADER_TERM_CHILD, { mode: 0o755 });
+  await writeFile(hupDeafAlone(), HUP_DEAF_ALONE, { mode: 0o755 });
   await writeFile(ladderBackend(), LADDER_EXIT_BACKEND);
 }
 
@@ -273,29 +289,23 @@ export function errno(code: string, message: string): NodeJS.ErrnoException {
   return err;
 }
 
-export interface Harness {
-  manager: SessionManager;
-  lines: string[];
-  /** Every process.kill this test made, as [pid, signal]. */
+/** The spy on process.kill: every call, as [pid, signal], and the fault injector. */
+export interface KillSpy {
+  /** Every process.kill made since the spy went in, as [pid, signal]. */
   kills: [number, string | number | undefined][];
   /** Install (or clear, with undefined) the fault injector; see KillFault. */
   setFault: (fault: KillFault | undefined) => void;
-  cleanup: () => Promise<void>;
+  /** Put the real process.kill back. */
+  restore: () => void;
 }
 
 /**
- * SessionManager on a temp history file, a capturing logger, and process.kill
- * wrapped so a test can say "no signal was sent" instead of inferring it from
- * an absent log line. The wrapper DELEGATES (node-pty signals through the same
- * function), and is restored by cleanup().
+ * Wrap process.kill so a test can say "no signal was sent" instead of
+ * inferring it from an absent log line. The wrapper DELEGATES (node-pty
+ * signals through the same function) unless the fault injector says
+ * otherwise; restore() puts the real one back.
  */
-export async function harness(): Promise<Harness> {
-  const dir = await makeTempDir('ai-sm-killh-');
-  const lines: string[] = [];
-  const log = (level: LogLevel, message: string): void => {
-    lines.push(`${level} ${message}`);
-  };
-  const history = new SessionHistory(join(dir, 'history.json'), log);
+export function spyProcessKill(): KillSpy {
   const kills: [number, string | number | undefined][] = [];
   let fault: KillFault | undefined;
   const realKill = process.kill.bind(process) as typeof process.kill;
@@ -307,14 +317,45 @@ export async function harness(): Promise<Harness> {
     return realKill(pid, signal);
   }) as typeof process.kill;
   return {
-    manager: new SessionManager(log, history),
-    lines,
     kills,
     setFault: (next) => {
       fault = next;
     },
-    cleanup: async () => {
+    restore: () => {
       process.kill = realKill;
+    },
+  };
+}
+
+export interface Harness {
+  manager: SessionManager;
+  lines: string[];
+  /** Every process.kill this test made, as [pid, signal]. */
+  kills: [number, string | number | undefined][];
+  /** Install (or clear, with undefined) the fault injector; see KillFault. */
+  setFault: (fault: KillFault | undefined) => void;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * SessionManager on a temp history file, a capturing logger, and the
+ * process.kill spy (spyProcessKill), restored by cleanup().
+ */
+export async function harness(): Promise<Harness> {
+  const dir = await makeTempDir('ai-sm-killh-');
+  const lines: string[] = [];
+  const log = (level: LogLevel, message: string): void => {
+    lines.push(`${level} ${message}`);
+  };
+  const history = new SessionHistory(join(dir, 'history.json'), log);
+  const spy = spyProcessKill();
+  return {
+    manager: new SessionManager(log, history),
+    lines,
+    kills: spy.kills,
+    setFault: spy.setFault,
+    cleanup: async () => {
+      spy.restore();
       await removeTempDir(dir);
     },
   };

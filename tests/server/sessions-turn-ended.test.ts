@@ -126,7 +126,7 @@ function isIso(v: unknown): boolean {
 
 test('C1 turnEnded: working -> waiting sets it and stamps pendingSince, in ONE info frame', async () => {
   await withManager(async (m, root) => {
-    const info = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
+    const info = await m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     assert.equal('turnEnded' in info, false, 'a new session carries neither flag');
     assert.equal('pendingSince' in info, false);
     const client = new FakeClient();
@@ -157,7 +157,7 @@ test('C1 turnEnded: working -> waiting sets it and stamps pendingSince, in ONE i
 
 test('C1 turnEnded: a FIRST readout of waiting is not news — nor waiting after an unknown turn', async () => {
   await withManager(async (m, root) => {
-    const info = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
+    const info = await m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
     m.attach(info.id, client.asWs());
 
@@ -176,7 +176,7 @@ test('C1 turnEnded: a FIRST readout of waiting is not news — nor waiting after
     assert.equal('pendingSince' in s, false);
 
     // A session that never had a readout never gets the flag.
-    const other = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
+    const other = await m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     m.setReport(other.id, turn(undefined));
     assert.equal('turnEnded' in (m.get(other.id) as SessionInfo), false);
     for (const f of client.infoFrames()) assert.equal('turnEnded' in f, false, 'no frame ever carried it');
@@ -185,7 +185,7 @@ test('C1 turnEnded: a FIRST readout of waiting is not news — nor waiting after
 
 test('C1 turnEnded: the turn going back to working clears it and pendingSince; the turn going unknown keeps it', async () => {
   await withManager(async (m, root) => {
-    const info = m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
+    const info = await m.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
     m.attach(info.id, client.asWs());
     m.setReport(info.id, turn('working'));
@@ -214,7 +214,7 @@ test('C1 turnEnded: the turn going back to working clears it and pendingSince; t
 
 test('C1 markSeen clears attention only: turnEnded and its pendingSince stay; unknown id -> false', async () => {
   await withManager(async (m, root) => {
-    const info = m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
+    const info = await m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
     m.attach(info.id, client.asWs());
     m.setReport(info.id, turn('working'));
@@ -250,7 +250,7 @@ test('C1 markSeen clears attention only: turnEnded and its pendingSince stay; un
 
 test('C1 pendingSince: BEL stamps it, a turn ending later KEEPS it, working keeps it while attention holds', async () => {
   await withManager(async (m, root) => {
-    const info = m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
+    const info = await m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
     m.attach(info.id, client.asWs());
     m.setReport(info.id, turn('working'));
@@ -294,7 +294,7 @@ test('C1 pendingSince: BEL stamps it, a turn ending later KEEPS it, working keep
 
 test('C1 pendingSince: a turn ending first stamps it; a BEL after keeps it', async () => {
   await withManager(async (m, root) => {
-    const info = m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
+    const info = await m.create({ command: 'bash', args: BELL_ON_LINE, cwd: root, cols: 80, rows: 24 });
     const client = new FakeClient();
     m.attach(info.id, client.asWs());
     m.setReport(info.id, turn('working'));
@@ -310,7 +310,7 @@ test('C1 pendingSince: a turn ending first stamps it; a BEL after keeps it', asy
 test('C1 exit: turnEnded and its pendingSince go in the info frame right before exit; a BEL-pending one keeps its stamp', async () => {
   await withManager(async (m, root) => {
     // (a) turn-only pending: both cleared at exit.
-    const a = m.create({ command: 'bash', args: ['-c', 'read -r _'], cwd: root, cols: 80, rows: 24 });
+    const a = await m.create({ command: 'bash', args: ['-c', 'read -r _'], cwd: root, cols: 80, rows: 24 });
     const ca = new FakeClient();
     m.attach(a.id, ca.asWs());
     m.setReport(a.id, turn('working'));
@@ -329,7 +329,7 @@ test('C1 exit: turnEnded and its pendingSince go in the info frame right before 
 
     // (b) BEL-pending at exit: attention is untouched at exit (as before C1),
     // so its pendingSince stands; the turn flag still goes.
-    const b = m.create({
+    const b = await m.create({
       command: 'bash',
       args: ['-c', 'IFS= read -r _; printf "\\a"; IFS= read -r _'],
       cwd: root,
@@ -361,7 +361,7 @@ test('C1 exit: turnEnded held past an unknown turn still goes in ONE info frame 
   // readout already went unknown (so `turn` has nothing to delete) and a BEL
   // keeps `pendingSince`. Attached clients must still hear the flag go.
   await withManager(async (m, root) => {
-    const info = m.create({
+    const info = await m.create({
       command: 'bash',
       args: ['-c', 'IFS= read -r _; printf "\\a"; IFS= read -r _'],
       cwd: root,
@@ -462,7 +462,7 @@ test('C1 served + seen paths: /mascot.html carries the token like index.html; PO
     assert.equal(page.headers.get('x-frame-options'), 'DENY');
     assert.equal(page.headers.get('content-security-policy'), "frame-ancestors 'none'");
 
-    const info = sessions.create({ command: 'bash', args: BELL_ON_LINE, cwd: dir, cols: 80, rows: 24 });
+    const info = await sessions.create({ command: 'bash', args: BELL_ON_LINE, cwd: dir, cols: 80, rows: 24 });
     client = await WsClient.connect(`ws://127.0.0.1:${boundPort}/ws/sessions/${info.id}?token=${token}`);
     await client.waitForMessage('replay');
     const ws = client;

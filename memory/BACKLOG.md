@@ -497,3 +497,8 @@ nothing here needs doing. New ticks move here when their item lands.
   `ui-files-panel-*`, `git-commits-*`/`git-changes` (`sleep(500)`), polling
   loops in `agents-*` and `telemetry` that `waitUntil` could replace.
 
+
+## From Nocturne D9 P1 (2026-11-20)
+
+- [ ] The early-exit verdict (`earlyExitLine`, D6) compares wall-clock times (`record.at - Date.parse(createdAt)`); on this WSL machine the wall clock steps back ~1 s every ~30 s (D9 P1 gate measured 23 steps in 12 min), so a verdict near `EARLY_EXIT_MS` can be off by ~1 s. A monotonic stamp (`performance.now()` kept beside `createdAt`) would fix it; the test was widened to 6 s.
+- [ ] One unexplained single failure of `sessions-resume-live` 'a non-claude command carrying the same --resume argv is never touched by the gate' during the gate (log not kept) — watch for a repeat.

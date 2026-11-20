@@ -112,7 +112,7 @@ test('final output written just before exit survives into the replay when the re
   try {
     // 32 KiB of padding only to push the reader behind the child; the payload
     // under test is the single small line written immediately before exit.
-    const info = manager.create({
+    const info = await manager.create({
       cwd: process.cwd(),
       command: 'bash',
       args: ['-c', "head -c 32768 /dev/zero | tr '\\0' x; echo TAIL_MARK_9f3c"],
@@ -172,7 +172,7 @@ test('final output written just before exit survives into the replay when the re
 test('detached session: the final output is buffered even with no client attached at all', async () => {
   const { manager, cleanup } = await harness();
   try {
-    const info = manager.create({
+    const info = await manager.create({
       cwd: process.cwd(),
       command: 'bash',
       args: ['-c', "head -c 32768 /dev/zero | tr '\\0' x; echo LONE_MARK_51ab"],
@@ -199,7 +199,7 @@ test('detached session: the final output is buffered even with no client attache
 test('a rescued tail still raises attention: a BEL in the final output sets the flag', async () => {
   const { manager, cleanup } = await harness();
   try {
-    const info = manager.create({
+    const info = await manager.create({
       cwd: process.cwd(),
       command: 'bash',
       args: ['-c', "head -c 32768 /dev/zero | tr '\\0' x; printf 'BELL_MARK_c7\\a'"],
@@ -238,7 +238,7 @@ test('the rescued tail is delivered EXACTLY once — byte-exact, no duplication,
   const PAD = 32768;
   const { manager, cleanup } = await harness();
   try {
-    const info = manager.create({
+    const info = await manager.create({
       cwd: process.cwd(),
       command: 'bash',
       args: ['-c', `head -c ${PAD} /dev/zero | tr '\\0' x; echo ONCE_MARK_4d1e; exit 7`],
@@ -290,7 +290,7 @@ test('a multi-byte UTF-8 tail is rescued without corruption (no replacement char
   const GLYPHS = 2000; // U+2713 is 3 bytes -> 6000 bytes of multi-byte tail
   const { manager, cleanup } = await harness();
   try {
-    const info = manager.create({
+    const info = await manager.create({
       cwd: process.cwd(),
       command: 'bash',
       args: [

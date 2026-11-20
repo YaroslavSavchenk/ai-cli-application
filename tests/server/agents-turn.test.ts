@@ -482,7 +482,7 @@ test('watcher: agents AND a turn travel in one report; the turn changing alone i
 test('SessionManager.setReport: a turn-only report sets `turn` and no agent fields; the turn moving is one frame', async () => {
   const m = await makeManager();
   try {
-    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+    const info = await m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
     assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     const base = client.infoFrames().length;
@@ -515,7 +515,7 @@ test('SessionManager.setReport: a turn-only report sets `turn` and no agent fiel
 test('SessionManager: the exit drops `turn` in the frame before `exit`, and a later report cannot bring it back', async () => {
   const m = await makeManager();
   try {
-    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 0.3'], cwd: m.root, cols: 80, rows: 24 });
+    const info = await m.manager.create({ command: 'bash', args: ['-c', 'sleep 0.3'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
     assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     m.manager.setReport(info.id, report([], { turn: 'working' }));

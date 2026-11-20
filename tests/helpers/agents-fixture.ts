@@ -605,7 +605,7 @@ export async function wired(
   } = {},
 ): Promise<Wired> {
   const m = await makeManager();
-  const info = m.manager.create({ command: 'bash', args: opts.args ?? ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+  const info = await m.manager.create({ command: 'bash', args: opts.args ?? ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
   const title = opts.titleIdleSince === 'manager' ? (): number | undefined => m.manager.titleIdleSince(info.id) : opts.titleIdleSince;
   const w = await makeWatcher({
     ...(opts.now === undefined ? {} : { now: opts.now }),

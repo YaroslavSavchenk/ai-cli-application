@@ -66,7 +66,7 @@ test('SessionManager.setReport: an unknown id is a silent no-op, and never creat
 test('SessionManager.setReport: one `info` broadcast per REAL change, carrying agents + agentCounts', async () => {
   const m = await makeManager();
   try {
-    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+    const info = await m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     const client = new FakeClient();
     assert.notEqual(m.manager.attach(info.id, client.asWs()), null);
     assert.equal(client.agentFrames().length, 0, 'the attach info carries no agents yet');
@@ -124,7 +124,7 @@ test('SessionManager.isLive: an id that was never a session is not live', async 
 test('SessionManager: destroy() untracks the session as well as the exit does', async () => {
   const m = await makeManager();
   try {
-    const info = m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
+    const info = await m.manager.create({ command: 'bash', args: ['-c', 'sleep 30'], cwd: m.root, cols: 80, rows: 24 });
     m.watcher.track(info.id, join(m.root, 'subagents'));
     assert.equal(m.watcher.trackedCount, 1);
     m.manager.destroy(info.id);
@@ -146,7 +146,7 @@ test('SessionManager: isLive is false for an EXITED session, which stays listed'
   history.load();
   const manager = new SessionManager(log, history, undefined, undefined, watcher);
   try {
-    const info = manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
+    const info = await manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
     assert.equal(manager.isLive(info.id), true);
     watcher.track(info.id, join(root, 'subagents'));
     assert.equal(watcher.trackedCount, 1);
@@ -253,7 +253,7 @@ test('SessionManager: a RUNNING agent row is finished by the exit, and only that
   history.load();
   const manager = new SessionManager(log, history);
   try {
-    const info = manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
+    const info = await manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
     const done: SessionAgent = {
       id: 'aa',
       name: 'done',
@@ -304,7 +304,7 @@ test('SessionManager: a session with NO agents gets no list at exit', async () =
   history.load();
   const manager = new SessionManager(log, history);
   try {
-    const info = manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
+    const info = await manager.create({ command: 'bash', args: ['-c', 'exit 0'], cwd: root, cols: 80, rows: 24 });
     await waitUntil(
       () => (manager.get(info.id)?.status === 'exited' ? true : undefined),
       'the session to exit',
