@@ -82,6 +82,7 @@ Master plans:
 - `RELEASE-NOTES-v0.4.1-draft.md` — the mascot fix + C2, the quality track's speed parts, D1
 - `RELEASE-NOTES-v0.4.2-draft.md` — the update check every hour
 - `RELEASE-NOTES-v0.4.3-draft.md` — D2–D7 and Q8: the media viewer, the Claude Code version guard, Always ask, focus, runtime.json, FIFO-safe reads
+- `RELEASE-NOTES-v0.4.4-draft.md` — Dependabot security updates: vite, source-map-js, ws
 
 Part specs, `nocturne/`:
 

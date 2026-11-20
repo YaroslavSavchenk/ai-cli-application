@@ -121,6 +121,10 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 Entries live at `memory/log/<YYYY-MM>/<area>/` (areas: nocturne, backend, ui,
 launcher, github, release, project); the link target is still the filename.
 
+### 2026-11
+
+- [[2026-11-20-dependabot-security-updates]] — Dependabot ("github bot"): vite 8.1.5 → 8.3.8 (source-map-js 1.2.4 via postcss) + ws 8.23.0 in one bump, 6 alerts closed, audit 0; verify-terminal driven over HTTP+WS on dev; released as v0.4.4
+
 ### 2026-10
 
 - [[2026-10-21-d7-media-viewer]] — D7: media tickets + Range route (server), viewer body by kind, `:text` tab for SVG, image follow; 71 mutants, 17 tests added
