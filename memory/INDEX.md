@@ -33,6 +33,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 
 ### UI and Nocturne
 
+- [[pty-host-session-survival]] — 2026-11-20 (user): D9 — a pty-host per data dir owns the PTYs so restart/update/crash keep sessions; window closed still ends them (25), crash waits 10 min (26), incompatible pty-host ends them with a warning first (27); rejected resume-restore and tmux
 - [[d7-media-viewer]] — 2026-10-21 (user): images, video, PDF (no audio) open as a viewer tab in the editor pane; SVG as picture + Edit as text; an image follows the file on disk; src via a path-bound ticket (`GET /api/fs/media`, the one route without the token header), never the token in a URL
 - [[d6-claude-code-compat-guard]] — 2026-10-13 (user): notice offers Check for updates only; hidden until a different Claude Code version, survives restart, a NEW dead launch brings it back (not a reload replay); Always ask → `--permission-mode manual` (since 2.1.200); range in `shared/claude-compat.ts`, release notes pinned
 - [[d1-project-prefs-and-model-pool]] — 2026-10-13: D1 (user): Edit button per project row (name, model, all 4 permission modes, effort); Claude models pinned by version (`Opus 5.5` = `claude-opus-5-5`), newest 4 on top, gen 5 + Opus/Sonnet 4.x under Older models; aliases read as newest, no migration; preferences Claude-only, re-resolved on project switch, hand change wins
