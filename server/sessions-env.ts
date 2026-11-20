@@ -12,7 +12,7 @@
  */
 
 /**
- * The four variables that belong to a RESTART HANDOFF and to nothing else
+ * The variables that belong to a RESTART HANDOFF and to nothing else
  * (server/restart.ts): they describe how THIS backend was started. A session
  * inheriting them would hand a shell — and anything the user runs in it,
  * including another copy of this app — a port hint, a foreign pid, a served
@@ -28,6 +28,14 @@ const HANDOFF_ENV = [
   // Files panel's routes are confined to (server/fsbrowse.ts). A PTY that
   // inherited it would run a shell whose idea of `home` is a test fixture.
   'AI_SM_HOME_OVERRIDE',
+  // The pty-host's seams (D9 P2, server/pty-host-server.ts / -client.ts): they
+  // shape the BACKEND's session holder. A backend launched from inside a
+  // terminal must pick its own, not run its sessions in-process (or with a
+  // test's 1-second orphan grace) because the parent was told to.
+  'AI_SM_PTY_HOST',
+  'AI_SM_PTY_HOST_IDLE_MS',
+  'AI_SM_PTY_HOST_ORPHAN_MS',
+  'AI_SM_PTY_HOST_BUILD',
 ] as const;
 
 /**

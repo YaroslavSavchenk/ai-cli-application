@@ -213,6 +213,11 @@ export class SessionManager {
     keys?: KeyStore,
     agents?: AgentsWatcher,
     claudeVersion?: () => string | null,
+    /**
+     * Who owns the PTYs (D9 P2 seam): the in-process table by default; a test
+     * passes a recording fake, P3 the pty-host's socket client.
+     */
+    host: PtyHost = createInProcessPtyHost(log),
   ) {
     this.#log = log;
     this.#slog = scoped(log, 'session');
@@ -221,7 +226,7 @@ export class SessionManager {
     this.#keys = keys;
     this.#agents = agents;
     this.#claudeVersion = claudeVersion;
-    this.#host = createInProcessPtyHost(log);
+    this.#host = host;
     this.#host.listen({
       output: (id, data) => {
         const session = this.#ptys.get(id);

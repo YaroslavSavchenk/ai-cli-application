@@ -84,6 +84,13 @@ function Complete-Install {
 # line is: both passed the allow-list, so neither can contain a space, a
 # quote or a metacharacter.
 #
+# The DATA dir (the app dir's parent, `${appdir%/app}`; the /app suffix is
+# enforced below) is created 0700 under its own umask 077 BEFORE the app dir
+# (D9 P2): the pty-host refuses a data dir that is not exactly 0700, and a
+# `mkdir -p` of the app dir under umask 022 would have created it 0755. An
+# existing data dir is left as it is - the backend tightens it at boot
+# (server/config.ts `resolveDataPaths`).
+#
 # `fail` is what keeps a failed install from leaving a half-unpacked staging
 # directory (tens of megabytes) behind: every step that can fail routes
 # through it, and it removes the staging dir before reporting the reason.
@@ -112,6 +119,7 @@ live=$3
 umask 022
 stage=$appdir/.incoming.$$
 fail() { cd /; rm -rf $stage; echo AI_SM_ERR=$1; exit $2; }
+(umask 077; mkdir -p ${appdir%/app}) || fail mkdir_failed 21
 mkdir -p $appdir || fail mkdir_failed 21
 rm -rf $appdir/.incoming.* $appdir/.current.new.*
 mkdir $stage || fail stage_failed 22

@@ -613,7 +613,7 @@ updates at all, and neither does a bundle whose version is `0.0.0-*`.
 
 | Path | What lives there |
 | --- | --- |
-| `server/` | The WSL-side Node backend: sessions and PTYs, HTTP + WebSocket API, history, update and restart logic, `statusline.mjs` |
+| `server/` | The WSL-side Node backend: sessions and PTYs, HTTP + WebSocket API, history, update and restart logic, `statusline.mjs`; `server/pty-host-*.ts` is the separate process that holds the PTYs across backend restarts (Nocturne D9) |
 | `web/` | The browser frontend (vanilla TypeScript + Vite): `src/`, `index.html`, `mascot.html`, the design system notes in `DESIGN.md` |
 | `shared/` | `protocol.ts`, the wire contract both sides import (it re-exports its topic modules `protocol-*.ts`) |
 | `tests/` | The whole suite (`npm test`): `ui/` (frontend, `npm run test:ui`), `server/` (backend), `release/` (bundle, installer, launcher, workflows), `repo/` (the layout, author-path and file-size guards), `helpers/` (shared test modules, no tests), `fixtures/` (data files); how a test is written: `tests/README.md` |

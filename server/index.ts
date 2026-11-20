@@ -70,6 +70,10 @@ import { createClaudeWiring } from './index-claude.ts';
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
 const log = createLogger(paths.logFile, logLevel.level);
+if (paths.dataDirModeWas !== undefined) {
+  // D9 P2: the pty-host needs the data dir at exactly 0700 (config.ts tightenDataDir).
+  log('info', `data dir ${paths.dataDir} had mode ${paths.dataDirModeWas.toString(8)}; tightened to 700`);
+}
 const token = generateToken();
 const serverDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(serverDir, '..');

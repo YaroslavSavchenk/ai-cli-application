@@ -17,6 +17,7 @@
 import { join } from 'node:path';
 import type { UpdateStatus } from '../shared/protocol.ts';
 import {
+  envMs,
   oneLine,
   DEFAULT_UPDATE_API_BASE,
   resolveUpdateApiBase,
@@ -27,6 +28,7 @@ import { createUpdateChecker } from './buildinfo.ts';
 import { createInstalledUpdateChecker, type BundleInfo } from './bundle.ts';
 import {
   CHECK_INTERVAL_MS,
+  FIRST_CHECK_MS,
   composeUpdateStatus,
   createReleaseChecker,
   releaseCheckSupported,
@@ -58,40 +60,13 @@ interface Updates {
 }
 
 /**
- * Millisecond seam, same contract as AI_SM_GRACE_MS: invalid falls back loudly.
- *
- * FLOORED AT ONE SECOND. These two seams move the clock of a loop that talks to
- * api.github.com, and `0` (or 5) would turn it into a request flood against
- * someone else's service from a machine the user thought was idle. A value
- * below the floor is raised to it and said out loud; the test suite only ever
- * needs "sooner", never "as fast as the CPU allows".
+ * FLOOR OF THE TWO UPDATE TIMING SEAMS: they move the clock of a loop that
+ * talks to api.github.com, and `0` (or 5) would turn it into a request flood
+ * against someone else's service from a machine the user thought was idle.
+ * The test suite only ever needs "sooner", never "as fast as the CPU allows".
+ * (Parsing, the loud fallback and the timer-maximum cap: config.ts `envMs`.)
  */
 const UPDATE_ENV_MIN_MS = 1_000;
-/**
- * CAPPED AT THE NODE TIMER MAXIMUM (2^31-1 ms). setTimeout silently treats a
- * larger delay as 1 ms, so an over-large seam would produce the exact flood the
- * floor above exists to prevent instead of the "practically never" the value
- * asks for.
- */
-const UPDATE_ENV_MAX_MS = 2_147_483_647;
-function updateEnvMs(boot: Logger, name: string, fallback: number): number | undefined {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
-    boot('warn', `${name} must be a non-negative integer (ms), got ${JSON.stringify(oneLine(raw))}; using ${fallback}`);
-    return undefined;
-  }
-  if (value < UPDATE_ENV_MIN_MS) {
-    boot('warn', `${name}=${value} is below the ${UPDATE_ENV_MIN_MS}ms floor; using ${UPDATE_ENV_MIN_MS}`);
-    return UPDATE_ENV_MIN_MS;
-  }
-  if (value > UPDATE_ENV_MAX_MS) {
-    boot('warn', `${name}=${value} is above the ${UPDATE_ENV_MAX_MS}ms timer maximum; using ${UPDATE_ENV_MAX_MS}`);
-    return UPDATE_ENV_MAX_MS;
-  }
-  return value;
-}
 
 export function createUpdateWiring(wiring: UpdateWiring): Updates {
   const { log, boot, paths, repoRoot, serverDir, webDistDir, bundle, getStartedAt } = wiring;
@@ -130,8 +105,8 @@ export function createUpdateWiring(wiring: UpdateWiring): Updates {
     log('warn', `release check api base overridden via AI_SM_UPDATE_API_BASE: ${updateApiBase}`);
   }
 
-  const firstCheckMs = updateEnvMs(boot, 'AI_SM_UPDATE_FIRST_MS', 20_000);
-  const checkIntervalMs = updateEnvMs(boot, 'AI_SM_UPDATE_INTERVAL_MS', CHECK_INTERVAL_MS);
+  const firstCheckMs = envMs('AI_SM_UPDATE_FIRST_MS', FIRST_CHECK_MS, boot, { floor: UPDATE_ENV_MIN_MS });
+  const checkIntervalMs = envMs('AI_SM_UPDATE_INTERVAL_MS', CHECK_INTERVAL_MS, boot, { floor: UPDATE_ENV_MIN_MS });
 
   /**
    * The periodic release check. Built ONLY for an installed bundle whose version
@@ -146,8 +121,8 @@ export function createUpdateWiring(wiring: UpdateWiring): Updates {
         apiBase: updateApiBase,
         cacheFile: paths.updateCheckFile,
         log,
-        ...(firstCheckMs !== undefined ? { firstCheckMs } : {}),
-        ...(checkIntervalMs !== undefined ? { intervalMs: checkIntervalMs } : {}),
+        firstCheckMs,
+        intervalMs: checkIntervalMs,
       });
     } else {
       boot(

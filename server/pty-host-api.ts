@@ -31,12 +31,17 @@
  *     already holds (from the snapshot) from a new one, and finds a gap.
  * SessionManager ignores them in P1 on purpose (no behaviour change).
  *
- * Accepted cost while the table is in-process (P1 until P2 moves it out): the
+ * P2 added `detach`, `onLost` and `pendingSpawns` for the socket
+ * implementation (server/pty-host-client.ts `SocketPtyHost`); the in-process
+ * one answers them trivially.
+ *
+ * Accepted cost while the table is in-process (P1 and P2; P3 moves it out): the
  * table's ring is a SECOND copy of the manager's mirror — up to another
  * SCROLLBACK_MAX_BYTES (1 MiB) per session — plus one extra `Buffer.from` per
  * output chunk. Kept so P3 re-attaches without reshaping anything.
  */
 import type { Logger } from './config.ts';
+import type { ByeReason } from './pty-host-wire.ts';
 import {
   PtyTable,
   type PtyEntrySummary,
@@ -49,7 +54,11 @@ import {
 export interface PtyHost {
   /** Set the one owner that receives every output and exit event. */
   listen(events: PtyEvents): void;
-  /** Start a PTY; rejects when it cannot be spawned (nothing is left behind). */
+  /**
+   * Start a PTY; rejects when it cannot be spawned (nothing is left behind).
+   * `PtySpawnRequest.meta` (optional, ≤ 16 KiB) is the entry's first metadata
+   * blob, so a backend that dies right after the spawn still left it (P3).
+   */
   spawn(req: PtySpawnRequest): Promise<PtySpawned>;
   /** Input bytes to a running PTY; ignored for an unknown or ended one. */
   write(id: string, data: string): void;
@@ -65,7 +74,33 @@ export interface PtyHost {
   forget(id: string): void;
   /** Kill every PTY now and finish off every ladder in flight (backend shutdown). */
   shutdownAll(): void;
+  /**
+   * Clean goodbye (D9 P2; P4's restart and update): the PTYs keep running for
+   * the next owner, and `onLost` does not fire for it.
+   */
+  detach(): void;
+  /**
+   * The host is gone — the connection closed or the host process died (D9
+   * P2). P3 then group-probes each known pid, SIGKILLs `-pid` and stamps
+   * history `crash`. Never fires after `detach()`.
+   */
+  onLost(listener: (reason: PtyHostLostReason) => void): void;
+  /**
+   * Ids whose spawn was sent and not answered yet: live in the host, unknown
+   * to the owner until the answer is read (§ Risks (a)) — P3's destroy,
+   * destroyAll and detachAll must respect them.
+   */
+  pendingSpawns(): ReadonlySet<string>;
 }
+
+/**
+ * Why the host is gone: `closed` (the connection dropped with no goodbye —
+ * a crash or a kill) or the reason of the host's `bye`: another owner took
+ * over, it exited idle or after the orphan grace, or it shut down.
+ */
+export type PtyHostLostReason = 'closed' | ByeReason;
+
+const NO_PENDING_SPAWNS: ReadonlySet<string> = new Set();
 
 /**
  * The PTYs live in this process, exactly as before D9. Events are delivered
@@ -92,5 +127,11 @@ export function createInProcessPtyHost(log: Logger): PtyHost {
     list: async () => table.list(),
     forget: (id) => table.forget(id),
     shutdownAll: () => table.shutdownAll(),
+    // In-process the PTYs live and die with this process: there is nothing to
+    // detach from, the host can never be lost, and a spawn is answered
+    // synchronously, so none is ever pending.
+    detach: () => {},
+    onLost: () => {},
+    pendingSpawns: () => NO_PENDING_SPAWNS,
   };
 }

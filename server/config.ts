@@ -30,6 +30,7 @@ import {
   chmodSync,
   closeSync,
   constants as fsConstants,
+  fchmodSync,
   fstatSync,
   openSync,
   readSync,
@@ -143,6 +144,11 @@ export interface DataPaths {
    */
   claudeProjectsDir: string;
   logFile: string;
+  /**
+   * The data dir's mode before `resolveDataPaths` tightened it to 0700
+   * (`tightenDataDir`), for the boot log; undefined when nothing changed.
+   */
+  dataDirModeWas?: number;
 }
 
 /**
@@ -179,11 +185,53 @@ export function claudeConfigDir(): string {
   return override !== undefined && override !== '' ? override : join(homedir(), '.claude');
 }
 
-/** Resolve (and create, mode 0700) the data dir. Throws on a relative AI_SM_DATA_DIR. */
+/**
+ * Bring an EXISTING data dir to 0700 when group or other bits are set, and
+ * return its old mode (undefined when nothing changed). Only a real directory
+ * (opened O_NOFOLLOW — a link is left alone) owned by this uid is touched; anyone else's
+ * is left as it is, and the pty-host then refuses it (D9 P2:
+ * server/pty-host-wire.ts `dataDirRefusal`).
+ *
+ * WHY (D9 P2 review): `mkdirSync({ mode: 0o700 })` does nothing to a
+ * directory that already exists, and installs before D9 created the data dir
+ * 0755 (`umask 022; mkdir -p <data>/app` in installer/helpers/install-bundle.ps1)
+ * — without this the pty-host would refuse every such install forever. Never
+ * throws: a failed chmod leaves the refusal to the pty-host.
+ */
+export function tightenDataDir(dir: string): number | undefined {
+  let fd: number;
+  try {
+    // Judged and changed through ONE fd opened without following a link: an
+    // lstat then chmod(path) would follow a symlink swapped in between.
+    fd = openSync(dir, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  } catch {
+    return undefined; // missing, a link (ELOOP), not a directory
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isDirectory() || st.uid !== process.getuid?.()) return undefined;
+    const mode = st.mode & 0o777;
+    if ((mode & 0o077) === 0) return undefined;
+    fchmodSync(fd, 0o700);
+    return mode;
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      // Nothing to do about a failed close.
+    }
+  }
+}
+
+/** Resolve (and create, mode 0700 — or tighten to 0700) the data dir. Throws on a relative AI_SM_DATA_DIR. */
 export function resolveDataPaths(): DataPaths {
   const dataDir = dataDirPath();
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  const dataDirModeWas = tightenDataDir(dataDir);
   return {
+    ...(dataDirModeWas !== undefined ? { dataDirModeWas } : {}),
     dataDir,
     runtimeFile: join(dataDir, 'runtime.json'),
     projectsFile: join(dataDir, 'projects.json'),
@@ -705,6 +753,43 @@ function rotate(logFile: string): void {
   } catch {
     // Best effort; the append below recreates the live file 0600 regardless.
   }
+}
+
+/** setTimeout's own ceiling: a larger delay silently becomes 1 ms. */
+const TIMER_MAX_MS = 2_147_483_647;
+
+/**
+ * An integer-milliseconds env seam (`AI_SM_GRACE_MS`, the update timings, the
+ * pty-host lifetimes): the ONE parser, so every seam falls back the same way —
+ * LOUDLY. Unset or empty ⇒ `fallback`, silently. Not a non-negative integer ⇒
+ * a warn line and `fallback`. Below `floor` ⇒ raised to it, said out loud (a
+ * seam whose 0 would mean a request flood or every session killed at once
+ * carries a floor). Above the Node timer maximum ⇒ capped, said out loud (a
+ * larger setTimeout delay fires after 1 ms — the opposite of what was asked).
+ */
+export function envMs(
+  name: string,
+  fallback: number,
+  log: Logger,
+  opts: { floor?: number; env?: NodeJS.ProcessEnv } = {},
+): number {
+  const raw = (opts.env ?? process.env)[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    log('warn', `${name} must be a non-negative integer (ms), got ${JSON.stringify(oneLine(raw))}; using ${fallback}`);
+    return fallback;
+  }
+  const floor = opts.floor ?? 0;
+  if (value < floor) {
+    log('warn', `${name}=${value} is below the ${floor}ms floor; using ${floor}`);
+    return floor;
+  }
+  if (value > TIMER_MAX_MS) {
+    log('warn', `${name}=${value} is above the ${TIMER_MAX_MS}ms timer maximum; using ${TIMER_MAX_MS}`);
+    return TIMER_MAX_MS;
+  }
+  return value;
 }
 
 /**

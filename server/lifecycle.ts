@@ -16,24 +16,12 @@
  * (a launcher that failed to open a browser must not leave a zombie); after
  * that, the regular grace applies.
  */
-import { scoped, type Logger } from './config.ts';
+import { envMs, scoped, type Logger } from './config.ts';
 
 /** Grace after the last client disconnects. Env override: AI_SM_GRACE_MS. */
 export const DEFAULT_GRACE_MS = 30_000;
 /** Grace from listen until the first presence ever. Env override: AI_SM_STARTUP_GRACE_MS. */
 export const DEFAULT_STARTUP_GRACE_MS = 120_000;
-
-/** Read an integer-milliseconds env override; invalid values fall back loudly. */
-function envMs(name: string, fallback: number, log: Logger): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
-    log('warn', `${name} must be a non-negative integer (ms), got ${JSON.stringify(raw)}; using ${fallback}`);
-    return fallback;
-  }
-  return value;
-}
 
 export interface LifecycleOptions {
   onIdleShutdown: () => void;

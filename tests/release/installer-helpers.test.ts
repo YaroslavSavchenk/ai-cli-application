@@ -34,6 +34,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import {
+  chmodSync,
+  mkdirSync,
   statSync,
   symlinkSync,
   utimesSync,
@@ -190,6 +192,36 @@ test('unpack script: a fresh install lands the version dir and points current at
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.2.0');
     // No staging leftovers.
     assert.ok(!readdirSync(appDir).some((n) => n.startsWith('.incoming') || n.startsWith('.current.new')));
+  } finally {
+    await removeTempDir(root);
+  }
+});
+
+test('unpack script: a fresh install creates the data dir 0700 (the pty-host refuses anything else), the app dir 0755', async () => {
+  const root = await makeTempDir('ai-sm-inst-');
+  try {
+    const dataDir = join(root, 'home', '.ai-session-manager');
+    const appDir = join(dataDir, 'app');
+    await makeBundle(root, 'v0.2.0');
+    const res = await install(root, appDir, 'v0.2.0');
+    assert.equal(res.code, 0, res.out);
+    assert.equal(statSync(dataDir).mode & 0o777, 0o700, 'data dir');
+    assert.equal(statSync(appDir).mode & 0o777, 0o755, 'app dir keeps umask 022');
+  } finally {
+    await removeTempDir(root);
+  }
+});
+
+test('unpack script: an existing data dir keeps its mode (the backend tightens it at boot)', async () => {
+  const root = await makeTempDir('ai-sm-inst-');
+  try {
+    const dataDir = join(root, '.ai-session-manager');
+    mkdirSync(dataDir, { mode: 0o755 });
+    chmodSync(dataDir, 0o755);
+    await makeBundle(root, 'v0.2.0');
+    const res = await install(root, join(dataDir, 'app'), 'v0.2.0');
+    assert.equal(res.code, 0, res.out);
+    assert.equal(statSync(dataDir).mode & 0o777, 0o755);
   } finally {
     await removeTempDir(root);
   }

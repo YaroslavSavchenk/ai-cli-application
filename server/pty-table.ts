@@ -13,6 +13,11 @@
  * a finished `file`, `argv`, `cwd` and `env` (server/sessions.ts composes
  * them). It is the only module that imports `node-pty`.
  *
+ * D9 P2 added what the pty-host process (server/pty-host-server.ts) needs:
+ * `setPaused` (backpressure — and the rescue now flushes a paused stream's
+ * own buffer before it drains the fd), `size` (the idle rule), the spawn's
+ * initial `meta`, and `assertMetaSize` (the one home of the 16 KiB cap).
+ *
  * Reached through server/pty-host-api.ts (the `PtyHost` interface and its
  * in-process implementation); server/sessions.ts and
  * server/sessions-output.ts re-export what their importers already used
@@ -33,6 +38,19 @@ export const SCROLLBACK_MAX_BYTES = 1024 * 1024;
  * can park in a process that outlives it.
  */
 const META_MAX_BYTES = 16 * 1024;
+
+/**
+ * Refuse a metadata blob over META_MAX_BYTES with a RangeError. One home for
+ * the cap: the table checks it, and so does the pty-host client before it
+ * sends `set-meta` (a verb with no reply, so the host could not refuse it in
+ * a way the caller sees).
+ */
+export function assertMetaSize(meta: string): void {
+  const bytes = Buffer.byteLength(meta, 'utf8');
+  if (bytes > META_MAX_BYTES) {
+    throw new RangeError(`pty metadata is ${bytes} bytes, over the ${META_MAX_BYTES}-byte cap`);
+  }
+}
 
 /**
  * Byte-capped ring buffer of output chunks; drops oldest chunks when over cap.
@@ -151,6 +169,12 @@ export interface PtySpawnRequest {
   env: Record<string, string>;
   cols: number;
   rows: number;
+  /**
+   * The opaque metadata blob the entry starts with (D9 P2: the pty-host's
+   * `spawn` carries it, so a backend that dies right after the spawn still
+   * leaves what P3 rebuilds the session from). Capped like `setMeta`.
+   */
+  meta?: string;
 }
 
 /** What a successful spawn reports back. */
@@ -197,6 +221,11 @@ interface PtyEntry {
   readonly pid: number;
   /** null once killed (the ladder addresses the pid) or exited. */
   pty: pty.IPty | null;
+  /**
+   * The node-pty handle for its whole life, killed or not: a killed PTY still
+   * reads until its exit, so backpressure (`setPaused`) must reach it too.
+   */
+  readonly proc: pty.IPty;
   readonly ring: RingBuffer;
   cols: number;
   rows: number;
@@ -230,6 +259,11 @@ export class PtyTable {
   readonly #escalating = new Map<string, { pid: number; timer: NodeJS.Timeout | undefined }>();
   /** The group probe warns about an unexpected errno at most once per run. */
   #groupProbeWarned = false;
+  /**
+   * Every PTY's read stream is paused (D9 P2: the pty-host's owner socket is
+   * backed up). A PTY spawned meanwhile starts paused too.
+   */
+  #paused = false;
 
   constructor(log: Logger, events: PtyEvents) {
     this.#log = log;
@@ -240,6 +274,7 @@ export class PtyTable {
   /** Start a PTY under the owner's id. Throws if node-pty cannot spawn it, or the id is taken. */
   spawn(req: PtySpawnRequest): PtySpawned {
     if (this.#entries.has(req.id)) throw new Error(`pty ${req.id} already exists`);
+    if (req.meta !== undefined) assertMetaSize(req.meta);
     const proc = pty.spawn(req.file, req.argv, {
       name: 'xterm-256color',
       cols: req.cols,
@@ -253,14 +288,16 @@ export class PtyTable {
     const entry: PtyEntry = {
       pid: proc.pid,
       pty: proc,
+      proc,
       ring: new RingBuffer(SCROLLBACK_MAX_BYTES),
       cols: req.cols,
       rows: req.rows,
       exit: null,
-      meta: null,
+      meta: req.meta ?? null,
       forgotten: false,
     };
     this.#entries.set(id, entry);
+    if (this.#paused) proc.pause();
 
     const onOutput = (data: string): void => {
       const offset = entry.ring.endOffset;
@@ -343,12 +380,31 @@ export class PtyTable {
    * META_MAX_BYTES (nothing stored); an unknown id is a no-op.
    */
   setMeta(id: string, meta: string): void {
-    const bytes = Buffer.byteLength(meta, 'utf8');
-    if (bytes > META_MAX_BYTES) {
-      throw new RangeError(`pty metadata is ${bytes} bytes, over the ${META_MAX_BYTES}-byte cap`);
-    }
+    assertMetaSize(meta);
     const entry = this.#entries.get(id);
     if (entry !== undefined) entry.meta = meta;
+  }
+
+  /** How many entries the table holds, running and exited (the pty-host's idle rule). */
+  get size(): number {
+    return this.#entries.size;
+  }
+
+  /**
+   * Pause (or resume) reading every PTY that has not exited yet — D9 P2's
+   * backpressure: the pty-host's owner socket is backed up past its limit.
+   * A paused PTY's child blocks once the kernel's pty buffer is full, so
+   * nothing is dropped; what the stream had already read stays in its own
+   * buffer, which the final-output rescue flushes if the PTY ends paused.
+   */
+  setPaused(paused: boolean): void {
+    if (this.#paused === paused) return;
+    this.#paused = paused;
+    for (const entry of this.#entries.values()) {
+      if (entry.exit !== null) continue;
+      if (paused) entry.proc.pause();
+      else entry.proc.resume();
+    }
   }
 
   /** Every entry, running and exited, as a summary (no ring bytes). */
@@ -508,7 +564,35 @@ export class PtyTable {
  */
 interface PtyMasterInternals {
   readonly fd?: unknown;
-  readonly _socket?: { destroy?: unknown; readonly destroyed?: unknown } | undefined;
+  readonly _socket?:
+    | {
+        destroy?: unknown;
+        readonly destroyed?: unknown;
+        readonly read?: unknown;
+        readonly readableLength?: unknown;
+      }
+    | undefined;
+}
+
+/** Bound on the buffered-data flush below; one read() normally empties it. */
+const BUFFERED_FLUSH_MAX_READS = 64;
+
+/**
+ * Hand on what the read STREAM already holds in its own buffer (D9 P2). A
+ * stream paused for backpressure keeps the chunks libuv read before the pause;
+ * destroying it drops them, and the fd drain below would then deliver the
+ * kernel's later bytes after a hole. `read()` emits each chunk as 'data', the
+ * same path every other byte takes, so order is kept: buffer first, fd second.
+ * In flowing mode the buffer is empty and this does nothing.
+ */
+function flushBufferedStream(socket: NonNullable<PtyMasterInternals['_socket']>): void {
+  const read = socket.read;
+  if (typeof read !== 'function') return;
+  for (let i = 0; i < BUFFERED_FLUSH_MAX_READS; i++) {
+    const pending = socket.readableLength;
+    if (typeof pending !== 'number' || pending <= 0) return;
+    if (read.call(socket) === null) return;
+  }
 }
 
 /** One read(2) buffer's worth; the kernel's per-tty backlog is far below this. */
@@ -680,7 +764,10 @@ function rescueFinalOutput(proc: pty.IPty, emit: (data: string) => void, log: Lo
     try {
       if (!done) {
         done = true; // The fd is closed by realDestroy below — never read after.
-        if (socket.destroyed !== true) drainPtyMaster(fd, identity, emit, log);
+        if (socket.destroyed !== true) {
+          flushBufferedStream(socket);
+          drainPtyMaster(fd, identity, emit, log);
+        }
       }
     } catch (err) {
       // Swallowed on purpose, and this is the guard that makes that true. emit()
