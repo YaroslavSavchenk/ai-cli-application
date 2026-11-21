@@ -6,6 +6,14 @@ tags: [lifecycle, backend, frontend, launcher, restart, update]
 ---
 # Manual backend restart + "new version" notice — same-port handoff
 
+**Sessions SURVIVE a restart since Nocturne D9 P4 (2026-11-21):** the
+"sessions do not survive" parts below are superseded by
+[[pty-host-session-survival]] — the teardown detaches from the pty-host
+instead of ending the sessions, and the child adopts them at `go`. A restart
+that cannot keep them answers `409 sessions-would-end` and the dialog asks
+again ("Restart anyway" = `endSessions: true`); only then do they end
+`shutdown` as described here.
+
 **Status:** decided (2026-09-06); the handoff sequence is EXTENDED by
 [[restart-preflight-standby]] (2026-09-08): a preflight (dependency check,
 always-rebuild of `web/dist`, standby child proven over messages-only IPC)
@@ -69,7 +77,9 @@ the app to notice newer code and offer the restart itself.
   fallback covers the realistic case.
 - **Sessions surviving a restart** — impossible without the socket handoff
   AND PTY fd inheritance; the scope doc's "sessions die with the server" holds.
-  The dialog says so instead of pretending.
+  The dialog says so instead of pretending. (Reversed 2026-11-20 by the
+  user's ask; built in D9 P4 without either: the PTYs live in a separate
+  pty-host process — [[pty-host-session-survival]].)
 - **A new history end reason `restart`** — would change the protocol and
   the HISTORY row labels for no user-visible gain; `shutdown` already yields
   the resume button.

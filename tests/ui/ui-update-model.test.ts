@@ -29,6 +29,7 @@ import {
   REASON_GENERIC,
   UpdateNotice,
   confirmBody,
+  wouldEndBody,
   fmtRunningFor,
   moreLabel,
   reasonSentence,
@@ -202,21 +203,27 @@ test('a completed restart is terminal: nothing is shown again on this page', () 
 // Confirmation copy — the sentence the user has to believe
 // ---------------------------------------------------------------------------
 
-test('confirm body: 0 / 1 / N read as English and promise exactly what History delivers', () => {
+test('confirm body: 0 / 1 / N read as English and promise that the sessions keep running (D9 P4)', () => {
   assert.equal(confirmBody(0), 'Nothing is running. The app reconnects by itself.');
-  assert.equal(
-    confirmBody(1),
-    'One session is running and will be closed. It stays in History, so you can pick its conversation up again.',
-  );
-  assert.equal(
-    confirmBody(4),
-    '4 sessions are running and will be closed. They stay in History, so you can pick each conversation up again.',
-  );
+  assert.equal(confirmBody(1), 'One session is running. It keeps running, and this window reconnects to it.');
+  assert.equal(confirmBody(4), '4 sessions are running. They keep running, and this window reconnects to them.');
   // No CLI vocabulary anywhere in the words the dialog says (the repo-wide
   // guard is tests/ui/ui-copy-rule.test.ts; this is the local canary).
-  for (const s of [confirmBody(0), confirmBody(1), confirmBody(7), CONTINUE_NOTE]) {
+  for (const s of [confirmBody(0), confirmBody(1), confirmBody(7), wouldEndBody(1), wouldEndBody(7), CONTINUE_NOTE]) {
     assert.ok(!/--\w/.test(s), `copy must not contain a flag: ${s}`);
   }
+});
+
+test('the second confirmation says beforehand that this time the sessions WILL end, and how they come back (D9 P4)', () => {
+  assert.equal(
+    wouldEndBody(1),
+    'This time the running session cannot be kept: restarting ends it. It stays in History, so you can pick its conversation up again.',
+  );
+  assert.equal(
+    wouldEndBody(3),
+    'This time the 3 running sessions cannot be kept: restarting ends them. They stay in History, so you can pick each conversation up again.',
+  );
+  assert.equal(wouldEndBody(0), confirmBody(0), 'nothing running any more: nothing will end');
 });
 
 test('summarizeRunning: only RUNNING sessions count — an exited one has nothing left to lose', () => {

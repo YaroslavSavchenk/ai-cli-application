@@ -195,7 +195,6 @@ test('once the connection is closed, spawn, snapshot and list reject at once', a
   await assert.rejects(owner.spawn({ id, file: 'true', argv: [], cwd: '/', env: ENV, cols: 80, rows: 24 }), /connection is closed/);
   await assert.rejects(owner.snapshot(id), /connection is closed/);
   await assert.rejects(owner.list(), /connection is closed/);
-  assert.equal(owner.pendingSpawns().size, 0, 'nothing left pending');
 });
 
 test('a hello answered by anything but a well-formed welcome fails the connect', async () => {
@@ -219,12 +218,10 @@ test('what is in flight when the connection closes is rejected, and nothing stay
   const snapshot = owner.snapshot(id);
   const list = owner.list();
   await waitUntil(() => (f.received.length === 4 ? true : undefined), 'the three requests to reach the fake');
-  assert.deepEqual([...owner.pendingSpawns()], [id]);
   await f.stop();
   await assert.rejects(spawn, /connection closed/, 'spawn');
   await assert.rejects(snapshot, /connection closed/, 'snapshot');
   await assert.rejects(list, /connection closed/, 'list');
-  assert.equal(owner.pendingSpawns().size, 0);
 });
 
 test('a snapshot of an id the wire cannot carry rejects at once instead of hanging', async () => {

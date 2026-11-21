@@ -24,12 +24,10 @@
  * Events that arrive before `listen()` (with the welcome, or any time before
  * the owner registers) are kept and delivered in order by `listen()`.
  *
- * `pendingSpawns()`: ids whose spawn was sent and not answered yet (a PTY in
- * that window is live in the host but unknown to the manager). P3's shutdown
- * does not need it (the manager kills a spawn answered after destroyAll, and
- * `shutdown-all` follows the spawn on the wire); P4's detachAll does: a
- * detach must wait for these answers, or the next backend finds a PTY no
- * history entry was written for.
+ * A spawn still unanswered at a shutdown or a restart's detach is the
+ * manager's to end (server/sessions.ts `destroyAll`/`detachAll`): its `kill`
+ * follows the `spawn` on the wire, so the host has the PTY when the kill
+ * arrives, and no PTY is handed to the next backend without a history entry.
  */
 import { spawn as spawnChild } from 'node:child_process';
 import { connect, type Socket } from 'node:net';
@@ -86,10 +84,7 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 /** The host said no: a wrong token or protocol, or the owner seat is taken. */
 export class PtyHostRefusal extends Error {
   readonly reason: RefuseReason;
-  /**
-   * The protocol the host speaks. No reader yet: P4's standby probe reads it
-   * to report `ptyHost: incompatible` (decision 27's "the sessions WILL end").
-   */
+  /** The protocol the host speaks: logged by the broker's incompatible paths (boot, the standby's probe). */
   readonly hostProto: number;
 
   constructor(reason: RefuseReason, hostProto: number) {
@@ -274,8 +269,6 @@ export async function probePtyHost(opts: { dataDir: string; timeoutMs?: number }
   return new PtyHostProbe(opened);
 }
 
-const EMPTY: ReadonlySet<string> = new Set();
-
 /** The owner connection, as the `PtyHost` the SessionManager talks to. */
 export class SocketPtyHost implements PtyHost {
   readonly welcome: Welcome;
@@ -346,10 +339,6 @@ export class SocketPtyHost implements PtyHost {
 
   onLost(listener: (reason: PtyHostLostReason) => void): void {
     this.#lostListeners.push(listener);
-  }
-
-  pendingSpawns(): ReadonlySet<string> {
-    return this.#spawns.size === 0 ? EMPTY : new Set(this.#spawns.keys());
   }
 
   /** The connection is gone (lost, detached or shut down): every request now rejects. */

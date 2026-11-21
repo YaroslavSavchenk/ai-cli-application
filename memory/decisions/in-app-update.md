@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-09
-updated: 2026-09-23
+updated: 2026-11-21
 tags: [update, installer, release, security, ux]
 ---
 # In-app update: a notification and one button
@@ -43,7 +43,12 @@ SmartScreen prompt on the unsigned exe is accepted).
    checker then reports "a new version is installed" and the UI continues
    automatically into the proven same-port `POST /api/restart` handoff.
    Open sessions end like "Restart backend"; HISTORY keeps them; the page
-   reloads on the same origin.
+   reloads on the same origin. **Since Nocturne D9 P4 (2026-11-21) the
+   sessions SURVIVE the update** — that restart hands them to the new
+   version through the pty-host ([[pty-host-session-survival]]); only a
+   pty-host the new version cannot adopt ends them, after a second
+   confirmation ("Restart anyway"). The first release carrying D9 cannot do
+   it for its own install: the old backend runs that update.
 
 Why the Setup and not an in-place swap: the Windows side (host exe, DLLs,
 launcher scripts, uninstaller) can only be replaced by the installer, and
@@ -83,7 +88,8 @@ the installer already knows how to swap `current`, prune and refuse.
 - **In-place bundle swap without the Setup**: leaves the Windows side
   stale and duplicates the installer's prune/refusal logic.
 - **Auto-install without a click**: rejected — sessions end at update time;
-  the user decides when.
+  the user decides when. (Since D9 P4 they no longer end; automatic install
+  stays rejected until survival is proven on Windows — ask again then.)
 
 ## From the scope doc (moved 2026-09-23)
 

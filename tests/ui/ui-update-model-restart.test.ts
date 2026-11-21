@@ -1,7 +1,7 @@
 /**
  * The backend restart handshake (`web/src/ui/restart-flow.ts`): how a
- * 202/409/422/500/timeout answer from `POST /api/restart` maps onto the next
- * state, and the preflight refusal (422) sentences from
+ * 202/409/422/500/timeout answer from `POST /api/restart` (and, Nocturne D9
+ * P4, the 409 `sessions-would-end`) maps onto the next state, and the preflight refusal (422) sentences from
  * `web/src/ui/update-model.ts`. Split out of `ui-update-model.test.ts`.
  *
  * Seam: the flow takes its clock, its sleep and its HTTP through parameters,
@@ -272,6 +272,34 @@ test('a 422 with no usable body still says the one thing that is true of every r
   );
   // It must not be the relaunch instruction: that sentence ends this page.
   assert.notEqual(MSG_REFUSED, MSG_LOST);
+});
+
+test('409 sessions-would-end (D9 P4) is its own outcome: nothing happened, and it is NOT the busy one', async () => {
+  const h = harness({
+    post: {
+      status: 409,
+      body: { error: 'The running sessions cannot be kept through this restart.', code: 'sessions-would-end' },
+    },
+    healthyAfter: 0,
+  });
+  const out = await runRestart(h.deps);
+  assert.deepEqual(out, { kind: 'wouldEnd' }, 'the caller asks again; it never shows the server sentence as a failure');
+  assert.deepEqual(h.phases, ['restarting'], 'never reconnecting: the old backend is still serving');
+  assert.equal(h.healthCalls, 0);
+  for (const code of ['sessions-would-end ', 'SESSIONS-WOULD-END', 1, null]) {
+    const other = harness({ post: { status: 409, body: { error: 'x', code } } });
+    assert.equal((await runRestart(other.deps)).kind, 'busy', `code ${JSON.stringify(code)} is not the would-end one`);
+  }
+});
+
+test('only a 409 carries the would-end question: the same code on another status keeps that status\'s own outcome (D9 P4)', async () => {
+  const code = 'sessions-would-end';
+  const kinds: Record<number, string> = {};
+  for (const status of [422, 500]) {
+    const h = harness({ post: { status, body: { error: 'because', code } }, healthyAfter: 0 });
+    kinds[status] = (await runRestart(h.deps)).kind;
+  }
+  assert.deepEqual(kinds, { 422: 'refused', 500: 'failed' }, 'the second question never follows a refusal or a failure');
 });
 
 test('the refusal is distinguishable from every other outcome by KIND, not by text', async () => {

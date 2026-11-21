@@ -2,8 +2,12 @@
  * Manual restart — one REAL restart of a real backend on a scratch data dir:
  * the child keeps the port, the old pid is gone, runtime.json belongs to the
  * child (never unlinked by the parent — also when a SIGTERM races the
- * handoff), the killed session is stamped 'shutdown' in history, and the
- * presence socket is closed 1012. Plus the boot variables a restart relies
+ * handoff), and the presence socket is closed 1012. Its session runs INSIDE
+ * the backend (`AI_SM_PTY_HOST=inproc`, the fallback when no pty-host can
+ * run): since Nocturne D9 P4 a plain restart is refused with 409
+ * `sessions-would-end` and changes nothing, and only "Restart anyway"
+ * (`endSessions: true`) ends it — stamped 'shutdown' in history. The pty-host
+ * path, where the sessions survive, is `restart-survive.test.ts`. Plus the boot variables a restart relies
  * on: AI_SM_WEB_DIST_DIR (a bad value refuses to start and says so),
  * AI_SM_PORT_HINT (a busy or nonsense hint falls back once to an auto-picked
  * port) and AI_SM_RESTARTED_FROM.
@@ -30,6 +34,7 @@ import type {
   HistoryEntry,
   RestartResponse,
   RuntimeStatusResponse,
+  SessionInfo,
 } from '../../shared/protocol.ts';
 import { readWebBuild } from '../../server/buildinfo.ts';
 import {
@@ -54,7 +59,9 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
   // this test never touches the repo's own web/dist (asserted at the end).
   const web = webDistCopy();
   const repoDistBefore = repoWebDist();
-  const server = await startTestServer({ env: { AI_SM_WEB_DIST_DIR: web.served } });
+  // In-process sessions, pinned (also on the CI's pty-host leg): the case where
+  // they cannot be kept and the user must allow them to end (D9 P4).
+  const server = await startTestServer({ ptyHost: 'inproc', env: { AI_SM_WEB_DIST_DIR: web.served } });
   const oldPid = server.child.pid as number;
   let childPid: number | undefined;
   try {
@@ -69,6 +76,17 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
       rows: 24,
     });
     const presence = await WsClient.connect(presenceUrl(server));
+
+    // D9 P4: a session inside this backend cannot survive the restart, so a
+    // plain request is refused at once — no build, no standby, nothing moved.
+    const refused = await api(server, 'POST', '/api/restart');
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.deepEqual(refused.body, {
+      error: 'The running sessions cannot be kept through this restart.',
+      code: 'sessions-would-end',
+    });
+    assert.equal(readRuntime(server.runtimeFile)?.pid, oldPid, 'the backend that refused is still the one serving');
+    assert.equal(presence.closed, false, 'and the window was not told anything');
 
     // runtime.json must be present at EVERY instant of the handoff, not merely
     // at the end: the parent tears down before it spawns, and an unlink there
@@ -91,7 +109,8 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
       }
     })();
 
-    const res = await api(server, 'POST', '/api/restart');
+    // "Restart anyway".
+    const res = await api(server, 'POST', '/api/restart', { endSessions: true });
     assert.equal(res.status, 202, `restart must be accepted: ${JSON.stringify(res.body)}`);
     const body = res.body as RestartResponse;
     assert.deepEqual(Object.keys(body).sort(), ['port', 'samePort', 'startedAt']);
@@ -137,7 +156,7 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
     });
     assert.equal(stale.status, 401, 'the OLD token is worthless against the new process');
 
-    // The killed session is in HISTORY, stamped 'shutdown' — resumable exactly
+    // The ended session is in HISTORY, stamped 'shutdown' — resumable exactly
     // like after a normal shutdown. (No 'restart' end reason exists, by design.)
     const listed = await fetch(`http://127.0.0.1:${child.port}/api/history`, {
       headers: { 'x-auth-token': child.token },
@@ -170,7 +189,13 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
 
     // The log tells the whole story across both processes.
     const log = await readServerLog(server);
-    assert.match(log, /\[restart\] restart requested by the ui: sessions=1 presence=1 attached=0/);
+    assert.match(log, /\[restart\] restart requested by the ui: sessions=1 presence=1 attached=0\n/);
+    assert.match(
+      log,
+      /\[restart\] The running sessions cannot be kept through this restart\. \(1 running session\(s\) live inside this backend \(no pty-host\)\); nothing was torn down/,
+    );
+    assert.match(log, /\[restart\] restart requested by the ui: sessions=1 presence=1 attached=0 \(ending the sessions allowed\)/);
+    assert.match(log, /\[restart\] the sessions end with this backend \(history: 'shutdown'\)/);
     // The preflight, in order, BEFORE the teardown line.
     assert.match(log, /\[restart\] preflight: dependencies, frontend build, standby backend/);
     assert.match(log, /\[restart\] preflight: dependencies ok/);
@@ -218,6 +243,43 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
         () => process.kill(adopted, 'SIGKILL'),
       );
     }
+    await server.stop();
+    web.remove();
+  }
+});
+
+/** SIGTERM the replacement a real restart left running (by the pid in its runtime.json), SIGKILL if it lingers. */
+async function endChild(pid: number | undefined): Promise<void> {
+  if (pid === undefined || !isAlive(pid)) return;
+  process.kill(pid, 'SIGTERM');
+  await waitUntil(() => (isAlive(pid) ? undefined : true), 'the child to exit', 10_000).catch(() => process.kill(pid, 'SIGKILL'));
+}
+
+test('REAL restart: a session that has already exited asks nothing — a plain restart of a backend without a pty-host goes through', async () => {
+  // D9 P4: only RUNNING sessions decide the 409. In-process sessions and a
+  // standby that finds no pty-host (`none`) would refuse a plain restart if
+  // one ran; an exited session loses nothing, so it must not.
+  const web = webDistCopy();
+  const server = await startTestServer({ ptyHost: 'inproc', env: { AI_SM_WEB_DIST_DIR: web.served } });
+  let childPid: number | undefined;
+  try {
+    const done = await createSession(server, { cwd: '/tmp', command: 'bash', args: ['-c', 'exit 0'], title: 'done', cols: 80, rows: 24 });
+    await waitUntil(
+      async () => (((await api(server, 'GET', '/api/sessions')).body as SessionInfo[]).find((s) => s.id === done.id)?.status === 'exited' ? true : undefined),
+      'the session to exit',
+    );
+    const res = await api(server, 'POST', '/api/restart');
+    assert.equal(res.status, 202, `nothing running, nothing to end: ${JSON.stringify(res.body)}`);
+    const child = await waitUntil(() => {
+      const rt = readRuntime(server.runtimeFile);
+      return rt !== undefined && rt.pid !== server.child.pid ? rt : undefined;
+    }, 'the new backend to take over');
+    childPid = child.pid;
+    const log = await readServerLog(server);
+    assert.match(log, /preflight: standby backend ready \(pid \d+\), booted and holding; port hint \d+; pty-host none/);
+    assert.match(log, /\[restart\] the sessions stay with the pty-host for the new backend/);
+  } finally {
+    await endChild(childPid);
     await server.stop();
     web.remove();
   }

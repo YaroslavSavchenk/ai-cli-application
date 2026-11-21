@@ -37,9 +37,12 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   process the backend starts (`server/pty-host-*.ts`; spec
   `.claude/plans/nocturne/PLAN-D9.md`): a backend CRASH leaves them running
   (orphan grace 10 min) and the next boot adopts them — same ids, same
-  processes, scrollback and bells kept. A refused data dir (not ours, not
-  0700, socket path > 107 bytes) falls back to in-process PTYs with one
-  `server.log` line.
+  processes, scrollback and bells kept. Since D9 P4 a **restart or update
+  keeps them too**: the old backend detaches (no history stamp, no kill) and
+  the new one adopts them at its `go` (details under Manual backend restart).
+  Closing the app window still ends them after the grace (decision 25). A
+  refused data dir (not ours, not 0700, socket path > 107 bytes) falls back
+  to in-process PTYs with one `server.log` line.
 - **Backend starts detached** from the launcher process (setsid), started on
   demand — it must never die with the launcher console. **Lifetime: bound to
   UI presence** (user's call 2026-07-19): the presence WebSocket
@@ -113,14 +116,31 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   (`AI_SM_STANDBY=1`, messages-only IPC) that boots, binds nothing, reports
   `standby-ready`. Any refusal = **`422 { error }`, old backend and
   `web/dist` untouched** — the two logged exceptions: a restore whose own
-  rename fails, and a `dist-prev` that vanished under the app. Then: swap dist, end sessions like `shutdown()`
-  (history keeps them), close the listener, `go`, wait for the child's
+  rename fails, and a `dist-prev` that vanished under the app. Then: swap dist, hand the
+  sessions over (below), close the listener, `go`, wait for the child's
   `runtime.json` + `/health`, `202 { port, startedAt, samePort }`, exit
   without unlinking `runtime.json`. **Same port is a hard constraint** (the
   WebView2 host locks the exact origin); the child falls back once to
-  auto-pick (`samePort: false`). Sessions do NOT survive a restart. A
-  failed handoff after teardown is `500` + exit, not a rollback. `409` while
-  in flight or while an update installs; `503` with no runner. Seams:
+  auto-pick (`samePort: false`). **Sessions survive a restart and an update**
+  (Nocturne D9 P4, `memory/decisions/pty-host-session-survival.md`; one
+  caveat: the first release carrying D9 is installed by a pre-D9 backend,
+  so that one update still ends the sessions): the
+  standby probes the pty-host (a `probe` connection, `list-count`) and
+  reports `ptyHost: compatible|incompatible|none` in `standby-ready`; the
+  teardown then DETACHES (`detachAll`: blobs flushed, a spawn in flight
+  ended, the pty-host connection closed with `detach`, history NOT stamped)
+  and the child adopts every session at `go` — same id, pid and scrollback.
+  When they cannot be kept — running sessions inside the backend (no
+  pty-host), or a pty-host the new code cannot adopt (`incompatible`, or
+  `none` while sessions run) — the answer is `409 { error, code:
+  'sessions-would-end' }` before anything is torn down (no sessions
+  running: never), and the UI asks a second time, saying they WILL end, with
+  `Restart anyway` = `POST /api/restart { endSessions: true }` (the one body
+  field the route reads; 1 KiB, JSON only; a permission, not an order);
+  those sessions then end like `shutdown()` (history `shutdown`, resumable,
+  decision 27). A failed handoff after teardown is `500` + exit, not a
+  rollback. `409` while in flight or while an update installs; `503` with no
+  runner. Seams:
   `AI_SM_PORT_HINT`, `AI_SM_RESTARTED_FROM`, `AI_SM_STANDBY`,
   `AI_SM_WEB_DIST_DIR` (absolute, normalized, never root; a bad value is
   refused with a `server.log` line); since D9 also `AI_SM_PTY_HOST`
@@ -180,7 +200,9 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   History: `memory/decisions/native-webview2-host.md`.
 - **Release build / distribution.** `.github/workflows/verify.yml` is the
   one definition of "verified" (checks `verify / typecheck + build`,
-  `verify / backend test suite` on ubuntu-latest, `verify / linux bundle`
+  `verify / backend test suite` and, since D9 P3, `verify / backend test
+  suite (pty-host)` — the same suite with every test backend over a real
+  pty-host — on ubuntu-latest, `verify / linux bundle`
   — the bundle job alone on ubuntu-22.04, glibc 2.35 floor);
   `ci.yml` calls it on push to `main` and every PR. A `v*` tag runs
   `release.yml` (`verify`, `host`, `bundle`, `installer`, `release`): assets
@@ -296,7 +318,8 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
 - **Ending a session = a signal ladder on the process GROUP.** `DELETE
   /api/sessions/:id`: SIGHUP, +2 s SIGTERM to `-pid`, +3 s SIGKILL to
   `-pid`, each rung skipped once the group is gone. Shutdown/restart:
-  SIGHUP + immediate group SIGKILL. With a pty-host (D9) the ladder runs in
+  SIGHUP + immediate group SIGKILL (a restart that keeps the sessions, D9
+  P4, signals nothing). With a pty-host (D9) the ladder runs in
   that process; a pty-host LOST under a running backend (crash, kill) ⇒ the
   backend probes and SIGKILLs each of its sessions' groups itself, the
   sessions exit with code 137 and history says `crash`. Known limits: a `setsid` escapee or a

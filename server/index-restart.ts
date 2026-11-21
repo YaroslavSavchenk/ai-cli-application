@@ -18,6 +18,7 @@ import { scoped, oneLine, type DataPaths, type Logger } from './config.ts';
 import { readWebBuild, dependenciesInStep } from './buildinfo.ts';
 import { resolveInstalledTarget, type InstalledTarget } from './bundle.ts';
 import type { SessionManager } from './sessions.ts';
+import type { PtyHostBroker } from './pty-host-broker.ts';
 import type { TelemetryWatcher } from './telemetry.ts';
 import type { PollTally } from './poll-log.ts';
 import type { AgentsWatcher } from './agents.ts';
@@ -50,6 +51,8 @@ export interface RestartWiring {
   webDistDir: string;
   installed: boolean;
   sessions: SessionManager;
+  /** D9 P4: how many running sessions live in-process (they cannot be kept). */
+  ptyHosts: PtyHostBroker;
   history: SessionHistory;
   lifecycle: LifecycleController;
   telemetry: TelemetryWatcher;
@@ -75,6 +78,7 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
     webDistDir,
     installed,
     sessions,
+    ptyHosts,
     history,
     lifecycle,
     telemetry,
@@ -104,7 +108,11 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
       presence: lifecycle.presenceCount,
       attached: lifecycle.attachedCount,
     }),
-    teardown: (keepSocket) => {
+    sessionFacts: () => ({
+      running: sessions.list().filter((s) => s.status === 'running').length,
+      inProcess: ptyHosts.inProcessRunning(),
+    }),
+    teardown: (keepSocket, fate) => {
       // Same order as shutdown(), minus the unlink: runtime.json is about to
       // belong to the child, so removing it here would blind the launcher.
       lifecycle.stop();
@@ -112,8 +120,15 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
       agents.stop();
       releaseChecker?.stop();
       polls.stop();
-      history.endAllLive('shutdown');
-      sessions.destroyAll();
+      // D9 P4: the sessions stay with the pty-host and the child adopts them
+      // at `go` — history is NOT stamped. Only a restart that cannot keep
+      // them (server/restart.ts `sessionsFate`) ends them as a shutdown does.
+      if (fate === 'keep') {
+        sessions.detachAll();
+      } else {
+        history.endAllLive('shutdown');
+        sessions.destroyAll();
+      }
       server.close(); // Releases the LISTENING socket; the in-flight request lives on.
       const closedWs = upgrade.closeAll(1012, 'service restart');
       let destroyed = 0;

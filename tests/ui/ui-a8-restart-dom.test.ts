@@ -20,7 +20,13 @@
  *   3. REFUSED (422): the backend's own sentence, the refused styling,
  *      `Try again` — and no "download it yourself" on a restart, which is a
  *      route for a problem the user does not have;
- *   4. FAILED/over (409 busy): the same message slot without the retry.
+ *   4. FAILED/over (409 busy): the same message slot without the retry;
+ *   5. (Nocturne D9 P4) the SECOND question after a 409 `sessions-would-end`:
+ *      the same dialog saying the sessions will end, `Restart anyway`, and
+ *      only that press re-posts with `endSessions: true` — not a retry after
+ *      it, not a fresh opening; it comes back over a dialog hidden during the
+ *      preflight, puts the pending notice back, and after an update's install
+ *      it restarts without installing again.
  *
  *   plus: it opens OVER an already-open dialog without closing it (the
  *   Settings panel case — `rs-scrim` is the one scrim on `--z-modal-top`),
@@ -66,6 +72,12 @@ interface Harness {
   /** Armed by a test: the answer `POST /api/restart` gives, once. */
   restartAnswer: Deferred | null;
   restartCalls: number;
+  /** D9 P4: the `endSessions` argument of every restart POST. */
+  restartArgs: unknown[];
+  /** Armed by a test: what `POST /api/update` and `GET /api/update/status` answer (default 503 / 404). */
+  updateAnswer: { status: number; body: unknown } | null;
+  statusAnswer: { status: number; body: unknown } | null;
+  updateCalls: number;
   releasesOpened: number;
   terminalFocus: number;
 }
@@ -77,6 +89,10 @@ const H: Harness = {
   restarting: [],
   restartAnswer: null,
   restartCalls: 0,
+  restartArgs: [],
+  updateAnswer: null,
+  statusAnswer: null,
+  updateCalls: 0,
   releasesOpened: 0,
   terminalFocus: 0,
 };
@@ -85,14 +101,18 @@ const H: Harness = {
 const STUB_SRC: Record<string, string> = {
   api: `
     const H = globalThis.__rsHarness;
-    export async function restartBackend() {
+    export async function restartBackend(endSessions) {
       H.restartCalls += 1;
+      H.restartArgs.push(endSessions);
       if (H.restartAnswer === null) throw new Error('no restart answer armed');
       return H.restartAnswer.promise;
     }
     export async function backendHealth() { return false; }
-    export async function startUpdate() { return { status: 503, body: {} }; }
-    export async function updateStatus() { return { status: 404, body: {} }; }`,
+    export async function startUpdate() {
+      H.updateCalls += 1;
+      return H.updateAnswer ?? { status: 503, body: {} };
+    }
+    export async function updateStatus() { return H.statusAnswer ?? { status: 404, body: {} }; }`,
   state: `
     const H = globalThis.__rsHarness;
     export const state = {
@@ -160,7 +180,7 @@ const settingsBtn = dom.doc.createElement('button');
 settingsScrim.append(settingsBtn);
 modalHost.append(settingsScrim);
 
-UP.initUpdate(modalHost);
+const { pill } = UP.initUpdate(modalHost) as { pill: FakeElement };
 
 /** The confirmation's scrim: the last thing initUpdate appended. */
 const scrim = modalHost.children[modalHost.children.length - 1] as FakeElement;
@@ -210,6 +230,10 @@ function reset(): void {
   H.restartAnswer = null;
   H.restarting.length = 0;
   H.restartCalls = 0;
+  H.restartArgs.length = 0;
+  H.updateAnswer = null;
+  H.statusAnswer = null;
+  H.updateCalls = 0;
   settingsBtn.focus();
 }
 
@@ -253,7 +277,7 @@ test('the question names every running session, its project, and what it costs',
   );
   UP.openRestartConfirm('settings');
   assert.deepEqual(texts('rs-title'), ['Restart the background service?']);
-  assert.deepEqual(texts('rs-sub'), ['Sessions end. History keeps them.']);
+  assert.deepEqual(texts('rs-sub'), ['Sessions stay open.']);
   assert.deepEqual(texts('rs-row'), ['api server, api', 'notes']);
   assert.deepEqual(texts('rs-name'), ['api server', 'notes']);
   assert.deepEqual(texts('rs-proj'), [', api']);
@@ -515,6 +539,175 @@ test('a 409 is a failure state: the message, Close, and no retry', async () => {
   assert.equal(btn('Close').hidden, false);
   assert.equal(dom.doc.activeElement, btn('Close'), 'the one remaining action holds the keyboard');
   UP.closeRestartConfirm();
+});
+
+test('a 409 sessions-would-end asks a SECOND time — the sessions will end, Restart anyway — and only that press allows it (D9 P4)', async () => {
+  reset();
+  setSessions(session('s1', { title: 'api server' }), session('s2', { title: 'old chat', args: ['--continue'] }));
+  H.restartAnswer = deferred();
+  UP.openRestartConfirm('settings');
+  const note = (): FakeElement | undefined =>
+    byClass(modal, 'rs-note').find((n) => n.textContent.startsWith('Sessions started from'));
+  assert.equal(note()?.hidden, true, 'the first question ends nothing, so a resume note has nothing to say');
+  btn('Restart').click();
+  await settle();
+  H.restartAnswer.resolve({
+    status: 409,
+    body: { error: 'The running sessions cannot be kept through this restart.', code: 'sessions-would-end' },
+  });
+  await settle();
+
+  assert.equal(UP.isRestartConfirmOpen(), true, 'the question comes back');
+  assert.deepEqual(texts('rs-title'), ['Restart and end the sessions?']);
+  assert.deepEqual(texts('rs-sub'), ['Sessions end. History keeps them.']);
+  const lead = byClass(modal, 'rs-lead').filter((n) => !n.hidden);
+  assert.deepEqual(
+    lead.map((n) => n.textContent),
+    ['This time the 2 running sessions cannot be kept: restarting ends them. They stay in History, so you can pick each conversation up again.'],
+  );
+  assert.deepEqual(texts('rs-row'), ['api server, api', 'old chat, api'], 'what will end is named');
+  assert.equal(note()?.hidden, false, 'and where a continued session will land when resumed');
+  assert.equal(one(modal, 'rs-progress').hidden, true);
+  assert.equal(one(modal, 'rs-fail').hidden, true, 'not a failure: nothing happened');
+  assert.equal(btn('Restart anyway').hidden, false);
+  assert.equal(btn('Cancel').hidden, false);
+  assert.equal(dom.doc.activeElement, btn('Restart anyway'));
+  assert.equal(H.restarting.at(-1), false, 'the restart gap is dropped: the backend never moved');
+  assert.deepEqual(H.restartArgs, [false], 'the first POST did not allow the sessions to end');
+
+  H.restartAnswer = deferred();
+  btn('Restart anyway').click();
+  await settle();
+  assert.deepEqual(H.restartArgs, [false, true], 'only the second press allows it');
+  assert.equal(one(modal, 'rs-progress').hidden, false);
+  H.restartAnswer.resolve({ status: 422, body: { error: 'Still no.' } });
+  await settle();
+  UP.closeRestartConfirm();
+
+  // A fresh opening asks the first question again.
+  UP.openRestartConfirm('settings');
+  assert.deepEqual(texts('rs-title'), ['Restart the background service?']);
+  assert.equal(btn('Restart').hidden, false);
+  UP.closeRestartConfirm();
+});
+
+test('Cancel on the second question ends nothing: no second POST', async () => {
+  reset();
+  setSessions(session('s1'));
+  H.restartAnswer = deferred();
+  UP.openRestartConfirm('settings');
+  btn('Restart').click();
+  await settle();
+  H.restartAnswer.resolve({ status: 409, body: { error: 'x', code: 'sessions-would-end' } });
+  await settle();
+  const lead = byClass(modal, 'rs-lead').find((n) => !n.hidden);
+  assert.equal(
+    lead?.textContent,
+    'This time the running session cannot be kept: restarting ends it. It stays in History, so you can pick its conversation up again.',
+  );
+  btn('Cancel').click();
+  assert.equal(UP.isRestartConfirmOpen(), false);
+  assert.equal(H.restartCalls, 1, 'nothing else was posted');
+
+  // Opened again, it is the first question: the permission was never given.
+  UP.openRestartConfirm('settings');
+  assert.deepEqual(texts('rs-title'), ['Restart the background service?']);
+  assert.equal(btn('Restart').hidden, false);
+  UP.closeRestartConfirm();
+});
+
+test('Try again after a refused "Restart anyway" asks with the sessions kept: only that one press allowed them to end', async () => {
+  reset();
+  setSessions(session('s1'));
+  H.restartAnswer = deferred();
+  UP.openRestartConfirm('settings');
+  btn('Restart').click();
+  await settle();
+  H.restartAnswer.resolve({ status: 409, body: { error: 'x', code: 'sessions-would-end' } });
+  await settle();
+  H.restartAnswer = deferred();
+  btn('Restart anyway').click();
+  await settle();
+  H.restartAnswer.resolve({ status: 422, body: { error: 'The frontend build failed.' } });
+  await settle();
+  H.restartAnswer = deferred();
+  btn('Try again').click();
+  await settle();
+  assert.deepEqual(H.restartArgs, [false, true, false], 'a retry is a plain restart again');
+  H.restartAnswer.resolve({ status: 422, body: { error: 'Still no.' } });
+  await settle();
+  UP.closeRestartConfirm();
+});
+
+test('the second question comes back over a dialog hidden during the preflight, with the keyboard and the pending notice back', async () => {
+  reset();
+  setSessions(session('s1'));
+  H.update = { available: true, reason: 'dependencies changed' };
+  UP.applyRuntime();
+  const tipBefore = pill.title;
+  const depsNote = (): FakeElement | undefined => byClass(modal, 'rs-note').find((n) => n.textContent.startsWith('Dependencies changed'));
+  H.restartAnswer = deferred();
+  UP.openRestartConfirm('pill');
+  assert.equal(depsNote()?.hidden, false, 'the first question warns that the restart may be refused');
+  btn('Restart').click();
+  await settle();
+  assert.notEqual(pill.title, tipBefore, 'non-vacuity: the pill points at the running restart');
+  UP.closeRestartConfirm(); // Hide: the preflight is still out.
+  assert.equal(UP.isRestartConfirmOpen(), false);
+  H.restartAnswer.resolve({ status: 409, body: { error: 'x', code: 'sessions-would-end' } });
+  await settle();
+
+  assert.equal(UP.isRestartConfirmOpen(), true, 'the question is asked on screen, not behind a hidden dialog');
+  assert.deepEqual(texts('rs-title'), ['Restart and end the sessions?']);
+  assert.equal(dom.doc.activeElement, btn('Restart anyway'), 'the keyboard is in the question, not where Hide left it');
+  assert.equal(pill.title, tipBefore, 'nothing restarted: the pending notice is back as it was');
+  assert.equal(depsNote()?.hidden, true, 'the second question is about the sessions only');
+  btn('Cancel').click();
+  H.update = null;
+  UP.applyRuntime();
+});
+
+test('after an update installed, the second question restarts without installing again', async () => {
+  reset();
+  setSessions(session('s1'));
+  H.update = {
+    available: true,
+    reason: 'a new version is available',
+    release: {
+      version: 'v0.3.0',
+      setupName: 'AI-Session-Manager-Setup-v0.3.0.exe',
+      setupUrl: 'https://example.invalid/s.exe',
+      sumsUrl: 'https://example.invalid/SHA256SUMS.txt',
+      size: 1024,
+    },
+  };
+  UP.applyRuntime();
+  H.updateAnswer = { status: 202, body: {} };
+  H.statusAnswer = { status: 200, body: { state: 'installed', version: 'v0.3.0', percent: 100, error: null } };
+  H.restartAnswer = deferred();
+  UP.openRestartConfirm('toast');
+  btn('Update').click();
+  for (let i = 0; i < 10 && H.restartCalls === 0; i += 1) await settle();
+  assert.equal(H.restartCalls, 1, 'the install went straight on into the restart');
+  H.restartAnswer.resolve({ status: 409, body: { error: 'x', code: 'sessions-would-end' } });
+  await settle();
+
+  assert.deepEqual(texts('rs-title'), ['Restart and end the sessions?']);
+  assert.deepEqual(
+    byClass(modal, 'rs-lead').filter((n) => !n.hidden).map((n) => n.textContent),
+    ['This time the running session cannot be kept: restarting ends it. It stays in History, so you can pick its conversation up again.'],
+    'no word about what would be downloaded: that already happened',
+  );
+  H.restartAnswer = deferred();
+  btn('Restart anyway').click();
+  await settle();
+  assert.deepEqual(H.restartArgs, [false, true]);
+  assert.equal(H.updateCalls, 1, 'the install is not run a second time');
+  H.restartAnswer.resolve({ status: 422, body: { error: 'Still no.' } });
+  await settle();
+  UP.closeRestartConfirm();
+  H.update = null;
+  UP.applyRuntime();
 });
 
 test('a press on the backdrop closes the question; a press inside the card does not', () => {

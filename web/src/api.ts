@@ -40,6 +40,7 @@ import type {
   KeyStatus,
   OkResponse,
   Project,
+  RestartRequest,
   ResumeHistoryRequest,
   RuntimeStatusResponse,
   SaveKeyRequest,
@@ -325,25 +326,37 @@ export function getRuntime(): Promise<RuntimeStatusResponse> {
  *
  * The 202 body carries port/startedAt/samePort and NEVER a token; the reloaded
  * page gets its token injected into index.html the way every page does.
+ *
+ * `endSessions` (Nocturne D9 P4) is the user's "Restart anyway" after a 409
+ * `sessions-would-end`: the one body this route reads. Without it no body is
+ * sent at all.
  */
-export async function restartBackend(): Promise<{ status: number; body: unknown }> {
+export async function restartBackend(endSessions = false): Promise<{ status: number; body: unknown }> {
   const started = performance.now();
   const took = (): number => Math.round(performance.now() - started);
+  const body: RestartRequest | undefined = endSessions ? { endSessions: true } : undefined;
   let res: Response;
   try {
-    res = await fetch('/api/restart', { method: 'POST', headers: { 'x-auth-token': authToken() } });
+    res = await fetch('/api/restart', {
+      method: 'POST',
+      headers: {
+        'x-auth-token': authToken(),
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
   } catch (err) {
     log.warn(`api POST /api/restart → network error ${took()}ms: ${formatError(err)}`);
     return { status: 0, body: null };
   }
-  let body: unknown = null;
+  let answer: unknown = null;
   try {
-    body = await res.json();
+    answer = await res.json();
   } catch {
     // No/!JSON body — the status alone decides the outcome.
   }
-  log.info(`api POST /api/restart → ${res.status} ${took()}ms`);
-  return { status: res.status, body };
+  log.info(`api POST /api/restart${endSessions ? ' (end sessions)' : ''} → ${res.status} ${took()}ms`);
+  return { status: res.status, body: answer };
 }
 
 /**

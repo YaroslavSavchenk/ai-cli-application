@@ -402,7 +402,8 @@ export interface ConfirmSummary {
 }
 
 /**
- * Everything the confirmation needs about what is about to be closed. Only
+ * Everything the confirmation needs about what is running — what keeps running
+ * through the restart, or (D9 P4, the second confirmation) what will end. Only
  * RUNNING sessions count: an exited one is already in History and loses
  * nothing. `name` and `project` come from the caller (titles are user text and
  * project names live in state), so this stays free of the store.
@@ -428,15 +429,32 @@ export function summarizeRunning(
  * is the kind of detail that makes a warning feel machine-written — and this
  * is the sentence that has to be believed.
  *
- * The promise it makes is one the app already keeps: history.json survives a
- * restart, and every ended session gets its resume entry.
+ * The promise it makes is one the app keeps since Nocturne D9 P4: the
+ * sessions live in a separate session holder, so a restart or an update hands
+ * them to the new background service — same process, same scrollback — and
+ * the window reconnects to them. When that cannot be done this time the
+ * backend refuses first, and `wouldEndBody` asks again.
  */
 export function confirmBody(count: number): string {
   if (count === 0) return 'Nothing is running. The app reconnects by itself.';
+  if (count === 1) return 'One session is running. It keeps running, and this window reconnects to it.';
+  return `${count} sessions are running. They keep running, and this window reconnects to them.`;
+}
+
+/**
+ * The SECOND confirmation's body (D9 P4, decision 27): the backend said the
+ * running sessions cannot be kept this time (the session holder is one the
+ * new version cannot take over, or the sessions run inside the background
+ * service). Said BEFORE anything ends, with the way back: every ended session
+ * stays in History and can be resumed. Nothing running any more by the time
+ * it is read: the ordinary sentence, since nothing will end.
+ */
+export function wouldEndBody(count: number): string {
+  if (count === 0) return confirmBody(0);
   if (count === 1) {
-    return 'One session is running and will be closed. It stays in History, so you can pick its conversation up again.';
+    return 'This time the running session cannot be kept: restarting ends it. It stays in History, so you can pick its conversation up again.';
   }
-  return `${count} sessions are running and will be closed. They stay in History, so you can pick each conversation up again.`;
+  return `This time the ${count} running sessions cannot be kept: restarting ends them. They stay in History, so you can pick each conversation up again.`;
 }
 
 /**
@@ -445,7 +463,9 @@ export function confirmBody(count: number): string {
  * former "Continue last conversation" checkbox):
  * those were never pinned to a conversation id (PROJECT-SCOPE known limit), so
  * resuming them lands on their project's most recent conversation — which may
- * by then be a different one. Rendered ONLY when such a session is running.
+ * by then be a different one. Rendered ONLY when such a session is running
+ * and is about to END (D9 P4: the second confirmation) — a session that keeps
+ * running is never resumed.
  */
 export const CONTINUE_NOTE =
   'Sessions started from "The last conversation in this project" come back to the latest conversation of their project, not necessarily this one.';

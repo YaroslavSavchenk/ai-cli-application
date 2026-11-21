@@ -11,6 +11,7 @@
 import { join } from 'node:path';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
+import type { Logger } from '../../server/config.ts';
 import type { PtyHost, PtyOwnerEvents } from '../../server/pty-host-api.ts';
 import type { PtyEntrySummary, PtySnapshot, PtySpawnRequest } from '../../server/pty-table.ts';
 import { makeTempDir } from './helpers.ts';
@@ -70,15 +71,18 @@ export function fakePtyHost(opts: { hold?: boolean } = {}): FakePtyHost {
   };
 }
 
-/** A SessionManager over `host` with its own history file in a temp dir (pushed to `dirs` for cleanup). */
+/**
+ * A SessionManager over `host` with its own history file in a temp dir (pushed
+ * to `dirs` for cleanup). `log` receives the manager's lines (default: none).
+ */
 export async function fakeHostManager(
   host: PtyHost,
   dirs: string[],
+  log: Logger = () => {},
 ): Promise<{ sessions: SessionManager; history: SessionHistory }> {
   const dir = await makeTempDir('ai-sm-fakehost-');
   dirs.push(dir);
-  const noop = (): void => {};
-  const history = new SessionHistory(join(dir, 'history.json'), noop);
-  const sessions = new SessionManager(noop, history, undefined, undefined, undefined, undefined, host);
+  const history = new SessionHistory(join(dir, 'history.json'), () => {});
+  const sessions = new SessionManager(log, history, undefined, undefined, undefined, undefined, host);
   return { sessions, history };
 }

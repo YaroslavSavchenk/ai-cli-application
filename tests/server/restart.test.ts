@@ -167,6 +167,7 @@ test('restart controller: a second request while one runs is 409 and changes NOT
   const controller = new RestartController({
     log: (level, message) => h.logLines.push(`[${level}] ${message}`),
     counts: () => ({ sessions: 0, presence: 0, attached: 0 }),
+    sessionFacts: () => ({ running: 0, inProcess: 0 }),
     port: () => OLD_PORT,
     pid: OLD_PID,
     teardown: () => h.events.push('teardown'),
@@ -184,6 +185,7 @@ test('restart controller: a second request while one runs is 409 and changes NOT
       h.spawned.push(env);
       return Promise.resolve({
         pid: 1,
+        ptyHost: 'none',
         dead: () => false,
         stop: () => undefined,
         go: () => h.events.push('go'),
@@ -252,6 +254,7 @@ test('restart controller: the in-flight request socket is the ONE thing teardown
   const controller = new RestartController({
     log: () => undefined,
     counts: () => ({ sessions: 0, presence: 0, attached: 0 }),
+    sessionFacts: () => ({ running: 0, inProcess: 0 }),
     port: () => OLD_PORT,
     pid: OLD_PID,
     teardown: (keepSocket) => {
@@ -265,7 +268,7 @@ test('restart controller: the in-flight request socket is the ONE thing teardown
     commitFrontend: () => undefined,
     discardFrontend: () => undefined,
     startStandby: () =>
-      Promise.resolve({ pid: 1, dead: () => false, stop: () => undefined, go: () => undefined }),
+      Promise.resolve({ pid: 1, ptyHost: 'none', dead: () => false, stop: () => undefined, go: () => undefined }),
     readRuntime: () => ({
       port: OLD_PORT,
       token: 'unused',
@@ -538,6 +541,7 @@ test('preflight: a refusal is RETRYABLE — the next POST runs the whole sequenc
   const controller = new RestartController({
     log: () => undefined,
     counts: () => ({ sessions: 0, presence: 0, attached: 0 }),
+    sessionFacts: () => ({ running: 0, inProcess: 0 }),
     port: () => OLD_PORT,
     pid: OLD_PID,
     teardown: () => events.push('teardown'),
@@ -548,7 +552,7 @@ test('preflight: a refusal is RETRYABLE — the next POST runs the whole sequenc
     commitFrontend: () => undefined,
     discardFrontend: () => undefined,
     startStandby: () =>
-      Promise.resolve({ pid: 7, dead: () => false, stop: () => undefined, go: () => events.push('go') }),
+      Promise.resolve({ pid: 7, ptyHost: 'none', dead: () => false, stop: () => undefined, go: () => events.push('go') }),
     readRuntime: () => ({
       port: OLD_PORT,
       token: 'unused',
@@ -575,6 +579,7 @@ test('preflight: a second POST while the preflight runs is 409, not a second bui
   const controller = new RestartController({
     log: () => undefined,
     counts: () => ({ sessions: 0, presence: 0, attached: 0 }),
+    sessionFacts: () => ({ running: 0, inProcess: 0 }),
     port: () => OLD_PORT,
     pid: OLD_PID,
     teardown: () => events.push('teardown'),
@@ -589,7 +594,7 @@ test('preflight: a second POST while the preflight runs is 409, not a second bui
     commitFrontend: () => undefined,
     discardFrontend: () => undefined,
     startStandby: () =>
-      Promise.resolve({ pid: 7, dead: () => false, stop: () => undefined, go: () => events.push('go') }),
+      Promise.resolve({ pid: 7, ptyHost: 'none', dead: () => false, stop: () => undefined, go: () => events.push('go') }),
     readRuntime: () => ({
       port: OLD_PORT,
       token: 'unused',

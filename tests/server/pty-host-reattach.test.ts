@@ -4,7 +4,7 @@
  * drops and a new one that connects find the same PTY (same pid) with every
  * byte written meanwhile, at continuous offsets; takeover; detach versus a
  * lost connection; the client's ordering promise (`exit` never before the
- * spawn's continuation), `pendingSpawns`, the local 16 KiB meta cap and
+ * spawn's continuation), the local 16 KiB meta cap and
  * `onLost` when the host dies; a `list` bigger than one frame, sent in parts.
  *
  * How: a real pty-host child (`tests/helpers/pty-host-fixture.ts`) and the
@@ -191,20 +191,6 @@ test('an exit never reaches the owner before its spawn\'s continuation ran', asy
   const ids = await Promise.all(spawns);
   await waitUntil(() => (ids.every((id) => o.exits.has(id)) ? true : undefined), 'all 20 exits');
   assert.deepEqual(exitsBeforeKnown, [], 'every exit came after the awaiting code registered its id');
-  o.host.detach();
-});
-
-test('pendingSpawns names a spawn until its answer is read', async () => {
-  const h = await startHost();
-  const o = await owner(h.dataDir);
-  const id = randomUUID();
-  const pending = o.host.spawn({ id, file: 'bash', argv: ['-c', 'sleep 30'], cwd: '/', env: ENV, cols: 80, rows: 24 });
-  assert.deepEqual([...o.host.pendingSpawns()], [id], 'in flight');
-  const { pid } = await pending;
-  trackPty(pid);
-  assert.equal(o.host.pendingSpawns().size, 0, 'answered');
-  o.host.kill(id, 'now');
-  await waitUntil(() => o.exits.get(id), 'the exit');
   o.host.detach();
 });
 

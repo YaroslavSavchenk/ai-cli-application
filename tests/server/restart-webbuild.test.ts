@@ -187,6 +187,7 @@ test('web build: with NO previous dist, a post-swap refusal leaves the served pa
     const controller = new RestartController({
       log,
       counts: () => ({ sessions: 1, presence: 1, attached: 1 }),
+      sessionFacts: () => ({ running: 0, inProcess: 0 }),
       port: () => OLD_PORT,
       pid: OLD_PID,
       teardown: () => events.push('teardown'),
@@ -209,6 +210,7 @@ test('web build: with NO previous dist, a post-swap refusal leaves the served pa
       startStandby: () =>
         Promise.resolve({
           pid: 12,
+          ptyHost: 'none',
           // Alive through the preflight, dead by the last look before teardown.
           dead: () => existsSync(join(fx.dist, 'index.html')),
           stop: () => events.push('stop'),
@@ -366,6 +368,7 @@ test('preflight: a standby dying after the REAL swap answers 422 with web/dist b
     const controller = new RestartController({
       log,
       counts: () => ({ sessions: 1, presence: 1, attached: 1 }),
+      sessionFacts: () => ({ running: 0, inProcess: 0 }),
       port: () => OLD_PORT,
       pid: OLD_PID,
       teardown: () => events.push('teardown'),
@@ -379,6 +382,7 @@ test('preflight: a standby dying after the REAL swap answers 422 with web/dist b
       startStandby: () =>
         Promise.resolve({
           pid: 11,
+          ptyHost: 'none',
           // Alive through the preflight, dead by the last look before teardown.
           dead: () => existsSync(join(fx.dist, 'assets', 'index-NEWNEW00.js')),
           stop: () => events.push('stop'),

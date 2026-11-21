@@ -533,6 +533,7 @@ const restart = createRestartController({
   webDistDir,
   installed,
   sessions,
+  ptyHosts,
   history,
   lifecycle,
   telemetry,
@@ -566,8 +567,8 @@ function shutdown(cause: string): void {
     boot('info', `standby: received ${cause} before the handoff; exiting without touching the data dir`);
     process.exit(0);
   }
-  // A restart already ran the whole teardown (lifecycle stopped, history
-  // stamped 'shutdown', PTYs killed, listener closed) and runtime.json now
+  // A restart already ran the whole teardown (lifecycle stopped, the sessions
+  // handed to the child or ended, listener closed) and runtime.json now
   // describes the CHILD. Doing any of it twice would, at worst, delete the
   // discovery file of a healthy new backend — so this path only leaves.
   if (restart.inProgress) {
@@ -672,9 +673,11 @@ if (!standbyMode) {
     // files the parent was still using. The history load and the session
     // artifact wipe run in adoptThenListen() below (D9 P3).
     //
-    // That history load also RE-READS the file: the teardown that just
-    // happened stamped the parent's live sessions 'shutdown' on disk — the
-    // honest reason, and the one HISTORY shows.
+    // D9 P4: the parent has just DETACHED from the pty-host, so the adoption
+    // step connects as its owner and takes every session over — their history
+    // entries stay live and their artifacts survive the wipe. Only a restart
+    // that could not keep them stamped them 'shutdown' first; the history load
+    // RE-READS the file, so that is what HISTORY shows then.
     resetUpdateArtifacts();
     adoptWebBuild();
     // Belt and braces: the parent drops the swap's backup the moment `go` is
@@ -695,16 +698,26 @@ if (!standbyMode) {
     boot('warn', 'standby: the parent went away before the handoff; exiting');
     process.exit(0);
   });
-  boot('info', `standby: ready, waiting for the handoff from pid ${parent}`);
-  sendToParent({ type: 'standby-ready' });
-  // Armed AFTER the report, so the window is measured from the moment the
-  // parent starts counting on us — not from a boot that may itself have taken
-  // most of the parent's own ready timeout.
-  standbyTimer = setTimeout(() => {
-    if (!standbyWaiting) return;
-    boot('warn', `standby: no handoff within ${STANDBY_TIMEOUT_MS}ms of reporting ready; exiting`);
-    process.exit(0);
-  }, STANDBY_TIMEOUT_MS);
+  // D9 P4: whether THIS code can adopt the data dir's pty-host travels with
+  // the report — the parent refuses a restart that would end running sessions
+  // (409 sessions-would-end) before it tears anything down. A read-only probe:
+  // a standby owns nothing in the data dir.
+  void ptyHosts
+    .probe()
+    .catch(() => 'none' as const)
+    .then((ptyHost) => {
+      if (!standbyWaiting) return;
+      boot('info', `standby: ready, waiting for the handoff from pid ${parent} (pty-host ${ptyHost})`);
+      sendToParent({ type: 'standby-ready', ptyHost });
+      // Armed AFTER the report, so the window is measured from the moment the
+      // parent starts counting on us — not from a boot that may itself have
+      // taken most of the parent's own ready timeout.
+      standbyTimer = setTimeout(() => {
+        if (!standbyWaiting) return;
+        boot('warn', `standby: no handoff within ${STANDBY_TIMEOUT_MS}ms of reporting ready; exiting`);
+        process.exit(0);
+      }, STANDBY_TIMEOUT_MS);
+    });
 }
 
 process.on('uncaughtException', (err) => {

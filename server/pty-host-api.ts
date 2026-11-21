@@ -36,7 +36,8 @@
  * `pendingSpawns` for the socket implementation (server/pty-host-client.ts
  * `SocketPtyHost`). P3 dropped the last two from this interface: only the
  * broker reads a socket host's loss, and the manager tracks its own spawns in
- * flight (`#closing`), so no owner of a `PtyHost` needs them. P3 wired it: the backend's SessionManager talks
+ * flight (`#closing`), so no owner of a `PtyHost` needs them (P4 deleted
+ * `pendingSpawns`: the manager ends its own pending spawns at `detachAll`). P3 wired it: the backend's SessionManager talks
  * to a broker (server/pty-host-broker.ts) that implements this interface over
  * a pty-host it connects to or starts, or over the in-process table when the
  * pty-host is refused; `PtyOwnerEvents.lost` is the broker's.

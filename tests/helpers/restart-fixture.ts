@@ -6,7 +6,8 @@
  * Temp dirs and a private copy of the repo's built web/dist (a REAL restart
  * rebuilds and swaps what it serves — never the working tree's own web/dist);
  * the RestartController harness with every OS-touching dependency injected and
- * a fake clock; a bound on a promise that turns a hang into a failure; a fake
+ * a fake clock (and, D9 P4, the session facts and the standby's pty-host
+ * verdict it decides the sessions' fate from); a bound on a promise that turns a hang into a failure; a fake
  * `vite build` and a repo root to run it in; a ChildProcess stand-in for the
  * standby starter; and runtime.json / pid probes for real processes.
  */
@@ -21,7 +22,10 @@ import {
   REFUSED_BUILD,
   type FrontendBuild,
   type RestartDeps,
+  type SessionFacts,
+  type SessionsFate,
 } from '../../server/restart.ts';
+import type { PtyHostVerdict } from '../../server/pty-host-broker.ts';
 import { readWebBuild } from '../../server/buildinfo.ts';
 import { projectRoot, makeTempDirSync } from './helpers.ts';
 
@@ -60,6 +64,8 @@ export interface Harness {
   spawned: { portHint: number; restartedFrom: number }[];
   exits: number[];
   logLines: string[];
+  /** What each teardown was told to do with the sessions (D9 P4). */
+  fates: SessionsFate[];
 }
 
 /** The build a stubbed preflight reports — never a real vite run. */
@@ -88,8 +94,13 @@ export function harness(opts: {
   goThrows?: boolean;
   teardownThrows?: boolean;
   timeoutMs?: number;
+  /** D9 P4: the sessions the controller counts (default none), read on every call. */
+  facts?: () => SessionFacts;
+  /** D9 P4: what the standby's probe reports (default `compatible`). */
+  ptyHost?: PtyHostVerdict;
 } = {}): Harness {
   const events: string[] = [];
+  const fates: SessionsFate[] = [];
   const spawned: { portHint: number; restartedFrom: number }[] = [];
   const exits: number[] = [];
   const logLines: string[] = [];
@@ -106,8 +117,10 @@ export function harness(opts: {
     counts: () => ({ sessions: 2, presence: 1, attached: 3 }),
     port: () => OLD_PORT,
     pid: OLD_PID,
-    teardown: () => {
+    sessionFacts: opts.facts ?? (() => ({ running: 0, inProcess: 0 })),
+    teardown: (_keepSocket, fate) => {
       events.push('teardown');
+      fates.push(fate);
       if (opts.teardownThrows === true) throw new Error('server.close blew up');
     },
     dependenciesReady: () => {
@@ -137,6 +150,7 @@ export function harness(opts: {
       spawned.push(env);
       return Promise.resolve({
         pid: 9999,
+        ptyHost: opts.ptyHost ?? 'compatible',
         // 'before-swap' is caught inside the preflight, 'after-swap' by the
         // last look the controller takes before the teardown.
         dead: () => {
@@ -160,7 +174,7 @@ export function harness(opts: {
     },
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   };
-  return { controller: new RestartController(deps), events, spawned, exits, logLines };
+  return { controller: new RestartController(deps), events, spawned, exits, logLines, fates };
 }
 
 /**

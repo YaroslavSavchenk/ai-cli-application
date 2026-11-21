@@ -402,7 +402,10 @@ test('the server-side restart refusals are UI copy and obey the UI copy rule', (
   // Non-vacuity: the scan must actually have found the constants it judges.
   assert.deepEqual(
     refusals.map((r) => r.name).sort(),
-    ['REFUSED_BUILD', 'REFUSED_DEPENDENCIES', 'REFUSED_STANDBY'],
+    // D9 P4: REFUSED_SESSIONS_WOULD_END is the 409 sessions-would-end body —
+    // the dialog shows its own count-shaped copy for it, but any caller may
+    // show this one, so it obeys the same rule.
+    ['REFUSED_BUILD', 'REFUSED_DEPENDENCIES', 'REFUSED_SESSIONS_WOULD_END', 'REFUSED_STANDBY'],
     'every REFUSED_* constant must be scanned',
   );
 

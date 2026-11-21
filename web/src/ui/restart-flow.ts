@@ -11,6 +11,12 @@
  *   POST /api/restart
  *     202 { port, startedAt, samePort }  the replacement is already healthy
  *     409 { error }                      another restart is in flight
+ *     409 { error, code: 'sessions-would-end' }
+ *                                        (Nocturne D9 P4) the running sessions
+ *                                        cannot be kept this time; NOTHING was
+ *                                        touched — the UI asks again, saying
+ *                                        they will end, and re-posts with
+ *                                        `endSessions: true`
  *     422 { error }                      PREFLIGHT REFUSED — nothing was
  *                                        touched: the old backend is still
  *                                        serving, this page's token is still
@@ -39,7 +45,7 @@
  * races the listener handover. Polling `/health` on the same origin is the
  * only honest "you can come back now".
  */
-import { isPort, type RestartResponse } from '../../../shared/protocol.ts';
+import { isPort, RESTART_SESSIONS_WOULD_END, type RestartResponse } from '../../../shared/protocol.ts';
 import { errorText } from './util.ts';
 
 /** How often the gap is probed. Small: the whole wait is usually one second. */
@@ -93,9 +99,10 @@ export type RestartPhase = 'restarting' | 'reconnecting';
  * a cost with no purpose. Hiding aborts NOTHING: the flow keeps running with
  * the restart gap armed, and the dialog comes back with the outcome.
  *
- * No during `reconnecting`: the 202 has landed, the old process is gone with
- * its sessions, and the page is committed to reloading or to saying it cannot.
- * There is nothing behind the dialog left to use.
+ * No during `reconnecting`: the 202 has landed, the old process is gone (its
+ * sessions handed to the new one, D9 P4), and the page is committed to
+ * reloading or to saying it cannot. There is nothing behind the dialog left
+ * to use until the reload.
  */
 export function canHideRestartDialog(phase: RestartPhase): boolean {
   return phase === 'restarting';
@@ -113,6 +120,13 @@ export type RestartOutcome =
   | { kind: 'otherPort'; port: number }
   /** Another restart was already running; nothing happened. */
   | { kind: 'busy'; message: string }
+  /**
+   * D9 P4, decision 27: the sessions cannot be kept through this restart (they
+   * run inside the backend, or the session holder is one the new version
+   * cannot take over). NOTHING happened — like `refused` — and the caller asks
+   * the user again before it may re-post with `endSessions: true`.
+   */
+  | { kind: 'wouldEnd' }
   /**
    * Preflight refused (422). NOTHING happened: the old backend still serves
    * this page. The message is the server's own sentence about which check said
@@ -156,6 +170,13 @@ export function parseRestartBody(body: unknown): RestartResponse | null {
   return { port: o.port, startedAt: o.startedAt, samePort: o.samePort };
 }
 
+/** A 409 body naming the sessions-would-end code (D9 P4); any other 409 is `busy`. */
+function isWouldEnd(body: unknown): boolean {
+  return (
+    body !== null && typeof body === 'object' && (body as { code?: unknown }).code === RESTART_SESSIONS_WOULD_END
+  );
+}
+
 /**
  * Wait for the replacement to answer `/health`. Returns the elapsed ms, or
  * null when the budget ran out. The FIRST probe happens immediately: on a warm
@@ -186,6 +207,7 @@ export async function runRestart(deps: RestartDeps): Promise<RestartOutcome> {
     return { kind: 'failed', message: MSG_LOST };
   }
 
+  if (res.status === 409 && isWouldEnd(res.body)) return { kind: 'wouldEnd' };
   if (res.status === 409) return { kind: 'busy', message: errorText(res.body, MSG_BUSY) };
   // 422 is the ONLY non-202 answer that leaves the old process alive and this
   // page's token valid. It is read before the catch-all below precisely so it

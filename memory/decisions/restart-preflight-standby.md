@@ -1,17 +1,26 @@
 ---
 type: decision
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-11-21
 tags: [lifecycle, backend, frontend, restart, update, build, ipc]
 ---
 # Restart preflight: build + standby child before anything is torn down
+
+**Sessions SURVIVE the handoff since Nocturne D9 P4 (2026-11-21):** the
+"sessions-die contract" and the "end sessions like `shutdown()`" handoff step
+below are superseded by [[pty-host-session-survival]]. The standby now also
+probes the pty-host during its boot and reports `ptyHost` in
+`standby-ready`; the teardown detaches instead of ending, and a restart that
+cannot keep running sessions is refused with `409 sessions-would-end` before
+anything moves, unless the user chose "Restart anyway" (`endSessions: true`).
 
 **Status:** decided (2026-09-08, user's call — "de update moet echt
 bulletproof zijn. Kijk wat er mist. Hij moet echt flowless werken").
 Supersedes two paragraphs of [[backend-restart-same-port]]: the rejected
 "rebuilding `web/dist` as part of update" and the reasoning that IPC to a
-detached child is untestable from WSL. The same-port handoff, the
-sessions-die contract and the auto-pick fallback in that note all stand.
+detached child is untestable from WSL. The same-port handoff and the
+auto-pick fallback in that note stand; its sessions-die contract stood until
+D9 P4 (see the banner above).
 
 ## Trigger
 
@@ -58,9 +67,11 @@ swap → teardown → go → handoff.
   `dist-next` → `dist` (restore on failure → 422). The child reads its
   web-build identity at `go`, so a step-3 refusal can never leave new
   screens on an old backend.
-- **Handoff:** end sessions like `shutdown()` (history `shutdown` →
-  resumable), close the listener, `go` over IPC, disconnect, wait for the
-  child's `runtime.json` + `/health`, `202`, exit without unlinking.
+- **Handoff:** since D9 P4 detach the sessions for the child (no history
+  stamp; until then: end them like `shutdown()`, history `shutdown` →
+  resumable — still the path after "Restart anyway"), close the listener,
+  `go` over IPC, disconnect, wait for the child's `runtime.json` +
+  `/health`, `202`, exit without unlinking.
   Post-teardown failure is still `500` + exit — now only "the proven
   child could not bind".
 - **Identity file:** vite emits `web/dist/build-id.json` (`{ id }`) next

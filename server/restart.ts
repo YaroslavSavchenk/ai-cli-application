@@ -16,10 +16,16 @@
  * is reported honestly as `samePort: false` so the UI can say "close this
  * window and relaunch" instead of navigating nowhere.
  *
- * SESSIONS DIE, and that is the documented contract: sessions are server-side
- * objects bound to this process. They are stamped 'shutdown' in history.json
- * first — exactly like a normal shutdown — so every one of them keeps its
- * `resume` button in HISTORY.
+ * SESSIONS SURVIVE (Nocturne D9 P4, .claude/plans/nocturne/PLAN-D9.md): the
+ * PTYs live in the data dir's pty-host process, so the teardown only DETACHES
+ * from it (no history stamp, no kill) and the replacement adopts every
+ * session at `go` — same id, same pid, same scrollback. Two cases cannot keep
+ * them: sessions running inside this backend (no pty-host: the fallback), and
+ * a pty-host the new version cannot adopt (the standby's probe reports
+ * `incompatible`, decision 27). Then the restart is refused with 409
+ * `sessions-would-end` — before anything is torn down — unless the caller
+ * said `endSessions: true` ("Restart anyway"); the sessions then end as before
+ * D9: stamped 'shutdown' in history.json first, so each keeps its `resume`.
  *
  * SECURITY. The route this drives is token + Origin/Host gated like every other
  * /api route, and the child is spawned with process.execPath + an argv ARRAY:
@@ -49,8 +55,9 @@
  * `web/dist` is what it was and `web/dist-next` is gone. Only after all four
  * pass does the teardown run, and then the standby is told `go`.
  *
- * IPC here is MESSAGES ONLY — two tiny objects, `{type:'standby-ready'}` and
- * `{type:'go'}`. That is deliberately NOT the thing rejected on 2026-09-06:
+ * IPC here is MESSAGES ONLY — two tiny objects, `{type:'standby-ready',
+ * ptyHost}` (D9 P4: the standby's verdict on the pty-host) and `{type:'go'}`.
+ * That is deliberately NOT the thing rejected on 2026-09-06:
  * what was rejected was passing the LISTENING SOCKET over IPC (a handle whose
  * ownership fights with `detached` + `unref`). The port is still handed over as
  * a HINT with the same single auto-pick fallback: the handoff hint still beats
@@ -63,8 +70,15 @@
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type { Duplex } from 'node:stream';
-import { isPort, type RuntimeInfo, type RestartResponse } from '../shared/protocol.ts';
+import {
+  isPort,
+  RESTART_SESSIONS_WOULD_END,
+  type RuntimeInfo,
+  type RestartErrorBody,
+  type RestartResponse,
+} from '../shared/protocol.ts';
 import { describeError, errorStackOnly, oneLine, scoped, type Logger } from './config.ts';
+import type { PtyHostVerdict } from './pty-host-broker.ts';
 
 /** How long the old process waits for the child to own runtime.json + answer /health. */
 export const RESTART_TIMEOUT_MS = 15_000;
@@ -96,6 +110,33 @@ export const RESTART_IN_PROGRESS = 'restart already in progress';
 export const REFUSED_DEPENDENCIES = 'Dependencies changed. Install them in the project folder, then restart.';
 export const REFUSED_BUILD = "The app's screens could not be rebuilt.";
 export const REFUSED_STANDBY = 'The new backend did not start.';
+/**
+ * D9 P4: the 409 `sessions-would-end` sentence. The UI shows its own
+ * count-shaped copy (web/src/ui/update-model.ts `wouldEndBody`) and keys on
+ * the `code`; this one is for server.log and any other caller.
+ */
+export const REFUSED_SESSIONS_WOULD_END = 'The running sessions cannot be kept through this restart.';
+
+/** What the teardown does with the sessions: hand them to the next backend, or end them. */
+export type SessionsFate = 'keep' | 'end';
+
+/** Read when the fate is decided: running sessions, and how many of them run inside this backend. */
+export interface SessionFacts {
+  running: number;
+  inProcess: number;
+}
+
+/**
+ * The one rule (D9 P4, decision 27). Sessions inside this backend die with
+ * it; an incompatible pty-host is ended by the next backend anyway; a
+ * pty-host the standby could not reach while sessions run cannot be trusted
+ * to be adopted. Ending them HERE is the honest version of all three: history
+ * says `shutdown`, not a later `crash`.
+ */
+function sessionsFate(facts: SessionFacts, ptyHost: PtyHostVerdict): SessionsFate {
+  if (facts.inProcess > 0 || ptyHost === 'incompatible') return 'end';
+  return ptyHost === 'none' && facts.running > 0 ? 'end' : 'keep';
+}
 
 /** How long the parent waits for the standby child's `standby-ready`. */
 export const STANDBY_READY_TIMEOUT_MS = 20_000;
@@ -119,12 +160,13 @@ export class RestartRefusal extends Error {
 
 export interface RestartOutcome {
   /**
-   * 202 handed off; 409 one already running; 422 the PREFLIGHT refused and
+   * 202 handed off; 409 one already running, or (D9 P4, `code`) the running
+   * sessions would end and the caller did not allow it; 422 the PREFLIGHT refused and
    * this process is untouched and still serving; 500 the handoff failed after
    * the teardown and this process is leaving anyway.
    */
   status: 202 | 409 | 422 | 500;
-  body: RestartResponse | { error: string };
+  body: RestartResponse | RestartErrorBody;
   /**
    * Called by the route once the response bytes are flushed: the old process
    * leaves. Null for 409 — that request changed nothing.
@@ -141,7 +183,8 @@ export interface RestartOutcome {
 export interface RestartRunner {
   /** True once a handoff has begun: the process is already leaving. */
   readonly inProgress: boolean;
-  request(keepSocket?: Duplex): Promise<RestartOutcome>;
+  /** `endSessions`: the caller accepts that sessions which cannot be kept end (D9 P4). */
+  request(keepSocket?: Duplex, opts?: { endSessions?: boolean }): Promise<RestartOutcome>;
 }
 
 /** What a finished frontend build is known by. Logged, never sent to the UI. */
@@ -177,6 +220,11 @@ export interface StandbyChild {
   /** The child's pid when known — for the log line only. */
   pid: number | undefined;
   /**
+   * D9 P4: what the standby's probe found — can the NEW code adopt this data
+   * dir's pty-host and its sessions? Read from `standby-ready`.
+   */
+  ptyHost: PtyHostVerdict;
+  /**
    * Did it die AFTER reporting ready? Checked immediately before the teardown:
    * a dead standby there is still a 422 with this process whole, and it is the
    * only way to notice — the child cannot answer `go`, and a `send` on a
@@ -203,20 +251,23 @@ export interface RestartDeps {
   log: Logger;
   /** Counts for the one request line: `sessions=N presence=N attached=N`. */
   counts: () => { sessions: number; presence: number; attached: number };
+  /** D9 P4: what decides whether the sessions can be kept (`sessionsFate`). */
+  sessionFacts: () => SessionFacts;
   /** This process's port — the child's AI_SM_PORT_HINT. */
   port: () => number;
   /** This process's pid — how the child is recognized in runtime.json. */
   pid: number;
   /**
-   * Steps 2 + 3: stop the lifecycle timers, stamp history 'shutdown', destroy
-   * every session, close the LISTENING socket and every other socket/WS. Runs
-   * synchronously before the child is spawned, so the port is free.
+   * Steps 2 + 3: stop the lifecycle timers; `keep` detaches every session for
+   * the next backend (D9 P4), `end` stamps history 'shutdown' and destroys
+   * them; close the LISTENING socket and every other socket/WS. Runs
+   * synchronously before the child is told `go`, so the port is free.
    *
    * `keepSocket` is the connection carrying the in-flight POST /api/restart —
    * the ONE socket that must survive the teardown, because the 202 still has to
    * travel over it.
    */
-  teardown: (keepSocket?: Duplex) => void;
+  teardown: (keepSocket: Duplex | undefined, fate: SessionsFate) => void;
   /**
    * PREFLIGHT 1 — is node_modules in step with package-lock.json? False
    * refuses the restart; we never install anything ourselves.
@@ -322,16 +373,18 @@ export class RestartController implements RestartRunner {
    * Perform the handoff. Resolves with the response the route must send; the
    * process exits in `onFlushed`, never before the bytes are out.
    */
-  async request(keepSocket?: Duplex): Promise<RestartOutcome> {
+  async request(keepSocket?: Duplex, opts: { endSessions?: boolean } = {}): Promise<RestartOutcome> {
     if (this.#inProgress || this.#preflighting) {
       this.#log('warn', `restart refused: ${RESTART_IN_PROGRESS}`);
       return { status: 409, body: { error: RESTART_IN_PROGRESS }, onFlushed: null };
     }
+    const endSessions = opts.endSessions === true;
     const oldPort = this.#deps.port();
     const c = this.#deps.counts();
     this.#log(
       'info',
-      `restart requested by the ui: sessions=${c.sessions} presence=${c.presence} attached=${c.attached}`,
+      `restart requested by the ui: sessions=${c.sessions} presence=${c.presence} attached=${c.attached}` +
+        `${endSessions ? ' (ending the sessions allowed)' : ''}`,
     );
 
     // ----- PREFLIGHT: nothing below this block touches the running process --
@@ -339,13 +392,21 @@ export class RestartController implements RestartRunner {
     let standby: StandbyChild;
     let swap: FrontendSwap;
     try {
-      ({ standby, swap } = await this.#preflight(oldPort));
+      ({ standby, swap } = await this.#preflight(oldPort, endSessions));
     } catch (err) {
       const refusal = err instanceof RestartRefusal ? err.refusal : REFUSED_STANDBY;
+      const untouched = 'nothing was torn down: this backend keeps serving and its sessions are untouched';
+      if (refusal === REFUSED_SESSIONS_WOULD_END) {
+        this.#log('warn', `${refusal} (${oneLine((err as Error).message)}); ${untouched}`);
+        return {
+          status: 409,
+          body: { error: refusal, code: RESTART_SESSIONS_WOULD_END },
+          onFlushed: null,
+        };
+      }
       this.#log(
         'error',
-        `${refusal} (${err instanceof RestartRefusal ? oneLine(err.message) : describeError(err)}); ` +
-          'nothing was torn down: this backend keeps serving and its sessions are untouched',
+        `${refusal} (${err instanceof RestartRefusal ? oneLine(err.message) : describeError(err)}); ${untouched}`,
       );
       return { status: 422, body: { error: refusal }, onFlushed: null };
     } finally {
@@ -369,12 +430,23 @@ export class RestartController implements RestartRunner {
 
     // ----- HANDOFF: from here the old process is committed to leaving -------
     this.#inProgress = true;
-    // Wrapped like the spawn below it: if stamping history, destroying sessions
-    // or closing the listener throws, an unwrapped call would reject request(),
+    // Decided again HERE, after the last await: the preflight's check refused
+    // a restart that would end running sessions unasked, and only `end` with
+    // nothing running (an incompatible holder of exited sessions) or with the
+    // caller's `endSessions` can still come out of it.
+    const fate = sessionsFate(this.#deps.sessionFacts(), standby.ptyHost);
+    this.#log(
+      'info',
+      fate === 'keep'
+        ? 'the sessions stay with the pty-host for the new backend'
+        : "the sessions end with this backend (history: 'shutdown')",
+    );
+    // Wrapped like the spawn below it: if detaching or ending the sessions or
+    // closing the listener throws, an unwrapped call would reject request(),
     // the route would answer a generic 400, and NOTHING would spawn — a live
     // pid serving nothing, with runtime.json still naming it. #failure exits.
     try {
-      this.#deps.teardown(keepSocket);
+      this.#deps.teardown(keepSocket, fate);
     } catch (err) {
       this.#log('error', `restart teardown failed: ${errorStackOnly(err)}`);
       this.#commit();
@@ -402,7 +474,7 @@ export class RestartController implements RestartRunner {
       this.#log(
         'error',
         `the new backend did not take over within ${this.#timeoutMs}ms ` +
-          '(sessions are already ended and the listener is closed); exiting anyway',
+          '(the sessions are already handed over or ended and the listener is closed); exiting anyway',
       );
       return this.#failure(FAILED_UNHEALTHY);
     }
@@ -433,8 +505,18 @@ export class RestartController implements RestartRunner {
    * Throws a RestartRefusal (or anything else — treated as a standby failure)
    * and leaves this process exactly as it found it.
    */
-  async #preflight(oldPort: number): Promise<{ standby: StandbyChild; swap: FrontendSwap }> {
+  async #preflight(oldPort: number, endSessions: boolean): Promise<{ standby: StandbyChild; swap: FrontendSwap }> {
     this.#log('info', 'preflight: dependencies, frontend build, standby backend');
+
+    // D9 P4: sessions inside this backend can never be kept — said before a
+    // build is spent on a restart the user has not agreed to yet.
+    const early = this.#deps.sessionFacts();
+    if (!endSessions && early.inProcess > 0) {
+      throw new RestartRefusal(
+        REFUSED_SESSIONS_WOULD_END,
+        `${early.inProcess} running session(s) live inside this backend (no pty-host)`,
+      );
+    }
 
     if (!this.#deps.dependenciesReady()) {
       throw new RestartRefusal(
@@ -470,8 +552,22 @@ export class RestartController implements RestartRunner {
     this.#log(
       'info',
       `preflight: standby backend ready${standby.pid === undefined ? '' : ` (pid ${standby.pid})`}, ` +
-        `booted and holding; port hint ${oldPort}`,
+        `booted and holding; port hint ${oldPort}; pty-host ${standby.ptyHost}`,
     );
+
+    // D9 P4, decision 27: only the standby — the NEW code — can say whether it
+    // can adopt the pty-host. A restart that would end running sessions is
+    // refused here unless the caller allowed it; the standby and the staged
+    // build go, nothing else moved.
+    const facts = this.#deps.sessionFacts();
+    if (!endSessions && facts.running > 0 && sessionsFate(facts, standby.ptyHost) === 'end') {
+      standby.stop();
+      this.#deps.discardFrontend();
+      throw new RestartRefusal(
+        REFUSED_SESSIONS_WOULD_END,
+        `the new backend reports the pty-host as ${standby.ptyHost} with ${facts.running} running session(s)`,
+      );
+    }
 
     // THE ORDER THAT MATTERS: the screens change only once their backend is
     // proven. A refusal above this line leaves the user on the old pair — and
@@ -497,7 +593,7 @@ export class RestartController implements RestartRunner {
   /**
    * Drop the swap's backup. Runs on EVERY path past the teardown — the handoff
    * and the two failures after it — because none of them can revert: the
-   * sessions are gone, and the swapped-in build is the one a relaunch from the
+   * sessions are handed over or gone, and the swapped-in build is the one a relaunch from the
    * shortcut will serve, so `<dist>-prev` has no further use. Never fatal: a
    * leftover directory must not turn this into a different answer.
    */
@@ -518,7 +614,7 @@ export class RestartController implements RestartRunner {
     }
   }
 
-  /** A failed handoff still exits: the sessions are gone and nothing is listening. */
+  /** A failed handoff still exits: the sessions are handed over or gone and nothing is listening. */
   #failure(error: string): RestartOutcome {
     return { status: 500, body: { error }, onFlushed: this.#exitAfterFlush(0) };
   }
@@ -729,8 +825,12 @@ export function createStandbyStarter(
         settled = true;
         ready = true;
         clearTimeout(timer);
+        // D9 P4: anything but the two known verdicts reads as `none` — the
+        // standby saw no pty-host it could speak to.
+        const verdict = (message as { ptyHost?: unknown }).ptyHost;
         resolve({
           pid: child.pid,
+          ptyHost: verdict === 'compatible' || verdict === 'incompatible' ? verdict : 'none',
           dead: () => dead,
           stop: () => {
             handedOff = true; // Our own kill must not be reported as a death.

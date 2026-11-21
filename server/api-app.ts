@@ -13,6 +13,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   ClientLogRequest,
+  RestartRequest,
   RuntimeStatusResponse,
   SaveKeyRequest,
   UiPrefs,
@@ -25,6 +26,7 @@ import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE } from './update-install.ts
 import { isJsonContentType, scoped } from './config.ts';
 import {
   NEXT,
+  declaresBody,
   readJsonBody,
   readJsonBodySafe,
   responseNote,
@@ -87,6 +89,37 @@ export const CLIENT_LOG_MAX_MESSAGE = 2048;
 export const CLIENT_LOG_MAX_PER_MINUTE = 200;
 // Window length: the shared LOG_WINDOW_MS default of createWindowLimiter.
 
+/** POST /api/restart's body cap: `{"endSessions":true}` is 19 bytes. */
+export const RESTART_MAX_BYTES = 1024;
+/** The 400 of a restart body that is not `RestartRequest` (`{}` or `{ endSessions: boolean }`). */
+export const RESTART_BAD_BODY = 'The restart request was not understood.';
+
+/**
+ * D9 P4: POST /api/restart's `RestartRequest`, or undefined once a refusal
+ * has been sent (415 / 413 / 400). No declared body is `{}`.
+ */
+async function readRestartRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean | undefined> {
+  if (!declaresBody(req)) return false;
+  if (!isJsonContentType(req.headers['content-type'])) {
+    sendError(res, 415, 'content-type must be application/json');
+    return undefined;
+  }
+  const read = await readJsonBodySafe(req, RESTART_MAX_BYTES);
+  if (!read.ok) {
+    if (read.reason === 'too-large') sendError(res, 413, 'request body is too large');
+    else sendError(res, 400, RESTART_BAD_BODY);
+    return undefined;
+  }
+  const body = read.value;
+  const keys = body !== null && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : undefined;
+  const end = (body as Partial<RestartRequest> | null)?.endSessions;
+  if (keys === undefined || keys.some((k) => k !== 'endSessions') || (end !== undefined && typeof end !== 'boolean')) {
+    sendError(res, 400, RESTART_BAD_BODY);
+    return undefined;
+  }
+  return end === true;
+}
+
 /** GET /api/runtime, POST /api/restart, /api/update*, /api/client-log, /api/prefs, /api/tools, /api/keys*. */
 export async function appRoutes(
   ctx: ApiContext,
@@ -135,13 +168,18 @@ export async function appRoutes(
   // --- Manual restart (same-port handoff) ---------------------------------
   //
   // State-changing, so it sits behind the SAME token + Origin/Host gate as
-  // every other /api route (applied in server/api.ts, before handleApi runs). NO BODY IS
-  // READ: there is nothing to configure, and not reading is one less parser
-  // between an unauthenticated-until-proven caller and a process spawn.
+  // every other /api route (applied in server/api.ts, before handleApi runs).
+  // The body is read only AFTER that gate, and it is the one optional field
+  // of D9 P4 (`RestartRequest`): `{ endSessions: true }`, the user's "Restart
+  // anyway" after a 409 sessions-would-end. No body is `{}`. Anything else —
+  // a body that is not JSON, not that shape, or over RESTART_MAX_BYTES — is
+  // refused before the mechanism is reached, never guessed at.
   //
-  // The response is the LAST thing this process does: server/restart.ts has
-  // already ended the sessions and closed the listener by the time we answer,
-  // and its onFlushed hook exits the process once these bytes are out.
+  // The response is the LAST thing this process does: by the time we answer,
+  // server/restart.ts has handed the sessions to the new backend (D9 P4: the
+  // pty-host keeps them; only a restart the user allowed to end them has
+  // ended them) and closed the listener, and its onFlushed hook exits the
+  // process once these bytes are out.
   if (pathname === '/api/restart') {
     if (method !== 'POST') {
       sendError(res, 405, 'method not allowed');
@@ -162,8 +200,10 @@ export async function appRoutes(
       sendJson(res, 409, { error: UPDATE_BLOCKS_RESTART });
       return;
     }
+    const endSessions = await readRestartRequest(req, res);
+    if (endSessions === undefined) return;
     // The socket carrying THIS request is the one exception to the teardown.
-    const outcome = await deps.restart.request(req.socket);
+    const outcome = await deps.restart.request(req.socket, { endSessions });
     // 202 and 500 both mean this process is leaving; 409 and 422 live on. A
     // dying process must not hand the browser a REUSABLE socket: the very
     // next request is `GET /health`, and on a keep-alive connection it would
@@ -174,9 +214,10 @@ export async function appRoutes(
       sendJson(res, 202, outcome.body, outcome.onFlushed ?? undefined);
       return;
     }
-    // 409 (one already running), 422 (the preflight refused — this backend is
-    // untouched and still serving) and 500 (the handoff failed after the
-    // teardown) all carry { error }. The message is a CONSTANT from
+    // 409 (one already running, or — D9 P4, with `code` — the sessions would
+    // end), 422 (the preflight refused — this backend is untouched and still
+    // serving) and 500 (the handoff failed after the teardown) all carry
+    // { error }. The message is a CONSTANT from
     // server/restart.ts — nothing derived from a request — so it is safe in
     // the access log's reason=.
     const error = (outcome.body as { error?: string }).error ?? 'restart failed';
@@ -188,7 +229,7 @@ export async function appRoutes(
   // --- In-app update (download + verify + run the Setup on Windows) -------
   //
   // Same gate as every other /api route (token + Origin/Host parity, applied
-  // before handleApi runs) and, like /api/restart, NO BODY IS READ: the only
+  // before handleApi runs) and NO BODY IS READ: the only
   // thing this route can start is the update the backend itself found and
   // gated in server/update-release.ts. A periodic check can never install
   // anything — only this user-initiated POST can.

@@ -32,6 +32,7 @@ import { isStringArray } from './config.ts';
 import { plainObject } from './sanitise.ts';
 import { assertMetaSize } from './pty-table.ts';
 import { newOutputScan, scanOutput, type OutputScanState } from './sessions-output.ts';
+import type { Session } from './sessions-state.ts';
 
 const META_VERSION = 1;
 /** A title kept when the full blob does not fit (the UI shows far less). */
@@ -83,6 +84,34 @@ function permissionArgs(args: readonly string[]): string[] {
     }
   }
   return kept;
+}
+
+/**
+ * A live session's blob (moved here from server/sessions.ts in D9 P4, when
+ * `detachAll` took that file to its size limit): what a restarted backend
+ * adopts it from, `scannedTo` being the mirror's end — undefined when even a
+ * cut blob is over the cap.
+ */
+export function sessionBlob(session: Session): string | undefined {
+  const { info } = session;
+  return encodeSessionMeta({
+    info: {
+      ...(info.projectId === undefined ? {} : { projectId: info.projectId }),
+      title: info.title,
+      command: info.command,
+      args: info.args,
+      cwd: info.cwd,
+      createdAt: info.createdAt,
+      ...(info.statusline === true ? { statusline: true as const } : {}),
+    },
+    scan: session.scan,
+    scannedTo: session.buffer.endOffset,
+    attention: info.attention,
+    ...(info.pendingSince === undefined ? {} : { pendingSince: info.pendingSince }),
+    ...(info.turnEnded === true ? { turnEnded: true as const } : {}),
+    ...(session.titleIdleSince === undefined ? {} : { titleIdleSince: session.titleIdleSince }),
+    ...(session.destroyed ? { deleted: true as const } : {}),
+  });
 }
 
 /**

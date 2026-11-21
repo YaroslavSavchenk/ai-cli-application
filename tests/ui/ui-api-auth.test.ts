@@ -10,6 +10,10 @@
  * inline. The token check is the 401 (`'unauthorized'`). Before this split,
  * browsing into an unreadable folder (`/root`) reloaded the page.
  *
+ * Also the shape of a few requests a wrong byte would break: the Files
+ * panel's routes and, since Nocturne D9 P4, `restartBackend` — no body for a
+ * plain restart, `{"endSessions":true}` only for "Restart anyway".
+ *
  * The module is a singleton with a module-level ClientLogger (log.ts), so the
  * fake browser is installed BEFORE the imports below.
  */
@@ -250,4 +254,24 @@ test('updateProject: ONE PATCH to /api/projects/<encoded id>, the patch as the J
   assert.equal(headers['x-auth-token'], 'TOKEN-FROM-THE-PAGE');
   assert.equal(headers['content-type'], 'application/json');
   assert.equal(out.name, 'renamed', 'the answer is the updated project');
+});
+
+test('restartBackend: no body unless the sessions may end; then exactly {"endSessions":true} as JSON, with the token (D9 P4)', async () => {
+  calls.length = 0;
+  next = { status: 409, body: { error: 'x', code: 'sessions-would-end' } };
+  assert.deepEqual(await api.restartBackend(), { status: 409, body: { error: 'x', code: 'sessions-would-end' } });
+  next = { status: 202, body: { port: 41000, startedAt: 'x', samePort: true } };
+  await api.restartBackend(true);
+
+  assert.deepEqual(calls.map((c) => [c.url, c.init['method']]), [
+    ['/api/restart', 'POST'],
+    ['/api/restart', 'POST'],
+  ]);
+  const plain = calls[0];
+  const anyway = calls[1];
+  assert.ok(plain !== undefined && anyway !== undefined);
+  assert.equal('body' in plain.init, false, 'the plain restart sends no body at all');
+  assert.deepEqual(plain.init['headers'], { 'x-auth-token': 'TOKEN-FROM-THE-PAGE' }, 'and no content-type for one');
+  assert.equal(anyway.init['body'], '{"endSessions":true}', '"Restart anyway" is the one body the route reads');
+  assert.deepEqual(anyway.init['headers'], { 'x-auth-token': 'TOKEN-FROM-THE-PAGE', 'content-type': 'application/json' });
 });

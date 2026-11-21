@@ -25,7 +25,11 @@
  *     picker, because it is a decision with consequences and the app has
  *     exactly one visual language for those. Its `Restart` is the accent
  *     OUTLINE, not red: red is reserved for the "No prompts" launch mode, and
- *     this action is recoverable — every closed session is in History.
+ *     this action is recoverable — since Nocturne D9 P4 the sessions keep
+ *     running through it, and in the rare case they cannot (the backend
+ *     answers 409 `sessions-would-end`) the SAME dialog asks a second time,
+ *     saying they will end, with `Restart anyway`; every ended one is in
+ *     History.
  *
  * ONE BUTTON, ONE FLOW (phase E, 2026-09-09 — the user's ask: "a notification
  * and one button, like other apps"). The same three surfaces carry BOTH kinds
@@ -36,7 +40,7 @@
  *     download → verify → install (`./update-flow.ts`) and then, automatically,
  *     the proven same-port restart (`./restart-flow.ts`). Nothing in the first
  *     half is destructive, so the dialog may be put away for all of it; the
- *     sessions only end when the restart half begins, exactly as before.
+ *     sessions are handed to the new version when the restart half runs.
  *
  *   any other reason (`a new version is installed`, the developer-clone set)
  *     →  `Restart now` — the newer version is already on this machine.
@@ -74,6 +78,7 @@ import {
   summarizeRunning,
   updateLead,
   versionFact,
+  wouldEndBody,
   type ConfirmSummary,
 } from './update-model.ts';
 import {
@@ -130,7 +135,13 @@ const COPY = {
   dialogTitleUpdateBusy: 'Updating the app',
   dialogTitleUpdateOver: 'Update the app',
   dialogTitleUpdateRefused: 'Nothing was updated',
-  dialogSub: 'Sessions end. History keeps them.',
+  dialogSub: 'Sessions stay open.',
+  // D9 P4, decision 27: the second confirmation, when the backend says the
+  // sessions cannot be kept this time. Its own title and button word, because
+  // the one thing that changed is the one thing the user must not miss.
+  dialogTitleWouldEnd: 'Restart and end the sessions?',
+  dialogSubWouldEnd: 'Sessions end. History keeps them.',
+  restartAnyway: 'Restart anyway',
   cancel: 'Cancel',
   confirm: 'Restart',
   confirmUpdate: 'Update',
@@ -367,6 +378,12 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
    * that installed and then met a refused restart did not fail to update.
    */
   let half: 'update' | 'restart' = 'restart';
+  /**
+   * D9 P4: the question on screen is the SECOND one — the backend answered
+   * `sessions-would-end`, so this time pressing the button ends the sessions.
+   * Set only by that answer; every fresh opening asks the first question.
+   */
+  let ending = false;
   let restoreTo: HTMLElement | null = null;
   let summary: ConfirmSummary = { count: 0, rows: [], more: 0, continued: false };
   /** The pending reason's footnote, or null — recomputed on every render. */
@@ -450,7 +467,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
       (s) => st.projectName(s.projectId),
     );
     leadUpdate.textContent = mode === 'update' ? updateLead(st.state.update?.release) : '';
-    bodyText.textContent = confirmBody(summary.count);
+    bodyText.textContent = ending ? wouldEndBody(summary.count) : confirmBody(summary.count);
     list.replaceChildren(
       ...summary.rows.map((r) => {
         const li = el('li', 'rs-row');
@@ -482,11 +499,15 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     // finished" and "nothing happened, fix it and press again".
     const ended = next === 'over' || next === 'refused';
     bodyText.hidden = !confirming;
-    leadUpdate.hidden = !confirming || mode !== 'update';
+    // The second question (D9 P4) comes after the install already happened,
+    // so it says nothing about what would be downloaded or refused.
+    leadUpdate.hidden = !confirming || mode !== 'update' || ending;
     list.hidden = !confirming || summary.rows.length === 0;
     moreEl.hidden = !confirming || summary.more === 0;
-    contNote.hidden = !confirming || !summary.continued;
-    depsNote.hidden = !confirming || depsWarn === null;
+    // Only sessions about to END come back through a resume, so the note on
+    // where a `--continue` session lands belongs to the second question only.
+    contNote.hidden = !confirming || !ending || !summary.continued;
+    depsNote.hidden = !confirming || ending || depsWarn === null;
     progress.hidden = next !== 'busy';
     failure.hidden = !ended;
     failure.className = next === 'refused' ? 'rs-fail is-refused' : 'rs-fail';
@@ -499,7 +520,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     const hidable = next === 'busy' && flowPhase !== null && canHideFlow(flowPhase);
     cancelBtn.hidden = !confirming;
     confirmBtn.hidden = !confirming;
-    confirmBtn.textContent = mode === 'update' ? COPY.confirmUpdate : COPY.confirm;
+    confirmBtn.textContent = ending ? COPY.restartAnyway : mode === 'update' ? COPY.confirmUpdate : COPY.confirm;
     closeBtn.hidden = !ended;
     retryBtn.hidden = next !== 'refused';
     // The manual route belongs to exactly one situation: the app tried to fetch
@@ -516,9 +537,11 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     const failedHalfIsUpdate = half === 'update';
     titleEl.textContent =
       next === 'confirm'
-        ? updating
-          ? COPY.dialogTitleUpdate
-          : COPY.dialogTitle
+        ? ending
+          ? COPY.dialogTitleWouldEnd
+          : updating
+            ? COPY.dialogTitleUpdate
+            : COPY.dialogTitle
         : next === 'busy'
           ? updating && flowPhase !== null && isUpdatePhase(flowPhase)
             ? COPY.dialogTitleUpdateBusy
@@ -531,6 +554,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
               ? COPY.dialogTitleUpdateOver
               : COPY.dialogTitleOver;
     subEl.hidden = !confirming;
+    subEl.textContent = ending ? COPY.dialogSubWouldEnd : COPY.dialogSub;
     // Keep focus inside the dialog across the phase change that removes every
     // button (the failure phase does the same with closeBtn) — but NEVER take
     // it from somewhere else: while the install runs the dialog may be hidden
@@ -561,6 +585,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
           ? 'update'
           : noticeVerb(notice.reason);
     half = mode;
+    ending = false;
     modal.setAttribute('aria-label', mode === 'update' ? 'update the app' : 'restart the background service');
     failure.textContent = '';
     renderConfirm();
@@ -619,8 +644,8 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
       progressPct.textContent = '';
     }
     // `reconnecting` is the moment the old process actually left: a dialog the
-    // user hid earlier comes back, because from here the page is committed and
-    // the sessions behind it are already gone.
+    // user hid earlier comes back, because from here the page is committed to
+    // the new backend.
     if (hiddenMidFlow && !canHideFlow(p)) reveal();
     if (changed || phase !== 'busy') setPhase('busy');
   }
@@ -676,6 +701,13 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
    */
   async function startFlow(): Promise<void> {
     failure.textContent = ''; // A retry must not show the previous refusal.
+    // "Restart anyway" (D9 P4): whatever the dialog opened as, an update's
+    // install is already done by now — only the restart is left, and this
+    // time the user allowed the sessions to end.
+    if (ending) {
+      await startRestart(true);
+      return;
+    }
     if (mode === 'update') {
       await startUpdate();
       return;
@@ -740,12 +772,13 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     await settleUpdate(await followUpdate(updateDeps()));
   }
 
-  async function startRestart(): Promise<void> {
-    log.info(`restart confirmed: sessions=${summary.count}`);
+  async function startRestart(endSessions = false): Promise<void> {
+    log.info(`restart confirmed: sessions=${summary.count}${endSessions ? ' (the sessions may end)' : ''}`);
     half = 'restart'; // From here a refusal is the restart's, not the update's.
+    ending = false;
     failure.textContent = ''; // A retry must not show the previous refusal.
-    // BEFORE the POST: the old process starts killing sessions the moment it
-    // reads the request, so every "the backend vanished" reflex has to be
+    // BEFORE the POST: the old process starts its handover the moment its
+    // preflight passes, so every "the backend vanished" reflex has to be
     // asleep already.
     notice.startRestart();
     st.setRestarting(true);
@@ -753,7 +786,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     showProgress('restarting');
 
     const outcome = await runRestart({
-      postRestart: () => api.restartBackend(),
+      postRestart: () => api.restartBackend(endSessions),
       health: () => api.backendHealth(),
       now: () => Date.now(),
       sleep: (ms) => new Promise<void>((resolve) => window.setTimeout(resolve, ms)),
@@ -780,6 +813,16 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
       notice.restartAborted();
       renderNotice();
       showFailure(outcome.message);
+      return;
+    }
+    if (outcome.kind === 'wouldEnd') {
+      // D9 P4, decision 27: NOTHING happened — the backend is serving and every
+      // session runs — but this time a restart would end them. Ask again,
+      // saying so, before anything is lost.
+      log.warn('restart: the sessions cannot be kept this time; asking before ending them');
+      notice.restartAborted();
+      renderNotice();
+      askToEndSessions();
       return;
     }
     if (outcome.kind === 'refused') {
@@ -814,6 +857,16 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     }
     log.error(`restart failed: ${outcome.message}`);
     showFailure(outcome.message);
+  }
+
+  /** The second question (D9 P4): the same dialog, back in its confirm phase, saying the sessions will end. */
+  function askToEndSessions(): void {
+    st.setRestarting(false);
+    reveal(); // Asked with the dialog on screen, hidden preflight or not.
+    flowPhase = null;
+    ending = true;
+    renderConfirm();
+    confirmBtn.focus();
   }
 
   ctl = {

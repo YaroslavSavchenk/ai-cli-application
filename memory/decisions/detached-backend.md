@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-07-18
-updated: 2026-07-18
+updated: 2026-11-21
 tags: [architecture, lifecycle]
 ---
 # Detached backend — sessions survive the window
@@ -36,6 +36,9 @@ Consequences that follow from this decision:
   kills every PTY inside. Directly contradicts the product promise.
 - **tmux under the hood for persistence** — redundant once the backend itself
   is detached; revisit only if backend-restart-without-losing-sessions ever
-  becomes a requirement.
+  becomes a requirement. (It did, 2026-11-20 — and tmux was rejected again
+  for a pty-host of our own: [[pty-host-session-survival]]. Since D9 P4 a
+  restart or update keeps the sessions; the backend stays detached from the
+  launcher, and the pty-host is detached from the backend.)
 
 Related: [[web-app-inside-wsl]], [[wsl-interop]]

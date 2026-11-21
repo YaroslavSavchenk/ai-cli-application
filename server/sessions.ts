@@ -70,7 +70,7 @@ import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
 import { scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
 import { earlyExitLine, replayTail, scanOutput } from './sessions-output.ts';
-import { encodeSessionMeta, parseSessionMeta, rescanGap, unseenTail } from './sessions-meta.ts';
+import { parseSessionMeta, rescanGap, sessionBlob, unseenTail } from './sessions-meta.ts';
 import { metaMarks, newSession, syncPending, type Session } from './sessions-state.ts';
 import type { PtyEntrySummary, PtyExitRecord } from './pty-table.ts';
 import { createInProcessPtyHost, type PtyHost } from './pty-host-api.ts';
@@ -166,9 +166,10 @@ export class SessionManager {
   /** D9 P3: history keys whose launch is being spawned (ConversationStarting). */
   readonly #launching = new Set<string>();
   /**
-   * D9 P3 (§ Risks (a)): destroyAll() ran. A spawn still awaiting its answer
-   * is killed the moment the answer arrives, and no new one starts — no live
-   * PTY may outlive a shutdown unowned.
+   * D9 P3 (§ Risks (a)): destroyAll() or (P4) detachAll() ran. A spawn still
+   * awaiting its answer is killed the moment the answer arrives, and no new
+   * one starts — no live PTY may outlive a shutdown, or be handed to the next
+   * backend, unowned.
    */
   #closing = false;
   /** The gap re-scan lost old bells: said once per run. */
@@ -356,7 +357,7 @@ export class SessionManager {
     this.#ptys.set(id, session);
     // The first metadata blob rides the spawn (D9 P3): a backend that dies
     // right after it still left what the next one adopts the session from.
-    const meta = this.#meta(session);
+    const meta = sessionBlob(session);
     let pid: number;
     try {
       ({ pid } = await this.#host.spawn({
@@ -748,7 +749,10 @@ export class SessionManager {
     return true;
   }
 
-  /** Kill every PTY (server shutdown). Sessions die with the server by design. */
+  /**
+   * Kill every PTY: a server shutdown (grace expiry, SIGTERM, `-Stop`), or a
+   * restart that cannot keep the sessions (D9 P4, decision 27).
+   */
   destroyAll(): void {
     this.#closing = true;
     const ids = [...this.#sessions.keys()];
@@ -758,6 +762,39 @@ export class SessionManager {
     // exits the process right after this returns, so the host finishes them
     // off now (server/pty-table.ts `shutdownAll`).
     this.#host.shutdownAll();
+  }
+
+  /**
+   * D9 P4 — restart and update: hand every PTY to the next backend instead of
+   * ending it. Each session's blob is parked with its PTY (its `scannedTo`
+   * too, so the next backend re-scans only what this one never saw — a bell
+   * already looked at must not come back); a spawn still in flight is ended
+   * (no history entry was written for it, and the next backend would adopt a
+   * session nobody launched: § Risks (a)); then the host connection says
+   * goodbye. No history stamp, no kill: the sessions run on. The restart's
+   * teardown closes the sockets (1012).
+   */
+  detachAll(): void {
+    this.#closing = true;
+    let pending = 0;
+    for (const [id, session] of this.#ptys) {
+      if (session.destroyed || this.#sessions.has(id)) continue;
+      // The kill follows the spawn on the wire: the host has the PTY by then.
+      this.#host.kill(id, 'now');
+      this.#host.forget(id);
+      pending += 1;
+    }
+    let running = 0;
+    for (const [id, session] of this.#sessions) {
+      this.#flushMeta(id, session);
+      if (session.ptyLive) running += 1;
+    }
+    this.#host.detach();
+    this.#slog(
+      'info',
+      `detached for a restart: ${running} running and ${this.#sessions.size - running} exited session(s) ` +
+        `left with the pty-host, ${pending} spawn(s) in flight ended`,
+    );
   }
 
   /**
@@ -876,32 +913,9 @@ export class SessionManager {
     this.#log('info', `session ${id} handed over to another backend`);
   }
 
-  /** The session's metadata blob (server/sessions-meta.ts), or undefined when even a cut one is over the cap. */
-  #meta(session: Session): string | undefined {
-    const { info } = session;
-    return encodeSessionMeta({
-      info: {
-        ...(info.projectId === undefined ? {} : { projectId: info.projectId }),
-        title: info.title,
-        command: info.command,
-        args: info.args,
-        cwd: info.cwd,
-        createdAt: info.createdAt,
-        ...(info.statusline === true ? { statusline: true as const } : {}),
-      },
-      scan: session.scan,
-      scannedTo: session.buffer.endOffset,
-      attention: info.attention,
-      ...(info.pendingSince === undefined ? {} : { pendingSince: info.pendingSince }),
-      ...(info.turnEnded === true ? { turnEnded: true as const } : {}),
-      ...(session.titleIdleSince === undefined ? {} : { titleIdleSince: session.titleIdleSince }),
-      ...(session.destroyed ? { deleted: true as const } : {}),
-    });
-  }
-
   /** Park the current blob with the PTY (D9 P3): what a restarted backend adopts the session from. */
   #flushMeta(id: string, session: Session): void {
-    const meta = this.#meta(session);
+    const meta = sessionBlob(session);
     if (meta === undefined) return;
     this.#host.setMeta(id, meta);
   }

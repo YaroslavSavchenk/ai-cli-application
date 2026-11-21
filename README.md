@@ -127,8 +127,16 @@ upgrades in place, keeps everything, and you may leave the app open while it
 runs. Afterwards the app notices the new version by itself and offers the
 restart that moves it there — through the notice in the window, or under
 **Settings → Background service → Restart service**. Sessions that are open at
-that moment end; they keep their place in the Sessions panel's **Earlier**
-list and can be resumed.
+that moment keep running: the same tabs, panes and scrollback come back, and a
+Claude that was mid-turn keeps working. In the rare case they cannot be kept
+(the part of the app that holds them changed in a way the new version cannot
+take over), the confirmation says so first and offers **Restart anyway**; the
+sessions then end and keep their place in the Sessions panel's **Earlier**
+list, where they can be resumed.
+
+The first release that brings this cannot do it for its own install: the
+version you update FROM runs that update, so that one time the open sessions
+end as before. From the next update on they stay open.
 
 ### Uninstalling
 
@@ -434,7 +442,8 @@ path):
 - `pty-host.json`, `pty-host.sock`, `pty-host.lockname`, `pty-host.log` — the
   session holder (Nocturne D9): a separate process the backend starts with the
   first session, which owns the terminals so a backend crash does not end them
-  (relaunch within 10 minutes and they re-attach). Its state file (pid, build,
+  (relaunch within 10 minutes and they re-attach), and a restart or an update
+  hands them to the new backend instead of ending them. Its state file (pid, build,
   connection token; 0600), its socket (0600), the secret its single-instance
   lock is named after (0600), and its own log (lifecycle and counts only —
   never terminal bytes, environment, arguments or the token; rotated like
@@ -496,22 +505,34 @@ it was — same process, same sessions, same screens:
    refused with nothing renamed. A swap that fails puts the old build back,
    stops the standby and refuses too.
 
-Only then does the old process end every running session (each one is stamped
-in `history.json`, so it keeps its entry and can be resumed from the Sessions panel's Earlier list),
-close its listener, tell the standby to take the port, wait until that one
-answers `/health`, and answer the browser and exit. Running sessions do not
-survive this — the app never pretends otherwise.
+Only then does the old process let go of every running session — it detaches
+from the session holder (the pty-host process that owns the terminals) without
+ending anything or stamping `history.json` — close its listener, tell the
+standby to take the port, wait until that one answers `/health`, and answer the
+browser and exit. The new backend takes every session over before it listens:
+same id, same process, same scrollback. The standby checks during its own boot
+whether it CAN take the session holder over; when it cannot (another
+protocol), or the sessions run inside the backend itself (no session holder
+could be started), the restart is refused before anything moves and the UI
+asks again. Only after that second "yes" are the sessions ended, each one
+stamped `shutdown` in `history.json`, so it can be resumed from the Sessions
+panel's Earlier list.
 
 The route is `POST /api/restart` (same token and Origin/Host check as every
 other `/api` route). It answers `202` with the new port once the replacement
-is healthy, `409` when a restart is already running, `422` when one of the
-four steps above refused (**the old backend is untouched and still
-serving**), `500` when the replacement failed after the handoff had begun, and
-`503` in a process with no restart mechanism wired. A refused restart also
-leaves `web/dist-next` removed.
+is healthy, `409` when a restart is already running, `409 { error, code:
+'sessions-would-end' }` when the running sessions cannot be kept this time,
+`422` when one of the four steps above refused (**the old backend is untouched
+and still serving** after either refusal), `500` when the replacement failed
+after the handoff had begun, and `503` in a process with no restart mechanism
+wired. The one body it reads is optional: `{ "endSessions": true }` is the
+"Restart anyway" that lets sessions which cannot be kept end; anything other
+than `{}` or that shape is refused with `400`. A refused restart also leaves
+`web/dist-next` removed.
 
 A failed handoff is **not** a rollback: past the fourth step the sessions are
-already ended and the listener is already closed, so the old process exits
+already handed over (or ended, after "Restart anyway") and the listener is
+already closed, so the old process exits
 either way and the app asks you to start it again from the desktop shortcut.
 That window is now as small as "the replacement booted but could not bind".
 

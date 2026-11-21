@@ -118,6 +118,23 @@ test('standby starter: a message that is not exactly `standby-ready` is ignored,
   assert.deepEqual(h.child.killed, ['SIGTERM'], 'and the timed-out standby is killed, not left running');
 });
 
+test('standby starter: the report carries the pty-host verdict; anything but compatible/incompatible reads as none (D9 P4)', async () => {
+  for (const [sent, read] of [
+    ['compatible', 'compatible'],
+    ['incompatible', 'incompatible'],
+    ['none', 'none'],
+    [undefined, 'none'],
+    ['COMPATIBLE', 'none'],
+    [1, 'none'],
+  ] as const) {
+    const h = standbyHarness();
+    const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
+    h.child.emit('message', { type: 'standby-ready', ...(sent === undefined ? {} : { ptyHost: sent }) });
+    const standby = await within(pending, 'standby-ready');
+    assert.equal(standby.ptyHost, read, `sent ${String(sent)}`);
+  }
+});
+
 test('standby starter: a child that exits BEFORE ready rejects with the exit status', async () => {
   const h = standbyHarness();
   const pending = h.start({ portHint: 41000, restartedFrom: 4242 });

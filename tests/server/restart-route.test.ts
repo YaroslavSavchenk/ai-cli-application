@@ -1,9 +1,11 @@
 /**
  * Manual restart — the ROUTES on the wire. POST /api/restart against a real
  * in-process http server with a FAKE runner (nothing is spawned): the token
- * gate, Origin/Host parity, 405, 503 without a restart mechanism, a body that
- * is never parsed, and the exact wire shapes of 202/409/422/500 (a 422 keeps
- * the connection and never carries an exit hook). And GET /api/runtime: the
+ * gate, Origin/Host parity, 405, 503 without a restart mechanism, the one
+ * body field it reads (D9 P4 `endSessions`; anything else refused before the
+ * mechanism), and the exact wire shapes of 202/409/422/500 (a 422 and the
+ * sessions-would-end 409 keep the connection; a 422 never carries an exit
+ * hook). And GET /api/runtime: the
  * update reason must reach the browser byte-for-byte, under the key the UI
  * reads — tests/server/buildinfo-update-check.test.ts proves the checker picks
  * the reason, the UI tests map it to a sentence; this is the wire in between.
@@ -22,8 +24,9 @@ import { createServer, type Server } from 'node:http';
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import type { RuntimeStatusResponse } from '../../shared/protocol.ts';
+import { RESTART_SESSIONS_WOULD_END, type RuntimeStatusResponse } from '../../shared/protocol.ts';
 import {
+  REFUSED_SESSIONS_WOULD_END,
   RESTART_IN_PROGRESS,
   REFUSED_BUILD,
   REFUSED_DEPENDENCIES,
@@ -33,6 +36,7 @@ import {
 } from '../../server/restart.ts';
 import { createUpdateChecker } from '../../server/buildinfo.ts';
 import { createRequestHandler } from '../../server/api.ts';
+import { RESTART_BAD_BODY, RESTART_MAX_BYTES } from '../../server/api-app.ts';
 import { createLogger, createRefusalLimiter, scoped } from '../../server/config.ts';
 import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
@@ -53,6 +57,8 @@ interface RouteCtx {
   calls: number;
   /** The `keepSocket` argument of every request() the route made. */
   sockets: (Duplex | undefined)[];
+  /** D9 P4: the `endSessions` every request() was given. */
+  endSessions: (boolean | undefined)[];
 }
 
 /** A real http server wired to the real request handler and a scripted runner. */
@@ -65,15 +71,16 @@ async function withRoute(
   const token = 'c'.repeat(64);
   const history = new SessionHistory(join(dir, 'history.json'), log);
   const sessions = new SessionManager(log, history);
-  const ctx: RouteCtx = { port: 0, token, calls: 0, sockets: [] };
+  const ctx: RouteCtx = { port: 0, token, calls: 0, sockets: [], endSessions: [] };
   const runner: RestartRunner | undefined =
     outcome === 'no-runner'
       ? undefined
       : {
           inProgress: false,
-          request: (keepSocket?: Duplex) => {
+          request: (keepSocket?: Duplex, opts?: { endSessions?: boolean }) => {
             ctx.calls += 1;
             ctx.sockets.push(keepSocket);
+            ctx.endSessions.push(opts?.endSessions);
             return Promise.resolve(typeof outcome === 'function' ? outcome() : outcome);
           },
         };
@@ -299,17 +306,74 @@ test('POST /api/restart: a process with no restart mechanism answers 503, never 
   });
 });
 
-test('POST /api/restart: a body is IGNORED, never parsed — no route to a 400 from attacker JSON', async () => {
+// D9 P4: the route reads ONE optional field, `endSessions` (the user's
+// "Restart anyway" after a 409 sessions-would-end). Anything else is refused
+// before the mechanism is reached — a restart is never started on a guess.
+test('POST /api/restart: a body that is not {} or { endSessions: boolean } is refused and NOTHING is restarted', async () => {
   await withRoute(OK_202, async (ctx) => {
-    const res = await rawRequest(ctx.port, {
-      method: 'POST',
-      path: '/api/restart',
-      headers: { 'x-auth-token': ctx.token, 'content-type': 'application/json' },
-      body: '{ this is not json at all',
-    });
-    assert.equal(res.status, 202, 'the body never reaches a parser');
-    assert.equal(ctx.calls, 1);
+    const cases: [string, string, string, number][] = [
+      ['not JSON', 'application/json', '{ this is not json at all', 400],
+      ['a string flag', 'application/json', '{"endSessions":"yes"}', 400],
+      ['a foreign key', 'application/json', '{"endSessions":true,"force":true}', 400],
+      ['an array', 'application/json', '[true]', 400],
+      ['an empty array', 'application/json', '[]', 400],
+      ['null', 'application/json', 'null', 400],
+      ['not JSON content', 'text/plain', '{"endSessions":true}', 415],
+      ['over the cap', 'application/json', `{"endSessions":true${' '.repeat(RESTART_MAX_BYTES)}}`, 413],
+      // The cap itself is the 1 KiB the route promises, not whatever the constant says.
+      ['over 1 KiB', 'application/json', `{"endSessions":true${' '.repeat(1024)}}`, 413],
+    ];
+    for (const [name, type, body, status] of cases) {
+      const res = await rawRequest(ctx.port, {
+        method: 'POST',
+        path: '/api/restart',
+        headers: { 'x-auth-token': ctx.token, 'content-type': type },
+        body,
+      });
+      assert.equal(res.status, status, name);
+      if (status === 400) assert.deepEqual(JSON.parse(res.body), { error: RESTART_BAD_BODY }, name);
+    }
+    assert.equal(ctx.calls, 0, 'the mechanism is never reached');
   });
+});
+
+test('POST /api/restart: { endSessions: true } reaches the mechanism; no body, {} and false never allow the sessions to end', async () => {
+  await withRoute(OK_202, async (ctx) => {
+    const bodies: (string | undefined)[] = [undefined, '{}', '{"endSessions":false}', '{"endSessions":true}'];
+    for (const body of bodies) {
+      const res = await rawRequest(ctx.port, {
+        method: 'POST',
+        path: '/api/restart',
+        headers: { 'x-auth-token': ctx.token, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        ...(body === undefined ? {} : { body }),
+      });
+      assert.equal(res.status, 202, String(body));
+    }
+    assert.deepEqual(ctx.endSessions, [false, false, false, true]);
+  });
+});
+
+test('POST /api/restart: the 409 sessions-would-end reaches the wire with its code and KEEPS the connection', async () => {
+  await withRoute(
+    {
+      status: 409,
+      body: { error: REFUSED_SESSIONS_WOULD_END, code: RESTART_SESSIONS_WOULD_END },
+      onFlushed: null,
+    },
+    async (ctx) => {
+      const res = await rawRequest(ctx.port, {
+        method: 'POST',
+        path: '/api/restart',
+        headers: { 'x-auth-token': ctx.token },
+      });
+      assert.equal(res.status, 409);
+      assert.deepEqual(JSON.parse(res.body), {
+        error: 'The running sessions cannot be kept through this restart.',
+        code: 'sessions-would-end',
+      });
+      assert.notEqual(res.headers['connection'], 'close', 'nothing was torn down: the socket lives on');
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,11 @@
  *     stale file's pid may belong to anything by now, and is left alone;
  *   - a spawn that meets a host leaving idle (`bye idle` raced the spawn) is
  *     retried once on a new host instead of failing the launch.
+ * And three of D9 P4 (a restart): a detach that lands while a late start's
+ * hello is still out (security review S1) — the leaving backend adopts and
+ * kills nothing and gives the seat straight back; a standby's probe that
+ * meets no usable answer reads `none`; and a probe never keeps its
+ * connection.
  *
  * How: the real broker in this process over `startFakeHost`
  * (tests/helpers/pty-host-fixture.ts) — a real socket and 0600 state file
@@ -14,11 +19,15 @@
  * child this file spawns (`node -e` with the argv under test, so its
  * /proc cmdline is exactly that) and ends in `finally`; never this process.
  * The retry's new host is a real pty-host the broker starts, tracked and
- * ended in `after`.
+ * ended in `after`. The late start uses the broker's `serverDir` seam: its
+ * pty-host-main.ts exits "another instance holds this data dir", so the
+ * start goes on to the fake's state file, as it would to a running host.
  *
  * Why it matters: a SIGTERM by an unchecked pid could end any process of this
  * user; a launch that fails because the idle host left in that instant is a
- * "could not start the session" the user did nothing to cause.
+ * "could not start the session" the user did nothing to cause; a leaving
+ * backend that owned, adopted or ended the pty-host's PTYs after its detach
+ * would take the sessions from the backend that has just adopted them.
  *
  * NOT claimed: a real incompatible pty-host being ended with its sessions
  * (`pty-host-boot.test.ts`), the host's own idle rule (`pty-host-lifetime.test.ts`).
@@ -27,14 +36,16 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { writeFileSync, unlinkSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Socket } from 'node:net';
 import { PtyHostBroker } from '../../server/pty-host-broker.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import type { Logger } from '../../server/config.ts';
-import { encodeControl, PTY_HOST_PROTOCOL, ptyHostPaths, type Frame } from '../../server/pty-host-wire.ts';
-import { waitUntil } from '../helpers/helpers.ts';
+import { randomUUID } from 'node:crypto';
+import { encodeControl, PTY_HOST_EXIT, PTY_HOST_PROTOCOL, ptyHostPaths, type Frame } from '../../server/pty-host-wire.ts';
+import { makeTempDir, removeTempDir, sleep, waitUntil } from '../helpers/helpers.ts';
 import { fakeWelcome, startFakeHost, teardownHosts, trackHost } from '../helpers/pty-host-fixture.ts';
 import { hostPidOf, pidAlive } from '../helpers/pty-host-backend-fixture.ts';
 
@@ -156,3 +167,113 @@ test('a spawn that meets a pty-host leaving idle is retried once on a new one, a
     await fake.stop();
   }
 });
+
+// ---------------------------------------------------------------------------
+// D9 P4: a restart's detach and a standby's probe
+// ---------------------------------------------------------------------------
+
+/** The `t` of a control frame, or undefined for any other frame. */
+function verb(f: Frame): { t?: unknown; req?: unknown } | undefined {
+  return f.kind === 'control' ? (f.message as { t?: unknown; req?: unknown }) : undefined;
+}
+
+test('a detach while a late hello is out: the leaving backend adopts and kills nothing and gives the seat straight back (S1)', async () => {
+  // A session another backend left with the pty-host: the one the NEXT
+  // backend is adopting while this one leaves. Its pid can never exist
+  // (above Linux's PID_MAX_LIMIT), so no path here can signal a real group.
+  const kept = { id: randomUUID(), pid: 4_194_400, cols: 80, rows: 24, endOffset: 0, exit: null, meta: null };
+  let helloFrom: Socket | undefined;
+  const fake = await startFakeHost((sock, f) => {
+    const m = verb(f);
+    if (m?.t === 'hello') helloFrom = sock; // The welcome waits for the test.
+    if (m?.t === 'list') sock.write(encodeControl({ t: 'list-part', req: m.req as number, entries: [kept], done: true }));
+  });
+  const serverDir = await makeTempDir('d9-broker-late-entry-');
+  await writeFile(join(serverDir, 'pty-host-main.ts'), `process.exit(${PTY_HOST_EXIT.otherInstance});\n`);
+  const { log, lines } = lineLog();
+  const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log, serverDir });
+  const sessions = new SessionManager(log, new SessionHistory(join(fake.dataDir, 'history.json'), log), undefined, undefined, undefined, undefined, broker);
+  try {
+    const created = sessions.create({ cwd: '/tmp', command: 'bash', args: ['-c', 'sleep 300'], cols: 80, rows: 24 });
+    const sock = await waitUntil(() => helloFrom, 'the late start to say hello as owner');
+    sessions.detachAll(); // The restart's teardown, while the hello is unanswered.
+    sock.write(fakeWelcome());
+    await assert.rejects(created, /shutting down/);
+    await waitUntil(() => (fake.received.includes('detach') ? true : undefined), 'the seat to be given back');
+    assert.deepEqual(
+      fake.received,
+      ['hello', 'list', 'detach'],
+      'no spawn, kill, forget, snapshot or set-meta: the PTY belongs to the next backend',
+    );
+    assert.ok(!lines.some((l) => l.includes('owner of pty-host')), `never the owner: ${lines.join(' | ')}`);
+    assert.ok(!lines.some((l) => l.includes('already held')), `nothing adopted or ended: ${lines.join(' | ')}`);
+  } finally {
+    await fake.stop();
+    await removeTempDir(serverDir);
+  }
+});
+
+test("a standby's probe that meets no usable answer reads none: closed at the hello, closed at list-count", async () => {
+  for (const closeOn of ['hello', 'list-count']) {
+    const fake = await startFakeHost((sock, f) => {
+      const m = verb(f);
+      if (m?.t === closeOn) {
+        sock.destroy();
+        return;
+      }
+      if (m?.t === 'hello') sock.write(fakeWelcome());
+    });
+    try {
+      const { log, lines } = lineLog();
+      const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log });
+      assert.equal(await broker.probe(), 'none', `closed at ${closeOn}`);
+      assert.ok(!lines.some((l) => l.includes('refused this code')), `closed at ${closeOn}: not a refusal: ${lines.join(' | ')}`);
+    } finally {
+      await fake.stop();
+    }
+  }
+});
+
+test("a standby's probe closes its connection once it has its answer", async () => {
+  let closed = false;
+  const fake = await startFakeHost((sock, f) => {
+    const m = verb(f);
+    if (m?.t === 'hello') {
+      sock.once('close', () => {
+        closed = true;
+      });
+      sock.write(fakeWelcome());
+    }
+    if (m?.t === 'list-count') sock.write(encodeControl({ t: 'count', req: m.req as number, total: 1, running: 1 }));
+  });
+  try {
+    const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log: () => {} });
+    assert.equal(await broker.probe(), 'compatible');
+    await waitUntil(() => (closed ? true : undefined), 'the probe connection to close');
+    assert.deepEqual(fake.received, ['hello', 'list-count'], 'a probe asks one thing and writes nothing');
+  } finally {
+    await fake.stop();
+  }
+});
+
+/**
+ * How long a probe may take, at most, before its verdict is due: the probe's
+ * own 5 s budget (server/pty-host-broker.ts PROBE_TIMEOUT_MS) plus a margin.
+ */
+const PROBE_DUE_MS = 6_500;
+
+test(
+  "a standby's probe whose list-count is never answered reads none within its timeout",
+  async () => {
+    const fake = await startFakeHost((sock, f) => {
+      if (verb(f)?.t === 'hello') sock.write(fakeWelcome()); // list-count: silence.
+    });
+    try {
+      const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log: () => {} });
+      const verdict = await Promise.race([broker.probe(), sleep(PROBE_DUE_MS).then(() => 'no verdict')]);
+      assert.equal(verdict, 'none');
+    } finally {
+      await fake.stop(); // Ends a hung probe too: its socket closes, list-count rejects.
+    }
+  },
+);

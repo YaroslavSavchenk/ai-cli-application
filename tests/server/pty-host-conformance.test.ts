@@ -21,7 +21,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createInProcessPtyHost, type PtyHost } from '../../server/pty-host-api.ts';
-import { connectPtyHost, SocketPtyHost } from '../../server/pty-host-client.ts';
+import { connectPtyHost } from '../../server/pty-host-client.ts';
 import type { PtyExitRecord } from '../../server/pty-table.ts';
 import { waitUntil } from '../helpers/helpers.ts';
 import { ENV, startHost, teardownHosts, trackPty } from '../helpers/pty-host-fixture.ts';
@@ -135,15 +135,6 @@ const checks: [string, (r: Rig) => Promise<void>][] = [
         RangeError,
       );
       assert.equal((await r.host.list()).some((e) => e.id === id), false);
-    },
-  ],
-  [
-    'nothing pending after a spawn resolved',
-    async (r) => {
-      await spawn(r, 'true');
-      // D9 P3 dropped `pendingSpawns` from the PtyHost interface (no owner
-      // reads it); the socket client keeps it for P4's detachAll.
-      if (r.host instanceof SocketPtyHost) assert.equal(r.host.pendingSpawns().size, 0);
     },
   ],
 ];

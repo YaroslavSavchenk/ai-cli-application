@@ -6,12 +6,15 @@
  * from THAT bundle — its own node binary, entry module and node_modules —
  * instead of from this process's execPath.
  *
+ * Since Nocturne D9 P4 the real installed restart is also the update's: the
+ * running session survives it, adopted by the new version from the pty-host
+ * the old one started, and history stamps nothing.
+ *
  * How: stubbed controllers for the preflight, and REAL restarts of real server
- * children on a real unpacked-bundle layout in a temp dir: two version dirs,
- * each holding a copy of server/ and shared/, a SYMLINK to the repo's
- * node_modules, a COPY of the repo's already-built web/dist (never a rebuild —
- * a test run must not touch the tree it runs in), a bundle.json marker and a
- * node/bin/node symlink to this very node binary.
+ * children on a real unpacked-bundle layout in a temp dir
+ * (`tests/helpers/restart-installed-fixture.ts`: version dirs with copies of
+ * server/ and shared/, a symlinked node_modules, a COPY of the repo's built
+ * web/dist — never a rebuild — a bundle.json marker and a node binary link).
  *
  * SAFETY: every process here is one this file started; adopted children are
  * SIGTERMed by the pid in their own runtime.json.
@@ -21,21 +24,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type {
   HistoryEntry,
   RestartResponse,
   RuntimeStatusResponse,
+  SessionInfo,
 } from '../../shared/protocol.ts';
 import {
   createStandbyStarter,
@@ -48,7 +44,6 @@ import { resolveInstalledTarget } from '../../server/bundle.ts';
 import {
   api,
   createSession,
-  projectRoot,
   readServerLog,
   startTestServer,
   waitForLog,
@@ -64,6 +59,8 @@ import {
   readRuntime,
   isAlive,
 } from '../helpers/restart-fixture.ts';
+import { FIXTURE_NODE_VERSION, installedApp } from '../helpers/restart-installed-fixture.ts';
+import { readHistory } from '../helpers/pty-host-backend-fixture.ts';
 
 // ---------------------------------------------------------------------------
 // 4. INSTALLED MODE (2026-09-08) — the restart hands the port to <app>/current
@@ -75,103 +72,8 @@ import {
 // own node binary, its own entry module, its own node_modules — instead of from
 // this process's execPath.
 //
-// The fixture is a real unpacked-bundle layout in a temp dir: two version dirs,
-// each holding a copy of server/ and shared/, a SYMLINK to the repo's
-// node_modules, a COPY of the repo's already-built web/dist (never a rebuild —
-// a test run must not touch the tree it runs in), a bundle.json marker and a
-// node/bin/node symlink to this very node binary.
-
-/** The pinned runtime version a bundle marker claims; only its SHAPE matters. */
-const FIXTURE_NODE_VERSION = 'v24.8.0';
-
-interface InstalledAppFixture {
-  /** `<app>` — the directory holding the version dirs and `current`. */
-  root: string;
-  /** `<app>/<name>`. */
-  dir: (name: string) => string;
-  /** `<app>/current/server/index.ts` — what the launcher starts. */
-  entry: string;
-  /** Repoint `current` at another version, exactly like the installer does. */
-  point: (name: string) => void;
-  remove: () => void;
-}
-
-/**
- * One version directory of an unpacked bundle. `broken` omits its node binary
- * (caught by the preflight's own verification); `noModules` omits node_modules
- * (NOT verified — only the standby's real boot can catch that one).
- */
-function makeBundleVersion(
-  root: string,
-  name: string,
-  opts: { broken?: boolean; noModules?: boolean } = {},
-): string {
-  const dir = join(root, name);
-  mkdirSync(dir, { recursive: true });
-  cpSync(join(projectRoot, 'server'), join(dir, 'server'), { recursive: true });
-  cpSync(join(projectRoot, 'shared'), join(dir, 'shared'), { recursive: true });
-  cpSync(join(projectRoot, 'package.json'), join(dir, 'package.json'));
-  // Production deps live INSIDE a real bundle; a symlink is the same thing for
-  // module resolution and costs nothing to build.
-  if (opts.noModules !== true) symlinkSync(join(projectRoot, 'node_modules'), join(dir, 'node_modules'));
-  // The frontend the bundle serves: the repo's existing build, COPIED. Read
-  // only — this suite never rebuilds web/dist.
-  const dist = join(dir, 'web', 'dist');
-  const source = join(projectRoot, 'web', 'dist');
-  if (existsSync(join(source, 'index.html'))) {
-    cpSync(source, dist, { recursive: true });
-  } else {
-    mkdirSync(join(dist, 'assets'), { recursive: true });
-    writeFileSync(join(dist, 'index.html'), '<!doctype html><script src="/assets/index-Fixture0.js"></script>');
-    writeFileSync(join(dist, 'assets', 'index-Fixture0.js'), 'console.log(1)\n');
-    writeFileSync(join(dist, 'build-id.json'), JSON.stringify({ id: '20260908-0000-fixture' }));
-  }
-  if (opts.broken !== true) {
-    mkdirSync(join(dir, 'node', 'bin'), { recursive: true });
-    symlinkSync(process.execPath, join(dir, 'node', 'bin', 'node'));
-  }
-  writeFileSync(
-    join(dir, 'bundle.json'),
-    JSON.stringify({
-      version: name,
-      commit: '8c308cc',
-      nodeVersion: FIXTURE_NODE_VERSION,
-      builtAt: '2026-09-08T10:00:00.000Z',
-      platform: 'linux-x64',
-      glibcMin: '2.35',
-    }),
-  );
-  return dir;
-}
-
-function installedApp(versions: { name: string; broken?: boolean; noModules?: boolean }[]): InstalledAppFixture {
-  // realpath'ed: server/bundle.ts compares realpaths, and the boot banner
-  // prints the directory the process resolved itself to.
-  const root = realpathSync(makeTempDirSync('ai-sm-app-'));
-  for (const v of versions) {
-    makeBundleVersion(root, v.name, {
-      ...(v.broken === true ? { broken: true } : {}),
-      ...(v.noModules === true ? { noModules: true } : {}),
-    });
-  }
-  const point = (name: string): void => {
-    const link = join(root, 'current');
-    try {
-      rmSync(link, { force: true });
-    } catch {
-      // Not there yet.
-    }
-    symlinkSync(join(root, name), link);
-  };
-  point(versions[0]?.name as string);
-  return {
-    root,
-    dir: (name) => join(root, name),
-    entry: join(root, 'current', 'server', 'index.ts'),
-    point,
-    remove: () => rmSync(root, { recursive: true, force: true }),
-  };
-}
+// The fixture is a real unpacked-bundle layout in a temp dir:
+// tests/helpers/restart-installed-fixture.ts.
 
 test('installed mode, stubbed: the preflight VERIFIES the target bundle instead of building, and the standby is spawned from it', async () => {
   // The wiring server/index.ts installs when bundle.json is present, driven
@@ -192,6 +94,7 @@ test('installed mode, stubbed: the preflight VERIFIES the target bundle instead 
     const deps: RestartDeps = {
       log: log as RestartDeps['log'],
       counts: () => ({ sessions: 0, presence: 1, attached: 0 }),
+      sessionFacts: () => ({ running: 0, inProcess: 0 }),
       port: () => OLD_PORT,
       pid: OLD_PID,
       teardown: () => void events.push('teardown'),
@@ -284,6 +187,7 @@ test('installed mode, stubbed: a broken target refuses with 422 before anything 
     const deps: RestartDeps = {
       log: () => {},
       counts: () => ({ sessions: 1, presence: 1, attached: 1 }),
+      sessionFacts: () => ({ running: 0, inProcess: 0 }),
       port: () => OLD_PORT,
       pid: OLD_PID,
       teardown: () => void events.push('teardown'),
@@ -407,15 +311,17 @@ test('REAL installed restart: the port is handed to <app>/current, and the new p
       `a just-restarted installed backend has nothing to update to: ${JSON.stringify(runtime.update)}`,
     );
 
-    // The killed session is in HISTORY, stamped exactly like a normal shutdown.
-    const listed = await fetch(`http://127.0.0.1:${child.port}/api/history`, {
+    // D9 P4: the session survived the update — the v2 backend adopted it from
+    // the pty-host v1 started (same protocol), and history stamped nothing.
+    const listed = await fetch(`http://127.0.0.1:${child.port}/api/sessions`, {
       headers: { 'x-auth-token': child.token },
     });
-    const entries = (await listed.json()) as HistoryEntry[];
-    const entry = entries.find((e) => e.title === 'installed-victim');
-    assert.ok(entry !== undefined, `the session must be in history: ${JSON.stringify(entries)}`);
-    assert.equal(entry.ended?.reason, 'shutdown');
-    assert.ok(entry.id === session.id || entry.id.length > 0);
+    const kept = ((await listed.json()) as SessionInfo[]).find((s) => s.id === session.id);
+    assert.equal(kept?.status, 'running', 'the session runs on under the new version');
+    assert.equal(kept?.title, 'installed-victim');
+    const entry = readHistory(server.dataDir).find((e: HistoryEntry) => e.sessionId === session.id);
+    assert.ok(entry !== undefined, 'the session has its history entry');
+    assert.equal(entry.ended, null, 'and it is still live: an update is not a shutdown');
 
     // The log tells the installed story: a verified target, NO vite run, and a
     // second banner naming v2.

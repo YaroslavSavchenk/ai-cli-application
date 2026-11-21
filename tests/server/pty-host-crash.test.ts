@@ -17,8 +17,8 @@
  * a wrong one, a session comes back with holes in its scrollback, a bell the
  * user never sees, or a history entry stamped `crash` for a session that runs.
  *
- * NOT claimed: restart and update (P4 — a restart still ends the sessions in
- * P3: `restart-real.test.ts`), the browser's reconnect, Windows.
+ * NOT claimed: restart and update (P4: `restart-survive.test.ts`), the
+ * browser's reconnect, Windows.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

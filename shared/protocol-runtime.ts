@@ -257,6 +257,12 @@ export const UPDATE_NEW_VERSION_AVAILABLE = 'a new version is available';
  *   told the standby to take the port; it is exiting as this body is flushed.
  * - **409 `{ error }`** — a restart is already in flight (preflight or
  *   handoff). Nothing changed.
+ * - **409 `{ error, code: 'sessions-would-end' }`** (Nocturne D9 P4) — the
+ *   running sessions cannot be kept through this restart: they run inside
+ *   this backend (no session holder), or the session holder is one the new
+ *   version cannot adopt (decision 27). Nothing changed. The UI asks again,
+ *   saying the sessions WILL end, and repeats the POST with
+ *   `{ endSessions: true }` ("Restart anyway").
  * - **422 `{ error }`** — the PREFLIGHT REFUSED (added 2026-09-08). The old
  *   backend is UNTOUCHED: still listening, sessions still alive, `web/dist`
  *   unchanged and the staged `web/dist-next` removed — the swap is the LAST
@@ -279,6 +285,26 @@ export interface RestartResponse {
   port: number;
   startedAt: string;
   samePort: boolean;
+}
+
+/**
+ * POST /api/restart's optional body (Nocturne D9 P4). Absent or `{}`: the
+ * sessions must be kept, and a restart that cannot keep them is refused with
+ * the 409 below. `endSessions: true` is the user's "Restart anyway": the
+ * sessions may end (history `shutdown`, resumable as before D9). It is a
+ * permission, not an order — sessions that CAN be kept still are.
+ */
+export interface RestartRequest {
+  endSessions?: boolean;
+}
+
+/** The `code` of the 409 that says the running sessions would end (D9 P4, decision 27). */
+export const RESTART_SESSIONS_WOULD_END = 'sessions-would-end';
+
+/** Every non-202 body of POST /api/restart; only the sessions-would-end 409 carries a `code`. */
+export interface RestartErrorBody {
+  error: string;
+  code?: typeof RESTART_SESSIONS_WOULD_END;
 }
 
 // ---------------------------------------------------------------------------

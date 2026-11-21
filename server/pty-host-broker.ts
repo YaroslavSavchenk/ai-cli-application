@@ -40,8 +40,12 @@
  *     until `release()` — the caller adopts first, so no output of an adopted
  *     PTY reaches the owner before its mirror exists.
  *
- * `detach()` has no caller in P3: P4's restart hands the PTYs to the next
- * backend with it. A class: it lives, holds connections and is shut down.
+ * Restart and update (D9 P4): `detach()` hands the PTYs to the next backend
+ * (the connection says goodbye; in-process PTYs, which cannot be handed over,
+ * are ended); a standby backend asks `probe()` whether it can adopt this data
+ * dir's pty-host, and the old one counts `inProcessRunning()` — the two facts
+ * the restart's "would the sessions end?" rule reads (server/restart.ts).
+ * A class: it lives, holds connections and is shut down.
  * Used by the boot (server/index-ptyhost.ts) and the tests that drive a real
  * pty-host.
  */
@@ -50,8 +54,15 @@ import { oneLine, scoped, type Logger } from './config.ts';
 import { createInProcessPtyHost, type PtyHost, type PtyHostLostReason, type PtyOwnerEvents } from './pty-host-api.ts';
 import { readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
-import { connectPtyHost, pidAlive, PtyHostRefusal, startPtyHost, type SocketPtyHost } from './pty-host-client.ts';
-import { buildOrUnknown, dataDirRefusal, readPtyHostFile } from './pty-host-wire.ts';
+import {
+  connectPtyHost,
+  pidAlive,
+  probePtyHost,
+  PtyHostRefusal,
+  startPtyHost,
+  type SocketPtyHost,
+} from './pty-host-client.ts';
+import { buildOrUnknown, dataDirRefusal, PTY_HOST_PROTOCOL, readPtyHostFile } from './pty-host-wire.ts';
 import {
   processGroupGone,
   signalProcessGroup,
@@ -73,6 +84,20 @@ const BOOT_CONNECT_ATTEMPTS = 3;
 const BOOT_CONNECT_PAUSE_MS = 500;
 /** How long an incompatible pty-host gets to end its PTYs after our SIGTERM. */
 const INCOMPATIBLE_EXIT_WAIT_MS = 5000;
+/**
+ * A standby's probe (D9 P4). Longer than a connect: a busy pty-host that
+ * misses it makes the restart ask whether the sessions may end.
+ */
+const PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * What a standby backend found (D9 P4): `compatible` — a pty-host this code
+ * can adopt; `incompatible` — one that refused this code's hello (another
+ * protocol, or a token it does not know), so its sessions cannot be kept;
+ * `none` — no pty-host it could reach (none running, in-process mode, a data
+ * dir the pty-host cannot live in, or no answer).
+ */
+export type PtyHostVerdict = 'compatible' | 'incompatible' | 'none';
 
 /** What adopts a running host's sessions into the owner (server/index-ptyhost.ts). */
 type Adopter = (entries: PtyEntrySummary[]) => Promise<void>;
@@ -129,7 +154,7 @@ export class PtyHostBroker implements PtyHost {
   #inproc: PtyHost | undefined;
   /** Set once the in-process fallback took over: every later spawn goes there. */
   #fallenBack = false;
-  /** `shutdownAll()` ran: nothing new is spawned and a `bye` is not a loss. */
+  /** `shutdownAll()` or `detach()` ran: nothing new is spawned and a `bye` is not a loss. */
   #closing = false;
   readonly #routes = new Map<string, Route>();
   /** Every socket host this broker connected, with a promise of why it was lost. */
@@ -208,9 +233,9 @@ export class PtyHostBroker implements PtyHost {
   }
 
   async #spawn(req: PtySpawnRequest, mayRetry: boolean): Promise<PtySpawned> {
-    if (this.#closing) throw new Error('the backend is shutting down');
+    this.#refuseWhenClosing();
     const host = await this.#hostForSpawn();
-    if (this.#closing) throw new Error('the backend is shutting down');
+    this.#refuseWhenClosing();
     const route: Route = { host, pid: undefined, exited: false, forgotten: false };
     this.#routes.set(req.id, route);
     try {
@@ -284,11 +309,79 @@ export class PtyHostBroker implements PtyHost {
     clearTimeout(timer);
   }
 
-  /** P4's restart: the pty-host keeps the PTYs for the next backend. */
+  /**
+   * D9 P4, restart and update: the pty-host keeps the PTYs for the next
+   * backend, and no spawn starts after this. In-process PTYs cannot be handed
+   * over: they are ended now (the restart only gets here with none of them
+   * running — server/restart.ts — so this ends DELETE ladders still counting
+   * down, which would otherwise die half-done with this process).
+   */
   detach(): void {
+    this.#closing = true;
     const host = this.#current;
     this.#current = undefined;
     host?.detach();
+    this.#inproc?.shutdownAll();
+  }
+
+  /**
+   * D9 P4: running (or still spawning) sessions held in-process — they end
+   * with this backend whatever a restart does.
+   */
+  inProcessRunning(): number {
+    let n = 0;
+    for (const route of this.#routes.values()) {
+      if (route.host === this.#inproc && !route.exited && !route.forgotten) n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * D9 P4, a standby backend before its `go`: can this code adopt the data
+   * dir's pty-host? A PROBE connection (never the owner seat, nothing
+   * written), `list-count` for the log, closed.
+   */
+  async probe(): Promise<PtyHostVerdict> {
+    const dir = this.#opts.dataDir;
+    if (this.#fallenBack || dataDirRefusal(dir) !== undefined || readPtyHostFile(dir) === undefined) return 'none';
+    // ONE budget for the hello AND list-count: a host that welcomes and then
+    // never answers must still read `none` in time, not hold the standby's
+    // `standby-ready` until the parent gives up (D9 P4 gate finding).
+    const deadline = performance.now() + PROBE_TIMEOUT_MS;
+    let probe;
+    try {
+      probe = await probePtyHost({ dataDir: dir, timeoutMs: PROBE_TIMEOUT_MS });
+    } catch (err) {
+      if (err instanceof PtyHostRefusal) {
+        this.#log(
+          'warn',
+          `probe: the pty-host refused this code (${err.reason}; it speaks protocol ${err.hostProto}, ` +
+            `this code ${PTY_HOST_PROTOCOL}): its sessions cannot be kept`,
+        );
+        return 'incompatible';
+      }
+      this.#log('info', `probe: no pty-host answered (${reasonOf(err)})`);
+      return 'none';
+    }
+    const giveUp = new AbortController();
+    try {
+      const silence = delay(Math.max(0, deadline - performance.now()), undefined, { signal: giveUp.signal, ref: false }).then(() => {
+        throw new Error('no answer to list-count within the probe timeout');
+      });
+      const count = await Promise.race([probe.listCount(), silence]);
+      this.#log(
+        'info',
+        `probe: pty-host pid ${probe.welcome.pid} (build ${buildOrUnknown(probe.welcome.build)}) holds ` +
+          `${count.total} session(s), ${count.running} running; this code can adopt them`,
+      );
+      return 'compatible';
+    } catch (err) {
+      this.#log('info', `probe: the pty-host did not answer list-count (${reasonOf(err)})`);
+      return 'none';
+    } finally {
+      giveUp.abort();
+      probe.close();
+    }
   }
 
   #hosts(): PtyHost[] {
@@ -358,11 +451,23 @@ export class PtyHostBroker implements PtyHost {
           build: this.#opts.build,
           ...(this.#opts.serverDir === undefined ? {} : { serverDir: this.#opts.serverDir }),
         });
+        // D9 P4 (security review S1): a restart's detach (or a shutdown) ran
+        // while this start was under way. Never say hello as owner after it:
+        // the `takeover` would take the seat from the backend that has
+        // adopted these PTYs by now.
+        this.#refuseWhenClosing();
         const host = await connectPtyHost({ dataDir: this.#opts.dataDir, takeover: true, timeoutMs: CONNECT_TIMEOUT_MS });
         await this.#own(host, 'late');
+        if (this.#closing) {
+          // The detach came while the hello was out: give the seat up at once.
+          if (this.#current === host) this.#current = undefined;
+          host.detach();
+          this.#refuseWhenClosing();
+        }
         this.#log('info', `owner of pty-host pid ${file.pid} (build ${buildOrUnknown(host.welcome.build)})`);
         return host;
       } catch (err) {
+        if (this.#closing) throw err; // No retry and no fallback for a backend that is leaving.
         last = err;
         if (err instanceof PtyHostRefusal) await this.#endIncompatible(err);
         else this.#log('info', `starting a pty-host failed (attempt ${attempt}): ${reasonOf(err)}`);
@@ -391,6 +496,9 @@ export class PtyHostBroker implements PtyHost {
       this.#routes.set(e.id, { host, pid: e.pid, exited: e.exit !== null, forgotten: false });
     }
     const build = buildOrUnknown(host.welcome.build);
+    // A late owner whose backend detached meanwhile adopts nothing: the
+    // caller (`#start`) gives the seat back.
+    if (when === 'late' && this.#closing) return entries;
     if (when === 'boot') {
       this.#log('info', `re-attached to pty-host pid ${host.welcome.pid} (build ${build}): ${entries.length} session(s) held`);
       return entries;
@@ -437,6 +545,11 @@ export class PtyHostBroker implements PtyHost {
     }
     const deadline = performance.now() + INCOMPATIBLE_EXIT_WAIT_MS;
     while (pidAlive(pid) && performance.now() < deadline) await delay(50);
+  }
+
+  /** A start may go no further once `shutdownAll()` or `detach()` ran. */
+  #refuseWhenClosing(): void {
+    if (this.#closing) throw new Error('the backend is shutting down');
   }
 
   /** ONE line for the whole run: the reason, and what it costs. */
