@@ -42,7 +42,9 @@
  *
  * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the bell and title scan,
  * the replay tail and the early-exit line live in server/sessions-output.ts;
- * the PTY's environment (ptyEnv) in server/sessions-env.ts.
+ * the PTY's environment (ptyEnv) in server/sessions-env.ts; since D9 P3 the
+ * per-session record in server/sessions-state.ts and the metadata blob a
+ * restarted backend adopts a session from in server/sessions-meta.ts.
  *
  * Nocturne D9 P1 (.claude/plans/nocturne/PLAN-D9.md): the PTY itself — spawn,
  * input, resize, the raw ring, the final-output rescue, the kill ladder — sits
@@ -67,8 +69,10 @@ import { sameTelemetry } from './telemetry.ts';
 import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
 import { scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
-import { earlyExitLine, newOutputScan, replayTail, scanOutput, type OutputScanState } from './sessions-output.ts';
-import { RingBuffer, SCROLLBACK_MAX_BYTES, type PtyExitRecord } from './pty-table.ts';
+import { earlyExitLine, replayTail, scanOutput } from './sessions-output.ts';
+import { encodeSessionMeta, parseSessionMeta, rescanGap, unseenTail } from './sessions-meta.ts';
+import { metaMarks, newSession, syncPending, type Session } from './sessions-state.ts';
+import type { PtyEntrySummary, PtyExitRecord } from './pty-table.ts';
 import { createInProcessPtyHost, type PtyHost } from './pty-host-api.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
@@ -93,44 +97,19 @@ function cwdTitle(cwd: string): string {
 /** Minimum gap between per-session output summary lines (debug). */
 export const OUTPUT_LOG_INTERVAL_MS = 1000;
 
-interface Session {
-  info: SessionInfo;
-  /** True from the spawn until the PTY's exit is reported or destroy() kills it. */
-  ptyLive: boolean;
-  /** Claude-kind (isClaudeCommand): the early-exit verdict applies at exit. */
-  claude: boolean;
-  /** The MIRROR of the host's ring (D9 P1): what attach() replays and the early exit reads. */
-  buffer: RingBuffer;
-  clients: Set<WebSocket>;
-  /** The output scan's state (bell and window title), carried across data chunks. */
-  scan: OutputScanState;
-  /**
-   * C2 DEV-check fix: Date.now() when the program's window title last turned
-   * Claude Code's idle mark (`✳ …`); undefined while it is anything else, or
-   * never set. Only this stamp is kept — never the title text (untrusted
-   * program output: not stored, logged or sent).
-   */
-  titleIdleSince: number | undefined;
-  /**
-   * I/O accounting for the log ONLY — byte COUNTS, never bytes. A PTY can
-   * produce thousands of chunks a second and its content may hold anything the
-   * user typed or the agent printed, so traffic is summarized at most once per
-   * OUTPUT_LOG_INTERVAL_MS per session and flushed at exit. Input is counted
-   * the same way and for the same reason: xterm.js sends one frame per
-   * KEYSTROKE, so a line per frame is a line per key.
-   */
-  outBytes: number;
-  outChunks: number;
-  trimmedBytes: number;
-  inBytes: number;
-  inFrames: number;
-  lastOutLogMs: number;
-  /**
-   * D6: set by destroy() — the user (or shutdown) ended it, so a non-zero exit
-   * right after the spawn is the signal's doing, not a refusal by the CLI.
-   */
-  destroyed: boolean;
+/**
+ * D9 P3 (§ Risks (c)): a launch of this conversation (or history entry) is
+ * being spawned right now — the second of two concurrent resumes is refused,
+ * since both passed the "not live" check before either was registered.
+ */
+export class ConversationStarting extends Error {
+  constructor() {
+    super('that conversation is being started already');
+  }
 }
+
+/** The exit code a session gets when its pty-host was lost and its group SIGKILLed (128 + 9). */
+const LOST_EXIT_CODE = 137;
 
 export interface CreateSessionOptions {
   projectId?: string;
@@ -146,27 +125,6 @@ export interface CreateSessionOptions {
    * updates the entry it came from instead of forking a new one.
    */
   historyId?: string;
-}
-
-/**
- * Nocturne C1 (.claude/plans/nocturne/PLAN-C1.md § The signal): keep
- * `pendingSince` in step with `attention || turnEnded`. Stamped when that
- * goes false -> true, KEPT while either stays set (a second BEL, or a turn
- * ending on a session a BEL already made pending, does not move it — the
- * mascots are ordered oldest-first), deleted when both are false. Returns
- * whether the field changed.
- */
-function syncPending(info: SessionInfo): boolean {
-  const pending = info.attention || info.turnEnded === true;
-  if (pending && info.pendingSince === undefined) {
-    info.pendingSince = new Date().toISOString();
-    return true;
-  }
-  if (!pending && info.pendingSince !== undefined) {
-    delete info.pendingSince;
-    return true;
-  }
-  return false;
 }
 
 export class SessionManager {
@@ -205,6 +163,16 @@ export class SessionManager {
    * through this map, not #sessions.
    */
   readonly #ptys = new Map<string, Session>();
+  /** D9 P3: history keys whose launch is being spawned (ConversationStarting). */
+  readonly #launching = new Set<string>();
+  /**
+   * D9 P3 (§ Risks (a)): destroyAll() ran. A spawn still awaiting its answer
+   * is killed the moment the answer arrives, and no new one starts — no live
+   * PTY may outlive a shutdown unowned.
+   */
+  #closing = false;
+  /** The gap re-scan lost old bells: said once per run. */
+  #overrunLogged = false;
 
   constructor(
     log: Logger,
@@ -228,17 +196,29 @@ export class SessionManager {
     this.#claudeVersion = claudeVersion;
     this.#host = host;
     this.#host.listen({
-      output: (id, data) => {
-        const session = this.#ptys.get(id);
-        if (session !== undefined) this.#onOutput(id, session, data);
-      },
-      exit: (id, record) => {
+      output: (id, data, offset) => {
         const session = this.#ptys.get(id);
         if (session === undefined) return;
-        this.#ptys.delete(id);
-        this.#onExit(id, session, record);
+        const fresh = unseenTail(session.buffer.endOffset, data, offset);
+        if (fresh !== '') this.#onOutput(id, session, fresh);
       },
+      exit: (id, record) => this.#ended(id, record, 'exit'),
+      // D9 P3: the pty-host holding this PTY is gone and its group was killed.
+      lost: (id, at) => this.#ended(id, { code: LOST_EXIT_CODE, signal: 9, at }, 'crash'),
+      handedOver: (id) => this.#handedOver(id),
     });
+  }
+
+  /** The PTY is gone: end its session now, or right after it is registered. */
+  #ended(id: string, record: PtyExitRecord, reason: 'exit' | 'crash'): void {
+    const session = this.#ptys.get(id);
+    if (session === undefined) return;
+    this.#ptys.delete(id);
+    if (!session.destroyed && !this.#sessions.has(id)) {
+      session.earlyEnd = { record, reason };
+      return;
+    }
+    this.#onExit(id, session, record, reason);
   }
 
   list(): SessionInfo[] {
@@ -279,7 +259,27 @@ export class SessionManager {
 
   /** Spawn the PTY and register the session. Rejects if the spawn fails. */
   async create(opts: CreateSessionOptions): Promise<SessionInfo> {
+    if (this.#closing) throw new Error('the backend is shutting down');
     const id = randomUUID();
+    // Conversation pinning (below) decides the history key; it is claimed
+    // BEFORE the spawn is awaited (D9 P3 § Risks (c)).
+    const plan = planConversation(opts.command, opts.args, id);
+    const historyKey = opts.historyId ?? plan.id;
+    if (this.#launching.has(historyKey)) throw new ConversationStarting();
+    this.#launching.add(historyKey);
+    try {
+      return await this.#create(id, plan, historyKey, opts);
+    } finally {
+      this.#launching.delete(historyKey);
+    }
+  }
+
+  async #create(
+    id: string,
+    plan: ReturnType<typeof planConversation>,
+    historyKey: string,
+    opts: CreateSessionOptions,
+  ): Promise<SessionInfo> {
     // Status line: claude-kind sessions only, and never over a client's own
     // --settings. `spawnArgs` is what the PTY gets; `opts.args` is what the
     // session (and therefore the history entry, and therefore a resume)
@@ -305,7 +305,6 @@ export class SessionManager {
     // adds on top of the client's own argv (today: `--session-id <id>`, and
     // only when the client asked for no resume/session flag itself) goes into
     // the PTY argv, never into info.args.
-    const plan = planConversation(opts.command, opts.args, id);
     if (plan.injected.length > 0) spawnArgs = [...spawnArgs, ...plan.injected];
 
     const env = ptyEnv();
@@ -351,27 +350,13 @@ export class SessionManager {
       ...(statusline ? { statusline: true } : {}),
     };
 
-    const session: Session = {
-      info,
-      ptyLive: true,
-      claude,
-      buffer: new RingBuffer(SCROLLBACK_MAX_BYTES, (dropped) => {
-        session.trimmedBytes += dropped;
-      }),
-      clients: new Set(),
-      scan: newOutputScan(),
-      titleIdleSince: undefined,
-      outBytes: 0,
-      outChunks: 0,
-      trimmedBytes: 0,
-      inBytes: 0,
-      inFrames: 0,
-      lastOutLogMs: Date.now(),
-      destroyed: false,
-    };
+    const session = newSession(info, claude);
     // Routed BEFORE the spawn is asked for: a host behind a socket may deliver
     // this PTY's first output before its spawn answer has been read.
     this.#ptys.set(id, session);
+    // The first metadata blob rides the spawn (D9 P3): a backend that dies
+    // right after it still left what the next one adopts the session from.
+    const meta = this.#meta(session);
     let pid: number;
     try {
       ({ pid } = await this.#host.spawn({
@@ -382,6 +367,7 @@ export class SessionManager {
         env,
         cols: opts.cols,
         rows: opts.rows,
+        ...(meta === undefined ? {} : { meta }),
       }));
     } catch (err) {
       this.#ptys.delete(id);
@@ -389,9 +375,19 @@ export class SessionManager {
       if (statusline) this.#settings?.remove(id);
       throw err;
     }
+    if (this.#closing) {
+      // destroyAll() ran while the answer was in flight (§ Risks (a)): this
+      // PTY is live and nobody else knows it. End it, never register it.
+      this.#ptys.delete(id);
+      this.#host.kill(id, 'now');
+      this.#host.forget(id);
+      if (statusline) this.#settings?.remove(id);
+      this.#slog('info', `${id} spawned during shutdown; killed at once`);
+      throw new Error('the backend is shutting down');
+    }
     this.#sessions.set(id, session);
     this.#history.recordCreate(info, {
-      id: opts.historyId ?? plan.id,
+      id: historyKey,
       conversation: plan.conversation,
       baseArgs: plan.baseArgs,
     });
@@ -407,13 +403,20 @@ export class SessionManager {
       'debug',
       `${id} created: pid ${pid}, title ${JSON.stringify(info.title)}, ` +
         `project ${info.projectId ?? 'none'}, statusline ${statusline}, ` +
-        `history key ${opts.historyId ?? plan.id} (conversation ${plan.conversation})`,
+        `history key ${historyKey} (conversation ${plan.conversation})`,
     );
+    const early = session.earlyEnd;
+    if (early !== undefined) {
+      // Ended before its registration could run (§ Risks (b)): stamped now.
+      session.earlyEnd = undefined;
+      this.#onExit(id, session, early.record, early.reason);
+    }
     return { ...info };
   }
 
   /** One chunk of PTY output: mirror ring, log counts, broadcast, bell and title scan. */
   #onOutput(id: string, session: Session, data: string): void {
+    const before = metaMarks(session);
     session.buffer.append(data);
     session.outBytes += Buffer.byteLength(data);
     session.outChunks += 1;
@@ -432,10 +435,11 @@ export class SessionManager {
     // repaints its title about every second); any other title clears it.
     if (scan.titleIdle === true) session.titleIdleSince ??= Date.now();
     else if (scan.titleIdle === false) session.titleIdleSince = undefined;
+    if (metaMarks(session) !== before) this.#flushMeta(id, session);
   }
 
   /** The PTY exited (the host already called off a ladder whose group is gone). */
-  #onExit(id: string, session: Session, record: PtyExitRecord): void {
+  #onExit(id: string, session: Session, record: PtyExitRecord, reason: 'exit' | 'crash' = 'exit'): void {
     const exitCode = record.code;
     const signal = record.signal;
     session.info.status = 'exited';
@@ -484,7 +488,7 @@ export class SessionManager {
     // the one place program output reaches server.log: its first line,
     // escape-, bidi- and control-stripped and capped (earlyExitLine).
     const verdict =
-      session.claude && !session.destroyed
+      session.claude && !session.destroyed && reason === 'exit'
         ? earlyExitLine(session.info.createdAt, record.at, exitCode, session.buffer)
         : undefined;
     const early = verdict === undefined ? undefined : { line: verdict.line };
@@ -504,7 +508,11 @@ export class SessionManager {
       this.#broadcast(session, { type: 'info', session: { ...session.info } });
     }
     // No-op if already stamped 'user-kill'/'shutdown' (first stamp wins).
-    this.#history.markEnded(id, 'exit', exitCode);
+    // 'crash' (D9 P3): the pty-host holding it was lost.
+    this.#history.markEnded(id, reason, exitCode);
+    // An exited session survives a backend restart too (D9): its blob is
+    // the one a new backend rebuilds the row from.
+    this.#flushMeta(id, session);
     this.#broadcast(session, { type: 'exit', exitCode, ...(early === undefined ? {} : { early }) });
     // Wording kept verbatim (tests and habits key off it); the signal and the
     // final output tally are appended.
@@ -657,9 +665,11 @@ export class SessionManager {
     const prevTurn = session.info.turn;
     if (report.turn === undefined) delete session.info.turn;
     else session.info.turn = report.turn;
+    const before = metaMarks(session);
     if (prevTurn === 'working' && report.turn === 'waiting') session.info.turnEnded = true;
     else if (report.turn === 'working') delete session.info.turnEnded;
     syncPending(session.info);
+    if (metaMarks(session) !== before) this.#flushMeta(id, session);
     this.#slog(
       'debug',
       `${id} agents updated: ${agents?.length ?? 0} row(s), ` +
@@ -672,11 +682,13 @@ export class SessionManager {
   markSeen(id: string): boolean {
     const session = this.#sessions.get(id);
     if (session === undefined) return false;
+    const before = metaMarks(session);
     session.info.attention = false;
     // C1 (user, 2026-09-22): a look acks the BEL only. An ended turn stays
     // pending until the session works again or exits, so `pendingSince` goes
     // only when `turnEnded` is not set either.
     syncPending(session.info);
+    if (metaMarks(session) !== before) this.#flushMeta(id, session);
     return true;
   }
 
@@ -705,6 +717,10 @@ export class SessionManager {
     );
     this.#sessions.delete(id);
     session.destroyed = true;
+    // D9 P3: a backend that dies before this PTY reports its exit must not
+    // bring the deleted session back from the pty-host (an exited one is
+    // dropped by the host at the `forget` below).
+    if (session.ptyLive) this.#flushMeta(id, session);
     // No-op when the session never had one, or when onExit already removed it.
     if (session.info.statusline === true) this.#settings?.remove(id);
     // Same for the agents poll: no session, nothing to deliver a list to.
@@ -734,6 +750,7 @@ export class SessionManager {
 
   /** Kill every PTY (server shutdown). Sessions die with the server by design. */
   destroyAll(): void {
+    this.#closing = true;
     const ids = [...this.#sessions.keys()];
     this.#slog('info', `destroying all ${ids.length} session(s) for shutdown`);
     for (const id of ids) this.destroy(id, 'shutdown');
@@ -741,6 +758,152 @@ export class SessionManager {
     // exits the process right after this returns, so the host finishes them
     // off now (server/pty-table.ts `shutdownAll`).
     this.#host.shutdownAll();
+  }
+
+  /**
+   * D9 P3 — boot, before listen: take over the sessions a pty-host still holds
+   * from an earlier backend (its `list()`), each rebuilt from its metadata
+   * blob, its mirror seeded from `snapshot()`, and the output this backend
+   * never saw re-scanned for bells and titles (`rescanGap`). A session that
+   * exited meanwhile ends here as any exit does (history `exit`, early-exit
+   * verdict). A PTY whose blob is unreadable, or that was DELETEd, is ended:
+   * nothing could show it. Adopted Claude sessions get their `--settings`
+   * file written again (the status line command may name new code).
+   */
+  async adopt(entries: readonly PtyEntrySummary[]): Promise<void> {
+    for (const entry of entries) {
+      let why: string | undefined;
+      try {
+        why = await this.#adoptOne(entry);
+      } catch (err) {
+        why = `adopting it failed (${err instanceof Error ? err.name : typeof err})`;
+      }
+      if (why !== undefined) this.#endUnadopted(entry.id, why);
+    }
+  }
+
+  /** One entry of `adopt`; a sentence saying why it was NOT adopted, else undefined. */
+  async #adoptOne(entry: PtyEntrySummary): Promise<string | undefined> {
+    const { id } = entry;
+    const meta = parseSessionMeta(entry.meta);
+    if (meta === undefined) return 'no readable metadata';
+    if (meta.deleted === true) return 'deleted';
+    let snap;
+    try {
+      snap = await this.#host.snapshot(id);
+    } catch {
+      snap = undefined;
+    }
+    if (snap === undefined) return 'its output could not be read';
+    const info: SessionInfo = {
+      id,
+      ...meta.info,
+      args: [...meta.info.args],
+      status: 'running',
+      cols: entry.cols,
+      rows: entry.rows,
+      attention: meta.attention,
+      ...(meta.pendingSince === undefined ? {} : { pendingSince: meta.pendingSince }),
+      ...(meta.turnEnded === true ? { turnEnded: true } : {}),
+    };
+    const session = newSession(info, isClaudeCommand(info.command));
+    session.buffer.restore(snap.ring, snap.endOffset);
+    const gap = rescanGap(snap.ring, snap.endOffset, meta.scannedTo, meta.scan);
+    session.scan = gap.scan;
+    session.titleIdleSince = meta.titleIdleSince;
+    if (gap.overrun && !this.#overrunLogged) {
+      this.#overrunLogged = true;
+      this.#slog('info', `${id} printed more than the scrollback while no backend ran: bells before it are lost`);
+    }
+    if (gap.bell) info.attention = true;
+    if (gap.titleIdle === true) session.titleIdleSince ??= Date.now();
+    else if (gap.titleIdle === false) session.titleIdleSince = undefined;
+    syncPending(info);
+    this.#sessions.set(id, session);
+    this.#log(
+      'info',
+      `session ${id} adopted: pid ${entry.pid}, ${snap.endOffset - meta.scannedTo} byte(s) re-scanned` +
+        `${gap.bell ? ', attention raised (BEL while no backend ran)' : ''}` +
+        `${entry.exit === null ? '' : `, exited meanwhile with code ${entry.exit.code}`}`,
+    );
+    if (entry.exit !== null) {
+      session.ptyLive = false;
+      this.#onExit(id, session, entry.exit);
+      return undefined;
+    }
+    this.#ptys.set(id, session);
+    if (info.statusline === true) this.#settings?.write(id, parsePermissionMode(info.args));
+    this.#flushMeta(id, session);
+    return undefined;
+  }
+
+  /**
+   * A PTY the pty-host holds that this backend will not show (S1/S2 of the P3
+   * review): ended now and handed back, never left running unowned, and its
+   * history entry stamped `crash` (a no-op when DELETE already stamped it),
+   * so a resume is not refused as "still running" forever.
+   */
+  #endUnadopted(id: string, why: string): void {
+    this.#slog('info', `${id} not adopted (${why}); ending it`);
+    this.#sessions.delete(id);
+    this.#ptys.delete(id);
+    this.#host.kill(id, 'now');
+    this.#host.forget(id);
+    this.#history.markEnded(id, 'crash');
+  }
+
+  /**
+   * D9 P3: another backend took the pty-host over (`bye taken-over`); this
+   * session's PTY runs on under it. It leaves this backend without an end: no
+   * history stamp, no `exit` frame — its sockets close 1012, as a restart's do,
+   * and the session is no longer listed here.
+   */
+  #handedOver(id: string): void {
+    const session = this.#ptys.get(id) ?? this.#sessions.get(id);
+    this.#ptys.delete(id);
+    this.#sessions.delete(id);
+    if (session === undefined) return;
+    session.ptyLive = false;
+    this.#agents?.untrack(id);
+    for (const ws of session.clients) {
+      try {
+        ws.close(1012, 'session taken over');
+      } catch {
+        // Socket already gone.
+      }
+    }
+    session.clients.clear();
+    this.#log('info', `session ${id} handed over to another backend`);
+  }
+
+  /** The session's metadata blob (server/sessions-meta.ts), or undefined when even a cut one is over the cap. */
+  #meta(session: Session): string | undefined {
+    const { info } = session;
+    return encodeSessionMeta({
+      info: {
+        ...(info.projectId === undefined ? {} : { projectId: info.projectId }),
+        title: info.title,
+        command: info.command,
+        args: info.args,
+        cwd: info.cwd,
+        createdAt: info.createdAt,
+        ...(info.statusline === true ? { statusline: true as const } : {}),
+      },
+      scan: session.scan,
+      scannedTo: session.buffer.endOffset,
+      attention: info.attention,
+      ...(info.pendingSince === undefined ? {} : { pendingSince: info.pendingSince }),
+      ...(info.turnEnded === true ? { turnEnded: true as const } : {}),
+      ...(session.titleIdleSince === undefined ? {} : { titleIdleSince: session.titleIdleSince }),
+      ...(session.destroyed ? { deleted: true as const } : {}),
+    });
+  }
+
+  /** Park the current blob with the PTY (D9 P3): what a restarted backend adopts the session from. */
+  #flushMeta(id: string, session: Session): void {
+    const meta = this.#meta(session);
+    if (meta === undefined) return;
+    this.#host.setMeta(id, meta);
   }
 
   /**

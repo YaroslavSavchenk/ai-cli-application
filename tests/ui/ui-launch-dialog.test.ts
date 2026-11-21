@@ -29,6 +29,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { TITLE_MAX_CHARS } from '../../shared/protocol.ts';
 import {
   EFFORTS,
   EFFORT_LABEL,
@@ -98,6 +99,11 @@ test('harness non-vacuity: the REAL dialog mounted, with its three card groups a
   openWith([PROJ]);
   assert.equal(scrim().hidden, false);
   assert.equal(doc.activeElement, byName('title'), 'open() puts the keyboard in the Name box');
+});
+
+test('D9: the Name box stops at the server\'s title cap, so a long name is never a bare 400', () => {
+  openWith([PROJ]);
+  assert.equal(byName('title').maxLength, TITLE_MAX_CHARS);
 });
 
 test('B12: every Tool card holds its tool’s real logo in the tile — one per card, no letters, Claude’s tile keeps its tint', () => {

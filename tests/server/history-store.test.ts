@@ -3,7 +3,8 @@
  * class directly (server/history.ts): the store is bounded at HISTORY_MAX,
  * dropping the oldest ENDED entry and never a live one; list() order; the
  * FIRST end stamp wins; forget refuses a live entry; load() skips unusable
- * records and stamps every ended:null entry crash; pruneUnsaid drops ONLY a
+ * records and stamps every ended:null entry crash; reopen() (D9 P3) undoes a
+ * crash stamp and nothing else; pruneUnsaid drops ONLY a
  * uuid-keyed claude conversation with no transcript.
  *
  * How: a SessionHistory over a scratch history.json with its log captured —
@@ -355,6 +356,55 @@ test('load(): unusable records are skipped, thin ones get conservative defaults,
     store2.load();
     const disk2 = JSON.parse(await readFile(u.file, 'utf8')) as HistoryEntry[];
     assert.deepEqual(disk2, disk, 'a second boot must not change a repaired file');
+  } finally {
+    await rm(u.root, { recursive: true, force: true });
+  }
+});
+
+test('load({ live }): an entry whose session a pty-host still holds is NOT stamped crash (D9 P3)', async () => {
+  const u = await unitStore('live');
+  try {
+    u.store.recordCreate(infoOf({ id: 'held-session', command: 'bash' }), { id: 'held', conversation: false, baseArgs: [] });
+    u.store.recordCreate(infoOf({ id: 'gone-session', command: 'bash' }), { id: 'gone', conversation: false, baseArgs: [] });
+    const boot = new SessionHistory(u.file, ((level: string, msg: string) => void u.lines.push(`${level} ${msg}`)) as never);
+    boot.load({ live: new Set(['held-session']) });
+    assert.equal(boot.get('held')?.ended, null, 'the adopted session stays live');
+    assert.equal(boot.get('gone')?.ended?.reason, 'crash', 'the one no pty-host holds is a crash');
+    assert.ok(
+      u.lines.includes("info history loaded: 2 entries (1 stamped 'crash', 1 still running in the pty-host)"),
+      u.lines.join(' | '),
+    );
+    const disk = JSON.parse(await readFile(u.file, 'utf8')) as HistoryEntry[];
+    assert.equal(disk.find((e) => e.id === 'held')?.ended, null, 'and the file says so');
+  } finally {
+    await rm(u.root, { recursive: true, force: true });
+  }
+});
+
+test('reopen(): only a crash stamp of a held session goes back to live, its exit code dropped and the file rewritten (D9 P3)', async () => {
+  const u = await unitStore('reopen');
+  try {
+    const ids = ['crashed', 'killed', 'exited', 'other'];
+    for (const id of ids) {
+      u.store.recordCreate(infoOf({ id: `${id}-session`, command: 'bash' }), { id, conversation: false, baseArgs: [] });
+    }
+    u.store.markEnded('crashed-session', 'crash', 137);
+    u.store.markEnded('killed-session', 'user-kill');
+    u.store.markEnded('exited-session', 'exit', 0);
+    u.store.markEnded('other-session', 'crash');
+    u.store.reopen(new Set(['crashed-session', 'killed-session', 'exited-session']));
+    const back = new SessionHistory(u.file, (() => {}) as never);
+    back.load({ readOnly: true });
+    assert.deepEqual(
+      ids.map((id) => [id, back.get(id)?.ended?.reason ?? null, back.get(id)?.exitCode ?? null]),
+      [
+        ['crashed', null, null],
+        ['killed', 'user-kill', null],
+        ['exited', 'exit', 0],
+        ['other', 'crash', null],
+      ],
+      'held + crash -> live (no stale 137); any other end stands; a crash nobody holds stands; on disk',
+    );
   } finally {
     await rm(u.root, { recursive: true, force: true });
   }

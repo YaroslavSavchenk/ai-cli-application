@@ -24,7 +24,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, rm, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { stat } from 'node:fs/promises';
+import { lstat, stat, symlink } from 'node:fs/promises';
 import {
   hasSettingsArg,
   parsePermissionMode,
@@ -229,6 +229,45 @@ test('resetDir() wipes whatever is in the directory and recreates it 0700', asyn
     s.store.resetDir();
     assert.deepEqual(await readdir(s.dir), [], 'nothing survives, not even a subdirectory');
     assert.equal((await stat(s.dir)).mode & 0o777, 0o700);
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
+test('resetDir(keep) leaves the files of sessions a pty-host still holds, in both directories, and wipes the rest (D9 P3)', async () => {
+  const s = await makeStore();
+  const live = '0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09';
+  try {
+    for (const dir of [s.dir, s.snapshotDir]) {
+      await mkdir(join(dir, 'nested'), { recursive: true });
+      await writeFile(join(dir, `${live}.json`), '{}');
+      await writeFile(join(dir, 'gone-session.json'), '{}');
+      await writeFile(join(dir, live), 'not the .json of the live id');
+      await writeFile(join(dir, `${live}.temp`), 'not the .json of the live id either');
+    }
+    s.store.resetDir(new Set([live]));
+    for (const dir of [s.dir, s.snapshotDir]) {
+      assert.deepEqual(await readdir(dir), [`${live}.json`], `${dir}: only the live session's file is left`);
+      assert.equal((await stat(dir)).mode & 0o777, 0o700);
+    }
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
+test('resetDir(keep) never lists through a link: a settings dir that is a symlink is removed whole, its target untouched (D9 P3)', async () => {
+  const s = await makeStore();
+  const live = '0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09';
+  const elsewhere = join(s.root, 'elsewhere');
+  try {
+    await mkdir(elsewhere);
+    await writeFile(join(elsewhere, 'precious.json'), '{}');
+    await writeFile(join(elsewhere, `${live}.json`), '{}');
+    await symlink(elsewhere, s.dir);
+    s.store.resetDir(new Set([live]));
+    assert.deepEqual((await readdir(elsewhere)).sort(), [`${live}.json`, 'precious.json'], 'nothing behind the link was touched');
+    assert.equal((await lstat(s.dir)).isDirectory(), true, 'the link was replaced by a real directory');
+    assert.deepEqual(await readdir(s.dir), []);
   } finally {
     await rm(s.root, { recursive: true, force: true });
   }

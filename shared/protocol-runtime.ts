@@ -97,6 +97,20 @@ export interface RuntimeStatusResponse {
    * `version: null, compat: 'unknown'`.
    */
   claude: ClaudeStatus;
+  /**
+   * Nocturne D9 P3 (`.claude/plans/nocturne/PLAN-D9.md`): the pty-host process
+   * that holds this backend's sessions — its build (bundle version or commit)
+   * and wire protocol — or null when there is none: none started yet (the
+   * first session starts it), sessions run inside the backend (the pty-host
+   * was refused), or it was lost. For diagnosis; the UI does not read it.
+   */
+  ptyHost: PtyHostStatus | null;
+}
+
+/** RuntimeStatusResponse.ptyHost. */
+export interface PtyHostStatus {
+  build: string;
+  proto: number;
 }
 
 /**

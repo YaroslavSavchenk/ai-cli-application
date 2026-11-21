@@ -11,10 +11,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { TITLE_MAX_CHARS } from '../shared/protocol.ts';
 import type { CreateSessionRequest, ResumeHistoryRequest } from '../shared/protocol.ts';
 import { isExistingDirectory } from './projects.ts';
 import { planConversation, resumeSpawn } from './conversation.ts';
 import { describeError, isStringArray } from './config.ts';
+import { ConversationStarting } from './sessions.ts';
 import { NEXT, readJsonBody, sendError, sendJson, type ApiContext, type RouteResult } from './api-http.ts';
 
 export const MAX_TERM_DIM = 1000;
@@ -58,6 +60,10 @@ export async function sessionRoutes(
       }
       if (body.title !== undefined && typeof body.title !== 'string') {
         sendError(res, 400, 'title must be a string');
+        return;
+      }
+      if (typeof body.title === 'string' && body.title.length > TITLE_MAX_CHARS) {
+        sendError(res, 400, `title must be at most ${TITLE_MAX_CHARS} characters`);
         return;
       }
       let projectId: string | undefined;
@@ -128,6 +134,12 @@ export async function sessionRoutes(
         });
         sendJson(res, 201, info);
       } catch (err) {
+        // D9 P3 (§ Risks (c)): the same conversation is being spawned by a
+        // request that passed the check above a moment earlier.
+        if (err instanceof ConversationStarting) {
+          sendError(res, 409, CONVERSATION_RUNNING);
+          return;
+        }
         log('error', `session spawn failed: ${describeError(err)}`);
         sendError(res, 500, 'could not start the session');
       }
@@ -211,6 +223,12 @@ export async function sessionRoutes(
       });
       sendJson(res, 201, info);
     } catch (err) {
+      // D9 P3 (§ Risks (c)): a second resume of this entry while the first
+      // one's spawn is still in flight.
+      if (err instanceof ConversationStarting) {
+        sendError(res, 409, 'that session is still running');
+        return;
+      }
       log('error', `history resume spawn failed: ${describeError(err)}`);
       sendError(res, 500, 'could not start the session');
     }

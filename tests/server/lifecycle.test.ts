@@ -233,8 +233,11 @@ test('history: every end reason is listed and persists across runs; SIGKILL stam
   const workDir = await realpath(await makeTempDir('ai-sm-work-'));
   let running: TestServer | undefined;
   try {
+    // In-process PTYs on purpose (D9 P3): the claim is the crash stamp of a
+    // backend whose sessions die with it. Over a pty-host they survive the
+    // SIGKILL and are adopted instead (tests/server/pty-host-crash.test.ts).
     // --- Run A: one user-killed, one naturally exited, one left running ----
-    const a = await startTestServer({ dataDir });
+    const a = await startTestServer({ dataDir, ptyHost: 'inproc' });
     running = a;
 
     const sKill = await createSession(a, {
@@ -291,7 +294,7 @@ test('history: every end reason is listed and persists across runs; SIGKILL stam
     running = undefined;
 
     // --- Run B: boot stamps the still-open entry 'crash' --------------------
-    const b = await startTestServer({ dataDir });
+    const b = await startTestServer({ dataDir, ptyHost: 'inproc' });
     running = b;
     const logB = await readServerLog(b);
     assert.ok(
@@ -337,7 +340,7 @@ test('history: every end reason is listed and persists across runs; SIGKILL stam
     assert.equal(exitB.code, 0);
     running = undefined;
 
-    const c = await startTestServer({ dataDir });
+    const c = await startTestServer({ dataDir, ptyHost: 'inproc' });
     running = c;
     const listC = await api(c, 'GET', '/api/history');
     const offeredC = listC.body as HistoryEntry[];

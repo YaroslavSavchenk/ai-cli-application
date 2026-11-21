@@ -41,6 +41,7 @@ import type {
   ClaudeStatus,
   ClientLogEntry,
   HealthResponse,
+  PtyHostStatus,
   ToolAvailability,
   UpdateStatus,
 } from '../shared/protocol.ts';
@@ -178,6 +179,12 @@ export interface ApiDeps {
    * has not answered yet says.
    */
   claude?: () => ClaudeStatus;
+  /**
+   * Nocturne D9 P3: the pty-host this backend is connected to, for GET
+   * /api/runtime (server/pty-host-broker.ts `status`). Absent in unit-test
+   * harnesses: the body then says null, as an in-process backend does.
+   */
+  ptyHost?: () => PtyHostStatus | null;
   webDistDir: string;
   /** Short git hash of the running server code, or null (GET /api/runtime). */
   serverCommit?: string | null;

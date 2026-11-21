@@ -6,12 +6,18 @@
  * runtime.json exactly like the launcher does, and tears everything down
  * (SIGTERM + temp dir removal) when finished.
  *
+ * The server child itself (`startTestServer`) lives in
+ * tests/helpers/test-server.ts since D9 P3 (split by topic when this file
+ * passed 800 lines) and is re-exported here; the two import each other
+ * (`waitUntil`, `projectRoot` one way, the server child the other), and
+ * neither calls the other at import time.
+ *
  * All waiting is condition-based with explicit timeouts — never bare sleeps.
  * `sleep()` below is for the few fixed pauses that ARE the test (a window
  * that must pass, a TTL that must run out); where a condition exists, wait
  * on it with `waitUntil` instead.
  */
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
 import { accessSync, constants, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
@@ -23,7 +29,6 @@ import WebSocket from 'ws';
 import type {
   ClientMessage,
   HistoryEntry,
-  RuntimeInfo,
   ServerMessage,
   SessionInfo,
 } from '../../shared/protocol.ts';
@@ -196,137 +201,11 @@ export async function waitUntil<T>(
   }
 }
 
-export interface ExitInfo {
-  code: number | null;
-  signal: NodeJS.Signals | null;
-}
-
-export interface TestServer {
-  child: ChildProcess;
-  /** mkdtemp root removed by stop(); null when the caller owns the data dir. */
-  tmpRoot: string | null;
-  /** The AI_SM_DATA_DIR value. The server itself must create it (mode 0700). */
-  dataDir: string;
-  runtimeFile: string;
-  runtime: RuntimeInfo;
-  port: number;
-  token: string;
-  baseUrl: string;
-  /** Resolves when the server process exits. */
-  exit: Promise<ExitInfo>;
-  /** SIGTERM the server (SIGKILL fallback) and remove the temp dir. Idempotent. */
-  stop(): Promise<void>;
-}
-
-/**
- * Spawn `node server/index.ts` with a fresh data dir, wait until runtime.json
- * exists AND /health answers 200, and return a handle with port + token.
- *
- * Lifecycle note: the backend is presence-bound — with no presence/session
- * WS connected it shuts itself down after the startup grace. Tests hold no
- * presence socket, so both graces default to a generous 10 minutes here;
- * lifecycle-specific tests override via `opts.env`
- * (AI_SM_STARTUP_GRACE_MS / AI_SM_GRACE_MS).
- *
- * `opts.dataDir` reuses an existing data dir (session-history / restart
- * tests). The caller owns its cleanup: stop() will NOT remove it.
- *
- * `opts.entry` / `opts.cwd` start a backend that is NOT this checkout — the
- * installed-mode tests boot an unpacked bundle fixture (`<app>/current/server/
- * index.ts`) so `bundle.json`, `web/dist` and `<app>/current` are the ones the
- * process really resolves. Both default to the repo, so every existing caller
- * is unchanged.
- */
-export async function startTestServer(
-  opts: {
-    env?: Record<string, string>;
-    dataDir?: string;
-    entry?: string;
-    cwd?: string;
-  } = {},
-): Promise<TestServer> {
-  const tmpRoot =
-    opts.dataDir === undefined ? await mkdtemp(join(tmpdir(), 'ai-sm-test-')) : null;
-  // Deliberately a not-yet-existing subdir: the server must create it (0700).
-  const dataDir = opts.dataDir ?? join(tmpRoot as string, 'data');
-  const child = spawn(process.execPath, [opts.entry ?? join(projectRoot, 'server', 'index.ts')], {
-    cwd: opts.cwd ?? projectRoot,
-    env: {
-      ...process.env,
-      AI_SM_DATA_DIR: dataDir,
-      AI_SM_STARTUP_GRACE_MS: '600000',
-      AI_SM_GRACE_MS: '600000',
-      ...opts.env,
-    },
-    stdio: 'ignore', // The server must not depend on stdout in any way.
-  });
-  let exited = false;
-  const exit: Promise<ExitInfo> = new Promise((resolve) => {
-    child.once('exit', (code, signal) => {
-      exited = true;
-      resolve({ code, signal });
-    });
-  });
-  const runtimeFile = join(dataDir, 'runtime.json');
-
-  let runtime: RuntimeInfo;
-  try {
-    runtime = await waitUntil<RuntimeInfo>(async () => {
-      if (exited) throw new Error('server process exited before becoming healthy');
-      let raw: string;
-      try {
-        raw = await readFile(runtimeFile, 'utf8');
-      } catch {
-        return undefined;
-      }
-      let parsed: RuntimeInfo;
-      try {
-        parsed = JSON.parse(raw) as RuntimeInfo;
-      } catch {
-        return undefined; // Should not happen (atomic write), but be safe.
-      }
-      if (typeof parsed.port !== 'number') return undefined;
-      // A data dir reused after a SIGKILL still holds the dead run's file,
-      // and since the remembered port the new run listens on the SAME port:
-      // /health answers, but the token is the dead run's (a CI 401, v0.4.3).
-      if (parsed.pid !== child.pid) return undefined;
-      try {
-        const res = await fetch(`http://127.0.0.1:${parsed.port}/health`);
-        if (res.status !== 200) return undefined;
-      } catch {
-        return undefined;
-      }
-      return parsed;
-    }, 'server startup (runtime.json + /health)');
-  } catch (err) {
-    child.kill('SIGKILL');
-    if (tmpRoot !== null) await rm(tmpRoot, { recursive: true, force: true });
-    throw err;
-  }
-
-  return {
-    child,
-    tmpRoot,
-    dataDir,
-    runtimeFile,
-    runtime,
-    port: runtime.port,
-    token: runtime.token,
-    baseUrl: `http://127.0.0.1:${runtime.port}`,
-    exit,
-    async stop(): Promise<void> {
-      if (!exited) {
-        child.kill('SIGTERM');
-        const done = await Promise.race([exit, delay(5_000).then(() => undefined)]);
-        if (done === undefined) {
-          child.kill('SIGKILL');
-          await exit;
-        }
-      }
-      if (tmpRoot !== null) await rm(tmpRoot, { recursive: true, force: true });
-    },
-  };
-}
+// The server child (`startTestServer`, `TestServer`, `ExitInfo`) lives in
+// tests/helpers/test-server.ts since D9 P3 (this file passed 800 lines);
+// re-exported so every importer keeps its surface.
+export { startTestServer, type ExitInfo, type TestServer } from './test-server.ts';
+import type { TestServer } from './test-server.ts';
 
 /** Read server.log from the test server's data dir ('' if absent). */
 export async function readServerLog(server: TestServer): Promise<string> {

@@ -29,16 +29,23 @@
  *     detach so a restarted backend finds them.
  *   - the `offset` of an output event — P3: the mirror tells a chunk it
  *     already holds (from the snapshot) from a new one, and finds a gap.
- * SessionManager ignores them in P1 on purpose (no behaviour change).
+ * SessionManager ignored them in P1 on purpose (no behaviour change); since P3
+ * it calls every one of them (server/sessions.ts `adopt`, the blob flushes).
  *
- * P2 added `detach`, `onLost` and `pendingSpawns` for the socket
- * implementation (server/pty-host-client.ts `SocketPtyHost`); the in-process
- * one answers them trivially.
+ * P2 added `detach` (P4's restart calls it), and `onLost` and
+ * `pendingSpawns` for the socket implementation (server/pty-host-client.ts
+ * `SocketPtyHost`). P3 dropped the last two from this interface: only the
+ * broker reads a socket host's loss, and the manager tracks its own spawns in
+ * flight (`#closing`), so no owner of a `PtyHost` needs them. P3 wired it: the backend's SessionManager talks
+ * to a broker (server/pty-host-broker.ts) that implements this interface over
+ * a pty-host it connects to or starts, or over the in-process table when the
+ * pty-host is refused; `PtyOwnerEvents.lost` is the broker's.
  *
- * Accepted cost while the table is in-process (P1 and P2; P3 moves it out): the
+ * Accepted cost while the table is in-process (P1 and P2, and since P3 the
+ * fallback when the pty-host is refused, and the `inproc` test seam): the
  * table's ring is a SECOND copy of the manager's mirror — up to another
  * SCROLLBACK_MAX_BYTES (1 MiB) per session — plus one extra `Buffer.from` per
- * output chunk. Kept so P3 re-attaches without reshaping anything.
+ * output chunk.
  */
 import type { Logger } from './config.ts';
 import type { ByeReason } from './pty-host-wire.ts';
@@ -51,9 +58,25 @@ import {
   type PtySpawnRequest,
 } from './pty-table.ts';
 
+/**
+ * What the owner (server/sessions.ts) hears: the table's events, plus — D9 P3,
+ * raised only by the backend's broker (server/pty-host-broker.ts) — `lost`:
+ * the pty-host that held this PTY is gone, its process group has been killed
+ * (`at`, epoch ms), and no exit record will ever arrive for it. Optional: an
+ * owner of a bare in-process host (a test) never hears it.
+ */
+export interface PtyOwnerEvents extends PtyEvents {
+  lost?(id: string, at: number): void;
+  /**
+   * D9 P3, the broker only: another backend took the pty-host over (`bye
+   * taken-over`); this PTY runs on under it. Nothing ended, nothing to stamp.
+   */
+  handedOver?(id: string): void;
+}
+
 export interface PtyHost {
   /** Set the one owner that receives every output and exit event. */
-  listen(events: PtyEvents): void;
+  listen(events: PtyOwnerEvents): void;
   /**
    * Start a PTY; rejects when it cannot be spawned (nothing is left behind).
    * `PtySpawnRequest.meta` (optional, ≤ 16 KiB) is the entry's first metadata
@@ -76,21 +99,9 @@ export interface PtyHost {
   shutdownAll(): void;
   /**
    * Clean goodbye (D9 P2; P4's restart and update): the PTYs keep running for
-   * the next owner, and `onLost` does not fire for it.
+   * the next owner, and the socket host's `onLost` does not fire for it.
    */
   detach(): void;
-  /**
-   * The host is gone — the connection closed or the host process died (D9
-   * P2). P3 then group-probes each known pid, SIGKILLs `-pid` and stamps
-   * history `crash`. Never fires after `detach()`.
-   */
-  onLost(listener: (reason: PtyHostLostReason) => void): void;
-  /**
-   * Ids whose spawn was sent and not answered yet: live in the host, unknown
-   * to the owner until the answer is read (§ Risks (a)) — P3's destroy,
-   * destroyAll and detachAll must respect them.
-   */
-  pendingSpawns(): ReadonlySet<string>;
 }
 
 /**
@@ -100,8 +111,6 @@ export interface PtyHost {
  */
 export type PtyHostLostReason = 'closed' | ByeReason;
 
-const NO_PENDING_SPAWNS: ReadonlySet<string> = new Set();
-
 /**
  * The PTYs live in this process, exactly as before D9. Events are delivered
  * synchronously from node-pty's callbacks, and node-pty reports nothing before
@@ -109,7 +118,7 @@ const NO_PENDING_SPAWNS: ReadonlySet<string> = new Set();
  * continuation before the first output of that PTY.
  */
 export function createInProcessPtyHost(log: Logger): PtyHost {
-  let owner: PtyEvents | undefined;
+  let owner: PtyOwnerEvents | undefined;
   const table = new PtyTable(log, {
     output: (id, data, offset) => owner?.output(id, data, offset),
     exit: (id, record) => owner?.exit(id, record),
@@ -127,11 +136,7 @@ export function createInProcessPtyHost(log: Logger): PtyHost {
     list: async () => table.list(),
     forget: (id) => table.forget(id),
     shutdownAll: () => table.shutdownAll(),
-    // In-process the PTYs live and die with this process: there is nothing to
-    // detach from, the host can never be lost, and a spawn is answered
-    // synchronously, so none is ever pending.
+    // In-process the PTYs live and die with this process: nothing to detach from.
     detach: () => {},
-    onLost: () => {},
-    pendingSpawns: () => NO_PENDING_SPAWNS,
   };
 }

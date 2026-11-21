@@ -4,9 +4,9 @@
  * connect to one data dir's pty-host process (server/pty-host-main.ts).
  *
  * Nocturne D9 P2 (.claude/plans/nocturne/PLAN-D9.md § Defaults, § Risks).
- * Not wired into server/index.ts yet: P3 connects as owner at boot, starts a
- * pty-host lazily on the first spawn when none answers, and reacts to
- * `onLost`. One of four flat pieces: the process is server/pty-host-main.ts +
+ * Wired in P3 through server/pty-host-broker.ts: the backend connects as owner
+ * at boot, starts a pty-host lazily on the first spawn when none answers, and
+ * reacts to `onLost`. One of four flat pieces: the process is server/pty-host-main.ts +
  * server/pty-host-server.ts, the shared wire server/pty-host-wire.ts.
  *
  * Nothing is read or connected before `connectRefusal` passed: the data dir
@@ -24,9 +24,12 @@
  * Events that arrive before `listen()` (with the welcome, or any time before
  * the owner registers) are kept and delivered in order by `listen()`.
  *
- * `pendingSpawns()`: ids whose spawn was sent and not answered yet — P3's
- * destroy/destroyAll/detachAll must respect them (a PTY in that window is
- * live in the host but unknown to the manager).
+ * `pendingSpawns()`: ids whose spawn was sent and not answered yet (a PTY in
+ * that window is live in the host but unknown to the manager). P3's shutdown
+ * does not need it (the manager kills a spawn answered after destroyAll, and
+ * `shutdown-all` follows the spawn on the wire); P4's detachAll does: a
+ * detach must wait for these answers, or the next backend finds a PTY no
+ * history entry was written for.
  */
 import { spawn as spawnChild } from 'node:child_process';
 import { connect, type Socket } from 'node:net';
@@ -112,7 +115,8 @@ export function resolvePtyHostMode(
   return 'inproc';
 }
 
-function pidAlive(pid: number): boolean {
+/** A process with this pid exists (EPERM: it does, it is not ours to signal). */
+export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -348,6 +352,11 @@ export class SocketPtyHost implements PtyHost {
     return this.#spawns.size === 0 ? EMPTY : new Set(this.#spawns.keys());
   }
 
+  /** The connection is gone (lost, detached or shut down): every request now rejects. */
+  get closed(): boolean {
+    return this.#closed;
+  }
+
   spawn(req: PtySpawnRequest): Promise<PtySpawned> {
     if (!isSessionUuid(req.id)) return Promise.reject(new RangeError('a pty-host session id must be a lowercase uuid'));
     if (this.#closed) return Promise.reject(new Error('the pty-host connection is closed'));
@@ -409,9 +418,29 @@ export class SocketPtyHost implements PtyHost {
     this.#control({ t: 'forget', id });
   }
 
-  /** The host kills every PTY now and exits (today's backend-shutdown semantics). */
+  /**
+   * The host kills every PTY now and exits (today's backend-shutdown
+   * semantics). Our side is ended after the frame (D9 P3): nothing follows a
+   * shutdown, and `flushed()` can then tell a caller about to `process.exit`
+   * that the frame has left this process.
+   */
   shutdownAll(): void {
     this.#control({ t: 'shutdown-all' });
+    if (!this.#closed) this.#sock.end();
+  }
+
+  /**
+   * Resolves once everything written so far has left this process: the
+   * socket's writable side finished (after `shutdownAll`'s end) or the socket
+   * is gone. The backend awaits it, bounded, before `process.exit` (P2 note:
+   * a frame still queued in user space dies with the process).
+   */
+  flushed(): Promise<void> {
+    if (this.#closed || this.#sock.writableFinished || this.#sock.destroyed) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.#sock.once('finish', () => resolve());
+      this.#sock.once('close', () => resolve());
+    });
   }
 
   /** Clean goodbye: the PTYs keep running for the next owner (orphan grace); no `onLost`. */

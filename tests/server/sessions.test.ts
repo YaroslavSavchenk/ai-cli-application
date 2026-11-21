@@ -433,6 +433,7 @@ test('POST /api/sessions input validation: bad bodies get 400 and create nothing
     { command: 'bash', args: [], cwd: join(workDir, 'missing'), cols: 80, rows: 24 }, // nonexistent cwd
     { command: 'bash', args: [], cols: 80, rows: 24 }, // neither cwd nor projectId
     { command: 'bash', args: [], projectId: 'no-such-project', cols: 80, rows: 24 },
+    { command: 'bash', args: [], cwd: workDir, title: 't'.repeat(257), cols: 80, rows: 24 }, // title > 256 (D9 P3)
   ];
   for (const body of badBodies) {
     const res = await api(server, 'POST', '/api/sessions', body);

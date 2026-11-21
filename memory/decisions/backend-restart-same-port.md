@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-06
-updated: 2026-09-23
+updated: 2026-11-21
 tags: [lifecycle, backend, frontend, launcher, restart, update]
 ---
 # Manual backend restart + "new version" notice — same-port handoff
@@ -133,8 +133,11 @@ Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condens
   resumable from the session history), close the listener, send `go`, wait for the
   child's `runtime.json` + `/health`, answer `202 { port, startedAt,
   samePort }` (Connection: close) and exit WITHOUT unlinking
-  `runtime.json`. The child on `go` runs the crash-stamp history load,
-  resets session-settings, reads the swapped web build, and listens on the
+  `runtime.json`. The child on `go` runs the adoption step (since D9 P3:
+  connect to the pty-host, then the crash-stamp history load with the ids
+  it still holds as `live`, the session-artifact wipe except those ids, the
+  adopt — `server/index-ptyhost.ts` `bootSessions`), reads the swapped web
+  build, and listens on the
   hinted port, falling back once to auto-pick (`samePort: false` → the UI
   says relaunch from the shortcut). Before `go` the child exits by itself
   on parent disconnect or a timeout measured from `standby-ready`, and its

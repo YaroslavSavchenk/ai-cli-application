@@ -18,6 +18,11 @@
  * own buffer before it drains the fd), `size` (the idle rule), the spawn's
  * initial `meta`, and `assertMetaSize` (the one home of the 16 KiB cap).
  *
+ * D9 P3: the process-group probe and signal are free functions
+ * (`processGroupGone`, `signalProcessGroup`) so the backend's pty-host broker
+ * kills a lost pty-host's groups with the same code; `RingBuffer.restore`
+ * seeds the mirror of an adopted session.
+ *
  * Reached through server/pty-host-api.ts (the `PtyHost` interface and its
  * in-process implementation); server/sessions.ts and
  * server/sessions-output.ts re-export what their importers already used
@@ -98,6 +103,19 @@ export class RingBuffer {
       }
     }
     if (trimmed > 0 && this.#onTrim !== undefined) this.#onTrim(trimmed);
+  }
+
+  /**
+   * Seed an EMPTY ring with another copy's bytes and absolute end (D9 P3: the
+   * backend's mirror of a session it adopts, from the pty-host's `snapshot`),
+   * so later chunks continue the same offsets. Kept within the cap.
+   */
+  restore(ring: Buffer, endOffset: number): void {
+    if (this.#end !== 0 || this.#chunks.length > 0) throw new Error('restore needs an empty ring');
+    const kept = ring.byteLength > this.#maxBytes ? ring.subarray(ring.byteLength - this.#maxBytes) : ring;
+    if (kept.byteLength > 0) this.#chunks.push(Buffer.from(kept));
+    this.#bytes = kept.byteLength;
+    this.#end = endOffset;
   }
 
   get byteLength(): number {
@@ -257,8 +275,6 @@ export class PtyTable {
    * session's group and can never be a stranger's.
    */
   readonly #escalating = new Map<string, { pid: number; timer: NodeJS.Timeout | undefined }>();
-  /** The group probe warns about an unexpected errno at most once per run. */
-  #groupProbeWarned = false;
   /**
    * Every PTY's read stream is paused (D9 P2: the pty-host's owner socket is
    * backed up). A PTY spawned meanwhile starts paused too.
@@ -315,7 +331,7 @@ export class PtyTable {
       // ignores it would otherwise leave that child running forever — with the
       // stored API key in its environment.
       const ladder = this.#escalating.get(id);
-      if (ladder?.timer !== undefined && this.#groupGone(entry.pid)) {
+      if (ladder?.timer !== undefined && processGroupGone(entry.pid, this.#log)) {
         clearTimeout(ladder.timer);
         this.#escalating.delete(id);
       }
@@ -362,7 +378,7 @@ export class PtyTable {
         'info',
         `${id} killed for shutdown with SIGHUP; sending SIGKILL to its process group immediately`,
       );
-      this.#signalGroup(id, entry.pid, 'SIGKILL');
+      signalProcessGroup(id, entry.pid, 'SIGKILL', this.#log);
     } else {
       this.#escalate(id, entry.pid);
     }
@@ -443,12 +459,12 @@ export class PtyTable {
       if (entry.pty !== null) this.kill(id, 'now');
     }
     for (const [id, { pid }] of this.#escalating) {
-      if (this.#groupGone(pid)) continue;
+      if (processGroupGone(pid, this.#log)) continue;
       this.#slog(
         'info',
         `${id} killed for shutdown with SIGHUP; sending SIGKILL to its process group immediately`,
       );
-      this.#signalGroup(id, pid, 'SIGKILL');
+      signalProcessGroup(id, pid, 'SIGKILL', this.#log);
     }
     this.#escalating.clear();
   }
@@ -472,7 +488,7 @@ export class PtyTable {
     this.#escalating.set(id, ladder);
     const term = setTimeout(() => {
       ladder.timer = undefined;
-      if (this.#groupGone(pid)) {
+      if (processGroupGone(pid, this.#log)) {
         this.#escalating.delete(id);
         return;
       }
@@ -480,16 +496,16 @@ export class PtyTable {
         'info',
         `${id} still running ${KILL_TERM_AFTER_MS}ms after SIGHUP; sending SIGTERM to its process group`,
       );
-      this.#signalGroup(id, pid, 'SIGTERM');
+      signalProcessGroup(id, pid, 'SIGTERM', this.#log);
       const kill = setTimeout(() => {
         ladder.timer = undefined;
         this.#escalating.delete(id);
-        if (this.#groupGone(pid)) return;
+        if (processGroupGone(pid, this.#log)) return;
         this.#slog(
           'info',
           `${id} still running ${KILL_KILL_AFTER_MS}ms after SIGTERM; sending SIGKILL to its process group`,
         );
-        this.#signalGroup(id, pid, 'SIGKILL');
+        signalProcessGroup(id, pid, 'SIGKILL', this.#log);
       }, KILL_KILL_AFTER_MS);
       kill.unref();
       ladder.timer = kill;
@@ -498,62 +514,66 @@ export class PtyTable {
     ladder.timer = term;
   }
 
-  /**
-   * True when the PTY's process group holds NO process any more — the only
-   * safe "stop signalling" answer, and a stronger one than "its leader exited":
-   * a worker child that ignored the signal still lives in that group.
-   *
-   * It doubles as the pid-reuse guard. Linux frees a pid NUMBER only once
-   * nothing references it under any type — PGID and SID included — so a group
-   * that still answers pins its leader's number even after the leader itself
-   * was reaped. A successful `kill(-pid, 0)` therefore proves `-pid` is still
-   * THIS session's group and never a stranger that inherited the number.
-   *
-   * Anything other than ESRCH (EPERM, or an errno we did not foresee) is read
-   * as "alive": the ladder may then signal in vain, which is harmless, while
-   * the opposite mistake leaks a process.
-   */
-  #groupGone(pid: number): boolean {
-    if (!signalableChildPid(pid)) return true;
-    try {
-      process.kill(-pid, 0);
-      return false;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ESRCH') return true;
-      if (code !== 'EPERM' && !this.#groupProbeWarned) {
-        this.#groupProbeWarned = true;
-        this.#log('warn', `process group probe failed, assuming alive: ${describeError(err)}`);
-      }
-      return false;
-    }
-  }
+}
 
-  /**
-   * Signal the PTY's whole PROCESS GROUP. node-pty's forkpty child calls
-   * setsid(), so `pty.pid` IS the group leader and the negative pid reaches
-   * every descendant the CLI spawned — which is the only way to end a wrapper
-   * whose real work runs in a child.
-   *
-   * ESRCH means the group is already gone: the ordinary race with onExit, not
-   * an error. The pid guard is a seatbelt only — `process.kill(-1, …)` would
-   * signal every process this user owns, so a pid that is not a plain child
-   * pid is never signalled.
-   */
-  #signalGroup(id: string, pid: number, signal: 'SIGTERM' | 'SIGKILL'): void {
-    if (!signalableChildPid(pid)) {
-      this.#log('warn', `session ${id} not signalling process group: implausible pid ${pid}`);
-      return;
+/** The group probe warns about an unexpected errno at most once per process. */
+let groupProbeWarned = false;
+
+/**
+ * True when the PTY's process group holds NO process any more — the only
+ * safe "stop signalling" answer, and a stronger one than "its leader exited":
+ * a worker child that ignored the signal still lives in that group.
+ *
+ * It doubles as the pid-reuse guard. Linux frees a pid NUMBER only once
+ * nothing references it under any type — PGID and SID included — so a group
+ * that still answers pins its leader's number even after the leader itself
+ * was reaped. A successful `kill(-pid, 0)` therefore proves `-pid` is still
+ * THIS session's group and never a stranger that inherited the number.
+ *
+ * Anything other than ESRCH (EPERM, or an errno we did not foresee) is read
+ * as "alive": the ladder may then signal in vain, which is harmless, while
+ * the opposite mistake leaks a process.
+ *
+ * One home (D9 P3): the table's kill ladder and the backend's pty-host
+ * broker (server/pty-host-broker.ts, a lost pty-host's groups) both use it.
+ */
+export function processGroupGone(pid: number, log: Logger): boolean {
+  if (!signalableChildPid(pid)) return true;
+  try {
+    process.kill(-pid, 0);
+    return false;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return true;
+    if (code !== 'EPERM' && !groupProbeWarned) {
+      groupProbeWarned = true;
+      log('warn', `process group probe failed, assuming alive: ${describeError(err)}`);
     }
-    try {
-      process.kill(-pid, signal);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
-      this.#log(
-        'warn',
-        `session ${id} ${signal} to process group ${pid} failed: ${describeError(err)}`,
-      );
-    }
+    return false;
+  }
+}
+
+/**
+ * Signal the PTY's whole PROCESS GROUP. node-pty's forkpty child calls
+ * setsid(), so `pty.pid` IS the group leader and the negative pid reaches
+ * every descendant the CLI spawned — which is the only way to end a wrapper
+ * whose real work runs in a child.
+ *
+ * ESRCH means the group is already gone: the ordinary race with onExit, not
+ * an error. The pid guard is a seatbelt only — `process.kill(-1, …)` would
+ * signal every process this user owns, so a pid that is not a plain child
+ * pid is never signalled.
+ */
+export function signalProcessGroup(id: string, pid: number, signal: 'SIGTERM' | 'SIGKILL', log: Logger): void {
+  if (!signalableChildPid(pid)) {
+    log('warn', `session ${id} not signalling process group: implausible pid ${pid}`);
+    return;
+  }
+  try {
+    process.kill(-pid, signal);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
+    log('warn', `session ${id} ${signal} to process group ${pid} failed: ${describeError(err)}`);
   }
 }
 

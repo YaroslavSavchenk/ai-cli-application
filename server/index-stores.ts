@@ -9,7 +9,9 @@
  * unchanged. index.ts calls createStores() at the exact point the statements
  * stood, at module load, so a refusal still throws out of module evaluation
  * (stderr + exit 1). It keeps the boot order, the standby flag and every
- * caller of the two resets. Siblings: server/index-banner.ts,
+ * caller of the two resets. D9 P3: the history load and the session-artifact
+ * wipe of a normal boot moved to the adoption step (server/index-ptyhost.ts),
+ * which knows which sessions a pty-host still holds. Siblings: server/index-banner.ts,
  * server/index-update.ts, server/index-restart.ts.
  */
 import { unlinkSync } from 'node:fs';
@@ -30,6 +32,7 @@ import { AgentsWatcher } from './agents.ts';
 import { SessionHistory } from './history.ts';
 import { GithubConnection } from './github.ts';
 import { cleanupUpdatesDir } from './update-install.ts';
+import type { PtyHost } from './pty-host-api.ts';
 
 /** What the construction reads from the boot in server/index.ts. */
 interface StoresWiring {
@@ -40,6 +43,8 @@ interface StoresWiring {
   standbyWaiting: boolean;
   /** The probed Claude Code version, for the early-exit log line (Nocturne D6, index-claude.ts). */
   claudeVersion: () => string | null;
+  /** Who owns the PTYs: the pty-host broker (D9 P3, server/index-ptyhost.ts). */
+  host: PtyHost;
 }
 
 interface Stores {
@@ -51,8 +56,12 @@ interface Stores {
   sessions: SessionManager;
   telemetry: TelemetryWatcher;
   github: GithubConnection;
-  /** Run at module load in a normal boot, at `go` in a standby. */
-  resetSessionArtifacts: () => void;
+  /**
+   * Run by the boot's adoption step (server/index-ptyhost.ts `bootSessions`),
+   * in a normal boot before listen and in a standby at `go`; `keep` = the ids a
+   * pty-host still holds (D9 P3).
+   */
+  resetSessionArtifacts: (keep: ReadonlySet<string>) => void;
   /** Run at module load in a normal boot, at `go` in a standby. */
   resetUpdateArtifacts: () => void;
 }
@@ -63,18 +72,22 @@ export function createStores({
   serverDir,
   standbyWaiting,
   claudeVersion,
+  host,
 }: StoresWiring): Stores {
   const projects = new ProjectStore(paths.projectsFile, log);
   const prefs = new PrefsStore(paths.prefsFile, log);
   const history = new SessionHistory(paths.historyFile, log);
   // A standby reads the file WITHOUT stamping or rewriting it: those entries
-  // belong to the parent that is still running them. The full load runs at `go`.
-  history.load({ readOnly: standbyWaiting });
+  // belong to the parent that is still running them. The full load runs at
+  // `go`; in a normal boot it runs in the adoption step (D9 P3,
+  // server/index-ptyhost.ts `bootSessions`), once the pty-host has said which
+  // sessions are still live — they must not be stamped 'crash'.
+  if (standbyWaiting) history.load({ readOnly: true });
   // Per-session `--settings` files giving claude sessions our status line. The
   // script is run by a FOREIGN process (claude), so it is named by absolute path
   // and run with this very node binary — never by a name resolved through the
-  // child's PATH. Any file left by a previous run is wiped: sessions do not
-  // survive a restart.
+  // child's PATH. Any file left by a previous run is wiped, except those of the
+  // sessions a pty-host still holds (D9 P3: they are adopted).
   const sessionSettings = new SessionSettingsStore(
     {
       dir: paths.sessionSettingsDir,
@@ -89,13 +102,17 @@ export function createStores({
    * Wipe what no session may inherit across a run. Deferred to `go` in a standby:
    * `session-settings/` holds the `--settings` files of the PARENT's live claude
    * sessions, and the statusline cache is written by those very sessions.
+   * `keep` (D9 P3): the sessions a pty-host still holds keep theirs.
    */
-  function resetSessionArtifacts(): void {
-    sessionSettings.resetDir();
+  function resetSessionArtifacts(keep: ReadonlySet<string>): void {
+    sessionSettings.resetDir(keep);
     // Same reasoning for the status line's git-branch cache (written by the
     // script, keyed by claude session id): those sessions are gone, so every
     // entry is stale — and a leftover written by anything else must not outlive
-    // a restart.
+    // a restart. With adopted sessions it stays: its keys are Claude's own
+    // session ids (for a resume, the conversation's — not ours to map), and
+    // the script drops an entry past its few-second freshness by itself.
+    if (keep.size > 0) return;
     try {
       unlinkSync(paths.statuslineCacheFile);
     } catch {
@@ -111,10 +128,7 @@ export function createStores({
   function resetUpdateArtifacts(): void {
     cleanupUpdatesDir(paths.updatesDir, log);
   }
-  if (!standbyWaiting) {
-    resetSessionArtifacts();
-    resetUpdateArtifacts();
-  }
+  if (!standbyWaiting) resetUpdateArtifacts();
   /**
    * Stored API keys (Nocturne B5). Constructed beside prefs/github and handed to
    * BOTH consumers: the SessionManager, which sets a saved key as that tool's
@@ -134,7 +148,7 @@ export function createStores({
    */
   const titleIdleSince = (id: string): number | undefined => sessions.titleIdleSince(id);
   const agents = new AgentsWatcher(log, { projectsRoot: paths.claudeProjectsDir, titleIdleSince });
-  const sessions = new SessionManager(log, history, sessionSettings, keys, agents, claudeVersion);
+  const sessions = new SessionManager(log, history, sessionSettings, keys, agents, claudeVersion, host);
   /**
    * The status-line snapshots the script writes for each claude session, back
    * into SessionInfo.telemetry (and from there to every attached client as the

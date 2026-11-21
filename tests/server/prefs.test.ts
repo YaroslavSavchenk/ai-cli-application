@@ -173,11 +173,12 @@ test('readJsonBody cap is parameterized per-route: a body over PREFS_MAX_BYTES (
 
     const sessionRes = await api(server, 'POST', '/api/sessions', {
       command: 'bash',
-      args: [],
+      // The filler rides an arg ($0 of `bash -c`): since D9 P3 a title is
+      // capped at 256 characters, an arg only by the body cap under test.
+      args: ['-c', 'exit 0', filler],
       cwd: workDir,
       cols: 80,
       rows: 24,
-      title: filler,
     });
     assert.equal(
       sessionRes.status,

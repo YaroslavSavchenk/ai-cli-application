@@ -124,6 +124,9 @@ test('setRuntime: notifies conn on change, is a no-op when the answer repeats', 
     webBuild: 'assets/index-Br1e6z0Q.js',
     update: { available: false, reason: null },
     claude: { version: '2.1.287', compat: 'ok' as const, min: '2.1.263', testedUpTo: '2.1.287' },
+
+    // D9 P3: no pty-host (an in-process backend); the UI does not read it.
+    ptyHost: null,
   };
   st.setRuntime(answer);
   assert.equal(st.state.serverStartedAt, iso);
@@ -152,6 +155,9 @@ test('setRuntime: the Claude Code probe takes part in the change detection (D6)'
     webBuild: 'assets/index-Br1e6z0Q.js',
     update: { available: false, reason: null },
     claude,
+
+    // D9 P3: no pty-host (an in-process backend); the UI does not read it.
+    ptyHost: null,
   };
   st.setRuntime(answer);
   assert.deepEqual(st.state.claude, claude);
@@ -190,6 +196,9 @@ test('setRuntime: an INSTALLED backend carries its version and flag beside the c
     webBuild: 'assets/index-Br1e6z0Q.js',
     update: { available: false, reason: null },
     claude: { version: '2.1.287', compat: 'ok' as const, min: '2.1.263', testedUpTo: '2.1.287' },
+
+    // D9 P3: no pty-host (an in-process backend); the UI does not read it.
+    ptyHost: null,
   };
   st.setRuntime(installed);
   assert.equal(st.state.version, 'v0.2.0');

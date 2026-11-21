@@ -30,6 +30,16 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, createSession, readServerLog, startTestServer, waitUntil, type TestServer, sleep } from '../helpers/helpers.ts';
+import { hostLog } from '../helpers/pty-host-fixture.ts';
+
+/**
+ * Where the ladder's rungs are logged: server.log for in-process PTYs, the
+ * pty-host's own pty-host.log when a pty-host holds them (D9; the suite's
+ * socket leg, AI_SM_TEST_PTY_HOST=socket) — the same lines either way.
+ */
+async function ladderLog(server: TestServer): Promise<string> {
+  return (await readServerLog(server)) + hostLog(server.dataDir);
+}
 import {
   KILL_TERM_MS,
   KILL_KILL_MS,
@@ -96,7 +106,7 @@ test('T1 DELETE ends a CLI that ignores SIGHUP and SIGTERM, and its child, via S
   // forever, so this is the assertion that pins the defect.
   await waitAllGone(pids, 'the trapping CLI and its child to be gone', 12_000);
 
-  const log = await readServerLog(server);
+  const log = await ladderLog(server);
   assert.ok(
     log.includes(
       `${info.id} still running 2000ms after SIGHUP; sending SIGTERM to its process group`,
@@ -129,7 +139,7 @@ test('T2 a CLI that ignores only SIGHUP dies at the SIGTERM rung — no SIGKILL'
   // Wait past the moment the SIGKILL rung WOULD have fired (2000+3000 ms),
   // otherwise "no SIGKILL line" would only mean "not yet".
   await sleep(Math.max(0, deletedAt + PAST_BOTH_RUNGS_MS - Date.now()));
-  const log = await readServerLog(server);
+  const log = await ladderLog(server);
   assert.ok(
     log.includes(
       `${info.id} still running 2000ms after SIGHUP; sending SIGTERM to its process group`,
@@ -163,7 +173,7 @@ test('T3 an ordinary CLI still dies on the plain SIGHUP: no escalation line at a
   );
 
   await sleep(Math.max(0, deletedAt + PAST_BOTH_RUNGS_MS - Date.now()));
-  const log = await readServerLog(server);
+  const log = await ladderLog(server);
   assert.equal(
     log.includes(`${info.id} still running`),
     false,

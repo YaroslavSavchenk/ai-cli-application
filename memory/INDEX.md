@@ -124,6 +124,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-11
 
+- [[2026-11-21-d9-p3-adopt]] — D9 P3: broker owns only what it adopts, boot adopt + gap re-scan, host lost ⇒ group kill + crash, permission args survive the blob cap, title cap 256, socket-mode CI job; gate cut short — RingBuffer.restore one-chunk bug open (todo test)
 - [[2026-11-21-d9-p2-pty-host]] — D9 P2: pty-host process + wire (owner seat/probe, token, 0600 socket, lock-name secret, orphan 10 min, idle 60 s, 8 MiB pause); data dir fchmod 0700; review: replaced owner kept rights, WSL2 distros share a netns (abstract names collide); gate found frames-before-listen dropped
 - [[2026-11-20-d9-p1-pty-table]] — D9 P1: PTY layer → `server/pty-table.ts` behind `PtyHost` (in-process), absolute ring offsets, meta blob, async create; full mutation gate 124 mutants / 21 tests; WSL wall clock steps back ~1 s per 30 s (flaky 1 s margins)
 - [[2026-11-20-d8-mascot-steps-back]] — D8: host posts app-active (foreground = main form or root-owned) on change + after each overlay load; page slides `.pm-stage` back (250 ms), rects = stage while leaving, [] when away, real rects before the entrance; two layered guards each need their own test

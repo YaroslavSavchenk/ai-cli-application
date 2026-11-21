@@ -28,11 +28,12 @@
  * No client-supplied byte ever reaches it. Paths are still POSIX-quoted, so a
  * data dir containing a space or a quote cannot reshape the command either.
  *
- * BOTH directories are wiped at boot: sessions never survive a backend
- * restart, so a settings file — or a snapshot — that outlives its session is
- * garbage by definition.
+ * BOTH directories are wiped at boot, except the files of the sessions a
+ * pty-host still holds (Nocturne D9 P3: those survive a backend crash and are
+ * adopted, and their Claude reads the settings file its argv names). Any
+ * other settings file — or snapshot — outlived its session and is garbage.
  */
-import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { claudePermissionFromFlag, type ClaudePermissionMode } from '../shared/protocol.ts';
 import { describeError, scoped, type Logger } from './config.ts';
@@ -131,11 +132,19 @@ export class SessionSettingsStore {
     this.#sslog = scoped(log, 'session-settings');
   }
 
-  /** Wipe and recreate both directories (0700). Called once at boot. */
-  resetDir(): void {
+  /**
+   * Wipe and recreate both directories (0700). Called once at boot.
+   *
+   * `keep` (D9 P3): the ids of sessions a pty-host still holds — the boot
+   * adopts them, so their `<id>.json` in either directory stays (the
+   * settings file is named in that Claude's argv; the snapshot is its last
+   * status line). Everything else in the directories goes, as before.
+   */
+  resetDir(keep: ReadonlySet<string> = new Set()): void {
     for (const dir of [this.#config.dir, this.#config.snapshotDir]) {
       try {
-        rmSync(dir, { recursive: true, force: true });
+        if (keep.size === 0) rmSync(dir, { recursive: true, force: true });
+        else this.#wipeExcept(dir, keep);
       } catch (err) {
         this.#log('warn', `could not clear ${dir}: ${describeError(err)}`);
       }
@@ -146,6 +155,32 @@ export class SessionSettingsStore {
         this.#log('error', `could not create ${dir}: ${describeError(err)}`);
       }
     }
+  }
+
+  /**
+   * Remove every entry of `dir` but the `<id>.json` of a kept id. Anything
+   * that is not a real directory (a link included — never listed through) is
+   * removed whole, as the plain wipe does; a missing dir is fine.
+   */
+  #wipeExcept(dir: string, keep: ReadonlySet<string>): void {
+    let st;
+    try {
+      st = lstatSync(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw err;
+    }
+    if (!st.isDirectory()) {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    const names = readdirSync(dir);
+    for (const name of names) {
+      if (name.endsWith('.json') && keep.has(name.slice(0, -'.json'.length))) continue;
+      rmSync(join(dir, name), { recursive: true, force: true });
+    }
+    // Kept, not recreated: the 0700 the plain wipe's mkdir gives, given here.
+    chmodSync(dir, 0o700);
   }
 
   fileFor(id: string): string {

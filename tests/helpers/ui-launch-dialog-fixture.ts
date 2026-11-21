@@ -88,6 +88,8 @@ export class FakeElement extends FakeNode {
   type = '';
   placeholder = '';
   spellcheck = true;
+  /** `<input maxlength>`; -1 = none, as in the DOM (D9: the Name box stops at the title cap). */
+  maxLength = -1;
   selectedIndex = -1;
   #tabIndex: number | null = null;
   #value: string | null = null;

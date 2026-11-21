@@ -33,6 +33,13 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
 - **Sessions are first-class server-side objects.** The PTY and its state live
   in the backend; the browser is only a view. Sessions keep running when their
   pane is hidden; reopening a window reattaches with scrollback replayed.
+  Since Nocturne D9 P3 the PTYs are held by a per-data-dir **pty-host**
+  process the backend starts (`server/pty-host-*.ts`; spec
+  `.claude/plans/nocturne/PLAN-D9.md`): a backend CRASH leaves them running
+  (orphan grace 10 min) and the next boot adopts them — same ids, same
+  processes, scrollback and bells kept. A refused data dir (not ours, not
+  0700, socket path > 107 bytes) falls back to in-process PTYs with one
+  `server.log` line.
 - **Backend starts detached** from the launcher process (setsid), started on
   demand — it must never die with the launcher console. **Lifetime: bound to
   UI presence** (user's call 2026-07-19): the presence WebSocket
@@ -44,7 +51,9 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   `-Stop` overrides. The presence channel answers `ping`/`pong` (inbound
   frames ≤ 1 KiB, no lifecycle effect). Authed `GET /api/runtime` body is
   exactly `{ startedAt, serverCommit, version, installed, webBuild, update,
-  claude }` (`claude` since D6: `{ version, compat, min, testedUpTo }`).
+  claude, ptyHost }` (`claude` since D6: `{ version, compat, min, testedUpTo }`;
+  `ptyHost` since D9 P3: `{ build, proto }` of the pty-host holding the
+  sessions, or null).
   History: `memory/decisions/lifecycle-bound-backend.md`.
 - **Session history with real per-conversation resume** (user's call
   2026-09-06). Every launched session is kept in `history.json` (data dir,
@@ -55,7 +64,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   an injected `--session-id <app session uuid>` (PTY argv only — never in
   `SessionInfo.args`); `POST /api/history/:id/resume` spawns `claude <base
   args> --resume <id>`. End reasons: user-kill, exit, shutdown, crash
-  (stamped at boot). A conversation is pruned only when its projects folder
+  (stamped at boot for an entry no pty-host still holds, and since D9 P3 for
+  the sessions of a pty-host lost under a running backend). A conversation is pruned only when its projects folder
   exists and `<id>.jsonl` is missing — every uncertainty keeps it. Needs
   Claude Code ≥ 2.1.263: the supported range (2.1.263, tested up to 2.1.287)
   lives in `shared/claude-compat.ts`, and one `claude --version` probe (argv
@@ -88,7 +98,10 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   request is never metered. Rotation 10 MiB → `.1` → `.2` (≤ 30 MiB total,
   0600; a failed rename truncates). 0600 is hygiene only — "never write the
   secret" is the control. `launcher/run-update.ps1` stdout is piped in
-  (≤ 64 KiB). History: `memory/decisions/scope-history.md`
+  (≤ 64 KiB). Since D9 a second channel: the pty-host process writes its own
+  `<dataDir>/pty-host.log` (same format, levels and rotation, honours
+  `AI_SM_LOG_LEVEL`) — lifecycle, ids, pids and counts only, never PTY bytes,
+  env, argv or its token. History: `memory/decisions/scope-history.md`
   § Architecture — Logging.
 - **Manual backend restart + "new version" notice; preflight first.**
   `GET /api/runtime.update = { available, reason }` (cached ≤ 5 s, UI polls
@@ -110,8 +123,13 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   in flight or while an update installs; `503` with no runner. Seams:
   `AI_SM_PORT_HINT`, `AI_SM_RESTARTED_FROM`, `AI_SM_STANDBY`,
   `AI_SM_WEB_DIST_DIR` (absolute, normalized, never root; a bad value is
-  refused with a `server.log` line); PTYs inherit none of them (nor
-  `AI_SM_HOME_OVERRIDE`). UI: Settings → Background service
+  refused with a `server.log` line); since D9 also `AI_SM_PTY_HOST`
+  (`inproc` = PTYs in the backend, a test seam refused in installed mode;
+  any other value refuses the start), `AI_SM_PTY_HOST_IDLE_MS` (pty-host
+  idle exit, default 60 s) and `AI_SM_PTY_HOST_ORPHAN_MS` (orphan grace,
+  default 10 min, floor 1 s), passed to the pty-host the backend starts.
+  PTYs inherit none of them (nor `AI_SM_HOME_OVERRIDE`, nor the pty-host's
+  `AI_SM_PTY_HOST_BUILD`). UI: Settings → Background service
   `Restart service`, toast + amber `Update` pill; the dialog can be hidden
   during the preflight, locked during reconnect. A page whose token is
   rejected without having asked for a restart probes `/health` for 5 s and
@@ -278,7 +296,10 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
 - **Ending a session = a signal ladder on the process GROUP.** `DELETE
   /api/sessions/:id`: SIGHUP, +2 s SIGTERM to `-pid`, +3 s SIGKILL to
   `-pid`, each rung skipped once the group is gone. Shutdown/restart:
-  SIGHUP + immediate group SIGKILL. Known limits: a `setsid` escapee or a
+  SIGHUP + immediate group SIGKILL. With a pty-host (D9) the ladder runs in
+  that process; a pty-host LOST under a running backend (crash, kill) ⇒ the
+  backend probes and SIGKILLs each of its sessions' groups itself, the
+  sessions exit with code 137 and history says `crash`. Known limits: a `setsid` escapee or a
   root-owned member survives. History:
   `memory/decisions/b5-tools-keys-and-shells.md` § Features (decided) —
   Ending a session (rationale § 5).
@@ -454,7 +475,10 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   when on AND honest. Known limit: permission mode = the LAUNCH mode.
   Sessions with their own `--settings` and non-claude commands are left
   alone. Data-dir artifacts wiped at boot: `session-settings/` (0700),
-  `statusline-cache.json`, `statusline-snapshots/`. History:
+  `statusline-cache.json`, `statusline-snapshots/` — except (D9 P3) the
+  `<id>.json` files of the sessions a pty-host still holds, and the whole
+  `statusline-cache.json` when any session is adopted (its keys are Claude's
+  own session ids; the script drops stale entries itself). History:
   `memory/decisions/scope-history.md` § Features — Terminal status line.
 - **Pane status bar** (Nocturne B1). The strip under each terminal renders
   the Settings → Status bar checklist from the payload Claude Code hands
@@ -719,7 +743,10 @@ enumerated in the now-removed `design/GAP-ANALYSIS.md`), in
 the last port is tried first, `last-port.json`; vanilla TS + Vite
 frontend; app data — projects.json, runtime.json, last-port.json (2026-09-22), history.json (2026-09-06,
 replacing journal.json + previous.json), prefs.json (added 2026-07-20: server-side UI prefs, since
-localStorage died with every auto-picked-port origin change), server.log —
+localStorage died with every auto-picked-port origin change), server.log, and
+since D9 the pty-host's `pty-host.json` (pid, build, token; 0600),
+`pty-host.sock` (0600), `pty-host.log`, `pty-host.lockname` (0600) — the
+backend tightens a data dir it owns to 0700, which the pty-host requires —
 lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in
 `shared/protocol.ts` (with its topic modules `shared/protocol-*.ts`). Rationale in `memory/decisions/`.)
 

@@ -25,7 +25,8 @@
  * called at the point it ran from: index-banner.ts (the boot banner),
  * index-stores.ts (stores and watchers), index-update.ts (update checks and
  * the updater), index-restart.ts (the restart wiring); split O8 and Quality Q5.
- * index-claude.ts (the Claude Code version watch, Nocturne D6).
+ * index-claude.ts (the Claude Code version watch, Nocturne D6), index-ptyhost.ts
+ * (the pty-host broker and the boot's adoption step, Nocturne D9 P3).
  *
  * Runs directly on Node 24 native type stripping: erasable syntax only,
  * relative imports carry explicit .ts extensions.
@@ -66,6 +67,7 @@ import { createStores } from './index-stores.ts';
 import { createUpdateWiring } from './index-update.ts';
 import { createRestartController } from './index-restart.ts';
 import { createClaudeWiring } from './index-claude.ts';
+import { bootSessions, createPtyHostBroker } from './index-ptyhost.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -178,6 +180,17 @@ if (!standbyWaiting) logWebBuild(boot, webBuild);
 // in the `listening` handler so it never delays boot.
 const { claude, tools } = createClaudeWiring({ log, installed });
 
+// Who owns the PTYs (Nocturne D9 P3): the data dir's pty-host process, through
+// a broker that connects at boot, starts one on the first spawn and falls back
+// to the in-process table when it is refused. An invalid AI_SM_PTY_HOST
+// refuses the start here (server/index-ptyhost.ts).
+const ptyHosts = createPtyHostBroker({
+  log,
+  dataDir: paths.dataDir,
+  installed,
+  build: bundle?.version ?? serverCommit ?? 'unknown',
+});
+
 // The stores and watchers, and the wipe of what no run may inherit (deferred to
 // `go` in a standby): server/index-stores.ts (Quality Q5 split, 2026-10-13).
 const {
@@ -191,7 +204,14 @@ const {
   github,
   resetSessionArtifacts,
   resetUpdateArtifacts,
-} = createStores({ log, paths, serverDir, standbyWaiting, claudeVersion: () => claude.version() });
+} = createStores({
+  log,
+  paths,
+  serverDir,
+  standbyWaiting,
+  claudeVersion: () => claude.version(),
+  host: ptyHosts,
+});
 /**
  * Absolute ceiling on deferring the idle shutdown for an install: the download
  * budget (15 min) plus the Setup budget (15 min) plus a minute of slack. The
@@ -276,6 +296,7 @@ const apiDeps: ApiDeps = {
   keys,
   tools,
   claude: () => claude.status(),
+  ptyHost: () => ptyHosts.status(),
   webDistDir,
   serverCommit,
   serverVersion: bundle?.version ?? null,
@@ -437,15 +458,27 @@ server.on('error', (err) => {
 });
 
 /**
- * Bind the port. Called immediately in a normal boot, and only on the parent's
- * `go` in a STANDBY boot (see the bottom of this file) — everything above this
- * point is the entire rest of the boot, which is exactly what a standby child
- * has already done by the time it reports in.
+ * The adoption step (D9 P3, server/index-ptyhost.ts `bootSessions`: the
+ * pty-host's live sessions, the history load, the artifact wipe), then bind
+ * the port. Called at once in a normal boot and on the parent's `go` in a
+ * STANDBY boot. Listening waits for it: a window must never attach before the
+ * sessions it shows are adopted.
+ */
+function adoptThenListen(): void {
+  void bootSessions({ broker: ptyHosts, history, sessions, resetSessionArtifacts, log })
+    .catch((err: unknown) => log('error', `boot adoption failed: ${describeError(err)}`))
+    .then(() => beginListening());
+}
+
+/**
+ * Bind the port — everything above this point is the entire rest of the boot,
+ * which is exactly what a standby child has already done by the time it
+ * reports in.
  */
 function beginListening(): void {
-  // After resetSessionArtifacts() on both paths (module load for a normal boot,
-  // the `go` handler for a standby), so the directory being watched is the one
-  // this run's sessions write into.
+  // After resetSessionArtifacts() on both paths (the adoption step, at once in
+  // a normal boot and at `go` in a standby), so the directory being watched is
+  // the one this run's sessions write into.
   telemetry.start((id, snapshot, transcript) => {
     sessions.setTelemetry(id, snapshot);
     // B7: the one place a transcript path is known. It is UNTRUSTED (the
@@ -519,6 +552,9 @@ apiDeps.restart = restart;
 /** The vite process of a running preflight build, while there is one. */
 let buildChild: ChildProcess | undefined;
 
+/** The most a shutdown waits for the pty-host's `shutdown-all` frame to leave. */
+const EXIT_FLUSH_MS = 500;
+
 let shuttingDown = false;
 function shutdown(cause: string): void {
   if (shuttingDown) return;
@@ -579,8 +615,10 @@ function shutdown(cause: string): void {
   removeOwnRuntimeFile(paths.runtimeFile, { pid: process.pid, startedAt }, log);
   server.close();
   // Force exit even if some socket lingers.
-  setTimeout(() => process.exit(0), 500).unref();
-  process.exit(0);
+  setTimeout(() => process.exit(0), EXIT_FLUSH_MS).unref();
+  // D9 P3 (P2 note): the pty-host's `shutdown-all` must leave this process
+  // before it ends, or the PTYs live on for the whole orphan grace.
+  void ptyHosts.flushed(EXIT_FLUSH_MS).then(() => process.exit(0));
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'));
@@ -612,12 +650,12 @@ process.on('unhandledRejection', (reason) => {
 // nothing and written no runtime.json.
 // ---------------------------------------------------------------------------
 if (!standbyMode) {
-  beginListening();
+  adoptThenListen();
 } else if (sendToParent === undefined) {
   // Someone set the variable by hand on a normal start. Say so and boot
   // normally rather than hanging forever on a channel that does not exist.
   boot('warn', 'AI_SM_STANDBY is set but this process has no IPC channel; starting normally');
-  beginListening();
+  adoptThenListen();
 } else {
   const parent = /^\d{1,10}$/.test(restartedFrom ?? '') ? (restartedFrom as string) : 'unknown';
   let standbyTimer: NodeJS.Timeout | undefined;
@@ -629,15 +667,14 @@ if (!standbyMode) {
     standbyWaiting = false; // From here the data dir is OURS.
     if (standbyTimer !== undefined) clearTimeout(standbyTimer);
     boot('info', `standby: handoff received from pid ${parent}, taking the port`);
-    // The three data-dir mutations an ordinary boot does at module load. They
-    // waited for this moment because until now every one of them would have
-    // hit files the parent was still using.
+    // The data-dir mutations an ordinary boot does before listen. They waited
+    // for this moment because until now every one of them would have hit
+    // files the parent was still using. The history load and the session
+    // artifact wipe run in adoptThenListen() below (D9 P3).
     //
-    // history.load() also RE-READS the file: the teardown that just happened
-    // stamped the parent's live sessions 'shutdown' on disk — the honest
-    // reason, and the one HISTORY shows.
-    history.load();
-    resetSessionArtifacts();
+    // That history load also RE-READS the file: the teardown that just
+    // happened stamped the parent's live sessions 'shutdown' on disk — the
+    // honest reason, and the one HISTORY shows.
     resetUpdateArtifacts();
     adoptWebBuild();
     // Belt and braces: the parent drops the swap's backup the moment `go` is
@@ -651,7 +688,7 @@ if (!standbyMode) {
     } catch {
       // Already closed by the parent.
     }
-    beginListening();
+    adoptThenListen();
   });
   process.on('disconnect', () => {
     if (!standbyWaiting) return;

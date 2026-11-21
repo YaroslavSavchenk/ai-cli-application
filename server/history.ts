@@ -6,7 +6,8 @@
  * entry per conversation (claude-kind, pinned via `--session-id`) or per first
  * launch (anything else). An entry is written at create time with ended:null
  * and stamped when the session ends — user-kill, natural exit, or shutdown; on
- * boot every entry a previous run left ended:null is stamped 'crash'. All four
+ * boot every entry a previous run left ended:null is stamped 'crash' — except,
+ * since D9 P3, one whose session a pty-host still holds (it is adopted). All four
  * reasons stay listed and resumable, which is the whole fix: the old
  * /api/previous only ever offered 'shutdown'/'crash' entries of a single
  * previous run, so a session the user closed with x was gone forever.
@@ -51,9 +52,6 @@ export const HISTORY_MAX = 200;
  * legitimately huge history is kept, never overwritten.
  */
 const HISTORY_FILE_MAX_BYTES = 32 * 1024 * 1024;
-
-/** Reasons a running server may record; 'crash' is stamped only at boot. */
-export type LiveEndReason = Exclude<SessionEndReason, 'crash'>;
 
 /** What SessionManager.create knows about the launch it just made. */
 export interface HistoryKey {
@@ -151,21 +149,29 @@ export class SessionHistory {
    * Boot: read history.json (missing/corrupt -> empty, logged) and stamp every
    * entry a previous run left live as 'crash', then write the repaired file.
    *
+   * `live` (D9 P3): the app session ids a pty-host still holds — their
+   * entries are NOT stamped, since the boot adopts those sessions and stamps
+   * them itself when they end.
+   *
    * `readOnly` is the STANDBY boot (server/index.ts): that process shares the
    * data dir with a parent whose sessions are still RUNNING, so stamping them
    * 'crash' and writing the file would falsify a live process's history. It
    * reads only, and the full stamping load runs again at `go`.
    */
-  load(opts: { readOnly?: boolean } = {}): void {
+  load(opts: { readOnly?: boolean; live?: ReadonlySet<string> } = {}): void {
     this.#entries = this.#read();
     const at = new Date().toISOString();
     let crashed = 0;
+    let kept = 0;
     if (opts.readOnly !== true) {
       for (const entry of this.#entries) {
-        if (entry.ended === null) {
-          entry.ended = { at, reason: 'crash' };
-          crashed += 1;
+        if (entry.ended !== null) continue;
+        if (opts.live?.has(entry.sessionId) === true) {
+          kept += 1;
+          continue;
         }
+        entry.ended = { at, reason: 'crash' };
+        crashed += 1;
       }
       this.#write();
     }
@@ -173,7 +179,8 @@ export class SessionHistory {
       'info',
       opts.readOnly === true
         ? `history loaded read-only: ${this.#entries.length} entries (nothing stamped, nothing written)`
-        : `history loaded: ${this.#entries.length} entries (${crashed} stamped 'crash')`,
+        : `history loaded: ${this.#entries.length} entries (${crashed} stamped 'crash'` +
+            `${kept > 0 ? `, ${kept} still running in the pty-host` : ''})`,
     );
     const live = this.#entries.filter((e) => e.ended === null).length;
     this.#hlog(
@@ -181,6 +188,25 @@ export class SessionHistory {
       `file ${this.#file}: ${this.#entries.length} entries, ${live} live, ` +
         `${this.#entries.filter((e) => e.conversation).length} resumable conversations`,
     );
+  }
+
+  /**
+   * D9 P3 (security review F1): the sessions a pty-host turned out to still
+   * hold AFTER this boot stamped them 'crash' (its connect timed out, a later
+   * start found it running): they are adopted now, so that stamp was wrong —
+   * their entries go back to live. Only a 'crash' stamp is undone; any other
+   * end (user-kill, exit, shutdown) stands.
+   */
+  reopen(sessionIds: ReadonlySet<string>): void {
+    let reopened = 0;
+    for (const entry of this.#entries) {
+      if (entry.ended?.reason !== 'crash' || !sessionIds.has(entry.sessionId)) continue;
+      entry.ended = null;
+      delete entry.exitCode;
+      reopened += 1;
+    }
+    if (reopened > 0) this.#write();
+    this.#hlog('info', `reopened ${reopened} entr${reopened === 1 ? 'y' : 'ies'} a pty-host still held`);
   }
 
   /**
@@ -233,9 +259,11 @@ export class SessionHistory {
   /**
    * Stamp the end of the launch whose app session id is `sessionId`. First
    * stamp wins (a later 'exit' from the async onExit is the no-op after a
-   * 'user-kill'/'shutdown').
+   * 'user-kill'/'shutdown'). Any reason, 'crash' included since D9 P3 (it
+   * used to be stamped only at boot): a running backend stamps it for the
+   * sessions of a pty-host it lost.
    */
-  markEnded(sessionId: string, reason: LiveEndReason, exitCode?: number): void {
+  markEnded(sessionId: string, reason: SessionEndReason, exitCode?: number): void {
     const entry = this.#entries.find((e) => e.sessionId === sessionId && e.ended === null);
     if (entry === undefined) {
       this.#hlog(
@@ -255,7 +283,7 @@ export class SessionHistory {
   }
 
   /** Shutdown: stamp every still-live entry in a single rewrite. */
-  endAllLive(reason: LiveEndReason): void {
+  endAllLive(reason: SessionEndReason): void {
     const at = new Date().toISOString();
     let stamped = 0;
     for (const entry of this.#entries) {

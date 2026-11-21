@@ -50,6 +50,7 @@
  * active. While closed, the dialog touches no keyboard input — the terminal
  * owns the keys.
  */
+import { TITLE_MAX_CHARS } from '../../../shared/protocol.ts';
 import type { HistoryEntry, KeyStatus, ToolAvailability } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
@@ -181,6 +182,7 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   nameLb.append(el('span', 'ns-opt', '(optional)'));
   const nameInput = el('input');
   nameInput.name = 'title';
+  nameInput.maxLength = TITLE_MAX_CHARS;
   nameInput.spellcheck = false;
   nameField.append(nameLb, nameInput);
 

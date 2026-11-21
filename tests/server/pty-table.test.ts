@@ -6,7 +6,8 @@
  * the output events' offsets, the exit record, the metadata blob's 16 KiB cap
  * and `forget`.
  *
- * How: `RingBuffer` called directly for the pure offset rules; the in-process
+ * How: `RingBuffer` called directly for the pure offset rules (and D9 P3's
+ * `restore`); the in-process
  * host over a real PTY (`bash -c …`) for the events and the snapshot — the
  * offsets are only worth something if they agree with what node-pty really
  * delivered.
@@ -113,6 +114,19 @@ async function fiveLines(r: Recorder): Promise<{ id: string; record: PtyExitReco
   assert.ok(mine.length > 0, 'output arrived');
   return { id, record, mine };
 }
+
+// OPEN (D9 P3 gate, 2026-11-21): RingBuffer trims whole chunks, and restore()
+// stores the snapshot as ONE chunk — so the first append after an adopt drops
+// the whole restored scrollback (actual 'g', expected 'defg'). Fix first in the
+// next session, then drop the todo.
+test('restore seeds an empty ring with the newest bytes up to its cap, at the given end; a used ring refuses (D9 P3)', { todo: 'D9 P3 gate finding: restore() is one chunk, the first append trims it all' }, () => {
+  const ring = new RingBuffer(4);
+  ring.restore(Buffer.from('abcdef'), 1006);
+  assert.deepEqual([ring.toBuffer().toString(), ring.byteLength, ring.endOffset], ['cdef', 4, 1006]);
+  ring.append('g');
+  assert.deepEqual([ring.toBuffer().toString(), ring.endOffset], ['defg', 1007], 'later chunks continue the same offsets');
+  assert.throws(() => ring.restore(Buffer.from('x'), 1), /restore needs an empty ring/);
+});
 
 test('a PTY that ends cleanly reports an exit record with code 0, no signal and a time', async () => {
   const r = recorder();

@@ -91,6 +91,19 @@ export const PTY_HOST_EXIT = {
   otherInstance: 3,
 } as const;
 
+/** A build id as both sides accept it (a bundle version or a commit). */
+const BUILD_SHAPE = /^[\w.+-]{1,64}$/;
+
+/**
+ * `build` as the starter passes it (AI_SM_PTY_HOST_BUILD) or as a host's
+ * `welcome` reports it, or 'unknown' for anything of another shape — one rule
+ * for the host and for the backend that logs it and serves it in
+ * GET /api/runtime (D9 P3).
+ */
+export function buildOrUnknown(raw: unknown): string {
+  return typeof raw === 'string' && BUILD_SHAPE.test(raw) ? raw : 'unknown';
+}
+
 /** The files of one data dir's pty-host. */
 interface PtyHostPaths {
   socket: string;

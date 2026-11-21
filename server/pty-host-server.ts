@@ -50,6 +50,7 @@ import {
   FrameReader,
   MAX_FRAME_PAYLOAD,
   WireError,
+  buildOrUnknown,
   encodeControl,
   encodeOutput,
   encodeSnapshot,
@@ -85,9 +86,6 @@ const ORPHAN_FLOOR_MS = 1000;
  */
 const MAX_PENDING_CONNECTIONS = 16;
 
-/** `build` as the starter passes it (AI_SM_PTY_HOST_BUILD), or 'unknown'. */
-const BUILD_SHAPE = /^[\w.+-]{1,64}$/;
-
 interface PtyHostTimers {
   idleMs: number;
   orphanMs: number;
@@ -102,8 +100,7 @@ export function resolveHostTimers(log: Logger, env: NodeJS.ProcessEnv = process.
 }
 
 export function resolveHostBuild(env: NodeJS.ProcessEnv = process.env): string {
-  const raw = env['AI_SM_PTY_HOST_BUILD'];
-  return raw !== undefined && BUILD_SHAPE.test(raw) ? raw : 'unknown';
+  return buildOrUnknown(env['AI_SM_PTY_HOST_BUILD']);
 }
 
 interface PtyHostServerOptions {

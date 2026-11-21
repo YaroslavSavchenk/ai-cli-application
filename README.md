@@ -410,12 +410,15 @@ path):
   start (mode 0600)
 - `history.json` — every session the app launched, across runs (atomically
   rewritten on every session create/exit/delete and at shutdown; entries left
-  open by a crash are stamped `crash` at the next boot). Feeds `GET
+  open by a crash are stamped `crash` at the next boot — unless the pty-host
+  still holds that session, which the boot then adopts; a session whose
+  pty-host dies under a running backend is stamped `crash` at once). Feeds `GET
   /api/history` and `POST /api/history/:id/resume`; bounded at 200 entries,
   where the oldest ended one drops first
 - `session-settings/` — one Claude Code settings file per session (directory
   mode 0700), holding only the status-line command the session is launched
-  with; emptied at boot, since no session survives a restart
+  with; emptied at boot except the files of the sessions a pty-host still holds
+  (they survive a backend crash and are adopted)
 - `statusline-snapshots/` — one file per session (directory mode 0700, files
   0600) holding what Claude Code last reported for it: model, git branch, cost,
   lines changed, context used, account usage, and the path of Claude Code's own
@@ -423,10 +426,22 @@ path):
   run, read back by the backend, and drawn in the bar under each terminal — the
   transcript path is not drawn: it is where the backend finds the session's
   subagents for the Background agents table; emptied at boot with the settings
-  above
+  above, with the same exception
 - `statusline-cache.json` — the status line's git-branch cache, user-only
   readable (mode 0600), written by the script Claude Code runs and keyed by its
-  session id; deleted at boot
+  session id; deleted at boot, unless the boot adopts any session (the script
+  drops its stale entries itself)
+- `pty-host.json`, `pty-host.sock`, `pty-host.lockname`, `pty-host.log` — the
+  session holder (Nocturne D9): a separate process the backend starts with the
+  first session, which owns the terminals so a backend crash does not end them
+  (relaunch within 10 minutes and they re-attach). Its state file (pid, build,
+  connection token; 0600), its socket (0600), the secret its single-instance
+  lock is named after (0600), and its own log (lifecycle and counts only —
+  never terminal bytes, environment, arguments or the token; rotated like
+  `server.log`). The backend sets an existing data directory it owns to mode
+  0700, which the session holder requires; with a directory it may not use
+  (another owner, other modes, or a path too long for a Unix socket) the
+  sessions run inside the backend as before, and `server.log` says why once
 - `server.log` — backend log: one line per event, `<ISO> [level] [component]
   message`, at `debug`/`info`/`warn`/`error`. **Everything is logged by
   default** — boot banner (node version, pid, data dir, effective log level,
@@ -613,7 +628,7 @@ updates at all, and neither does a bundle whose version is `0.0.0-*`.
 
 | Path | What lives there |
 | --- | --- |
-| `server/` | The WSL-side Node backend: sessions and PTYs, HTTP + WebSocket API, history, update and restart logic, `statusline.mjs`; `server/pty-host-*.ts` is the separate process that holds the PTYs across backend restarts (Nocturne D9) |
+| `server/` | The WSL-side Node backend: sessions and PTYs, HTTP + WebSocket API, history, update and restart logic, `statusline.mjs`; `server/pty-host-main.ts` + `pty-host-server.ts` are the separate process that holds the PTYs across backend restarts, `pty-host-wire.ts` its wire, `pty-host-client.ts` + `pty-host-broker.ts` the backend's side (Nocturne D9) |
 | `web/` | The browser frontend (vanilla TypeScript + Vite): `src/`, `index.html`, `mascot.html`, the design system notes in `DESIGN.md` |
 | `shared/` | `protocol.ts`, the wire contract both sides import (it re-exports its topic modules `protocol-*.ts`) |
 | `tests/` | The whole suite (`npm test`): `ui/` (frontend, `npm run test:ui`), `server/` (backend), `release/` (bundle, installer, launcher, workflows), `repo/` (the layout, author-path and file-size guards), `helpers/` (shared test modules, no tests), `fixtures/` (data files); how a test is written: `tests/README.md` |

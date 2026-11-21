@@ -482,6 +482,14 @@ export interface FsMkdirResponse {
  * command + args as an argv array via node-pty — client-supplied values
  * never enter a shell string.
  */
+/**
+ * Longest session title a launch may ask for, in characters (D9 P3 security
+ * review F2): it is stored in history and in the pty-host's metadata blob, and
+ * no row shows more. The server refuses a longer one with 400; the launch
+ * dialog's Name field stops at it.
+ */
+export const TITLE_MAX_CHARS = 256;
+
 export interface CreateSessionRequest {
   projectId?: string;
   cwd?: string;

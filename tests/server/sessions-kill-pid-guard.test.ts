@@ -2,7 +2,7 @@
  * The kill ladder's pid seatbelt (server/pty-table.ts `signalableChildPid`,
  * in server/sessions.ts until Nocturne D9 P1).
  *
- * `PtyTable`'s `#signalGroup` and `#groupGone` turn a pid into `process.kill(-pid, …)`;
+ * `processGroupGone` and `signalProcessGroup` (`PtyTable`'s ladder and, since D9 P3, the pty-host broker) turn a pid into `process.kill(-pid, …)`;
  * the mutation gate of 2026-09-20 could not reach the guard through a real
  * session (pty.pid is always a real child pid), so the predicate is a
  * named export and pinned here: -0 would be the backend's own group, -(-1)

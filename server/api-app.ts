@@ -122,6 +122,8 @@ export async function appRoutes(
           min: CLAUDE_SUPPORTED.min,
           testedUpTo: CLAUDE_SUPPORTED.testedUpTo,
         },
+        // Nocturne D9 P3: which pty-host holds the sessions, for diagnosis.
+        ptyHost: deps.ptyHost?.() ?? null,
       };
       sendJson(res, 200, body);
       return;

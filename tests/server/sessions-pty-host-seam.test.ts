@@ -4,8 +4,9 @@
  * manager talks to whatever host it is given, and `destroy` hands the id
  * back to it with `forget`.
  *
- * How: a recording fake `PtyHost` passed to the constructor; no PTY is
- * started, so the calls the manager makes are the whole observable.
+ * How: a recording fake `PtyHost` passed to the constructor
+ * (tests/helpers/fake-pty-host.ts); no PTY is started, so the calls the
+ * manager makes are the whole observable.
  *
  * Why it matters: the host keeps a session's ring (up to 1 MiB) until it is
  * forgotten. With the in-process host a missing `forget` was invisible to
@@ -15,64 +16,24 @@
  * inside a session does not inherit its parent's session holder settings.
  *
  * NOT claimed: what the host does with `forget` (`pty-host-conformance.test.ts`);
- * the P3 wiring (adopt, onLost, pending spawns).
+ * the P3 wiring (adopt, lost hosts, pending spawns: `sessions-adopt.test.ts`,
+ * `pty-host-crash.test.ts`).
  */
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
-import { SessionHistory } from '../../server/history.ts';
-import { SessionManager } from '../../server/sessions.ts';
 import { ptyEnv } from '../../server/sessions-env.ts';
 import type { PtyHost } from '../../server/pty-host-api.ts';
-import type { PtyEvents, PtySpawnRequest } from '../../server/pty-table.ts';
-import { makeTempDir, removeTempDir } from '../helpers/helpers.ts';
+import type { SessionManager } from '../../server/sessions.ts';
+import { removeTempDir } from '../helpers/helpers.ts';
+import { fakeHostManager, fakePtyHost as fakeHost } from '../helpers/fake-pty-host.ts';
 
 const dirs: string[] = [];
 after(async () => {
   for (const d of dirs) await removeTempDir(d);
 });
 
-interface FakeHost extends PtyHost {
-  calls: string[];
-  spawned: PtySpawnRequest[];
-  events: () => PtyEvents | undefined;
-}
-
-function fakeHost(): FakeHost {
-  const calls: string[] = [];
-  const spawned: PtySpawnRequest[] = [];
-  let events: PtyEvents | undefined;
-  return {
-    calls,
-    spawned,
-    events: () => events,
-    listen: (e) => {
-      events = e;
-    },
-    spawn: async (req) => {
-      spawned.push(req);
-      calls.push(`spawn ${req.id}`);
-      return { pid: 4242 };
-    },
-    write: (id) => calls.push(`write ${id}`),
-    resize: (id, cols, rows) => calls.push(`resize ${id} ${cols}x${rows}`),
-    kill: (id, mode) => calls.push(`kill ${id} ${mode}`),
-    snapshot: async () => undefined,
-    setMeta: (id) => calls.push(`set-meta ${id}`),
-    list: async () => [],
-    forget: (id) => calls.push(`forget ${id}`),
-    shutdownAll: () => calls.push('shutdown-all'),
-    detach: () => calls.push('detach'),
-    onLost: () => {},
-    pendingSpawns: () => new Set(),
-  };
-}
-
 async function manager(host: PtyHost): Promise<SessionManager> {
-  const dir = await makeTempDir('ai-sm-seam-');
-  dirs.push(dir);
-  const noop = (): void => {};
-  return new SessionManager(noop, new SessionHistory(join(dir, 'history.json'), noop), undefined, undefined, undefined, undefined, host);
+  return (await fakeHostManager(host, dirs)).sessions;
 }
 
 test('the manager spawns through the host it was given and listens to it', async () => {
@@ -91,7 +52,9 @@ test('destroy kills through the host and then forgets the id there', async () =>
   const { id } = await sessions.create({ cwd: '/', command: 'bash', args: [], cols: 80, rows: 24 });
   host.calls.length = 0;
   assert.equal(sessions.destroy(id), true);
-  assert.deepEqual(host.calls, [`kill ${id} ladder`, `forget ${id}`], 'kill first, then forget');
+  // D9 P3: the blob is marked deleted first, so a backend that dies inside the
+  // kill ladder does not adopt the session back (pty-host-adopt.test.ts).
+  assert.deepEqual(host.calls, [`set-meta ${id}`, `kill ${id} ladder`, `forget ${id}`], 'mark, kill, then forget');
 });
 
 test('destroying an exited session forgets it without a kill', async () => {
