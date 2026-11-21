@@ -115,17 +115,23 @@ async function fiveLines(r: Recorder): Promise<{ id: string; record: PtyExitReco
   return { id, record, mine };
 }
 
-// OPEN (D9 P3 gate, 2026-11-21): RingBuffer trims whole chunks, and restore()
-// stores the snapshot as ONE chunk — so the first append after an adopt drops
-// the whole restored scrollback (actual 'g', expected 'defg'). Fix first in the
-// next session, then drop the todo.
-test('restore seeds an empty ring with the newest bytes up to its cap, at the given end; a used ring refuses (D9 P3)', { todo: 'D9 P3 gate finding: restore() is one chunk, the first append trims it all' }, () => {
+test('restore seeds an empty ring with the newest bytes up to its cap, at the given end; a used ring refuses (D9 P3)', () => {
   const ring = new RingBuffer(4);
   ring.restore(Buffer.from('abcdef'), 1006);
   assert.deepEqual([ring.toBuffer().toString(), ring.byteLength, ring.endOffset], ['cdef', 4, 1006]);
   ring.append('g');
   assert.deepEqual([ring.toBuffer().toString(), ring.endOffset], ['defg', 1007], 'later chunks continue the same offsets');
   assert.throws(() => ring.restore(Buffer.from('x'), 1), /restore needs an empty ring/);
+});
+
+test('an append past the cap after a restore drops one slice of the restored scrollback, not all of it (D9 P3 gate)', () => {
+  const trims: number[] = [];
+  const ring = new RingBuffer(6400, (n) => trims.push(n));
+  ring.restore(Buffer.alloc(6400, 'a'), 6400);
+  ring.append('b');
+  assert.deepEqual(trims, [100], 'one 1/64 slice of the cap went');
+  assert.equal(ring.byteLength, 6301);
+  assert.equal(ring.toString(), 'a'.repeat(6300) + 'b');
 });
 
 test('a PTY that ends cleanly reports an exit record with code 0, no signal and a time', async () => {

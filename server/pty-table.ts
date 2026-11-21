@@ -37,6 +37,13 @@ import { describeError, scoped, type Logger } from './config.ts';
 export const SCROLLBACK_MAX_BYTES = 1024 * 1024;
 
 /**
+ * How many slices `RingBuffer.restore` cuts a snapshot into (16 KiB each for
+ * the 1 MiB cap): an append past the cap then drops one slice of the restored
+ * scrollback, the way it drops one live chunk — never all of it.
+ */
+const RESTORE_SLICES = 64;
+
+/**
  * The per-session metadata blob's cap (D9 § Defaults: ≤ 16 KiB, UTF-8 bytes).
  * The table never reads the blob; the backend keeps what it must find again
  * after a restart there (P3), so the cap bounds what a hostile or buggy owner
@@ -109,11 +116,17 @@ export class RingBuffer {
    * Seed an EMPTY ring with another copy's bytes and absolute end (D9 P3: the
    * backend's mirror of a session it adopts, from the pty-host's `snapshot`),
    * so later chunks continue the same offsets. Kept within the cap.
+   *
+   * The snapshot is stored as slices of 1/RESTORE_SLICES of the cap, never as
+   * one chunk: the ring trims WHOLE chunks, so one 1 MiB chunk would be
+   * dropped entire by the first append that crosses the cap — the adopted
+   * session's scrollback gone at its first output (D9 P3 gate finding).
    */
   restore(ring: Buffer, endOffset: number): void {
     if (this.#end !== 0 || this.#chunks.length > 0) throw new Error('restore needs an empty ring');
     const kept = ring.byteLength > this.#maxBytes ? ring.subarray(ring.byteLength - this.#maxBytes) : ring;
-    if (kept.byteLength > 0) this.#chunks.push(Buffer.from(kept));
+    const slice = Math.max(1, Math.floor(this.#maxBytes / RESTORE_SLICES));
+    for (let at = 0; at < kept.byteLength; at += slice) this.#chunks.push(Buffer.from(kept.subarray(at, at + slice)));
     this.#bytes = kept.byteLength;
     this.#end = endOffset;
   }
