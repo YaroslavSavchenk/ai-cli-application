@@ -48,7 +48,7 @@ import type { Socket } from 'node:net';
 import { PtyHostBroker } from '../../server/pty-host-broker.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import { randomUUID } from 'node:crypto';
 import { encodeControl, PTY_HOST_EXIT, PTY_HOST_PROTOCOL, ptyHostPaths, type Frame } from '../../server/pty-host-wire.ts';
 import { makeTempDir, removeTempDir, settleWithin, waitUntil } from '../helpers/helpers.ts';

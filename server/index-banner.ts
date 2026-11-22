@@ -11,7 +11,7 @@
  * server/index-update.ts, server/index-restart.ts.
  */
 import { join } from 'node:path';
-import { oneLine, MAX_LOG_BYTES, type Logger, type ResolvedLogLevel } from './config.ts';
+import { oneLine, MAX_LOG_BYTES, type Logger, type ResolvedLogLevel } from './config-log.ts';
 import { mtimeOf, type WebBuildInfo } from './buildinfo.ts';
 import type { BundleInfo } from './bundle.ts';
 

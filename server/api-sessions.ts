@@ -15,7 +15,8 @@ import { TITLE_MAX_CHARS } from '../shared/protocol.ts';
 import type { CreateSessionRequest, ResumeHistoryRequest } from '../shared/protocol.ts';
 import { isExistingDirectory } from './projects.ts';
 import { planConversation, resumeSpawn } from './conversation.ts';
-import { describeError, isStringArray, isValidDim, MAX_TERM_DIM } from './config.ts';
+import { isStringArray, isValidDim, MAX_TERM_DIM } from './config.ts';
+import { describeError } from './config-log.ts';
 import { ConversationStarting } from './sessions.ts';
 import { NEXT, readJsonBody, sendError, sendJson, type ApiContext, type RouteResult } from './api-http.ts';
 

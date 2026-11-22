@@ -25,7 +25,7 @@
  */
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { LogLevel } from '../../server/config.ts';
+import type { LogLevel } from '../../server/config-log.ts';
 import {
   isQuietPoll,
   PollTally,

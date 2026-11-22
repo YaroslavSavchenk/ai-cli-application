@@ -35,7 +35,7 @@ import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import { SessionSettingsStore } from '../../server/session-settings.ts';
 import type { AgentsWatcher } from '../../server/agents.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import { makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 import { fakeHostManager, fakePtyHost } from '../helpers/fake-pty-host.ts';
 import { infoOf } from '../helpers/history-fixture.ts';

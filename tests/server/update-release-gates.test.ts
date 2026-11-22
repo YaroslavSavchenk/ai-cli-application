@@ -46,7 +46,7 @@ import {
   releasePayload,
   makeChecker,
 } from '../helpers/update-release-fixture.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 
 /** The cache read's warn sink: these gates assert the verdict, not the log. */
 const noLog: Logger = () => undefined;

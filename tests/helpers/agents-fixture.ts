@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { ServerMessage, SessionAgent, SessionInfo } from '../../shared/protocol.ts';
 import { AgentsWatcher, type AgentsReport } from '../../server/agents.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import { makeTempDir, waitUntil } from './helpers.ts';

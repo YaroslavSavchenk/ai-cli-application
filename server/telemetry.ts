@@ -44,7 +44,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionTelemetry } from '../shared/protocol.ts';
-import { describeError, readSmallRegularFile, scoped, type Logger } from './config.ts';
+import { readSmallRegularFile } from './config.ts';
+import { describeError, scoped, type Logger } from './config-log.ts';
 import { CONTROL_CHAR, MAX_AT_MS, clean, plainObject } from './sanitise.ts';
 
 /**

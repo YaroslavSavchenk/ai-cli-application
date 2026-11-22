@@ -44,7 +44,8 @@
  * the replay tail and the early-exit line live in server/sessions-output.ts;
  * the PTY's environment (ptyEnv) in server/sessions-env.ts; since D9 P3 the
  * per-session record in server/sessions-state.ts and the metadata blob a
- * restarted backend adopts a session from in server/sessions-meta.ts.
+ * restarted backend adopts a session from in server/sessions-meta.ts; since
+ * PLAN-QUALITY Q13 the D9 adopt / detach / hand-over in server/sessions-adopt.ts.
  *
  * Nocturne D9 P1 (.claude/plans/nocturne/PLAN-D9.md): the PTY itself — spawn,
  * input, resize, the raw ring, the final-output rescue, the kill ladder — sits
@@ -67,13 +68,14 @@ import { planConversation } from './conversation.ts';
 import { hasSettingsArg, parsePermissionMode, type SessionSettingsStore } from './session-settings.ts';
 import { sameTelemetry } from './telemetry.ts';
 import { sameAgents, type AgentsReport, type AgentsWatcher } from './agents.ts';
-import { scoped, type Logger } from './config.ts';
+import { scoped, type Logger } from './config-log.ts';
 import { ptyEnv } from './sessions-env.ts';
 import { earlyExitLine, replayTail, scanOutput } from './sessions-output.ts';
-import { parseSessionMeta, rescanGap, sessionBlob, unseenTail } from './sessions-meta.ts';
-import { metaMarks, newSession, slowCloseLimiter, syncPending, type Session } from './sessions-state.ts';
+import { sessionBlob, unseenTail } from './sessions-meta.ts';
+import { flushOutputLog, metaMarks, newSession, slowCloseLimiter, syncPending, type Session } from './sessions-state.ts';
 import type { PtyEntrySummary, PtyExitRecord } from './pty-table.ts';
 import { createInProcessPtyHost, type PtyHost } from './pty-host-api.ts';
+import { adoptSessions, detachSessions, handOverSession, type AdoptContext } from './sessions-adopt.ts';
 
 // Split out by PLAN-RESTRUCTURE O8 (2026-09-23) and re-exported so every importer
 // of this module keeps its surface.
@@ -93,9 +95,6 @@ function cwdTitle(cwd: string): string {
   const base = basename(cwd);
   return base !== '' ? base : cwd;
 }
-
-/** Minimum gap between per-session output summary lines (debug). */
-export const OUTPUT_LOG_INTERVAL_MS = 1000;
 
 /**
  * D9 P3 (§ Risks (c)): a launch of this conversation (or history entry) is
@@ -180,8 +179,8 @@ export class SessionManager {
    * backend, unowned.
    */
   #closing = false;
-  /** The gap re-scan lost old bells: said once per run. */
-  #overrunLogged = false;
+  /** What the D9 adopt/detach functions reach (server/sessions-adopt.ts). */
+  readonly #adoptCtx: AdoptContext;
 
   constructor(
     log: Logger,
@@ -204,6 +203,19 @@ export class SessionManager {
     this.#agents = agents;
     this.#claudeVersion = claudeVersion;
     this.#host = host;
+    this.#adoptCtx = {
+      sessions: this.#sessions,
+      ptys: this.#ptys,
+      host,
+      history,
+      settings,
+      agents,
+      log,
+      slog: this.#slog,
+      overrunLogged: false,
+      onExit: (id, session, record) => this.#onExit(id, session, record),
+      flushMeta: (id, session) => this.#flushMeta(id, session),
+    };
     this.#host.listen({
       output: (id, data, offset) => {
         const session = this.#ptys.get(id);
@@ -214,7 +226,7 @@ export class SessionManager {
       exit: (id, record) => this.#ended(id, record, 'exit'),
       // D9 P3: the pty-host holding this PTY is gone and its group was killed.
       lost: (id, at) => this.#ended(id, { code: LOST_EXIT_CODE, signal: 9, at }, 'crash'),
-      handedOver: (id) => this.#handedOver(id),
+      handedOver: (id) => handOverSession(this.#adoptCtx, id),
     });
   }
 
@@ -429,7 +441,7 @@ export class SessionManager {
     session.buffer.append(data);
     session.outBytes += Buffer.byteLength(data);
     session.outChunks += 1;
-    this.#flushOutputLog(id, session, false);
+    flushOutputLog(this.#slog, id, session, false);
     this.#broadcast(session, { type: 'data', data });
     const scan = scanOutput(data, session.scan);
     if (scan.bell) {
@@ -530,7 +542,7 @@ export class SessionManager {
       `session ${id} exited with code ${exitCode}` +
         `${signal === null || signal === 0 ? '' : ` (signal ${signal})`}`,
     );
-    this.#flushOutputLog(id, session, true);
+    flushOutputLog(this.#slog, id, session, true);
     this.#slog(
       'info',
       `${id} totals: scrollback ${session.buffer.byteLength} bytes, ` +
@@ -578,7 +590,7 @@ export class SessionManager {
     session.inBytes += Buffer.byteLength(data);
     session.inFrames += 1;
     this.#host.write(id, data);
-    this.#flushOutputLog(id, session, false);
+    flushOutputLog(this.#slog, id, session, false);
   }
 
   resize(id: string, cols: number, rows: number): void {
@@ -774,151 +786,19 @@ export class SessionManager {
 
   /**
    * D9 P4 — restart and update: hand every PTY to the next backend instead of
-   * ending it. Each session's blob is parked with its PTY (its `scannedTo`
-   * too, so the next backend re-scans only what this one never saw — a bell
-   * already looked at must not come back); a spawn still in flight is ended
-   * (no history entry was written for it, and the next backend would adopt a
-   * session nobody launched: § Risks (a)); then the host connection says
-   * goodbye. No history stamp, no kill: the sessions run on. The restart's
-   * teardown closes the sockets (1012).
+   * ending it (server/sessions-adopt.ts `detachSessions`).
    */
   detachAll(): void {
     this.#closing = true;
-    let pending = 0;
-    for (const [id, session] of this.#ptys) {
-      if (session.destroyed || this.#sessions.has(id)) continue;
-      // The kill follows the spawn on the wire: the host has the PTY by then.
-      this.#host.kill(id, 'now');
-      this.#host.forget(id);
-      pending += 1;
-    }
-    let running = 0;
-    for (const [id, session] of this.#sessions) {
-      this.#flushMeta(id, session);
-      if (session.ptyLive) running += 1;
-    }
-    this.#host.detach();
-    this.#slog(
-      'info',
-      `detached for a restart: ${running} running and ${this.#sessions.size - running} exited session(s) ` +
-        `left with the pty-host, ${pending} spawn(s) in flight ended`,
-    );
+    detachSessions(this.#adoptCtx);
   }
 
   /**
    * D9 P3 — boot, before listen: take over the sessions a pty-host still holds
-   * from an earlier backend (its `list()`), each rebuilt from its metadata
-   * blob, its mirror seeded from `snapshot()`, and the output this backend
-   * never saw re-scanned for bells and titles (`rescanGap`). A session that
-   * exited meanwhile ends here as any exit does (history `exit`, early-exit
-   * verdict). A PTY whose blob is unreadable, or that was DELETEd, is ended:
-   * nothing could show it. Adopted Claude sessions get their `--settings`
-   * file written again (the status line command may name new code).
+   * from an earlier backend (server/sessions-adopt.ts `adoptSessions`).
    */
-  async adopt(entries: readonly PtyEntrySummary[]): Promise<void> {
-    for (const entry of entries) {
-      let why: string | undefined;
-      try {
-        why = await this.#adoptOne(entry);
-      } catch (err) {
-        why = `adopting it failed (${err instanceof Error ? err.name : typeof err})`;
-      }
-      if (why !== undefined) this.#endUnadopted(entry.id, why);
-    }
-  }
-
-  /** One entry of `adopt`; a sentence saying why it was NOT adopted, else undefined. */
-  async #adoptOne(entry: PtyEntrySummary): Promise<string | undefined> {
-    const { id } = entry;
-    const meta = parseSessionMeta(entry.meta);
-    if (meta === undefined) return 'no readable metadata';
-    if (meta.deleted === true) return 'deleted';
-    let snap;
-    try {
-      snap = await this.#host.snapshot(id);
-    } catch {
-      snap = undefined;
-    }
-    if (snap === undefined) return 'its output could not be read';
-    const info: SessionInfo = {
-      id,
-      ...meta.info,
-      args: [...meta.info.args],
-      status: 'running',
-      cols: entry.cols,
-      rows: entry.rows,
-      attention: meta.attention,
-      ...(meta.pendingSince === undefined ? {} : { pendingSince: meta.pendingSince }),
-      ...(meta.turnEnded === true ? { turnEnded: true } : {}),
-    };
-    const session = newSession(info, isClaudeCommand(info.command));
-    session.buffer.restore(snap.ring, snap.endOffset);
-    const gap = rescanGap(snap.ring, snap.endOffset, meta.scannedTo, meta.scan);
-    session.scan = gap.scan;
-    session.titleIdleSince = meta.titleIdleSince;
-    if (gap.overrun && !this.#overrunLogged) {
-      this.#overrunLogged = true;
-      this.#slog('info', `${id} printed more than the scrollback while no backend ran: bells before it are lost`);
-    }
-    if (gap.bell) info.attention = true;
-    if (gap.titleIdle === true) session.titleIdleSince ??= Date.now();
-    else if (gap.titleIdle === false) session.titleIdleSince = undefined;
-    syncPending(info);
-    this.#sessions.set(id, session);
-    this.#log(
-      'info',
-      `session ${id} adopted: pid ${entry.pid}, ${snap.endOffset - meta.scannedTo} byte(s) re-scanned` +
-        `${gap.bell ? ', attention raised (BEL while no backend ran)' : ''}` +
-        `${entry.exit === null ? '' : `, exited meanwhile with code ${entry.exit.code}`}`,
-    );
-    if (entry.exit !== null) {
-      session.ptyLive = false;
-      this.#onExit(id, session, entry.exit);
-      return undefined;
-    }
-    this.#ptys.set(id, session);
-    if (info.statusline === true) this.#settings?.write(id, parsePermissionMode(info.args));
-    this.#flushMeta(id, session);
-    return undefined;
-  }
-
-  /**
-   * A PTY the pty-host holds that this backend will not show (S1/S2 of the P3
-   * review): ended now and handed back, never left running unowned, and its
-   * history entry stamped `crash` (a no-op when DELETE already stamped it),
-   * so a resume is not refused as "still running" forever.
-   */
-  #endUnadopted(id: string, why: string): void {
-    this.#slog('info', `${id} not adopted (${why}); ending it`);
-    this.#sessions.delete(id);
-    this.#ptys.delete(id);
-    this.#host.kill(id, 'now');
-    this.#host.forget(id);
-    this.#history.markEnded(id, 'crash');
-  }
-
-  /**
-   * D9 P3: another backend took the pty-host over (`bye taken-over`); this
-   * session's PTY runs on under it. It leaves this backend without an end: no
-   * history stamp, no `exit` frame — its sockets close 1012, as a restart's do,
-   * and the session is no longer listed here.
-   */
-  #handedOver(id: string): void {
-    const session = this.#ptys.get(id) ?? this.#sessions.get(id);
-    this.#ptys.delete(id);
-    this.#sessions.delete(id);
-    if (session === undefined) return;
-    session.ptyLive = false;
-    this.#agents?.untrack(id);
-    for (const ws of session.clients) {
-      try {
-        ws.close(1012, 'session taken over');
-      } catch {
-        // Socket already gone.
-      }
-    }
-    session.clients.clear();
-    this.#log('info', `session ${id} handed over to another backend`);
+  adopt(entries: readonly PtyEntrySummary[]): Promise<void> {
+    return adoptSessions(this.#adoptCtx, entries);
   }
 
   /** Park the current blob with the PTY (D9 P3): what a restarted backend adopts the session from. */
@@ -926,41 +806,6 @@ export class SessionManager {
     const meta = sessionBlob(session);
     if (meta === undefined) return;
     this.#host.setMeta(id, meta);
-  }
-
-  /**
-   * Summarize a session's traffic at most once per OUTPUT_LOG_INTERVAL_MS (and
-   * unconditionally at exit, `force`): one output line and one input line.
-   * COUNTS ONLY — both directions can hold anything the user typed or the agent
-   * printed, so no byte of either is ever written to server.log.
-   */
-  #flushOutputLog(id: string, session: Session, force: boolean): void {
-    const now = Date.now();
-    if (!force && now - session.lastOutLogMs < OUTPUT_LOG_INTERVAL_MS) return;
-    if (session.outBytes === 0 && session.trimmedBytes === 0 && session.inBytes === 0) {
-      session.lastOutLogMs = now;
-      return;
-    }
-    const elapsed = now - session.lastOutLogMs;
-    if (session.outBytes > 0 || session.trimmedBytes > 0) {
-      this.#slog(
-        'debug',
-        `${id} output ${session.outBytes} bytes in ${session.outChunks} chunk(s) over ${elapsed}ms` +
-          `${session.trimmedBytes > 0 ? `, scrollback trimmed ${session.trimmedBytes} bytes` : ''}`,
-      );
-    }
-    if (session.inBytes > 0) {
-      this.#slog(
-        'debug',
-        `${id} input ${session.inBytes} bytes in ${session.inFrames} frame(s) over ${elapsed}ms`,
-      );
-    }
-    session.outBytes = 0;
-    session.outChunks = 0;
-    session.trimmedBytes = 0;
-    session.inBytes = 0;
-    session.inFrames = 0;
-    session.lastOutLogMs = now;
   }
 
   #broadcast(session: Session, message: ServerMessage): void {

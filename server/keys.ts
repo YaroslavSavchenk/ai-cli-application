@@ -35,7 +35,8 @@ import {
   type KeyedTool,
   type KeyStatus,
 } from '../shared/protocol.ts';
-import { atomicWriteFile, readSmallRegularFile, scoped, setAsideRefused, type Logger } from './config.ts';
+import { atomicWriteFile, readSmallRegularFile, setAsideRefused } from './config.ts';
+import { scoped, type Logger } from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 
 /** Upper bound on a stored key. No real key of these vendors comes near it. */

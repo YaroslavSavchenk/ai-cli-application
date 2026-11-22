@@ -70,37 +70,34 @@
  * server/agents-fold.ts directly). C2 (2026-09-26) added
  * server/agents-workflows.ts, a workflow run's liveness, and (2026-09-27)
  * server/agents-verdict.ts, the session verdict and STALE_MS; only this
- * module calls either.
+ * module calls either. Q13 (2026-11-22) moved the main-transcript read
+ * (readMain and its realpath guard) to server/agents-main.ts.
  */
 import {
   constants as fsConstants,
   fstatSync,
-  lstatSync,
   openSync,
   readSync,
   readdirSync,
   realpathSync,
   statSync,
 } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { SessionAgent, SessionTurn } from '../shared/protocol.ts';
-import { closeQuietly, describeError, oneLine, readSmallRegularFile, scoped, type Logger } from './config.ts';
-import { isUuid } from './conversation.ts';
+import { closeQuietly, readSmallRegularFile } from './config.ts';
+import { describeError, oneLine, scoped, type Logger } from './config-log.ts';
 import { isUnder } from './fsbrowse.ts';
 import { clean, plainObject } from './sanitise.ts';
 import {
   AGENT_HEX,
   foldLine,
-  foldTurnLine,
   isoOf,
   newFold,
-  newTurnFold,
   sameReport,
   type AgentFold,
   type AgentsReport,
-  type TurnFold,
 } from './agents-fold.ts';
-import { pendingSlug } from './agents-path.ts';
+import { MAX_READ_PER_POLL, newTurnState, readMain, splitLines, type MainReadContext, type TurnState } from './agents-main.ts';
 import { STALE_MS, sessionTurn } from './agents-verdict.ts';
 import { checkWorkflows } from './agents-workflows.ts';
 
@@ -120,14 +117,6 @@ export { subagentsDirFor } from './agents-path.ts';
 const POLL_MS = 2_000;
 
 /**
- * Most bytes read from ONE transcript in ONE poll. A 15-minute agent's file is
- * 0.7-1.4 MB measured, so this catches up in a single tick in practice; the
- * cap is what stops a planted 10 GB file from being read into this process.
- * A backlog larger than this is simply read over the next few polls.
- */
-const MAX_READ_PER_POLL = 4 * 1024 * 1024;
-
-/**
  * Most bytes read across ALL sessions and ALL files in ONE tick. The per-file
  * cap alone is not a bound on a tick: the first poll after a session with 30
  * agents is tracked would parse 30 x 1.4 MB of JSON in one go, on the SAME
@@ -137,13 +126,6 @@ const MAX_READ_PER_POLL = 4 * 1024 * 1024;
  * cost is that a row can appear a tick or two late on first sight.
  */
 const MAX_READ_PER_TICK = 16 * 1024 * 1024;
-
-/**
- * Longest single line we will parse. Real lines reach ~120 KB (a large tool
- * result); past a megabyte it is not a transcript line, so it is skipped
- * unparsed rather than handed to JSON.parse.
- */
-const MAX_LINE = 1024 * 1024;
 
 /** A `.meta.json` is ~200 bytes; anything past this is not one. */
 const MAX_META_BYTES = 8 * 1024;
@@ -159,15 +141,6 @@ const MAX_AGENTS = 64;
  * (≤ MAX_AGENTS): a 65th agent is beyond both the list and the count.
  */
 const MAX_RUNNING_ROWS = 4;
-
-/**
- * How much of the session's own transcript is read on FIRST sight (B11). A
- * long session's transcript is tens of MB; the verdict lives in its last few
- * lines, so only the tail is read, from `max(0, size - TURN_TAIL_BYTES)`, and
- * the first (partial) line of it is dropped. Afterwards it is read
- * incrementally like every agent transcript.
- */
-const TURN_TAIL_BYTES = 1024 * 1024;
 
 /**
  * Most matching filenames a single poll will stat. A directory with a million
@@ -217,27 +190,6 @@ interface FileState {
   fold: AgentFold;
   /** mtimeMs of the last stat: the agent's last sign of life (STALE_MS). */
   mtimeMs: number;
-}
-
-/** Read state of the session's own transcript (B11). */
-interface TurnState {
-  /** Bytes already consumed; -1 = never read (the next read is a TAIL read). */
-  offset: number;
-  carry: Buffer;
-  resyncing: boolean;
-  /** What its lines said: the main verdict, a question, the open launches (C2). */
-  fold: TurnFold;
-  /**
-   * When `fold.turn` last moved to 'working' (this watcher's clock, the time
-   * the line was read); undefined until it does. Reset with the fold. The
-   * verdict ages an idle title from it (server/agents-verdict.ts).
-   */
-  workingSince: number | undefined;
-}
-
-/** A turn state that has read nothing: the next read starts at the tail. */
-function newTurnState(): TurnState {
-  return { offset: -1, carry: Buffer.alloc(0), resyncing: false, fold: newTurnFold(), workingSince: undefined };
 }
 
 interface TrackedAgent {
@@ -299,6 +251,8 @@ export class AgentsWatcher {
   #tick = 0;
   #onChange: ((id: string, report: AgentsReport) => void) | undefined;
   #stopped = false;
+  /** What the main-transcript read reaches (server/agents-main.ts). */
+  readonly #mainCtx: MainReadContext;
 
   constructor(log: Logger, options: AgentsWatcherOptions) {
     this.#log = scoped(log, 'agents');
@@ -307,6 +261,7 @@ export class AgentsWatcher {
     this.#now = options.now ?? Date.now;
     this.#readBudget = options.readBudgetBytes ?? MAX_READ_PER_TICK;
     this.#titleIdleSince = options.titleIdleSince;
+    this.#mainCtx = { log: this.#log, projectsRoot: this.#projectsRoot, now: this.#now };
   }
 
   /**
@@ -401,7 +356,7 @@ export class AgentsWatcher {
     // B11: the session's own transcript first. It does not depend on the
     // subagents directory existing (it usually does not: most sessions never
     // spawn a subagent), and it shares this tick's byte budget.
-    this.#readMain(id, session, budget);
+    readMain(this.#mainCtx, id, session, budget);
     const dir = this.#pollAgents(id, session, budget);
 
     const report = this.#report(id, session, dir);
@@ -480,154 +435,6 @@ export class AgentsWatcher {
       this.#readTranscript(dir, agent, budget);
     }
     return dir;
-  }
-
-  /**
-   * Bring the session's own transcript's turn verdict up to date (B11).
-   *
-   * THE PATH: `<parent>/<uuid>.jsonl`, derived from the tracked directory
-   * `<parent>/<uuid>/subagents` that subagentsDirFor() built — never read from
-   * the snapshot again. A tracked directory not of that shape gives no turn.
-   *
-   * THE BOUNDARY, RE-CHECKED EVERY TICK on the file actually opened (B7
-   * amendment 2): the parent is realpath'd and must sit inside the real
-   * projects root, and the file's own realpath must be exactly
-   * `<real parent>/<uuid>.jsonl` — a symlink at the final component (even one
-   * pointing inside the root) is refused, not followed. The open itself is
-   * O_RDONLY|O_NOFOLLOW|O_NONBLOCK and fstat must say regular file, so a
-   * symlink swapped in after the check is refused and a FIFO never blocks.
-   *
-   * States: a file that does not exist (lstat ENOENT — Claude Code creates it
-   * at the first prompt) is 'waiting'; a refused or unreadable one has no
-   * verdict; a readable one keeps the verdict of its last counting line, and
-   * (C2) the question flag and the launches its lines left open. Any reset
-   * forgets all of it: a shrunk or replaced file is folded again from its tail.
-   */
-  #readMain(id: string, session: TrackedSession, budget: { left: number }): void {
-    const uuidDir = dirname(session.dir);
-    const uuid = basename(uuidDir);
-    if (basename(session.dir) !== 'subagents' || !isUuid(uuid)) {
-      this.#resetMain(session);
-      return;
-    }
-    const name = `${uuid}.jsonl`;
-
-    let realRoot: string;
-    try {
-      realRoot = realpathSync(this.#projectsRoot);
-    } catch {
-      this.#resetMain(session);
-      return; // No projects root: nothing may be read.
-    }
-    let realParent: string;
-    try {
-      realParent = realpathSync(dirname(uuidDir));
-    } catch {
-      this.#resetMain(session);
-      // B11 F1: the slug folder does not exist YET (one missing component
-      // directly under the real root) — Claude Code has written nothing, so
-      // the session sits at its first prompt. Anything else missing: no turn.
-      if (pendingSlug(dirname(uuidDir), realRoot)) session.main.fold.turn = 'waiting';
-      return;
-    }
-    if (!isUnder(realParent, realRoot)) {
-      this.#refuseMain(id, session, dirname(uuidDir));
-      return;
-    }
-    const file = join(realParent, name);
-
-    let realFile: string;
-    try {
-      realFile = realpathSync(file);
-    } catch {
-      // Missing (the session sits at its first prompt) or a dangling symlink.
-      // Only a TRULY missing name is 'waiting'; lstat does not follow.
-      let missing = false;
-      try {
-        lstatSync(file);
-      } catch (err) {
-        missing = (err as NodeJS.ErrnoException).code === 'ENOENT';
-      }
-      this.#resetMain(session);
-      if (missing) session.main.fold.turn = 'waiting';
-      return;
-    }
-    if (realFile !== file) {
-      this.#refuseMain(id, session, file);
-      return;
-    }
-    if (session.mainRefusalLogged) {
-      session.mainRefusalLogged = false;
-      this.#log('debug', `${id}: ${oneLine(file)} now inside the projects root, reading it again`);
-    }
-
-    let fd: number;
-    try {
-      fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
-    } catch {
-      this.#resetMain(session);
-      return; // Vanished since realpath, swapped for a symlink, or unreadable.
-    }
-    try {
-      const stat = fstatSync(fd);
-      if (!stat.isFile()) {
-        this.#resetMain(session);
-        return;
-      }
-      const size = stat.size;
-      if (session.main.offset >= 0 && size < session.main.offset) {
-        // Shrank or replaced: the verdict describes a file that is gone, so
-        // start over from its tail.
-        this.#log('debug', `${id}: transcript shrank, re-reading its tail`);
-        session.main = newTurnState();
-      }
-      const state = session.main;
-      if (state.offset < 0) {
-        // FIRST SIGHT: only the tail. Starting one byte before the tail and
-        // resyncing drops the partial first line — and keeps a whole one that
-        // happens to begin exactly at the tail boundary.
-        if (size > TURN_TAIL_BYTES) {
-          state.offset = size - TURN_TAIL_BYTES - 1;
-          state.resyncing = true;
-        } else {
-          state.offset = 0;
-        }
-      }
-      if (size === state.offset) return;
-      const want = Math.min(size - state.offset, MAX_READ_PER_POLL, budget.left);
-      if (want <= 0) return;
-      const buffer = Buffer.allocUnsafe(want);
-      const read = readSync(fd, buffer, 0, want, state.offset);
-      if (read <= 0) return;
-      budget.left -= read;
-      state.offset += read;
-      // C2: the fold dates a launch line without a believable stamp by this,
-      // and a turn that starts on one of these lines is stamped with it —
-      // line by line, so a turn that ended and restarted in one read counts.
-      const seenMs = this.#now();
-      splitLines(state, buffer.subarray(0, read), (line) => {
-        const was = state.fold.turn;
-        foldTurnLine(state.fold, line.toString('utf8'), seenMs);
-        if (state.fold.turn === 'working' && was !== 'working') state.workingSince = seenMs;
-      });
-    } catch (err) {
-      this.#log('debug', `${id}: transcript read failed: ${describeError(err)}`);
-    } finally {
-      closeQuietly(fd);
-    }
-  }
-
-  /** Forget the main transcript's read state and verdict. */
-  #resetMain(session: TrackedSession): void {
-    session.main = newTurnState();
-  }
-
-  /** A main transcript outside the root: no verdict, logged once per session. */
-  #refuseMain(id: string, session: TrackedSession, path: string): void {
-    this.#resetMain(session);
-    if (session.mainRefusalLogged) return;
-    session.mainRefusalLogged = true;
-    this.#log('debug', `${id}: ${oneLine(path)} resolves outside the projects root, refused`);
   }
 
   /**
@@ -902,45 +709,6 @@ export class AgentsWatcher {
       closeQuietly(fd);
     }
   }
-}
-
-/**
- * Split a chunk on newlines, carrying the trailing partial line in `state` and
- * handing every complete line of at most MAX_LINE bytes to `onLine`. A line
- * past MAX_LINE is dropped unparsed; an unterminated one past it drops the
- * carry and resyncs at the next newline, so a single huge (or endless) line
- * cannot grow the carry without bound. `resyncing` set by the caller discards
- * everything up to the next newline (the tail read's partial first line).
- */
-function splitLines(
-  state: { carry: Buffer; resyncing: boolean },
-  chunk: Buffer,
-  onLine: (line: Buffer) => void,
-): void {
-  const buf = state.carry.length === 0 ? chunk : Buffer.concat([state.carry, chunk]);
-  let start = 0;
-  for (let i = 0; i < buf.length; i++) {
-    if (buf[i] !== 0x0a) continue;
-    const line = buf.subarray(start, i);
-    start = i + 1;
-    if (state.resyncing) {
-      // The tail of a line we already gave up on: this newline ends it.
-      state.resyncing = false;
-      continue;
-    }
-    if (line.length > MAX_LINE) continue; // Too big to be a transcript line.
-    onLine(line);
-  }
-  const rest = buf.subarray(start);
-  if (state.resyncing || rest.length > MAX_LINE) {
-    // Still inside a line we are discarding, or an unterminated line past the
-    // cap: keep nothing and resync at the next newline.
-    state.carry = Buffer.alloc(0);
-    state.resyncing = true;
-    return;
-  }
-  // Copied, not aliased: subarray keeps the whole chunk alive otherwise.
-  state.carry = Buffer.from(rest);
 }
 
 /** Compare two ISO stamps (or ids) as plain strings — ISO-8601 sorts lexically. */

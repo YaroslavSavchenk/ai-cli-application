@@ -225,7 +225,7 @@ test('runChild: a child whose kill throws (already gone) still answers timedOut 
 });
 
 test('runCapture: with no timeoutMs a child still running at 14 999 ms is left alone and SIGKILLed at 15 s', async (t) => {
-  // The default is the Windows interop probes' budget (server/update-install.ts
+  // The default is the Windows interop probes' budget (server/update-interop.ts
   // calls runCapture with no timeoutMs): a cold powershell.exe takes seconds.
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const outcome: { error?: unknown } = {};

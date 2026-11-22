@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { ServerMessage, SessionInfo } from '../../shared/protocol.ts';
 import type { AgentsReport } from '../../server/agents.ts';
-import { createRefusalLimiter, scoped, type Logger } from '../../server/config.ts';
+import { createRefusalLimiter, scoped, type Logger } from '../../server/config-log.ts';
 import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';

@@ -23,7 +23,8 @@ import { CLAUDE_SUPPORTED, CLAUDE_VERSION_SHAPE } from '../shared/claude-compat.
 import { ptyEnv } from './sessions.ts';
 import { KEY_NOT_SHAPED, KEY_UNKNOWN_TOOL } from './keys.ts';
 import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE } from './update-install.ts';
-import { isJsonContentType, scoped } from './config.ts';
+import { isJsonContentType } from './config.ts';
+import { scoped } from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 import {
   NEXT,

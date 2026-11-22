@@ -49,9 +49,12 @@
  * button, and Ctrl+Alt+T. The new session opens in its own new tab and becomes
  * active. While closed, the dialog touches no keyboard input — the terminal
  * owns the keys.
+ *
+ * Tool availability (which tool and shell cards are installed, hidden or
+ * need a key) lives in ui/launch-tools.ts since Q13 (2026-11-22).
  */
 import { TITLE_MAX_CHARS } from '../../../shared/protocol.ts';
-import type { HistoryEntry, KeyStatus, ToolAvailability } from '../../../shared/protocol.ts';
+import type { HistoryEntry } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
@@ -61,13 +64,11 @@ import { infoIcon } from './icons.ts';
 import { toolIcon } from './icons-tools.ts';
 import { focusedPaneDims, requestTerminalFocus } from './panes.ts';
 import { openSettings } from './settings.ts';
-import { getHiddenTools } from './prefs-model.ts';
 import {
   AGENT_KINDS,
   PERMS,
   PERM_SHORT,
   PERM_HELP,
-  NOT_INSTALLED,
   SHELLS,
   SHELL_CARDS,
   TOOLS,
@@ -83,7 +84,9 @@ import type { AgentKind, Effort, LaunchKind, Perm, ShellId, SpawnSpec } from './
 // D1: a project's preferences layered onto Claude Code's controls.
 import { layerChoice, projectChoice, type PrefField } from './launch-prefs-model.ts';
 // The card radiogroup and the dialog's small tables: `launch-controls.ts` (O8).
-import { ASSUMED, fillChoices, groupLabel, keyToolFor, radioCards } from './launch-controls.ts';
+import { fillChoices, groupLabel, keyToolFor, radioCards } from './launch-controls.ts';
+// B5's availability and B6's hidden tools: `launch-tools.ts` (Q13).
+import { createToolAvailability } from './launch-tools.ts';
 
 interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
@@ -497,134 +500,22 @@ export function initLaunchDialog(modalHost: HTMLElement): void {
   }
 
   // ---- what the backend can actually run (B5) -------------------------------
+  // Availability, hidden tools and the key notice: `launch-tools.ts` (Q13).
+  const { applyAvailability, applyHiddenTools, shownKind, syncNotice, refreshTools } = createToolAvailability({
+    toolCards,
+    shellCards,
+    notice,
+    kind: () => kind,
+    shell: () => shell,
+    setShell: (id) => {
+      shell = id;
+    },
+    setKind,
+  });
 
-  // `ASSUMED` — what the dialog assumes before the backend has answered — is
-  // in `launch-controls.ts` since O8.
-
-  /** The last answer from GET /api/tools; a pending fetch keeps this one. */
-  let avail: ToolAvailability = ASSUMED;
-  /**
-   * False until GET /api/tools has answered ONCE on this page. While it is
-   * false the assumed-absent cards are inert with NO sub-line: unselectable,
-   * but claiming nothing — `Not installed` is a statement only the backend
-   * gets to make.
-   */
-  let answered = false;
-  /** The last answer from GET /api/keys; null = not asked yet / unreadable. */
-  let keyStatus: KeyStatus | null = null;
   /** This project's resumable conversations, fetched at most once per open. */
   let history: HistoryEntry[] = [];
   let historyAsked = false;
-
-
-  /**
-   * What the backend said about ONE card id, or undefined for a card it says
-   * nothing about — Terminal, Other and the Bash card, none of which can be
-   * missing (this backend runs in a WSL shell, and a typed command is the
-   * user's own claim about what exists).
-   */
-  function installed(id: string): boolean | undefined {
-    return Object.hasOwn(avail, id) ? avail[id as keyof ToolAvailability] : undefined;
-  }
-
-  /**
-   * Availability -> the cards. An absent executable makes its card INERT with
-   * the sub-line `Not installed`; Terminal, Other and the Bash card are never
-   * inert (this backend IS a shell in WSL, and a typed command is the user's
-   * own claim). A selection that just went inert falls back to the first live
-   * card rather than sitting on something that cannot launch.
-   */
-  function applyAvailability(): void {
-    const hint = answered ? NOT_INSTALLED : '';
-    const toolHints = new Map<LaunchKind, string>();
-    for (const t of TOOL_CARDS) {
-      if (installed(t.id) === false) toolHints.set(t.kind, hint);
-    }
-    toolCards.setInert(toolHints);
-    const shellHints = new Map<ShellId, string>();
-    for (const c of SHELL_CARDS) {
-      if (installed(c.id) === false) shellHints.set(c.shell, hint);
-    }
-    shellCards.setInert(shellHints);
-    if (shellHints.has(shell)) {
-      const firstShell = shellCards.live()[0];
-      if (firstShell !== undefined) {
-        shell = firstShell;
-        shellCards.select(firstShell);
-      }
-    }
-    if (toolHints.has(kind)) {
-      const firstKind = toolCards.live()[0];
-      if (firstKind !== undefined) setKind(firstKind, false);
-      else syncNotice();
-    } else {
-      toolCards.select(kind);
-      syncNotice();
-    }
-  }
-
-  /**
-   * The grid the user asked for (B6 D1): `TOOL_CARDS` minus the ids hidden in
-   * Settings, read FRESH here so a card toggled while the dialog was closed is
-   * gone (or back) on the next open, with no reload. Hiding is a wish about
-   * what this dialog OFFERS and nothing else: a hidden tool is still installed,
-   * still running its sessions, and `GET /api/tools` never hears about it.
-   */
-  function applyHiddenTools(): void {
-    const ids = new Set(getHiddenTools());
-    const kinds = new Set<LaunchKind>(
-      TOOL_CARDS.filter((t) => ids.has(t.id)).map((t) => t.kind as LaunchKind),
-    );
-    toolCards.setHidden(kinds);
-  }
-
-  /**
-   * The kind to pre-select: the wanted one, or — when it is not in the grid
-   * anymore — the FIRST card that is. Availability is a different question and
-   * keeps its own fallback (`applyAvailability`): this one is only about cards
-   * the user took away.
-   */
-  function shownKind(want: LaunchKind): LaunchKind {
-    const shown = toolCards.shown();
-    return shown.includes(want) ? want : (shown[0] ?? want);
-  }
-
-  /**
-   * The ONE notice in the dialog: shown for a tool that reads an API key from
-   * its environment and has neither a saved one nor one already set outside the
-   * app. While the answer is unknown nothing is claimed — an unprompted "needs
-   * a key" over a machine that has one would be wrong half the time.
-   */
-  function syncNotice(): void {
-    const tool = keyToolFor(kind);
-    const unanswered = keyStatus === null;
-    const has = tool !== null && keyStatus !== null && (keyStatus.saved[tool] || keyStatus.env[tool]);
-    notice.hidden = tool === null || unanswered || has;
-  }
-
-  /** Ask the backend what it can run and which keys exist. Never throws. */
-  function refreshTools(): void {
-    void api
-      .getTools()
-      .then((t) => {
-        avail = t;
-        answered = true;
-        applyAvailability();
-      })
-      .catch(() => {
-        // Keep the last known answer: a momentary failure must not turn every
-        // card the user just used into `Not installed`.
-      });
-    void api
-      .getKeys()
-      .then((s) => {
-        keyStatus = s;
-        syncNotice();
-      })
-      .catch(() => {
-        // Unknown stays unknown, and an unknown makes no claim.
-      });
-  }
 
   /**
    * The ended conversations of the SELECTED project, newest first — the same

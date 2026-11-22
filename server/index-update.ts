@@ -18,12 +18,11 @@ import { join } from 'node:path';
 import type { UpdateStatus } from '../shared/protocol.ts';
 import {
   envMs,
-  oneLine,
   DEFAULT_UPDATE_API_BASE,
   resolveUpdateApiBase,
   type DataPaths,
-  type Logger,
 } from './config.ts';
+import { oneLine, type Logger } from './config-log.ts';
 import { createUpdateChecker } from './buildinfo.ts';
 import { createInstalledUpdateChecker, type BundleInfo } from './bundle.ts';
 import {
@@ -34,7 +33,8 @@ import {
   releaseCheckSupported,
   type ReleaseChecker,
 } from './update-release.ts';
-import { createInteropLauncher, UpdateController } from './update-install.ts';
+import { UpdateController } from './update-install.ts';
+import { createInteropLauncher } from './update-interop.ts';
 
 /** What the update wiring reads from the boot in server/index.ts. */
 interface UpdateWiring {

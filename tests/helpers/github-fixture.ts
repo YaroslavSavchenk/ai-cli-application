@@ -18,7 +18,7 @@ import type { ChildProcess } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GithubConnection, type FetchLike, type SpawnLike } from '../../server/github.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 
 export const noop: Logger = () => {};
 export const SECRET = 'gho_SUPER_SECRET_TOKEN_do_not_leak';

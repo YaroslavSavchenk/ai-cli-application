@@ -8,7 +8,8 @@
  *
  * Split from `ui/launch.ts` (O8, 2026-09-23), code moved as it stood; the
  * last three were closure-local helpers of `initLaunchDialog()` that read
- * nothing of its state, now module-level. Sibling: `launch.ts` (the dialog).
+ * nothing of its state, now module-level. Siblings: `launch.ts` (the dialog),
+ * `launch-tools.ts` (availability and hidden tools, Q13).
  */
 import type { KeyedTool, ToolAvailability } from '../../../shared/protocol.ts';
 import { el, button } from './util.ts';
@@ -28,7 +29,7 @@ interface CardSpec<T extends string> {
   sub?: string;
 }
 
-interface CardGroup<T extends string> {
+export interface CardGroup<T extends string> {
   row: HTMLElement;
   buttons: Map<T, HTMLButtonElement>;
   select(v: T): void;

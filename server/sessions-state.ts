@@ -1,17 +1,20 @@
 /**
  * The record SessionManager keeps per session (`Session`), how one starts
  * (`newSession`, shared by create and the D9 adopt), and the small rules on it
- * that do not need the manager: C1's `syncPending` and D9's `metaMarks`.
+ * that do not need the manager: C1's `syncPending`, D9's `metaMarks` and the
+ * per-session traffic summary line (`flushOutputLog`, moved here unchanged by
+ * PLAN-QUALITY Q13).
  *
  * Split from server/sessions.ts by topic (Nocturne D9 P3, when adopt and the
  * metadata blob took it past 1 000 lines; the moved code is unchanged).
  * Siblings: server/sessions.ts (SessionManager), server/sessions-output.ts
  * (scan, replay tail, early exit), server/sessions-meta.ts (the metadata
- * blob), server/sessions-env.ts (the PTY's environment).
+ * blob), server/sessions-adopt.ts (D9 adopt / detach / hand-over),
+ * server/sessions-env.ts (the PTY's environment).
  */
 import type { WebSocket } from 'ws';
 import type { SessionInfo } from '../shared/protocol.ts';
-import { createWindowLimiter, type Logger } from './config.ts';
+import { createWindowLimiter, type Logger } from './config-log.ts';
 import { newOutputScan, type OutputScanState } from './sessions-output.ts';
 import { RingBuffer, SCROLLBACK_MAX_BYTES, type PtyExitRecord } from './pty-table.ts';
 
@@ -64,6 +67,44 @@ export interface Session {
    * without it one session could write a line every reconnect.
    */
   slowCloseLines: (() => boolean) | undefined;
+}
+
+/** Minimum gap between per-session output summary lines (debug). */
+const OUTPUT_LOG_INTERVAL_MS = 1000;
+
+/**
+ * Summarize a session's traffic at most once per OUTPUT_LOG_INTERVAL_MS (and
+ * unconditionally at exit, `force`): one output line and one input line.
+ * COUNTS ONLY — both directions can hold anything the user typed or the agent
+ * printed, so no byte of either is ever written to server.log.
+ */
+export function flushOutputLog(slog: Logger, id: string, session: Session, force: boolean): void {
+  const now = Date.now();
+  if (!force && now - session.lastOutLogMs < OUTPUT_LOG_INTERVAL_MS) return;
+  if (session.outBytes === 0 && session.trimmedBytes === 0 && session.inBytes === 0) {
+    session.lastOutLogMs = now;
+    return;
+  }
+  const elapsed = now - session.lastOutLogMs;
+  if (session.outBytes > 0 || session.trimmedBytes > 0) {
+    slog(
+      'debug',
+      `${id} output ${session.outBytes} bytes in ${session.outChunks} chunk(s) over ${elapsed}ms` +
+        `${session.trimmedBytes > 0 ? `, scrollback trimmed ${session.trimmedBytes} bytes` : ''}`,
+    );
+  }
+  if (session.inBytes > 0) {
+    slog(
+      'debug',
+      `${id} input ${session.inBytes} bytes in ${session.inFrames} frame(s) over ${elapsed}ms`,
+    );
+  }
+  session.outBytes = 0;
+  session.outChunks = 0;
+  session.trimmedBytes = 0;
+  session.inBytes = 0;
+  session.inFrames = 0;
+  session.lastOutLogMs = now;
 }
 
 /** Slow-client close lines one session may write per minute (Q9); the rest are counted. */

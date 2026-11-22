@@ -87,7 +87,7 @@ import type {
   GitDiffLine,
 } from '../shared/protocol.ts';
 import { FULL_HASH } from '../shared/protocol-git.ts';
-import type { Logger } from './config.ts';
+import type { Logger } from './config-log.ts';
 import {
   FS_LIST_GONE,
   FS_NO_READ_PERMISSION,

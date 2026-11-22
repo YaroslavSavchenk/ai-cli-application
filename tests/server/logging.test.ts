@@ -51,7 +51,7 @@ import {
   DEFAULT_LOG_LEVEL,
   LOG_LEVELS,
   MAX_LOG_BYTES,
-} from '../../server/config.ts';
+} from '../../server/config-log.ts';
 import {
   api,
   createSession,

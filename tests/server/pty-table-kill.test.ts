@@ -28,7 +28,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInProcessPtyHost, type PtyHost } from '../../server/pty-host-api.ts';
 import type { PtyExitRecord } from '../../server/pty-table.ts';
-import type { LogLevel } from '../../server/config.ts';
+import type { LogLevel } from '../../server/config-log.ts';
 import { ptyEnv } from '../../server/sessions-env.ts';
 import { waitUntil, sleep } from '../helpers/helpers.ts';
 import {

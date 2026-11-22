@@ -11,7 +11,7 @@
 import { join } from 'node:path';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import type { PtyHost, PtyOwnerEvents } from '../../server/pty-host-api.ts';
 import type { PtyEntrySummary, PtySnapshot, PtySpawnRequest } from '../../server/pty-table.ts';
 import { makeTempDir } from './helpers.ts';

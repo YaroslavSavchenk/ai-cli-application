@@ -138,6 +138,8 @@ registerHooks({
       parent.endsWith('/web/src/ui/newproject.ts') ||
       parent.endsWith('/web/src/ui/github.ts') ||
       parent.endsWith('/web/src/ui/github-state.ts') ||
+      parent.endsWith('/web/src/ui/github-token.ts') ||
+      parent.endsWith('/web/src/ui/github-newrepo.ts') ||
       parent.endsWith('/web/src/ui/picker.ts');
     if (mine) {
       const m = /^\.\.\/(api|state)\.ts$/.exec(specifier);
@@ -551,7 +553,7 @@ test('D4: opened with nothing focused, closing gives the keyboard to the focused
 
 test('neither module mentions innerHTML at all (untrusted paths, urls and errors are text)', () => {
   const ui = join(projectRoot, 'web', 'src', 'ui');
-  for (const f of ['newproject.ts', 'github.ts', 'picker.ts', 'settings.ts', 'term-colours.ts', 'project-edit.ts', 'project-prefs.ts']) {
+  for (const f of ['newproject.ts', 'github.ts', 'github-token.ts', 'github-newrepo.ts', 'picker.ts', 'settings.ts', 'term-colours.ts', 'project-edit.ts', 'project-prefs.ts']) {
     const src = readFileSync(join(ui, f), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     assert.equal(/innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment/.test(code), false, f);

@@ -42,14 +42,16 @@ import {
   resolveDataPaths,
   resolveHomeBoundary,
   resolveWebDistDir,
+  atomicWriteFile,
+} from './config.ts';
+import {
   resolveLogLevel,
   createLogger,
   scoped,
   describeError,
-  atomicWriteFile,
   createRefusalLimiter,
   oneLine,
-} from './config.ts';
+} from './config-log.ts';
 import { choosePortHint, readLastPort, writeLastPort } from './last-port.ts';
 import { removeOwnRuntimeFile } from './runtime-file.ts';
 import { readServerCommit, readWebBuild } from './buildinfo.ts';

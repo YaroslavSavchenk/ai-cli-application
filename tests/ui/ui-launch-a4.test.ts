@@ -31,7 +31,7 @@ const UI = join(projectRoot, 'web', 'src', 'ui');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
 const APP_CSS = readAppCss();
-const LAUNCH = readSources('web/src/ui/launch.ts', 'web/src/ui/launch-controls.ts');
+const LAUNCH = readSources('web/src/ui/launch.ts', 'web/src/ui/launch-controls.ts', 'web/src/ui/launch-tools.ts');
 
 const BLOCK_START = '/* ---- New session dialog (Nocturne A4)';
 /** The block's own sub-headers share the `/* ---- ` shape, so the end is the NEXT dialog's header. */

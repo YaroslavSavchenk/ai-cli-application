@@ -3,7 +3,7 @@
  * `.claude/plans/nocturne/PLAN-D7.md`): the one /api route without the token
  * counts as TRUSTED only once its ticket was accepted. A request without a
  * live ticket is a stranger's, and its access line goes through the shared
- * refusal budget (server/config.ts createRefusalLimiter, 60 a minute); a
+ * refusal budget (server/config-log.ts createRefusalLimiter, 60 a minute); a
  * request WITH one is the app's own and is always written.
  *
  * One real server child of its own (`tests/helpers/fs-server-fixture.ts`):

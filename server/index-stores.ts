@@ -16,12 +16,8 @@
  */
 import { unlinkSync } from 'node:fs';
 import { statuslinePaths } from './bundle.ts';
-import {
-  resolveGithubApiBase,
-  DEFAULT_GITHUB_API_BASE,
-  type DataPaths,
-  type Logger,
-} from './config.ts';
+import { resolveGithubApiBase, DEFAULT_GITHUB_API_BASE, type DataPaths } from './config.ts';
+import type { Logger } from './config-log.ts';
 import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager } from './sessions.ts';

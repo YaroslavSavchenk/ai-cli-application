@@ -4,9 +4,9 @@
  * app.css is now the index that imports every piece, and that import order
  * is the cascade order. Sibling pieces:
  * app-shell.css, app-pane.css, app-pane-kinds.css, app-panels.css,
- * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
- * app-github.css, app-boot-update.css, app-drop-delete.css,
- * app-commit-view.css, app-context-menu.css
+ * app-files.css, app-strip.css, app-dialogs.css, app-settings.css,
+ * app-add-project.css, app-github.css, app-boot-update.css,
+ * app-drop-delete.css, app-commit-view.css, app-context-menu.css
  */
 
 /* ---- folder picker (Phase 2a) — Nocturne A7 dialog ---------------------------

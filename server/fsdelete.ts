@@ -86,7 +86,8 @@ import {
   type FsDeleteResult,
   type FsDeleteResponse,
 } from '../shared/protocol.ts';
-import { errorClass, errorFrames, isJsonContentType, type Logger } from './config.ts';
+import { isJsonContentType } from './config.ts';
+import { errorClass, errorFrames, type Logger } from './config-log.ts';
 import {
   FsBrowseError,
   FS_NAME_NOT_ALLOWED,

@@ -11,7 +11,7 @@
  * server/index-stores.ts, server/index-update.ts, server/index-restart.ts.
  */
 import type { ToolAvailability } from '../shared/protocol.ts';
-import { scoped, type Logger } from './config.ts';
+import { scoped, type Logger } from './config-log.ts';
 import { ptyEnv } from './sessions-env.ts';
 import { cachedProbe } from './tools.ts';
 import { ClaudeVersionWatch, resolveClaudeVersionOverride } from './claude-version.ts';

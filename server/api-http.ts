@@ -20,7 +20,7 @@ import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
 import type { GithubConnection } from './github.ts';
 import type { MediaTickets } from './fsmedia.ts';
-import type { Logger } from './config.ts';
+import type { Logger } from './config-log.ts';
 
 export const MAX_BODY_BYTES = 1024 * 1024;
 

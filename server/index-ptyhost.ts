@@ -16,7 +16,7 @@
  *      that exited meanwhile ends as an exit; Claude `--settings` rewritten;
  *   5. release the held events — then the caller listens.
  */
-import { describeError, scoped, type Logger } from './config.ts';
+import { describeError, scoped, type Logger } from './config-log.ts';
 import type { SessionHistory } from './history.ts';
 import { resolvePtyHostMode } from './pty-host-client.ts';
 import { PtyHostBroker } from './pty-host-broker.ts';

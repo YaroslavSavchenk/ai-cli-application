@@ -43,7 +43,7 @@ import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSyn
 import { basename, dirname, join } from 'node:path';
 import { VERSION_SHAPE } from '../shared/protocol.ts';
 import { UPDATE_CHECK_CACHE_MS, readWebBuild, type UpdateCheckResult } from './buildinfo.ts';
-import { oneLine } from './config.ts';
+import { oneLine } from './config-log.ts';
 import { REFUSED_STANDBY, RestartRefusal } from './restart.ts';
 
 /** The version marker at the root of an unpacked bundle. Its presence IS "installed mode". */

@@ -26,15 +26,17 @@ import { isClaudeCommand, type HistoryEntry, type SessionEndReason, type Session
 import {
   atomicWriteFile,
   claudeConfigDir,
-  describeError,
-  errorStackOnly,
   isDirectory,
   isStringArray,
   readSmallRegularFile,
-  scoped,
   setAsideRefused,
-  type Logger,
 } from './config.ts';
+import {
+  describeError,
+  errorStackOnly,
+  scoped,
+  type Logger,
+} from './config-log.ts';
 import { isUuid } from './conversation.ts';
 
 /** Cap on stored entries; the oldest ENDED one is dropped past this. */

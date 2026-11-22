@@ -28,7 +28,8 @@ import {
   parseClaudeVersion,
   type ClaudeCompat,
 } from '../shared/claude-compat.ts';
-import { oneLine, runCapture, type Logger } from './config.ts';
+import { runCapture } from './config.ts';
+import { oneLine, type Logger } from './config-log.ts';
 import { firstOutputLine } from './sessions-output.ts';
 import { resolveOnPath } from './tools.ts';
 

@@ -39,7 +39,7 @@ const UI = join(projectRoot, 'web', 'src', 'ui');
 const STYLES = join(projectRoot, 'web', 'src', 'styles');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts');
+const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts', 'web/src/ui/panes-split.ts');
 const AGENTS = read(join(UI, 'pane-agents.ts'));
 const DND = read(join(UI, 'dnd.ts'));
 const SHORTCUTS = read(join(UI, 'shortcuts.ts'));

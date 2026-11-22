@@ -30,7 +30,7 @@
 import { fstatSync, readSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
-import { describeError, scoped, type Logger } from './config.ts';
+import { describeError, scoped, type Logger } from './config-log.ts';
 
 /** Scrollback cap: 1 MiB of bytes (not lines). Oldest chunks are dropped. */
 export const SCROLLBACK_MAX_BYTES = 1024 * 1024;

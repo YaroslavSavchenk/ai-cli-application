@@ -62,7 +62,7 @@ import {
   type FsUploadMode,
   type FsUploadResponse,
 } from '../shared/protocol.ts';
-import { errorClass, errorFrames, type Logger } from './config.ts';
+import { errorClass, errorFrames, type Logger } from './config-log.ts';
 import {
   FsBrowseError,
   FS_ALREADY_EXISTS,

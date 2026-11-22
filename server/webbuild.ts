@@ -41,7 +41,8 @@
 import { spawn, type SpawnOptions, type ChildProcess } from 'node:child_process';
 import { existsSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { describeError, killQuietly, oneLine, type Logger } from './config.ts';
+import { killQuietly } from './config.ts';
+import { describeError, oneLine, type Logger } from './config-log.ts';
 import { readWebBuild } from './buildinfo.ts';
 import {
   REFUSED_BUILD,

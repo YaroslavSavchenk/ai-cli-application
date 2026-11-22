@@ -42,7 +42,7 @@
 import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { claudePermissionFromFlag, type ClaudePermissionMode } from '../shared/protocol.ts';
-import { describeError, scoped, type Logger } from './config.ts';
+import { describeError, scoped, type Logger } from './config-log.ts';
 
 /**
  * What the status-line script is told about the session's permission mode.

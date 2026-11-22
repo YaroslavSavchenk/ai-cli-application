@@ -30,7 +30,8 @@
  * which auto-picks. The 1024 floor is what keeps a planted value from asking
  * for a privileged port at all.
  */
-import { atomicWriteFile, describeError, readSmallRegularFile, type Logger } from './config.ts';
+import { atomicWriteFile, readSmallRegularFile } from './config.ts';
+import { describeError, type Logger } from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 
 /** A tiny file: anything larger is not ours, so do not even parse it. */

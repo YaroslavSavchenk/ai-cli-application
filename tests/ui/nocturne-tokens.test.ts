@@ -222,7 +222,7 @@ test('A1 (b): every var(--x) in app.css, tokens.css and web/src TS resolves to a
 
   // A custom property is "defined" if tokens.css declares it, if the file
   // using it declares it itself, or if the frontend writes it at runtime with
-  // setProperty (--split-col/--split-row come from ui/panes.ts, and their CSS
+  // setProperty (--split-col/--split-row come from ui/panes-split.ts, and their CSS
   // use sites carry a fallback for the moment before that happens).
   const defined = new Set<string>(tokens.keys());
   const runtimeSet: string[] = [];

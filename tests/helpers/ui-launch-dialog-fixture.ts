@@ -416,7 +416,10 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     // The query strips off: a test that needs a FRESH dialog instance imports
     // launch.ts with a cache-busting `?…`, and its imports must still be stubbed.
-    if ((context.parentURL ?? '').replace(/\?.*$/, '').endsWith('/web/src/ui/launch.ts')) {
+    // `launch-tools.ts` is a piece of the dialog split off (Q13); its api calls
+    // are the dialog's and go to the same stub.
+    const parent = (context.parentURL ?? '').replace(/\?.*$/, '');
+    if (parent.endsWith('/web/src/ui/launch.ts') || parent.endsWith('/web/src/ui/launch-tools.ts')) {
       const m = /^(?:\.\.\/(api|state|log)|\.\/(panes|settings))\.ts$/.exec(specifier);
       const name = m?.[1] ?? m?.[2];
       if (name !== undefined) return { url: `launch-stub:${name}`, shortCircuit: true };

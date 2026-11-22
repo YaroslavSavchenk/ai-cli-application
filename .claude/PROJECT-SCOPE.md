@@ -259,7 +259,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   now. `server/update-install.ts`: `SHA256SUMS.txt` then the Setup as a
   `.part` hashed inline — the `.part` → `.exe` rename after the check is the
   ONLY way a runnable file exists; redirects ≤ 3 to `github.com` /
-  `*.githubusercontent.com`; runs `launcher/run-update.ps1` (re-hash, then
+  `*.githubusercontent.com`; runs (`server/update-interop.ts`)
+  `launcher/run-update.ps1` (re-hash, then
   Setup `/SILENT /SUPPRESSMSGBOXES /NORESTART`) via `powershell.exe` by
   full path, argv only. A Setup still running after 15 min counts as
   failed, but the single flight stays HELD until it exits;

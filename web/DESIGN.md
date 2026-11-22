@@ -337,7 +337,7 @@ the outlined danger button; the primary is the accent outline.
   needs, attention for one newer than tested. One action, `Check for
   updates` (the shared check, `ui/update-check.ts`), plus × and `Hide`.
 
-### GitHub credential input — binding (design gate, `ui/github.ts`)
+### GitHub credential input — binding (design gate, `ui/github-token.ts`, wired from `ui/github.ts`)
 
 - The token field is `type=password`, `autocomplete=new-password`,
   `spellcheck=false`, has **no `name` attribute**, and is **not inside a

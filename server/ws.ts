@@ -26,7 +26,8 @@ import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { SessionManager } from './sessions.ts';
 import { LifecycleController } from './lifecycle.ts';
 import { plainObject } from './sanitise.ts';
-import { describeError, isValidDim, scoped, MAX_LOGGED_ROUTE_CHARS, type Logger } from './config.ts';
+import { isValidDim } from './config.ts';
+import { describeError, scoped, MAX_LOGGED_ROUTE_CHARS, type Logger } from './config-log.ts';
 
 interface WsDeps {
   token: string;

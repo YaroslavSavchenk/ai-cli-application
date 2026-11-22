@@ -37,7 +37,7 @@ import {
 import { createUpdateChecker } from '../../server/buildinfo.ts';
 import { createRequestHandler } from '../../server/api.ts';
 import { RESTART_BAD_BODY, RESTART_MAX_BYTES } from '../../server/api-app.ts';
-import { createLogger, createRefusalLimiter, scoped } from '../../server/config.ts';
+import { createLogger, createRefusalLimiter, scoped } from '../../server/config-log.ts';
 import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';

@@ -21,7 +21,7 @@ import {
 } from '../shared/protocol.ts';
 import { isExistingDirectory } from './projects.ts';
 import { createLocalDir, cloneRepo, ScaffoldError } from './scaffold.ts';
-import { describeError } from './config.ts';
+import { describeError } from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 import { NEXT, readJsonBody, sendError, sendJson, type ApiContext, type RouteResult } from './api-http.ts';
 

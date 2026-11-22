@@ -50,7 +50,7 @@
  * pty-host.
  */
 import type { PtyHostStatus } from '../shared/protocol.ts';
-import { oneLine, scoped, type Logger } from './config.ts';
+import { oneLine, scoped, type Logger } from './config-log.ts';
 import { createInProcessPtyHost, type PtyHost, type PtyHostLostReason, type PtyOwnerEvents } from './pty-host-api.ts';
 import { readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';

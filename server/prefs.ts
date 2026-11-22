@@ -8,14 +8,8 @@
  * (same tolerance as ProjectStore for projects.json).
  */
 import type { UiPrefs } from '../shared/protocol.ts';
-import {
-  atomicWriteFile,
-  errorStackOnly,
-  readSmallRegularFile,
-  scoped,
-  setAsideRefused,
-  type Logger,
-} from './config.ts';
+import { atomicWriteFile, readSmallRegularFile, setAsideRefused } from './config.ts';
+import { errorStackOnly, scoped, type Logger } from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 
 /**

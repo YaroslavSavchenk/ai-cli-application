@@ -44,7 +44,8 @@ import { withoutComments as code, functionBody as fn } from '../helpers/source-s
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const read = (p: string): string => readFileSync(p, 'utf8');
 
-const PANES = read(join(UI, 'panes.ts'));
+/** `panes.ts` with its split dividers (`panes-split.ts`, Q13) as one text. */
+const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-split.ts');
 const KEYS = read(join(UI, 'keys.ts'));
 const FILE_PANE = read(join(UI, 'file-pane.ts'));
 const EDITOR_PANE = read(join(UI, 'editor-pane.ts'));

@@ -103,3 +103,22 @@ backend). Full suite 72.7 s → 49.2 s wall, 4619 / 0.
   killed at the 2 MiB cap). Suite 4644 / 0, 47.4 s.
 - Kept for the user: `resetProtectedSetCache` (a non-clock test seam
   CONTRIBUTING disallows; used by two fs tests).
+
+## Q13 — files cut at their seams
+
+| File | Before | After | New |
+| --- | --- | --- | --- |
+| `server/sessions.ts` | 992 | 837 | `sessions-adopt.ts` (detach/adopt over an `AdoptContext`) |
+| `server/config.ts` | 923 | 612 | `config-log.ts` (the whole logger) |
+| `server/update-install.ts` | 960 | 694 | `update-interop.ts` |
+| `server/github.ts` | 966 | 875 | `github-store.ts` (`GithubTokenStore`) |
+| `server/agents.ts` | 949 | 716 | `agents-main.ts` |
+| `web/src/ui/launch.ts` | 978 | 866 | `launch-tools.ts` |
+| `web/src/ui/panes.ts` | 977 | 871 | `panes-split.ts` |
+| `web/src/ui/github.ts` | 962 | 623 | `github-token.ts`, `github-newrepo.ts` |
+| `web/src/styles/app-panels.css` | 967 | 431 | `app-files.css` (built CSS byte-identical) |
+
+Moves only; scope and security reviews compared every moved hunk. The
+logger's ~60 importers import from `config-log.ts` directly instead of a
+re-export from `config.ts` — at odds with `CONTRIBUTING.md` "re-export what
+moved"; the amendment is put to the user. Suite 4644 / 0.

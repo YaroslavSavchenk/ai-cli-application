@@ -26,7 +26,8 @@ import { unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateToken } from './auth.ts';
-import { atomicWriteFile, createLogger, describeError, resolveLogLevel } from './config.ts';
+import { atomicWriteFile } from './config.ts';
+import { createLogger, describeError, resolveLogLevel } from './config-log.ts';
 import { PtyHostServer, resolveHostBuild, resolveHostTimers } from './pty-host-server.ts';
 import { PTY_HOST_EXIT, PTY_HOST_PROTOCOL, dataDirRefusal, ptyHostPaths, readPtyHostFile } from './pty-host-wire.ts';
 

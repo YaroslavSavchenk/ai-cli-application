@@ -99,7 +99,7 @@ test('tokens only: every var() in the chrome sections is declared in tokens.css'
   }
   assert.ok(used.size >= 25, `non-vacuity: only ${used.size} tokens used by the chrome sections`);
   // The runtime exceptions really are written by a module, not forgotten tokens.
-  const panes = readFileSync(join(WEB_SRC, 'ui', 'panes.ts'), 'utf8');
+  const panes = readFileSync(join(WEB_SRC, 'ui', 'panes-split.ts'), 'utf8');
   for (const [prop, why] of Object.entries(RUNTIME_PROPS)) {
     assert.ok(panes.includes(`'${prop}'`), `stale RUNTIME_PROPS entry (${why}): ${prop}`);
     assert.equal(declared.has(prop), false, `${prop} is state, not a token`);

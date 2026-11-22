@@ -37,7 +37,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { removeOwnRuntimeFile, runtimeFileVerdict } from '../../server/runtime-file.ts';
-import type { LogLevel } from '../../server/config.ts';
+import type { LogLevel } from '../../server/config-log.ts';
 import { SKIP_IF_ROOT, makeTempDirSync, settleWithin, startTestServer, type TestServer } from '../helpers/helpers.ts';
 
 const SELF = { pid: 4242, startedAt: '2026-10-13T10:00:00.000Z' };

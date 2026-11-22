@@ -24,7 +24,7 @@ import { createRequestHandler, UPDATE_UP_TO_DATE } from '../../server/api.ts';
 import { UPDATE_NOT_AVAILABLE } from '../../server/update-install.ts';
 import { UPDATE_NEW_VERSION_INSTALLED } from '../../server/bundle.ts';
 import { composeUpdateStatus, type ReleaseChecker } from '../../server/update-release.ts';
-import { createLogger, createRefusalLimiter, scoped } from '../../server/config.ts';
+import { createLogger, createRefusalLimiter, scoped } from '../../server/config-log.ts';
 import { PollTally } from '../../server/poll-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';

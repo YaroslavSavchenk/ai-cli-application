@@ -37,7 +37,7 @@ import { armButton } from '../../web/src/ui/util.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const TERMINAL = readFileSync(join(UI, 'terminal.ts'), 'utf8');
-const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts');
+const PANES = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts', 'web/src/ui/panes-split.ts');
 const UTIL = readFileSync(join(UI, 'util.ts'), 'utf8');
 
 /** The statements of one `{ … }` body, comments and blank lines dropped. */

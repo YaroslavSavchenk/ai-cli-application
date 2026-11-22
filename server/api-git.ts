@@ -24,7 +24,7 @@ import {
   requireInt,
   requirePath,
 } from './git-log.ts';
-import { errorClass, errorFrames } from './config.ts';
+import { errorClass, errorFrames } from './config-log.ts';
 import { NEXT, sendError, sendJson, type ApiContext, type RouteResult } from './api-http.ts';
 
 /** /api/git/changes, /api/git/commits, /api/git/commit, /api/git/commit-diff. */

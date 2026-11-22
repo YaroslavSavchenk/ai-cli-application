@@ -27,7 +27,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { projectRoot } from '../helpers/helpers.ts';
+import { projectRoot, readSources } from '../helpers/helpers.ts';
 import { declaredTokens, readAppCss, usedTokens } from '../helpers/tokens-helpers.ts';
 
 const UI = join(projectRoot, 'web', 'src', 'ui');
@@ -37,7 +37,8 @@ const read = (p: string): string => readFileSync(p, 'utf8');
 const APP_CSS = readAppCss();
 const TOKENS_CSS = read(join(STYLES, 'tokens.css'));
 const NEWPROJECT = read(join(UI, 'newproject.ts'));
-const GITHUB = read(join(UI, 'github.ts'));
+/** The GitHub panel as ONE text: `github.ts` and the two blocks Q13 split off. */
+const GITHUB = readSources('web/src/ui/github.ts', 'web/src/ui/github-token.ts', 'web/src/ui/github-newrepo.ts');
 /** D1: the project preference selects and the Edit project dialog wear the same `ap-` block. */
 const PREFS = read(join(UI, 'project-prefs.ts'));
 const EDIT = read(join(UI, 'project-edit.ts'));

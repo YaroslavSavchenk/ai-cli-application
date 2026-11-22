@@ -56,7 +56,8 @@ import type { BigIntStats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { FsRenameResponse } from '../shared/protocol.ts';
-import { errorClass, errorFrames, isJsonContentType, type Logger } from './config.ts';
+import { isJsonContentType } from './config.ts';
+import { errorClass, errorFrames, type Logger } from './config-log.ts';
 import {
   FsBrowseError,
   FS_ALREADY_EXISTS,

@@ -111,7 +111,8 @@ import {
   type FsReadResponse,
   type FsWriteResponse,
 } from '../shared/protocol.ts';
-import { closeQuietly, errorClass, errorFrames, type Logger } from './config.ts';
+import { closeQuietly } from './config.ts';
+import { errorClass, errorFrames, type Logger } from './config-log.ts';
 import {
   FsBrowseError,
   FS_PATH_BAD,

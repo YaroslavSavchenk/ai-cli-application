@@ -92,7 +92,7 @@ export function byteLength(s: string): number {
  * control: stack frames are joined with " | " HERE so a browser stack reads
  * as one intentional line rather than a squashed blob.
  *
- * The stripped class mirrors server/config.ts CONTROL_CHARS: C0 + DEL, the C1
+ * The stripped class mirrors server/config-log.ts CONTROL_CHARS: C0 + DEL, the C1
  * block U+0080-U+009F (U+0085 NEL is a line break, U+009B a single-byte CSI),
  * and the Unicode separators U+2028/U+2029.
  */

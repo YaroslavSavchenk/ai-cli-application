@@ -54,7 +54,7 @@ const DND = (await import(new URL('../../web/src/ui/dnd.ts', import.meta.url).hr
 const UI = join(projectRoot, 'web', 'src', 'ui');
 const read = (p: string): string => readFileSync(p, 'utf8');
 /** Source with comments removed — a comment may DISCUSS what code may not do. */
-const PANES_CODE = code(readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts'));
+const PANES_CODE = code(readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts', 'web/src/ui/panes-split.ts'));
 const APP_CSS = readAppCss();
 
 afterEach(() => {

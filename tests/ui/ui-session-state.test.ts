@@ -98,7 +98,7 @@ test('panes.ts: the pane dot AND the pill both take the one readout (class and w
   // panes.ts imports xterm, so updateHeader cannot run under node --test; this
   // pins that the header derives dot class, pill class and pill word from
   // sessionReadout → readoutClass / readoutWord, not from a local ternary.
-  const src = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts');
+  const src = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts', 'web/src/ui/panes-split.ts');
   const start = src.indexOf('function updateHeader(');
   assert.ok(start !== -1, 'non-vacuity: updateHeader exists');
   const body = src.slice(start, src.indexOf('\nfunction ', start + 1));

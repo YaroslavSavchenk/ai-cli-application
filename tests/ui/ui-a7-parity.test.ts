@@ -126,14 +126,17 @@ test('class parity over the WHOLE stylesheet: no unstyled class, no dead rule, w
   assert.deepEqual(dead, [], `rules no module sets: ${dead.join('; ')}`);
 
   // The prefixes belong to exactly the modules listed below (the A7 surfaces,
-  // settings.ts in its three O8 pieces, and since D1 the Edit project dialog
-  // and the preference selects it shares with Add a project) — another module
+  // settings.ts in its three O8 pieces, github.ts with its two Q13 pieces, and
+  // since D1 the Edit project dialog and the preference selects it shares with
+  // Add a project) — another module
   // reaching into the Settings or Add-a-project styling is a boundary break,
   // not a reuse.
   const owners = new Set([...inTs.values()].flat());
   assert.deepEqual(
     [...owners].sort(),
     [
+      'web/src/ui/github-newrepo.ts',
+      'web/src/ui/github-token.ts',
       'web/src/ui/github.ts',
       'web/src/ui/newproject.ts',
       'web/src/ui/picker.ts',
@@ -242,6 +245,8 @@ test('the A7 modules keep their colour decisions out of the stylesheet and vice 
     'web/src/ui/term-colours.ts',
     'web/src/ui/newproject.ts',
     'web/src/ui/github.ts',
+    'web/src/ui/github-token.ts',
+    'web/src/ui/github-newrepo.ts',
   ]) {
     const f = FILES.find((x) => x.name === name);
     assert.ok(f !== undefined, name);

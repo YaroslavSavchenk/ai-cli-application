@@ -22,7 +22,7 @@
  * instance, and both shutdown() and the restart teardown stop it, which
  * writes the partial window's summary first so the last minute is not lost.
  */
-import type { Logger } from './config.ts';
+import type { Logger } from './config-log.ts';
 
 /** How often the summary line is written (and the counter restarts). */
 export const POLL_SUMMARY_MS = 60_000;

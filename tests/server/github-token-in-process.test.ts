@@ -29,7 +29,7 @@ import {
   validatePastedToken,
   type FetchLike,
 } from '../../server/github.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import {
   waitUntil,
   makeTempDir,

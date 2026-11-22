@@ -66,7 +66,8 @@
  * header readout, the status bar and agents table, the exited/lost banner with
  * its relaunch, and `killSession` (re-exported here) — lives in
  * `panes-status.ts`. The parked tabs and their cap (P5) live in
- * `panes-park.ts`. The grid, the slots, the terminals, resize and focus stay
+ * `panes-park.ts`. The split dividers and the ratio on the grid (Q13) live in
+ * `panes-split.ts`. The grid, the slots, the terminals, resize and focus stay
  * here.
  */
 import type { EarlyExit, SessionInfo } from '../../../shared/protocol.ts';
@@ -83,6 +84,7 @@ import { slotTitle } from './slots-model.ts';
 import { planCards } from './pane-reuse-model.ts';
 import { enforceCap, initParking, parkTab, pruneParked, takeBack } from './panes-park.ts';
 import { killSession, updateHeader, updateNote, updateStatus } from './panes-status.ts';
+import { applySplit, buildDividers, removeDividers } from './panes-split.ts';
 import { noteEarlyExit } from './claude-notice.ts';
 
 export { killSession } from './panes-status.ts';
@@ -166,8 +168,6 @@ let openLaunch: () => void = () => {};
 let renderedViewId = '';
 let renderedCount = -1;
 let renderedL3: st.L3 = 'L';
-/** The split dividers of the current shape; rebuilt only when the shape changes. */
-let dividers: HTMLElement[] = [];
 let lastFocusKey = '';
 /**
  * The last cols/rows any TerminalView measured for itself. Only read when the
@@ -438,9 +438,9 @@ function switchTab(v: st.ViewState, count: number): void {
   renderedViewId = v.id;
   lastFocusKey = '';
   grid.replaceChildren();
-  dividers = [];
+  removeDividers();
   renderedCount = -1; // The new tab's shape and dividers, whatever it was.
-  applySplit(v);
+  applySplit(grid, v);
   relayout(v, count);
   for (const s of back ?? []) {
     if (slots.includes(s) && s.pay?.kind === 'session') s.pay.view?.show();
@@ -511,9 +511,9 @@ function relayout(v: st.ViewState, count: number): void {
     s.root.dataset.slot = String(i);
   });
   if (count !== renderedCount || (count === 3 && v.l3 !== renderedL3)) {
-    for (const d of dividers) d.remove();
+    removeDividers();
     applyShape(v, count);
-    buildDividers(v);
+    buildDividers(grid, v);
   }
   // Moving a node that holds the keyboard blurs it. The focus key alone does
   // not always change (the pane can keep its index), so a lost focus is
@@ -534,112 +534,6 @@ function applyShape(v: st.ViewState, count: number): void {
   grid.dataset.layout = String(st.viewLayout(v));
   if (count === 3) grid.dataset.l3 = v.l3;
   else delete grid.dataset.l3;
-}
-
-// --------------------------------------------------------------------------
-// Split dividers (2..4 panes)
-// --------------------------------------------------------------------------
-//
-// The grid templates read --split-col/--split-row; every ratio change goes
-// through applySplit and nothing else — the panes resize, each TerminalView's
-// ResizeObserver fires, and the existing debounced fit -> ws resize chain
-// propagates cols/rows to the PTY.
-
-function applySplit(v: st.ViewState): void {
-  grid.style.setProperty('--split-col', String(v.split.col));
-  grid.style.setProperty('--split-row', String(v.split.row));
-}
-
-/** applySplit for the current active view (divider handlers). */
-function applySplitNow(): void {
-  const v = st.activeView();
-  if (v !== null) applySplit(v);
-}
-
-function buildDividers(v: st.ViewState): void {
-  const n = v.slots.length;
-  dividers = [];
-  if (n >= 2) dividers.push(makeDivider('col', v, null));
-  // 3 panes: the row divider only spans the stacked column (L = right, R = left).
-  if (n >= 3) dividers.push(makeDivider('row', v, n === 3 ? v.l3 : null));
-  // After the cards: relayout places card i at grid child i.
-  grid.append(...dividers);
-}
-
-/**
- * A divider is a grab strip as wide as the gutter, carrying a 1px line that
- * is ALWAYS drawn (neutral-900 at rest) and takes the accent while hovered,
- * focused or dragging — a control that appears only under the pointer is
- * forbidden here (app.css, "split dividers"). Pointer-drag adjusts the
- * fraction (min pane 15%), double-click or Enter resets to equal, arrow
- * keys nudge 2% — keyboard-reachable like every control.
- */
-function makeDivider(axis: 'col' | 'row', v: st.ViewState, partialSide: st.L3 | null): HTMLElement {
-  const partial =
-    partialSide === null ? '' : partialSide === 'L' ? ' is-partial-r' : ' is-partial-l';
-  const d = el('div', `divider divider-${axis}${partial}`);
-  d.tabIndex = 0;
-  d.setAttribute('role', 'separator');
-  d.setAttribute('aria-orientation', axis === 'col' ? 'vertical' : 'horizontal');
-  d.setAttribute('aria-label', axis === 'col' ? 'column split' : 'row split');
-  d.setAttribute('aria-valuemin', String(Math.round(st.SPLIT_MIN * 100)));
-  d.setAttribute('aria-valuemax', String(Math.round(st.SPLIT_MAX * 100)));
-  d.title = 'Drag to resize. Arrow keys nudge it, double-click or enter resets it.';
-  const setNow = (f: number): void => {
-    d.setAttribute('aria-valuenow', String(Math.round(f * 100)));
-  };
-  setNow(v.split[axis]);
-
-  d.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    d.setPointerCapture(e.pointerId);
-    d.classList.add('is-dragging');
-  });
-  d.addEventListener('pointermove', (e) => {
-    if (!d.hasPointerCapture(e.pointerId)) return;
-    const r = grid.getBoundingClientRect();
-    // The grid carries 10px padding and a 10px gap (handoff); the split
-    // fraction covers only the usable track space between them.
-    const cs = getComputedStyle(grid);
-    const pad = parseFloat(cs.paddingLeft) || 0;
-    const gap = parseFloat(axis === 'col' ? cs.columnGap : cs.rowGap) || 0;
-    const size = axis === 'col' ? r.width : r.height;
-    const pos = axis === 'col' ? e.clientX - r.left : e.clientY - r.top;
-    const usable = size - 2 * pad - gap;
-    const f = usable > 0 ? (pos - pad - gap / 2) / usable : 0.5;
-    // Live: style only, no persist/notify — the ResizeObservers do the rest.
-    setNow(st.setSplit(axis, f, false));
-    applySplitNow();
-  });
-  const endDrag = (e: PointerEvent): void => {
-    if (!d.hasPointerCapture(e.pointerId)) return;
-    d.releasePointerCapture(e.pointerId);
-    d.classList.remove('is-dragging');
-    const cur = st.activeView()?.split[axis] ?? 0.5;
-    st.setSplit(axis, cur, true); // Persist + notify.
-  };
-  d.addEventListener('pointerup', endDrag);
-  d.addEventListener('pointercancel', endDrag);
-  d.addEventListener('dblclick', () => {
-    setNow(st.setSplit(axis, 0.5, true));
-    applySplitNow();
-  });
-  d.addEventListener('keydown', (e) => {
-    const cur = st.activeView()?.split[axis] ?? 0.5;
-    let f: number | null = null;
-    if (axis === 'col' && e.key === 'ArrowLeft') f = cur - 0.02;
-    else if (axis === 'col' && e.key === 'ArrowRight') f = cur + 0.02;
-    else if (axis === 'row' && e.key === 'ArrowUp') f = cur - 0.02;
-    else if (axis === 'row' && e.key === 'ArrowDown') f = cur + 0.02;
-    else if (e.key === 'Enter') f = 0.5;
-    if (f !== null) {
-      e.preventDefault();
-      setNow(st.setSplit(axis, f, true));
-      applySplitNow();
-    }
-  });
-  return d;
 }
 
 /**

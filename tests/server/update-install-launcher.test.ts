@@ -1,5 +1,5 @@
 /**
- * Phase E, part 2 — the interop launcher (server/update-install.ts
+ * Phase E, part 2 — the interop launcher (server/update-interop.ts
  * `createInteropLauncher`): the exact argv contract with
  * `launcher/run-update.ps1`, the staging copy, the length checks on argv
  * slots, the script output a failed run logs, and the refusals before any
@@ -28,16 +28,15 @@ import { join } from 'node:path';
 import {
   UPDATE_ERROR_START,
 } from '../../shared/protocol.ts';
+import { UpdateFailure, type LaunchSetupArgs } from '../../server/update-install.ts';
 import {
   createInteropLauncher,
   MAX_SCRIPT_OUTPUT_BYTES,
-  UpdateFailure,
   POWERSHELL_PATH,
   RUN_UPDATE_SCRIPT,
   STAGING_DIR_NAME,
-  type LaunchSetupArgs,
   type SpawnLike,
-} from '../../server/update-install.ts';
+} from '../../server/update-interop.ts';
 import { setupAssetName } from '../../server/update-release.ts';
 import {
   makeTempDir,

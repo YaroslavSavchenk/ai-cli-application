@@ -65,7 +65,7 @@ import {
   MAX_LOGGED_ROUTE_CHARS,
   type LogLevel,
   type Logger,
-} from './config.ts';
+} from './config-log.ts';
 import {
   declaresBody,
   readJsonBodySafe,

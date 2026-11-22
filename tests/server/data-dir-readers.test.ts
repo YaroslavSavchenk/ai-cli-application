@@ -53,7 +53,8 @@ import fs, {
 import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readSmallRegularFile, type Logger } from '../../server/config.ts';
+import { readSmallRegularFile } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { PrefsStore } from '../../server/prefs.ts';
 import { ProjectStore } from '../../server/projects.ts';

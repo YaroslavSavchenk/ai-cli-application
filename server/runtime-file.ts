@@ -22,7 +22,8 @@
  */
 import { unlinkSync } from 'node:fs';
 import type { RuntimeInfo } from '../shared/protocol.ts';
-import { readSmallRegularFile, type Logger } from './config.ts';
+import { readSmallRegularFile } from './config.ts';
+import type { Logger } from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 
 /**

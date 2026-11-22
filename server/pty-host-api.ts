@@ -41,7 +41,7 @@
  * SCROLLBACK_MAX_BYTES (1 MiB) per session — plus one extra `Buffer.from` per
  * output chunk.
  */
-import type { Logger } from './config.ts';
+import type { Logger } from './config-log.ts';
 import type { ByeReason } from './pty-host-wire.ts';
 import {
   PtyTable,

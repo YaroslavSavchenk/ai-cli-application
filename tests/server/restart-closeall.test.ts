@@ -19,7 +19,7 @@ import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 import { createUpgradeHandler } from '../../server/ws.ts';
 import { LifecycleController } from '../../server/lifecycle.ts';
-import { createLogger, createRefusalLimiter, scoped } from '../../server/config.ts';
+import { createLogger, createRefusalLimiter, scoped } from '../../server/config-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import {

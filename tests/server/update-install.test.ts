@@ -36,7 +36,6 @@ import {
 } from '../../shared/protocol.ts';
 import {
   assertAssetUrl,
-  assertWindowsArg,
   cleanupUpdatesDir,
   sumFor,
   UpdateController,
@@ -44,10 +43,13 @@ import {
   UPDATE_IN_PROGRESS,
   UPDATE_NOT_INSTALLED,
   UPDATE_NOTHING_TO_INSTALL,
+} from '../../server/update-install.ts';
+import {
+  assertWindowsArg,
   POWERSHELL_PATH,
   CMD_PATH,
   WSLPATH_PATH,
-} from '../../server/update-install.ts';
+} from '../../server/update-interop.ts';
 import { SUMS_ASSET_NAME } from '../../server/update-release.ts';
 import { runCapture } from '../../server/config.ts';
 import {
@@ -603,7 +605,7 @@ test('the interop binaries are absolute paths, never a PATH lookup', () => {
   // wslpath translates the path an installer is then executed from; resolving
   // it through an inherited PATH is not something this pipeline does. The bare
   // name survives only as a fallback for a distro that keeps it elsewhere.
-  const src = readSource('server', 'update-install.ts');
+  const src = readSource('server', 'update-interop.ts');
   assert.match(src, /existsSync\(WSLPATH_PATH\) \? WSLPATH_PATH : 'wslpath'/);
   assert.doesNotMatch(src, /runInterop\('wslpath'/, 'never spawned by bare name outright');
 });
@@ -625,7 +627,7 @@ test('the interop refusal texts: `<helper> timed out`, `could not be started`, `
   } finally {
     await removeTempDir(dir);
   }
-  const src = readSource('server', 'update-install.ts');
+  const src = readSource('server', 'update-interop.ts');
   assert.match(
     src,
     /const what = err instanceof Error \? err\.message : String\(err\);\s*throw new UpdateFailure\(UPDATE_ERROR_START, `\$\{basename\(command\)\} \$\{what\}`\);/,

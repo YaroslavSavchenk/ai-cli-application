@@ -386,7 +386,7 @@ test('every transcribed glyph cites its package at a pinned version, and the lic
 // ---------------------------------------------------------------------------
 
 test('a session pane header carries the tool mark between the dot and the name, from the session’s command', () => {
-  const src = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const src = readSources('web/src/ui/panes.ts', 'web/src/ui/panes-status.ts', 'web/src/ui/panes-split.ts').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const build = src.slice(src.indexOf('function buildSessionPane'), src.indexOf('\n}', src.indexOf('function buildSessionPane')));
   assert.match(build, /const tool = el\('span', 'pane-tool'\);\n\s*tool\.setAttribute\('aria-hidden', 'true'\);/);
   assert.match(build, /s\.hd\.replaceChildren\(dot, tool, title, /, 'dot, then the mark, then the name');

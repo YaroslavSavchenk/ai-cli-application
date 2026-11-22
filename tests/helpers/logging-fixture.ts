@@ -9,7 +9,7 @@
 import { createServer, type Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createLogger, scoped, createRefusalLimiter, type Logger } from '../../server/config.ts';
+import { createLogger, scoped, createRefusalLimiter, type Logger } from '../../server/config-log.ts';
 import { PollTally } from '../../server/poll-log.ts';
 import { ProjectStore } from '../../server/projects.ts';
 import { PrefsStore } from '../../server/prefs.ts';

@@ -43,7 +43,8 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs';
 import { tokenMatches } from './auth.ts';
-import { envMs, errorClass, scoped, type Logger } from './config.ts';
+import { envMs } from './config.ts';
+import { errorClass, scoped, type Logger } from './config-log.ts';
 import { PtyTable, type PtyEntrySummary } from './pty-table.ts';
 import {
   PTY_HOST_PROTOCOL,

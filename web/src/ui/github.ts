@@ -18,7 +18,7 @@
  *   - The access token is 100% server-side. It is never displayed and never
  *     returned; the ONE inbound flow (POST /api/github/token) reads the pasted
  *     value straight out of the field into the request body, clears the field,
- *     and keeps NO copy anywhere — see submitToken().
+ *     and keeps NO copy anywhere — see submitToken() in ./github-token.ts.
  *   - Storage copy has a hard ceiling (design gate): stored on this machine in
  *     the app's data folder, readable by your own user account. Never
  *     "keychain", "encrypted", "secure" or "vault" — there is no keyring in
@@ -52,6 +52,11 @@
  * the repo load, the clones in flight and `drop()` — moved as it stood into
  * `./github-state.ts`; this module keeps the chip and the panel and reads
  * that state through its exports.
+ *
+ * SPLIT (Q13, 2026-11-22): two blocks of the panel moved as they stood — the
+ * paste-a-token card into `./github-token.ts`, the "+ New repo" form and its
+ * create -> clone chain into `./github-newrepo.ts`. The panel places them and
+ * hands each the few controls of its own they touch.
  */
 import type { GithubRepo, GithubStatus, Project } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
@@ -68,13 +73,10 @@ import {
   fmtTokenExpiry,
   langColor,
   ownerDest,
-  rememberNote,
-  rememberSample,
   revokeNote,
   scopesNote,
   sourceLabel,
   storageNote,
-  tokenErrText,
 } from './github-model.ts';
 import {
   applyStatus,
@@ -84,7 +86,6 @@ import {
   credentialLost,
   drop,
   emit,
-  forgetCredentialLost,
   loadRepos,
   onGithubUpdate,
   poll,
@@ -96,6 +97,10 @@ import {
   status,
 } from './github-state.ts';
 import { ensureHome, homeDir } from './home-store.ts';
+// Two blocks of the panel, split off by Q13: the paste-a-token card and the
+// "+ New repo" form.
+import { createTokenCard } from './github-token.ts';
+import { createNewRepoForm } from './github-newrepo.ts';
 
 // The shared status controller lives in `github-state.ts` since O8; main.ts
 // keeps booting it from here.
@@ -215,98 +220,12 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   const deviceFine = el('div', 'gh-fine', '');
   disconnectedCard.append(deviceFine);
 
-  // --- disconnected: path 2, paste a token -----------------------------------
-  // NOT a <form>, and the input carries NO name attribute (design gate II-1):
-  // submitting from a click handler is how every other action in this codebase
-  // works, and it means no browser save-password prompt fires — the Edge --app
-  // fallback window is a full Edge profile with a password manager.
-  const tokenCard = el('div', 'gh-token');
-  tokenCard.setAttribute('role', 'group');
-  tokenCard.setAttribute('aria-label', 'connect with a GitHub token');
-  const tokenTitle = el('div', 'gh-title', '');
-  tokenCard.append(tokenTitle);
-  // THE most valuable sentence in this panel: a fine-grained token limited to
-  // chosen repositories, with an expiry, is strictly safer than our own device
-  // flow. "Contents" and "Metadata" are the permission names on GitHub's own
-  // screens — instructions for GitHub's UI, like the device-flow URL, so they
-  // are allowed under the no-code-in-the-UI rule.
-  tokenCard.append(
-    el(
-      'div',
-      'gh-body',
-      'Recommended: create a fine-grained token on GitHub, limit it to the repositories you want this app to touch, and give it an expiry date. Grant it Contents (read and write); Metadata (read) comes with it.',
-    ),
-  );
-  const tokenField = el('label', 'ap-field is-mono');
-  tokenField.append(el('span', 'ap-lb', 'GitHub token'));
-  const tokenInput = el('input', 'gh-tokeninput');
-  tokenInput.type = 'password'; // II-1
-  tokenInput.autocomplete = 'new-password'; // II-1: never offered as a saved login
-  tokenInput.spellcheck = false; // II-1: no spell-check upload path
-  tokenInput.placeholder = 'paste your token here';
-  // II-2: the value is only ever read/written through the .value PROPERTY, which
-  // does not reflect to the attribute — so the credential can never appear in
-  // outerHTML, a DOM snapshot, or a copied element.
-  tokenField.append(tokenInput);
-  tokenCard.append(tokenField);
-
-  // "remember this token" — the ONE control that removes the on-disk copy, so
-  // what it does is spelled out underneath rather than implied by the label.
-  let remember = true; // decided default: persisted (user's call, 2026-07-25)
-  const rememberRow = button('ap-check', '', () => {
-    if (adding) return;
-    remember = !remember;
-    syncRemember();
+  // --- disconnected: path 2, paste a token: `github-token.ts` (Q13) ----------
+  const token = createTokenCard({
+    connectBtn,
+    isActive: () => active,
+    focusSearch: () => searchInput.focus(),
   });
-  const rememberBox = el('span', 'ap-box');
-  rememberBox.setAttribute('aria-hidden', 'true');
-  const rememberSampleEl = el('span', 'ap-check-sub', '');
-  rememberRow.append(
-    rememberBox,
-    el('span', 'ap-check-lb', 'Remember this token'),
-    rememberSampleEl,
-  );
-  const rememberFine = el('div', 'gh-fine', '');
-  tokenCard.append(rememberRow, rememberFine);
-
-  const tokenRow = el('div', 'gh-tokenrow');
-  const tokenBusy = el('div', 'ap-busy');
-  tokenBusy.hidden = true;
-  const tokenSpin = el('span', 'ap-spinner');
-  tokenSpin.setAttribute('aria-hidden', 'true');
-  tokenBusy.append(tokenSpin, el('span', '', 'Checking the token with GitHub'));
-  // Neutral outline, not the accent: the tab shows exactly one accent primary,
-  // and whenever this card is visible the accent belongs to Connect with GitHub
-  // (the recommended path) — both cards show together while disconnected.
-  const tokenBtn = button('btn-quiet', 'Add token', () => void submitToken());
-  tokenRow.append(tokenBusy, tokenBtn);
-  tokenCard.append(tokenRow);
-
-  const tokenErr = el('div', 'gh-newerr');
-  tokenErr.setAttribute('role', 'alert');
-  tokenErr.hidden = true;
-  tokenCard.append(tokenErr);
-
-  // V-3: the social-engineering case the device flow does not have. Permanent,
-  // in the same red the bypass-permission card uses for a warning that must
-  // never fade out of view.
-  tokenCard.append(
-    el(
-      'div',
-      'gh-warn',
-      'Never paste a token someone else gave you. A token you did not create yourself connects this app to their account.',
-    ),
-  );
-  // The comparison that makes the recommendation above concrete, as a footnote:
-  // it belongs BELOW the action, so the field and the button stay near the top
-  // of the card instead of being pushed under four lines of fine print.
-  tokenCard.append(
-    el(
-      'div',
-      'gh-fine',
-      'Narrower than signing in, which takes read and write on every repository of the account and usually does not expire. A token limited to selected repositories can list and clone them, but creating a brand-new repository from here needs a broader one.',
-    ),
-  );
 
   // --- connecting ------------------------------------------------------------
   const connectingCard = el('div', 'gh-card');
@@ -365,273 +284,17 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   searchInput.spellcheck = false;
   searchInput.autocomplete = 'off';
   searchInput.setAttribute('aria-label', 'search repositories');
-  const newRepoBtn = button('gh-newrepo', 'New repository', () => toggleNewForm());
-  newRepoBtn.setAttribute('aria-expanded', 'false');
-  newRepoBtn.setAttribute('aria-controls', 'gh-newform');
-  newRepoBtn.title = 'create a new repository on GitHub and clone it locally';
-  actionsRow.append(searchInput, newRepoBtn);
+  // The "+ New repo" button and its inline form: `github-newrepo.ts` (Q13).
+  const newRepo = createNewRepoForm(searchInput);
+  actionsRow.append(searchInput, newRepo.button);
   connectedWrap.append(actionsRow);
-
-  // --- "+ New repo" inline form (create -> clone chain) ----------------------
-  const newForm = el('div', 'gh-newform');
-  newForm.id = 'gh-newform';
-  newForm.hidden = true;
-  newForm.setAttribute('role', 'group');
-  newForm.setAttribute('aria-label', 'create a new GitHub repository');
-  const newNameInput = el('input', 'gh-newinput');
-  newNameInput.placeholder = 'new-repo-name';
-  newNameInput.spellcheck = false;
-  newNameInput.autocomplete = 'off';
-  newNameInput.setAttribute('aria-label', 'new repository name');
-  const newDescInput = el('input', 'gh-newinput');
-  newDescInput.placeholder = 'description (optional)';
-  newDescInput.spellcheck = false;
-  newDescInput.autocomplete = 'off';
-  newDescInput.setAttribute('aria-label', 'new repository description (optional)');
-  const newRow = el('div', 'gh-newrow');
-  const privBtn = button('gh-newbtn', 'Private', () => togglePrivate());
-  const newNote = el('span', 'gh-newnote', 'Created on GitHub, then cloned to this computer');
-  const newCancel = button('gh-newbtn', 'Cancel', () => closeNewForm());
-  const newCreate = button('gh-newbtn is-create', 'Create', () => void submitNewRepo());
-  newRow.append(privBtn, newNote, newCancel, newCreate);
-  const newErr = el('div', 'gh-newerr');
-  newErr.setAttribute('role', 'alert');
-  newErr.hidden = true;
-  const newBusy = el('div', 'ap-busy');
-  newBusy.hidden = true;
-  const newBusySpin = el('span', 'ap-spinner');
-  newBusySpin.setAttribute('aria-hidden', 'true');
-  const newBusyLabel = el('span', '', '');
-  newBusy.append(newBusySpin, newBusyLabel);
-  newForm.append(newNameInput, newDescInput, newRow, newErr, newBusy);
-  newNameInput.addEventListener('input', () => {
-    newNameInput.classList.remove('is-err');
-    newErr.hidden = true;
-  });
-  connectedWrap.append(newForm);
+  connectedWrap.append(newRepo.form);
 
   const reposEl = el('div', 'gh-repos');
   reposEl.setAttribute('aria-live', 'polite');
   connectedWrap.append(reposEl);
 
-  root.append(checkingCard, lostCard, disconnectedCard, tokenCard, connectingCard, connectedWrap);
-
-  // ---- "+ New repo" form state + handlers -----------------------------------
-  let newOpen = false;
-  let newPrivate = true;
-  let creating = false;
-
-  function syncPrivate(): void {
-    privBtn.textContent = newPrivate ? 'Private' : 'Public';
-    privBtn.setAttribute('aria-pressed', newPrivate ? 'true' : 'false');
-    privBtn.setAttribute(
-      'aria-label',
-      `repository visibility: ${newPrivate ? 'private' : 'public'} — activate to make it ${
-        newPrivate ? 'public' : 'private'
-      }`,
-    );
-  }
-
-  function togglePrivate(): void {
-    if (creating) return;
-    newPrivate = !newPrivate;
-    syncPrivate();
-  }
-
-  function toggleNewForm(): void {
-    if (newOpen) closeNewForm();
-    else openNewForm();
-  }
-
-  function openNewForm(): void {
-    newOpen = true;
-    newForm.hidden = false;
-    newRepoBtn.setAttribute('aria-expanded', 'true');
-    newNameInput.value = '';
-    newDescInput.value = '';
-    newNameInput.classList.remove('is-err');
-    newPrivate = true;
-    syncPrivate();
-    newErr.hidden = true;
-    newNameInput.focus();
-  }
-
-  function closeNewForm(): void {
-    if (creating) return; // never collapse mid create/clone
-    newOpen = false;
-    newForm.hidden = true;
-    newRepoBtn.setAttribute('aria-expanded', 'false');
-    newErr.hidden = true;
-    newRepoBtn.focus();
-  }
-
-  /** Honest indeterminate busy across the create->clone chain (no fake %). */
-  function setCreating(on: boolean, label = ''): void {
-    creating = on;
-    newBusy.hidden = !on;
-    newBusyLabel.textContent = label;
-    newNameInput.disabled = on;
-    newDescInput.disabled = on;
-    privBtn.disabled = on;
-    newCancel.disabled = on;
-    newCreate.disabled = on;
-    newRepoBtn.disabled = on;
-    searchInput.disabled = on;
-  }
-
-  async function submitNewRepo(): Promise<void> {
-    if (creating) return;
-    const name = newNameInput.value.trim();
-    newErr.hidden = true;
-    newNameInput.classList.remove('is-err');
-    if (name === '') {
-      newErr.textContent = 'a repository name is required';
-      newErr.hidden = false;
-      newNameInput.classList.add('is-err');
-      newNameInput.focus();
-      return;
-    }
-    const home = await ensureHome(api.fsList);
-    if (home === null) {
-      newErr.textContent = 'couldn’t resolve your home directory — try again';
-      newErr.hidden = false;
-      return;
-    }
-    const description = newDescInput.value.trim();
-    setCreating(true, 'Creating the repository');
-    let created: GithubRepo;
-    try {
-      created = await api.githubCreateRepo({
-        name,
-        private: newPrivate,
-        ...(description !== '' ? { description } : {}),
-      });
-    } catch (e) {
-      setCreating(false);
-      if (e instanceof api.ApiError && e.status === 422) {
-        newErr.textContent = e.message; // "…the name may already be taken"
-        newErr.hidden = false;
-        newNameInput.classList.add('is-err');
-        newNameInput.focus();
-      } else {
-        newErr.textContent = e instanceof Error ? e.message : String(e);
-        newErr.hidden = false;
-      }
-      return;
-    }
-    // CHAIN: create succeeded → clone the fresh repo into
-    // <home>/projects/<owner>/<repo>. Owner-qualified like every other clone
-    // this panel starts (settled 2026-07-25): the owner is known for certain
-    // here — it comes back in the create response — and the destination is
-    // ours, not user-chosen, which is exactly the pair of conditions that keeps
-    // the URL-clone tab out of this rule. `created.name` (not the typed `name`)
-    // is authoritative: GitHub may normalize what it accepted, and the path has
-    // to match what the repo list will compare against.
-    newBusyLabel.textContent = 'Cloning';
-    try {
-      const project = await api.githubClone({
-        cloneUrl: created.cloneUrl,
-        dest: ownerDest(home, created.owner, created.name),
-        name: created.name,
-      });
-      st.setProjects([...st.state.projects, project]);
-      setCreating(false);
-      closeNewForm();
-    } catch (e) {
-      // The repo WAS created on GitHub; only the local clone failed — say so.
-      setCreating(false);
-      newErr.textContent = `repo created on GitHub, but the clone failed: ${cloneErr(e)}`;
-      newErr.hidden = false;
-    }
-    // Refresh the list either way so the new repo appears (open if cloned,
-    // clone-able if the clone half failed).
-    void loadRepos(searchInput.value.trim());
-  }
-
-  // ---- "paste a token" state + handler --------------------------------------
-  let adding = false;
-
-  function syncRemember(): void {
-    rememberRow.setAttribute('aria-pressed', remember ? 'true' : 'false');
-    rememberBox.textContent = remember ? '✓' : '';
-    rememberSampleEl.textContent = rememberSample(remember);
-    rememberFine.textContent = rememberNote(remember);
-  }
-
-  /** Honest indeterminate busy while the server checks the token with GitHub. */
-  function setAdding(on: boolean): void {
-    adding = on;
-    tokenBusy.hidden = !on;
-    tokenInput.disabled = on;
-    tokenBtn.disabled = on;
-    rememberRow.disabled = on;
-    connectBtn.disabled = on;
-  }
-
-  /**
-   * Hand the pasted token to the backend and forget it.
-   *
-   * THE CREDENTIAL'S ENTIRE CLIENT-SIDE LIFETIME IS THIS FUNCTION (design gate
-   * II-3). It is read once out of the field, handed straight to the request,
-   * and the field is cleared in the same frame; the local reference is dropped
-   * the moment JSON.stringify has run. Nothing retains it: no module variable,
-   * no closure kept alive by a timer, no error object (an ApiError carries the
-   * SERVER's message), and deliberately NO retry buffer — a failed add means
-   * the user pastes again, which is the honest cost of not keeping it around.
-   */
-  async function submitToken(): Promise<void> {
-    if (adding) return;
-    tokenErr.hidden = true;
-    tokenInput.classList.remove('is-err');
-    if (tokenInput.value.trim() === '') {
-      tokenErr.textContent = 'paste a token first';
-      tokenErr.hidden = false;
-      tokenInput.classList.add('is-err');
-      tokenInput.focus();
-      return;
-    }
-    let token = tokenInput.value.trim(); // a pasted line often carries whitespace
-    const rememberIt = remember;
-    tokenInput.value = ''; // II-2/II-3: cleared before anything can await
-    setAdding(true);
-    let next: GithubStatus;
-    try {
-      const pending = api.githubToken({ token, remember: rememberIt });
-      token = ''; // the request body owns it now; this frame does not
-      next = await pending;
-    } catch (e) {
-      token = '';
-      setAdding(false);
-      tokenErr.textContent =
-        e instanceof api.ApiError
-          ? tokenErrText(e.status, e.message)
-          : e instanceof Error
-            ? e.message
-            : String(e);
-      tokenErr.hidden = false;
-      tokenInput.focus();
-      return;
-    }
-    setAdding(false);
-    forgetCredentialLost();
-    remember = true; // back to the decided default for the next paste
-    syncRemember();
-    applyStatus(next); // resolved @login is on screen as part of accepting it
-    if (active && next.state === 'connected') searchInput.focus();
-  }
-
-  tokenInput.addEventListener('input', () => {
-    tokenInput.classList.remove('is-err');
-    tokenErr.hidden = true;
-  });
-  // Enter submits from the keyboard. This adds no <form> and no form submission
-  // — it is the same click-handler path the button takes.
-  tokenInput.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void submitToken();
-    }
-  });
+  root.append(checkingCard, lostCard, disconnectedCard, token.card, connectingCard, connectedWrap);
 
   // ---- handlers -------------------------------------------------------------
   async function onConnect(): Promise<void> {
@@ -694,7 +357,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     const disconnected = s !== null && s.state === 'disconnected';
     lostCard.hidden = !(disconnected && credentialLost);
     disconnectedCard.hidden = !disconnected;
-    tokenCard.hidden = !disconnected; // the paste path is offered whenever it applies
+    token.card.hidden = !disconnected; // the paste path is offered whenever it applies
     connectingCard.hidden = !(s !== null && s.state === 'connecting');
     connectedWrap.hidden = !(s !== null && s.state === 'connected');
 
@@ -708,8 +371,8 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       deviceFine.hidden = copy.fine === '';
       noDeviceNote.textContent = copy.note;
       noDeviceNote.hidden = copy.note === '';
-      tokenTitle.textContent = copy.tokenTitle;
-      syncRemember();
+      token.title.textContent = copy.tokenTitle;
+      token.syncRemember();
     }
     if (s !== null && s.state === 'connecting') {
       uriSpan.textContent = s.verificationUri ?? 'github.com/login/device';
@@ -919,7 +582,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     if (s.state === 'disconnected') {
       // Whichever path this server can actually offer first.
       if (s.deviceFlowAvailable) connectBtn.focus();
-      else tokenInput.focus();
+      else token.input.focus();
     } else if (s.state === 'connecting') cancelBtn.focus();
     else if (s.state === 'connected') searchInput.focus();
   }
@@ -948,15 +611,13 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       // Leaving the tab drops anything typed but not submitted: a pasted
       // credential never sits in a hidden field waiting for the next open
       // (II-3 — the field is the only place it ever lives client-side).
-      tokenInput.value = '';
-      tokenErr.hidden = true;
-      tokenInput.classList.remove('is-err');
+      token.forget();
       awaitingFocus = false;
       syncExpiryTimer();
     }
   }
 
-  syncRemember();
+  token.syncRemember();
   onGithubUpdate(render);
   return { el: root, setActive };
 }

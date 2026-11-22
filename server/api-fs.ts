@@ -33,7 +33,7 @@ import { handleMediaTicket } from './fsmedia.ts';
 import { handleRead, handleWrite } from './fstext.ts';
 import { handleUpload } from './fsupload.ts';
 import { FS_PATH_NOT_MAPPABLE, windowsPathForClipboard } from './winpath.ts';
-import { describeError, errorClass, errorFrames } from './config.ts';
+import { describeError, errorClass, errorFrames } from './config-log.ts';
 import {
   NEXT,
   readJsonBody,

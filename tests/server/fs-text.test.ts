@@ -29,7 +29,7 @@ import { execFileSync } from 'node:child_process';
 import { lstat, readFile, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { errorClass } from '../../server/config.ts';
+import { errorClass } from '../../server/config-log.ts';
 import { decodeText, encodeText, errnoTag, stampOf, textErrorFor } from '../../server/fstext.ts';
 import { FS_TEXT_MAX_BYTES } from '../../shared/protocol.ts';
 import type { FsWriteResponse } from '../../shared/protocol.ts';

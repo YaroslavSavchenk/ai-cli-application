@@ -16,7 +16,7 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
-import type { LogLevel } from '../../server/config.ts';
+import type { LogLevel } from '../../server/config-log.ts';
 import { waitUntil, makeTempDir, removeTempDir } from './helpers.ts';
 
 /**

@@ -16,7 +16,8 @@
  * (a launcher that failed to open a browser must not leave a zombie); after
  * that, the regular grace applies.
  */
-import { envMs, scoped, type Logger } from './config.ts';
+import { envMs } from './config.ts';
+import { scoped, type Logger } from './config-log.ts';
 
 /** Grace after the last client disconnects. Env override: AI_SM_GRACE_MS. */
 const DEFAULT_GRACE_MS = 30_000;

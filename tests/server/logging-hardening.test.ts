@@ -35,7 +35,7 @@ import {
   MAX_LOGGED_ROUTE_CHARS,
   REFUSAL_LOG_MAX_PER_MINUTE,
   createRefusalLimiter,
-} from '../../server/config.ts';
+} from '../../server/config-log.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import { LifecycleController } from '../../server/lifecycle.ts';

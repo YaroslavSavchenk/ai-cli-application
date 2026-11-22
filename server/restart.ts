@@ -77,7 +77,7 @@ import {
   type RestartErrorBody,
   type RestartResponse,
 } from '../shared/protocol.ts';
-import { describeError, errorStackOnly, oneLine, scoped, type Logger } from './config.ts';
+import { describeError, errorStackOnly, oneLine, scoped, type Logger } from './config-log.ts';
 import type { PtyHostVerdict } from './pty-host-broker.ts';
 
 /** How long the old process waits for the child to own runtime.json + answer /health. */

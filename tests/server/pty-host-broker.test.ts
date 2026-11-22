@@ -40,7 +40,7 @@ import { join } from 'node:path';
 import { PtyHostBroker } from '../../server/pty-host-broker.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
-import type { Logger } from '../../server/config.ts';
+import type { Logger } from '../../server/config-log.ts';
 import { makeTempDir, nextImmediate, projectRoot, removeTempDir, sleep, waitUntil } from '../helpers/helpers.ts';
 import { hostLog, makeHostDir, startHost, teardownHosts, trackHost, trackPty } from '../helpers/pty-host-fixture.ts';
 import { hostPidOf, pidAlive } from '../helpers/pty-host-backend-fixture.ts';

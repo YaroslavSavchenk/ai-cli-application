@@ -40,15 +40,17 @@ import type { UpdateRelease, UpdateStatus } from '../shared/protocol.ts';
 import { UPDATE_NEW_VERSION_AVAILABLE, VERSION_SHAPE } from '../shared/protocol.ts';
 import {
   atomicWriteFile,
-  errorClass,
-  oneLine,
   readSmallRegularFile,
-  scoped,
   DEFAULT_UPDATE_API_BASE,
   DEFAULT_UPDATE_ASSET_BASE,
   USER_AGENT,
-  type Logger,
 } from './config.ts';
+import {
+  errorClass,
+  oneLine,
+  scoped,
+  type Logger,
+} from './config-log.ts';
 import { plainObject } from './sanitise.ts';
 
 /** The repository releases are published to. Owner/name, not a URL. */

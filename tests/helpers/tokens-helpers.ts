@@ -66,8 +66,8 @@ export function usedTokens(css: string): string[] {
  * they are declared in no stylesheet BY DESIGN. Each entry says who writes it.
  */
 export const RUNTIME_PROPS: Record<string, string> = {
-  '--split-col': "ui/panes.ts: grid.style.setProperty('--split-col', …) on every split drag",
-  '--split-row': "ui/panes.ts: grid.style.setProperty('--split-row', …) on every split drag",
+  '--split-col': "ui/panes-split.ts: grid.style.setProperty('--split-col', …) on every split drag",
+  '--split-row': "ui/panes-split.ts: grid.style.setProperty('--split-row', …) on every split drag",
 };
 
 /** Comments hold prose that NAMES tokens and classes; only rules count. */

@@ -3,9 +3,9 @@
  * Split from app.css (O8, 2026-09-23), rules moved in their original order;
  * app.css is now the index that imports every piece, and that import order
  * is the cascade order. Sibling pieces:
- * app-shell.css, app-pane.css, app-panels.css, app-strip.css,
- * app-dialogs.css, app-settings.css, app-add-project.css, app-github.css,
- * app-picker.css, app-boot-update.css, app-drop-delete.css,
+ * app-shell.css, app-pane.css, app-panels.css, app-files.css,
+ * app-strip.css, app-dialogs.css, app-settings.css, app-add-project.css,
+ * app-github.css, app-picker.css, app-boot-update.css, app-drop-delete.css,
  * app-commit-view.css, app-context-menu.css
  */
 

@@ -149,7 +149,7 @@ const ALLOWED: Record<string, string[]> = {
     '--font-mono',
   ],
   'ui/theme.ts': ['--term-bg', '--xt-fg', '--xt-white', '--xt-bright-white', '--xt-cursor', '--xt-bright-black'],
-  'ui/panes.ts': ['--split-col', '--split-row'],
+  'ui/panes-split.ts': ['--split-col', '--split-row'],
   // The ONE display exemption (user's call, 2026-07-25) — the custom-command
   // field, whose content IS a command the user types — needs no entry since
   // 2026-09-06: its placeholder is a bare `htop` and the argv echo above it was

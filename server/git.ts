@@ -40,7 +40,8 @@ import type {
   ChangedFile,
   GitChangesResponse,
 } from '../shared/protocol.ts';
-import { killQuietly, runChild, type Logger } from './config.ts';
+import { killQuietly, runChild } from './config.ts';
+import type { Logger } from './config-log.ts';
 import {
   FS_LIST_GONE,
   FS_NO_READ_PERMISSION,
