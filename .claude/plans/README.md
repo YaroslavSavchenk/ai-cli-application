@@ -83,6 +83,7 @@ Master plans:
 - `RELEASE-NOTES-v0.4.2-draft.md` — the update check every hour
 - `RELEASE-NOTES-v0.4.3-draft.md` — D2–D7 and Q8: the media viewer, the Claude Code version guard, Always ask, focus, runtime.json, FIFO-safe reads
 - `RELEASE-NOTES-v0.4.4-draft.md` — Dependabot security updates: vite, source-map-js, ws
+- `RELEASE-NOTES-v0.4.5-draft.md` — D8 + D9: the mascot steps back while the app is active; sessions survive update, restart and a backend crash
 
 Part specs, `nocturne/`:
 

@@ -1,6 +1,6 @@
 # D8 — The mascot steps back while the app is the window you are in
 
-Status: LANDED 2026-11-20 on branch `d8-mascot-steps-back` (awaiting the host rebuild + the user's DEV check on Windows); earlier: DECIDED 2026-11-20 (the user's ask the same day — "maak ook zo dat wanneer de app open is mascotte niet zichtbaar is, dat hij verwijnt, kleine effect"; decision 24 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
+Status: LANDED 2026-11-20 (verified 2026-11-22: host rebuilt, the user's DEV check; ships in v0.4.5) on branch `d8-mascot-steps-back`; earlier: DECIDED 2026-11-20 (the user's ask the same day — "maak ook zo dat wanneer de app open is mascotte niet zichtbaar is, dat hij verwijnt, kleine effect"; decision 24 of `.claude/plans/PLAN-NOCTURNE.md` asked the same day).
 
 Part D8 of `.claude/plans/PLAN-NOCTURNE.md` (Track D, fixes and asks after the v0.4.0 release). Conventions: `.claude/plans/README.md`.
 

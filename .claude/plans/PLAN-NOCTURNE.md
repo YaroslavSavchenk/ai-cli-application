@@ -42,8 +42,8 @@ Each part starts only on the user's word ("begin aan <id>"); rows are in the ord
 | D5 | "Always ask" really asks: the launch passes `--permission-mode manual` | verified | — | 2026-10-13 |
 | D6 | Claude Code compatibility guard: the version shown, a notice outside the tested range, a launch that dies at once flagged | verified | `.claude/plans/nocturne/PLAN-D6.md` | 2026-10-13 |
 | D7 | Media viewer: images, video and PDF open as a viewer tab in the editor pane; SVG with Edit as text; an image refreshes itself | verified | `.claude/plans/nocturne/PLAN-D7.md` | 2026-10-21 |
-| D8 | The mascot steps back (slides behind the screen edge) while the app is the active window, peeks out again when you leave | landed | `.claude/plans/nocturne/PLAN-D8.md` | 2026-11-20 |
-| D9 | Sessions survive an update: a pty-host keeps the terminals, the backend re-attaches (P1–P5) | in progress (P1–P5 in, all gated; user's Windows check open) | `.claude/plans/nocturne/PLAN-D9.md` | 2026-11-20 |
+| D8 | The mascot steps back (slides behind the screen edge) while the app is the active window, peeks out again when you leave | verified | `.claude/plans/nocturne/PLAN-D8.md` | 2026-11-20 |
+| D9 | Sessions survive an update: a pty-host keeps the terminals, the backend re-attaches (P1–P5) | verified (restart keeps sessions, user's DEV check 2026-11-22; update survival checked from the release after v0.4.5) | `.claude/plans/nocturne/PLAN-D9.md` | 2026-11-20 |
 
 Decision (user, 2026-09-10): full switch to the Nocturne UI. The current UI
 ("steam blend", v0.3.x) is from now on called **Legacy UI**. No side-by-side
