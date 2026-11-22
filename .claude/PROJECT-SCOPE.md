@@ -53,7 +53,12 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   (`AI_SM_STARTUP_GRACE_MS`) runs until the first-ever presence. Manual
   `-Stop` overrides (since D9 P5 it also SIGTERMs a live pty-host when no
   backend is left — cmdline-checked pid from `pty-host.json`). The presence
-  channel answers `ping`/`pong` (inbound frames ≤ 1 KiB, no lifecycle effect). Authed `GET /api/runtime` body is
+  channel answers `ping`/`pong` (inbound frames ≤ 1 KiB, no lifecycle effect).
+  The session socket (since Q9, 2026-11-22) ignores a frame that is not a
+  JSON object, closes an inbound frame over 16 MiB with 1009 (the browser
+  sends input in ≤ 1 MiB frames), and closes a client with more than 16 MiB
+  unsent with 1013 — that client reconnects at the maximum backoff and gets
+  the replay; the session is untouched. Authed `GET /api/runtime` body is
   exactly `{ startedAt, serverCommit, version, installed, webBuild, update,
   claude, ptyHost }` (`claude` since D6: `{ version, compat, min, testedUpTo }`;
   `ptyHost` since D9 P3: `{ build, proto }` of the pty-host holding the
@@ -202,7 +207,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
 - **Release build / distribution.** `.github/workflows/verify.yml` is the
   one definition of "verified" (checks `verify / typecheck + build`,
   `verify / backend test suite` and, since D9 P3, `verify / backend test
-  suite (pty-host)` — the same suite with every test backend over a real
+  suite (pty-host)` — the server, release and repo tests
+  (`npm run test:server`, since Q10) with every test backend over a real
   pty-host — on ubuntu-latest, `verify / linux bundle`
   — the bundle job alone on ubuntu-22.04, glibc 2.35 floor);
   `ci.yml` calls it on push to `main` and every PR. A `v*` tag runs

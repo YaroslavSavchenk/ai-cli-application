@@ -11,6 +11,7 @@
  */
 import type { WebSocket } from 'ws';
 import type { SessionInfo } from '../shared/protocol.ts';
+import { createWindowLimiter, type Logger } from './config.ts';
 import { newOutputScan, type OutputScanState } from './sessions-output.ts';
 import { RingBuffer, SCROLLBACK_MAX_BYTES, type PtyExitRecord } from './pty-table.ts';
 
@@ -57,6 +58,25 @@ export interface Session {
    * its history entry is created before it is stamped (§ Risks (b)).
    */
   earlyEnd: { record: PtyExitRecord; reason: 'exit' | 'crash' } | undefined;
+  /**
+   * Q9: the budget for this session's "client closed, too slow" lines, made at
+   * the first such close. A slow tab reconnects and overflows again, so
+   * without it one session could write a line every reconnect.
+   */
+  slowCloseLines: (() => boolean) | undefined;
+}
+
+/** Slow-client close lines one session may write per minute (Q9); the rest are counted. */
+const SLOW_CLOSE_LOG_MAX_PER_MINUTE = 3;
+
+/** The per-session budget for `slowCloseLines` — one fixed-window limiter per session. */
+export function slowCloseLimiter(log: Logger, id: string): () => boolean {
+  return createWindowLimiter({
+    log,
+    max: SLOW_CLOSE_LOG_MAX_PER_MINUTE,
+    exceeded: (max) => `${id} slow-client closes past ${max} per minute are counted, not written`,
+    summary: (n) => `${id} ${n} slow-client close line(s) suppressed in the last window`,
+  });
 }
 
 /**
@@ -100,6 +120,7 @@ export function newSession(info: SessionInfo, claude: boolean): Session {
     lastOutLogMs: Date.now(),
     destroyed: false,
     earlyEnd: undefined,
+    slowCloseLines: undefined,
   };
   return session;
 }

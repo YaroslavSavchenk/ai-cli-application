@@ -38,6 +38,7 @@ import {
 import { branchLabel } from '../../web/src/ui/commit-model.ts';
 import { MemoryStorage } from '../helpers/fake-dom.ts';
 import { readSource } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 // state.ts touches localStorage inside function bodies.
 const memoryStorage = new MemoryStorage();
@@ -48,18 +49,7 @@ const st = await import('../../web/src/state.ts');
 const aliveSessionCount = (): number => [...st.state.sessions.values()].filter((s) => s.status !== 'exited').length;
 
 function mkSession(id: string, status: SessionInfo['status'] = 'running'): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'bash',
-    args: [],
-    cwd: '/tmp',
-    status,
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-  };
+  return sessionInfo({ id, command: 'bash', cwd: '/tmp', status });
 }
 
 beforeEach(() => {

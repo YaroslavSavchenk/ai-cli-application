@@ -31,6 +31,7 @@ import {
 } from '../../web/src/ui/statusline-model.ts';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { readSource } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 /** The factory set, transcribed from DEFAULT_CONFIG in server/statusline.mjs. */
 const FACTORY: StatusLineCfg = {
@@ -170,19 +171,7 @@ test('DEAD_PREFS_KEYS names exactly the two retired bag keys', () => {
 // ---------------------------------------------------------------------------
 
 function session(over: Partial<SessionInfo>): SessionInfo {
-  return {
-    id: 's',
-    title: 'session',
-    command: 'claude',
-    args: [],
-    cwd: '/home/you/projects/web-ui',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  };
+  return sessionInfo({ id: 's', title: 'session', cwd: '/home/you/projects/web-ui', ...over });
 }
 
 test('names running claude sessions the server did NOT give a status line', () => {

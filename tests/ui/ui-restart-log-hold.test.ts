@@ -21,6 +21,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FLUSH_MS } from '../../web/src/log-core.ts';
+import { drainMicrotasks } from '../helpers/helpers.ts';
 
 interface Scheduled {
   fn: () => void;
@@ -70,7 +71,7 @@ async function fireAll(): Promise<void> {
     s.cleared = true;
     s.fn();
   }
-  for (let i = 0; i < 10; i++) await Promise.resolve();
+  await drainMicrotasks(10);
 }
 
 /**

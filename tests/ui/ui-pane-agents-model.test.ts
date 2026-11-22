@@ -47,6 +47,7 @@ import {
 import { statusLineDefaults } from '../../web/src/ui/statusline-model.ts';
 import type { AgentRow } from '../../web/src/ui/pane-agents.ts';
 import { projectRoot } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 /** A fixed clock, and a timestamp a known distance before it. */
 const NOW = Date.parse('2026-09-22T12:00:00.000Z');
@@ -58,20 +59,15 @@ const at = (ms: number): string => new Date(NOW + ms).toISOString();
 
 /** A running session of the known agent, as `GET /api/sessions` shapes it. */
 function session(over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id: 's1',
+  return sessionInfo({
     title: 'work',
-    command: 'claude',
-    args: [],
     cwd: '/home/u/projects/app',
-    status: 'running',
     cols: 120,
     rows: 30,
     createdAt: at(-30 * MIN),
-    attention: false,
     statusline: true,
     ...over,
-  };
+  });
 }
 
 /** One agent on the wire, exactly as `server/agents.ts` sends it. */

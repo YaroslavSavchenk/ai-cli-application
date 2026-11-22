@@ -13,6 +13,7 @@
  */
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { byClass, dispatch, installDom, setRect, type FakeElement } from './fake-dom.ts';
+import { sessionInfo } from './session-info.ts';
 
 export const dom = installDom();
 
@@ -244,18 +245,7 @@ export function ghost(): FakeElement | null {
 }
 
 export function mkSession(id: string): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/tmp',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-  } as SessionInfo;
+  return sessionInfo({ id, cwd: '/tmp' });
 }
 
 export function view(over: Partial<ViewLike>): ViewLike {

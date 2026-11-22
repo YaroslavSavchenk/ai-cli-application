@@ -23,7 +23,7 @@ import {
   type FakeElement,
   type FakeFile,
 } from './fake-dom.ts';
-import { nextImmediate } from './helpers.ts';
+import { drainMicrotasks, nextImmediate } from './helpers.ts';
 
 export const dom = installDom();
 
@@ -76,7 +76,7 @@ export function dest(name: string): Dest {
  * turn away from its dialog.
  */
 export async function settle(): Promise<void> {
-  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  await drainMicrotasks(10);
   // Part B10 made the chain arbitrarily long: the walk awaits every
   // `readEntries()` and every `file()` callback, so a 2000-file folder is
   // 2000 microtask turns. One macrotask turn drains the whole queue, however

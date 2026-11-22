@@ -29,7 +29,6 @@ import { spawn } from 'node:child_process';
 import { createServer as createNetServer } from 'node:net';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import type {
   HistoryEntry,
   RestartResponse,
@@ -43,6 +42,8 @@ import {
   presenceUrl,
   projectRoot,
   readServerLog,
+  settleWithin,
+  sleep,
   startTestServer,
   waitUntil,
   WsClient,
@@ -105,7 +106,7 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
           everAbsent = true;
           return;
         }
-        await delay(1);
+        await sleep(1); // the sampler's yield, not a wait for an outcome
       }
     })();
 
@@ -137,7 +138,7 @@ test('REAL restart: same port, new pid, old pid gone, runtime.json owned by the 
     assert.ok(existsSync(server.runtimeFile), 'and it is there at the end too');
 
     // The old process is gone, exit code 0.
-    const exit = await Promise.race([server.exit, delay(15_000).then(() => undefined)]);
+    const exit = await settleWithin(server.exit, 15_000);
     assert.ok(exit !== undefined, 'the old process must exit after handing over');
     assert.equal(exit.code, 0, `a handoff is a clean exit (code=${exit.code} signal=${exit.signal})`);
     assert.equal(isAlive(oldPid), false, 'the old pid is really gone');
@@ -458,7 +459,7 @@ test('REAL restart: a SIGTERM racing the handoff never deletes runtime.json out 
     const health = await fetch(`http://127.0.0.1:${child.port}/health`);
     assert.equal(health.status, 200, 'and it is serving');
 
-    const exit = await Promise.race([server.exit, delay(15_000).then(() => undefined)]);
+    const exit = await settleWithin(server.exit, 15_000);
     assert.ok(exit !== undefined, 'the old process is gone');
     assert.equal(exit.code, 0, `and left cleanly (code=${exit.code} signal=${exit.signal})`);
 

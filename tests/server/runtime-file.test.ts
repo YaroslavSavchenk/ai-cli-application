@@ -38,7 +38,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { removeOwnRuntimeFile, runtimeFileVerdict } from '../../server/runtime-file.ts';
 import type { LogLevel } from '../../server/config.ts';
-import { SKIP_IF_ROOT, makeTempDirSync, sleep, startTestServer, type TestServer } from '../helpers/helpers.ts';
+import { SKIP_IF_ROOT, makeTempDirSync, settleWithin, startTestServer, type TestServer } from '../helpers/helpers.ts';
 
 const SELF = { pid: 4242, startedAt: '2026-10-13T10:00:00.000Z' };
 const TOKEN = 'f'.repeat(64);
@@ -239,7 +239,7 @@ async function impersonateNewerBackend(server: TestServer): Promise<string> {
 }
 
 async function awaitExit(server: TestServer, ms: number, code = 0): Promise<void> {
-  const exit = await Promise.race([server.exit, sleep(ms).then(() => undefined)]);
+  const exit = await settleWithin(server.exit, ms);
   assert.ok(exit !== undefined, `server did not exit within ${ms}ms`);
   assert.equal(exit.code, code, `expected exit ${code} (got code=${exit.code} signal=${exit.signal})`);
 }

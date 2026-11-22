@@ -107,7 +107,7 @@ export {
   CLIENT_LOG_MAX_PER_MINUTE,
 } from './api-app.ts';
 export { GITHUB_REPO_NAME_MAX, GITHUB_TOKEN_MAX_BYTES, GITHUB_TOKEN_MAX_CHARS } from './api-github.ts';
-export { MAX_TERM_DIM, CONVERSATION_RUNNING } from './api-sessions.ts';
+export { CONVERSATION_RUNNING } from './api-sessions.ts';
 
 /**
  * The route families, in the order their blocks stood in handleApi() before

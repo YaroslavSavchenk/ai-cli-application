@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { registerHooks } from 'node:module';
 import type { FsListResponse, Project } from '../../shared/protocol.ts';
 import { byClass, dispatch, installDom, textsOf, type FakeElement, FakeText } from '../helpers/fake-dom.ts';
-import { projectRoot } from '../helpers/helpers.ts';
+import { drainMicrotasks, projectRoot } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -173,12 +173,8 @@ NP.initNewProjectDialog(modalHost);
 const scrim = modalHost.children[0] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
 
-/** Two microtask turns: the `ensureHome()` / submit promises settle. */
-const settle = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-};
+/** Three microtask turns: the `ensureHome()` / submit promises settle. */
+const settle = (): Promise<void> => drainMicrotasks(3);
 
 const one = (root: FakeElement, cls: string): FakeElement => {
   const hit = byClass(root, cls)[0];

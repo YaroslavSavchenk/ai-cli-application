@@ -10,12 +10,14 @@
  * the server replays the scrollback's last REPLAY_MAX_LINES lines — the replay
  * handler must reset the terminal first (ui/terminal.ts does).
  *
- * Reconnect: on unexpected close, back off 0.5s..5s (x2). Before each retry
+ * Reconnect: on unexpected close, back off 0.5s..5s (x2); after a close for
+ * being too slow (SLOW_CLIENT_CLOSE_CODE) straight to 5s. Before each retry
  * the session's existence is checked via GET /api/sessions — if it is gone
  * (or the token is stale after a backend restart), the socket reports 'dead'
  * so the pane can offer close/reassign.
  */
 import type { ClientMessage, EarlyExit, ServerMessage, SessionInfo } from '../../shared/protocol.ts';
+import { SLOW_CLIENT_CLOSE_CODE } from '../../shared/protocol.ts';
 import { ApiError, authToken, getSessions } from './api.ts';
 import { formatError, log } from './log.ts';
 import { state } from './state.ts';
@@ -55,6 +57,15 @@ const BACKOFF_MAX_MS = 5000;
  * themselves instead of having been silently switched off.
  */
 const RESTART_HOLD_MS = 1000;
+/**
+ * Q9: the most UTF-16 code units one `input` frame carries. xterm hands a
+ * whole paste to `onData` as one string, and the server cuts a frame over
+ * MAX_SESSION_FRAME_BYTES (16 MiB, server/ws.ts) with 1009 — such a paste was
+ * lost. 1 Mi units stay under the cap even if every one is JSON-escaped to
+ * six bytes; the frames go out in order on one socket, so the PTY receives
+ * the same bytes.
+ */
+const MAX_INPUT_FRAME_UNITS = 1024 * 1024;
 
 export class SessionSocket {
   readonly sessionId: string;
@@ -77,8 +88,9 @@ export class SessionSocket {
     const url = `${proto}//${location.host}/ws/sessions/${encodeURIComponent(this.sessionId)}?token=${encodeURIComponent(authToken())}`;
     const ws = new WebSocket(url);
     this.#ws = ws;
+    let opened = false;
     ws.onopen = () => {
-      this.#delay = BACKOFF_MIN_MS;
+      opened = true;
       log.info(`ws session ${this.sessionId} open`);
       this.#handlers.onConn('live');
     };
@@ -120,6 +132,11 @@ export class SessionSocket {
     ws.onclose = (ev?: CloseEvent) => {
       if (this.#closed) return;
       log.info(`ws session ${this.sessionId} closed ${closeInfo(ev)}`);
+      // The backoff restarts once a socket opened — unless the server closed it
+      // for falling behind: reopening at once replays the scrollback into the
+      // same slow tab and is closed again (Q9), so that retry waits the longest.
+      if (ev?.code === SLOW_CLIENT_CLOSE_CODE) this.#delay = BACKOFF_MAX_MS;
+      else if (opened) this.#delay = BACKOFF_MIN_MS;
       void this.#lost();
     };
     ws.onerror = () => {
@@ -201,8 +218,16 @@ export class SessionSocket {
     }
   }
 
+  /** In frames of at most MAX_INPUT_FRAME_UNITS, never between a surrogate pair's halves. */
   sendInput(data: string): void {
-    this.#send({ type: 'input', data });
+    let at = 0;
+    do {
+      let end = Math.min(at + MAX_INPUT_FRAME_UNITS, data.length);
+      const last = data.charCodeAt(end - 1);
+      if (end < data.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+      this.#send({ type: 'input', data: data.slice(at, end) });
+      at = end;
+    } while (at < data.length);
   }
 
   sendResize(cols: number, rows: number): void {

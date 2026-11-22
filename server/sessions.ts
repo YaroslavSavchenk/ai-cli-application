@@ -59,7 +59,7 @@ import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import type { WebSocket } from 'ws';
 import type { SessionInfo, ServerMessage, SessionTelemetry } from '../shared/protocol.ts';
-import { commandBase, isClaudeCommand, isKeyedTool, KEY_ENV, REPLAY_MAX_LINES } from '../shared/protocol.ts';
+import { commandBase, isClaudeCommand, isKeyedTool, KEY_ENV, REPLAY_MAX_LINES, SLOW_CLIENT_CLOSE_CODE } from '../shared/protocol.ts';
 import type { SessionHistory } from './history.ts';
 import type { KeyStore } from './keys.ts';
 import { planCmdStart } from './winpath.ts';
@@ -71,7 +71,7 @@ import { scoped, type Logger } from './config.ts';
 import { ptyEnv } from './sessions-env.ts';
 import { earlyExitLine, replayTail, scanOutput } from './sessions-output.ts';
 import { parseSessionMeta, rescanGap, sessionBlob, unseenTail } from './sessions-meta.ts';
-import { metaMarks, newSession, syncPending, type Session } from './sessions-state.ts';
+import { metaMarks, newSession, slowCloseLimiter, syncPending, type Session } from './sessions-state.ts';
 import type { PtyEntrySummary, PtyExitRecord } from './pty-table.ts';
 import { createInProcessPtyHost, type PtyHost } from './pty-host-api.ts';
 
@@ -107,6 +107,14 @@ export class ConversationStarting extends Error {
     super('that conversation is being started already');
   }
 }
+
+/**
+ * Q9: the most unsent bytes one client may have queued; past it the client is
+ * closed, so a frozen tab under a busy session cannot grow this process until
+ * it dies with every session in it. Well above the largest single frame (a
+ * replay: the 1 MiB ring, ~6 MiB if every byte is JSON-escaped).
+ */
+const MAX_CLIENT_BUFFERED_BYTES = 16 * 1024 * 1024;
 
 /** The exit code a session gets when its pty-host was lost and its group SIGKILLed (128 + 9). */
 const LOST_EXIT_CODE = 137;
@@ -548,11 +556,11 @@ export class SessionManager {
       `${id} attach: replaying ${replay.byteLength} of ${session.buffer.byteLength} ring bytes, ` +
         `status ${session.info.status}, ${session.clients.size + 1} client(s) after this one`,
     );
-    this.#send(ws, { type: 'replay', data: replay.toString('utf8') });
-    this.#send(ws, { type: 'info', session: { ...session.info } });
+    this.#send(session, ws, { type: 'replay', data: replay.toString('utf8') });
+    this.#send(session, ws, { type: 'info', session: { ...session.info } });
     if (session.info.status === 'exited') {
       const early = session.info.earlyExit;
-      this.#send(ws, {
+      this.#send(session, ws, {
         type: 'exit',
         exitCode: session.info.exitCode ?? 0,
         ...(early === undefined ? {} : { early: { ...early } }),
@@ -956,13 +964,29 @@ export class SessionManager {
   }
 
   #broadcast(session: Session, message: ServerMessage): void {
-    for (const ws of session.clients) this.#send(ws, message);
+    if (session.clients.size === 0) return;
+    const text = JSON.stringify(message); // Once per broadcast, not once per client.
+    for (const ws of session.clients) this.#sendText(session, ws, text);
   }
 
-  #send(ws: WebSocket, message: ServerMessage): void {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(message));
-    }
+  #send(session: Session, ws: WebSocket, message: ServerMessage): void {
+    this.#sendText(session, ws, JSON.stringify(message));
+  }
+
+  /**
+   * One frame, then the backpressure check (Q9). Once CLOSING, nothing more is
+   * queued; ws destroys the socket if the close handshake stalls 30 s.
+   */
+  #sendText(session: Session, ws: WebSocket, text: string): void {
+    if (ws.readyState !== ws.OPEN) return;
+    ws.send(text);
+    const unsent = ws.bufferedAmount;
+    if (!(unsent > MAX_CLIENT_BUFFERED_BYTES)) return; // Closed only when PROVEN over.
+    ws.close(SLOW_CLIENT_CLOSE_CODE, 'client too slow');
+    const id = session.info.id;
+    session.slowCloseLines ??= slowCloseLimiter(this.#slog, id);
+    // Counts only: the queued bytes are terminal output. Budgeted per session (a slow tab reconnects).
+    if (session.slowCloseLines()) this.#slog('info', `${id} client closed, ${unsent} bytes unsent (cap ${MAX_CLIENT_BUFFERED_BYTES})`);
   }
 
 }

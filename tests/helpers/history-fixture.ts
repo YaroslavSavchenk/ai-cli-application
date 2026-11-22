@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import type { HistoryEntry, SessionInfo } from '../../shared/protocol.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { api, startTestServer, waitUntil, type TestServer, makeTempDir } from './helpers.ts';
+import { sessionInfo } from './session-info.ts';
 
 /**
  * The first lines of every `claude` double: the backend runs `claude --version`
@@ -181,20 +182,9 @@ export async function unitStore(name: string): Promise<UnitStore> {
   return { store: new SessionHistory(file, log as never), file, root, lines };
 }
 
-/** A SessionInfo for the unit-level store, with only the fields a test varies. */
+/** A SessionInfo for the unit-level store, with only the fields a test varies (`id` required). */
 export function infoOf(over: Partial<SessionInfo> & { id: string }): SessionInfo {
-  return {
-    title: over.id,
-    command: 'claude',
-    args: [],
-    cwd: '/tmp/work',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: '2026-09-06T10:00:00.000Z',
-    attention: false,
-    ...over,
-  };
+  return sessionInfo(over);
 }
 
 export const SID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';

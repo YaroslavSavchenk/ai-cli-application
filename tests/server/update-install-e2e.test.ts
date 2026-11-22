@@ -23,7 +23,6 @@ import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import {
   UPDATE_ERROR_FINISH,
   UPDATE_ERROR_START,
@@ -38,6 +37,8 @@ import {
   api,
   presenceUrl,
   projectRoot,
+  settleWithin,
+  sleep,
   startTestServer,
   waitUntil,
   WsClient,
@@ -207,10 +208,7 @@ test('LIFECYCLE: an install in flight defers the idle shutdown; the process stil
       assert.equal(status.error, UPDATE_ERROR_START);
 
       // Nothing holds the backend any more: the next expiry really ends it.
-      const exit = await Promise.race([
-        server.exit,
-        delay(20_000).then(() => undefined),
-      ]);
+      const exit = await settleWithin(server.exit, 20_000);
       assert.deepEqual(exit, { code: 0, signal: null }, 'the deferred shutdown happens after all');
       assert.ok(!existsSync(server.runtimeFile), 'and it is the clean shutdown, runtime.json removed');
     } finally {
@@ -550,6 +548,9 @@ test('END TO END: a DOWNGRADE re-judges the cached release — /api/runtime offe
   }
 });
 
+/** How long a 0.0.0 build is watched for a release request it must never send. */
+const NO_CHECK_WINDOW_MS = 2_500;
+
 test('END TO END: a 0.0.0-dev bundle makes ZERO outbound requests — the promise this project makes about itself', async () => {
   // The acceptance criterion of phase E's check half: an off-tag build (what
   // scripts/build-bundle.sh stamps without a tag) is older than every release,
@@ -590,7 +591,11 @@ test('END TO END: a 0.0.0-dev bundle makes ZERO outbound requests — the promis
       );
 
       // Long past the first check AND several intervals: still not one request.
-      await delay(2_500);
+      // A proof that something did NOT happen, so a fixed window: a 0.0.0 build
+      // creates no checker at all (server/index-update.ts), so there is no
+      // event to wait on. 2.5 s covers the first check (1 s) and the next
+      // interval (1 s) with half a second to spare.
+      await sleep(NO_CHECK_WINDOW_MS);
       assert.deepEqual(stub.hits, [], 'a 0.0.0 build never talks to the release API');
 
       const runtime = (await api(server, 'GET', '/api/runtime')).body as {

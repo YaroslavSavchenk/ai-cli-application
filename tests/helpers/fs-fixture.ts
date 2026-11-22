@@ -27,6 +27,7 @@
  */
 
 import { GONE_PATH, GONE_TEXT, NOT_A_REPO, detailOf, diffOf, pageOf } from './commits-fixture.ts';
+import { drainMicrotasks } from './helpers.ts';
 import type {
   GitCommitDiffResponse,
   GitCommitResponse,
@@ -34,6 +35,7 @@ import type {
   Project,
   SessionInfo,
 } from '../../shared/protocol.ts';
+import { sessionInfo } from './session-info.ts';
 
 /** The home folder the FIRST listing (the one with no path) teaches the panel. */
 export const HOME = '/home/you';
@@ -50,19 +52,12 @@ export const SCRATCH = '/home/you/scratch';
 
 /** A running session for the panel's tab and row tests; `over` wins. */
 export function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/you/work',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
+  return sessionInfo({ id, cwd: '/home/you/work', ...over });
+}
+
+/** `mkSession` in the scratch root (`SCRATCH`): the Files panel's own fixtures stand there. */
+export function mkScratchSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
+  return sessionInfo({ id, cwd: SCRATCH, ...over });
 }
 
 /** A registered project; its folder is `/work/<name>` unless `path` says otherwise. */
@@ -670,6 +665,6 @@ export function makeFixture(roots: readonly string[] = [HOME, PROJ, PROJ2, SCRAT
  * `then -> catch -> finally -> render`, so a handful of microtask turns is
  * both enough and honest: there is no clock in these tests.
  */
-export async function settle(): Promise<void> {
-  for (let i = 0; i < 20; i += 1) await Promise.resolve();
+export function settle(): Promise<void> {
+  return drainMicrotasks(20);
 }

@@ -38,6 +38,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { byClass, installDom, dispatch, type FakeElement } from '../helpers/fake-dom.ts';
+import { drainMicrotasks } from '../helpers/helpers.ts';
 import {
   MAX_ITEM_BYTES,
   planResults,
@@ -230,8 +231,8 @@ let driver: Driver = makeDriver([], []);
  * Let the module's own promise chain land: `start()` is awaited, so the result
  * phase arrives one microtask turn after the last row settles.
  */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+function settle(): Promise<void> {
+  return drainMicrotasks(5);
 }
 
 /** Settle every row that is left, and let the card reach its result state. */

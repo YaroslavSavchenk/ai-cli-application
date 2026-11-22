@@ -33,8 +33,8 @@ import {
   REFUSED_DEPENDENCIES,
   REFUSED_STANDBY,
 } from '../../server/restart.ts';
-import { waitUntil } from '../helpers/helpers.ts';
-import { FAKE_BUILD, OLD_PID, OLD_PORT, harness, within } from '../helpers/restart-fixture.ts';
+import { waitUntil, withDeadline } from '../helpers/helpers.ts';
+import { FAKE_BUILD, OLD_PID, OLD_PORT, harness } from '../helpers/restart-fixture.ts';
 
 // ---------------------------------------------------------------------------
 // 1. The controller, with every OS-touching dependency injected
@@ -209,7 +209,11 @@ test('restart controller: a second request while one runs is 409 and changes NOT
     // Let the preflight finish and the teardown run; the first request then hangs
     // in the health probe, which is the state a second POST must meet.
     await waitUntil(() => (controller.inProgress ? true : undefined), 'the teardown to run', 5_000, 1);
-    const second = await within(controller.request(), 'the second POST');
+    // Bounded: a regression that drops the 409 guard does not turn this red — the
+    // second request runs the whole sequence, blocks on the gate the first holds,
+    // and hangs the file (measured: dropping `|| this.#preflighting` from
+    // server/restart.ts). The deadline turns that hang into a failure.
+    const second = await withDeadline(controller.request(), 5_000, 'the second POST');
 
     assert.equal(second.status, 409);
     assert.deepEqual(second.body, { error: RESTART_IN_PROGRESS });
@@ -608,7 +612,7 @@ test('preflight: a second POST while the preflight runs is 409, not a second bui
   const first = controller.request();
   try {
     assert.equal(controller.inProgress, false, 'a preflight has torn down NOTHING yet');
-    const second = await within(controller.request(), 'the second POST during the preflight');
+    const second = await withDeadline(controller.request(), 5_000, 'the second POST during the preflight');
     assert.equal(second.status, 409, 'but it is still a restart in flight');
     assert.deepEqual(second.body, { error: RESTART_IN_PROGRESS });
     assert.equal(second.onFlushed, null);

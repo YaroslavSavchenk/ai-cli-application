@@ -38,26 +38,20 @@ import {
 } from '../../web/src/ui/update-model.ts';
 import { START_FROM, hasContinueFlag } from '../../web/src/ui/launch-args.ts';
 import type { SessionInfo } from '../../shared/protocol.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
 function mkSession(over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id: over.id ?? 'id-1',
-    title: over.title ?? 'work',
-    command: over.command ?? 'claude',
-    args: over.args ?? ['--model', 'opus'],
-    cwd: over.cwd ?? '/home/you/projects/x',
-    status: over.status ?? 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: '2026-09-06T10:00:00.000Z',
-    attention: false,
-    ...(over.projectId !== undefined ? { projectId: over.projectId } : {}),
-    ...(over.exitCode !== undefined ? { exitCode: over.exitCode } : {}),
-  };
+  return sessionInfo({
+    id: 'id-1',
+    title: 'work',
+    args: ['--model', 'opus'],
+    cwd: '/home/you/projects/x',
+    ...over,
+  });
 }
 
 const nameOf = (s: SessionInfo): string => s.title;

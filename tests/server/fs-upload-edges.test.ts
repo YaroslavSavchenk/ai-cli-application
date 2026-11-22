@@ -26,7 +26,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { handleUpload } from '../../server/fsupload.ts';
-import { readServerLog, waitForLog, waitUntil, SKIP_IF_ROOT } from '../helpers/helpers.ts';
+import { readServerLog, waitForLog, waitUntil, withDeadline, SKIP_IF_ROOT } from '../helpers/helpers.ts';
 import {
   bootFsServer,
   evil,
@@ -112,16 +112,6 @@ function startUpload(requestHead: string): LiveUpload {
     response,
     closed,
   };
-}
-
-/** Reject after `ms` — every wait in these tests has an explicit deadline. */
-function deadline<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(() => reject(new Error(`timed out after ${ms}ms waiting for ${what}`)), ms).unref(),
-    ),
-  ]);
 }
 
 test('the content-type is matched case-insensitively, parameters and spacing included', async () => {
@@ -237,7 +227,7 @@ test('the in-flight temp file is `.upload-<32 hex>.part` — unguessable, never 
 
     for (const upload of live) upload.write(body.subarray(16));
     for (const [i, upload] of live.entries()) {
-      const res = await deadline(upload.response, 10_000, `upload ${i} to answer`);
+      const res = await withDeadline(upload.response, 10_000, `upload ${i} to answer`);
       assert.equal(res.status, 201, res.body);
     }
     assert.deepEqual(parts(work()), [], 'and both part files are gone afterwards');

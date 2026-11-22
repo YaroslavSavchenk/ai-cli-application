@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import type { SessionInfo, UiPrefs } from '../../shared/protocol.ts';
 import { byClass, installDom, type FakeElement } from './fake-dom.ts';
+import { drainMicrotasks } from './helpers.ts';
 
 export const dom = installDom();
 
@@ -228,10 +229,7 @@ export const scrim = modalHost.children[0] as FakeElement;
 export const modal = scrim.children[0] as FakeElement;
 
 /** Let the `getPrefs()` re-read on open settle. */
-export const settle = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-};
+export const settle = (): Promise<void> => drainMicrotasks(2);
 
 export function tab(label: string): FakeElement {
   const hit = byClass(modal, 'sg-tab').find((b) => b.textContent === label);

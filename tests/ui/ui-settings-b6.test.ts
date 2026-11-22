@@ -40,6 +40,7 @@ import {
   initMascot,
 } from '../../web/src/ui/prefs-model.ts';
 import { byClass, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
+import { drainMicrotasks } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -195,9 +196,7 @@ const modal = scrim.children[0] as FakeElement;
 const ALL_IDS = TOOL_CARDS.map((c) => c.id);
 
 /** Let the promises a click or an open started settle. */
-const settle = async (): Promise<void> => {
-  for (let i = 0; i < 6; i += 1) await Promise.resolve();
-};
+const settle = (): Promise<void> => drainMicrotasks(6);
 
 function tab(label: string): FakeElement {
   const hit = byClass(modal, 'sg-tab').find((b) => b.textContent === label);

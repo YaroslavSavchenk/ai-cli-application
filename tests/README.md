@@ -146,7 +146,12 @@ their own server.
 | a program on PATH, a path that exists, git with a fixed identity | `onPath`, `exists`, `git` (`helpers.ts`) |
 | a fetch `Response` for the frontend, a history entry | `jsonResponse`, `mkHistoryEntry` (`helpers.ts`) |
 | string literals, class names, a function body out of source text | `helpers/source-scan.ts` |
+| a wait that must never hang: rejects `<what> did not settle within <ms>ms` | `withDeadline(p, ms, what)` (`helpers.ts`) |
+| a wait whose caller decides what a timeout means (`undefined` on timeout) | `settleWithin(p, ms)` (`helpers.ts`) — never `Promise.race` against a bare `delay`: its timer keeps the file alive |
+| N microtask turns, no timer or immediate runs | `drainMicrotasks(turns)` (`helpers.ts`) |
+| a `SessionInfo` (fixed `createdAt`, `over` wins) | `sessionInfo(over)`, `SESSION_CREATED_AT` (`session-info.ts`) |
 | sessions and projects for the Files panel | `mkSession`, `mkProject` (`fs-fixture.ts`) |
+| a session in the Files panel's scratch root | `mkScratchSession` (`fs-fixture.ts`) |
 | one element by class, typing into a textarea | `oneByClass`, `typeInto` (`fake-dom.ts`) |
 
 ## Mocks

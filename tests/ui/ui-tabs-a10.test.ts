@@ -30,8 +30,10 @@
  */
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import type { SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, descendants, installDom, type FakeElement } from '../helpers/fake-dom.ts';
 import { nextImmediate } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 import { readAppCss } from '../helpers/tokens-helpers.ts';
 
 const dom = installDom();
@@ -127,19 +129,8 @@ function view(over: Partial<View>): View {
   };
 }
 
-function session(id: string, over: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/tester/api',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    ...over,
-  };
+function session(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
+  return sessionInfo({ id, cwd: '/home/tester/api', ...over });
 }
 
 /** Rebuild the strip from scratch (the signature guard is not what is tested). */

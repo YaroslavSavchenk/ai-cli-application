@@ -15,17 +15,12 @@ import { TITLE_MAX_CHARS } from '../shared/protocol.ts';
 import type { CreateSessionRequest, ResumeHistoryRequest } from '../shared/protocol.ts';
 import { isExistingDirectory } from './projects.ts';
 import { planConversation, resumeSpawn } from './conversation.ts';
-import { describeError, isStringArray } from './config.ts';
+import { describeError, isStringArray, isValidDim, MAX_TERM_DIM } from './config.ts';
 import { ConversationStarting } from './sessions.ts';
 import { NEXT, readJsonBody, sendError, sendJson, type ApiContext, type RouteResult } from './api-http.ts';
 
-export const MAX_TERM_DIM = 1000;
 /** POST /api/sessions refusing a resume of a conversation that is still live. */
 export const CONVERSATION_RUNNING = 'That conversation is already running.';
-
-function isValidDim(v: unknown): v is number {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_TERM_DIM;
-}
 
 /** /api/sessions, /api/history, /api/history/:id(/resume), /api/sessions/:id(/seen). */
 export async function sessionRoutes(

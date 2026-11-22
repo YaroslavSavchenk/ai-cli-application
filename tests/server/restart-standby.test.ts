@@ -36,11 +36,11 @@ import {
   readServerLog,
   startTestServer,
   waitUntil,
+  withDeadline,
 } from '../helpers/helpers.ts';
 import {
   tempDir,
   webDistCopy,
-  within,
   fakeChild,
   readRuntime,
 } from '../helpers/restart-fixture.ts';
@@ -94,7 +94,7 @@ test('standby starter: spawns this node binary with an argv array, an ipc channe
   assert.equal(env['AI_SM_STANDBY'], '1');
 
   h.child.emit('message', { type: 'standby-ready' });
-  const standby = await within(pending, 'standby-ready');
+  const standby = await withDeadline(pending, 5_000, 'standby-ready');
   assert.equal(standby.pid, 31337);
   assert.equal(standby.dead(), false);
 
@@ -111,7 +111,7 @@ test('standby starter: a message that is not exactly `standby-ready` is ignored,
     h.child.emit('message', junk);
   }
   await assert.rejects(
-    within(pending, 'the starter'),
+    withDeadline(pending, 5_000, 'the starter'),
     /did not report ready within 60ms/,
     'none of that counted as a report',
   );
@@ -130,7 +130,7 @@ test('standby starter: the report carries the pty-host verdict; anything but com
     const h = standbyHarness();
     const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
     h.child.emit('message', { type: 'standby-ready', ...(sent === undefined ? {} : { ptyHost: sent }) });
-    const standby = await within(pending, 'standby-ready');
+    const standby = await withDeadline(pending, 5_000, 'standby-ready');
     assert.equal(standby.ptyHost, read, `sent ${String(sent)}`);
   }
 });
@@ -139,7 +139,7 @@ test('standby starter: a child that exits BEFORE ready rejects with the exit sta
   const h = standbyHarness();
   const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
   h.child.emit('exit', 1, null);
-  await assert.rejects(within(pending, 'the starter'), /exited early \(code=1 signal=null\)/);
+  await assert.rejects(withDeadline(pending, 5_000, 'the starter'), /exited early \(code=1 signal=null\)/);
   assert.deepEqual(h.child.killed, ['SIGTERM'], 'the kill is unconditional: a half-dead child must not linger');
 });
 
@@ -147,7 +147,7 @@ test('standby starter: a spawn error before ready rejects, and never resolves la
   const h = standbyHarness();
   const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
   h.child.emit('error', new Error('EACCES'));
-  await assert.rejects(within(pending, 'the starter'), /could not be spawned/);
+  await assert.rejects(withDeadline(pending, 5_000, 'the starter'), /could not be spawned/);
   // A late report must not resurrect a settled promise.
   h.child.emit('message', { type: 'standby-ready' });
 });
@@ -164,7 +164,7 @@ test('standby starter: a death AFTER ready sets dead() and makes go() throw SYNC
     const h = standbyHarness();
     const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
     h.child.emit('message', { type: 'standby-ready' });
-    const standby = await within(pending, 'standby-ready');
+    const standby = await withDeadline(pending, 5_000, 'standby-ready');
     assert.equal(standby.dead(), false, 'alive until it is not');
 
     die(h.child);
@@ -182,7 +182,7 @@ test('standby starter: a closed channel makes go() throw instead of failing in a
   const h = standbyHarness();
   const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
   h.child.emit('message', { type: 'standby-ready' });
-  const standby = await within(pending, 'standby-ready');
+  const standby = await withDeadline(pending, 5_000, 'standby-ready');
 
   h.child.connectedFlag = false; // Closed, but no event fired yet.
   assert.equal(standby.dead(), false, 'nothing has told us it died');
@@ -194,7 +194,7 @@ test('standby starter: stop() kills a standby a later refusal decided not to use
   const h = standbyHarness();
   const pending = h.start({ portHint: 41000, restartedFrom: 4242 });
   h.child.emit('message', { type: 'standby-ready' });
-  const standby = await within(pending, 'standby-ready');
+  const standby = await withDeadline(pending, 5_000, 'standby-ready');
 
   standby.stop();
   assert.deepEqual(h.child.killed, ['SIGTERM']);
@@ -272,7 +272,7 @@ test('standby child: reports ready, binds NOTHING, writes NO runtime.json, and l
   const child = spawnStandby(dataDir, hint);
   const exited = exitOf(child);
   try {
-    await within(standbyReady(child), 'standby-ready', 30_000);
+    await withDeadline(standbyReady(child), 30_000, 'standby-ready');
 
     // The three things a waiting standby must NOT have done. runtime.json still
     // belongs to the live parent — a child that wrote it here would point the
@@ -291,7 +291,7 @@ test('standby child: reports ready, binds NOTHING, writes NO runtime.json, and l
     child.send('go');
 
     child.disconnect();
-    const exit = await within(exited, 'the standby to exit on the parent going away', 30_000);
+    const exit = await withDeadline(exited, 30_000, 'the standby to exit on the parent going away');
     assert.deepEqual(exit, { code: 0, signal: null }, 'an orphaned standby leaves quietly, code 0');
     assert.ok(!existsSync(runtimeFile), 'and it never wrote a discovery file at all');
 
@@ -313,7 +313,7 @@ test('standby child: `go` is what makes it take the hinted port and publish runt
   const child = spawnStandby(dataDir, hint);
   const exited = exitOf(child);
   try {
-    await within(standbyReady(child), 'standby-ready', 30_000);
+    await withDeadline(standbyReady(child), 30_000, 'standby-ready');
     assert.ok(!existsSync(runtimeFile));
 
     child.send({ type: 'go' });
@@ -338,7 +338,7 @@ test('standby child: `go` is what makes it take the hinted port and publish runt
     assert.ok(!log.includes(rt.token), 'the token is never logged');
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-    await within(exited, 'the standby to stop', 15_000).catch(() => child.kill('SIGKILL'));
+    await withDeadline(exited, 15_000, 'the standby to stop').catch(() => child.kill('SIGKILL'));
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
@@ -367,7 +367,7 @@ test('standby child: `go` drops a leftover dist-prev, and waiting NEVER touches 
   const child = spawnStandby(dataDir, hint, { AI_SM_WEB_DIST_DIR: web.served });
   const exited = exitOf(child);
   try {
-    await within(standbyReady(child), 'standby-ready', 30_000);
+    await withDeadline(standbyReady(child), 30_000, 'standby-ready');
     assert.ok(
       existsSync(prevDir),
       'a WAITING standby leaves the backup alone: the parent can still revert onto it',
@@ -399,7 +399,7 @@ test('standby child: `go` drops a leftover dist-prev, and waiting NEVER touches 
     );
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-    await within(exited, 'the standby to stop', 15_000).catch(() => child.kill('SIGKILL'));
+    await withDeadline(exited, 15_000, 'the standby to stop').catch(() => child.kill('SIGKILL'));
     rmSync(dataDir, { recursive: true, force: true });
     web.remove();
   }
@@ -469,7 +469,7 @@ test('standby child: booting touches NOTHING in the parent\'s data dir — histo
   const child = spawnStandby(parent.dir, await freePort());
   const exited = exitOf(child);
   try {
-    await within(standbyReady(child), 'standby-ready', 30_000);
+    await withDeadline(standbyReady(child), 30_000, 'standby-ready');
     assert.equal(parent.snapshot(), before, 'a standby that reported ready has written nothing');
 
     const log = readFileSync(join(parent.dir, 'server.log'), 'utf8');
@@ -496,9 +496,9 @@ test('standby child: a SIGTERM before `go` leaves the LIVE parent\'s files exact
   const child = spawnStandby(parent.dir, await freePort());
   const exited = exitOf(child);
   try {
-    await within(standbyReady(child), 'standby-ready', 30_000);
+    await withDeadline(standbyReady(child), 30_000, 'standby-ready');
     child.kill('SIGTERM');
-    const exit = await within(exited, 'the standby to exit on SIGTERM', 30_000);
+    const exit = await withDeadline(exited, 30_000, 'the standby to exit on SIGTERM');
     assert.deepEqual(exit, { code: 0, signal: null }, 'it leaves quietly, code 0');
 
     assert.equal(

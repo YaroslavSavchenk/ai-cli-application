@@ -32,7 +32,7 @@ import { registerHooks } from 'node:module';
 import type { ClaudeStatus } from '../../shared/protocol-runtime.ts';
 import type { UiPrefs, UpdateStatus } from '../../shared/protocol.ts';
 import { byClass, installDom, type FakeElement } from '../helpers/fake-dom.ts';
-import { readSources } from '../helpers/helpers.ts';
+import { drainMicrotasks, readSources } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -166,9 +166,7 @@ function land(claude: ClaudeStatus | null, update: UpdateStatus | null = H.updat
   for (const fn of H.subscribers) fn('conn');
 }
 
-const settle = async (): Promise<void> => {
-  for (let i = 0; i < 8; i += 1) await Promise.resolve();
-};
+const settle = (): Promise<void> => drainMicrotasks(8);
 
 const btn = (root: FakeElement, label: string): FakeElement => {
   const hit = [...byClass(root, 'btn-accent'), ...byClass(root, 'btn-quiet')].find((b) => b.textContent === label);

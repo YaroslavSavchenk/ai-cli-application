@@ -51,7 +51,7 @@ import { SessionManager } from '../../server/sessions.ts';
 import type { Logger } from '../../server/config.ts';
 import { randomUUID } from 'node:crypto';
 import { encodeControl, PTY_HOST_EXIT, PTY_HOST_PROTOCOL, ptyHostPaths, type Frame } from '../../server/pty-host-wire.ts';
-import { makeTempDir, removeTempDir, sleep, waitUntil } from '../helpers/helpers.ts';
+import { makeTempDir, removeTempDir, settleWithin, waitUntil } from '../helpers/helpers.ts';
 import { fakeWelcome, startFakeHost, teardownHosts, trackHost } from '../helpers/pty-host-fixture.ts';
 import { hostPidOf, pidAlive } from '../helpers/pty-host-backend-fixture.ts';
 
@@ -277,7 +277,7 @@ test(
     });
     try {
       const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log: () => {} });
-      const verdict = await Promise.race([broker.probe(), sleep(PROBE_DUE_MS).then(() => 'no verdict')]);
+      const verdict = (await settleWithin(broker.probe(), PROBE_DUE_MS)) ?? 'no verdict';
       assert.equal(verdict, 'none');
     } finally {
       await fake.stop(); // Ends a hung probe too: its socket closes, list-count rejects.

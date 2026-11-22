@@ -116,6 +116,9 @@ interface SessionPayload {
       nothing does not rebuild the DOM under the user's pointer. */
   statusSig: string;
   agentsSig: string;
+  /** Last rendered exited / lost banner (`updateNote`), for the same reason:
+      the 3 s session poll must not rebuild an armed `Sure?` away. */
+  noteSig: string;
 }
 
 /**
@@ -196,7 +199,7 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
       // a header, a banner and a status bar that a session list can change.
       for (const s of slots) {
         if (s.pay?.kind !== 'session') continue;
-        updateHeader(s, s.pay);
+        updateHeader(s.pay);
         updateNote(s, s.pay);
         updateStatus(s.pay);
       }
@@ -659,7 +662,7 @@ function reconcileSlot(index: number, slot: st.PaneSlot | null): void {
   if (key === s.key && s.pay !== null) {
     // Same content: refresh what the world may have changed under it.
     if (s.pay.kind === 'session') {
-      updateHeader(s, s.pay);
+      updateHeader(s.pay);
       updateNote(s, s.pay);
       updateStatus(s.pay);
     } else if (s.pay.kind === 'editor' && slot !== null && slot.kind === 'editor') {
@@ -762,6 +765,7 @@ function buildSessionPane(s: Slot, sessionId: string): void {
     // A sentinel no signature can equal, so the FIRST update always renders.
     statusSig: '\u0000',
     agentsSig: '\u0000',
+    noteSig: '\u0000',
   };
   s.pay = pay;
 
@@ -772,7 +776,7 @@ function buildSessionPane(s: Slot, sessionId: string): void {
   pay.view = new TerminalView(termHost);
   pay.view.connect(sessionId, slotEvents(s, pay, sessionId));
 
-  updateHeader(s, pay);
+  updateHeader(pay);
   updateNote(s, pay);
   updateStatus(pay);
 }
@@ -852,7 +856,7 @@ function slotEvents(s: Slot, pay: SessionPayload, sessionId: string): TerminalEv
     onConn: (conn) => {
       pay.conn = conn;
       if (conn === 'dead') pay.dead = true;
-      updateHeader(s, pay);
+      updateHeader(pay);
       updateNote(s, pay);
       st.notify('conn');
     },

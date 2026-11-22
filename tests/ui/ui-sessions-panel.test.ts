@@ -24,6 +24,7 @@ import { registerHooks } from 'node:module';
 import type { HistoryEntry, Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, textsOf, type FakeElement } from '../helpers/fake-dom.ts';
 import { nextImmediate } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 const dom = installDom();
 
@@ -120,19 +121,7 @@ const drawer = S.initSessionsDrawer(host);
 const root = host.children[0] as FakeElement;
 
 function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/tester/api',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
+  return sessionInfo({ id, cwd: '/home/tester/api', ...over });
 }
 
 function mkEntry(id: string, over: Partial<HistoryEntry> = {}): HistoryEntry {

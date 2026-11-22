@@ -13,8 +13,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
-import { api, projectRoot, rawRequest, startTestServer, waitUntil } from '../helpers/helpers.ts';
+import { api, projectRoot, rawRequest, settleWithin, startTestServer, waitUntil } from '../helpers/helpers.ts';
 
 test('startup: runtime.json 0600 with correct shape, data dir 0700, health, server.log', async () => {
   const server = await startTestServer();
@@ -162,7 +161,7 @@ test('SIGTERM: removes runtime.json and exits with code 0', async () => {
     assert.ok(existsSync(server.runtimeFile), 'runtime.json must exist while running');
 
     server.child.kill('SIGTERM');
-    const exit = await Promise.race([server.exit, delay(10_000).then(() => undefined)]);
+    const exit = await settleWithin(server.exit, 10_000);
     assert.ok(exit !== undefined, 'server did not exit within 10s of SIGTERM');
     assert.equal(exit.code, 0, `clean shutdown must exit 0 (got code=${exit.code} signal=${exit.signal})`);
     assert.equal(exit.signal, null);

@@ -896,6 +896,14 @@ export function isJsonContentType(value: string | string[] | undefined): boolean
   return value.split(';')[0]?.trim().toLowerCase() === 'application/json';
 }
 
+/** The largest terminal side a client may ask for (columns or rows). */
+export const MAX_TERM_DIM = 1000;
+
+/** A terminal dimension a client may ask for: POST /api/sessions and the WS `resize` frame. */
+export function isValidDim(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_TERM_DIM;
+}
+
 export function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
 }

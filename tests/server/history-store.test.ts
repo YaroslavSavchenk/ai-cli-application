@@ -33,26 +33,21 @@ import {
   unitStore,
   infoOf,
 } from '../helpers/history-fixture.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 // ---------------------------------------------------------------------------
 // (f) the HISTORY_MAX bound — the class directly, no server involved
 // ---------------------------------------------------------------------------
 
 function fakeInfo(n: number): SessionInfo {
-  const id = `session-${String(n).padStart(4, '0')}`;
-  return {
-    id,
+  return sessionInfo({
+    id: `session-${String(n).padStart(4, '0')}`,
     title: `s${n}`,
     command: 'bash',
-    args: [],
     cwd: '/tmp',
-    status: 'running',
-    cols: 80,
-    rows: 24,
     // Strictly increasing, so "oldest lastUsedAt" is unambiguous.
     createdAt: new Date(Date.UTC(2026, 0, 1) + n * 1000).toISOString(),
-    attention: false,
-  };
+  });
 }
 
 test('history is bounded at HISTORY_MAX: the oldest ENDED entry drops, a live one never does', async () => {

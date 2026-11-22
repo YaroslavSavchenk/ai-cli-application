@@ -21,12 +21,12 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ClientMessage, PongMessage } from '../shared/protocol.ts';
+import type { PongMessage } from '../shared/protocol.ts';
 import { tokenMatches, hostAllowed, originAllowed } from './auth.ts';
 import { SessionManager } from './sessions.ts';
 import { LifecycleController } from './lifecycle.ts';
-import { MAX_TERM_DIM } from './api.ts';
-import { describeError, scoped, MAX_LOGGED_ROUTE_CHARS, type Logger } from './config.ts';
+import { plainObject } from './sanitise.ts';
+import { describeError, isValidDim, scoped, MAX_LOGGED_ROUTE_CHARS, type Logger } from './config.ts';
 
 export interface WsDeps {
   token: string;
@@ -48,6 +48,17 @@ export interface WsDeps {
  * receive (1009 close) instead of being buffered in full.
  */
 const MAX_PRESENCE_FRAME_BYTES = 1024;
+
+/**
+ * The largest session frame accepted (Q9) — the ws default is 100 MiB, buffered
+ * whole before a handler sees it. The browser's biggest frame is a paste:
+ * xterm hands the whole clipboard text to `onData` as ONE string, which
+ * `web/src/ws.ts` sends in `input` frames of at most 1 Mi UTF-16 units — at
+ * most 6 MiB of JSON even with every unit escaped (a file drop goes over
+ * HTTP, never this socket). Over the cap, ws closes the socket 1009 while
+ * receiving and the browser reconnects with the replay.
+ */
+const MAX_SESSION_FRAME_BYTES = 16 * 1024 * 1024;
 
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
@@ -82,7 +93,7 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
     if (allowRefusalLine()) wsLog('info', `upgrade rejected ${status} on ${path}: ${why}`);
     rejectUpgrade(socket, status, reason);
   };
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_SESSION_FRAME_BYTES });
   const presenceWss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_PRESENCE_FRAME_BYTES,
@@ -190,14 +201,15 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
 
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return; // Protocol is JSON text frames only.
-      let msg: unknown;
+      let parsed: unknown;
       try {
-        msg = JSON.parse(raw.toString()) as unknown;
+        parsed = JSON.parse(raw.toString());
       } catch {
         return; // Malformed JSON: ignore, never reply.
       }
-      if (typeof msg !== 'object' || msg === null) return;
-      const { type, t } = msg as { type?: unknown; t?: unknown };
+      const msg = plainObject(parsed);
+      if (msg === undefined) return;
+      const { type, t } = msg;
       // Echo `t` only when it is a finite number — never arbitrary payloads.
       if (type !== 'ping' || typeof t !== 'number' || !Number.isFinite(t)) return;
       // NOT logged: the UI pings every 5 s per open window, so a line here is
@@ -243,11 +255,19 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
 
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return; // Protocol is JSON text frames only.
-      let msg: ClientMessage;
+      let parsed: unknown;
       try {
-        msg = JSON.parse(raw.toString()) as ClientMessage;
+        parsed = JSON.parse(raw.toString());
       } catch {
         log('warn', `session ${sessionId}: malformed ws frame ignored`);
+        return;
+      }
+      // `null`, a number, a string or an array is valid JSON but no message:
+      // dereferencing `null` here threw out of the handler, and an
+      // uncaughtException ends the backend with every session in it (Q9).
+      const msg = plainObject(parsed);
+      if (msg === undefined) {
+        wsLog('debug', `session ${sessionId}: frame ignored (not a JSON object)`);
         return;
       }
       if (msg.type === 'input' && typeof msg.data === 'string') {
@@ -256,15 +276,7 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
         // the BYTE COUNT (never the bytes — this is what the user types,
         // passwords included) and flushes one summary line per second.
         sessions.write(sessionId, msg.data);
-      } else if (
-        msg.type === 'resize' &&
-        Number.isInteger(msg.cols) &&
-        Number.isInteger(msg.rows) &&
-        msg.cols >= 1 &&
-        msg.cols <= MAX_TERM_DIM &&
-        msg.rows >= 1 &&
-        msg.rows <= MAX_TERM_DIM
-      ) {
+      } else if (msg.type === 'resize' && isValidDim(msg.cols) && isValidDim(msg.rows)) {
         wsLog('debug', `session ${sessionId}: resize ${msg.cols}x${msg.rows}`);
         sessions.resize(sessionId, msg.cols, msg.rows);
       } else if (msg.type === 'seen') {

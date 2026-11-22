@@ -26,7 +26,6 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import type { HistoryEntry } from '../../shared/protocol.ts';
 import {
   api,
@@ -35,6 +34,8 @@ import {
   presenceUrl,
   rawRequest,
   readServerLog,
+  settleWithin,
+  sleep,
   startTestServer,
   waitForLog,
   waitUntil,
@@ -49,10 +50,7 @@ import {
 
 /** Await the server's exit within `timeoutMs` (fails the test otherwise). */
 async function expectExit(server: TestServer, timeoutMs: number): Promise<ExitInfo> {
-  const result = await Promise.race([
-    server.exit,
-    delay(timeoutMs).then(() => undefined),
-  ]);
+  const result = await settleWithin(server.exit, timeoutMs);
   assert.ok(result !== undefined, `server did not exit within ${timeoutMs}ms`);
   return result;
 }
@@ -69,7 +67,7 @@ function exitFlag(server: TestServer): () => boolean {
 /** Sleep until wall-clock `deadline` (no-op if already past). */
 async function waitUntilClock(deadline: number): Promise<void> {
   const remaining = deadline - Date.now();
-  if (remaining > 0) await delay(remaining);
+  if (remaining > 0) await sleep(remaining);
 }
 
 /** Assert the server is alive: process not exited AND /health answers 200. */

@@ -22,8 +22,8 @@ import {
 import {
   HOME,
   PROJ,
-  SCRATCH,
   makeFixture,
+  mkScratchSession,
   settle,
   type Gateway,
   mkProject as project,
@@ -228,21 +228,7 @@ st.subscribe((k) => {
   panel.render();
 });
 
-export function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: SCRATCH,
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
-}
+export const mkSession = mkScratchSession;
 
 /**
  * Which root the panel is standing in right now, so a test can name a row by

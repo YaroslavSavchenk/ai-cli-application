@@ -35,6 +35,7 @@ import {
   settle,
   statusPatch,
 } from '../helpers/ui-settings-panel-fixture.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 // `repaints` counts `ui/panes.ts` repaintStatus calls — counted so the pane
 // bar's live refresh is pinned here rather than left to a browser check.
@@ -279,19 +280,9 @@ test('Background agents under the terminal: OFF by default, its own switch, pers
 
 test('the notice names the running sessions that cannot grow a status line, and only then', async () => {
   const sess = (over: Partial<SessionInfo>): SessionInfo =>
-    ({
-      id: 's1',
-      // A session launched without a name keeps the raw command as its title —
-      // the case the notice has to render as the product name instead.
-      title: 'claude',
-      command: 'claude',
-      args: [],
-      cwd: '/home/tester',
-      projectId: 'p1',
-      status: 'running',
-      startedAt: new Date().toISOString(),
-      ...over,
-    }) as SessionInfo;
+    // A session launched without a name keeps the raw command as its title —
+    // the case the notice has to render as the product name instead.
+    sessionInfo({ title: 'claude', cwd: '/home/tester', projectId: 'p1', ...over });
 
   H.sessions = new Map();
   await reopen();
@@ -393,17 +384,7 @@ function staleSess(
   projectId: string | undefined,
   command = 'claude',
 ): SessionInfo {
-  return {
-    id,
-    title,
-    command,
-    args: [],
-    cwd: '/home/tester',
-    projectId,
-    status: 'running',
-    statusline: false,
-    startedAt: new Date().toISOString(),
-  } as unknown as SessionInfo;
+  return sessionInfo({ id, title, command, cwd: '/home/tester', projectId, statusline: false });
 }
 
 test('the notice qualifies same-named sessions with their project, and lists each one', async () => {

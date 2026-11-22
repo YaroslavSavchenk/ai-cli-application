@@ -51,7 +51,7 @@ export async function killSession(id: string): Promise<void> {
   }
 }
 
-function updateHeader(s: Slot, pay: SessionPayload): void {
+function updateHeader(pay: SessionPayload): void {
   const info = st.state.sessions.get(pay.id);
   // Projects are named, never pathed (PROJECT-SCOPE); a session without one
   // shows nothing at all rather than a folder.
@@ -148,9 +148,18 @@ function updateStatus(pay: SessionPayload): void {
   }
 }
 
+/**
+ * The exited / lost banner over the terminal. The 3 s session poll calls this
+ * for every slot, and most polls change nothing here; rebuilding then would
+ * throw away live DOM — an armed `End session → Sure?` (its 3 s window) and the
+ * keyboard on `Start it again` — so, like `updateStatus`, the rendered content
+ * is compared first and the banner is rebuilt only when what it shows changes.
+ */
 function updateNote(s: Slot, pay: SessionPayload): void {
   if (pay.dead) {
     // Reconnect exhausted and the server does not know the session anymore.
+    if (pay.noteSig === 'dead') return;
+    pay.noteSig = 'dead';
     s.note.hidden = false;
     s.note.className = 'pane-note is-dead';
     s.note.replaceChildren(
@@ -160,6 +169,13 @@ function updateNote(s: Slot, pay: SessionPayload): void {
     return;
   }
   if (pay.exitCode !== null) {
+    // A Claude launch that died right after it started (D6) says so, with
+    // Claude Code's own first line beside it — as text, never markup. The
+    // frame's `early` covers a live exit; `earlyExit` a pane attached later.
+    const note = exitNote(pay.exitCode, pay.early ?? st.state.sessions.get(pay.id)?.earlyExit);
+    const noteSig = JSON.stringify(['exit', pay.exitCode, note.lead, note.line]);
+    if (noteSig === pay.noteSig) return;
+    pay.noteSig = noteSig;
     // Structural exited banner; the buffer below stays readable.
     s.note.hidden = false;
     s.note.className = `pane-note ${pay.exitCode === 0 ? 'is-exit' : 'is-exit-err'}`;
@@ -173,10 +189,6 @@ function updateNote(s: Slot, pay: SessionPayload): void {
     armButton(delBtn, 'Sure?', () => void killSession(pay.id), {
       ask: () => getBehaviour().confirmEnd,
     });
-    // A Claude launch that died right after it started (D6) says so, with
-    // Claude Code's own first line beside it — as text, never markup. The
-    // frame's `early` covers a live exit; `earlyExit` a pane attached later.
-    const note = exitNote(pay.exitCode, pay.early ?? st.state.sessions.get(pay.id)?.earlyExit);
     const parts: HTMLElement[] = [el('span', 'pane-note-text', note.lead)];
     if (note.line !== null) {
       const line = el('span', 'pane-note-line', note.line);
@@ -186,6 +198,7 @@ function updateNote(s: Slot, pay: SessionPayload): void {
     s.note.replaceChildren(...parts, relaunchBtn, delBtn);
     return;
   }
+  pay.noteSig = '';
   s.note.hidden = true;
 }
 

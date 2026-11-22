@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import type { Project, SessionInfo } from '../../shared/protocol.ts';
 import { byClass, byKey, dispatch, installDom, FakeElement } from './fake-dom.ts';
-import { PROJ, SCRATCH, makeFixture, settle, type Gateway } from './fs-fixture.ts';
+import { PROJ, makeFixture, mkScratchSession, settle, type Gateway } from './fs-fixture.ts';
 
 export const fx = makeFixture();
 export const dom = installDom();
@@ -124,21 +124,7 @@ export function clearFlash(): void {
 
 export const ANCHOR = `${PROJ}/shared`;
 
-export function mkSession(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: SCRATCH,
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
-}
+export const mkSession = mkScratchSession;
 
 export async function liveSession(): Promise<void> {
   st.setProjects([

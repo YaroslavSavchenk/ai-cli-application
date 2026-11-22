@@ -19,8 +19,8 @@ Status: see the table below (updated 2026-11-22, Q9–Q15 added). Conventions: `
 | Q6 | The Windows host in files of at most 1 000 lines, and the size guard measures everything under `launcher/` | landed | `.claude/plans/quality/PLAN-Q6.md` | 2026-10-13 |
 | Q7 | The suite always returns: a failing test cannot leave a listening stub that keeps `npm test` alive | landed | — | 2026-10-13 |
 | Q8 | Every data-dir reader opens its file the FIFO-safe way (`readSmallRegularFile`) | landed | — | 2026-10-13 |
-| Q9 | Real bugs from the 2026-11-22 audit: a `null` WS frame crashes the backend, no WS `maxPayload`, no backpressure to a stalled browser, the End-session arm lost on every poll, git polled while the window is hidden | todo | — | — |
-| Q10 | The suite's idle tails: ref'd race timers keep 66 files alive 5–15 s; one `withDeadline` helper; the pty-host CI leg runs only the server tests | todo | — | — |
+| Q9 | Real bugs from the 2026-11-22 audit: a `null` WS frame crashes the backend, no WS `maxPayload`, no backpressure to a stalled browser, the End-session arm lost on every poll, git polled while the window is hidden | landed | — | 2026-11-22 |
+| Q10 | The suite's idle tails: ref'd race timers keep 66 files alive 5–15 s; one `withDeadline` helper; the pty-host CI leg runs only the server tests | landed | — | 2026-11-22 |
 | Q11 | Dead code, needless exports, duplicates that differ, stale comments — `server/`, `shared/`, `web/` | todo | — | — |
 | Q12 | The app's speed: the output path (encode/copy once, ring without `shift()`, stringify once per broadcast), the logger's open/close per line, renders skipped when nothing changed, xterm in its own chunk | todo | — | — |
 | Q13 | Files at 950+ of 1 000 lines cut at their natural seams | todo | — | — |
@@ -184,7 +184,7 @@ v1 storage / Legacy theme migrations, `?demo` out of the prod bundle.
   server ≈40), test-only dead helpers (`isKeyShaped`,
   `RingBuffer.toString`), bounded reads into `readSmallRegularFile`,
   inline plain-object checks onto `plainObject`, one child-process runner
-  core, `HASH_RE`→`FULL_HASH`, the UUID twins, `isValidDim`, stale
+  core, `HASH_RE`→`FULL_HASH`, the UUID twins, stale
   comments fixed, `dnd.ts` top-level listener into an init.
 - **Q12** — the output path and its hot spots, measured before and after;
   every change pinned by the existing suite plus a test where the shape

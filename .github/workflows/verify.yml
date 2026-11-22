@@ -107,11 +107,14 @@ jobs:
       - name: Run the test suite
         run: npm test
 
-  # The same suite with every test backend over a real pty-host (Nocturne D9
+  # The non-UI suite with every test backend over a real pty-host (Nocturne D9
   # P3): by default a test backend runs its PTYs in-process
   # (AI_SM_PTY_HOST=inproc, tests/helpers/test-server.ts), so this leg is what
   # proves the sessions, lifecycle, restart and history suites hold when the
   # PTYs live in the separate session-holder process the app really uses.
+  # `npm run test:server` (server, release and repo tests): the tests/ui/
+  # files run on a DOM double and never start a backend or a pty, so a second
+  # run of them here would prove nothing the `test` job has not (Q10).
   test-pty-host:
     name: backend test suite (pty-host)
     runs-on: ubuntu-latest
@@ -140,8 +143,8 @@ jobs:
       - name: Build the frontend
         run: npm run build
 
-      - name: Run the test suite over a real pty-host
-        run: npm test
+      - name: Run the non-UI test suite over a real pty-host
+        run: npm run test:server
 
   # Proves the self-contained Linux bundle still builds AND boots: the smoke
   # test inside build-bundle.sh starts the packaged backend, checks that it

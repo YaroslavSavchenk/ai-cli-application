@@ -41,6 +41,7 @@ import {
   FakeText,
   oneByClass as one,
 } from '../helpers/fake-dom.ts';
+import { drainMicrotasks } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -177,13 +178,8 @@ NP.initNewProjectDialog(modalHost);
 const apScrim = modalHost.children[0] as FakeElement;
 const apModal = apScrim.children[0] as FakeElement;
 
-/** Three microtask turns: the ensureHome / fsList / probe promises settle. */
-const settle = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-};
+/** Four microtask turns: the ensureHome / fsList / probe promises settle. */
+const settle = (): Promise<void> => drainMicrotasks(4);
 
 /** The picker's scrim is whatever the picker appended to the host, i.e. the last. */
 const pkScrim = (): FakeElement => {

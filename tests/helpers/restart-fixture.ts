@@ -7,7 +7,7 @@
  * rebuilds and swaps what it serves — never the working tree's own web/dist);
  * the RestartController harness with every OS-touching dependency injected and
  * a fake clock (and, D9 P4, the session facts and the standby's pty-host
- * verdict it decides the sessions' fate from); a bound on a promise that turns a hang into a failure; a fake
+ * verdict it decides the sessions' fate from); a fake
  * `vite build` and a repo root to run it in; a ChildProcess stand-in for the
  * standby starter; and runtime.json / pid probes for real processes.
  */
@@ -175,32 +175,6 @@ export function harness(opts: {
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   };
   return { controller: new RestartController(deps), events, spawned, exits, logLines, fates };
-}
-
-/**
- * Await `p`, but never for longer than `ms`.
- *
- * The 409 guard is what the two 409 tests in tests/server/restart.test.ts are
- * FOR, and a regression that removes it does not turn them red — it makes the
- * second request run the whole sequence, block on the very gate the first
- * request is holding, and hang `npm test` forever. (Measured: dropping
- * `|| this.#preflighting` from server/restart.ts hangs the file instead of
- * failing it.) A hang is a strictly worse failure mode than an assertion, so
- * this bound turns it back into one.
- */
-export async function within<T>(p: Promise<T>, what: string, ms = 5_000): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      p,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms}ms`)), ms);
-        timer.unref();
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
 }
 
 /** A fake `vite build`: writes what `write` says, then exits with `code`. */

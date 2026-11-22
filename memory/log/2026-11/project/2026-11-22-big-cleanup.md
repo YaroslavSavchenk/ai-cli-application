@@ -30,3 +30,34 @@ wrong: `design/session-manager/session-manager-v3.html` loads it, so it
 stays. References updated in `README.md`, `design/README.md`,
 `.claude/plans/nocturne/PLAN-B8.md` and two decision notes; `memory/log/`
 keeps its paths.
+
+## Q10 — the suite's idle tails
+
+`Promise.race([x, delay(N)])` with a ref'd `timers/promises` timer kept 66
+test files alive 5–15 s after their last test (40 % of the summed per-file
+time). Now `settleWithin` / `withDeadline` in `tests/helpers/helpers.ts`
+(timer cleared and unref'd; every call site still fails or kills on a
+timeout). Also one `drainMicrotasks`, one `sessionInfo()` factory with a
+fixed `createdAt`, the dead `design/` skips are failures, and the
+`test-pty-host` CI leg runs `npm run test:server` (no `tests/ui` file starts a
+backend). Full suite 72.7 s → 49.2 s wall, 4619 / 0.
+
+## Q9 — real bugs
+
+- A session WS text frame `null` threw in `server/ws.ts` →
+  `uncaughtException` → exit: every session gone. Frames go through
+  `plainObject()` now. Reachable only with the token, but a client bug was
+  enough.
+- `maxPayload` 16 MiB (was the `ws` default 100 MiB). The browser now sends a
+  paste in ≤ 1 Mi-unit `input` frames (never splitting a surrogate pair) —
+  without that, a paste over the cap was lost silently.
+- Backpressure: a client with > 16 MiB unsent is closed with 1013
+  (`SLOW_CLIENT_CLOSE_CODE`, `shared/protocol.ts`); the security review found
+  a live-but-slow tab would loop close→reconnect→replay every ~0.5 s, so the
+  client retries a 1013 at the 5 s maximum and the log line is limited to 3
+  per minute per session.
+- Web: the exited note re-rendered on every 3 s poll, which un-armed "End
+  session → Sure?" and dropped focus — `noteSig` guard. The Files panel's git
+  poll pauses while the window is hidden (user's pick); the session poll stays
+  (health probe).
+- `isValidDim` has one home in `server/config.ts`.

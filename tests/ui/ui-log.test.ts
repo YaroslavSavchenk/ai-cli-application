@@ -23,7 +23,6 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setTimeout as delay } from 'node:timers/promises';
 import {
   ClientLogger,
   MAX_BATCH_BYTES,
@@ -41,6 +40,7 @@ import {
   type LogLevel,
   type SendResult,
 } from '../../web/src/log-core.ts';
+import { settleTimers } from '../helpers/helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Harness — a controllable stand-in for the browser
@@ -102,11 +102,6 @@ function harness(): Harness {
     notice: (message) => void notices.push(message),
   });
 
-  const settle = async (): Promise<void> => {
-    // A flush is a promise chain (send -> decide -> maybe flush again); a few
-    // macrotask hops let it finish before assertions look at the results.
-    for (let i = 0; i < 8; i++) await delay(0);
-  };
 
   return {
     logger,
@@ -124,9 +119,11 @@ function harness(): Harness {
     async tick() {
       const due = timers.splice(0, timers.length).filter((t) => !t.cancelled);
       for (const t of due) t.fn();
-      await settle();
+      await settleTimers();
     },
-    settle,
+    // A flush is a promise chain (send -> decide -> maybe flush again); a few
+    // macrotask hops let it finish before assertions look at the results.
+    settle: settleTimers,
   };
 }
 

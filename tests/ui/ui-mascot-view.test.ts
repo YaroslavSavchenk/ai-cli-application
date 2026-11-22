@@ -40,6 +40,7 @@ import {
   type Dom,
 } from '../helpers/fake-dom.ts';
 import { withAnimations } from '../helpers/mascot-page.ts';
+import { drainMicrotasks } from '../helpers/helpers.ts';
 
 const dom: Dom = installDom();
 
@@ -50,8 +51,8 @@ type View = InstanceType<typeof MascotView>;
 
 const REPO = new URL('../..', import.meta.url);
 // The handoff is a design asset, tracked in git since 2026-09-21 (like
-// design/session-manager) — the keyframe parity test still skips where it
-// is absent instead of failing the whole file at import.
+// design/session-manager): the keyframe parity test FAILS when it is absent
+// (Q10) — read inside that test, so the rest of the file still runs.
 const README_PATH = fileURLToPath(new URL('design/peek-mascot/README.md', REPO));
 const CSS = readFileSync(fileURLToPath(new URL('web/src/mascot/mascot.css', REPO)), 'utf8');
 
@@ -537,11 +538,8 @@ test('destroy takes the whole stage out of the page', () => {
 // The stylesheet against the handoff
 // ---------------------------------------------------------------------------
 
-test('every keyframe block is the handoff\'s, character for character', (t) => {
-  if (!existsSync(README_PATH)) {
-    t.skip('design/peek-mascot/README.md is not present in this checkout — keyframe parity cannot be checked here');
-    return;
-  }
+test('every keyframe block is the handoff\'s, character for character', () => {
+  assert.ok(existsSync(README_PATH), 'design/peek-mascot/README.md is missing — it is tracked, so keyframe parity must be checkable');
   const wanted = readFileSync(README_PATH, 'utf8').split('\n').filter((l) => l.startsWith('@keyframes'));
   // `pmRetreat` is Nocturne D8's step back, not the handoff's (pinned in
   // tests/ui/ui-mascot-presence.test.ts).
@@ -645,7 +643,7 @@ test('rects(): while an entrance runs a mascot claims the whole stage, then sett
       assert.deepEqual(view.rects(), [[1380, 280, 220, 340]], 'mid-climb: the whole stage');
       assert.deepEqual(settled, []);
       done();
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await drainMicrotasks(5);
       assert.equal(settled.length, 1, 'onSettle once the entrance is over');
       assert.deepEqual(view.rects(), [[1434, 364, 132, 152]], 'then the tight box');
       view.destroy();
@@ -661,7 +659,7 @@ test('rects(): with no running animation (reduced motion) a mascot is settled th
       model.setCount(1);
       setRect(layersOf(byClass(root, 'pm-pos')[0]!).react, { left: 1450, top: 380, width: 100, height: 120 });
       assert.deepEqual(view.rects(), [[1434, 364, 132, 152]], 'tight at once: nothing to wait on');
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await drainMicrotasks(5);
       assert.deepEqual(settled, [], 'and no settle report for an entrance that never ran');
       view.destroy();
     },
@@ -688,7 +686,7 @@ test('rects(): a position MOVE alone (the .7s bottom transition) is watched too,
       running = [];
       assert.deepEqual(view.rects()[1], [1380, 280, 220, 340], 'mid-move: the whole stage, never a stale box');
       done();
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await drainMicrotasks(5);
       assert.equal(settled.length, 1, 'onSettle when the move ends');
       assert.deepEqual(view.rects()[1], [1434, 364, 132, 152], 'then the tight box where it stands');
       view.destroy();

@@ -122,22 +122,34 @@ export function createGit(ctx: FilesCtx): GitPart {
    * skipped by the fetch itself. ONE timer serves both watching tabs: which
    * question it asks is decided when it FIRES, so switching between them costs
    * no timer churn and can never leave two running.
+   *
+   * A HIDDEN DOCUMENT asks nothing either (user decision 2026-11-22): a
+   * minimised window would otherwise keep the backend spawning `git` every
+   * 5 s for nobody. The tick skips while hidden, the way `runtimePoll` in
+   * `main-shell.ts` does, and the window coming back asks once at once and
+   * then keeps the rhythm. The `visibilitychange` listener lives exactly as
+   * long as the timer — added when the poll arms, removed when it drops.
    */
+  function pollTick(): void {
+    if (document.visibilityState !== 'visible') return;
+    const root = ctx.currentPath;
+    if (root === null) return;
+    if (ctx.tab === 'changes') fetchChanges(root);
+    else if (ctx.tab === 'commits') fetchCommits(root, 0);
+  }
+
   function syncPoll(): void {
     const watching = ctx.tab === 'changes' || ctx.tab === 'commits';
     const want = st.filesPanelVisible() && watching && ctx.currentPath !== null;
     if (want && pollId === null) {
-      pollId = window.setInterval(() => {
-        const root = ctx.currentPath;
-        if (root === null) return;
-        if (ctx.tab === 'changes') fetchChanges(root);
-        else if (ctx.tab === 'commits') fetchCommits(root, 0);
-      }, CHANGES_POLL_MS);
+      pollId = window.setInterval(pollTick, CHANGES_POLL_MS);
+      document.addEventListener('visibilitychange', pollTick);
       return;
     }
     if (!want && pollId !== null) {
       window.clearInterval(pollId);
       pollId = null;
+      document.removeEventListener('visibilitychange', pollTick);
     }
   }
 

@@ -19,8 +19,9 @@
  *
  * NOT claimed: that no test leaks on its failure path (the guard ends the
  * file's process; a child it orphaned lives on — that is each test's own
- * `finally`/`after`). CI calls `npm test` (`.github/workflows/verify.yml`),
- * so it inherits the flags without a workflow change. `node --test <file>`
+ * `finally`/`after`). CI calls `npm test` and `npm run test:server`
+ * (`.github/workflows/verify.yml`), so it inherits the flags without a
+ * workflow change. `node --test <file>`
  * run by hand has no guard.
  */
 import test from 'node:test';

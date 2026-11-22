@@ -14,9 +14,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import type { RuntimeInfo } from '../../shared/protocol.ts';
-import { projectRoot, waitUntil } from './helpers.ts';
+import { projectRoot, settleWithin, waitUntil } from './helpers.ts';
 import { stopDataDirPtyHost } from './pty-host-backend-fixture.ts';
 
 /** The suite runs every test backend over a real pty-host (CI's socket leg, D9 P3). */
@@ -154,7 +153,7 @@ export async function startTestServer(
     async stop(): Promise<void> {
       if (!exited) {
         child.kill('SIGTERM');
-        const done = await Promise.race([exit, delay(5_000).then(() => undefined)]);
+        const done = await settleWithin(exit, 5_000);
         if (done === undefined) {
           child.kill('SIGKILL');
           await exit;

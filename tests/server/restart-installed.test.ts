@@ -26,7 +26,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import type {
   HistoryEntry,
   RestartResponse,
@@ -45,6 +44,7 @@ import {
   api,
   createSession,
   readServerLog,
+  settleWithin,
   startTestServer,
   waitForLog,
   waitUntil,
@@ -292,7 +292,7 @@ test('REAL installed restart: the port is handed to <app>/current, and the new p
     assert.equal(child.port, server.port);
     assert.equal(child.appDir, app.dir('v2'), 'the new process runs from the NEW version directory');
 
-    const exit = await Promise.race([server.exit, delay(15_000).then(() => undefined)]);
+    const exit = await settleWithin(server.exit, 15_000);
     assert.ok(exit !== undefined && exit.code === 0, `the old process exits 0 (${JSON.stringify(exit)})`);
 
     // The replacement is the v2 bundle, serving v2's own web/dist, with nothing
@@ -459,7 +459,7 @@ test('REAL installed restart IN PLACE: `current` still names this version — 20
     assert.equal(child.appDir, app.dir('v1'), 'running out of the same bundle');
     assert.equal(child.startedAt, body.startedAt);
 
-    const exit = await Promise.race([server.exit, delay(15_000).then(() => undefined)]);
+    const exit = await settleWithin(server.exit, 15_000);
     assert.ok(exit !== undefined && exit.code === 0, `the old process exits 0 (${JSON.stringify(exit)})`);
     assert.equal(isAlive(oldPid), false);
 

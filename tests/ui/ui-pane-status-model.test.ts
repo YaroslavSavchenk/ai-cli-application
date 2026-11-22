@@ -45,6 +45,7 @@ import {
   type StatusLineCfg,
 } from '../../web/src/ui/statusline-model.ts';
 import { readSource } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 /** A fixed clock and a `createdAt` a known distance before it. */
 const NOW = Date.parse('2026-09-10T12:00:00.000Z');
@@ -54,20 +55,15 @@ const HOUR = 60 * MIN;
 
 /** A running session, exactly as `GET /api/sessions` shapes it. */
 function session(over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id: 's1',
+  return sessionInfo({
     title: 'work',
-    command: 'claude',
-    args: [],
     cwd: '/home/u/projects/app',
-    status: 'running',
     cols: 120,
     rows: 30,
     createdAt: ago(5 * MIN),
-    attention: false,
     statusline: true,
     ...over,
-  };
+  });
 }
 
 /**

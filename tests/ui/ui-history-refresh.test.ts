@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { mkHistoryEntry as mkEntry } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 // ---------------------------------------------------------------------------
 // Browser shims — installed BEFORE the modules under test are imported
@@ -84,18 +85,7 @@ const hist = await import('../../web/src/ui/history.ts');
 // ---------------------------------------------------------------------------
 
 function mkSession(id: string, status: SessionInfo['status'] = 'running'): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/tmp/work',
-    status,
-    cols: 80,
-    rows: 24,
-    createdAt: '2026-09-06T10:00:00.000Z',
-    attention: false,
-  };
+  return sessionInfo({ id, status });
 }
 
 /** Wait until `calls.length` reaches `n`, or fail with a deadline. */

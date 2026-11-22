@@ -26,7 +26,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource } from '../helpers/helpers.ts';
+import { drainMicrotasks, readSource } from '../helpers/helpers.ts';
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -191,7 +191,7 @@ test('a session socket dropped OUTSIDE a restart keeps its normal behaviour', as
   const sock = new ws.SessionSocket('sess-2', { ...noopHandlers, onConn: (s) => conn.push(s) });
   const socket = created[0] as FakeWebSocket;
   socket.simulateClose();
-  for (let i = 0; i < 4; i++) await Promise.resolve();
+  await drainMicrotasks(4);
   assert.deepEqual(fetches, ['/api/sessions'], 'the unguarded path still probes');
   // The shimmed fetch answers 401 -> the socket dies, exactly as before.
   assert.equal(conn.at(-1), 'dead');
@@ -290,8 +290,8 @@ function recovery(opts: { healthyAfter?: number; throwOnProbe?: boolean }): Reco
 }
 
 /** Let the recovery's async tail run to completion (its clock never really waits). */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 200; i++) await Promise.resolve();
+function settle(): Promise<void> {
+  return drainMicrotasks(200);
 }
 
 test('a rejected token with a LIVE backend reloads instead of showing the panic panel', async () => {
@@ -376,7 +376,7 @@ test('a session socket 401 DURING the recovery parks the pane instead of killing
     return { ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) };
   };
   socket.simulateClose();
-  for (let i = 0; i < 6; i++) await Promise.resolve();
+  await drainMicrotasks(6);
 
   assert.deepEqual(fetches, ['/api/sessions']);
   assert.ok(!conn.includes('dead'), 'the pane is parked, not buried');

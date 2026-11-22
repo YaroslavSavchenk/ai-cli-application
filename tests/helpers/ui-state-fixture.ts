@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { MemoryStorage } from './fake-dom.ts';
+import { sessionInfo } from './session-info.ts';
 
 export const memoryStorage = new MemoryStorage();
 (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = memoryStorage;
@@ -43,18 +44,7 @@ export type ViewRoot = import('../../web/src/state.ts').ViewRoot;
 export const REOPEN: import('../../web/src/state.ts').LoadUiOpts = { reopen: true, run: null };
 
 export function mkSession(id: string): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'bash',
-    args: [],
-    cwd: '/tmp',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date().toISOString(),
-    attention: false,
-  };
+  return sessionInfo({ id, command: 'bash', cwd: '/tmp' });
 }
 
 /** Full reset of the module singleton between tests (no fresh-import isolation in ESM). */

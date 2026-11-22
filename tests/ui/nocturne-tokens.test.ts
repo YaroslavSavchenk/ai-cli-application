@@ -155,11 +155,9 @@ function fixtureTokens(): Map<string, string> {
   return new Map(Object.entries(parsed.tokens));
 }
 
-test('A1 (a0): the committed fixture is a faithful snapshot of the handoff styles.css (when the handoff is present)', (t) => {
-  if (!existsSync(DS_DIR)) {
-    t.skip(`${rel(DS_DIR)} is not present in this checkout — fixture parity cannot be checked here`);
-    return;
-  }
+test('A1 (a0): the committed fixture is a faithful snapshot of the handoff styles.css', () => {
+  // design/ is tracked: a missing handoff is a broken checkout, not a reason to skip.
+  assert.ok(existsSync(DS_DIR), `${rel(DS_DIR)} is missing — it is tracked, so fixture parity must be checkable`);
   const dirs = readdirSync(DS_DIR).filter((d) => d.startsWith('nocturne-'));
   assert.equal(
     dirs.length,

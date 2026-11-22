@@ -44,6 +44,8 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import type { SessionInfo, UpdateStatus } from '../../shared/protocol.ts';
 import { byClass, dispatch, installDom, type FakeElement, oneByClass as one } from '../helpers/fake-dom.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
+import { drainMicrotasks } from '../helpers/helpers.ts';
 
 const dom = installDom();
 
@@ -199,25 +201,10 @@ const btn = (label: string): FakeElement => {
   return hit;
 };
 /** Let the awaited chain inside the module settle. */
-const settle = async (): Promise<void> => {
-  for (let i = 0; i < 8; i += 1) await Promise.resolve();
-};
+const settle = (): Promise<void> => drainMicrotasks(8);
 
 function session(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    projectId: 'p1',
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/tester/api',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: new Date(0).toISOString(),
-    attention: false,
-    ...over,
-  } as SessionInfo;
+  return sessionInfo({ id, projectId: 'p1', cwd: '/home/tester/api', createdAt: new Date(0).toISOString(), ...over });
 }
 
 function setSessions(...s: SessionInfo[]): void {

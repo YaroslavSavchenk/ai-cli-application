@@ -49,6 +49,15 @@ export async function settleTimers(): Promise<void> {
   for (let i = 0; i < 8; i++) await delay(0);
 }
 
+/**
+ * `turns` microtask turns and nothing more: a fake's promise chain lands, while
+ * no timer and no `setImmediate` callback gets to run — a test that holds a
+ * promise open still sees it held. Each caller names its count and why.
+ */
+export async function drainMicrotasks(turns: number): Promise<void> {
+  for (let i = 0; i < turns; i++) await Promise.resolve();
+}
+
 /** One `setImmediate` turn: every callback already queued has run. */
 export function nextImmediate(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -199,6 +208,49 @@ export async function waitUntil<T>(
     }
     await delay(intervalMs);
   }
+}
+
+/**
+ * `p`, or `fallback` once `ms` have passed. The timer is unref'd and cleared
+ * the moment `p` settles: a `Promise.race` against a bare `delay(ms)` keeps its
+ * timer — and with it the whole test file — alive for the full `ms` after the
+ * race was won (Q10: 66 files idled 5–15 s after their last test that way).
+ */
+async function raceTimer<T, F>(p: Promise<T>, ms: number, fallback: F): Promise<T | F> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<F>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+        timer.unref();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * `p`, or `undefined` once `ms` have passed — for a wait whose caller decides
+ * what a timeout means (a SIGKILL after a polite SIGTERM, an assertion with its
+ * own message). Timer unref'd and cleared on settle (`raceTimer`).
+ */
+export function settleWithin<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return raceTimer(p, ms, undefined);
+}
+
+const TIMED_OUT: unique symbol = Symbol('timed out');
+
+/**
+ * `p`, or a rejection `<what> did not settle within <ms>ms` — a wait that must
+ * never hang the file: a regression that leaves `p` pending turns into a red
+ * test instead of a run that never ends. Timer unref'd and cleared on settle.
+ */
+export async function withDeadline<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  const value = await raceTimer(p, ms, TIMED_OUT);
+  if (value === TIMED_OUT) throw new Error(`${what} did not settle within ${ms}ms`);
+  return value;
 }
 
 // The server child (`startTestServer`, `TestServer`, `ExitInfo`) lives in

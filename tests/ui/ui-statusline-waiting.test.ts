@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import type { SessionInfo } from '../../shared/protocol.ts';
 import { byClass, installDom, type FakeElement } from '../helpers/fake-dom.ts';
 import { readSource, readSources } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 const dom = installDom();
 
@@ -22,19 +23,7 @@ const bar = (await import(
 )) as typeof import('../../web/src/ui/statusline.ts');
 
 function mk(id: string, over: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    title: id,
-    command: 'claude',
-    args: [],
-    cwd: '/home/tester/api',
-    status: 'running',
-    cols: 80,
-    rows: 24,
-    createdAt: '2026-09-22T10:00:00.000Z',
-    attention: false,
-    ...over,
-  };
+  return sessionInfo({ id, cwd: '/home/tester/api', createdAt: '2026-09-22T10:00:00.000Z', ...over });
 }
 
 const root = dom.doc.createElement('div') as unknown as FakeElement;

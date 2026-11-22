@@ -590,6 +590,14 @@ export type ServerMessage =
   | AttentionMessage
   | InfoMessage;
 
+/**
+ * Q9: the close code ("try again later") the server sends a client whose
+ * unsent frames passed its cap (server/sessions.ts). The browser
+ * (web/src/ws.ts) reconnects after it at its longest backoff, so a tab too
+ * slow for the output does not loop close -> replay -> close twice a second.
+ */
+export const SLOW_CLIENT_CLOSE_CODE = 1013;
+
 /** Keyboard/paste input for the PTY. */
 export interface InputMessage {
   type: 'input';

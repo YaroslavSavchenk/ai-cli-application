@@ -41,7 +41,8 @@ import {
 import { MascotModel, REACTIONS } from '../../web/src/mascot/model.ts';
 import { clampMascot, getMascotEnabled, initMascot, mascotPatch } from '../../web/src/ui/prefs-model.ts';
 import { onFocusSession, parseFocusSession, type HostWindow } from '../../web/src/ui/host-bridge.ts';
-import { readSource as read, readSources } from '../helpers/helpers.ts';
+import { drainMicrotasks, readSource as read, readSources } from '../helpers/helpers.ts';
+import { sessionInfo } from '../helpers/session-info.ts';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -148,8 +149,8 @@ function rig(): Rig {
       r.now = end;
       await r.flush();
     },
-    async flush() {
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+    flush() {
+      return drainMicrotasks(10);
     },
   };
   r.feed = new MascotFeed({
@@ -532,31 +533,11 @@ test('the store: markSeenLocally clears the BEL only, keeps `turnEnded` + its pe
   g.localStorage ??= new MemoryStorage();
   g.window ??= { setTimeout, clearTimeout, __AUTH__: 't' };
   const st = await import('../../web/src/state.ts');
-  const base = {
-    command: 'claude',
-    args: [],
-    cwd: '/tmp',
-    cols: 80,
-    rows: 24,
-    createdAt: '2026-09-22T10:00:00.000Z',
-  };
-  const both = {
-    ...sess(A, { attention: true, turnEnded: true, pendingSince: '2026-09-22T10:00:00.000Z' }),
-    ...base,
-  } as unknown as SessionInfo;
-  const belOnly = {
-    ...sess(B, { attention: true, pendingSince: '2026-09-22T10:00:01.000Z' }),
-    ...base,
-  } as unknown as SessionInfo;
-  const turnOnly = {
-    ...sess(C, { turnEnded: true, pendingSince: '2026-09-22T10:00:02.000Z' }),
-    command: 'claude',
-    args: [],
-    cwd: '/tmp',
-    cols: 80,
-    rows: 24,
-    createdAt: '2026-09-22T10:00:00.000Z',
-  } as unknown as SessionInfo;
+  const full = (part: Partial<SessionInfo>): SessionInfo =>
+    sessionInfo({ cwd: '/tmp', createdAt: '2026-09-22T10:00:00.000Z', ...part });
+  const both = full(sess(A, { attention: true, turnEnded: true, pendingSince: '2026-09-22T10:00:00.000Z' }));
+  const belOnly = full(sess(B, { attention: true, pendingSince: '2026-09-22T10:00:01.000Z' }));
+  const turnOnly = full(sess(C, { turnEnded: true, pendingSince: '2026-09-22T10:00:02.000Z' }));
   st.initServer([], [both, belOnly, turnOnly]);
   assert.equal(st.attentionCount(), 2, 'a turn that ended is not a BEL');
   let notified = 0;
