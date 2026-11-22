@@ -1,6 +1,6 @@
 # Plan: code quality first, then the app's speed
 
-Status: see the table below (updated 2026-10-13, Q5–Q8 added). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-11-22, Q9–Q15 added). Conventions: `.claude/plans/README.md`.
 
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
@@ -19,6 +19,13 @@ Status: see the table below (updated 2026-10-13, Q5–Q8 added). Conventions: `.
 | Q6 | The Windows host in files of at most 1 000 lines, and the size guard measures everything under `launcher/` | landed | `.claude/plans/quality/PLAN-Q6.md` | 2026-10-13 |
 | Q7 | The suite always returns: a failing test cannot leave a listening stub that keeps `npm test` alive | landed | — | 2026-10-13 |
 | Q8 | Every data-dir reader opens its file the FIFO-safe way (`readSmallRegularFile`) | landed | — | 2026-10-13 |
+| Q9 | Real bugs from the 2026-11-22 audit: a `null` WS frame crashes the backend, no WS `maxPayload`, no backpressure to a stalled browser, the End-session arm lost on every poll, git polled while the window is hidden | todo | — | — |
+| Q10 | The suite's idle tails: ref'd race timers keep 66 files alive 5–15 s; one `withDeadline` helper; the pty-host CI leg runs only the server tests | todo | — | — |
+| Q11 | Dead code, needless exports, duplicates that differ, stale comments — `server/`, `shared/`, `web/` | todo | — | — |
+| Q12 | The app's speed: the output path (encode/copy once, ring without `shift()`, stringify once per broadcast), the logger's open/close per line, renders skipped when nothing changed, xterm in its own chunk | todo | — | — |
+| Q13 | Files at 950+ of 1 000 lines cut at their natural seams | todo | — | — |
+| Q14 | Documents: `.claude/PROJECT-SCOPE.md` § Open decisions to history, `memory/BACKLOG.md` done items out, released notes drafts gone, agent definitions current | todo | — | — |
+| Q15 | Dependencies: the open bumps (vite, source-map-js, `@types/*`), `.github/dependabot.yml` for npm and the pinned GitHub Actions | todo | — | — |
 
 ## Resume here
 
@@ -151,3 +158,40 @@ answer the same day: the size guard covers `launcher/` with the same
   the `readRuntime` seam in `server/index-restart.ts`. One pass, a cap per
   file, a `mkfifo` test each (the reader returns, the file counts as
   absent/invalid, a WARN line). A symlink is refused the same way.
+
+Added 2026-11-22 — the user: "een grote opruiming en code optimalisatie …
+jij moet dat uitvoeren". Three read-only audits (server/shared, web,
+tests/docs) produced the candidates; the user picked all six batches, git
+polling paused while the window is hidden (the session poll stays: it is
+the health probe), the design leftovers removed (PLAN-RESTRUCTURE O9),
+merged branches removed, Dependabot bumps and a `dependabot.yml`. Kept
+OUT unless the user asks: one duration format for the four formatters
+(visible UI copy), deleting the 16 unused handoff tokens, dropping the
+v1 storage / Legacy theme migrations, `?demo` out of the prod bundle.
+
+- **Q9** — `server/ws.ts`: a parsed frame that is not a plain object is
+  refused, never dereferenced; a `maxPayload` that still fits the largest
+  paste the client sends; a browser client whose `bufferedAmount` passes a
+  cap is closed (it reattaches and gets the replay). `web/`: the exited
+  note re-renders only when its signature changes; the Files panel's git
+  poll pauses while `document.visibilityState` is hidden. A test per fix.
+- **Q10** — test-only: `tests/helpers/test-server.ts` and the race sites
+  in the restart/discovery/lifecycle/update/runtime tests use one unref'd,
+  cleared deadline helper; the `test-pty-host` CI leg runs
+  `npm run test:server`; one `drainMicrotasks`; one `sessionInfo()`
+  factory; the dead `t.skip` branches for `design/` become failures.
+- **Q11** — behaviour-preserving: unused exports dropped (web ≈60,
+  server ≈40), test-only dead helpers (`isKeyShaped`,
+  `RingBuffer.toString`), bounded reads into `readSmallRegularFile`,
+  inline plain-object checks onto `plainObject`, one child-process runner
+  core, `HASH_RE`→`FULL_HASH`, the UUID twins, `isValidDim`, stale
+  comments fixed, `dnd.ts` top-level listener into an init.
+- **Q12** — the output path and its hot spots, measured before and after;
+  every change pinned by the existing suite plus a test where the shape
+  changes.
+- **Q13** — `server/config.ts` (logging), `server/update-install.ts`
+  (interop), `server/github.ts`, `server/sessions.ts` (adopt/detach),
+  `server/agents.ts`, `web/src/ui/launch.ts` (tools), `panes.ts` (split),
+  `github.ts` (new repo / token), `styles/app-panels.css` (files).
+- **Q14** — text only; history moved verbatim, never lost.
+- **Q15** — on a branch, suite + CI green, then merged.

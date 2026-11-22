@@ -113,7 +113,9 @@ author's home path in the prototypes' mock data was scrubbed to `/home/you`
 The v2 files that came inside `design/session-manager/` (`README.md`,
 `session-manager-prototype.html`, `CLAUDE_CODE_PROMPT.md`, superseded by the
 v3 files) were deleted in Nocturne B8 (2026-09-22); `design/archive/handoff-v1/`
-stays.
+stayed until 2026-11-22, when the user had it removed together with the
+unused `_ds_manifest.json` and `_adherence.oxlintrc.json` (O9; `_ds_bundle.js`
+stays — `session-manager-v3.html` loads it). Git history keeps them.
 
 ## Move map — batch 4 (2026-09-23)
 

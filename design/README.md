@@ -2,9 +2,12 @@
 
 | Folder | What | In git |
 | --- | --- | --- |
-| `session-manager/` | The current handoff: the Nocturne design (v3) — `README-v3.md` is the spec, `session-manager-v3.html` and `_ds/` the reference, `app-icon.svg` the icon source for `launcher/make-icon.mjs` | yes (since 2026-09-21) |
+| `session-manager/` | The current handoff: the Nocturne design (v3) — `README-v3.md` is the spec, `session-manager-v3.html` and `_ds/` (`styles.css`, `readme.md`, the `_ds_bundle.js` stub the HTML loads) the reference, `app-icon.svg` the icon source for `launcher/make-icon.mjs` | yes (since 2026-09-21) |
 | `peek-mascot/` | The peek mascot handoff (Nocturne C1): `README.md` is the spec, keyframes and SVG are recreated verbatim in `web/src/mascot/` | yes, except `support.js` |
-| `archive/handoff-v1/` | The first hi-fi handoff (2026-07-20), superseded for visuals by Nocturne | yes |
+
+The first hi-fi handoff (2026-07-20, `archive/handoff-v1/`) and the design
+tool's unused `_ds_manifest.json` / `_adherence.oxlintrc.json` were removed
+2026-11-22 (user's call, PLAN-RESTRUCTURE O9); git history keeps them.
 
 Both handoffs are the user's own design files, tracked since 2026-09-21 (his
 call), so `tests/ui/nocturne-tokens.test.ts` and `tests/ui/ui-mascot-view.test.ts`

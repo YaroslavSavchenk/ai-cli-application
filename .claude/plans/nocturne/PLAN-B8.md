@@ -55,7 +55,7 @@ Part B8 of `.claude/plans/PLAN-NOCTURNE.md`. Conventions: `.claude/plans/README.
   interaction details v3 lacked) are deleted, every reference updated (the
   plan-citation test must stay green; `memory/log/` keeps its paths —
   history). `design/archive/handoff-v1/` stays (archive by design,
-  `memory/decisions/repo-layout.md`). Any `:Zone.Identifier` files that are
+  `memory/decisions/repo-layout.md`; removed later, 2026-11-22, PLAN-RESTRUCTURE O9). Any `:Zone.Identifier` files that are
   TRACKED are removed; ignored ones are left.
 - **Legacy code:** anything in `web/src/` or `server/` still serving the
   Legacy UI only (steam-blend names, dead role tokens, comments that describe
