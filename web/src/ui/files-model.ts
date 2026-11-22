@@ -41,7 +41,7 @@ export interface FileChange {
 }
 
 /** A folder or file in the derived tree. */
-export interface TreeNode {
+interface TreeNode {
   /** Full path from the root (the folder key the open-set uses). */
   path: string;
   /** Last segment — the only thing ever rendered. */
@@ -75,7 +75,7 @@ export interface TreeRow {
 }
 
 /** The summary row's three numbers. */
-export interface DiffSummary {
+interface DiffSummary {
   add: number;
   del: number;
   /** How many files carry a diff. */
@@ -297,7 +297,7 @@ export const BADGE_KINDS = [
   'lockfile',
   'plain',
 ] as const;
-export type BadgeKind = (typeof BADGE_KINDS)[number];
+type BadgeKind = (typeof BADGE_KINDS)[number];
 
 /**
  * Every glyph the classifier can hand out. Language and tool LOGOS are Simple

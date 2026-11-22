@@ -24,9 +24,8 @@
  * seeds the mirror of an adopted session.
  *
  * Reached through server/pty-host-api.ts (the `PtyHost` interface and its
- * in-process implementation); server/sessions.ts and
- * server/sessions-output.ts re-export what their importers already used
- * (`signalableChildPid`, `RingBuffer`).
+ * in-process implementation); server/sessions-state.ts and
+ * server/sessions-output.ts import `RingBuffer` straight from here.
  */
 import { fstatSync, readSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
@@ -143,10 +142,6 @@ export class RingBuffer {
   /** The ring's bytes, oldest first — what `replayTail` cuts without decoding. */
   toBuffer(): Buffer {
     return Buffer.concat(this.#chunks);
-  }
-
-  toString(): string {
-    return this.toBuffer().toString('utf8');
   }
 
   /**

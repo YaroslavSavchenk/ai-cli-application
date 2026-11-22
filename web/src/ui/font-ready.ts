@@ -110,7 +110,7 @@ export function terminalFontSpecs(stack: string, sizePx: number): string[] {
  * --font-mono would hand every terminal the fallback's cell width with
  * nothing in server.log and no repair left armed.
  */
-export type FontReadiness = 'yes' | 'no' | 'unparseable';
+type FontReadiness = 'yes' | 'no' | 'unparseable';
 
 export function allLoaded(fonts: FontFaceSetLike, specs: string[]): FontReadiness {
   for (const spec of specs) {

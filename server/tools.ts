@@ -105,7 +105,7 @@ export async function probeTools(
   return out;
 }
 
-export interface ToolsProbeOptions {
+interface ToolsProbeOptions {
   /** The environment to probe — production passes `ptyEnv`. */
   env: () => Record<string, string | undefined>;
   /** MONOTONIC clock seam (default performance.now, so a wall-clock jump cannot extend the window). */

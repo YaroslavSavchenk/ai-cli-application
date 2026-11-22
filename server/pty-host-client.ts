@@ -565,7 +565,7 @@ export class SocketPtyHost implements PtyHost {
 }
 
 /** A probe connection: may only count and ask an empty host to leave. */
-export class PtyHostProbe {
+class PtyHostProbe {
   readonly welcome: Welcome;
   readonly #sock: Socket;
   readonly #waiters = new Map<number, Waiter<HostMessage>>();

@@ -9,7 +9,7 @@
  * before the latency readout: they are information the user asked for by
  * acting, and nothing else on screen carries them.
  *
- * Deliberately NOT here (dropped with the Legacy statusline in A2): the ws
+ * Deliberately NOT here (Nocturne A2): the ws
  * round-trip in isolation, the focused-session readout (name, size and
  * connection state — the pane header says all three), `pty ok`, and the `?`
  * key glyph. Connection state is the top bar's dot.

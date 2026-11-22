@@ -2,7 +2,8 @@
  * GitHub Phase 2c gap-closure (test-engineer): the token-safety corners the
  * first 2c tests did not assert — the askpass script's own content and
  * cleanup, the .git/config leak guard (both directions), the git-failure
- * cleanup, the never-spawn refusal guards, the two url rejections (control
+ * cleanup, the clone timeout (SIGKILL, 502 `clone timed out`; mocked timers),
+ * the never-spawn refusal guards, the two url rejections (control
  * char, over-length), and createRepo's description-omission,
  * 401-invalidation and clean-502 branches.
  *
@@ -20,6 +21,9 @@ import assert from 'node:assert/strict';
 import { realpath, stat } from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
+import { CLONE_TIMEOUT_MS } from '../../server/scaffold.ts';
 import {
   GithubConnection,
   GithubError,
@@ -27,6 +31,7 @@ import {
   type SpawnLike,
 } from '../../server/github.ts';
 import {
+  drainMicrotasks,
   makeTempDir,
   removeTempDir,
 } from '../helpers/helpers.ts';
@@ -184,6 +189,60 @@ test('cloneAuthenticated: a non-zero git exit -> 502 and the partial dest WE cre
     );
     assert.ok(!existsSync(dest), 'a dest WE created is removed on clone failure (no partial left behind)');
   } finally {
+    await removeTempDir(root);
+    await removeTempDir(work);
+  }
+});
+
+test('cloneAuthenticated: a git that never ends is SIGKILLed at CLONE_TIMEOUT_MS -> 502 `clone timed out`, the partial dest removed', async (t) => {
+  // The 5-minute timeout is stepped on mocked timers, enabled INSIDE the spawn
+  // stub: everything before the spawn (the askpass script on disk) runs on
+  // the real clock, and the run's own timer is the first one mocked.
+  const root = await makeTempDir('ai-sm-gh-timeout-');
+  const work = await realpath(await makeTempDir('ai-sm-gh-timeoutw-'));
+  const dest = join(work, 'cloned');
+  const kills: string[] = [];
+  let markSpawned: () => void = () => undefined;
+  const spawnedP = new Promise<void>((resolve) => {
+    markSpawned = resolve;
+  });
+  const spawnStub: SpawnLike = () => {
+    mkdirSync(dest, { recursive: true }); // git makes the leaf dir, then hangs
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    markSpawned();
+    const child = Object.assign(new EventEmitter(), {
+      kill: (signal: string) => {
+        kills.push(signal);
+        return true;
+      },
+    });
+    return child as unknown as ChildProcess;
+  };
+  let error: unknown;
+  let done = false;
+  try {
+    const conn = await connectedConn(root, {
+      fetchImpl: () => Promise.reject(new Error('no network')),
+      spawnImpl: spawnStub,
+    });
+    const settled = conn.cloneAuthenticated('https://github.com/octocat/hello.git', dest).catch((err: unknown) => {
+      error = err;
+      done = true;
+    });
+    await spawnedP;
+    t.mock.timers.tick(CLONE_TIMEOUT_MS - 1);
+    await drainMicrotasks(10);
+    assert.equal(done, false, 'not settled before the clone timeout');
+    assert.deepEqual(kills, [], 'not killed before it');
+    t.mock.timers.tick(1);
+    await settled;
+    assert.ok(error instanceof GithubError, `a GithubError, got ${String(error)}`);
+    assert.equal(error.status, 502);
+    assert.equal(error.message, 'clone timed out', 'the timeout is named, not a generic failure');
+    assert.deepEqual(kills, ['SIGKILL'], 'the hung git is SIGKILLed');
+    assert.ok(!existsSync(dest), 'the partial dest WE created is removed');
+  } finally {
+    t.mock.timers.reset();
     await removeTempDir(root);
     await removeTempDir(work);
   }

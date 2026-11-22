@@ -61,7 +61,7 @@ import * as api from '../api.ts';
 import * as st from '../state.ts';
 import { log } from '../log.ts';
 import { el, button, restoreFocus, trapTab } from './util.ts';
-import { commandLabel } from './launch-args.ts';
+import { sessionName } from './launch-args.ts';
 import { disarmUnloadGuard } from './unsaved.ts';
 import {
   CONTINUE_NOTE,
@@ -451,19 +451,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
 
   // ---- confirmation --------------------------------------------------------
 
-  /**
-   * A session's display name. A session launched without a title carries the
-   * raw command as its title (server/sessions.ts), and a command name is not
-   * UI copy — the drawer's `commandLabel` is reused for exactly that case.
-   */
-  function nameOf(s: { title: string; command: string }): string {
-    return s.title === s.command ? commandLabel(s.command) : s.title;
-  }
-
   function renderConfirm(): void {
     summary = summarizeRunning(
       st.state.sessions.values(),
-      nameOf,
+      sessionName,
       (s) => st.projectName(s.projectId),
     );
     leadUpdate.textContent = mode === 'update' ? updateLead(st.state.update?.release) : '';

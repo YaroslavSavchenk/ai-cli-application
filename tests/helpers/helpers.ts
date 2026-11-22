@@ -63,6 +63,35 @@ export function nextImmediate(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+/** One timer armed while `spyTimeouts` was on: its delay and its real handle. */
+interface ArmedTimeout {
+  ms: number;
+  handle: NodeJS.Timeout;
+}
+
+/**
+ * Record every `setTimeout` armed until `restore()`: its delay and its handle,
+ * so a test can ask the handle `hasRef()` — the one in-process observable of
+ * "this timer never holds the process open". The timers stay real; `restore()`
+ * puts the global back and clears every recorded timer still pending.
+ */
+export function spyTimeouts(): { armed: ArmedTimeout[]; restore: () => void } {
+  const real = globalThis.setTimeout;
+  const armed: ArmedTimeout[] = [];
+  globalThis.setTimeout = ((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    const handle = real(fn, ms, ...args);
+    armed.push({ ms: ms ?? 0, handle });
+    return handle;
+  }) as typeof setTimeout;
+  return {
+    armed,
+    restore: () => {
+      globalThis.setTimeout = real;
+      for (const { handle } of armed) clearTimeout(handle);
+    },
+  };
+}
+
 /** The part of a fetch `Response` the frontend's JSON calls read: 200 with `body`, or a 500. */
 export function jsonResponse(
   body: unknown,

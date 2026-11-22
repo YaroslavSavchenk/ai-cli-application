@@ -46,7 +46,7 @@ import { hasContinueFlag } from './launch-args.ts';
  *                hidden, and clicking it brings the dialog back)
  * - `done`       the restart succeeded and the page is being replaced
  */
-export type NoticeState = 'hidden' | 'toast' | 'pill' | 'updating' | 'restarting' | 'done';
+type NoticeState = 'hidden' | 'toast' | 'pill' | 'updating' | 'restarting' | 'done';
 
 /** Rows the confirmation lists before it collapses the rest into `+ K more`. */
 export const CONFIRM_LIST_MAX = 6;
@@ -362,9 +362,10 @@ export function versionFact(version: string | null, commit: string | null): stri
 
 /**
  * How long the backend has been up, in the settings panel's words:
- * `just started` (< 1 min) · `41 min` · `3 h 41 min` · `2 d 3 h`. Deliberately
- * NOT the statusline's `HH:MM:SS` — this line is read once, not watched.
- * Unparsable/absent input yields the empty glyph rather than a fabricated age.
+ * `just started` (< 1 min) · `41 min` · `3 h 41 min` · `2 d 3 h`. Not the
+ * statusline's compact `Up 2h 15m` (`fmtUptime`): this is a sentence in a
+ * panel, so it says `just started` and rolls hours into days. Unparsable or
+ * absent input yields the empty glyph rather than a fabricated age.
  */
 export function fmtRunningFor(iso: string | null, now: number = Date.now()): string {
   if (iso === null) return EMPTY;
@@ -384,7 +385,7 @@ export function fmtRunningFor(iso: string | null, now: number = Date.now()): str
 }
 
 /** One row of the confirmation's session list: what it is, where it runs. */
-export interface ConfirmRow {
+interface ConfirmRow {
   name: string;
   /** Project NAME (never a path); null when the session has no project. */
   project: string | null;

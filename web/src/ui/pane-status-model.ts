@@ -44,7 +44,7 @@ import type { StatusLineCfg } from './statusline-model.ts';
 import { fmtUptime, modelFromArgs, permFromArgs } from './format-model.ts';
 
 /** How a value reads: plain data, a window running out, or a removed safety net. */
-export type StatusTone = 'neutral' | 'warn' | 'danger';
+type StatusTone = 'neutral' | 'warn' | 'danger';
 
 /** One `label value` pair of the bar. `k` is the label, `v` the mono value. */
 export interface PaneStatusItem {

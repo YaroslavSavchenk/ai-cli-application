@@ -9,20 +9,21 @@
  *
  * It used to live in `ui/sessions.ts`, whose import graph reaches
  * `ui/panes.ts` -> `ui/terminal.ts` -> `@xterm/xterm` (a browser bundle with no
- * matching named exports under Node) and `ui/dnd.ts` (a module-scope
+ * matching named exports under Node) and `ui/dnd.ts` (then with a module-scope
  * `document.addEventListener`), so this file had to install a `registerHooks`
  * module stub and a bag of DOM globals before it could import the function at
  * all. The function is pure vocabulary and now sits beside the two tables it
  * reads (`AGENT_LABEL`, `SHELLS`/`shellLabel`) in `ui/launch-args.ts`, which is
  * DOM-free by construction — so the shim is gone and this is a plain import.
- * Its three callers (the sessions drawer, the settings relaunch notice, the
- * restart confirmation) import it from there.
+ * The sessions drawer imports it from there; the settings relaunch notice and
+ * the restart confirmation name a session through `sessionName` beside it
+ * (Quality Q11), tested at the end of this file.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AGENT_LABEL, SHELLS, commandLabel } from '../../web/src/ui/launch-args.ts';
+import { AGENT_LABEL, SHELLS, commandLabel, sessionName } from '../../web/src/ui/launch-args.ts';
 import { isClaudeCommand } from '../../shared/protocol.ts';
 import { projectRoot as REPO_ROOT } from '../helpers/helpers.ts';
 
@@ -195,4 +196,26 @@ test('the sessions drawer names a model through modelLabel at BOTH render sites,
   const labels = [...code.matchAll(/\bmodelLabel\(/g)].length;
   assert.ok(reads >= 2, `non-vacuity: ${reads} modelFromArgs reads`);
   assert.equal(labels, reads, `${reads} modelFromArgs reads but ${labels} modelLabel calls`);
+});
+
+// ---------------------------------------------------------------------------
+// sessionName — the one display name of a session (Quality Q11)
+
+test('sessionName: an untitled session (title = its command) is named through commandLabel, never the raw command', () => {
+  for (const command of ['claude', '/usr/local/bin/claude', '/bin/bash', 'powershell.exe']) {
+    const name = sessionName({ title: command, command });
+    assert.equal(name, commandLabel(command), command);
+    assert.notEqual(name, command, `${command} must not reach UI chrome verbatim`);
+  }
+  // A custom command has no label of its own: echoed as typed, by commandLabel's rule.
+  assert.equal(sessionName({ title: 'htop -d 5', command: 'htop -d 5' }), 'htop -d 5');
+});
+
+test('sessionName: a title that differs from the command is kept exactly — even one that names the agent or a shell', () => {
+  assert.equal(sessionName({ title: 'api refactor', command: 'claude' }), 'api refactor');
+  // Equality is the whole test, not "looks like a command": a user who titled a
+  // bash session `claude` sees `claude`, and a title with stray spaces is theirs.
+  assert.equal(sessionName({ title: 'claude', command: '/bin/bash' }), 'claude');
+  assert.equal(sessionName({ title: ' claude', command: 'claude' }), ' claude');
+  assert.equal(sessionName({ title: '', command: 'claude' }), '');
 });

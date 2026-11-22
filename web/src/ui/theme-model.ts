@@ -27,7 +27,7 @@ export interface Ground {
   hex: string;
 }
 
-export interface Ramp {
+interface Ramp {
   name: string;
   cmd: string;
   out: string;

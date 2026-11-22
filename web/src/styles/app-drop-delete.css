@@ -28,9 +28,7 @@
    spinner could not — which item is next. A failed row is danger INK on the
    same ground, never a fill.
 
-   B10 made the copy real and took one rule away with it: the quiet paragraph
-   that used to say nothing was being written is deleted, rule and all.
-   Nothing was added in its place. A row now settles when its own upload answers, so the rhythm is the
+   A row settles when its own upload answers, so the rhythm is the
    disk's rather than a timer's, and the list scrolls the settled row into view
    inside its own box — 168px, bounded, so not a pixel outside the scrim moves
    while a drop of 200 items runs.                                            */

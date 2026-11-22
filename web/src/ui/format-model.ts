@@ -61,9 +61,9 @@ export function permFromArgs(args: string[]): { label: string; danger: boolean }
 
 /**
  * Uptime since an ISO timestamp in the v3 handoff's form — `31m`, `2h 15m`
- * (the statusline prints it as `Up …`; the Legacy form was `HH:MM:SS`, and a
- * second-by-second uptime is a readout nobody reads). Hours are shown only
- * once there is at least one, and never wrap; seconds are never shown. An
+ * (the statusline prints it as `Up …`; a second-by-second uptime is a
+ * readout nobody reads). Hours are shown only once there is at least one, and
+ * never wrap; seconds are never shown. An
  * unparsable timestamp renders as an em dash.
  *
  * `now` is injectable (same pattern as `relativeTime`) so the pane status bar's

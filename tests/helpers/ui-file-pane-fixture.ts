@@ -42,7 +42,6 @@ export const STORE = (await import(new URL('../../web/src/ui/commit-store.ts', i
 };
 export const ES = (await import(new URL('../../web/src/ui/editor-store.ts', import.meta.url).href)) as {
   setEditorGateway(gw: unknown): void;
-  followerCount(): number;
   followTick(): void;
   FOLLOW_MS: number;
 };

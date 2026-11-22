@@ -354,7 +354,7 @@ async function renameOne(
 }
 
 /** What the route needs from server/api.ts — the same shape as DeleteDeps. */
-export interface RenameDeps {
+interface RenameDeps {
   /** The registered project roots, read from the store PER REQUEST (anchors). */
   projects: () => string[];
   /** The `[fs]`-scoped logger. */

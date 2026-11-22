@@ -15,9 +15,7 @@
    against the Nocturne primitives (--color-*, --space-*, --radius-*,
    --shadow-*) plus the four structural tokens that have no primitive twin:
    --line, --tick, --font-sans, --font-mono (the A3 pane block and the A4
-   dialog use the same four; A8 phase 0 re-homed them into the Nocturne
-   sections, phase 2 deleted the alias block they used to sit under). No
-   Legacy colour or spacing alias — part A8 deleted those.
+   dialog use the same four). No alias, no hardcoded colour.
    `tests/ui/ui-settings-a7.test.ts` pins all of it.
 
    Grammar, shared with the New session dialog: rows are hairline-separated

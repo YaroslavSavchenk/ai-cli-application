@@ -2,7 +2,8 @@
  * The session WebSocket under hostile or broken clients — PLAN-QUALITY Q9
  * (`.claude/plans/PLAN-QUALITY.md` § Q9, the 2026-11-22 audit).
  *
- * Three edges of `/ws/sessions/:id` (server/ws.ts, server/sessions.ts):
+ * Three edges of `/ws/sessions/:id` (server/ws.ts, server/sessions.ts), and
+ * one of the upgrade itself (PLAN-QUALITY Q11):
  *   - a text frame that parses to something other than a plain object
  *     (`null`, `5`, `"x"`, `[]`) is ignored, as an unknown type is — before
  *     Q9, `null` threw a TypeError inside the message handler, which became an
@@ -12,7 +13,15 @@
  *   - a client that stops reading is closed once its send buffer passes
  *     MAX_CLIENT_BUFFERED_BYTES (1013), so a stalled browser cannot grow the
  *     backend's memory without bound — while a healthy client on the same
- *     session keeps streaming and the session itself lives on.
+ *     session keeps streaming and the session itself lives on;
+ *   - an upgrade whose target `new URL` cannot parse (`//[`) is refused with a
+ *     400 — before Q11 a second, unguarded parse in the upgrade listener threw,
+ *     and one such request from any local process ended the backend;
+ *   - a session id with a malformed escape (`%E0`) is answered 404 like any
+ *     unknown session — before Q11 `decodeURIComponent` threw the same way;
+ *   - both guards keep their place in the order: host/origin first (an
+ *     unparseable target from a foreign Host is still 403), the token before
+ *     any work on the id (a malformed id with no token is 401).
  *
  * How: a real server child (`startTestServer`) and real bash PTYs, because
  * the claims are about the process staying alive and about real socket
@@ -32,6 +41,7 @@ import {
   createSession,
   getSession,
   makeTempDir,
+  rawRequest,
   readServerLog,
   removeTempDir,
   startTestServer,
@@ -146,4 +156,66 @@ test('a client that stops reading is closed past the buffer cap; a healthy clien
   assert.ok(replay.data.includes('q9-64-done'), 'a reattach replays the scrollback');
   await again.close();
   await live.close();
+});
+
+test('an upgrade to a target no URL parser accepts answers 400 and the backend stays up', async () => {
+  const res = await rawRequest(server.port, {
+    path: '//[',
+    headers: {
+      host: `127.0.0.1:${server.port}`,
+      connection: 'Upgrade',
+      upgrade: 'websocket',
+      'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      'sec-websocket-version': '13',
+    },
+  });
+  assert.equal(res.status, 400, 'an unparseable upgrade target is a bad request');
+  assert.equal(await healthy(), true, 'the backend must answer /health after the unparseable upgrade');
+  await waitForLog(server, 'upgrade rejected 400 on ?: unparseable target');
+  const log = await readServerLog(server);
+  assert.equal(log.includes('uncaught'), false, 'no uncaught exception may be logged');
+});
+
+test('a session id with a malformed escape answers 404 like an unknown session and the backend stays up', async () => {
+  const res = await rawRequest(server.port, {
+    path: `/ws/sessions/%E0?token=${server.token}`,
+    headers: {
+      host: `127.0.0.1:${server.port}`,
+      connection: 'Upgrade',
+      upgrade: 'websocket',
+      'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      'sec-websocket-version': '13',
+    },
+  });
+  assert.equal(res.status, 404, 'an id that does not decode names no session');
+  assert.equal(await healthy(), true, 'the backend must answer /health after the malformed id');
+  await waitForLog(server, 'upgrade rejected 404 on /ws/sessions/%E0: no such session');
+  const log = await readServerLog(server);
+  assert.equal(log.includes('uncaught'), false, 'no uncaught exception may be logged');
+  assert.equal(log.includes(server.token), false, 'the query (the app token) never reaches the log');
+});
+
+/** Upgrade headers for a raw request; `host` defaults to this server's own. */
+function upgradeHeaders(host = `127.0.0.1:${server.port}`): Record<string, string> {
+  return {
+    host,
+    connection: 'Upgrade',
+    upgrade: 'websocket',
+    'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+    'sec-websocket-version': '13',
+  };
+}
+
+test('an unparseable target from a foreign Host is refused 403 for the host — the host check runs first', async () => {
+  const res = await rawRequest(server.port, { path: '//[', headers: upgradeHeaders('evil.example') });
+  assert.equal(res.status, 403, 'the DNS-rebinding guard answers before the target is looked at');
+  await waitForLog(server, 'upgrade rejected 403 on ?: host not allowed');
+  assert.equal(await healthy(), true, 'the backend must answer /health after it');
+});
+
+test('a malformed session id with no token is 401 — the token is checked before any work on the id', async () => {
+  const res = await rawRequest(server.port, { path: '/ws/sessions/%E0', headers: upgradeHeaders() });
+  assert.equal(res.status, 401, 'without the token the id is never decoded, so nothing about it is answered');
+  await waitForLog(server, 'upgrade rejected 401 on /ws/sessions/%E0: bad or missing token');
+  assert.equal(await healthy(), true, 'the backend must answer /health after it');
 });

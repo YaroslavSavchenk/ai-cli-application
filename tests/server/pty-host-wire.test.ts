@@ -3,7 +3,8 @@
  * § Defaults): `server/pty-host-wire.ts` (frame layout, the reader's cap,
  * UTF-8 cutting, message validation, the data-dir, state-file and lock-secret
  * refusals) and the seams around it (`resolveHostTimers`, `resolveHostBuild`,
- * `resolvePtyHostMode`). A uid that is not ours is made by mocking
+ * `resolvePtyHostMode`), and where its lowercase-only session id parts from
+ * server/conversation.ts `isUuid` (PLAN-QUALITY Q11). A uid that is not ours is made by mocking
  * `process.getuid` — no test can chown.
  *
  * How: the functions called directly — they are the rules both processes
@@ -48,6 +49,7 @@ import {
 import { resolveHostBuild, resolveHostTimers } from '../../server/pty-host-server.ts';
 import { resolvePtyHostMode } from '../../server/pty-host-client.ts';
 import { SCROLLBACK_MAX_BYTES } from '../../server/pty-table.ts';
+import { isUuid } from '../../server/conversation.ts';
 import { SKIP_IF_ROOT, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 
 const dirs: string[] = [];
@@ -254,6 +256,15 @@ test('only a lowercase dashed uuid is a session id', () => {
   ]) {
     assert.equal(isSessionUuid(bad), false, JSON.stringify(bad));
   }
+});
+
+test('an upper-case uuid is a claude conversation id but never a pty-host session id', () => {
+  const lower = randomUUID();
+  const upper = lower.toUpperCase();
+  assert.equal(isUuid(upper), true, 'conversation.ts isUuid takes any case');
+  assert.equal(isUuid(lower), true, 'conversation.ts isUuid takes lower case');
+  assert.equal(isSessionUuid(upper), false, 'the wire id does not round-trip upper case');
+  assert.equal(isSessionUuid(lower), true, 'the wire id is lower case');
 });
 
 test('every field of every client message is checked: one wrong field makes the message unknown', () => {

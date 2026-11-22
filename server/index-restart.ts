@@ -42,7 +42,7 @@ import type { ReleaseChecker } from './update-release.ts';
 import { runtimeInfoReader } from './runtime-file.ts';
 
 /** What the restart wiring reads from the boot in server/index.ts. */
-export interface RestartWiring {
+interface RestartWiring {
   log: Logger;
   getPort: () => number;
   paths: DataPaths;

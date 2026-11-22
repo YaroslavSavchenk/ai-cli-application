@@ -65,10 +65,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream';
 import type { FsMediaTicketResponse } from '../shared/protocol.ts';
 import { mediaContentType } from '../shared/media-kind.ts';
-import { errorClass, errorFrames } from './config.ts';
+import { closeQuietly, errorClass, errorFrames } from './config.ts';
 import { FsBrowseError, FS_PATH_BAD } from './fsbrowse.ts';
 import {
-  closeQuietly,
   errnoTag,
   openReadOnly,
   pathTooLong,

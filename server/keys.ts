@@ -36,6 +36,7 @@ import {
   type KeyStatus,
 } from '../shared/protocol.ts';
 import { atomicWriteFile, readSmallRegularFile, scoped, setAsideRefused, type Logger } from './config.ts';
+import { plainObject } from './sanitise.ts';
 
 /** Upper bound on a stored key. No real key of these vendors comes near it. */
 export const KEY_MAX_CHARS = 4096;
@@ -73,11 +74,6 @@ export function normalizeKey(value: unknown): string | undefined {
   const key = value.trim();
   if (key.length < 1 || key.length > KEY_MAX_CHARS) return undefined;
   return KEY_SHAPE.test(key) ? key : undefined;
-}
-
-/** True when `value` is an acceptable API key (see normalizeKey). */
-export function isKeyShaped(value: unknown): value is string {
-  return normalizeKey(value) !== undefined;
 }
 
 /** Why a loaded keys.json was (partly) discarded. The CLASS, never the content. */
@@ -167,12 +163,13 @@ export class KeyStore {
       this.#refuse('not valid JSON');
       return;
     }
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    const stored = plainObject(parsed);
+    if (stored === undefined) {
       this.#refuse('not an object');
       return;
     }
     let dropped = 0;
-    for (const [tool, value] of Object.entries(parsed as Record<string, unknown>)) {
+    for (const [tool, value] of Object.entries(stored)) {
       const key = normalizeKey(value);
       if (!isKeyedTool(tool) || key === undefined) {
         dropped += 1;

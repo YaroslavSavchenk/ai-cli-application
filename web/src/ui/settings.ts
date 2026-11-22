@@ -60,7 +60,7 @@ import * as api from '../api.ts';
 import { log } from '../log.ts';
 import * as st from '../state.ts';
 import { el, button, restoreFocus, trapTab } from './util.ts';
-import { TOOL_CARDS, commandLabel, type ToolIconId } from './launch-args.ts';
+import { TOOL_CARDS, sessionName, type ToolIconId } from './launch-args.ts';
 import { toolIcon } from './icons-tools.ts';
 import { ROWS } from './shortcuts-rows.ts';
 import { buildTermColours, type TermColoursControl, type TermPair } from './term-colours.ts';
@@ -96,14 +96,14 @@ import { createKeyRows } from './settings-apikeys.ts';
 import { createServicePage } from './settings-service.ts';
 
 /** Where an opener wants the panel to land (Nocturne B5: the launch dialog's `Add key`). */
-export interface SettingsOpenOpts {
+interface SettingsOpenOpts {
   /** The page to show instead of the first one. */
   page?: PageId;
   /** Put the keyboard in THIS tool's key field (implies the Preferences page). */
   focusKey?: KeyedTool;
 }
 
-export interface SettingsPanel {
+interface SettingsPanel {
   open(opts?: SettingsOpenOpts): void;
   close(): void;
   toggle(): void;
@@ -643,9 +643,8 @@ export function initSettings(
 
   // ---- footer --------------------------------------------------------------
   // v3's own footer: one accent-OUTLINE confirm. `.btn-accent` is the Nocturne
-  // pair already in app.css (the pane area's empty state, the top bar's New
-  // session) — the Legacy `.btn.is-acc` tint it replaces is built from alias
-  // tokens part A8 deletes.
+  // pair in app-shell.css (the pane area's empty state, the top bar's New
+  // session).
   const ft = el('footer', 'sg-ft');
   const doneBtn = button('btn-accent', 'Done', () => close());
   doneBtn.title = 'close settings (esc)';
@@ -779,9 +778,9 @@ export function initSettings(
    *
    * A session launched without a title gets the raw command as its title
    * (server/sessions.ts), so naming it verbatim would print a command name in
-   * UI chrome AND identify nothing when several sessions share it. The drawer's
-   * `commandLabel` is reused for exactly that case, and names that would still
-   * collide take their project as a qualifier when there is one.
+   * UI chrome AND identify nothing when several sessions share it. `sessionName`
+   * names that case through the drawer's `commandLabel`, and names that would
+   * still collide take their project as a qualifier when there is one.
    */
   function renderNotice(): void {
     const stale: SessionInfo[] = sessionsWithoutStatusLine(st.state.sessions.values());
@@ -792,7 +791,7 @@ export function initSettings(
     }
     notice.hidden = false;
     const named = stale.map((s) => ({
-      label: s.title === s.command ? commandLabel(s.command) : s.title,
+      label: sessionName(s),
       project: st.projectName(s.projectId),
     }));
     const counts = new Map<string, number>();

@@ -73,7 +73,6 @@
  * module calls either.
  */
 import {
-  closeSync,
   constants as fsConstants,
   fstatSync,
   lstatSync,
@@ -85,7 +84,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { SessionAgent, SessionTurn } from '../shared/protocol.ts';
-import { describeError, oneLine, scoped, type Logger } from './config.ts';
+import { closeQuietly, describeError, oneLine, readSmallRegularFile, scoped, type Logger } from './config.ts';
 import { isUuid } from './conversation.ts';
 import { isUnder } from './fsbrowse.ts';
 import { clean, plainObject } from './sanitise.ts';
@@ -113,7 +112,6 @@ export {
   newFold,
   sameAgents,
   sameReport,
-  type AgentFold,
   type AgentsReport,
 } from './agents-fold.ts';
 export { subagentsDirFor } from './agents-path.ts';
@@ -193,7 +191,7 @@ const META_FILE = new RegExp(`^agent-(${AGENT_HEX})\\.meta\\.json$`);
 // The watcher
 // ---------------------------------------------------------------------------
 
-export interface AgentsWatcherOptions {
+interface AgentsWatcherOptions {
   /** Realpath'd lazily; default `paths.claudeProjectsDir`. Tests point it at a temp dir. */
   projectsRoot: string;
   pollMs?: number;
@@ -700,7 +698,10 @@ export class AgentsWatcher {
 
   /** Read one meta file and take `agentType`/`description` from it. */
   #readMeta(dir: string, agent: TrackedAgent): void {
-    const text = this.#readBounded(join(dir, `agent-${agent.id}.meta.json`), MAX_META_BYTES);
+    // The bounded, judged read of config.ts: a REGULAR file only, never a
+    // symlink, never a FIFO (this runs on the main thread), refused past the cap.
+    const read = readSmallRegularFile(join(dir, `agent-${agent.id}.meta.json`), MAX_META_BYTES);
+    const text = read.kind === 'text' ? read.text : undefined;
     if (text === undefined) {
       this.#log('debug', `agent ${agent.id}: meta unreadable, keeping ${JSON.stringify(agent.name)}`);
       return;
@@ -877,32 +878,11 @@ export class AgentsWatcher {
   }
 
   /**
-   * Bounded read of a whole small file (the meta). A REGULAR file only, never
-   * a symlink (O_NOFOLLOW), never a FIFO (O_NONBLOCK + isFile(), because
-   * opening a FIFO for reading blocks until a writer appears and this runs on
-   * the main thread). undefined = nothing to parse.
+   * Bounded read of `length` bytes at `position`: a REGULAR file only, never a
+   * symlink (O_NOFOLLOW), never a FIFO (O_NONBLOCK + isFile(), because opening
+   * a FIFO for reading blocks until a writer appears and this runs on the main
+   * thread) — the open discipline of config.ts `readSmallRegularFile`.
    */
-  #readBounded(file: string, max: number): string | undefined {
-    let fd: number;
-    try {
-      fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
-    } catch {
-      return undefined; // Gone, unreadable, or a symlink we refuse to follow.
-    }
-    try {
-      if (!fstatSync(fd).isFile()) return undefined;
-      const buffer = Buffer.allocUnsafe(max + 1);
-      const read = readSync(fd, buffer, 0, max + 1, 0);
-      if (read > max) return undefined; // Too big: refused unparsed.
-      return buffer.subarray(0, read).toString('utf8');
-    } catch {
-      return undefined;
-    } finally {
-      closeQuietly(fd);
-    }
-  }
-
-  /** Bounded read of `length` bytes at `position`. Same open discipline as above. */
   #readAt(file: string, position: number, length: number): Buffer | undefined {
     if (length <= 0) return undefined;
     let fd: number;
@@ -966,13 +946,4 @@ function splitLines(
 /** Compare two ISO stamps (or ids) as plain strings — ISO-8601 sorts lexically. */
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
-}
-
-/** close() that cannot throw: there is nothing to do about a failed close. */
-function closeQuietly(fd: number): void {
-  try {
-    closeSync(fd);
-  } catch {
-    // Nothing to do about a failed close.
-  }
 }

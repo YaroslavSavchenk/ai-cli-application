@@ -22,9 +22,9 @@
  */
 
 /** Segment charset of a path we are willing to hand to cmd.exe. */
-export const WSL_PATH_SHAPE = /^\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const WSL_PATH_SHAPE = /^\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 /** Distro names as `WSL_DISTRO_NAME` reports them (`Ubuntu-24.04`, `Debian`). */
-export const DISTRO_NAME_SHAPE = /^[A-Za-z0-9._-]+$/;
+const DISTRO_NAME_SHAPE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * True for an absolute path this module will map. `.` and `..` segments pass
@@ -75,9 +75,9 @@ export function windowsPathFor(cwd: string, distro: string | undefined): string 
 }
 
 /** Why a cmd.exe launch got no working-directory tail. Both are log sentences. */
-export type CmdStartRefusal = 'path shape' | 'no distro';
+type CmdStartRefusal = 'path shape' | 'no distro';
 
-export type CmdStartPlan =
+type CmdStartPlan =
   | { ok: true; args: string[]; winPath: string }
   | { ok: false; reason: CmdStartRefusal };
 

@@ -25,7 +25,7 @@
 import type { EditorTab } from '../state.ts';
 import { mediaKind } from '../../../shared/media-kind.ts';
 
-export type TabKind = 'file' | 'diff';
+type TabKind = 'file' | 'diff';
 
 /** What an id means. Unknown prefixes read as a file — the editable default. */
 export function tabKind(id: string): TabKind {

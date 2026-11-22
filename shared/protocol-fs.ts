@@ -224,13 +224,11 @@ export interface FsWriteResponse { stamp: string; bytes: number }
 // multi-range or unsatisfiable one) and never logs the ticket or the path.
 //
 //   POST /api/fs/media-ticket   (X-Auth-Token)  → 200 FsMediaTicketResponse | 400 | 403 | 404 | 415
+//     body `{ path }`: the media file's absolute path
 //   GET  /api/fs/media?path=&t= (ticket)        → 200 | 206 | 403 (bad/expired/mismatched ticket) | 404 | 415 | 416
 //
 // The ticket answer doubles as the change probe: the client re-asks every 5 s
 // per visible media tab and reloads when `size`/`mtimeMs`/`ino` moved.
-
-/** POST /api/fs/media-ticket body: the media file's absolute path. */
-export interface FsMediaTicketRequest { path: string }
 
 /** 200 of POST /api/fs/media-ticket: the ticket and the file's identity now. */
 export interface FsMediaTicketResponse { ticket: string; size: number; mtimeMs: number; ino: number }

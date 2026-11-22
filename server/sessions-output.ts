@@ -6,7 +6,7 @@
  * first line it reads (`earlyExitLine`, `firstOutputLine`).
  *
  * Split from server/sessions.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
- * byte-exact; server/sessions.ts re-exports what was public. Nocturne D9 P1
+ * byte-exact; its importers take it straight from here. Nocturne D9 P1
  * moved the ring buffer itself and the final-output rescue on to
  * server/pty-table.ts (the PTY layer a pty-host process will own). Sibling
  * pieces: server/sessions.ts (SessionManager: argv/env composition, the

@@ -48,7 +48,8 @@
 import { randomBytes } from 'node:crypto';
 import { chmodSync, linkSync, lstatSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readSmallRegularFile } from './config.ts';
+import { isStringArray, readSmallRegularFile } from './config.ts';
+import { plainObject } from './sanitise.ts';
 import {
   SCROLLBACK_MAX_BYTES,
   type PtyEntrySummary,
@@ -284,7 +285,7 @@ export function readPtyHostFile(dataDir: string): PtyHostFile | undefined {
   } catch {
     return undefined;
   }
-  const m = record(v);
+  const m = plainObject(v);
   if (m === undefined) return undefined;
   const { pid, startedAt, proto, build, appDir, token } = m;
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1 || typeof proto !== 'number') return undefined;
@@ -309,6 +310,11 @@ export class WireError extends Error {
   }
 }
 
+/**
+ * LOWERCASE ONLY, unlike conversation.ts `isUuid`: the wire carries an id as
+ * 16 raw bytes and `uuidText` gives it back in lower case, so an upper-case id
+ * would not survive the round trip as the same string.
+ */
 export function isSessionUuid(id: unknown): id is string {
   return typeof id === 'string' && UUID_SHAPE.test(id);
 }
@@ -527,10 +533,6 @@ const MAX_PTY_DIM = 0xffff;
 
 type Fields = Record<string, unknown>;
 
-function record(v: unknown): Fields | undefined {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Fields) : undefined;
-}
-
 function isCount(v: unknown): v is number {
   return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 }
@@ -543,12 +545,8 @@ function isDim(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_PTY_DIM;
 }
 
-function isStringList(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === 'string');
-}
-
 function stringMap(v: unknown): Record<string, string> | undefined {
-  const r = record(v);
+  const r = plainObject(v);
   if (r === undefined) return undefined;
   for (const value of Object.values(r)) if (typeof value !== 'string') return undefined;
   return r as Record<string, string>;
@@ -557,7 +555,7 @@ function stringMap(v: unknown): Record<string, string> | undefined {
 function parseSpawn(m: Fields): ClientMessage | undefined {
   const env = stringMap(m['env']);
   const { id, file, argv, cwd, cols, rows, meta } = m;
-  if (!isSessionUuid(id) || typeof file !== 'string' || !isStringList(argv)) return undefined;
+  if (!isSessionUuid(id) || typeof file !== 'string' || !isStringArray(argv)) return undefined;
   if (typeof cwd !== 'string' || env === undefined || !isDim(cols) || !isDim(rows)) return undefined;
   if (meta !== undefined && typeof meta !== 'string') return undefined;
   const spawn: ClientMessage = { t: 'spawn', id, file, argv, cwd, env, cols, rows };
@@ -567,7 +565,7 @@ function parseSpawn(m: Fields): ClientMessage | undefined {
 
 /** What a client sent, or undefined for anything unknown or malformed. */
 export function parseClientMessage(v: unknown): ClientMessage | undefined {
-  const m = record(v);
+  const m = plainObject(v);
   if (m === undefined) return undefined;
   const { t, id, req } = m;
   switch (t) {
@@ -617,7 +615,7 @@ function parseExitRecord(m: Fields): PtyExitRecord | undefined {
 }
 
 function parseSummary(v: unknown): PtyEntrySummary | undefined {
-  const m = record(v);
+  const m = plainObject(v);
   if (m === undefined) return undefined;
   const { id, pid, cols, rows, endOffset, meta } = m;
   if (!isSessionUuid(id) || !isCount(pid) || !isDim(cols) || !isDim(rows) || !isCount(endOffset)) {
@@ -626,7 +624,7 @@ function parseSummary(v: unknown): PtyEntrySummary | undefined {
   if (meta !== null && typeof meta !== 'string') return undefined;
   let exit: PtyExitRecord | null = null;
   if (m['exit'] !== null) {
-    const r = record(m['exit']);
+    const r = plainObject(m['exit']);
     const parsed = r === undefined ? undefined : parseExitRecord(r);
     if (parsed === undefined) return undefined;
     exit = parsed;
@@ -639,7 +637,7 @@ const BYE_REASONS: readonly string[] = ['taken-over', 'idle', 'orphan', 'shutdow
 
 /** What the host sent, or undefined for anything unknown or malformed. */
 export function parseHostMessage(v: unknown): HostMessage | undefined {
-  const m = record(v);
+  const m = plainObject(v);
   if (m === undefined) return undefined;
   const { t, id, req } = m;
   switch (t) {

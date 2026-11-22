@@ -7,12 +7,9 @@
  * named in the allow-list of `tests/ui/ui-a8-tokens.test.ts` (--color-divider,
  * --color-accent-2 and its scale, --color-neutral-100, four --color-accent-*
  * steps), which stay because the "Nocturne primitives" block below is the
- * handoff's own file transcribed whole. The alias block that re-pointed the
- * old Legacy role names (--text, --edge, --acc, --s-*, --fs-*, --r-*, ...) at
- * Nocturne values through parts A1-A7 is deleted, and so are those names. The
- * Legacy UI itself is preserved as git tag `legacy-ui`. Reach for a primitive:
- * a tint or a hover is an inline color-mix() at the use site, a one-off size a
- * literal px, and neither belongs in this file.
+ * handoff's own file transcribed whole. There is no alias layer: reach for a
+ * primitive. A tint or a hover is an inline color-mix() at the use site, a
+ * one-off size a literal px, and neither belongs in this file.
  *
  * Since 2026-09-10 the palette and type are NOCTURNE: a dark indigo-neutral
  * instrument panel. The design source is
@@ -22,8 +19,7 @@
  * is an OUTLINE and small-mark color, never a fill; fills are 12% tints of
  * it. Elevation is a 1px edge plus ambient dark — no heavy shadows. Radii
  * are 4/8/14. Inter carries the chrome, JetBrains Mono the terminal and
- * every data value. The previous palette ("steam blend", 2026-07-20 handoff)
- * was the Legacy UI's.
+ * every data value.
  *
  * The xterm.js theme is built at runtime from the --xt-* properties below
  * (ui/terminal.ts reads them via getComputedStyle), so the terminal palette
@@ -123,8 +119,8 @@
      rgba(10,11,20,.6)). Darker than --color-bg, and flat: no blur.         */
   --color-scrim: rgb(10 11 20 / 0.6);
   /* Green fill at 8%: the "go" chip when it is on or hovered, and an added
-     line in a unified diff. Green is never a button ground — A8 deleted the
-     Legacy green button; a primary action is the accent OUTLINE.           */
+     line in a unified diff. Green is never a button ground; a primary
+     action is the accent OUTLINE.                                          */
   --color-ok-tint: oklch(0.72 0.14 150 / 0.08);
   /* Danger as quiet INK, not a fill: a crashed run's meta line, where the
      word alone is easy to miss in a dense list.                            */
@@ -237,9 +233,9 @@
      Chrome heights, column widths and the three hairline widths every
      Nocturne block already shares. Sizes only — no colour lives here. */
   --topbar-h: 48px;     /* A2: the v3 instrument strip                       */
-  --tab-h: 32px;        /* A2: v3 tab chip (was 30px, Legacy)                 */
+  --tab-h: 32px;        /* A2: v3 tab chip                                    */
   --status-h: 26px;     /* A2: v3 statusline                                  */
-  --panehd-h: 38px;     /* A3: v3 pane header (was 30px, Legacy)              */
+  --panehd-h: 38px;     /* A3: v3 pane header                                 */
   --panelhd-h: 44px;    /* A5: v3 panel header (Files, drawers)               */
   --drawer-proj-w: 272px;
   --drawer-sess-w: 300px; /* A5: v3 sessions panel                            */
@@ -248,16 +244,16 @@
   --files-icon: 16px;   /* B12: file-type icon (the folder glyph's size)      */
   --dot-row: 8px;       /* A5: status dot in a Sessions panel row             */
   --diff-gut-w: 88px;   /* A6: diff line-number gutter (commit view + editor).
-                           B3 widened it from 44px and it now covers BOTH
-                           numbers a unified diff carries (old | new), half
-                           each — one token, so the two can never drift      */
+                           It covers BOTH numbers a unified diff carries
+                           (old | new), half each — one token, so the two
+                           can never drift                                   */
   --diff-sign-w: 16px;  /* A6: the +/- column beside it                       */
   --avatar-w: 20px;     /* A6: author initial in the commit view header       */
   --ctl-h-row: 24px;    /* A5: row buttons (Side by side, Continue, end)      */
   --fs-term: 12.5px;    /* terminal body (handoff) — the ONE font size read at
                            runtime: ui/terminal.ts builds the xterm font spec
                            from it and --font-mono, so it is structure, not a
-                           Legacy type-scale step                            */
+                           type-scale step                                   */
   --line: 1px;
   --tick: 2px;          /* active-tab glow bar, insertion caret               */
   --dot: 7px;           /* status dots                                        */

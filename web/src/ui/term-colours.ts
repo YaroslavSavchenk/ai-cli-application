@@ -66,7 +66,7 @@ export interface TermColoursControl {
   current(): TermPair;
 }
 
-export interface TermColoursPage {
+interface TermColoursPage {
   /** The page element, appended into the settings body once. */
   root: HTMLElement;
   /** Re-seed the page from the control — the panel calls it after its re-read on open. */

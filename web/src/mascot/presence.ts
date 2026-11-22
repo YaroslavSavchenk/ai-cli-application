@@ -22,7 +22,7 @@
 import { drawnState, nextPresence, type MascotModel, type MascotState, type Presence } from './model.ts';
 import type { MascotView } from './view.ts';
 
-export interface MascotPresenceOptions {
+interface MascotPresenceOptions {
   model: Pick<MascotModel, 'snapshot' | 'isReacting'>;
   view: Pick<MascotView, 'render' | 'retreat' | 'comeBack'>;
   /** Tell the host the count and the rects as they are now. */

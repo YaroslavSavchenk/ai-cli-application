@@ -22,7 +22,7 @@ import { flash } from './statusline.ts';
 
 const armed = new ArmedSet();
 
-export interface ProjectsDrawer {
+interface ProjectsDrawer {
   render(): void;
 }
 

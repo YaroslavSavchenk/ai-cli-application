@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { KeyStatus } from '../../shared/protocol.ts';
-import { isKeyShaped, normalizeKey, KEY_MAX_CHARS } from '../../server/keys.ts';
+import { normalizeKey, KEY_MAX_CHARS } from '../../server/keys.ts';
 import {
   api,
   createSession,
@@ -50,7 +50,7 @@ after(async () => {
   if (workDir !== undefined) await removeTempDir(workDir);
 });
 
-test('isKeyShaped: the validation table', () => {
+test('normalizeKey: the validation table', () => {
   const good: readonly string[] = [
     'k',
     GEMINI_KEY,
@@ -59,7 +59,9 @@ test('isKeyShaped: the validation table', () => {
     '!~', // the ends of the printable-ASCII range
     ' padded-key-is-trimmed ',
   ];
-  for (const value of good) assert.equal(isKeyShaped(value), true, `must accept ${JSON.stringify(value)}`);
+  for (const value of good) {
+    assert.equal(normalizeKey(value), value.trim(), `must accept ${JSON.stringify(value)} as its trimmed self`);
+  }
   assert.equal(normalizeKey(' padded-key-is-trimmed \n'), 'padded-key-is-trimmed');
 
   const bad: readonly unknown[] = [
@@ -83,8 +85,7 @@ test('isKeyShaped: the validation table', () => {
     { key: 'k' },
   ];
   for (const value of bad) {
-    assert.equal(isKeyShaped(value), false, `must refuse ${JSON.stringify(value)}`);
-    assert.equal(normalizeKey(value), undefined);
+    assert.equal(normalizeKey(value), undefined, `must refuse ${JSON.stringify(value)}`);
   }
 });
 

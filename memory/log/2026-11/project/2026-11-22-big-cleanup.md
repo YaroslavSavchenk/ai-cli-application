@@ -76,3 +76,30 @@ backend). Full suite 72.7 s → 49.2 s wall, 4619 / 0.
 - `tests/release/ptyhost-windows-scripts.test.ts`: the 10 s stop-script wait
   is measured with `performance.now()` — WSL steps the wall clock back ~1 s
   ("Time jumped backwards" in dmesg), which failed it 2 of 4 runs.
+
+## Q11 — dead code, duplicates, two more crashes
+
+- Unused exports dropped (~85 server, 61 web); test-only helpers
+  (`isKeyShaped`, `RingBuffer.toString`, `followerCount`, `isRowMenuOpen`)
+  deleted, their tests moved to public behaviour. One assertion in
+  `ui-context-menu-close` was dropped, not moved — the card-gone and
+  listener-baseline checks next to it already prove the same.
+- One home: `readSmallRegularFile` for the agents/telemetry readers,
+  `closeQuietly`, `plainObject` (github-parse `asRecord` keeps accepting
+  arrays: an array body ends the device flow), `isStringArray`, `FULL_HASH`,
+  `sessionName()` (web), and `runChild` in the new `server/config-spawn.ts`
+  under `runCapture` / git / scaffold / clone (each caller keeps its own
+  `spawn` call — argv, `shell: false`, env, timeouts unchanged).
+- Found on the way, both crash the backend and every session:
+  - an upgrade to an unparseable target (`//[`) — WITHOUT a token — threw
+    in a second, unguarded `new URL()` in `server/ws.ts` → now 400 (after
+    the Host/Origin checks);
+  - `/ws/sessions/%E0?token=…` threw in `decodeURIComponent` → now 404 like
+    an unknown session.
+  - scaffold `runGit` read its timer before it existed when spawn threw
+    (ReferenceError) → now `git is not available`.
+- Spawn-seam mutation gate: 55 mutants, 52 killed, 3 equivalent; 14 tests
+  written for the first-pass survivors (e.g. a flooding git was never proven
+  killed at the 2 MiB cap). Suite 4644 / 0, 47.4 s.
+- Kept for the user: `resetProtectedSetCache` (a non-clock test seam
+  CONTRIBUTING disallows; used by two fs tests).

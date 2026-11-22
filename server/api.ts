@@ -93,21 +93,17 @@ import { sessionRoutes } from './api-sessions.ts';
 import { type PollTally, isQuietPoll } from './poll-log.ts';
 import { MediaTickets, handleMedia } from './fsmedia.ts';
 
-// The route families moved out of this file by the O8 split (2026-09-23);
-// every name importable from server/api.ts before it still is.
+// The route families moved out of this file by the O8 split (2026-09-23); the
+// names tests import through server/api.ts are re-exported (Q11 dropped the
+// ones nobody imported this way).
 export {
-  PREFS_MAX_BYTES,
   validMascotPref,
-  KEYS_MAX_BYTES,
-  KEYS_NOT_AVAILABLE,
   UPDATE_UP_TO_DATE,
   CLIENT_LOG_MAX_BYTES,
   CLIENT_LOG_MAX_ENTRIES,
   CLIENT_LOG_MAX_MESSAGE,
   CLIENT_LOG_MAX_PER_MINUTE,
 } from './api-app.ts';
-export { GITHUB_REPO_NAME_MAX, GITHUB_TOKEN_MAX_BYTES, GITHUB_TOKEN_MAX_CHARS } from './api-github.ts';
-export { CONVERSATION_RUNNING } from './api-sessions.ts';
 
 /**
  * The route families, in the order their blocks stood in handleApi() before

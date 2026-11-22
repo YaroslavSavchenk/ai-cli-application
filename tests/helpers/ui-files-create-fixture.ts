@@ -64,7 +64,6 @@ export interface FileDropModule {
   initFileDrop(deps: Record<string, unknown>): void;
 }
 export interface MenuModule {
-  isRowMenuOpen(): boolean;
   closeRowMenu(): void;
 }
 export interface ViewLike {

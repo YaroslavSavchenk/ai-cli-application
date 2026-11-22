@@ -141,7 +141,7 @@ function nameOf(dest: Destination): string {
 export { copyIntoText };
 
 /** A file, reduced to what an item needs. A real `File` satisfies it. */
-export interface FileLike {
+interface FileLike {
   readonly name: string;
   readonly size?: number;
 }
@@ -182,7 +182,7 @@ export interface DropRequest {
  * panel header already prints, so the ghost, the dialog and the button can
  * never name different folders.
  */
-export interface FileDropDeps {
+interface FileDropDeps {
   /** Ask the drop dialog (ui/drop-dialog.ts) about this drop. */
   openDialog(req: DropRequest): void;
   /**

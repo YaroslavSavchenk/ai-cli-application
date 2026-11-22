@@ -70,7 +70,7 @@ export function expiryTickMs(active: boolean, status: GithubStatus | null): numb
 // ---------------------------------------------------------------------------
 
 /** `device` = the OAuth device flow; `pat` = a token the user pasted. */
-export type GithubSource = 'device' | 'pat';
+type GithubSource = 'device' | 'pat';
 
 /** Plain-language name of the connected credential; '' when unknown. */
 export function sourceLabel(source: GithubSource | undefined): string {
@@ -89,9 +89,9 @@ export function sourceLabel(source: GithubSource | undefined): string {
  * a pasted token needs no client id, so such a server is a perfectly ordinary
  * `disconnected` that the user can act on.
  */
-export type ChipState = 'off' | 'disconnected' | 'connecting' | 'connected';
+type ChipState = 'off' | 'disconnected' | 'connecting' | 'connected';
 
-export interface ChipView {
+interface ChipView {
   /**
    * Which of the four appearances this is. Informational only today: the chip
    * renders no state-dependent class or attribute — `label`, `initial` and
@@ -178,7 +178,7 @@ export function chipView(status: GithubStatus | null): ChipView {
  * the pasted-token path below it is fully usable and is in fact the reason this
  * path exists (the user has no OAuth App).
  */
-export interface DeviceCardCopy {
+interface DeviceCardCopy {
   /** Sans body under the title. */
   body: string;
   /** Mono fine print about what signing in grants; '' when there is no button. */
@@ -288,7 +288,7 @@ export function scopesNote(scopes: string[] | undefined): string | null {
 /** Inside this window the expiry line turns amber — it needs attention now. */
 export const GH_EXPIRY_WARN_MS = 3 * 24 * 60 * 60 * 1000;
 
-export interface ExpiryView {
+interface ExpiryView {
   text: string;
   /** True when it has expired, or expires within GH_EXPIRY_WARN_MS. */
   warn: boolean;

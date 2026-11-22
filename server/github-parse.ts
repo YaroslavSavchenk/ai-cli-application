@@ -6,7 +6,8 @@
  * no credential held.
  *
  * Split from server/github.ts (PLAN-RESTRUCTURE O8, 2026-09-23), moved
- * byte-exact; server/github.ts re-exports all of it. Sibling pieces:
+ * byte-exact; server/github.ts re-exports what its importers use — not
+ * asRecord and readString, which only github.ts itself calls. Sibling pieces:
  * server/github.ts (GithubConnection: device flow, pasted token, token store,
  * repos) and server/github-clone.ts (the authenticated clone).
  */
@@ -121,6 +122,11 @@ export function parseTokenExpiry(value: string | null | undefined): string | und
   return new Date(ms).toISOString();
 }
 
+/**
+ * Any non-null object, ARRAYS INCLUDED — unlike sanitise.ts `plainObject`, on
+ * purpose (Q11): the device-flow poll (github.ts `#poll`) ends the flow on an
+ * array body (no `access_token`, no `error`) where `undefined` would retry it.
+ */
 export function asRecord(v: unknown): Record<string, unknown> | undefined {
   return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : undefined;
 }

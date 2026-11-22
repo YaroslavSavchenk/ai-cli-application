@@ -240,7 +240,7 @@ export function loopbackUrl(port: number): string {
  * `tests/ui/ui-restart-guards.test.ts` can drive it without a browser. `reload`
  * and `showPanel` are the two acts a model cannot perform.
  */
-export interface RecoveryDeps {
+interface RecoveryDeps {
   /** GET /health WITHOUT the token; true only on a 2xx. Never rejects. */
   health(): Promise<boolean>;
   now(): number;

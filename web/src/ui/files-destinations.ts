@@ -31,7 +31,7 @@ import { type Destination } from './fs-model.ts';
 let live: LivePanel | null = null;
 
 /** What the one live panel answers for the functions below. */
-export interface LivePanel {
+interface LivePanel {
   subject(): Subject;
   rootDestination(): Destination | null;
   selectedFolder(): Destination | null;

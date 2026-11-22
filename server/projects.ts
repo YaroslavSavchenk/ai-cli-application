@@ -43,7 +43,7 @@ export function isExistingDirectory(p: string): boolean {
   }
 }
 
-export interface CreateProjectInput {
+interface CreateProjectInput {
   name: string;
   path: string;
   defaultModel?: string;

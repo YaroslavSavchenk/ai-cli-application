@@ -89,7 +89,7 @@ export const NO_CHANGES_TEXT = 'No changes since the last commit.';
  * commits list, the commit view and a diff pane all reach the same four routes
  * and must never invent a second way to say the same nothing.
  */
-export const UNREACHABLE_TEXT = 'The app could not reach the service.';
+const UNREACHABLE_TEXT = 'The app could not reach the service.';
 
 /**
  * The sentence to render for a rejected request: the SERVER's own, when the

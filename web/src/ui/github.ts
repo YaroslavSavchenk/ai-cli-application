@@ -142,14 +142,14 @@ export function createGithubChip(openTab: () => void): HTMLButtonElement {
 // New Project dialog — GitHub tab panel
 // ---------------------------------------------------------------------------
 
-export interface GithubPanel {
+interface GithubPanel {
   /** The panel root (an .ap-panel sibling of the blank/clone panels). */
   el: HTMLElement;
   /** The dialog switched to / away from the GitHub tab. */
   setActive(active: boolean): void;
 }
 
-export interface GithubPanelOptions {
+interface GithubPanelOptions {
   /**
    * A repo row's "open" action fired: the repo is already a local project.
    * The host (newproject.ts) closes the dialog and reveals it in the Projects

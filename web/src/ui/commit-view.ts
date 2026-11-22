@@ -72,7 +72,7 @@ import { openDiffGuarded, openFileGuarded } from './unsaved.ts';
 import { log } from '../log.ts';
 import type { GitCommitDiffResponse, GitCommitFile, GitCommitResponse } from '../../../shared/protocol.ts';
 
-export interface CommitView {
+interface CommitView {
   render(): void;
 }
 

@@ -119,7 +119,7 @@ const MAX_CLIENT_BUFFERED_BYTES = 16 * 1024 * 1024;
 /** The exit code a session gets when its pty-host was lost and its group SIGKILLed (128 + 9). */
 const LOST_EXIT_CODE = 137;
 
-export interface CreateSessionOptions {
+interface CreateSessionOptions {
   projectId?: string;
   cwd: string;
   command: string;

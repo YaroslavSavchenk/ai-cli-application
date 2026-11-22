@@ -48,7 +48,7 @@ import { describeError, scoped, type Logger } from './config.ts';
  * What the status-line script is told about the session's permission mode.
  * 'unknown' -> the script omits the item (an honest blank beats a wrong label).
  */
-export type StatuslineMode = ClaudePermissionMode | 'unknown';
+type StatuslineMode = ClaudePermissionMode | 'unknown';
 
 /**
  * Seconds between status-line re-runs, on top of the event-driven updates
@@ -110,7 +110,7 @@ export function parsePermissionMode(args: readonly string[]): StatuslineMode {
   return claudePermissionFromFlag(raw) ?? 'unknown';
 }
 
-export interface SessionSettingsConfig {
+interface SessionSettingsConfig {
   /** Directory the per-session files live in (created 0700, wiped at boot). */
   dir: string;
   /**

@@ -37,11 +37,6 @@
  * with no control characters in it.
  */
 import {
-  closeSync,
-  constants as fsConstants,
-  fstatSync,
-  openSync,
-  readSync,
   readdirSync,
   statSync,
   watch,
@@ -49,7 +44,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionTelemetry } from '../shared/protocol.ts';
-import { describeError, scoped, type Logger } from './config.ts';
+import { describeError, readSmallRegularFile, scoped, type Logger } from './config.ts';
 import { CONTROL_CHAR, MAX_AT_MS, clean, plainObject } from './sanitise.ts';
 
 /**
@@ -366,8 +361,11 @@ export class TelemetryWatcher {
     if (this.#stopped) return;
     const onChange = this.#onChange;
     if (onChange === undefined) return;
-    const text = this.#read(join(this.#dir, `${id}.json`));
-    if (text === undefined) return;
+    // Gone (the session ended between the event and here), a symlink, a FIFO
+    // or past the cap: nothing to parse. The judged read never blocks on a FIFO.
+    const read = readSmallRegularFile(join(this.#dir, `${id}.json`), MAX_SNAPSHOT_BYTES);
+    if (read.kind !== 'text') return;
+    const text = read.text;
     const telemetry = parseSnapshot(text);
     if (telemetry === null) {
       this.#log('debug', `${id}: snapshot ignored (not a snapshot we believe)`);
@@ -378,41 +376,6 @@ export class TelemetryWatcher {
     } catch (err) {
       // A throwing consumer must not take the watcher down with it.
       this.#log('warn', `${id}: telemetry consumer threw: ${describeError(err)}`);
-    }
-  }
-
-  /**
-   * Bounded read of one snapshot: a REGULAR file, never a symlink (O_NOFOLLOW),
-   * never more than MAX_SNAPSHOT_BYTES. undefined = nothing to parse, including
-   * the ordinary case of a file whose session ended between the event and here.
-   */
-  #read(file: string): string | undefined {
-    let fd: number;
-    try {
-      // O_NONBLOCK too: opening a FIFO for reading blocks until a writer
-      // appears, and this runs on the main thread — a planted named pipe would
-      // freeze the whole server before isFile() below ever got to refuse it.
-      // On a regular file the flag changes nothing.
-      fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
-    } catch {
-      return undefined; // Gone, unreadable, or a symlink we refuse to follow.
-    }
-    try {
-      const stat = fstatSync(fd);
-      // A FIFO or device here would block or never end; only a real file is read.
-      if (!stat.isFile()) return undefined;
-      const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
-      const read = readSync(fd, buffer, 0, MAX_SNAPSHOT_BYTES + 1, 0);
-      if (read > MAX_SNAPSHOT_BYTES) return undefined; // Too big: refused unparsed.
-      return buffer.subarray(0, read).toString('utf8');
-    } catch {
-      return undefined;
-    } finally {
-      try {
-        closeSync(fd);
-      } catch {
-        // Nothing to do about a failed close.
-      }
     }
   }
 }

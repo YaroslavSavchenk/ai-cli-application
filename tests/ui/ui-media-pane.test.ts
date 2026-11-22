@@ -59,7 +59,6 @@ const MM = (await import(new URL('../../web/src/ui/media-model.ts', import.meta.
 };
 const ES = (await import(new URL('../../web/src/ui/editor-store.ts', import.meta.url).href)) as {
   setEditorGateway(gw: unknown): void;
-  followerCount(): number;
   followTick(): void;
   FOLLOW_MS: number;
 };
@@ -394,7 +393,10 @@ test('a ticket that fails with no status (backend away) keeps the picture and as
 
 test('a parked body is not polled, and a disposed one leaves the follow and stops its video', async () => {
   const body = await mount(MP4);
-  const n = ES.followerCount();
+  ed.tickets.length = 0;
+  tick();
+  await settle();
+  assert.deepEqual(ed.tickets, [MP4], 'non-vacuity: an attached body is polled');
   body.root.remove();
   ed.tickets.length = 0;
   tick();
@@ -403,8 +405,14 @@ test('a parked body is not polled, and a disposed one leaves the follow and stop
   const v = made.at(-1) as unknown as { paused: boolean };
   v.paused = false;
   body.dispose();
-  assert.equal(ES.followerCount(), n - 1);
   assert.equal(v.paused, true, 'no stream left running');
+  // Back on screen, a disposed body still asks nothing: it left the follow,
+  // it is not merely parked.
+  dom.body.append(body.root);
+  ed.tickets.length = 0;
+  tick();
+  await settle();
+  assert.deepEqual(ed.tickets, [], 'a disposed body left the follow');
 });
 
 test('focus() lands on the stage — a keyboard place in the body, not inside a frame', async () => {

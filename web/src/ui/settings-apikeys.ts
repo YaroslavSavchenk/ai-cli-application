@@ -65,7 +65,7 @@ const PROVIDER_ROWS: ProviderRow[] = TOOL_CARDS.flatMap((c) => {
 });
 
 /** What `initSettings()` reaches in the key rows. */
-export interface KeyRowsPart {
+interface KeyRowsPart {
   keyRows: Map<KeyedTool, { input: HTMLInputElement }>;
   syncKeyRows(): void;
   refreshKeys(): void;

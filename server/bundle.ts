@@ -93,7 +93,7 @@ const GLIBC_SHAPE = /^\d{1,2}\.\d{1,3}$/;
 const BUNDLE_PLATFORM = 'linux-x64';
 
 /** How `readBundleInfo` reports the one failure that is NOT "absent". */
-export interface ReadBundleOptions {
+interface ReadBundleOptions {
   /**
    * Called with a ready-made log line when `bundle.json` exists but could not
    * be READ (anything other than ENOENT). Not called for a missing marker, and
@@ -179,7 +179,7 @@ export const UPDATE_NEW_VERSION_INSTALLED = 'a new version is installed';
 
 const NO_UPDATE: UpdateCheckResult = { available: false, reason: null };
 
-export interface InstalledUpdateOptions {
+interface InstalledUpdateOptions {
   /** The version dir this process runs from (`<app>/<version>`). */
   appDir: string;
   /** ISO startedAt of this process; '' before listen (then: no signal). */

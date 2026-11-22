@@ -12,7 +12,7 @@
 import { ROWS } from './shortcuts-rows.ts';
 import { el, button, restoreFocus, trapTab } from './util.ts';
 
-export interface ShortcutsOverlay {
+interface ShortcutsOverlay {
   toggle(): void;
   close(): void;
   isOpen(): boolean;

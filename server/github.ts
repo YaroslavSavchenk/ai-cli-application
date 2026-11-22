@@ -57,9 +57,9 @@
  * injectable (a seam) so tests can drive the state machine with no network.
  *
  * Split by topic (PLAN-RESTRUCTURE O8, 2026-09-23): the seams, GithubError and
- * every parser of remote/pasted input live in server/github-parse.ts (all
- * re-exported here); the authenticated clone's host-lock, destination rules and
- * `git clone` spawn in server/github-clone.ts.
+ * every parser of remote/pasted input live in server/github-parse.ts (what
+ * importers use is re-exported here); the authenticated clone's host-lock,
+ * destination rules and `git clone` spawn in server/github-clone.ts.
  *
  * Erasable TypeScript only; relative imports carry explicit .ts extensions.
  */
@@ -106,7 +106,6 @@ export {
   validatePastedToken,
   type FetchLike,
   type SpawnLike,
-  type TokenRejection,
 } from './github-parse.ts';
 
 /**
@@ -159,9 +158,9 @@ const TOKEN_EXPIRY_HEADER = 'github-authentication-token-expiration';
  * can say "the credential stopped working" instead of showing an unexplained
  * flip to disconnected. Identical for both credential sources.
  */
-export const CREDENTIAL_REJECTED_MESSAGE =
+const CREDENTIAL_REJECTED_MESSAGE =
   'GitHub rejected the stored credential — connect again';
-export interface GithubConnectionOptions {
+interface GithubConnectionOptions {
   /** Absolute path to github.json in the data dir. */
   file: string;
   log: Logger;

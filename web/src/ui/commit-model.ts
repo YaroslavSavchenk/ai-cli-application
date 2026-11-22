@@ -11,12 +11,9 @@
  * live here: the data (the backend's `git log` / `git show`, through
  * `ui/commit-store.ts` since B3) and anything that reads or writes app state.
  *
- * WHAT B3 DELETED. `syntheticDiff()` and its per-path seed derived a plausible
- * unified diff from a file's text while nothing in the app could read a
- * repository. The rows now come from `git show` through `GitCommitDiffResponse`
+ * The diff rows come from `git show` through `GitCommitDiffResponse`
  * (`shared/protocol.ts`), which numbers the OLD file and the NEW one side by
- * side — so `DiffLine` is gone too and the protocol's own `GitDiffLine` is what
- * every renderer here takes.
+ * side; the protocol's own `GitDiffLine` is what every renderer here takes.
  */
 
 import { FULL_HASH } from '../../../shared/protocol.ts';
@@ -27,7 +24,7 @@ import { MONTHS } from './format-model.ts';
 export const BAR_BLOCKS = 5;
 
 /** A diff row's meaning, minus `hunk` — what decides a BLOCK's ink and ground. */
-export type DiffKind = 'add' | 'del' | 'ctx';
+type DiffKind = 'add' | 'del' | 'ctx';
 
 /**
  * The five-block bar: how many of the five blocks are "added". It is a RATIO

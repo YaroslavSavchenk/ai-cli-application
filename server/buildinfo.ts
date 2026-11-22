@@ -84,7 +84,7 @@ export interface WebBuildInfo {
 }
 
 /** The name of the id file the vite plugin emits into the build output. */
-export const BUILD_ID_FILE = 'build-id.json';
+const BUILD_ID_FILE = 'build-id.json';
 
 /**
  * A build id as our own vite plugin writes it: `<yyyymmdd-hhmm>-<short hash>`.
@@ -174,7 +174,7 @@ export interface UpdateCheckResult {
   reason: string | null;
 }
 
-export interface UpdateCheckOptions {
+interface UpdateCheckOptions {
   /** Repo root — holds `.git`. Injectable so tests can point at a fixture. */
   repoRoot: string;
   /** Directory of the running server code (`server/`). */

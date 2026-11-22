@@ -49,7 +49,7 @@ import { getBehaviour } from './prefs-model.ts';
 
 const armed = new ArmedSet();
 
-export interface TabDeps {
+interface TabDeps {
   /** End one session (ui/panes.ts `killSession`). */
   killSession(id: string): Promise<void> | void;
   /** Open the New session dialog (ui/launch.ts). */
@@ -86,7 +86,7 @@ function titleOf(slot: st.PaneSlot): string {
  * no pane, and for a session the browser has not heard about yet: a mark for
  * an unknown command would be a guess.
  */
-export type TabMark =
+type TabMark =
   | { kind: 'folder' }
   | { kind: 'tool'; id: ToolIconId }
   | { kind: 'file'; icon: FileIcon };

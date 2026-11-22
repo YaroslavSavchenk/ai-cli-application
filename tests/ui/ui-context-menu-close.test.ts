@@ -245,7 +245,6 @@ test('hiding the panel takes the menu with it', async () => {
   panel.render();
   assert.equal(st.filesPanelVisible(), false, 'non-vacuity: the panel really is off screen');
   assert.equal(byClass(dom.body, 'cm-menu').length, 0, 'the card outlived its panel');
-  assert.equal(CM.isRowMenuOpen(), false);
   assert.equal(dom.win.handlers.length, baseWin, 'and its window listeners went with it');
   assert.equal(dom.doc.handlers.length, baseDoc, 'and its document listeners too');
   st.state.drawer = null;

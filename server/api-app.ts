@@ -24,6 +24,7 @@ import { ptyEnv } from './sessions.ts';
 import { KEY_NOT_SHAPED, KEY_UNKNOWN_TOOL } from './keys.ts';
 import { UPDATE_BLOCKS_RESTART, UPDATE_NOT_AVAILABLE } from './update-install.ts';
 import { isJsonContentType, scoped } from './config.ts';
+import { plainObject } from './sanitise.ts';
 import {
   NEXT,
   declaresBody,
@@ -38,7 +39,7 @@ import {
 } from './api-http.ts';
 
 /** Prefs is a small opaque bag (theme, statusLine, behaviour, tools, mascot …) — well under the generic cap. */
-export const PREFS_MAX_BYTES = 64 * 1024;
+const PREFS_MAX_BYTES = 64 * 1024;
 
 /**
  * Nocturne C1 (PLAN-C1.md § The toggle): the `mascot` prefs key is absent, or
@@ -48,9 +49,10 @@ export const PREFS_MAX_BYTES = 64 * 1024;
  */
 export function validMascotPref(v: unknown): boolean {
   if (v === undefined) return true;
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
-  const keys = Object.keys(v);
-  return keys.length === 1 && keys[0] === 'enabled' && typeof (v as { enabled: unknown }).enabled === 'boolean';
+  const obj = plainObject(v);
+  if (obj === undefined) return false;
+  const keys = Object.keys(obj);
+  return keys.length === 1 && keys[0] === 'enabled' && typeof obj['enabled'] === 'boolean';
 }
 /**
  * Nocturne D6 (PLAN-D6.md § Defaults): `claudeNoticeHidden` is a version
@@ -67,9 +69,9 @@ function validClaudeNoticeHidden(v: unknown): boolean {
  * legitimate body is `{"key":"…"}` with a key of at most KEY_MAX_CHARS (4096),
  * so anything past 8 KiB is refused before it is read into memory.
  */
-export const KEYS_MAX_BYTES = 8192;
+const KEYS_MAX_BYTES = 8192;
 /** A unit harness built the handler without a KeyStore (cf. ApiDeps.restart). */
-export const KEYS_NOT_AVAILABLE = 'key storage is not available in this process';
+const KEYS_NOT_AVAILABLE = 'key storage is not available in this process';
 /**
  * What POST /api/update/check puts in the access line's note= when the check
  * came back with nothing to offer (`UpdateStatus.reason === null`). A CONSTANT,
@@ -111,8 +113,9 @@ async function readRestartRequest(req: IncomingMessage, res: ServerResponse): Pr
     return undefined;
   }
   const body = read.value;
-  const keys = body !== null && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : undefined;
-  const end = (body as Partial<RestartRequest> | null)?.endSessions;
+  const obj = plainObject(body) as Partial<RestartRequest> | undefined;
+  const keys = obj === undefined ? undefined : Object.keys(obj);
+  const end = obj?.endSessions;
   if (keys === undefined || keys.some((k) => k !== 'endSessions') || (end !== undefined && typeof end !== 'boolean')) {
     sendError(res, 400, RESTART_BAD_BODY);
     return undefined;
@@ -325,12 +328,12 @@ export async function appRoutes(
       else sendError(res, 400, 'invalid JSON body');
       return;
     }
-    const body = read.value;
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    const body = plainObject(read.value) as Partial<ClientLogRequest> | undefined;
+    if (body === undefined) {
       sendError(res, 400, 'invalid JSON body');
       return;
     }
-    const entries = (body as Partial<ClientLogRequest>).entries;
+    const entries = body.entries;
     if (!Array.isArray(entries)) {
       sendError(res, 400, 'entries must be an array');
       return;
@@ -348,21 +351,21 @@ export async function appRoutes(
       return;
     }
     if (method === 'PUT') {
-      const body = await readJsonBody(req, PREFS_MAX_BYTES);
-      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      const body = plainObject(await readJsonBody(req, PREFS_MAX_BYTES));
+      if (body === undefined) {
         sendError(res, 400, 'prefs body must be a JSON object');
         return;
       }
       // The bag stays opaque except for the one key the server now vets
       // (Nocturne C1, PLAN-C1.md § The toggle): `mascot`, when present, is
       // exactly `{ enabled: boolean }`.
-      if (!validMascotPref((body as Record<string, unknown>)['mascot'])) {
+      if (!validMascotPref(body['mascot'])) {
         sendError(res, 400, 'prefs.mascot must be {"enabled": true|false}');
         return;
       }
       // Nocturne D6: a malformed `claudeNoticeHidden` is DROPPED, not refused —
       // the rest of the bag is still the user's (PLAN-D6.md § Defaults).
-      const bag = { ...(body as Record<string, unknown>) };
+      const bag = { ...body };
       if ('claudeNoticeHidden' in bag && !validClaudeNoticeHidden(bag['claudeNoticeHidden'])) {
         delete bag['claudeNoticeHidden'];
         scoped(ctx.log, 'prefs')('debug', 'claudeNoticeHidden is not a version; dropped');
@@ -448,14 +451,14 @@ export async function appRoutes(
       else sendError(res, 400, 'invalid JSON body');
       return;
     }
-    const body = read.value;
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    const body = plainObject(read.value) as Partial<SaveKeyRequest> | undefined;
+    if (body === undefined) {
       sendError(res, 400, 'invalid JSON body');
       return;
     }
     // KeyStore validates and logs `key rejected for <tool>`; the value itself
     // never leaves this statement.
-    if (!keys.save(tool, (body as Partial<SaveKeyRequest>).key)) {
+    if (!keys.save(tool, body.key)) {
       sendError(res, 400, KEY_NOT_SHAPED);
       return;
     }

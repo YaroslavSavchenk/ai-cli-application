@@ -37,7 +37,7 @@ import { plainObject } from './sanitise.ts';
 const MAX_LAST_PORT_BYTES = 1024;
 
 /** Where the port tried first came from — the log lines name the source. */
-export type PortHintSource = 'handoff' | 'last' | 'none';
+type PortHintSource = 'handoff' | 'last' | 'none';
 
 /**
  * A port a normal user process may bind: an integer in 1024-65535. 0 ("the OS

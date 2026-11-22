@@ -471,9 +471,7 @@ select:focus-visible,
    same statement the top bar's New session makes, never a fill — a quiet
    neutral second choice, and (B10a) an outlined DANGER answer. Every dialog
    footer, the update toast, the restart confirmation and the two boot
-   takeovers wear them; the Legacy `.btn`
-   family (ghost / green "go" / accent tint / link) was deleted in A8 once the
-   last module stopped setting it. */
+   takeovers wear them. */
 .btn-accent,
 .btn-quiet,
 .btn-danger {

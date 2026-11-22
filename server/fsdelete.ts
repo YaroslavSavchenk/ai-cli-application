@@ -147,8 +147,8 @@ export const FS_DELETE_TOO_MANY = `Too many items. Delete up to ${MAX_DELETE_ITE
 export const DELETE_MAX_BYTES = 512 * 1024;
 
 /** How many times rm retries a transient ENOTEMPTY/EBUSY, and how long between. */
-export const DELETE_MAX_RETRIES = 3;
-export const DELETE_RETRY_DELAY_MS = 50;
+const DELETE_MAX_RETRIES = 3;
+const DELETE_RETRY_DELAY_MS = 50;
 
 /**
  * One errno, as the answer that ITEM gets. PURE — no logging, no fs — so the

@@ -145,11 +145,6 @@ export function unregisterBody(f: FileFollower): void {
   }
 }
 
-/** How many bodies the follow holds. A test reads it; nothing else does. */
-export function followerCount(): number {
-  return followers.size;
-}
-
 /**
  * One tick: every body that may be asked, asks. Exported so a test can drive
  * the rhythm directly as well as through the recorded interval.

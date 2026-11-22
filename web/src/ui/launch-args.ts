@@ -273,7 +273,7 @@ export function isAgentKind(v: unknown): v is AgentKind {
  * directory, so the SERVER appends the tail that walks it into the project
  * folder. The client never composes a Windows path.
  */
-export interface ShellDef {
+interface ShellDef {
   readonly id: string;
   readonly label: string;
   readonly command: string;
@@ -331,7 +331,7 @@ export const NOT_INSTALLED = 'Not installed';
  */
 export type ToolIconId = 'claude' | 'codex' | 'gemini' | 'grok' | 'terminal' | 'command';
 
-export interface ToolCard {
+interface ToolCard {
   readonly id: string;
   readonly label: string;
   /** Vendor or kind, one plain word or two. */
@@ -359,7 +359,7 @@ export const TOOL_CARDS = [
   { id: 'other', label: 'Other', sub: 'Any command', icon: 'command', kind: 'other' },
 ] as const satisfies readonly ToolCard[];
 
-export interface ShellCard {
+interface ShellCard {
   readonly id: string;
   readonly label: string;
   /** Where the shell lives: `WSL` or `Windows`. */
@@ -428,13 +428,13 @@ export interface Choice {
 }
 
 /** One start-from option: the select's value, the words shown. */
-export interface StartChoice {
+interface StartChoice {
   readonly value: string;
   readonly label: string;
 }
 
 /** Everything one agent's controls offer, and what it cannot be told from here. */
-export interface ToolVocab {
+interface ToolVocab {
   /** The executable the dialog spawns. */
   readonly command: string;
   readonly models: readonly Choice[];
@@ -782,6 +782,18 @@ export function commandLabel(command: string): string {
   // `/usr/local/bin/claude` is the known agent, and printing its path would put
   // a command in UI chrome.
   return TOOL_LABELS.get(commandBase(command)) ?? shellLabel(command) ?? command;
+}
+
+/**
+ * A session's display name. A session launched without a title carries the
+ * raw command as its title (server/sessions.ts), and a command name is not UI
+ * copy — so that case is named through `commandLabel`. A title the user (or
+ * the server) set is kept as it is; it is shown through `textContent` only.
+ * The settings relaunch notice and the restart confirmation both name
+ * sessions this way (Quality Q11: they carried the same expression twice).
+ */
+export function sessionName(s: { title: string; command: string }): string {
+  return s.title === s.command ? commandLabel(s.command) : s.title;
 }
 
 /**

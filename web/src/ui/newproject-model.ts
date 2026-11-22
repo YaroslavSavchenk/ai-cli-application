@@ -74,7 +74,7 @@ export function suggestDestPath(home: string | null, url: string): string {
   return projectsPath(home, repoBasename(url));
 }
 
-export interface Crumb {
+interface Crumb {
   label: string;
   path: string;
 }

@@ -14,13 +14,8 @@
    the Nocturne primitives (--color-*, --space-*, --radius-*, --shadow-*) plus
    the four structural tokens with no primitive twin that the A3 pane, the A4
    `ns-` dialog and the A7 `ap-`/`sg-` blocks also use: --line, --tick,
-   --font-sans, --font-mono. No Legacy alias, no hardcoded colour. Type sizes
-   are the v3 markup's own literals.
-
-   It replaced the Legacy chrome this dialog wore until A7 (`modal pk-modal`
-   with the gradient `launch-hd` header, the `.dirlist`/`.dir-btn` list and a
-   `.btn is-primary` footer) — a Legacy dialog over a Nocturne one, since the
-   dialog it opens from is `ap-`.
+   --font-sans, --font-mono. No alias, no hardcoded colour. Type sizes are the
+   v3 markup's own literals.
 
    Direction: a path instrument, not a second dialog. Three statements, top to
    bottom — where you ARE (the path as one walkable mono row, the last segment
@@ -37,7 +32,7 @@
    the neutral-900 ground, never the accent — the same discipline as the `ap-`
    block, where the accent means interactive-and-chosen only.
 
-   Z-ORDER, unchanged from Legacy: the scrim keeps `modal-scrim` (ui/keys.ts
+   Z-ORDER: the scrim keeps `modal-scrim` (ui/keys.ts
    finds an open dialog by it, and main.ts ranks Esc: picker before the
    Add-a-project dialog under it), so it sits at the same --z-modal as that
    dialog and paints on top purely because it is appended to the same modal host

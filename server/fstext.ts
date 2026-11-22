@@ -95,7 +95,6 @@
  */
 import { createHash } from 'node:crypto';
 import {
-  closeSync,
   constants as fsConstants,
   fstatSync,
   fsyncSync,
@@ -112,7 +111,7 @@ import {
   type FsReadResponse,
   type FsWriteResponse,
 } from '../shared/protocol.ts';
-import { errorClass, errorFrames, type Logger } from './config.ts';
+import { closeQuietly, errorClass, errorFrames, type Logger } from './config.ts';
 import {
   FsBrowseError,
   FS_PATH_BAD,
@@ -136,15 +135,15 @@ import { isExistingDirectory } from './projects.ts';
  * server/fsupload.ts: a malformed path is a malformed path, and a full disk is
  * a full disk.
  */
-export const FS_TEXT_NO_READ_PERMISSION = 'You do not have permission to read this file.';
-export const FS_TEXT_NO_WRITE_PERMISSION = 'You do not have permission to change this file.';
-export const FS_TEXT_DATA_DIR_REFUSED = "The app's own folder is not a place to edit files.";
-export const FS_TEXT_GONE = 'This file is no longer there.';
-export const FS_TEXT_CONFLICT = 'This file changed on disk since you opened it.';
-export const FS_TEXT_TOO_BIG = 'This file is too large to open here.';
-export const FS_TEXT_NOT_TEXT = 'This file is not text, so the editor cannot show it.';
-export const FS_TEXT_READ_FAILED = 'The app could not read this file.';
-export const FS_TEXT_SAVE_FAILED = 'The app could not save this file.';
+const FS_TEXT_NO_READ_PERMISSION = 'You do not have permission to read this file.';
+const FS_TEXT_NO_WRITE_PERMISSION = 'You do not have permission to change this file.';
+const FS_TEXT_DATA_DIR_REFUSED = "The app's own folder is not a place to edit files.";
+const FS_TEXT_GONE = 'This file is no longer there.';
+const FS_TEXT_CONFLICT = 'This file changed on disk since you opened it.';
+const FS_TEXT_TOO_BIG = 'This file is too large to open here.';
+const FS_TEXT_NOT_TEXT = 'This file is not text, so the editor cannot show it.';
+const FS_TEXT_READ_FAILED = 'The app could not read this file.';
+const FS_TEXT_SAVE_FAILED = 'The app could not save this file.';
 
 /**
  * Body cap of the WRITE route — NOT the generic MAX_BODY_BYTES (1 MiB), and the
@@ -196,7 +195,7 @@ export function stampOf(buf: Buffer): string {
 }
 
 /** What a readable text file decodes to. */
-export interface DecodedText {
+interface DecodedText {
   /** LF-normalised, BOM stripped. */
   text: string;
   /** The kind of the FIRST line break; `lf` when there is none. */
@@ -428,16 +427,6 @@ export function openReadOnly(real: string): number {
     return openSync(real, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   } catch (err) {
     throw textErrorFor((err as NodeJS.ErrnoException).code, true);
-  }
-}
-
-/** Close an fd a route opened, swallowing a second close or a broken fd. */
-export function closeQuietly(fd: number | undefined): void {
-  if (fd === undefined) return;
-  try {
-    closeSync(fd);
-  } catch {
-    // Already closed, or a broken fd: nothing left to do with it.
   }
 }
 

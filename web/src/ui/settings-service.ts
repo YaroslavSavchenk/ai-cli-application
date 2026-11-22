@@ -18,7 +18,7 @@ import { runUpdateCheck, watchCheckButton, type CheckHooks } from './update-chec
 // itself arrives as a dep (see SettingsDeps.theme).
 
 /** What `initSettings()` reaches on the service page. */
-export interface ServicePart {
+interface ServicePart {
   renderBackend(): void;
   sayAnswer(text: string | null, canUpdate?: boolean): void;
 }

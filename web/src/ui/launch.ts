@@ -85,7 +85,7 @@ import { layerChoice, projectChoice, type PrefField } from './launch-prefs-model
 // The card radiogroup and the dialog's small tables: `launch-controls.ts` (O8).
 import { ASSUMED, fillChoices, groupLabel, keyToolFor, radioCards } from './launch-controls.ts';
 
-export interface LaunchOpts {
+interface LaunchOpts {
   /** Pre-select this project (projects-drawer per-row `+`). */
   projectId?: string;
 }

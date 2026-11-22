@@ -237,10 +237,14 @@ test('dispose() takes the body out of the follow — a closed pane asks nothing 
   const body = FP.filePaneBody(PATH, EM.fileTabId(PATH), () => {});
   dom.body.append(body.root);
   await settle();
-  const before = ES.followerCount();
-  assert.ok(before >= 1, 'non-vacuity: it was registered');
+  ed.reads.length = 0;
+  ES.followTick();
+  await settle();
+  assert.ok(
+    ed.reads.some((r) => r.startsWith(PATH)),
+    'non-vacuity: a live body on screen is asked',
+  );
   body.dispose();
-  assert.equal(ES.followerCount(), before - 1);
   ed.reads.length = 0;
   ES.followTick();
   await settle();

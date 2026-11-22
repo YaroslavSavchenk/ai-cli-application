@@ -2,7 +2,7 @@
  * Manual restart, preflight step 2 — how the frontend build + swap
  * (server/webbuild.ts) FAILS without taking the served UI with it: no vite
  * (the dependency message, nothing spawned), a hung build killed at the
- * timeout (and SIGKILLed when it ignores SIGTERM), either rename failing (the
+ * timeout (and SIGKILLed when it ignores SIGTERM, on an unref'd timer), either rename failing (the
  * old frontend restored — never a window without a UI; the loud line when the
  * restore fails too), a leftover dist-next wiped first, a repo with no web/dist
  * yet, a spawn that never starts, the bounded log tail of vite's output, and
@@ -29,7 +29,7 @@ import {
   BUILD_KILL_GRACE_MS,
   BUILD_OUTPUT_TAIL_BYTES,
 } from '../../server/webbuild.ts';
-import { waitUntil, IS_ROOT, readSource } from '../helpers/helpers.ts';
+import { waitUntil, IS_ROOT, readSource, spyTimeouts } from '../helpers/helpers.ts';
 import { tempDir, fakeVite, writeBuild, buildFixture } from '../helpers/restart-fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -324,6 +324,41 @@ test('web build: a vite that IGNORES SIGTERM is SIGKILLed after the grace — ne
     );
   } finally {
     stubborn.kill('SIGKILL');
+    rmSync(fx.root, { recursive: true, force: true });
+  }
+});
+
+test('web build: the SIGKILL escalation timer is unref\'d — a refused build never holds a shutdown open', async () => {
+  // The escalation outlives the refusal on purpose (the test above); unref'd,
+  // it can never be what keeps the backend alive for BUILD_KILL_GRACE_MS
+  // after everything else has stopped. Its handle's `hasRef()` is the only
+  // in-process observable, so setTimeout is spied (`spyTimeouts`).
+  const fx = buildFixture();
+  const kills: string[] = [];
+  const hung = Object.assign(new EventEmitter(), {
+    kill: (signal: string) => {
+      kills.push(signal);
+      return true;
+    },
+  }) as unknown as ChildProcess;
+  const spy = spyTimeouts();
+  try {
+    await assert.rejects(
+      buildFrontend({
+        repoRoot: fx.root,
+        webDistDir: fx.dist,
+        log: () => undefined,
+        timeoutMs: 1,
+        spawnFn: () => hung,
+      }),
+      (err: unknown) => err instanceof RestartRefusal && err.refusal === REFUSED_BUILD,
+    );
+    assert.deepEqual(kills, ['SIGTERM'], 'the timeout sent SIGTERM; SIGKILL waits for the grace');
+    const escalation = spy.armed.filter((a) => a.ms === BUILD_KILL_GRACE_MS);
+    assert.equal(escalation.length, 1, 'one escalation timer, armed for the grace');
+    assert.equal(escalation[0]?.handle.hasRef(), false, 'the escalation timer is unref\'d');
+  } finally {
+    spy.restore();
     rmSync(fx.root, { recursive: true, force: true });
   }
 });

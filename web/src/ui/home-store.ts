@@ -15,7 +15,7 @@
  */
 
 /** Lists the backend's `$HOME` (no path) — `api.fsList` in the app. */
-export type HomeLister = () => Promise<{ path: string; dirs: readonly string[] }>;
+type HomeLister = () => Promise<{ path: string; dirs: readonly string[] }>;
 
 /** The home listing, once it has been read; null until then. */
 let home: { path: string; dirs: readonly string[] } | null = null;

@@ -79,7 +79,7 @@ export function authToken(): string {
  * (it mirrors the connecting-only fields of GithubStatus); typed here for the
  * client. NEVER carries a token — the device_code stays 100% server-side.
  */
-export interface GithubDeviceResponse {
+interface GithubDeviceResponse {
   userCode: string;
   verificationUri: string;
   /** ISO-8601 expiry of the device code. */

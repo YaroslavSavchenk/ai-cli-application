@@ -170,7 +170,7 @@ interface SlotNodes {
 }
 
 /** What the view needs from its owner. */
-export interface MascotViewOptions {
+interface MascotViewOptions {
   /** A click on a mascot. The owner forwards it to the model's `poke`. */
   onPoke: (slot: number) => void;
   /**

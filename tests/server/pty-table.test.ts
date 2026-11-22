@@ -88,14 +88,14 @@ test('a ring that wraps keeps endOffset absolute: every byte ever appended, trim
   assert.equal(ring.byteLength, 8, 'the oldest chunk went');
   assert.deepEqual(trims, [4]);
   assert.equal(ring.endOffset, 12, 'the end does not move back at the wrap');
-  assert.equal(ring.toString(), 'efghijkl');
+  assert.equal(ring.toBuffer().toString(), 'efghijkl');
 });
 
 test('one chunk bigger than the whole ring still counts in full toward endOffset', () => {
   const ring = new RingBuffer(4);
   ring.append('ab');
   ring.append('0123456789');
-  assert.equal(ring.toString(), '6789', 'only the tail is kept');
+  assert.equal(ring.toBuffer().toString(), '6789', 'only the tail is kept');
   assert.equal(ring.endOffset, 12);
 });
 
@@ -131,7 +131,7 @@ test('an append past the cap after a restore drops one slice of the restored scr
   ring.append('b');
   assert.deepEqual(trims, [100], 'one 1/64 slice of the cap went');
   assert.equal(ring.byteLength, 6301);
-  assert.equal(ring.toString(), 'a'.repeat(6300) + 'b');
+  assert.equal(ring.toBuffer().toString(), 'a'.repeat(6300) + 'b');
 });
 
 test('a PTY that ends cleanly reports an exit record with code 0, no signal and a time', async () => {
@@ -243,7 +243,7 @@ test('a ring filled exactly to its cap keeps every byte and reports no trim', ()
   const ring = new RingBuffer(8, (n) => trims.push(n));
   ring.append('abcd');
   ring.append('efgh');
-  assert.equal(ring.toString(), 'abcdefgh', 'the cap is inclusive: 8 bytes fit a ring of 8');
+  assert.equal(ring.toBuffer().toString(), 'abcdefgh', 'the cap is inclusive: 8 bytes fit a ring of 8');
   assert.equal(ring.byteLength, 8);
   assert.deepEqual(trims, [], 'nothing was dropped, so nothing is reported');
 });

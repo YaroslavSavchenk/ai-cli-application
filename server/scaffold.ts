@@ -33,6 +33,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { runChild } from './config.ts';
 
 /** Carries an HTTP status so the API layer can map it directly (like FsBrowseError). */
 export class ScaffoldError extends Error {
@@ -233,44 +234,23 @@ export function validateCloneUrl(url: string): void {
  * rejects with a plain ScaffoldError.
  */
 function runGit(args: string[], opts: { cwd?: string; timeoutMs: number }): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (err?: ScaffoldError): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (err !== undefined) reject(err);
-      else resolve();
-    };
-    let child;
-    try {
-      child = spawn('git', args, {
+  return runChild<void>({
+    start: () =>
+      spawn('git', args, {
         shell: false,
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
         stdio: 'ignore',
         windowsHide: true,
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-      });
-    } catch {
-      finish(new ScaffoldError(500, 'git is not available'));
-      return;
-    }
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
-      finish(new ScaffoldError(500, 'git operation timed out'));
-    }, opts.timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    child.on('error', (err) => {
+      }),
+    timeoutMs: opts.timeoutMs,
+    startThrew: () => new ScaffoldError(500, 'git is not available'),
+    timedOut: () => new ScaffoldError(500, 'git operation timed out'),
+    failed: (err) => {
       const code = (err as NodeJS.ErrnoException).code;
-      finish(new ScaffoldError(500, code === 'ENOENT' ? 'git is not installed' : 'git failed to start'));
-    });
-    child.on('close', (code) => {
-      finish(code === 0 ? undefined : new ScaffoldError(500, `git exited with status ${code ?? 'unknown'}`));
-    });
+      return new ScaffoldError(500, code === 'ENOENT' ? 'git is not installed' : 'git failed to start');
+    },
+    closed: (code) =>
+      code === 0 ? undefined : new ScaffoldError(500, `git exited with status ${code ?? 'unknown'}`),
   });
 }

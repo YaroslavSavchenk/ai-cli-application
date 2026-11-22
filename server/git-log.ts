@@ -86,6 +86,7 @@ import type {
   GitCommitsResponse,
   GitDiffLine,
 } from '../shared/protocol.ts';
+import { FULL_HASH } from '../shared/protocol-git.ts';
 import type { Logger } from './config.ts';
 import {
   FS_LIST_GONE,
@@ -123,7 +124,6 @@ const MAX_BODY_BYTES = 8 * 1024;
 /** A pathspec the client sent. Longer than any real path; a NUL is refused. */
 const MAX_PATH_BYTES = 4096;
 
-const HASH_RE = /^[0-9a-f]{40}$/;
 /** `%h` is `core.abbrev`-dependent, so it is validated like anything else. */
 const SHORT_HASH_RE = /^[0-9a-f]{1,40}$/;
 /** `%aI` / `%cI`: strict ISO 8601 with an offset. Anything else becomes ''. */
@@ -203,7 +203,7 @@ const DETAIL_FIELDS = 9;
 
 /** 40 lower-case hex, or the 400. Short, upper-case and `-x` all fail here. */
 export function requireHash(raw: string | null): string {
-  if (raw === null || !HASH_RE.test(raw)) throw new FsBrowseError(400, GIT_COMMIT_BAD);
+  if (raw === null || !FULL_HASH.test(raw)) throw new FsBrowseError(400, GIT_COMMIT_BAD);
   return raw;
 }
 
@@ -303,14 +303,14 @@ const cleanSubject = (s: string): string => capChars(strip(s), MAX_SUBJECT_CHARS
 // The parsers (pure, exported, fixture-tested)
 // ---------------------------------------------------------------------------
 
-export interface LogNumstat {
+interface LogNumstat {
   /** null for a binary file (git prints `-`). */
   add: number | null;
   del: number | null;
   path: string;
 }
 
-export interface LogRecord {
+interface LogRecord {
   fields: string[];
   numstat: LogNumstat[];
 }
@@ -552,7 +552,7 @@ async function requireCommit(ctx: Ctx, hash: string): Promise<void> {
 /** One list row out of one parsed record. Returns null for a desynced record. */
 function summaryOf(record: LogRecord): GitCommitSummary | null {
   const [hash, short, authoredAt, author, subject] = record.fields;
-  if (hash === undefined || !HASH_RE.test(hash)) return null;
+  if (hash === undefined || !FULL_HASH.test(hash)) return null;
   let add = 0;
   let del = 0;
   for (const n of record.numstat) {
@@ -612,7 +612,7 @@ export async function commitsFor(
       const text = probe.stdout.trim();
       // An EMPTY repository (git init, nothing committed) has no HEAD. That is
       // a drawable state — `No commits yet.` — not a failure.
-      if (probe.code !== 0 || !HASH_RE.test(text)) {
+      if (probe.code !== 0 || !FULL_HASH.test(text)) {
         return { isRepo: true, branch, head: null, total: 0, commits: [], more: false };
       }
       head = text;

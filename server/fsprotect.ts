@@ -47,7 +47,7 @@ import { isAbsolute, join, resolve, sep } from 'node:path';
 import { dataDirPath } from './config.ts';
 
 /** What a protected entry is, for the sentence the refusal uses. */
-export type ProtectedKind = 'anchor' | 'data';
+type ProtectedKind = 'anchor' | 'data';
 
 /** `dev:ino` -> kind. `anchor` wins when an entry is on both kinds of chain. */
 export type ProtectedSet = Map<string, ProtectedKind>;

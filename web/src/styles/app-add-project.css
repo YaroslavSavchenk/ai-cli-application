@@ -14,10 +14,9 @@
    against the Nocturne primitives (--color-*, --space-*, --radius-*,
    --shadow-*) plus the four structural tokens the A3 pane and A4 dialog blocks
    also use and that have no primitive twin: --line, --tick, --font-sans,
-   --font-mono (all four are plain tokens.css declarations since A8 deleted the
-   alias layer — tests/ui/ui-addproject-a7.test.ts pins that). No
-   Legacy colour or spacing alias, no hardcoded colour. Type sizes are the v3
-   markup's own literals.
+   --font-mono (all four are plain tokens.css declarations —
+   tests/ui/ui-addproject-a7.test.ts pins that). No alias, no hardcoded
+   colour. Type sizes are the v3 markup's own literals.
 
    Direction: the dialog is a ledger of three ways in, not three cards. The
    only ground inside the card is --color-bg — fields, the GitHub connect card

@@ -211,7 +211,7 @@ export function startCommitsServer(fx: { root: string; home: string }): Promise<
 
 /**
  * A second server child with a fake `git` first on its PATH — the stdout cap
- * and the timeout, for the subcommands B3 added. Its four `fake-*` folders are
+ * and the timeout, for the subcommands B3 added. Its five `fake-*` folders are
  * made in the fixture home.
  */
 export async function startFakeGitServer(fx: { root: string; home: string }): Promise<TestServer> {
@@ -239,7 +239,12 @@ export async function startFakeGitServer(fx: { root: string; home: string }): Pr
       'if [ "$1" = "log" ]; then',
       '  case "$PWD" in',
       '    *-slow) sleep 30; exit 0;;',
-      '    *-flood) exec yes "padding-to-make-the-lines-worth-something";;',
+      // The pid first: `exec` keeps it, so a test can prove the flood is KILLED
+      // at the cap, not merely abandoned to run on.
+      '    *-flood) echo $$ > "$PWD/flood.pid"; exec yes "padding-to-make-the-lines-worth-something";;',
+      // EXACTLY the cap (2 MiB = 2097152 bytes): a 78-byte record head, a
+      // 2097073-byte subject, the closing NUL. At the cap is still an answer.
+      '    *-exact) printf "\\001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\000aaaaaaa\\0002026-01-01T00:00:00+00:00\\000T\\000"; head -c 2097073 /dev/zero | tr "\\000" x; printf "\\000"; exit 0;;',
       // TWO well-formed records whatever --max-count says, so a page asked for
       // with limit=1 has `more` true and the floor has its +1 to add.
       '    *-total) printf "\\001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\000aaaaaaa\\0002026-01-01T00:00:00+00:00\\000T\\000newer\\000\\001bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\000bbbbbbb\\0002026-01-01T00:00:00+00:00\\000T\\000older\\000"; exit 0;;',
@@ -255,6 +260,7 @@ export async function startFakeGitServer(fx: { root: string; home: string }): Pr
   await chmod(join(binDir, 'git'), 0o755);
   await mkdir(join(home, 'fake-slow'));
   await mkdir(join(home, 'fake-flood'));
+  await mkdir(join(home, 'fake-exact'));
   await mkdir(join(home, 'fake-revslow'));
   await mkdir(join(home, 'fake-total'));
   return startTestServer({

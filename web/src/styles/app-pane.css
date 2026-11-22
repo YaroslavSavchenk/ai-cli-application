@@ -13,8 +13,7 @@
 /* ---- pane area (Nocturne A3) --------------------------------------------------
    Flat app ground, one --space-4 gutter around and between the cards. The
    terminal is the hero here: everything else in a pane is a hairline strip.
-   Written on the Nocturne PRIMITIVES (no alias tokens) — the pane is the
-   first surface fully off the Legacy layer.                                  */
+   Written on the Nocturne PRIMITIVES (no alias tokens).                      */
 
 .grid {
   position: relative; /* anchors the absolutely-positioned split dividers */

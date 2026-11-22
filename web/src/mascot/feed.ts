@@ -108,7 +108,7 @@ export class HostReporter {
 /** An opaque timer handle — whatever the injected `setTimeout` returns. */
 export type TimerHandle = unknown;
 
-export interface MascotFeedOptions {
+interface MascotFeedOptions {
   /** `GET /api/sessions`, parsed. Rejects on any failure. */
   getSessions: () => Promise<unknown>;
   /** `GET /api/prefs`, parsed. Rejects on any failure. */

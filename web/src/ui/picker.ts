@@ -27,7 +27,7 @@ import { el, button, trapTab, ModalSlot } from './util.ts';
 import { folderIcon } from './icons.ts';
 import { breadcrumbs, parentDir } from './newproject-model.ts';
 
-export interface PickerOpts {
+interface PickerOpts {
   modalHost: HTMLElement;
   /** Header title, e.g. "Select project folder" / "Select destination folder". */
   title: string;

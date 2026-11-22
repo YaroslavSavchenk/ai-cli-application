@@ -54,7 +54,7 @@ export const HISTORY_MAX = 200;
 const HISTORY_FILE_MAX_BYTES = 32 * 1024 * 1024;
 
 /** What SessionManager.create knows about the launch it just made. */
-export interface HistoryKey {
+interface HistoryKey {
   /** Entry key: the conversation id, or the app session id. */
   id: string;
   conversation: boolean;

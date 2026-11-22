@@ -50,7 +50,7 @@ export interface DropEntry {
 }
 
 /** `FileSystemDirectoryReader`: about 100 entries per call, `[]` when done. */
-export interface DropDirReader {
+interface DropDirReader {
   readEntries(ok: (entries: DropEntry[]) => void, fail?: (e: unknown) => void): void;
 }
 
@@ -70,7 +70,7 @@ export interface DroppedTop {
 }
 
 /** One file to upload: which top-level item it belongs to, and where inside it. */
-export interface WalkedFile {
+interface WalkedFile {
   /** Index into `items` / the dropped order. */
   top: number;
   /** Path INSIDE the top-level item, `/`-joined. `''` = the item itself. */
@@ -90,7 +90,7 @@ export interface WalkedFile {
  * items with the same name and could not express an empty TOP-LEVEL folder
  * (`rel: ''`).
  */
-export interface WalkedFolder {
+interface WalkedFolder {
   top: number;
   /** Path INSIDE the top-level item. `''` = the dropped folder itself. */
   rel: string;

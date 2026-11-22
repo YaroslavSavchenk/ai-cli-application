@@ -40,7 +40,7 @@ import { MascotPresence } from './presence.ts';
 import { MascotView } from './view.ts';
 
 /** The one interface the rest of the world has to this page. */
-export interface MascotController {
+interface MascotController {
   /** How many inputs are waiting. Clamped to 0..3. */
   setCount(n: number): void;
   getCount(): number;

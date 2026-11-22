@@ -61,7 +61,7 @@ export function isQuietPoll(method: string, route: string, status: number, ms: n
   );
 }
 
-export interface PollTallyOptions {
+interface PollTallyOptions {
   /** The `[http]`-scoped logger the access log writes through. */
   log: Logger;
   /** Clock SEAM: tests pass one so the window length in the line is exact. */

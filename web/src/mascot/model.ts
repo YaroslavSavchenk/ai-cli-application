@@ -37,7 +37,7 @@ export const WAVE_MS = 1300;
 export const STRAIN_MS = 3400;
 
 /** A slot's mood. `idle` is also "no click reaction running". */
-export type Mood = 'idle' | 'laugh' | 'wave';
+type Mood = 'idle' | 'laugh' | 'wave';
 
 /** Which left-arm artwork a mascot draws. */
 export type Arm = 'down' | 'up' | 'waving';
@@ -105,7 +105,7 @@ export interface MascotState {
 export type TimerHandle = unknown;
 
 /** The seams: clocks and randomness, so tests own both. */
-export interface MascotModelOptions {
+interface MascotModelOptions {
   setTimeout?: (fn: () => void, ms: number) => TimerHandle;
   clearTimeout?: (handle: TimerHandle) => void;
   /** Returns [0,1) — the laugh/wave draw. */

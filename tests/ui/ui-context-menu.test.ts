@@ -79,7 +79,7 @@ test('a right-click on a FOLDER row opens the menu with that folder s entries', 
   assert.equal(e.defaultPrevented, true, 'the system menu must not open over ours');
   const box = menuEl() as FakeElement;
   assert.ok(box !== undefined, 'a menu');
-  assert.equal(CM.isRowMenuOpen(), true);
+  assert.equal(byClass(dom.body, 'cm-menu').length, 1, 'exactly one menu');
   assert.equal(box.getAttribute('role'), 'menu');
   assert.equal(box.getAttribute('aria-label'), 'actions for web', 'a NAME, never a path');
   assert.deepEqual(

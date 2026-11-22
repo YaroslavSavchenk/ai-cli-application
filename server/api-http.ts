@@ -180,7 +180,7 @@ export async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYT
  * The error object therefore never leaves this function: the caller learns only
  * WHICH rule failed, never anything derived from the bytes.
  */
-export type BodyRead = { ok: true; value: unknown } | { ok: false; reason: 'too-large' | 'invalid-json' };
+type BodyRead = { ok: true; value: unknown } | { ok: false; reason: 'too-large' | 'invalid-json' };
 
 export async function readJsonBodySafe(req: IncomingMessage, maxBytes: number): Promise<BodyRead> {
   const chunks: Buffer[] = [];

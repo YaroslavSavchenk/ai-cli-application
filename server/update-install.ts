@@ -69,28 +69,28 @@ export const UPDATE_NOT_AVAILABLE = 'updates are not available in this process';
 
 // --- Limits ------------------------------------------------------------------
 /** `SHA256SUMS.txt` is a few hundred bytes; anything past this is not one. */
-export const MAX_SUMS_BYTES = 64 * 1024;
+const MAX_SUMS_BYTES = 64 * 1024;
 /** Lines accepted in a sums file. */
-export const MAX_SUMS_LINES = 200;
+const MAX_SUMS_LINES = 200;
 /** Redirect hops allowed per asset. */
-export const MAX_REDIRECTS = 3;
+const MAX_REDIRECTS = 3;
 /** No bytes for this long = a stalled download. */
-export const IDLE_TIMEOUT_MS = 60_000;
+const IDLE_TIMEOUT_MS = 60_000;
 /** Wall-clock cap on one asset download. */
-export const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 /** Headroom demanded on top of twice the Setup size (staging copy included). */
-export const SPACE_HEADROOM_BYTES = 64 * 1024 * 1024;
+const SPACE_HEADROOM_BYTES = 64 * 1024 * 1024;
 /** How long the Setup itself may run before we stop waiting for it. */
-export const SETUP_TIMEOUT_MS = 15 * 60 * 1000;
+const SETUP_TIMEOUT_MS = 15 * 60 * 1000;
 /** After exit 0: how long `current` has to move before we call it a failure. */
-export const INSTALLED_POLL_TIMEOUT_MS = 60_000;
-export const INSTALLED_POLL_MS = 1_000;
+const INSTALLED_POLL_TIMEOUT_MS = 60_000;
+const INSTALLED_POLL_MS = 1_000;
 /** Percent is republished at most this often (and never for less than 1 %). */
-export const PROGRESS_MIN_MS = 250;
+const PROGRESS_MIN_MS = 250;
 /** How much of run-update.ps1's stdout is kept for server.log. */
 export const MAX_SCRIPT_OUTPUT_BYTES = 64 * 1024;
 /** After the child exits, how long its stdout pipe may still deliver a tail. */
-export const SCRIPT_OUTPUT_FLUSH_MS = 1_000;
+const SCRIPT_OUTPUT_FLUSH_MS = 1_000;
 
 /** Asset hosts allowed when the loopback seam is NOT set. */
 const ASSET_HOST_EXACT = 'github.com';
@@ -129,7 +129,7 @@ const WINDOWS_TEMP_SHAPE = /^[A-Za-z]:\\[^<>|"?*\r\n]{1,177}$/;
  */
 const WINDOWS_ARG_SHAPE = /^[^<>|"?*%\u0000-\u001f]{1,259}$/;
 /** A sha256 as the sums file and the script both spell it. */
-export const SHA256_SHAPE = /^[0-9a-f]{64}$/;
+const SHA256_SHAPE = /^[0-9a-f]{64}$/;
 /** One line of `sha256sum` output: hash, space, ' ' or '*', then the name. */
 const SUMS_LINE_SHAPE = /^([0-9a-f]{64}) [ *](\S{1,255})$/;
 
@@ -277,9 +277,9 @@ export interface LaunchSetupArgs {
  * Windows side, anything else a failure). Rejects when it could not be started
  * at all. Injected so tests drive the pipeline without Windows.
  */
-export type LaunchSetup = (args: LaunchSetupArgs) => Promise<number>;
+type LaunchSetup = (args: LaunchSetupArgs) => Promise<number>;
 
-export interface UpdateControllerDeps {
+interface UpdateControllerDeps {
   log: Logger;
   /** `<dataDir>/updates`. */
   updatesDir: string;
@@ -742,7 +742,7 @@ export class UpdateController implements UpdateRunner {
 // The REAL Windows launch (WSL interop). Injected above; unreachable in tests.
 // ---------------------------------------------------------------------------
 
-export interface WindowsTemp {
+interface WindowsTemp {
   /** `C:\Users\<user>\AppData\Local\Temp` — validated, no trailing separator. */
   win: string;
   /** The same directory as WSL sees it: `/mnt/c/...`, proven to be a directory. */
@@ -799,7 +799,7 @@ export type SpawnLike = (
   options: SpawnOptions,
 ) => ChildProcess;
 
-export interface InteropLauncherOptions {
+interface InteropLauncherOptions {
   log: Logger;
   /** The app dir this process runs from; holds `launcher/run-update.ps1`. */
   appDir: string;

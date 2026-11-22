@@ -228,9 +228,8 @@
    The v3 modal, written against the Nocturne primitives (--color-*,
    --space-*, --radius-*, --shadow-*) plus four structural tokens that have no
    primitive twin: --line, --tick, --font-sans, --font-mono (the A3 pane block
-   uses the same four). No Legacy colour or spacing alias — A8 deleted that
-   layer, and every name here is a real declaration in tokens.css
-   (tests/ui/ui-launch-a4.test.ts). Type sizes are the v3
+   uses the same four). No alias, no hardcoded colour: every name here is a
+   real declaration in tokens.css (tests/ui/ui-launch-a4.test.ts). Type sizes are the v3
    markup's own literals. One accent rule: the SELECTED card's outline and the
    Start session outline; nothing else in the dialog is blurple except the
    focus ring. Danger red belongs to exactly one card, No prompts.

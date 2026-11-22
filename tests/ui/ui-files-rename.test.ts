@@ -75,7 +75,6 @@ interface FilesModule {
   initFilesPanel(host: unknown, onLeaveScreen: () => void, fs: unknown): { render(): void };
 }
 interface MenuModule {
-  isRowMenuOpen(): boolean;
   closeRowMenu(): void;
 }
 interface RenameModel {

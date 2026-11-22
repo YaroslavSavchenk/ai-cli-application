@@ -230,7 +230,7 @@ export function keepBothName(name: string, taken: readonly string[]): string {
  * performs read the SAME plan (user decision D2, 2026-09-20), so a row can
  * never say one thing while the copy does another.
  */
-export interface PlannedItem {
+interface PlannedItem {
   /** The thing that was dropped, unchanged. */
   item: DropItem;
   /** It clashed with a name in the destination's listing. */

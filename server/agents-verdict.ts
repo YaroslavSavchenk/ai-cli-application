@@ -47,7 +47,7 @@ const FINISH_GRACE_MS = 10_000;
 const TITLE_IDLE_MS = 3_000;
 
 /** What the verdict is made of, for one session at one poll. */
-export interface VerdictInput {
+interface VerdictInput {
   /** The session transcript's fold: the main verdict, a question, the open launches. */
   fold: TurnFold;
   /** Every running subagent row (not only the ones on the wire). */

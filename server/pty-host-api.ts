@@ -3,47 +3,40 @@
  * owns the terminals — and its in-process implementation over
  * server/pty-table.ts.
  *
- * Nocturne D9 P1 (.claude/plans/nocturne/PLAN-D9.md § Phases): the seam a
- * separate pty-host process slots into (P2: a socket client implementing the
- * same interface; P3: the backend switches to it). Shaped for a socket now:
+ * Nocturne D9 (.claude/plans/nocturne/PLAN-D9.md § Phases): the seam the
+ * separate pty-host process slots into. The backend's SessionManager talks to
+ * a broker (server/pty-host-broker.ts) that implements this interface over a
+ * pty-host it connects to or starts (server/pty-host-client.ts
+ * `SocketPtyHost`), or over the in-process table below when the pty-host is
+ * refused. Shaped for a socket:
  *   - a request that needs an answer returns a Promise (`spawn`, `snapshot`,
  *     `list`) — over the wire it is a request frame and a reply frame;
  *   - a command that needs none returns void (`write`, `resize`, `kill`,
- *     `setMeta`, `forget`, `shutdownAll`) — over the wire it is one frame,
- *     sent in order after every earlier one;
+ *     `setMeta`, `forget`, `shutdownAll`, `detach`) — over the wire it is one
+ *     frame, sent in order after every earlier one;
  *   - what the PTYs do arrives as events through ONE listener, the owner's
- *     (`listen`): `output(id, data, offset)` and `exit(id, record)`.
+ *     (`listen`): `output(id, data, offset)`, `exit(id, record)`, and `lost`,
+ *     raised only by the broker.
  * The owner chooses the session id and passes it in `spawn`, so it can route
  * events for that id before the spawn's answer has been read.
  *
- * Members with no caller in P1, and the phase that calls them (PLAN-D9.md
- * § Defaults, § Phases):
- *   - `list()` / `PtyEntrySummary` — P3 boot: which ids are still live (history
- *     stamps `crash` only for the others; artifacts of live ids survive the
- *     wipe), each one's pid, size, exit record and `meta` to rebuild its
- *     SessionInfo from (adopt).
- *   - `snapshot()` — P3 adopt: refill the backend's mirror ring, then re-scan
- *     only `ring[scannedTo..endOffset]` for bells and titles missed in the gap.
- *   - `setMeta()` / `meta` — P3: the scan state, `attention`, `pendingSince`,
+ * What a restarted backend uses to take its sessions back (server/sessions.ts
+ * `adopt`):
+ *   - `list()` / `PtyEntrySummary` — at boot, which ids are still live
+ *     (history stamps `crash` only for the others; artifacts of live ids
+ *     survive the wipe), each one's pid, size, exit record and `meta` to
+ *     rebuild its SessionInfo from;
+ *   - `snapshot()` — refill the backend's mirror ring, then re-scan only
+ *     `ring[scannedTo..endOffset]` for bells and titles missed in the gap;
+ *   - `setMeta()` / `meta` — the scan state, `attention`, `pendingSince`,
  *     `titleIdleSince` and what SessionInfo needs, flushed on change and on
- *     detach so a restarted backend finds them.
- *   - the `offset` of an output event — P3: the mirror tells a chunk it
- *     already holds (from the snapshot) from a new one, and finds a gap.
- * SessionManager ignored them in P1 on purpose (no behaviour change); since P3
- * it calls every one of them (server/sessions.ts `adopt`, the blob flushes).
+ *     detach;
+ *   - the `offset` of an output event — the mirror tells a chunk it already
+ *     holds (from the snapshot) from a new one, and finds a gap.
+ * `detach` is the restart's: let go of the pty-host without ending its PTYs.
  *
- * P2 added `detach` (P4's restart calls it), and `onLost` and
- * `pendingSpawns` for the socket implementation (server/pty-host-client.ts
- * `SocketPtyHost`). P3 dropped the last two from this interface: only the
- * broker reads a socket host's loss, and the manager tracks its own spawns in
- * flight (`#closing`), so no owner of a `PtyHost` needs them (P4 deleted
- * `pendingSpawns`: the manager ends its own pending spawns at `detachAll`). P3 wired it: the backend's SessionManager talks
- * to a broker (server/pty-host-broker.ts) that implements this interface over
- * a pty-host it connects to or starts, or over the in-process table when the
- * pty-host is refused; `PtyOwnerEvents.lost` is the broker's.
- *
- * Accepted cost while the table is in-process (P1 and P2, and since P3 the
- * fallback when the pty-host is refused, and the `inproc` test seam): the
+ * Accepted cost while the table is in-process (the fallback when the
+ * pty-host is refused, and the `inproc` test seam): the
  * table's ring is a SECOND copy of the manager's mirror — up to another
  * SCROLLBACK_MAX_BYTES (1 MiB) per session — plus one extra `Buffer.from` per
  * output chunk.

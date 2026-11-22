@@ -153,11 +153,12 @@ const REJECT_NO_ROOM = 'There is no room beside this pane.';
  * A pane's strip is FULL and the gesture is a MOVE (B4 amendment, 2026-09-22:
  * four files per pane). An OPEN evicts the last chip to make room; a move
  * never does — the tab it would throw out is one the user put there, and the
- * gesture that asked for it says nothing about which. Exported because the
- * ctrl+alt+m twin in main.ts says the SAME sentence: one refusal, one
- * spelling. The four is written out, not interpolated: this is copy.
+ * gesture that asked for it says nothing about which. The ctrl+alt+m twin in
+ * main-shell.ts says the SAME sentence through `flashMoveTabResult`: one
+ * refusal, one spelling. The four is written out, not interpolated: this is
+ * copy.
  */
-export const REJECT_PANE_TABS_FULL = 'This pane already holds 4 files.';
+const REJECT_PANE_TABS_FULL = 'This pane already holds 4 files.';
 
 interface Drag {
   spec: DragSpec;
@@ -212,16 +213,27 @@ function swallowNextClick(): void {
   suppressClicksUntil = swallowClock() + CLICK_SWALLOW_MS;
 }
 
-document.addEventListener(
-  'click',
-  (e) => {
-    if (swallowClock() < suppressClicksUntil) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  },
-  true,
-);
+/**
+ * The capture-phase click listener that does the swallowing. Installed once,
+ * by the first `armDrag` (Q11: no side effect at import in a non-entry
+ * module) — no click can follow a drag before some source is armed.
+ */
+let clickSwallowInstalled = false;
+
+function installClickSwallow(): void {
+  if (clickSwallowInstalled) return;
+  clickSwallowInstalled = true;
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (swallowClock() < suppressClicksUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true,
+  );
+}
 
 /**
  * Arm an element as a drag source. `makeSpec` runs at pointerdown (the strip
@@ -231,6 +243,7 @@ document.addEventListener(
  * `'button'` would match the row itself and arm nothing).
  */
 export function armDrag(source: HTMLElement, ignore: string | null, makeSpec: () => DragSpec | null): void {
+  installClickSwallow();
   source.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || drag !== null) return;
     if (

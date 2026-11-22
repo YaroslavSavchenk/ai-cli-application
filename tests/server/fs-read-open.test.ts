@@ -1,6 +1,7 @@
 /**
- * server/fstext.ts openReadOnly() and closeQuietly() — the one open every
- * route that reads a file's bytes goes through (GET /api/fs/read since B4,
+ * server/fstext.ts openReadOnly() and server/config.ts closeQuietly() (its
+ * one home since PLAN-QUALITY Q11) — the one open every route that reads a
+ * file's bytes goes through (GET /api/fs/read since B4,
  * the media viewer's two routes since Nocturne D7,
  * `.claude/plans/nocturne/PLAN-D7.md`).
  *
@@ -22,7 +23,8 @@ import assert from 'node:assert/strict';
 import { closeSync, fstatSync, openSync } from 'node:fs';
 import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { closeQuietly, openReadOnly } from '../../server/fstext.ts';
+import { closeQuietly } from '../../server/config.ts';
+import { openReadOnly } from '../../server/fstext.ts';
 import { FsBrowseError } from '../../server/fsbrowse.ts';
 import { makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 

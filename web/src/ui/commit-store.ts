@@ -38,7 +38,7 @@ import { promiseOf } from './util.ts';
 import type { GitCommitDiffResponse, GitCommitResponse } from '../../../shared/protocol.ts';
 
 /** The two questions this module asks, injected by `main.ts` (never imported). */
-export interface CommitGateway {
+interface CommitGateway {
   /** One commit: its message, who and when, and the files it changed. */
   commit(root: string, hash: string): Promise<GitCommitResponse>;
   /** What that commit changed in ONE file, as numbered lines. */

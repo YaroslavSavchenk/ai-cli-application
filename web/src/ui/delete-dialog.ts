@@ -41,7 +41,7 @@
 import { el, button, trapTab, ModalSlot } from './util.ts';
 
 /** One confirmation: what it asks, what it adds, and what a Yes means. */
-export interface DeleteRequest {
+interface DeleteRequest {
   /** The question — `deleteQuestion()`, names only, never a path. */
   question: string;
   /** The one line under it, when it adds something — `deleteSubLine()`, else null. */

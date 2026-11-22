@@ -95,7 +95,7 @@ import { createRender } from './files-render.ts';
 /** Arrow-key step for the width, in px — the keyboard twin of the edge drag. */
 const NUDGE_PX = 16;
 
-export interface FilesPanel {
+interface FilesPanel {
   render(): void;
 }
 

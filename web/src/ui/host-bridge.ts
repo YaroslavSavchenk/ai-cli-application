@@ -44,7 +44,7 @@ const KIND = 'copy-files';
 export const REPLY_TIMEOUT_MS = 3000;
 
 /** `chrome.webview`, as much of it as this module uses. */
-export interface HostChannel {
+interface HostChannel {
   postMessage(message: string): void;
   addEventListener(type: 'message', fn: (e: { data?: unknown }) => void): void;
   removeEventListener(type: 'message', fn: (e: { data?: unknown }) => void): void;

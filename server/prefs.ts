@@ -16,6 +16,7 @@ import {
   setAsideRefused,
   type Logger,
 } from './config.ts';
+import { plainObject } from './sanitise.ts';
 
 /**
  * Read cap for prefs.json (Q8). The writer stores a PUT body of at most
@@ -65,10 +66,8 @@ export class PrefsStore {
     }
     const raw = read.text;
     try {
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('prefs.json is not an object');
-      }
+      const parsed = plainObject(JSON.parse(raw) as unknown);
+      if (parsed === undefined) throw new Error('prefs.json is not an object');
       this.#prefs = parsed as UiPrefs;
       // KEYS ONLY, never values: prefs is an opaque bag the server does not
       // interpret, so its contents are not ours to write into the log.

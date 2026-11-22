@@ -21,14 +21,20 @@
  */
 import { isClaudeCommand } from '../shared/protocol.ts';
 
-/** Claude requires a real UUID for `--session-id`; anything else is not one. */
+/**
+ * Claude requires a real UUID for `--session-id`; anything else is not one.
+ * CASE-INSENSITIVE on purpose: a `--resume <id>` the user typed, or an id read
+ * back from history.json, may be upper case and is still Claude's. The
+ * pty-host wire's `isSessionUuid` (server/pty-host-wire.ts) is the strict,
+ * lowercase-only twin — tests/server/pty-host-wire.test.ts pins the difference.
+ */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
-export interface ConversationPlan {
+interface ConversationPlan {
   /**
    * History entry key. A Claude conversation id when `conversation` is true,
    * otherwise the app session id of this launch.
@@ -159,7 +165,7 @@ export function stripConversationArgs(args: readonly string[]): string[] {
 }
 
 /** The minimum a resume needs off a history entry (HistoryEntry satisfies it). */
-export interface ResumableEntry {
+interface ResumableEntry {
   id: string;
   conversation: boolean;
   command: string;

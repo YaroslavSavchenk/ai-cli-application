@@ -40,7 +40,7 @@ import type {
   ChangedFile,
   GitChangesResponse,
 } from '../shared/protocol.ts';
-import type { Logger } from './config.ts';
+import { killQuietly, runChild, type Logger } from './config.ts';
 import {
   FS_LIST_GONE,
   FS_NO_READ_PERMISSION,
@@ -145,7 +145,7 @@ export const GIT_ENV: Record<string, string> = {
  */
 const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
 
-export interface GitRun {
+interface GitRun {
   /** Exit status, or null when the child died on a signal. */
   code: number | null;
   /** stdout, decoded utf8. Empty on any non-zero exit we tolerate. */
@@ -165,86 +165,64 @@ export function runGitCapture(
   trace: string[],
 ): Promise<GitRun> {
   const sub = args[0] ?? '?';
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    // DECLARED BEFORE finish(), and checked: `spawn` can throw SYNCHRONOUSLY
-    // (EMFILE), and on that path finish() runs before the `setTimeout` below
-    // has been evaluated. A bare `clearTimeout(timer)` there is a
-    // ReferenceError in the temporal dead zone — the request would fail with a
-    // 500 whose cause is this line rather than git.
-    let timer: NodeJS.Timeout | undefined;
-    const finish = (err: Error | null, run?: GitRun): void => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      if (err !== null) reject(err);
-      else resolve(run as GitRun);
-    };
-    let child;
-    try {
-      child = spawn('git', args as string[], {
+  const failed = (): FsBrowseError => new FsBrowseError(500, GIT_READ_FAILED);
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  let capped = false;
+  return runChild<GitRun>({
+    start: () =>
+      spawn('git', args as string[], {
         shell: false,
         cwd,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
         env: { ...process.env, ...GIT_ENV },
-      });
-    } catch {
+      }),
+    timeoutMs: GIT_TIMEOUT_MS,
+    startThrew: () => {
       trace.push(`${sub} did not spawn`);
-      finish(new FsBrowseError(500, GIT_READ_FAILED));
-      return;
-    }
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    let capped = false;
-    child.stdout?.on('data', (chunk: Buffer) => {
-      // ONCE. `kill()` does not empty the pipe: every chunk already buffered
-      // still arrives as a `data` event, and without this line each one re-ran
-      // the warn below and pushed another `${sub} killed` into the trace — one
-      // capped request, N identical log lines.
-      if (capped) return;
-      bytes += chunk.byteLength;
-      if (bytes > MAX_STDOUT_BYTES) {
-        capped = true;
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          // Already gone.
-        }
-        // The SUBCOMMAND and the reason — never a byte of the output itself.
-        log('warn', `git ${sub} produced more than ${MAX_STDOUT_BYTES} bytes; killed`);
-        trace.push(`${sub} killed`);
-        finish(new FsBrowseError(500, GIT_READ_FAILED));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
+      return failed();
+    },
+    timedOut: () => {
       log('warn', `git ${sub} timed out after ${GIT_TIMEOUT_MS}ms; killed`);
       trace.push(`${sub} timed out`);
-      finish(new FsBrowseError(500, GIT_READ_FAILED));
-    }, GIT_TIMEOUT_MS);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    child.on('error', () => {
+      return failed();
+    },
+    failed: () => {
       log('warn', `git ${sub} failed to start`);
       trace.push(`${sub} did not start`);
-      finish(new FsBrowseError(500, GIT_READ_FAILED));
-    });
-    child.on('close', (code) => {
-      if (capped) return;
+      return failed();
+    },
+    closed: (code) => {
+      // Capped: already rejected, and the trace already says `killed`.
+      if (capped) return failed();
       // The subcommand and the exit status go into the REQUEST'S one line
       // (changesFor's `finally`), not into a line of their own: this route is
       // polled every 5 s while the Changes tab is up, and five debug lines per
       // poll is how server.log stops being readable. Never git's own output.
       trace.push(`${sub} ${code ?? 'on a signal'}`);
-      finish(null, { code, stdout: Buffer.concat(chunks).toString('utf8') });
-    });
+      return { code, stdout: Buffer.concat(chunks).toString('utf8') };
+    },
+    watch: (child, fail) => {
+      child.stdout?.on('data', (chunk: Buffer) => {
+        // ONCE. `kill()` does not empty the pipe: every chunk already buffered
+        // still arrives as a `data` event, and without this line each one re-ran
+        // the warn below and pushed another `${sub} killed` into the trace — one
+        // capped request, N identical log lines.
+        if (capped) return;
+        bytes += chunk.byteLength;
+        if (bytes > MAX_STDOUT_BYTES) {
+          capped = true;
+          killQuietly(child);
+          // The SUBCOMMAND and the reason — never a byte of the output itself.
+          log('warn', `git ${sub} produced more than ${MAX_STDOUT_BYTES} bytes; killed`);
+          trace.push(`${sub} killed`);
+          fail(failed());
+          return;
+        }
+        chunks.push(chunk);
+      });
+    },
   });
 }
 

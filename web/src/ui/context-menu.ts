@@ -51,7 +51,7 @@ import {
 } from './context-menu-model.ts';
 
 /** What `ui/files.ts` hands over to open a menu on one row. */
-export interface RowMenuRequest {
+interface RowMenuRequest {
   /** The entries, from `itemsFor()` — the model decides them, never this file. */
   items: readonly MenuItem[];
   /** Where it was asked for: the pointer, or the row's leading edge and bottom. */
@@ -78,10 +78,6 @@ let restore: HTMLElement | null = null;
  * the key for a menu nobody can see.
  */
 let listeners: (() => void)[] = [];
-
-export function isRowMenuOpen(): boolean {
-  return menu !== null;
-}
 
 /**
  * Take the menu away and hand the keyboard back to the row it came from when

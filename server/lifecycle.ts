@@ -19,11 +19,11 @@
 import { envMs, scoped, type Logger } from './config.ts';
 
 /** Grace after the last client disconnects. Env override: AI_SM_GRACE_MS. */
-export const DEFAULT_GRACE_MS = 30_000;
+const DEFAULT_GRACE_MS = 30_000;
 /** Grace from listen until the first presence ever. Env override: AI_SM_STARTUP_GRACE_MS. */
-export const DEFAULT_STARTUP_GRACE_MS = 120_000;
+const DEFAULT_STARTUP_GRACE_MS = 120_000;
 
-export interface LifecycleOptions {
+interface LifecycleOptions {
   onIdleShutdown: () => void;
   log: Logger;
   /** Test seams; production reads the env / defaults. */

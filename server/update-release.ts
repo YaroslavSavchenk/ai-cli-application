@@ -49,6 +49,7 @@ import {
   USER_AGENT,
   type Logger,
 } from './config.ts';
+import { plainObject } from './sanitise.ts';
 
 /** The repository releases are published to. Owner/name, not a URL. */
 export const UPDATE_OWNER = 'YaroslavSavchenk';
@@ -71,9 +72,9 @@ function assetUrl(assetBase: string, tag: string, name: string): string {
 export const LATEST_RELEASE_PATH = `/repos/${UPDATE_OWNER}/${UPDATE_REPO}/releases/latest`;
 
 /** Per-request hard timeout, as in github.ts. */
-export const CHECK_TIMEOUT_MS = 15_000;
+const CHECK_TIMEOUT_MS = 15_000;
 /** Body cap on the API answer, enforced while reading, not after. */
-export const MAX_RELEASE_BODY_BYTES = 1024 * 1024;
+const MAX_RELEASE_BODY_BYTES = 1024 * 1024;
 /** A Setup larger than this is not one of ours (the real one is ~5 MiB). */
 export const MAX_SETUP_BYTES = 200 * 1024 * 1024;
 /** First check after `listen` — WSL often has no network the instant Windows boots. */
@@ -81,11 +82,11 @@ export const FIRST_CHECK_MS = 20_000;
 /** Steady-state cadence: hourly (user, 2026-10-13 — six hours left a fresh release unseen for most of a day). */
 export const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** After a failure: three short retries before falling back to the normal cadence. */
-export const BACKOFF_MS = 15 * 60 * 1000;
-export const MAX_BACKOFFS = 3;
+const BACKOFF_MS = 15 * 60 * 1000;
+const MAX_BACKOFFS = 3;
 /** Bounds on any server-supplied wait (`x-ratelimit-reset`, `retry-after`). */
-export const MIN_RATE_LIMIT_WAIT_MS = 60_000;
-export const MAX_RATE_LIMIT_WAIT_MS = 24 * 60 * 60 * 1000;
+const MIN_RATE_LIMIT_WAIT_MS = 60_000;
+const MAX_RATE_LIMIT_WAIT_MS = 24 * 60 * 60 * 1000;
 /** Cap on the persisted ETag cache file. */
 export const MAX_CACHE_BYTES = 8 * 1024;
 
@@ -107,7 +108,7 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 const SEMVER_SHAPE =
   /^v?(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})(?:-([0-9A-Za-z.-]{1,64}))?(?:\+([0-9A-Za-z.-]{1,64}))?$/;
 
-export interface ParsedVersion {
+interface ParsedVersion {
   major: number;
   minor: number;
   patch: number;
@@ -200,15 +201,11 @@ export function releaseCheckSupported(version: string): boolean {
 // ---------------------------------------------------------------------------
 
 /** Why a release was not offered. A CONSTANT-ish sentence for server.log only. */
-export type ReleaseRejection = string;
+type ReleaseRejection = string;
 
-export interface AssetOptions {
+interface AssetOptions {
   /** Origin release assets may be downloaded from (github.com, or the seam). */
   assetBase: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -233,21 +230,23 @@ export function gateLatestRelease(
   payload: unknown,
   opts: AssetOptions,
 ): { ok: true; release: UpdateRelease } | { ok: false; why: ReleaseRejection } {
-  if (!isRecord(payload)) return { ok: false, why: 'the answer was not a JSON object' };
-  if (payload['draft'] !== false) return { ok: false, why: 'the release is a draft' };
-  if (payload['prerelease'] !== false) return { ok: false, why: 'the release is a pre-release' };
-  const tag = payload['tag_name'];
+  const release = plainObject(payload);
+  if (release === undefined) return { ok: false, why: 'the answer was not a JSON object' };
+  if (release['draft'] !== false) return { ok: false, why: 'the release is a draft' };
+  if (release['prerelease'] !== false) return { ok: false, why: 'the release is a pre-release' };
+  const tag = release['tag_name'];
   if (typeof tag !== 'string' || !VERSION_SHAPE.test(tag)) {
     return { ok: false, why: 'the release tag is missing or not a version' };
   }
-  const assets = payload['assets'];
+  const assets = release['assets'];
   if (!Array.isArray(assets) || assets.length > 100) {
     return { ok: false, why: 'the release has no usable asset list' };
   }
   const setupName = setupAssetName(tag);
   const find = (name: string): Record<string, unknown> | undefined => {
     for (const entry of assets) {
-      if (isRecord(entry) && entry['name'] === name) return entry;
+      const asset = plainObject(entry);
+      if (asset !== undefined && asset['name'] === name) return asset;
     }
     return undefined;
   };
@@ -293,7 +292,7 @@ export function gateLatestRelease(
  * The field is `latest`, not `release`, ON PURPOSE: a file in the old shape
  * fails this read, which costs one unconditional 200 and rebuilds the truth.
  */
-export interface UpdateCheckCache {
+interface UpdateCheckCache {
   etag: string;
   /** ISO-8601 of the last successful (200 or 304) answer. */
   checkedAt: string;
@@ -329,15 +328,17 @@ export function readUpdateCheckCache(
   } catch {
     return null;
   }
-  if (!isRecord(parsed)) return null;
-  const etag = parsed['etag'];
+  const cache = plainObject(parsed);
+  if (cache === undefined) return null;
+  const etag = cache['etag'];
   if (typeof etag !== 'string' || !ETAG_SHAPE.test(etag)) return null;
-  const checkedAt = parsed['checkedAt'];
+  const checkedAt = cache['checkedAt'];
   if (typeof checkedAt !== 'string' || !ISO_SHAPE.test(checkedAt)) return null;
   if (Number.isNaN(Date.parse(checkedAt))) return null;
-  const latest = parsed['latest'];
-  if (latest === null) return { etag, checkedAt, latest: null };
-  if (!isRecord(latest)) return null;
+  const latestValue = cache['latest'];
+  if (latestValue === null) return { etag, checkedAt, latest: null };
+  const latest = plainObject(latestValue);
+  if (latest === undefined) return null;
   const version = latest['version'];
   if (typeof version !== 'string' || !VERSION_SHAPE.test(version)) return null;
   const setupName = setupAssetName(version);
@@ -372,7 +373,7 @@ function writeUpdateCheckCache(file: string, cache: UpdateCheckCache): void {
 // The checker
 // ---------------------------------------------------------------------------
 
-export interface ReleaseCheckerOptions {
+interface ReleaseCheckerOptions {
   /** `bundle.json.version` of the running process. */
   currentVersion: string;
   /** REST base — `resolveUpdateApiBase()`. */

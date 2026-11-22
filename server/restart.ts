@@ -88,7 +88,7 @@ export const RESTART_POLL_MS = 100;
  * Force-exit backstop: if the 202/500 body is not flushed this fast, leave
  * anyway. Unref'd — it must never be the thing keeping a dead process alive.
  */
-export const RESTART_FLUSH_BACKSTOP_MS = 500;
+const RESTART_FLUSH_BACKSTOP_MS = 500;
 
 /** Reason text for the 500 body. CONSTANTS only: this string reaches server.log. */
 const FAILED_SPAWN = 'restart failed: could not start the new backend; relaunch from the desktop shortcut';
@@ -139,7 +139,7 @@ function sessionsFate(facts: SessionFacts, ptyHost: PtyHostVerdict): SessionsFat
 }
 
 /** How long the parent waits for the standby child's `standby-ready`. */
-export const STANDBY_READY_TIMEOUT_MS = 20_000;
+const STANDBY_READY_TIMEOUT_MS = 20_000;
 /** How long a standby child waits for `go` before deciding it was forgotten. */
 export const STANDBY_TIMEOUT_MS = 30_000;
 
@@ -682,7 +682,7 @@ export class RestartController implements RestartRunner {
 // ---------------------------------------------------------------------------
 
 /** Where a replacement backend lives: the binary, the module, the cwd. */
-export interface StandbyTarget {
+interface StandbyTarget {
   /** The node binary that runs it. `process.execPath` on the developer path. */
   execPath: string;
   /** Absolute path of the entry module. */
@@ -691,7 +691,7 @@ export interface StandbyTarget {
   cwd: string;
 }
 
-export interface StandbyStarterOptions {
+interface StandbyStarterOptions {
   /**
    * Absolute path of the entry module the replacement re-executes, run by THIS
    * process's node binary. The developer path: the replacement is the same

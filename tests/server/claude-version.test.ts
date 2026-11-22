@@ -187,8 +187,9 @@ test('never through a shell: a PATH directory named with shell syntax still runs
   const { log } = capture();
   assert.deepEqual(await probeClaudeVersion({ env: { PATH: dir }, log }), { version: '2.1.270', compat: 'ok' });
   // The pin on the one spawn: argv array, shell explicitly off, stdin and stderr ignored.
-  const config = readSource('server', 'config.ts');
-  assert.match(config, /spawn\(command, args, \{\s*stdio: \['ignore', 'pipe', 'ignore'\],\s*shell: false,/);
+  // runCapture lives in server/config-spawn.ts since PLAN-QUALITY Q11 (config.ts re-exports it).
+  const spawner = readSource('server', 'config-spawn.ts');
+  assert.match(spawner, /spawn\(command, args, \{\s*stdio: \['ignore', 'pipe', 'ignore'\],\s*shell: false,/);
   const probe = readSource('server', 'claude-version.ts');
   assert.match(probe, /runCapture\(binary, \['--version'\], \{/);
   assert.doesNotMatch(probe, /child_process|exec\(|execSync|spawnSync/, 'the probe spawns only through runCapture');

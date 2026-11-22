@@ -46,7 +46,7 @@ export interface AgentRow {
 }
 
 /** What `agentTable` (ui/pane-agents-model.ts) hands the renderer. */
-export interface AgentTable {
+interface AgentTable {
   rows: AgentRow[];
   /** Running agents beyond the rows; 0 = not drawn. */
   moreWorking: number;

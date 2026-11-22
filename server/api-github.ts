@@ -20,6 +20,7 @@ import type {
 } from '../shared/protocol.ts';
 import { GithubError, parseGithubRepoPath } from './github.ts';
 import { isJsonContentType } from './config.ts';
+import { plainObject } from './sanitise.ts';
 import { repoNameFromUrl } from './api-projects.ts';
 import {
   NEXT,
@@ -32,16 +33,16 @@ import {
 } from './api-http.ts';
 
 /** Bound on a new GitHub repo name (GitHub itself caps at 100; be generous). */
-export const GITHUB_REPO_NAME_MAX = 200;
+const GITHUB_REPO_NAME_MAX = 200;
 /**
  * Dedicated body cap for POST /api/github/token — NOT the generic 1 MiB. The
  * whole legitimate body is `{"token":"…","remember":true}` with a token of at
  * most 1024 characters, so anything past 4 KiB is refused before it is read
  * into memory, let alone parsed.
  */
-export const GITHUB_TOKEN_MAX_BYTES = 4096;
+const GITHUB_TOKEN_MAX_BYTES = 4096;
 /** Bound on the pasted token itself (mirrors github.ts MAX_PASTED_TOKEN_LEN). */
-export const GITHUB_TOKEN_MAX_CHARS = 1024;
+const GITHUB_TOKEN_MAX_CHARS = 1024;
 
 /** /api/github/* — status, device, token, disconnect, repos, clone. */
 export async function githubRoutes(
@@ -135,12 +136,11 @@ export async function githubRoutes(
       }
       return;
     }
-    const body = read.value;
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    const parsed = plainObject(read.value) as Partial<GithubTokenRequest> | undefined;
+    if (parsed === undefined) {
       sendError(res, 400, 'invalid JSON body');
       return;
     }
-    const parsed = body as Partial<GithubTokenRequest>;
     if (typeof parsed.token !== 'string' || parsed.token.trim() === '') {
       sendError(res, 400, 'token is required');
       return;

@@ -14,7 +14,7 @@
 // GET  /api/prefs -> UiPrefs ({} if none stored yet).
 // PUT  /api/prefs body: UiPrefs (REPLACES the whole stored object) ->
 //   OkResponse. Body must be a JSON object (arrays/null/scalars are 400) and
-//   <= 64 KiB (PREFS_MAX_BYTES in server/api.ts); the server stores it
+//   <= 64 KiB (PREFS_MAX_BYTES in server/api-app.ts); the server stores it
 //   VERBATIM and never interprets its contents — deliberately an opaque
 //   bag, so a future user-gated settings panel can add keys without a
 //   server-side schema change. The one exception (Nocturne C1): `mascot`,

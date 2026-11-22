@@ -83,9 +83,9 @@ import { isExistingDirectory } from './projects.ts';
  * refusal: server/api.ts records the message in `responseReason` for the access
  * log, and that channel never carries anything derived from a request.
  */
-export const FS_UPLOAD_TOO_BIG = 'That file is larger than the copy limit.';
-export const FS_UPLOAD_FAILED = 'The app could not copy that file.';
-export const FS_UPLOAD_INCOMPLETE = 'That file did not arrive completely.';
+const FS_UPLOAD_TOO_BIG = 'That file is larger than the copy limit.';
+const FS_UPLOAD_FAILED = 'The app could not copy that file.';
+const FS_UPLOAD_INCOMPLETE = 'That file did not arrive completely.';
 export const FS_DISK_FULL = 'There is no room left on the disk.';
 
 /**
@@ -93,7 +93,7 @@ export const FS_DISK_FULL = 'There is no room left on the disk.';
  * it; 64 is deeper than any real project and shallow enough that the mkdir loop
  * is bounded.
  */
-export const MAX_REL_DEPTH = 64;
+const MAX_REL_DEPTH = 64;
 
 /**
  * `rel` as the segments it names, or null when it is not a relative path this
@@ -220,7 +220,7 @@ function fsErrorFor(
 }
 
 /** What the route needs from server/api.ts. Injected, so this module has no HTTP policy of its own. */
-export interface UploadDeps {
+interface UploadDeps {
   /** The registered project roots, read from the store PER REQUEST (anchors). */
   projects: () => string[];
   /** The `[fs]`-scoped logger. */

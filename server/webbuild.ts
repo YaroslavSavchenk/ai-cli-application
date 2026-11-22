@@ -41,7 +41,7 @@
 import { spawn, type SpawnOptions, type ChildProcess } from 'node:child_process';
 import { existsSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { describeError, oneLine, type Logger } from './config.ts';
+import { describeError, killQuietly, oneLine, type Logger } from './config.ts';
 import { readWebBuild } from './buildinfo.ts';
 import {
   REFUSED_BUILD,
@@ -52,7 +52,7 @@ import {
 } from './restart.ts';
 
 /** A frontend build that takes longer than this is hung; kill it and refuse. */
-export const BUILD_TIMEOUT_MS = 120_000;
+const BUILD_TIMEOUT_MS = 120_000;
 /** How long a killed vite gets to die before SIGKILL. */
 export const BUILD_KILL_GRACE_MS = 2_000;
 /** Bytes of vite's combined stdout+stderr kept for the log (the TAIL). */
@@ -200,13 +200,7 @@ export async function buildFrontend(opts: WebBuildOptions): Promise<FrontendBuil
         }
         // Escalation outlives the refusal on purpose: the promise resolves
         // now, but a vite that ignores SIGTERM must still be reaped.
-        setTimeout(() => {
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            // Already gone.
-          }
-        }, BUILD_KILL_GRACE_MS).unref();
+        setTimeout(() => killQuietly(child), BUILD_KILL_GRACE_MS).unref();
         finish({ ok: false, why: `timed out after ${timeoutMs}ms` });
       }, timeoutMs);
       timer.unref();

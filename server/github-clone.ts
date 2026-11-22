@@ -12,11 +12,10 @@
  * Sibling pieces: server/github.ts (GithubConnection) and
  * server/github-parse.ts (seams, GithubError, the parsers).
  */
-import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { isDirectory } from './config.ts';
+import { isDirectory, runChild } from './config.ts';
 import { GithubError, parseGithubRepoPath, type SpawnLike } from './github-parse.ts';
 import { assertVacant, ScaffoldError, CLONE_TIMEOUT_MS } from './scaffold.ts';
 
@@ -291,19 +290,10 @@ function runGitClone(
   askScript: string,
   token: string,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (err?: GithubError): void => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      if (err !== undefined) reject(err);
-      else resolve();
-    };
-    let child: ChildProcess;
-    try {
-      child = spawn(
+  const cloneFailed = (): GithubError => new GithubError(502, 'failed to clone repository');
+  return runChild<void>({
+    start: () =>
+      spawn(
         'git',
         // `-c credential.helper=` clears any configured helper so the token is
         // never cached to disk. `--` stops the url/dest being read as options.
@@ -319,26 +309,11 @@ function runGitClone(
             GIT_TERMINAL_PROMPT: '0',
           },
         },
-      );
-    } catch {
-      finish(new GithubError(502, 'failed to clone repository'));
-      return;
-    }
-    timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // Already gone.
-      }
-      finish(new GithubError(502, 'clone timed out'));
-    }, CLONE_TIMEOUT_MS);
-    if (typeof timer.unref === 'function') timer.unref();
-
-    child.on('error', () => {
-      finish(new GithubError(502, 'failed to clone repository'));
-    });
-    child.on('close', (code) => {
-      finish(code === 0 ? undefined : new GithubError(502, 'failed to clone repository'));
-    });
+      ),
+    timeoutMs: CLONE_TIMEOUT_MS,
+    startThrew: cloneFailed,
+    timedOut: () => new GithubError(502, 'clone timed out'),
+    failed: cloneFailed,
+    closed: (code) => (code === 0 ? undefined : cloneFailed()),
   });
 }

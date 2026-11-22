@@ -6,8 +6,8 @@
  * file is written against tokens.css directly — --color-* for colour, inline
  * color-mix() for a tint or a hover, --space-* or a literal px for spacing,
  * --radius-*, --shadow-*, plus the structural names (--line, --tick, --dot,
- * the two font stacks, the chrome heights and column widths, motion, z). The
- * Legacy alias layer is gone; a name that is not in tokens.css is a typo.
+ * the two font stacks, the chrome heights and column widths, motion, z). A
+ * name that is not in tokens.css is a typo.
  * Shell: topbar, pane area with floating terminal cards, BOTTOM tab strip
  * with an accent bar, 26px mono statusline. Inter for chrome, JetBrains Mono
  * for data and the terminal. No colour literal lives here.

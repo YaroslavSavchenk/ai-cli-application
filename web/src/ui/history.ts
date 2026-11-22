@@ -103,7 +103,7 @@ export function initHistory(): void {
 // ---------------------------------------------------------------------------
 
 /** One project folder in the drawer's HISTORY section. */
-export interface HistoryGroup {
+interface HistoryGroup {
   /** Stable key for the collapse state: `p:<projectId>` or `c:<cwd>`. */
   key: string;
   /** The folder's name — a project name when the app knows one, else the

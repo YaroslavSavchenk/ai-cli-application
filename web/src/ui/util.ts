@@ -189,9 +189,11 @@ export function restoreFocus(
 
 /**
  * One modal at a time, and the element the keyboard goes back to when it
- * closes. The card is taken off the screen by REMOVING its scrim rather than
- * hiding it (the idiom every dialog here uses), which also takes `trapTab`'s
- * listener with it; focus then returns to the opener through `restoreFocus`.
+ * closes. The card is taken off the screen by REMOVING its scrim, which also
+ * takes `trapTab`'s listener with it; focus then returns to the opener through
+ * `restoreFocus`. (The long-lived dialogs — launch, settings, the update
+ * confirmation — build their scrim once and toggle `hidden` instead; they do
+ * not use this slot.)
  * The folder picker, the delete confirmation and the project editor each hold
  * one (Q1: they carried the same close function twice).
  */

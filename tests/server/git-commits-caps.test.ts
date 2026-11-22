@@ -1,13 +1,16 @@
 /**
  * GET /api/git/commits — the runner's caps on the list route: a `git log` that
- * floods stdout is killed at 2 MiB, a hung one is SIGKILLed at 5 s, and a
+ * floods stdout is killed at 2 MiB (and only past it: exactly 2 MiB is read),
+ * a hung one is SIGKILLed at 5 s, and a
  * `rev-list --count` that times out or fails costs only the TOTAL, which
  * degrades to a floor (B3, spec `.claude/plans/nocturne/PLAN-B3.md`
  * § "Phase 1 — backend").
  *
  * How: a real server child with a fake `git` first on its PATH
  * (`startFakeGitServer`); the fake misbehaves according to the folder it is
- * called in (`fake-flood`, `fake-slow`, `fake-revslow`, `fake-total`).
+ * called in (`fake-flood`, `fake-exact`, `fake-slow`, `fake-revslow`,
+ * `fake-total`). The flood's fake records its pid, so its death is checked
+ * with `kill(pid, 0)`.
  *
  * Why: without the caps one enormous or hung repository grows the backend or
  * hangs the request; without the floor the header reads `0 commits` over a
@@ -25,12 +28,14 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { GitCommitsResponse } from '../../shared/protocol.ts';
 import {
   readServerLog,
   waitForLog,
   waitForLogQuiet,
+  waitUntil,
   type TestServer,
   removeTempDir,
 } from '../helpers/helpers.ts';
@@ -65,6 +70,31 @@ test('a `git log` that floods stdout is killed and the request fails — it does
   assert.equal(warns.length, 1, `exactly one warn line per capped request, got ${warns.length}`);
   const killed = (log.match(/\[git\] git: [^\n]*/g) ?? []).filter((l) => l.includes('killed'));
   assert.equal(killed.length, 1, `exactly one capped request line, got ${killed.length}`);
+});
+
+test('a `git log` that floods stdout is SIGKILLed AT the cap — not left running after the request failed', async () => {
+  // The request fails at the cap either way; what the kill buys is the child.
+  // Once the run has settled its timeout timer is cleared, so a flood that was
+  // only abandoned would run (and burn a core) until the backend exits.
+  const res = await commits(fakeServer, { root: join(home, 'fake-flood') });
+  assert.equal(res.status, 500, JSON.stringify(res.body));
+  const pid = Number((await readFile(join(home, 'fake-flood', 'flood.pid'), 'utf8')).trim());
+  assert.ok(Number.isInteger(pid) && pid > 0, `the fake recorded its pid, got ${pid}`);
+  await waitUntil(() => {
+    try {
+      process.kill(pid, 0);
+      return undefined;
+    } catch {
+      return true;
+    }
+  }, `the flooding git (pid ${pid}) to be gone`);
+});
+
+test('a `git log` of EXACTLY 2 MiB is still an answer: the cap is "more than", not "at"', async () => {
+  const res = await commits(fakeServer, { root: join(home, 'fake-exact') });
+  assert.equal(res.status, 200, JSON.stringify(res.body).slice(0, 200));
+  const body = res.body as GitCommitsResponse;
+  assert.equal(body.commits.length, 1, 'the one record of 2097152 bytes is read');
 });
 
 test('a `git log` that hangs is SIGKILLed at the timeout — the request never hangs', async () => {

@@ -28,7 +28,7 @@ import { LifecycleController } from './lifecycle.ts';
 import { plainObject } from './sanitise.ts';
 import { describeError, isValidDim, scoped, MAX_LOGGED_ROUTE_CHARS, type Logger } from './config.ts';
 
-export interface WsDeps {
+interface WsDeps {
   token: string;
   getPort: () => number;
   sessions: SessionManager;
@@ -101,18 +101,19 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
 
   const handler = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const port = deps.getPort();
+    // Parsed ONCE (Q11). An unparseable target (`//[`) is refused below with a
+    // 400 — before Q11 a second, unguarded parse threw out of this listener,
+    // and the uncaughtException ended the backend with every session in it.
+    let url: URL | undefined;
+    try {
+      url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+    } catch {
+      url = undefined;
+    }
     // The pathname ONLY: a ws url carries ?token=<the app token> in its query,
     // so the raw url must never be logged. Truncated, because an upgrade target
     // is attacker-chosen and unbounded. Unparseable -> '?'.
-    let path = '?';
-    try {
-      path = new URL(req.url ?? '/', `http://127.0.0.1:${port}`).pathname.slice(
-        0,
-        MAX_LOGGED_ROUTE_CHARS,
-      );
-    } catch {
-      // Keep '?'.
-    }
+    const path = url === undefined ? '?' : url.pathname.slice(0, MAX_LOGGED_ROUTE_CHARS);
     if (!hostAllowed(req.headers.host, port)) {
       reject(socket, 403, 'Forbidden', path, 'host not allowed');
       return;
@@ -123,7 +124,10 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
       return;
     }
 
-    const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+    if (url === undefined) {
+      reject(socket, 400, 'Bad Request', path, 'unparseable target');
+      return;
+    }
 
     if (url.pathname === '/ws/presence') {
       if (!tokenMatches(token, url.searchParams.get('token') ?? undefined)) {
@@ -145,8 +149,16 @@ export function createUpgradeHandler(deps: WsDeps): UpgradeHandler {
       reject(socket, 401, 'Unauthorized', path, 'bad or missing token');
       return;
     }
-    const sessionId = decodeURIComponent(match[1] as string);
-    if (!sessions.has(sessionId)) {
+    // Guarded (Q11): a malformed escape (`%E0`) throws URIError, and a throw out
+    // of this listener is an uncaughtException that ends the backend. No id
+    // decodes from it, so it is answered as the session it cannot name.
+    let sessionId: string | undefined;
+    try {
+      sessionId = decodeURIComponent(match[1] as string);
+    } catch {
+      sessionId = undefined;
+    }
+    if (sessionId === undefined || !sessions.has(sessionId)) {
       reject(socket, 404, 'Not Found', path, 'no such session');
       return;
     }

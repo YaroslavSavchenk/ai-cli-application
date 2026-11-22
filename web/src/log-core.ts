@@ -40,7 +40,7 @@ export const MAX_BUFFER_ENTRIES = 200;
 /** Idle batching window. `error` bypasses it. */
 export const FLUSH_MS = 2000;
 /** Retry backoff after a transport failure: 2s, 4s, 8s, 16s, 30s, 30s… */
-export const RETRY_MIN_MS = 2000;
+const RETRY_MIN_MS = 2000;
 export const RETRY_MAX_MS = 30000;
 
 /**

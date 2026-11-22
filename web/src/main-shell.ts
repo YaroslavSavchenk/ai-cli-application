@@ -377,7 +377,9 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   }
 
   st.subscribe(() => {
-    // Every renderer is cheap or signature-guarded; dispatch coarsely.
+    // Dispatch coarsely: every renderer is cheap or signature-guarded, except
+    // the statusline, which redraws on every notify today (Quality Q12 adds
+    // its guard).
     updateChrome();
     tabs.render();
     status.render();

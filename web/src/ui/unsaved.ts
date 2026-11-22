@@ -254,7 +254,7 @@ export function closeViewGuarded(
  * on it. It is NOT called when the question was answered `Keep editing`: the
  * act did not run, so there is no result to report.
  */
-export interface OpenOpts {
+interface OpenOpts {
   returnFocus?: HTMLElement | null;
   done?: (r: st.OpenFileResult) => void;
 }
