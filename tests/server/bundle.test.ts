@@ -641,6 +641,19 @@ test('resolveInstalledTarget: an absent or dangling `current` is refused', async
   });
 });
 
+test('resolveInstalledTarget: a PLAIN DIRECTORY at `current` is refused even when it holds a complete bundle (D9 P5)', async () => {
+  // The same `installerCurrent` rule the update probe and the installed status
+  // line apply: only the installer's SYMLINK is `current`. Before D9 P5 the
+  // preflight kept its own copy of the check without the lstat, and a full
+  // bundle unpacked AS `<app>/current` passed it.
+  await withRoot((root) => {
+    const v1 = makeVersion(root, 'v1');
+    makeVersion(root, CURRENT_LINK);
+    const err = assertRefused(v1, 'a plain directory holding a bundle');
+    assert.match(err.message, /is not the installer's link/);
+  });
+});
+
 test('resolveInstalledTarget: an INCOMPLETE target bundle is refused, one missing piece at a time', async () => {
   const cases: { what: string; opts: VersionOpts; match: RegExp }[] = [
     { what: 'no bundle.json', opts: { noMarker: true }, match: /bundle\.json is missing or is not a valid/ },

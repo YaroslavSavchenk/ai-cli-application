@@ -50,6 +50,17 @@
  * directory from it (server/agents.ts), and only the payload knows it.
  * Without the argument the script behaves exactly as it did before B1.
  *
+ * CROSS-VERSION CONTRACT (Nocturne D9 P5, `.claude/plans/nocturne/PLAN-D9.md`):
+ * a session outlives the backend that spawned it (restart and update hand it
+ * over through the pty-host), and in installed mode its command names this
+ * script through `<app>/current` (server/bundle.ts `statuslinePaths`) — so a
+ * session spawned by version N runs the script of whatever version is
+ * installed LATER. Therefore the argv above and the snapshot this script
+ * writes only ever GROW: a new argument is appended at the end and optional,
+ * an existing one never moves or changes meaning, a snapshot key is never
+ * renamed or retyped. tests/server/statusline-argv.test.ts pins the order the
+ * server composes and the older forms this script still accepts.
+ *
  * <permission-mode> is one of the four app modes in MODE_LABELS, or anything else
  * (e.g. 'unknown') to omit the mode item. It is an ARGUMENT because the payload
  * does not carry the permission mode — verified against Claude Code 2.1.220,

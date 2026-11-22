@@ -141,7 +141,13 @@ inside WSL and the running process keeps using its own version directory
 (`runtime.json.appDir`), which the installer refuses to prune. Afterwards the
 app reports `a new version is installed` and its **Restart service** button
 moves onto the new `current`. Retention is `current` + one previous version +
-whatever a live backend is using.
+whatever a live backend is using + whatever a live pty-host (the process that
+keeps the sessions through a restart or an update, Nocturne D9) still runs
+from (`pty-host.json` `appDir`, read inside the distro: that file also holds
+the token that owns every session, and only the directory crosses to
+Windows). A stale file whose pid is gone protects nothing. Reinstalling the
+version only a pty-host runs from is allowed: it loaded all its code when it
+started.
 
 Two things exist only because the app may be running:
 

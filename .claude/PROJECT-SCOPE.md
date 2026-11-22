@@ -51,8 +51,9 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   sessions, removes its own runtime.json (only while the file still names
   its pid and startedAt — D2) and exits; a 120 s startup grace
   (`AI_SM_STARTUP_GRACE_MS`) runs until the first-ever presence. Manual
-  `-Stop` overrides. The presence channel answers `ping`/`pong` (inbound
-  frames ≤ 1 KiB, no lifecycle effect). Authed `GET /api/runtime` body is
+  `-Stop` overrides (since D9 P5 it also SIGTERMs a live pty-host when no
+  backend is left — cmdline-checked pid from `pty-host.json`). The presence
+  channel answers `ping`/`pong` (inbound frames ≤ 1 KiB, no lifecycle effect). Authed `GET /api/runtime` body is
   exactly `{ startedAt, serverCommit, version, installed, webBuild, update,
   claude, ptyHost }` (`claude` since D6: `{ version, compat, min, testedUpTo }`;
   `ptyHost` since D9 P3: `{ build, proto }` of the pty-host holding the
@@ -228,8 +229,11 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   `/app`, ≥ 3 segments, so the uninstall guard — allow-listed, ends in
   `/app`, holds ≥ 1 `<v>/bundle.json` — is checkable; data dir untouched); Windows
   `%LOCALAPPDATA%\Programs\AI Session Manager\` + `install-info.txt`.
-  Retention: `current` + one previous + any live dir; reinstalling the
-  running version is refused. **Every `wsl.exe` call in the installer
+  Retention: `current` + one previous + any live dir — a live backend's
+  (`runtime.json`) and, since D9 P5, a live pty-host's (`pty-host.json`
+  `appDir`, read in-distro, the token never crosses); reinstalling the
+  running backend's version is refused (a pty-host's is not: it loaded all
+  its code at start). **Every `wsl.exe` call in the installer
   helpers uses `--exec`**; tarball over stdin — no Windows path ever
   reaches a Linux command line. Backend **installed mode**:
   bundle version in the banner, no dependency check, bundled `web/dist`.
@@ -494,7 +498,10 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   backend writes `<dataDir>/session-settings/<id>.json` and appends
   `--settings <file>` (that session only; `~/.claude/settings.json` is
   NEVER read or written, `CLAUDE_CONFIG_DIR` untouched), pointing at
-  `server/statusline.mjs`, which re-reads `prefs.json` each call. Items only
+  `server/statusline.mjs`, which re-reads `prefs.json` each call (installed
+  mode, D9 P5: node and script named through `<app>/current/…`, never a
+  version dir — a session adopted after an update outlives the dir it was
+  spawned from; `server/bundle.ts` `statuslinePaths`). Items only
   when on AND honest. Known limit: permission mode = the LAUNCH mode.
   Sessions with their own `--settings` and non-claude commands are left
   alone. Data-dir artifacts wiped at boot: `session-settings/` (0700),
@@ -767,7 +774,7 @@ the last port is tried first, `last-port.json`; vanilla TS + Vite
 frontend; app data — projects.json, runtime.json, last-port.json (2026-09-22), history.json (2026-09-06,
 replacing journal.json + previous.json), prefs.json (added 2026-07-20: server-side UI prefs, since
 localStorage died with every auto-picked-port origin change), server.log, and
-since D9 the pty-host's `pty-host.json` (pid, build, token; 0600),
+since D9 the pty-host's `pty-host.json` (pid, build, appDir, token; 0600),
 `pty-host.sock` (0600), `pty-host.log`, `pty-host.lockname` (0600) — the
 backend tightens a data dir it owns to 0700, which the pty-host requires —
 lives in `~/.ai-session-manager/` (override: `AI_SM_DATA_DIR`), schema in

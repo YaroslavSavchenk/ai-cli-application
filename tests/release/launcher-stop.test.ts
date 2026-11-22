@@ -31,10 +31,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeTempDir, readSource, removeTempDir } from '../helpers/helpers.ts';
-import { constScript } from '../helpers/installer-helpers-fixture.ts';
+import { launchStateScript } from '../helpers/installer-helpers-fixture.ts';
 
 const launch = readSource('launcher', 'launch.ps1');
-const staleScript = constScript(launch, 'AiSmStaleRuntimeScript');
+const staleScript = launchStateScript(launch, 'AiSmStaleRuntime', 'runtime.json');
 
 /** The `if ($Stop) { … }` block, up to the default flow's banner. */
 const stopBlock = (() => {
@@ -80,7 +80,7 @@ test('-Stop no longer removes runtime.json with a bare rm', () => {
 
 test('the stale-file script runs via --exec with the data dir and pid as positional arguments', () => {
   assert.match(removeFn, /ConvertTo-AiSmScriptLine -Script \$AiSmStaleRuntimeScript/, removeFn);
-  assert.match(removeFn, /& wsl\.exe -d \$Distro --exec sh -c \$script sh \$DataDir "\$ServerPid"/, removeFn);
+  assert.match(removeFn, /\$null = & wsl\.exe -d \$Distro --exec sh -c \$script sh \$DataDir "\$ServerPid"/, removeFn);
   // Values reach the script only as $1/$2 — never spelled into its text.
   assert.doesNotMatch(staleScript, /\$DataDir|\$ServerPid|\$info/, staleScript);
   assert.match(staleScript, /\$1/, staleScript);

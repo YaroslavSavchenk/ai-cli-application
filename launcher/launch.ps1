@@ -9,7 +9,9 @@ Usage:
   launch.ps1 -NoBrowser   attach-or-start, but do not open any UI
   launch.ps1 -Status      report backend state (runtime.json + health)
   launch.ps1 -Stop        immediate stop, skipping the presence grace
-                          (SIGTERM to the pid in runtime.json)
+                          (SIGTERM to the pid in runtime.json; with no
+                          backend running, SIGTERM to a live session holder
+                          - the pty-host - named in pty-host.json)
   launch.ps1 -Silent      windowless mode (used by launch-silent.vbs): on any
                           failure, surface the error as a native message box
                           instead of relying on a console nobody can see.
@@ -234,26 +236,24 @@ function Invoke-InDistro {
     & wsl.exe -d $Distro -- @CommandArgs '2>/dev/null'
 }
 
-# -Stop's stale-file removal (Nocturne D3; the launcher half of D2's
-# server/runtime-file.ts rule): runtime.json is removed only while it STILL
-# names the pid this launcher read, checked and removed in ONE in-distro
-# step - a backend that wrote a new file in between keeps it. $1 is the data
-# dir (allow-listed; a leading '~/' is expanded here because --exec skips the
-# default shell), $2 the pid (a validated integer). Both arrive as positional
-# arguments, never inside this text. Exit 0 removed, 3 no file, 4 the file
-# names someone else (or is not a plain file / has no pid line / a test
-# errored) - left alone, 5 HOME is unset, relative or not made of plain path
-# characters (as start-backend.sh, it must be an absolute path; here also
-# allow-listed, because it is expanded unquoted) - nothing checked.
-# Fail closed: every test's status is kept, and only an exact "absent" /
-# "plain file, no symlink" pair goes on - an error (status 2) never counts.
-# No double quote anywhere (ConvertTo-AiSmScriptLine refuses one), so every
-# expansion is unquoted: safe because both values are allow-listed and
-# globbing is off. The server writes runtime.json pretty-printed, one key per
-# line, so the pid is the line that starts with the pid key.
-# Check-then-rm still leaves a tiny window against an atomic rename into
-# place; accepted, as in D2 - no lock file.
-$AiSmStaleRuntimeScript = @'
+# -Stop's two in-distro state-file steps share one PREAMBLE (Nocturne D3 for
+# runtime.json, D9 P5 for pty-host.json). It reads <data dir>/STATEFILE -
+# Join-AiSmStateFileScript puts the real file name there - and leaves its pid
+# in $p for the body that follows. $1 is the data dir (allow-listed; a
+# leading '~/' is expanded here because --exec skips the default shell; HOME
+# must be an absolute path of plain path characters, as start-backend.sh
+# requires, because it is expanded unquoted). Exit 3: no file; 4: not a plain
+# file (a symlink, a directory, a test that errored); 5: HOME unusable -
+# nothing checked. Fail closed: every test's status is kept, and only an
+# exact "absent" / "plain file, no symlink" pair goes on - an error (status
+# 2) never counts. No double quote anywhere (ConvertTo-AiSmScriptLine refuses
+# one), so every expansion is unquoted: safe because the values are
+# allow-listed and globbing is off. The server and the pty-host write their
+# state files pretty-printed, one key per line, so the pid is the line that
+# starts with the pid key ('.' stands for the key's double quotes). The
+# installer reads pty-host.json the same way in its own copy of these lines
+# ($AiSmPtyHostDirScript in installer/helpers/install-bundle.ps1).
+$AiSmStateFilePreamble = @'
 set -f
 d=$1
 case $d in
@@ -263,31 +263,109 @@ case $d in
     d=$HOME${d#'~'}
     ;;
 esac
-f=$d/runtime.json
+f=$d/STATEFILE
 [ -e $f ]; e=$?
 [ -L $f ]; l=$?
 [ -f $f ]; r=$?
 case $e$l in 11) exit 3 ;; esac
 case $l$r in 10) ;; *) exit 4 ;; esac
 p=$(sed -n 's/^[[:space:]]*.pid.[[:space:]]*:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p' $f 2>/dev/null)
+'@
+
+function Join-AiSmStateFileScript([string]$File, [string]$Body) {
+    # The preamble above for <data dir>/$File, then $Body (which sees $f, $p).
+    return $AiSmStateFilePreamble.Replace('STATEFILE', $File) + "`n" + $Body
+}
+
+# -Stop's stale-file removal (Nocturne D3; the launcher half of D2's
+# server/runtime-file.ts rule): runtime.json is removed only while it STILL
+# names the pid this launcher read, checked and removed in ONE in-distro
+# step - a backend that wrote a new file in between keeps it. $2 is that pid
+# (a validated integer), a positional argument like $1, never inside this
+# text. Exit 0 removed, 3 no file, 4 the file names someone else (or is not a
+# plain file / has no pid line) - left alone, 5 HOME unusable - nothing
+# checked. Check-then-rm still leaves a tiny window against an atomic rename
+# into place; accepted, as in D2 - no lock file.
+$AiSmStaleRuntimeBody = @'
 case $p in
   $2) rm -f $f ;;
   *) exit 4 ;;
 esac
 '@
+$AiSmStaleRuntimeScript = Join-AiSmStateFileScript -File 'runtime.json' -Body $AiSmStaleRuntimeBody
 
 function Remove-StaleRuntimeFile([int]$ServerPid) {
     # --exec, not Invoke-InDistro's `--`: without it wsl.exe re-joins the
     # words for the default shell, which would expand $1/$2 to nothing
     # (installer/README.md, "wsl.exe -- <words> is not execvp").
+    # Returns the script's exit code; the script prints nothing on stdout.
     $script = ConvertTo-AiSmScriptLine -Script $AiSmStaleRuntimeScript
-    & wsl.exe -d $Distro --exec sh -c $script sh $DataDir "$ServerPid"
-    switch ($LASTEXITCODE) {
+    $null = & wsl.exe -d $Distro --exec sh -c $script sh $DataDir "$ServerPid"
+    $code = $LASTEXITCODE
+    switch ($code) {
         0 { Write-Host 'Process was already gone - removed its stale runtime.json.' }
         3 { Write-Host 'Process was already gone - runtime.json is gone too.' }
         4 { Write-Host 'Process was already gone; runtime.json now names another backend - left in place.' }
         5 { Write-Host 'Process was already gone. Could not check runtime.json (WSL HOME is not a plain absolute path) - left in place.' }
-        default { Write-Host "Process was already gone; could not check runtime.json (exit $LASTEXITCODE) - left in place." }
+        default { Write-Host "Process was already gone; could not check runtime.json (exit $code) - left in place." }
+    }
+    return $code
+}
+
+# -Stop with no backend (Nocturne D9 P5): the pty-host - the process that
+# keeps the sessions through a restart, an update or a backend crash - may
+# still hold sessions nobody can reach (a crashed backend leaves them for its
+# 10-minute orphan grace). -Stop means "end it all now", so it SIGTERMs the
+# pty-host too; its handler kills every session's process group and exits.
+# The pid comes from <data dir>/pty-host.json (that file also holds the token
+# that owns every session: it is read INSIDE the distro and only the pid ever
+# leaves it), and it is signalled only once /proc/<pid>/cmdline proves the
+# process is THIS data dir's pty-host - `<node> <...>/pty-host-main.ts <data
+# dir>`, the same guard as server/pty-host-broker.ts `isOurPtyHost` - in the
+# same in-distro step, so a pid reused by anything else is never signalled.
+# Then it waits up to 10 s for the process to go. The state file is left to
+# the pty-host (it removes its own on exit; a stale one is replaced by the
+# next pty-host). Exits 3/4/5 as the preamble (4 also: no pid line); once the
+# pid is known it is printed first (AI_SM_PTYHOST_PID=<pid>), then: 0
+# stopped, 6 already gone (no process, or it vanished before the signal), 7
+# signalled but still alive after 10 s, 8 alive but NOT this data dir's
+# pty-host (a reused pid, or the data dir spelled differently from the one
+# the pty-host was started with) - never signalled, 9 the signal was refused
+# and the process is still there.
+$AiSmPtyHostStopBody = @'
+case $p in ''|*[!0-9]*) exit 4 ;; esac
+echo AI_SM_PTYHOST_PID=$p
+[ -e /proc/$p ] || exit 6
+tr '\000' '\n' < /proc/$p/cmdline 2>/dev/null | grep -q -e '/pty-host-main[.]ts$' || { [ -e /proc/$p ] && exit 8; exit 6; }
+tr '\000' '\n' < /proc/$p/cmdline 2>/dev/null | grep -qxF -e $d || { [ -e /proc/$p ] && exit 8; exit 6; }
+kill -TERM $p 2>/dev/null || { [ -e /proc/$p ] && exit 9; exit 6; }
+i=0
+while kill -0 $p 2>/dev/null; do
+  i=$((i+1))
+  [ $i -gt 50 ] && exit 7
+  sleep 0.2
+done
+exit 0
+'@
+$AiSmPtyHostStopScript = Join-AiSmStateFileScript -File 'pty-host.json' -Body $AiSmPtyHostStopBody
+
+function Stop-PtyHost {
+    # --exec for the same reason as Remove-StaleRuntimeFile.
+    $script = ConvertTo-AiSmScriptLine -Script $AiSmPtyHostStopScript
+    $out = & wsl.exe -d $Distro --exec sh -c $script sh $DataDir
+    $code = $LASTEXITCODE
+    $hostPid = ''
+    if ((($out | Out-String) -replace "`0", '') -match 'AI_SM_PTYHOST_PID=([0-9]+)') { $hostPid = $matches[1] }
+    switch ($code) {
+        0 { Write-Host "Stopped the session holder (pty-host pid $hostPid): the sessions it still held have ended." }
+        3 { Write-Host 'No session holder (pty-host) is running.' }
+        4 { Write-Host 'pty-host.json names no pid (or is not a plain file) - nothing stopped.' }
+        5 { Write-Host 'Could not check for a session holder (WSL HOME is not a plain absolute path) - nothing stopped.' }
+        6 { Write-Host "The session holder named in pty-host.json (pid $hostPid) is already gone - nothing to stop." }
+        7 { Fail "The session holder (pty-host pid $hostPid) did not exit within 10s. Check pty-host.log in the data dir." }
+        8 { Write-Host "pty-host.json names pid $hostPid, which is not this data dir's session holder ($DataDir) - nothing stopped. Spell the data dir as the backend that started it did." }
+        9 { Write-Host "Could not signal the session holder (pty-host pid $hostPid) - nothing stopped." }
+        default { Write-Host "Could not check for a session holder (exit $code) - nothing stopped." }
     }
 }
 
@@ -591,12 +669,21 @@ if ($Stop) {
     $info = Read-RuntimeInfo
     if (-not $info) {
         Write-Host "Backend is not running (no runtime.json at $DataDir/runtime.json in '$Distro')."
+        Stop-PtyHost
         exit 0
     }
     Write-Host "Stopping backend pid $($info.ServerPid) (port $($info.Port))..."
     Invoke-InDistro @('kill', '-TERM', "$($info.ServerPid)")
     if ($LASTEXITCODE -ne 0) {
-        Remove-StaleRuntimeFile -ServerPid $info.ServerPid
+        $stale = Remove-StaleRuntimeFile -ServerPid $info.ServerPid
+        # Only with no backend left: a runtime.json that now names ANOTHER
+        # backend (4 - a restart or update handoff in between) means its
+        # pty-host belongs to that backend, and 5 means nothing was checked.
+        if ($stale -eq 0 -or $stale -eq 3) {
+            Stop-PtyHost
+        } else {
+            Write-Host 'The session holder (pty-host), if any, is left alone.'
+        }
         exit 0
     }
     # The server removes its own runtime.json on clean SIGTERM; wait for that.

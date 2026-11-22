@@ -13,7 +13,9 @@ What it does, in order:
      (config-common.ps1) - nothing else may reach a WSL command line;
   2. finds out whether a backend is RUNNING out of one of the version
      directories (runtime.json -> appDir + pid), so that directory is never
-     pruned or overwritten;
+     pruned or overwritten, and which one a live pty-host - the process that
+     holds the sessions across a restart or an update (Nocturne D9) - runs
+     from (pty-host.json -> appDir + pid), so that one is never pruned;
   3. runs ONE constant shell script inside the distro with the tarball on
      STDIN, which unpacks into a staging dir, proves the bundle actually
      works on this machine (the bundled node imports the compiled node-pty),
@@ -28,14 +30,21 @@ prefs.json, github.json, projects.json and server.log all live in
 and only that subtree is ever written or removed.
 
 Result keys: ok, reason, distro, appDir, version, liveVersionDir,
-installedDir, current, pruned, configFile, infoFile, errorCode, dryRun.
+hostVersionDir, installedDir, current, pruned, configFile, infoFile,
+errorCode, dryRun.
 Exit code 1 on failure (the .iss aborts the installation on that).
 
-Retention: `current`, the directory a live backend runs from, and ONE
-previous version. Everything else under the app dir that carries a
-bundle.json is removed. Reinstalling the EXACT version a live backend runs
-from is refused (AI_SM_ERR=same_version_live, exit 31) rather than renamed
-out from under the running process.
+Retention: `current`, the directory a live backend runs from, the directory
+a live pty-host runs from, and ONE previous version. Everything else under
+the app dir that carries a bundle.json is removed. Reinstalling the EXACT
+version a live backend runs from is refused (AI_SM_ERR=same_version_live,
+exit 31) rather than renamed out from under the running process. The
+pty-host's version is NOT refused that way: it loads all of its code when it
+starts (server/pty-host-main.ts, every import static), so a rename - or the
+removal of the `.old` copy that follows - does not hurt it; only pruning by
+name is held back for it. After an update the pty-host typically still runs
+from an OLDER version dir than the backend that adopted its sessions, which
+is why it needs its own entry here.
 
 Quoting rules that make this safe (see helper-common.ps1 for the why):
 wsl.exe is called with --exec, the constant script contains NO double quote,
@@ -75,7 +84,9 @@ function Complete-Install {
 }
 
 # ============================ the constant script ==========================
-# Runs as: sh -c <this> sh <appdir> <version> <live-or-dash>
+# Runs as: sh -c <this> sh <appdir> <version> <live-or-dash> <host-or-dash>
+# (<live>: the version dir a live backend runs from; <host>: the one a live
+# pty-host runs from; '-' = none).
 #
 # NO DOUBLE QUOTE may appear below - this text is delimited by double quotes
 # on the Windows command line, and .NET 4.8 has no argument-array API. Single
@@ -116,6 +127,7 @@ set -e
 appdir=$1
 ver=$2
 live=$3
+host=${4:--}
 umask 022
 stage=$appdir/.incoming.$$
 fail() { cd /; rm -rf $stage; echo AI_SM_ERR=$1; exit $2; }
@@ -144,6 +156,7 @@ ls -1dtc -- */ 2>/dev/null | while IFS= read -r d; do
   if [ $b = $ver ]; then continue; fi
   if [ $b = $ver.old ]; then continue; fi
   if [ $b = $live ]; then continue; fi
+  if [ $b = $host ]; then continue; fi
   test -f $b/bundle.json || continue
   n=$((n+1))
   if [ $n -le 1 ]; then continue; fi
@@ -192,10 +205,22 @@ if (-not $DryRun -and -not (Test-Path -LiteralPath $Tarball)) {
     Complete-Install 'no' "The bundle archive was not found at $Tarball."
 }
 
-# --- 2. which version directory is a RUNNING backend using? ----------------
-# runtime.json names the app root the live process was loaded from (a
-# realpath, so never `current`). That directory must survive this install
-# even when it is the oldest one on disk.
+# --- 2. which version directories are RUNNING processes using? -------------
+# runtime.json names the app root the live backend was loaded from, and
+# pty-host.json the one the live pty-host was (Nocturne D9) - realpaths, so
+# never `current`. Those directories must survive this install even when they
+# are the oldest on disk. A stale file (crash, SIGKILL: the pid is gone)
+# protects nothing.
+
+function Get-AiSmVersionTail {
+    # The version dir name of $Dir when it is a direct child of $AppDir, else ''.
+    param([string]$Dir)
+    if (-not (Test-AiSmLinuxPath $Dir)) { return '' }
+    if (-not $Dir.StartsWith($AppDir + '/')) { return '' }
+    $tail = $Dir.Substring($AppDir.Length + 1)
+    if ($tail.Contains('/')) { return '' }
+    return $tail
+}
 
 function Get-AiSmLiveVersionDir {
     if (-not $DataDir) { return '' }
@@ -209,33 +234,71 @@ function Get-AiSmLiveVersionDir {
     $livePid = 0
     if (-not [int]::TryParse([string]$runtime.pid, [ref]$livePid)) { return '' }
     if ($livePid -lt 1) { return '' }
-    $liveDir = [string]$runtime.appDir
-    if (-not (Test-AiSmLinuxPath $liveDir)) { return '' }
-    if (-not $liveDir.StartsWith($AppDir + '/')) { return '' }
-    $tail = $liveDir.Substring($AppDir.Length + 1)
-    if ($tail.Contains('/')) { return '' }
-    # A stale runtime.json (crash, SIGKILL) must not protect anything, so the
-    # pid has to still exist.
+    $tail = Get-AiSmVersionTail ([string]$runtime.appDir)
+    if (-not $tail) { return '' }
     $alive = Invoke-AiSmWsl -CommandLine ('-d ' + $Distro + ' --exec kill -0 ' + $livePid) -TimeoutSec 120
     if ($alive.ExitCode -ne 0) { return '' }
     return $tail
 }
 
+# pty-host.json also holds the token that owns every session, so it is read
+# INSIDE the distro and only its appDir crosses to Windows: this constant
+# script prints `AI_SM_PTYHOST_APPDIR=<dir>` when the file names a pid that is
+# still alive, and nothing otherwise. Runs as: sh -c <this> sh <datadir>.
+# The server writes the file pretty-printed, one key per line (server/
+# pty-host-main.ts), so pid and appDir are each the line that starts with
+# their key; a `.` stands for the key's double quotes (banned in this text).
+# Exit 3: no plain file (absent, or a symlink); 4: no pid / appDir line, an
+# appDir with any character outside the allow-list, or a dead pid.
+# Its twin: launcher/launch.ps1 `$AiSmStateFilePreamble` reads the same file
+# (and runtime.json) with the same pid sed - a change to the file's shape or
+# the pid rule goes into both. Kept separate on purpose: the launcher's copy
+# also expands '~/', this one gets an absolute data dir from the Setup.
+$AiSmPtyHostDirScript = @'
+set -f
+f=$1/pty-host.json
+[ -L $f ] && exit 3
+[ -f $f ] || exit 3
+p=$(sed -n 's/^[[:space:]]*.pid.[[:space:]]*:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p' $f 2>/dev/null)
+a=$(sed -n 's/^[[:space:]]*.appDir.[[:space:]]*:[[:space:]]*.\([A-Za-z0-9._/-]*\).[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p' $f 2>/dev/null)
+case $p in ''|*[!0-9]*) exit 4 ;; esac
+case $a in ''|*[!A-Za-z0-9._/-]*) exit 4 ;; esac
+kill -0 $p 2>/dev/null || exit 4
+echo AI_SM_PTYHOST_APPDIR=$a
+'@
+
+function Get-AiSmHostVersionDir {
+    if (-not $DataDir) { return '' }
+    $script = ConvertTo-AiSmScriptLine -Script $AiSmPtyHostDirScript
+    $read = Invoke-AiSmWsl -CommandLine ('-d ' + $Distro + ' --exec sh -c "' + $script + '" sh ' + $DataDir) -TimeoutSec 120
+    if ($read.ExitCode -ne 0) { return '' }
+    if ($read.StdOut -notmatch '(?m)^AI_SM_PTYHOST_APPDIR=(\S+)\s*$') { return '' }
+    return (Get-AiSmVersionTail $matches[1])
+}
+
 $live = ''
+$hostDir = ''
 if (-not $DryRun) {
     try {
         $live = Get-AiSmLiveVersionDir
     } catch {
         $live = ''
     }
+    try {
+        $hostDir = Get-AiSmHostVersionDir
+    } catch {
+        $hostDir = ''
+    }
 }
 if (-not $live) { $live = '-' }
+if (-not $hostDir) { $hostDir = '-' }
 Add-AiSmPair $pairs 'liveVersionDir' $live
+Add-AiSmPair $pairs 'hostVersionDir' $hostDir
 
 # --- 3. run it -------------------------------------------------------------
 
 $script = ConvertTo-AiSmScriptLine -Script $AiSmUnpackScript
-$cmdline = '-d ' + $Distro + ' --exec sh -c "' + $script + '" sh ' + $AppDir + ' ' + $Version + ' ' + $live
+$cmdline = '-d ' + $Distro + ' --exec sh -c "' + $script + '" sh ' + $AppDir + ' ' + $Version + ' ' + $live + ' ' + $hostDir
 
 if ($DryRun) {
     Write-Host 'DRYRUN-CMDLINE-BEGIN'

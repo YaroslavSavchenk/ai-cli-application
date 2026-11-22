@@ -477,7 +477,16 @@ Icon-click = `wscript.exe launch-silent.vbs` = hidden
     resumed on the next start. When that pid is already gone, the stale
     runtime.json is removed only while it still names that pid — a backend
     that started in between keeps its file ("runtime.json now names another
-    backend - left in place").
+    backend - left in place"). With no backend left (no runtime.json, or
+    its pid already gone and its runtime.json removed or absent — a file
+    that by then names another backend keeps that backend's session holder
+    alive) but a live session holder — the pty-host a
+    crashed backend leaves behind for its 10-minute orphan grace (Nocturne
+    D9) — `-Stop` SIGTERMs that too: the pid comes from
+    `<data dir>/pty-host.json`, read inside the distro, and is signalled
+    only when `/proc/<pid>/cmdline` proves it is this data dir's
+    `pty-host-main.ts` (spelled exactly as the backend that started it
+    spelled it); it ends every session it held and exits.
   - `-NoBrowser` — do everything except opening the UI (scripts/tests).
 
 ## Cold boot expectations

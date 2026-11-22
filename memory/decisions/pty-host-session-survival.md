@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-11-20
-updated: 2026-11-21
+updated: 2026-11-22
 tags: [nocturne, d9, sessions, restart, update, pty-host]
 ---
 # Sessions survive an update: the pty-host (part D9, decisions 25–27)
@@ -96,6 +96,55 @@ open"). Reverses "Sessions do NOT survive a restart" of
   pending spawns at `detachAll` (its kill follows the spawn on the wire).
 - Release note owed by the first release carrying D9: survival starts from
   the NEXT update — the backend that installs this one is the old one.
+
+## State after P5 (2026-11-22): installer, launcher, status line
+
+- **Installer retention** (`installer/helpers/install-bundle.ps1`) also
+  keeps the version dir a live pty-host runs from: after an update it
+  typically still runs from an OLDER dir than the backend that adopted its
+  sessions. `pty-host.json` holds the session-owning token, so it is read
+  INSIDE the distro by a constant `sh` script that prints only
+  `AI_SM_PTYHOST_APPDIR=<dir>` (allow-listed characters, pid alive) — the
+  token never crosses to Windows. A stale file protects nothing. The
+  pty-host's version is NOT refused for a reinstall (only a live backend's
+  is): it loaded all its code at start, so the rename does not hurt it.
+- **`launch.ps1 -Stop`** with no backend left (no runtime.json, or its pid
+  already gone AND the stale-file step removed the file or found none)
+  SIGTERMs a live pty-host — what a crashed backend leaves for its
+  10-minute orphan grace. A runtime.json that by then names ANOTHER backend
+  (a restart/update handoff in between) leaves the pty-host alone: it is
+  that backend's now. One in-distro step reads the pid, proves
+  `/proc/<pid>/cmdline` is `<…>/pty-host-main.ts <this data dir>` (the
+  broker's `isOurPtyHost` rule), signals, waits ≤ 10 s; alive-but-not-ours
+  (a reused pid, another spelling of the data dir) has its own exit and
+  message and is never signalled. The two -Stop scripts share one preamble
+  (`$AiSmStateFilePreamble`). A live backend is not touched further: its own
+  SIGTERM handler already ends everything.
+- **Status line in installed mode** names node and `statusline.mjs`
+  through `<app>/current/…` (`server/bundle.ts` `statuslinePaths`;
+  `installerCurrent` is now the one "installer's `current`" rule for the
+  update probe, the restart preflight — which used to accept a plain
+  directory named `current` — and the status line), so an adopted session's
+  `--settings` command keeps working after a later Setup prunes the dir it
+  was spawned from. Cross-version contract: the script's argv and snapshot
+  only ever grow. A `current` that is not the installer's link falls back
+  to the version dir with one warn line. Dev mode unchanged.
+- **Verified from WSL (2026-11-22):** verify-terminal D9 checks on a dev
+  backend + headless Chromium (restart mid-output: same ids/pids, replay
+  from offset 0 byte-identical through the handoff, repaint after a page
+  reload; resize after re-attach reaches the same PTY), and the REAL
+  `launch.ps1 -Stop` through `powershell.exe` on scratch data dirs (crash ⇒
+  lone pty-host stopped; no runtime.json ⇒ stopped; nothing ⇒ "No session
+  holder"). Open for Windows: Claude mid-turn through a real Update, an
+  install over a version a pty-host still runs from.
+- **Lesson (2026-11-21/22):** running `launch.ps1` from WSL with
+  `WSLENV=AI_SM_DATA_DIR/u` does NOT pass the variable (`/u` = Win32 → WSL
+  only); the launcher fell back to the default data dir and SIGTERMed the
+  user's installed backend twice. Set the data dir INSIDE PowerShell and
+  prove it with `-Status` first. From bash the PowerShell text must reach
+  powershell.exe intact: inside bash double quotes write `\$env:` (a bare
+  `$env` expands to nothing and the assignment is lost — the same
+  incident). The tested template is in `.claude/skills/verify-terminal/SKILL.md`.
 
 Spec `.claude/plans/nocturne/PLAN-D9.md`. Related: [[detached-backend]],
 [[in-app-update]].

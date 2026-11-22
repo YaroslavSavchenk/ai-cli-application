@@ -10,7 +10,8 @@
  * shell, which would expand everything a second time), a script containing no
  * double quote, and values that passed the allow-list. Also here: the
  * `wsl -l -v` UTF-16LE parse, the allow-list gates ending at the string end,
- * and the launcher config the installer writes read back by the launcher.
+ * the launcher config the installer writes read back by the launcher, and
+ * which appDir counts as a running version dir (`Get-AiSmVersionTail`, D9 P5).
  *
  * Split out of `installer-helpers.test.ts` (restructure O6), which runs the
  * constant shell scripts under a real `sh`; the scripts' text comes from
@@ -132,8 +133,8 @@ test('install-bundle -DryRun prints the exact wsl.exe command line and runs noth
   // which expands it a SECOND time ($1/$2 arrive empty, $(...) runs there).
   assert.ok(cmd.startsWith('wsl.exe -d Ubuntu-24.04 --exec sh -c "'), cmd.slice(0, 80));
   // Positional arguments after the script: $0=sh, $1=appdir, $2=version,
-  // $3=the live version dir ('-' = none).
-  assert.ok(cmd.endsWith('" sh /home/you/.ai-session-manager/app v0.2.0 -'), cmd.slice(-80));
+  // $3=the live backend's version dir, $4=a live pty-host's (D9 P5; '-' = none).
+  assert.ok(cmd.endsWith('" sh /home/you/.ai-session-manager/app v0.2.0 - -'), cmd.slice(-80));
   // The script between the quotes is exactly the committed constant.
   const inner = cmd.slice('wsl.exe -d Ubuntu-24.04 --exec sh -c "'.length, cmd.lastIndexOf('" sh '));
   assert.equal(inner, unpackScript);
@@ -145,6 +146,8 @@ test('install-bundle -DryRun prints the exact wsl.exe command line and runs noth
 
   assert.equal(keys.get('ok'), 'yes');
   assert.equal(keys.get('dryRun'), 'yes');
+  assert.equal(keys.get('liveVersionDir'), '-');
+  assert.equal(keys.get('hostVersionDir'), '-');
   assert.equal(keys.get('installedDir'), '/home/you/.ai-session-manager/app/v0.2.0');
   assert.equal(keys.get('current'), '/home/you/.ai-session-manager/app/current');
   assert.equal(keys.get('configFile'), 'C:\\Programs\\AI Session Manager\\launcher-config.json');
@@ -401,6 +404,51 @@ $resolved = Resolve-AiSmConfig -ScriptRoot 'C:\Programs\AI Session Manager' -Con
     assert.equal(info.trim(), 'distro=Ubuntu-22.04\nappDir=/home/them/.ai-session-manager/app\nversion=v0.2.0');
     // No BOM: Inno reads these files line by line.
     assert.notEqual(readFileSync(join(dir, 'launcher-config.json'))[0], 0xef);
+  } finally {
+    await removeTempDir(dir);
+  }
+});
+
+test('install-bundle keeps only a DIRECT, allow-listed child of the app dir as a running version dir', { skip }, async () => {
+  // Get-AiSmVersionTail turns the appDir a live backend (runtime.json) or a
+  // live pty-host (pty-host.json, D9 P5) names into the word that becomes $3
+  // / $4 of the unpack script's command line. -DryRun never reaches it (no
+  // process is asked), so the function is extracted and run on its own — it
+  // calls nothing outside PowerShell.
+  const fnText = /function Get-AiSmVersionTail \{[\s\S]*?\n\}/.exec(readHelper('install-bundle.ps1'))?.[0];
+  assert.ok(fnText, 'install-bundle.ps1 must still define Get-AiSmVersionTail');
+  const app = '/home/you/.ai-session-manager/app';
+  const rows: [string, string, string][] = [
+    ['a direct child', `${app}/v0.4.4`, 'v0.4.4'],
+    ['a dir one level down', `${app}/v0.4.4/server`, ''],
+    ['a sibling of the app dir with the same length', '/home/you/.ai-session-manager/apq/v0.4.4', ''],
+    ['the app dir itself', app, ''],
+    ['a character outside the allow-list', `${app}/v0.4.4;id`, ''],
+    ['a space', `${app}/v0 4`, ''],
+    ['empty', '', ''],
+  ];
+  const dir = await makeTempDir('ai-sm-tail-');
+  try {
+    const script = join(dir, 'tail.ps1');
+    const calls = rows.map(([, d]) => `[Console]::Out.Write('[' + (Get-AiSmVersionTail '${d}') + ']' + [char]10)`).join('\n');
+    await writeFile(
+      script,
+      "$ErrorActionPreference = 'Stop'\n" +
+        '. $args[0]\n' +
+        '. (Get-AiSmCommonPath -ScriptDir (Split-Path -Parent $args[0]))\n' +
+        `$AppDir = '${app}'\n` +
+        fnText +
+        '\n' +
+        calls +
+        '\n',
+      'ascii',
+    );
+    const res = await run(powershell!, [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', await toWin(script), await toWin(join(helpersDir, 'helper-common.ps1')),
+    ]);
+    assert.equal(res.code, 0, res.out);
+    const got = res.out.split('\n').slice(0, rows.length);
+    rows.forEach(([name, , want], i) => assert.equal(got[i], `[${want}]`, name));
   } finally {
     await removeTempDir(dir);
   }

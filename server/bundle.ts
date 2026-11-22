@@ -14,7 +14,7 @@
  *   <app>/v0.2.0/server/**  shared/**  web/dist/**  package.json
  *
  * There is no git checkout, no package-lock.json, no vite and no source tree in
- * such an install, so three things the developer path does have to change, and
+ * such an install, so four things the developer path does have to change, and
  * they all hang off `readBundleInfo(repoRoot) !== null`:
  *
  *   1. the boot banner names the BUNDLE VERSION instead of a git commit;
@@ -23,10 +23,15 @@
  *      which can ever fire in a packaged tree (no .git, no lockfile stamp, no
  *      sources newer than the build);
  *   3. the restart preflight VERIFIES the target bundle instead of running
- *      vite, and hands the port to the `current` bundle's own node binary.
+ *      vite, and hands the port to the `current` bundle's own node binary;
+ *   4. a claude session's status-line command names node and statusline.mjs
+ *      through `<app>/current` instead of this version dir (Nocturne D9 P5,
+ *      `statuslinePaths`): an adopted session outlives the dir it was spawned
+ *      from.
  *
  * The developer clone keeps every one of those behaviours unchanged: with no
- * `bundle.json` at the root, nothing in this file is ever called.
+ * `bundle.json` at the root, `statuslinePaths` returns this process's own
+ * paths at its first line and nothing else in this file is ever called.
  *
  * UNTRUSTED DISK CONTENT. `bundle.json` sits in a user-writable directory and
  * its strings reach `server.log` and `GET /api/runtime` → the UI, so every
@@ -184,6 +189,78 @@ export interface InstalledUpdateOptions {
   cacheMs?: number;
 }
 
+/** `<app>/current` as the installer left it, beside the version dir this process runs from — or why not. */
+type InstallerCurrent =
+  | {
+      ok: true;
+      /** The version dir this process runs from, realpath'ed. */
+      here: string;
+      /** `<app>/current` itself — the LINK path, not what it resolves to. */
+      link: string;
+      /** What the link resolves to, realpath'ed: a direct sibling of `here`. */
+      to: string;
+      /** The valid `bundle.json` of `to`. */
+      info: BundleInfo;
+    }
+  | {
+      ok: false;
+      /** One `server.log`-safe sentence: what is wrong with `current`. */
+      why: string;
+    };
+
+/**
+ * `<app>/current`, but only when it is the installer's link: a SYMLINK whose
+ * end is a direct sibling of `appDir` carrying a valid `bundle.json`. Anything
+ * else is `{ ok: false, why }`; never throws.
+ *
+ * Resolved first, then dirname'd: `<app>` is the REAL parent of the version
+ * dir this process runs from, never a path reached through a symlink (which
+ * is what `current` itself is). A PLAIN DIRECTORY at `current` is not an
+ * install we made: it would realpath to itself and read as "a different
+ * version" forever — and the restart would spawn whatever it holds. A
+ * dangling link fails the realpath. A HALF-FINISHED unpack (no valid marker),
+ * and a `current` that left <app>, fail too. CONTAINMENT: what `current`
+ * resolves to gets spawned by the restart, so it must be a DIRECT child of
+ * `<app>` — `dirname` on two realpaths is the whole check (no '..' survives a
+ * realpath; a target one level down is not a sibling).
+ *
+ * The ONE definition of "the installer's `current`" (Nocturne D9 P5), for
+ * three users: the update probe (does it point somewhere else?), the restart
+ * preflight `resolveInstalledTarget` (which also logs `why`), and the
+ * status-line command of installed mode (`statuslinePaths`: paths that must
+ * outlive this version dir).
+ */
+function installerCurrent(appDir: string): InstallerCurrent {
+  let here: string;
+  try {
+    here = realpathSync(appDir);
+  } catch (err) {
+    return { ok: false, why: `the app directory ${oneLine(appDir)} could not be resolved (${oneLine(String(err))})` };
+  }
+  const appHome = dirname(here);
+  const link = join(appHome, CURRENT_LINK);
+  let to: string;
+  try {
+    if (!lstatSync(link).isSymbolicLink()) {
+      return { ok: false, why: `${oneLine(link)} is not the installer's link (a plain file or directory)` };
+    }
+    to = realpathSync(link);
+  } catch {
+    return { ok: false, why: `${oneLine(link)} does not resolve to a directory (absent or dangling)` };
+  }
+  if (dirname(to) !== appHome || basename(to) === '') {
+    return {
+      ok: false,
+      why: `${oneLine(link)} resolves to ${oneLine(to)}, which is not a version directory inside ${oneLine(appHome)}`,
+    };
+  }
+  const info = readBundleInfo(to);
+  if (info === null) {
+    return { ok: false, why: `${oneLine(join(to, BUNDLE_FILE))} is missing or is not a valid bundle marker` };
+  }
+  return { ok: true, here, link, to, info };
+}
+
 /**
  * Build the `update` probe for an INSTALLED backend.
  *
@@ -211,27 +288,9 @@ export function createInstalledUpdateChecker(opts: InstalledUpdateOptions): () =
 
   const compute = (): UpdateCheckResult => {
     if (Number.isNaN(Date.parse(opts.startedAt()))) return NO_UPDATE; // Not listening yet.
-    try {
-      // Resolved first, then dirname'd: `<app>` is the REAL parent of the
-      // version dir this process runs from, never a path reached through a
-      // symlink (which is what `current` itself is).
-      const here = realpathSync(opts.appDir);
-      const link = join(dirname(here), CURRENT_LINK);
-      // A PLAIN DIRECTORY at `current` is not an install we made: it would
-      // realpath to itself and read as "a different version" forever.
-      if (!lstatSync(link).isSymbolicLink()) return NO_UPDATE;
-      const to = realpathSync(link); // Dangling -> throws -> NO_UPDATE.
-      if (to === here) return NO_UPDATE;
-      // A HALF-FINISHED unpack, and a `current` that left <app>, must not nag:
-      // both would otherwise light the pill permanently while every Restart
-      // press answers 422 (resolveInstalledTarget refuses exactly these two).
-      // Same containment rule as there: a direct sibling of this version dir.
-      if (dirname(to) !== dirname(here)) return NO_UPDATE;
-      if (readBundleInfo(to) === null) return NO_UPDATE;
-      return { available: true, reason: UPDATE_NEW_VERSION_INSTALLED };
-    } catch {
-      return NO_UPDATE;
-    }
+    const current = installerCurrent(opts.appDir);
+    if (!current.ok || current.to === current.here) return NO_UPDATE;
+    return { available: true, reason: UPDATE_NEW_VERSION_INSTALLED };
   };
 
   return () => {
@@ -283,36 +342,12 @@ export function resolveInstalledTarget(appDir: string): InstalledTarget {
   const refuse = (detail: string): never => {
     throw new RestartRefusal(REFUSED_STANDBY, detail);
   };
-  // The REAL version dir, and `<app>` as its real parent: `current` is a
-  // symlink, so nothing here may depend on how this process was addressed.
-  let appHome: string;
-  try {
-    appHome = dirname(realpathSync(appDir));
-  } catch (err) {
-    return refuse(`the app directory ${oneLine(appDir)} could not be resolved (${String(err)})`);
-  }
-
-  const link = join(appHome, CURRENT_LINK);
-  let dir: string;
-  try {
-    dir = realpathSync(link);
-  } catch {
-    return refuse(`${oneLine(link)} does not resolve to a directory (absent or dangling)`);
-  }
-
-  // A direct child of <app> and nothing else. `dirname`/`basename` on two
-  // realpaths is the whole check: no '..' survives a realpath, and a target one
-  // level down cannot be a sibling, a parent or a path in another tree.
-  if (dirname(dir) !== appHome || basename(dir) === '') {
-    return refuse(
-      `${oneLine(link)} resolves to ${oneLine(dir)}, which is not a version directory inside ${oneLine(appHome)}`,
-    );
-  }
-
-  const info = readBundleInfo(dir);
-  if (info === null) {
-    return refuse(`${oneLine(join(dir, BUNDLE_FILE))} is missing or is not a valid bundle marker`);
-  }
+  // The link, containment and marker rules are `installerCurrent`'s — the
+  // same ones the update probe and the status line apply (a plain directory
+  // at `current` is refused here too).
+  const current = installerCurrent(appDir);
+  if (!current.ok) return refuse(current.why);
+  const { to: dir, info } = current;
 
   const entry = join(dir, 'server', 'index.ts');
   if (!existsSync(entry)) return refuse(`${oneLine(entry)} is missing`);
@@ -337,4 +372,55 @@ export function resolveInstalledTarget(appDir: string): InstalledTarget {
   // Restarting IN PLACE is legal and normal: `current` may still point at this
   // very bundle, and a plain fresh process is a valid outcome.
   return { version: info.version, dir, execPath, entry, cwd: dir };
+}
+
+// ---------------------------------------------------------------------------
+// "Which node and script does a session's status line run?" — Nocturne D9 P5
+// ---------------------------------------------------------------------------
+
+/** The two programs a claude session's `statusLine.command` names. */
+interface StatuslinePaths {
+  /** The node binary the command runs the script with. */
+  nodePath: string;
+  /** `statusline.mjs`. */
+  scriptPath: string;
+}
+
+/**
+ * Where a claude session's status-line command finds node and statusline.mjs
+ * (server/session-settings.ts composes the command from these two).
+ *
+ * Since Nocturne D9 a session outlives the backend that spawned it: Restart
+ * service and an update hand it to the next backend through the pty-host, and
+ * its Claude keeps running the command its `--settings` file named at spawn.
+ * In INSTALLED mode the version dir that backend ran from is pruned by a later
+ * Setup (retention: `current`, one previous version, and what a live backend
+ * or pty-host runs from), and a command naming `<app>/<old version>/…` would
+ * draw a blank bar for good. So installed mode names both through
+ * `<app>/current` — the link path itself, which the installer only ever moves
+ * to a complete bundle. The developer clone keeps this process's own node and
+ * `<serverDir>/statusline.mjs`, unchanged. An installed tree whose `current`
+ * is not the installer's link (`installerCurrent` not ok) falls back to the
+ * version dir — a status line that works until a prune beats none — and says
+ * so through `warn`.
+ *
+ * This creates a CROSS-VERSION CONTRACT on statusline.mjs (a session spawned
+ * by version N runs the script of whatever version `current` names) — kept in
+ * that file's header and pinned by tests/server/statusline-argv.test.ts.
+ */
+export function statuslinePaths(serverDir: string, installed: boolean, warn: (line: string) => void): StatuslinePaths {
+  const own: StatuslinePaths = { nodePath: process.execPath, scriptPath: join(serverDir, 'statusline.mjs') };
+  if (!installed) return own;
+  const current = installerCurrent(join(serverDir, '..'));
+  if (!current.ok) {
+    warn(
+      `${CURRENT_LINK} beside ${oneLine(join(serverDir, '..'))} is not the installer's link to a bundle ` +
+        `(${current.why}); status lines name this version dir and go blank once a later install prunes it`,
+    );
+    return own;
+  }
+  return {
+    nodePath: join(current.link, 'node', 'bin', 'node'),
+    scriptPath: join(current.link, 'server', 'statusline.mjs'),
+  };
 }

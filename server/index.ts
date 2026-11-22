@@ -208,6 +208,7 @@ const {
   log,
   paths,
   serverDir,
+  installed,
   standbyWaiting,
   claudeVersion: () => claude.version(),
   host: ptyHosts,

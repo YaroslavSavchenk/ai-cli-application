@@ -15,7 +15,7 @@
  * server/index-update.ts, server/index-restart.ts.
  */
 import { unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { statuslinePaths } from './bundle.ts';
 import {
   resolveGithubApiBase,
   DEFAULT_GITHUB_API_BASE,
@@ -39,6 +39,8 @@ interface StoresWiring {
   log: Logger;
   paths: DataPaths;
   serverDir: string;
+  /** A bundle runs this process (server/bundle.ts): the status line names `<app>/current` (D9 P5). */
+  installed: boolean;
   /** A standby waiting for `go` must not touch the data dir (see index.ts). */
   standbyWaiting: boolean;
   /** The probed Claude Code version, for the early-exit log line (Nocturne D6, index-claude.ts). */
@@ -70,6 +72,7 @@ export function createStores({
   log,
   paths,
   serverDir,
+  installed,
   standbyWaiting,
   claudeVersion,
   host,
@@ -87,14 +90,17 @@ export function createStores({
   // script is run by a FOREIGN process (claude), so it is named by absolute path
   // and run with this very node binary — never by a name resolved through the
   // child's PATH. Any file left by a previous run is wiped, except those of the
-  // sessions a pty-host still holds (D9 P3: they are adopted).
+  // sessions a pty-host still holds (D9 P3: they are adopted). Installed, both
+  // are named through `<app>/current` (D9 P5, server/bundle.ts
+  // `statuslinePaths`): an adopted session outlives this version dir.
+  const statusline = statuslinePaths(serverDir, installed, (line) => log('warn', line));
   const sessionSettings = new SessionSettingsStore(
     {
       dir: paths.sessionSettingsDir,
       snapshotDir: paths.statuslineSnapshotDir,
-      scriptPath: join(serverDir, 'statusline.mjs'),
+      scriptPath: statusline.scriptPath,
       prefsFile: paths.prefsFile,
-      nodePath: process.execPath,
+      nodePath: statusline.nodePath,
     },
     log,
   );

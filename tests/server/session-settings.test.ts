@@ -45,6 +45,7 @@ import {
   makeTempDir,
   removeTempDir,
 } from '../helpers/helpers.ts';
+import { makeStubClaude } from '../helpers/stub-claude-fixture.ts';
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -347,15 +348,6 @@ test('resetDir() wipes the snapshot directory too and recreates it 0700', async 
 // ---------------------------------------------------------------------------
 // Through a real server + a real PTY
 // ---------------------------------------------------------------------------
-
-/** A stub executable named `claude` that echoes its argv and then blocks. */
-async function makeStubClaude(): Promise<{ dir: string; bin: string }> {
-  const dir = await makeTempDir('ai-sm-stubclaude-');
-  const bin = join(dir, 'claude');
-  await writeFile(bin, '#!/bin/bash\necho "ARGV<$*>"\nexec sleep 300\n');
-  await chmod(bin, 0o755);
-  return { dir, bin };
-}
 
 /** The argv line the stub printed, read out of the session's own PTY output. */
 async function spawnedArgv(server: TestServer, id: string): Promise<string> {

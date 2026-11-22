@@ -49,8 +49,11 @@ import { sleep, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
 import {
   claudeCheckScript,
   probeScript,
+  ptyHostDirScript,
   readHelper,
   removeScript,
+  runSh,
+  type ShResult,
   unpackScript,
 } from '../helpers/installer-helpers-fixture.ts';
 
@@ -60,6 +63,7 @@ test('every constant shell script is free of double quotes', () => {
   // This is the invariant the whole hand-built-command-line design rests on.
   for (const [name, script] of [
     ['install-bundle', unpackScript],
+    ['install-bundle pty-host', ptyHostDirScript],
     ['uninstall-wsl', removeScript],
     ['wsl-probe', probeScript],
     ['install-thirdparty', claudeCheckScript],
@@ -82,45 +86,6 @@ test('the node-pty proof names its module through argv, not through quoting', ()
 });
 
 // --- running the constant scripts under a real sh ---------------------------
-
-interface ShResult {
-  code: number | null;
-  out: string;
-}
-
-function runSh(script: string, args: string[], stdin?: Buffer): Promise<ShResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('sh', ['-c', script, 'sh', ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let out = '';
-    // No default timeout exists in node:test, so a script that ever blocked
-    // would hang the whole suite instead of failing it.
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error(`timed out after 60s: sh -c <script> sh ${args.join(' ')}\n${out}`));
-    }, 60_000);
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (c: string) => (out += c));
-    child.stderr.on('data', (c: string) => (out += c));
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ code, out });
-    });
-    // A refusing script exits BEFORE it ever reads stdin, so this write races
-    // that exit and loses (EPIPE) — measured at ~1 run in 10 of this file
-    // before the handler below existed, which made the suite flaky rather than
-    // wrong. The pipe closing early is the script working; the exit code and
-    // the output stay the verdict.
-    child.stdin.on('error', () => {});
-    // Always close stdin: the unpack script reads the tarball from it, and the
-    // scripts that do not read it must still see EOF rather than a live pipe.
-    child.stdin.end(stdin ?? '');
-  });
-}
 
 /** A minimal but REAL bundle: a runnable node and a requireable node-pty. */
 async function makeBundle(root: string, version: string, withPty = true): Promise<string> {
@@ -174,9 +139,10 @@ async function proveNewer(newer: string, older: string): Promise<void> {
   assert.fail(`ctime of ${newer} never overtook ${older} (clock stepped backward?)`);
 }
 
-async function install(root: string, appDir: string, version: string, live = '-'): Promise<ShResult> {
+/** `live`: the version dir a live backend runs from; `host`: a live pty-host's (D9 P5); '-' = none. */
+async function install(root: string, appDir: string, version: string, live = '-', host = '-'): Promise<ShResult> {
   const tar = await readFile(join(root, `${version}.tar.gz`));
-  return runSh(unpackScript, [appDir, version, live], tar);
+  return runSh(unpackScript, [appDir, version, live, host], { stdin: tar });
 }
 
 test('unpack script: a fresh install lands the version dir and points current at it', async () => {
@@ -262,6 +228,51 @@ test('unpack script: the version dir a LIVE backend runs from is never pruned', 
     assert.equal(third.code, 0, third.out);
     assert.doesNotMatch(third.out, /AI_SM_PRUNED/, 'nothing may be pruned here');
     assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.1.0,v0.2.0,v0.3.0');
+  } finally {
+    await removeTempDir(root);
+  }
+});
+
+test('unpack script: the version dir a LIVE pty-host runs from is never pruned either (D9 P5)', async () => {
+  // After an update the pty-host still runs from the version that started it,
+  // while the backend that adopted its sessions runs from a newer one.
+  const root = await makeTempDir('ai-sm-inst-');
+  try {
+    const appDir = join(root, 'app');
+    for (const v of ['v0.1.0', 'v0.2.0', 'v0.3.0', 'v0.4.0']) await makeBundle(root, v);
+    await install(root, appDir, 'v0.1.0');
+    await settle();
+    await install(root, appDir, 'v0.2.0');
+    await proveNewer(join(appDir, 'v0.2.0'), join(appDir, 'v0.1.0'));
+    // v0.1.0 is the oldest, past the one-previous slot (v0.2.0), and a
+    // pty-host runs from it: no backend is live at all.
+    const third = await install(root, appDir, 'v0.3.0', '-', 'v0.1.0');
+    assert.equal(third.code, 0, third.out);
+    assert.doesNotMatch(third.out, /AI_SM_PRUNED/, 'nothing may be pruned here');
+    assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.1.0,v0.2.0,v0.3.0');
+    // The control: once the pty-host is gone ('-'), retention is back to
+    // current + one previous.
+    await proveNewer(join(appDir, 'v0.3.0'), join(appDir, 'v0.2.0'));
+    const fourth = await install(root, appDir, 'v0.4.0', '-', '-');
+    assert.equal(fourth.code, 0, fourth.out);
+    assert.match(fourth.out, /AI_SM_PRUNED=v0\.1\.0/);
+    assert.match(fourth.out, /AI_SM_PRUNED=v0\.2\.0/);
+    assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.3.0,v0.4.0');
+  } finally {
+    await removeTempDir(root);
+  }
+});
+
+test('unpack script: reinstalling the version only a pty-host runs from is allowed (it loaded all its code at start)', async () => {
+  const root = await makeTempDir('ai-sm-inst-');
+  try {
+    const appDir = join(root, 'app');
+    await makeBundle(root, 'v0.2.0');
+    await install(root, appDir, 'v0.2.0');
+    const again = await install(root, appDir, 'v0.2.0', '-', 'v0.2.0');
+    assert.equal(again.code, 0, again.out);
+    assert.doesNotMatch(again.out, /same_version_live/);
+    assert.equal(readdirSync(appDir).sort().join(','), 'current,v0.2.0');
   } finally {
     await removeTempDir(root);
   }
@@ -470,7 +481,7 @@ test('unpack script: an archive without <version>/bundle.json is refused', async
     await makeBundle(root, 'v0.2.0');
     // Same archive, but we claim it holds a different version.
     const tar = await readFile(join(root, 'v0.2.0.tar.gz'));
-    const res = await runSh(unpackScript, [appDir, 'v9.9.9', '-'], tar);
+    const res = await runSh(unpackScript, [appDir, 'v9.9.9', '-'], { stdin: tar });
     assert.equal(res.code, 24, res.out);
     assert.match(res.out, /AI_SM_ERR=no_bundle_json/);
     assert.ok(!existsSync(join(appDir, 'current')));
@@ -564,7 +575,7 @@ test('unpack script: an archive with a `..` member is refused and writes nothing
       { name: '../pwned-parent.txt' },
       { name: 'v0.2.0/../../pwned-grand.txt' },
     ]);
-    const res = await runSh(unpackScript, [appDir, 'v0.2.0', '-'], tar);
+    const res = await runSh(unpackScript, [appDir, 'v0.2.0', '-'], { stdin: tar });
     // GNU tar: "Member name contains '..'" -> non-zero -> the script's own
     // untar_failed, which is a refusal, not a partial install.
     assert.equal(res.code, 23, res.out);
@@ -589,7 +600,7 @@ test('unpack script: an absolute-path member stays inside the staging dir and di
     const appDir = join(root, 'app');
     const absTarget = join(root, 'pwned-abs.txt');
     const tar = await makeHostileTar(root, 'v0.2.0', [{ name: absTarget }]);
-    const res = await runSh(unpackScript, [appDir, 'v0.2.0', '-'], tar);
+    const res = await runSh(unpackScript, [appDir, 'v0.2.0', '-'], { stdin: tar });
     // GNU tar strips the leading '/', so the member lands RELATIVE to -C
     // $stage. The install is a normal success and the intended target is
     // never touched.
@@ -617,7 +628,7 @@ test('unpack script: a member written through a symlinked directory is refused',
       { name: 'escape', link: '../../..' },
       { name: 'escape/pwned-sym.txt' },
     ]);
-    const res = await runSh(unpackScript, [appDir, 'v0.2.0', '-'], tar);
+    const res = await runSh(unpackScript, [appDir, 'v0.2.0', '-'], { stdin: tar });
     assert.equal(res.code, 23, res.out);
     assert.match(res.out, /AI_SM_ERR=untar_failed/);
     assert.ok(!existsSync(join(root, 'pwned-sym.txt')));

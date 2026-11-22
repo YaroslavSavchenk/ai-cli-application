@@ -18,7 +18,13 @@
  *
  * SECURITY. `statusLine.command` is a SHELL string (Claude Code runs it through
  * a shell), so it is composed exclusively from:
- *   - process.execPath and two server-known absolute paths, and
+ *   - three server-known absolute paths: the node binary, statusline.mjs and
+ *     prefs.json. The first two are this process's own (process.execPath,
+ *     `<serverDir>/statusline.mjs`), or in installed mode the same two
+ *     through `<app>/current` (Nocturne D9 P5, server/bundle.ts
+ *     `statuslinePaths`: a session adopted after an update outlives the
+ *     version dir it was spawned from) — derived from where this code runs,
+ *     never from a request; and
  *   - one value out of a closed five-element enum (the four `--permission-mode`
  *     values plus 'unknown'), and
  *   - the session's SNAPSHOT path (Nocturne B1), which is `<snapshotDir>/<id>
@@ -113,11 +119,11 @@ export interface SessionSettingsConfig {
    * the script as its fourth argument; server/telemetry.ts watches it.
    */
   snapshotDir: string;
-  /** Absolute path of statusline.mjs. */
+  /** Absolute path of statusline.mjs (installed: through `<app>/current`, D9 P5). */
   scriptPath: string;
   /** Absolute path of prefs.json — the script re-reads it on every invocation. */
   prefsFile: string;
-  /** Absolute path of the node binary to run the script with (process.execPath). */
+  /** Absolute path of the node binary to run the script with (process.execPath; installed: `<app>/current/node/bin/node`, D9 P5). */
   nodePath: string;
 }
 

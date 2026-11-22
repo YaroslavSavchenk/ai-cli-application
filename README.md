@@ -443,8 +443,9 @@ path):
   session holder (Nocturne D9): a separate process the backend starts with the
   first session, which owns the terminals so a backend crash does not end them
   (relaunch within 10 minutes and they re-attach), and a restart or an update
-  hands them to the new backend instead of ending them. Its state file (pid, build,
-  connection token; 0600), its socket (0600), the secret its single-instance
+  hands them to the new backend instead of ending them. Its state file (pid, build, the
+  version dir it runs from — `appDir`, which the installer's retention keeps —
+  and the connection token; 0600), its socket (0600), the secret its single-instance
   lock is named after (0600), and its own log (lifecycle and counts only —
   never terminal bytes, environment, arguments or the token; rotated like
   `server.log`). The backend sets an existing data directory it owns to mode

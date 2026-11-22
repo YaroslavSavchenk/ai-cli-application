@@ -125,6 +125,7 @@ launcher, github, release, project); the link target is still the filename.
 ### 2026-11
 
 - [[2026-11-21-d9-p3-adopt]] — D9 P3: broker owns only what it adopts, boot adopt + gap re-scan, host lost ⇒ group kill + crash, permission args survive the blob cap, title cap 256, socket-mode CI job; gate cut short — RingBuffer.restore one-chunk bug open (todo test)
+- [[2026-11-22-d9-p5-installer-launcher]] — D9 P5: installer keeps a live pty-host's version dir, `-Stop` ends a lone pty-host (identity check, not during a handoff), status line via `<app>/current`; INCIDENT: an agent's real `-Stop` (WSLENV /u) stopped the installed app twice
 - [[2026-11-21-d9-p4-restart-keeps]] — D9 P4: restart/update detach and the new backend adopts; standby probe verdict; 409 `sessions-would-end` + "Restart anyway"; RingBuffer.restore fixed; probe list-count timeout (gate finding)
 - [[2026-11-21-d9-p2-pty-host]] — D9 P2: pty-host process + wire (owner seat/probe, token, 0600 socket, lock-name secret, orphan 10 min, idle 60 s, 8 MiB pause); data dir fchmod 0700; review: replaced owner kept rights, WSL2 distros share a netns (abstract names collide); gate found frames-before-listen dropped
 - [[2026-11-20-d9-p1-pty-table]] — D9 P1: PTY layer → `server/pty-table.ts` behind `PtyHost` (in-process), absolute ring offsets, meta blob, async create; full mutation gate 124 mutants / 21 tests; WSL wall clock steps back ~1 s per 30 s (flaky 1 s margins)
