@@ -78,7 +78,8 @@ its day; this map translates it.
 Old location for all 12: `.claude/<file>`.
 
 - `.claude/plans/`: `PLAN-NOCTURNE.md`, `PLAN-RESTRUCTURE.md`,
-  `RELEASE-NOTES-v0.4.0-draft.md`
+  `RELEASE-NOTES-v0.4.0-draft.md` (removed 2026-11-22: the v0.4.0 release
+  notes are the GitHub release)
 - `.claude/plans/nocturne/`: `PLAN-A9.md`, `PLAN-A10.md`, `PLAN-A10b.md`,
   `PLAN-B1.md`, `PLAN-B2.md`, `PLAN-B5.md`, `PLAN-B10.md`, and two renamed to
   the master plan's spelling: `PLAN-A9B` → `PLAN-A9b.md`, `PLAN-B10A` →

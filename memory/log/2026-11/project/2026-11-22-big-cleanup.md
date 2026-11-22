@@ -61,3 +61,18 @@ backend). Full suite 72.7 s → 49.2 s wall, 4619 / 0.
   poll pauses while the window is hidden (user's pick); the session poll stays
   (health probe).
 - `isValidDim` has one home in `server/config.ts`.
+
+## Q14 — documents
+
+- `.claude/PROJECT-SCOPE.md` § Open decisions held nothing open: its settled
+  records moved verbatim to `memory/decisions/scope-history.md` (55 → 48 KB);
+  the installer line said "IN PROGRESS" though it shipped in v0.2.0.
+- `memory/BACKLOG.md`: done items into the archive, the active list
+  open-only; new open item: the agents stale-row CI flake (run 45064858642).
+- `.claude/plans/RELEASE-NOTES-v0.4.0`…`v0.4.4-draft.md` removed (published
+  GitHub releases); citations reworded.
+- `memory/INDEX.md` entries trimmed to ≤ 200 chars (61 → 29 KB), every link kept.
+- Agent definitions: the D9 pty-host facts; `model: opus` on all of them.
+- `tests/release/ptyhost-windows-scripts.test.ts`: the 10 s stop-script wait
+  is measured with `performance.now()` — WSL steps the wall clock back ~1 s
+  ("Time jumped backwards" in dmesg), which failed it 2 of 4 runs.

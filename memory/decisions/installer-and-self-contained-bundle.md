@@ -1,12 +1,12 @@
 ---
 type: decision
 created: 2026-09-08
-updated: 2026-09-23
+updated: 2026-11-22
 tags: [distribution, installer, release, launcher, packaging]
 ---
 # One installer, one self-contained bundle: the app becomes a product
 
-**Status:** decided 2026-09-08 (user), IN PROGRESS. Supersedes the "the app
+**Status:** decided 2026-09-08 (user); shipped in v0.2.0 (2026-09-09), the Setup is an asset of every release since. Supersedes the "the app
 itself is never packaged" clause of [[release-build-and-launcher-derivation]]
 (the host-zip release and the CI gate from [[2026-09-08-cicd-gate]] stand
 and are reused). Builds on [[thin-windows-launcher]] and

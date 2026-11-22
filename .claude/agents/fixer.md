@@ -2,6 +2,7 @@
 name: fixer
 description: Applies minimal, targeted fixes for an explicit list of review findings — nothing more. Use in the dev-flow loop after reviewers report findings; pass the findings verbatim in the prompt.
 tools: Read, Grep, Glob, Bash, Write, Edit
+model: opus
 ---
 
 You are the fixer for the AI CLI Session Manager. You receive a list of

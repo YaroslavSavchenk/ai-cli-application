@@ -1,7 +1,7 @@
 ---
 type: backlog
 created: 2026-09-08
-updated: 2026-10-13
+updated: 2026-11-22
 tags: [backlog, todo, open]
 ---
 # Backlog — still to do (living note)
@@ -24,10 +24,6 @@ priority.
 - [ ] **Dependabot (or a manual monthly check) for the SHA-pinned actions**
   — checkout v7.0.1, setup-node v7.0.0, upload-artifact v7.0.1,
   download-artifact v8.0.1 will go stale silently.
-- [ ] **`npm audit`**: 2 dev-only transitive advisories in the vite chain
-  (`nanoid` <3.3.18 GHSA-2v37-7h3g-55p8, `postcss` <=8.5.22
-  GHSA-fxqj-rqcc-2cmp). Runtime backend unaffected (`--omit=dev` → 0).
-  `npm audit fix` when convenient; re-run the suite after.
 - [ ] Untested branches in `scripts/release.sh` (read-fails class, one
   knob each in the git double): `git rev-parse --abbrev-ref HEAD` failing,
   `git rev-parse HEAD` failing, missing `origin/main`, `gh run list`
@@ -35,17 +31,22 @@ priority.
   `result: unknown`.
 - [ ] The `bodyThrew` teardown guard has no meta-test (a failing body's
   assertion surviving a settle timeout). Low value; fault-injected harness.
-- [x] LANDED as Q7 2026-10-13 (proved real; fixed by the exit guard `tests/helpers/exit-guard.ts`, not --test-force-exit, which loses results). **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
-  leaves its in-process GitHub stub listening → the event loop never drains
-  and `npm test` never returns (`--test-timeout` unset). Fix: unconditional
-  `stub.stop()` in teardown and/or `--test-timeout` in the `test` script.
 - [ ] `frontend rebuilt` compares `web/dist/index.html` mtime with a later
   non-monotonic `Date.now()` — a WSL2 clock step could false-positive; a
   tolerance or asset-name-only comparison removes the class (unproven, seen
   once, never reproduced).
-- [ ] `tests/server/logging.test.ts` still has fire-and-forget `void rm(dir, …)`
-  at 7 pure-logger sites (no PTY, no race) — switch to
-  `await removeTempDir(dir)` for uniformity.
+- [ ] Fire-and-forget `void rm(dir, …)` at 8 sites, counted 2026-11-22:
+  `tests/server/logging.test.ts` 5, `tests/server/logging-hardening.test.ts` 2,
+  `tests/server/buildinfo.test.ts` 1 (pure-logger and build-info tests, no PTY,
+  no race) — switch to `await removeTempDir(dir)` for uniformity.
+- [ ] CI flake (2026-11-22, run 45064858642, rerun green):
+  `tests/server/agents-launch-watcher.test.ts:109` 'C2 watcher: a STALE
+  subagent row … does not keep it working' read 'working' instead of
+  'waiting' on the runner. The test sets the agent file's mtime from
+  Date.now() − STALE_MS − 5 s while the watcher runs on the injected
+  `clocked()` clock (`tests/helpers/agents-fixture.ts:559`); cause not found
+  yet. Twice red → investigate (which input still says alive: the row, the
+  launch time, or the mtime).
 
 ## In-app updater (phase E, 2026-09-09) — what is left
 
@@ -128,17 +129,6 @@ app window first so one backend at a time owns runtime.json.
   UNC-derived path must still print `(from launcher location)`); Windows-eye
   pass of toast/pill/dialog; a restart inside the WebView2 window.
 
-## Open decisions (user) — also listed in `.claude/PROJECT-SCOPE.md`
-
-- [~] **One-click installer / real app — DECIDED 2026-09-08, phases A–D
-  LANDED 2026-09-09** (see [[installer-and-self-contained-bundle]],
-  [[2026-09-08-installer-phase-a]], [[2026-09-09-installer-phase-b]],
-  [[2026-09-09-installer-phase-c-d]]). Remaining: [x] `workflow_dispatch`
-  green on GitHub (third try: two ISPP/Pascal comment traps, both pinned by
-  tests — [[inno-setup-ispp-char-literals]]), [ ] user tests the
-  `AI-Session-Manager-Setup` artifact on Windows (checklist in
-  `installer/README.md`), [x] visibility flip (2026-09-09), [x] `npm run release -- v0.2.0` — RELEASED 2026-09-09 (run 34370652699, four assets).
-
 ## From the copy/add-folder fix (2026-09-10)
 
 - [ ] Server-side dedupe for `POST /api/projects` register mode (today only the dialog's `isRegistered()` guard stops duplicates).
@@ -149,10 +139,8 @@ app window first so one backend at a time owns runtime.json.
 
 - [ ] **(user)** Two permission vocabularies: the app says `Always ask / Auto edits / Read only / No prompts` (`PERM_SHORT`), Claude Code's in-terminal status line from `server/statusline.mjs` `MODE_LABELS` says `always ask / auto-edits / plan / never ask` (pinned by `tests/server/statusline-script.test.ts`), mirrored by the Settings sample (`web/src/ui/settings.ts:95`) and the New Project select (`never ask (dangerous)`, `web/src/ui/newproject.ts:228`). Align in A7 (Settings + Add a project) or record the terminal line as exempt.
 - [ ] B5: per-id "Resume …" entries in the dialog's Start from select (v3); Codex / Gemini CLI / Grok / Zsh / Command Prompt cards go live; API-key notice with "Add key".
-- [ ] ~~Windows-side (A6, 2026-09-13):~~ (verified, see above) commit view open/Back with a TUI running (no torn rows, WebGL intact), editor column at 54 % with typing + Save, `Changes` diff tab, Esc out of the view, ligature-free `===` in the editor, `This commit is not available.` never seen (mock only).
 - [ ] B3 owes: `syntheticDiff` → `git show <hash> -- <path>` (one diff per PATH today, so two commits sharing a file show identical rows/numbers); `DiffLine.n` → `oldNo/newNo` two-column gutter (`--diff-gut-w` sized for one); a remote datum for `Open on GitHub`.
 - [ ] Editor caret/scroll position is lost when a commit view opens over it (text survives) — scope note A6.
-- [ ] ~~Windows-side (A5, 2026-09-13):~~ (verified, see above) Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
 - [ ] `prefers-reduced-motion` guard for the two pulses (`--t-pulse` dot, `--t-pulse-edit` file rows) — scope-reviewer note 2026-09-13.
 - [ ] B3: delete `placeholderNote()` in `web/src/ui/files.ts` (one function, one call site) when the Commits tab reads real data. (The `buildTree` half is CLOSED by B2, 2026-09-16: the source is `git diff --numstat` plus `git status --porcelain` for untracked, and the revisit landed as the trailing-slash rule — an untracked directory is one `sub/` row, so it becomes a childless folder node with no caret.)
 - [ ] Nothing clamps `filesWidth` when the WINDOW shrinks under it (520 + 300 px of chrome in a 1000 px window leaves ~18 cols) — optional clamp on window resize.
@@ -166,25 +154,17 @@ app window first so one backend at a time owns runtime.json.
 - [ ] `data-*`-keyed styling (`.grid[data-layout]`, `.pane-drop[data-zone]`, `.files-badge[data-kind]`, `[data-armed]`) has no guard that the value set the modules write matches the value set app.css styles — same class of bug as "a rule nothing sets".
 - [ ] Shortcuts overlay row cells stay lowercase fragments (byte-pinned by `ui-shortcuts-table`; since B6 the overlay and Settings → Keyboard both draw `web/src/ui/shortcuts-rows.ts`, so capitalising them is ONE data change + the pins).
 - [ ] B9 may replace the invented-but-unwired `initTheme(serverPrefs?) → { apply, current }` shape in `web/src/ui/theme.ts`; `--z-popover` was deleted (its only user was the popover) — re-add a rung if a popover returns.
-- [x] LANDED as D4 2026-10-13 (`restoreFocus` in `web/src/ui/util.ts` at every restore site). The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
-- [x] LANDED as Q6 2026-10-13 (four `partial` files; the size guard measures `launcher/`). **Host file size** (scope review 2026-09-26): `launcher/host/AiSessionManagerHost.cs` is 2385 lines — `tests/repo/file-size.test.ts` does not measure `launcher/`; move the peek-mascot overlay (`MascotOverlayForm`, DComp interop, the overlay region as a `partial` of `HostApp`) into its own `.cs` and teach `launcher/build-host.ps1` (and the release workflow) to compile both; whether the size guard should cover `launcher/` is **(user)**.
-- [x] LANDED as D5 2026-10-13 (`--permission-mode manual`; user's amended call). **"Always ask" does not force prompts** (verify-terminal 2026-09-27): `web/src/ui/launch-args.ts` skips the `default` permission mode, so no `--permission-mode` flag is passed and Claude Code 2.1.283 opened in `auto mode` although `~/.claude/settings.json` sets no `defaultMode`. Pass `--permission-mode default` explicitly for "Always ask"? **(user)** — it changes what the launch dialog promises.
-- [x] LANDED as Q5 2026-10-13 (index.ts 663 lines; index-banner / index-stores / index-update). `server/index.ts` is at 999 of 1000 lines after the C2 title fix (scope review 2026-09-27) — split the construction/wiring block into `server/index-<topic>.ts` (like `server/index-restart.ts`) before the next line lands there.
 - [ ] C# constant NAMES `TokenBgApp` / `TokenTextHd` / `TokenEdge` in `launcher/host/AiSessionManagerHost.cs` echo dead alias names (values correct, pinned by `nocturne-tokens` A1 (f)); rename when the host is next rebuilt.
 
 ## From Nocturne B6 (2026-09-22)
 
 - [ ] B6 follow-ups (reviewers' notes, no defect): a manual `Check for updates` inside a failure BACKOFF still makes one outbound GET (the 403/429 `notBeforeMs` window IS honoured; a floor of a few seconds between sequential manual checks would mirror `/api/runtime`'s cache); a manual check re-arms the periodic timer to +6 h from the press (benign); `note=` is printed on an `aborted` access line too (`status 0 < 400`); no installed-bundle end-to-end test for `POST /api/update/check` (fixture: `tests/server/restart.test.ts` unpacked-bundle boot); `clearToolsFloor` re-entry (a second refusal while the first 3 s timer runs) and two Tools clicks within one write's flight are untested; the hidden-card fallback can select an inert card for one `/api/tools` round trip (spec-true, `applyAvailability` moves on); `update.ts` → `st.setRunStamp` seam has no test of its own; `api.updatePrefs` is GET-merge-PUT so two toggles within one round trip can lose the first (pre-existing shape, shared with `statusLine`).
-- [x] LANDED as Q8 2026-10-13 (all seven + statusline.mjs's two; a refused file is set aside before the first write). The older data-dir readers (`prefs.json`, `projects.json`, `history.json`, `keys.json`, `update-check.json`, `github.json`) still `readFileSync` a path another process can create — apply the FIFO rule ([[fifo-open-blocks-main-thread]]: `O_NOFOLLOW|O_NONBLOCK` + `fstat().isFile()` + a cap before the read) to all of them in one pass, with a `mkfifo` test each (found a third time in B6 phase 3, `last-port.json`).
 - [ ] C1 phase 4: the `Notifications when a session needs you` row was dropped in B6 (decision 2) — the mascot toggle takes its place on Preferences → Defaults.
 
 ## From Nocturne C1 (2026-09-22)
 
-- [x] LANDED as D3 2026-10-13 (one in-distro `sh -c` step removes the file only when its pid line still names the stopped pid; fails closed on an odd HOME). `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
 - [ ] The edited-file pulse (`app.css`, Files panel) has no `prefers-reduced-motion` opt-out (the state dots got theirs in B11/B8).
 - [ ] The restart dialog says `History` where the Sessions panel says `Earlier` — user's call.
-
-## From the repo optimisation (2026-09-23, [[2026-09-23-repo-optimisation]])
 
 ## From the quality track (2026-09-23, [[2026-09-23-quality-p1-p4]])
 
@@ -201,40 +181,6 @@ app window first so one backend at a time owns runtime.json.
   the very first input after such a move. Not re-run on the old code.
 - [ ] **A deleted session's pane header** shows the id prefix with a
   "Working" pill and "Lost" together — cosmetic, predates P1–P4.
-
-## Claude Code CLI compatibility guard (user's ask 2026-09-15, not started)
-
-The app depends on documented `claude` CLI flags and behaviour
-(`--session-id`, `--resume <id>`, `--settings`, `--effort`, the transcript
-location under `~/.claude/projects/`; scope doc: **≥ 2.1.263**, "no version
-probe exists"). Anthropic changing any of that breaks the integration
-silently: a launch that exits at once, a history entry that never resumes,
-a statusline that stays empty. The user wants this VISIBLE in the app, not
-buried in `server.log`.
-
-- [x] LANDED as D6 2026-10-13 (probe, notice, early-exit banner, release-notes pin; [[d6-claude-code-compat-guard]]). **Version probe at boot**: run `claude --version` once (argv, no
-  shell), cache it in `GET /api/runtime` (`claudeVersion`, null when the
-  binary is missing), compare against a `SUPPORTED_CLAUDE` range baked
-  into the build (minimum = the verified floor; maximum = the newest
-  version this app version was tested with).
-- [ ] **Show it**: boot card row + Settings → Background service fact
-  "Claude Code X.Y.Z (tested up to A.B.C)"; outside the range a persistent
-  notice in the Nocturne idiom — older than the floor: "update Claude
-  Code"; newer than tested: "this app was tested up to A.B.C; if launches
-  fail, check for an app update or wait for a patch" with the existing
-  updater's "Check for updates" as the action. Never block launching; the
-  user decides.
-- [ ] **Runtime breakage detection**, since a version number alone proves
-  nothing: a claude-kind session that exits within ~2 s with a non-zero
-  code (or whose first output matches the CLI's own usage/unknown-option
-  error) is flagged on the pane and the notice above appears with the
-  captured first line. Same for a `--resume` that the CLI refuses.
-- [ ] **Release discipline**: every app release records the Claude Code
-  version it was verified against (release notes + the baked maximum);
-  bump the floor only when a flag the app relies on changes.
-- [ ] **(user)** whether the notice may also point at the GitHub releases
-  page / open the updater directly, and whether a "hide until the next
-  Claude Code version" dismissal is wanted.
 
 ## For other users (from the 2026-09-15 honest score, 5/10)
 
@@ -358,16 +304,6 @@ pass or a test-engineer brief, not a feature.
   test time. Add a `pre-commit` hook (or a `npm run check:bytes` step in
   `verify.yml`'s check job) that greps staged text files for bytes < 0x20
   outside tab/LF/CR, so the blob never enters a WIP branch at all.
-- [ ] **Mock data out of production code**: `files-mock.ts` and the
-  mock markers across `state.ts`, `files.ts`, `commit-*.ts`,
-  `drop-*.ts`, `settings.ts` exist because B4 is not live yet (B2 landed
-  2026-09-16: the FILES half of `files-mock.ts` and the Files-tab markers
-  are gone; the drop dialog's conflicts are real. B3 landed 2026-09-21: the
-  COMMITS half, `syntheticDiff` and both commit honesty lines are gone —
-  what is left is `mockFileContent` / `saveMockFile` and the editor's one
-  line). B4 landed 2026-09-22: `files-mock.ts` deleted with its last two
-  readers and the editor's honesty line — nothing in the app is mock.
-  (Ticked; kept for the history of the three halves.)
 - [ ] **Persist the agents' scratch tooling as repo scripts** (2026-09-16,
   from the session analysis): every test-gate rebuilds a mutation harness
   (`scratchpad/mut/run.py`: apply one string mutant, run a test subset,
@@ -395,7 +331,12 @@ pass or a test-engineer brief, not a feature.
 - Known limit (documented, not planned): PowerShell `ESC[6n` replayed into a
   pane that attaches mid-replay.
 
-## Done — archive (moved out of the list above on 2026-09-23)
+## From Nocturne D9 P1 (2026-11-20)
+
+- [ ] The early-exit verdict (`earlyExitLine`, D6) compares wall-clock times (`record.at - Date.parse(createdAt)`); on this WSL machine the wall clock steps back ~1 s every ~30 s (D9 P1 gate measured 23 steps in 12 min), so a verdict near `EARLY_EXIT_MS` can be off by ~1 s. A monotonic stamp (`performance.now()` kept beside `createdAt`) would fix it; the test was widened to 6 s.
+- [ ] One unexplained single failure of `sessions-resume-live` 'a non-claude command carrying the same --resume argv is never touched by the gate' during the gate (log not kept) — watch for a repeat.
+
+## Done — archive (moved out of the list above on 2026-09-23 and 2026-11-22)
 
 Ticked items, grouped under the heading they sat under. History, not work:
 nothing here needs doing. New ticks move here when their item lands.
@@ -403,6 +344,7 @@ nothing here needs doing. New ticks move here when their item lands.
 ### From Nocturne C1 (2026-09-22)
 
 - [x] **A backend that shuts down deletes a NEWER backend's `runtime.json`.** Seen on the dev data dir 2026-09-22 21:32Z: the old backend (port 38757) hit its idle grace and shut down 9 s after a new one (port 37323) had written `runtime.json`; the file was gone afterwards while the new backend ran on. The shutdown path should delete the file only when it still names its own pid. Pre-existing lifecycle bug, not C1. HIT AGAIN the same night on a dev relaunch: `start-backend.sh` found no `runtime.json`, started a SECOND backend, and the old one entered its idle grace (sessions would have died with it). Priority: first thing after the release. **DONE 2026-10-13 (D2, [[2026-10-13-d2-runtime-json-owner]]):** removed only when its pid + startedAt are this process's.
+- [x] LANDED as D3 2026-10-13 (one in-distro `sh -c` step removes the file only when its pid line still names the stopped pid; fails closed on an odd HOME). `launcher/launch.ps1` ~:543 `-Stop`: `rm -f "$DataDir/runtime.json"` after a failed `kill` is the same class as D2 — a backend that wrote its file between `Read-RuntimeInfo` and the `rm` loses it. Remove only when the file still names the pid it read (scope review of D2, 2026-10-13).
 
 ### CI/CD leftovers (from [[2026-09-08-cicd-gate]], 2026-09-08)
 
@@ -414,6 +356,14 @@ nothing here needs doing. New ticks move here when their item lands.
   blocks direct pushes). Check names if ever wanted: `verify / typecheck +
   build`, `verify / backend test suite`, `verify / linux bundle`.
 - [x] **Janitor pass** over the CI/CD change — done 2026-09-13 with the A5 land: no dead steps, no unused inputs, `release.sh` every variable consumed.
+- [x] **`npm audit`**: 2 dev-only transitive advisories in the vite chain
+  (`nanoid` <3.3.18 GHSA-2v37-7h3g-55p8, `postcss` <=8.5.22
+  GHSA-fxqj-rqcc-2cmp). Runtime backend unaffected (`--omit=dev` → 0).
+  `npm audit fix` when convenient; re-run the suite after. **DONE: `npm audit` reports `found 0 vulnerabilities` on 2026-11-22.**
+- [x] LANDED as Q7 2026-10-13 (proved real; fixed by the exit guard `tests/helpers/exit-guard.ts`, not --test-force-exit, which loses results). **Suite can hang forever**: a failed test in `tests/server/github-token.test.ts`
+  leaves its in-process GitHub stub listening → the event loop never drains
+  and `npm test` never returns (`--test-timeout` unset). Fix: unconditional
+  `stub.stop()` in teardown and/or `--test-timeout` in the `test` script.
 
 ### In-app updater (phase E, 2026-09-09) — what is left
 
@@ -449,6 +399,14 @@ nothing here needs doing. New ticks move here when their item lands.
 - [x] **Repo visibility — decided 2026-09-09: public, vault included**;
   noreply commit e-mail set; history not rewritten (author e-mail + old
   paths remain in old commits by choice). **FLIPPED 2026-09-09 13:05Z** (`gh repo edit --visibility public`), releases page live.
+- [x] **One-click installer / real app — DECIDED 2026-09-08, phases A–D
+  LANDED 2026-09-09** (see [[installer-and-self-contained-bundle]],
+  [[2026-09-08-installer-phase-a]], [[2026-09-09-installer-phase-b]],
+  [[2026-09-09-installer-phase-c-d]]). Remaining: [x] `workflow_dispatch`
+  green on GitHub (third try: two ISPP/Pascal comment traps, both pinned by
+  tests — [[inno-setup-ispp-char-literals]]), [x] user tests the
+  `AI-Session-Manager-Setup` artifact on Windows (checklist in
+  `installer/README.md`), [x] visibility flip (2026-09-09), [x] `npm run release -- v0.2.0` — RELEASED 2026-09-09 (run 34370652699, four assets). User test of the Setup on Windows passed 2026-09-09 ("alles okey", § Owed on the Windows side).
 
 ### From the copy/add-folder fix (2026-09-10)
 
@@ -463,10 +421,70 @@ nothing here needs doing. New ticks move here when their item lands.
 - [x] ~~`MOCK_FILES` is an exported const mutated at module init~~ — B2 Brief B (2026-09-16) deleted the FILES half of `files-mock.ts`; the contents half (B4) and commits half (B3) remain, with a header comment naming their owners.
 - [x] Windows-side (A5) — user tested the dev window 2026-09-13: "file systeem ziet er goed uit", then "alles goed" with A6.
 - [x] Windows-side (A4b) — user tested the dev window 2026-09-13: "alles werkt keurig" (no black frame, JetBrains Mono on the first pane, TUIs fine after resize).
+- [x] ~~Windows-side (A6, 2026-09-13):~~ (verified, see above) commit view open/Back with a TUI running (no torn rows, WebGL intact), editor column at 54 % with typing + Save, `Changes` diff tab, Esc out of the view, ligature-free `===` in the editor, `This commit is not available.` never seen (mock only).
+- [x] ~~Windows-side (A5, 2026-09-13):~~ (verified, see above) Files panel drag 200–520 in the real host (pointer capture over WebView2), the amber pulse, the `Example data` line, Sessions panel rows; keyboard: Tab to the grip, arrows, Esc.
+
+### From Nocturne A8 (2026-09-14)
+
+- [x] LANDED as D4 2026-10-13 (`restoreFocus` in `web/src/ui/util.ts` at every restore site). The `<body>` focus guard landed in `shortcuts.ts` only: `launch.ts`, `newproject.ts` and `picker.ts` restore focus with `isConnected` alone, so opening one of them with nothing focused (click empty chrome, Ctrl+Alt+N, Esc) leaves focus on `<body>` and typed keys reach no PTY; `update.ts` is already immune (`offsetParent !== null`). Same one-line guard each.
+- [x] LANDED as Q6 2026-10-13 (four `partial` files; the size guard measures `launcher/`). **Host file size** (scope review 2026-09-26): `launcher/host/AiSessionManagerHost.cs` is 2385 lines — `tests/repo/file-size.test.ts` does not measure `launcher/`; move the peek-mascot overlay (`MascotOverlayForm`, DComp interop, the overlay region as a `partial` of `HostApp`) into its own `.cs` and teach `launcher/build-host.ps1` (and the release workflow) to compile both; whether the size guard should cover `launcher/` is **(user)**.
+- [x] LANDED as D5 2026-10-13 (`--permission-mode manual`; user's amended call). **"Always ask" does not force prompts** (verify-terminal 2026-09-27): `web/src/ui/launch-args.ts` skips the `default` permission mode, so no `--permission-mode` flag is passed and Claude Code 2.1.283 opened in `auto mode` although `~/.claude/settings.json` sets no `defaultMode`. Pass `--permission-mode default` explicitly for "Always ask"? **(user)** — it changes what the launch dialog promises.
+- [x] LANDED as Q5 2026-10-13 (index.ts 663 lines; index-banner / index-stores / index-update). `server/index.ts` is at 999 of 1000 lines after the C2 title fix (scope review 2026-09-27) — split the construction/wiring block into `server/index-<topic>.ts` (like `server/index-restart.ts`) before the next line lands there.
+
+### From Nocturne B6 (2026-09-22)
+
+- [x] LANDED as Q8 2026-10-13 (all seven + statusline.mjs's two; a refused file is set aside before the first write). The older data-dir readers (`prefs.json`, `projects.json`, `history.json`, `keys.json`, `update-check.json`, `github.json`) still `readFileSync` a path another process can create — apply the FIFO rule ([[fifo-open-blocks-main-thread]]: `O_NOFOLLOW|O_NONBLOCK` + `fstat().isFile()` + a cap before the read) to all of them in one pass, with a `mkfifo` test each (found a third time in B6 phase 3, `last-port.json`).
+
+### Claude Code CLI compatibility guard (user's ask 2026-09-15) — all of it LANDED as D6 2026-10-13 ([[d6-claude-code-compat-guard]]; the (user) item settled as decisions 18–19 of `.claude/plans/PLAN-NOCTURNE.md`)
+
+The app depends on documented `claude` CLI flags and behaviour
+(`--session-id`, `--resume <id>`, `--settings`, `--effort`, the transcript
+location under `~/.claude/projects/`; scope doc: **≥ 2.1.263**, "no version
+probe exists"). Anthropic changing any of that breaks the integration
+silently: a launch that exits at once, a history entry that never resumes,
+a statusline that stays empty. The user wants this VISIBLE in the app, not
+buried in `server.log`.
+
+- [x] LANDED as D6 2026-10-13 (probe, notice, early-exit banner, release-notes pin; [[d6-claude-code-compat-guard]]). **Version probe at boot**: run `claude --version` once (argv, no
+  shell), cache it in `GET /api/runtime` (`claudeVersion`, null when the
+  binary is missing), compare against a `SUPPORTED_CLAUDE` range baked
+  into the build (minimum = the verified floor; maximum = the newest
+  version this app version was tested with).
+- [x] **Show it**: boot card row + Settings → Background service fact
+  "Claude Code X.Y.Z (tested up to A.B.C)"; outside the range a persistent
+  notice in the Nocturne idiom — older than the floor: "update Claude
+  Code"; newer than tested: "this app was tested up to A.B.C; if launches
+  fail, check for an app update or wait for a patch" with the existing
+  updater's "Check for updates" as the action. Never block launching; the
+  user decides.
+- [x] **Runtime breakage detection**, since a version number alone proves
+  nothing: a claude-kind session that exits within ~2 s with a non-zero
+  code (or whose first output matches the CLI's own usage/unknown-option
+  error) is flagged on the pane and the notice above appears with the
+  captured first line. Same for a `--resume` that the CLI refuses.
+- [x] **Release discipline**: every app release records the Claude Code
+  version it was verified against (release notes + the baked maximum);
+  bump the floor only when a flag the app relies on changes.
+- [x] **(user)** whether the notice may also point at the GitHub releases
+  page / open the updater directly, and whether a "hide until the next
+  Claude Code version" dismissal is wanted.
 
 ### Optimisation round — AFTER feature-complete (user's call 2026-09-15)
 
 - [x] ~~**Editor panes across a reload**~~ — B4 (2026-09-22, user decision D2): file + diff tabs persist, 16 per strip; unsaved text does not.
+
+### Engineering-quality debt (from the 2026-09-15 honest score, 7/10)
+
+- [x] **Mock data out of production code**: `files-mock.ts` and the
+  mock markers across `state.ts`, `files.ts`, `commit-*.ts`,
+  `drop-*.ts`, `settings.ts` exist because B4 is not live yet (B2 landed
+  2026-09-16: the FILES half of `files-mock.ts` and the Files-tab markers
+  are gone; the drop dialog's conflicts are real. B3 landed 2026-09-21: the
+  COMMITS half, `syntheticDiff` and both commit honesty lines are gone —
+  what is left is `mockFileContent` / `saveMockFile` and the editor's one
+  line). B4 landed 2026-09-22: `files-mock.ts` deleted with its last two
+  readers and the editor's honesty line — nothing in the app is mock.
+  (Ticked; kept for the history of the three halves.)
 
 ### Queued ideas (not decided)
 
@@ -496,9 +514,3 @@ nothing here needs doing. New ticks move here when their item lands.
   the log entry above — `update-check-route`, `ui-dnd-a10` (`sleep(90)` ×6),
   `ui-files-panel-*`, `git-commits-*`/`git-changes` (`sleep(500)`), polling
   loops in `agents-*` and `telemetry` that `waitUntil` could replace.
-
-
-## From Nocturne D9 P1 (2026-11-20)
-
-- [ ] The early-exit verdict (`earlyExitLine`, D6) compares wall-clock times (`record.at - Date.parse(createdAt)`); on this WSL machine the wall clock steps back ~1 s every ~30 s (D9 P1 gate measured 23 steps in 12 min), so a verdict near `EARLY_EXIT_MS` can be off by ~1 s. A monotonic stamp (`performance.now()` kept beside `createdAt`) would fix it; the test was widened to 6 s.
-- [ ] One unexplained single failure of `sessions-resume-live` 'a non-claude command carrying the same --resume argv is never touched by the gate' during the gate (log not kept) — watch for a repeat.

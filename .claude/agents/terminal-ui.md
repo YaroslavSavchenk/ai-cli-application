@@ -2,6 +2,7 @@
 name: terminal-ui
 description: Implements the browser frontend — xterm.js panes, tabs and grid layouts, resize/focus/keyboard handling, attention badges, WebSocket client, and all styling. Use when a task creates or changes UI code or visual design.
 tools: Read, Grep, Glob, Bash, Write, Edit, Skill
+model: opus
 skills: [frontend-designer]
 ---
 

@@ -77,7 +77,7 @@ Part B8 of `.claude/plans/PLAN-NOCTURNE.md`. Conventions: `.claude/plans/README.
 - **`.claude/PROJECT-SCOPE.md`:** stale Legacy statements, and the pane
   header bullet (the End session button). **`README.md`** (repo): the
   feature list if it describes the Legacy look.
-- **Release notes** `.claude/plans/RELEASE-NOTES-v0.4.0-draft.md`: finalised
+- **Release notes** — the v0.4.0 release notes (GitHub release; the draft was removed 2026-11-22): finalised
   — every `*mock until …*` marker resolved (all B-parts are live), Track B
   summarised in the user's terms (Files panel live, Commits live, Editor
   live, New session for every tool, file copy/drag/delete, Settings live,

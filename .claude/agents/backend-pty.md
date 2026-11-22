@@ -2,6 +2,7 @@
 name: backend-pty
 description: Implements and debugs the WSL-side Node backend — session lifecycle, node-pty, WebSocket protocol, HTTP API, projects storage, detached startup. Use when a task creates or changes backend/server code or session semantics.
 tools: Read, Grep, Glob, Bash, Write, Edit
+model: opus
 ---
 
 You are the backend engineer for the AI CLI Session Manager. Your single
@@ -17,6 +18,24 @@ The facts your work hinges on:
   (node-pty) + metadata (project, command, args, mode, model) + bounded
   scrollback buffer. It exists independently of any browser connection;
   clients attach and detach freely. On attach, replay the buffer.
+- **The PTYs live in a pty-host process** (Nocturne D9, spec
+  `.claude/plans/nocturne/PLAN-D9.md`; `server/pty-host-*.ts`; rationale
+  `memory/decisions/pty-host-session-survival.md`). Since D9 P3 one
+  pty-host per data dir, started by the backend, holds every PTY; the
+  `SessionManager` talks only to the broker (`server/pty-host-broker.ts`),
+  never to the socket. A backend crash leaves the PTYs running (orphan grace
+  10 min, `AI_SM_PTY_HOST_ORPHAN_MS`) and the next boot **adopts** them —
+  same ids, processes, scrollback and bells. Since D9 P4 a restart or update
+  **detaches** instead of killing (`detachAll`, history not stamped) and the
+  new backend adopts at `go`; sessions that cannot be kept make
+  `POST /api/restart` answer `409 sessions-would-end`. A refused data dir
+  (not ours, not 0700, socket path > 107 bytes) or a start that fails twice **falls
+  back to in-process PTYs** with one `server.log` line; `AI_SM_PTY_HOST=inproc`
+  is that fallback as a test seam (refused in installed mode). The end-session
+  signal ladder runs inside the pty-host; a pty-host lost under a running
+  backend ⇒ the backend SIGKILLs its sessions' groups (exit 137, history
+  `crash`). Its files in the data dir: `pty-host.json`, `pty-host.sock`,
+  `pty-host.log`, `pty-host.lockname`.
 - **The browser is only a view.** Never design a feature where session state
   would live in, or die with, the frontend.
 - **The backend starts detached** from the launcher process (setsid) and

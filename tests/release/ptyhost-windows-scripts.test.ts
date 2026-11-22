@@ -256,9 +256,9 @@ test('stop script: a pty-host that ignores SIGTERM is reported after 10 s (exit 
   const child = await fakePtyHost(code, dataDir, { ignoreTerm: true });
   try {
     writeFileSync(join(dataDir, 'pty-host.json'), stateText(child.pid as number));
-    const started = Date.now();
+    const started = performance.now(); // monotonic: WSL steps the wall clock back ~1 s at times
     const res = await runBare(stopScript, [dataDir]);
-    const waited = Date.now() - started;
+    const waited = Math.round(performance.now() - started);
     assert.equal(res.code, 7, res.out);
     assert.equal(res.out, `AI_SM_PTYHOST_PID=${child.pid}\n`);
     // The full 10 s (50 polls of `sleep 0.2`, a hard minimum) before giving

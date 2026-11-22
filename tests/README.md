@@ -22,7 +22,7 @@ without `.test` in its name. Nothing else lives in `tests/` besides this file.
 
 Run: `npm test` (all), `npm run test:ui`, `npm run test:server`, or one file
 with `node --test tests/server/fs-rename.test.ts`. Node 24 is required
-(`export PATH=$HOME/.nvm/versions/node/v24.14.0/bin:$PATH` in WSL — the
+(`export PATH=$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | grep ^v24 | tail -1)/bin:$PATH` in WSL — the
 system node is v18 and cannot load `.ts`).
 
 ## Size: one file, one topic, at most 800 lines

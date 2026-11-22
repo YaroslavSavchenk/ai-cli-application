@@ -78,11 +78,7 @@ Master plans:
 - `PLAN-NOCTURNE.md` — the Nocturne redesign, Track A (UI), Track B (function), Track C (mascot); ships as v0.4.0
 - `PLAN-RESTRUCTURE.md` — the repo's own restructure and optimisation, in batches; the user starts it with "begin aan de optimalisatie" (never an app part — see its `## Resume here`)
 - `PLAN-QUALITY.md` — code quality first (Q0 `CONTRIBUTING.md` + guards, duplicates, test waits, the watcher race, split leftovers), then the app's speed (P0 measures, the user picks); the user starts it with "begin aan de kwaliteit"
-- `RELEASE-NOTES-v0.4.0-draft.md` — finalised in Nocturne part B8
-- `RELEASE-NOTES-v0.4.1-draft.md` — the mascot fix + C2, the quality track's speed parts, D1
-- `RELEASE-NOTES-v0.4.2-draft.md` — the update check every hour
-- `RELEASE-NOTES-v0.4.3-draft.md` — D2–D7 and Q8: the media viewer, the Claude Code version guard, Always ask, focus, runtime.json, FIFO-safe reads
-- `RELEASE-NOTES-v0.4.4-draft.md` — Dependabot security updates: vite, source-map-js, ws
+- v0.4.0 to v0.4.4 — the release notes are the GitHub releases (the drafts were removed 2026-11-22)
 - `RELEASE-NOTES-v0.4.5-draft.md` — D8 + D9: the mascot steps back while the app is active; sessions survive update, restart and a backend crash
 
 Part specs, `nocturne/`:

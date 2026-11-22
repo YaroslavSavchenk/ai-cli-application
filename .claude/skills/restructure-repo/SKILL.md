@@ -16,7 +16,7 @@ constraints` and `## Process` sections of `.claude/PROJECT-SCOPE.md` first.
 ## 0. Preconditions — all must hold before step 1
 
 - Tree clean, branch `main`, `HEAD` equals `origin/main`.
-- Node 24 on PATH: `export PATH=$HOME/.nvm/versions/node/v24.14.0/bin:$PATH`
+- Node 24 on PATH: `export PATH=$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | grep ^v24 | tail -1)/bin:$PATH`
   (system node is v18 and cannot run the suite).
 - Baseline: `npm run typecheck && npm run build && npm test` — record the
   pass/fail counts. A red baseline is fixed or reported first, never moved.
