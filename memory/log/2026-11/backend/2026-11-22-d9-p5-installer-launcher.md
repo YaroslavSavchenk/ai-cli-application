@@ -27,6 +27,11 @@ Part of [[pty-host-session-survival]] (spec `.claude/plans/nocturne/PLAN-D9.md`)
 - Reviewed (scope + security, all fixed); mutation gate 52 mutants, 9 gaps
   closed with tests, no bug. Suite 4577+ pass.
 
+- P3 full mutation gate finished (cut short 2026-11-21 when the session
+  died): 47 survivors → 34 killing tests (broker boot retries, refusals,
+  lost-host group probe, stop flush, adopt history/blob, meta parse), 13
+  equivalent, no bug. New `tests/server/pty-host-stop-flush.test.ts`.
+
 ## Lessons
 
 - INCIDENT: the first P5 developer ran the REAL `launch.ps1 -Stop` from WSL

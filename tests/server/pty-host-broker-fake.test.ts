@@ -1,12 +1,18 @@
 /**
  * The backend's pty-host broker against a SCRIPTED pty-host — server/pty-host-broker.ts,
  * Nocturne D9 P3 (`.claude/plans/nocturne/PLAN-D9.md` § Defaults, decision 27):
- * the two broker rules a real pty-host cannot be made to hit on cue —
+ * the broker rules a real pty-host cannot be made to hit on cue —
  *   - an incompatible pty-host is ended by the pid in its state file ONLY when
  *     /proc/<pid>/cmdline proves that pid is this data dir's pty-host-main; a
  *     stale file's pid may belong to anything by now, and is left alone;
  *   - a spawn that meets a host leaving idle (`bye idle` raced the spawn) is
- *     retried once on a new host instead of failing the launch.
+ *     retried once on a new host instead of failing the launch — and only
+ *     once: a retry that meets one too fails the launch;
+ *   - a boot connect to a host that is alive but silent is tried three
+ *     times, paused between, before its sessions are given up;
+ *   - a spawn the host refuses while it stays up fails at once;
+ *   - a host lost with a session whose process group is already gone
+ *     sends no group signal (its pid may be another process's by now).
  * And three of D9 P4 (a restart): a detach that lands while a late start's
  * hello is still out (security review S1) — the leaving backend adopts and
  * kills nothing and gives the seat straight back; a standby's probe that
@@ -87,6 +93,7 @@ test('a refusing pty-host whose state-file pid is not a pty-host-main of this da
   const decoys = [
     { what: 'an unrelated process', child: decoy([]) },
     { what: "another data dir's pty-host", child: decoy(['/home/you/app/server/pty-host-main.ts', '/home/you/other-data']) },
+    { what: 'a process that names this data dir but is no pty-host', child: decoy(['/home/you/app/server/index.ts', fake.dataDir]) },
   ];
   try {
     for (const { what, child } of decoys) {
@@ -277,3 +284,124 @@ test(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// D9 P3 gate: the boot connect's patience, the idle retry's limit, a refused spawn
+// ---------------------------------------------------------------------------
+
+/** server/pty-host-broker.ts: BOOT_CONNECT_ATTEMPTS tries of CONNECT_TIMEOUT_MS, BOOT_CONNECT_PAUSE_MS apart. */
+const BOOT_ATTEMPTS = 3;
+const CONNECT_TIMEOUT_MS = 2000;
+const BOOT_PAUSE_MS = 500;
+/** server/pty-host-broker.ts LOST_REASON_WAIT_MS: how long a failed spawn may wait for a host's `bye`. */
+const LOST_REASON_WAIT_MS = 1000;
+
+test('a pty-host that is alive but never answers is tried three times at boot, half a second apart, then left to the first session', async () => {
+  // The fake never answers a hello; its state file names this (live) process.
+  const fake = await startFakeHost(() => {});
+  const { log, lines } = lineLog();
+  const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log });
+  try {
+    const asked = performance.now();
+    assert.deepEqual(await broker.connectExisting(), []);
+    const took = performance.now() - asked;
+    broker.release();
+    assert.equal(fake.received.filter((t) => t === 'hello').length, BOOT_ATTEMPTS, 'a busy host gets every try before its sessions are given up');
+    assert.equal(lines.filter((l) => l.includes('did not answer') && l.includes('trying again')).length, BOOT_ATTEMPTS - 1, lines.join(' | '));
+    assert.ok(lines.some((l) => l.includes('no pty-host answered')), lines.join(' | '));
+    // A lower bound only: every try and every pause is a timer that cannot end early.
+    const floor = BOOT_ATTEMPTS * CONNECT_TIMEOUT_MS + (BOOT_ATTEMPTS - 1) * BOOT_PAUSE_MS;
+    assert.ok(took >= floor - 50, `a pause between the tries: ${Math.round(took)} ms for ${floor} ms of timers`);
+  } finally {
+    await fake.stop();
+  }
+});
+
+test('a spawn retried because an idle pty-host left is retried once: a retry that meets one too fails the launch', async () => {
+  // Every host this broker reaches is the fake, and it leaves idle at every spawn.
+  // Its state file stays, so the retry's start (a pty-host-main.ts that finds
+  // "another instance") goes on to it again, as it would to a running host.
+  const fake = await startFakeHost((sock, f) => {
+    const m = verb(f);
+    if (m?.t === 'hello') sock.write(fakeWelcome());
+    if (m?.t === 'list') sock.write(encodeControl({ t: 'list-part', req: m.req as number, entries: [], done: true }));
+    if (m?.t === 'spawn') sock.end(encodeControl({ t: 'bye', reason: 'idle' }));
+  });
+  const serverDir = await makeTempDir('d9-broker-idle-twice-');
+  await writeFile(join(serverDir, 'pty-host-main.ts'), `process.exit(${PTY_HOST_EXIT.otherInstance});\n`);
+  const { log, lines } = lineLog();
+  const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log, serverDir });
+  try {
+    assert.deepEqual(await broker.connectExisting(), []);
+    broker.release();
+    let settled: string | undefined;
+    broker.spawn({ id: randomUUID(), file: 'bash', argv: [], cwd: '/tmp', env: {}, cols: 80, rows: 24 }).then(
+      () => void (settled = 'spawned'),
+      () => void (settled = 'rejected'),
+    );
+    const spawns = (): number => fake.received.filter((t) => t === 'spawn').length;
+    const outcome = await waitUntil(() => (spawns() > 2 ? 'a third spawn' : settled), 'the spawn to settle');
+    assert.equal(outcome, 'rejected', `the launch fails instead of looping: ${lines.join(' | ')}`);
+    assert.equal(spawns(), 2, 'the first try and ONE retry');
+    assert.equal(lines.filter((l) => l.includes('leaving idle; retrying')).length, 1, lines.join(' | '));
+  } finally {
+    await fake.stop();
+    await removeTempDir(serverDir);
+  }
+});
+
+test('a spawn the pty-host refuses while it stays up fails at once: no wait for a loss that is not coming', async () => {
+  const fake = await startFakeHost((sock, f) => {
+    const m = verb(f);
+    if (m?.t === 'hello') sock.write(fakeWelcome());
+    if (m?.t === 'list') sock.write(encodeControl({ t: 'list-part', req: m.req as number, entries: [], done: true }));
+    if (m?.t === 'spawn') {
+      const { id } = (f.kind === 'control' ? f.message : {}) as { id?: string };
+      sock.write(encodeControl({ t: 'spawn-error', id: id as string, cls: 'ENOENT' }));
+    }
+  });
+  const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log: () => {} });
+  try {
+    assert.deepEqual(await broker.connectExisting(), []);
+    broker.release();
+    const asked = performance.now();
+    await assert.rejects(
+      broker.spawn({ id: randomUUID(), file: 'no-such-program', argv: [], cwd: '/tmp', env: {}, cols: 80, rows: 24 }),
+      /could not be spawned \(ENOENT\)/,
+    );
+    const took = performance.now() - asked;
+    assert.ok(took < LOST_REASON_WAIT_MS / 2, `the error is the answer, not a reason to wait for a bye: ${Math.round(took)} ms`);
+    assert.equal(broker.status()?.build, 'fake', 'the host is still the one this backend owns');
+  } finally {
+    await fake.stop();
+  }
+});
+
+test('a pty-host lost with a session whose process group is already gone signals no group: nothing is killed by a pid that may be reused', async () => {
+  // The spawned pid can never exist (above Linux's PID_MAX_LIMIT): the group
+  // probe finds nothing, as for a group that ended with its host.
+  const gone = 4_194_401;
+  const fake = await startFakeHost((sock, f) => {
+    const m = verb(f);
+    if (m?.t === 'hello') sock.write(fakeWelcome());
+    if (m?.t === 'list') sock.write(encodeControl({ t: 'list-part', req: m.req as number, entries: [], done: true }));
+    if (m?.t === 'spawn') {
+      const { id } = (f.kind === 'control' ? f.message : {}) as { id?: string };
+      sock.write(encodeControl({ t: 'spawned', id: id as string, pid: gone }));
+    }
+  });
+  const { log, lines } = lineLog();
+  const broker = new PtyHostBroker({ mode: 'socket', dataDir: fake.dataDir, build: 'test-build', log });
+  const sessions = new SessionManager(log, new SessionHistory(join(fake.dataDir, 'history.json'), log), undefined, undefined, undefined, undefined, broker);
+  try {
+    assert.deepEqual(await broker.connectExisting(), []);
+    broker.release();
+    const { id } = await sessions.create({ cwd: '/tmp', command: 'bash', args: [], cols: 80, rows: 24 });
+    await fake.stop(); // The host is gone without a bye: a crash.
+    await waitUntil(() => (lines.some((l) => l.includes('pty-host lost (closed)')) ? true : undefined), 'the broker to see it go');
+    assert.ok(lines.some((l) => l.includes('pty-host lost (closed): 1 session(s) ended, 0 process group(s) killed')), lines.join(' | '));
+    assert.equal(sessions.get(id)?.exitCode, 137, 'still ended as a crash');
+  } finally {
+    await fake.stop();
+  }
+});

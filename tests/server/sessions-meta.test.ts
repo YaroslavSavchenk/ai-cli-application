@@ -7,8 +7,12 @@
  * How: the pure functions, called directly.
  *
  * Why it matters: a blob a new backend cannot read loses the session; one
- * over the cap would make the spawn itself fail; a re-scan from the wrong
- * place raises a bell twice, or reads a title's terminator as a bell.
+ * over the cap would make the spawn itself fail; a cut blob that drops or
+ * doubles a permission arg shows an adopted session wrong; a false flag read
+ * as set ends a live session (`deleted`) or shows it waiting; a re-scan from
+ * the wrong place raises a bell twice, or reads a title's terminator as a
+ * bell, and one that writes into the state it was given changes its caller's
+ * copy.
  *
  * NOT claimed: when the manager writes the blob (`sessions-adopt.test.ts`),
  * the pty-host storing it (`pty-host-conformance.test.ts`).
@@ -59,6 +63,13 @@ test('a blob over 16 KiB cuts long args and the title, keeps every flag, and sti
   assert.equal(back?.info.command, 'claude', 'what a row needs stayed');
 });
 
+test('a blob that fits keeps every arg whole: an arg is cut only when the whole blob is over the cap', () => {
+  const prompt = 'p'.repeat(2_000);
+  const text = encodeSessionMeta({ ...META, info: { ...META.info, args: ['--append-system-prompt', prompt] } });
+  assert.ok(text !== undefined && Buffer.byteLength(text) <= 16 * 1024, 'within the cap as it is');
+  assert.deepEqual(parseSessionMeta(text ?? null)?.info.args, ['--append-system-prompt', prompt], 'the adopted row keeps the argv it was launched with');
+});
+
 test('a blob still over the cap after cutting keeps the permission args, so a bypass session stays one', () => {
   const many = Array.from({ length: 400 }, (_, i) => `--add-dir=/home/you/projects/${'p'.repeat(40)}${i}`);
   for (const perm of [['--dangerously-skip-permissions'], ['--permission-mode', 'bypassPermissions'], ['--permission-mode=bypassPermissions']]) {
@@ -66,6 +77,14 @@ test('a blob still over the cap after cutting keeps the permission args, so a by
     assert.ok(text !== undefined, `${perm.join(' ')}: a blob`);
     assert.deepEqual(parseSessionMeta(text ?? null)?.info.args, perm, `${perm.join(' ')}: only the permission args, all of them`);
   }
+});
+
+test('the permission args kept over the cap are the argv as launched: the value after --permission-mode once, never read as a flag', () => {
+  const many = Array.from({ length: 400 }, (_, i) => `--add-dir=/home/you/projects/${'p'.repeat(40)}${i}`);
+  // A malformed launch Claude refuses, but its row must still show the argv it had.
+  const perm = ['--permission-mode', '--dangerously-skip-permissions'];
+  const text = encodeSessionMeta({ ...META, info: { ...META.info, args: [...many, ...perm] } });
+  assert.deepEqual(parseSessionMeta(text ?? null)?.info.args, perm, 'the value is taken with its flag and not kept a second time');
 });
 
 test('a blob that cannot fit even cut is no blob at all (the spawn must not fail over it)', () => {
@@ -100,6 +119,13 @@ test('an unreadable blob is refused whole: another version, a bad field, not JSO
   for (const [what, text] of cases) assert.equal(parseSessionMeta(text), undefined, what);
 });
 
+test('a flag the blob carries as false never reads back as set: a false deleted still adopts, a false ended turn is no ended turn', () => {
+  const good = JSON.parse(encodeSessionMeta(META) ?? '{}') as Record<string, unknown>;
+  const back = parseSessionMeta(JSON.stringify({ ...good, deleted: false, turnEnded: false }));
+  assert.notEqual(back?.deleted, true, 'deleted: false would end a live session at the next boot');
+  assert.notEqual(back?.turnEnded, true, 'turnEnded: false would show a working session as waiting');
+});
+
 test('the gap re-scan reads only what follows scannedTo, with the stored state', () => {
   // ring = bytes 100..119 of the stream; the scan stood at 110, inside an OSC
   // title whose BEL terminator is at 112 — a terminator, not a bell.
@@ -127,6 +153,15 @@ test('a gap longer than the ring scans the whole ring from a fresh state and say
   const midOsc = { ...newOutputScan(), inOsc: true, osc: 'skip' as const };
   const found = rescanGap(ring, 1000, 10, midOsc);
   assert.deepEqual([found.overrun, found.bell], [true, true], 'a stale in-OSC state would have eaten this bell');
+});
+
+test('the gap re-scan leaves the stored scan state it was given as it was', () => {
+  const stored = { ...newOutputScan(), inOsc: true, osc: 'title' as const, titleLen: 2, titleIdle: false };
+  const before = { ...stored };
+  const ring = Buffer.from('ti\x07 later');
+  const found = rescanGap(ring, ring.byteLength, 0, stored);
+  assert.equal(found.scan.inOsc, false, 'the title ended in the gap');
+  assert.deepEqual(stored, before, 'the parsed blob is not changed under its reader');
 });
 
 test('the mirror takes only the unseen tail of an overlapping chunk, cut on bytes', () => {

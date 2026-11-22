@@ -5,7 +5,8 @@
  * pty-host kept are adopted — same id, same process, continuous output, a
  * bell printed while no backend ran still raises attention, a session that
  * exited meanwhile is exited with its code, the status line's shared branch
- * cache is kept — and a clean stop still ends them.
+ * cache and an adopted session's own status-line files are kept (others
+ * wiped) — and a clean stop still ends them.
  *
  * How: two real backend children (`startTestServer`, `ptyHost: 'socket'`) on
  * one 0700 temp data dir, the real pty-host the first one starts, and real
@@ -39,6 +40,11 @@ import {
 } from '../helpers/helpers.ts';
 import { hostLog, makeHostDir, teardownHosts, trackPty } from '../helpers/pty-host-fixture.ts';
 import { hostPidOf, pidAlive, readHistory, shellPid, tickNumbers } from '../helpers/pty-host-backend-fixture.ts';
+
+/** The two per-session status-line directories of a data dir (server/config.ts). */
+const STATUSLINE_DIRS = ['session-settings', 'statusline-snapshots'];
+/** A session id no pty-host holds: its leftover files must go at boot. */
+const NOT_HELD = '9e8d7c6b-5a49-4837-a261-504f3e2d1c0b';
 
 const world = {
   dataDir: '',
@@ -110,6 +116,12 @@ before(async () => {
   // The status line's branch cache (one file for every session): a boot that
   // adopts sessions keeps it (§ Defaults, P3).
   writeFileSync(join(world.dataDir, 'statusline-cache.json'), '{}\n');
+  // The per-session status-line files (settings and last snapshot): an
+  // adopted session keeps its own, one no pty-host holds loses its.
+  for (const dir of STATUSLINE_DIRS) {
+    writeFileSync(join(world.dataDir, dir, `${world.ticker}.json`), '{}\n');
+    writeFileSync(join(world.dataDir, dir, `${NOT_HELD}.json`), '{}\n');
+  }
   world.second = await startTestServer({ dataDir: world.dataDir, ptyHost: 'socket' });
 });
 
@@ -190,6 +202,13 @@ test('the running sessions stay live in history: the boot stamped no crash for t
 
 test("a boot that adopted sessions keeps the status line's branch cache, which every session shares", () => {
   assert.equal(existsSync(join(world.dataDir, 'statusline-cache.json')), true);
+});
+
+test("a boot that adopted sessions keeps an adopted session's own status-line files and wipes the rest", () => {
+  for (const dir of STATUSLINE_DIRS) {
+    assert.equal(existsSync(join(world.dataDir, dir, `${world.ticker}.json`)), true, `${dir}: the adopted session's file stays`);
+    assert.equal(existsSync(join(world.dataDir, dir, `${NOT_HELD}.json`)), false, `${dir}: a file no held session owns goes`);
+  }
 });
 
 test('a clean stop of the new backend still ends the adopted sessions and the pty-host (decision 25)', async () => {

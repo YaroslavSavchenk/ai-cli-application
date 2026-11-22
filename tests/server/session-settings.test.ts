@@ -274,6 +274,17 @@ test('resetDir(keep) never lists through a link: a settings dir that is a symlin
   }
 });
 
+test('resetDir(keep) with neither directory there yet creates both 0700 and warns of nothing (D9 P3)', async () => {
+  const s = await makeStore();
+  try {
+    s.store.resetDir(new Set(['0f2a5c8e-1b3d-4f60-9a77-2c1e5b8d4a09']));
+    for (const dir of [s.dir, s.snapshotDir]) assert.equal((await stat(dir)).mode & 0o777, 0o700, dir);
+    assert.deepEqual(s.logs.filter((l) => !l.startsWith('debug')), [], 'a missing directory is nothing to clear, not a failure');
+  } finally {
+    await rm(s.root, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // The snapshot path (Nocturne B1): the script's fourth argument
 // ---------------------------------------------------------------------------

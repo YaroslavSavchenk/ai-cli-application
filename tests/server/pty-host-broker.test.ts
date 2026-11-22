@@ -13,7 +13,11 @@
  * sessions held in-process (which no restart can keep; a deleted one is not
  * counted), a detached broker asked to spawn directly (it starts no
  * pty-host), and an ending teardown followed at once by the next owner,
- * which adopts nothing.
+ * which adopts nothing; an in-process spawn that fails is not counted.
+ * Also an in-process broker beside a running pty-host, a data dir refused
+ * at the boot (with a pty-host running there) or after it, a state file
+ * naming a dead pty-host, and a shutdown frame stuck behind a backed-up
+ * socket.
  *
  * How: the real broker and SessionManager in this process, over a real
  * pty-host child the broker starts (`startPtyHost`, detached) on a 0700 temp
@@ -37,8 +41,8 @@ import { PtyHostBroker } from '../../server/pty-host-broker.ts';
 import { SessionHistory } from '../../server/history.ts';
 import { SessionManager } from '../../server/sessions.ts';
 import type { Logger } from '../../server/config.ts';
-import { makeTempDir, nextImmediate, projectRoot, removeTempDir, waitUntil } from '../helpers/helpers.ts';
-import { hostLog, makeHostDir, teardownHosts, trackHost, trackPty } from '../helpers/pty-host-fixture.ts';
+import { makeTempDir, nextImmediate, projectRoot, removeTempDir, sleep, waitUntil } from '../helpers/helpers.ts';
+import { hostLog, makeHostDir, startHost, teardownHosts, trackHost, trackPty } from '../helpers/pty-host-fixture.ts';
 import { hostPidOf, pidAlive } from '../helpers/pty-host-backend-fixture.ts';
 
 const roots: string[] = [];
@@ -127,6 +131,44 @@ test('a refused data dir runs sessions in-process, with one warning line for the
   sessions.destroyAll();
 });
 
+test('a data dir refused after the boot connect falls back at the first session: one line naming why, no start tried', async () => {
+  const dataDir = await makeHostDir('d9-broker-refused-late-');
+  const { broker, sessions, lines } = rig(dataDir);
+  assert.deepEqual(await broker.connectExisting(), [], 'no pty-host yet');
+  await chmod(dataDir, 0o755);
+  await sessions.create(LAUNCH);
+  assert.deepEqual(
+    lines.filter((l) => l.startsWith('warn') || l.includes('starting a pty-host')),
+    ['warn [pty-host] pty-host unavailable, sessions run inside the backend this run and end with it: The data directory has mode 755, not 700.'],
+  );
+  assert.equal(broker.status(), null);
+  sessions.destroyAll();
+});
+
+test('a boot connect in a data dir the pty-host may not live in connects to nothing, even with a pty-host running there', async () => {
+  const dataDir = await makeHostDir('d9-broker-refused-boot-');
+  const owner = rig(dataDir);
+  await owner.sessions.create(LAUNCH);
+  trackHost(hostPidOf(dataDir));
+  await chmod(dataDir, 0o755);
+  try {
+    const b = rig(dataDir);
+    assert.deepEqual(await b.broker.connectExisting(), [], 'nothing adopted');
+    b.broker.release();
+    assert.deepEqual(
+      b.lines.filter((l) => l.includes('[pty-host]')),
+      ['warn [pty-host] pty-host unavailable, sessions run inside the backend this run and end with it: The data directory has mode 755, not 700.'],
+      'the fallback is said at the boot, and nothing was connected to',
+    );
+  } finally {
+    await chmod(dataDir, 0o700);
+  }
+  assert.equal((await owner.broker.list()).length, 1, 'the owner still holds its session: never taken over');
+  assert.ok(!owner.lines.some((l) => l.includes('taken over')), owner.lines.join(' | '));
+  owner.sessions.destroyAll();
+  await owner.broker.flushed(2000);
+});
+
 test('a pty-host taken over by another backend: the sessions are handed over, nothing is killed or stamped', async () => {
   const dataDir = await makeHostDir('d9-broker-takeover-');
   const a = rig(dataDir);
@@ -192,7 +234,7 @@ test('two first sessions at once share one pty-host start: both run, nothing is 
 test('a broker with no adopter that finds a running pty-host ends its sessions, never owns them unseen', async () => {
   const dataDir = await makeHostDir('d9-broker-noadopter-');
   const a = rig(dataDir);
-  await a.sessions.create({ ...LAUNCH, args: ['-c', 'echo "pid $$"; while :; do sleep 0.2; done'] });
+  const unadopted = await a.sessions.create({ ...LAUNCH, args: ['-c', 'echo "pid $$"; while :; do sleep 0.2; done'] });
   trackHost(hostPidOf(dataDir));
   const pid = await waitUntil(() => {
     const m = / spawned pid (\d+)/.exec(hostLog(dataDir));
@@ -207,6 +249,12 @@ test('a broker with no adopter that finds a running pty-host ends its sessions, 
   await sessions.create(LAUNCH);
   assert.ok(lines.some((l) => l.includes('already held 1 session(s) the boot did not adopt; ending them')), lines.join(' | '));
   await waitUntil(() => (pidAlive(pid) ? undefined : true), 'the unadopted PTY to be ended');
+  // Handed back too (forget), so the host drops its exited entry: kept, it
+  // would come back as an exited row at the next backend's boot.
+  await waitUntil(
+    async () => ((await broker.list()).some((e) => e.id === unadopted.id) ? undefined : true),
+    'the pty-host to drop the ended entry',
+  );
   sessions.destroyAll();
   await broker.flushed(2000);
 });
@@ -275,7 +323,10 @@ test('a session that had exited before this broker adopted it is not ended again
   b.broker.release();
   process.kill(hostPid, 'SIGKILL');
   await waitUntil(() => (b.lines.some((l) => l.includes('pty-host lost (closed)')) ? true : undefined), 'the broker to see it go');
-  assert.ok(b.lines.some((l) => l.includes('pty-host lost (closed): 0 session(s) ended, 0 process group(s) killed')), b.lines.join(' | '));
+  assert.ok(
+    b.lines.some((l) => l.includes('warn [pty-host] pty-host lost (closed): 0 session(s) ended, 0 process group(s) killed')),
+    `a lost pty-host is a warning: ${b.lines.join(' | ')}`,
+  );
   assert.equal(b.sessions.get(id)?.exitCode, 3, 'it keeps its own exit code');
 });
 
@@ -365,6 +416,16 @@ test('an in-process session deleted while its kill is still under way is not cou
   await waitUntil(() => (pidAlive(pid) ? undefined : true), 'the deleted PTY to be ended');
 });
 
+test('an in-process spawn that fails is not counted as running', async () => {
+  const dataDir = await makeTempDir('d9-broker-inproc-failed-');
+  roots.push(dataDir);
+  const broker = new PtyHostBroker({ mode: 'inproc', dataDir, build: 'test-build', log: () => {} });
+  // A blob over the 16 KiB cap: the table refuses the spawn before any PTY starts.
+  const req = { id: '00000000-0000-4000-8000-000000000002', file: 'bash', argv: [], cwd: '/tmp', env: {}, cols: 80, rows: 24 };
+  await assert.rejects(broker.spawn({ ...req, meta: 'x'.repeat(17 * 1024) }), /over the \d+-byte cap/);
+  assert.equal(broker.inProcessRunning(), 0, 'a launch that never ran is no session a restart would end');
+});
+
 test('a broker that has detached starts no pty-host for a spawn asked of it directly', async () => {
   const dataDir = await makeHostDir('d9-broker-detached-spawn-');
   const broker = new PtyHostBroker({ mode: 'socket', dataDir, build: 'test-build', log: () => {} });
@@ -427,4 +488,69 @@ test('an end teardown with the next owner connecting at once: nothing it lists i
   b.broker.release();
   assert.deepEqual(b.sessions.list(), [], `nothing adopted (it listed ${held.length})`);
   await waitUntil(() => (pidAlive(hostPid) ? undefined : true), 'the pty-host to leave');
+});
+
+test('an in-process broker never connects to a pty-host left in the data dir: nothing adopted, nothing taken over', async () => {
+  const dataDir = await makeHostDir('d9-broker-inprocbeside-');
+  const owner = rig(dataDir);
+  await owner.sessions.create(LAUNCH);
+  trackHost(hostPidOf(dataDir));
+  const lines: string[] = [];
+  const inproc = new PtyHostBroker({ mode: 'inproc', dataDir, build: 'test-build', log: (level, msg) => void lines.push(`${level} ${msg}`) });
+  assert.deepEqual(await inproc.connectExisting(), [], 'AI_SM_PTY_HOST=inproc: nothing to adopt');
+  inproc.release();
+  assert.equal(inproc.status(), null, 'no pty-host behind it');
+  assert.equal((await owner.broker.list()).length, 1, 'the owner still holds its session: no takeover happened');
+  assert.ok(!owner.lines.some((l) => l.includes('taken over')), owner.lines.join(' | '));
+  owner.sessions.destroyAll();
+  await owner.broker.flushed(2000);
+});
+
+test('a state file naming a pty-host that is gone is not retried at boot: one line, no pause', async () => {
+  const h = await startHost();
+  // Killed by the pid this test started; it leaves its state file and socket behind.
+  h.child.kill('SIGKILL');
+  await h.exited;
+  const lines: string[] = [];
+  const broker = new PtyHostBroker({ mode: 'socket', dataDir: h.dataDir, build: 'test-build', log: (level, msg) => void lines.push(`${level} ${msg}`) });
+  assert.deepEqual(await broker.connectExisting(), []);
+  broker.release();
+  assert.ok(lines.some((l) => l.includes('no pty-host answered')), lines.join(' | '));
+  assert.ok(!lines.some((l) => l.includes('trying again')), `a dead pid is not waited for: ${lines.join(' | ')}`);
+});
+
+/**
+ * How long a flush that must NOT have answered yet is watched: the frame
+ * cannot leave while the pty-host is stopped, so any wait shows it; 300 ms is
+ * far beyond one local socket write.
+ */
+const STILL_QUEUED_MS = 300;
+
+test('flushed() waits while the shutdown frame is stuck behind a backed-up socket, and answers once it has left', async () => {
+  const dataDir = await makeHostDir('d9-broker-backedup-');
+  const { broker, sessions } = rig(dataDir);
+  const { id } = await sessions.create(LAUNCH);
+  const hostPid = hostPidOf(dataDir);
+  trackHost(hostPid);
+  // Stopped (by its recorded pid) so it reads nothing: the input below fills
+  // the socket's kernel buffers and the rest waits in this process.
+  process.kill(hostPid, 'SIGSTOP');
+  let left = false;
+  let flushed: Promise<void> = Promise.resolve();
+  try {
+    const chunk = 'x'.repeat(64 * 1024);
+    for (let i = 0; i < 64; i += 1) broker.write(id, chunk);
+    sessions.destroyAll();
+    flushed = broker.flushed(FLUSH_CAP_MS).then(() => {
+      left = true;
+    });
+    await sleep(STILL_QUEUED_MS);
+    assert.equal(left, false, 'the shutdown frame is still queued here: a process.exit now would lose it');
+  } finally {
+    process.kill(hostPid, 'SIGCONT');
+  }
+  const resumed = performance.now();
+  await flushed;
+  assert.ok(performance.now() - resumed < FLUSH_CAP_MS / 2, 'answered when the frame left, not at its cap');
+  await waitUntil(() => (pidAlive(hostPid) ? undefined : true), 'the pty-host to exit after shutdown-all');
 });
