@@ -77,8 +77,6 @@ export function newTurnState(): TurnState {
 export interface MainReadContext {
   /** The watcher's `[agents] …` logger. */
   readonly log: Logger;
-  /** Claude Code's projects root, realpath'd on every read. */
-  readonly projectsRoot: string;
   /** The watcher's clock. */
   readonly now: () => number;
 }
@@ -113,8 +111,17 @@ interface MainSession {
  * verdict; a readable one keeps the verdict of its last counting line, and
  * (C2) the question flag and the launches its lines left open. Any reset
  * forgets all of it: a shrunk or replaced file is folded again from its tail.
+ *
+ * `realRoot` is Claude Code's projects root as the watcher realpath'd it for
+ * THIS sweep (Q12: once per sweep, not once per session); null = there is none.
  */
-export function readMain(ctx: MainReadContext, id: string, session: MainSession, budget: { left: number }): void {
+export function readMain(
+  ctx: MainReadContext,
+  id: string,
+  session: MainSession,
+  budget: { left: number },
+  realRoot: string | null,
+): void {
   const uuidDir = dirname(session.dir);
   const uuid = basename(uuidDir);
   if (basename(session.dir) !== 'subagents' || !isUuid(uuid)) {
@@ -123,10 +130,7 @@ export function readMain(ctx: MainReadContext, id: string, session: MainSession,
   }
   const name = `${uuid}.jsonl`;
 
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(ctx.projectsRoot);
-  } catch {
+  if (realRoot === null) {
     resetMain(session);
     return; // No projects root: nothing may be read.
   }

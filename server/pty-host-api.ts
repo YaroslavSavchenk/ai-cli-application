@@ -15,7 +15,7 @@
  *     `setMeta`, `forget`, `shutdownAll`, `detach`) — over the wire it is one
  *     frame, sent in order after every earlier one;
  *   - what the PTYs do arrives as events through ONE listener, the owner's
- *     (`listen`): `output(id, data, offset)`, `exit(id, record)`, and `lost`,
+ *     (`listen`): `output(id, data, offset, bytes)`, `exit(id, record)`, and `lost`,
  *     raised only by the broker.
  * The owner chooses the session id and passes it in `spawn`, so it can route
  * events for that id before the spawn's answer has been read.
@@ -114,7 +114,7 @@ export type PtyHostLostReason = 'closed' | ByeReason;
 export function createInProcessPtyHost(log: Logger): PtyHost {
   let owner: PtyOwnerEvents | undefined;
   const table = new PtyTable(log, {
-    output: (id, data, offset) => owner?.output(id, data, offset),
+    output: (id, data, offset, bytes) => owner?.output(id, data, offset, bytes),
     exit: (id, record) => owner?.exit(id, record),
   });
   return {

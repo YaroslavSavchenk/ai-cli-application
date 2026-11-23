@@ -412,7 +412,7 @@ export class PtyHostBroker implements PtyHost {
 
   #forwarder(): PtyOwnerEvents {
     return {
-      output: (id, data, offset) => this.#owner?.output(id, data, offset),
+      output: (id, data, offset, bytes) => this.#owner?.output(id, data, offset, bytes),
       exit: (id, record) => {
         const route = this.#routes.get(id);
         if (route !== undefined) {

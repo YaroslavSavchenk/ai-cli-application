@@ -161,6 +161,7 @@ interface SettingsModule {
     anchor: unknown,
     deps: {
       repaintStatus(): void;
+      repaintTabs(): void;
       theme: {
         apply(next: TermPair): void;
         adopt(next: TermPair): void;
@@ -189,7 +190,9 @@ const S = (await import(new URL('../../web/src/ui/settings.ts', import.meta.url)
 const modalHost = dom.doc.createElement('div');
 const anchor = dom.doc.createElement('button');
 dom.body.append(modalHost, anchor);
-const panel = S.initSettings(modalHost, anchor, { repaintStatus: () => {}, theme: themeStub });
+/** `ui/tabs.ts` redraws asked for by a behaviour flip (Quality Q12). */
+let tabRepaints = 0;
+const panel = S.initSettings(modalHost, anchor, { repaintStatus: () => {}, repaintTabs: () => { tabRepaints += 1; }, theme: themeStub });
 const scrim = modalHost.children[0] as FakeElement;
 const modal = scrim.children[0] as FakeElement;
 
@@ -411,6 +414,21 @@ test('a behaviour write that fails puts the row back and says so in the log', as
   assert.equal(getBehaviour().confirmEnd, true, 'the store never keeps what disk refused');
   assert.equal(pressed(row('prefs', 'Confirm before ending a session')), true);
   assert.ok(H.logs.includes('warn the confirmEnd preference was not saved'));
+});
+
+test('a Defaults flip redraws the tab strip, and so does its put-back after a failed write', async () => {
+  // The tab close buttons say whether ending asks to confirm; no session poll
+  // carries the flip to them any more (Quality Q12).
+  await openOn('Preferences');
+  tabRepaints = 0;
+  row('prefs', 'Confirm before ending a session').click();
+  await settle();
+  assert.equal(tabRepaints, 1, 'the flip');
+  H.nextWriteError = new Error('HTTP 500');
+  row('prefs', 'Confirm before ending a session').click();
+  await settle();
+  assert.equal(getBehaviour().confirmEnd, false, 'the refused write left the earlier flip in place');
+  assert.equal(tabRepaints, 3, 'the second flip, then its put-back');
 });
 
 test('the stored bag decides what the rows show on open', async () => {

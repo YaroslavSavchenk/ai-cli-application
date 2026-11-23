@@ -203,6 +203,13 @@ export function initPanes(gridEl: HTMLElement, openLaunchDialog: () => void): vo
         updateNote(s, s.pay);
         updateStatus(s.pay);
       }
+    } else if (kind === 'projects') {
+      // The header names the session's project: a rename reaches it only
+      // here, since a session poll that brings the same list notifies nothing
+      // (Quality Q12).
+      for (const s of slots) {
+        if (s.pay?.kind === 'session') updateHeader(s.pay);
+      }
     }
   });
   // The status bar's `Time` value ages, and so does a running background

@@ -463,8 +463,8 @@ export class SocketPtyHost implements PtyHost {
 
   #handle(frame: Frame): void {
     if (frame.kind === 'output') {
-      const { id, text, offset } = frame;
-      this.#emit((e) => e.output(id, text, offset));
+      const { id, text, offset, bytes } = frame;
+      this.#emit((e) => e.output(id, text, offset, bytes));
       return;
     }
     if (frame.kind === 'snapshot') {
@@ -525,18 +525,23 @@ export class SocketPtyHost implements PtyHost {
     setImmediate(() => this.#release());
   }
 
+  /**
+   * Handle the held frames in order. By index, not `shift()` (O(n²) on a
+   * burst), and a re-hold is joined with `concat`, never `unshift(...held)`,
+   * whose spread overflows the stack on a large batch (PLAN-QUALITY Q12).
+   */
   #release(): void {
     const held = this.#held ?? [];
     this.#held = undefined;
-    while (held.length > 0) {
+    for (let i = 0; i < held.length; i++) {
       const again = this.#holding();
       if (again !== undefined) {
         // A `spawned` among the held frames started a new hold: what is left
         // of this batch still goes before anything received after it.
-        again.unshift(...held);
+        this.#held = held.slice(i).concat(again);
         return;
       }
-      this.#handle(held.shift() as Frame);
+      this.#handle(held[i] as Frame);
     }
   }
 

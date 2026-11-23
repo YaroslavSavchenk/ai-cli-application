@@ -133,6 +133,13 @@ export interface SettingsDeps {
    */
   repaintStatus(): void;
   /**
+   * Redraws the tab strip (`ui/tabs.ts`, through main-shell.ts), whose close
+   * buttons say whether ending asks to confirm. A `Confirm before ending`
+   * flip used to reach them on the next 3 s session poll; since Quality Q12
+   * an unchanged poll notifies nothing, so the flip asks for it itself.
+   */
+  repaintTabs(): void;
+  /**
    * ui/theme.ts's terminal-colours control, spelled structurally (the page's
    * own `TermColoursControl` plus the dialog's flush): importing theme.ts
    * would pull @xterm/xterm into a module that has to stay drivable under
@@ -564,11 +571,13 @@ export function initSettings(
     const before = getBehaviour();
     setBehaviour({ ...before, [key]: !before[key] });
     syncPrefsRows();
+    deps.repaintTabs();
     writes++;
     log.debug(`prefs behaviour: ${key}=${getBehaviour()[key]}`);
     void api.updatePrefs(behaviourPatch(getBehaviour()), DEAD_PREFS_KEYS).catch(() => {
       setBehaviour(before);
       syncPrefsRows();
+      deps.repaintTabs();
       log.warn(`the ${key} preference was not saved`);
     });
   }
@@ -802,9 +811,10 @@ export function initSettings(
   }
 
   // The session list refreshes on the poll; keep the notice honest while open.
+  // A project rename changes the qualifier it may show (`projects`).
   st.subscribe((kind) => {
     if (scrim.hidden) return;
-    if (kind === 'sessions') renderNotice();
+    if (kind === 'sessions' || kind === 'projects') renderNotice();
     if (kind === 'conn') renderBackend();
   });
 

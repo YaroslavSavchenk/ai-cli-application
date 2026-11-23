@@ -25,6 +25,7 @@ import {
   behaviourPatch,
   clampBehaviour,
   clampHiddenTools,
+  followsOutput,
   getBehaviour,
   getHiddenTools,
   initBehaviour,
@@ -80,6 +81,17 @@ test('init/get/set: the store is seeded from the bag and always answers all thre
   const got = getBehaviour();
   got.followOutput = true;
   assert.equal(getBehaviour().followOutput, false, 'the store is handed out by value');
+});
+
+test('followsOutput answers the stored Follow output switch, the clamp included', () => {
+  // Quality Q12: the terminal's hot path asks this instead of copying the set.
+  initBehaviour({ followOutput: true });
+  assert.equal(followsOutput(), true, 'seeded on');
+  setBehaviour({ followOutput: false });
+  assert.equal(followsOutput(), false, 'a flip is seen at once');
+  initBehaviour({ followOutput: 'yes' });
+  assert.equal(followsOutput(), false, 'a non-boolean is the factory OFF');
+  initBehaviour(undefined);
 });
 
 test('behaviourPatch: every member is explicit, so a write can never mean "unchanged"', () => {

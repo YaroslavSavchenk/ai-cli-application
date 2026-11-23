@@ -49,6 +49,11 @@ export interface Session {
   trimmedBytes: number;
   inBytes: number;
   inFrames: number;
+  /**
+   * `performance.now()` of the last summary line — a MONOTONIC clock: the
+   * WSL2 wall clock is stepped back by resyncs, which once logged
+   * `over -844ms` (Q12).
+   */
   lastOutLogMs: number;
   /**
    * D6: set by destroy() — the user (or shutdown) ended it, so a non-zero exit
@@ -79,13 +84,13 @@ const OUTPUT_LOG_INTERVAL_MS = 1000;
  * printed, so no byte of either is ever written to server.log.
  */
 export function flushOutputLog(slog: Logger, id: string, session: Session, force: boolean): void {
-  const now = Date.now();
+  const now = performance.now();
   if (!force && now - session.lastOutLogMs < OUTPUT_LOG_INTERVAL_MS) return;
   if (session.outBytes === 0 && session.trimmedBytes === 0 && session.inBytes === 0) {
     session.lastOutLogMs = now;
     return;
   }
-  const elapsed = now - session.lastOutLogMs;
+  const elapsed = Math.round(now - session.lastOutLogMs);
   if (session.outBytes > 0 || session.trimmedBytes > 0) {
     slog(
       'debug',
@@ -158,7 +163,7 @@ export function newSession(info: SessionInfo, claude: boolean): Session {
     trimmedBytes: 0,
     inBytes: 0,
     inFrames: 0,
-    lastOutLogMs: Date.now(),
+    lastOutLogMs: performance.now(),
     destroyed: false,
     earlyEnd: undefined,
     slowCloseLines: undefined,
@@ -166,8 +171,27 @@ export function newSession(info: SessionInfo, claude: boolean): Session {
   return session;
 }
 
-/** The fields of the metadata blob that change after the spawn, as one comparable value (D9 P3). */
-export function metaMarks(session: Session): string {
+/** The fields of the metadata blob that change after the spawn (D9 P3), as `metaMarks` reads them. */
+interface MetaMarks {
+  readonly attention: boolean;
+  readonly pendingSince: string | undefined;
+  readonly turnEnded: boolean;
+  readonly titleIdleSince: number | undefined;
+}
+
+/** The blob's changing fields now — compared field by field, never built into a string per chunk (Q12). */
+export function metaMarks(session: Session): MetaMarks {
   const { attention, pendingSince, turnEnded } = session.info;
-  return `${attention}|${pendingSince ?? ''}|${turnEnded === true}|${session.titleIdleSince ?? ''}`;
+  return { attention, pendingSince, turnEnded: turnEnded === true, titleIdleSince: session.titleIdleSince };
+}
+
+/** Whether any field of `before` (taken by `metaMarks`) differs from the session now. */
+export function metaMarksChanged(session: Session, before: MetaMarks): boolean {
+  const { attention, pendingSince, turnEnded } = session.info;
+  return (
+    attention !== before.attention ||
+    pendingSince !== before.pendingSince ||
+    (turnEnded === true) !== before.turnEnded ||
+    session.titleIdleSince !== before.titleIdleSince
+  );
 }

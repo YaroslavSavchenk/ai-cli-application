@@ -18,7 +18,8 @@
  *   or when the PTY's own size (the last `info`) no longer matches.
  * - Attach flow: on every replay frame the terminal is reset() first, then
  *   the replay is written, then live data streams (server guarantees order).
- * - Follow output (part B6): a preference read on every write. ON pins the
+ * - Follow output (part B6): a preference read on every write (as the write
+ *   is queued, Quality Q12). ON pins the
  *   view to the bottom of the buffer even after the user scrolled up; OFF
  *   (factory) leaves xterm's own rule, which follows only while the view is
  *   already at the bottom. A replay ends at the bottom either way.
@@ -48,7 +49,7 @@ import { SCROLLBACK_LINES, type EarlyExit, type SessionInfo } from '../../../sha
 import { SessionSocket, type ConnState, type SocketHandlers } from '../ws.ts';
 import { log } from '../log.ts';
 import { isCopyChord, isLinkActivation, isOpenableLink, isPasteChord } from './keys.ts';
-import { getBehaviour } from './prefs-model.ts';
+import { followsOutput } from './prefs-model.ts';
 import {
   ensureFontsLoaded,
   FONT_WAIT_MS,
@@ -216,6 +217,14 @@ export class TerminalView {
   readonly #visibility: IntersectionObserver | null;
   /** The PTY's size as last reported (`info`) or sent by this view. */
   #pty: { cols: number; rows: number } | null = null;
+  /**
+   * The follow scroll, made ONCE per view (Quality Q12): every PTY data frame
+   * used to allocate a write callback just to ask a switch that is off by
+   * factory. Now a frame carries this one only while the switch is on.
+   */
+  readonly #follow = (): void => {
+    this.term.scrollToBottom();
+  };
 
   constructor(container: HTMLElement) {
     this.#container = container;
@@ -376,14 +385,14 @@ export class TerminalView {
       onData: (data) => {
         // `Follow output` (part B6), read FRESH on every write so a flip in
         // Settings reaches sessions that are already running, with no
-        // reattach. ON = the view ends at the bottom whatever the user was
-        // reading; OFF (factory) = xterm's own rule, which follows only while
-        // the view is already at the bottom. The write CALLBACK, not the line
-        // after it: xterm parses asynchronously, and scrolling before the data
-        // has been written would land on the buffer as it was.
-        this.term.write(data, () => {
-          if (getBehaviour().followOutput) this.term.scrollToBottom();
-        });
+        // reattach — from the next frame on, since Quality Q12 asks it as the
+        // write is queued instead of when it lands. ON = the view ends at the
+        // bottom whatever the user was reading; OFF (factory) = xterm's own
+        // rule, which follows only while the view is already at the bottom,
+        // and no callback at all. The write CALLBACK, not the line after it:
+        // xterm parses asynchronously, and scrolling before the data has been
+        // written would land on the buffer as it was.
+        this.term.write(data, followsOutput() ? this.#follow : undefined);
       },
       onInfo: (session) => {
         events.onInfo(session);

@@ -10,7 +10,7 @@
  * Who reads what:
  * - `reopenTabs`  — state.ts `loadUi()`, once, at boot (a NEW backend run only).
  * - `confirmEnd`  — every door that ends a session, at click time.
- * - `followOutput` — ui/terminal.ts, on every write.
+ * - `followOutput` — ui/terminal.ts, on every write (`followsOutput()`).
  * - `hidden`      — ui/launch.ts, on every open of the New session dialog.
  * - `mascot`      — the peek mascot page (web/src/mascot/feed.ts), on every
  *                   poll (Nocturne C1); the settings panel only writes it.
@@ -54,6 +54,15 @@ export function initBehaviour(fromPrefs: unknown): void {
 /** The current resolved toggles (read fresh by every consumer, never cached). */
 export function getBehaviour(): BehaviourCfg {
   return { ...behaviour };
+}
+
+/**
+ * `Follow output` alone, without the copy `getBehaviour()` makes: it is asked
+ * once per PTY data frame (ui/terminal.ts), the app's hottest path (Quality
+ * Q12).
+ */
+export function followsOutput(): boolean {
+  return behaviour.followOutput;
 }
 
 /** Replace the in-memory toggles (persistence is the caller's job — the panel). */

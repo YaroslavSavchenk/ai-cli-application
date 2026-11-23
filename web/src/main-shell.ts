@@ -18,6 +18,7 @@ import {
   requestTerminalFocus,
 } from './ui/panes.ts';
 import { flash, initStatusline } from './ui/statusline.ts';
+import { renderersFor, type ChromeRenderer } from './ui/chrome-dispatch-model.ts';
 import { initSessionsDrawer } from './ui/sessions.ts';
 import { initProjectsDrawer } from './ui/projects.ts';
 import {
@@ -207,7 +208,12 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   // whole shortcuts table from ui/shortcuts-rows.ts, so the `openShortcuts` dep
   // (and the ordering it needed — the overlay is built after this panel) is
   // gone. The statusline keeps that opener.
-  const settings = initSettings(modalHost, settingsBtn, { repaintStatus, theme });
+  // `tabs` is built below; the strip is only asked to redraw on a click.
+  const settings = initSettings(modalHost, settingsBtn, {
+    repaintStatus,
+    repaintTabs: () => tabs.render(),
+    theme,
+  });
   settingsBtn.addEventListener('click', () => settings.toggle());
   initLaunchDialog(modalHost); // Before tabs/panes: their `+` paths open it.
   initNewProjectDialog(modalHost); // Projects-drawer `+ add` + GitHub chip open it.
@@ -376,16 +382,21 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
     connTxt.textContent = ok ? 'Connected' : 'Offline';
   }
 
-  st.subscribe(() => {
-    // Dispatch coarsely: every renderer is cheap or signature-guarded, except
-    // the statusline, which redraws on every notify today (Quality Q12 adds
-    // its guard).
-    updateChrome();
-    tabs.render();
-    status.render();
-    sessionsDrawer.render();
-    projectsDrawer.render();
-    filesPanel.render();
+  // Dispatched by kind (Quality Q12): each renderer runs only for the kinds
+  // that carry what it reads (ui/chrome-dispatch-model.ts), in the order they
+  // always ran in. A kind that does reach one but changed nothing it draws
+  // rebuilds nothing: `updateChrome` only sets text and attributes in place,
+  // and the other five compare a signature first (the statusline since Q12).
+  const renderers: Record<ChromeRenderer, () => void> = {
+    chrome: updateChrome,
+    tabs: tabs.render,
+    status: status.render,
+    sessionsDrawer: sessionsDrawer.render,
+    projectsDrawer: projectsDrawer.render,
+    filesPanel: filesPanel.render,
+  };
+  st.subscribe((kind) => {
+    for (const r of renderersFor(kind)) renderers[r]();
   });
   applyScreenLayout();
   updateChrome();

@@ -144,7 +144,7 @@ their own server.
 | --- | --- |
 | repo root, a source file as text, files under a folder, tracked files | `projectRoot`, `readSource`, `filesUnder`, `trackedFiles` (`helpers.ts`) |
 | a program on PATH, a path that exists, git with a fixed identity | `onPath`, `exists`, `git` (`helpers.ts`) |
-| a fetch `Response` for the frontend, a history entry | `jsonResponse`, `mkHistoryEntry` (`helpers.ts`) |
+| a fetch `Response` for the frontend, a history entry, a runtime answer | `jsonResponse`, `mkHistoryEntry`, `mkRuntime` (`helpers.ts`) |
 | string literals, class names, a function body out of source text | `helpers/source-scan.ts` |
 | a wait that must never hang: rejects `<what> did not settle within <ms>ms` | `withDeadline(p, ms, what)` (`helpers.ts`) |
 | a wait whose caller decides what a timeout means (`undefined` on timeout) | `settleWithin(p, ms)` (`helpers.ts`) — never `Promise.race` against a bare `delay`: its timer keeps the file alive |

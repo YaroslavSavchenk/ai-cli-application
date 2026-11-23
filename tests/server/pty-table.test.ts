@@ -20,6 +20,8 @@
  * Also pinned (added by the D9 P1 mutation probe): the ring's inclusive cap and
  * its trim count, the spawn's cwd, size and terminal type, a taken id refused,
  * and what `list()` reports (pid, size after a resize, exit record).
+ * PLAN-QUALITY Q12: the ring's head index and its compaction against a
+ * plain-array model, and a trimmed chunk released at once (a forced GC).
  *
  * NOT claimed: the kill ladder and `shutdownAll` (`pty-table-kill.test.ts`,
  * and through SessionManager `sessions-kill*.test.ts`); the final-output
@@ -31,7 +33,13 @@ import assert from 'node:assert/strict';
 import { RingBuffer, SCROLLBACK_MAX_BYTES, type PtyExitRecord } from '../../server/pty-table.ts';
 import { createInProcessPtyHost, type PtyHost } from '../../server/pty-host-api.ts';
 import { realpath } from 'node:fs/promises';
-import { waitUntil, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
+import { waitUntil, makeTempDir, removeTempDir, nextImmediate } from '../helpers/helpers.ts';
+
+// The released-chunk test forces a full GC; `gc` exists in a context created
+// after this flag is set (node:test runs each file in its own process).
+setFlagsFromString('--expose-gc');
 
 /** The metadata cap of server/pty-table.ts (D9 § Defaults: ≤ 16 KiB). */
 const META_CAP = 16 * 1024;
@@ -81,10 +89,10 @@ function exitOf(r: Recorder, id: string): Promise<PtyExitRecord> {
 test('a ring that wraps keeps endOffset absolute: every byte ever appended, trimmed ones included', () => {
   const trims: number[] = [];
   const ring = new RingBuffer(10, (n) => trims.push(n));
-  ring.append('abcd');
-  ring.append('efgh');
+  ring.append(Buffer.from('abcd'));
+  ring.append(Buffer.from('efgh'));
   assert.equal(ring.endOffset, 8, 'no wrap yet');
-  ring.append('ijkl');
+  ring.append(Buffer.from('ijkl'));
   assert.equal(ring.byteLength, 8, 'the oldest chunk went');
   assert.deepEqual(trims, [4]);
   assert.equal(ring.endOffset, 12, 'the end does not move back at the wrap');
@@ -93,15 +101,81 @@ test('a ring that wraps keeps endOffset absolute: every byte ever appended, trim
 
 test('one chunk bigger than the whole ring still counts in full toward endOffset', () => {
   const ring = new RingBuffer(4);
-  ring.append('ab');
-  ring.append('0123456789');
+  ring.append(Buffer.from('ab'));
+  ring.append(Buffer.from('0123456789'));
   assert.equal(ring.toBuffer().toString(), '6789', 'only the tail is kept');
   assert.equal(ring.endOffset, 12);
 });
 
+test('a ring trimming thousands of tiny chunks keeps exactly the newest ones, across its compactions (Q12)', () => {
+  // PLAN-QUALITY Q12: trimming advances a head index and cuts the dead prefix
+  // off once it is the larger half (1024+ chunks), instead of shift() per
+  // drop. A plain array model is the oracle at every step, so a compaction
+  // that lost, kept or reordered a chunk shows up where it happened.
+  const cap = 100;
+  const trims: number[] = [];
+  const ring = new RingBuffer(cap, (n) => trims.push(n));
+  const model: Buffer[] = [];
+  let dropped = 0;
+  for (let i = 0; i < 20_000; i++) {
+    const chunk = Buffer.from(`${i % 10}${i % 7 === 0 ? 'é' : ''}`, 'utf8');
+    ring.append(chunk);
+    model.push(chunk);
+    let bytes = model.reduce((n, c) => n + c.byteLength, 0);
+    while (bytes > cap && model.length > 1) {
+      const gone = model.shift() as Buffer;
+      bytes -= gone.byteLength;
+      dropped += gone.byteLength;
+    }
+    if (i % 997 === 0 || i > 19_990) {
+      const want = Buffer.concat(model);
+      assert.deepEqual(ring.toBuffer(), want, `after append ${i}: the newest bytes, in order`);
+      assert.equal(ring.byteLength, want.byteLength, `after append ${i}: the count`);
+      assert.deepEqual(ring.head(5), want.subarray(0, 5), `after append ${i}: head reads the oldest live chunk`);
+      assert.deepEqual([...ring.chunksNewestFirst()], [...model].reverse(), `after append ${i}: the live chunks, newest first`);
+    }
+  }
+  assert.equal(trims.reduce((n, t) => n + t, 0), dropped, 'every dropped byte was reported, once');
+  assert.equal(ring.endOffset, dropped + ring.byteLength, 'the end stays absolute through every compaction');
+});
+
+test('a chunk the ring trimmed is released at once, not held until a compaction (Q12 review)', async () => {
+  // The head index leaves dead slots behind until #compact (1024+ of them):
+  // a slot still pointing at its trimmed chunk keeps up to ~4 MiB per 1 MiB
+  // ring alive. A WeakRef per chunk and a forced full GC show what the ring
+  // still holds — only the live chunks may survive. 100 trims stay under the
+  // compaction threshold, so nothing but the trim itself can release them.
+  const gc = runInNewContext('gc') as () => void;
+  const ring = new RingBuffer(64);
+  const refs: WeakRef<Buffer>[] = [];
+  for (let i = 0; i < 100; i++) {
+    const chunk = Buffer.alloc(16, i);
+    refs.push(new WeakRef(chunk));
+    ring.append(chunk);
+  }
+  await nextImmediate(); // a WeakRef keeps its target alive until the job ends
+  gc();
+  const alive = refs.filter((r) => r.deref() !== undefined).length;
+  assert.equal(ring.byteLength, 64, 'the ring holds its four newest 16-byte chunks');
+  assert.ok(alive <= 4, `only the four live chunks may survive a GC, ${alive} did`);
+});
+
+test('an oversized chunk after many trims empties the ring and keeps only its own tail (Q12)', () => {
+  const trims: number[] = [];
+  const ring = new RingBuffer(8, (n) => trims.push(n));
+  for (let i = 0; i < 3000; i++) ring.append(Buffer.from(String(i % 10)));
+  trims.length = 0;
+  ring.append(Buffer.from('0123456789AB'));
+  assert.equal(ring.toBuffer().toString(), '456789AB');
+  assert.deepEqual([...ring.chunksNewestFirst()].map((c) => c.toString()), ['456789AB'], 'one chunk left, the dead ones gone');
+  assert.deepEqual(trims, [8 + 4], 'the 8 held bytes plus the 4 the chunk lost');
+  ring.append(Buffer.from('C'));
+  assert.equal(ring.toBuffer().toString(), 'C', 'the next append drops the big chunk whole, as ever');
+});
+
 test('endOffset counts UTF-8 bytes, not characters', () => {
   const ring = new RingBuffer(64);
-  ring.append('✳ é');
+  ring.append(Buffer.from('✳ é'));
   assert.equal(ring.endOffset, Buffer.byteLength('✳ é'), '3 + 1 + 2 bytes');
   assert.equal(ring.endOffset, 6);
 });
@@ -119,7 +193,7 @@ test('restore seeds an empty ring with the newest bytes up to its cap, at the gi
   const ring = new RingBuffer(4);
   ring.restore(Buffer.from('abcdef'), 1006);
   assert.deepEqual([ring.toBuffer().toString(), ring.byteLength, ring.endOffset], ['cdef', 4, 1006]);
-  ring.append('g');
+  ring.append(Buffer.from('g'));
   assert.deepEqual([ring.toBuffer().toString(), ring.endOffset], ['defg', 1007], 'later chunks continue the same offsets');
   assert.throws(() => ring.restore(Buffer.from('x'), 1), /restore needs an empty ring/);
 });
@@ -128,7 +202,7 @@ test('an append past the cap after a restore drops one slice of the restored scr
   const trims: number[] = [];
   const ring = new RingBuffer(6400, (n) => trims.push(n));
   ring.restore(Buffer.alloc(6400, 'a'), 6400);
-  ring.append('b');
+  ring.append(Buffer.from('b'));
   assert.deepEqual(trims, [100], 'one 1/64 slice of the cap went');
   assert.equal(ring.byteLength, 6301);
   assert.equal(ring.toBuffer().toString(), 'a'.repeat(6300) + 'b');
@@ -241,8 +315,8 @@ test('forget keeps a running entry until its exit was reported, then drops it', 
 test('a ring filled exactly to its cap keeps every byte and reports no trim', () => {
   const trims: number[] = [];
   const ring = new RingBuffer(8, (n) => trims.push(n));
-  ring.append('abcd');
-  ring.append('efgh');
+  ring.append(Buffer.from('abcd'));
+  ring.append(Buffer.from('efgh'));
   assert.equal(ring.toBuffer().toString(), 'abcdefgh', 'the cap is inclusive: 8 bytes fit a ring of 8');
   assert.equal(ring.byteLength, 8);
   assert.deepEqual(trims, [], 'nothing was dropped, so nothing is reported');
@@ -251,8 +325,8 @@ test('a ring filled exactly to its cap keeps every byte and reports no trim', ()
 test('an oversized chunk reports every byte it cost: the old content and its own cut-off head', () => {
   const trims: number[] = [];
   const ring = new RingBuffer(4, (n) => trims.push(n));
-  ring.append('ab');
-  ring.append('0123456789');
+  ring.append(Buffer.from('ab'));
+  ring.append(Buffer.from('0123456789'));
   assert.deepEqual(trims, [2 + 6], 'the 2 bytes held before plus the 6 the chunk lost');
 });
 

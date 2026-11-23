@@ -71,12 +71,20 @@ test('main.ts constructs the panel — on the aside it just created', () => {
   );
 });
 
-test('main.ts renders the panel on every state change AND once at boot', () => {
-  const sub = MAIN.slice(MAIN.indexOf('st.subscribe('));
-  assert.ok(sub.length > 200, 'non-vacuity: the subscribe block was found');
+test('main.ts renders the panel on every change it reads AND once at boot', () => {
+  // Since Quality Q12 the subscriber dispatches by kind; WHICH kinds reach the
+  // panel is proven in tests/ui/ui-chrome-dispatch.test.ts.
+  const sub = MAIN.slice(MAIN.indexOf('const renderers: Record<ChromeRenderer, () => void> = {'));
+  assert.ok(sub.length > 200, 'non-vacuity: the dispatch table was found');
   const block = sub.slice(0, sub.indexOf('// ---- global keyboard'));
+  assert.match(block, /filesPanel: filesPanel\.render,/, 'the panel is in the dispatch table');
+  assert.match(
+    block,
+    /st\.subscribe\(\(kind\) => \{\s*for \(const r of renderersFor\(kind\)\) renderers\[r\]\(\);\s*\}\);/,
+    'and the subscriber runs the table for every kind',
+  );
   const calls = block.split('filesPanel.render();').length - 1;
-  assert.equal(calls, 2, 'once inside subscribe, once for the first paint');
+  assert.equal(calls, 1, 'once for the first paint');
 });
 
 test('the Files aside is a flex sibling BEFORE the grid — that is what resizes the panes', () => {

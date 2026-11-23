@@ -246,15 +246,14 @@ export function rescanGap(ring: Buffer, endOffset: number, scannedTo: number, st
 }
 
 /**
- * The part of an output chunk the mirror does not hold yet. `offset` is the
- * chunk's absolute start (server/pty-table.ts `PtyEvents`); after an adopt the
- * mirror starts at the snapshot's end, and the pty-host's events that were
- * queued meanwhile overlap it. The cut lands on the end of a chunk the host
- * already sent — a character boundary.
+ * The part of an output chunk the mirror does not hold yet, as a view of
+ * `bytes` (the chunk's UTF-8; empty when the mirror holds all of it).
+ * `offset` is the chunk's absolute start (server/pty-table.ts `PtyEvents`);
+ * after an adopt the mirror starts at the snapshot's end, and the pty-host's
+ * events that were queued meanwhile overlap it. The cut lands on the end of a
+ * chunk the host already sent — a character boundary.
  */
-export function unseenTail(mirrorEnd: number, data: string, offset: number): string {
-  if (offset >= mirrorEnd) return data;
-  const bytes = Buffer.from(data, 'utf8');
-  const skip = mirrorEnd - offset;
-  return skip >= bytes.byteLength ? '' : bytes.subarray(skip).toString('utf8');
+export function unseenTail(mirrorEnd: number, bytes: Buffer, offset: number): Buffer {
+  if (offset >= mirrorEnd) return bytes;
+  return bytes.subarray(Math.min(mirrorEnd - offset, bytes.byteLength));
 }

@@ -4,7 +4,7 @@
  * after a newline (`replayTail`, server/sessions-output.ts), because the
  * browser terminal keeps only SCROLLBACK_LINES plus one screen.
  *
- * How: the cut rule is a pure function, called directly on buffers; the wire
+ * How: the cut rule is a pure function, called directly on rings; the wire
  * claim (the replay frame holds the LAST lines, not the first, and the log
  * states the bytes actually sent) runs on a real server child with a real PTY.
  * The web terminal's use of the shared constant is pinned by a source read —
@@ -18,12 +18,18 @@
  * NOT claimed: how xterm.js renders the shortened replay, or that a TUI's
  * modes survive the cut (they do not, by design — see replayTail's comment).
  * The browser side is `/verify-terminal` (.claude/skills/verify-terminal/SKILL.md).
+ *
+ * PLAN-QUALITY Q12 made the cut walk the ring's chunks backwards instead of
+ * copying the whole ring first; `cut` feeds every text both as one chunk and
+ * as 7-byte chunks (seams inside characters, as a restored mirror has), and
+ * one test pins the new walk to the old whole-buffer cut on random rings.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { REPLAY_MAX_LINES, SCROLLBACK_LINES } from '../../shared/protocol.ts';
 import { replayTail } from '../../server/sessions-output.ts';
+import { RingBuffer, SCROLLBACK_MAX_BYTES } from '../../server/pty-table.ts';
 import {
   api,
   createSession,
@@ -44,8 +50,42 @@ function numbered(count: number, eol = '\n'): string {
   return out;
 }
 
+/** A ring holding `bytes` in chunks of `size` bytes (seams may split a character). */
+function ringOf(bytes: Buffer, size: number): RingBuffer {
+  const ring = new RingBuffer(SCROLLBACK_MAX_BYTES);
+  for (let at = 0; at < bytes.byteLength; at += size) ring.append(bytes.subarray(at, at + size));
+  return ring;
+}
+
+/** The replay of `text`, which must not depend on where the ring's chunks begin. */
 function cut(text: string, maxLines: number): string {
-  return replayTail(Buffer.from(text, 'utf8'), maxLines).toString('utf8');
+  const bytes = Buffer.from(text, 'utf8');
+  const whole = replayTail(ringOf(bytes, Math.max(1, bytes.byteLength)), maxLines);
+  const seamed = replayTail(ringOf(bytes, 7), maxLines);
+  assert.deepEqual(seamed, whole, `7-byte chunks cut ${JSON.stringify(text.slice(0, 40))} as one chunk does`);
+  return whole.toString('utf8');
+}
+
+/** The cut before Q12, on the whole ring copied into one buffer: the oracle. */
+function wholeBufferCut(ring: Buffer, maxLines: number): Buffer {
+  let pos = ring.byteLength;
+  for (let i = 0; i < maxLines; i++) {
+    const nl = pos === 0 ? -1 : ring.lastIndexOf(0x0a, pos - 1);
+    if (nl === -1) return ring;
+    pos = nl;
+  }
+  return ring.subarray(pos + 1);
+}
+
+/** A seeded PRNG (mulberry32): the random rings are the same on every run. */
+function prng(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 test('a ring with no more lines than the limit is replayed whole, byte for byte', () => {
@@ -55,8 +95,38 @@ test('a ring with no more lines than the limit is replayed whole, byte for byte'
   const short = 'L1\nL2\nprompt$ ';
   assert.equal(cut(short, 10), short, 'fewer lines than the limit must be sent whole');
   assert.equal(cut('', 10), '', 'an empty ring replays nothing');
-  const ring = Buffer.from(atLimit);
-  assert.equal(replayTail(ring, 10), ring, 'the fallback hands back the ring itself, not a copy');
+  const ring = ringOf(Buffer.from(atLimit), 4);
+  assert.deepEqual(replayTail(ring, 10), ring.toBuffer(), 'the fallback is the whole ring, byte for byte');
+});
+
+test('the chunk walk replays exactly what the whole-buffer cut did, on random rings that wrapped', () => {
+  const rand = prng(12);
+  const pieces = ['a', 'é', '€', '😀', '\n', '\r\n', '\x1b[31m', 'line '];
+  for (let round = 0; round < 60; round++) {
+    // A small cap so most rounds wrap; every chunk is whole characters, as the host sends them.
+    const ring = new RingBuffer(64 + Math.floor(rand() * 2048));
+    if (round % 3 === 0) {
+      // A restored mirror: its slices are cut on bytes, inside characters too.
+      let seed = '';
+      while (Buffer.byteLength(seed) < 3000) seed += pieces[Math.floor(rand() * pieces.length)];
+      ring.restore(Buffer.from(seed, 'utf8'), 10_000);
+    }
+    // Every fifth round long enough that the ring compacts its trimmed chunks (1024+ of them).
+    const appends = Math.floor(rand() * (round % 5 === 0 ? 6000 : 400));
+    for (let i = 0; i < appends; i++) {
+      let chunk = '';
+      const len = 1 + Math.floor(rand() * (rand() < 0.1 ? 300 : 12));
+      for (let k = 0; k < len; k++) chunk += pieces[Math.floor(rand() * pieces.length)];
+      ring.append(Buffer.from(chunk, 'utf8'));
+    }
+    for (const maxLines of [0, 1, 2, 3, 10, 50, 5000]) {
+      assert.deepEqual(
+        replayTail(ring, maxLines),
+        wholeBufferCut(ring.toBuffer(), maxLines),
+        `round ${round}, ${ring.byteLength} ring bytes, ${maxLines} lines`,
+      );
+    }
+  }
 });
 
 test('a ring with more lines than the limit replays exactly the last N lines, starting after a newline', () => {

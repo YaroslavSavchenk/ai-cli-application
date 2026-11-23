@@ -2,8 +2,9 @@
  * `web/src/state.ts` — which change notifies which kind: every tab and pane
  * mutator notifies `ui`, the conn-state setters feeding the R2
  * statusline/topbar dot notify `conn`, and the session-history setters
- * (`GET /api/history` -> drawer) notify `sessions`. Split out of
- * `ui-state.test.ts`.
+ * (`GET /api/history` -> drawer) notify `sessions`, and since Quality Q12 the
+ * 3 s session poll (`setSessions`) notifies only when the list changed. Split
+ * out of `ui-state.test.ts`.
  *
  * Seam: the real module, imported once per file by
  * `tests/helpers/ui-state-fixture.ts` after an in-memory `localStorage` shim
@@ -19,6 +20,7 @@
  */
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import type { SessionInfo } from '../../shared/protocol.ts';
 import { mkHistoryEntry as mkHistory } from '../helpers/helpers.ts';
 import {
   E,
@@ -27,6 +29,7 @@ import {
   collectKinds,
   ftab,
   home,
+  mkSession,
   resetState,
   st,
 } from '../helpers/ui-state-fixture.ts';
@@ -285,6 +288,64 @@ test('clearHistory: empties the list once and is silent when there is nothing to
 
   st.clearHistory();
   assert.deepEqual(kinds, ['sessions'], 'clearing an empty list must not renotify');
+});
+
+// ---------------------------------------------------------------------------
+// setSessions (the 3 s poll): notifies only a real change (Quality Q12)
+// ---------------------------------------------------------------------------
+
+/** The kinds `fn` notified, in order. */
+function notified(fn: () => void): string[] {
+  const { kinds } = collectKinds();
+  fn();
+  return kinds;
+}
+
+test('setSessions: a poll that brings the list the store already holds notifies nothing', () => {
+  st.initServer([], []);
+  st.loadUi(REOPEN);
+  st.setSessions([mkSession('s1'), mkSession('s2')]);
+  // A fresh copy, as the next poll's JSON parse makes it — equal, not identical.
+  assert.deepEqual(notified(() => st.setSessions([mkSession('s1'), mkSession('s2')])), []);
+  assert.equal(st.state.sessions.size, 2, 'the list is still the store');
+});
+
+test('setSessions: any field that changes, and the order of the list, notify sessions', () => {
+  st.initServer([], []);
+  st.loadUi(REOPEN);
+  const base = [mkSession('s1'), mkSession('s2')];
+  st.setSessions(base);
+  const cases: [string, () => void][] = [
+    ['a title', () => st.setSessions([{ ...mkSession('s1'), title: 'build' }, mkSession('s2')])],
+    ['a turn readout', () => st.setSessions([{ ...mkSession('s1'), title: 'build', turn: 'working' }, mkSession('s2')])],
+    ['the order', () => st.setSessions([mkSession('s2'), { ...mkSession('s1'), title: 'build', turn: 'working' }])],
+  ];
+  for (const [what, poll] of cases) {
+    assert.deepEqual(notified(poll), ['sessions'], what);
+  }
+});
+
+test('setSessions: the store is the reference, so a poll that undoes a local seen ack is a change', () => {
+  // The poll before the ack and the poll after it can be byte-identical; the
+  // ack changed the STORE in between, and the badge it cleared must come back.
+  st.initServer([], []);
+  st.loadUi(REOPEN);
+  // A fresh object per poll, as the JSON parse makes them: the store holds
+  // the one it was given, and the ack changes THAT one in place.
+  const pending = (): SessionInfo => ({ ...mkSession('s1'), attention: true });
+  st.setSessions([pending()]);
+  st.markSeenLocally('s1');
+  assert.equal(st.attentionCount(), 0, 'precondition: the ack cleared it locally');
+  assert.deepEqual(notified(() => st.setSessions([pending()])), ['sessions']);
+  assert.equal(st.attentionCount(), 1);
+});
+
+test('setSessions: a new session still gets its tab and notifies ui after sessions', () => {
+  st.initServer([], []);
+  st.loadUi(REOPEN);
+  st.setSessions([mkSession('s1')]);
+  assert.deepEqual(notified(() => st.setSessions([mkSession('s1'), mkSession('s2')])), ['sessions', 'ui']);
+  assert.notEqual(st.viewOfSession('s2'), undefined, 'the new session has a tab');
 });
 
 test('projectName resolves to the NAME — never the path, never the id', () => {

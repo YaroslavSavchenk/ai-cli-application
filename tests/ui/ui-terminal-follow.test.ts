@@ -13,8 +13,10 @@
  * What is pinned:
  *
  *   1. The follow scroll is in the WRITE CALLBACK of the live-data path, and
- *      it reads the preference FRESH on every write (a flip applies to a
- *      session that is already running, with no reattach).
+ *      the preference is read FRESH on every write (a flip applies to a
+ *      session that is already running, with no reattach). Since Quality Q12
+ *      it is read as the write is queued and an OFF switch queues no callback
+ *      (one closure per PTY frame was the cost of asking it).
  *   2. The REPLAY path is untouched: it resets, writes, and clears the replay
  *      flag — and does not scroll on its own, because a reset buffer is at the
  *      bottom already.
@@ -60,25 +62,30 @@ function handler(name: string): string {
 test('non-vacuity: the real modules are being read', () => {
   assert.ok(TERMINAL.length > 5000, 'ui/terminal.ts looks empty');
   assert.ok(PANES.length > 5000, 'ui/panes.ts looks empty');
-  assert.match(TERMINAL, /import \{ getBehaviour \} from '\.\/prefs-model\.ts';/);
+  assert.match(TERMINAL, /import \{ followsOutput \} from '\.\/prefs-model\.ts';/);
   assert.match(PANES, /import \{ getBehaviour \} from '\.\/prefs-model\.ts';/);
 });
 
 test('B6 follow: live data is written with a callback that scrolls only while the switch is on', () => {
+  // Quality Q12: the switch is asked as the frame is queued, and an OFF
+  // switch (the factory) queues no callback at all — the hot path allocated
+  // one closure per frame just to ask it.
   assert.deepEqual(statements(handler('onData')), [
-    'this.term.write(data, () => {',
-    'if (getBehaviour().followOutput) this.term.scrollToBottom();',
-    '});',
+    'this.term.write(data, followsOutput() ? this.#follow : undefined);',
   ]);
+  const field = /readonly #follow = \(\): void => \{\n([\s\S]*?)\n {2}\};/.exec(TERMINAL);
+  assert.notEqual(field, null, 'the one follow callback is a field made once per view');
+  assert.deepEqual(statements(field?.[1] ?? ''), ['this.term.scrollToBottom();'], 'and all it does is scroll');
 });
 
 test('B6 follow: the preference is read per WRITE, never cached at connect time', () => {
-  // A `const follow = getBehaviour()` hoisted out of the callback would freeze
+  // A `const follow = followsOutput()` hoisted out of the handler would freeze
   // the answer for the life of the view — the flip would then need a reattach.
   const connect = TERMINAL.slice(TERMINAL.indexOf('connect('), TERMINAL.indexOf('onInfo: (session)'));
-  const reads = [...connect.matchAll(/getBehaviour\(\)/g)];
-  assert.equal(reads.length, 1, 'exactly one read, and it is the one inside the write callback');
-  assert.equal(/const\s+\w+\s*=\s*getBehaviour\(\)/.test(TERMINAL), false, 'never stored in a local');
+  const reads = [...connect.matchAll(/followsOutput\(\)/g)];
+  assert.equal(reads.length, 1, 'exactly one read, and it is the one in the data handler');
+  assert.equal(/getBehaviour\(\)/.test(TERMINAL), false, 'the terminal reads the one switch, not the whole copy');
+  assert.equal(/const\s+\w+\s*=\s*followsOutput\(\)/.test(TERMINAL), false, 'never stored in a local');
 });
 
 test('B6 follow: the replay path is unchanged — reset, write, clear the flag, no scroll of its own', () => {

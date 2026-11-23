@@ -167,10 +167,10 @@ export function attentionCount(): number {
  * Toggle a drawer. Opening 'projects' HIDES the Files panel for as long as it
  * is open (`filesPanelVisible()`), and closing it brings Files back — the wish
  * itself is never written here, so peeking at Projects can never cost the user
- * their default panel. One `'drawer'` notify is enough for both: main.ts
- * subscribes ONE kind-agnostic listener that runs `updateChrome()` and
- * `filesPanel.render()` on every change, so a second `'panel'` notify would
- * only rebuild the same chrome twice.
+ * their default panel. One `'drawer'` notify is enough for both: `'drawer'`
+ * reaches `updateChrome()` and `filesPanel.render()` as `'panel'` does
+ * (ui/chrome-dispatch-model.ts), so a second `'panel'` notify would only
+ * rebuild the same chrome twice.
  */
 export function toggleDrawer(view: Exclude<DrawerView, null>): void {
   state.drawer = state.drawer === view ? null : view;

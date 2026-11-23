@@ -1,13 +1,14 @@
 /**
  * Shared by the `web/src/ui/panes.ts` DOM tests (`tests/ui/ui-panes-relayout.test.ts`,
- * Quality P2, and `tests/ui/ui-panes-park.test.ts`, Quality P5): the REAL
+ * Quality P2, `tests/ui/ui-panes-park.test.ts`, Quality P5, and
+ * `tests/ui/ui-panes-projects.test.ts`, Quality Q12): the REAL
  * panes.ts on the DOM double, with `registerHooks` swapping the five imports
  * that cannot run here for recorders — `./terminal.ts` (xterm is a browser
  * bundle; the stub TerminalView records construct, attach, focus, hide, show,
  * seen and dispose, and keeps the events panes.ts handed it so a test can play
  * a server frame), `../api.ts` (records `markSeen`), `./dnd.ts`,
  * `./editor-pane.ts` and `./panes-status.ts` (the header readout, which these
- * files do not judge). Lifted out of the relayout test when P5 needed the same
+ * files do not judge; only which sessions' headers were repainted is recorded). Lifted out of the relayout test when P5 needed the same
  * harness (tests/README.md: shared setup lives in a fixture). Not a test.
  */
 import { registerHooks } from 'node:module';
@@ -42,9 +43,12 @@ export const H = {
   views: [] as FakeView[],
   /** Session ids `api.markSeen` was called with. */
   markSeen: [] as string[],
+  /** Session ids `updateHeader` was called for (the header readout itself is stubbed). */
+  headers: [] as string[],
   reset(): void {
     H.views.length = 0;
     H.markSeen.length = 0;
+    H.headers.length = 0;
     focus.window = true;
   },
 };
@@ -74,8 +78,9 @@ const STUB_SRC: Record<string, string> = {
   'editor-pane': `
     export function editorPane() { return { update() {}, focus() {}, holdsFocus() { return false; }, dispose() {} }; }`,
   'panes-status': `
+    const H = globalThis.__panesHarness;
     export async function killSession() {}
-    export function updateHeader() {}
+    export function updateHeader(pay) { H.headers.push(pay.id); }
     export function updateNote() {}
     export function updateStatus() {}`,
 };

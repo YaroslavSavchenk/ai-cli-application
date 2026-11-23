@@ -22,7 +22,7 @@
  * writes, request predicates), server/config-spawn.ts (the bounded child
  * runner).
  */
-import { appendFileSync, chmodSync, renameSync, statSync, truncateSync } from 'node:fs';
+import { chmodSync, closeSync, fstatSync, openSync, renameSync, statSync, truncateSync, writeSync } from 'node:fs';
 
 /** Severity, ascending. 'debug' is the default minimum (see resolveLogLevel). */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -243,6 +243,13 @@ export function createRefusalLimiter(log: Logger, now?: () => number): () => boo
 }
 
 /**
+ * How often (at most) a logger checks that its open file is still the one at
+ * its path — a log removed or renamed from outside is then reopened (see
+ * createLogger). A stat per second, not per line.
+ */
+const LOG_PATH_CHECK_MS = 1000;
+
+/**
  * Appends timestamped lines to server.log:
  *
  *     2026-09-06T10:11:12.345Z [info] [http] GET /api/history -> 200 in 3ms
@@ -255,6 +262,20 @@ export function createRefusalLimiter(log: Logger, now?: () => number): () => boo
  * `minLevel` are dropped before any I/O. When the file would exceed
  * MAX_LOG_BYTES it is rotated: server.log.1 -> server.log.2, server.log ->
  * server.log.1, each forced to mode 0600.
+ *
+ * The file stays OPEN between lines (PLAN-QUALITY Q12: an open/write/close per
+ * line cost ~7 µs): opened on the first line with O_APPEND, created 0600,
+ * close-on-exec (Node's default, so no PTY child inherits it). It is closed
+ * and reopened (a) after a rotation, (b) after a failed write — the next line
+ * opens it again, and (c) when the path no longer names the open file: at
+ * most once per LOG_PATH_CHECK_MS a line stats the path, and a log deleted
+ * or renamed from outside is recreated there. Lines written between such an
+ * outside removal and that check land in the removed file (at most
+ * LOG_PATH_CHECK_MS of them). The byte count restarts from the reopened
+ * file's size. During a restart the old and the new backend both hold
+ * server.log open: after one rotates it, the other keeps writing into
+ * server.log.1 for up to LOG_PATH_CHECK_MS and then reopens server.log — lines
+ * out of order for at most a second, none lost.
  */
 export function createLogger(logFile: string, minLevel: LogLevel = DEFAULT_LOG_LEVEL): Logger {
   let bytes: number;
@@ -264,22 +285,65 @@ export function createLogger(logFile: string, minLevel: LogLevel = DEFAULT_LOG_L
     bytes = 0;
   }
   const threshold = LOG_LEVELS.indexOf(minLevel);
+  let fd: number | undefined;
+  let ino = 0;
+  let checkedAt = 0;
+  const close = (): void => {
+    if (fd === undefined) return;
+    try {
+      closeSync(fd);
+    } catch {
+      // Already gone; the next line opens a fresh one.
+    }
+    fd = undefined;
+  };
+  const open = (): number => {
+    const opened = openSync(logFile, 'a', 0o600);
+    const st = fstatSync(opened);
+    fd = opened;
+    ino = st.ino;
+    bytes = st.size;
+    checkedAt = performance.now();
+    return opened;
+  };
+  /** The open fd, reopened when the path names another file or none (c). */
+  const current = (): number => {
+    if (fd === undefined) return open();
+    const now = performance.now();
+    if (now - checkedAt < LOG_PATH_CHECK_MS) return fd;
+    checkedAt = now;
+    let same = false;
+    try {
+      same = statSync(logFile).ino === ino;
+    } catch {
+      // Removed from outside.
+    }
+    if (same) return fd;
+    close();
+    return open();
+  };
   return (level, message) => {
     try {
       if (LOG_LEVELS.indexOf(level) < threshold) return;
-      const line = `${new Date().toISOString()} [${level}] ${message}\n`;
-      if (bytes + Buffer.byteLength(line) > MAX_LOG_BYTES) {
+      const line = Buffer.from(`${new Date().toISOString()} [${level}] ${message}\n`, 'utf8');
+      let target = current();
+      if (bytes + line.byteLength > MAX_LOG_BYTES) {
         // rotate() never throws, and the counter restarts WHATEVER it managed
         // to do. A throwing rotate used to silence the log permanently: the
         // outer catch swallowed it, `bytes` stayed over the cap, and every
         // later line re-entered rotate(), threw again and was dropped.
+        close();
         rotate(logFile);
+        target = open();
         bytes = 0;
       }
-      appendFileSync(logFile, line, { mode: 0o600 });
-      bytes += Buffer.byteLength(line);
+      let at = 0;
+      while (at < line.byteLength) at += writeSync(target, line, at);
+      bytes += line.byteLength;
     } catch {
-      // Nothing sane to do — stdout must not be relied on.
+      // Nothing sane to do — stdout must not be relied on. A failed write may
+      // mean a bad fd: the next line reopens the file (b).
+      close();
     }
   };
 }

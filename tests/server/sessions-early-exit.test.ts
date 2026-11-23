@@ -149,7 +149,7 @@ test('firstOutputLine drops every bidi control, so the line reads as it was prin
 
 test('earlyExitLine: non-zero inside the window answers the first line and the run time; anything else none', () => {
   const ring = new RingBuffer(1024);
-  ring.append('\u001b[31merror: bad\u001b[0m\r\nmore');
+  ring.append(Buffer.from('\u001b[31merror: bad\u001b[0m\r\nmore'));
   const t0 = '2026-10-13T10:00:00.000Z';
   const at = (ms: number): number => Date.parse(t0) + ms;
   assert.deepEqual(earlyExitLine(t0, at(10), 2, ring), { line: 'error: bad', ranMs: 10 });
@@ -162,9 +162,9 @@ test('earlyExitLine: non-zero inside the window answers the first line and the r
 
 test('RingBuffer.head reads only the first bytes the ring holds, across chunks', () => {
   const ring = new RingBuffer(1024);
-  ring.append('abc');
-  ring.append('defgh');
-  ring.append('ij');
+  ring.append(Buffer.from('abc'));
+  ring.append(Buffer.from('defgh'));
+  ring.append(Buffer.from('ij'));
   assert.equal(ring.head(5).toString('utf8'), 'abcde');
   assert.equal(ring.head(3).toString('utf8'), 'abc');
   assert.equal(ring.head(100).toString('utf8'), 'abcdefghij');

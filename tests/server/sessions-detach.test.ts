@@ -36,7 +36,7 @@ test('detachAll parks every blob at its current offset and says goodbye; nothing
   const { sessions, history } = await fakeHostManager(host, dirs);
   const running = await sessions.create(LAUNCH);
   const exited = await sessions.create(LAUNCH);
-  host.events()?.output(running.id, 'hello\r\n', 0);
+  host.output(running.id, 'hello\r\n', 0);
   host.events()?.exit(exited.id, { code: 3, signal: null, at: Date.now() });
   host.calls.length = 0;
 

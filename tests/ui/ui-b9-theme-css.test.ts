@@ -155,7 +155,7 @@ test('main.ts builds the theme BEFORE the settings panel and long before the fir
   // Each index is asserted to EXIST first: `-1 < x` would make an ordering
   // check pass for a call that was deleted.
   const theme = at('const theme = initTheme(prefs);');
-  assert.ok(theme < at('initSettings(modalHost, settingsBtn, { repaintStatus, theme })'), 'before the panel it is handed to');
+  assert.ok(theme < at('const settings = initSettings(modalHost, settingsBtn, {'), 'before the panel it is handed to');
   assert.ok(theme < at('initPanes('), 'before anything that can build a terminal');
   assert.ok(at('initStatusLine(prefs?.statusLine)') < theme, 'inside buildShell’s boot block, after the status line');
   assert.ok(at('function buildShell') < theme, 'in buildShell, not in boot()');

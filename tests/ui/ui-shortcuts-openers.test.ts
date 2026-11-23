@@ -148,8 +148,8 @@ test('there is exactly ONE overlay instance — the key, the button, the statusl
   );
   assert.match(
     MAIN,
-    /initSettings\(modalHost, settingsBtn, \{ repaintStatus, theme \}\)/,
-    'the settings panel takes no overlay opener since part B6 — repaintStatus and, since B9, the theme control',
+    /initSettings\(modalHost, settingsBtn, \{\s*repaintStatus,\s*repaintTabs: \(\) => tabs\.render\(\),\s*theme,\s*\}\)/,
+    'the settings panel takes no overlay opener since part B6 — repaintStatus, since B9 the theme control, since Q12 the tab strip redraw',
   );
   // The bare `?` key path (outside editable targets) must keep working.
   assert.match(MAIN, /e\.key === '\?'[\s\S]{0,200}?shortcuts\.toggle\(\);/);

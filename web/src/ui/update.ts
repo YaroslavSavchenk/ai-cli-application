@@ -439,6 +439,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     }
     if (notice.state === 'hidden') announced = null;
     renderNotice();
+    // The open question names the release it would install. That name used to
+    // reach it on the next 3 s session poll; since Quality Q12 an unchanged
+    // poll notifies nothing, so the answer that changes it repaints it.
+    if (!scrim.hidden && phase === 'confirm') renderConfirm();
   }
 
   function dismissToast(): void {
@@ -869,9 +873,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
   };
 
   // Keep the confirmation's session list honest while it is open: the 3 s poll
-  // keeps running right up to the moment the user commits.
+  // keeps running right up to the moment the user commits. Each row names its
+  // project, so a rename (`projects`) repaints it too.
   st.subscribe((kind) => {
-    if (kind === 'sessions' && !scrim.hidden && phase === 'confirm') renderConfirm();
+    if ((kind === 'sessions' || kind === 'projects') && !scrim.hidden && phase === 'confirm') renderConfirm();
   });
 
   applyRuntimeInner();

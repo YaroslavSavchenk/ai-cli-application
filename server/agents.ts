@@ -261,7 +261,7 @@ export class AgentsWatcher {
     this.#now = options.now ?? Date.now;
     this.#readBudget = options.readBudgetBytes ?? MAX_READ_PER_TICK;
     this.#titleIdleSince = options.titleIdleSince;
-    this.#mainCtx = { log: this.#log, projectsRoot: this.#projectsRoot, now: this.#now };
+    this.#mainCtx = { log: this.#log, now: this.#now };
   }
 
   /**
@@ -330,6 +330,15 @@ export class AgentsWatcher {
     if (this.#stopped) return;
     // One budget for the whole sweep, handed down and spent as files are read.
     const budget = { left: this.#readBudget };
+    // The projects root, realpath'd ONCE per sweep (Q12: it was twice per
+    // session per tick); every session's boundary is still checked against it
+    // on every tick. null = no projects root: nothing may be read.
+    let realRoot: string | null;
+    try {
+      realRoot = realpathSync(this.#projectsRoot);
+    } catch {
+      realRoot = null;
+    }
     // ROUND ROBIN (B11 F2): the budget is spent in sweep order, so a fixed
     // order would let a few busy sessions early in the Map starve every later
     // session's turn and agents on every tick. Each tick starts one session
@@ -343,7 +352,7 @@ export class AgentsWatcher {
       // earlier in this sweep is not polled on stale state.
       if (this.#stopped || this.#sessions.get(id) !== session) continue;
       try {
-        this.#pollSession(id, session, budget);
+        this.#pollSession(id, session, budget, realRoot);
       } catch (err) {
         // A directory that vanished mid-sweep, a permission change, anything:
         // one session's bad tick must not stop the others or kill the timer.
@@ -352,12 +361,12 @@ export class AgentsWatcher {
     }
   }
 
-  #pollSession(id: string, session: TrackedSession, budget: { left: number }): void {
+  #pollSession(id: string, session: TrackedSession, budget: { left: number }, realRoot: string | null): void {
     // B11: the session's own transcript first. It does not depend on the
     // subagents directory existing (it usually does not: most sessions never
     // spawn a subagent), and it shares this tick's byte budget.
-    readMain(this.#mainCtx, id, session, budget);
-    const dir = this.#pollAgents(id, session, budget);
+    readMain(this.#mainCtx, id, session, budget, realRoot);
+    const dir = this.#pollAgents(id, session, budget, realRoot);
 
     const report = this.#report(id, session, dir);
     if (session.last === undefined && report.agents.length === 0 && report.turn === undefined) {
@@ -380,7 +389,7 @@ export class AgentsWatcher {
    * read. Returns that directory's real path as checked on THIS poll (C2's
    * workflow liveness looks under it), or null when it may not be read.
    */
-  #pollAgents(id: string, session: TrackedSession, budget: { left: number }): string | null {
+  #pollAgents(id: string, session: TrackedSession, budget: { left: number }, realRoot: string | null): string | null {
     // THE BOUNDARY, RE-CHECKED EVERY TICK. subagentsDirFor() only realpath'd
     // the transcript's own directory; the `<uuid>` and `subagents` components
     // were appended AFTER that, and readdirSync/statSync follow every
@@ -389,7 +398,7 @@ export class AgentsWatcher {
     // directory outside Claude Code's tree — and its contents to every
     // attached browser. Re-checked per tick rather than once at track(),
     // because the symlink can be planted at any moment afterwards.
-    const dir = this.#realDirUnderRoot(id, session);
+    const dir = this.#realDirUnderRoot(id, session, realRoot);
     if (dir === null) return null;
     const metas = this.#listMetas(dir);
     if (metas === null) return dir; // Directory not created yet: normal, not an error.
@@ -443,17 +452,17 @@ export class AgentsWatcher {
    * Two different nulls, and only one of them is worth a word: a directory
    * that is not there yet is the ORDINARY state (Claude Code creates it with
    * the first subagent), while a directory that resolves OUTSIDE the projects
-   * root is someone redirecting us and is logged.
+   * root is someone redirecting us and is logged. `realRoot` is the sweep's
+   * realpath of the projects root (null: there is none).
    */
-  #realDirUnderRoot(id: string, session: TrackedSession): string | null {
+  #realDirUnderRoot(id: string, session: TrackedSession, realRoot: string | null): string | null {
     const dir = session.dir;
+    if (realRoot === null) return null; // No projects root at all.
     let real: string;
-    let realRoot: string;
     try {
       real = realpathSync(dir);
-      realRoot = realpathSync(this.#projectsRoot);
     } catch {
-      return null; // Not created yet, gone, or no projects root at all.
+      return null; // Not created yet, or gone.
     }
     if (!isUnder(real, realRoot)) {
       // Once per tracked directory, not once per poll (see refusalLogged).

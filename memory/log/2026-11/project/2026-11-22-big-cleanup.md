@@ -1,7 +1,7 @@
 ---
 type: log
 created: 2026-11-22
-updated: 2026-11-22
+updated: 2026-11-23
 tags: [quality, cleanup, restructure, performance]
 ---
 # 2026-11-22 — the big cleanup (Q9–Q15, O9)
@@ -122,3 +122,35 @@ Moves only; scope and security reviews compared every moved hunk. The
 logger's ~60 importers import from `config-log.ts` directly instead of a
 re-export from `config.ts` — at odds with `CONTRIBUTING.md` "re-export what
 moved"; the amendment is put to the user. Suite 4644 / 0.
+
+## Q12 — the app's speed (landed 2026-11-23)
+
+Built 2026-11-22, landed the next day after the session ran out mid-review.
+
+- Output path: a PTY chunk is UTF-8 encoded once (in `server/pty-table.ts`)
+  and that buffer travels on to the wire / the backend mirror; the ring
+  trims by a head index instead of `shift()` (70 µs per append at the cap)
+  and blanks each trimmed slot (review: dead slots held up to ~4 MiB per
+  ring until compaction); `replayTail` walks the chunks newest-first and
+  copies only what it replays; one stringify per broadcast.
+- Logger (`server/config-log.ts`): the file stays open (O_APPEND, 0600,
+  close-on-exec), reopened after a rotation, a failed write, or when a
+  once-a-second stat finds the path names another file.
+- Web: `web/src/ui/chrome-dispatch-model.ts` says which change kinds reach
+  which chrome renderer (the 5 s pong no longer redraws tabs, drawers,
+  Files); the status line redraws only when its signature changes; a poll
+  with an unchanged list notifies nothing — so a project rename now reaches
+  pane headers, the settings notice and the update confirm through
+  `projects` (review finding, pinned).
+- `vite.config.ts`: xterm + addons in their own `assets/xterm-*.js` chunk
+  (446 kB of the 788 kB entry); `server/buildinfo.ts` still finds
+  `index-*.js`.
+- Found on the way: negative `over -844ms` durations (wall clock steps back
+  in WSL → `performance.now()`), a stack overflow from `unshift(...held)` in
+  the pty-host client.
+- User's call: `sessions-replay` lost its "fallback is the ring itself, not a
+  copy" identity check (no single ring Buffer any more); byte equality plus a
+  seeded random-ring oracle test against the old cut replace it.
+- Reviews: security clean; scope 2 should-fix, fixed with a failing-first
+  test each. Suite 4676 / 0.
+

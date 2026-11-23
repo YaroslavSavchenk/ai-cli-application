@@ -45,15 +45,30 @@ import { EARLY_EXIT_LINE_MAX, EARLY_EXIT_MS } from '../shared/protocol.ts';
  * That was already true once the 1 MiB ring wrapped; the live stream and the
  * next repaint of a TUI restore them.
  */
-export function replayTail(ring: Buffer, maxLines: number): Buffer {
-  let pos = ring.byteLength;
-  for (let i = 0; i < maxLines; i++) {
-    // `pos === 0` must not reach lastIndexOf: a negative offset counts from the END.
-    const nl = pos === 0 ? -1 : ring.lastIndexOf(0x0a, pos - 1);
-    if (nl === -1) return ring;
-    pos = nl;
+export function replayTail(ring: RingBuffer, maxLines: number): Buffer {
+  // Q12: walk the chunks backwards and copy only what is replayed — no copy
+  // of the whole 1 MiB ring first on every attach, tab switch or reload. A
+  // newline is one byte, so a chunk seam (even one inside a character, as a
+  // restored mirror has) never hides one.
+  if (maxLines <= 0) return Buffer.alloc(0);
+  const taken: Buffer[] = [];
+  let lines = 0;
+  for (const chunk of ring.chunksNewestFirst()) {
+    let pos = chunk.byteLength;
+    while (pos > 0) {
+      // `pos === 0` must not reach lastIndexOf: a negative offset counts from the END.
+      const nl = chunk.lastIndexOf(0x0a, pos - 1);
+      if (nl === -1) break;
+      lines += 1;
+      if (lines === maxLines) {
+        taken.push(chunk.subarray(nl + 1));
+        return Buffer.concat(taken.reverse());
+      }
+      pos = nl;
+    }
+    taken.push(chunk);
   }
-  return ring.subarray(pos + 1);
+  return ring.toBuffer();
 }
 
 /** How much of the ring's head an early exit reads for its first line (Nocturne D6). */

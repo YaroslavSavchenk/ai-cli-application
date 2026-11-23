@@ -90,6 +90,17 @@ export default defineConfig({
         index: resolve(WEB_ROOT, 'index.html'),
         mascot: resolve(WEB_ROOT, 'mascot.html'),
       },
+      output: {
+        // xterm.js and its addons (446 kB of the old 788 kB entry) in their
+        // own hashed chunk, `assets/xterm-*.js` (Quality Q12): they change
+        // only with a dependency bump, so an app change no longer makes the
+        // browser fetch them again. The name must not start with `index-` —
+        // server/buildinfo.ts takes the first `assets/index-*.js` as the
+        // entry bundle.
+        codeSplitting: {
+          groups: [{ name: 'xterm', test: /[\\/]node_modules[\\/]@xterm[\\/]/ }],
+        },
+      },
     },
   },
 });

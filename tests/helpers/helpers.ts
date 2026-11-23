@@ -32,6 +32,7 @@ import type {
   ServerMessage,
   SessionInfo,
 } from '../../shared/protocol.ts';
+import type { RuntimeStatusResponse } from '../../shared/protocol-runtime.ts';
 
 export const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -113,6 +114,20 @@ export function mkHistoryEntry(id: string): HistoryEntry {
     createdAt: '2026-09-06T10:00:00.000Z',
     lastUsedAt: '2026-09-06T10:00:00.000Z',
     ended: { at: '2026-09-06T11:00:00.000Z', reason: 'exit' },
+  };
+}
+
+/** A developer clone's `GET /api/runtime` answer, booted at `startedAt`: no version, nothing pending. */
+export function mkRuntime(startedAt: string): RuntimeStatusResponse {
+  return {
+    startedAt,
+    serverCommit: null,
+    version: null,
+    installed: false,
+    webBuild: null,
+    update: { available: false, reason: null },
+    claude: { version: null, compat: 'unknown', min: '2.1.263', testedUpTo: '2.1.287' },
+    ptyHost: null,
   };
 }
 

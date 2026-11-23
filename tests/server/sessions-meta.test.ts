@@ -165,9 +165,9 @@ test('the gap re-scan leaves the stored scan state it was given as it was', () =
 });
 
 test('the mirror takes only the unseen tail of an overlapping chunk, cut on bytes', () => {
-  assert.equal(unseenTail(10, 'abc', 10), 'abc', 'a chunk right at the end is new');
-  assert.equal(unseenTail(10, 'abc', 12), 'abc', 'past the end too (nothing to cut)');
-  assert.equal(unseenTail(10, 'abc', 7), '', 'a chunk the mirror already holds');
-  assert.equal(unseenTail(10, 'abcd', 7), 'd');
-  assert.equal(unseenTail(10, 'é!', 8), '!', 'two UTF-8 bytes of é, then the new one');
+  assert.equal(unseenTail(10, Buffer.from('abc'), 10).toString(), 'abc', 'a chunk right at the end is new');
+  assert.equal(unseenTail(10, Buffer.from('abc'), 12).toString(), 'abc', 'past the end too (nothing to cut)');
+  assert.equal(unseenTail(10, Buffer.from('abc'), 7).toString(), '', 'a chunk the mirror already holds');
+  assert.equal(unseenTail(10, Buffer.from('abcd'), 7).toString(), 'd');
+  assert.equal(unseenTail(10, Buffer.from('é!'), 8).toString(), '!', 'two UTF-8 bytes of é, then the new one');
 });

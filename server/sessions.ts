@@ -72,7 +72,7 @@ import { scoped, type Logger } from './config-log.ts';
 import { ptyEnv } from './sessions-env.ts';
 import { earlyExitLine, replayTail, scanOutput } from './sessions-output.ts';
 import { sessionBlob, unseenTail } from './sessions-meta.ts';
-import { flushOutputLog, metaMarks, newSession, slowCloseLimiter, syncPending, type Session } from './sessions-state.ts';
+import { flushOutputLog, metaMarks, metaMarksChanged, newSession, slowCloseLimiter, syncPending, type Session } from './sessions-state.ts';
 import type { PtyEntrySummary, PtyExitRecord } from './pty-table.ts';
 import { createInProcessPtyHost, type PtyHost } from './pty-host-api.ts';
 import { adoptSessions, detachSessions, handOverSession, type AdoptContext } from './sessions-adopt.ts';
@@ -217,11 +217,12 @@ export class SessionManager {
       flushMeta: (id, session) => this.#flushMeta(id, session),
     };
     this.#host.listen({
-      output: (id, data, offset) => {
+      output: (id, data, offset, bytes) => {
         const session = this.#ptys.get(id);
         if (session === undefined) return;
-        const fresh = unseenTail(session.buffer.endOffset, data, offset);
-        if (fresh !== '') this.#onOutput(id, session, fresh);
+        const fresh = unseenTail(session.buffer.endOffset, bytes, offset);
+        if (fresh.byteLength === 0) return;
+        this.#onOutput(id, session, fresh === bytes ? data : fresh.toString('utf8'), fresh);
       },
       exit: (id, record) => this.#ended(id, record, 'exit'),
       // D9 P3: the pty-host holding this PTY is gone and its group was killed.
@@ -435,11 +436,15 @@ export class SessionManager {
     return { ...info };
   }
 
-  /** One chunk of PTY output: mirror ring, log counts, broadcast, bell and title scan. */
-  #onOutput(id: string, session: Session, data: string): void {
+  /**
+   * One chunk of PTY output: mirror ring, log counts, broadcast, bell and
+   * title scan. `bytes` is `data`'s UTF-8 as the host sent it (Q12): the
+   * mirror keeps it as is, never encodes `data` again.
+   */
+  #onOutput(id: string, session: Session, data: string, bytes: Buffer): void {
     const before = metaMarks(session);
-    session.buffer.append(data);
-    session.outBytes += Buffer.byteLength(data);
+    session.buffer.append(bytes);
+    session.outBytes += bytes.byteLength;
     session.outChunks += 1;
     flushOutputLog(this.#slog, id, session, false);
     this.#broadcast(session, { type: 'data', data });
@@ -456,7 +461,7 @@ export class SessionManager {
     // repaints its title about every second); any other title clears it.
     if (scan.titleIdle === true) session.titleIdleSince ??= Date.now();
     else if (scan.titleIdle === false) session.titleIdleSince = undefined;
-    if (metaMarks(session) !== before) this.#flushMeta(id, session);
+    if (metaMarksChanged(session, before)) this.#flushMeta(id, session);
   }
 
   /** The PTY exited (the host already called off a ladder whose group is gone). */
@@ -562,7 +567,7 @@ export class SessionManager {
   attach(id: string, ws: WebSocket): number | null {
     const session = this.#sessions.get(id);
     if (session === undefined) return null;
-    const replay = replayTail(session.buffer.toBuffer(), REPLAY_MAX_LINES);
+    const replay = replayTail(session.buffer, REPLAY_MAX_LINES);
     this.#slog(
       'debug',
       `${id} attach: replaying ${replay.byteLength} of ${session.buffer.byteLength} ring bytes, ` +
@@ -690,7 +695,7 @@ export class SessionManager {
     if (prevTurn === 'working' && report.turn === 'waiting') session.info.turnEnded = true;
     else if (report.turn === 'working') delete session.info.turnEnded;
     syncPending(session.info);
-    if (metaMarks(session) !== before) this.#flushMeta(id, session);
+    if (metaMarksChanged(session, before)) this.#flushMeta(id, session);
     this.#slog(
       'debug',
       `${id} agents updated: ${agents?.length ?? 0} row(s), ` +
@@ -709,7 +714,7 @@ export class SessionManager {
     // pending until the session works again or exits, so `pendingSince` goes
     // only when `turnEnded` is not set either.
     syncPending(session.info);
-    if (metaMarks(session) !== before) this.#flushMeta(id, session);
+    if (metaMarksChanged(session, before)) this.#flushMeta(id, session);
     return true;
   }
 
@@ -811,7 +816,10 @@ export class SessionManager {
   #broadcast(session: Session, message: ServerMessage): void {
     if (session.clients.size === 0) return;
     const text = JSON.stringify(message); // Once per broadcast, not once per client.
-    for (const ws of session.clients) this.#sendText(session, ws, text);
+    // Q12: with more than one client, UTF-8 encoded once too — ws would encode
+    // a string again for every socket. Still a TEXT frame, the same bytes.
+    const payload = session.clients.size > 1 ? Buffer.from(text, 'utf8') : text;
+    for (const ws of session.clients) this.#sendText(session, ws, payload);
   }
 
   #send(session: Session, ws: WebSocket, message: ServerMessage): void {
@@ -822,9 +830,9 @@ export class SessionManager {
    * One frame, then the backpressure check (Q9). Once CLOSING, nothing more is
    * queued; ws destroys the socket if the close handshake stalls 30 s.
    */
-  #sendText(session: Session, ws: WebSocket, text: string): void {
+  #sendText(session: Session, ws: WebSocket, text: string | Buffer): void {
     if (ws.readyState !== ws.OPEN) return;
-    ws.send(text);
+    ws.send(text, { binary: false });
     const unsent = ws.bufferedAmount;
     if (!(unsent > MAX_CLIENT_BUFFERED_BYTES)) return; // Closed only when PROVEN over.
     ws.close(SLOW_CLIENT_CLOSE_CODE, 'client too slow');

@@ -24,6 +24,8 @@ export interface FakePtyHost extends PtyHost {
   /** What `snapshot(id)` answers. */
   snapshots: Map<string, PtySnapshot>;
   events: () => PtyOwnerEvents | undefined;
+  /** Feed the listener one output chunk, as the host delivers it (text and its UTF-8 bytes). */
+  output: (id: string, text: string, offset: number) => void;
   /** Answer a held spawn with this pid. */
   answer: (id: string, pid?: number) => void;
 }
@@ -41,6 +43,7 @@ export function fakePtyHost(opts: { hold?: boolean } = {}): FakePtyHost {
     metas,
     snapshots,
     events: () => events,
+    output: (id, text, offset) => events?.output(id, text, offset, Buffer.from(text, 'utf8')),
     answer: (id, pid = 4242) => {
       const resolve = held.get(id);
       held.delete(id);

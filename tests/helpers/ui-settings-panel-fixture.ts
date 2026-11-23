@@ -161,6 +161,7 @@ export interface SettingsModule {
     anchor: unknown,
     deps: {
       repaintStatus(): void;
+      repaintTabs(): void;
       theme: {
         apply(next: TermPair): void;
         adopt(next: TermPair): void;
@@ -223,6 +224,7 @@ export const panel = S.initSettings(modalHost, anchor, {
   repaintStatus: () => {
     repaintHook.bump();
   },
+  repaintTabs: () => {},
   theme: themeStub,
 });
 export const scrim = modalHost.children[0] as FakeElement;

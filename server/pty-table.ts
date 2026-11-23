@@ -23,6 +23,12 @@
  * kills a lost pty-host's groups with the same code; `RingBuffer.restore`
  * seeds the mirror of an adopted session.
  *
+ * PLAN-QUALITY Q12 (the output path's speed): a chunk is UTF-8 encoded once,
+ * here — the ring keeps that buffer and the `output` event carries it on to
+ * the wire or the backend's mirror; the ring trims by a head index instead of
+ * `shift()`, hands its chunks newest-first to the replay cut, and
+ * `endOffset(id)` answers the exit line without building every summary.
+ *
  * Reached through server/pty-host-api.ts (the `PtyHost` interface and its
  * in-process implementation); server/sessions-state.ts and
  * server/sessions-output.ts import `RingBuffer` straight from here.
@@ -41,6 +47,19 @@ export const SCROLLBACK_MAX_BYTES = 1024 * 1024;
  * scrollback, the way it drops one live chunk — never all of it.
  */
 const RESTORE_SLICES = 64;
+
+/**
+ * The fewest trimmed chunks `RingBuffer` lets pile up before it cuts them off
+ * its array (#compact) — below that the copy costs more than the dead slots.
+ */
+const COMPACT_MIN_DEAD = 1024;
+
+/**
+ * What a trimmed slot points at until #compact cuts it off: the dropped chunk
+ * itself would stay alive there — up to COMPACT_MIN_DEAD chunks, ~4 MiB of
+ * node-pty's ~4 KB chunks per ring (Q12 review).
+ */
+const EMPTY = Buffer.alloc(0);
 
 /**
  * The per-session metadata blob's cap (D9 § Defaults: ≤ 16 KiB, UTF-8 bytes).
@@ -77,7 +96,15 @@ export function assertMetaSize(meta: string): void {
  * where the stream stands.
  */
 export class RingBuffer {
+  /**
+   * Live chunks are `#chunks[#head]` … the last one. Trimming advances `#head`
+   * instead of `shift()`ing (which moved every remaining chunk: 70 µs per
+   * append once a ring of 16-byte chunks reached the cap, PLAN-QUALITY Q12);
+   * a trimmed slot is blanked (EMPTY) and the dead prefix is cut off once it
+   * is the larger half (#compact).
+   */
   #chunks: Buffer[] = [];
+  #head = 0;
   #bytes = 0;
   #end = 0;
   readonly #maxBytes: number;
@@ -88,8 +115,13 @@ export class RingBuffer {
     this.#onTrim = onTrim;
   }
 
-  append(data: string): void {
-    let chunk = Buffer.from(data, 'utf8');
+  /**
+   * Append one chunk of UTF-8 bytes. The ring keeps `chunk` itself, not a
+   * copy (Q12: the output path encodes once), so the caller hands it over and
+   * nobody writes to it afterwards — it may be shared with a frame or the
+   * backend's mirror, which never write to it either.
+   */
+  append(chunk: Buffer): void {
     this.#end += chunk.byteLength;
     let trimmed = 0;
     if (chunk.byteLength > this.#maxBytes) {
@@ -97,18 +129,33 @@ export class RingBuffer {
       trimmed += this.#bytes + (chunk.byteLength - this.#maxBytes);
       chunk = chunk.subarray(chunk.byteLength - this.#maxBytes);
       this.#chunks = [];
+      this.#head = 0;
       this.#bytes = 0;
     }
     this.#chunks.push(chunk);
     this.#bytes += chunk.byteLength;
-    while (this.#bytes > this.#maxBytes && this.#chunks.length > 1) {
-      const dropped = this.#chunks.shift();
-      if (dropped !== undefined) {
-        this.#bytes -= dropped.byteLength;
-        trimmed += dropped.byteLength;
-      }
+    while (this.#bytes > this.#maxBytes && this.#chunks.length - this.#head > 1) {
+      const dropped = this.#chunks[this.#head] as Buffer;
+      this.#chunks[this.#head] = EMPTY;
+      this.#head += 1;
+      this.#bytes -= dropped.byteLength;
+      trimmed += dropped.byteLength;
     }
-    if (trimmed > 0 && this.#onTrim !== undefined) this.#onTrim(trimmed);
+    if (trimmed > 0) {
+      this.#compact();
+      if (this.#onTrim !== undefined) this.#onTrim(trimmed);
+    }
+  }
+
+  /**
+   * Drop the dead prefix once it is at least COMPACT_MIN_DEAD chunks AND at
+   * least as long as the live part: each copy then moves no more chunks than
+   * were dropped since the last one, so trimming stays O(1) amortized.
+   */
+  #compact(): void {
+    if (this.#head < COMPACT_MIN_DEAD || this.#head < this.#chunks.length - this.#head) return;
+    this.#chunks = this.#chunks.slice(this.#head);
+    this.#head = 0;
   }
 
   /**
@@ -139,9 +186,25 @@ export class RingBuffer {
     return this.#end;
   }
 
-  /** The ring's bytes, oldest first — what `replayTail` cuts without decoding. */
+  /** The ring's bytes, oldest first, as one new buffer (a snapshot for the next owner). */
   toBuffer(): Buffer {
-    return Buffer.concat(this.#chunks);
+    const out = Buffer.allocUnsafe(this.#bytes);
+    let at = 0;
+    for (let i = this.#head; i < this.#chunks.length; i++) {
+      const chunk = this.#chunks[i] as Buffer;
+      chunk.copy(out, at);
+      at += chunk.byteLength;
+    }
+    return out;
+  }
+
+  /**
+   * The ring's chunks, NEWEST first, as the views the ring holds (never to be
+   * written to) — so a reader that wants only the end (server/sessions-output.ts
+   * `replayTail`) stops early instead of copying the whole ring (Q12).
+   */
+  *chunksNewestFirst(): Generator<Buffer, void, undefined> {
+    for (let i = this.#chunks.length - 1; i >= this.#head; i--) yield this.#chunks[i] as Buffer;
   }
 
   /**
@@ -152,9 +215,8 @@ export class RingBuffer {
   head(maxBytes: number): Buffer {
     const parts: Buffer[] = [];
     let taken = 0;
-    for (const chunk of this.#chunks) {
-      if (taken >= maxBytes) break;
-      const part = chunk.subarray(0, maxBytes - taken);
+    for (let i = this.#head; i < this.#chunks.length && taken < maxBytes; i++) {
+      const part = (this.#chunks[i] as Buffer).subarray(0, maxBytes - taken);
       parts.push(part);
       taken += part.byteLength;
     }
@@ -237,9 +299,13 @@ export interface PtyEntrySummary {
  * the chunk's FIRST byte (UTF-8), so `offset + byteLength(data)` is the ring's
  * `endOffset` right after it. Both are delivered synchronously from node-pty's
  * own callbacks, so the rescued final output always precedes the exit.
+ *
+ * `bytes` is `data` as UTF-8, encoded once (PLAN-QUALITY Q12): the same
+ * buffer the ring keeps, so a receiver may keep it too (the backend's mirror,
+ * a frame) but never writes to it.
  */
 export interface PtyEvents {
-  output(id: string, data: string, offset: number): void;
+  output(id: string, data: string, offset: number, bytes: Buffer): void;
   exit(id: string, record: PtyExitRecord): void;
 }
 
@@ -325,8 +391,9 @@ export class PtyTable {
 
     const onOutput = (data: string): void => {
       const offset = entry.ring.endOffset;
-      entry.ring.append(data);
-      this.#events.output(id, data, offset);
+      const bytes = Buffer.from(data, 'utf8');
+      entry.ring.append(bytes);
+      this.#events.output(id, data, offset, bytes);
     };
     proc.onData(onOutput);
     // The child's last bytes can outlive node-pty's read stream; rescue them
@@ -397,6 +464,11 @@ export class PtyTable {
     const entry = this.#entries.get(id);
     if (entry === undefined) return undefined;
     return { ring: entry.ring.toBuffer(), endOffset: entry.ring.endOffset };
+  }
+
+  /** An entry's absolute output end, or undefined for an unknown id (no summary built, Q12). */
+  endOffset(id: string): number | undefined {
+    return this.#entries.get(id)?.ring.endOffset;
   }
 
   /**

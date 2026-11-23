@@ -177,9 +177,9 @@ test('live output that overlaps the adopted ring is cut to what the mirror lacks
   const { sessions } = await fakeHostManager(host, dirs);
   host.snapshots.set(ID, { ring: Buffer.from('hello '), endOffset: 1006 });
   await sessions.adopt([entry({ endOffset: 1006, meta: blob({ scannedTo: 1006 }) })]);
-  host.events()?.output(ID, 'hello ', 1000);
-  host.events()?.output(ID, 'lo wörld', 1003);
-  host.events()?.output(ID, '!', 1012);
+  host.output(ID, 'hello ', 1000);
+  host.output(ID, 'lo wörld', 1003);
+  host.output(ID, '!', 1012);
   assert.equal(replayOf(sessions, ID), 'hello wörld!');
 });
 
@@ -248,7 +248,7 @@ test('the blob rides the spawn and follows a bell and a look', async () => {
   const { id } = await sessions.create(LAUNCH);
   const first = parseSessionMeta(host.metas.get(id) ?? null);
   assert.deepEqual([first?.info.command, first?.info.args, first?.attention], ['bash', ['-l'], false], 'the spawn carried the first blob');
-  host.events()?.output(id, 'ding\x07', 0);
+  host.output(id, 'ding\x07', 0);
   const rung = parseSessionMeta(host.metas.get(id) ?? null);
   assert.deepEqual([rung?.attention, rung?.scannedTo], [true, 5], 'the bell and where the scan stood');
   assert.equal(rung?.pendingSince, sessions.get(id)?.pendingSince, 'and the pending stamp the next backend keeps');
@@ -333,7 +333,7 @@ test('the scan state rides the blob: a title still open at scannedTo ends in liv
   host.snapshots.set(ID, { ring: Buffer.from('\x1b]0;ti'), endOffset: 6 });
   const inTitle = { ...newOutputScan(), inOsc: true, osc: 'title' as const, titleLen: 2, titleIdle: false };
   await sessions.adopt([entry({ endOffset: 6, meta: blob({ scannedTo: 6, scan: inTitle }) })]);
-  host.events()?.output(ID, 'tle\x07', 6);
+  host.output(ID, 'tle\x07', 6);
   assert.equal(sessions.get(ID)?.attention, false, 'the title ended; nothing rang');
 });
 
@@ -344,11 +344,11 @@ test('an ended turn and an idle window title reach the blob', async () => {
   const report = (turn: 'working' | 'waiting') => ({ agents: [], counts: { running: 0, finished: 0 }, turn });
   // A bell first: the session is pending already, so the ended turn moves
   // no pending stamp — it must reach the blob by itself.
-  host.events()?.output(id, '\x07', 0);
+  host.output(id, '\x07', 0);
   sessions.setReport(id, report('working'));
   sessions.setReport(id, report('waiting'));
   assert.equal(parseSessionMeta(host.metas.get(id) ?? null)?.turnEnded, true, 'the ended turn');
-  host.events()?.output(id, '\x1b]0;✳ Claude Code\x07', 1);
+  host.output(id, '\x1b]0;✳ Claude Code\x07', 1);
   assert.equal(typeof parseSessionMeta(host.metas.get(id) ?? null)?.titleIdleSince, 'number', 'the idle-title stamp');
 });
 
@@ -427,7 +427,7 @@ test('a pty-host lost right after a Claude launch ends it as a crash, never as "
   const host = fakePtyHost();
   const { sessions } = await fakeHostManager(host, dirs, log);
   const { id } = await sessions.create({ ...LAUNCH, command: 'claude', args: [] });
-  host.events()?.output(id, 'Claude Code starting\r\n', 0);
+  host.output(id, 'Claude Code starting\r\n', 0);
   const { ws, frames } = fakeSocket();
   sessions.attach(id, ws);
   host.events()?.lost?.(id, Date.now());
@@ -445,7 +445,7 @@ test('a bell and a look on a session an ended turn keeps pending still reach the
   // no pending stamp, only `attention` — which the next backend must read.
   sessions.setReport(id, report('working'));
   sessions.setReport(id, report('waiting'));
-  host.events()?.output(id, '\x07', 0);
+  host.output(id, '\x07', 0);
   assert.equal(parseSessionMeta(host.metas.get(id) ?? null)?.attention, true, 'the bell');
   sessions.markSeen(id);
   assert.equal(parseSessionMeta(host.metas.get(id) ?? null)?.attention, false, 'the look');
@@ -494,7 +494,7 @@ test('a session whose blob cannot fit even cut runs without one: no blob rides t
   const { sessions } = await fakeHostManager(host, dirs);
   const { id } = await sessions.create({ ...LAUNCH, cwd: `/tmp/${'d'.repeat(20_000)}` });
   assert.equal(host.spawned[0]?.meta, undefined, 'the spawn carried no blob');
-  host.events()?.output(id, 'ding\x07', 0);
+  host.output(id, 'ding\x07', 0);
   sessions.markSeen(id);
   assert.deepEqual(host.calls.filter((c) => c.startsWith('set-meta')), [], 'nothing a pty-host would have to refuse');
   assert.equal(sessions.get(id)?.status, 'running', 'the session itself runs');
@@ -518,7 +518,7 @@ test('an exit parks the blob at the exit offset: the next backend re-scans nothi
   const { sessions } = await fakeHostManager(host, dirs);
   const { id } = await sessions.create(LAUNCH);
   // Plain output changes no field of the blob, so nothing is parked for it…
-  host.events()?.output(id, 'build ok\r\n', 0);
+  host.output(id, 'build ok\r\n', 0);
   assert.equal(parseSessionMeta(host.metas.get(id) ?? null)?.scannedTo, 0, 'still the spawn blob');
   // …until the exit, which parks it where the mirror ends.
   host.events()?.exit(id, { code: 0, signal: null, at: Date.now() });
@@ -529,11 +529,11 @@ test('output that arrives after the exit reaches neither the mirror nor the clie
   const host = fakePtyHost();
   const { sessions } = await fakeHostManager(host, dirs);
   const { id } = await sessions.create(LAUNCH);
-  host.events()?.output(id, 'last words\r\n', 0);
+  host.output(id, 'last words\r\n', 0);
   const { ws, frames } = fakeSocket();
   sessions.attach(id, ws);
   host.events()?.exit(id, { code: 0, signal: null, at: Date.now() });
-  host.events()?.output(id, 'stray\r\n', 'last words\r\n'.length);
+  host.output(id, 'stray\r\n', 'last words\r\n'.length);
   const after = frames.slice(frames.findIndex((f) => f.type === 'exit') + 1);
   assert.deepEqual(after, [], 'no frame follows the exit');
   assert.equal(replayOf(sessions, id), 'last words\r\n', 'the scrollback ends where the session did');

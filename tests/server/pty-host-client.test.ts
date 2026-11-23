@@ -5,7 +5,8 @@
  * deadline, the frames that arrive with the welcome, the ordering promise
  * (an `exit` after its spawn's continuation, `onLost` after that exit), a
  * reply the owner cannot use, the ids the wire cannot carry, a spawn already
- * in flight, a list answered in parts, and what a closed connection rejects.
+ * in flight, a list answered in parts, and what a closed connection rejects;
+ * PLAN-QUALITY Q12: a held batch with a new hold in it stays whole and in order.
  *
  * How: a stand-in host (`startFakeHost` in `tests/helpers/pty-host-fixture.ts`)
  * — a real socket and state file, but every answer scripted — because these
@@ -71,7 +72,7 @@ test('a host that never answers the hello fails the connect at the 2 s deadline'
 test('output sent in the same write as the welcome reaches the listener registered right after connect', async () => {
   const id = randomUUID();
   const f = await fake((sock, frame) => {
-    if (controlOf(frame)?.['t'] === 'hello') sock.write(Buffer.concat([fakeWelcome(), ...encodeOutput(id, 0, 'EARLY')]));
+    if (controlOf(frame)?.['t'] === 'hello') sock.write(Buffer.concat([fakeWelcome(), ...encodeOutput(id, 0, Buffer.from('EARLY'))]));
   });
   const owner = await connectPtyHost({ dataDir: f.dataDir, takeover: false });
   const seen: string[] = [];
@@ -110,6 +111,42 @@ test('an exit read with its `spawned` waits for the spawn\'s continuation, and o
   order.push('continuation');
   await waitUntil(() => (order.some((e) => e.startsWith('lost')) ? true : undefined), 'onLost');
   assert.deepEqual(order, ['continuation', 'exit', 'lost closed']);
+});
+
+test('a held batch with a second `spawned` in it is delivered whole and in order, across the new hold (Q12)', async () => {
+  // PLAN-QUALITY Q12: #release walks the held frames by index and joins a
+  // re-hold with concat (it shifted one by one and spread the rest into
+  // `unshift`). One write carries spawned A, a run of output, spawned B (a
+  // new hold mid-batch), more output and A's exit: every frame must arrive
+  // once, in the order sent, the exit after both runs.
+  const RUN = 3000;
+  const f = await fake(
+    welcoming((sock, frame) => {
+      const msg = controlOf(frame);
+      if (msg?.['t'] !== 'spawn') return;
+      const id = msg['id'] as string;
+      const out = (from: number): Buffer[] =>
+        Array.from({ length: RUN }, (_, i) => encodeOutput(id, from + i, Buffer.from(String((from + i) % 10)))).flat();
+      sock.write(
+        Buffer.concat([
+          encodeControl({ t: 'spawned', id, pid: 4242 }),
+          ...out(0),
+          encodeControl({ t: 'spawned', id: randomUUID(), pid: 4243 }),
+          ...out(RUN),
+          encodeControl({ t: 'exit', id, code: 0, signal: null, at: 1 }),
+        ]),
+      );
+    }),
+  );
+  const owner = await connectPtyHost({ dataDir: f.dataDir, takeover: false });
+  const offsets: number[] = [];
+  let exitAfter = -1;
+  owner.listen({ output: (_id, _data, offset) => offsets.push(offset), exit: () => (exitAfter = offsets.length) });
+  await owner.spawn({ id: randomUUID(), file: 'true', argv: [], cwd: '/', env: ENV, cols: 80, rows: 24 });
+  await waitUntil(() => (exitAfter >= 0 ? true : undefined), 'the exit');
+  assert.equal(offsets.length, 2 * RUN, 'every output frame arrived once');
+  assert.ok(offsets.every((o, i) => o === i), 'in the order they were sent');
+  assert.equal(exitAfter, 2 * RUN, 'the exit after every output frame, the ones behind the second hold too');
 });
 
 test('a reply the owner cannot use closes the connection and reports the host lost', async () => {
@@ -201,7 +238,7 @@ test('a hello answered by anything but a well-formed welcome fails the connect',
   for (const [name, answer] of [
     ['a goodbye', encodeControl({ t: 'bye', reason: 'shutdown' })],
     ['a welcome with a string protocol', encodeControl({ t: 'welcome', proto: '1', build: 'b', pid: 1, startedAt: 'x' } as never)],
-    ['an output frame', Buffer.concat(encodeOutput(randomUUID(), 0, 'x'))],
+    ['an output frame', Buffer.concat(encodeOutput(randomUUID(), 0, Buffer.from('x')))],
   ] as const) {
     const f = await fake((sock, frame) => {
       if (controlOf(frame)?.['t'] === 'hello') sock.write(answer);
@@ -243,7 +280,7 @@ test('frames read before a bad one in the same chunk are delivered, then the con
   const f = await fake(
     welcoming((sock, frame) => {
       if (controlOf(frame)?.['t'] !== 'list') return;
-      sock.write(Buffer.concat([...encodeOutput(id, 0, 'LAST'), encodeControl({ t: 'exit', id, code: 0, signal: null, at: 1 }), oversize]));
+      sock.write(Buffer.concat([...encodeOutput(id, 0, Buffer.from('LAST')), encodeControl({ t: 'exit', id, code: 0, signal: null, at: 1 }), oversize]));
     }),
   );
   const owner = await connectPtyHost({ dataDir: f.dataDir, takeover: false });

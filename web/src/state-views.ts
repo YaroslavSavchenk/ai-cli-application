@@ -214,11 +214,29 @@ export function initServer(projects: Project[], sessions: SessionInfo[]): void {
   state.sessions = new Map(sessions.map((s) => [s.id, s]));
 }
 
-/** Full refresh from GET /api/sessions. */
+/**
+ * Everything the UI can read off the session list, as one string: every
+ * field of every session, in list order. Compared against what the store
+ * holds NOW — not against the last poll — so a local change the poll has not
+ * confirmed yet (`markSeenLocally`, `setAttention`) counts as a difference.
+ */
+function sessionsSig(list: Iterable<SessionInfo>): string {
+  return JSON.stringify(Array.from(list));
+}
+
+/**
+ * Full refresh from GET /api/sessions (the 3 s poll). Notifies `'sessions'`
+ * only when the list differs from what the store holds (Quality Q12): most
+ * polls change nothing, and every subscriber used to redo its work on each
+ * one. Nothing that ages hangs on this tick — the pane status bar's `Time`
+ * and the statusline's `Up` have their own 15 s timers, and the update
+ * dialog's lead is repainted by the runtime poll that changes it.
+ */
 export function setSessions(list: SessionInfo[]): void {
+  const same = sessionsSig(state.sessions.values()) === sessionsSig(list);
   state.sessions = new Map(list.map((s) => [s.id, s]));
   const changed = reconcileViews(state.activeViewId);
-  notify('sessions');
+  if (!same) notify('sessions');
   if (changed) notify('ui');
 }
 

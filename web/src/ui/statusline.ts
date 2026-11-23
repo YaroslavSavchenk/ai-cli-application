@@ -28,6 +28,12 @@ let flashMsg: string | null = null;
 let flashTimer: number | null = null;
 /** Mutable `Up …` span — a 15 s ticker updates it (the readout only changes per minute) without a full rebuild. */
 let upSeg: HTMLElement | null = null;
+/**
+ * What the bar last drew, as one string (Quality Q12). Every notify of any
+ * kind used to rebuild every segment and a new button with a new listener —
+ * the 3 s session poll, the 5 s latency pong. `null` until the first draw.
+ */
+let lastSig: string | null = null;
 
 function upText(): string {
   return st.state.serverStartedAt !== null ? `Up ${fmtUptime(st.state.serverStartedAt)}` : 'Up —';
@@ -47,6 +53,7 @@ export function flash(msg: string): void {
 export function initStatusline(container: HTMLElement, d: Deps): { render(): void } {
   root = container;
   deps = d;
+  lastSig = null; // a new container has drawn nothing yet
   // Minute resolution, so a 15 s tick is the coarsest that still moves the
   // readout within a minute of the rollover (a 1 s tick was 59 no-ops out of
   // 60). The first paint comes from `render()`, not from this timer.
@@ -58,36 +65,48 @@ export function initStatusline(container: HTMLElement, d: Deps): { render(): voi
 
 export function render(): void {
   if (root === null || deps === null) return;
-  const nodes: HTMLElement[] = [];
 
   // ALIVE sessions only (v3: `sessions.filter(x => x.status !== 'exited')`).
   // A finished session stays listed in the drawer until it is dismissed; the
   // statusline counts what is still running, not what is still on file.
   let sessions = 0;
   for (const s of st.state.sessions.values()) if (s.status !== 'exited') sessions += 1;
-  nodes.push(el('span', 'status-seg', `${sessions} ${sessions === 1 ? 'session' : 'sessions'}`));
+  const sessionsText = `${sessions} ${sessions === 1 ? 'session' : 'sessions'}`;
 
   const v = st.activeView();
   // Every pane of the active tab, whatever it shows: since part A10b a pane is
   // a terminal or an EDITOR holding one or more file tabs, and the readout
   // counts PANES — four files in one strip are one pane, and say so.
   const panes = v === null ? 0 : v.slots.length;
-  nodes.push(el('span', 'status-seg', `${panes} ${panes === 1 ? 'pane' : 'panes'}`));
+  const panesText = `${panes} ${panes === 1 ? 'pane' : 'panes'}`;
 
   // BELs only ('Needs your answer'). A session whose Claude merely ended its
   // turn ('Waiting for you') shows that on its own pane and is NOT counted
   // here (user, 2026-09-22, on the B11 check).
   const waiting = st.attentionCount();
+
+  const lat = st.state.wsLatencyMs;
+  const latText = lat !== null ? `Latency ${lat} ms` : 'Latency —';
+  const up = upText();
+
+  // Unchanged text = nothing to redraw, and the button keeps its node, its
+  // listener and the keyboard.
+  const sig = JSON.stringify([sessionsText, panesText, waiting, flashMsg, latText, up]);
+  if (sig === lastSig) return;
+  lastSig = sig;
+
+  const nodes: HTMLElement[] = [];
+  nodes.push(el('span', 'status-seg', sessionsText));
+  nodes.push(el('span', 'status-seg', panesText));
   if (waiting > 0) nodes.push(el('span', 'status-attn', `${waiting} waiting for you`));
 
   nodes.push(el('span', 'status-gap'));
 
   if (flashMsg !== null) nodes.push(el('span', 'status-flash', flashMsg));
 
-  const lat = st.state.wsLatencyMs;
-  nodes.push(el('span', 'status-seg', lat !== null ? `Latency ${lat} ms` : 'Latency —'));
+  nodes.push(el('span', 'status-seg', latText));
 
-  upSeg = el('span', 'status-seg', upText());
+  upSeg = el('span', 'status-seg', up);
   nodes.push(upSeg);
 
   const hadFocus =

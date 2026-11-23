@@ -445,3 +445,22 @@ test('a claude launched by absolute PATH is named by the PRODUCT name, never by 
   H.projectNames = {};
   for (const fn of H.subscribers) fn('sessions');
 });
+
+test('an open notice follows a project rename in its qualifier (Q12 review)', async () => {
+  // The qualifier used to refresh on the next 3 s session poll; an unchanged
+  // poll notifies nothing now, so `projects` repaints the notice.
+  H.projectNames = { p1: 'Alpha', p2: 'Beta' };
+  H.sessions = new Map([
+    ['a', staleSess('a', 'claude', 'p1')],
+    ['b', staleSess('b', 'claude', 'p2')],
+  ]);
+  await reopen();
+  const names = byClass(panelOf('status'), 'sg-notice-names')[0] as FakeElement;
+  assert.equal(names.textContent, 'Claude Code (Alpha), Claude Code (Beta)', 'non-vacuity: the old name first');
+  H.projectNames = { p1: 'Gamma', p2: 'Beta' };
+  for (const fn of H.subscribers) fn('projects');
+  assert.equal(names.textContent, 'Claude Code (Gamma), Claude Code (Beta)', 'the renamed project qualifies its session');
+  H.sessions = new Map();
+  H.projectNames = {};
+  for (const fn of H.subscribers) fn('sessions');
+});

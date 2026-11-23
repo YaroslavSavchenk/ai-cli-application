@@ -329,15 +329,22 @@ function uuidText(bytes: Buffer): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/**
+ * One frame, written into ONE buffer: header and parts copied once (Q12 — no
+ * separate header buffer, no `Buffer.concat` of a spread array).
+ */
 function frame(kind: number, parts: Buffer[]): Buffer {
-  const length = parts.reduce((n, p) => n + p.byteLength, 0);
+  let length = 0;
+  for (const p of parts) length += p.byteLength;
   if (length > MAX_FRAME_PAYLOAD) {
     throw new RangeError(`a pty-host frame of ${length} bytes is over the ${MAX_FRAME_PAYLOAD}-byte cap`);
   }
-  const header = Buffer.allocUnsafe(HEADER_BYTES);
-  header.writeUInt32BE(length, 0);
-  header.writeUInt8(kind, 4);
-  return Buffer.concat([header, ...parts], HEADER_BYTES + length);
+  const out = Buffer.allocUnsafe(HEADER_BYTES + length);
+  out.writeUInt32BE(length, 0);
+  out.writeUInt8(kind, 4);
+  let at = HEADER_BYTES;
+  for (const p of parts) at += p.copy(out, at);
+  return out;
 }
 
 /** One control message. Throws a RangeError when it does not fit a frame. */
@@ -352,11 +359,11 @@ function u64(n: number): Buffer {
 }
 
 /**
- * Text as UTF-8 pieces of at most `max` bytes, each cut before a character's
- * first byte so every piece decodes on its own (no U+FFFD at a seam).
+ * UTF-8 bytes as pieces of at most `max` bytes (views, no copy), each cut
+ * before a character's first byte so every piece decodes on its own (no
+ * U+FFFD at a seam). `all` must itself start on a character.
  */
-export function utf8Pieces(text: string, max: number = TEXT_PIECE_BYTES): Buffer[] {
-  const all = Buffer.from(text, 'utf8');
+export function utf8Pieces(all: Buffer, max: number = TEXT_PIECE_BYTES): Buffer[] {
   const pieces: Buffer[] = [];
   let start = 0;
   while (all.byteLength - start > max) {
@@ -370,11 +377,15 @@ export function utf8Pieces(text: string, max: number = TEXT_PIECE_BYTES): Buffer
   return pieces;
 }
 
-/** One output chunk as frames; `offset` is the absolute offset of its first byte. */
-export function encodeOutput(id: string, offset: number, text: string): Buffer[] {
+/**
+ * One output chunk as frames; `offset` is the absolute offset of its first
+ * byte. `bytes` is the chunk's UTF-8 as the ring holds it (Q12: encoded once,
+ * on the pty-host's side, by server/pty-table.ts) — read, never written.
+ */
+export function encodeOutput(id: string, offset: number, bytes: Buffer): Buffer[] {
   const head = uuidBytes(id);
   let at = offset;
-  return utf8Pieces(text).map((piece) => {
+  return utf8Pieces(bytes).map((piece) => {
     const f = frame(KIND_OUTPUT, [head, u64(at), piece]);
     at += piece.byteLength;
     return f;
@@ -384,7 +395,7 @@ export function encodeOutput(id: string, offset: number, text: string): Buffer[]
 /** Input text for one session as frames. */
 export function encodeInput(id: string, text: string): Buffer[] {
   const head = uuidBytes(id);
-  return utf8Pieces(text).map((piece) => frame(KIND_INPUT, [head, piece]));
+  return utf8Pieces(Buffer.from(text, 'utf8')).map((piece) => frame(KIND_INPUT, [head, piece]));
 }
 
 /** The answer to `snapshot` request `req`; `undefined` = no such session. */
@@ -398,7 +409,8 @@ export function encodeSnapshot(req: number, snapshot: PtySnapshot | undefined): 
 
 export type Frame =
   | { kind: 'control'; message: unknown }
-  | { kind: 'output'; id: string; offset: number; text: string }
+  /** `bytes` is `text`'s UTF-8, a copy the receiver owns (the backend's mirror keeps it, Q12). */
+  | { kind: 'output'; id: string; offset: number; text: string; bytes: Buffer }
   | { kind: 'input'; id: string; text: string }
   | { kind: 'snapshot'; req: number; snapshot: PtySnapshot | undefined };
 
@@ -415,10 +427,12 @@ function decode(kind: number, payload: Buffer): Frame {
       const fixed = kind === KIND_OUTPUT ? UUID_BYTES + 8 : UUID_BYTES;
       if (payload.byteLength < fixed) throw new WireError('a data frame is shorter than its header');
       const id = uuidText(payload.subarray(0, UUID_BYTES));
-      const text = payload.subarray(fixed).toString('utf8');
-      if (kind === KIND_INPUT) return { kind: 'input', id, text };
+      if (kind === KIND_INPUT) return { kind: 'input', id, text: payload.subarray(fixed).toString('utf8') };
       const offset = Number(payload.readBigUInt64BE(UUID_BYTES));
-      return { kind: 'output', id, offset, text };
+      // A copy, as for a snapshot: the payload is a view into the reader's
+      // buffers, and a ring of such views would pin every socket read behind them.
+      const bytes = Buffer.from(payload.subarray(fixed));
+      return { kind: 'output', id, offset, text: bytes.toString('utf8'), bytes };
     }
     case KIND_SNAPSHOT: {
       if (payload.byteLength < 13) throw new WireError('a snapshot frame is shorter than its header');

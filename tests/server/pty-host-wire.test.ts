@@ -70,7 +70,7 @@ test('every frame kind round-trips through the reader, whatever the chunking', (
   const ring = Buffer.from('ring ✓ bytes', 'utf8');
   const stream = Buffer.concat([
     encodeControl({ t: 'spawned', id, pid: 4242 }),
-    ...encodeOutput(id, 7, 'héllo'),
+    ...encodeOutput(id, 7, Buffer.from('héllo')),
     ...encodeInput(id, 'ls\r'),
     encodeSnapshot(3, { ring, endOffset: 99 }),
     encodeSnapshot(4, undefined),
@@ -78,7 +78,7 @@ test('every frame kind round-trips through the reader, whatever the chunking', (
   const frames = byteByByte(stream);
   assert.deepEqual(frames, [
     { kind: 'control', message: { t: 'spawned', id, pid: 4242 } },
-    { kind: 'output', id, offset: 7, text: 'héllo' },
+    { kind: 'output', id, offset: 7, text: 'héllo', bytes: Buffer.from('héllo') },
     { kind: 'input', id, text: 'ls\r' },
     { kind: 'snapshot', req: 3, snapshot: { ring, endOffset: 99 } },
     { kind: 'snapshot', req: 4, snapshot: undefined },
@@ -122,14 +122,14 @@ test('an unknown kind, a control frame that is not JSON and a short data frame a
 test('text is cut only at a character boundary and output offsets continue across the pieces', () => {
   // 3-byte and 4-byte characters around every cut of a 10-byte piece.
   const text = 'a€😀b€€😀😀c'.repeat(40);
-  const pieces = utf8Pieces(text, 10);
+  const pieces = utf8Pieces(Buffer.from(text), 10);
   assert.ok(pieces.length > 10, 'the text is really cut');
   assert.equal(pieces.map((p) => p.toString('utf8')).join(''), text, 'no character is split or lost');
   for (const p of pieces) assert.ok(!p.toString('utf8').includes('�'), 'each piece decodes on its own');
 
   const id = randomUUID();
   const big = '€'.repeat(200_000); // 600 000 bytes: three output frames
-  const frames = encodeOutput(id, 1000, big).flatMap((f) => new FrameReader().push(f));
+  const frames = encodeOutput(id, 1000, Buffer.from(big)).flatMap((f) => new FrameReader().push(f));
   assert.ok(frames.length > 1, 'a chunk over the piece size becomes several frames');
   let expected = 1000;
   for (const f of frames) {
@@ -143,7 +143,7 @@ test('text is cut only at a character boundary and output offsets continue acros
 
 test('a session id that is not a uuid cannot be put on the wire', () => {
   assert.throws(() => encodeInput('not-a-uuid', 'x'), RangeError);
-  assert.throws(() => encodeOutput('ABCDEF00-0000-0000-0000-000000000000', 0, 'x'), RangeError);
+  assert.throws(() => encodeOutput('ABCDEF00-0000-0000-0000-000000000000', 0, Buffer.from('x')), RangeError);
 });
 
 test('a client message with a field of the wrong shape is unknown, never guessed', () => {
@@ -235,7 +235,7 @@ test('a frame of exactly the cap is read whole; the cap is the payload, not the 
 
 test('no text piece is longer than its limit, the last one included', () => {
   for (const len of [10, 11, 19, 20, 21]) {
-    const pieces = utf8Pieces('a'.repeat(len), 10);
+    const pieces = utf8Pieces(Buffer.from('a'.repeat(len)), 10);
     for (const p of pieces) assert.ok(p.byteLength <= 10, `${len} bytes: a piece of ${p.byteLength}`);
     assert.equal(pieces.reduce((n, p) => n + p.byteLength, 0), len, `${len} bytes: nothing lost`);
   }
@@ -482,7 +482,7 @@ test('a bad frame after good ones in one chunk: the error carries the good frame
   const bad = Buffer.alloc(5 + 2);
   bad.writeUInt32BE(2, 0);
   bad.writeUInt8(9, 4); // unknown kind
-  const chunk = Buffer.concat([encodeControl({ t: 'bye', reason: 'idle' }), ...encodeOutput(id, 3, 'ok'), bad]);
+  const chunk = Buffer.concat([encodeControl({ t: 'bye', reason: 'idle' }), ...encodeOutput(id, 3, Buffer.from('ok')), bad]);
   let caught: unknown;
   try {
     new FrameReader().push(chunk);
@@ -492,6 +492,6 @@ test('a bad frame after good ones in one chunk: the error carries the good frame
   assert.ok(caught instanceof WireError, 'still a wire error');
   assert.deepEqual(caught.frames, [
     { kind: 'control', message: { t: 'bye', reason: 'idle' } },
-    { kind: 'output', id, offset: 3, text: 'ok' },
+    { kind: 'output', id, offset: 3, text: 'ok', bytes: Buffer.from('ok') },
   ]);
 });

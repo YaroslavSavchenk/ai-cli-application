@@ -82,6 +82,8 @@ interface Harness {
   updateCalls: number;
   releasesOpened: number;
   terminalFocus: number;
+  /** What update.ts subscribed to the store; a test plays a change kind through them. */
+  subscribers: ((kind: string) => void)[];
 }
 
 const H: Harness = {
@@ -97,6 +99,7 @@ const H: Harness = {
   updateCalls: 0,
   releasesOpened: 0,
   terminalFocus: 0,
+  subscribers: [],
 };
 (globalThis as unknown as Record<string, unknown>).__rsHarness = H;
 
@@ -133,7 +136,7 @@ const STUB_SRC: Record<string, string> = {
     }
     export function setRestarting(v) { state.restarting = v; H.restarting.push(v); }
     export function setRunStamp(at) { state.serverStartedAt = at; }
-    export function subscribe() {}`,
+    export function subscribe(fn) { H.subscribers.push(fn); }`,
   log: `
     const noop = () => {};
     export const log = { debug: noop, info: noop, warn: noop, error: noop, hold: noop, resume: noop };
@@ -281,6 +284,23 @@ test('the question names every running session, its project, and what it costs',
   assert.equal(dom.doc.activeElement, btn('Restart'), 'the commitment takes focus');
   UP.closeRestartConfirm();
   assert.equal(dom.doc.activeElement, settingsBtn, 'closing hands the keyboard back to the opener');
+});
+
+test('an open question follows a project rename: the row names the new project (Q12 review)', () => {
+  // A rename used to reach the rows on the next 3 s session poll; an unchanged
+  // poll notifies nothing now, so `projects` repaints them.
+  reset();
+  setSessions(session('s1', { title: 'api server' }));
+  UP.openRestartConfirm('settings');
+  try {
+    assert.deepEqual(texts('rs-proj'), [', api'], 'non-vacuity: the old name first');
+    H.projects = [{ id: 'p1', name: 'backend' }];
+    for (const fn of H.subscribers) fn('projects');
+    assert.deepEqual(texts('rs-proj'), [', backend'], 'the row names the renamed project');
+  } finally {
+    UP.closeRestartConfirm();
+    H.projects = [{ id: 'p1', name: 'api' }];
+  }
 });
 
 test('an exited session is not in the list, and no session at all still asks the question', () => {
@@ -434,6 +454,31 @@ test('the toast asks the update question; the dialog it opens is the update one'
   go?.click();
   assert.equal(UP.isRestartConfirmOpen(), true);
   assert.deepEqual(texts('rs-title'), ['Restart the background service?']);
+  UP.closeRestartConfirm();
+  H.update = null;
+  UP.applyRuntime();
+});
+
+test('an open update question follows a newer release from the next runtime answer (Q12)', () => {
+  // The lead used to reach the open question on the next 3 s session poll;
+  // an unchanged poll notifies nothing now, so the answer that changed it
+  // repaints it.
+  reset();
+  setSessions(session('s1'));
+  const release = (version: string) => ({
+    version,
+    setupName: `AI-Session-Manager-Setup-${version}.exe`,
+    setupUrl: 'https://example.invalid/s.exe',
+    sumsUrl: 'https://example.invalid/SHA256SUMS.txt',
+    size: 1024,
+  });
+  H.update = { available: true, reason: 'a new version is available', release: release('v0.3.0') };
+  UP.applyRuntime();
+  UP.openRestartConfirm('toast');
+  assert.equal(texts('rs-lead')[0], 'Version v0.3.0 will be downloaded and installed.');
+  H.update = { available: true, reason: 'a new version is available', release: release('v0.3.1') };
+  UP.applyRuntime();
+  assert.equal(texts('rs-lead')[0], 'Version v0.3.1 will be downloaded and installed.');
   UP.closeRestartConfirm();
   H.update = null;
   UP.applyRuntime();

@@ -446,7 +446,7 @@ test('boot builds the panes AFTER the chrome has its first content — one resiz
   const panes = shell.indexOf('initPanes(grid,');
   assert.notEqual(panes, -1, 'non-vacuity: buildShell builds the panes');
   assert.equal(shell.split('initPanes(').length - 1, 1, 'exactly once');
-  for (const first of ['updateChrome();\n  tabs.render();', 'filesPanel.render();\n', 'st.subscribe(() => {']) {
+  for (const first of ['updateChrome();\n  tabs.render();', 'filesPanel.render();\n', 'st.subscribe((kind) => {']) {
     const at = shell.lastIndexOf(first, panes);
     assert.notEqual(at, -1, `buildShell runs ${first.trim()} before the panes`);
   }
@@ -455,7 +455,7 @@ test('boot builds the panes AFTER the chrome has its first content — one resiz
     'the screen layout is still subscribed before the panes (a hidden grid refuses a render)',
   );
   assert.ok(
-    shell.lastIndexOf('filesPanel.render();', panes) > shell.lastIndexOf('st.subscribe(() => {', panes),
+    shell.lastIndexOf('filesPanel.render();', panes) > shell.lastIndexOf('st.subscribe((kind) => {', panes),
     'the panes come after the INITIAL chrome render, not merely after its subscription',
   );
 });

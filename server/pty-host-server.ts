@@ -225,9 +225,9 @@ export class PtyHostServer {
     this.#opts = opts;
     this.#log = opts.log;
     this.#table = new PtyTable(opts.log, {
-      output: (id, data, offset) => this.#onOutput(id, data, offset),
+      output: (id, _data, offset, bytes) => this.#onOutput(id, offset, bytes),
       exit: (id, record) => {
-        const end = this.#table.list().find((e) => e.id === id)?.endOffset ?? 0;
+        const end = this.#table.endOffset(id) ?? 0;
         scoped(this.#log, 'pty')(
           'info',
           `${id} exited (code ${record.code}, signal ${record.signal ?? 'none'}, ${end} output bytes)`,
@@ -532,10 +532,10 @@ export class PtyHostServer {
     this.#send(conn, { t: 'list-part', req, entries: part, done: true });
   }
 
-  #onOutput(id: string, data: string, offset: number): void {
+  #onOutput(id: string, offset: number, bytes: Buffer): void {
     const owner = this.#owner;
     if (owner === undefined) return; // The ring keeps it for the next owner's snapshot.
-    for (const f of encodeOutput(id, offset, data)) this.#write(owner, f);
+    for (const f of encodeOutput(id, offset, bytes)) this.#write(owner, f);
   }
 
   #sendOwner(msg: HostMessage): void {

@@ -1,6 +1,6 @@
 # Plan: code quality first, then the app's speed
 
-Status: see the table below (updated 2026-11-22, Q9–Q15 added). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-11-23, Q12 landed). Conventions: `.claude/plans/README.md`.
 
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
@@ -22,7 +22,7 @@ Status: see the table below (updated 2026-11-22, Q9–Q15 added). Conventions: `
 | Q9 | Real bugs from the 2026-11-22 audit: a `null` WS frame crashes the backend, no WS `maxPayload`, no backpressure to a stalled browser, the End-session arm lost on every poll, git polled while the window is hidden | landed | — | 2026-11-22 |
 | Q10 | The suite's idle tails: ref'd race timers keep 66 files alive 5–15 s; one `withDeadline` helper; the pty-host CI leg runs only the server tests | landed | — | 2026-11-22 |
 | Q11 | Dead code, needless exports, duplicates that differ, stale comments — `server/`, `shared/`, `web/` | landed | — | 2026-11-22 |
-| Q12 | The app's speed: the output path (encode/copy once, ring without `shift()`, stringify once per broadcast), the logger's open/close per line, renders skipped when nothing changed, xterm in its own chunk | todo | — | — |
+| Q12 | The app's speed: the output path (encode/copy once, ring without `shift()`, stringify once per broadcast), the logger's open/close per line, renders skipped when nothing changed, xterm in its own chunk | landed | — | 2026-11-23 |
 | Q13 | Files at 950+ of 1 000 lines cut at their natural seams | landed | — | 2026-11-22 |
 | Q14 | Documents: `.claude/PROJECT-SCOPE.md` § Open decisions to history, `memory/BACKLOG.md` done items out, released notes drafts gone, agent definitions current | landed | — | 2026-11-22 |
 | Q15 | Dependencies: the open bumps (vite, source-map-js, `@types/*`), `.github/dependabot.yml` for npm and the pinned GitHub Actions | todo | — | — |
