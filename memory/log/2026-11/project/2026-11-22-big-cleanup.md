@@ -154,3 +154,15 @@ Built 2026-11-22, landed the next day after the session ran out mid-review.
 - Reviews: security clean; scope 2 should-fix, fixed with a failing-first
   test each. Suite 4676 / 0.
 
+## Q15 — dependencies (landed 2026-11-23)
+
+- The first try (worktree in a session scratchpad, 2026-11-22) was lost with
+  the scratchpad: no commits; worktree pruned.
+- vite 8.3.8 and source-map-js 1.2.4 were already current (Dependabot
+  bump of 2026-11-20). Bumped: `@types/node` 26.1.1 → 26.6.6, `@types/ws`
+  8.18.1 → 8.18.2 (floors in `package.json` raised too). Typecheck clean.
+- `.github/dependabot.yml`: weekly npm and github-actions version PRs,
+  `@types/*` grouped, actions grouped (they stay SHA-pinned; Dependabot
+  updates SHA + version comment).
+- Suite 4676 / 0. PLAN-QUALITY has no `todo` row left.
+

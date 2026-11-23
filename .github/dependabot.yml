@@ -1,0 +1,20 @@
+# Dependabot (PLAN-QUALITY Q15): weekly version-bump PRs for the npm
+# dependencies and for the GitHub Actions the workflows pin by commit SHA.
+# Security alerts arrive independently of this file.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      types:
+        patterns: ['@types/*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
