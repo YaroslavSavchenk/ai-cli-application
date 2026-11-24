@@ -143,15 +143,15 @@ const UC = (await import(new URL('../../web/src/ui/update-check.ts', import.meta
 /** A `createdAt` this many ms after (or, negative, before) the page loaded. */
 const born = (ms: number): string => new Date(performance.timeOrigin + ms).toISOString();
 
-const RANGE = { min: '2.1.263', testedUpTo: '2.1.287' };
-const NEWER = 'This app was tested up to Claude Code 2.1.287. You have 2.1.300. If launches fail, check for an app update.';
+const RANGE = { min: '2.1.263', testedUpTo: '2.1.325' };
+const NEWER = 'This app was tested up to Claude Code 2.1.325. You have 2.1.400. If launches fail, check for an app update.';
 const OLDER = 'Claude Code 2.1.250 is older than this app needs (2.1.263). Update Claude Code.';
 
 const modalHost = dom.doc.createElement('div');
 dom.body.append(modalHost);
 const { toasts } = UP.initUpdate(modalHost);
 // The boot bag hid an OLDER version than the one now installed.
-CN.initClaudeNotice(toasts, { claudeNoticeHidden: '2.1.299' }, () => {
+CN.initClaudeNotice(toasts, { claudeNoticeHidden: '2.1.399' }, () => {
   H.refocus += 1;
 });
 
@@ -189,7 +189,7 @@ test('non-vacuity: one stack, the update toast first and the notice second, both
 });
 
 test('newer: the card shows the spec’s sentence byte-exact, on the attention rule', () => {
-  land({ version: '2.1.300', compat: 'newer', ...RANGE });
+  land({ version: '2.1.400', compat: 'newer', ...RANGE });
   assert.equal(card.hidden, false);
   assert.equal(text('ut-title'), 'Claude Code is newer than tested');
   assert.equal(text('ut-body'), NEWER);
@@ -281,22 +281,22 @@ test('Hide writes claudeNoticeHidden = the shown version, and the keyboard goes 
   btn(card, 'Hide').click();
   await settle();
   assert.equal(card.hidden, true);
-  assert.deepEqual(H.writes, [{ patch: { claudeNoticeHidden: '2.1.300' }, drop: [] }]);
+  assert.deepEqual(H.writes, [{ patch: { claudeNoticeHidden: '2.1.400' }, drop: [] }]);
   assert.equal(H.refocus, focus + 1);
   // A poll repeating the same version keeps it hidden.
-  land({ version: '2.1.300', compat: 'newer', ...RANGE });
+  land({ version: '2.1.400', compat: 'newer', ...RANGE });
   assert.equal(card.hidden, true, 'hidden until a different version is seen');
 });
 
 test('a different version shows it again; × hides that one the same way', async () => {
-  land({ version: '2.1.301', compat: 'newer', ...RANGE });
+  land({ version: '2.1.401', compat: 'newer', ...RANGE });
   assert.equal(card.hidden, false);
   assert.equal(answerLine().hidden, true, 'the last answer was about the version before');
   H.writes.length = 0;
   (byClass(card, 'ut-x')[0] as FakeElement).click();
   await settle();
   assert.equal(card.hidden, true);
-  assert.deepEqual(H.writes, [{ patch: { claudeNoticeHidden: '2.1.301' }, drop: [] }]);
+  assert.deepEqual(H.writes, [{ patch: { claudeNoticeHidden: '2.1.401' }, drop: [] }]);
 });
 
 test('an attach replay of a session created before the page loaded (a reload) does not bring it back', async () => {
@@ -338,13 +338,13 @@ test('a WS reconnect replaying that same live exit does not bring a re-hidden no
 });
 
 test('an early exit with compat ok writes nothing', async () => {
-  land({ version: '2.1.287', compat: 'ok', ...RANGE });
+  land({ version: '2.1.325', compat: 'ok', ...RANGE });
   assert.equal(card.hidden, true);
   H.writes.length = 0;
   // Hidden for some version, but the server says this one is fine.
-  land({ version: '2.1.302', compat: 'newer', ...RANGE });
+  land({ version: '2.1.402', compat: 'newer', ...RANGE });
   btn(card, 'Hide').click();
-  land({ version: '2.1.287', compat: 'ok', ...RANGE });
+  land({ version: '2.1.325', compat: 'ok', ...RANGE });
   H.writes.length = 0;
   CN.noteEarlyExit('s-ok', born(4_000));
   await settle();
@@ -367,8 +367,8 @@ test('missing and unknown show no card', () => {
 });
 
 test('runtimeFacts carries the Claude Code fact the Settings page prints', () => {
-  land({ version: '2.1.287', compat: 'ok', ...RANGE });
-  assert.equal(UP.runtimeFacts().claude, 'Claude Code 2.1.287 (tested up to 2.1.287)');
+  land({ version: '2.1.325', compat: 'ok', ...RANGE });
+  assert.equal(UP.runtimeFacts().claude, 'Claude Code 2.1.325 (tested up to 2.1.325)');
   land({ version: null, compat: 'missing', ...RANGE });
   assert.equal(UP.runtimeFacts().claude, 'Claude Code not found');
   land({ version: null, compat: 'unknown', ...RANGE });

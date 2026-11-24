@@ -53,14 +53,14 @@ before(async () => {
   await writeFile(
     join(binDir, 'claude'),
     `#!/bin/sh\nif [ "$1" = "--version" ]; then\n  : >> "$AI_SM_TEST_MARKER"\n  sleep ${SLOW_VERSION_S}\n` +
-      `  printf '2.1.287 (Claude Code)\\n'\n  exit 0\nfi\nsleep 300\n`,
+      `  printf '2.1.325 (Claude Code)\\n'\n  exit 0\nfi\nsleep 300\n`,
     { mode: 0o755 },
   );
   const path = `${binDir}:${process.env['PATH'] ?? ''}`;
   [slow, overridden, missing] = await Promise.all([
     startTestServer({ env: { PATH: path, AI_SM_TEST_MARKER: join(root, 'slow-asked') } }),
     startTestServer({
-      env: { PATH: path, AI_SM_TEST_MARKER: probeMarker, AI_SM_CLAUDE_VERSION_OVERRIDE: '2.1.300' },
+      env: { PATH: path, AI_SM_TEST_MARKER: probeMarker, AI_SM_CLAUDE_VERSION_OVERRIDE: '2.1.400' },
     }),
     startTestServer({ env: { PATH: emptyDir } }),
   ]);
@@ -83,31 +83,31 @@ async function claudeBytes(server: TestServer): Promise<string> {
 test('boot does not wait for the probe: unknown first, then the version, byte-exact', async () => {
   assert.equal(
     await claudeBytes(slow),
-    '"claude":{"version":null,"compat":"unknown","min":"2.1.263","testedUpTo":"2.1.287"}',
+    '"claude":{"version":null,"compat":"unknown","min":"2.1.263","testedUpTo":"2.1.325"}',
     'the server is healthy and answering while `claude --version` is still sleeping',
   );
   await waitUntil(
-    async () => ((await claudeBytes(slow)).includes('"2.1.287","compat"') ? true : undefined),
+    async () => ((await claudeBytes(slow)).includes('"2.1.325","compat"') ? true : undefined),
     'the slow probe to answer',
     (SLOW_VERSION_S + 10) * 1000,
   );
   assert.equal(
     await claudeBytes(slow),
-    '"claude":{"version":"2.1.287","compat":"ok","min":"2.1.263","testedUpTo":"2.1.287"}',
+    '"claude":{"version":"2.1.325","compat":"ok","min":"2.1.263","testedUpTo":"2.1.325"}',
   );
   const body = (await api(slow, 'GET', '/api/runtime')).body as RuntimeStatusResponse;
-  assert.deepEqual(body.claude, { version: '2.1.287', compat: 'ok', min: '2.1.263', testedUpTo: '2.1.287' });
-  await waitForLog(slow, '[claude] Claude Code 2.1.287 (ok; supported 2.1.263, tested up to 2.1.287) at ');
+  assert.deepEqual(body.claude, { version: '2.1.325', compat: 'ok', min: '2.1.263', testedUpTo: '2.1.325' });
+  await waitForLog(slow, '[claude] Claude Code 2.1.325 (ok; supported 2.1.263, tested up to 2.1.325) at ');
 });
 
 test('the dev override replaces the probe: newer, and the double is never asked', async () => {
   assert.equal(
     await claudeBytes(overridden),
-    '"claude":{"version":"2.1.300","compat":"newer","min":"2.1.263","testedUpTo":"2.1.287"}',
+    '"claude":{"version":"2.1.400","compat":"newer","min":"2.1.263","testedUpTo":"2.1.325"}',
   );
   await waitForLog(
     overridden,
-    '[claude] Claude Code version overridden to 2.1.300 (AI_SM_CLAUDE_VERSION_OVERRIDE, development only)',
+    '[claude] Claude Code version overridden to 2.1.400 (AI_SM_CLAUDE_VERSION_OVERRIDE, development only)',
   );
   await assert.rejects(readFile(probeMarker), /ENOENT/, 'no `claude --version` ran');
 });
@@ -119,28 +119,28 @@ test('no claude on the sessions’ PATH is missing, with no version', async () =
   );
   assert.equal(
     await claudeBytes(missing),
-    '"claude":{"version":null,"compat":"missing","min":"2.1.263","testedUpTo":"2.1.287"}',
+    '"claude":{"version":null,"compat":"missing","min":"2.1.263","testedUpTo":"2.1.325"}',
   );
   await waitForLog(missing, "[claude] Claude Code not found on the sessions' PATH");
 });
 
 test('claudeNoticeHidden: an X.Y.Z round-trips beside the other keys; anything else is dropped, the rest kept', async () => {
   const keep = { theme: { ground: '#0a1220', text: '#dafcff' }, futureSetting: 1 };
-  const ok: UiPrefs = { ...keep, claudeNoticeHidden: '2.1.300' };
+  const ok: UiPrefs = { ...keep, claudeNoticeHidden: '2.1.400' };
   assert.equal((await api(missing, 'PUT', '/api/prefs', ok)).status, 200);
   assert.deepEqual((await api(missing, 'GET', '/api/prefs')).body, ok);
 
   const bad: unknown[] = [
-    'v2.1.300',
+    'v2.1.400',
     '2.1',
-    '2.1.300 ',
-    '2.1.300\n',
+    '2.1.400 ',
+    '2.1.400\n',
     `${'1'.repeat(11)}.${'2'.repeat(11)}.${'3'.repeat(11)}`,
     2.1,
     null,
     true,
-    ['2.1.300'],
-    { version: '2.1.300' },
+    ['2.1.400'],
+    { version: '2.1.400' },
   ];
   for (const value of bad) {
     const put = await api(missing, 'PUT', '/api/prefs', { ...keep, claudeNoticeHidden: value });

@@ -23,22 +23,22 @@ import {
   parseClaudeVersion,
 } from '../../shared/claude-compat.ts';
 
-test('the supported range is 2.1.263 up to the tested 2.1.287', () => {
-  assert.deepEqual({ ...CLAUDE_SUPPORTED }, { min: '2.1.263', testedUpTo: '2.1.287' });
+test('the supported range is 2.1.263 up to the tested 2.1.325', () => {
+  assert.deepEqual({ ...CLAUDE_SUPPORTED }, { min: '2.1.263', testedUpTo: '2.1.325' });
 });
 
 test('parseClaudeVersion reads the first X.Y.Z token and nothing else', () => {
   const rows: [string, string | null][] = [
-    ['2.1.287 (Claude Code)', '2.1.287'],
-    ['2.1.287 (Claude Code)\n', '2.1.287'],
-    ['Claude Code v2.1.300\n', '2.1.300'],
+    ['2.1.325 (Claude Code)', '2.1.325'],
+    ['2.1.325 (Claude Code)\n', '2.1.325'],
+    ['Claude Code v2.1.400\n', '2.1.400'],
     ['\n\n  10.20.30 extra 1.2.3', '10.20.30'],
     ['', null],
     ['   \n', null],
     ['error: unknown option --version', null],
     ['2.1', null],
     ['1.2.3.4', null],
-    ['2.1.287.', null],
+    ['2.1.325.', null],
     ['version 2..1.3', null],
     ['1234567890.1.1', null],
   ];
@@ -50,7 +50,7 @@ test('parseClaudeVersion reads the first X.Y.Z token and nothing else', () => {
 test('compareClaudeVersion is numeric per part: 2.1.9 < 2.1.10, and it is a sort comparator', () => {
   assert.ok(compareClaudeVersion('2.1.9', '2.1.10') < 0, '2.1.9 < 2.1.10');
   assert.ok(compareClaudeVersion('2.1.10', '2.1.9') > 0, '2.1.10 > 2.1.9');
-  assert.equal(compareClaudeVersion('2.1.287', '2.1.287'), 0);
+  assert.equal(compareClaudeVersion('2.1.325', '2.1.325'), 0);
   assert.ok(compareClaudeVersion('2.2.0', '2.1.999') > 0, 'minor beats patch');
   assert.ok(compareClaudeVersion('10.0.0', '9.99.99') > 0, 'major beats minor, numerically');
   assert.deepEqual(['2.1.10', '2.1.9', '2.0.300'].sort(compareClaudeVersion), ['2.0.300', '2.1.9', '2.1.10']);
@@ -58,17 +58,17 @@ test('compareClaudeVersion is numeric per part: 2.1.9 < 2.1.10, and it is a sort
 
 test('claudeCompat: every state, at and around both edges of the range', () => {
   const rows: [string | null, boolean, string][] = [
-    ['2.1.287', false, 'missing'],
+    ['2.1.325', false, 'missing'],
     [null, false, 'missing'],
     [null, true, 'unknown'],
     ['garbage', true, 'unknown'],
-    ['2.1.287 (Claude Code)', true, 'unknown'],
+    ['2.1.325 (Claude Code)', true, 'unknown'],
     ['2.1.262', true, 'older'],
     ['1.99.999', true, 'older'],
     ['2.1.263', true, 'ok'],
     ['2.1.270', true, 'ok'],
-    ['2.1.287', true, 'ok'],
-    ['2.1.288', true, 'newer'],
+    ['2.1.325', true, 'ok'],
+    ['2.1.326', true, 'newer'],
     ['2.2.0', true, 'newer'],
     ['3.0.0', true, 'newer'],
   ];
@@ -78,10 +78,10 @@ test('claudeCompat: every state, at and around both edges of the range', () => {
 });
 
 test('CLAUDE_VERSION_SHAPE is exactly X.Y.Z of digits, at most 29 characters', () => {
-  for (const ok of ['2.1.287', '0.0.0', '123456789.123456789.123456789']) {
+  for (const ok of ['2.1.325', '0.0.0', '123456789.123456789.123456789']) {
     assert.ok(CLAUDE_VERSION_SHAPE.test(ok), ok);
   }
-  for (const bad of ['v2.1.287', '2.1.287 ', '2.1', '2.1.287-beta', '1234567890.1.1', '', '2.1.287\n']) {
+  for (const bad of ['v2.1.325', '2.1.325 ', '2.1', '2.1.325-beta', '1234567890.1.1', '', '2.1.325\n']) {
     assert.ok(!CLAUDE_VERSION_SHAPE.test(bad), JSON.stringify(bad));
   }
 });

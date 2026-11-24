@@ -80,25 +80,25 @@ test('a double answering a version is ok, and it was run with exactly one argume
   const out = join(root, 'argv-ok');
   const dir = await binWith(
     'ok',
-    `#!/bin/sh\nprintf '%s\\n' "$#" "$@" > "${out}"\nprintf '2.1.287 (Claude Code)\\n'\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$#" "$@" > "${out}"\nprintf '2.1.325 (Claude Code)\\n'\n`,
   );
   const { lines, log } = capture();
   const answer = await probeClaudeVersion({ env: { PATH: dir }, log });
-  assert.deepEqual(answer, { version: '2.1.287', compat: 'ok' });
+  assert.deepEqual(answer, { version: '2.1.325', compat: 'ok' });
   assert.equal(await readFile(out, 'utf8'), '1\n--version\n', 'argc 1, argv[1] --version');
   assert.ok(
-    lines.some((l) => l.startsWith('info Claude Code 2.1.287 (ok; supported 2.1.263, tested up to 2.1.287) at ')),
+    lines.some((l) => l.startsWith('info Claude Code 2.1.325 (ok; supported 2.1.263, tested up to 2.1.325) at ')),
     lines.join('\n'),
   );
 });
 
-test('the shared history double answers --version from $AI_SM_TEST_CLAUDE_VERSION, default 2.1.287', async () => {
+test('the shared history double answers --version from $AI_SM_TEST_CLAUDE_VERSION, default 2.1.325', async () => {
   const dir = await binWith('shared', `${CLAUDE_DOUBLE_VERSION}exit 9\n`);
   const { log } = capture();
-  assert.deepEqual(await probeClaudeVersion({ env: { PATH: dir }, log }), { version: '2.1.287', compat: 'ok' });
+  assert.deepEqual(await probeClaudeVersion({ env: { PATH: dir }, log }), { version: '2.1.325', compat: 'ok' });
   assert.deepEqual(
-    await probeClaudeVersion({ env: { PATH: dir, AI_SM_TEST_CLAUDE_VERSION: '2.1.300 (Claude Code)' }, log }),
-    { version: '2.1.300', compat: 'newer' },
+    await probeClaudeVersion({ env: { PATH: dir, AI_SM_TEST_CLAUDE_VERSION: '2.1.400 (Claude Code)' }, log }),
+    { version: '2.1.400', compat: 'newer' },
   );
   assert.deepEqual(
     await probeClaudeVersion({ env: { PATH: dir, AI_SM_TEST_CLAUDE_VERSION: '2.1.250' }, log }),
@@ -108,14 +108,14 @@ test('the shared history double answers --version from $AI_SM_TEST_CLAUDE_VERSIO
 
 test('the probe reads at most 4 KiB: a version past the first 4096 bytes is never seen', async () => {
   const { log } = capture();
-  // 4087 filler bytes + ' 2.1.287' end at byte 4095; with 4091 the cap cuts it to ' 2.1.'.
-  const within = await binWith('cap-in', "#!/bin/sh\nhead -c 4087 /dev/zero | tr '\\0' x\nprintf ' 2.1.287\\n'\n");
+  // 4087 filler bytes + ' 2.1.325' end at byte 4095; with 4091 the cap cuts it to ' 2.1.'.
+  const within = await binWith('cap-in', "#!/bin/sh\nhead -c 4087 /dev/zero | tr '\\0' x\nprintf ' 2.1.325\\n'\n");
   assert.deepEqual(
     await probeClaudeVersion({ env: { PATH: `${within}:/usr/bin:/bin` }, log }),
-    { version: '2.1.287', compat: 'ok' },
+    { version: '2.1.325', compat: 'ok' },
     'a version ending inside the first 4096 bytes is read',
   );
-  const past = await binWith('cap-out', "#!/bin/sh\nhead -c 4091 /dev/zero | tr '\\0' x\nprintf ' 2.1.287\\n'\n");
+  const past = await binWith('cap-out', "#!/bin/sh\nhead -c 4091 /dev/zero | tr '\\0' x\nprintf ' 2.1.325\\n'\n");
   const answer = await probeClaudeVersion({ env: { PATH: `${past}:/usr/bin:/bin` }, log });
   assert.equal(answer.compat, 'unknown', 'byte 4097 on is never read: the cut `2.1.` is no version');
 });
@@ -138,7 +138,7 @@ test('empty output and a non-zero exit are unknown with no version', async () =>
   const { log } = capture();
   const empty = await binWith('empty', '#!/bin/sh\nexit 0\n');
   assert.deepEqual(await probeClaudeVersion({ env: { PATH: empty }, log }), { version: null, compat: 'unknown' });
-  const failing = await binWith('failing', "#!/bin/sh\nprintf '2.1.287\\n'\nexit 3\n");
+  const failing = await binWith('failing', "#!/bin/sh\nprintf '2.1.325\\n'\nexit 3\n");
   const lines: string[] = [];
   assert.deepEqual(
     await probeClaudeVersion({ env: { PATH: failing }, log: (l, m) => void lines.push(`${l} ${m}`) }),
@@ -208,21 +208,21 @@ test('resolveClaudeVersionOverride: dev-only, X.Y.Z only, refused with a warn li
   assert.equal(resolveClaudeVersionOverride('', false, log), undefined);
   assert.equal(lines.length, 0, 'unset says nothing');
 
-  assert.equal(resolveClaudeVersionOverride('2.1.300', true, log), undefined, 'refused when installed');
+  assert.equal(resolveClaudeVersionOverride('2.1.400', true, log), undefined, 'refused when installed');
   assert.deepEqual(lines, [
     'warn AI_SM_CLAUDE_VERSION_OVERRIDE is a development setting; ignored in the installed app',
   ]);
   lines.length = 0;
-  for (const bad of ['v2.1.300', '2.1', '2.1.300 (Claude Code)', '2.1.300\nfake line']) {
+  for (const bad of ['v2.1.400', '2.1', '2.1.400 (Claude Code)', '2.1.400\nfake line']) {
     assert.equal(resolveClaudeVersionOverride(bad, false, log), undefined, JSON.stringify(bad));
   }
   assert.equal(lines.length, 4);
   assert.ok(lines.every((l) => l.startsWith('warn AI_SM_CLAUDE_VERSION_OVERRIDE must be a version X.Y.Z, got ')));
   assert.ok(lines.every((l) => !l.includes('\n')), 'the refused value is one-lined');
   lines.length = 0;
-  assert.equal(resolveClaudeVersionOverride('2.1.300', false, log), '2.1.300');
+  assert.equal(resolveClaudeVersionOverride('2.1.400', false, log), '2.1.400');
   assert.deepEqual(lines, [
-    'info Claude Code version overridden to 2.1.300 (AI_SM_CLAUDE_VERSION_OVERRIDE, development only)',
+    'info Claude Code version overridden to 2.1.400 (AI_SM_CLAUDE_VERSION_OVERRIDE, development only)',
   ]);
 });
 
@@ -230,7 +230,7 @@ test('ClaudeVersionWatch: unknown until the first probe answers; an override nev
   const dir = await binWith('watch-start', "#!/bin/sh\nprintf '2.1.280\\n'\n");
   const { log } = capture();
   const watch = new ClaudeVersionWatch({ env: () => ({ PATH: dir }), log });
-  const range = { min: '2.1.263', testedUpTo: '2.1.287' };
+  const range = { min: '2.1.263', testedUpTo: '2.1.325' };
   assert.deepEqual(watch.status(), { version: null, compat: 'unknown', ...range });
   assert.equal(watch.version(), null);
   await watch.start();
@@ -239,8 +239,8 @@ test('ClaudeVersionWatch: unknown until the first probe answers; an override nev
 
   const marker = join(root, 'override-ran');
   const spy = await binWith('watch-override', `#!/bin/sh\ntouch "${marker}"\nprintf '2.1.280\\n'\n`);
-  const overridden = new ClaudeVersionWatch({ env: () => ({ PATH: spy }), log, override: '2.1.300' });
-  assert.deepEqual(overridden.status(), { version: '2.1.300', compat: 'newer', ...range });
+  const overridden = new ClaudeVersionWatch({ env: () => ({ PATH: spy }), log, override: '2.1.400' });
+  assert.deepEqual(overridden.status(), { version: '2.1.400', compat: 'newer', ...range });
   await overridden.start();
   await overridden.binaryChanged();
   await assert.rejects(readFile(marker), /ENOENT/, 'the override replaces the probe: nothing spawned');
@@ -258,13 +258,13 @@ test('ClaudeVersionWatch re-probes when the binary changes: at once past the win
   assert.equal(lines.filter((l) => l.includes('probing its version again')).length, 0, 'unchanged: no probe');
 
   // An upgrade INSIDE the window: probed when the window ends, by one timer.
-  await upgrade(dir, "#!/bin/sh\nprintf '2.1.300\\n'\n");
+  await upgrade(dir, "#!/bin/sh\nprintf '2.1.400\\n'\n");
   clock += 50;
   await watch.binaryChanged();
   await watch.binaryChanged();
   assert.equal(watch.version(), '2.1.280', 'not yet: inside the window');
   assert.equal(lines.filter((l) => l.includes('probing its version again in 100ms')).length, 1, lines.join('\n'));
-  await waitUntil(() => (watch.version() === '2.1.300' ? true : undefined), 'the scheduled re-probe');
+  await waitUntil(() => (watch.version() === '2.1.400' ? true : undefined), 'the scheduled re-probe');
   assert.equal(watch.status().compat, 'newer');
 
   // Past the window: a change is probed at once.
@@ -331,14 +331,14 @@ test('the probe runs the FIRST claude on PATH, the one a bare `claude` session l
   // session's spawn. A probe that picked any other would report a version the
   // sessions never run.
   const first = await binWith('order-first', "#!/bin/sh\nprintf '2.1.270\\n'\n");
-  const second = await binWith('order-second', "#!/bin/sh\nprintf '2.1.300\\n'\n");
+  const second = await binWith('order-second', "#!/bin/sh\nprintf '2.1.400\\n'\n");
   const { log } = capture();
   assert.deepEqual(await probeClaudeVersion({ env: { PATH: `${first}:${second}` }, log }), {
     version: '2.1.270',
     compat: 'ok',
   });
   assert.deepEqual(await probeClaudeVersion({ env: { PATH: `${second}:${first}` }, log }), {
-    version: '2.1.300',
+    version: '2.1.400',
     compat: 'newer',
   });
 });
@@ -353,5 +353,5 @@ test('ClaudeVersionWatch: a probe still out when stop() runs never writes its an
   const started = watch.start();
   watch.stop();
   await started;
-  assert.deepEqual(watch.status(), { version: null, compat: 'unknown', min: '2.1.263', testedUpTo: '2.1.287' });
+  assert.deepEqual(watch.status(), { version: null, compat: 'unknown', min: '2.1.263', testedUpTo: '2.1.325' });
 });

@@ -126,7 +126,7 @@ test('setRuntime: notifies conn on change, is a no-op when the answer repeats', 
     installed: false,
     webBuild: 'assets/index-Br1e6z0Q.js',
     update: { available: false, reason: null },
-    claude: { version: '2.1.287', compat: 'ok' as const, min: '2.1.263', testedUpTo: '2.1.287' },
+    claude: { version: '2.1.325', compat: 'ok' as const, min: '2.1.263', testedUpTo: '2.1.325' },
 
     // D9 P3: no pty-host (an in-process backend); the UI does not read it.
     ptyHost: null,
@@ -149,7 +149,7 @@ test('setRuntime: the Claude Code probe takes part in the change detection (D6)'
   // while the app runs is re-probed server-side and arrives on a later poll,
   // with every other field of the answer unchanged.
   const { kinds } = collectKinds();
-  const claude = { version: null, compat: 'unknown' as const, min: '2.1.263', testedUpTo: '2.1.287' };
+  const claude = { version: null, compat: 'unknown' as const, min: '2.1.263', testedUpTo: '2.1.325' };
   const answer = {
     startedAt: new Date(Date.now() + 1000).toISOString(),
     serverCommit: 'd6d6d6d',
@@ -168,18 +168,18 @@ test('setRuntime: the Claude Code probe takes part in the change detection (D6)'
   st.setRuntime({ ...answer, claude: { ...claude } });
   assert.deepEqual(kinds, ['conn'], 'the same probe answer again must not renotify');
   // The probe answering after boot: version and verdict both move.
-  st.setRuntime({ ...answer, claude: { ...claude, version: '2.1.300', compat: 'newer' } });
+  st.setRuntime({ ...answer, claude: { ...claude, version: '2.1.400', compat: 'newer' } });
   assert.equal(st.state.claude?.compat, 'newer');
   assert.deepEqual(kinds, ['conn', 'conn'], 'the probe answering is a change');
   // A verdict alone moving (same text) is a change too.
-  st.setRuntime({ ...answer, claude: { ...claude, version: '2.1.300', compat: 'ok' } });
+  st.setRuntime({ ...answer, claude: { ...claude, version: '2.1.400', compat: 'ok' } });
   assert.deepEqual(kinds, ['conn', 'conn', 'conn'], 'a new verdict is a change');
   // So is the range (a backend of another release on the same port).
-  st.setRuntime({ ...answer, claude: { ...claude, version: '2.1.300', compat: 'ok', testedUpTo: '2.1.300' } });
+  st.setRuntime({ ...answer, claude: { ...claude, version: '2.1.400', compat: 'ok', testedUpTo: '2.1.400' } });
   assert.deepEqual(kinds, ['conn', 'conn', 'conn', 'conn'], 'a new testedUpTo is a change');
   st.setRuntime({
     ...answer,
-    claude: { ...claude, version: '2.1.300', compat: 'ok', testedUpTo: '2.1.300', min: '2.1.270' },
+    claude: { ...claude, version: '2.1.400', compat: 'ok', testedUpTo: '2.1.400', min: '2.1.270' },
   });
   assert.deepEqual(kinds, ['conn', 'conn', 'conn', 'conn', 'conn'], 'a new min is a change');
 });
@@ -198,7 +198,7 @@ test('setRuntime: an INSTALLED backend carries its version and flag beside the c
     installed: true,
     webBuild: 'assets/index-Br1e6z0Q.js',
     update: { available: false, reason: null },
-    claude: { version: '2.1.287', compat: 'ok' as const, min: '2.1.263', testedUpTo: '2.1.287' },
+    claude: { version: '2.1.325', compat: 'ok' as const, min: '2.1.263', testedUpTo: '2.1.325' },
 
     // D9 P3: no pty-host (an in-process backend); the UI does not read it.
     ptyHost: null,

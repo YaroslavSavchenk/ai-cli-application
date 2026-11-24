@@ -44,8 +44,8 @@ test('no fact to state: the line is absent, not blank', () => {
 
 test('every fact the model can hand over is printed as it stands', () => {
   for (const line of [
-    'Claude Code 2.1.287 (tested up to 2.1.287)',
-    'Claude Code 2.1.300 (tested up to 2.1.287)',
+    'Claude Code 2.1.325 (tested up to 2.1.325)',
+    'Claude Code 2.1.400 (tested up to 2.1.325)',
     'Claude Code not found',
     'Claude Code: claude: bad interpreter',
   ]) {

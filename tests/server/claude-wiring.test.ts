@@ -68,14 +68,14 @@ test('the watch probes in the sessions’ environment, and GET /api/tools pokes 
     await claude.start();
     assert.deepEqual(
       claude.status(),
-      { version: '2.1.280', compat: 'ok', min: '2.1.263', testedUpTo: '2.1.287' },
+      { version: '2.1.280', compat: 'ok', min: '2.1.263', testedUpTo: '2.1.325' },
       'CLAUDECODE is stripped from the probe, as from a session',
     );
 
     // An upgrade: new content, a new mtime (set, not left to the clock — see
     // `upgrade` in tests/server/claude-version.test.ts).
     const file = join(binDir, 'claude');
-    await writeFile(file, DOUBLE.replace('2.1.280', '2.1.300'), { mode: 0o755 });
+    await writeFile(file, DOUBLE.replace('2.1.280', '2.1.400'), { mode: 0o755 });
     await utimes(file, 1_700_000_000, 1_700_000_000);
     assert.equal((await tools()).claude, true);
     // Inside the one-minute window since start(): the watch schedules the

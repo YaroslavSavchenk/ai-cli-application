@@ -88,7 +88,7 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   (stamped at boot for an entry no pty-host still holds, and since D9 P3 for
   the sessions of a pty-host lost under a running backend). A conversation is pruned only when its projects folder
   exists and `<id>.jsonl` is missing — every uncertainty keeps it. Needs
-  Claude Code ≥ 2.1.263: the supported range (2.1.263, tested up to 2.1.287)
+  Claude Code ≥ 2.1.263: the supported range (2.1.263, tested up to 2.1.325)
   lives in `shared/claude-compat.ts`, and one `claude --version` probe (argv
   only, after listen, re-run when the binary changes) places the installed
   version against it — it never blocks a launch (D6). Known limit: a `--continue`

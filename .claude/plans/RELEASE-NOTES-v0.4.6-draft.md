@@ -22,3 +22,5 @@
 The `Restart` button needs the new window, so it works from the first time
 you start the app from the desktop shortcut after this update. Sessions stay
 open through this update (since v0.4.5).
+
+Verified with Claude Code 2.1.325.

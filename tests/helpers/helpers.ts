@@ -126,7 +126,7 @@ export function mkRuntime(startedAt: string): RuntimeStatusResponse {
     installed: false,
     webBuild: null,
     update: { available: false, reason: null },
-    claude: { version: null, compat: 'unknown', min: '2.1.263', testedUpTo: '2.1.287' },
+    claude: { version: null, compat: 'unknown', min: '2.1.263', testedUpTo: '2.1.325' },
     ptyHost: null,
   };
 }

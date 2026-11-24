@@ -26,11 +26,11 @@ import {
   exitNote,
 } from '../../web/src/ui/claude-notice-model.ts';
 
-const RANGE = { min: '2.1.263', testedUpTo: '2.1.287' };
+const RANGE = { min: '2.1.263', testedUpTo: '2.1.325' };
 const status = (compat: ClaudeCompat, version: string | null): ClaudeStatus => ({ version, compat, ...RANGE });
 
 const OLDER = 'Claude Code 2.1.250 is older than this app needs (2.1.263). Update Claude Code.';
-const NEWER = 'This app was tested up to Claude Code 2.1.287. You have 2.1.300. If launches fail, check for an app update.';
+const NEWER = 'This app was tested up to Claude Code 2.1.325. You have 2.1.400. If launches fail, check for an app update.';
 
 // ---------------------------------------------------------------------------
 // claudeNotice: every compat × hidden case
@@ -42,10 +42,10 @@ test('older: the notice shows with the spec’s sentence byte-exact', () => {
 });
 
 test('newer: the notice shows with the spec’s sentence byte-exact', () => {
-  const n = claudeNotice(status('newer', '2.1.300'), undefined);
+  const n = claudeNotice(status('newer', '2.1.400'), undefined);
   assert.deepEqual(n, {
     kind: 'newer',
-    version: '2.1.300',
+    version: '2.1.400',
     title: 'Claude Code is newer than tested',
     body: NEWER,
   });
@@ -63,7 +63,7 @@ test('the sentences read min and testedUpTo from the runtime, not from a copy of
 
 test('the hidden version hides it; any other hidden value does not', () => {
   for (const compat of ['older', 'newer'] as const) {
-    const v = compat === 'older' ? '2.1.250' : '2.1.300';
+    const v = compat === 'older' ? '2.1.250' : '2.1.400';
     assert.equal(claudeNotice(status(compat, v), v), null, `${compat}: hidden for exactly this version`);
     assert.notEqual(claudeNotice(status(compat, v), '2.1.1'), null, `${compat}: another hidden version shows it`);
     assert.notEqual(claudeNotice(status(compat, v), ''), null, `${compat}: an empty hidden value shows it`);
@@ -71,16 +71,16 @@ test('the hidden version hides it; any other hidden value does not', () => {
 });
 
 test('a DIFFERENT version than the hidden one shows again (decision 19)', () => {
-  // Hidden for 2.1.300; Claude Code moved on to 2.1.301 — a new fact.
-  const n = claudeNotice(status('newer', '2.1.301'), '2.1.300');
-  assert.equal(n?.version, '2.1.301');
+  // Hidden for 2.1.400; Claude Code moved on to 2.1.401 — a new fact.
+  const n = claudeNotice(status('newer', '2.1.401'), '2.1.400');
+  assert.equal(n?.version, '2.1.401');
   // And from newer to older (a downgrade) the same.
-  assert.equal(claudeNotice(status('older', '2.1.250'), '2.1.300')?.kind, 'older');
+  assert.equal(claudeNotice(status('older', '2.1.250'), '2.1.400')?.kind, 'older');
 });
 
 test('ok, missing and unknown never show a notice, hidden or not', () => {
-  for (const hidden of [undefined, '2.1.287', '2.1.300']) {
-    assert.equal(claudeNotice(status('ok', '2.1.287'), hidden), null);
+  for (const hidden of [undefined, '2.1.325', '2.1.400']) {
+    assert.equal(claudeNotice(status('ok', '2.1.325'), hidden), null);
     assert.equal(claudeNotice(status('missing', null), hidden), null);
     assert.equal(claudeNotice(status('unknown', null), hidden), null);
     assert.equal(claudeNotice(status('unknown', 'error: no such thing'), hidden), null);
@@ -99,22 +99,22 @@ test('no runtime yet, or a verdict without a version, shows nothing', () => {
 
 test('an early exit clears the hidden value unless the server says the version is ok', () => {
   for (const compat of ['older', 'newer', 'missing', 'unknown'] as const) {
-    assert.equal(clearsHiddenOnEarlyExit(status(compat, '2.1.300'), '2.1.300'), true, compat);
+    assert.equal(clearsHiddenOnEarlyExit(status(compat, '2.1.400'), '2.1.400'), true, compat);
   }
-  assert.equal(clearsHiddenOnEarlyExit(status('ok', '2.1.287'), '2.1.287'), false, 'ok: nothing to say');
+  assert.equal(clearsHiddenOnEarlyExit(status('ok', '2.1.325'), '2.1.325'), false, 'ok: nothing to say');
   // No runtime read yet: nothing says the version is fine.
-  assert.equal(clearsHiddenOnEarlyExit(null, '2.1.300'), true);
+  assert.equal(clearsHiddenOnEarlyExit(null, '2.1.400'), true);
 });
 
 test('nothing hidden: an early exit writes nothing', () => {
   for (const compat of ['older', 'newer', 'missing', 'unknown', 'ok'] as const) {
-    assert.equal(clearsHiddenOnEarlyExit(status(compat, '2.1.300'), undefined), false, compat);
+    assert.equal(clearsHiddenOnEarlyExit(status(compat, '2.1.400'), undefined), false, compat);
   }
 });
 
 test('early exit then the model: the cleared value brings the same version’s notice back', () => {
-  const s = status('newer', '2.1.300');
-  let hidden: string | undefined = '2.1.300';
+  const s = status('newer', '2.1.400');
+  let hidden: string | undefined = '2.1.400';
   assert.equal(claudeNotice(s, hidden), null);
   if (clearsHiddenOnEarlyExit(s, hidden)) hidden = undefined;
   assert.equal(claudeNotice(s, hidden)?.body, NEWER);
@@ -133,9 +133,9 @@ test('earlyExitIsNew: only a session created after the page loaded is new eviden
 // ---------------------------------------------------------------------------
 
 test('the Settings fact for every state', () => {
-  assert.equal(claudeFact(status('ok', '2.1.287')), 'Claude Code 2.1.287 (tested up to 2.1.287)');
-  assert.equal(claudeFact(status('older', '2.1.250')), 'Claude Code 2.1.250 (tested up to 2.1.287)');
-  assert.equal(claudeFact(status('newer', '2.1.300')), 'Claude Code 2.1.300 (tested up to 2.1.287)');
+  assert.equal(claudeFact(status('ok', '2.1.325')), 'Claude Code 2.1.325 (tested up to 2.1.325)');
+  assert.equal(claudeFact(status('older', '2.1.250')), 'Claude Code 2.1.250 (tested up to 2.1.325)');
+  assert.equal(claudeFact(status('newer', '2.1.400')), 'Claude Code 2.1.400 (tested up to 2.1.325)');
   assert.equal(claudeFact(status('missing', null)), 'Claude Code not found');
   // `missing` wins over any text the probe might have carried.
   assert.equal(claudeFact(status('missing', 'x')), 'Claude Code not found');

@@ -21,7 +21,7 @@ export type { ClaudeCompat } from './protocol-runtime.ts';
  */
 export const CLAUDE_SUPPORTED: { readonly min: string; readonly testedUpTo: string } = {
   min: '2.1.263',
-  testedUpTo: '2.1.287',
+  testedUpTo: '2.1.325',
 };
 
 /**

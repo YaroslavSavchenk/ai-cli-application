@@ -22,13 +22,13 @@ import { sessionInfo } from './session-info.ts';
 /**
  * The first lines of every `claude` double: the backend runs `claude --version`
  * once after listen (Nocturne D6, server/claude-version.ts), and a double
- * answers it with `$AI_SM_TEST_CLAUDE_VERSION` (default `2.1.287 (Claude
+ * answers it with `$AI_SM_TEST_CLAUDE_VERSION` (default `2.1.325 (Claude
  * Code)`) and exits 0 — BEFORE recording anything, so the probe is never
  * counted as a launch.
  */
 export const CLAUDE_DOUBLE_VERSION = `#!/bin/sh
 if [ "$1" = "--version" ]; then
-  printf '%s\\n' "\${AI_SM_TEST_CLAUDE_VERSION:-2.1.287 (Claude Code)}"
+  printf '%s\\n' "\${AI_SM_TEST_CLAUDE_VERSION:-2.1.325 (Claude Code)}"
   exit 0
 fi
 `;
