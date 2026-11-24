@@ -257,7 +257,7 @@ const getStartedAt = (): string => startedAt;
 /**
  * ONE budget for every log line an UNAUTHENTICATED caller can cause, shared by
  * the HTTP access log and the WebSocket upgrade reject — two instances would
- * silently double the ceiling the README documents.
+ * silently double the ceiling docs/app-data.md documents.
  */
 // Scoped `log`, not `http`: the one budget covers HTTP refusals AND rejected
 // WebSocket upgrades, so its suppression lines must not point at one surface.

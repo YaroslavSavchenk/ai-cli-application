@@ -232,7 +232,7 @@ export interface ApiDeps {
   /**
    * The budget for UNAUTHENTICATED log lines, SHARED with the WebSocket upgrade
    * handler (constructed in server/index.ts). One instance, so the ceiling the
-   * README states is the ceiling that holds — two independent limiters would
+   * docs/app-data.md states is the ceiling that holds — two independent limiters would
    * silently double it.
    */
   allowRefusalLine: () => boolean;

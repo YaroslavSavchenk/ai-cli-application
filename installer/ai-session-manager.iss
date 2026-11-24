@@ -24,7 +24,7 @@
 ; distribution is missing it prints the command and stops.
 ;
 ; This is unsigned. SmartScreen will show "Windows protected your PC" on the
-; first run; the README explains it.
+; first run; docs/install.md explains it.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"

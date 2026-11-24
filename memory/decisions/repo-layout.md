@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-09-20
-updated: 2026-09-23
+updated: 2026-11-24
 tags: [repo, layout, memory, process]
 ---
 # Repo layout: where things live, and how they move
@@ -176,3 +176,12 @@ told the user so before the questions.
   wikilinks) — the full path was already the dominant form (110 of 150
   citations) and is the one a reader can open; both forms are accepted and
   both are checked.
+
+## 2026-11-24 — `docs/` (user's call)
+
+The README became a front page ("kort en krachtig … de readme is een
+voorblad"); the user chose a new top-level `docs/` for the detail that
+used to fill it (install, development, release, app data, restart and
+recovery, GitHub) and `docs/images/` for the README's screenshots. The
+README keeps § Repository layout, so every citation of it still holds.
+License: MIT (user, same day).

@@ -11,7 +11,7 @@
  * HONESTY (load-bearing):
  *   - Every state is driven by GET /api/github/status. `deviceFlowAvailable`
  *     reports whether the server has an OAuth client id (env
- *     AI_SM_GITHUB_CLIENT_ID — documented in the README, never NAMED in the UI
+ *     AI_SM_GITHUB_CLIENT_ID — documented in docs/github.md, never NAMED in the UI
  *     per the 2026-07-25 copy rule). It hides the Connect BUTTON and nothing
  *     else: the paste affordance stays, because a pasted token needs no client
  *     id and that is precisely the situation it exists for.
@@ -207,7 +207,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   connectErr.hidden = true;
   disconnectedCard.append(connectErr);
   // COPY RULE (scope doc, 2026-07-25): no config-variable names in the UI — the
-  // setting's actual name lives in the README, where acting on it belongs. This
+  // setting's actual name lives in docs/github.md, where acting on it belongs. This
   // note REPLACES the old dormant "not set up on this server" card, which used
   // to take over the whole panel and would now hide the one path that still
   // works on a server without an OAuth App.
