@@ -449,6 +449,25 @@ export function assertLoopbackApiBase(value: string, varName = 'AI_SM_GITHUB_API
 }
 
 /**
+ * The app's own OAuth App (user, 2026-11-24: "AI Session Manager", owned by
+ * the repo's account, Device Flow on, no client secret, tokens that do not
+ * expire). A client id is public by design — the device flow of a public app
+ * uses no secret, which is how GitHub CLI and VS Code ship theirs — so it is
+ * baked in and "Connect with GitHub" works with no setup.
+ */
+export const DEFAULT_GITHUB_CLIENT_ID = 'Ov23li6jWGH9BqSyVGwz';
+
+/**
+ * The OAuth App client id: the app's own unless AI_SM_GITHUB_CLIENT_ID is SET.
+ * Set to another id = that app; set EMPTY = the device flow is off (the
+ * pasted-token path still works). Unset = DEFAULT_GITHUB_CLIENT_ID.
+ */
+export function resolveGithubClientId(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env['AI_SM_GITHUB_CLIENT_ID'];
+  return raw === undefined ? DEFAULT_GITHUB_CLIENT_ID : raw.trim();
+}
+
+/**
  * Resolve the GitHub REST API base: api.github.com unless AI_SM_GITHUB_API_BASE
  * overrides it with a loopback origin (offline tests). Throws on anything else.
  */

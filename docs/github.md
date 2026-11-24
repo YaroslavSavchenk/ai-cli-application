@@ -5,6 +5,9 @@ Where the credential file sits among the app's other files: [app-data.md](app-da
 The app can list your GitHub repositories, clone one into a new project, and
 create a new repository. There are **two ways to connect, and exactly one
 credential is active at a time** — connecting one way replaces the other.
+**Sign in with GitHub (B) is the easy one**: no token to make, and it sees
+your private and organisation repositories. A pasted fine-grained token sees
+only what it was granted — often just your public repositories.
 
 ## A. Paste a token (no server setup)
 
@@ -24,24 +27,32 @@ which this app cannot refresh).
 and the credential lives **only in the running backend process**, which exits
 about 30 seconds after the last window closes; you paste again next time.
 
-## B. Sign in with GitHub (needs a one-time server setup)
+## B. Sign in with GitHub (recommended)
 
-The device flow needs an OAuth App, which is a one-time setup by whoever runs
-the manager:
+Works out of the box since v0.4.9: the app carries the client id of its own
+OAuth App ("AI Session Manager"). A client id is public by design — the
+device flow of a public app uses no client secret, which is how GitHub CLI
+and VS Code ship theirs.
 
-1. Register an **OAuth App** on GitHub (Settings → Developer settings → OAuth
-   Apps → New OAuth App) and **enable Device Flow** for it. No client secret
-   is needed or stored — the device flow of a public app does not use one.
-2. Start the backend with the App's client id in the environment:
+1. Open **Add a project → From GitHub → Connect with GitHub**.
+2. Enter the shown code at `github.com/login/device` and approve.
+3. Done. The requested scope is `repo`: every repository you can reach,
+   private and organisation ones included (an organisation that restricts
+   OAuth Apps has to approve "AI Session Manager" first). The app then shows
+   up under GitHub → Settings → Applications → Authorized OAuth Apps, where
+   you can revoke it.
 
-       AI_SM_GITHUB_CLIENT_ID=Iv1.your_client_id npm start
+The token does not expire on its own; Disconnect drops it from this machine,
+revoking it on GitHub ends it everywhere.
 
-   (For the Windows launcher, set it in the environment the WSL command
-   inherits.) Absent or empty ⇒ only this sign-in path is unavailable; pasting
-   a token still works and nothing else changes.
-3. In the app, open **Add a project → From GitHub → Connect with GitHub**, then enter
-   the shown code at `github.com/login/device`. The requested scope is `repo`
-   (list + clone + create + push, no re-auth).
+**Your own OAuth App instead** (forks, self-builds): register one (Settings →
+Developer settings → OAuth Apps → New OAuth App), **enable Device Flow**,
+leave "Expire user access tokens" off, and start the backend with its id:
+
+    AI_SM_GITHUB_CLIENT_ID=Ov23your_client_id npm start
+
+`AI_SM_GITHUB_CLIENT_ID` set to an empty string turns sign-in off; pasting a
+token still works.
 
 ## What "Disconnect" does, and what it does not
 

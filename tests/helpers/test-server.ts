@@ -92,6 +92,9 @@ export async function startTestServer(
       AI_SM_STARTUP_GRACE_MS: '600000',
       AI_SM_GRACE_MS: '600000',
       AI_SM_PTY_HOST: ptyHost === 'inproc' ? 'inproc' : '',
+      // The app bakes in its own OAuth App id; a test server never reaches
+      // github.com's device endpoints unless a test sets an id on purpose.
+      AI_SM_GITHUB_CLIENT_ID: '',
       ...opts.env,
     },
     stdio: 'ignore', // The server must not depend on stdout in any way.

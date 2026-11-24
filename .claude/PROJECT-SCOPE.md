@@ -618,7 +618,11 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
 - **Project creation + GitHub integration.** The app creates projects
   (new folder with an `Initialize git repo` toggle, default on; clone by
   URL; clone from the GitHub list into `<home>/projects/<owner>/<repo>`;
-  create a GitHub repo). Auth: **OAuth device flow**, scope `repo`, plus a
+  create a GitHub repo). Auth: **OAuth device flow**, scope `repo`, through
+  the app's own OAuth App (since 2026-11-24 its client id is baked in,
+  `DEFAULT_GITHUB_CLIENT_ID` in `server/config.ts` — public by design, no
+  secret; `AI_SM_GITHUB_CLIENT_ID` set overrides it, set empty turns the
+  device flow off), plus a
   **pasted token** as a second path (remembered by default, toggle off =
   memory only). Tokens live **server-side** (0600), never in localStorage,
   never returned to the page; the UI claims nothing stronger than "stored

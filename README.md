@@ -78,7 +78,7 @@ and resumes every session in its old tab and pane.
 | 📦 [Install, update, uninstall](docs/install.md) | the Setup, step by step |
 | 🛠️ [Development](docs/development.md) | run from a clone, develop inside WSL, tests, CI |
 | 🔁 [Restart and recovery](docs/restart-and-recovery.md) | `Restart service`, a backend crash, after WSL stops |
-| 🐙 [GitHub connection](docs/github.md) | paste a token, or set up Sign in with GitHub |
+| 🐙 [GitHub connection](docs/github.md) | Sign in with GitHub (built in), or paste a token |
 | 💾 [App data](docs/app-data.md) | every file in `~/.ai-session-manager/`, and the log |
 | 🚢 [Release process](docs/release.md) | how a tag becomes a release |
 | 🪟 [Launcher](launcher/README.md) | switches, configuration, troubleshooting |

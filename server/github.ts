@@ -28,9 +28,10 @@
  * \\wsl.localhost\... regardless of the permission bits. The honest promise is
  * "stored on this machine, readable by your own user account" — no more.
  *
- * Config: the OAuth App client_id comes from env AI_SM_GITHUB_CLIENT_ID (passed
- * in by server/index-stores.ts). Absent/empty means only that the DEVICE FLOW
- * is unavailable (status.deviceFlowAvailable=false, startDeviceFlow ->
+ * Config: the OAuth App client_id is the app's own (DEFAULT_GITHUB_CLIENT_ID in
+ * config.ts, since 2026-11-24) unless env AI_SM_GITHUB_CLIENT_ID is set —
+ * resolveGithubClientId, passed in by server/index-stores.ts. Empty means only
+ * that the DEVICE FLOW is unavailable (status.deviceFlowAvailable=false, startDeviceFlow ->
  * not-configured); the
  * pasted-token path and every connected operation keep working, because they
  * need a credential, not a client id. No client_secret is used or stored — a
@@ -119,6 +120,15 @@ const HTTP_TIMEOUT_MS = 15_000;
 const DEFAULT_INTERVAL_SEC = 5;
 /** GitHub's `slow_down` asks us to add (at least) 5s to the interval. */
 const SLOW_DOWN_INCREMENT_MS = 5_000;
+/**
+ * Every poll waits the interval PLUS this share of it (2026-11-24, found in a
+ * real sign-in): GitHub answers `slow_down` to a poll that arrives at the
+ * interval itself (5.2 s after the last one, interval 5 s), adds 5 s and does
+ * it again — a poller that waits exactly the interval falls behind for good
+ * and never sees the token, though the user approved. 20 % keeps every poll
+ * past GitHub's window without slowing a sign-in down noticeably (6 s at 5 s).
+ */
+const POLL_MARGIN_RATIO = 0.2;
 /** Hard cap on a device flow's lifetime regardless of the server `expires_in`. */
 const MAX_FLOW_SECONDS = 900;
 /** Belt-and-suspenders cap on total poll iterations for one flow. */
@@ -149,7 +159,7 @@ interface GithubConnectionOptions {
   /** Absolute path to github.json in the data dir. */
   file: string;
   log: Logger;
-  /** OAuth App client_id (env AI_SM_GITHUB_CLIENT_ID); absent/empty => not configured. */
+  /** OAuth App client_id (resolveGithubClientId); absent/empty => not configured. */
   clientId?: string | undefined;
   /**
    * REST API base (env AI_SM_GITHUB_API_BASE via resolveGithubApiBase); absent
@@ -171,6 +181,11 @@ interface DeviceFlow {
   verificationUri: string;
   expiresAtMs: number;
   intervalMs: number;
+}
+
+/** The wait before the next device-flow poll: the interval plus its margin. */
+export function pollDelayMs(intervalMs: number): number {
+  return Math.ceil(intervalMs * (1 + POLL_MARGIN_RATIO));
 }
 
 export class GithubConnection {
@@ -664,10 +679,11 @@ export class GithubConnection {
     };
   }
 
-  #scheduleNextPoll(gen: number, delayMs: number): void {
+  /** Poll again after the interval plus its margin (POLL_MARGIN_RATIO). */
+  #scheduleNextPoll(gen: number, intervalMs: number): void {
     this.#pollTimer = setTimeout(() => {
       void this.#poll(gen);
-    }, delayMs);
+    }, pollDelayMs(intervalMs));
     // A detached, presence-bound backend must never be kept alive by a poll.
     if (typeof this.#pollTimer.unref === 'function') this.#pollTimer.unref();
   }
@@ -735,7 +751,10 @@ export class GithubConnection {
     if (error === 'authorization_pending') {
       this.#scheduleNextPoll(gen, device.intervalMs);
     } else if (error === 'slow_down') {
-      device.intervalMs += SLOW_DOWN_INCREMENT_MS;
+      // GitHub names the interval it now wants; never wait less than that.
+      const asked = payload['interval'];
+      const askedMs = typeof asked === 'number' && Number.isFinite(asked) && asked > 0 ? asked * 1000 : 0;
+      device.intervalMs = Math.max(device.intervalMs + SLOW_DOWN_INCREMENT_MS, askedMs);
       this.#scheduleNextPoll(gen, device.intervalMs);
     } else {
       // expired_token, access_denied, unsupported_grant_type, or anything else.

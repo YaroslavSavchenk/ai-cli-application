@@ -24,8 +24,9 @@
 // time — pasting replaces a device-flow connection and cancels its in-flight
 // poll. `source` records which path produced the current credential.
 //
-// Config: the OAuth App client_id comes from env AI_SM_GITHUB_CLIENT_ID. When
-// it is absent/empty only the DEVICE FLOW is unavailable
+// Config: the OAuth App client_id is the app's own (server/config.ts
+// DEFAULT_GITHUB_CLIENT_ID, since 2026-11-24) unless env AI_SM_GITHUB_CLIENT_ID
+// is set. Set empty, only the DEVICE FLOW is unavailable
 // (status.deviceFlowAvailable=false, POST device -> 409 { deviceFlowAvailable:
 // false }); the pasted-token path and every connected route keep working, since
 // they need a credential, not a client id. No client_secret is used or stored
