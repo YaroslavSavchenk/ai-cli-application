@@ -125,6 +125,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-11
 
+- [[2026-11-24-github-repo-refresh]] — a repo created on github.com now shows up: the list is re-asked on every open and on window focus (it loaded once per page); proven live with a real test repo
 - [[2026-11-24-q16-q17-wsl-crash-recovery]] — Q16 + Q17: the 12:53 WSL OOM stop; exit record + cause verdict, `/api/previous-exit`, host `relaunch`, offline panel, resume into old panes; gate 4811/4811
 - [[2026-11-21-d9-p3-adopt]] — D9 P3: the broker owns only what it adopts — boot adopt, host lost ⇒ group kill + crash; gate finished 2026-11-22 (34 tests, no bug)
 - [[2026-11-22-d9-p5-installer-launcher]] — D9 P5: installer keeps a live pty-host's version, `-Stop` ends a lone pty-host; INCIDENT: an agent's real `-Stop` stopped the installed app twice

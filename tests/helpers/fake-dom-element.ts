@@ -223,6 +223,10 @@ export class FakeElement extends FakeNode {
   get childNodes(): FakeNode[] {
     return [...this.children];
   }
+  /** The ELEMENT children only, as the browser counts them (the GitHub repo row's facts line). */
+  get childElementCount(): number {
+    return this.children.filter((c) => c instanceof FakeElement).length;
+  }
   override get textContent(): string {
     return this.children.map((c) => c.textContent).join('');
   }

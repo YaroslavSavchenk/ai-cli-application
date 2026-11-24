@@ -43,6 +43,11 @@
  * (initGithub) and on tab open keeps the chip honest without hammering a
  * disconnected/closed app.
  *
+ * Repo list: re-asked every time the tab becomes visible and when the window
+ * regains focus while it is open (refreshRepos in ./github-state.ts) — the
+ * server keeps no cache, and a repository created on github.com must show up
+ * without a page reload (fix/github-repo-refresh, 2026-11-24).
+ *
  * This module owns the DOM, the timers, and the api/state calls ONLY. The pure
  * presentation decisions it renders — chip view, expiry/relative-time formats,
  * language colors, cadence intervals, clone-error copy — live in
@@ -89,6 +94,7 @@ import {
   loadRepos,
   onGithubUpdate,
   poll,
+  refreshRepos,
   repoErr,
   repoState,
   repos,
@@ -414,9 +420,7 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       reposEl.replaceChildren(el('div', 'gh-msg', 'No repositories match'));
       return;
     }
-    const frag = document.createDocumentFragment();
-    for (const r of repos) frag.append(repoCard(r));
-    reposEl.replaceChildren(frag);
+    reposEl.replaceChildren(...repos.map(repoCard)); // one DOM swap, as a fragment was
   }
 
   /**
@@ -446,15 +450,16 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
         d.setAttribute('aria-hidden', 'true');
         meta.append(d);
       }
-      meta.append(el('span', '', r.language)); // untrusted → textContent
       hasLang = true;
     }
+    // The language and the push time share ONE text span: the comma stays
+    // attached to the word it follows — two spans put the flex gap before it
+    // ("Python , Updated …"). A2 copy rules: never a separator in its own slot.
     const pushed = relativeTime(r.pushedAt ?? '', Date.now());
-    if (pushed !== '') {
-      // A comma, attached to the text it follows — never a separator element
-      // in its own flex slot (A2 copy rules).
-      meta.append(el('span', '', `${hasLang ? ', ' : ''}Updated ${pushed}`));
-    }
+    const facts = [hasLang ? r.language : '', pushed !== '' ? `Updated ${pushed}` : '']
+      .filter((part) => part !== '')
+      .join(', ');
+    if (facts !== '') meta.append(el('span', '', facts)); // untrusted language → textContent
     if (meta.childElementCount > 0) main.append(meta);
 
     // The row's status line: the honest indeterminate "Cloning" indicator or an
@@ -592,7 +597,9 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
     setTabOpen(a);
     if (a) {
       if (status?.state === 'connected') {
-        if (repoState === 'idle') void loadRepos('');
+        // Every time the list becomes visible it asks GitHub again: a repository
+        // created on github.com since the last answer must show up on reopen.
+        void refreshRepos(searchInput.value.trim());
         // Resolve $HOME so path-based already-cloned detection + the clone
         // destination are ready; rebuild the list once it lands (name-based
         // detection already works without it).
@@ -616,6 +623,12 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
       syncExpiryTimer();
     }
   }
+
+  // Back from the browser with the list still open — the likeliest moment a
+  // repository was just created there — counts as the list becoming visible.
+  window.addEventListener('focus', () => {
+    if (active && status?.state === 'connected') void refreshRepos(searchInput.value.trim());
+  });
 
   token.syncRemember();
   onGithubUpdate(render);

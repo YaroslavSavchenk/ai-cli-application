@@ -2,8 +2,8 @@
  * Pure presentation logic behind the GitHub connection UI (ui/github.ts): the
  * top-bar chip's status→view derivation, the device-code expiry and
  * relative-time formats, the credential copy keyed on `source`, the Linguist
- * language-color table, the poll/tick cadence decisions, and the clone/token
- * error copy. Deliberately DOM-free — no document, no window, no fetch, no
+ * language-color table, the poll/tick cadence decisions, the clone/token
+ * error copy, and the repo-list refresh rules. Deliberately DOM-free — no document, no window, no fetch, no
  * module state — so it stays importable under `node --test`; github.ts remains
  * the sole owner of elements, timers, and the api/state modules.
  *
@@ -550,4 +550,53 @@ export function tokenErrText(status: number, message: string): string {
   if (status === 400) return 'GitHub did not accept that token';
   if (status === 502) return 'could not reach GitHub';
   return message;
+}
+
+// ---------------------------------------------------------------------------
+// Repo-list refresh (fix/github-repo-refresh, 2026-11-24). The server keeps no
+// cache of the list, so a repository created on github.com only shows up when
+// the app ASKS again: the panel re-asks every time it becomes visible (and when
+// the window regains focus while it is open). These two rules decide how.
+// ---------------------------------------------------------------------------
+
+/** Where the repo list stands (github-state.ts owns the variable). */
+export type RepoLoadState = 'idle' | 'loading' | 'loaded' | 'error';
+
+/**
+ * How a re-ask on open runs, from where the list stands:
+ *   - `skip`       a load is already in flight — a search the user typed, or
+ *                  the first load; its answer is fresh, and a search must win;
+ *   - `background` a list is on screen: ask again WITHOUT going to the loading
+ *                  state, so the rows the user is reading stay put until the
+ *                  answer replaces them;
+ *   - `full`       nothing usable on screen (never loaded, or the last load
+ *                  failed): an ordinary load with its loading line.
+ */
+export function repoRefreshMode(state: RepoLoadState): 'skip' | 'background' | 'full' {
+  if (state === 'loading') return 'skip';
+  if (state === 'loaded') return 'background';
+  return 'full';
+}
+
+/**
+ * True when two answers list the same repositories with the same facts in the
+ * same order. A background refresh that brings nothing new must not rebuild the
+ * rows: a rebuild drops the keyboard focus from a row's button.
+ */
+export function sameRepoList(a: readonly GithubRepo[], b: readonly GithubRepo[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((r, i) => {
+    const o = b[i];
+    return (
+      o !== undefined &&
+      r.fullName === o.fullName &&
+      r.name === o.name &&
+      r.owner === o.owner &&
+      r.private === o.private &&
+      r.description === o.description &&
+      r.language === o.language &&
+      r.pushedAt === o.pushedAt &&
+      r.cloneUrl === o.cloneUrl
+    );
+  });
 }

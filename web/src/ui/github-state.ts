@@ -12,7 +12,13 @@
  */
 import type { GithubRepo, GithubStatus } from '../../../shared/protocol.ts';
 import * as api from '../api.ts';
-import { cloneErrText, pollIntervalMs } from './github-model.ts';
+import {
+  cloneErrText,
+  pollIntervalMs,
+  repoRefreshMode,
+  sameRepoList,
+  type RepoLoadState,
+} from './github-model.ts';
 
 // ---------------------------------------------------------------------------
 // Shared controller state
@@ -20,8 +26,7 @@ import { cloneErrText, pollIntervalMs } from './github-model.ts';
 
 export let status: GithubStatus | null = null; // null = not yet fetched
 export let repos: GithubRepo[] = [];
-type RepoState = 'idle' | 'loading' | 'loaded' | 'error';
-export let repoState: RepoState = 'idle';
+export let repoState: RepoLoadState = 'idle';
 export let repoErr = '';
 export let reposVersion = 0; // bumps whenever the repo list/state changes (list rebuild gate)
 
@@ -88,7 +93,7 @@ export function applyStatus(next: GithubStatus): void {
   status = next;
   if (next.state === 'connected' && prev?.state !== 'connected') {
     credentialLost = false;
-    void loadRepos(''); // load the list once on reaching connected
+    void loadRepos(''); // the first load; an open panel re-asks through refreshRepos
   }
   if (next.state !== 'connected' && prev?.state === 'connected') {
     repos = [];
@@ -139,6 +144,37 @@ export async function loadRepos(q: string): Promise<void> {
     repoState = 'error';
     reposVersion++;
     emit();
+  }
+}
+
+/**
+ * Ask GitHub for the list again because it just became visible — the server
+ * keeps no cache, and without this a repository created on github.com after the
+ * first load never showed up until a page reload (fix/github-repo-refresh,
+ * 2026-11-24). How it runs is `repoRefreshMode`: a load in flight is left to
+ * answer; a list on screen STAYS on screen while the new one is fetched (no
+ * flash to "Loading"), and is replaced only when the answer differs.
+ *
+ * A search typed meanwhile takes a newer `repoToken`, so this answer is dropped
+ * and the search wins. A failed background ask keeps the rows already shown:
+ * a lost credential reaches the user through the status poll (the server drops
+ * it on a 401), and a network blip is not worth replacing a usable list with an
+ * error line.
+ */
+export async function refreshRepos(q: string): Promise<void> {
+  const mode = repoRefreshMode(repoState);
+  if (mode === 'skip') return;
+  if (mode === 'full') return loadRepos(q);
+  const mine = ++repoToken;
+  try {
+    const res = await api.githubRepos(q);
+    if (mine !== repoToken || repoState !== 'loaded') return; // superseded, or disconnected meanwhile
+    if (sameRepoList(repos, res.repos)) return;
+    repos = res.repos;
+    reposVersion++;
+    emit();
+  } catch {
+    // Soft — see above.
   }
 }
 
