@@ -51,10 +51,11 @@ launcher still reads the port from runtime.json, nothing is hardcoded. Always
 | `start-backend.sh` | Linux side: detached (`setsid`) backend start; prefers a bundled runtime, falls back to PATH/nvm |
 | `run-update.ps1` | Windows side of the in-app update: re-hashes the Setup exe the backend downloaded, then runs it silently (`/SILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`) and removes the staging directory |
 | `build-host.ps1` | one-time build of the native WebView2 host (fetches the WebView2 SDK, compiles with the in-box csc — no .NET SDK) |
-| `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1): `Main`, the window, the WebView, links; one `partial class HostApp` with the three parts below |
+| `host/AiSessionManagerHost.cs` | source of the native host window (Tier 1): `Main`, the window, the WebView, links; one `partial class HostApp` with the four parts below |
 | `host/AiSessionManagerHost-clipboard.cs` | the page → host channel that puts files on the Windows clipboard |
 | `host/AiSessionManagerHost-overlay.cs` | the peek-mascot overlay: its design note, state, creation, composition, stray-window fix, navigation, reload |
 | `host/AiSessionManagerHost-overlay-window.cs` | the overlay's display events, web messages, foreground hook, placement / DPI, open / dispose; `MascotOverlayForm`; the DirectComposition interfaces |
+| `host/AiSessionManagerHost-relaunch.cs` | the in-window Restart: the `relaunch` page message, the relaunch record, running the launcher again and closing this window when the new one is up |
 | `host/build/` | build output (exe + WebView2 DLLs) — build it, or unzip the release asset here; **git-ignored, never committed** |
 | `app.ico` / `make-icon.mjs` | the icon and the script that generates it |
 
@@ -300,7 +301,7 @@ Build it once (needs network the first time, for the WebView2 NuGet package):
 
 What it does:
 
-- Compiles the four `host/AiSessionManagerHost*.cs` files (a fixed list in
+- Compiles the five `host/AiSessionManagerHost*.cs` files (a fixed list in
   the script, never a glob) with the **in-box** Framework C#
   compiler (`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`) — no
   .NET SDK required — into `host/build/AiSessionManagerHost.exe`, a tiny
@@ -371,8 +372,8 @@ dark mode. Every failure path is non-fatal and logged — this is cosmetic and
 must never break the window. Keep the constants in sync if those tokens change.
 The Edge `--app` fallback window is unaffected and still shows a light caption.
 
-**Keyboard focus, links and the clipboard.** Five behaviours the host adds
-for the page:
+**Keyboard focus, links, the clipboard and Restart.** Six behaviours the
+host adds for the page:
 
 - **Focus comes back on activation.** WebView2 draws the page in its own child
   window, so the host window could become active again — after an Alt-Tab, or
@@ -417,26 +418,56 @@ for the page:
   every other handler here, and `host.log` records a COUNT and the outcome
   word, never a path. In the Edge `--app` fallback window there is no
   `chrome.webview`, so the page keeps its `Copy` entry visibly disabled.
+- **Restart after WSL went down** (Q17 P2,
+  `.claude/plans/quality/PLAN-Q17.md`). When WSL stops under the app (an
+  out-of-memory power-off, `wsl --shutdown`) the window stays open on a dead
+  backend. The page's `Restart` button posts the bare word `relaunch` on the
+  same origin-locked channel (anything else, `relaunch` with arguments
+  included, is ignored), and the host runs the SAME launcher that opened it
+  — `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <launch.ps1>`,
+  hidden, without `-Silent` — in its normal attach-or-start mode: `wsl.exe`
+  boots the VM, the backend starts, and `Open-NativeHost` opens a new window.
+  When the launcher exits 0 (its `Open-NativeHost` has then seen the new
+  window's pid in `host-ready`, or it fell back to Edge) this window closes
+  itself — so for a moment there are two windows, then one. A launcher exit
+  other than 0, or no exit within 120 s, posts `relaunch-failed` back and the
+  window stays. An overdue launcher is killed (that process only); the
+  relaunch stays in flight until it has exited and 10 s more have passed, and
+  if a window it had already started comes up in that time, this window
+  closes after all. One relaunch at a time: a
+  second `relaunch` while one runs is ignored. The page never names the
+  launcher: `launch.ps1` writes a **relaunch record** — `relaunch.txt` in the
+  instance folder, line 1 its own path, line 2 the backend data dir — just
+  before it starts the host, and the host reads it ONCE at startup and
+  re-checks both lines (a well-formed Windows path ending in `launch.ps1`
+  that exists; the data dir on the launcher's own allow-list). The data dir
+  is set on the relaunched launcher's environment (`AI_SM_DATA_DIR`), so a
+  dev instance restarts the dev instance; a dev record whose data dir has a
+  `.`/`..` segment or ends in `.ai-session-manager` (the installed app's
+  folder, however spelled) is refused. `host.log` gets one line when a
+  relaunch starts and one with its outcome — the launcher's pid or exit
+  code, never a URL, token or path.
 
 The host navigates only to the resolved `http://127.0.0.1:<port>/` and is
 **navigation-locked** to that origin (127.0.0.1/localhost); it monitors nothing
-and kills nothing — backend lifetime stays presence-bound exactly as with the
-browser window. Requirement: the **WebView2 Evergreen runtime** (ships with
-Edge). If it is absent, the launcher silently uses the Edge `--app` window
+and kills nothing but an overdue relaunch launcher it started itself —
+backend lifetime stays presence-bound exactly as with the browser window.
+Requirement: the **WebView2 Evergreen runtime** (ships with Edge). If it is absent, the launcher silently uses the Edge `--app` window
 instead. If the exe is not built, the launcher uses Edge too — building the
 host is optional, it only upgrades the taskbar icon.
 
 The host writes two files under `%LOCALAPPDATA%\ai-session-manager\`:
 `host-ready` (its pid, once the window is coming up — the launcher waits for
 this to confirm Tier 1 succeeded) and `host.log` (UTC-stamped fatal/init
-diagnostics). Its WebView2 profile lives in
+diagnostics). The launcher writes a third there, `relaunch.txt` (the
+relaunch record above). Its WebView2 profile lives in
 `%LOCALAPPDATA%\ai-session-manager\webview2\`.
 
 **A dev instance beside the installed app.** A launch from the clone
 (`launch.ps1` run off the `\\wsl.localhost\…` share) on any backend data dir
 other than the default is a second instance, and its host keeps all of the
-above — the staged exe copy, `host-ready`, `host.log` and the WebView2
-profile — in `%LOCALAPPDATA%\ai-session-manager-dev\` instead, so it gets its
+above — the staged exe copy, `host-ready`, `host.log`, `relaunch.txt` and
+the WebView2 profile — in `%LOCALAPPDATA%\ai-session-manager-dev\` instead, so it gets its
 own WebView2 browser process and never touches the installed app's folder.
 The dev flow, from the repo root inside WSL, after `build-host.ps1` (bash
 must pass `\$env` through untouched and fill in the `$(wslpath …)` itself):
@@ -446,7 +477,9 @@ must pass `\$env` through untouched and fill in the `$(wslpath …)` itself):
 `launch.ps1` decides this (`Test-AiSmDevInstance` in `config-common.ps1`)
 and tells the host with one fixed switch, `--dev-instance`, after the URL;
 the host picks one of its two fixed folder names from it and refuses any
-other argument. No path ever crosses to the host. The installed app —
+other argument. No path ever crosses to the host on its command line; the
+relaunch record (above) is the one file it reads a path from, and only for
+Restart. The installed app —
 whatever its data dir — and a clone launch on the default data dir are
 unchanged.
 

@@ -35,6 +35,7 @@ import {
   responseReason,
   sendError,
   sendJson,
+  sendNoContent,
   type ApiContext,
   type RouteResult,
 } from './api-http.ts';
@@ -340,8 +341,7 @@ export async function appRoutes(
       return;
     }
     writeClientLog(entries);
-    res.writeHead(204);
-    res.end();
+    sendNoContent(res);
     return;
   }
 

@@ -1,6 +1,6 @@
 # Plan: code quality first, then the app's speed
 
-Status: see the table below (updated 2026-11-23, Q12 + Q15 landed — nothing todo). Conventions: `.claude/plans/README.md`.
+Status: see the table below (updated 2026-11-24, Q16 + Q17 landed — nothing todo). Conventions: `.claude/plans/README.md`.
 
 | Part | What | State | Spec | Landed |
 | --- | --- | --- | --- | --- |
@@ -26,6 +26,8 @@ Status: see the table below (updated 2026-11-23, Q12 + Q15 landed — nothing to
 | Q13 | Files at 950+ of 1 000 lines cut at their natural seams | landed | — | 2026-11-22 |
 | Q14 | Documents: `.claude/PROJECT-SCOPE.md` § Open decisions to history, `memory/BACKLOG.md` done items out, released notes drafts gone, agent definitions current | landed | — | 2026-11-22 |
 | Q15 | Dependencies: the open bumps (vite, source-map-js, `@types/*`), `.github/dependabot.yml` for npm and the pinned GitHub Actions | landed | — | 2026-11-23 |
+| Q16 | Out of memory inside WSL: every session process is the kernel's first choice (`oom_score_adj` 500), the backend and the pty-host the last | landed | — | 2026-11-24 |
+| Q17 | When WSL goes down: a notice that says what happened, one button that starts everything again, the sessions resumed in their panes | landed | `.claude/plans/quality/PLAN-Q17.md` | 2026-11-24 |
 
 ## Resume here
 
@@ -78,6 +80,16 @@ volgende keer dit wel op zo'n manier gedaan wordt". Answers the same day:
    terminals (Chromium allows ~16 WebGL contexts), the least recently seen
    tab's terminals are disposed first and replay on return as before; a
    hidden pane never marks its session as seen.
+
+## Q16 + Q17 (2026-11-24)
+
+WSL ran out of memory (another project's 16 agents, ~14.4 GB of python)
+and powered off; the backend and pty-host went with it and the window only
+said `Offline`. The user, the same day: `.wslconfig` to 24 GB and `earlyoom`
+outside the app (done), and "doe 1, 2, 3, 4" — Q16 is point 3, Q17 point 4:
+"als de wsl crasht krijg je een melding met wat er gebeurd is en … restart
+de wsl met een knop", the button also resuming every session that was
+running. Decisions and defaults: `.claude/plans/quality/PLAN-Q17.md`.
 
 ## Fixed rules for every part
 
@@ -195,3 +207,13 @@ v1 storage / Legacy theme migrations, `?demo` out of the prod bundle.
   `github.ts` (new repo / token), `styles/app-panels.css` (files).
 - **Q14** — text only; history moved verbatim, never lost.
 - **Q15** — on a branch, suite + CI green, then merged.
+- **Q16** — the pty-host (and the in-process fallback) writes `500` to
+  `/proc/<pid>/oom_score_adj` of every PTY child right after spawn (raising
+  needs no privilege; children inherit it); the backend and the pty-host
+  stay at 0. A failed write is one `warn` line, the spawn goes on. Test:
+  a spawned session's `/proc/<pid>/oom_score_adj` reads 500, the backend's
+  own reads 0.
+- **Q17** — spec `.claude/plans/quality/PLAN-Q17.md`: P1 backend (exit
+  record, verdict at boot incl. the journal's OOM line, `/api/previous-exit`
+  routes), P2 host `relaunch` message, P3 the offline panel, the notice and
+  the auto-resume into the same panes.

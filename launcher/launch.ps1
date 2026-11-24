@@ -54,6 +54,9 @@ the staged exe copy, host-ready, host.log and the WebView2 profile - in
 %LOCALAPPDATA%\ai-session-manager\, so the two never share a browser process.
 The host learns which from one fixed switch (--dev-instance), never a path.
 The installed launcher is never a second instance, whatever the data dir.
+For the host's in-window Restart (Q17 P2) this script leaves a relaunch record
+in that same folder - its own path and the data dir (Write-RelaunchRecord) -
+so a Restart runs this launcher again, in this default mode, on this data dir.
 
 Injection safety: no client/runtime string is ever interpolated into a
 shell or PowerShell command. The only strings that reach WSL command lines
@@ -459,6 +462,29 @@ function Test-WebView2Runtime {
     return $false
 }
 
+function Write-RelaunchRecord([string]$InstanceDir) {
+    # The host's in-window Restart (Q17 P2) runs THIS launcher again on THIS
+    # data dir. The host takes no path on its command line, and a staged clone
+    # copy cannot derive the launcher from where its exe lies, so the two
+    # values go into the instance folder the host already owns
+    # ($AiSmRelaunchRecordName): line 1 this script, line 2 $DataDir (already
+    # allow-listed above). The host reads it once at startup and checks both
+    # lines again. Removed first, so a failed write leaves no OLDER record for
+    # this host to pick up; a failure only costs the Restart button (the host
+    # answers relaunch-failed), never the launch.
+    $record = Join-Path $InstanceDir $AiSmRelaunchRecordName
+    try {
+        if (-not (Test-Path -LiteralPath $InstanceDir)) {
+            New-Item -ItemType Directory -Force -Path $InstanceDir -ErrorAction Stop | Out-Null
+        }
+        Remove-Item -LiteralPath $record -Force -ErrorAction SilentlyContinue
+        $text = (Join-Path $PSScriptRoot 'launch.ps1') + "`n" + $DataDir + "`n"
+        [System.IO.File]::WriteAllText($record, $text, (New-Object System.Text.UTF8Encoding $false))
+    } catch {
+        Write-Host "Native host: could not write the relaunch record ($($_.Exception.Message)) - the in-window Restart will be unavailable."
+    }
+}
+
 function Open-NativeHost([string]$Url) {
     # Tier 1: the native WebView2 host (host\AiSessionManagerHost.exe when
     # installed, launcher\host\build\AiSessionManagerHost.exe in a clone built
@@ -488,7 +514,9 @@ function Open-NativeHost([string]$Url) {
     # WebView2 profile, so a dev window never joins the installed app's
     # browser process - else the installed app's ai-session-manager\. The
     # host is told with the one fixed switch and derives the same folder
-    # itself; no path ever crosses to it.
+    # itself; no path on its command line - the relaunch record
+    # (Write-RelaunchRecord) is the one file it reads a path from, and only
+    # for Restart.
     $devInstance   = Test-AiSmDevInstance -DataDir $DataDir -ScriptRoot $PSScriptRoot
     $instanceName  = if ($devInstance) { $AiSmWindowsDevDataName } else { $AiSmWindowsDataName }
     $hostArgs      = @($Url)
@@ -530,6 +558,8 @@ function Open-NativeHost([string]$Url) {
         }
     }
     if (-not (Test-Path -LiteralPath $hostExe)) { return $false }
+
+    Write-RelaunchRecord -InstanceDir (Join-Path $localAppData $instanceName)
 
     # Delete any stale sentinel so we only ever trust one written by THIS launch.
     Remove-Item -LiteralPath $readySentinel -Force -ErrorAction SilentlyContinue

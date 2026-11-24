@@ -29,11 +29,15 @@
  * `shift()`, hands its chunks newest-first to the replay cut, and
  * `endOffset(id)` answers the exit line without building every summary.
  *
+ * PLAN-QUALITY Q16: every child's `oom_score_adj` is raised to 500 right
+ * after its spawn (`raiseOomScore`) — in the pty-host and in the in-process
+ * fallback alike, since both spawn here.
+ *
  * Reached through server/pty-host-api.ts (the `PtyHost` interface and its
  * in-process implementation); server/sessions-state.ts and
  * server/sessions-output.ts import `RingBuffer` straight from here.
  */
-import { fstatSync, readSync } from 'node:fs';
+import { fstatSync, readSync, writeFileSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import * as pty from 'node-pty';
 import { describeError, scoped, type Logger } from './config-log.ts';
@@ -237,6 +241,32 @@ const KILL_TERM_AFTER_MS = 2000;
 const KILL_KILL_AFTER_MS = 3000;
 
 /**
+ * PLAN-QUALITY Q16: what a PTY child's `oom_score_adj` is raised to, right
+ * after its spawn. 2026-11-24 WSL ran out of memory and went down with the
+ * backend and the pty-host; from now on the kernel's OOM killer takes a
+ * session first — what it kills there the history can resume — before
+ * the backend or the pty-host, which keep their inherited value (0 under
+ * WSL; it is inherited at fork, so it is written to the child, never to
+ * this process).
+ */
+const PTY_OOM_SCORE_ADJ = 500;
+
+/**
+ * Raise a freshly spawned child's `oom_score_adj`. RAISING needs no privilege
+ * (only lowering does); a failure — not Linux, a hardened /proc, the child
+ * already gone — is one `warn` line and the session runs on. The child's own
+ * children inherit the value, except one it forked in the instant between
+ * its exec and this write.
+ */
+function raiseOomScore(id: string, pid: number, log: Logger): void {
+  try {
+    writeFileSync(`/proc/${pid}/oom_score_adj`, String(PTY_OOM_SCORE_ADJ));
+  } catch (err) {
+    log('warn', `${id}: oom_score_adj not raised (${(err as NodeJS.ErrnoException).code ?? 'write failed'})`);
+  }
+}
+
+/**
  * The one pid shape the kill ladder may turn into a process-group signal. A
  * seatbelt: `pty.pid` is always a real child pid, but `process.kill(-0, …)`
  * would signal the backend's own group and `process.kill(-(-1), …)` is a
@@ -373,6 +403,7 @@ export class PtyTable {
       env: req.env,
     });
     const { id } = req;
+    raiseOomScore(id, proc.pid, this.#slog);
     // The ladder outlives `entry.pty` (kill() nulls it), so the pid the group
     // is addressed by is captured once, here.
     const entry: PtyEntry = {

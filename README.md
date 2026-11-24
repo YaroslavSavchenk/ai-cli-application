@@ -423,6 +423,12 @@ path):
   pty-host dies under a running backend is stamped `crash` at once). Feeds `GET
   /api/history` and `POST /api/history/:id/resume`; bounded at 200 entries,
   where the oldest ended one drops first
+- `last-exit.json` — how the previous run ended (mode 0600, atomic): why
+  (`signal`, `presence-grace`, `restart`, `other`), the open windows, the
+  kernel boot id and the history ids of the sessions running then — ids
+  only. The next boot judges it (and, after a VM reboot, the previous boot's
+  kernel log for an `Out of memory` kill) for `GET /api/previous-exit`;
+  resumed or dismissed, it is marked `seen`, never deleted
 - `session-settings/` — one Claude Code settings file per session (directory
   mode 0700), holding only the status-line command the session is launched
   with; emptied at boot except the files of the sessions a pty-host still holds

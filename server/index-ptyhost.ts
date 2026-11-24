@@ -11,6 +11,7 @@
  * The adoption order (§ Defaults) and why each step waits for the one before:
  *   1. connect as owner to a running pty-host and `list` (events held);
  *   2. history: stamp `crash` only for entries the pty-host does NOT hold;
+ *      the previous run's end is judged from those stamps (Q17);
  *   3. wipe session artifacts, except the files of the held ids;
  *   4. adopt: rebuild each session, seed its mirror, re-scan the gap; one
  *      that exited meanwhile ends as an exit; Claude `--settings` rewritten;
@@ -22,6 +23,7 @@ import { resolvePtyHostMode } from './pty-host-client.ts';
 import { PtyHostBroker } from './pty-host-broker.ts';
 import type { SessionManager } from './sessions.ts';
 import type { PtyEntrySummary } from './pty-table.ts';
+import type { PreviousExit } from './previous-exit.ts';
 
 /**
  * The broker for this data dir. An invalid `AI_SM_PTY_HOST` refuses the start
@@ -62,11 +64,14 @@ export async function bootSessions(opts: {
   history: SessionHistory;
   sessions: SessionManager;
   resetSessionArtifacts: (keep: ReadonlySet<string>) => void;
+  /** Q17: judges the previous run's end from the crash stamps this load makes. */
+  previousExit: PreviousExit;
   log: Logger;
 }): Promise<void> {
   const { broker, history, sessions, log } = opts;
   broker.setAdopter(async (entries) => {
-    history.reopen(new Set(entries.map((e) => e.id)));
+    // Q17: those sessions are alive after all — not a crash to tell about.
+    opts.previousExit.reopened(history.reopen(new Set(entries.map((e) => e.id))));
     await sessions.adopt(entries);
   });
   try {
@@ -79,7 +84,11 @@ export async function bootSessions(opts: {
     // Always, whatever the pty-host said: the history must be loaded before
     // anything writes it.
     const live = new Set(entries.map((e) => e.id));
-    history.load({ live });
+    const stamps = history.load({ live });
+    // Q17 (.claude/plans/quality/PLAN-Q17.md § P1 2): what stopped the run
+    // before this one. A `crash` has no time of its own: the previous run's
+    // last history write, else the boot itself.
+    opts.previousExit.judge(stamps.crashed, stamps.writtenAt ?? new Date().toISOString());
     opts.resetSessionArtifacts(live);
     await sessions.adopt(entries);
   } catch (err) {

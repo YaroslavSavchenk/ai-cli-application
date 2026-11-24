@@ -1,6 +1,6 @@
 <#
 build-host.ps1 - one-time (re-runnable) build of the native WebView2 host
-(launcher\host\AiSessionManagerHost*.cs, four files of one partial class)
+(launcher\host\AiSessionManagerHost*.cs, five files of one partial class)
 into launcher\host\build\.
 
 What it does:
@@ -49,14 +49,16 @@ $PkgSize    = 8913598
 # --- Paths -----------------------------------------------------------------
 $LauncherDir = $PSScriptRoot
 $HostDir  = Join-Path $LauncherDir 'host'
-# The host's four source files (one partial class HostApp, cut by Q6), as a
-# FIXED list - not a glob, so a stray .cs in host\ is never compiled in. A
-# test pins this list to the tracked launcher/host/*.cs.
+# The host's five source files (one partial class HostApp, cut by Q6; the
+# relaunch part added by Q17 P2), as a FIXED list - not a glob, so a stray .cs
+# in host\ is never compiled in. A test pins this list to the tracked
+# launcher/host/*.cs.
 $SrcFiles = @(
     (Join-Path $HostDir 'AiSessionManagerHost.cs'),
     (Join-Path $HostDir 'AiSessionManagerHost-clipboard.cs'),
     (Join-Path $HostDir 'AiSessionManagerHost-overlay.cs'),
-    (Join-Path $HostDir 'AiSessionManagerHost-overlay-window.cs')
+    (Join-Path $HostDir 'AiSessionManagerHost-overlay-window.cs'),
+    (Join-Path $HostDir 'AiSessionManagerHost-relaunch.cs')
 )
 $BuildDir = Join-Path $HostDir 'build'
 $IconPath = Join-Path $LauncherDir 'app.ico'

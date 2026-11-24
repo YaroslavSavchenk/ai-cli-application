@@ -1,12 +1,13 @@
 // AiSessionManagerHost-clipboard.cs - part of the native WebView2 host: one
-// partial class HostApp in four files, cut from one by Q6
+// partial class HostApp in five files, cut from one by Q6
 // (.claude/plans/quality/PLAN-Q6.md). The header, the C# 5 rule (no $"",
 // no => members, no ?.) and the assembly attribute are in
-// AiSessionManagerHost.cs; the other parts are AiSessionManagerHost-overlay.cs
-// and AiSessionManagerHost-overlay-window.cs.
+// AiSessionManagerHost.cs; the other parts are AiSessionManagerHost-overlay.cs,
+// AiSessionManagerHost-overlay-window.cs and AiSessionManagerHost-relaunch.cs.
 //
 // Holds the "Page -> host: files onto the Windows clipboard" region: the
-// origin-locked copy-files web message, its path checks, the clipboard
+// origin-locked web message handler (which hands the one other kind,
+// `relaunch`, to -relaunch.cs), the copy-files path checks, the clipboard
 // write and the reply.
 
 using System;
@@ -50,9 +51,10 @@ namespace AiSessionManager
         //    strings go to Clipboard.SetFileDropList and nowhere else.
         //  * NO PATH IS EVER LOGGED. host.log is a plain file and a path is the
         //    user's data; every line below carries a COUNT and one outcome word.
-        //  * One way in, one way out: the host sends the page nothing but the
-        //    two reply strings, and reads nothing from the page but this one
-        //    message kind.
+        //  * One way in, one way out: for this kind the host sends the page
+        //    nothing but the two reply strings. The channel reads one other
+        //    kind - the bare word `relaunch` (Q17 P2), handed off before any
+        //    of the parsing below - and nothing else.
         private const string CopyFilesKind = "copy-files";
         private const string CopyFilesOkPrefix = "copy-files ok ";
         private const string CopyFilesFailed = "copy-files failed";
@@ -122,6 +124,14 @@ namespace AiSessionManager
             if (webMessageText == null || webMessageText.Length > MaxWebMessageLength)
             {
                 Log("web message ignored: empty, or over the length cap.");
+                return;
+            }
+            // The channel's one other kind (Q17 P2): the WHOLE message is the
+            // word, so nothing below ever sees it
+            // (AiSessionManagerHost-relaunch.cs).
+            if (IsRelaunchMessage(webMessageText))
+            {
+                StartRelaunch(wv);
                 return;
             }
             string[] messageLines = webMessageText.Split('\n');

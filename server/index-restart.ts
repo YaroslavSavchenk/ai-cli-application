@@ -24,6 +24,7 @@ import type { TelemetryWatcher } from './telemetry.ts';
 import type { PollTally } from './poll-log.ts';
 import type { AgentsWatcher } from './agents.ts';
 import type { SessionHistory } from './history.ts';
+import type { PreviousExit } from './previous-exit.ts';
 import type { LifecycleController } from './lifecycle.ts';
 import type { UpgradeHandler } from './ws.ts';
 import {
@@ -46,6 +47,8 @@ import { runtimeInfoReader } from './runtime-file.ts';
 interface RestartWiring {
   log: Logger;
   getPort: () => number;
+  /** The startedAt this run wrote to runtime.json (ISO-8601). */
+  getStartedAt: () => string;
   paths: DataPaths;
   repoRoot: string;
   serverDir: string;
@@ -55,6 +58,8 @@ interface RestartWiring {
   /** D9 P4: how many running sessions live in-process (they cannot be kept). */
   ptyHosts: PtyHostBroker;
   history: SessionHistory;
+  /** Q17: the restart's exit record, so the child's boot reads no unexpected stop. */
+  previousExit: PreviousExit;
   lifecycle: LifecycleController;
   telemetry: TelemetryWatcher;
   agents: AgentsWatcher;
@@ -73,6 +78,7 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
   const {
     log,
     getPort,
+    getStartedAt,
     paths,
     repoRoot,
     serverDir,
@@ -81,6 +87,7 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
     sessions,
     ptyHosts,
     history,
+    previousExit,
     lifecycle,
     telemetry,
     agents,
@@ -121,6 +128,15 @@ export function createRestartController(wiring: RestartWiring): RestartControlle
       agents.stop();
       releaseChecker?.stop();
       polls.stop();
+      // Q17: written BEFORE the child is told `go` (the standby judges at
+      // `go`) and before the sessions are handed over or ended. A restart is
+      // never an unexpected stop, and it supersedes an older notice.
+      previousExit.writeRecord({
+        why: 'restart',
+        presence: lifecycle.presenceCount,
+        startedAt: getStartedAt(),
+        sessions: history.runningAt(Date.now(), 0),
+      });
       // D9 P4: the sessions stay with the pty-host and the child adopts them
       // at `go` — history is NOT stamped. Only a restart that cannot keep
       // them (server/restart.ts `sessionsFate`) ends them as a shutdown does.

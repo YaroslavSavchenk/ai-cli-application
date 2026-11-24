@@ -8,6 +8,8 @@
  * nobody looked at still raised and one already looked at not brought back,
  * an exited session with its code and scrollback — and history stamps
  * nothing. A clean stop of the new backend still ends them (decision 25).
+ * PLAN-QUALITY Q17: the restart's exit record says `restart`, so the new
+ * backend raises no "the app stopped" notice.
  *
  * How: a real backend child (`startTestServer`, `ptyHost: 'socket'`) on a
  * 0700 temp data dir, real bash PTYs that print their `$$`, and the new
@@ -26,7 +28,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HistoryEntry, RestartResponse, RuntimeInfo, SessionInfo } from '../../shared/protocol.ts';
 import {
@@ -236,6 +238,15 @@ test('the log tells the handoff: kept with the pty-host, detached, adopted', asy
   );
   const handoff = log.slice(log.indexOf('restart requested by the ui'), log.indexOf('handoff complete'));
   assert.ok(!handoff.includes("end-all reason 'shutdown'"), 'the restart stamped nothing in history');
+});
+
+test('a restart is no unexpected stop: its exit record says `restart` and the new backend has nothing to tell (Q17)', async () => {
+  const record = JSON.parse(readFileSync(join(second().dataDir, 'last-exit.json'), 'utf8')) as Record<string, unknown>;
+  assert.equal(record['why'], 'restart');
+  assert.equal(record['signal'], undefined);
+  assert.equal((record['sessions'] as unknown[]).length, 3, 'the three running sessions, by history id');
+  const res = await api(second(), 'GET', '/api/previous-exit');
+  assert.equal(res.status, 204, JSON.stringify(res.body));
 });
 
 test('a clean stop of the new backend still ends the adopted sessions and the pty-host (decision 25)', async () => {

@@ -27,6 +27,7 @@ import {
 } from './state-core.ts';
 import { reconcileViews } from './state-views.ts';
 import { newEditorSlot } from './state-editor.ts';
+import type { LayoutSnapshot } from './ui/resume-layout-model.ts';
 
 // --------------------------------------------------------------------------
 // View constructors + persistence (client-local UI state only)
@@ -397,17 +398,10 @@ export function loadUi(opts: LoadUiOpts): void {
   state.leftPanel = 'files';
   state.filesWidth = FILES_W_DEFAULT;
 
-  let parsed: unknown = null;
-  try {
-    parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
-  } catch {
-    parsed = null;
-  }
   // Which run wrote what is stored. Anything that is not a string — absent (a
   // pre-B6 bag, or a v1 blob), a number, a hand-edited object — reads as null,
   // which equals only a boot that does not know its own run either.
-  const bag =
-    parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  const bag = readStoredBag();
   const bagRun = typeof bag?.run === 'string' ? bag.run : null;
   lastKnownRun = bagRun;
   // The D3 gate, BEFORE anything is validated: with the switch off, a bag from
@@ -421,12 +415,7 @@ export function loadUi(opts: LoadUiOpts): void {
   if (bag !== null) {
     const o = bag;
     if (keepViews) {
-      if (Array.isArray(o.views)) {
-        for (const v of o.views) {
-          const vv = validateView(v, ctx);
-          if (vv !== null && views.length < MAX_VIEWS) views.push(vv);
-        }
-      }
+      views = validateViews(o.views, ctx);
       active = o.active;
     }
     // The left panel is a PANEL wish, not a tab: it is restored whether or not
@@ -470,6 +459,43 @@ export function loadUi(opts: LoadUiOpts): void {
   normalizeActive();
   uiLoaded = true;
   saveUi();
+}
+
+/**
+ * The stored views AS STORED, before `loadUi` prunes the sessions the backend
+ * no longer has (Quality Q17 P3): what `ui/resume-layout-model.ts` needs to
+ * put a session resumed after WSL went down back in its old pane. Read with
+ * the same hostile-bag gates as `loadUi`, but WITHOUT the D3 run gate — a
+ * crash always changes the run, and the old places are the whole point.
+ * Read-only: nothing is written, nothing in `state` changes.
+ */
+export function readLayoutSnapshot(): LayoutSnapshot {
+  const o = readStoredBag();
+  if (o === null) return { views: [], active: null };
+  const views = validateViews(o.views, { seen: new Set<string>(), home: false });
+  return { views, active: typeof o.active === 'string' ? o.active : null };
+}
+
+/** The v2 bag as an object, or null: absent, unparseable, not an object. */
+function readStoredBag(): Record<string, unknown> | null {
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
+  } catch {
+    parsed = null;
+  }
+  return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+}
+
+/** Every stored view that passes `validateView`, at most `MAX_VIEWS`. */
+function validateViews(raw: unknown, ctx: LoadCtx): ViewState[] {
+  const views: ViewState[] = [];
+  if (!Array.isArray(raw)) return views;
+  for (const v of raw) {
+    const vv = validateView(v, ctx);
+    if (vv !== null && views.length < MAX_VIEWS) views.push(vv);
+  }
+  return views;
 }
 
 /** Keep activeViewId pointing at a real view ('' when none exist). */

@@ -117,6 +117,12 @@ export interface DataPaths {
    */
   lastPortFile: string;
   /**
+   * How the previous run ended (mode 0600, atomic — server/previous-exit.ts,
+   * PLAN-QUALITY Q17): written on every shutdown path, judged at the next
+   * boot, marked `seen` once resumed or dismissed.
+   */
+  lastExitFile: string;
+  /**
    * Claude Code's OWN transcript root, `<CLAUDE_CONFIG_DIR|~/.claude>/projects`
    * — NOT ours, NOT under the data dir, and never created or written by this
    * process. It is where Claude Code keeps `<slug>/<session-id>.jsonl` and,
@@ -241,6 +247,7 @@ export function resolveDataPaths(): DataPaths {
     updatesDir: join(dataDir, 'updates'),
     updateCheckFile: join(dataDir, 'update-check.json'),
     lastPortFile: join(dataDir, 'last-port.json'),
+    lastExitFile: join(dataDir, 'last-exit.json'),
     // Claude Code's own directory, off the data dir on purpose: it is read
     // (never written) and it follows CLAUDE_CONFIG_DIR / the user's home, not
     // AI_SM_DATA_DIR.

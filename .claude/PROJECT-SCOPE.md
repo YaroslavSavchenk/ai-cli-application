@@ -41,6 +41,12 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   keeps them too**: the old backend detaches (no history stamp, no kill) and
   the new one adopts them at its `go` (details under Manual backend restart).
   Closing the app window still ends them after the grace (decision 25). A
+  dead VM (WSL out of memory, `wsl --shutdown`) cannot be survived: Q17
+  brings those sessions back by RESUME (below, Session history). Since Q16
+  every PTY child's `oom_score_adj` is raised to 500 right after spawn
+  (`server/pty-table.ts`, pty-host and in-process alike), so the kernel
+  picks a session before the backend or the pty-host (both stay at their
+  inherited value); a failed write is one `warn`. A
   refused data dir (not ours, not 0700, socket path > 107 bytes) falls back
   to in-process PTYs with one `server.log` line.
 - **Backend starts detached** from the launcher process (setsid), started on
@@ -63,6 +69,12 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   claude, ptyHost }` (`claude` since D6: `{ version, compat, min, testedUpTo }`;
   `ptyHost` since D9 P3: `{ build, proto }` of the pty-host holding the
   sessions, or null).
+  Since Q17 every shutdown path first writes `<dataDir>/last-exit.json`
+  (0600, atomic, read FIFO-safe): `{ at, startedAt, why: 'signal' |
+  'presence-grace' | 'restart' | 'other', signal?, presence, sessions,
+  bootId?, seen? }` — `sessions` are HISTORY ids only (live ones plus those
+  that ended `exit`/`crash` in the 3 s before the signal: on a VM poweroff
+  the pty-host can die first), never argv, cwd or names.
   History: `memory/decisions/lifecycle-bound-backend.md`.
 - **Session history with real per-conversation resume** (user's call
   2026-09-06). Every launched session is kept in `history.json` (data dir,
@@ -84,6 +96,30 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   A client-supplied `--session-id`/`--resume <uuid>` is adopted as the key.
   A blank session name makes the title the project name (the Launch Name
   placeholder is the selected project's name).
+  **After an unexpected stop** (Q17, `.claude/plans/quality/PLAN-Q17.md`):
+  the boot judges `last-exit.json` (`server/previous-exit*.ts`) —
+  unexpected = a `signal` record with presence > 0, or crash stamps with no
+  newer record. Cause: `oom` (VM rebooted — `boot_id` differs, `btime` the
+  fallback — and `journalctl -b -1 -k -r -o short-iso --no-pager -g "Out of
+  memory: Killed process"`, argv only, 5 s, 64 KiB, run only after a reboot,
+  has a line in the run's window: the largest kill's process name,
+  sanitised to `[A-Za-z0-9._-]` ≤ 32, and its RSS in MiB), `wsl-stopped`
+  (rebooted, no line or journal unreadable), `stopped`, `crash` (`at` =
+  `history.json` mtime). One `info` verdict line. Routes: `GET
+  /api/previous-exit` (`200 { at, cause, detail, sessions }` / `204`),
+  `POST /api/previous-exit/resume` (the history resume path, one at a time
+  at 80×24, idempotent — a second call gets empty lists; items carry
+  `previousSessionId`, the layout's remap key), `POST
+  /api/previous-exit/dismiss` (`204`, record marked `seen`, never deleted).
+  An unread notice repeats until resumed, dismissed or superseded. The UI:
+  after 10 s unreachable (not during its own restart/update) an offline
+  panel, "The app stopped responding", with `Restart` in the WebView2 host
+  (host message `relaunch`); a page relaunched that way (`localStorage`
+  `aism.recover`, ≤ 10 min old) resumes at once and says "N sessions
+  resumed"; any other boot offers `Resume N sessions` + `Dismiss` with the
+  cause sentence. Resumed sessions take their old tab/pane places from a
+  layout snapshot read before `loadUi` prunes it; one that fails stays in
+  History.
   History: `memory/decisions/session-history-resume.md`.
 - **Logging: everything, by default** (user's call 2026-09-06; since 2026-09-23
   a successful poll of `/api/sessions`, `/api/runtime`, `/api/prefs`,
@@ -133,7 +169,9 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   so that one update still ends the sessions): the
   standby probes the pty-host (a `probe` connection, `list-count`) and
   reports `ptyHost: compatible|incompatible|none` in `standby-ready`; the
-  teardown then DETACHES (`detachAll`: blobs flushed, a spawn in flight
+  teardown first writes `last-exit.json` with `why: 'restart'` (the
+  child's boot has nothing to tell; it replaces an unread older notice),
+  then DETACHES (`detachAll`: blobs flushed, a spawn in flight
   ended, the pty-host connection closed with `detach`, history NOT stamped)
   and the child adopts every session at `go` — same id, pid and scrollback.
   When they cannot be kept — running sessions inside the backend (no
@@ -160,6 +198,7 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   during the preflight, locked during reconnect. A page whose token is
   rejected without having asked for a restart probes `/health` for 5 s and
   reloads once on the same origin; only silence shows the reload panel.
+  Its "did not come back" state carries `Restart` in the host (Q17).
   Code: `server/restart.ts`, `server/index-restart.ts`. History:
   `memory/decisions/backend-restart-same-port.md`,
   `memory/decisions/restart-preflight-standby.md`.
@@ -193,8 +232,16 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   off-origin `window.open` for `http`/`https` goes to the default browser
   (scheme allowlist enforced in C#; every other scheme and every popup is
   dropped); refocuses web content on activation; clipboard-read granted to
-  the launch origin only; `AreHostObjectsAllowed` off; ONE page→host
-  message, `copy-files\n<windows path>…` (origin locked, 1..100 paths,
+  the launch origin only; `AreHostObjectsAllowed` off; TWO page→host
+  messages. `relaunch` (Q17: the bare word, ordinal, origin-locked, single
+  flight; the host re-runs the launcher that started it — path and data dir
+  from `relaunch.txt`, which `launch.ps1` writes beside the host's
+  `host.log` just before starting it: line 1 the `launch.ps1` path, line 2
+  the data dir, shape-checked, read once; a dev record whose data dir
+  ends in `.ai-session-manager` or holds a `.`/`..` segment is refused — with that data
+  dir in `AI_SM_DATA_DIR`; success = the new window is up and this one
+  closes; exit ≠ 0 or 120 s = reply `relaunch-failed`, window stays). And
+  `copy-files\n<windows path>…` (origin locked, 1..100 paths,
   shape-checked, the whole message refused on the first bad path,
   `Clipboard.SetFileDropList`, `host.log` counts only, no clipboard READ,
   no drag out); dark DWM window chrome. Tauri stays the later upgrade.
@@ -202,7 +249,8 @@ at its end (`## From the scope doc (moved 2026-09-23)`).
   CLONE launch on a non-default `AI_SM_DATA_DIR` passes the fixed switch
   `--dev-instance`, and the host keeps its staged copy, sentinel, `host.log`
   and WebView2 profile in `%LOCALAPPDATA%\ai-session-manager-dev\` (own
-  browser process); the host takes that one exact switch and nothing else.
+  browser process); the host takes that one exact switch and nothing else
+  on its command line (the Restart path comes only from `relaunch.txt`).
   History: `memory/decisions/native-webview2-host.md`.
 - **Release build / distribution.** `.github/workflows/verify.yml` is the
   one definition of "verified" (checks `verify / typecheck + build`,
@@ -388,7 +436,9 @@ pre-2026-09-23 wording in the note named at the end of each bullet.
   client-local localStorage schema v2 (views with `root` and `slots`;
   editor slots persisted as paths, never unsaved TEXT; every entry gated on
   read; `run` = the backend's `startedAt`: with `Reopen tabs on start` OFF
-  views return only for the run that wrote them). Sessions exist
+  views return only for the run that wrote them — except Q17's resume after
+  an unexpected stop, which rebuilds the views holding resumed sessions from
+  a snapshot taken before that check). Sessions exist
   independently of tabs/panes/splits. History:
   `memory/decisions/anti-slop-design-direction.md`.
 - **Files panel**: a middle-row column left of the pane grid, one fit →

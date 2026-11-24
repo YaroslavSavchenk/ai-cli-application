@@ -309,6 +309,25 @@ export function forgetAllHistory(): Promise<OkResponse> {
   return request<OkResponse>('/api/history', { method: 'DELETE' });
 }
 
+/**
+ * The previous run's end (Quality Q17, `.claude/plans/quality/PLAN-Q17.md`):
+ * the 200 body, or null on a 204 (nothing to tell — `request` reads an empty
+ * body as null). The caller reads it through `parseNotice`, never trusting it.
+ */
+export function getPreviousExit(): Promise<unknown> {
+  return request<unknown>('/api/previous-exit');
+}
+
+/** Resume every session that was running then. Idempotent on the server. */
+export function resumePreviousExit(): Promise<unknown> {
+  return request<unknown>('/api/previous-exit/resume', { method: 'POST' });
+}
+
+/** The notice is gone for good (204). */
+export function dismissPreviousExit(): Promise<unknown> {
+  return request<unknown>('/api/previous-exit/dismiss', { method: 'POST' });
+}
+
 /** Backend boot time (statusline uptime). */
 export function getRuntime(): Promise<RuntimeStatusResponse> {
   return request<RuntimeStatusResponse>('/api/runtime');

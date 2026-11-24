@@ -359,8 +359,11 @@ async function boot(root: HTMLDivElement): Promise<void> {
     // fetched above and awaited here; null only when that check failed, which
     // reads as a new run).
     await runtimeChecked;
+    // Before loadUi prunes them (Q17): the panes of sessions that died with
+    // the previous run, for a resume to put its sessions back into.
+    const layout = st.readLayoutSnapshot();
     st.loadUi({ reopen: getBehaviour().reopenTabs, run: st.state.serverStartedAt });
-    buildShell(root, prefs);
+    buildShell(root, prefs, layout);
   } catch (err) {
     // Everything above has settled its row, but the ws row may still be
     // pending — a throw here would otherwise leave the overlay spinning on a

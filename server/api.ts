@@ -50,6 +50,7 @@ import { ProjectStore } from './projects.ts';
 import { PrefsStore } from './prefs.ts';
 import { SessionManager, ptyEnv } from './sessions.ts';
 import { SessionHistory } from './history.ts';
+import type { PreviousExit } from './previous-exit.ts';
 import { KeyStore } from './keys.ts';
 import { cachedProbe } from './tools.ts';
 import { GithubConnection } from './github.ts';
@@ -155,6 +156,12 @@ export interface ApiDeps {
   prefs: PrefsStore;
   sessions: SessionManager;
   history: SessionHistory;
+  /**
+   * Q17: the previous run's end (server/previous-exit.ts) for
+   * /api/previous-exit. Absent in unit-test harnesses: those routes then
+   * answer 503 instead of pretending — the discipline of `restart` below.
+   */
+  previousExit?: PreviousExit;
   github: GithubConnection;
   /**
    * Stored API keys (server/keys.ts). Absent in unit-test harnesses that build

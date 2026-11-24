@@ -16,6 +16,9 @@
  * rejected in §4 — pasting text into Explorer's file list does nothing, and a
  * `Copy` that produces a string is a different promise.
  *
+ * Since Quality Q17 (`.claude/plans/quality/PLAN-Q17.md` § P2/P3) also the
+ * `relaunch` request and its one reply, `relaunch-failed` — exact strings.
+ *
  * NOT claimed here: that WebView2 delivers the message, that the host sets the
  * clipboard, or that Explorer pastes what it set (the user's Windows check).
  */
@@ -25,6 +28,9 @@ import {
   REPLY_TIMEOUT_MS,
   copyPathsToClipboard,
   hasHostBridge,
+  onRelaunchFailed,
+  parseRelaunchFailed,
+  requestRelaunch,
   type HostWindow,
 } from '../../web/src/ui/host-bridge.ts';
 
@@ -231,4 +237,41 @@ test('a reply that arrives after the wait changes nothing', async () => {
 
 test('the wait is three seconds — long enough for a clipboard another program is holding', () => {
   assert.equal(REPLY_TIMEOUT_MS, 3000);
+});
+
+// ---------------------------------------------------------------------------
+// relaunch (Quality Q17)
+// ---------------------------------------------------------------------------
+
+test('relaunch is posted as exactly the one word, and says it was posted', () => {
+  const h = host();
+  assert.equal(requestRelaunch(h.win), true);
+  assert.deepEqual(h.posted, ['relaunch']);
+});
+
+test('no host, or a channel that throws: relaunch answers false', () => {
+  assert.equal(requestRelaunch({}), false);
+  assert.equal(requestRelaunch(host({ throws: true }).win), false);
+});
+
+test('only exactly relaunch-failed is the failure reply', () => {
+  assert.equal(parseRelaunchFailed('relaunch-failed'), true);
+  for (const d of ['relaunch-failed ', 'Relaunch-failed', 'relaunch', '{"type":"relaunch-failed"}', null, 1]) {
+    assert.equal(parseRelaunchFailed(d), null, JSON.stringify(d));
+  }
+});
+
+test('onRelaunchFailed hears the reply until unsubscribed', () => {
+  const h = host();
+  let heard = 0;
+  const off = onRelaunchFailed(() => {
+    heard += 1;
+  }, h.win);
+  h.reply('copy-files ok 1');
+  h.reply('relaunch-failed');
+  assert.equal(heard, 1);
+  off();
+  assert.equal(h.listeners(), 0);
+  h.reply('relaunch-failed');
+  assert.equal(heard, 1);
 });

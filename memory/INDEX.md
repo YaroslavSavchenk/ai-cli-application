@@ -22,6 +22,7 @@ superseded. Conventions live in `.claude/skills/memory/SKILL.md`.
 - [[vanilla-ts-vite-frontend]] — no UI framework; vanilla TS + Vite around imperative xterm.js
 - [[web-app-inside-wsl]] — why the app is a web app served from WSL, not a Windows-native Electron app
 - [[detached-backend]] — partially superseded by [[lifecycle-bound-backend]]: setsid detachment from the launcher stands; window-close survival (and the systemd user service plan) reversed
+- [[wsl-crash-recovery]] — 2026-11-24 (user): WSL out of memory → Q16 sessions first in the OOM order, Q17 notice with the cause + one Restart (host `relaunch`) + every running session resumed in its pane
 
 ### Launcher, installer and release
 
@@ -124,6 +125,7 @@ launcher, github, release, project); the link target is still the filename.
 
 ### 2026-11
 
+- [[2026-11-24-q16-q17-wsl-crash-recovery]] — Q16 + Q17: the 12:53 WSL OOM stop; exit record + cause verdict, `/api/previous-exit`, host `relaunch`, offline panel, resume into old panes; gate 4811/4811
 - [[2026-11-21-d9-p3-adopt]] — D9 P3: the broker owns only what it adopts — boot adopt, host lost ⇒ group kill + crash; gate finished 2026-11-22 (34 tests, no bug)
 - [[2026-11-22-d9-p5-installer-launcher]] — D9 P5: installer keeps a live pty-host's version, `-Stop` ends a lone pty-host; INCIDENT: an agent's real `-Stop` stopped the installed app twice
 - [[2026-11-21-d9-p4-restart-keeps]] — D9 P4: restart and update detach, the new backend adopts; standby probe verdict, 409 `sessions-would-end` + "Restart anyway"

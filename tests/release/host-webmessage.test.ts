@@ -5,7 +5,7 @@
  * WHAT THIS TEST IS. A source-shape test over the TEXT of the host —
  * `launcher/host/AiSessionManagerHost-clipboard.cs` for the channel, the
  * first file `AiSessionManagerHost.cs` for its init lines and the assembly
- * attribute, all four parts for the log rule (Q6 cut the host), the idiom
+ * attribute, all five parts for the log rule (Q6 cut the host), the idiom
  * `tests/release/launcher-config.test.ts` and `tests/release/installer-script.test.ts` already
  * use on the launcher's `.ps1`/`.cs` sources. Nothing here runs the host:
  * there is no Windows, no `csc.exe` and no clipboard on the machine `npm test`
@@ -30,14 +30,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readSource, readSources } from '../helpers/helpers.ts';
-import { HOST_SOURCES } from '../helpers/host-sources.ts';
+import { HOST_SOURCES, logArguments } from '../helpers/host-sources.ts';
 
 /** The copy-files channel's part of the host (the whole region). */
 const CLIPBOARD_CS = 'launcher/host/AiSessionManagerHost-clipboard.cs';
 const cs = readSource(CLIPBOARD_CS);
 /** The host's first part: Main, the window, the WebView init. */
 const mainCs = readSource('launcher/host/AiSessionManagerHost.cs');
-/** All four parts as one text, for the rules that bind the whole host. */
+/** All five parts as one text, for the rules that bind the whole host. */
 const host = readSources(...HOST_SOURCES);
 
 /** The body of a `private static … Name(` member of `text`, up to the next member. */
@@ -265,25 +265,6 @@ test('host: every outcome answers the page with one of the two reply strings', (
 });
 
 // --- no path is ever logged ------------------------------------------------
-
-/** Argument text of every `Log(` CALL in `text` (the declaration is skipped). */
-function logArguments(text: string): string[] {
-  const out: string[] = [];
-  const re = /(^|[^\w.])Log\(/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    const open = m.index + m[0].length - 1;
-    if (/void\s+$/.test(text.slice(Math.max(0, m.index - 6), open - 3))) continue;
-    let depth = 1;
-    let i = open + 1;
-    for (; i < text.length && depth > 0; i++) {
-      if (text[i] === '(') depth++;
-      else if (text[i] === ')') depth--;
-    }
-    out.push(text.slice(open + 1, i - 1));
-  }
-  return out;
-}
 
 test('host: no copy-files log line carries an exception MESSAGE', () => {
   // Region-scoped: the older handlers in the host log ex.Message and are not

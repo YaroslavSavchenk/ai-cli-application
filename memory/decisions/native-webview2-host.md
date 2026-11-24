@@ -1,7 +1,7 @@
 ---
 type: decision
 created: 2026-07-23
-updated: 2026-09-26
+updated: 2026-11-24
 tags: [launcher, windows, webview2, native-host, icon, chrome]
 ---
 # Native WebView2 host to own the Windows taskbar icon
@@ -191,7 +191,7 @@ Verbatim wording of the `.claude/PROJECT-SCOPE.md` bullet before part O1 condens
   is opened, resolved or executed; `host.log` records a count and an
   exception CLASS, never a path or a message; `AreHostObjectsAllowed` is
   off; the `.cs` targets .NET Framework 4.7.2 explicitly so paths of 260+
-  chars work. No drag OUT of the app, no clipboard READ in the host. Its **window chrome is dark** (added 2026-07-24): DWM caption /
+  chars work. No drag OUT of the app, no clipboard READ in the host. **Since Q17 (2026-11-24) a second message, `relaunch`** (bare word, ordinal, same origin lock): the host re-runs the launcher that started it — the ONE thing it ever executes for the page — with path and data dir read once from `relaunch.txt` (written by `launch.ps1`; never from the page), single flight, `relaunch-failed` on exit ≠ 0 or 120 s; see [[wsl-crash-recovery]]. Its **window chrome is dark** (added 2026-07-24): DWM caption /
   text / border colors + immersive dark mode, matching the `--color-bg`,
   `--color-neutral-200` and `--color-neutral-800` tokens (the Legacy alias
   names `--bg-app`/`--text-hd`/`--edge` died in Nocturne A8, 2026-09-14), because the DWM-drawn caption is outside

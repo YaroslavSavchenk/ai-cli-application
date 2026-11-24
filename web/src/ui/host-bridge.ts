@@ -19,6 +19,10 @@
  *     host → page:  copy-files ok <n>   |   copy-files failed
  *     host → page:  {"type":"focus-session","session":"<uuid>"}   (C1)
  *     host → mascot page:  {"type":"app-active","active":true|false}   (D8)
+ *     page → host:  relaunch            (Quality Q17: start WSL, the backend
+ *                                        and a new window; this one closes)
+ *     host → page:  relaunch-failed     (only on failure — success is this
+ *                                        window being replaced)
  *
  * The JSON messages are the host forwarding a click on a peek mascot
  * (Nocturne C1) and, to the separate mascot page (`web/src/mascot/main.ts`),
@@ -205,4 +209,38 @@ function onHostMessage<T>(parse: (data: unknown) => T | null, fn: (value: T) => 
   };
   channel.addEventListener('message', onMessage);
   return () => channel.removeEventListener('message', onMessage);
+}
+
+// ---------------------------------------------------------------------------
+// page → host: relaunch (Quality Q17 P2/P3, .claude/plans/quality/PLAN-Q17.md)
+// ---------------------------------------------------------------------------
+
+/** The whole message, both ways: no argument, no path — the host knows its launcher. */
+const RELAUNCH = 'relaunch';
+const RELAUNCH_FAILED = 'relaunch-failed';
+
+/**
+ * Ask the host to start everything again: WSL, the backend, a new window —
+ * this one closes when the new one is up. Answers whether the message was
+ * posted at all (false: no host, or the channel threw).
+ */
+export function requestRelaunch(w?: HostWindow): boolean {
+  const channel = hostWindow(w)?.chrome?.webview;
+  if (channel == null) return false;
+  try {
+    channel.postMessage(RELAUNCH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Exactly `relaunch-failed`; anything else is not this message. */
+export function parseRelaunchFailed(data: unknown): true | null {
+  return data === RELAUNCH_FAILED ? true : null;
+}
+
+/** Call `fn` on every `relaunch-failed` the host posts. Answers the unsubscribe. */
+export function onRelaunchFailed(fn: () => void, w?: HostWindow): () => void {
+  return onHostMessage(parseRelaunchFailed, () => fn(), w);
 }

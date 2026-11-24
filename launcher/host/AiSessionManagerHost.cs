@@ -21,9 +21,11 @@
 // %LOCALAPPDATA%\ai-session-manager-dev\, so the two never share a WebView2
 // browser process, profile, sentinel or log. The switch selects one of two
 // fixed folder names; no path is ever taken from the command line or the
-// environment.
+// environment. (The one path the host does hold - the launcher Restart runs,
+// Q17 P2 - comes from the relaunch record launch.ps1 writes into that same
+// folder, read once at startup; see AiSessionManagerHost-relaunch.cs.)
 //
-// Four things the host does for the page beyond showing it: it hands the
+// Five things the host does for the page beyond showing it: it hands the
 // keyboard back to the web content whenever the window is activated (WebView2
 // runs the page in its own HWND tree, so an Alt-Tab away and back could leave
 // the window active with nothing able to receive typing or pasting), it hands
@@ -31,7 +33,9 @@
 // instead of dropping them, it grants clipboard-read to the app's own origin
 // so the page can offer a paste command, and it puts FILES on the Windows
 // clipboard for the page through one origin-locked string message channel
-// (AiSessionManagerHost-clipboard.cs). Everything else stays denied and
+// (AiSessionManagerHost-clipboard.cs), and on that same channel the page can
+// ask it to run the launcher again after WSL went down - the Restart button
+// (AiSessionManagerHost-relaunch.cs). Everything else stays denied and
 // top-level navigation stays locked to the launch origin.
 //
 // A second, borderless window in the same process shows the peek mascot
@@ -39,11 +43,11 @@
 // never-activated, click-through overlay at the right edge of the app
 // window's monitor. See AiSessionManagerHost-overlay.cs.
 //
-// One partial class HostApp in four files (Q6,
-// .claude/plans/quality/PLAN-Q6.md), compiled together by
-// launcher/build-host.ps1: this one (Main, the window, WebView, links),
-// AiSessionManagerHost-clipboard.cs, AiSessionManagerHost-overlay.cs and
-// AiSessionManagerHost-overlay-window.cs.
+// One partial class HostApp in five files (Q6,
+// .claude/plans/quality/PLAN-Q6.md; the fifth from Q17 P2), compiled together
+// by launcher/build-host.ps1: this one (Main, the window, WebView, links),
+// AiSessionManagerHost-clipboard.cs, AiSessionManagerHost-overlay.cs,
+// AiSessionManagerHost-overlay-window.cs and AiSessionManagerHost-relaunch.cs.
 //
 // C# 5 only (compiled by the in-box Framework csc.exe, pre-Roslyn): no string
 // interpolation, no expression-bodied members, no null-conditional operators.
@@ -210,6 +214,10 @@ namespace AiSessionManager
                 // Capture the exact origin (scheme+host+port) the whole session
                 // is locked to.
                 _launchOrigin = uri;
+
+                // What the Restart button will run: read now, while the record
+                // is the one THIS window's launch wrote. Never fatal.
+                LoadRelaunchRecord(devInstance);
 
                 // Explicit, never the exe dir: keep the WebView2 profile out of
                 // the (read-only WSL share) install location.

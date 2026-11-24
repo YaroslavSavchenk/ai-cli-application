@@ -34,24 +34,14 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { projectRoot, readSource, readSources, makeTempDir, removeTempDir } from '../helpers/helpers.ts';
-import { HOST_SOURCES } from '../helpers/host-sources.ts';
+import { HOST_SOURCES, csConst, psVar } from '../helpers/host-sources.ts';
 import { powershell, run, skip, toWindowsPath } from '../helpers/launcher-config-fixture.ts';
 
-// All four parts of the host as one text (Q6): a folder name, an argument
+// All five parts of the host as one text (Q6): a folder name, an argument
 // rule or a data path in ANY part is held to the pins below.
 const cs = readSources(...HOST_SOURCES);
 const common = readSource('launcher', 'config-common.ps1');
 const launch = readSource('launcher', 'launch.ps1');
-
-/** The value of a `private const string Name = "…";` in the host. */
-function csConst(name: string): string | undefined {
-  return new RegExp(`private const string ${name} = "([^"]*)";`).exec(cs)?.[1];
-}
-
-/** The value of a top-level `$Name = '…'` in config-common.ps1. */
-function psVar(name: string): string | undefined {
-  return new RegExp(`^\\$${name}\\s*=\\s*'([^']*)'`, 'm').exec(common)?.[1];
-}
 
 test('the host and config-common.ps1 name the same two folders and the same switch', () => {
   const pairs: Array<[string, string, string]> = [
@@ -60,10 +50,10 @@ test('the host and config-common.ps1 name the same two folders and the same swit
     ['DevInstanceSwitch', 'AiSmHostDevSwitch', '--dev-instance'],
   ];
   for (const [inCs, inPs, value] of pairs) {
-    assert.equal(csConst(inCs), value, `host ${inCs}`);
-    assert.equal(psVar(inPs), value, `config-common.ps1 $${inPs}`);
+    assert.equal(csConst(cs, inCs), value, `host ${inCs}`);
+    assert.equal(psVar(common, inPs), value, `config-common.ps1 $${inPs}`);
   }
-  assert.equal(psVar('AiSmDefaultDataDir'), '~/.ai-session-manager', 'the default backend data dir');
+  assert.equal(psVar(common, 'AiSmDefaultDataDir'), '~/.ai-session-manager', 'the default backend data dir');
 });
 
 test('the host takes its folder from the switch alone, never from a path or the environment', () => {

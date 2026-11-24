@@ -58,6 +58,7 @@ export {
   saveUi,
   type LoadUiOpts,
   loadUi,
+  readLayoutSnapshot,
   ensureHomeView,
   firstMovableIndex,
 } from './state-persist.ts';
@@ -68,6 +69,7 @@ export {
   initServer,
   setSessions,
   upsertSession,
+  adoptResumed,
   setAttention,
   markSeenLocally,
   markExited,

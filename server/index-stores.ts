@@ -26,6 +26,7 @@ import { KeyStore } from './keys.ts';
 import { TelemetryWatcher } from './telemetry.ts';
 import { AgentsWatcher } from './agents.ts';
 import { SessionHistory } from './history.ts';
+import { PreviousExit } from './previous-exit.ts';
 import { GithubConnection } from './github.ts';
 import { cleanupUpdatesDir } from './update-install.ts';
 import type { PtyHost } from './pty-host-api.ts';
@@ -49,6 +50,8 @@ interface Stores {
   projects: ProjectStore;
   prefs: PrefsStore;
   history: SessionHistory;
+  /** Q17: the exit record and the previous run's verdict (judged in the adoption step). */
+  previousExit: PreviousExit;
   keys: KeyStore;
   agents: AgentsWatcher;
   sessions: SessionManager;
@@ -76,6 +79,8 @@ export function createStores({
   const projects = new ProjectStore(paths.projectsFile, log);
   const prefs = new PrefsStore(paths.prefsFile, log);
   const history = new SessionHistory(paths.historyFile, log);
+  // Touches nothing until the adoption step judges (a standby: at `go`).
+  const previousExit = new PreviousExit({ file: paths.lastExitFile, log });
   // A standby reads the file WITHOUT stamping or rewriting it: those entries
   // belong to the parent that is still running them. The full load runs at
   // `go`; in a normal boot it runs in the adoption step (D9 P3,
@@ -195,6 +200,7 @@ export function createStores({
     projects,
     prefs,
     history,
+    previousExit,
     keys,
     agents,
     sessions,

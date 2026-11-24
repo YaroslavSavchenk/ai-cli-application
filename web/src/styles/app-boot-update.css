@@ -591,3 +591,17 @@
   }
 }
 
+
+/* ---- when WSL went down (Quality Q17 P3) -------------------------------------
+   The offline panel is the restart dialog's own card — the same kind of
+   moment — wearing the boot error's ONE alarm mark: the danger top edge. The
+   boot notice is the update toast's card (its attention rule: news that waits
+   for an answer); its one line about sessions that did not come back is the
+   failure ink the restart dialog uses. No new colour, no new size. */
+.op-modal {
+  border-top: var(--tick) solid var(--color-danger);
+}
+
+.px-fail {
+  color: var(--color-danger);
+}

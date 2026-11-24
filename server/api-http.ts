@@ -101,6 +101,12 @@ export function sendJson(
   else res.end(text, onFlushed);
 }
 
+/** 204, no body: POST /api/client-log and the /api/previous-exit routes. */
+export function sendNoContent(res: ServerResponse): void {
+  res.writeHead(204);
+  res.end();
+}
+
 export function sendError(res: ServerResponse, status: number, message: string): void {
   responseReason.set(res, message);
   sendJson(res, status, { error: message });

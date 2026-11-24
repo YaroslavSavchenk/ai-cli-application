@@ -368,6 +368,64 @@ export interface ResumeHistoryRequest {
 }
 
 // ---------------------------------------------------------------------------
+// The previous run's end (PLAN-QUALITY Q17, .claude/plans/quality/PLAN-Q17.md
+// § P1). The backend writes <dataDir>/last-exit.json on every shutdown path
+// and judges it at the next boot (server/previous-exit.ts).
+//
+// Routes (auth like every other /api route):
+//   GET  /api/previous-exit          -> 200 PreviousExitNotice, or 204 when
+//                                       there is nothing to tell (a clean
+//                                       stop, a restart, already resumed or
+//                                       dismissed)
+//   POST /api/previous-exit/resume   -> 200 PreviousExitResumeResponse; body
+//                                       ignored (<= 1 KiB, else 413).
+//                                       Idempotent: a second call resumes
+//                                       nothing and answers two empty lists
+//   POST /api/previous-exit/dismiss  -> 204; the notice is gone for good
+// ---------------------------------------------------------------------------
+
+/**
+ * What stopped the previous run: `oom` WSL's kernel killed a process for
+ * memory and the VM went down; `wsl-stopped` the VM went down (no OOM line,
+ * or the journal could not be read); `stopped` the app was signalled while a
+ * window was open, same VM boot; `crash` the backend died without writing its
+ * exit record and left sessions behind.
+ */
+export type PreviousExitCause = 'oom' | 'wsl-stopped' | 'stopped' | 'crash';
+
+/** GET /api/previous-exit, 200. */
+export interface PreviousExitNotice {
+  /** ISO-8601: when the previous run stopped (for `crash`, its last history write). */
+  at: string;
+  cause: PreviousExitCause;
+  /**
+   * `oom` only: the killed process's name (`[A-Za-z0-9._-]`, <= 32 chars) and
+   * its anon-rss in MiB (rounded). null for every other cause.
+   */
+  detail: { process: string; rssMb: number } | null;
+  /** How many sessions were running then (what `Resume N sessions` counts). */
+  sessions: number;
+}
+
+/** One session POST /api/previous-exit/resume brought back. */
+export interface PreviousExitResumed {
+  /** The history entry (HistoryEntry.id) it continues. */
+  historyId: string;
+  /**
+   * The app session id the entry's previous launch had — the id a saved tab
+   * layout still names, so the browser can put the new session in its place.
+   */
+  previousSessionId: string;
+  session: SessionInfo;
+}
+
+/** POST /api/previous-exit/resume, 200. `error` is the history resume route's sentence. */
+export interface PreviousExitResumeResponse {
+  resumed: PreviousExitResumed[];
+  failed: Array<{ historyId: string; error: string }>;
+}
+
+// ---------------------------------------------------------------------------
 // REST shapes: generic answer, projects, the project-folder picker, sessions
 // ---------------------------------------------------------------------------
 

@@ -125,6 +125,12 @@ $AiSmDefaultDataDir     = '~/.ai-session-manager'
 $AiSmWindowsDataName    = 'ai-session-manager'
 $AiSmWindowsDevDataName = 'ai-session-manager-dev'
 $AiSmHostDevSwitch      = '--dev-instance'
+# The relaunch record (Q17 P2, .claude/plans/quality/PLAN-Q17.md): launch.ps1
+# writes it into the instance folder just before it starts the host - line 1
+# this launcher's own path, line 2 the backend data dir - and the host reads
+# it once at startup, so the in-window Restart button runs the same launcher
+# on the same data dir (RelaunchRecordName in AiSessionManagerHost-relaunch.cs).
+$AiSmRelaunchRecordName = 'relaunch.txt'
 
 function Test-AiSmDevInstance {
     # The one rule for a second instance; launch.ps1 takes both the host's

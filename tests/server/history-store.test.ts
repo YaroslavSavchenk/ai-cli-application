@@ -20,7 +20,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { HistoryEntry, SessionInfo } from '../../shared/protocol.ts';
 import { HISTORY_MAX, SessionHistory } from '../../server/history.ts';
@@ -542,6 +542,49 @@ test('pruneUnsaid drops ONLY a uuid-keyed claude conversation with no transcript
       8,
       'an unresolvable cwd keeps its entry',
     );
+  } finally {
+    await rm(u.root, { recursive: true, force: true });
+  }
+});
+
+test('runningAt (Q17 exit record): live entries, plus exit/crash ends inside the grace — never a user-kill or shutdown', async () => {
+  const u = await unitStore('running-at');
+  try {
+    u.store.load();
+    const add = (n: string): void =>
+      u.store.recordCreate(infoOf({ id: `sess-${n}`, command: 'bash' }), { id: `entry-${n}`, conversation: false, baseArgs: [] });
+    for (const n of ['live', 'exit', 'crash', 'kill']) add(n);
+    u.store.markEnded('sess-exit', 'exit', 0);
+    u.store.markEnded('sess-crash', 'crash', 137);
+    u.store.markEnded('sess-kill', 'user-kill');
+    const now = Date.now();
+    assert.deepEqual(u.store.runningAt(now, 3_000), ['entry-live', 'entry-exit', 'entry-crash']);
+    assert.deepEqual(u.store.runningAt(now + 10_000, 3_000), ['entry-live'], 'ends older than the grace are not running');
+    assert.equal(u.store.runningAt(now, 0).includes('entry-live'), true, 'a live entry needs no grace');
+    add('shut');
+    u.store.endAllLive('shutdown');
+    assert.equal(u.store.runningAt(Date.now(), 3_000).includes('entry-shut'), false, 'a shutdown stamp is not counted');
+  } finally {
+    await rm(u.root, { recursive: true, force: true });
+  }
+});
+
+test('load() answers the entries it stamped crash and the file\'s mtime from BEFORE its rewrite (Q17 crash time)', async () => {
+  // Test gate 2026-11-24: a mutant answering `writtenAt: null` passed — the
+  // crash notice then names the boot's time, not the previous run's last write.
+  const u = await unitStore('boot-stamps');
+  try {
+    assert.deepEqual(u.store.load(), { crashed: [], writtenAt: null }, 'no file: nothing stamped, no time');
+    const info = infoOf({ id: 'sess-crashed', command: 'bash' });
+    u.store.recordCreate(info, { id: 'entry-crashed', conversation: false, baseArgs: [] });
+    const lastWrite = new Date('2026-11-24T11:53:40.000Z');
+    await utimes(u.file, lastWrite, lastWrite);
+    const boot = new SessionHistory(u.file, (() => {}) as never);
+    assert.deepEqual(boot.load(), {
+      crashed: [{ id: 'entry-crashed', lastUsedAt: info.createdAt }],
+      writtenAt: lastWrite.toISOString(),
+    });
+    assert.equal(boot.get('entry-crashed')?.ended?.reason, 'crash', 'and it really stamped it');
   } finally {
     await rm(u.root, { recursive: true, force: true });
   }

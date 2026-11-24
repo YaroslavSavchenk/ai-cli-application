@@ -70,6 +70,7 @@ import { createUpdateWiring } from './index-update.ts';
 import { createRestartController } from './index-restart.ts';
 import { createClaudeWiring } from './index-claude.ts';
 import { bootSessions, createPtyHostBroker } from './index-ptyhost.ts';
+import type { ExitSignal, ExitWhy } from './previous-exit-model.ts';
 
 const paths = resolveDataPaths();
 const logLevel = resolveLogLevel();
@@ -199,6 +200,7 @@ const {
   projects,
   prefs,
   history,
+  previousExit,
   keys,
   agents,
   sessions,
@@ -241,7 +243,7 @@ const lifecycle = new LifecycleController({
       }
       log('warn', `an update has been installing for ${heldFor}ms; shutting down anyway`);
     }
-    shutdown('idle grace expiry');
+    shutdown('idle grace expiry', 'presence-grace');
   },
   log,
 });
@@ -295,6 +297,7 @@ const apiDeps: ApiDeps = {
   prefs,
   sessions,
   history,
+  previousExit,
   github,
   keys,
   tools,
@@ -468,7 +471,7 @@ server.on('error', (err) => {
  * sessions it shows are adopted.
  */
 function adoptThenListen(): void {
-  void bootSessions({ broker: ptyHosts, history, sessions, resetSessionArtifacts, log })
+  void bootSessions({ broker: ptyHosts, history, sessions, resetSessionArtifacts, previousExit, log })
     .catch((err: unknown) => log('error', `boot adoption failed: ${describeError(err)}`))
     .then(() => beginListening());
 }
@@ -530,6 +533,7 @@ function adoptWebBuild(): void {
 const restart = createRestartController({
   log,
   getPort,
+  getStartedAt,
   paths,
   repoRoot,
   serverDir,
@@ -538,6 +542,7 @@ const restart = createRestartController({
   sessions,
   ptyHosts,
   history,
+  previousExit,
   lifecycle,
   telemetry,
   agents,
@@ -559,8 +564,31 @@ let buildChild: ChildProcess | undefined;
 /** The most a shutdown waits for the pty-host's `shutdown-all` frame to leave. */
 const EXIT_FLUSH_MS = 500;
 
+/**
+ * Q17 fix round: a session whose PTY ended this close before the signal still
+ * counts as running — a WSL poweroff SIGTERMs the pty-host and its PTYs at the
+ * same moment as the backend, and they can lose the race
+ * (server/history.ts `runningAt`).
+ */
+const RECENT_END_MS = 3_000;
+
+/**
+ * Q17 (.claude/plans/quality/PLAN-Q17.md § P1 1): what this run was doing when
+ * it stopped, written BEFORE the sessions end — the next boot tells the user
+ * and can resume them. `startedAt` is empty before listen: the process start.
+ */
+function writeExitRecord(why: ExitWhy, signal?: ExitSignal): void {
+  previousExit.writeRecord({
+    why,
+    ...(signal !== undefined ? { signal } : {}),
+    presence: lifecycle.presenceCount,
+    startedAt: startedAt !== '' ? startedAt : new Date(performance.timeOrigin).toISOString(),
+    sessions: history.runningAt(Date.now(), RECENT_END_MS),
+  });
+}
+
 let shuttingDown = false;
-function shutdown(cause: string): void {
+function shutdown(cause: string, why: ExitWhy, signal?: ExitSignal): void {
   if (shuttingDown) return;
   // A standby that never got its `go` owns NOTHING in the data dir: runtime.json,
   // history.json and session-settings/ all still belong to the LIVE parent, which
@@ -612,6 +640,7 @@ function shutdown(cause: string): void {
   // Never in installed mode: nothing there ever stages or renames a directory,
   // so this would only be a rmSync aimed at paths beside a bundle's web/dist.
   if (!installed) discardFrontend({ webDistDir });
+  writeExitRecord(why, signal);
   // History first (crash safety), then kill: destroy()'s 'user-kill' and the
   // async onExit 'exit' stamps are no-ops on already-'shutdown' entries.
   history.endAllLive('shutdown');
@@ -625,8 +654,8 @@ function shutdown(cause: string): void {
   void ptyHosts.flushed(EXIT_FLUSH_MS).then(() => process.exit(0));
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT', 'signal', 'SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM', 'signal', 'SIGTERM'));
 
 process.on('unhandledRejection', (reason) => {
   // Logged, never fatal: a rejected promise somewhere must not take running
@@ -728,6 +757,8 @@ process.on('uncaughtException', (err) => {
   // Not during a restart handoff: runtime.json is the CHILD's by then. And not
   // in a standby before `go` either: there it is the live PARENT's.
   if (!restart.inProgress && !standbyWaiting) {
+    // Not mid-shutdown either: that path wrote its own record already.
+    if (!shuttingDown) writeExitRecord('other');
     removeOwnRuntimeFile(paths.runtimeFile, { pid: process.pid, startedAt }, log);
   }
   process.exit(1);

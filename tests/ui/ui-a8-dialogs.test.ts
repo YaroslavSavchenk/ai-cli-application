@@ -127,7 +127,7 @@ function assignedClasses(src: string): string[] {
  * them. Their own DOM behaviour is `tests/ui/ui-a9-drop-dialog.test.ts`,
  * `tests/ui/ui-files-delete.test.ts` and `tests/ui/ui-unsaved.test.ts`.
  */
-const PREFIXED = /^(?:sc|ut|rs|fd|dd|ud)-[a-z0-9-]+$/;
+const PREFIXED = /^(?:sc|ut|rs|fd|dd|ud|pe|px)-[a-z0-9-]+$/;
 
 // ---------------------------------------------------------------------------
 
@@ -162,7 +162,7 @@ test('tokens only: every var() in the dialog and panel sections is declared in t
   assert.deepEqual(offenders, [], `a rule reads a token that is declared nowhere:\n  ${offenders.join('\n  ')}`);
 });
 
-test('class parity for sc-, ut-, rs-, fd-, dd- and ud-: no unstyled class, no dead rule, one owner per prefix', () => {
+test('class parity for sc-, ut-, rs-, fd-, dd-, ud-, pe- and px-: no unstyled class, no dead rule, one owner per prefix', () => {
   const inTs = new Map<string, string[]>();
   for (const f of FILES) {
     for (const c of assignedClasses(f.src)) {
@@ -173,7 +173,7 @@ test('class parity for sc-, ut-, rs-, fd-, dd- and ud-: no unstyled class, no de
     }
   }
   const inCss = new Set<string>();
-  for (const m of APP_RULES.matchAll(/\.((?:sc|ut|rs|fd|dd|ud)-[a-z0-9-]+)/g)) inCss.add(m[1] as string);
+  for (const m of APP_RULES.matchAll(/\.((?:sc|ut|rs|fd|dd|ud|pe|px)-[a-z0-9-]+)/g)) inCss.add(m[1] as string);
   assert.ok(inTs.size >= 20 && inCss.size >= 20, `non-vacuity: ts ${inTs.size}, css ${inCss.size}`);
 
   const unstyled = [...inTs.keys()]
@@ -195,15 +195,26 @@ test('class parity for sc-, ut-, rs-, fd-, dd- and ud-: no unstyled class, no de
   }
   assert.deepEqual([...(owners.get('sc') as Set<string>)], ['web/src/ui/shortcuts.ts']);
   // D6: the Claude Code notice is a second card in the update toast's slot
-  // and style — the one other module allowed to wear `ut-`.
+  // and style; Quality Q17 P3 adds the previous-exit notice as a third card in
+  // the same stack — the only other modules allowed to wear `ut-`.
   assert.deepEqual([...(owners.get('ut') as Set<string>)].sort(), [
     'web/src/ui/claude-notice.ts',
+    'web/src/ui/previous-exit.ts',
     'web/src/ui/update.ts',
   ]);
-  assert.deepEqual([...(owners.get('rs') as Set<string>)], ['web/src/ui/update.ts']);
+  // Q17 P3: the offline panel IS the restart dialog's card in another moment
+  // of the same story (the backend went away), so it wears `rs-` too.
+  assert.deepEqual([...(owners.get('rs') as Set<string>)].sort(), [
+    'web/src/ui/offline-panel.ts',
+    'web/src/ui/update.ts',
+  ]);
   assert.deepEqual([...(owners.get('fd') as Set<string>)], ['web/src/ui/drop-dialog.ts']);
   assert.deepEqual([...(owners.get('dd') as Set<string>)], ['web/src/ui/delete-dialog.ts']);
   assert.deepEqual([...(owners.get('ud') as Set<string>)], ['web/src/ui/unsaved.ts']);
+  // Q17 P3 review: a new block once reached for `pe-`, the project editor's
+  // prefix; the previous-exit notice owns `px-`.
+  assert.deepEqual([...(owners.get('pe') as Set<string>)], ['web/src/ui/project-edit.ts']);
+  assert.deepEqual([...(owners.get('px') as Set<string>)], ['web/src/ui/previous-exit.ts']);
 });
 
 test('the retired Legacy dialog chrome has zero users: no rule, no assignment', () => {
@@ -277,6 +288,7 @@ test('.modal-scrim is the deliberate survivor: one rule, and every dialog still 
     'web/src/ui/drop-dialog.ts',
     'web/src/ui/launch.ts',
     'web/src/ui/newproject.ts',
+    'web/src/ui/offline-panel.ts',
     'web/src/ui/picker.ts',
     'web/src/ui/project-edit.ts',
     'web/src/ui/settings.ts',

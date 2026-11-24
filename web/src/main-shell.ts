@@ -69,6 +69,9 @@ import {
   isRestartConfirmOpen,
 } from './ui/update.ts';
 import { initClaudeNotice } from './ui/claude-notice.ts';
+import { initPreviousExit } from './ui/previous-exit.ts';
+import { initOfflinePanel } from './ui/offline-panel.ts';
+import type { LayoutSnapshot } from './ui/resume-layout-model.ts';
 import { createAuthLossRecovery } from './ui/restart-flow.ts';
 import { onFocusSession } from './ui/host-bridge.ts';
 import { isFolderPickerOpen, closeFolderPicker } from './ui/picker.ts';
@@ -93,7 +96,12 @@ const POLL_MS = 3000;
  */
 const RUNTIME_POLL_MS = 30000;
 
-export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): void {
+/**
+ * `layout` is the stored arrangement as it was BEFORE `loadUi` pruned the
+ * sessions the backend no longer has (Quality Q17): a session resumed after
+ * WSL went down goes back into its old pane from it.
+ */
+export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined, layout: LayoutSnapshot): void {
   // ---- top bar (Nocturne A2) -----------------------------------------------
   // Left to right: logo tile + wordmark, hairline, the three panel toggles,
   // spacer, connection readout (+ the update pill), hairline, GitHub account
@@ -204,6 +212,10 @@ export function buildShell(root: HTMLDivElement, prefs: UiPrefs | undefined): vo
   conn.after(upd.pill);
   // The Claude Code notice (D6) joins the update toast's stack, under it.
   initClaudeNotice(upd.toasts, prefs, requestTerminalFocus);
+  // The previous run's end (Q17): one GET at boot, and the resume — at once
+  // after this window's predecessor pressed `Restart`, else on the notice's
+  // button. Same stack, under the two above.
+  void initPreviousExit(upd.toasts, layout, requestTerminalFocus);
   // Since B6 the panel opens no overlay of its own: its Keyboard page draws the
   // whole shortcuts table from ui/shortcuts-rows.ts, so the `openShortcuts` dep
   // (and the ordering it needed — the overlay is built after this panel) is
@@ -684,12 +696,19 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
   // the topbar dot to offline (and the statusline item to unreachable), the
   // first success clears it.
   let pollFailures = 0;
+  // Ten seconds of failed polls → the panel that says WSL or the service
+  // stopped, with the one `Restart` (Q17 P3, ui/offline-panel.ts).
+  const offline = initOfflinePanel(modalHost, {
+    blocked: () => fatal || isRestartConfirmOpen(),
+    now: () => Date.now(),
+  });
   const poll = (): void => {
     if (fatal || st.state.restarting) return;
     void api
       .getSessions()
       .then((list) => {
         pollFailures = 0;
+        offline.ok();
         st.setBackendReachable(true);
         st.setSessions(list);
       })
@@ -697,6 +716,7 @@ function nextEditorSlot(v: st.ViewState, from: number): number {
         // 401/403 already took the page over via onAuthError; anything else
         // is the backend gone/unreachable. Two misses to skip one-off blips.
         pollFailures++;
+        offline.fail();
         if (pollFailures >= 2) st.setBackendReachable(false);
       });
   };

@@ -98,7 +98,10 @@ import {
 } from './update-flow.ts';
 import { openReleasesPage } from './releases.ts';
 import { claudeFact } from './claude-notice-model.ts';
+import { RELAUNCH_FAILED, RESTARTING_LABEL, RESTART_LABEL, SHORTCUT_ADVICE } from './previous-exit-model.ts';
+import { canRelaunch, startRelaunch } from './relaunch.ts';
 import {
+  MSG_LOST,
   MSG_OTHER_PORT,
   OTHER_PORT_WAIT_MS,
   loopbackUrl,
@@ -348,7 +351,29 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
   });
   dlBtn.title = COPY.downloadSelfTip;
   dlBtn.hidden = true;
-  ft.append(dlBtn, cancelBtn, el('span', 'rs-gap'), hideBtn, closeBtn, retryBtn, confirmBtn);
+  // Only on "did not come back", and only in the WebView2 host (Quality Q17
+  // P3): the backend is gone, and the host can start WSL, the backend and a
+  // new window in one go (`./relaunch.ts`) — the same `Restart` as the
+  // offline panel's.
+  const relaunchBtn = button('btn-accent', RESTART_LABEL, () => {
+    log.info('restart dialog: relaunch chosen');
+    relaunchBtn.disabled = true;
+    relaunchBtn.textContent = RESTARTING_LABEL;
+    closeBtn.hidden = true;
+    // The pressed button is disabled and Close is gone: keep the keyboard in
+    // the dialog, on the line that says what happened.
+    failure.tabIndex = -1;
+    failure.focus();
+    startRelaunch(() => {
+      failure.textContent = `${RELAUNCH_FAILED} ${SHORTCUT_ADVICE}`;
+      relaunchBtn.disabled = false;
+      relaunchBtn.textContent = RESTART_LABEL;
+      closeBtn.hidden = false;
+      relaunchBtn.focus();
+    });
+  });
+  relaunchBtn.hidden = true;
+  ft.append(dlBtn, cancelBtn, el('span', 'rs-gap'), hideBtn, closeBtn, retryBtn, confirmBtn, relaunchBtn);
 
   modal.append(hd, body, ft);
   scrim.append(modal);
@@ -395,6 +420,8 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
    * so the outcome has to bring the dialog back — that is what this remembers.
    */
   let hiddenMidFlow = false;
+  /** The `over` message is "did not come back" — the one state `Restart` (Q17) belongs to. */
+  let lost = false;
 
   // ---- notice surfaces -----------------------------------------------------
 
@@ -518,6 +545,7 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     confirmBtn.textContent = ending ? COPY.restartAnyway : mode === 'update' ? COPY.confirmUpdate : COPY.confirm;
     closeBtn.hidden = !ended;
     retryBtn.hidden = next !== 'refused';
+    relaunchBtn.hidden = !(next === 'over' && lost && canRelaunch());
     // The manual route belongs to exactly one situation: the app tried to fetch
     // the new version and could not. After a refused RESTART the new version is
     // already on this machine — sending the user to a download page there would
@@ -657,8 +685,10 @@ export function initUpdate(modalHost: HTMLElement): { pill: HTMLElement; toasts:
     reveal(); // The outcome always gets a screen, hidden preflight or not.
     flowPhase = null;
     failure.textContent = message;
+    lost = message === MSG_LOST;
     setPhase('over');
-    closeBtn.focus();
+    if (!relaunchBtn.hidden) relaunchBtn.focus();
+    else closeBtn.focus();
   }
 
   /**

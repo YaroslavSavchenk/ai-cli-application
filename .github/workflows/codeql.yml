@@ -6,7 +6,8 @@
 # query packs move even when the code does not).
 #
 # The TypeScript and the workflows are scanned without a build. The C# host
-# is four source files of one partial class (launcher/host/*.cs, cut by Q6)
+# is five source files of one partial class (launcher/host/*.cs, cut by Q6;
+# the fifth, -relaunch.cs, added by Q17)
 # compiled by the in-box .NET Framework csc.exe on Windows
 # (launcher/build-host.ps1, the same step release.yml runs), so it
 # gets a manual build on a Windows runner: CodeQL's tracer watches that

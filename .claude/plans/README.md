@@ -112,3 +112,4 @@ Part specs, `nocturne/`:
 Part specs, `quality/`:
 
 - `PLAN-Q6.md` — the Windows host cut into four `partial` files of at most 1 000 lines; the size guard measures `launcher/`
+- `PLAN-Q17.md` — when WSL goes down: a notice with the cause, one `Restart` button (host `relaunch`), the running sessions resumed in their panes

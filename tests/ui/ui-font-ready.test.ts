@@ -314,7 +314,7 @@ test('main.ts waits for the font BEFORE the shell, and arms the watch between th
   const main = readSource('web', 'src', 'main.ts');
   const wait = main.indexOf('await fontReady');
   const watch = main.indexOf('watchTerminalFont()');
-  const shell = main.indexOf('buildShell(root, prefs)');
+  const shell = main.indexOf('buildShell(root, prefs');
   assert.ok(wait > 0 && watch > 0 && shell > 0, 'the three boot seams must all exist');
   assert.ok(
     wait < watch && watch < shell,

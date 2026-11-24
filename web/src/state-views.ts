@@ -17,6 +17,7 @@ import {
   type Layout,
   type Zone,
   MAX_PANES,
+  MAX_VIEWS,
   type PaneSlot,
   type ViewState,
   slotKey,
@@ -32,6 +33,7 @@ import {
   firstMovableIndex,
 } from './state-persist.ts';
 import { pruneOrphanEdits } from './state-editor.ts';
+import { placeResumed, type LayoutSnapshot } from './ui/resume-layout-model.ts';
 
 // --------------------------------------------------------------------------
 // View geometry: slot insertion / removal for the fixed split shapes
@@ -248,6 +250,39 @@ export function upsertSession(s: SessionInfo): void {
     saveUi();
     notify('ui');
   }
+  notify('sessions');
+}
+
+/**
+ * Sessions resumed after the previous run stopped (Quality Q17 P3): add them
+ * to the store and put each back in the pane its old session had, as the
+ * boot's `snapshot` of the stored arrangement names it
+ * (`ui/resume-layout-model.ts`). A session that found no old pane gets a tab
+ * of its own from the reconcile, like any session this page did not launch.
+ * `pairs` link the OLD session id (`previousSessionId`) to the new session.
+ */
+export function adoptResumed(
+  snapshot: LayoutSnapshot,
+  pairs: readonly { previousSessionId: string; session: SessionInfo }[],
+): void {
+  if (pairs.length === 0) return;
+  for (const p of pairs) state.sessions.set(p.session.id, p.session);
+  const placed = placeResumed(
+    state.views,
+    snapshot,
+    pairs.map((p) => ({ previous: p.previousSessionId, next: p.session.id })),
+    {
+      maxPanes: MAX_PANES,
+      maxViews: MAX_VIEWS,
+      projectExists: (id) => state.projects.some((pr) => pr.id === id),
+    },
+  );
+  state.views = placed.views;
+  if (placed.active !== null) state.activeViewId = placed.active;
+  reconcileViews();
+  normalizeActive();
+  saveUi();
+  notify('ui');
   notify('sessions');
 }
 

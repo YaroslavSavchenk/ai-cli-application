@@ -38,6 +38,8 @@ import {
   type Logger,
 } from './config-log.ts';
 import { isUuid } from './conversation.ts';
+import { mtimeOf } from './buildinfo.ts';
+import type { CrashedEntry } from './previous-exit-model.ts';
 
 /** Cap on stored entries; the oldest ENDED one is dropped past this. */
 export const HISTORY_MAX = 200;
@@ -54,6 +56,13 @@ export const HISTORY_MAX = 200;
  * legitimately huge history is kept, never overwritten.
  */
 const HISTORY_FILE_MAX_BYTES = 32 * 1024 * 1024;
+
+/** What a stamping load() did: the entries it stamped 'crash', and when the file was last written before it. */
+interface BootStamps {
+  crashed: CrashedEntry[];
+  /** ISO-8601 mtime before this load's rewrite; null when there was no file. */
+  writtenAt: string | null;
+}
 
 /** What SessionManager.create knows about the launch it just made. */
 interface HistoryKey {
@@ -160,10 +169,13 @@ export class SessionHistory {
    * 'crash' and writing the file would falsify a live process's history. It
    * reads only, and the full stamping load runs again at `go`.
    */
-  load(opts: { readOnly?: boolean; live?: ReadonlySet<string> } = {}): void {
+  load(opts: { readOnly?: boolean; live?: ReadonlySet<string> } = {}): BootStamps {
+    // Before the rewrite below: the previous run's last write of this file is
+    // the best time a boot knows for a hard kill (Q17, server/previous-exit.ts).
+    const writtenAt = mtimeOf(this.#file);
     this.#entries = this.#read();
     const at = new Date().toISOString();
-    let crashed = 0;
+    const stamped: CrashedEntry[] = [];
     let kept = 0;
     if (opts.readOnly !== true) {
       for (const entry of this.#entries) {
@@ -173,10 +185,11 @@ export class SessionHistory {
           continue;
         }
         entry.ended = { at, reason: 'crash' };
-        crashed += 1;
+        stamped.push({ id: entry.id, lastUsedAt: entry.lastUsedAt });
       }
       this.#write();
     }
+    const crashed = stamped.length;
     this.#log(
       'info',
       opts.readOnly === true
@@ -190,6 +203,26 @@ export class SessionHistory {
       `file ${this.#file}: ${this.#entries.length} entries, ${live} live, ` +
         `${this.#entries.filter((e) => e.conversation).length} resumable conversations`,
     );
+    return { crashed: stamped, writtenAt };
+  }
+
+  /**
+   * Q17's exit record: the keys of the sessions running at `atMs` — the live
+   * entries, plus those whose PTY ended on its own ('exit') or with its
+   * pty-host ('crash') within `graceMs` before it. On a WSL poweroff every
+   * process gets SIGTERM at once, and the pty-host and its PTYs can end — and
+   * be stamped — before the backend's own handler runs (the 2026-11-24 log:
+   * the pty-host 9 ms ahead). A user's DELETE ('user-kill') is never counted.
+   */
+  runningAt(atMs: number, graceMs: number): string[] {
+    return this.#entries
+      .filter((e) => {
+        if (e.ended === null) return true;
+        if (e.ended.reason !== 'exit' && e.ended.reason !== 'crash') return false;
+        const endedMs = Date.parse(e.ended.at);
+        return endedMs >= atMs - graceMs && endedMs <= atMs;
+      })
+      .map((e) => e.id);
   }
 
   /**
@@ -197,18 +230,19 @@ export class SessionHistory {
    * hold AFTER this boot stamped them 'crash' (its connect timed out, a later
    * start found it running): they are adopted now, so that stamp was wrong —
    * their entries go back to live. Only a 'crash' stamp is undone; any other
-   * end (user-kill, exit, shutdown) stands.
+   * end (user-kill, exit, shutdown) stands. Answers the reopened entries' ids.
    */
-  reopen(sessionIds: ReadonlySet<string>): void {
-    let reopened = 0;
+  reopen(sessionIds: ReadonlySet<string>): string[] {
+    const reopened: string[] = [];
     for (const entry of this.#entries) {
       if (entry.ended?.reason !== 'crash' || !sessionIds.has(entry.sessionId)) continue;
       entry.ended = null;
       delete entry.exitCode;
-      reopened += 1;
+      reopened.push(entry.id);
     }
-    if (reopened > 0) this.#write();
-    this.#hlog('info', `reopened ${reopened} entr${reopened === 1 ? 'y' : 'ies'} a pty-host still held`);
+    if (reopened.length > 0) this.#write();
+    this.#hlog('info', `reopened ${reopened.length} entr${reopened.length === 1 ? 'y' : 'ies'} a pty-host still held`);
+    return reopened;
   }
 
   /**

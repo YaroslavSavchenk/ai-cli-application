@@ -47,6 +47,7 @@
  */
 import { isPort, RESTART_SESSIONS_WOULD_END, type RestartResponse } from '../../../shared/protocol.ts';
 import { errorText } from './util.ts';
+import { SHORTCUT_ADVICE } from './previous-exit-model.ts';
 
 /** How often the gap is probed. Small: the whole wait is usually one second. */
 export const HEALTH_POLL_MS = 250;
@@ -70,10 +71,8 @@ export const RECOVER_TIMEOUT_MS = 5000;
 
 /** Every failure the user can be shown. Exported so the tests pin the words. */
 export const MSG_BUSY = 'A restart is already running. Give it a moment.';
-export const MSG_LOST =
-  'The backend did not come back. Close this window and start the app again from the desktop shortcut.';
-export const MSG_OTHER_PORT =
-  'The backend came back at a different address. Close this window and start the app again from the desktop shortcut.';
+export const MSG_LOST = `The backend did not come back. ${SHORTCUT_ADVICE}`;
+export const MSG_OTHER_PORT = `The backend came back at a different address. ${SHORTCUT_ADVICE}`;
 /**
  * Fallback for a 422 whose body carries no sentence. The server normally sends
  * its own — it is the only side that knows WHICH check refused — so this is the

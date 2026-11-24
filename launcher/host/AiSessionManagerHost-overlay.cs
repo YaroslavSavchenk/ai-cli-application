@@ -1,9 +1,9 @@
 // AiSessionManagerHost-overlay.cs - part of the native WebView2 host: one
-// partial class HostApp in four files, cut from one by Q6
+// partial class HostApp in five files, cut from one by Q6
 // (.claude/plans/quality/PLAN-Q6.md). The header, the C# 5 rule (no $"",
 // no => members, no ?.) and the assembly attribute are in
-// AiSessionManagerHost.cs; the other parts are AiSessionManagerHost-clipboard.cs
-// and AiSessionManagerHost-overlay-window.cs.
+// AiSessionManagerHost.cs; the other parts are AiSessionManagerHost-clipboard.cs,
+// AiSessionManagerHost-overlay-window.cs and AiSessionManagerHost-relaunch.cs.
 //
 // Holds the first half of the "Peek-mascot overlay (Nocturne C1)" region:
 // its design note, consts, fields, P/Invokes, creation, composition,
