@@ -79,7 +79,8 @@ Master plans:
 - `PLAN-RESTRUCTURE.md` — the repo's own restructure and optimisation, in batches; the user starts it with "begin aan de optimalisatie" (never an app part — see its `## Resume here`)
 - `PLAN-QUALITY.md` — code quality first (Q0 `CONTRIBUTING.md` + guards, duplicates, test waits, the watcher race, split leftovers), then the app's speed (P0 measures, the user picks); the user starts it with "begin aan de kwaliteit"
 - v0.4.0 to v0.4.4 — the release notes are the GitHub releases (the drafts were removed 2026-11-22)
-- `RELEASE-NOTES-v0.4.5-draft.md` — D8 + D9: the mascot steps back while the app is active; sessions survive update, restart and a backend crash
+- v0.4.5 — its notes are the GitHub release (draft removed 2026-11-24)
+- `RELEASE-NOTES-v0.4.6-draft.md` — Q16 + Q17 and the Q9–Q15 cleanup: the cause of a WSL stop, one Restart, sessions resumed in place
 
 Part specs, `nocturne/`:
 
