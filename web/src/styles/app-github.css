@@ -77,8 +77,18 @@
 }
 
 .gh-uri {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-family: var(--font-mono);
   color: var(--color-accent-300);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.gh-uri:hover {
+  color: var(--color-accent-200);
 }
 
 .gh-code {

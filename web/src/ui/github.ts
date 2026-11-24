@@ -107,6 +107,7 @@ import { ensureHome, homeDir } from './home-store.ts';
 // "+ New repo" form.
 import { createTokenCard } from './github-token.ts';
 import { createNewRepoForm } from './github-newrepo.ts';
+import { openExternal } from './open-external.ts';
 
 // The shared status controller lives in `github-state.ts` since O8; main.ts
 // keeps booting it from here.
@@ -159,6 +160,9 @@ interface GithubPanel {
   /** The dialog switched to / away from the GitHub tab. */
   setActive(active: boolean): void;
 }
+
+/** GitHub's device-flow page: what the address in the connecting card opens. */
+export const GITHUB_DEVICE_URL = 'https://github.com/login/device';
 
 interface GithubPanelOptions {
   /**
@@ -241,7 +245,17 @@ export function createGithubPanel(opts: GithubPanelOptions = {}): GithubPanel {
   waitRow.append(waitSpin, el('span', '', 'Waiting for you to approve'));
   connectingCard.append(waitRow);
   const instruct = el('div', 'gh-instruct');
-  const uriSpan = el('span', 'gh-uri'); // verificationUri (untrusted → textContent)
+  // The address is a BUTTON (the host drops an `<a href>`): a click opens the
+  // user's own browser on GitHub's fixed device page through the one
+  // sanctioned door, and puts the code on the clipboard so it only needs a
+  // paste there. The page opened is the APP's constant, never the server's
+  // `verificationUri` text — that is only shown.
+  const uriSpan = button('gh-uri', '', () => {
+    const code = codeEl.textContent ?? '';
+    if (code !== '' && code !== '—') void navigator.clipboard?.writeText(code).catch(() => undefined);
+    openExternal(GITHUB_DEVICE_URL);
+  }); // verificationUri (untrusted → textContent)
+  uriSpan.title = 'Open in your browser — the code is copied for you';
   instruct.append(document.createTextNode('Open '), uriSpan, document.createTextNode(' and enter this code:'));
   connectingCard.append(instruct);
   const codeEl = el('div', 'gh-code'); // userCode (untrusted → textContent)
