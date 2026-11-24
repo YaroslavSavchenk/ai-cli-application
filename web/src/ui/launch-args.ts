@@ -55,15 +55,16 @@ export const AGENT_LABEL = 'Claude Code';
  * 2026-10-13): pinned full ids, so `Opus 5.5` always launches
  * `claude-opus-5-5` and never whatever the alias points at next month. The
  * newest of each family first, in this order, as plain options; every older
- * model the installed Claude Code (2.1.287) knows after them, under the
- * "Older models" group (`older`). Ids and names are the CLI's own alias map
+ * model the installed Claude Code knows (2.1.325 since v0.4.6; 2.1.287 at
+ * D1) after them, under the "Older models" group (`older`). Ids and names are the CLI's own alias map
  * and model table. A new model = this list is updated (and `MODEL_ALIASES`).
  */
 export const CLAUDE_MODELS: readonly Choice[] = [
-  { id: 'claude-fable-5-1', label: 'Fable 5.1' },
+  { id: 'claude-fable-5-2', label: 'Fable 5.2' },
   { id: 'claude-opus-5-5', label: 'Opus 5.5' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', older: true },
   { id: 'claude-opus-5', label: 'Opus 5', older: true },
   { id: 'claude-sonnet-5', label: 'Sonnet 5', older: true },
   { id: 'claude-fable-5', label: 'Fable 5', older: true },
@@ -74,11 +75,12 @@ export const CLAUDE_MODELS: readonly Choice[] = [
   { id: 'claude-opus-4-1', label: 'Opus 4.1', older: true },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', older: true },
   { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', older: true },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', older: true },
 ];
 
 /**
  * The model a Claude Code launch starts on when its project names none —
- * NAMED, not "the first entry" (Fable 5.1 heads the list). Before D1 the
+ * NAMED, not "the first entry" (Fable 5.2 heads the list). Before D1 the
  * fallback was the bare `opus`, which is this model: behaviour unchanged.
  */
 export const MODEL_FALLBACK = 'claude-opus-5-5';
@@ -89,10 +91,10 @@ export const MODEL_FALLBACK = 'claude-opus-5-5';
  * with `--model opus` still reads as (`modelLabel`).
  */
 const MODEL_ALIASES: ReadonlyMap<string, { id: string; label: string }> = new Map([
-  ['fable', { id: 'claude-fable-5-1', label: 'Fable' }],
+  ['fable', { id: 'claude-fable-5-2', label: 'Fable' }],
   ['opus', { id: 'claude-opus-5-5', label: 'Opus' }],
   ['sonnet', { id: 'claude-sonnet-5-5', label: 'Sonnet' }],
-  ['haiku', { id: 'claude-haiku-4-5', label: 'Haiku' }],
+  ['haiku', { id: 'claude-haiku-5-5', label: 'Haiku' }],
 ]);
 
 /** The group label the older models sit under, in every Claude model select. */

@@ -194,7 +194,7 @@ test('A4 full matrix: model x permission card x effort x Start from -> the pre-A
       }
     }
   }
-  assert.equal(n, 14 * 4 * 6 * 2, 'the matrix must really cover every state');
+  assert.equal(n, 16 * 4 * 6 * 2, 'the matrix must really cover every state');
 });
 
 test('A4 other card: the custom line with and without a project spawns what it always did', () => {
@@ -209,9 +209,9 @@ test('A4 other card: the custom line with and without a project spawns what it a
 
 test('A4 display labels: capitalised model and effort words, the VALUES unchanged', () => {
   assert.deepEqual(Object.values(MODEL_LABEL), [
-    'Fable 5.1', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 4.5',
-    'Opus 5', 'Sonnet 5', 'Fable 5', 'Opus 4.8', 'Opus 4.7', 'Opus 4.6', 'Opus 4.5', 'Opus 4.1',
-    'Sonnet 4.6', 'Sonnet 4.5',
+    'Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5',
+    'Fable 5.1', 'Opus 5', 'Sonnet 5', 'Fable 5', 'Opus 4.8', 'Opus 4.7', 'Opus 4.6', 'Opus 4.5', 'Opus 4.1',
+    'Sonnet 4.6', 'Sonnet 4.5', 'Haiku 4.5',
   ]);
   assert.deepEqual(EFFORT_LABEL, {
     default: 'Default',

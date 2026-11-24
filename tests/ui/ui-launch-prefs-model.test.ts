@@ -29,7 +29,7 @@ test('projectChoice: no project, or one with no preferences, is Opus 5.5 / Alway
 
 test('projectChoice: each stored preference, the bare alias and the legacy mode included', () => {
   assert.deepEqual(projectChoice({ defaultModel: 'fable', defaultMode: 'skip-permissions' }), {
-    model: 'claude-fable-5-1',
+    model: 'claude-fable-5-2',
     perm: 'bypassPermissions',
     effort: 'default',
   });

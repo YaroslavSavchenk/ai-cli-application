@@ -188,7 +188,7 @@ test('Edit opens the dialog on the project as stored: name, the alias as the mod
   assert.equal(dialog().getAttribute('role'), 'dialog');
   assert.equal(field('name').value, 'crypto');
   assert.equal(dom.doc.activeElement, field('name'), 'the keyboard lands in Name');
-  assert.equal(field('defaultModel').value, 'claude-fable-5-1');
+  assert.equal(field('defaultModel').value, 'claude-fable-5-2');
   assert.equal(field('defaultPerm').value, 'bypassPermissions');
   assert.ok(field('defaultPerm').classList.contains('is-danger'), 'No prompts wears the danger edge');
   assert.equal(field('defaultEffort').value, '');

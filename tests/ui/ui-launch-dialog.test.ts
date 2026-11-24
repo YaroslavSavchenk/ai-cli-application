@@ -145,7 +145,7 @@ test('the selects SHOW labels and SEND values: every option is (vocabulary id, t
   assert.deepEqual(opts('start'), START_FROM.map((s) => [s.value, s.label]));
 });
 
-test('A4 contract through the DOM: all 672 claude states (model x permission card x effort x Start from) send the pre-A4 argv', async () => {
+test('A4 contract through the DOM: all 768 claude states (model x permission card x effort x Start from) send the pre-A4 argv', async () => {
   let n = 0;
   for (const m of MODELS) {
     for (const p of PERMS) {
@@ -168,7 +168,7 @@ test('A4 contract through the DOM: all 672 claude states (model x permission car
       }
     }
   }
-  assert.equal(n, 672, '14 models (D1) x 4 cards x 6 efforts x 2 starts');
+  assert.equal(n, 768, '16 models (D1, pool of 2026-11-24) x 4 cards x 6 efforts x 2 starts');
 });
 
 test('A4 contract, spelled out: the hardest claude state and the two Start from choices, literal argv', async () => {
@@ -525,7 +525,7 @@ test('project defaults: model and mode come from the selected project on open', 
   openWith([P2]);
   userClick(tool('Claude Code'));
   // A stored bare alias launches today's newest of its family (D1).
-  assert.deepEqual((await launch())?.args, ['--model', 'claude-haiku-4-5', '--permission-mode', 'bypassPermissions']);
+  assert.deepEqual((await launch())?.args, ['--model', 'claude-haiku-5-5', '--permission-mode', 'bypassPermissions']);
   // A mode picked by hand is NOT carried into the next open: defaults win again.
   openWith([PROJ]);
   userClick(tool('Claude Code'));

@@ -64,13 +64,16 @@ test('the Model select: the newest four as plain options, then ONE "Older models
   const kids = sel.children.filter((c): c is FakeElement => c instanceof FakeElement);
   assert.deepEqual(
     kids.map((c) => (c.tagName === 'OPTION' ? c.textContent : `[${c.tagName}]`)),
-    ['Fable 5.1', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 4.5', '[OPTGROUP]'],
+    ['Fable 5.2', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', '[OPTGROUP]'],
   );
   const group = kids[4] as FakeElement & { label?: string };
   assert.equal(group.label, 'Older models');
   assert.deepEqual(
     group.children.map((c) => c.textContent),
-    ['Opus 5', 'Sonnet 5', 'Fable 5', 'Opus 4.8', 'Opus 4.7', 'Opus 4.6', 'Opus 4.5', 'Opus 4.1', 'Sonnet 4.6', 'Sonnet 4.5'],
+    [
+      'Fable 5.1', 'Opus 5', 'Sonnet 5', 'Fable 5', 'Opus 4.8', 'Opus 4.7', 'Opus 4.6', 'Opus 4.5', 'Opus 4.1',
+      'Sonnet 4.6', 'Sonnet 4.5', 'Haiku 4.5',
+    ],
   );
   assert.equal(sel.value, 'claude-opus-5-5', 'no preference: Opus 5.5, not the first entry');
 });
@@ -88,13 +91,13 @@ test('picking another project inside the dialog applies ITS preferences', async 
   assert.equal(byName('project').value, 'p2');
   assert.equal(byName('model').value, 'claude-sonnet-5-5', 'the first project’s alias, resolved');
   pickProject('p3');
-  assert.equal(byName('model').value, 'claude-fable-5-1');
+  assert.equal(byName('model').value, 'claude-fable-5-2');
   assert.ok(checked(permCard('No prompts')));
   assert.equal(byName('effort').value, 'max');
   assert.deepEqual(await launch(), {
     projectId: 'p3',
     command: 'claude',
-    args: ['--model', 'claude-fable-5-1', '--permission-mode', 'bypassPermissions', '--effort', 'max'],
+    args: ['--model', 'claude-fable-5-2', '--permission-mode', 'bypassPermissions', '--effort', 'max'],
     cols: 120,
     rows: 40,
   });
@@ -127,9 +130,9 @@ test('a field changed by hand survives a project switch; the untouched ones foll
   pickProject('p3');
   assert.ok(checked(permCard('Read only')), 'the hand-picked mode stays');
   assert.equal(byName('effort').value, 'low', 'the hand-picked effort stays');
-  assert.equal(byName('model').value, 'claude-fable-5-1', 'the model follows the project');
+  assert.equal(byName('model').value, 'claude-fable-5-2', 'the model follows the project');
   assert.deepEqual((await launch())?.args, [
-    '--model', 'claude-fable-5-1', '--permission-mode', 'plan', '--effort', 'low',
+    '--model', 'claude-fable-5-2', '--permission-mode', 'plan', '--effort', 'low',
   ]);
 });
 
@@ -139,7 +142,7 @@ test('a hand change counts for one open: the next open shows the project’s pre
   pickByLabel(byName('model'), 'Sonnet 4.6');
   userClick(permCard('Always ask'));
   openWith([BOLD]);
-  assert.equal(byName('model').value, 'claude-fable-5-1');
+  assert.equal(byName('model').value, 'claude-fable-5-2');
   assert.ok(checked(permCard('No prompts')));
 });
 
@@ -208,7 +211,7 @@ test('a mode picked by hand survives a tool that cannot take it: Always ask ther
   userClick(tool('Claude Code'));
   assert.ok(checked(permCard('Read only')), 'back on Claude Code the hand pick shows again, not Always ask nor No prompts');
   assert.deepEqual((await launch())?.args, [
-    '--model', 'claude-fable-5-1', '--permission-mode', 'plan', '--effort', 'max',
+    '--model', 'claude-fable-5-2', '--permission-mode', 'plan', '--effort', 'max',
   ]);
 });
 
@@ -223,7 +226,7 @@ test('project intent (drawer row Session) lays THAT project’s preferences on',
   openWith([PROJ, BOLD], { projectId: 'p3' });
   assert.equal(byName('project').value, 'p3');
   assert.deepEqual((await launch())?.args, [
-    '--model', 'claude-fable-5-1', '--permission-mode', 'bypassPermissions', '--effort', 'max',
+    '--model', 'claude-fable-5-2', '--permission-mode', 'bypassPermissions', '--effort', 'max',
   ]);
 });
 
@@ -244,7 +247,7 @@ test('a model or effort picked on Codex is Codex’s own: Claude Code still foll
   pickByLabel(byName('effort'), 'Minimal');
   pickProject('p3');
   userClick(tool('Claude Code'));
-  assert.equal(byName('model').value, 'claude-fable-5-1', 'a Codex pick is no hand change of Claude’s model');
+  assert.equal(byName('model').value, 'claude-fable-5-2', 'a Codex pick is no hand change of Claude’s model');
   assert.equal(byName('effort').value, 'max', 'a Codex pick is no hand change of Claude’s effort');
   userClick(tool('Codex'));
   assert.equal(byName('model').value, 'gpt-6-astra', 'Codex keeps its own pick');

@@ -37,10 +37,10 @@ test('the pool: the newest four first, in the decided order, as plain options', 
   assert.deepEqual(
     CLAUDE_MODELS.filter((m) => m.older !== true).map((m) => [m.id, m.label]),
     [
-      ['claude-fable-5-1', 'Fable 5.1'],
+      ['claude-fable-5-2', 'Fable 5.2'],
       ['claude-opus-5-5', 'Opus 5.5'],
       ['claude-sonnet-5-5', 'Sonnet 5.5'],
-      ['claude-haiku-4-5', 'Haiku 4.5'],
+      ['claude-haiku-5-5', 'Haiku 5.5'],
     ],
   );
   assert.deepEqual(
@@ -54,6 +54,7 @@ test('the pool: every older model the installed Claude Code knows, after the new
   assert.deepEqual(
     CLAUDE_MODELS.slice(4).map((m) => [m.id, m.label, m.older]),
     [
+      ['claude-fable-5-1', 'Fable 5.1', true],
       ['claude-opus-5', 'Opus 5', true],
       ['claude-sonnet-5', 'Sonnet 5', true],
       ['claude-fable-5', 'Fable 5', true],
@@ -64,6 +65,7 @@ test('the pool: every older model the installed Claude Code knows, after the new
       ['claude-opus-4-1', 'Opus 4.1', true],
       ['claude-sonnet-4-6', 'Sonnet 4.6', true],
       ['claude-sonnet-4-5', 'Sonnet 4.5', true],
+      ['claude-haiku-4-5', 'Haiku 4.5', true],
     ],
   );
   assert.equal(OLDER_MODELS_LABEL, 'Older models', 'sentence case, plain words');
@@ -78,7 +80,7 @@ test('only Claude Code has an Older group: the other tools keep flat lists', () 
   assert.equal(TOOLS.claude.models, CLAUDE_MODELS);
 });
 
-test('the fallback is NAMED Opus 5.5, not "the first entry" (Fable 5.1 heads the list)', () => {
+test('the fallback is NAMED Opus 5.5, not "the first entry" (Fable 5.2 heads the list)', () => {
   assert.equal(MODEL_FALLBACK, 'claude-opus-5-5');
   assert.notEqual(CLAUDE_MODELS[0]?.id, MODEL_FALLBACK, 'non-vacuity: the first entry is another model');
   assert.equal(TOOLS.claude.modelStart, MODEL_FALLBACK, 'the select starts on it');
@@ -87,10 +89,10 @@ test('the fallback is NAMED Opus 5.5, not "the first entry" (Fable 5.1 heads the
 
 test('a stored bare alias resolves to today’s newest of its family', () => {
   const want: [string, string][] = [
-    ['fable', 'claude-fable-5-1'],
+    ['fable', 'claude-fable-5-2'],
     ['opus', 'claude-opus-5-5'],
     ['sonnet', 'claude-sonnet-5-5'],
-    ['haiku', 'claude-haiku-4-5'],
+    ['haiku', 'claude-haiku-5-5'],
   ];
   for (const [alias, id] of want) {
     assert.equal(resolveModel(alias), id, alias);

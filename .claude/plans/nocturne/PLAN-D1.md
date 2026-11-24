@@ -2,6 +2,8 @@
 
 Status: LANDED 2026-10-13 (`04d9cd1`; user-verified in DEV the same day: "done shit it, maak hier een release van"; merged to `main`, shipped in v0.4.1); earlier: LANDED 2026-10-13 on branch `project-prefs-models` (suite 3981 → 3994; scope + security + test gate, one fix round, 86 mutants / 0 survivors); earlier: STARTED 2026-10-13 (user: "De preferences voor projecten werken niet en je kunt ze niet aanpassen. Verder ik wil het poel van moddelen hebben niet alleen opus, fable, maar fable 5.1, opus 5.5 of whatsso ever. Je kunt nieuwste modelen kieze en de oude komen in verder in het lijstje met oudere model." — on branch `project-prefs-models`, checked in DEV only, never in the installed app; decisions below asked before the developer started).
 
+Pool update 2026-11-24 (v0.4.6 verify, Claude Code 2.1.325; user-approved): the newest four are now Fable 5.2 `claude-fable-5-2`, Opus 5.5 `claude-opus-5-5`, Sonnet 5.5 `claude-sonnet-5-5`, Haiku 5.5 `claude-haiku-5-5`; Fable 5.1 heads "Older models", Haiku 4.5 ends it (16 models); aliases `fable` → `claude-fable-5-2`, `haiku` → `claude-haiku-5-5` (`opus`, `sonnet` unchanged). The 2026-10-13 text below stays as written.
+
 Part D1 of `.claude/plans/PLAN-NOCTURNE.md` (Track D, fixes and asks after the v0.4.0 release). Conventions: `.claude/plans/README.md`.
 
 ## What the user gets
