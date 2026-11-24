@@ -79,8 +79,8 @@ Master plans:
 - `PLAN-RESTRUCTURE.md` — the repo's own restructure and optimisation, in batches; the user starts it with "begin aan de optimalisatie" (never an app part — see its `## Resume here`)
 - `PLAN-QUALITY.md` — code quality first (Q0 `CONTRIBUTING.md` + guards, duplicates, test waits, the watcher race, split leftovers), then the app's speed (P0 measures, the user picks); the user starts it with "begin aan de kwaliteit"
 - v0.4.0 to v0.4.4 — the release notes are the GitHub releases (the drafts were removed 2026-11-22)
-- v0.4.5 to v0.4.8 — their notes are the GitHub releases (drafts removed 2026-11-24)
-- `RELEASE-NOTES-v0.4.9-draft.md` — Sign in with GitHub through the app's own OAuth App; the device-flow poll no longer stalls on `slow_down`
+- v0.4.5 to v0.4.9 — their notes are the GitHub releases (drafts removed 2026-11-24)
+- `RELEASE-NOTES-v0.4.10-draft.md` — the sign-in address opens the browser and copies the code
 
 Part specs, `nocturne/`:
 
